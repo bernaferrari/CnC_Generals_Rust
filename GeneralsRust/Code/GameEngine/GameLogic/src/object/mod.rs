@@ -2767,6 +2767,12 @@ pub(crate) enum PendingProducedExit {
     },
 }
 
+/// Immediate GameLogic-owned work emitted while an Object is being destroyed.
+pub(crate) enum ObjectDestroyServiceAction {
+    UnregisterUpdateModule(UpdateModulePtr),
+    QueueTriggerAreaRefresh,
+}
+
 /// Main Object struct - the core game entity
 #[allow(dead_code)]
 pub struct Object {

@@ -7,7 +7,7 @@
 //!
 //! Matches C++ TunnelContain.cpp from GeneralsMD/Code/GameEngine/Source/GameLogic/Object/Contain/
 
-use std::cell::UnsafeCell;
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::f32::consts::PI;
 use std::sync::{Arc, Mutex, RwLock, Weak};
@@ -33,63 +33,6 @@ use game_engine::common::system::{Snapshotable, Xfer, XferMode, XferVersion};
 fn dual_world_registry_unavailable() -> bool {
     let _host_empty = crate::object::registry::OBJECT_REGISTRY.is_empty();
     false
-}
-
-/// Tracker-backed occupant list returned as `&[ObjectID]` from `&self`.
-/// C++ `getContainedItemsList` returns the shared TunnelTracker list.
-#[derive(Debug)]
-struct SharedContainIdCache {
-    ids: UnsafeCell<Vec<ObjectID>>,
-}
-
-// SAFETY: TunnelContain is only accessed through Mutex<dyn ContainModuleInterface>
-// or exclusive `&mut self` in tests. Cache refresh is therefore exclusive.
-unsafe impl Sync for SharedContainIdCache {}
-
-impl SharedContainIdCache {
-    fn new() -> Self {
-        Self {
-            ids: UnsafeCell::new(Vec::new()),
-        }
-    }
-
-    fn contains(&self, id: &ObjectID) -> bool {
-        // SAFETY: the cache is guarded externally — the owning TunnelContain
-        // module lives behind `Mutex<dyn ContainModuleInterface>` (or is
-        // used via `&mut self` in tests), so this shared cell read cannot
-        // race a writer.
-        unsafe { (*self.ids.get()).contains(id) }
-    }
-
-    fn push(&self, id: ObjectID) {
-        // SAFETY: external mutex guarantees exclusivity (see type-level
-        // note); the whole-vector mutation keeps the cell valid.
-        let cache = unsafe { &mut *self.ids.get() };
-        if !cache.contains(&id) {
-            cache.push(id);
-        }
-    }
-
-    fn retain(&self, mut pred: impl FnMut(&ObjectID) -> bool) {
-        // SAFETY: external mutex guarantees exclusivity; `retain` mutates in
-        // place but leaves the allocation valid for later readers.
-        unsafe { (*self.ids.get()).retain(|id| pred(id)) }
-    }
-
-    fn clear(&self) {
-        // SAFETY: external mutex guarantees exclusivity; clearing keeps the
-        // vector allocated and the cell valid.
-        unsafe { (*self.ids.get()).clear() }
-    }
-
-    fn refresh(&self, ids: Vec<ObjectID>) -> &[ObjectID] {
-        // SAFETY: external mutex guarantees exclusivity for the write…
-        let cache = unsafe { &mut *self.ids.get() };
-        *cache = ids;
-        // SAFETY: …and no other alias exists when this shared borrow of the
-        // freshly replaced cache is taken.
-        unsafe { &*self.ids.get() }
-    }
 }
 
 /// Configuration data for TunnelContain module
@@ -159,7 +102,7 @@ pub struct TunnelContain {
     /// Whether this tunnel is currently registered with the TunnelTracker
     is_currently_registered: bool,
     /// Cached tracker object IDs for trait APIs that return borrowed slices.
-    contained_object_ids: SharedContainIdCache,
+    contained_object_ids: Vec<ObjectID>,
 }
 
 impl TunnelContain {
@@ -176,7 +119,7 @@ impl TunnelContain {
             module_data: module_data.clone(),
             need_to_run_on_build_complete: true,
             is_currently_registered: false,
-            contained_object_ids: SharedContainIdCache::new(),
+            contained_object_ids: Vec::new(),
         })
     }
 
@@ -239,15 +182,22 @@ impl TunnelContain {
             let Ok(obj_guard) = obj.try_read() else {
                 return Err("Tunnel passenger lock busy".into());
             };
-            if !ContainModuleInterface::is_valid_container_for(self, &*obj_guard, true) {
+            // C++ OpenContain::addToContain checks validity with
+            // checkCapacity=false; callers gate admission capacity separately.
+            if !ContainModuleInterface::is_valid_container_for(self, &*obj_guard, false) {
                 return Err("Object not valid for this tunnel container".into());
             }
-            let already_listed = self.contained_object_ids.contains(&obj_id)
+            // C++ TunnelContain::getContainedItemsList reads the shared
+            // player tracker directly. Keep duplicate detection independent
+            // of whether a prior query happened to refresh local state.
+            let tracker_ids = self.tracker_contained_ids();
+            let already_listed = tracker_ids.contains(&obj_id)
                 || self.base.get_contained_object_ids().contains(&obj_id);
             let contained_by = obj_guard.get_contained_by();
-            let owner_id = self.get_object().ok().and_then(|owner| {
-                owner.try_read().ok().map(|guard| guard.get_id())
-            });
+            let owner_id = self
+                .get_object()
+                .ok()
+                .and_then(|owner| owner.try_read().ok().map(|guard| guard.get_id()));
             if contained_by.is_some() && (already_listed || contained_by != owner_id) {
                 return Ok(());
             }
@@ -437,15 +387,17 @@ impl TunnelContain {
             return Ok(());
         }
 
-        let controlling_player = match self
-            .with_owner_object(|owner_read| owner_read.get_controlling_player())
-        {
-            Ok(player) => player,
-            Err(err) => {
-                log::warn!("TunnelContain::kill_all_contained owner lock failed: {}", err);
-                return Ok(());
-            }
-        };
+        let controlling_player =
+            match self.with_owner_object(|owner_read| owner_read.get_controlling_player()) {
+                Ok(player) => player,
+                Err(err) => {
+                    log::warn!(
+                        "TunnelContain::kill_all_contained owner lock failed: {}",
+                        err
+                    );
+                    return Ok(());
+                }
+            };
         if let Some(controlling_player) = controlling_player {
             let Ok(player_read) = controlling_player.try_read() else {
                 return Err("Tunnel player lock busy".into());
@@ -460,7 +412,8 @@ impl TunnelContain {
                 if let Err(err) = self.remove_from_contain(object_id, true) {
                     log::warn!(
                         "TunnelContain::kill_all_contained remove failed for {}: {}",
-                        object_id, err
+                        object_id,
+                        err
                     );
                     continue;
                 }
@@ -547,9 +500,10 @@ impl TunnelContain {
 
         self.base.on_removing(obj_id)?;
 
-        let position = self.get_object().ok().and_then(|owner| {
-            owner.try_read().ok().map(|guard| *guard.get_position())
-        });
+        let position = self
+            .get_object()
+            .ok()
+            .and_then(|owner| owner.try_read().ok().map(|guard| *guard.get_position()));
         let Ok(mut obj_guard) = obj.try_write() else {
             return Err("Tunnel passenger lock busy".into());
         };
@@ -565,7 +519,8 @@ impl TunnelContain {
             if let Err(err) = obj_guard.set_position(&position) {
                 log::warn!(
                     "TunnelContain::on_removing failed to place {}: {}",
-                    obj_id, err
+                    obj_id,
+                    err
                 );
             }
         }
@@ -604,7 +559,8 @@ impl TunnelContain {
         if let Err(err) = self.base.note_removed_from(obj_id) {
             log::warn!(
                 "TunnelContain::on_removing note_removed_from failed for {}: {}",
-                obj_id, err
+                obj_id,
+                err
             );
         }
         Ok(())
@@ -724,7 +680,9 @@ impl TunnelContain {
         let die_applicable = if let Some(owner) = owner {
             self.base.is_die_applicable(owner, damage_info)
         } else {
-            self.with_owner_object(|owner_read| self.base.is_die_applicable(owner_read, damage_info))?
+            self.with_owner_object(|owner_read| {
+                self.base.is_die_applicable(owner_read, damage_info)
+            })?
         };
         if !die_applicable {
             return Ok(());
@@ -816,15 +774,14 @@ impl TunnelContain {
             log::warn!("TunnelContain::update base update failed: {}", err);
         }
 
-        let controlling_player = match self
-            .with_owner_object(|owner_read| owner_read.get_controlling_player())
-        {
-            Ok(player) => player,
-            Err(err) => {
-                log::warn!("TunnelContain::update owner lock failed: {}", err);
-                None
-            }
-        };
+        let controlling_player =
+            match self.with_owner_object(|owner_read| owner_read.get_controlling_player()) {
+                Ok(player) => player,
+                Err(err) => {
+                    log::warn!("TunnelContain::update owner lock failed: {}", err);
+                    None
+                }
+            };
         if let Some(controlling_player) = controlling_player {
             {
                 let Ok(mut player_write) = controlling_player.try_write() else {
@@ -840,8 +797,8 @@ impl TunnelContain {
                 }
             }
 
-            let nemesis_id = match self
-                .with_owner_object(|owner_read| -> GameResult<Option<ObjectID>> {
+            let nemesis_id =
+                match self.with_owner_object(|owner_read| -> GameResult<Option<ObjectID>> {
                     let Some(body) = owner_read.get_body_module() else {
                         return Ok(None);
                     };
@@ -875,16 +832,16 @@ impl TunnelContain {
                         Ok(None)
                     }
                 }) {
-            Ok(Ok(id)) => id,
-            Ok(Err(err)) => {
-                log::warn!("TunnelContain::update nemesis lookup failed: {}", err);
-                None
-            }
-            Err(err) => {
-                log::warn!("TunnelContain::update owner lock failed: {}", err);
-                None
-            }
-        };
+                    Ok(Ok(id)) => id,
+                    Ok(Err(err)) => {
+                        log::warn!("TunnelContain::update nemesis lookup failed: {}", err);
+                        None
+                    }
+                    Err(err) => {
+                        log::warn!("TunnelContain::update owner lock failed: {}", err);
+                        None
+                    }
+                };
 
             if let Some(nemesis_id) = nemesis_id {
                 if let Some(attacker) = TheGameLogic::find_object_by_id(nemesis_id)
@@ -1059,10 +1016,9 @@ impl ContainModuleInterface for TunnelContain {
         OpenContain::exit_object_in_a_hurry(&mut self.base, obj_id)
     }
 
-    fn get_contained_objects(&self) -> &[ObjectID] {
+    fn get_contained_objects(&self) -> Cow<'_, [ObjectID]> {
         // C++ TunnelContain::getContainedItemsList redirects to the player tracker.
-        self.contained_object_ids
-            .refresh(self.tracker_contained_ids())
+        Cow::Owned(self.tracker_contained_ids())
     }
 
     fn get_contained_count(&self) -> usize {
@@ -1143,9 +1099,10 @@ impl ContainModuleInterface for TunnelContain {
         else {
             return Ok(());
         };
-        let valid = other.try_read().map(|guard| {
-            ContainModuleInterface::is_valid_container_for(self, &*guard, true)
-        }).unwrap_or(false);
+        let valid = other
+            .try_read()
+            .map(|guard| ContainModuleInterface::is_valid_container_for(self, &*guard, true))
+            .unwrap_or(false);
         if valid {
             self.add_to_contain(other_id)?;
         }
@@ -1384,7 +1341,7 @@ mod tests {
 
         assert_eq!(ContainModuleInterface::get_contained_count(&tunnel), 2);
         assert_eq!(
-            ContainModuleInterface::get_contained_objects(&tunnel),
+            ContainModuleInterface::get_contained_objects(&tunnel).as_ref(),
             &[94003, 94004]
         );
         assert_eq!(
@@ -1434,12 +1391,21 @@ mod tests {
         ContainModuleInterface::on_owner_created(&mut tunnel_b).expect("b created");
 
         ContainModuleInterface::contain_object(&mut tunnel_a, 94103).expect("enter a");
+        let retained_view = ContainModuleInterface::get_contained_objects(&tunnel_b);
         assert_eq!(
-            ContainModuleInterface::get_contained_objects(&tunnel_b),
+            retained_view.as_ref(),
             &[94103],
             "C++ getContainedItemsList is the shared tracker, not a per-entrance cache"
         );
         assert_eq!(ContainModuleInterface::get_contained_count(&tunnel_b), 1);
+
+        let refreshed_view = ContainModuleInterface::get_contained_objects(&tunnel_b);
+        assert_eq!(refreshed_view.as_ref(), &[94103]);
+        assert_eq!(
+            retained_view.as_ref(),
+            &[94103],
+            "an earlier shared-tracker snapshot stays stable across another query"
+        );
 
         let _ = passenger;
         OBJECT_REGISTRY.unregister_object(94101);

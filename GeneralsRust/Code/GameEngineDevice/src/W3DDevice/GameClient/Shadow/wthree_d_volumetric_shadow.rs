@@ -395,12 +395,9 @@ impl ShadowGeometry {
                 continue;
             }
 
-            if let Some(geom_mesh) = Self::build_mesh_entry(
-                &md.verts,
-                &md.polygons,
-                None,
-                entry.robj_index,
-            ) {
+            if let Some(geom_mesh) =
+                Self::build_mesh_entry(&md.verts, &md.polygons, None, entry.robj_index)
+            {
                 self.num_total_verts += geom_mesh.num_verts;
                 self.mesh_list.push(geom_mesh);
                 self.mesh_count += 1;
@@ -424,12 +421,7 @@ impl ShadowGeometry {
                 return false;
             }
 
-            if let Some(geom_mesh) = Self::build_mesh_entry(
-                &md.verts,
-                &md.polygons,
-                None,
-                -1,
-            ) {
+            if let Some(geom_mesh) = Self::build_mesh_entry(&md.verts, &md.polygons, None, -1) {
                 self.num_total_verts = geom_mesh.num_verts;
                 self.mesh_list.push(geom_mesh);
                 self.mesh_count = 1;
@@ -507,7 +499,7 @@ impl ShadowGeometry {
 #[derive(Debug)]
 pub struct W3DVolumetricShadow {
     /// Next shadow in manager list
-    pub next: Option<Arc<RwLock<W3DVolumetricShadow>>>,
+    pub next: Option<Box<W3DVolumetricShadow>>,
     /// Shadow geometry data
     pub geometry: Option<Arc<ShadowGeometry>>,
     /// Shadow length scale factor
@@ -869,10 +861,8 @@ impl W3DVolumetricShadow {
         let mut mgr = super::wthree_d_buffer_manager::the_w3d_buffer_manager()
             .lock()
             .unwrap_or_else(|e| e.into_inner());
-        let Some(vb) = mgr.get_slot(
-            super::wthree_d_buffer_manager::VbmFvfType::Xyz,
-            vert_count,
-        ) else {
+        let Some(vb) = mgr.get_slot(super::wthree_d_buffer_manager::VbmFvfType::Xyz, vert_count)
+        else {
             return;
         };
         let Some(_ib) = mgr.get_index_slot(index_count) else {
@@ -881,7 +871,6 @@ impl W3DVolumetricShadow {
         };
         let _ = (vb, extrusion);
     }
-
 
     pub fn render_volume(
         &self,
@@ -934,13 +923,13 @@ impl W3DVolumetricShadow {
 pub struct W3DVolumetricShadowManager {
     /// List of all shadows
     /// C++: W3DVolumetricShadow *m_shadowList
-    shadow_list: Vec<Arc<RwLock<W3DVolumetricShadow>>>,
+    shadow_list: Vec<W3DVolumetricShadow>,
     /// Dynamic shadow volumes to render
     /// C++: W3DVolumetricShadowRenderTask *m_dynamicShadowVolumesToRender
     dynamic_shadow_tasks: Vec<ShadowRenderTask>,
     /// Shadow geometry manager
     /// C++: W3DShadowGeometryManager *m_W3DShadowGeometryManager
-    geometry_manager: Option<Arc<RwLock<ShadowGeometryManager>>>,
+    geometry_manager: Option<Box<ShadowGeometryManager>>,
     /// Is initialized
     initialized: bool,
     last_render_batches: Vec<ShadowVolumeRenderBatch>,
@@ -951,7 +940,7 @@ pub struct W3DVolumetricShadowManager {
 #[derive(Debug, Clone)]
 pub struct ShadowRenderTask {
     /// Parent shadow
-    pub parent_shadow: Arc<RwLock<W3DVolumetricShadow>>,
+    pub parent_shadow: Box<W3DVolumetricShadow>,
     /// Mesh index
     pub mesh_index: u8,
     /// Light index
@@ -1005,7 +994,7 @@ impl W3DVolumetricShadowManager {
     /// Initialize resources
     /// C++: Bool W3DVolumetricShadowManager::init()
     pub fn init(&mut self) -> bool {
-        self.geometry_manager = Some(Arc::new(RwLock::new(ShadowGeometryManager::new())));
+        self.geometry_manager = Some(Box::new(ShadowGeometryManager::new()));
         self.initialized = true;
         true
     }
@@ -1035,7 +1024,7 @@ impl W3DVolumetricShadowManager {
     /// Add shadow caster
     /// C++: W3DVolumetricShadow* W3DVolumetricShadowManager::addShadow(RenderObjClass *robj, ...)
     pub fn add_shadow(&mut self) -> Option<ShadowHandle> {
-        let shadow = Arc::new(RwLock::new(W3DVolumetricShadow::new()));
+        let shadow = W3DVolumetricShadow::new();
         let handle = ShadowHandle::new(self.shadow_list.len() as u64, super::ShadowType::VOLUME);
         self.shadow_list.push(shadow);
         Some(handle)
@@ -1059,9 +1048,9 @@ impl W3DVolumetricShadowManager {
     /// Invalidate cached light positions
     /// C++: void W3DVolumetricShadowManager::invalidateCachedLightPositions()
     pub fn invalidate_cached_light_positions(&mut self) {
-        for shadow in &self.shadow_list {
+        for shadow in &mut self.shadow_list {
             // Mark all shadows as needing update
-            shadow.write().flags |= 1;
+            shadow.flags |= 1;
         }
     }
 
@@ -1073,10 +1062,9 @@ impl W3DVolumetricShadowManager {
         }
         self.last_render_batches.clear();
         let _shadow_mask_offset = projection_count.max(0) as f32;
-        for shadow in &self.shadow_list {
-            let mut shadow = shadow.write();
+        for shadow in &mut self.shadow_list {
             shadow.update();
-            if let Some(geometry) = shadow.geometry.as_ref() {
+            if let Some(geometry) = shadow.geometry.clone() {
                 for mesh_index in 0..geometry.get_mesh_count() {
                     if let Some(mut batch) = shadow.render_volume(mesh_index, 0) {
                         if force_stencil_fill {

@@ -10,7 +10,7 @@ use super::integration::with_ai_integration_mut;
 use super::pathfind::PathfindLayerEnum;
 use super::{
     AiCommandInterface, AiCommandParams, AiCommandType, AiError, AttitudeType, GuardMode,
-    PartitionFilter, the_ai, resolve_attack_priority_info_for_object, search_qualifiers,
+    PartitionFilter, resolve_attack_priority_info_for_object, search_qualifiers, the_ai,
     vision_factors,
 };
 use crate::ai::native::{NativeState, NativeStateMachine, WaypointGraph, WaypointNode};
@@ -168,9 +168,9 @@ fn dual_world_registry_unavailable() -> bool {
 }
 
 fn common_layer(layer: Option<u8>) -> crate::common::PathfindLayerEnum {
-    crate::common::PathfindLayerEnum::from_u32(
-        u32::from(layer.unwrap_or(crate::common::PathfindLayerEnum::Ground as u8)),
-    )
+    crate::common::PathfindLayerEnum::from_u32(u32::from(
+        layer.unwrap_or(crate::common::PathfindLayerEnum::Ground as u8),
+    ))
 }
 
 fn to_common_layer(layer: PathfindLayerEnum) -> crate::common::PathfindLayerEnum {
@@ -602,10 +602,11 @@ impl AiStateMachine {
                         owner_guard.set_model_condition_state(ModelConditionFlags::MOVING);
                         if is_cliff_at(owner_guard.get_position()) {
                             owner_guard.set_model_condition_state(ModelConditionFlags::CLIMBING);
-                            owner_guard.clear_model_condition_state(ModelConditionFlags::RAPPELLING);
+                            owner_guard
+                                .clear_model_condition_state(ModelConditionFlags::RAPPELLING);
                         }
-                        parachuting = owner_guard
-                            .test_status(crate::common::ObjectStatusTypes::Parachuting);
+                        parachuting =
+                            owner_guard.test_status(crate::common::ObjectStatusTypes::Parachuting);
                         owner_guard.get_ai_update_interface()
                     })
                     .flatten();
@@ -672,8 +673,7 @@ impl AiStateMachine {
                 if let Some(ai) = ai {
                     if let Ok(ai_guard) = ai.lock() {
                         ai_guard.with_cur_locomotor(&mut |loco| {
-                            state.scratch.face_can_turn_in_place =
-                                loco.template.min_speed == 0.0;
+                            state.scratch.face_can_turn_in_place = loco.template.min_speed == 0.0;
                         });
                     }
                 }
@@ -840,7 +840,9 @@ impl AiStateMachine {
         }
 
         let blocked = OBJECT_REGISTRY
-            .with_object(self.owner_id, |obj_guard| obj_guard.get_ai_update_interface())
+            .with_object(self.owner_id, |obj_guard| {
+                obj_guard.get_ai_update_interface()
+            })
             .flatten()
             .and_then(|ai| {
                 ai.lock().ok().map(|ai_guard| {
@@ -860,7 +862,9 @@ impl AiStateMachine {
         let mut frames_blocked = 0;
         let mut moving_backwards = false;
         if let Some(ai) = OBJECT_REGISTRY
-            .with_object(self.owner_id, |obj_guard| obj_guard.get_ai_update_interface())
+            .with_object(self.owner_id, |obj_guard| {
+                obj_guard.get_ai_update_interface()
+            })
             .flatten()
         {
             if let Ok(ai_guard) = ai.lock() {
@@ -998,7 +1002,9 @@ impl AiStateMachine {
 
             let mut close_enough = 5.0;
             let ai = OBJECT_REGISTRY
-                .with_object(self.owner_id, |obj_guard| obj_guard.get_ai_update_interface())
+                .with_object(self.owner_id, |obj_guard| {
+                    obj_guard.get_ai_update_interface()
+                })
                 .flatten();
             if let Some(ai) = ai {
                 if let Ok(ai_guard) = ai.lock() {
@@ -1081,7 +1087,8 @@ impl AiStateMachine {
                 )
             })
         {
-            let ai_store = the_ai();let attack_uses_los = ai_store
+            let ai_store = the_ai();
+            let attack_uses_los = ai_store
                 .read()
                 .ok()
                 .and_then(|ai| {
@@ -1093,7 +1100,8 @@ impl AiStateMachine {
                 .unwrap_or(false);
 
             if attack_uses_los && !attacker_above && !target_above {
-                let ai_store = the_ai();let blocked = ai_store
+                let ai_store = the_ai();
+                let blocked = ai_store
                     .read()
                     .ok()
                     .and_then(|ai| {
@@ -1138,7 +1146,8 @@ impl AiStateMachine {
                 )
             })
         {
-            let ai_store = the_ai();let attack_uses_los = ai_store
+            let ai_store = the_ai();
+            let attack_uses_los = ai_store
                 .read()
                 .ok()
                 .and_then(|ai| {
@@ -1149,7 +1158,8 @@ impl AiStateMachine {
                 })
                 .unwrap_or(false);
             if attack_uses_los && !attacker_above {
-                let ai_store = the_ai();let blocked = ai_store
+                let ai_store = the_ai();
+                let blocked = ai_store
                     .read()
                     .ok()
                     .and_then(|ai| {
@@ -1189,7 +1199,8 @@ impl AiStateMachine {
             state.scratch.last_hunt_scan_frame = current_frame;
             let attack_priority = resolve_attack_priority_info_for_object(self.owner_id);
             let new_target = {
-                let ai_store = the_ai();let ai = ai_store.read().map_err(|_| AiError::LockFailed)?;
+                let ai_store = the_ai();
+                let ai = ai_store.read().map_err(|_| AiError::LockFailed)?;
                 ai.find_closest_enemy(
                     self.owner_id,
                     range,
@@ -1277,7 +1288,8 @@ impl AiStateMachine {
             let attack_priority = resolve_attack_priority_info_for_object(self.owner_id);
 
             let enemy_found = {
-                let ai_store = the_ai();let ai = ai_store.read().map_err(|_| AiError::LockFailed)?;
+                let ai_store = the_ai();
+                let ai = ai_store.read().map_err(|_| AiError::LockFailed)?;
                 if let Some(polygon) = filter_polygon {
                     struct PolygonFilter {
                         polygon: crate::polygon_trigger::PolygonTrigger,
@@ -1441,7 +1453,8 @@ impl AiStateMachine {
             state.scratch.last_hunt_scan_frame = current_frame;
             let attack_priority = resolve_attack_priority_info_for_object(self.owner_id);
             let enemy = {
-                let ai_store = the_ai();let ai = ai_store.read().map_err(|_| AiError::LockFailed)?;
+                let ai_store = the_ai();
+                let ai = ai_store.read().map_err(|_| AiError::LockFailed)?;
                 ai.find_closest_enemy(
                     self.owner_id,
                     range,
@@ -1643,7 +1656,8 @@ impl AiStateMachine {
 
             let attack_priority = resolve_attack_priority_info_for_object(self.owner_id);
             let enemy_found = {
-                let ai_store = the_ai();let ai = ai_store.read().map_err(|_| AiError::LockFailed)?;
+                let ai_store = the_ai();
+                let ai = ai_store.read().map_err(|_| AiError::LockFailed)?;
                 if matches!(state.guard_mode, GuardMode::GuardFlyingUnitsOnly) {
                     let filter = GuardFlyingOnlyFilter;
                     ai.find_closest_enemy(
@@ -1698,7 +1712,8 @@ impl AiStateMachine {
 
             let attack_priority = resolve_attack_priority_info_for_object(self.owner_id);
             let new_target = {
-                let ai_store = the_ai();let ai = ai_store.read().map_err(|_| AiError::LockFailed)?;
+                let ai_store = the_ai();
+                let ai = ai_store.read().map_err(|_| AiError::LockFailed)?;
                 ai.find_closest_enemy(
                     self.owner_id,
                     range,
@@ -1776,7 +1791,8 @@ impl AiStateMachine {
         {
             if let Ok(mut ai_guard) = ai.lock() {
                 let _ = ai_guard.set_movement_target(&target);
-                let _ = ai_guard.update_goal_position(&target, common_layer(state.scratch.path_layer));
+                let _ =
+                    ai_guard.update_goal_position(&target, common_layer(state.scratch.path_layer));
             }
         }
 
@@ -1998,7 +2014,7 @@ impl AiStateMachine {
     fn evacuate_contents(&self, owner: &mut crate::object::Object) {
         if let Some(contain) = owner.get_contain() {
             if let Ok(mut contain_guard) = contain.lock() {
-                let ids: Vec<ObjectID> = contain_guard.get_contained_objects().to_vec();
+                let ids: Vec<ObjectID> = contain_guard.get_contained_objects().into_owned();
                 for id in ids {
                     let _ = contain_guard.release_object(id);
                 }
@@ -2031,16 +2047,14 @@ impl AiStateMachine {
             }
             return;
         }
-        let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(
-            container_id,
-            |container| {
+        let _ =
+            crate::object::registry::OBJECT_REGISTRY.with_object_mut(container_id, |container| {
                 if let Some(contain) = container.get_contain() {
                     if let Ok(mut contain_guard) = contain.lock() {
                         let _ = contain_guard.release_object(owner.get_id());
                     }
                 }
-            },
-        );
+            });
     }
 
     fn select_next_waypoint(
@@ -2969,7 +2983,10 @@ mod tests {
         let result = machine.update().unwrap();
         assert_eq!(result, StateReturnType::Continue);
 
-        let snapshot = capture.lock().unwrap_or_else(|err| err.into_inner()).clone();
+        let snapshot = capture
+            .lock()
+            .unwrap_or_else(|err| err.into_inner())
+            .clone();
         assert_eq!(snapshot.orientation_calls, 1);
         assert_eq!(snapshot.position_calls, 0);
         assert!(snapshot.last_orientation_goal.is_some());
@@ -2991,7 +3008,10 @@ mod tests {
         let result = machine.update().unwrap();
         assert_eq!(result, StateReturnType::Continue);
 
-        let snapshot = capture.lock().unwrap_or_else(|err| err.into_inner()).clone();
+        let snapshot = capture
+            .lock()
+            .unwrap_or_else(|err| err.into_inner())
+            .clone();
         assert_eq!(snapshot.orientation_calls, 0);
         assert_eq!(snapshot.position_calls, 1);
         assert_eq!(snapshot.last_position_goal, Some(target));
@@ -3012,7 +3032,10 @@ mod tests {
         let result = machine.update().unwrap();
         assert_eq!(result, StateReturnType::StateComplete);
 
-        let snapshot = capture.lock().unwrap_or_else(|err| err.into_inner()).clone();
+        let snapshot = capture
+            .lock()
+            .unwrap_or_else(|err| err.into_inner())
+            .clone();
         assert_eq!(snapshot.orientation_calls, 0);
         assert_eq!(snapshot.position_calls, 0);
 

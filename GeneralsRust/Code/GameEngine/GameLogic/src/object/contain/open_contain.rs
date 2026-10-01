@@ -176,13 +176,7 @@ pub fn leftover_play_container_enter_sound(
     now: UnsignedInt,
     last_load_sound_frame: &mut UnsignedInt,
 ) {
-    leftover_do_load_sound(
-        enter_sound,
-        object_id,
-        true,
-        now,
-        last_load_sound_frame,
-    );
+    leftover_do_load_sound(enter_sound, object_id, true, now, last_load_sound_frame);
 }
 
 /// Live host: C++ `doUnloadSound` via leftover TheAudio, once per frame per container.
@@ -1137,7 +1131,10 @@ impl OpenContain {
 
         self.player_who_entered = PlayerMaskType::none();
         if let Err(err) = self.monitor_condition_changes() {
-            log::warn!("OpenContain::update monitorConditionChanges failed: {}", err);
+            log::warn!(
+                "OpenContain::update monitorConditionChanges failed: {}",
+                err
+            );
         }
         let countdown = self.door_close_countdown.load(Ordering::Relaxed);
         if countdown > 0 {
@@ -1188,7 +1185,10 @@ impl OpenContain {
         };
         if curr_condition != self.condition_state {
             if let Err(err) = self.redeploy_occupants() {
-                log::warn!("OpenContain::monitorConditionChanges redeploy failed: {}", err);
+                log::warn!(
+                    "OpenContain::monitorConditionChanges redeploy failed: {}",
+                    err
+                );
                 return Ok(());
             }
             self.condition_state = curr_condition;
@@ -1381,7 +1381,8 @@ impl OpenContain {
                     }
                     if let Ok(mut rider_guard) = rider.try_write() {
                         rider_guard.ai_pending_exit = Some(false);
-                        rider_guard.ai_pending_exit_source = crate::common::CommandSourceType::FromAi;
+                        rider_guard.ai_pending_exit_source =
+                            crate::common::CommandSourceType::FromAi;
                         rider_guard.ai_pending_exit_obj = Some(self.object_id);
                     }
                 } else {
@@ -1463,7 +1464,6 @@ impl OpenContain {
     pub fn unlink_contained_id(&mut self, object_id: ObjectID) {
         self.contained_object_ids.retain(|&id| id != object_id);
     }
-
 
     /// Remove object from containment
     pub fn remove_from_contain(
@@ -1566,7 +1566,11 @@ impl OpenContain {
         let object_ids = self.contained_object_ids.clone();
         for obj_id in object_ids {
             if let Err(err) = self.remove_from_contain(obj_id, expose_stealth_units) {
-                log::warn!("OpenContain::remove_all_contained failed for {}: {}", obj_id, err);
+                log::warn!(
+                    "OpenContain::remove_all_contained failed for {}: {}",
+                    obj_id,
+                    err
+                );
             }
         }
         Ok(())
@@ -1584,7 +1588,11 @@ impl OpenContain {
             let obj = TheGameLogic::find_object_by_id(obj_id)
                 .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id));
             if let Err(err) = self.remove_from_contain(obj_id, true) {
-                log::warn!("OpenContain::kill_all_contained failed for {}: {}", obj_id, err);
+                log::warn!(
+                    "OpenContain::kill_all_contained failed for {}: {}",
+                    obj_id,
+                    err
+                );
                 if self.contained_object_ids.first() == Some(&obj_id) {
                     self.contained_object_ids.remove(0);
                 }
@@ -1617,7 +1625,8 @@ impl OpenContain {
             if let Err(err) = self.remove_from_contain(obj_id, true) {
                 log::warn!(
                     "OpenContain::harmAndForceExitAllContained failed for {}: {}",
-                    obj_id, err
+                    obj_id,
+                    err
                 );
                 if self.contained_object_ids.first() == Some(&obj_id) {
                     self.contained_object_ids.remove(0);
@@ -1660,7 +1669,10 @@ impl OpenContain {
             .map(|guard| {
                 let enclosing = self.is_enclosing_container_for(&*guard);
                 let mask = guard.get_controlling_player().and_then(|player| {
-                    player.try_read().ok().map(|player_guard| player_guard.get_player_mask())
+                    player
+                        .try_read()
+                        .ok()
+                        .map(|player_guard| player_guard.get_player_mask())
                 });
                 (enclosing, mask)
             })
@@ -1673,7 +1685,9 @@ impl OpenContain {
                 self.player_who_entered = mask;
             }
         } else {
-            return Err(GameError::ModuleError("Passenger lock busy during onContainedBy".into()).into());
+            return Err(
+                GameError::ModuleError("Passenger lock busy during onContainedBy".into()).into(),
+            );
         }
 
         // C++ OpenContain::onContaining: template SoundEnter (gated by load-sounds-enabled).
@@ -1804,7 +1818,11 @@ impl OpenContain {
             drop(guard);
             let max_health = body
                 .as_ref()
-                .and_then(|body| body.try_lock().ok().map(|body_guard| body_guard.get_max_health()))
+                .and_then(|body| {
+                    body.try_lock()
+                        .ok()
+                        .map(|body_guard| body_guard.get_max_health())
+                })
                 .unwrap_or(0.0);
             let mut damage_info = DamageInfo::with_simple(
                 max_health * percent_damage,
@@ -1881,8 +1899,8 @@ impl OpenContain {
             let applicable = if let Some(owner) = owner {
                 self.is_die_applicable(owner, info)
             } else {
-                let Some(applicable) = self
-                    .with_object(|owner| self.is_die_applicable(owner, info))
+                let Some(applicable) =
+                    self.with_object(|owner| self.is_die_applicable(owner, info))
                 else {
                     return Ok(());
                 };
@@ -2165,7 +2183,8 @@ impl OpenContain {
     }
 
     fn add_to_pathfind_map(object_id: ObjectID, pos: Coord3D) {
-        let ai_store = the_ai(); if let Ok(ai_guard) = ai_store.read() {
+        let ai_store = the_ai();
+        if let Ok(ai_guard) = ai_store.read() {
             if let Some(pathfinder) = ai_guard.pathfinder() {
                 if let Ok(mut pf) = pathfinder.write() {
                     pf.add_object_to_map(object_id, &[pos], false);
@@ -2187,7 +2206,8 @@ impl OpenContain {
 
         let owner_id = owner.get_id();
         let owner_pos = *owner.get_position();
-        let ai_store = the_ai(); if let Ok(ai_guard) = ai_store.read() {
+        let ai_store = the_ai();
+        if let Ok(ai_guard) = ai_store.read() {
             if let Some(pathfinder) = ai_guard.pathfinder() {
                 if let Ok(mut pf) = pathfinder.write() {
                     pf.remove_object_from_map(owner_id, &[owner_pos]);
@@ -2334,10 +2354,8 @@ impl OpenContain {
                 params.coords = prep.exit_path.clone();
                 params.obj = Some(prep.owner_id);
                 let _ = ai_guard.execute_command(&params);
-                let _ = ai_guard.update_goal_position(
-                    &prep.end_pos,
-                    Self::destination_layer(&prep.end_pos),
-                );
+                let _ = ai_guard
+                    .update_goal_position(&prep.end_pos, Self::destination_layer(&prep.end_pos));
             } else {
                 queue_produced_exit(
                     obj_id,
@@ -2396,10 +2414,8 @@ impl OpenContain {
         if let Some(ai) = ai {
             if let Ok(mut ai_guard) = ai.try_lock() {
                 ai_guard.do_quick_exit(&prep.exit_path);
-                let _ = ai_guard.update_goal_position(
-                    &prep.end_pos,
-                    Self::destination_layer(&prep.end_pos),
-                );
+                let _ = ai_guard
+                    .update_goal_position(&prep.end_pos, Self::destination_layer(&prep.end_pos));
             } else {
                 queue_produced_exit(
                     obj_id,
@@ -2643,7 +2659,7 @@ impl OpenContain {
             contain
                 .try_lock()
                 .ok()
-                .map(|contain_guard| contain_guard.get_contained_objects().to_vec())
+                .map(|contain_guard| contain_guard.get_contained_objects().into_owned())
         });
         for child_id in contained_ids.unwrap_or_default() {
             let Some(child) = TheGameLogic::find_object_by_id(child_id)
@@ -2654,9 +2670,10 @@ impl OpenContain {
             let should_recurse = obj.try_read().ok().and_then(|obj_guard| {
                 let contain = obj_guard.get_contain()?;
                 let child_guard = child.try_read().ok()?;
-                contain.try_lock().ok().map(|contain_guard| {
-                    !contain_guard.is_enclosing_container_for(&*child_guard)
-                })
+                contain
+                    .try_lock()
+                    .ok()
+                    .map(|contain_guard| !contain_guard.is_enclosing_container_for(&*child_guard))
             });
             if should_recurse.unwrap_or(false) {
                 let _ = self.add_or_remove_obj_from_world(child_id, add);
@@ -2815,8 +2832,8 @@ impl ContainModuleInterface for OpenContain {
         OpenContain::remove_from_contain(self, object_id, expose_stealth).map_err(|e| e.into())
     }
 
-    fn get_contained_objects(&self) -> &[ObjectID] {
-        &self.contained_object_ids
+    fn get_contained_objects(&self) -> std::borrow::Cow<'_, [ObjectID]> {
+        std::borrow::Cow::Borrowed(&self.contained_object_ids)
     }
 
     fn get_contained_count(&self) -> usize {
@@ -3634,11 +3651,12 @@ mod tests {
             Arc::new(Mutex::new(DoorExitPhysics { allow: true }));
         let samples = Arc::new(Mutex::new(Vec::new()));
         let ignores = Arc::new(Mutex::new(Vec::new()));
-        let ai: Arc<Mutex<dyn crate::modules::AIUpdateInterface>> = Arc::new(Mutex::new(DoorExitAi {
-            physics: Arc::clone(&physics),
-            samples: Arc::clone(&samples),
-            ignores: Arc::clone(&ignores),
-        }));
+        let ai: Arc<Mutex<dyn crate::modules::AIUpdateInterface>> =
+            Arc::new(Mutex::new(DoorExitAi {
+                physics: Arc::clone(&physics),
+                samples: Arc::clone(&samples),
+                ignores: Arc::clone(&ignores),
+            }));
         {
             let mut rider_guard = rider.write().expect("rider write");
             rider_guard.set_physics(Some(Arc::clone(&physics)));

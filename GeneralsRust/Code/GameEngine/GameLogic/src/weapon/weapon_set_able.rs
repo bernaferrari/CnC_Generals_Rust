@@ -140,8 +140,11 @@ impl WeaponSet {
                         within_attack_range = false;
                     }
                     None => {
-                        within_attack_range =
-                            weapon.is_within_attack_range(source_obj, target_obj, Some(&resolved_pos));
+                        within_attack_range = weapon.is_within_attack_range(
+                            source_obj,
+                            target_obj,
+                            Some(&resolved_pos),
+                        );
                     }
                 }
                 if within_attack_range {
@@ -519,7 +522,7 @@ fn passenger_fire_result(
         if !contain_guard.is_passenger_allowed_to_fire(None) {
             return None;
         }
-        Some(contain_guard.get_contained_objects().to_vec())
+        Some(contain_guard.get_contained_objects().into_owned())
     })??;
 
     for member_id in members {

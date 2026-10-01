@@ -480,7 +480,6 @@ fn full_truck_returns_to_its_supply_center() {
 
 #[test]
 fn warehouse_set_value_updates_live_host_stock() {
-    crate::game_logic::host_supply_gather::reset_live_warehouse_host_state();
     use crate::game_logic::DockKind;
     let mut logic = GameLogic::new();
     logic.add_player(Player::new(0, Team::Neutral, "N", false));
@@ -502,7 +501,9 @@ fn warehouse_set_value_updates_live_host_stock() {
         let obj = logic.host_object_mut(id).expect("name");
         obj.name = "MapWarehouse".into();
     }
-    crate::game_logic::host_supply_gather::queue_warehouse_set_value("MapWarehouse", 1000);
+    logic
+        .mission_scripts
+        .queue_warehouse_set_value("MapWarehouse", 1000);
     logic.update_supply_warehouse_crippling();
     let obj = logic.host_object(id).expect("after set");
     assert_eq!(obj.stored_resources.supplies, 14 * 75);
@@ -510,9 +511,95 @@ fn warehouse_set_value_updates_live_host_stock() {
 }
 
 #[test]
+fn warehouses_keep_script_values_and_heal_clocks_per_world() {
+    use crate::game_logic::{DockKind, host_supply_gather::WarehouseCripplingState};
+
+    fn world() -> (GameLogic, ObjectId) {
+        let mut logic = GameLogic::new();
+        let mut warehouse = ThingTemplate::new("SupplyWarehouse");
+        warehouse
+            .add_kind_of(KindOf::SupplySource)
+            .set_health(1000.0);
+        warehouse.dock_kind = DockKind::SupplyWarehouse;
+        logic.templates.insert(warehouse.name.clone(), warehouse);
+        let id = logic
+            .create_object("SupplyWarehouse", Team::Neutral, Vec3::ZERO)
+            .expect("warehouse");
+        logic.host_object_mut(id).unwrap().name = "MapWarehouse".into();
+        (logic, id)
+    }
+
+    let (mut first, first_id) = world();
+    let (mut second, second_id) = world();
+    assert_eq!(first_id, second_id, "independent worlds reuse ObjectId");
+    first.queue_warehouse_set_value_request("MapWarehouse", 1000);
+    second.queue_warehouse_set_value_request("MapWarehouse", 3000);
+    first.queue_warehouse_set_value_request("MapWarehouse", 2000);
+
+    second.update_supply_warehouse_crippling();
+    first.update_supply_warehouse_crippling();
+    assert_eq!(
+        first
+            .host_object(first_id)
+            .unwrap()
+            .stored_resources
+            .supplies,
+        27 * 75,
+        "the last value in this world's FIFO queue wins"
+    );
+    assert_eq!(
+        second
+            .host_object(second_id)
+            .unwrap()
+            .stored_resources
+            .supplies,
+        40 * 75
+    );
+
+    first.warehouse_crippling_states.insert(
+        first_id,
+        WarehouseCripplingState {
+            last_health: 700.0,
+            healing_suppressed_until_frame: 101,
+            next_healing_frame: 111,
+        },
+    );
+    second.warehouse_crippling_states.insert(
+        second_id,
+        WarehouseCripplingState {
+            last_health: 300.0,
+            healing_suppressed_until_frame: 202,
+            next_healing_frame: 222,
+        },
+    );
+    let first_clock = first.snapshot_warehouse_crippling_states()[0].1;
+    let second_clock = second.snapshot_warehouse_crippling_states()[0].1;
+    assert_ne!(first_clock, second_clock);
+    first.queue_warehouse_set_value_request("MapWarehouse", 3000);
+    let replacement = first.host_object(first_id).unwrap().clone();
+    first.add_object(replacement);
+    assert!(
+        first.snapshot_warehouse_crippling_states().is_empty(),
+        "fresh same-ID admission must not inherit the old object's heal clocks"
+    );
+    first.reset();
+    assert!(first.snapshot_warehouse_crippling_states().is_empty());
+    assert!(first.drain_warehouse_set_value_requests().is_empty());
+    assert_eq!(
+        second.snapshot_warehouse_crippling_states()[0].1,
+        second_clock
+    );
+    second.destroy_object(second_id);
+    second.update_supply_warehouse_crippling();
+    assert!(
+        second.snapshot_warehouse_crippling_states().is_empty(),
+        "destroyed warehouse clocks are pruned from that world"
+    );
+}
+
+#[test]
 fn warehouse_crippling_self_heals_after_suppression() {
     use crate::game_logic::DockKind;
-    crate::game_logic::host_supply_gather::reset_live_warehouse_host_state();
     let mut logic = GameLogic::new();
     logic.add_player(Player::new(0, Team::Neutral, "N", false));
     let mut warehouse = ThingTemplate::new("SupplyWarehouse");

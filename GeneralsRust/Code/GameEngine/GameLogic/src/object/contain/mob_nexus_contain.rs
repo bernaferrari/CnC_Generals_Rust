@@ -356,9 +356,9 @@ impl MobNexusContain {
             self.base.unlink_contained_id(obj_id);
             return Err("Mob nexus rider lock busy".into());
         };
-            rider.set_disabled(DisabledType::Held);
-            let slot_count = rider.get_transport_slot_count();
-            self.extra_slots_in_use += (slot_count as i32) - 1;
+        rider.set_disabled(DisabledType::Held);
+        let slot_count = rider.get_transport_slot_count();
+        self.extra_slots_in_use += (slot_count as i32) - 1;
         drop(rider);
 
         if self.base.get_contain_count() == 1 {
@@ -464,7 +464,6 @@ impl MobNexusContain {
         if self.payload_created {
             return Ok(());
         }
-
 
         let (payload_name, payload_count, owner_team) = self
             .with_owner_object(|owner| {
@@ -657,10 +656,10 @@ impl MobNexusContain {
                         continue;
                     };
                     if owner_id != crate::common::INVALID_ID {
-                        let _ = crate::object::registry::OBJECT_REGISTRY.with_object(
-                            owner_id,
-                            |source| object_guard.attempt_healing(regen, Some(source)),
-                        );
+                        let _ = crate::object::registry::OBJECT_REGISTRY
+                            .with_object(owner_id, |source| {
+                                object_guard.attempt_healing(regen, Some(source))
+                            });
                     } else {
                         let _ = object_guard.attempt_healing(regen, None);
                     }
@@ -853,7 +852,7 @@ impl ContainModuleInterface for MobNexusContain {
         MobNexusContain::remove_from_contain(self, object_id, expose_stealth).map_err(|e| e.into())
     }
 
-    fn get_contained_objects(&self) -> &[ObjectID] {
+    fn get_contained_objects(&self) -> std::borrow::Cow<'_, [ObjectID]> {
         ContainModuleInterface::get_contained_objects(&self.base)
     }
 
@@ -1167,8 +1166,7 @@ mod tests {
         let owner = test_object("MobNexusPitchOwner", owner_id);
         let rider = test_object("MobNexusPitchRider", rider_id);
         let _parent = attach_physics(&owner, Coord3D::new(3.0, -1.0, 2.0), 10.0, 0.0, 0.0);
-        let (_child, record) =
-            attach_physics(&rider, Coord3D::new(0.0, 0.0, 0.0), 4.0, 2.5, 9.0);
+        let (_child, record) = attach_physics(&rider, Coord3D::new(0.0, 0.0, 0.0), 4.0, 2.5, 9.0);
         let mut nexus = nexus_for(&owner, 0.4);
         nexus.on_removing(rider_id).expect("on_removing");
         let record = record
@@ -1194,12 +1192,8 @@ mod tests {
         let _registered = Registered(vec![owner_id, rider_id]);
         let owner = test_object("MobNexusSameOwner", owner_id);
         let rider = test_object("MobNexusSameRider", rider_id);
-        let (physics, record) =
-            attach_physics(&rider, Coord3D::new(3.0, -1.0, 2.0), 4.0, 2.5, 9.0);
-        owner
-            .write()
-            .expect("owner")
-            .set_physics(Some(physics));
+        let (physics, record) = attach_physics(&rider, Coord3D::new(3.0, -1.0, 2.0), 4.0, 2.5, 9.0);
+        owner.write().expect("owner").set_physics(Some(physics));
         let mut nexus = nexus_for(&owner, 0.4);
         nexus.on_removing(rider_id).expect("on_removing");
         let record = record
@@ -1223,8 +1217,7 @@ mod tests {
         let _registered = Registered(vec![owner_id, rider_id]);
         let owner = test_object("MobNexusNoPhysOwner", owner_id);
         let rider = test_object("MobNexusNoPhysRider", rider_id);
-        let (_child, record) =
-            attach_physics(&rider, Coord3D::new(1.0, 0.0, 0.0), 4.0, 2.5, 9.0);
+        let (_child, record) = attach_physics(&rider, Coord3D::new(1.0, 0.0, 0.0), 4.0, 2.5, 9.0);
         let mut nexus = nexus_for(&owner, 0.4);
         nexus.on_removing(rider_id).expect("on_removing");
         let record = record

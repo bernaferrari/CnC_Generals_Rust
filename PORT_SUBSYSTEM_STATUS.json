@@ -1,5 +1,5 @@
 {
-  "input_digest": "0396e1e1f87212254d7daedd09bb2195af1ed28818ac2d6e30152d547e3e512f",
+  "input_digest": "6fd34328d5abe0ab051e0a3147c040d25b03266302578288f6b57a3bdfa67b1c",
   "metric_contract": {
     "behavior_requires_explicit_evidence": true,
     "candidate_mapping_is_reviewed": false,
@@ -50,7 +50,7 @@
     "blockers_by_kind": {
       "duplicate_implementation_destination": 46,
       "missing_mapping": 17,
-      "no_reachable_implementation": 691,
+      "no_reachable_implementation": 690,
       "ownership_symbol": 6,
       "unreviewed_mapping": 1381,
       "unreviewed_source_range_ownership": 3,
@@ -61,7 +61,7 @@
         "behavior_evidence_units": 1,
         "behavior_verified": 1,
         "deferred_network": 47,
-        "reachable_implementation_candidates": 485,
+        "reachable_implementation_candidates": 486,
         "required": 539,
         "reviewed_path_implementations": 8,
         "source_range_ownership_reviewed": 3,
@@ -116,11 +116,11 @@
     "deferred_network_translation_units": 47,
     "duplicate_implementation_destinations": 23,
     "orphan_ownership_records": 0,
-    "reachable_implementation_candidates": 698,
+    "reachable_implementation_candidates": 699,
     "required_translation_units": 1389,
     "reviewed_path_implementations": 8,
     "source_range_ownership_reviewed": 3,
-    "strict_blockers": 3532,
+    "strict_blockers": 3531,
     "symbol_ownership_reviewed": 1,
     "translation_units": 1436
   }

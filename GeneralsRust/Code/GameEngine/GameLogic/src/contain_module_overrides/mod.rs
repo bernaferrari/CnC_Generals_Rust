@@ -89,7 +89,7 @@ use crate::object::behavior::fire_weapon_update::{FireWeaponUpdate, FireWeaponUp
 use crate::object::behavior::fire_weapon_when_damaged_behavior_new::{
     FireWeaponWhenDamagedBehavior, FireWeaponWhenDamagedBehaviorModuleData,
 };
-use crate::object::behavior::fire_weapon_when_dead_behavior_new::{
+use crate::object::behavior::fire_weapon_when_dead_behavior::{
     FireWeaponWhenDeadBehavior, FireWeaponWhenDeadBehaviorModuleData,
 };
 

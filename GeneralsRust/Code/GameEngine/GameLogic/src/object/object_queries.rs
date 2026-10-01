@@ -989,7 +989,7 @@ impl Object {
             .as_ref()
             .map(|contain| match contain.try_lock() {
                 Ok(guard) if guard.is_special_zero_slot_container() => {
-                    SlotLook::Riders(guard.get_contained_objects().to_vec())
+                    SlotLook::Riders(guard.get_contained_objects().into_owned())
                 }
                 Ok(_) => SlotLook::Normal,
                 Err(_) => SlotLook::Busy,
@@ -1009,7 +1009,6 @@ impl Object {
                 }
             }
             SlotLook::Busy | SlotLook::Normal => {}
-
         }
 
         count

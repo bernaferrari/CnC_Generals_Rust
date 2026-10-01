@@ -7,7 +7,9 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock, Weak};
 
 use super::{ContainerIniParse, ContainerInterface, TransportContain};
-use crate::common::{BodyDamageType, Coord3D, GameResult, INVALID_ID, Matrix3D, ObjectID, PlayerMaskType};
+use crate::common::{
+    BodyDamageType, Coord3D, GameResult, INVALID_ID, Matrix3D, ObjectID, PlayerMaskType,
+};
 use crate::damage::DamageInfo;
 use crate::helpers::{TheGameLogic, TheThingFactory};
 use crate::modules::{
@@ -281,14 +283,15 @@ impl HelixContain {
                     .flatten()
                 {
                     if let Ok(mut draw) = drawable.try_write() {
-                        draw.clear_model_condition_state(crate::common::ModelConditionState::Loaded);
+                        draw.clear_model_condition_state(
+                            crate::common::ModelConditionState::Loaded,
+                        );
                     }
                 }
             }
             return Err("Helix passenger lock busy".into());
         };
-        contained
-            .set_weapon_bonus_condition(crate::common::WeaponBonusConditionType::Garrisoned);
+        contained.set_weapon_bonus_condition(crate::common::WeaponBonusConditionType::Garrisoned);
         contained.set_disabled_held(true)?;
         if contained.is_kind_of(crate::common::KindOf::PortableStructure) {
             if self
@@ -476,8 +479,7 @@ impl HelixContain {
         }
         let already_listed = self.base.base.get_contained_object_ids().contains(&obj_id);
         let contained_by = obj_ref.get_contained_by();
-        if contained_by.is_some()
-            && (already_listed || contained_by != Some(self.get_object_id()))
+        if contained_by.is_some() && (already_listed || contained_by != Some(self.get_object_id()))
         {
             return Ok(());
         }
@@ -572,14 +574,15 @@ impl HelixContain {
         drop(obj_guard);
 
         let (stealth_garrison, shown) =
-            self.base.remove_passenger(obj_id, expose_stealth_units, false)?;
+            self.base
+                .remove_passenger(obj_id, expose_stealth_units, false)?;
         if let Err(err) = self.on_removing(obj_id) {
-            let _ = self.base.base.add_to_contain_list_id(obj_id, stealth_garrison);
+            let _ = self
+                .base
+                .base
+                .add_to_contain_list_id(obj_id, stealth_garrison);
             if shown {
-                let _ = self
-                    .base
-                    .base
-                    .add_or_remove_obj_from_world(obj_id, false);
+                let _ = self.base.base.add_or_remove_obj_from_world(obj_id, false);
             }
             return Err(err);
         }
@@ -914,7 +917,7 @@ impl ContainModuleInterface for HelixContain {
         HelixContain::remove_from_contain(self, object_id, expose_stealth).map_err(|e| e.into())
     }
 
-    fn get_contained_objects(&self) -> &[ObjectID] {
+    fn get_contained_objects(&self) -> std::borrow::Cow<'_, [ObjectID]> {
         ContainModuleInterface::get_contained_objects(&self.base)
     }
 

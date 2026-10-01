@@ -865,6 +865,16 @@ mod tests {
             logic.dead_objects.contains(&77),
             "queued for processDestroyList"
         );
+        assert_eq!(
+            logic.objects_changed_trigger_areas.back(),
+            Some(&77),
+            "C++ onDestroy queues unit-count trigger refresh before cleanup"
+        );
+        assert_eq!(
+            logic.get_frame_objects_changed_trigger_areas(),
+            logic.frame,
+            "the immediate queue sink must mark the owning GameLogic frame"
+        );
     }
 
     #[test]

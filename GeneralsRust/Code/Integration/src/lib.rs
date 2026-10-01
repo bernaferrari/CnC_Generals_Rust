@@ -49,7 +49,6 @@
 //! ```
 
 use game_network::NetworkClock;
-use parking_lot::RwLock;
 use std::sync::Arc;
 use tracing::{debug, info, instrument, trace};
 use ww3d_engine::FrameTiming;
@@ -298,11 +297,11 @@ impl Default for IntegrationConfig {
 #[derive(Debug)]
 pub struct IntegrationSystem {
     config: IntegrationConfig,
-    coordinator: Arc<RwLock<EngineCoordinator>>,
-    performance: Arc<RwLock<PerformanceManager>>,
-    resources: Arc<RwLock<ResourceManager>>,
+    coordinator: EngineCoordinator,
+    performance: PerformanceManager,
+    resources: ResourceManager,
     events: Arc<EventSystem>,
-    diagnostics: Arc<RwLock<DiagnosticsSystem>>,
+    diagnostics: DiagnosticsSystem,
 }
 
 impl IntegrationSystem {
@@ -322,30 +321,16 @@ impl IntegrationSystem {
         let events = Arc::new(EventSystem::new(config.events.clone())?);
 
         // Initialize diagnostics system early for monitoring
-        let diagnostics = Arc::new(RwLock::new(DiagnosticsSystem::new(
-            config.diagnostics.clone(),
-            events.clone(),
-        )?));
+        let diagnostics = DiagnosticsSystem::new(config.diagnostics.clone(), events.clone())?;
 
         // Initialize performance manager
-        let performance = Arc::new(RwLock::new(PerformanceManager::new(
-            config.performance.clone(),
-            events.clone(),
-        )?));
+        let performance = PerformanceManager::new(config.performance.clone(), events.clone())?;
 
         // Initialize resource manager
-        let resources = Arc::new(RwLock::new(ResourceManager::new(
-            config.resources.clone(),
-            events.clone(),
-        )?));
+        let resources = ResourceManager::new(config.resources.clone(), events.clone())?;
 
         // Initialize engine coordinator (orchestrates all subsystems)
-        let coordinator = Arc::new(RwLock::new(EngineCoordinator::new(
-            performance.clone(),
-            resources.clone(),
-            events.clone(),
-            diagnostics.clone(),
-        )?));
+        let coordinator = EngineCoordinator::new(events.clone())?;
 
         let system = Self {
             config,
@@ -366,19 +351,19 @@ impl IntegrationSystem {
         info!("Initializing all subsystems");
 
         // Start diagnostics monitoring
-        self.diagnostics.write().start_monitoring().await?;
+        self.diagnostics.start_monitoring().await?;
 
         // Start performance monitoring
-        self.performance.write().start_monitoring().await?;
+        self.performance.start_monitoring().await?;
 
         // Initialize resource pools
-        self.resources.write().initialize_pools().await?;
+        self.resources.initialize_pools().await?;
 
         // Start event system
         self.events.start().await?;
 
         // Initialize engine coordinator (this starts all game subsystems)
-        self.coordinator.write().initialize().await?;
+        self.coordinator.initialize().await?;
 
         // Send initialization complete event
         self.events
@@ -400,19 +385,19 @@ impl IntegrationSystem {
         );
 
         // Update diagnostics first to monitor system health
-        self.diagnostics.write().update(timing).await?;
+        self.diagnostics.update(timing).await?;
 
         // Update performance manager
-        self.performance.write().update(timing).await?;
+        self.performance.update(timing).await?;
 
         // Update resource manager
-        self.resources.write().update(timing).await?;
+        self.resources.update(timing).await?;
 
         // Process events
         self.events.process_events().await?;
 
         // Update engine coordinator (updates all game systems)
-        self.coordinator.write().update(timing).await?;
+        self.coordinator.update(timing).await?;
 
         Ok(())
     }
@@ -428,11 +413,11 @@ impl IntegrationSystem {
             .await?;
 
         // Shutdown in reverse order of initialization
-        self.coordinator.write().shutdown().await?;
+        self.coordinator.shutdown().await?;
         self.events.shutdown().await?;
-        self.resources.write().shutdown().await?;
-        self.performance.write().shutdown().await?;
-        self.diagnostics.write().shutdown().await?;
+        self.resources.shutdown().await?;
+        self.performance.shutdown().await?;
+        self.diagnostics.shutdown().await?;
 
         info!("Integration system shutdown complete");
         Ok(())
@@ -440,7 +425,7 @@ impl IntegrationSystem {
 
     /// Get system performance metrics
     pub fn get_performance_metrics(&self) -> performance_manager::PerformanceMetrics {
-        self.performance.read().get_metrics()
+        self.performance.get_metrics()
     }
 
     /// Latest performance sample emitted on the event bus (if any).
@@ -460,12 +445,12 @@ impl IntegrationSystem {
 
     /// Get system resource usage
     pub fn get_resource_usage(&self) -> resource_manager::ResourceUsage {
-        self.resources.read().get_usage()
+        self.resources.get_usage()
     }
 
     /// Get system diagnostics
     pub fn get_diagnostics(&self) -> diagnostics::SystemDiagnostics {
-        self.diagnostics.read().get_diagnostics()
+        self.diagnostics.get_diagnostics()
     }
 
     /// Get configuration
@@ -480,16 +465,13 @@ impl IntegrationSystem {
 
         // Update subsystem configurations
         self.performance
-            .write()
             .update_config(config.performance.clone())
             .await?;
         self.resources
-            .write()
             .update_config(config.resources.clone())
             .await?;
         self.events.update_config(config.events.clone()).await?;
         self.diagnostics
-            .write()
             .update_config(config.diagnostics.clone())
             .await?;
 

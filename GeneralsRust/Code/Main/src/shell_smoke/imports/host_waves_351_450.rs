@@ -380,11 +380,6 @@ pub use crate::game_logic::host_live_pathfind_dual_world_empty_gate_residual_wav
     honesty_live_pathfind_dual_world_empty_gate_nav_commands_residual_wave426,
     simulate_live_pathfind_dual_world_empty_gate_honesty_wave426,
 };
-pub use crate::game_logic::host_live_fire_weapon_when_dead_behavior_dual_world_empty_gate_residual_wave427::{
-    honesty_live_fire_weapon_when_dead_behavior_dual_world_empty_gate_method_names_residual_wave427,
-    honesty_live_fire_weapon_when_dead_behavior_dual_world_empty_gate_nav_commands_residual_wave427,
-    simulate_live_fire_weapon_when_dead_behavior_dual_world_empty_gate_honesty,
-};
 pub use crate::game_logic::host_live_guard_dual_world_empty_gate_residual_wave428::{
     honesty_live_guard_dual_world_empty_gate_method_names_residual_wave428,
     honesty_live_guard_dual_world_empty_gate_nav_commands_residual_wave428,

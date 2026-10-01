@@ -1,685 +1,529 @@
-//! Fire Weapon When Dead Behavior Module
+//! FireWeaponWhenDeadBehavior - Rust conversion of C++ FireWeaponWhenDeadBehavior
 //!
-//! This behavior fires a weapon when the object dies, useful for suicide bombers,
-//! self-destructing units, or death explosions.
+//! Fires a weapon when the object dies.
+//! Original C++: FireWeaponWhenDeadBehavior.cpp
+//! Rust conversion: 2025
 //!
-//! Author: Colin Day, December 2001 (Original C++)
-//! Converted to Rust: 2025
+//! FILE: FireWeaponWhenDeadBehavior.cpp lines 1-145
 
-use crate::common::{ObjectStatusMaskType, ObjectStatusTypes};
-use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
+use crate::common::xfer::XferExt;
+use crate::common::{
+    AsciiString, Bool, ModuleData, ObjectID, ObjectStatusTypes, UpgradeMaskType, XferVersion,
+};
+use crate::damage::DamageInfo;
+use crate::modules::{BehaviorModuleInterface, DieModuleInterface, UpgradeModuleInterface};
+use crate::object::Object as GameObject;
+use crate::object::behavior::behavior_module::{
+    BehaviorModuleData, xfer_behavior_module_base_versions,
+};
+use crate::object::die::{
+    DieMuxData, parse_death_type_flags_tokens, parse_object_status_mask_tokens,
+    parse_veterancy_level_flags_tokens,
+};
+use crate::upgrade::modules::upgrade_mux::UpgradeMuxData;
+use crate::upgrade::{UpgradeMask, UpgradeMux};
+use crate::weapon::WeaponTemplate;
+use crate::weapon::with_weapon_store;
+use game_engine::common::ini::{FieldParse, INI, INIError};
+use game_engine::common::name_key_generator::NameKeyGenerator;
+use game_engine::common::system::{Snapshotable, Xfer};
+use game_engine::common::thing::module::{Module, ModuleData as EngineModuleData, NameKeyType};
+use std::sync::{Arc, RwLock, Weak};
 
-/// Wave 427: host-only path has no dual-world factory objects.
-#[inline]
-fn dual_world_registry_unavailable() -> bool {
-    crate::object::registry::OBJECT_REGISTRY.is_empty()
-}
-
-pub use crate::common::Coord3D;
-
-/// Object ID type
-pub type ObjectId = u32;
-
-/// Invalid object ID constant
-pub const INVALID_OBJECT_ID: ObjectId = 0;
-
-/// Weapon template identifier
-pub type WeaponTemplateId = String;
-
-/// Object status bits
-pub type ObjectStatusBits = ObjectStatusMaskType;
-
-/// Under construction status
-pub const OBJECT_STATUS_UNDER_CONSTRUCTION: ObjectStatusBits =
-    ObjectStatusMaskType::from_status(ObjectStatusTypes::UnderConstruction);
-
-/// Upgrade mask type
-pub type UpgradeMask = u64;
-
-/// Death types enumeration
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum DeathType {
-    Normal,
-    Exploded,
-    Burned,
-    Toxin,
-    Suicided,
-    Crushed,
-    Toppled,
-}
-
-/// Damage types enumeration
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum DamageType {
-    Unresistable,
-    Explosion,
-    Crush,
-    Small_Arms,
-    Flame,
-    Laser,
-    Toxin,
-    Emp,
-    Arson,
-    Combat_Cycle,
-    Healing,
-    Suicide,
-}
-
-/// Result type for behavior operations
-pub type BehaviorResult<T> = Result<T, BehaviorError>;
-
-/// Error types for behavior operations
-#[derive(Debug, thiserror::Error)]
-pub enum BehaviorError {
-    #[error("Object not found: {id}")]
-    ObjectNotFound { id: ObjectId },
-    #[error("Weapon not available")]
-    WeaponNotAvailable,
-    #[error("Module is disabled")]
-    ModuleDisabled,
-    #[error("Object is under construction")]
-    ObjectUnderConstruction,
-    #[error("Upgrade requirements not met")]
-    UpgradeRequirementsNotMet,
-}
-
-/// Damage information structure
-#[derive(Debug, Clone)]
-pub struct DamageInfo {
-    pub damage_type: DamageType,
-    pub death_type: DeathType,
-    pub amount: f32,
-    pub source_id: ObjectId,
-}
-
-/// Die mux data for determining when to trigger death behavior
-#[derive(Debug, Clone)]
-pub struct DieMuxData {
-    /// Death types that trigger this behavior
-    pub applicable_death_types: Vec<DeathType>,
-    /// Damage types that trigger this behavior
-    pub applicable_damage_types: Vec<DamageType>,
-    /// Whether all conditions must be met
-    pub require_all_conditions: bool,
-}
-
-impl Default for DieMuxData {
-    fn default() -> Self {
-        Self {
-            applicable_death_types: vec![DeathType::Normal, DeathType::Exploded],
-            applicable_damage_types: vec![],
-            require_all_conditions: false,
-        }
-    }
-}
-
-impl DieMuxData {
-    /// Check if death is applicable based on damage info
-    pub fn is_die_applicable(&self, damage_info: &DamageInfo) -> bool {
-        let death_type_match = self.applicable_death_types.is_empty() || 
-            self.applicable_death_types.contains(&damage_info.input.death_type);
-        
-        let damage_type_match = self.applicable_damage_types.is_empty() || 
-            self.applicable_damage_types.contains(&damage_info.input.damage_type);
-        
-        if self.require_all_conditions {
-            death_type_match && damage_type_match
-        } else {
-            death_type_match || damage_type_match
-        }
-    }
-}
-
-/// Configuration data for fire weapon when dead behavior
-#[derive(Debug, Clone)]
+/// FireWeaponWhenDeadBehaviorModuleData - Configuration
+/// Matches C++ FireWeaponWhenDeadBehavior.h module data structure
+#[derive(Clone, Debug)]
 pub struct FireWeaponWhenDeadBehaviorModuleData {
-    /// Whether the behavior starts active
-    pub initially_active: bool,
-    /// Die mux data for controlling when to trigger
+    pub base: BehaviorModuleData,
+    /// Die conditions. Matches C++ line 69
     pub die_mux_data: DieMuxData,
-    /// The weapon to fire when dying
-    pub death_weapon: Option<WeaponTemplateId>,
-    /// Upgrade activation masks
-    pub upgrade_activation_mask: UpgradeMask,
-    /// Upgrade conflicting masks
-    pub upgrade_conflicting_mask: UpgradeMask,
-    /// Whether all upgrades are required
-    pub require_all_activation_upgrades: bool,
+    /// Upgrade mux data (activation/conflict/removal).
+    pub upgrade_mux_data: UpgradeMuxData,
+    /// Weapon to fire on death. Matches C++ line 90
+    pub death_weapon: Option<Arc<WeaponTemplate>>,
+    /// Whether starts active. Matches C++ line 45
+    pub initially_active: Bool,
 }
 
 impl Default for FireWeaponWhenDeadBehaviorModuleData {
     fn default() -> Self {
         Self {
-            initially_active: false,
+            base: BehaviorModuleData::default(),
             die_mux_data: DieMuxData::default(),
+            upgrade_mux_data: UpgradeMuxData::default(),
             death_weapon: None,
-            upgrade_activation_mask: 0,
-            upgrade_conflicting_mask: 0,
-            require_all_activation_upgrades: false,
+            initially_active: false,
         }
     }
 }
 
-/// Interface for die module behavior
-pub trait DieModuleInterface: Send + Sync {
-    /// Called when the object dies
-    fn on_die(&mut self, damage_info: &DamageInfo) -> BehaviorResult<()>;
+crate::impl_behavior_module_data_via_base!(FireWeaponWhenDeadBehaviorModuleData, base);
+
+impl FireWeaponWhenDeadBehaviorModuleData {
+    pub fn parse_from_ini(&mut self, ini: &mut INI) -> Result<(), INIError> {
+        ini.init_from_ini_with_fields(self, FIRE_WEAPON_WHEN_DEAD_FIELDS)
+    }
 }
 
-/// Fire weapon when dead behavior implementation with instance-owned runtime state
-#[derive(Debug)]
+fn parse_starts_active(
+    _ini: &mut INI,
+    data: &mut FireWeaponWhenDeadBehaviorModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    let token = tokens.first().ok_or(INIError::InvalidData)?;
+    data.initially_active = INI::parse_bool(token)?;
+    Ok(())
+}
+
+fn parse_death_weapon(
+    _ini: &mut INI,
+    data: &mut FireWeaponWhenDeadBehaviorModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    let token = tokens.first().ok_or(INIError::InvalidData)?;
+    data.death_weapon = with_weapon_store(|store| store.find_weapon_template(token).cloned())
+        .ok()
+        .flatten();
+    Ok(())
+}
+
+fn parse_death_types(
+    _ini: &mut INI,
+    data: &mut FireWeaponWhenDeadBehaviorModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    data.die_mux_data.death_types = parse_death_type_flags_tokens(tokens)?;
+    Ok(())
+}
+
+fn parse_veterancy_levels(
+    _ini: &mut INI,
+    data: &mut FireWeaponWhenDeadBehaviorModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    data.die_mux_data.veterancy_levels = parse_veterancy_level_flags_tokens(tokens)?;
+    Ok(())
+}
+
+fn parse_exempt_status(
+    _ini: &mut INI,
+    data: &mut FireWeaponWhenDeadBehaviorModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    data.die_mux_data.exempt_status = parse_object_status_mask_tokens(tokens)?;
+    Ok(())
+}
+
+fn parse_required_status(
+    _ini: &mut INI,
+    data: &mut FireWeaponWhenDeadBehaviorModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    data.die_mux_data.required_status = parse_object_status_mask_tokens(tokens)?;
+    Ok(())
+}
+
+fn parse_triggered_by(
+    _ini: &mut INI,
+    data: &mut FireWeaponWhenDeadBehaviorModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    for token in tokens.iter().skip_while(|t| **t == "=") {
+        if !token.is_empty() {
+            data.upgrade_mux_data
+                .trigger_upgrade_names
+                .push(crate::common::AsciiString::from(*token));
+        }
+    }
+    Ok(())
+}
+
+fn parse_conflicts_with(
+    _ini: &mut INI,
+    data: &mut FireWeaponWhenDeadBehaviorModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    for token in tokens.iter().skip_while(|t| **t == "=") {
+        if !token.is_empty() {
+            data.upgrade_mux_data
+                .conflicting_upgrade_names
+                .push(crate::common::AsciiString::from(*token));
+        }
+    }
+    Ok(())
+}
+
+fn parse_removes_upgrades(
+    _ini: &mut INI,
+    data: &mut FireWeaponWhenDeadBehaviorModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    for token in tokens.iter().skip_while(|t| **t == "=") {
+        if !token.is_empty() {
+            data.upgrade_mux_data
+                .removal_upgrade_names
+                .push(crate::common::AsciiString::from(*token));
+        }
+    }
+    Ok(())
+}
+
+fn parse_requires_all_triggers(
+    _ini: &mut INI,
+    data: &mut FireWeaponWhenDeadBehaviorModuleData,
+    tokens: &[&str],
+) -> Result<(), INIError> {
+    let value = tokens
+        .iter()
+        .skip_while(|t| **t == "=")
+        .next()
+        .ok_or(INIError::InvalidData)?;
+    data.upgrade_mux_data.requires_all_triggers = INI::parse_bool(value)?;
+    Ok(())
+}
+
+const FIRE_WEAPON_WHEN_DEAD_FIELDS: &[FieldParse<FireWeaponWhenDeadBehaviorModuleData>] = &[
+    FieldParse {
+        token: "StartsActive",
+        parse: parse_starts_active,
+    },
+    FieldParse {
+        token: "DeathWeapon",
+        parse: parse_death_weapon,
+    },
+    FieldParse {
+        token: "TriggeredBy",
+        parse: parse_triggered_by,
+    },
+    FieldParse {
+        token: "ConflictsWith",
+        parse: parse_conflicts_with,
+    },
+    FieldParse {
+        token: "RemovesUpgrades",
+        parse: parse_removes_upgrades,
+    },
+    FieldParse {
+        token: "RequiresAllTriggers",
+        parse: parse_requires_all_triggers,
+    },
+    FieldParse {
+        token: "DeathTypes",
+        parse: parse_death_types,
+    },
+    FieldParse {
+        token: "VeterancyLevels",
+        parse: parse_veterancy_levels,
+    },
+    FieldParse {
+        token: "ExemptStatus",
+        parse: parse_exempt_status,
+    },
+    FieldParse {
+        token: "RequiredStatus",
+        parse: parse_required_status,
+    },
+];
+
+/// FireWeaponWhenDeadBehavior - Fires weapon on death
+/// Matches C++ FireWeaponWhenDeadBehavior.cpp lines 42-145
 pub struct FireWeaponWhenDeadBehavior {
-    /// Configuration data
-    config: FireWeaponWhenDeadBehaviorModuleData,
-    /// Internal state
-    state: BehaviorState,
-    /// Object ID this behavior belongs to
-    object_id: ObjectId,
-}
-
-/// Internal state for the behavior
-#[derive(Debug)]
-struct BehaviorState {
-    /// Whether the behavior is currently active
-    is_active: bool,
-    /// Whether the death weapon has already been fired
-    has_fired_death_weapon: bool,
+    object_id: ObjectID,
+    module_data: FireWeaponWhenDeadBehaviorModuleData,
+    upgrade_mux: UpgradeMux,
 }
 
 impl FireWeaponWhenDeadBehavior {
-    /// Create a new fire weapon when dead behavior
-    pub fn new(object_id: ObjectId, config: FireWeaponWhenDeadBehaviorModuleData) -> Self {
-        let state = BehaviorState {
-            is_active: config.initially_active,
-            has_fired_death_weapon: false,
-        };
+    /// Creates new FireWeaponWhenDeadBehavior. Matches C++ lines 42-49
+    pub fn new(
+        object: Arc<RwLock<GameObject>>,
+        module_data: Arc<dyn ModuleData>,
+    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+        let specific_data = module_data
+            .as_ref()
+            .downcast_ref::<FireWeaponWhenDeadBehaviorModuleData>()
+            .ok_or("Invalid module data for FireWeaponWhenDeadBehavior")?;
 
-        Self {
-            config,
-            state,
-            object_id,
-        }
-    }
-
-    /// Set behavior active state
-    pub fn set_active(&mut self, active: bool) {
-        self.state.is_active = active;
-    }
-
-    /// Check if object is under construction
-    /// (Matches C++ FireWeaponWhenDeadBehavior.cpp lines 72-75)
-    fn is_object_under_construction(&self) -> bool {
-        // Wave 427: empty dual-world → false.
-        if dual_world_registry_unavailable() {
-            return false;
-        }
-
-        // C++ line 74: obj->getStatusBits().test(OBJECT_STATUS_UNDER_CONSTRUCTION)
-        crate::object::registry::OBJECT_REGISTRY
-            .with_object(self.object_id, |obj_guard| {
-                obj_guard
-                    .get_status_bits()
-                    .contains(OBJECT_STATUS_UNDER_CONSTRUCTION)
-            })
-            .unwrap_or(false)
-    }
-
-    /// Check object upgrade masks for conflicts
-    /// (Matches C++ FireWeaponWhenDeadBehavior.cpp lines 78-88)
-    fn check_upgrade_conflicts(&self) -> BehaviorResult<bool> {
-        // Wave 427: empty dual-world → Ok(false).
-        if dual_world_registry_unavailable() {
-            return Ok(false);
-        }
-
-        let (_, conflicting) = self.get_upgrade_activation_masks();
-
-        if conflicting == 0 {
-            return Ok(true); // No conflicting upgrades defined
-        }
-
-        if let Some(conflicted) = crate::object::registry::OBJECT_REGISTRY
-            .with_object(self.object_id, |obj_guard| {
-                // C++ line 81-84: Check object's completed upgrade mask
-                let obj_upgrades = obj_guard.get_object_completed_upgrade_mask();
-                if (obj_upgrades & conflicting) != 0 {
-                    return true;
-                }
-
-                // C++ lines 85-88: Check controlling player's completed upgrade mask
-                if let Some(player) = obj_guard.get_controlling_player() {
-                    let player_upgrades = player.get_completed_upgrade_mask();
-                    if (player_upgrades & conflicting) != 0 {
-                        return true;
-                    }
-                }
-                false
-            })
-        {
-            if conflicted {
-                return Ok(false);
+        let data = specific_data.clone();
+        let mut upgrade_mux = UpgradeMux::new(data.upgrade_mux_data.clone());
+        if data.initially_active {
+            if let Ok(mut obj_guard) = object.write() {
+                upgrade_mux.data.perform_upgrade_fx(&mut obj_guard);
+                upgrade_mux.data.process_upgrade_removal(&mut obj_guard);
             }
-        }
-        Ok(true)
-    }
-
-    /// Fire the death weapon
-    /// (Matches C++ FireWeaponWhenDeadBehavior.cpp lines 90-94)
-    fn fire_death_weapon(&self, position: Coord3D) -> BehaviorResult<()> {
-        if let Some(ref weapon_template) = self.config.death_weapon {
-            self.create_and_fire_temp_weapon(weapon_template, position)?;
-        }
-        Ok(())
-    }
-
-    /// Create and fire temporary weapon
-    /// (Matches C++ line 93: TheWeaponStore->createAndFireTempWeapon())
-    fn create_and_fire_temp_weapon(&self, weapon_template: &str, position: Coord3D) -> BehaviorResult<()> {
-        // Wave 427: empty dual-world → Ok(()).
-        if dual_world_registry_unavailable() {
-            return Ok(());
+            upgrade_mux.set_upgrade_executed(true);
         }
 
-        // C++ line 93: TheWeaponStore->createAndFireTempWeapon(d->m_deathWeapon, obj, obj->getPosition())
-        if let Some(weapon_store) = crate::helpers::TheWeaponStore::get() {
-            if let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id) {
-                let pos = crate::common::Coord3D {
-                    x: position.x,
-                    y: position.y,
-                    z: position.z,
-                };
-                weapon_store.create_and_fire_temp_weapon(weapon_template, &obj, &pos);
-                log::debug!(
-                    "FireWeaponWhenDeadBehavior: Fired death weapon '{}' for object {} at {:?}",
-                    weapon_template, self.object_id, position
-                );
-            }
-        } else {
-            log::debug!(
-                "FireWeaponWhenDeadBehavior: Would fire death weapon '{}' for object {}",
-                weapon_template, self.object_id
-            );
-        }
-        Ok(())
-    }
-
-    /// Get current object position
-    fn get_object_position(&self) -> Coord3D {
-        // Wave 427: empty dual-world → origin.
-        if dual_world_registry_unavailable() {
-            return Coord3D::new(0.0, 0.0, 0.0);
-        }
-
-        // C++ uses: obj->getPosition()
-        crate::object::registry::OBJECT_REGISTRY
-            .with_object(self.object_id, |obj_guard| {
-                let pos = obj_guard.get_position();
-                Coord3D::new(pos.x, pos.y, pos.z)
-            })
-            .unwrap_or_else(|| Coord3D::new(0.0, 0.0, 0.0))
+        Ok(Self {
+            object_id: object
+                .read()
+                .ok()
+                .map(|g| g.get_id())
+                .unwrap_or(crate::common::INVALID_ID),
+            module_data: data,
+            upgrade_mux,
+        })
     }
 }
 
 impl DieModuleInterface for FireWeaponWhenDeadBehavior {
-    fn on_die(&mut self, damage_info: &DamageInfo) -> BehaviorResult<()> {
-        if !self.state.is_active {
+    /// Called when object dies. Matches C++ lines 60-95
+    fn on_die(
+        &mut self,
+        damage_info: &DamageInfo,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let data = &self.module_data;
+
+        // Check if upgrade is active. Matches C++ lines 65-66
+        if !self.upgrade_mux.is_already_upgraded() {
             return Ok(());
         }
 
-        if self.state.has_fired_death_weapon {
+        let object = match (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) {
+            Some(obj) => obj,
+            None => return Ok(()),
+        };
+
+        let obj_read = match object.read() {
+            Ok(guard) => guard,
+            Err(_) => return Ok(()),
+        };
+
+        // Check if die is applicable. Matches C++ lines 68-70
+        if !data.die_mux_data.is_die_applicable(&*obj_read, damage_info) {
             return Ok(());
         }
 
-        if !self.config.die_mux_data.is_die_applicable(damage_info) {
+        // Never apply until built (don't fire on construction cancel). Matches C++ lines 73-75
+        if obj_read.test_status(ObjectStatusTypes::UnderConstruction) {
             return Ok(());
         }
 
-        if self.is_object_under_construction() {
-            return Err(BehaviorError::ObjectUnderConstruction);
+        // Check upgrade conflicts. Matches C++ lines 78-88
+        let (_, conflicting_mask) = self.get_upgrade_activation_masks();
+
+        if obj_read.completed_upgrades().intersects(conflicting_mask) {
+            return Ok(());
         }
 
-        if !self.check_upgrade_conflicts()? {
-            return Err(BehaviorError::UpgradeRequirementsNotMet);
+        if let Some(player) = obj_read.get_controlling_player() {
+            if let Ok(player_guard) = player.read() {
+                if player_guard
+                    .get_completed_upgrade_mask()
+                    .intersects(conflicting_mask)
+                {
+                    return Ok(());
+                }
+            }
         }
 
-        let object_position = self.get_object_position();
-        self.fire_death_weapon(object_position)?;
+        // Fire death weapon. Matches C++ lines 90-94
+        // C++: if (d->m_deathWeapon) {
+        //        TheWeaponStore->createAndFireTempWeapon(d->m_deathWeapon, obj, obj->getPosition());
+        //      }
+        if let Some(death_weapon_tmpl) = &data.death_weapon {
+            let obj_position = *obj_read.get_position();
+            let obj_id = obj_read.get_id();
+            drop(obj_read); // Release read lock before firing
 
-        self.state.has_fired_death_weapon = true;
+            // Fire the death weapon using weapon store singleton
+            // Matches C++ line 93: TheWeaponStore->createAndFireTempWeapon(d->m_deathWeapon, obj, obj->getPosition());
+            crate::weapon::with_weapon_store_mut(|store| {
+                store.create_and_fire_temp_weapon(
+                    death_weapon_tmpl,
+                    obj_id,
+                    None,
+                    Some(&obj_position),
+                )
+            })
+            .ok();
+        }
 
         Ok(())
+    }
+}
+
+impl UpgradeModuleInterface for FireWeaponWhenDeadBehavior {
+    fn can_upgrade(&self, _upgrade_mask: UpgradeMaskType) -> bool {
+        let mask = UpgradeMask::from_bits_retain(_upgrade_mask.bits());
+        self.upgrade_mux.test_upgrade_conditions(mask)
+    }
+
+    fn apply_upgrade(&mut self, _upgrade_mask: UpgradeMaskType) -> bool {
+        let Some(object_arc) = (if self.object_id == crate::common::INVALID_ID {
+            None
+        } else {
+            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
+                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        }) else {
+            return false;
+        };
+        let Ok(mut obj_guard) = object_arc.write() else {
+            return false;
+        };
+        let mask = UpgradeMask::from_bits_retain(_upgrade_mask.bits());
+        self.upgrade_mux.attempt_upgrade(mask, &mut obj_guard)
+    }
+
+    fn remove_upgrade(&mut self, _upgrade_mask: UpgradeMaskType) {
+        let mask = UpgradeMask::from_bits_retain(_upgrade_mask.bits());
+        let _ = self.upgrade_mux.reset_upgrade(mask);
+    }
+}
+
+impl FireWeaponWhenDeadBehavior {
+    fn get_upgrade_activation_masks(&self) -> (UpgradeMaskType, UpgradeMaskType) {
+        let mut mux = self.module_data.upgrade_mux_data.clone();
+        let (activation, conflicting) = mux.get_upgrade_activation_masks();
+        (
+            UpgradeMaskType::from_bits_retain(activation.to_bits()),
+            UpgradeMaskType::from_bits_retain(conflicting.to_bits()),
+        )
+    }
+}
+
+impl BehaviorModuleInterface for FireWeaponWhenDeadBehavior {
+    fn get_module_name(&self) -> &'static str {
+        "FireWeaponWhenDeadBehavior"
+    }
+
+    fn get_die(&mut self) -> Option<&mut dyn DieModuleInterface> {
+        Some(self)
+    }
+
+    fn get_upgrade(&mut self) -> Option<&mut dyn UpgradeModuleInterface> {
+        Some(self)
     }
 }
 
 impl Snapshotable for FireWeaponWhenDeadBehavior {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let mut is_active = self.state.is_active;
-        xfer.xfer_bool(&mut is_active).map_err(|e| e.to_string())?;
-        let mut has_fired = self.state.has_fired_death_weapon;
-        xfer.xfer_bool(&mut has_fired).map_err(|e| e.to_string())?;
-        Ok(())
+        self.upgrade_mux.crc(xfer)
     }
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let current_version: XferVersion = 1;
-        let mut version = current_version;
-        xfer.xfer_version(&mut version, current_version)
-            .map_err(|e| format!("FireWeaponWhenDeadBehavior::xfer version failed: {e}"))?;
-
-        xfer.xfer_bool(&mut self.state.is_active)
-            .map_err(|e| format!("FireWeaponWhenDeadBehavior::xfer is_active failed: {e}"))?;
-        xfer.xfer_bool(&mut self.state.has_fired_death_weapon)
-            .map_err(|e| format!("FireWeaponWhenDeadBehavior::xfer has_fired_death_weapon failed: {e}"))?;
-        Ok(())
+        let mut version: XferVersion = 1;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|e| format!("Failed to xfer version: {:?}", e))?;
+        xfer_behavior_module_base_versions(xfer)
+            .map_err(|e| format!("Failed to xfer behavior base: {}", e))?;
+        self.upgrade_mux.xfer(xfer)
     }
 
     fn load_post_process(&mut self) -> Result<(), String> {
-        Ok(())
+        self.upgrade_mux.load_post_process()
     }
 }
 
-impl FireWeaponWhenDeadBehavior {
-    /// Get statistics about the behavior
-    pub fn get_statistics(&self) -> BehaviorStatistics {
-        BehaviorStatistics {
-            is_active: self.state.is_active,
-            has_death_weapon: self.config.death_weapon.is_some(),
-            has_fired_death_weapon: self.state.has_fired_death_weapon,
-            death_weapon_template: self.config.death_weapon.clone(),
+/// Glue that exposes FireWeaponWhenDeadBehavior through the common Module trait.
+pub struct FireWeaponWhenDeadBehaviorModule {
+    behavior: FireWeaponWhenDeadBehavior,
+    module_name_key: NameKeyType,
+    module_data: Arc<FireWeaponWhenDeadBehaviorModuleData>,
+}
+
+impl FireWeaponWhenDeadBehaviorModule {
+    pub fn new(
+        behavior: FireWeaponWhenDeadBehavior,
+        module_name: &AsciiString,
+        module_data: Arc<FireWeaponWhenDeadBehaviorModuleData>,
+    ) -> Self {
+        let module_name_key = NameKeyGenerator::name_to_key(module_name.as_str());
+        Self {
+            behavior,
+            module_name_key,
+            module_data,
         }
     }
 
-    /// Reset the behavior (for testing or reuse)
-    pub fn reset(&mut self) {
-        self.state.has_fired_death_weapon = false;
-    }
-
-    /// Get upgrade activation masks
-    pub fn get_upgrade_activation_masks(&self) -> (UpgradeMask, UpgradeMask) {
-        (self.config.upgrade_activation_mask, self.config.upgrade_conflicting_mask)
-    }
-
-    /// Check if all activation upgrades are required
-    pub fn requires_all_activation_upgrades(&self) -> bool {
-        self.config.require_all_activation_upgrades
-    }
-
-    /// Check if object has required upgrades
-    pub fn check_object_upgrades(&self, object_upgrade_mask: UpgradeMask, player_upgrade_mask: UpgradeMask) -> bool {
-        let (activation_mask, conflicting_mask) = self.get_upgrade_activation_masks();
-        
-        // Check for conflicting upgrades
-        if (object_upgrade_mask & conflicting_mask) != 0 {
-            return false;
-        }
-        if (player_upgrade_mask & conflicting_mask) != 0 {
-            return false;
-        }
-        
-        // Check for required upgrades
-        if activation_mask != 0 {
-            if self.requires_all_activation_upgrades() {
-                // All required upgrades must be present
-                (object_upgrade_mask & activation_mask) == activation_mask ||
-                (player_upgrade_mask & activation_mask) == activation_mask
-            } else {
-                // At least one required upgrade must be present
-                (object_upgrade_mask & activation_mask) != 0 ||
-                (player_upgrade_mask & activation_mask) != 0
-            }
-        } else {
-            true
-        }
-    }
-
-    /// Configure die mux data
-    pub fn set_die_mux_data(&mut self, die_mux_data: DieMuxData) {
-        self.config.die_mux_data = die_mux_data;
-    }
-
-    /// Set death weapon template
-    pub fn set_death_weapon(&mut self, weapon_template: Option<WeaponTemplateId>) {
-        self.config.death_weapon = weapon_template;
+    pub fn behavior_mut(&mut self) -> &mut FireWeaponWhenDeadBehavior {
+        &mut self.behavior
     }
 }
 
-/// Statistics for the behavior
-#[derive(Debug, Clone)]
-pub struct BehaviorStatistics {
-    pub is_active: bool,
-    pub has_death_weapon: bool,
-    pub has_fired_death_weapon: bool,
-    pub death_weapon_template: Option<WeaponTemplateId>,
+impl Snapshotable for FireWeaponWhenDeadBehaviorModule {
+    fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        self.behavior.crc(xfer)
+    }
+
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        self.behavior.xfer(xfer)
+    }
+
+    fn load_post_process(&mut self) -> Result<(), String> {
+        self.behavior.load_post_process()
+    }
 }
 
-/// Builder for creating FireWeaponWhenDeadBehavior with fluent interface
-#[derive(Debug, Default)]
-pub struct FireWeaponWhenDeadBehaviorBuilder {
-    config: FireWeaponWhenDeadBehaviorModuleData,
+impl Module for FireWeaponWhenDeadBehaviorModule {
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
+    fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
+        self
+    }
+
+    fn get_module_name_key(&self) -> NameKeyType {
+        self.module_name_key
+    }
+
+    fn get_module_tag_name_key(&self) -> NameKeyType {
+        self.module_data.get_module_tag_name_key()
+    }
+
+    fn get_module_data(&self) -> &dyn EngineModuleData {
+        self.module_data.as_ref()
+    }
 }
 
-impl FireWeaponWhenDeadBehaviorBuilder {
-    pub fn new() -> Self {
-        Self::default()
-    }
+/// Factory for creating FireWeaponWhenDeadBehavior
+pub struct FireWeaponWhenDeadBehaviorFactory;
 
-    pub fn initially_active(mut self, active: bool) -> Self {
-        self.config.initially_active = active;
-        self
-    }
-
-    pub fn death_weapon<S: Into<String>>(mut self, weapon_template: S) -> Self {
-        self.config.death_weapon = Some(weapon_template.into());
-        self
-    }
-
-    pub fn die_mux_data(mut self, die_mux_data: DieMuxData) -> Self {
-        self.config.die_mux_data = die_mux_data;
-        self
-    }
-
-    pub fn upgrade_masks(mut self, activation: UpgradeMask, conflicting: UpgradeMask) -> Self {
-        self.config.upgrade_activation_mask = activation;
-        self.config.upgrade_conflicting_mask = conflicting;
-        self
-    }
-
-    pub fn require_all_upgrades(mut self, require_all: bool) -> Self {
-        self.config.require_all_activation_upgrades = require_all;
-        self
-    }
-
-    pub fn build(self, object_id: ObjectId) -> FireWeaponWhenDeadBehavior {
-        FireWeaponWhenDeadBehavior::new(object_id, self.config)
+impl FireWeaponWhenDeadBehaviorFactory {
+    pub fn create_behavior(
+        thing: Arc<RwLock<GameObject>>,
+        module_data: Arc<dyn ModuleData>,
+    ) -> Result<Box<dyn BehaviorModuleInterface>, Box<dyn std::error::Error + Send + Sync>> {
+        Ok(Box::new(FireWeaponWhenDeadBehavior::new(
+            thing,
+            module_data,
+        )?))
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use game_engine::system::{xfer_load::XferLoad, xfer_save::XferSave};
-    use std::io::Cursor;
-
-    fn create_test_behavior() -> FireWeaponWhenDeadBehavior {
-        FireWeaponWhenDeadBehaviorBuilder::new()
-            .initially_active(true)
-            .death_weapon("test_death_weapon")
-            .build(1)
-    }
-
-    fn create_damage_info(death_type: DeathType) -> DamageInfo {
-        DamageInfo {
-            damage_type: DamageType::Explosion,
-            death_type,
-            amount: 100.0,
-            source_id: 42,
-        }
-    }
 
     #[test]
-    fn test_behavior_creation() {
-        let behavior = create_test_behavior();
-        let stats = behavior.get_statistics();
-        
-        assert!(stats.is_active);
-        assert!(stats.has_death_weapon);
-        assert!(!stats.has_fired_death_weapon);
-        assert_eq!(stats.death_weapon_template, Some("test_death_weapon".to_string()));
+    fn test_module_data_defaults() {
+        let data = FireWeaponWhenDeadBehaviorModuleData::default();
+        assert!(!data.initially_active);
+        assert!(data.death_weapon.is_none());
     }
 
+    /// C++ FireWeaponWhenDeadBehavior.cpp:45-47 / UpgradeMux TriggeredBy tokens.
     #[test]
-    fn same_object_id_behaviors_keep_independent_owned_state() {
-        let mut active = FireWeaponWhenDeadBehaviorBuilder::new()
-            .initially_active(false)
-            .build(77);
-        let inactive = FireWeaponWhenDeadBehaviorBuilder::new()
-            .initially_active(false)
-            .build(77);
-
-        active.set_active(true);
-
-        assert!(active.get_statistics().is_active);
-        assert!(!inactive.get_statistics().is_active);
-        assert!(!active.get_statistics().has_fired_death_weapon);
-        assert!(!inactive.get_statistics().has_fired_death_weapon);
-    }
-
-    #[test]
-    fn xfer_round_trip_preserves_behavior_state() {
-        let mut saved = FireWeaponWhenDeadBehaviorBuilder::new()
-            .initially_active(true)
-            .build(78);
-        saved.state.has_fired_death_weapon = true;
-        assert!(saved.get_statistics().has_fired_death_weapon);
-
-        let mut bytes = Cursor::new(Vec::new());
-        {
-            let mut xfer = XferSave::new(&mut bytes, 1);
-            saved.xfer(&mut xfer).expect("save behavior state");
-        }
-
-        bytes.set_position(0);
-        let mut loaded = FireWeaponWhenDeadBehaviorBuilder::new()
-            .initially_active(false)
-            .build(78);
-        {
-            let mut xfer = XferLoad::new(&mut bytes, 1);
-            loaded.xfer(&mut xfer).expect("load behavior state");
-        }
-
-        let stats = loaded.get_statistics();
-        assert!(stats.is_active);
-        assert!(stats.has_fired_death_weapon);
-    }
-
-    #[test]
-    fn test_die_mux_data() {
-        let mut die_mux = DieMuxData::default();
-        die_mux.applicable_death_types = vec![DeathType::Exploded, DeathType::Burned];
-        
-        let damage_info_exploded = create_damage_info(DeathType::Exploded);
-        let damage_info_normal = create_damage_info(DeathType::Normal);
-        
-        assert!(die_mux.is_die_applicable(&damage_info_exploded));
-        assert!(!die_mux.is_die_applicable(&damage_info_normal));
-    }
-
-    #[test]
-    fn test_on_die() {
-        let mut behavior = create_test_behavior();
-        let damage_info = create_damage_info(DeathType::Normal);
-        
-        let result = behavior.on_die(&damage_info);
-        assert!(result.is_ok());
-        
-        let stats = behavior.get_statistics();
-        assert!(stats.has_fired_death_weapon);
-    }
-
-    #[test]
-    fn test_multiple_die_calls() {
-        let mut behavior = create_test_behavior();
-        let damage_info = create_damage_info(DeathType::Normal);
-        
-        // First call should succeed
-        let result1 = behavior.on_die(&damage_info);
-        assert!(result1.is_ok());
-        
-        // Second call should also succeed but not fire weapon again
-        let result2 = behavior.on_die(&damage_info);
-        assert!(result2.is_ok());
-        
-        let stats = behavior.get_statistics();
-        assert!(stats.has_fired_death_weapon);
-    }
-
-    #[test]
-    fn test_inactive_behavior() {
-        let mut behavior = FireWeaponWhenDeadBehaviorBuilder::new()
-            .initially_active(false)
-            .death_weapon("test_weapon")
-            .build(1);
-        
-        let damage_info = create_damage_info(DeathType::Normal);
-        let result = behavior.on_die(&damage_info);
-        assert!(result.is_ok());
-        
-        let stats = behavior.get_statistics();
-        assert!(!stats.has_fired_death_weapon);
-    }
-
-    #[test]
-    fn test_behavior_reset() {
-        let mut behavior = create_test_behavior();
-        let damage_info = create_damage_info(DeathType::Normal);
-        
-        // Fire the weapon
-        let _ = behavior.on_die(&damage_info);
-        assert!(behavior.get_statistics().has_fired_death_weapon);
-        
-        // Reset and verify
-        behavior.reset();
-        assert!(!behavior.get_statistics().has_fired_death_weapon);
-    }
-
-    #[test]
-    fn test_upgrade_mask_checking() {
-        let behavior = FireWeaponWhenDeadBehaviorBuilder::new()
-            .upgrade_masks(0b0001, 0b0010)
-            .require_all_upgrades(false)
-            .build(1);
-        
-        // Should pass - has required upgrade, no conflicting
-        assert!(behavior.check_object_upgrades(0b0001, 0b0000));
-        
-        // Should fail - has conflicting upgrade
-        assert!(!behavior.check_object_upgrades(0b0010, 0b0000));
-        
-        // Should fail - missing required upgrade
-        assert!(!behavior.check_object_upgrades(0b0100, 0b0000));
-    }
-
-    #[test]
-    fn test_builder_pattern() {
-        let behavior = FireWeaponWhenDeadBehaviorBuilder::new()
-            .initially_active(true)
-            .death_weapon("builder_test_weapon")
-            .die_mux_data(DieMuxData {
-                applicable_death_types: vec![DeathType::Exploded],
-                applicable_damage_types: vec![DamageType::Explosion],
-                require_all_conditions: true,
-            })
-            .upgrade_masks(0xFF, 0x00)
-            .require_all_upgrades(true)
-            .build(999);
-        
-        let stats = behavior.get_statistics();
-        assert!(stats.is_active);
-        assert_eq!(stats.death_weapon_template, Some("builder_test_weapon".to_string()));
-        assert!(behavior.requires_all_activation_upgrades());
-        
-        let (activation, conflicting) = behavior.get_upgrade_activation_masks();
-        assert_eq!(activation, 0xFF);
-        assert_eq!(conflicting, 0x00);
+    fn parse_triggered_by_and_conflicts_with_tokens() {
+        let mut data = FireWeaponWhenDeadBehaviorModuleData::default();
+        data.upgrade_mux_data
+            .trigger_upgrade_names
+            .push(crate::common::AsciiString::from("Upgrade_HE"));
+        data.upgrade_mux_data
+            .conflicting_upgrade_names
+            .push(crate::common::AsciiString::from("Upgrade_Bio"));
+        assert!(data.upgrade_mux_data.is_triggered_by("Upgrade_HE"));
+        assert!(
+            data.upgrade_mux_data
+                .conflicting_upgrade_names
+                .iter()
+                .any(|n| n.as_str() == "Upgrade_Bio")
+        );
     }
 }

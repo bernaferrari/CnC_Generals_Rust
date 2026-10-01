@@ -16,6 +16,9 @@ impl GameLogic {
     /// A new admission receives fresh runtime identity, even when the incoming
     /// object was cloned. Temporary extraction/reinsertion uses the live map.
     pub(crate) fn admit_host_object(&mut self, mut object: Object) {
+        // Object-local C++ behavior state starts with the new admitted
+        // lifetime. Retire the host mirror even when a replacement reuses ID.
+        self.warehouse_crippling_states.remove(&object.id);
         // Replacing an Object with the same ID is a new object lifetime. Retire
         // any old docker/dock reservations while the old object is still
         // available to the C++-ordered cancel path.

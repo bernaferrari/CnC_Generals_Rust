@@ -685,7 +685,7 @@ impl MissileAIUpdate {
             {
                 return false;
             }
-            contain_guard.get_contained_objects().to_vec()
+            contain_guard.get_contained_objects().into_owned()
         };
 
         let mut num_killed = 0;
@@ -1520,43 +1520,42 @@ impl MissileAIUpdateBehavior {
                     }
                 }
                 if let Ok(mut obj_guard) = projectile_arc.write() {
+                    let dx = victim_pos.x - launch_pos.x;
+                    let dy = victim_pos.y - launch_pos.y;
+                    let delta_z = victim_pos.z - launch_pos.z;
+                    let mut xy_dist = (dx * dx + dy * dy).sqrt();
+                    if xy_dist < 1.0 {
+                        xy_dist = 1.0;
+                    }
+                    let z_factor = if delta_z > 0.0 {
+                        delta_z / xy_dist
+                    } else {
+                        0.0
+                    };
 
-                let dx = victim_pos.x - launch_pos.x;
-                let dy = victim_pos.y - launch_pos.y;
-                let delta_z = victim_pos.z - launch_pos.z;
-                let mut xy_dist = (dx * dx + dy * dy).sqrt();
-                if xy_dist < 1.0 {
-                    xy_dist = 1.0;
-                }
-                let z_factor = if delta_z > 0.0 {
-                    delta_z / xy_dist
-                } else {
-                    0.0
-                };
+                    let mut dir = obj_guard.get_transform_matrix().x_axis.truncate();
+                    if dir.length_squared() < 1e-6 {
+                        dir = Coord3D::new(dx, dy, delta_z);
+                    }
+                    if dir.length_squared() > 1e-6 {
+                        dir = dir.normalize();
+                    } else {
+                        dir = Coord3D::new(1.0, 0.0, 0.0);
+                    }
+                    dir.z += 2.0 * z_factor;
+                    if dir.length_squared() > 1e-6 {
+                        dir = dir.normalize();
+                    }
 
-                let mut dir = obj_guard.get_transform_matrix().x_axis.truncate();
-                if dir.length_squared() < 1e-6 {
-                    dir = Coord3D::new(dx, dy, delta_z);
-                }
-                if dir.length_squared() > 1e-6 {
-                    dir = dir.normalize();
-                } else {
-                    dir = Coord3D::new(1.0, 0.0, 0.0);
-                }
-                dir.z += 2.0 * z_factor;
-                if dir.length_squared() > 1e-6 {
-                    dir = dir.normalize();
-                }
+                    if let Some(physics) = obj_guard.get_physics() {
+                        let force_mag = physics.get_mass() * initial_vel;
+                        let force = dir * force_mag;
+                        physics.apply_motive_force(&force);
+                    }
 
-                if let Some(physics) = obj_guard.get_physics() {
-                    let force_mag = physics.get_mass() * initial_vel;
-                    let force = dir * force_mag;
-                    physics.apply_motive_force(&force);
-                }
-
-                let obj_pos = *obj_guard.get_position();
-                let transform = crate::common::build_transform_matrix(obj_pos, dir);
-                obj_guard.set_transform_matrix(&transform);
+                    let obj_pos = *obj_guard.get_position();
+                    let transform = crate::common::build_transform_matrix(obj_pos, dir);
+                    obj_guard.set_transform_matrix(&transform);
                 }
             }
 

@@ -555,7 +555,7 @@ impl AssaultTransportAIUpdate {
             return;
         };
 
-        let contained = contain_guard.get_contained_objects().to_vec();
+        let contained = contain_guard.get_contained_objects().into_owned();
         for passenger_id in contained {
             let already_present =
                 (0..self.current_members).any(|idx| self.member_ids[idx] == passenger_id);

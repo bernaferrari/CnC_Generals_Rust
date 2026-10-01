@@ -1627,7 +1627,8 @@ impl ActiveBody {
                                     && !cont.is_immune_to_clear_building_attacks()
                                 {
                                     let kills_to_make = damage_info.input.amount.floor() as i32;
-                                    let ids: Vec<ObjectId> = cont.get_contained_objects().to_vec();
+                                    let ids: Vec<ObjectId> =
+                                        cont.get_contained_objects().into_owned();
                                     let mut kills_made = 0;
                                     for id in ids {
                                         if kills_made >= kills_to_make {
@@ -3141,8 +3142,8 @@ mod death_flooded_tests {
             self.ids.retain(|id| *id != object_id);
             Ok(())
         }
-        fn get_contained_objects(&self) -> &[ObjectId] {
-            &self.ids
+        fn get_contained_objects(&self) -> std::borrow::Cow<'_, [ObjectId]> {
+            std::borrow::Cow::Borrowed(&self.ids)
         }
         fn get_contained_count(&self) -> usize {
             self.ids.len()

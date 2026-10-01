@@ -9,9 +9,9 @@ use std::sync::{Arc, RwLock, Weak};
 use super::{ContainerIniParse, ContainerInterface, OpenContain};
 use crate::ai::the_ai;
 use crate::common::{
-    CommandSourceType, Coord3D, DisabledType, GameResult, INVALID_ID, KindOf, Matrix3D, ModelConditionFlags,
-    ModelConditionState, ObjectID, ObjectStatusMaskType, ObjectStatusTypes, PathfindLayerEnum,
-    PlayerMaskType, Relationship, UnsignedInt, WeaponBonusConditionType,
+    CommandSourceType, Coord3D, DisabledType, GameResult, INVALID_ID, KindOf, Matrix3D,
+    ModelConditionFlags, ModelConditionState, ObjectID, ObjectStatusMaskType, ObjectStatusTypes,
+    PathfindLayerEnum, PlayerMaskType, Relationship, UnsignedInt, WeaponBonusConditionType,
 };
 use crate::damage::{BodyDamageType, DamageInfo, DamageType, DeathType};
 use crate::error::GameLogicError as GameError;
@@ -524,7 +524,8 @@ impl GarrisonContain {
                 if let Err(err) = self.remove_from_contain(object_id, true) {
                     log::warn!(
                         "GarrisonContain::update failed to remove dead {}: {}",
-                        object_id, err
+                        object_id,
+                        err
                     );
                     continue;
                 }
@@ -740,8 +741,7 @@ impl GarrisonContain {
         }
         let already_listed = self.base.get_contained_object_ids().contains(&obj_id);
         let contained_by = obj_guard.get_contained_by();
-        if contained_by.is_some()
-            && (already_listed || contained_by != Some(self.get_object_id()))
+        if contained_by.is_some() && (already_listed || contained_by != Some(self.get_object_id()))
         {
             return Ok(());
         }
@@ -873,12 +873,16 @@ impl GarrisonContain {
             if let Err(err) = self.remove_from_contain(object_id, expose_stealth_units) {
                 log::warn!(
                     "GarrisonContain::remove_all_contained failed for {}: {}",
-                    object_id, err
+                    object_id,
+                    err
                 );
             }
         }
         if let Err(err) = self.recalc_apparent_controlling_player() {
-            log::warn!("GarrisonContain::remove_all_contained recalc failed: {}", err);
+            log::warn!(
+                "GarrisonContain::remove_all_contained recalc failed: {}",
+                err
+            );
         }
         Ok(())
     }
@@ -903,7 +907,10 @@ impl GarrisonContain {
         let owner_id = self.get_object_id();
         if owner_id == crate::common::INVALID_ID {
             if let Err(err) = self.recalc_apparent_controlling_player() {
-                log::warn!("GarrisonContain::exit_object_via_door recalc failed: {}", err);
+                log::warn!(
+                    "GarrisonContain::exit_object_via_door recalc failed: {}",
+                    err
+                );
             }
             return Ok(());
         }
@@ -976,7 +983,10 @@ impl GarrisonContain {
             })
         else {
             if let Err(err) = self.recalc_apparent_controlling_player() {
-                log::warn!("GarrisonContain::exit_object_via_door recalc failed: {}", err);
+                log::warn!(
+                    "GarrisonContain::exit_object_via_door recalc failed: {}",
+                    err
+                );
             }
             return Ok(());
         };
@@ -1029,7 +1039,10 @@ impl GarrisonContain {
         }
 
         if let Err(err) = self.recalc_apparent_controlling_player() {
-            log::warn!("GarrisonContain::exit_object_via_door recalc failed: {}", err);
+            log::warn!(
+                "GarrisonContain::exit_object_via_door recalc failed: {}",
+                err
+            );
         }
         Ok(())
     }
@@ -1176,7 +1189,8 @@ impl GarrisonContain {
         if let Err(err) = self.base.on_removing(obj_id) {
             log::warn!(
                 "GarrisonContain::on_removing base exit failed for {}: {}",
-                obj_id, err
+                obj_id,
+                err
             );
         }
 
@@ -1186,14 +1200,16 @@ impl GarrisonContain {
                 if let Err(err) = self.remove_object_from_garrison_point(obj_id, None) {
                     log::warn!(
                         "GarrisonContain::on_removing garrison point remove failed for {}: {}",
-                        obj_id, err
+                        obj_id,
+                        err
                     );
                 }
             } else {
                 if let Err(err) = self.remove_object_from_station_point(&contained) {
                     log::warn!(
                         "GarrisonContain::on_removing station point remove failed for {}: {}",
-                        obj_id, err
+                        obj_id,
+                        err
                     );
                 }
                 if let Some(terrain) = TheTerrainLogic::get() {
@@ -1218,7 +1234,8 @@ impl GarrisonContain {
             if let Err(err) = contained.set_disabled_held(false) {
                 log::warn!(
                     "GarrisonContain::on_removing failed to clear held for {}: {}",
-                    obj_id, err
+                    obj_id,
+                    err
                 );
             }
         }
@@ -2564,7 +2581,11 @@ impl GarrisonContain {
                 .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(object_id))
             {
                 if let Err(err) = self.heal_single_object(obj, module_data.frames_for_full_heal) {
-                    log::warn!("GarrisonContain::heal_objects skipped {}: {}", object_id, err);
+                    log::warn!(
+                        "GarrisonContain::heal_objects skipped {}: {}",
+                        object_id,
+                        err
+                    );
                 }
             }
         }
@@ -3064,7 +3085,7 @@ impl ContainModuleInterface for GarrisonContain {
         GarrisonContain::remove_from_contain(self, object_id, expose_stealth).map_err(|e| e.into())
     }
 
-    fn get_contained_objects(&self) -> &[ObjectID] {
+    fn get_contained_objects(&self) -> std::borrow::Cow<'_, [ObjectID]> {
         ContainModuleInterface::get_contained_objects(&self.base)
     }
 

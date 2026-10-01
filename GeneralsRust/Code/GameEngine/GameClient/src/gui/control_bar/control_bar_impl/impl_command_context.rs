@@ -91,8 +91,7 @@ impl ControlBar {
                 // :713-743 shows/hides it around the producer's queue. The
                 // previous "ControlBar.wnd:BuildQueue" name never matched, so
                 // the queue grid stayed painted while empty.
-                if let Some(win) = wm.find_window_by_name("ControlBar.wnd:ProductionQueueWindow")
-                {
+                if let Some(win) = wm.find_window_by_name("ControlBar.wnd:ProductionQueueWindow") {
                     let _ = win.borrow_mut().hide(false);
                 }
                 if let Some(percent) = first_progress {
@@ -109,21 +108,18 @@ impl ControlBar {
                                     a: 100,
                                 },
                             );
-
                         }
                     }
                 }
             });
         } else {
             with_window_manager(|wm| {
-                if let Some(win) = wm.find_window_by_name("ControlBar.wnd:ProductionQueueWindow")
-                {
+                if let Some(win) = wm.find_window_by_name("ControlBar.wnd:ProductionQueueWindow") {
                     let _ = win.borrow_mut().hide(true);
                 }
             });
             self.set_portrait_by_object_id(Some(obj_id));
         }
-
 
         let context = self
             .context
@@ -307,7 +303,9 @@ impl ControlBar {
             return Ok(CommandAvailability::Hidden);
         };
         if obj.test_script_status_bit(gamelogic::object::ObjectScriptStatusBit::ScriptDisabled)
-            || obj.test_script_status_bit(gamelogic::object::ObjectScriptStatusBit::ScriptUnderpowered)
+            || obj.test_script_status_bit(
+                gamelogic::object::ObjectScriptStatusBit::ScriptUnderpowered,
+            )
         {
             return Ok(CommandAvailability::Hidden);
         }
@@ -332,8 +330,7 @@ impl ControlBar {
         }
         if disabled && !self.force_disabled_evaluation(command) {
             if !command_evaluable_when_disabled(command.command_type) {
-                if self
-                    .get_command_availability_forced(command, obj_id, player_id)
+                if self.get_command_availability_forced(command, obj_id, player_id)
                     == CommandAvailability::Hidden
                 {
                     return Ok(CommandAvailability::Hidden);
@@ -520,8 +517,7 @@ impl ControlBar {
         _obj_id: u32,
         player_id: u32,
     ) -> CommandAvailability {
-        leftover_buildable_hidden(command, player_id)
-            .unwrap_or(CommandAvailability::Restricted)
+        leftover_buildable_hidden(command, player_id).unwrap_or(CommandAvailability::Restricted)
     }
 
     fn command_uses_ready_clock(command: &CommandButton) -> bool {
@@ -598,8 +594,8 @@ impl ControlBar {
         if command.special_power.is_empty() {
             return (CommandAvailability::Restricted, None);
         }
-        let Some((ready, percent)) =
-            obj.with_special_power_module_interface_by_name(&command.special_power, |sp| {
+        let Some((ready, percent)) = obj
+            .with_special_power_module_interface_by_name(&command.special_power, |sp| {
                 (sp.is_ready(), sp.get_percent_ready())
             })
         else {
@@ -669,9 +665,7 @@ impl ControlBar {
             if let Ok(obj) = obj_arc.read() {
                 return match command.command_type {
                     CommandType::FireWeapon => self.fire_weapon_availability(&obj, command).1,
-                    CommandType::DoSpecialPower => {
-                        self.special_power_availability(&obj, command).1
-                    }
+                    CommandType::DoSpecialPower => self.special_power_availability(&obj, command).1,
                     _ => None,
                 };
             }
@@ -768,8 +762,6 @@ impl ControlBar {
             }
         });
     }
-
-
 
     // ---------------------------------------------------------------------------
     // populateBuildQueue - fill build queue from producer object
@@ -920,9 +912,8 @@ impl ControlBar {
                 {
                     let mut window = win.borrow_mut();
                     let _ = window.enable(false);
-                    let _ = window.clear_status(
-                        crate::gui::game_window::WindowStatus::USE_OVERLAY_STATES,
-                    );
+                    let _ = window
+                        .clear_status(crate::gui::game_window::WindowStatus::USE_OVERLAY_STATES);
                     if let Some(crate::gui::game_window::WindowWidget::PushButton(button)) =
                         window.widget_mut()
                     {
@@ -983,7 +974,6 @@ impl ControlBar {
             }
         });
     }
-
 
     // ---------------------------------------------------------------------------
     // Command processing (click dispatch)
@@ -1063,9 +1053,11 @@ impl ControlBar {
                     return;
                 }
                 if let Some(i) = slot {
-                    let button = self.context.read().ok().and_then(|ctx| {
-                        ctx.available_commands.get(i).cloned()
-                    });
+                    let button = self
+                        .context
+                        .read()
+                        .ok()
+                        .and_then(|ctx| ctx.available_commands.get(i).cloned());
                     if let Some(mut button) = button {
                         button.exit_object_id = occupant;
                         let source = CommandSourceType::FromUser;
@@ -1115,7 +1107,6 @@ impl ControlBar {
         } else {
             Ok(false)
         }
-
     }
 
     fn execute_command(
@@ -1196,7 +1187,6 @@ fn leftover_production_count(obj: &gamelogic::object::Object) -> Option<usize> {
     let pu = guard.get_production_update_interface()?;
     Some(pu.get_queue_size())
 }
-
 
 /// C++ `GUI_COMMAND_OBJECT_UPGRADE` vs `PLAYER_UPGRADE`.
 fn leftover_is_object_upgrade_command(command: &CommandButton) -> bool {
@@ -1380,8 +1370,8 @@ fn leftover_calculate_veterancy_overlay_for_thing(template_name: &str) -> Option
         if let Some(data) = entry
             .data
             .as_any()
-            .downcast_ref::<gamelogic::object::create::VeterancyGainCreateModuleData>()
-        {
+            .downcast_ref::<gamelogic::object::create::VeterancyGainCreateModuleData>(
+        ) {
             if player_has_science(data.science_required)
                 && (data.starting_level as i32) > (level as i32)
             {
@@ -1428,7 +1418,6 @@ fn leftover_calculate_veterancy_overlay_for_thing(template_name: &str) -> Option
     }
 }
 
-
 fn leftover_rappeller_count(obj: &gamelogic::object::Object) -> usize {
     let Some(contain) = obj.get_contain() else {
         return 0;
@@ -1436,7 +1425,7 @@ fn leftover_rappeller_count(obj: &gamelogic::object::Object) -> usize {
     let Ok(guard) = contain.lock() else {
         return 0;
     };
-    let ids: Vec<_> = guard.get_contained_objects().to_vec();
+    let ids: Vec<_> = guard.get_contained_objects().into_owned();
     drop(guard);
     ids.into_iter()
         .filter(|&id| {
@@ -1465,7 +1454,10 @@ fn leftover_is_hacking_packing_or_unpacking(obj: &gamelogic::object::Object) -> 
 }
 
 /// C++ ControlBarCommand.cpp:1112-1122 / 1170-1178 — BSTATUS_NO / ONLY_BY_AI hide.
-fn leftover_buildable_hidden(command: &CommandButton, player_id: u32) -> Option<CommandAvailability> {
+fn leftover_buildable_hidden(
+    command: &CommandButton,
+    player_id: u32,
+) -> Option<CommandAvailability> {
     if !matches!(
         command.command_type,
         CommandType::DozerConstruct | CommandType::QueueUnitCreate
@@ -1569,9 +1561,8 @@ fn leftover_presentation_queue_upgrade_availability(
             .ok()
             .and_then(|list| list.get_local_player().cloned())
             .and_then(|arc| arc.read().ok().map(|player| player.has_science(*science)));
-        let has = leftover_has.unwrap_or_else(|| {
-            bar.presentation_player_has_required_science(*science)
-        });
+        let has =
+            leftover_has.unwrap_or_else(|| bar.presentation_player_has_required_science(*science));
         if !has {
             return Some(CommandAvailability::Restricted);
         }
@@ -1684,12 +1675,24 @@ mod command_availability_window_tests {
 
     #[test]
     fn ready_clock_types_match_cpp_special_fire_overcharge_switch() {
-        assert!(ControlBar::command_uses_ready_clock(&button(CommandType::FireWeapon)));
-        assert!(ControlBar::command_uses_ready_clock(&button(CommandType::DoSpecialPower)));
-        assert!(ControlBar::command_uses_ready_clock(&button(CommandType::ToggleOvercharge)));
-        assert!(ControlBar::command_uses_ready_clock(&button(CommandType::SwitchWeapons)));
-        assert!(!ControlBar::command_uses_ready_clock(&button(CommandType::Sell)));
-        assert!(!ControlBar::command_uses_ready_clock(&button(CommandType::DozerConstruct)));
+        assert!(ControlBar::command_uses_ready_clock(&button(
+            CommandType::FireWeapon
+        )));
+        assert!(ControlBar::command_uses_ready_clock(&button(
+            CommandType::DoSpecialPower
+        )));
+        assert!(ControlBar::command_uses_ready_clock(&button(
+            CommandType::ToggleOvercharge
+        )));
+        assert!(ControlBar::command_uses_ready_clock(&button(
+            CommandType::SwitchWeapons
+        )));
+        assert!(!ControlBar::command_uses_ready_clock(&button(
+            CommandType::Sell
+        )));
+        assert!(!ControlBar::command_uses_ready_clock(&button(
+            CommandType::DozerConstruct
+        )));
     }
 
     #[test]
@@ -1711,8 +1714,12 @@ mod command_availability_window_tests {
         assert!(command_evaluable_when_disabled(CommandType::SetRallyPoint));
         assert!(command_evaluable_when_disabled(CommandType::DoStop));
         assert!(command_evaluable_when_disabled(CommandType::SwitchWeapons));
-        assert!(!command_evaluable_when_disabled(CommandType::DoSpecialPower));
-        assert!(!command_evaluable_when_disabled(CommandType::QueueUnitCreate));
+        assert!(!command_evaluable_when_disabled(
+            CommandType::DoSpecialPower
+        ));
+        assert!(!command_evaluable_when_disabled(
+            CommandType::QueueUnitCreate
+        ));
     }
 
     #[test]
@@ -1724,7 +1731,9 @@ mod command_availability_window_tests {
         assert!(leftover_ignores_underpowered_clears_disabled(opts, sole));
         let mut stacked = sole;
         stacked.set_disabled(DisabledType::DisabledEmp);
-        assert!(!leftover_ignores_underpowered_clears_disabled(opts, stacked));
+        assert!(!leftover_ignores_underpowered_clears_disabled(
+            opts, stacked
+        ));
         assert!(!leftover_ignores_underpowered_clears_disabled(0, sole));
     }
 
@@ -1761,7 +1770,6 @@ mod command_availability_window_tests {
         bar.apply_presentation_can_make(&[("AmericaPowerPlant".to_string(), 0)]);
         assert!(!leftover_presentation_can_make_restricted(&bar, &btn));
     }
-
 
     #[test]
     fn presentation_money_fallback_grays_unaffordable_cameo() {

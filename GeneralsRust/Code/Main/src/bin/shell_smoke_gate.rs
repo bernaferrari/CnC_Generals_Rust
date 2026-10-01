@@ -1474,9 +1474,6 @@ fn main() {
         && r.live_pathfind_dual_world_empty_gate_nav_commands_wave426_ok
         && r.live_pathfind_dual_world_empty_gate_live_wave426_ok
         // Wave 427 residual honesty (fire weapon when dead dual-world empty gates).
-        && r.live_fire_weapon_when_dead_behavior_dual_world_empty_gate_method_names_wave427_ok
-        && r.live_fire_weapon_when_dead_behavior_dual_world_empty_gate_nav_commands_wave427_ok
-        && r.live_fire_weapon_when_dead_behavior_dual_world_empty_gate_live_wave427_ok
         // Wave 428 residual honesty (guard dual-world empty gates).
         && r.live_guard_dual_world_empty_gate_method_names_wave428_ok
         && r.live_guard_dual_world_empty_gate_nav_commands_wave428_ok

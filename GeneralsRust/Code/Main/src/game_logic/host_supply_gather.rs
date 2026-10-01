@@ -6,7 +6,6 @@ use crate::game_logic::{DockKind, ObjectId};
 use glam::Vec3;
 
 use std::collections::{HashMap, HashSet};
-use std::sync::{LazyLock, Mutex};
 
 /// Main-owned mirror of each dock module's C++ approach-position state.
 /// `GameLogic` owns this store; object state transitions report cancellations
@@ -983,39 +982,7 @@ pub fn warehouse_stored_supplies_from_cash(cash: i32) -> u32 {
     (boxes.max(0) as u32).saturating_mul(value)
 }
 
-static PENDING_WAREHOUSE_SETS: LazyLock<Mutex<Vec<(String, i32)>>> =
-    LazyLock::new(|| Mutex::new(Vec::new()));
-static WAREHOUSE_CRIPPLING_STATES: LazyLock<Mutex<HashMap<ObjectId, WarehouseCripplingState>>> =
-    LazyLock::new(|| Mutex::new(HashMap::new()));
-
-/// Queue `WAREHOUSE_SET_VALUE` for the live host drain.
-pub fn queue_warehouse_set_value(name: &str, cash: i32) {
-    if name.is_empty() {
-        return;
-    }
-    if let Ok(mut q) = PENDING_WAREHOUSE_SETS.lock() {
-        q.push((name.to_string(), cash));
-    }
-}
-
-pub fn drain_warehouse_set_values() -> Vec<(String, i32)> {
-    PENDING_WAREHOUSE_SETS
-        .lock()
-        .map(|mut q| q.drain(..).collect())
-        .unwrap_or_default()
-}
-
-/// Drop live warehouse queues so tests do not leak ObjectId state.
-pub fn reset_live_warehouse_host_state() {
-    if let Ok(mut q) = PENDING_WAREHOUSE_SETS.lock() {
-        q.clear();
-    }
-    if let Ok(mut s) = WAREHOUSE_CRIPPLING_STATES.lock() {
-        s.clear();
-    }
-}
-
-/// Live `WAREHOUSE_CRIPPLING_STATES` entry.
+/// Healing observations and clocks owned by one live game instance.
 ///
 /// C++ `SupplyWarehouseCripplingBehavior::xfer` writes
 /// `m_healingSupressedUntilFrame` + `m_nextHealingFrame`. `last_health` is the
@@ -1027,27 +994,6 @@ pub struct WarehouseCripplingState {
     pub last_health: f32,
     pub healing_suppressed_until_frame: u32,
     pub next_healing_frame: u32,
-}
-
-/// C++ `SupplyWarehouseCripplingBehavior::xfer` heal clocks for snapshot persist.
-pub fn snapshot_live_warehouse_crippling_states() -> Vec<(ObjectId, WarehouseCripplingState)> {
-    let Ok(map) = WAREHOUSE_CRIPPLING_STATES.lock() else {
-        return Vec::new();
-    };
-    let mut entries: Vec<(ObjectId, WarehouseCripplingState)> =
-        map.iter().map(|(id, state)| (*id, *state)).collect();
-    entries.sort_by_key(|(id, _)| id.0);
-    entries
-}
-
-/// Replace process-global heal clocks so a load cannot leak the previous session.
-pub fn restore_live_warehouse_crippling_states(entries: Vec<(ObjectId, WarehouseCripplingState)>) {
-    if let Ok(mut map) = WAREHOUSE_CRIPPLING_STATES.lock() {
-        map.clear();
-        for (id, state) in entries {
-            map.insert(id, state);
-        }
-    }
 }
 
 /// C++ `SupplyWarehouseCripplingBehavior::update` pulse after suppression.
@@ -1182,10 +1128,40 @@ pub fn collector_supply_lines_boost(
 }
 
 impl crate::game_logic::GameLogic {
+    /// Snapshot in stable ID order for the existing lifecycle-tail encoding.
+    pub(crate) fn snapshot_warehouse_crippling_states(
+        &self,
+    ) -> Vec<(ObjectId, WarehouseCripplingState)> {
+        let mut entries: Vec<_> = self
+            .warehouse_crippling_states
+            .iter()
+            .map(|(id, state)| (*id, *state))
+            .collect();
+        entries.sort_by_key(|(id, _)| id.0);
+        entries
+    }
+
+    /// Replace clocks only on the world being restored.
+    pub(crate) fn restore_warehouse_crippling_states(
+        &mut self,
+        entries: Vec<(ObjectId, WarehouseCripplingState)>,
+    ) {
+        self.warehouse_crippling_states.clear();
+        self.warehouse_crippling_states.extend(entries);
+    }
+
     /// C++ `SupplyWarehouseCripplingBehavior` + `WAREHOUSE_SET_VALUE` drain.
     pub fn update_supply_warehouse_crippling(&mut self) {
         self.drain_warehouse_script_set_values();
         let frame = self.frame as u32;
+        let objects = &self.objects;
+        self.warehouse_crippling_states.retain(|id, _| {
+            objects.get(id).is_some_and(|object| {
+                object.is_alive()
+                    && object.thing.template.dock_kind
+                        == crate::game_logic::DockKind::SupplyWarehouse
+            })
+        });
         let ids: Vec<ObjectId> = self
             .objects
             .iter()
@@ -1195,10 +1171,6 @@ impl crate::game_logic::GameLogic {
             })
             .map(|(id, _)| *id)
             .collect();
-        let mut states = match WAREHOUSE_CRIPPLING_STATES.lock() {
-            Ok(g) => g,
-            Err(_) => return,
-        };
         for id in ids {
             let Some(obj) = self.objects.get_mut(&id) else {
                 continue;
@@ -1207,11 +1179,14 @@ impl crate::game_logic::GameLogic {
             let cur = obj.health.current;
             // C++ onDamage resets SelfHealSupression. First observation below
             // max means damage already happened (module would be awake).
-            let state = states.entry(id).or_insert(WarehouseCripplingState {
-                last_health: if cur + 0.01 < max_h { max_h } else { cur },
-                healing_suppressed_until_frame: u32::MAX,
-                next_healing_frame: u32::MAX,
-            });
+            let state =
+                self.warehouse_crippling_states
+                    .entry(id)
+                    .or_insert(WarehouseCripplingState {
+                        last_health: if cur + 0.01 < max_h { max_h } else { cur },
+                        healing_suppressed_until_frame: u32::MAX,
+                        next_healing_frame: u32::MAX,
+                    });
             let amount = warehouse_crippling_heal_amount(
                 frame,
                 cur,
@@ -1229,7 +1204,7 @@ impl crate::game_logic::GameLogic {
     }
 
     pub fn drain_warehouse_script_set_values(&mut self) {
-        for (name, cash) in drain_warehouse_set_values() {
+        for (name, cash) in self.drain_warehouse_set_value_requests() {
             let _ = self.apply_warehouse_set_value(&name, cash);
         }
     }
@@ -1417,9 +1392,9 @@ mod tests {
 
     #[test]
     fn warehouse_crippling_snapshot_keeps_mid_suppression_cadence() {
-        reset_live_warehouse_host_state();
         let id = ObjectId(7);
-        restore_live_warehouse_crippling_states(vec![(
+        let mut source = crate::game_logic::GameLogic::new();
+        source.restore_warehouse_crippling_states(vec![(
             id,
             WarehouseCripplingState {
                 last_health: 200.0,
@@ -1427,8 +1402,9 @@ mod tests {
                 next_healing_frame: 100,
             },
         )]);
-        let snap = snapshot_live_warehouse_crippling_states();
-        restore_live_warehouse_crippling_states(vec![(
+        let snap = source.snapshot_warehouse_crippling_states();
+        let mut other = crate::game_logic::GameLogic::new();
+        other.restore_warehouse_crippling_states(vec![(
             ObjectId(99),
             WarehouseCripplingState {
                 last_health: 1.0,
@@ -1436,8 +1412,12 @@ mod tests {
                 next_healing_frame: 1,
             },
         )]);
-        restore_live_warehouse_crippling_states(snap);
-        let states = snapshot_live_warehouse_crippling_states();
+        source.restore_warehouse_crippling_states(snap);
+        let states = source.snapshot_warehouse_crippling_states();
+        assert_eq!(
+            other.snapshot_warehouse_crippling_states()[0].0,
+            ObjectId(99)
+        );
         assert_eq!(states.len(), 1);
         assert_eq!(states[0].0, id);
         let mut state = states[0].1;
@@ -1463,7 +1443,6 @@ mod tests {
             &mut state.next_healing_frame,
         );
         assert!((heal - 5.0).abs() < 0.01);
-        reset_live_warehouse_host_state();
     }
 
     #[test]

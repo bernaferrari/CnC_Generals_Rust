@@ -19,21 +19,6 @@ pub(super) fn assert_waves_426_487(r: &ShellSmokeResult) {
         r.detail
     );
     assert!(
-        r.live_fire_weapon_when_dead_behavior_dual_world_empty_gate_method_names_wave427_ok,
-        "live fire weapon when dead behavior dual-world empty gate method names residual pack wave427: {}",
-        r.detail
-    );
-    assert!(
-        r.live_fire_weapon_when_dead_behavior_dual_world_empty_gate_nav_commands_wave427_ok,
-        "live fire weapon when dead behavior dual-world empty gate nav commands residual pack wave427: {}",
-        r.detail
-    );
-    assert!(
-        r.live_fire_weapon_when_dead_behavior_dual_world_empty_gate_live_wave427_ok,
-        "live fire weapon when dead behavior dual-world empty gate live residual wave427: {}",
-        r.detail
-    );
-    assert!(
         r.live_guard_dual_world_empty_gate_method_names_wave428_ok,
         "live guard dual-world empty gate method names residual pack wave428: {}",
         r.detail

@@ -87,7 +87,7 @@ pub(super) fn do_transport_inventory_ui(
                     if pip_max > 0 {
                         max_capacity = pip_max as usize;
                     }
-                    for &occupant_id in contained {
+                    for &occupant_id in contained.iter() {
                         occupants.push(occupant_from_registry(occupant_id));
                     }
                     used_registry = true;
@@ -218,7 +218,7 @@ pub(super) fn append_structure_inventory_commands_with_presentation(
                         && contain_guard.get_max_capacity() > 0
                     {
                         max_capacity = contain_guard.get_max_capacity();
-                        for &occupant_id in contain_guard.get_contained_objects() {
+                        for &occupant_id in contain_guard.get_contained_objects().iter() {
                             occupants.push(occupant_from_registry(occupant_id));
                         }
                         used_registry = true;

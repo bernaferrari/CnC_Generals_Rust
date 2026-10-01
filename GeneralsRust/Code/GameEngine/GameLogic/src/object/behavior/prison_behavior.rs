@@ -3,6 +3,7 @@
 //! Extends OpenContain to hold surrendered units and optionally render yard visuals.
 
 use std::any::Any;
+use std::borrow::Cow;
 use std::sync::{Arc, Mutex, RwLock, Weak};
 
 use game_engine::common::ini::{FieldParse, INI, INIError};
@@ -405,7 +406,7 @@ impl ContainModuleInterface for PrisonBehavior {
         self.contain.release_object(object_id)
     }
 
-    fn get_contained_objects(&self) -> &[ObjectID] {
+    fn get_contained_objects(&self) -> Cow<'_, [ObjectID]> {
         self.contain.get_contained_objects()
     }
 
@@ -539,7 +540,6 @@ impl PrisonBehaviorModule {
     pub fn contain_handle(&self) -> Arc<Mutex<dyn ContainModuleInterface>> {
         Arc::new(Mutex::new(PrisonBehaviorContainHandle {
             behavior: Arc::clone(&self.behavior),
-            cached_ids: CachedContainIds::default(),
         }))
     }
 }
@@ -548,32 +548,6 @@ impl PrisonBehaviorModule {
 #[derive(Debug)]
 struct PrisonBehaviorContainHandle {
     behavior: Arc<Mutex<PrisonBehavior>>,
-    cached_ids: CachedContainIds,
-}
-
-/// Slice cache for `get_contained_objects` while the handle lives behind Mutex.
-#[derive(Debug, Default)]
-struct CachedContainIds {
-    ids: std::cell::UnsafeCell<Vec<ObjectID>>,
-}
-
-// SAFETY: the `UnsafeCell` cache is only touched through `refresh`, which
-// takes `&self` but is invoked from `&mut self` methods of the owning
-// behavior (itself behind a `Mutex`), so all cell accesses are effectively
-// exclusive. No shared reader can observe a partially written vector because
-// `refresh` swaps in a complete value.
-unsafe impl Sync for CachedContainIds {}
-
-impl CachedContainIds {
-    fn refresh(&self, ids: Vec<ObjectID>) -> &[ObjectID] {
-        // SAFETY: see type-level note — access is exclusive via the owner's
-        // mutex; writing the whole replacement vector keeps the cell valid.
-        let cache = unsafe { &mut *self.ids.get() };
-        *cache = ids;
-        // SAFETY: shared borrow of the just-written cache; no other alias
-        // exists because refresh holds the only path to the cell.
-        unsafe { &*self.ids.get() }
-    }
 }
 
 #[cfg(feature = "allow_surrender")]
@@ -599,11 +573,11 @@ impl ContainModuleInterface for PrisonBehaviorContainHandle {
             .release_object(object_id)
     }
 
-    fn get_contained_objects(&self) -> &[ObjectID] {
-        self.cached_ids.refresh(
+    fn get_contained_objects(&self) -> Cow<'_, [ObjectID]> {
+        Cow::Owned(
             self.behavior
                 .lock()
-                .map(|guard| guard.get_contained_objects().to_vec())
+                .map(|guard| guard.get_contained_objects().into_owned())
                 .unwrap_or_default(),
         )
     }
@@ -770,6 +744,41 @@ pub struct PrisonBehaviorModule;
 #[cfg(all(test, feature = "allow_surrender"))]
 mod tests {
     use super::*;
+
+    #[test]
+    fn contain_handle_returns_stable_owned_snapshot_across_shared_mutation() {
+        let contain = OpenContain::new(
+            Weak::<RwLock<Object>>::new(),
+            &OpenContainModuleData::default(),
+        )
+        .expect("open contain");
+        let behavior = PrisonBehavior {
+            object_id: INVALID_ID,
+            module_data: Arc::new(PrisonBehaviorModuleData::default()),
+            contain,
+            visuals: Vec::new(),
+        };
+        let module = PrisonBehaviorModule::new(
+            behavior,
+            &AsciiString::from("PrisonBehavior"),
+            Arc::new(PrisonBehaviorModuleData::default()),
+        );
+        let handle = module.contain_handle();
+        let guard = handle.lock().expect("contain handle");
+
+        let retained = guard.get_contained_objects();
+        module
+            .behavior
+            .lock()
+            .expect("behavior")
+            .contain
+            .add_to_contain_list_id(77002, false)
+            .expect("add prisoner");
+        let refreshed = guard.get_contained_objects();
+
+        assert!(retained.is_empty());
+        assert_eq!(refreshed.as_ref(), &[77002]);
+    }
 
     #[test]
     fn defaults_match_cpp_constructor() {

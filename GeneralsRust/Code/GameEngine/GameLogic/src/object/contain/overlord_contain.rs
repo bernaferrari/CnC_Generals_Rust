@@ -21,7 +21,7 @@ use crate::modules::{
 };
 use crate::object::{Object, ObjectId};
 use crate::player::Player;
-use game_engine::common::ini::{FieldParse, INI, INIError};
+use game_engine::common::ini::{FieldParse, INIError, INI};
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 
 /// Wave 300 residual scan still sees `OBJECT_REGISTRY.is_empty()`.
@@ -463,8 +463,6 @@ impl OverlordContain {
             return Ok(());
         }
 
-
-
         if let Some(redirected) = self.redirected_contain_for_mutation()? {
             self.base.base.on_removing(obj_id)?;
             if let Ok(mut guard) = redirected.try_lock() {
@@ -489,7 +487,7 @@ impl OverlordContain {
             let Ok(guard) = redirected.try_lock() else {
                 return Ok(Vec::new());
             };
-            return Ok(guard.get_contained_objects().to_vec());
+            return Ok(guard.get_contained_objects().into_owned());
         }
 
         self.base.base.get_contained_items_list()
@@ -509,9 +507,7 @@ impl OverlordContain {
             let Ok(obj_guard) = obj.try_read() else {
                 return Err("Overlord passenger lock busy".into());
             };
-            return guard
-                .add_to_contain_list(&*obj_guard)
-                .map_err(|e| e.into());
+            return guard.add_to_contain_list(&*obj_guard).map_err(|e| e.into());
         }
 
         self.base.add_to_contain_list(obj_id)
@@ -880,7 +876,6 @@ impl OverlordContain {
         Ok(rider_guard.get_contain())
     }
 
-
     /// Activate redirection to contained bunker.
     /// Matches C++ OverlordContain::activateRedirectedContain (OverlordContain.h:99)
     fn activate_redirected_contain(&mut self) -> GameResult<()> {
@@ -983,7 +978,7 @@ impl ContainModuleInterface for OverlordContain {
         OverlordContain::remove_from_contain(self, object_id, expose_stealth).map_err(|e| e.into())
     }
 
-    fn get_contained_objects(&self) -> &[ObjectID] {
+    fn get_contained_objects(&self) -> std::borrow::Cow<'_, [ObjectID]> {
         ContainModuleInterface::get_contained_objects(&self.base)
     }
 
@@ -997,7 +992,11 @@ impl ContainModuleInterface for OverlordContain {
 
     fn get_max_capacity(&self) -> usize {
         let max = self.get_contain_max();
-        if max < 0 { usize::MAX } else { max as usize }
+        if max < 0 {
+            usize::MAX
+        } else {
+            max as usize
+        }
     }
 
     fn get_container_pips_to_show(&self) -> (i32, i32, bool) {
@@ -1068,9 +1067,10 @@ impl ContainModuleInterface for OverlordContain {
         else {
             return Ok(());
         };
-        let valid = other.try_read().map(|guard| {
-            ContainModuleInterface::is_valid_container_for(self, &*guard, true)
-        }).unwrap_or(false);
+        let valid = other
+            .try_read()
+            .map(|guard| ContainModuleInterface::is_valid_container_for(self, &*guard, true))
+            .unwrap_or(false);
         if valid {
             self.add_to_contain(other_id)?;
         }
@@ -1390,12 +1390,9 @@ mod tests {
 
         assert_eq!(xfer.bytes[0], 1, "OverlordContain xfer version");
         assert_eq!(xfer.bytes[1], 1, "delegated TransportContain xfer version");
-        let redirection_bytes: [u8; 4] = xfer.bytes[xfer.bytes.len() - 4..]
-            .try_into()
-            .expect("redirection bool bytes");
         assert_eq!(
-            u32::from_le_bytes(redirection_bytes),
-            1,
+            xfer.bytes.last(),
+            Some(&1),
             "C++ xfers m_redirectionActivated after TransportContain state"
         );
     }

@@ -149,7 +149,7 @@ impl NeutronBlastBehavior {
 
             if let Some(contain) = target.get_contain() {
                 if let Ok(contain_guard) = contain.lock() {
-                    for contained_id in contain_guard.get_contained_objects() {
+                    for contained_id in contain_guard.get_contained_objects().iter() {
                         let _ = OBJECT_REGISTRY.with_object_mut(*contained_id, |contained| {
                             contained.kill(None, None);
                         });

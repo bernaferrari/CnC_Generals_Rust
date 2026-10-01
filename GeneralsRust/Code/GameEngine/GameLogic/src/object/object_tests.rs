@@ -237,8 +237,8 @@ mod tests {
             Ok(())
         }
 
-        fn get_contained_objects(&self) -> &[ObjectID] {
-            &[]
+        fn get_contained_objects(&self) -> std::borrow::Cow<'_, [ObjectID]> {
+            std::borrow::Cow::Borrowed(&[])
         }
 
         fn get_contained_count(&self) -> usize {
@@ -349,18 +349,14 @@ mod tests {
         let mut second = Object::new_test(77, 100.0);
         for object in [&mut first, &mut second] {
             if object.repulsor_helper.is_none() {
-                object.repulsor_helper = Some(
-                    crate::object::helper::ObjectRepulsorHelper::new(
-                        crate::object::helper::ObjectRepulsorHelperModuleData::default(),
-                    ),
-                );
+                object.repulsor_helper = Some(crate::object::helper::ObjectRepulsorHelper::new(
+                    crate::object::helper::ObjectRepulsorHelperModuleData::default(),
+                ));
             }
             if object.defection_helper.is_none() {
-                object.defection_helper = Some(
-                    crate::object::helper::ObjectDefectionHelper::new(
-                        crate::object::helper::ObjectDefectionHelperModuleData::default(),
-                    ),
-                );
+                object.defection_helper = Some(crate::object::helper::ObjectDefectionHelper::new(
+                    crate::object::helper::ObjectDefectionHelperModuleData::default(),
+                ));
             }
         }
 
@@ -481,9 +477,9 @@ mod tests {
     fn destroy_tail_runs_radar_team_group_pathfinder_script_control_bar() {
         let src = include_str!("object_lifecycle.rs");
         let tail = src
-            .split("fn run_destructor_tail")
+            .split("fn run_destructor_tail_with_game_logic_service")
             .nth(1)
-            .expect("run_destructor_tail");
+            .expect("run_destructor_tail_with_game_logic_service");
         assert!(tail.contains("remove_object_from_map"), "pathfinder/wall");
         assert!(tail.contains("remove_object"), "radar remove");
         assert!(tail.contains("set_team(None)"), "team clear");
@@ -494,7 +490,6 @@ mod tests {
             "script notify"
         );
         assert!(tail.contains("mark_ui_dirty"), "ControlBar dirty");
-        assert!(src.contains("self.run_destructor_tail()"));
 
         let mut obj = Object::new_test(0xD151, 100.0);
         obj.on_destroy();
@@ -1419,7 +1414,10 @@ mod tests {
         id: ObjectID,
         kinds: &[KindOf],
     ) -> (Arc<RwLock<crate::team::Team>>, Object) {
-        let team = Arc::new(RwLock::new(crate::team::Team::new(format!("RadarTeam{id}").into(), 1)));
+        let team = Arc::new(RwLock::new(crate::team::Team::new(
+            format!("RadarTeam{id}").into(),
+            1,
+        )));
         team.write().unwrap().set_controlling_player_id(Some(0));
         let mut template = DefaultThingTemplate::new(format!("TestVictim{id}"));
         for kind in kinds {
@@ -1534,8 +1532,7 @@ mod tests {
             list.set_local_player_index(0);
         }
 
-        let (_team, mut victim) =
-            radar_test_victim(809, &[KindOf::Vehicle, KindOf::Harvester]);
+        let (_team, mut victim) = radar_test_victim(809, &[KindOf::Vehicle, KindOf::Harvester]);
         let mut enemy = enemy_damage_info();
         let _ = victim.attempt_damage_with_return(&mut enemy);
 
@@ -1574,10 +1571,8 @@ mod tests {
             list.set_local_player_index(0);
         }
 
-        let (_team, mut victim) = radar_test_victim(
-            810,
-            &[KindOf::Structure, KindOf::CountsForVictory],
-        );
+        let (_team, mut victim) =
+            radar_test_victim(810, &[KindOf::Structure, KindOf::CountsForVictory]);
         let mut enemy = enemy_damage_info();
         let _ = victim.attempt_damage_with_return(&mut enemy);
 

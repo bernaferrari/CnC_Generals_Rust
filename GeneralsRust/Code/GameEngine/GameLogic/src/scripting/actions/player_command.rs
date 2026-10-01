@@ -646,7 +646,7 @@ impl ScriptAction for PlayerEvacuateBuildingAction {
                     if !contain_guard.is_garrisonable() {
                         continue;
                     }
-                    contain_guard.get_contained_objects().to_vec()
+                    contain_guard.get_contained_objects().into_owned()
                 };
                 let contain_lock = contain.try_lock();
                 if let Ok(mut contain_guard) = contain_lock {

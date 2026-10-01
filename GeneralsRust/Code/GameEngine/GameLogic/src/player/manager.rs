@@ -7,8 +7,8 @@ use crate::helpers::TheThingFactory;
 use crate::modules::AIUpdateInterfaceExt;
 use crate::object::object_factory::{ObjectCreationFlags, ObjectFactory, get_object_factory};
 use log::{trace, warn};
-use std::collections::{HashMap, hash_map::Entry};
-use std::sync::{Arc, Mutex, RwLock};
+use std::collections::HashMap;
+use std::sync::{Arc, RwLock};
 
 /// Object manager bridge implementing the command processor trait.
 pub struct ObjectManagerBridge;
@@ -152,7 +152,7 @@ impl PlayerManager for PlayerManagerBridge {
 /// AI manager bridge.
 pub struct AIManagerBridge {
     object_factory: Arc<RwLock<ObjectFactory>>,
-    basic_ai: HashMap<ObjectID, Arc<Mutex<BasicAiController>>>,
+    basic_ai: HashMap<ObjectID, BasicAiController>,
 }
 
 impl AIManagerBridge {
@@ -167,15 +167,10 @@ impl AIManagerBridge {
         &mut self,
         object_id: ObjectID,
         object: Arc<RwLock<crate::object::Object>>,
-    ) -> Arc<Mutex<BasicAiController>> {
-        match self.basic_ai.entry(object_id) {
-            Entry::Occupied(entry) => Arc::clone(entry.get()),
-            Entry::Vacant(entry) => {
-                let controller = Arc::new(Mutex::new(BasicAiController::new(object)));
-                entry.insert(Arc::clone(&controller));
-                controller
-            }
-        }
+    ) -> &mut BasicAiController {
+        self.basic_ai
+            .entry(object_id)
+            .or_insert_with(|| BasicAiController::new(object))
     }
 }
 

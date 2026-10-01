@@ -264,7 +264,7 @@ pub(super) fn closest_contained_rider_id_for_position(
     let mut closest = None;
     let mut closest_dist_sq = f32::INFINITY;
 
-    for &rider_id in contain_guard.get_contained_objects() {
+    for &rider_id in contain_guard.get_contained_objects().iter() {
         let Some(rider) = OBJECT_REGISTRY.get_object(rider_id) else {
             continue;
         };

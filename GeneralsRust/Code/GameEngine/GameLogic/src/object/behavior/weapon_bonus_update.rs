@@ -92,8 +92,7 @@ impl WeaponBonusUpdate {
             .downcast_ref::<WeaponBonusUpdateModuleData>()
             .ok_or("Invalid module data")?;
 
-        let next_call_frame_and_phase =
-            crate::helpers::TheGameLogic::get_frame().saturating_add(1);
+        let next_call_frame_and_phase = crate::helpers::TheGameLogic::get_frame().saturating_add(1);
 
         Ok(Self {
             object_id: object
@@ -158,7 +157,7 @@ impl UpdateModuleInterface for WeaponBonusUpdate {
 
                 if let Some(contain) = target.get_contain() {
                     if let Ok(contain_guard) = contain.lock() {
-                        for contained_id in contain_guard.get_contained_objects() {
+                        for contained_id in contain_guard.get_contained_objects().iter() {
                             let _ = OBJECT_REGISTRY.with_object_mut(*contained_id, |contained| {
                                 if contained.is_kind_of_multi(required, forbidden) {
                                     contained.do_temp_weapon_bonus(condition, duration);

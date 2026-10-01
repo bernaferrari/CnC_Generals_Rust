@@ -158,7 +158,7 @@ impl ContainModuleInterface for RailedTransportContain {
             .map_err(|e| e.into())
     }
 
-    fn get_contained_objects(&self) -> &[ObjectID] {
+    fn get_contained_objects(&self) -> std::borrow::Cow<'_, [ObjectID]> {
         ContainModuleInterface::get_contained_objects(&self.base)
     }
 
@@ -215,9 +215,10 @@ impl ContainModuleInterface for RailedTransportContain {
         else {
             return Ok(());
         };
-        let valid = other.try_read().map(|guard| {
-            ContainModuleInterface::is_valid_container_for(self, &*guard, true)
-        }).unwrap_or(false);
+        let valid = other
+            .try_read()
+            .map(|guard| ContainModuleInterface::is_valid_container_for(self, &*guard, true))
+            .unwrap_or(false);
         if valid {
             self.contain_object(other_id)?;
         }

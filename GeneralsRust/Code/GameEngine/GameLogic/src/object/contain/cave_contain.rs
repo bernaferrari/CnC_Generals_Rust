@@ -4,7 +4,7 @@
 //! entries. Changing entry is a script or ini command. All queries about capacity and
 //! contents are also redirected.
 
-use std::cell::UnsafeCell;
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock, Weak};
 
@@ -29,62 +29,6 @@ use game_engine::common::system::{Snapshotable, Xfer, XferMode, XferVersion};
 fn dual_world_registry_unavailable() -> bool {
     let _host_empty = crate::object::registry::OBJECT_REGISTRY.is_empty();
     false
-}
-
-/// Tracker-backed occupant list returned as `&[ObjectID]` from `&self`.
-#[derive(Debug)]
-struct SharedContainIdCache {
-    ids: UnsafeCell<Vec<ObjectID>>,
-}
-
-// SAFETY: CaveContain is only accessed through Mutex<dyn ContainModuleInterface>
-// or exclusive `&mut self` in tests.
-unsafe impl Sync for SharedContainIdCache {}
-
-impl SharedContainIdCache {
-    fn new() -> Self {
-        Self {
-            ids: UnsafeCell::new(Vec::new()),
-        }
-    }
-
-    fn contains(&self, id: &ObjectID) -> bool {
-        // SAFETY: the cache is guarded externally — the owning CaveContain
-        // module lives behind `Mutex<dyn ContainModuleInterface>` (or is
-        // used via `&mut self` in tests), so this shared cell read cannot
-        // race a writer.
-        unsafe { (*self.ids.get()).contains(id) }
-    }
-
-    fn push(&self, id: ObjectID) {
-        // SAFETY: external mutex guarantees exclusivity (see type-level
-        // note); the whole-vector mutation keeps the cell valid.
-        let cache = unsafe { &mut *self.ids.get() };
-        if !cache.contains(&id) {
-            cache.push(id);
-        }
-    }
-
-    fn retain(&self, mut pred: impl FnMut(&ObjectID) -> bool) {
-        // SAFETY: external mutex guarantees exclusivity; `retain` mutates in
-        // place but leaves the allocation valid for later readers.
-        unsafe { (*self.ids.get()).retain(|id| pred(id)) }
-    }
-
-    fn clear(&self) {
-        // SAFETY: external mutex guarantees exclusivity; clearing keeps the
-        // vector allocated and the cell valid.
-        unsafe { (*self.ids.get()).clear() }
-    }
-
-    fn refresh(&self, ids: Vec<ObjectID>) -> &[ObjectID] {
-        // SAFETY: external mutex guarantees exclusivity for the write…
-        let cache = unsafe { &mut *self.ids.get() };
-        *cache = ids;
-        // SAFETY: …and no other alias exists when this shared borrow of the
-        // freshly replaced cache is taken.
-        unsafe { &*self.ids.get() }
-    }
 }
 
 /// Configuration data for CaveContain module
@@ -152,7 +96,7 @@ pub struct CaveContain {
     /// Original team before garrison
     original_team: Option<Weak<RwLock<Team>>>,
     /// Cached tracker object IDs for trait APIs that return borrowed slices.
-    contained_object_ids: SharedContainIdCache,
+    contained_object_ids: Vec<ObjectID>,
     /// Reference to the owning object
     object_id: ObjectID,
     /// Reference to cave system
@@ -174,7 +118,7 @@ impl CaveContain {
             need_to_run_on_build_complete: true,
             cave_index: module_data.cave_index_data,
             original_team: None,
-            contained_object_ids: SharedContainIdCache::new(),
+            contained_object_ids: Vec::new(),
             object_id: object
                 .upgrade()
                 .and_then(|arc| arc.read().ok().map(|g| g.get_id()))
@@ -287,21 +231,21 @@ impl CaveContain {
             return Err("Cave passenger lock busy".into());
         };
         contained.register_in_partition_manager()?;
-            if let Some(pos) = owner_pos {
-                if let Err(err) = contained.set_position(&pos) {
-                    log::warn!(
-                        "CaveContain::on_removing failed to place contained object {}: {}",
-                        contained.get_id(),
-                        err
-                    );
-                }
+        if let Some(pos) = owner_pos {
+            if let Err(err) = contained.set_position(&pos) {
+                log::warn!(
+                    "CaveContain::on_removing failed to place contained object {}: {}",
+                    contained.get_id(),
+                    err
+                );
             }
+        }
 
-            if let Some(drawable) = contained.get_drawable() {
-                if let Ok(mut draw) = drawable.write() {
-                    draw.set_drawable_hidden(false)?;
-                }
+        if let Some(drawable) = contained.get_drawable() {
+            if let Ok(mut draw) = drawable.write() {
+                draw.set_drawable_hidden(false)?;
             }
+        }
         drop(contained);
 
         self.do_unload_sound()?;
@@ -406,11 +350,17 @@ impl CaveContain {
             let Ok(obj_guard) = obj.try_read() else {
                 return Err(GameError::LockError.into());
             };
-            if !self.is_valid_container_for(&obj_guard, true)? {
+            // C++ OpenContain::addToContain validates with checkCapacity=false;
+            // admission callers perform the capacity check before this method.
+            if !self.is_valid_container_for(&obj_guard, false)? {
                 return Err("Object not valid for this cave container".into());
             }
+            // The C++ getter reads the canonical cave tracker without
+            // mutating module state. Consult that tracker here as well so a
+            // previous list query is not required to refresh a local mirror.
+            let tracker_ids = self.get_contained_item_ids().unwrap_or_default();
             let already_listed = self.base.get_contained_object_ids().contains(&obj_id)
-                || self.contained_object_ids.contains(&obj_id);
+                || tracker_ids.contains(&obj_id);
             let contained_by = obj_guard.get_contained_by();
             if contained_by.is_some()
                 && (already_listed || contained_by != Some(self.get_object_id()))
@@ -539,7 +489,11 @@ impl CaveContain {
 
         for obj_id in full_list {
             if let Err(err) = self.remove_from_contain(obj_id, expose_stealth_units) {
-                log::warn!("CaveContain::remove_all_contained failed for {}: {}", obj_id, err);
+                log::warn!(
+                    "CaveContain::remove_all_contained failed for {}: {}",
+                    obj_id,
+                    err
+                );
             }
         }
 
@@ -1066,10 +1020,9 @@ impl ContainModuleInterface for CaveContain {
         CaveContain::remove_from_contain(self, object_id, expose_stealth).map_err(|e| e.into())
     }
 
-    fn get_contained_objects(&self) -> &[ObjectID] {
+    fn get_contained_objects(&self) -> Cow<'_, [ObjectID]> {
         // C++ CaveContain::getContainedItemsList redirects to the cave tracker.
-        self.contained_object_ids
-            .refresh(self.get_contained_item_ids().unwrap_or_default())
+        Cow::Owned(self.get_contained_item_ids().unwrap_or_default())
     }
 
     fn get_contained_count(&self) -> usize {
@@ -1157,9 +1110,10 @@ impl ContainModuleInterface for CaveContain {
         else {
             return Ok(());
         };
-        let valid = other.try_read().map(|guard| {
-            ContainModuleInterface::is_valid_container_for(self, &*guard, true)
-        }).unwrap_or(false);
+        let valid = other
+            .try_read()
+            .map(|guard| ContainModuleInterface::is_valid_container_for(self, &*guard, true))
+            .unwrap_or(false);
         if valid {
             self.add_to_contain(other_id)?;
         }
@@ -1312,8 +1266,8 @@ mod tests {
             Ok(())
         }
 
-        fn get_contained_objects(&self) -> &[ObjectID] {
-            &[]
+        fn get_contained_objects(&self) -> Cow<'_, [ObjectID]> {
+            Cow::Borrowed(&[])
         }
 
         fn get_contained_count(&self) -> usize {
@@ -1418,16 +1372,27 @@ mod tests {
             1
         );
         assert_eq!(cave.base.get_contain_count(), 0);
+        let retained_view = ContainModuleInterface::get_contained_objects(&cave);
         assert_eq!(ContainModuleInterface::get_contained_count(&cave), 1);
-        assert_eq!(
-            ContainModuleInterface::get_contained_objects(&cave),
-            &[93002]
-        );
+        assert_eq!(retained_view.as_ref(), &[93002]);
         assert_eq!(
             passenger.read().expect("passenger read").get_contained_by(),
             Some(93001)
         );
         assert!(ContainModuleInterface::is_bustable(&cave));
+
+        tracker
+            .write()
+            .expect("tracker write")
+            .add_to_contain_list_id(93007)
+            .expect("add shared tracker id");
+        let refreshed_view = ContainModuleInterface::get_contained_objects(&cave);
+        assert_eq!(refreshed_view.as_ref(), &[93002, 93007]);
+        assert_eq!(
+            retained_view.as_ref(),
+            &[93002],
+            "a prior tracker snapshot remains valid across a later query and mutation"
+        );
 
         OBJECT_REGISTRY.unregister_object(93001);
         OBJECT_REGISTRY.unregister_object(93002);
@@ -1566,7 +1531,7 @@ mod tests {
         )
         .expect("add passenger to tracker");
         assert_eq!(
-            ContainModuleInterface::get_contained_objects(&cave),
+            ContainModuleInterface::get_contained_objects(&cave).as_ref(),
             &[93010]
         );
 
@@ -1728,7 +1693,7 @@ mod tests {
 
         ContainModuleInterface::contain_object(&mut cave_a, 93112).expect("enter a");
         assert_eq!(
-            ContainModuleInterface::get_contained_objects(&cave_b),
+            ContainModuleInterface::get_contained_objects(&cave_b).as_ref(),
             &[93112],
             "C++ getContainedItemsList is the shared cave tracker"
         );

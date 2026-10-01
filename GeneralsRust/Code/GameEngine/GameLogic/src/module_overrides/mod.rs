@@ -6,11 +6,11 @@ compile_error!(
     "module_overrides.rs is stale/uncompiled; use contain_module_overrides.rs or intentionally rewire this module"
 );
 
-//! Stale ModuleFactory override dump, split by module family for the LOC cap.
-//!
-//! Live implementation: `contain_module_overrides/`.
-//! C++ counterpart: `ModuleFactory.cpp` plus per-module factory wrappers
-//! under `GeneralsMD/Code/GameEngine/Source/GameLogic/Object/`.
+// Stale ModuleFactory override dump, split by module family for the LOC cap.
+//
+// Live implementation: `contain_module_overrides/`.
+// C++ counterpart: `ModuleFactory.cpp` plus per-module factory wrappers
+// under `GeneralsMD/Code/GameEngine/Source/GameLogic/Object/`.
 
 use std::any::Any;
 use std::sync::{Arc, Mutex, OnceLock, RwLock, Weak};
@@ -18,21 +18,21 @@ use std::sync::{Arc, Mutex, OnceLock, RwLock, Weak};
 use game_engine::common::ini::INI;
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::rts::AsciiString;
-use game_engine::common::system::{object_status_types::ObjectStatusMaskType, Snapshotable, Xfer};
+use game_engine::common::system::{Snapshotable, Xfer, object_status_types::ObjectStatusMaskType};
 use game_engine::common::thing::module::{
     BaseModuleData, CreateInterface, Drawable as ModuleDrawableTrait, Module, ModuleData,
     ModuleInterfaceType, ModuleType, NameKeyType, Object as ModuleObjectTrait,
     Thing as ModuleThing,
 };
 use game_engine::common::thing::module_factory::{
-    apply_module_overrides_to_existing_templates, get_module_factory, register_module_override,
-    NewModuleDataProc,
+    NewModuleDataProc, apply_module_overrides_to_existing_templates, get_module_factory,
+    register_module_override,
 };
 
-use crate::common::{Coord3D, ObjectID, TheGameLogic, INVALID_ID};
+use crate::common::{Coord3D, INVALID_ID, ObjectID, TheGameLogic};
 use crate::modules::ContainModuleInterface;
 use crate::object::collide::{
-    CollideModule as CollideModuleTrait, CollisionError, GameObject, COLLISION_MANAGER,
+    COLLISION_MANAGER, CollideModule as CollideModuleTrait, CollisionError, GameObject,
 };
 use crate::object::contain::{
     CaveContain, CaveContainModuleData, GarrisonContain, GarrisonContainModuleData, HealContain,
@@ -60,8 +60,8 @@ use crate::object::{
         BaseRegenerateUpdate, BaseRegenerateUpdateModule, BaseRegenerateUpdateModuleData,
     },
     behavior::battle_bus_slow_death_behavior::{
-        battle_bus_slow_death_data_factory, battle_bus_slow_death_module_factory,
-        BattleBusSlowDeathBehaviorModuleData,
+        BattleBusSlowDeathBehaviorModuleData, battle_bus_slow_death_data_factory,
+        battle_bus_slow_death_module_factory,
     },
     behavior::battle_plan_update::{
         BattlePlanUpdate, BattlePlanUpdateModule, BattlePlanUpdateModuleData,
@@ -106,7 +106,7 @@ use crate::object::{
         FireWeaponWhenDamagedBehavior, FireWeaponWhenDamagedBehaviorModule,
         FireWeaponWhenDamagedBehaviorModuleData,
     },
-    behavior::fire_weapon_when_dead_behavior_new::{
+    behavior::fire_weapon_when_dead_behavior::{
         FireWeaponWhenDeadBehavior, FireWeaponWhenDeadBehaviorModule,
         FireWeaponWhenDeadBehaviorModuleData,
     },
@@ -309,10 +309,6 @@ use crate::object::{
     },
     update::slaved_update::{SlavedUpdate, SlavedUpdateModule, SlavedUpdateModuleData},
     update::{
-        bone_fx_update::{BoneFXUpdate, BoneFXUpdateModule, BoneFXUpdateModuleData},
-        ocl_update::{OCLUpdateModule, OCLUpdateModuleData},
-        special_power_update::{SpecialPowerUpdateModule, SpecialPowerUpdateModuleData},
-        spy_vision_update::{SpyVisionUpdate, SpyVisionUpdateModule, SpyVisionUpdateModuleData},
         AnimatedParticleSysBoneClientUpdateModule, AssaultTransportAIUpdateModule,
         AssaultTransportAIUpdateModuleData, BeaconClientUpdateModule, BeaconClientUpdateModuleData,
         ChinookAIUpdateModule, ChinookAIUpdateModuleData, DeliverPayloadAIUpdateModule,
@@ -325,6 +321,10 @@ use crate::object::{
         SupplyTruckAIUpdateModuleData, SwayClientUpdateModule, TransportAIUpdateModule,
         TransportAIUpdateModuleData, WanderAIUpdateModule, WanderAIUpdateModuleData,
         WorkerAIUpdateModule, WorkerAIUpdateModuleData,
+        bone_fx_update::{BoneFXUpdate, BoneFXUpdateModule, BoneFXUpdateModuleData},
+        ocl_update::{OCLUpdateModule, OCLUpdateModuleData},
+        special_power_update::{SpecialPowerUpdateModule, SpecialPowerUpdateModuleData},
+        spy_vision_update::{SpyVisionUpdate, SpyVisionUpdateModule, SpyVisionUpdateModuleData},
     },
     upgrade::active_shroud_upgrade::{ActiveShroudUpgrade, ActiveShroudUpgradeModuleData},
     upgrade::armor_upgrade::{ArmorUpgrade, ArmorUpgradeModuleData},
@@ -426,21 +426,20 @@ use crate::object::behavior::prison_behavior::{
 #[cfg(feature = "allow_surrender")]
 use crate::pow_truck_ai_update::{POWTruckAIUpdateModule, POWTruckAIUpdateModuleData};
 
-
-mod helpers;
-mod body;
-mod create;
-mod collide;
-mod die;
-mod special_power;
-mod upgrade;
 mod ai;
 mod behavior;
-mod update;
-mod production;
-mod draw_client;
+mod body;
+mod collide;
 mod contain;
+mod create;
+mod die;
+mod draw_client;
+mod helpers;
 mod install;
+mod production;
+mod special_power;
+mod update;
+mod upgrade;
 
 #[cfg(test)]
 mod tests;

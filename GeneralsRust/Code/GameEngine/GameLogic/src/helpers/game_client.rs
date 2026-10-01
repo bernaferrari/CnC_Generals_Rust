@@ -559,32 +559,50 @@ impl TheGameClient {
         let _ = _frame; // suppress unused warning until full implementation
     }
 
-    pub fn notify_terrain_object_moved(&self, object_id: ObjectID) {
-        // C++ W3DGameClient.cpp:202 TheTerrainRenderObject->unitMoved(obj)
-        let Some(info) = OBJECT_REGISTRY.with_object(object_id, |obj| {
-            let pos = *obj.get_position();
-            let (dir_x, dir_y) = obj.get_unit_direction_vector_2d();
-            let geom = obj.get_geometry_info();
-            TerrainUnitMovedInfo {
-                object_id: object_id as u32,
-                x: pos.x,
-                y: pos.y,
-                z: pos.z,
-                dir_x,
-                dir_y,
-                major_radius: geom.get_major_radius(),
-                minor_radius: geom.get_minor_radius(),
-                is_box: false,
-                crusher_level: obj.get_crusher_level() as i32,
-                immobile: obj.is_kind_of(crate::common::KindOf::Immobile),
-                frame: TheGameLogic::get_frame(),
-            }
-        }) else {
-            return;
-        };
+    fn terrain_unit_moved_info(object: &Object, frame: u32) -> TerrainUnitMovedInfo {
+        let pos = *object.get_position();
+        let (dir_x, dir_y) = object.get_unit_direction_vector_2d();
+        let geom = object.get_geometry_info();
+        TerrainUnitMovedInfo {
+            object_id: object.get_id() as u32,
+            x: pos.x,
+            y: pos.y,
+            z: pos.z,
+            dir_x,
+            dir_y,
+            major_radius: geom.get_major_radius(),
+            minor_radius: geom.get_minor_radius(),
+            is_box: false,
+            crusher_level: object.get_crusher_level() as i32,
+            immobile: object.is_kind_of(crate::common::KindOf::Immobile),
+            frame,
+        }
+    }
+
+    fn dispatch_terrain_unit_moved(&self, info: TerrainUnitMovedInfo) {
         if let Some(hook) = get_terrain_unit_moved_hook() {
             hook(info);
         }
+    }
+
+    /// Notify the renderer immediately using the object already owned by the
+    /// caller. This avoids reacquiring the registry lock when movement occurs
+    /// under that object's write guard. The hook remains synchronous and may
+    /// run while that guard is held; callbacks must not re-enter the same object.
+    pub fn notify_terrain_object_moved_from(&self, object: &Object) {
+        let info = Self::terrain_unit_moved_info(object, TheGameLogic::get_frame());
+        self.dispatch_terrain_unit_moved(info);
+    }
+
+    /// Notify by ID for callers that do not already own the object.
+    pub fn notify_terrain_object_moved(&self, object_id: ObjectID) {
+        // C++ W3DGameClient.cpp:202 dispatches unitMoved synchronously.
+        let Some(info) = OBJECT_REGISTRY.with_object(object_id, |object| {
+            Self::terrain_unit_moved_info(object, TheGameLogic::get_frame())
+        }) else {
+            return;
+        };
+        self.dispatch_terrain_unit_moved(info);
     }
     /// C++ `W3DGameClient::createRayEffectByTemplate` visuals from W3DLaserDraw.
     pub fn ray_effect_template_visuals(template_name: &str) -> Option<RayEffectTemplateVisuals> {

@@ -90,10 +90,7 @@ impl InternetHackContain {
             return Err("Internet hack AI lock busy".into());
         };
         drop(rider_guard);
-        let params = AiCommandParams::new(
-            AiCommandType::HackInternet,
-            CommandSourceType::FromAi,
-        );
+        let params = AiCommandParams::new(AiCommandType::HackInternet, CommandSourceType::FromAi);
         ai_guard.execute_command(&params)?;
         Ok(())
     }
@@ -139,7 +136,7 @@ impl ContainModuleInterface for InternetHackContain {
             .map_err(|e| e.into())
     }
 
-    fn get_contained_objects(&self) -> &[ObjectID] {
+    fn get_contained_objects(&self) -> std::borrow::Cow<'_, [ObjectID]> {
         ContainModuleInterface::get_contained_objects(&self.base)
     }
 
@@ -196,9 +193,10 @@ impl ContainModuleInterface for InternetHackContain {
         else {
             return Ok(());
         };
-        let valid = other.try_read().map(|guard| {
-            ContainModuleInterface::is_valid_container_for(self, &*guard, true)
-        }).unwrap_or(false);
+        let valid = other
+            .try_read()
+            .map(|guard| ContainModuleInterface::is_valid_container_for(self, &*guard, true))
+            .unwrap_or(false);
         if valid {
             self.add_to_contain(other_id)?;
         }

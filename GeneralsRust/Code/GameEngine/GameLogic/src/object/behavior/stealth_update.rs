@@ -616,7 +616,7 @@ impl StealthUpdate {
                         if !contain_guard.is_passenger_allowed_to_fire(None) {
                             return false;
                         }
-                        for &rider_id in contain_guard.get_contained_objects() {
+                        for &rider_id in contain_guard.get_contained_objects().iter() {
                             if crate::object::registry::OBJECT_REGISTRY
                                 .with_object(rider_id, |rider_guard| {
                                     rider_guard

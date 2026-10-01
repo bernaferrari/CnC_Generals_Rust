@@ -858,10 +858,8 @@ impl ScriptActionHandler for MissionScriptActionHandler {
     }
 
     fn set_warehouse_value(&self, warehouse_name: &str, cash_value: i32) -> GameLogicResult<()> {
-        crate::game_logic::host_supply_gather::queue_warehouse_set_value(
-            warehouse_name,
-            cash_value,
-        );
+        self.hooks
+            .queue_warehouse_set_value(warehouse_name, cash_value);
         Ok(())
     }
 }

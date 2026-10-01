@@ -1021,7 +1021,7 @@ impl POWTruckAIUpdateInterface for POWTruckAIUpdate {
         let mut bounty: u32 = 0;
         let prisoner_ids: Vec<ObjectID> = truck_contain
             .lock()
-            .map(|contain| contain.get_contained_objects().to_vec())
+            .map(|contain| contain.get_contained_objects().into_owned())
             .unwrap_or_default();
 
         for prisoner_id in prisoner_ids {

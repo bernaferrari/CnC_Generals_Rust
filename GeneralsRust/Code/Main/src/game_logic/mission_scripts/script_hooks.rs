@@ -3,6 +3,9 @@
 pub struct MissionScriptHooks {
     runtime: Mutex<MissionScriptRuntime>,
     pending_script_enabled_updates: Arc<Mutex<Vec<(String, bool)>>>,
+    // The action handler uses `&self` while the script runtime is locked;
+    // defer this per-world value until the owning GameLogic tick drains it.
+    pending_warehouse_set_values: Mutex<Vec<(String, i32)>>,
     messages: Mutex<Vec<String>>,
     sounds: Mutex<Vec<String>>,
     sound_events: Mutex<Vec<ScriptSoundEvent>>,
@@ -70,6 +73,28 @@ pub struct MissionScriptHooks {
 }
 
 impl MissionScriptHooks {
+    pub fn queue_warehouse_set_value(&self, name: &str, cash: i32) {
+        if name.is_empty() {
+            return;
+        }
+        if let Ok(mut queue) = self.pending_warehouse_set_values.lock() {
+            queue.push((name.to_string(), cash));
+        }
+    }
+
+    pub fn drain_warehouse_set_values(&self) -> Vec<(String, i32)> {
+        self.pending_warehouse_set_values
+            .lock()
+            .map(|mut queue| queue.drain(..).collect())
+            .unwrap_or_default()
+    }
+
+    pub fn clear_warehouse_set_values(&self) {
+        if let Ok(mut queue) = self.pending_warehouse_set_values.lock() {
+            queue.clear();
+        }
+    }
+
     pub fn new() -> GameLogicResult<Arc<Self>> {
         Self::new_with_host_trigger_world(Arc::new(Mutex::new(Default::default())))
     }
@@ -84,6 +109,7 @@ impl MissionScriptHooks {
                 host_trigger_world,
             )?),
             pending_script_enabled_updates,
+            pending_warehouse_set_values: Mutex::new(Vec::new()),
             messages: Mutex::new(Vec::new()),
             sounds: Mutex::new(Vec::new()),
             sound_events: Mutex::new(Vec::new()),

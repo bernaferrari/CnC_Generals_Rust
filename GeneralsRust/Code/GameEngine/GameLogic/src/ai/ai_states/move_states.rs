@@ -22,7 +22,6 @@ impl AIIdleState {
         self.inited = false;
         leftover_restake_idle_pathfinder(context.owner_id);
     }
-
 }
 
 impl AIState for AIIdleState {
@@ -33,7 +32,6 @@ impl AIState for AIIdleState {
         StateReturnType::Continue
     }
 
-
     fn update(&mut self, context: &mut AIStateMachineContext) -> StateReturnType {
         // C++ AIIdleState::update calls doInitIdleState on first tick.
         self.do_init_idle_state(context);
@@ -43,7 +41,6 @@ impl AIState for AIIdleState {
         }
         StateReturnType::Continue
     }
-
 
     fn on_exit(&mut self, _context: &mut AIStateMachineContext, _exit_type: StateExitType) {
         // Cleanup when leaving idle state
@@ -86,8 +83,7 @@ fn leftover_restake_idle_pathfinder(owner_id: ObjectID) {
     );
     if plan.first_restake {
         let layer = match owner.get_layer() {
-            crate::common::PathfindLayerEnum::Invalid
-            | crate::common::PathfindLayerEnum::Last => {
+            crate::common::PathfindLayerEnum::Invalid | crate::common::PathfindLayerEnum::Last => {
                 crate::ai::pathfind::PathfindLayerEnum::Invalid
             }
             crate::common::PathfindLayerEnum::Wall => crate::ai::pathfind::PathfindLayerEnum::Wall,
@@ -120,7 +116,6 @@ fn leftover_restake_idle_pathfinder(owner_id: ObjectID) {
     ai_guard.set_locomotor_goal_none();
     ai_guard.set_current_victim(None);
 }
-
 
 /// AI Move To State
 #[derive(Debug)]
@@ -337,7 +332,7 @@ impl AIMoveAndEvacuateState {
     fn evacuate_contents(owner: &mut GameObject) {
         if let Some(contain) = owner.get_contain() {
             if let Ok(mut contain_guard) = contain.lock() {
-                let ids: Vec<ObjectID> = contain_guard.get_contained_objects().to_vec();
+                let ids: Vec<ObjectID> = contain_guard.get_contained_objects().into_owned();
                 for id in ids {
                     let _ = contain_guard.release_object(id);
                 }
@@ -481,4 +476,3 @@ impl AIState for AIMoveAndDeleteState {
         AIStateType::MoveAndDelete
     }
 }
-

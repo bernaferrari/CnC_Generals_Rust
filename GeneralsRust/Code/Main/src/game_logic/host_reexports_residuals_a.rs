@@ -1169,13 +1169,6 @@ pub use super::host_live_fire_weapon_when_damaged_behavior_dual_world_empty_gate
     simulate_live_fire_weapon_when_damaged_behavior_dual_world_empty_gate_honesty,
 };
 #[cfg(any(test, feature = "host-residuals"))]
-pub use super::host_live_fire_weapon_when_dead_behavior_dual_world_empty_gate_residual_wave427::{
-    honesty_live_fire_weapon_when_dead_behavior_dual_world_empty_gate_method_names_residual_wave427,
-    honesty_live_fire_weapon_when_dead_behavior_dual_world_empty_gate_nav_commands_residual_wave427,
-    honesty_live_fire_weapon_when_dead_behavior_dual_world_empty_gate_residual_pack_wave427,
-    simulate_live_fire_weapon_when_dead_behavior_dual_world_empty_gate_honesty,
-};
-#[cfg(any(test, feature = "host-residuals"))]
 pub use super::host_live_fixed_step_diag_presentation_helper_residual_wave564::{
     honesty_fixed_step_diag_presentation_helper_method_names_residual_wave564,
     honesty_fixed_step_diag_presentation_helper_nav_commands_residual_wave564,

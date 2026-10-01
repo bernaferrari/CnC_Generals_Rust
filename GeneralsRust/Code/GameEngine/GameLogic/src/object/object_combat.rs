@@ -732,11 +732,50 @@ impl Object {
         let Some(tracker) = &self.experience_tracker else {
             return false;
         };
+
+        // C++ reads IsTrainable and ExperienceRequired from this Object's
+        // template. Looking the owner up through ExperienceTracker while this
+        // Object is write-locked would fail that self-read and silently skip
+        // the reset. Resolve the owned facts directly, as addExperience does.
+        let (experience_sink, trainable, experience_required) = {
+            let Ok(tracker_guard) = tracker.lock() else {
+                return false;
+            };
+            let template = self.get_template();
+            (
+                tracker_guard.get_experience_sink(),
+                template.is_trainable(),
+                [
+                    template.get_experience_required(0),
+                    template.get_experience_required(1),
+                    template.get_experience_required(2),
+                    template.get_experience_required(3),
+                ],
+            )
+        };
+
+        // C++ forwards the call to the sink Object's tracker. Route through
+        // that Object so its own template thresholds and level-change effects
+        // are used; never apply the sink's returned transition to this source.
+        if experience_sink != ExperienceTracker::INVALID_ID {
+            let Some(sink) = crate::helpers::TheGameLogic::find_object_by_id(experience_sink)
+            else {
+                return false;
+            };
+            let Ok(mut sink_guard) = sink.write() else {
+                return false;
+            };
+            return sink_guard
+                .set_experience_and_level_with_side_effects(experience, provide_feedback);
+        }
+
+        if !trainable {
+            return false;
+        }
+
         let old_level = match tracker.lock() {
-            Ok(mut tracker_guard) => tracker_guard.set_experience_and_level(
-                experience,
-                &ExperienceTracker::DEFAULT_EXPERIENCE_REQUIRED,
-            ),
+            Ok(mut tracker_guard) => tracker_guard
+                .set_experience_and_level_already_accepted(experience, &experience_required),
             Err(_) => return false,
         };
         let Some(old_level) = old_level else {

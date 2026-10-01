@@ -142,10 +142,9 @@ impl Object {
         let count = positions.len().min(transforms.len());
         let mut world = Vec::with_capacity(count);
         for i in 0..count {
-            world.push(self.convert_bone_pos_to_world_pos(
-                Some(&positions[i]),
-                Some(&transforms[i]),
-            ));
+            world.push(
+                self.convert_bone_pos_to_world_pos(Some(&positions[i]), Some(&transforms[i])),
+            );
         }
         world
     }
@@ -239,7 +238,11 @@ impl Object {
         (true, position, transform)
     }
 
-    fn turret_firepoint_matrix_at_yaw(&self, bone_name: &str, turret_rotation: f32) -> Option<Matrix3D> {
+    fn turret_firepoint_matrix_at_yaw(
+        &self,
+        bone_name: &str,
+        turret_rotation: f32,
+    ) -> Option<Matrix3D> {
         let drawable = self.drawable.as_ref()?;
         let draw_guard = drawable.read().ok()?;
         let launch = drawable.get_projectile_launch_offset(
@@ -426,10 +429,8 @@ impl Object {
             let mut turret_bones = Vec::new();
             for index in 1..=32 {
                 let name = format!("FIREPOINT{index:02}");
-                let (found, _, matrix) = self.get_single_logical_bone_position_on_turret(
-                    TurretType::Primary,
-                    &name,
-                );
+                let (found, _, matrix) =
+                    self.get_single_logical_bone_position_on_turret(TurretType::Primary, &name);
                 if !found {
                     break;
                 }
@@ -494,7 +495,10 @@ impl Object {
             && (self.is_kind_of(KindOf::Infantry) || self.is_kind_of(KindOf::Vehicle))
         {
             if let Some(client) = crate::helpers::TheGameClient::get() {
-                client.notify_terrain_object_moved(self.id);
+                // Object::setPosition already owns this object mutably. Pass
+                // its current facts directly instead of reacquiring the same
+                // object's registry read lock here.
+                client.notify_terrain_object_moved_from(self);
             }
         }
 
@@ -722,7 +726,6 @@ impl Object {
         self.carrier_deck_height
     }
 
-
     /// Set object orientation (stored on geometry info; rendering updates occur elsewhere).
     pub fn set_orientation(&mut self, angle: Real) -> Result<(), String> {
         if self.is_kind_of(KindOf::StickToTerrainSlope) {
@@ -765,8 +768,7 @@ impl Object {
         if (old - angle).abs() > 0.01 {
             let pos = self.geometry_info.position;
             let _ = crate::object::collide::collision_system::with_collision_system_mut(|system| {
-                let collision_pos =
-                    crate::object::collide::Coord3D::new(pos.x, pos.y, pos.z);
+                let collision_pos = crate::object::collide::Coord3D::new(pos.x, pos.y, pos.z);
                 let _ = system.update_object_pose(self.id, collision_pos, angle);
                 Ok::<(), crate::object::collide::CollisionError>(())
             });
@@ -838,7 +840,8 @@ impl Object {
     /// Best-effort C++ Pathfinder::removePos / updatePos around a layer change.
     /// No-ops when AI/pathfinder is not constructed (unit tests, early boot).
     pub(super) fn sync_pathfinder_pos(&self, remove_only: bool) {
-        let ai_store = crate::ai::the_ai();let Ok(ai_guard) = ai_store.read() else {
+        let ai_store = crate::ai::the_ai();
+        let Ok(ai_guard) = ai_store.read() else {
             return;
         };
         let Some(pathfinder) = ai_guard.pathfinder() else {
@@ -893,7 +896,7 @@ mod trigger_identity_tests {
     use crate::scripting::events::TriggerArea;
     use crate::system::game_logic::get_game_logic;
     use crate::terrain::get_terrain_logic;
-    use std::sync::Arc;
+    use std::sync::{Arc, RwLock};
 
     fn square(id: i32, name: &str) -> PolygonTrigger {
         PolygonTrigger::new(
@@ -972,5 +975,31 @@ mod trigger_identity_tests {
         );
         let _ = tracker.unregister_area(area_name);
         let _ = get_event_manager();
+    }
+
+    #[test]
+    fn moving_registered_infantry_while_write_locked_does_not_reread_registry() {
+        let _lock = crate::test_sync::lock();
+        let object_id = 0x00B0_1B21;
+        let mut template = DefaultThingTemplate::new("RegisteredInfantry".to_string());
+        template.add_kind_of(KindOf::Infantry);
+        let object = Arc::new(RwLock::new(Object::new_test_from_template(
+            object_id,
+            100.0,
+            Arc::new(template),
+        )));
+        crate::object::registry::OBJECT_REGISTRY.register_object(object_id, &object);
+
+        // This mirrors GarrisonContain::move_objects_with_me: the caller holds
+        // the passenger's write guard while Object::set_position notifies the
+        // terrain client. The notification must use this borrow, not lock the
+        // registry entry again.
+        object
+            .write()
+            .expect("object write lock")
+            .set_position(&Coord3D::new(5.0, 5.0, 0.0))
+            .expect("move infantry");
+
+        crate::object::registry::OBJECT_REGISTRY.unregister_object(object_id);
     }
 }

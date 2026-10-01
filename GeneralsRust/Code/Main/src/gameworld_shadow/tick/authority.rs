@@ -492,12 +492,8 @@ mod scoped_publication_tests {
         }
     }
 
-    /// The host logic frame opens the same scoped window around its
-    /// GameLogic tick (cnc_game_engine `host_update_logic_frame`): a foreign
-    /// instance constructed mid-session publishes its DEFAULT_OFF
-    /// fresh-instance barrier over the thread snapshot (game_logic
-    /// construct.rs), yet the driving world's deep readers resolve its own
-    /// authority inside the frame, and the foreign snapshot is restored after.
+    /// Constructing a foreign world is inert. Its default authority must not
+    /// replace the active context, and a driving frame restores that context.
     #[test]
     fn host_frame_window_resolves_driving_instance_after_foreign_construction() {
         let _env_guard = authority_env_lock();
@@ -512,13 +508,18 @@ mod scoped_publication_tests {
         a.set_damage_authority(true);
         assert!(a.gameworld_authority().damage);
 
-        // World B constructed later overwrites the thread snapshot with its
-        // default-off fresh-instance barrier.
-        let _b = GameLogic::new();
+        // Publish a different operation's context to exercise restoration.
+        publish_gameworld_authority(GameWorldAuthority::DEFAULT_OFF);
+        let b = GameLogic::new();
+        assert_eq!(*b.gameworld_authority(), GameWorldAuthority::DEFAULT_OFF);
         assert_eq!(
             current_gameworld_authority(),
             GameWorldAuthority::DEFAULT_OFF
         );
+        with_gameworld_authority(*a.gameworld_authority(), || {
+            let _foreign = GameLogic::new();
+            assert_eq!(current_gameworld_authority(), *a.gameworld_authority());
+        });
         assert!(!gameworld_damage_authority_enabled());
 
         // A's host frame window: deep readers resolve A, not B's leftover —
@@ -531,7 +532,7 @@ mod scoped_publication_tests {
         });
         end_shadow_coupled_tick();
 
-        // Window closed: the foreign world's published snapshot is back.
+        // Window closed: the prior operation's context is back.
         assert_eq!(
             current_gameworld_authority(),
             GameWorldAuthority::DEFAULT_OFF
