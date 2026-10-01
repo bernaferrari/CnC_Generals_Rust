@@ -1270,7 +1270,7 @@ impl FlightDeckBehavior {
             let command = self.designated_command;
             let ready = crate::object::registry::OBJECT_REGISTRY
                 .with_object_mut(jet_id, |jet| {
-                    __omp_shell("Self::is_able_to_give_up_parking_space(jet, state, command)")
+                    Self::is_able_to_give_up_parking_space(jet, state, command)
                         && self.is_in_position_to_takeoff(jet, state)
                 })
                 .unwrap_or(false)

@@ -354,7 +354,7 @@ impl UnitAIUpdate {
             }
             false
         }).unwrap_or(true);
-        __omp_shell("blocked")
+        blocked
     }
     pub(super) fn is_allowed_to_move_away_from_unit(&self) -> bool {
         self.jet_ai
