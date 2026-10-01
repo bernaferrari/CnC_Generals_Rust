@@ -146,6 +146,44 @@ pub fn player_list() -> &'static RwLock<PlayerList> {
 
 /// Convenience alias for C++ compatibility
 pub use player_list as ThePlayerList;
+
+/// Address accepted by [`with_player`] / [`with_player_mut`]: either a player
+/// index into the shared list or an already-resolved player handle.
+pub trait PlayerLookup {
+    fn resolve_player(self) -> Option<Arc<RwLock<Player>>>;
+}
+
+impl PlayerLookup for Int {
+    fn resolve_player(self) -> Option<Arc<RwLock<Player>>> {
+        let list = player_list().read().ok()?;
+        list.get_player(self).cloned()
+    }
+}
+
+impl PlayerLookup for Arc<RwLock<Player>> {
+    fn resolve_player(self) -> Option<Arc<RwLock<Player>>> {
+        Some(self)
+    }
+}
+
+/// Run `f` with shared access to the addressed player.
+///
+/// Returns `None` when the player does not exist or its lock is poisoned.
+pub fn with_player<R>(player: impl PlayerLookup, f: impl FnOnce(&Player) -> R) -> Option<R> {
+    let player = player.resolve_player()?;
+    let guard = player.read().ok()?;
+    Some(f(&guard))
+}
+
+/// Run `f` with exclusive access to the addressed player.
+pub fn with_player_mut<R>(
+    player: impl PlayerLookup,
+    f: impl FnOnce(&mut Player) -> R,
+) -> Option<R> {
+    let player = player.resolve_player()?;
+    let mut guard = player.write().ok()?;
+    Some(f(&mut guard))
+}
 /// Extension trait for Arc<RwLock<Player>> to provide helper methods
 pub trait PlayerArcExt {
     fn change_battle_plan(&self, plan_type: BattlePlanType, delta: Int, bonus: &BattlePlanBonuses);

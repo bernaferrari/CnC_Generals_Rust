@@ -280,7 +280,8 @@ impl KeyExchangeProvider {
         let mut session = KeyExchangeSession::new(session_id, peer_id)?;
 
         // Generate ephemeral keypair
-        let ephemeral_secret = EphemeralSecret::random_from_rng(&mut rand::rngs::OsRng);
+        let ephemeral_secret =
+            EphemeralSecret::random_from_rng(&mut rand::rand_core::UnwrapErr(rand::rngs::SysRng));
         let ephemeral_public = X25519PublicKey::from(&ephemeral_secret);
 
         session.ephemeral_secret = Some(ephemeral_secret);
@@ -389,7 +390,8 @@ impl KeyExchangeProvider {
             session.remote_ephemeral_public = Some(client_ephemeral_public);
 
             // Generate our ephemeral keypair
-            let ephemeral_secret = EphemeralSecret::random_from_rng(&mut rand::rngs::OsRng);
+            let ephemeral_secret =
+                EphemeralSecret::random_from_rng(&mut rand::rand_core::UnwrapErr(rand::rngs::SysRng));
             let ephemeral_public = X25519PublicKey::from(&ephemeral_secret);
 
             // Derive shared secret

@@ -651,15 +651,9 @@ impl DozerAIUpdate {
                 location: position,
             };
             let target_pos = if target_id != target_guard.get_id() {
-                if let Some(obj) = TheGameLogic::find_object_by_id(target_id) {
-                    if let Ok(guard) = obj.read() {
-                        *guard.get_position()
-                    } else {
-                        *target_guard.get_position()
-                    }
-                } else {
-                    *target_guard.get_position()
-                }
+                crate::object::registry::OBJECT_REGISTRY
+                    .with_object(target_id, |guard| *guard.get_position())
+                    .unwrap_or_else(|| *target_guard.get_position())
             } else {
                 *target_guard.get_position()
             };
@@ -680,11 +674,9 @@ impl DozerAIUpdate {
                 location: end_pos,
             };
             if task == DozerTask::Build {
-                if let Some(target_obj) = TheGameLogic::find_object_by_id(target_id) {
-                    if let Ok(mut target_write) = target_obj.write() {
-                        target_write.set_builder(Some(&owner_guard));
-                    }
-                }
+                let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(target_id, |target_write| {
+                    target_write.set_builder(Some(&owner_guard));
+                    });
             }
             self.tasks[task.as_index()].target_id = target_id;
         }
@@ -723,15 +715,13 @@ impl DozerAIUpdate {
                 point.valid = false;
             }
         }
-        if let Some(owner) = TheGameLogic::find_object_by_id(self.object_id) {
-            if let Ok(owner_guard) = owner.read() {
-                if let Some(ai) = owner_guard.get_ai_update_interface() {
-                    if let Ok(mut ai_guard) = ai.lock() {
-                        let _ = ai_guard.ai_idle();
-                    }
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object(self.object_id, |owner_guard| {
+            if let Some(ai) = owner_guard.get_ai_update_interface() {
+                if let Ok(mut ai_guard) = ai.lock() {
+                    let _ = ai_guard.ai_idle();
                 }
             }
-        }
+            });
     }
 
     fn internal_task_complete_or_cancelled(&mut self, task: DozerTask) {
@@ -740,13 +730,11 @@ impl DozerAIUpdate {
             return;
         }
 
-        if let Some(owner) = TheGameLogic::find_object_by_id(self.object_id) {
-            if let Ok(mut owner_guard) = owner.write() {
-                if task == DozerTask::Build || task == DozerTask::Repair {
-                    owner_guard.clear_model_condition_state(MODELCONDITION_ACTIVELY_CONSTRUCTING);
-                }
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(self.object_id, |owner_guard| {
+            if task == DozerTask::Build || task == DozerTask::Repair {
+                owner_guard.clear_model_condition_state(MODELCONDITION_ACTIVELY_CONSTRUCTING);
             }
-        }
+            });
     }
 
     pub fn on_delete(&mut self) {
@@ -763,13 +751,11 @@ impl DozerAIUpdate {
         for task in [DozerTask::Build, DozerTask::Repair, DozerTask::Fortify] {
             let target_id = self.get_task_target(task);
             if target_id != INVALID_ID {
-                if let Some(target) = TheGameLogic::find_object_by_id(target_id) {
-                    if let Ok(mut guard) = target.write() {
-                        guard.clear_model_condition_state(
-                            ModelConditionFlags::ACTIVELY_BEING_CONSTRUCTED,
-                        );
-                    }
-                }
+                let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(target_id, |guard| {
+                    guard.clear_model_condition_state(
+                        ModelConditionFlags::ACTIVELY_BEING_CONSTRUCTED,
+                    );
+                    });
             }
         }
     }

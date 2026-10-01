@@ -1,7 +1,7 @@
 use std::env;
 use std::path::Path;
 use std::process;
-use ww3d_validation::{
+use ww3d2_validation::{
     export_full_report, load_log, run_full_validation, texture_analysis::print_diff,
     texture_analysis::print_summary, CompatibilityValidator, TextureDecisionLog,
 };
@@ -31,7 +31,7 @@ fn main() {
         }
         "diff" if args.len() == 4 => match (load_log(&args[2]), load_log(&args[3])) {
             (Ok(lhs), Ok(rhs)) => {
-                let diff = ww3d_validation::texture_analysis::diff_logs(&lhs, &rhs);
+                let diff = ww3d2_validation::texture_analysis::diff_logs(&lhs, &rhs);
                 print_diff(&diff);
             }
             (Err(err), _) | (_, Err(err)) => {

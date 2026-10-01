@@ -564,43 +564,49 @@ impl TheGameLogic {
             .write()
             .map_err(|_| "Failed to lock selection manager")?;
 
-        if let Ok(list) = crate::player::player_list().read() {
-            for (player_index, player_arc) in list.iter().enumerate() {
-                let bit = PlayerMaskType::from_bits_truncate(1u32 << (player_index as u32));
-                if !mask.contains(bit) {
-                    continue;
-                }
-
-                let legacy_obj = crate::ai::object_registry::get_legacy_object(object_id);
-                let mut actually_removed = false;
-
-                if let Ok(mut player) = player_arc.write() {
-                    if let Some(legacy_obj) = legacy_obj.as_ref() {
-                        let mut group = crate::ai::AIGroup::new(0);
-                        player.get_current_selection_as_ai_group(&mut group);
-                        if let Ok(deleted) = group.remove(legacy_obj) {
-                            actually_removed = true;
-                            if deleted {
-                                player.set_currently_selected_ai_group(None);
-                            } else {
-                                player.set_currently_selected_ai_group(Some(&group));
-                            }
+        let player_indices: Vec<i32> = crate::player::player_list()
+            .read()
+            .map(|list| {
+                list.iter()
+                    .enumerate()
+                    .filter_map(|(player_index, _player)| {
+                        let bit = PlayerMaskType::from_bits_truncate(1u32 << (player_index as u32));
+                        if mask.contains(bit) {
+                            Some(player_index as i32)
+                        } else {
+                            None
                         }
-                    } else if player.remove_object_from_current_selection(object_id) {
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        for player_index in player_indices {
+            let legacy_obj = crate::ai::object_registry::get_legacy_object(object_id);
+            let mut actually_removed = false;
+            let _ = crate::player::with_player_mut(player_index, |player| {
+                if let Some(legacy_obj) = legacy_obj.as_ref() {
+                    let mut group = crate::ai::AIGroup::new(0);
+                    player.get_current_selection_as_ai_group(&mut group);
+                    if let Ok(deleted) = group.remove(legacy_obj) {
                         actually_removed = true;
-                    }
-
-                    if actually_removed && affect_client {
-                        if let Some(drawable) = object.get_drawable() {
-                            TheInGameUI::deselect_drawable(&drawable);
+                        if deleted {
+                            player.set_currently_selected_ai_group(None);
+                        } else {
+                            player.set_currently_selected_ai_group(Some(&group));
                         }
                     }
+                } else if player.remove_object_from_current_selection(object_id) {
+                    actually_removed = true;
                 }
-
-                if actually_removed {
-                    if let Some(selection) = manager.get_player_selection(player_index as i32) {
-                        selection.select_objects(vec![object_id], SelectionType::Remove);
+                if actually_removed && affect_client {
+                    if let Some(drawable) = object.get_drawable() {
+                        TheInGameUI::deselect_drawable(&drawable);
                     }
+                }
+            });
+            if actually_removed {
+                if let Some(selection) = manager.get_player_selection(player_index) {
+                    selection.select_objects(vec![object_id], SelectionType::Remove);
                 }
             }
         }
@@ -634,49 +640,55 @@ impl TheGameLogic {
             SelectionType::Add
         };
 
-        if let Ok(list) = crate::player::player_list().read() {
-            for (player_index, player_arc) in list.iter().enumerate() {
-                let bit = PlayerMaskType::from_bits_truncate(1u32 << (player_index as u32));
-                if !mask.contains(bit) {
-                    continue;
-                }
-
-                let legacy_obj = crate::ai::object_registry::get_legacy_object(object_id);
-                let mut added_to_group = false;
-
-                if let Ok(mut player) = player_arc.write() {
-                    if let Some(legacy_obj) = legacy_obj.as_ref() {
-                        let mut group = crate::ai::AIGroup::new(0);
-                        let _ = group.add(legacy_obj.clone());
-                        added_to_group = group.get_count() > 0;
-                        if create_new_selection {
-                            player.set_currently_selected_ai_group(Some(&group));
+        let player_indices: Vec<i32> = crate::player::player_list()
+            .read()
+            .map(|list| {
+                list.iter()
+                    .enumerate()
+                    .filter_map(|(player_index, _player)| {
+                        let bit = PlayerMaskType::from_bits_truncate(1u32 << (player_index as u32));
+                        if mask.contains(bit) {
+                            Some(player_index as i32)
                         } else {
-                            player.add_ai_group_to_current_selection(&group);
+                            None
                         }
-                    } else if create_new_selection {
-                        if can_add_to_group {
-                            player.set_current_selection_to_object(object_id);
-                            added_to_group = true;
-                        } else {
-                            player.set_currently_selected_ai_group(None);
-                        }
-                    } else if can_add_to_group {
-                        player.add_object_to_current_selection(object_id);
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        for player_index in player_indices {
+            let legacy_obj = crate::ai::object_registry::get_legacy_object(object_id);
+            let mut added_to_group = false;
+            let _ = crate::player::with_player_mut(player_index, |player| {
+                if let Some(legacy_obj) = legacy_obj.as_ref() {
+                    let mut group = crate::ai::AIGroup::new(0);
+                    let _ = group.add(legacy_obj.clone());
+                    added_to_group = group.get_count() > 0;
+                    if create_new_selection {
+                        player.set_currently_selected_ai_group(Some(&group));
+                    } else {
+                        player.add_ai_group_to_current_selection(&group);
+                    }
+                } else if create_new_selection {
+                    if can_add_to_group {
+                        player.set_current_selection_to_object(object_id);
                         added_to_group = true;
+                    } else {
+                        player.set_currently_selected_ai_group(None);
                     }
+                } else if can_add_to_group {
+                    player.add_object_to_current_selection(object_id);
+                    added_to_group = true;
                 }
-
-                if added_to_group || (legacy_obj.is_none() && can_add_to_group) {
-                    if let Some(selection) = manager.get_player_selection(player_index as i32) {
-                        selection.select_objects(vec![object_id], selection_type);
-                    }
+            });
+            if added_to_group || (legacy_obj.is_none() && can_add_to_group) {
+                if let Some(selection) = manager.get_player_selection(player_index) {
+                    selection.select_objects(vec![object_id], selection_type);
                 }
-
-                if affect_client {
-                    if let Some(drawable) = object.get_drawable() {
-                        TheInGameUI::select_drawable(&drawable);
-                    }
+            }
+            if affect_client {
+                if let Some(drawable) = object.get_drawable() {
+                    TheInGameUI::select_drawable(&drawable);
                 }
             }
         }

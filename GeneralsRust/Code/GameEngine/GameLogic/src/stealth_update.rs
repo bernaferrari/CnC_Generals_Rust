@@ -705,38 +705,35 @@ impl StealthController {
                     .map(|g| g.get_time_of_day() == crate::common::audio::TimeOfDay::Night)
                     .unwrap_or(false);
                 let color = if applying {
-                    let disguise_player = player_list()
-                        .read()
-                        .ok()
-                        .and_then(|list| list.get_player(self.disguise_as_player_index).cloned());
-                    let local = player_list()
-                        .read()
-                        .ok()
-                        .and_then(|list| list.get_local_player().cloned());
-                    let allied_or_inactive = match local.as_ref() {
-                        Some(local) => OBJECT_REGISTRY
+                    let disguise_idx = self.disguise_as_player_index;
+                    let local_idx = player_list().read().ok().and_then(|list| {
+                        list.get_local_player().and_then(|local| {
+                            local.read().ok().map(|local_guard| local_guard.get_player_index())
+                        })
+                    });
+                    let allied_or_inactive = match local_idx {
+                        Some(local_idx) => OBJECT_REGISTRY
                             .with_object(self.object_id, |obj| {
-                                let Some(owner) = obj.get_controlling_player() else {
+                                let Some(owner_idx) = obj.get_controlling_player_id() else {
                                     return false;
                                 };
-                                match (owner.read(), local.read()) {
-                                    (Ok(mine), Ok(client_p)) => {
+                                crate::player::with_player(owner_idx as i32, |mine| {
+                                    crate::player::with_player(local_idx, |client_p| {
                                         if !client_p.is_player_active() {
                                             return true;
                                         }
-                                        let Some(team) = client_p.get_default_team() else {
+                                        let Some(team_id) = client_p.get_default_team_id() else {
                                             return false;
                                         };
-                                        match team.read() {
-                                            Ok(team_guard) => {
-                                                mine.get_relationship_with_team(&team_guard)
-                                                    == Relationship::Allies
-                                            }
-                                            Err(_) => false,
-                                        }
-                                    }
-                                    _ => false,
-                                }
+                                        crate::team::with_team(team_id, |team_guard| {
+                                            mine.get_relationship_with_team(team_guard)
+                                                == Relationship::Allies
+                                        })
+                                        .unwrap_or(false)
+                                    })
+                                    .unwrap_or(false)
+                                })
+                                .unwrap_or(false)
                             })
                             .unwrap_or(false),
                         None => true,
@@ -744,17 +741,14 @@ impl StealthController {
                     if allied_or_inactive {
                         if night { own_night } else { own_color }
                     } else {
-                        disguise_player
-                            .and_then(|p| {
-                                p.read().ok().map(|g| {
-                                    if night {
-                                        g.get_player_night_color()
-                                    } else {
-                                        g.get_player_color()
-                                    }
-                                })
-                            })
-                            .unwrap_or(own_color)
+                        crate::player::with_player(disguise_idx, |g| {
+                            if night {
+                                g.get_player_night_color()
+                            } else {
+                                g.get_player_color()
+                            }
+                        })
+                        .unwrap_or(own_color)
                     }
                 } else if night {
                     own_night
@@ -782,12 +776,12 @@ impl StealthController {
             let _ = OBJECT_REGISTRY.with_object_mut(self.object_id, |obj| {
                 obj.set_status(ObjectStatusMaskType::DISGUISED, true);
                 obj.set_model_condition_state(crate::common::ModelConditionFlags::DISGUISED);
-                if let Some(player) = obj.get_controlling_player() {
-                    if let Ok(mut player_guard) = player.write() {
+                if let Some(player_id) = obj.get_controlling_player_id() {
+                    let _ = crate::player::with_player_mut(player_id as i32, |player_guard| {
                         player_guard
                             .get_academy_stats_mut()
                             .record_vehicle_disguised();
-                    }
+                    });
                 }
             });
         } else {

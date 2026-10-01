@@ -74,8 +74,7 @@ impl InternetHackContain {
     }
 
     fn on_containing(&mut self, obj_id: ObjectID) -> GameResult<()> {
-        let Some(rider) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+        let Some(rider) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id)
         else {
             return Ok(());
         };
@@ -108,11 +107,9 @@ impl InternetHackContain {
 
 impl ContainModuleInterface for InternetHackContain {
     fn can_contain(&self, object_id: ObjectID) -> bool {
-        if let Some(obj) = TheGameLogic::find_object_by_id(object_id) {
-            if let Ok(obj_guard) = obj.read() {
-                return self.base.is_valid_container_for(&*obj_guard, true);
-            }
-        }
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object(object_id, |obj_guard| {
+            return self.base.is_valid_container_for(&*obj_guard, true);
+            });
         false
     }
 
@@ -188,8 +185,7 @@ impl ContainModuleInterface for InternetHackContain {
         if !self.base.base.collide_enter_eject_foreign(other_id)? {
             return Ok(());
         }
-        let Some(other) = TheGameLogic::find_object_by_id(other_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(other_id))
+        let Some(other) = crate::object::registry::OBJECT_REGISTRY.get_object(other_id)
         else {
             return Ok(());
         };

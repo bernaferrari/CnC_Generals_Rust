@@ -25,8 +25,16 @@ pub struct GpuDevice {
 
 // wasm32 wgpu handles are `Rc`. This target does not spawn GPU threads.
 #[cfg(target_arch = "wasm32")]
+// SAFETY: the `Arc<wgpu::Device>`/`Arc<wgpu::Queue>` fields are `Rc`-backed
+// on the web backend and therefore `!Send` by default. wasm32 has no threads,
+// so those handles can never move to or be observed from another thread; the
+// impl only lets `GpuDevice` be shared by value/`Arc` across the single
+// execution thread. Native keeps the auto traits.
 unsafe impl Send for GpuDevice {}
 #[cfg(target_arch = "wasm32")]
+// SAFETY: same wasm32-only scope: the target is single-threaded, so
+// `&GpuDevice` is never accessed concurrently and the handles' `!Sync`
+// default is unreachable.
 unsafe impl Sync for GpuDevice {}
 
 impl GpuDevice {

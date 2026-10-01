@@ -20,8 +20,16 @@ struct LaserCallbackPack {
 }
 
 #[cfg(target_arch = "wasm32")]
+// SAFETY: wasm32-only. The pack carries `Arc<wgpu::RenderPipeline>`,
+// `Arc<wgpu::BindGroup>`, `Arc<wgpu::Buffer>` and a `u32`; the handles are
+// `Rc`-backed and `!Send` on the web backend, but wasm32 has no threads, so
+// they can never cross a thread boundary. The impl only satisfies the bounds
+// of the render-callback slot storing the pack across the frame.
 unsafe impl Send for LaserCallbackPack {}
 #[cfg(target_arch = "wasm32")]
+// SAFETY: same wasm32-only scope: the target is single-threaded, so
+// `&LaserCallbackPack` is never accessed from two threads and the handles'
+// `!Sync` default is unreachable.
 unsafe impl Sync for LaserCallbackPack {}
 #[cfg(feature = "game_client")]
 use game_client::effects::particle_renderer::{ParticleUniforms, register_particle_renderer};

@@ -295,8 +295,11 @@ pub struct TerrainVisualImpl {
 }
 
 #[cfg(target_arch = "wasm32")]
-// The legacy global Mutex requires Send until the renderer is instance-owned.
-// No caller requires sharing &TerrainVisualImpl across threads on wasm.
+// SAFETY: wasm32-only. The wgpu `Buffer`/`Texture`/`Sampler`/`BindGroup`
+// fields are `Rc`-like and `!Send` on the web backend, but wasm32 has no
+// threads, so the handles can never move to or be observed from another
+// thread. The legacy global Mutex needs Send until the renderer is
+// instance-owned; `Sync` is intentionally not claimed. Native keeps auto traits.
 unsafe impl Send for TerrainVisualImpl {}
 
 struct GpuChunkMesh {

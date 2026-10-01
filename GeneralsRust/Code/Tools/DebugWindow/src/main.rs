@@ -112,14 +112,16 @@ impl DebugWindowApp {
 }
 
 impl eframe::App for DebugWindowApp {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        let ctx = ui.ctx().clone();
+
         // Simulate changing values
         self.cpu_usage = 20.0 + 10.0 * (ctx.input(|i| i.time) as f32).sin();
         self.memory_usage = 40.0 + 5.0 * (ctx.input(|i| i.time) as f32 * 0.5).cos();
         self.frame_time = 16.0 + 2.0 * (ctx.input(|i| i.time) as f32 * 2.0).sin();
 
         // Top menu bar
-        egui::TopBottomPanel::top("menu_bar").show(ctx, |ui| {
+        egui::Panel::top("menu_bar").show(ui, |ui| {
             egui::MenuBar::new().ui(ui, |ui| {
                 ui.menu_button("View", |ui| {
                     ui.checkbox(&mut self.show_system_panel, "System Info");
@@ -143,7 +145,7 @@ impl eframe::App for DebugWindowApp {
             });
         });
 
-        egui::CentralPanel::default().show(ctx, |ui| {
+        egui::CentralPanel::default().show(ui, |ui| {
             ui.heading("DebugWindow - C&C Generals Zero Hour");
 
             egui::ScrollArea::vertical().show(ui, |ui| {

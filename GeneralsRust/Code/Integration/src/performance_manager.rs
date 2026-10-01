@@ -690,7 +690,7 @@ impl PerformanceManager {
             let current_time = NetworkInstant::now();
             let mut frame_timing_lock = self.frame_timing.lock();
 
-            if let Some(last_time) = *frame_timing_lock.0 {
+            if let Some(last_time) = frame_timing_lock.0 {
                 let frame_duration = current_time.duration_since(last_time).as_secs_f64() * 1000.0;
 
                 frame_timing_lock.1.push(frame_duration);
@@ -721,7 +721,7 @@ impl PerformanceManager {
                 self.metrics.graphics.frametime_ms = 16.67;
             }
 
-            *frame_timing_lock.0 = Some(current_time);
+            frame_timing_lock.0 = Some(current_time);
         }
 
         // Estimate GPU usage and VRAM (simplified)

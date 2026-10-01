@@ -485,8 +485,16 @@ struct ShadowPassGpu {
 }
 
 #[cfg(target_arch = "wasm32")]
+// SAFETY: wasm32-only. All fields are wgpu handles (`TextureFormat` is `Copy`;
+// `RenderPipeline`/`BindGroupLayout` are `Rc`-backed and `!Send` on the web
+// backend). wasm32-unknown-unknown has no threads, so a cross-thread move is
+// impossible; the impl only satisfies the `Send` bound of the
+// `static Mutex<Option<Self>>` that owns it.
 unsafe impl Send for ShadowPassGpu {}
 #[cfg(target_arch = "wasm32")]
+// SAFETY: same wasm32-only scope: no threads exist on this target, so `&Self`
+// is never accessed concurrently and the handles' `!Sync` default is
+// unreachable.
 unsafe impl Sync for ShadowPassGpu {}
 const VOLUME_VERTEX_ATTRS: [wgpu::VertexAttribute; 1] = wgpu::vertex_attr_array![0 => Float32x3];
 const OVERLAY_VERTEX_ATTRS: [wgpu::VertexAttribute; 2] =

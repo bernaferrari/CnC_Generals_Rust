@@ -232,8 +232,16 @@ pub struct GpuContext {
 
 // wasm32 wgpu types are `Rc`. The global context is only touched on the browser thread.
 #[cfg(target_arch = "wasm32")]
+// SAFETY: the public `wgpu::Device`/`Queue`/`Adapter`/`Instance`/`Surface`
+// fields are `Rc`-backed on the web backend and therefore `!Send` by default.
+// wasm32-unknown-unknown has no threads, so those handles can never move to
+// or be observed from another thread; the impl only lets the global
+// `OnceLock`/`Mutex` holders store the context. Native keeps the auto traits.
 unsafe impl Send for GpuContext {}
 #[cfg(target_arch = "wasm32")]
+// SAFETY: same wasm32-only scope: the target is single-threaded, so
+// `&GpuContext` is never accessed from two threads and the handles' `!Sync`
+// default is unreachable.
 unsafe impl Sync for GpuContext {}
 
 impl GpuContext {

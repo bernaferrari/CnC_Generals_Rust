@@ -479,7 +479,9 @@ impl GameTool for ParticleEditorTool {
         Ok(())
     }
 
-    fn update(&mut self, ctx: &eframe::egui::Context, _frame: &mut eframe::Frame) -> Result<()> {
+    fn update(&mut self, ui: &mut eframe::egui::Ui, _frame: &mut eframe::Frame) -> Result<()> {
+        let ctx = ui.ctx().clone();
+
         self.update_fps();
 
         // Calculate delta time
@@ -497,18 +499,18 @@ impl GameTool for ParticleEditorTool {
         let system_count = self.systems.len();
         let dirty = self.dirty;
         let fps = self.current_fps;
-        egui::TopBottomPanel::bottom("particle_editor_status")
+        egui::Panel::bottom("particle_editor_status")
             .resizable(false)
-            .default_height(25.0)
-            .show(ctx, |ui| {
+            .default_size(25.0)
+            .show(ui, |ui| {
                 show_status_bar(ui, system_count, &status_name, dirty, fps);
             });
 
         if self.chrome.show_timeline {
-            egui::TopBottomPanel::bottom("timeline_panel")
+            egui::Panel::bottom("timeline_panel")
                 .resizable(true)
-                .default_height(200.0)
-                .show(ctx, |ui| {
+                .default_size(200.0)
+                .show(ui, |ui| {
                     self.timeline
                         .show(ui, &mut self.current_time, &mut self.is_playing);
 
@@ -539,10 +541,10 @@ impl GameTool for ParticleEditorTool {
         }
 
         let mut list_cmd = SystemListCommand::None;
-        egui::SidePanel::left("systems_list")
+        egui::Panel::left("systems_list")
             .resizable(true)
-            .default_width(220.0)
-            .show(ctx, |ui| {
+            .default_size(220.0)
+            .show(ui, |ui| {
                 list_cmd = show_system_list(
                     ui,
                     &self.systems,
@@ -572,10 +574,10 @@ impl GameTool for ParticleEditorTool {
 
         let mut properties_changed = false;
         if self.chrome.show_properties {
-            egui::SidePanel::right("properties_panel")
+            egui::Panel::right("properties_panel")
                 .resizable(true)
-                .default_width(320.0)
-                .show(ctx, |ui| {
+                .default_size(320.0)
+                .show(ui, |ui| {
                     let selected = self.selected_index.and_then(|i| self.systems.get_mut(i));
                     properties_changed = show_properties_panel(ui, selected);
                 });
@@ -587,7 +589,7 @@ impl GameTool for ParticleEditorTool {
         let show_preview = self.chrome.show_preview;
         let current_time = self.current_time;
         let mut center_changed = false;
-        egui::CentralPanel::default().show(ctx, |ui| {
+        egui::CentralPanel::default().show(ui, |ui| {
             let selected = self.selected_index.and_then(|i| self.systems.get_mut(i));
             center_changed =
                 show_center_panel(ui, selected, &mut self.preview, current_time, show_preview);

@@ -278,6 +278,11 @@ fn hive_query(
     let (subkey, value_name) = full.rsplit_once('\\')?;
     let subkey = CString::new(subkey).ok()?;
     let value_name = CString::new(value_name).ok()?;
+    // SAFETY: every pointer passed to the winreg FFI is valid: `subkey`/
+    // `value_name` are NUL-terminated `CString`s live for the block,
+    // `hkey`/`kind`/`size` are out-pointers to stack locals, and the query
+    // buffer is exactly the `size` bytes the first call reported, so the API
+    // cannot write past it. `hkey` is closed on every return path.
     unsafe {
         let mut hkey = std::ptr::null_mut();
         if RegOpenKeyExA(root, subkey.as_ptr(), 0, KEY_READ, &mut hkey) != 0 {
@@ -333,6 +338,11 @@ fn hklm_set(path: &str, key: &str, bytes: &[u8], string: bool) -> bool {
     let Ok(value_name) = CString::new(value_name) else {
         return false;
     };
+    // SAFETY: `subkey`/`value_name` are NUL-terminated `CString`s alive for the
+    // whole block, `hkey` is a valid out-pointer to a stack local, and
+    // `RegSetValueExA` reads exactly `bytes.len()` bytes from `bytes.as_ptr()`
+    // (a slice, so non-null and fully initialized). `RegCloseKey` runs on every
+    // path that returns.
     unsafe {
         let mut hkey = std::ptr::null_mut();
         if RegCreateKeyExA(

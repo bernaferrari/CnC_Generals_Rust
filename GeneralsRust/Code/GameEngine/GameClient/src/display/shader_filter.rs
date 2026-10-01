@@ -34,8 +34,16 @@ struct ShaderFilterGpu {
 }
 
 #[cfg(target_arch = "wasm32")]
+// SAFETY: wasm32-only. Every non-scalar field is a wgpu handle (`Texture`,
+// `TextureView`, `Sampler`, `Buffer`, `RenderPipeline`, `BindGroupLayout`),
+// which are `Rc`-backed and `!Send` on the web backend. The wasm target has no
+// threads, so a cross-thread move can never happen; the impl only satisfies
+// the `Send` bound of the `static Mutex<Option<Self>>` that owns it.
 unsafe impl Send for ShaderFilterGpu {}
 #[cfg(target_arch = "wasm32")]
+// SAFETY: same wasm32-only scope: no threads exist on this target, so `&Self`
+// is never accessed concurrently and the handles' `!Sync` default is
+// unreachable.
 unsafe impl Sync for ShaderFilterGpu {}
 
 static FILTER_GPU: Mutex<Option<ShaderFilterGpu>> = Mutex::new(None);

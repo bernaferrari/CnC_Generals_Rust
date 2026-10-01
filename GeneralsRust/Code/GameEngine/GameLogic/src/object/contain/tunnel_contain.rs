@@ -136,8 +136,7 @@ impl TunnelContain {
             return Ok(());
         }
 
-        let _ = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+        let _ = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id)
             .ok_or("Contain object not found")?;
         let owner = self.get_object()?;
         let Ok(owner) = owner.try_read() else {
@@ -168,8 +167,7 @@ impl TunnelContain {
             return Ok(());
         }
 
-        let obj = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+        let obj = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id)
             .ok_or("Contain object not found")?;
         let was_selected = obj
             .try_read()
@@ -265,8 +263,7 @@ impl TunnelContain {
         obj_id: ObjectID,
         expose_stealth_units: bool,
     ) -> GameResult<()> {
-        let _obj = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+        let _obj = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id)
             .ok_or("Contain object not found")?;
         let player = match self.get_object() {
             Ok(owner) => {
@@ -417,8 +414,7 @@ impl TunnelContain {
                     );
                     continue;
                 }
-                if let Some(obj) = TheGameLogic::find_object_by_id(object_id)
-                    .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(object_id))
+                if let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(object_id)
                 {
                     if let Ok(mut obj_write) = obj.try_write() {
                         obj_write.kill(None, None);
@@ -443,8 +439,7 @@ impl TunnelContain {
             return Ok(());
         }
 
-        let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id)
         else {
             return Ok(());
         };
@@ -492,8 +487,7 @@ impl TunnelContain {
             return Ok(());
         }
 
-        let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id)
         else {
             return Ok(());
         };
@@ -844,8 +838,7 @@ impl TunnelContain {
                 };
 
             if let Some(nemesis_id) = nemesis_id {
-                if let Some(attacker) = TheGameLogic::find_object_by_id(nemesis_id)
-                    .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(nemesis_id))
+                if let Some(attacker) = crate::object::registry::OBJECT_REGISTRY.get_object(nemesis_id)
                 {
                     if let Ok(attacker_guard) = attacker.try_read() {
                         let Ok(mut player_write) = controlling_player.try_write() else {
@@ -941,8 +934,7 @@ impl TunnelContain {
         }
 
         let id = self.owner_object_id()?;
-        crate::helpers::TheGameLogic::find_object_by_id(id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(id))
+        crate::object::registry::OBJECT_REGISTRY.get_object(id)
             .ok_or_else(|| "TunnelContain owner object no longer exists".into())
     }
 }
@@ -977,11 +969,9 @@ impl Snapshotable for TunnelContain {
 
 impl ContainModuleInterface for TunnelContain {
     fn can_contain(&self, object_id: ObjectID) -> bool {
-        if let Some(obj) = TheGameLogic::find_object_by_id(object_id) {
-            if let Ok(obj_guard) = obj.read() {
-                return ContainModuleInterface::is_valid_container_for(self, &*obj_guard, true);
-            }
-        }
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object(object_id, |obj_guard| {
+            return ContainModuleInterface::is_valid_container_for(self, &*obj_guard, true);
+            });
         false
     }
 
@@ -1094,8 +1084,7 @@ impl ContainModuleInterface for TunnelContain {
         if !self.base.collide_enter_eject_foreign(other_id)? {
             return Ok(());
         }
-        let Some(other) = TheGameLogic::find_object_by_id(other_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(other_id))
+        let Some(other) = crate::object::registry::OBJECT_REGISTRY.get_object(other_id)
         else {
             return Ok(());
         };

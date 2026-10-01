@@ -23,7 +23,7 @@ use winit::{
     event::{ElementState, Event, WindowEvent},
     event_loop::{ControlFlow, EventLoop},
     keyboard::{KeyCode, PhysicalKey},
-    window::WindowBuilder,
+    window::Window,
 };
 use ww3d_assets::AssetManager;
 use ww3d_engine::{self, EngineConfig, EngineError};
@@ -246,10 +246,12 @@ async fn run_demo(asset_manager: AssetManager) -> Result<(), Box<dyn std::error:
     // Create event loop
     let event_loop = EventLoop::new().unwrap();
     let window = Arc::new(
-        WindowBuilder::new()
-            .with_title("WW3D Engine - Complete 3D Graphics Pipeline Demo")
-            .with_inner_size(winit::dpi::LogicalSize::new(1280, 720))
-            .build(&event_loop)
+        event_loop
+            .create_window(
+                Window::default_attributes()
+                    .with_title("WW3D Engine - Complete 3D Graphics Pipeline Demo")
+                    .with_inner_size(winit::dpi::LogicalSize::new(1280, 720)),
+            )
             .unwrap(),
     );
 
@@ -459,7 +461,6 @@ async fn run_demo(asset_manager: AssetManager) -> Result<(), Box<dyn std::error:
                                                         g: 0.2,
                                                         b: 0.3,
                                                         a: 1.0,
-            multiview_mask: None,
                                                     }),
                                                     store: wgpu::StoreOp::Store,
                                                 },
@@ -477,6 +478,7 @@ async fn run_demo(asset_manager: AssetManager) -> Result<(), Box<dyn std::error:
                                         }),
                                         occlusion_query_set: None,
                                         timestamp_writes: None,
+                                        multiview_mask: None,
                                     });
 
                                 // Note: Scene rendering requires RenderInfoClass adapter for WGPU.
@@ -494,11 +496,11 @@ async fn run_demo(asset_manager: AssetManager) -> Result<(), Box<dyn std::error:
                             }
                         }
                         Err(err) => match err {
-                            EngineError::Surface(wgpu::SurfaceError::Lost) => {
+                            EngineError::Gpu(ww3d_gpu::GpuError::SurfaceLost) => {
                                 let size = window.inner_size();
                                 let _ = ww3d_engine::resize(size.width, size.height);
                             }
-                            EngineError::Surface(wgpu::SurfaceError::OutOfMemory) => {
+                            EngineError::Gpu(ww3d_gpu::GpuError::OutOfMemory) => {
                                 eprintln!("GPU out of memory, shutting down.");
                                 let _ = ww3d_engine::shutdown();
                                 elwt.exit();

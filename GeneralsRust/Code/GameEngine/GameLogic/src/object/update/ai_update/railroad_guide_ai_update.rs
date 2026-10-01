@@ -782,8 +782,7 @@ impl RailroadBehavior {
         if self.object_id == crate::common::INVALID_ID {
             return None;
         }
-        crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id)
     }
 
     fn get_object_id(&self) -> ObjectID {
@@ -1325,7 +1324,7 @@ impl RailroadBehavior {
         };
 
         if let Some(close_id) = close_carriage {
-            if let Some(close) = TheGameLogic::find_object_by_id(close_id) {
+            if let Some(close) = crate::object::registry::OBJECT_REGISTRY.get_object(close_id) {
                 if let Ok(mut close_guard) = close.write() {
                     close_guard.set_producer_id(owner_id);
                     self.trailer_id = close_guard.get_id();

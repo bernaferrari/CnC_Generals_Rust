@@ -26,8 +26,10 @@ impl Default for GUIEditApp {
 }
 
 impl eframe::App for GUIEditApp {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        egui::TopBottomPanel::top("menu_bar").show(ctx, |ui| {
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        let ctx = ui.ctx().clone();
+
+        egui::Panel::top("menu_bar").show(ui, |ui| {
             egui::MenuBar::new().ui(ui, |ui| {
                 ui.menu_button("File", |ui| {
                     for label in FILE_MENU_LABELS {
@@ -90,7 +92,7 @@ impl eframe::App for GUIEditApp {
             });
         });
 
-        egui::TopBottomPanel::bottom("status_bar").show(ctx, |ui| {
+        egui::Panel::bottom("status_bar").show(ui, |ui| {
             ui.horizontal(|ui| {
                 ui.label(self.editor.status_line());
                 ui.separator();
@@ -105,10 +107,10 @@ impl eframe::App for GUIEditApp {
         });
 
         if self.editor.show_toolbox {
-            egui::SidePanel::left("toolbox")
+            egui::Panel::left("toolbox")
                 .resizable(true)
-                .default_width(180.0)
-                .show(ctx, |ui| {
+                .default_size(180.0)
+                .show(ui, |ui| {
                     ui.heading("Toolbox");
                     ui.separator();
                     ui.label("Gadgets:");
@@ -121,10 +123,10 @@ impl eframe::App for GUIEditApp {
         }
 
         if self.editor.show_hierarchy {
-            egui::SidePanel::left("hierarchy")
+            egui::Panel::left("hierarchy")
                 .resizable(true)
-                .default_width(180.0)
-                .show(ctx, |ui| {
+                .default_size(180.0)
+                .show(ui, |ui| {
                     ui.heading("Hierarchy");
                     ui.separator();
                     egui::ScrollArea::vertical().show(ui, |ui| {
@@ -144,10 +146,10 @@ impl eframe::App for GUIEditApp {
         }
 
         if self.editor.show_properties {
-            egui::SidePanel::right("properties")
+            egui::Panel::right("properties")
                 .resizable(true)
-                .default_width(250.0)
-                .show(ctx, |ui| {
+                .default_size(250.0)
+                .show(ui, |ui| {
                     ui.heading("Properties");
                     ui.separator();
                     if let Some(widget) = self.editor.selected_widget_mut() {
@@ -196,7 +198,7 @@ impl eframe::App for GUIEditApp {
                 });
         }
 
-        egui::CentralPanel::default().show(ctx, |ui| {
+        egui::CentralPanel::default().show(ui, |ui| {
             ui.heading("Layout Canvas");
             ui.separator();
 

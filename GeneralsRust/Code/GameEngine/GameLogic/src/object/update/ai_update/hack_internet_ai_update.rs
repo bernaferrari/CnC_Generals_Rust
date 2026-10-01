@@ -600,12 +600,10 @@ impl HackInternetAIUpdate {
                 frames_remaining: frames_remaining.saturating_sub(1),
             };
         } else {
-            if let Some(owner) = TheGameLogic::find_object_by_id(self.owner_id) {
-                if let Ok(mut owner_guard) = owner.write() {
-                    owner_guard
-                        .clear_model_condition_state(crate::common::ModelConditionFlags::Packing);
-                }
-            }
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(self.owner_id, |owner_guard| {
+                owner_guard
+                    .clear_model_condition_state(crate::common::ModelConditionFlags::Packing);
+                });
             self.state = HackInternetState::Idle;
         }
     }
@@ -694,18 +692,16 @@ impl HackInternetAIUpdate {
         }
 
         if let Some(container_id) = owner_guard.get_contained_by() {
-            if let Some(container) = TheGameLogic::find_object_by_id(container_id) {
-                if let Ok(container_guard) = container.read() {
-                    if container_guard.test_status(crate::common::ObjectStatusTypes::Stealthed) {
-                        if !container_guard.is_locally_controlled()
-                            && !container_guard
-                                .test_status(crate::common::ObjectStatusTypes::Detected)
-                        {
-                            display_money = false;
-                        }
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object(container_id, |container_guard| {
+                if container_guard.test_status(crate::common::ObjectStatusTypes::Stealthed) {
+                    if !container_guard.is_locally_controlled()
+                        && !container_guard
+                            .test_status(crate::common::ObjectStatusTypes::Detected)
+                    {
+                        display_money = false;
                     }
                 }
-            }
+                });
         }
 
         if display_money {
@@ -714,15 +710,13 @@ impl HackInternetAIUpdate {
             pos.z += 20.0;
 
             if let Some(container_id) = owner_guard.get_contained_by() {
-                if let Some(container) = TheGameLogic::find_object_by_id(container_id) {
-                    if let Ok(container_guard) = container.read() {
-                        let geom = container_guard.get_geometry_info();
-                        let width = geom.get_major_radius() * 0.3;
-                        let depth = geom.get_minor_radius() * 0.3;
-                        pos.x += game_client_random_value_real(-width, width);
-                        pos.y += game_client_random_value_real(-depth, depth);
-                    }
-                }
+                let _ = crate::object::registry::OBJECT_REGISTRY.with_object(container_id, |container_guard| {
+                    let geom = container_guard.get_geometry_info();
+                    let width = geom.get_major_radius() * 0.3;
+                    let depth = geom.get_minor_radius() * 0.3;
+                    pos.x += game_client_random_value_real(-width, width);
+                    pos.y += game_client_random_value_real(-depth, depth);
+                    });
             }
 
             let _ = TheInGameUI::add_floating_text(&caption, &pos, Color::new(0, 255, 0, 255));

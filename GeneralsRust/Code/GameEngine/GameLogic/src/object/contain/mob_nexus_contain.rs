@@ -311,9 +311,15 @@ impl MobNexusContain {
 
     /// C++ MobNexusContain::isValidContainerFor
     pub fn is_valid_container_for(&self, obj: &Object, check_capacity: bool) -> bool {
-        let unwrapped = unwrap_special_zero_slot_rider(obj);
-        let unwrapped_guard = unwrapped.as_ref().and_then(|arc| arc.read().ok());
-        let rider = unwrapped_guard.as_deref().unwrap_or(obj);
+        if let Some(rider_id) = unwrap_special_zero_slot_rider(obj) {
+            return crate::object::registry::OBJECT_REGISTRY
+                .with_object(rider_id, |rider| self.is_valid_container_for_rider(rider, check_capacity))
+                .unwrap_or(false);
+        }
+        self.is_valid_container_for_rider(obj, check_capacity)
+    }
+
+    fn is_valid_container_for_rider(&self, rider: &Object, check_capacity: bool) -> bool {
 
         if !self.base.is_valid_container_for(rider, check_capacity) {
             return false;
@@ -342,8 +348,7 @@ impl MobNexusContain {
 
     /// C++ MobNexusContain::onContaining
     pub fn on_containing(&mut self, obj_id: ObjectID, was_selected: bool) -> GameResult<()> {
-        let Some(obj) = TheGameLogic::find_object_by_id(obj_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id)
         else {
             return Ok(());
         };
@@ -376,8 +381,7 @@ impl MobNexusContain {
 
     /// C++ MobNexusContain::onRemoving
     pub fn on_removing(&mut self, obj_id: ObjectID) -> GameResult<()> {
-        let Some(obj) = TheGameLogic::find_object_by_id(obj_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id)
         else {
             return Ok(());
         };
@@ -553,8 +557,7 @@ impl MobNexusContain {
     }
 
     pub fn add_to_contain(&mut self, obj_id: ObjectID) -> GameResult<()> {
-        let obj = TheGameLogic::find_object_by_id(obj_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+        let obj = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id)
             .ok_or("MobNexus contain object not found")?;
         let was_selected = obj
             .read()
@@ -624,8 +627,7 @@ impl MobNexusContain {
         if self.module_data.health_regen != 0.0 {
             let owner_id = self.object_id;
             for object_id in self.base.get_contained_object_ids().to_vec() {
-                if let Some(object) = TheGameLogic::find_object_by_id(object_id)
-                    .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(object_id))
+                if let Some(object) = crate::object::registry::OBJECT_REGISTRY.get_object(object_id)
                 {
                     let Ok(guard) = object.try_read() else {
                         log::warn!("MobNexusContain::update regen lock busy for {}", object_id);
@@ -763,8 +765,7 @@ impl MobNexusContain {
         let mut exited_anyone = false;
         let ids = self.base.get_contained_object_ids().to_vec();
         for obj_id in ids {
-            let Some(obj) = TheGameLogic::find_object_by_id(obj_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+            let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id)
             else {
                 continue;
             };
@@ -827,11 +828,9 @@ impl Snapshotable for MobNexusContain {
 
 impl ContainModuleInterface for MobNexusContain {
     fn can_contain(&self, object_id: ObjectID) -> bool {
-        if let Some(obj) = TheGameLogic::find_object_by_id(object_id) {
-            if let Ok(obj_guard) = obj.read() {
-                return self.is_valid_container_for(&*obj_guard, true);
-            }
-        }
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object(object_id, |obj_guard| {
+            return self.is_valid_container_for(&*obj_guard, true);
+            });
         false
     }
 
@@ -908,8 +907,7 @@ impl ContainModuleInterface for MobNexusContain {
         if !self.base.collide_enter_eject_foreign(other_id)? {
             return Ok(());
         }
-        let Some(other) = TheGameLogic::find_object_by_id(other_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(other_id))
+        let Some(other) = crate::object::registry::OBJECT_REGISTRY.get_object(other_id)
         else {
             return Ok(());
         };

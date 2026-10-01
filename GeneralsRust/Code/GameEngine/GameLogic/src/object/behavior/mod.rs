@@ -438,14 +438,13 @@ pub use behavior_integration::{
 
 use crate::common::ModuleData;
 use crate::object::Object;
-use rhai::Locked;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
 /// Trait for creating behavior modules from module data
 pub trait BehaviorModuleFactory {
     /// Create a new behavior module instance
     fn create_behavior(
-        thing: Arc<Locked<Object>>,
+        thing: Arc<RwLock<Object>>,
         module_data: Arc<dyn ModuleData>,
     ) -> Result<
         Box<dyn crate::modules::BehaviorModuleInterface>,
@@ -459,7 +458,7 @@ pub struct BehaviorModuleRegistry {
         String,
         Box<
             dyn Fn(
-                    Arc<Locked<Object>>,
+                    Arc<RwLock<Object>>,
                     Arc<dyn ModuleData>,
                 ) -> Result<
                     Box<dyn crate::modules::BehaviorModuleInterface>,
@@ -533,7 +532,7 @@ impl BehaviorModuleRegistry {
         #[cfg(feature = "allow_surrender")]
         registry.register_factory(
             "PropagandaCenterBehavior",
-            Box::new(|thing: Arc<Locked<Object>>, data: Arc<dyn ModuleData>| {
+            Box::new(|thing: Arc<RwLock<Object>>, data: Arc<dyn ModuleData>| {
                 let typed = data
                     .as_any()
                     .downcast_ref::<PropagandaCenterBehaviorModuleData>()
@@ -859,7 +858,7 @@ impl BehaviorModuleRegistry {
     pub fn register_factory<F>(&mut self, name: &str, factory: F)
     where
         F: Fn(
-                Arc<Locked<Object>>,
+                Arc<RwLock<Object>>,
                 Arc<dyn ModuleData>,
             ) -> Result<
                 Box<dyn crate::modules::BehaviorModuleInterface>,
@@ -875,7 +874,7 @@ impl BehaviorModuleRegistry {
     pub fn create_behavior(
         &self,
         name: &str,
-        thing: Arc<Locked<Object>>,
+        thing: Arc<RwLock<Object>>,
         module_data: Arc<dyn ModuleData>,
     ) -> Result<
         Box<dyn crate::modules::BehaviorModuleInterface>,

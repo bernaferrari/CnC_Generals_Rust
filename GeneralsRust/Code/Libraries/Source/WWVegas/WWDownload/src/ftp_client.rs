@@ -5,12 +5,11 @@
 
 use crate::error::{DownloadError, DownloadResult, DownloadStatus};
 use async_trait::async_trait;
-use futures::AsyncReadExt;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
-use suppaftp::AsyncFtpStream;
+use suppaftp::tokio::AsyncFtpStream;
 use tokio::fs::{File, OpenOptions};
-use tokio::io::{AsyncSeekExt, AsyncWriteExt, SeekFrom};
+use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt, SeekFrom};
 use tokio::time::timeout;
 use tracing::{debug, info, warn};
 

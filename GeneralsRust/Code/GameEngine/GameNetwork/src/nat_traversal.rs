@@ -9,8 +9,9 @@
 use crate::error::{NetworkError, NetworkResult};
 use crate::nat::NatService;
 use crate::time::NetworkInstant;
-use rand::RngCore;
-use rand::rngs::OsRng;
+use rand::Rng;
+use rand::rand_core::UnwrapErr;
+use rand::rngs::SysRng;
 use std::collections::HashMap;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
@@ -487,7 +488,7 @@ impl NatTraversalManager {
     /// Query mangler servers to discover port allocation pattern.
     async fn query_manglers_for_ports(&self) -> NetworkResult<HashMap<String, u16>> {
         let mut results = HashMap::new();
-        let packet_id: u16 = OsRng.next_u32() as u16;
+        let packet_id: u16 = UnwrapErr(SysRng).next_u32() as u16;
 
         for server in MANGLER_SERVERS {
             match self.query_single_mangler(server, packet_id).await {

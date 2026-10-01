@@ -31,11 +31,17 @@ use std::{
     time::Duration,
 };
 use symphonia::core::{
-    audio::{SampleBuffer, SignalSpec},
-    formats::FormatOptions,
+    audio::AudioSpec,
+    codecs::audio::{
+        well_known::{
+            CODEC_ID_MP3, CODEC_ID_PCM_S16BE, CODEC_ID_PCM_S16LE, CODEC_ID_PCM_S24BE,
+            CODEC_ID_PCM_S24LE, CODEC_ID_PCM_S32BE, CODEC_ID_PCM_S32LE,
+        },
+        AudioCodecId, AudioCodecParameters, AudioDecoderOptions, CODEC_ID_NULL_AUDIO,
+    },
+    formats::{probe::Hint, FormatOptions},
     io::MediaSourceStream,
     meta::MetadataOptions,
-    probe::Hint,
 };
 
 /// High-precision timestamp for audio operations
@@ -921,37 +927,48 @@ impl AudioSourceLoader {
         }
 
         // Probe the media source
-        let probed = symphonia::default::get_probe()
-            .format(
+        let mut reader = symphonia::default::get_probe()
+            .probe(
                 &hint,
                 source,
-                &FormatOptions::default(),
-                &MetadataOptions::default(),
+                FormatOptions::default(),
+                MetadataOptions::default(),
             )
             .map_err(|e| {
                 SourceError::InvalidFormat(format!("Failed to probe audio file: {}", e))
             })?;
 
-        let mut reader = probed.format;
-
         // Get the first audio track
         let track = reader
             .tracks()
             .iter()
-            .find(|t| t.codec_params.codec != symphonia::core::codecs::CODEC_TYPE_NULL)
+            .find(|t| {
+                t.codec_params
+                    .as_ref()
+                    .and_then(|p| p.audio())
+                    .is_some_and(|p| p.codec != CODEC_ID_NULL_AUDIO)
+            })
             .ok_or_else(|| SourceError::InvalidFormat("No audio tracks found".to_string()))?;
 
         let track_id = track.id;
 
+        let audio_params = track
+            .codec_params
+            .as_ref()
+            .and_then(|p| p.audio())
+            .ok_or_else(|| {
+                SourceError::InvalidFormat("No audio codec parameters".to_string())
+            })?;
+
         // Create decoder for the track
         let mut decoder = symphonia::default::get_codecs()
-            .make(&track.codec_params, &Default::default())
+            .make_audio_decoder(audio_params, &AudioDecoderOptions::default())
             .map_err(|e| {
                 SourceError::CompressionError(format!("Failed to create decoder: {}", e))
             })?;
 
         // Convert Symphonia format info to our format
-        let mut format = Self::symphonia_to_enhanced_format(&track.codec_params)?;
+        let mut format = Self::symphonia_to_enhanced_format(audio_params)?;
         format.compression = AudioCompressionType::None;
         format.sample_width = 16;
         format.flags = AudioFormatFlags::PCM.0 | AudioFormatFlags::SIGNED.0;
@@ -966,11 +983,12 @@ impl AudioSourceLoader {
         }
 
         let mut audio_data = Vec::with_capacity(file_size.max(1024));
-        let mut signal_spec: Option<SignalSpec> = None;
+        let mut signal_spec: Option<AudioSpec> = None;
 
         loop {
             let packet = match reader.next_packet() {
-                Ok(packet) => packet,
+                Ok(Some(packet)) => packet,
+                Ok(None) => break,
                 Err(symphonia::core::errors::Error::IoError(ref e))
                     if e.kind() == std::io::ErrorKind::UnexpectedEof =>
                 {
@@ -981,28 +999,26 @@ impl AudioSourceLoader {
                 }
             };
 
-            if packet.track_id() != track_id {
+            if packet.track_id != track_id {
                 continue;
             }
 
             match decoder.decode(&packet) {
                 Ok(decoded) => {
-                    let spec = *decoded.spec();
+                    let spec = decoded.spec().clone();
                     signal_spec.get_or_insert(spec);
 
-                    let mut sample_buffer =
-                        SampleBuffer::<i16>::new(decoded.capacity() as u64, spec);
-                    sample_buffer.copy_interleaved_ref(decoded);
+                    let mut samples: Vec<i16> = Vec::new();
+                    decoded.copy_to_vec_interleaved::<i16>(&mut samples);
 
-                    // SAFETY: Reinterprets the live SampleBuffer<i16>
-                    // contents as bytes: pointer and exact len*size_of::<i16>()
-                    // byte length are in bounds and fully initialized, the data
-                    // is only read, and [u8] has no alignment/bit-pattern
-                    // requirements.
+                    // SAFETY: Reinterprets the live Vec<i16> contents as bytes:
+                    // pointer and exact len*size_of::<i16>() byte length are in
+                    // bounds and fully initialized, the data is only read, and
+                    // [u8] has no alignment/bit-pattern requirements.
                     let slice = unsafe {
                         std::slice::from_raw_parts(
-                            sample_buffer.samples().as_ptr() as *const u8,
-                            sample_buffer.samples().len() * std::mem::size_of::<i16>(),
+                            samples.as_ptr() as *const u8,
+                            samples.len() * std::mem::size_of::<i16>(),
                         )
                     };
                     audio_data.extend_from_slice(slice);
@@ -1022,10 +1038,10 @@ impl AudioSourceLoader {
 
         if let Some(spec) = signal_spec {
             if format.channels == 0 {
-                format.channels = spec.channels.count() as u16;
+                format.channels = spec.channels().count() as u16;
             }
             if format.rate == 0 {
-                format.rate = spec.rate;
+                format.rate = spec.rate();
             }
         }
 
@@ -1039,12 +1055,12 @@ impl AudioSourceLoader {
 
     /// Convert Symphonia codec parameters to our Enhanced format
     fn symphonia_to_enhanced_format(
-        codec_params: &symphonia::core::codecs::CodecParameters,
+        codec_params: &AudioCodecParameters,
     ) -> Result<EnhancedAudioFormat> {
         let mut format = EnhancedAudioFormat::new();
 
         // Set channels
-        if let Some(channels) = codec_params.channels {
+        if let Some(channels) = &codec_params.channels {
             format.channels = channels.count() as u16;
         }
 
@@ -1058,13 +1074,13 @@ impl AudioSourceLoader {
 
         // Determine compression type based on codec
         format.compression = match codec_params.codec {
-            symphonia::core::codecs::CODEC_TYPE_PCM_S16LE
-            | symphonia::core::codecs::CODEC_TYPE_PCM_S16BE
-            | symphonia::core::codecs::CODEC_TYPE_PCM_S24LE
-            | symphonia::core::codecs::CODEC_TYPE_PCM_S24BE
-            | symphonia::core::codecs::CODEC_TYPE_PCM_S32LE
-            | symphonia::core::codecs::CODEC_TYPE_PCM_S32BE => AudioCompressionType::None,
-            symphonia::core::codecs::CODEC_TYPE_MP3 => AudioCompressionType::Mp3,
+            CODEC_ID_PCM_S16LE
+            | CODEC_ID_PCM_S16BE
+            | CODEC_ID_PCM_S24LE
+            | CODEC_ID_PCM_S24BE
+            | CODEC_ID_PCM_S32LE
+            | CODEC_ID_PCM_S32BE => AudioCompressionType::None,
+            CODEC_ID_MP3 => AudioCompressionType::Mp3,
             _ => AudioCompressionType::None, // Default to uncompressed
         };
 
@@ -1145,26 +1161,35 @@ impl AudioSourceLoader {
             }
         }
 
-        let probed = symphonia::default::get_probe()
-            .format(
+        let reader = symphonia::default::get_probe()
+            .probe(
                 &hint,
                 source,
-                &FormatOptions::default(),
-                &MetadataOptions::default(),
+                FormatOptions::default(),
+                MetadataOptions::default(),
             )
             .map_err(|e| {
                 SourceError::InvalidFormat(format!("Failed to probe audio file: {}", e))
             })?;
 
-        let reader = probed.format;
-
         let track = reader
             .tracks()
             .iter()
-            .find(|t| t.codec_params.codec != symphonia::core::codecs::CODEC_TYPE_NULL)
+            .find(|t| {
+                t.codec_params
+                    .as_ref()
+                    .and_then(|p| p.audio())
+                    .is_some_and(|p| p.codec != CODEC_ID_NULL_AUDIO)
+            })
             .ok_or_else(|| SourceError::InvalidFormat("No audio tracks found".to_string()))?;
 
-        let mut format = Self::symphonia_to_enhanced_format(&track.codec_params)?;
+        let audio_params = track
+            .codec_params
+            .as_ref()
+            .and_then(|p| p.audio())
+            .ok_or_else(|| SourceError::InvalidFormat("No audio codec parameters".to_string()))?;
+
+        let mut format = Self::symphonia_to_enhanced_format(audio_params)?;
         format.update()?;
 
         Ok(format)

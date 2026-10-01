@@ -210,7 +210,7 @@ impl WgpuShaderInterface {
                 vertex: VertexState {
                     module: &shader,
                     entry_point: Some("vs_main"),
-                    buffers: &[WgpuVertex::desc()],
+                    buffers: &[Some(WgpuVertex::desc())],
                     compilation_options: PipelineCompilationOptions::default(),
                 },
                 fragment: Some(FragmentState {

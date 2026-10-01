@@ -522,8 +522,7 @@ impl Object {
         }
 
         let goal_id = self.get_goal_object_id()?;
-        crate::helpers::TheGameLogic::find_object_by_id(goal_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(goal_id))
+        crate::object::registry::OBJECT_REGISTRY.get_object(goal_id)
     }
 
     /// Get the thing template for this object
@@ -875,8 +874,7 @@ impl Object {
 
         self.set_status(ObjectStatusMaskType::UNSELECTABLE, true);
         let is_enclosing = if container_id != INVALID_ID {
-            if let Some(container) = crate::helpers::TheGameLogic::find_object_by_id(container_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(container_id))
+            if let Some(container) = crate::object::registry::OBJECT_REGISTRY.get_object(container_id)
             {
                 if let Ok(guard) = container.try_read() {
                     if let Some(contain) = guard.get_contain() {
@@ -999,8 +997,7 @@ impl Object {
             SlotLook::Riders(rider_ids) => {
                 count = 0;
                 for rider_id in rider_ids {
-                    if let Some(rider) = crate::helpers::TheGameLogic::find_object_by_id(rider_id)
-                        .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(rider_id))
+                    if let Some(rider) = crate::object::registry::OBJECT_REGISTRY.get_object(rider_id)
                     {
                         if let Ok(rider_guard) = rider.try_read() {
                             count += rider_guard.get_transport_slot_count();
@@ -1034,8 +1031,7 @@ impl Object {
         }
 
         let container_id = self.get_container_id()?;
-        crate::helpers::TheGameLogic::find_object_by_id(container_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(container_id))
+        crate::object::registry::OBJECT_REGISTRY.get_object(container_id)
     }
 
     pub fn get_indicator_color(&self) -> Color {

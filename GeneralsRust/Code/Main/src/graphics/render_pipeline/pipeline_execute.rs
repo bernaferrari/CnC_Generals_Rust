@@ -14,8 +14,16 @@ struct ShadowCallbackDevice {
 }
 
 #[cfg(target_arch = "wasm32")]
+// SAFETY: wasm32-only. The single field is `Arc<wgpu::Device>`, an `Rc`-backed
+// handle on the web backend that makes the struct `!Send`/`!Sync` by default.
+// wasm32-unknown-unknown has no threads, so the device can never move to or
+// be observed from another thread; the impl only satisfies the bounds of the
+// shadow-pass callback slot that stores it. Native keeps the auto traits.
 unsafe impl Send for ShadowCallbackDevice {}
 #[cfg(target_arch = "wasm32")]
+// SAFETY: same wasm32-only scope: the target is single-threaded, so
+// `&ShadowCallbackDevice` is never accessed from two threads and the device's
+// `!Sync` default is unreachable.
 unsafe impl Sync for ShadowCallbackDevice {}
 impl RenderPipeline {
     pub fn execute(

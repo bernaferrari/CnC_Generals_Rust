@@ -13,8 +13,7 @@ fn resolve_crate_object(
     if id == crate::common::INVALID_ID {
         return None;
     }
-    crate::helpers::TheGameLogic::find_object_by_id(id)
-        .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(id))
+    crate::object::registry::OBJECT_REGISTRY.get_object(id)
 }
 
 use crate::common::{
@@ -524,8 +523,7 @@ impl LegacyCollideAdapter for ConvertToHijackedVehicleCrateCollide {
         if ConvertToHijackedVehicleCrateCollide::is_valid_to_execute(self, other_id)? {
             let success =
                 ConvertToHijackedVehicleCrateCollide::execute_crate_behavior(self, other_id)?;
-            if let Some(other) = crate::helpers::TheGameLogic::find_object_by_id(other_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(other_id))
+            if let Some(other) = crate::object::registry::OBJECT_REGISTRY.get_object(other_id)
             {
                 self.base
                     .finish_execution_attempt(&other, success)

@@ -540,8 +540,7 @@ impl<T: EngineModuleData> DieModule<T> {
         if id == crate::common::INVALID_ID {
             return None;
         }
-        crate::helpers::TheGameLogic::find_object_by_id(id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(id))
+        crate::object::registry::OBJECT_REGISTRY.get_object(id)
     }
 }
 
@@ -618,8 +617,7 @@ impl DieModuleWrapper {
         if id == crate::common::INVALID_ID {
             return None;
         }
-        crate::helpers::TheGameLogic::find_object_by_id(id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(id))
+        crate::object::registry::OBJECT_REGISTRY.get_object(id)
     }
 }
 

@@ -14,7 +14,7 @@ use gpui::{
     div, prelude::*, px, rgb, size,
 };
 use image::{DynamicImage, RgbaImage};
-use image_compat::{ImageBuffer as CompatImageBuffer, Rgba as CompatRgba};
+use image::{ImageBuffer, Rgba};
 use log::{error, info, warn};
 use std::collections::{HashMap, HashSet};
 use std::fs;
@@ -67,7 +67,7 @@ impl Default for TargetSizeMode {
 struct SourceImage {
     key: String,
     path: PathBuf,
-    rgba: CompatImageBuffer<CompatRgba<u8>, Vec<u8>>,
+    rgba: ImageBuffer<Rgba<u8>, Vec<u8>>,
     width: u32,
     height: u32,
     color_depth: u8,
@@ -1113,9 +1113,9 @@ impl Render for ImagePackerGpuiApp {
     }
 }
 
-fn modern_rgba_to_compat(image: RgbaImage) -> Result<CompatImageBuffer<CompatRgba<u8>, Vec<u8>>> {
+fn modern_rgba_to_compat(image: RgbaImage) -> Result<ImageBuffer<Rgba<u8>, Vec<u8>>> {
     let (width, height) = image.dimensions();
-    CompatImageBuffer::from_raw(width, height, image.into_raw()).ok_or_else(|| {
+    ImageBuffer::from_raw(width, height, image.into_raw()).ok_or_else(|| {
         anyhow::anyhow!("failed converting RGBA image to texture_packer-compatible buffer")
     })
 }

@@ -86,8 +86,16 @@ struct FadeGpu {
 }
 
 #[cfg(target_arch = "wasm32")]
+// SAFETY: wasm32-only. `Buffer`, `BindGroup` and the four `RenderPipeline`s
+// are `Rc`-backed wgpu handles and `!Send` on the web backend. wasm32 has no
+// threads, so the handles can never move to or be observed from another
+// thread; the impl only satisfies the `Send` bound of the
+// `static Mutex<Option<FadeGpu>>` that owns it.
 unsafe impl Send for FadeGpu {}
 #[cfg(target_arch = "wasm32")]
+// SAFETY: same wasm32-only scope: the target is single-threaded, so `&FadeGpu`
+// is never shared between threads and the handles' `!Sync` default is
+// unreachable.
 unsafe impl Sync for FadeGpu {}
 
 static FADE_GPU: Mutex<Option<FadeGpu>> = Mutex::new(None);

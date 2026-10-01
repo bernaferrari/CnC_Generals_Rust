@@ -484,8 +484,7 @@ impl DockUpdateInterface for RailedTransportDockUpdate {
             return Ok(false);
         }
 
-        let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id)
         else {
             return Ok(false);
         };
@@ -564,8 +563,7 @@ impl DockUpdateInterface for RailedTransportDockUpdate {
             return Ok(true);
         };
 
-        let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id)
         else {
             return Ok(false);
         };

@@ -39,16 +39,24 @@ impl RuntimeState {
         self.engine.update(dt);
         let snapshot = self.engine.snapshot();
 
+        // wgpu 30: acquisition returns an enum instead of Result.
         let frame = match self.surface.get_current_texture() {
-            Ok(frame) => frame,
-            Err(wgpu::SurfaceError::Lost | wgpu::SurfaceError::Outdated) => {
+            wgpu::CurrentSurfaceTexture::Success(frame) => frame,
+            wgpu::CurrentSurfaceTexture::Suboptimal(frame) => {
                 self.surface.configure(&self.device, &self.config);
+                frame
+            }
+            status @ (wgpu::CurrentSurfaceTexture::Lost
+            | wgpu::CurrentSurfaceTexture::Outdated) => {
+                self.surface.configure(&self.device, &self.config);
+                let _ = status;
                 return Ok(());
             }
-            Err(wgpu::SurfaceError::Timeout) => {
+            wgpu::CurrentSurfaceTexture::Timeout
+            | wgpu::CurrentSurfaceTexture::Occluded
+            | wgpu::CurrentSurfaceTexture::Validation => {
                 return Ok(());
             }
-            Err(err) => return Err(anyhow::anyhow!("surface acquire failed: {err:?}")),
         };
 
         let target = frame

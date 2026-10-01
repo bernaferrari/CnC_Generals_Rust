@@ -104,68 +104,101 @@ impl TempWeaponBonusHelper {
         duration: u32,
         current_frame: u32,
     ) -> Option<WeaponBonusConditionType> {
-        // Clear any different bonus we may have
+        let owner_id = self.owner_id;
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner_id, |owner_guard| {
+            return self.transition_bonus(
+                bonus,
+                duration,
+                current_frame,
+                Some(&mut *owner_guard),
+            );
+            });
+        // Preserve the standalone helper's historical behavior when the
+        // owner cannot be resolved: helper state and timer still transition.
+        self.transition_bonus(bonus, duration, current_frame, None)
+    }
+
+    /// Apply a bonus directly to the object that owns this helper. Object
+    /// methods already hold the owner mutably, so a global registry lookup
+    /// here would re-enter that same object.
+    pub(crate) fn do_temp_weapon_bonus_in_owner(
+        &mut self,
+        bonus: WeaponBonusConditionType,
+        duration: u32,
+        current_frame: u32,
+        owner: &mut Object,
+    ) {
+        let _ = self.transition_bonus(bonus, duration, current_frame, Some(owner));
+    }
+
+    /// Shared bonus transition used by both the global standalone adapter and
+    /// Object's owner-explicit path. Owner effects stay interleaved with state
+    /// updates in the same clear -> set -> timer -> tint order.
+    fn transition_bonus(
+        &mut self,
+        bonus: WeaponBonusConditionType,
+        duration: u32,
+        current_frame: u32,
+        mut owner: Option<&mut Object>,
+    ) -> Option<WeaponBonusConditionType> {
         let cleared_bonus = if self.current_bonus != bonus
             && self.current_bonus != WeaponBonusConditionType::Invalid
         {
-            let old = self.current_bonus;
-            self.clear_temp_weapon_bonus();
-            Some(old)
+            self.clear_bonus_with_owner(owner.as_deref_mut())
         } else {
             None
         };
 
-        // Set the new bonus (or reset timer for same bonus)
+        if let Some(owner) = owner.as_deref_mut() {
+            owner.set_weapon_bonus_condition(bonus);
+        }
         self.current_bonus = bonus;
         self.frame_to_remove = current_frame + duration;
-
-        if let Some(owner) = crate::helpers::TheGameLogic::find_object_by_id(self.owner_id) {
-            if let Ok(mut owner_guard) = owner.write() {
-                owner_guard.set_weapon_bonus_condition(bonus);
-                if let Some(drawable) = owner_guard.get_drawable() {
-                    if let Ok(mut draw_guard) = drawable.write() {
-                        draw_guard.set_tint_status(TintStatus::FRENZY);
-                    }
+        if let Some(owner) = owner.as_deref_mut() {
+            if let Some(drawable) = owner.get_drawable() {
+                if let Ok(mut draw_guard) = drawable.write() {
+                    draw_guard.set_tint_status(TintStatus::FRENZY);
                 }
             }
         }
-
-        // Apply visual effects
-        match bonus {
+        self.current_tint = match bonus {
             WeaponBonusConditionType::FrenzyOne
             | WeaponBonusConditionType::FrenzyTwo
-            | WeaponBonusConditionType::FrenzyThree => {
-                self.current_tint = TintStatus::FRENZY;
-            }
-            _ => {
-                // Other bonuses may have different visual effects
-                self.current_tint = TintStatus::NONE;
-            }
-        }
-
-        // Wake up when it's time to remove the bonus
+            | WeaponBonusConditionType::FrenzyThree => TintStatus::FRENZY,
+            _ => TintStatus::NONE,
+        };
         self.wake_frame = self.frame_to_remove;
-
         cleared_bonus
     }
 
     /// Clear the current weapon bonus
     pub fn clear_temp_weapon_bonus(&mut self) -> Option<WeaponBonusConditionType> {
+        let owner_id = self.owner_id;
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner_id, |owner_guard| {
+            return self.clear_bonus_with_owner(Some(&mut *owner_guard));
+            });
+        self.clear_bonus_with_owner(None)
+    }
+
+    fn clear_bonus_with_owner(
+        &mut self,
+        mut owner: Option<&mut Object>,
+    ) -> Option<WeaponBonusConditionType> {
         if self.current_bonus != WeaponBonusConditionType::Invalid {
             let cleared = self.current_bonus;
 
+            if let Some(owner) = owner.as_deref_mut() {
+                owner.clear_weapon_bonus_condition(cleared);
+            }
             self.current_bonus = WeaponBonusConditionType::Invalid;
             self.frame_to_remove = 0;
             self.current_tint = TintStatus::NONE;
             self.wake_frame = u32::MAX; // Sleep forever
 
-            if let Some(owner) = crate::helpers::TheGameLogic::find_object_by_id(self.owner_id) {
-                if let Ok(mut owner_guard) = owner.write() {
-                    owner_guard.clear_weapon_bonus_condition(cleared);
-                    if let Some(drawable) = owner_guard.get_drawable() {
-                        if let Ok(mut draw_guard) = drawable.write() {
-                            draw_guard.clear_tint_status(TintStatus::FRENZY);
-                        }
+            if let Some(owner) = owner.as_deref_mut() {
+                if let Some(drawable) = owner.get_drawable() {
+                    if let Ok(mut draw_guard) = drawable.write() {
+                        draw_guard.clear_tint_status(TintStatus::FRENZY);
                     }
                 }
             }

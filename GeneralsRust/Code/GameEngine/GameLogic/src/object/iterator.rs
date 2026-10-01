@@ -47,8 +47,7 @@ impl Clump {
         if self.object_id == INVALID_ID {
             return None;
         }
-        TheGameLogic::find_object_by_id(self.object_id)
-            .or_else(|| OBJECT_REGISTRY.get_object(self.object_id))
+        crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id)
     }
 
     fn is_live(&self) -> bool {
@@ -144,8 +143,7 @@ impl SimpleObjectIterator {
     /// Reset and return the first object alongside its numeric value.
     pub fn first_with_numeric(&mut self) -> Option<(Arc<RwLock<Object>>, Real)> {
         self.first_id_with_numeric().and_then(|(id, numeric)| {
-            TheGameLogic::find_object_by_id(id)
-                .or_else(|| OBJECT_REGISTRY.get_object(id))
+            crate::object::registry::OBJECT_REGISTRY.get_object(id)
                 .map(|obj| (obj, numeric))
         })
     }
@@ -153,8 +151,7 @@ impl SimpleObjectIterator {
     /// Return next object together with its numeric value.
     pub fn next_with_numeric(&mut self) -> Option<(Arc<RwLock<Object>>, Real)> {
         self.next_id_with_numeric().and_then(|(id, numeric)| {
-            TheGameLogic::find_object_by_id(id)
-                .or_else(|| OBJECT_REGISTRY.get_object(id))
+            crate::object::registry::OBJECT_REGISTRY.get_object(id)
                 .map(|obj| (obj, numeric))
         })
     }

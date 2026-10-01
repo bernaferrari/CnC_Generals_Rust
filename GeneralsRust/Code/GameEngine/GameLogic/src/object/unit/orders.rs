@@ -488,8 +488,8 @@ impl Unit {
             self.advance_order_queue();
             return Ok(());
         }
-        if let Some(container) = TheGameLogic::find_object_by_id(building) {
-            if let Ok(container_guard) = container.read() {
+        let wants_move = crate::object::registry::OBJECT_REGISTRY
+            .with_object(building, |container_guard| {
                 if let Some(contain) = container_guard.get_contain() {
                     if let Ok(mut contain_guard) = contain.lock() {
                         if let Ok(base_guard) = self.base_arc().read() {
@@ -501,9 +501,14 @@ impl Unit {
                     }
                 }
                 if self.can_move() && self.movement_state == MovementState::Idle {
-                    self.move_to_position(*container_guard.get_position(), false)?;
+                    Some(*container_guard.get_position())
+                } else {
+                    None
                 }
-            }
+            })
+            .flatten();
+        if let Some(destination) = wants_move {
+            self.move_to_position(destination, false)?;
         }
         Ok(())
     }
@@ -533,20 +538,18 @@ impl Unit {
             }
         }
         if let Some(container_id) = container_id {
-            if let Some(container) = TheGameLogic::find_object_by_id(container_id) {
-                if let Ok(container_guard) = container.read() {
-                    if let Some(contain) = container_guard.get_contain() {
-                        if let Ok(mut contain_guard) = contain.lock() {
-                            if let Ok(base_guard) = self.base_arc().read() {
-                                let _ = contain_guard.on_object_wants_to_enter_or_exit(
-                                    &*base_guard,
-                                    crate::modules::ContainWant::WantsToExit,
-                                );
-                            }
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object(container_id, |container_guard| {
+                if let Some(contain) = container_guard.get_contain() {
+                    if let Ok(mut contain_guard) = contain.lock() {
+                        if let Ok(base_guard) = self.base_arc().read() {
+                            let _ = contain_guard.on_object_wants_to_enter_or_exit(
+                                &*base_guard,
+                                crate::modules::ContainWant::WantsToExit,
+                            );
                         }
                     }
                 }
-            }
+                });
         }
         self.is_garrisoned = false;
         self.garrison_building = None;

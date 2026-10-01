@@ -330,29 +330,32 @@ impl BehaviorModuleInterface for DockUpdate {
                     break;
                 }
             }
-        } else if let Some(owner) = crate::helpers::TheGameLogic::find_object_by_id(self.owner_id) {
-            if let Ok(owner_guard) = owner.read() {
-                if owner_guard.is_kind_of(KindOf::SupplySource) {
-                    if let Some(docker) =
-                        crate::helpers::TheGameLogic::find_object_by_id(self.active_docker)
-                    {
-                        if let Ok(mut docker_guard) = docker.write() {
-                            if docker_guard.is_kind_of(KindOf::Dozer)
-                                && docker_guard.is_kind_of(KindOf::Harvester)
-                            {
-                                if let Some(drawable) = docker_guard.get_drawable() {
-                                    let flags = drawable.get_model_condition_flags();
-                                    if flags.contains(MODELCONDITION_DOCKING_BEGINNING) {
-                                        let _ = docker_guard.clear_model_condition_flags(
-                                            ModelConditionFlags::MOVING,
-                                        );
+        } else {
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object(
+                self.owner_id,
+                |owner_guard| {
+                    if owner_guard.is_kind_of(KindOf::SupplySource) {
+                        if let Some(docker) =
+                            crate::helpers::TheGameLogic::find_object_by_id(self.active_docker)
+                        {
+                            if let Ok(mut docker_guard) = docker.write() {
+                                if docker_guard.is_kind_of(KindOf::Dozer)
+                                    && docker_guard.is_kind_of(KindOf::Harvester)
+                                {
+                                    if let Some(drawable) = docker_guard.get_drawable() {
+                                        let flags = drawable.get_model_condition_flags();
+                                        if flags.contains(MODELCONDITION_DOCKING_BEGINNING) {
+                                            let _ = docker_guard.clear_model_condition_flags(
+                                                ModelConditionFlags::MOVING,
+                                            );
+                                        }
                                     }
                                 }
                             }
                         }
                     }
-                }
-            }
+                },
+            );
         }
 
         Ok(())
@@ -389,8 +392,7 @@ fn resolve_dock_object(id: ObjectID) -> Option<Arc<RwLock<Object>>> {
     if id == INVALID_ID {
         return None;
     }
-    crate::helpers::TheGameLogic::find_object_by_id(id)
-        .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(id))
+    crate::object::registry::OBJECT_REGISTRY.get_object(id)
 }
 
 fn peek_pristine_dock_bone(owner_id: ObjectID, bone: &str) -> Option<Coord3D> {
@@ -460,11 +462,9 @@ impl DockUpdateInterface for DockUpdate {
                 | MODELCONDITION_DOCKING_BEGINNING
                 | MODELCONDITION_DOCKING_ACTIVE
                 | MODELCONDITION_DOCKING;
-            if let Some(owner) = crate::helpers::TheGameLogic::find_object_by_id(self.owner_id) {
-                if let Ok(mut owner_guard) = owner.write() {
-                    let _ = owner_guard.clear_model_condition_flags(clear);
-                }
-            }
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(self.owner_id, |owner_guard| {
+                let _ = owner_guard.clear_model_condition_flags(clear);
+                });
             let _ = obj_guard.clear_model_condition_flags(clear).ok();
         }
 
@@ -633,12 +633,10 @@ impl DockUpdateInterface for DockUpdate {
             return Ok(());
         }
 
-        if let Some(owner) = crate::helpers::TheGameLogic::find_object_by_id(self.owner_id) {
-            if let Ok(owner_guard) = owner.read() {
-                let world = owner_guard.convert_bone_pos_to_world_pos(Some(&enter), None);
-                *goal_pos = world.transform_point3(Coord3D::ZERO);
-            }
-        }
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object(self.owner_id, |owner_guard| {
+            let world = owner_guard.convert_bone_pos_to_world_pos(Some(&enter), None);
+            *goal_pos = world.transform_point3(Coord3D::ZERO);
+            });
         Ok(())
     }
 
@@ -653,11 +651,9 @@ impl DockUpdateInterface for DockUpdate {
 
         let clear = MODELCONDITION_DOCKING_ENDING;
         let set = MODELCONDITION_DOCKING_BEGINNING | MODELCONDITION_DOCKING;
-        if let Some(owner) = crate::helpers::TheGameLogic::find_object_by_id(self.owner_id) {
-            if let Ok(mut owner_guard) = owner.write() {
-                let _ = owner_guard.clear_and_set_model_condition_flags(clear, set);
-            }
-        }
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(self.owner_id, |owner_guard| {
+            let _ = owner_guard.clear_and_set_model_condition_flags(clear, set);
+            });
         let _ = obj_guard.clear_and_set_model_condition_flags(clear, set);
 
         self.docker_inside = true;
@@ -689,12 +685,10 @@ impl DockUpdateInterface for DockUpdate {
             return Ok(());
         }
 
-        if let Some(owner) = crate::helpers::TheGameLogic::find_object_by_id(self.owner_id) {
-            if let Ok(owner_guard) = owner.read() {
-                let world = owner_guard.convert_bone_pos_to_world_pos(Some(&dock), None);
-                *goal_pos = world.transform_point3(Coord3D::ZERO);
-            }
-        }
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object(self.owner_id, |owner_guard| {
+            let world = owner_guard.convert_bone_pos_to_world_pos(Some(&dock), None);
+            *goal_pos = world.transform_point3(Coord3D::ZERO);
+            });
         Ok(())
     }
 
@@ -709,11 +703,9 @@ impl DockUpdateInterface for DockUpdate {
 
         let clear = MODELCONDITION_DOCKING_BEGINNING;
         let set = MODELCONDITION_DOCKING_ACTIVE;
-        if let Some(owner) = crate::helpers::TheGameLogic::find_object_by_id(self.owner_id) {
-            if let Ok(mut owner_guard) = owner.write() {
-                let _ = owner_guard.clear_and_set_model_condition_flags(clear, set);
-            }
-        }
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(self.owner_id, |owner_guard| {
+            let _ = owner_guard.clear_and_set_model_condition_flags(clear, set);
+            });
         let _ = obj_guard.clear_and_set_model_condition_flags(clear, set);
 
         Ok(())
@@ -744,12 +736,10 @@ impl DockUpdateInterface for DockUpdate {
             return Ok(());
         }
 
-        if let Some(owner) = crate::helpers::TheGameLogic::find_object_by_id(self.owner_id) {
-            if let Ok(owner_guard) = owner.read() {
-                let world = owner_guard.convert_bone_pos_to_world_pos(Some(&exit), None);
-                *goal_pos = world.transform_point3(Coord3D::ZERO);
-            }
-        }
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object(self.owner_id, |owner_guard| {
+            let world = owner_guard.convert_bone_pos_to_world_pos(Some(&exit), None);
+            *goal_pos = world.transform_point3(Coord3D::ZERO);
+            });
         Ok(())
     }
 
@@ -764,11 +754,9 @@ impl DockUpdateInterface for DockUpdate {
 
         let clear = MODELCONDITION_DOCKING_ACTIVE | MODELCONDITION_DOCKING;
         let set = MODELCONDITION_DOCKING_ENDING;
-        if let Some(owner) = crate::helpers::TheGameLogic::find_object_by_id(self.owner_id) {
-            if let Ok(mut owner_guard) = owner.write() {
-                let _ = owner_guard.clear_and_set_model_condition_flags(clear, set);
-            }
-        }
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(self.owner_id, |owner_guard| {
+            let _ = owner_guard.clear_and_set_model_condition_flags(clear, set);
+            });
         let _ = obj_guard.clear_and_set_model_condition_flags(clear, set);
 
         self.docker_inside = false;

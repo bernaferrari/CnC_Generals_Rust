@@ -95,38 +95,27 @@ pub(crate) fn should_cancel_containment_after_booby_trap(
     if owner_id == crate::common::INVALID_ID || obj_id == crate::common::INVALID_ID {
         return false;
     }
-    let Some(owner) = crate::helpers::TheGameLogic::find_object_by_id(owner_id)
-        .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(owner_id))
-    else {
-        return false;
-    };
-    let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
-        .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
-    else {
-        return false;
-    };
-
-    let (Ok(owner_guard), Ok(obj_guard)) = (owner.read(), obj.read()) else {
-        return false;
-    };
-
-    owner_guard.check_and_detonate_booby_trap(Some(&*obj_guard))
-        && (owner_guard.is_effectively_dead() || obj_guard.is_effectively_dead())
+    crate::object::registry::OBJECT_REGISTRY
+        .with_object(owner_id, |owner_guard| {
+            crate::object::registry::OBJECT_REGISTRY
+                .with_object(obj_id, |obj_guard| {
+                    owner_guard.check_and_detonate_booby_trap(Some(obj_guard))
+                        && (owner_guard.is_effectively_dead() || obj_guard.is_effectively_dead())
+                })
+                .unwrap_or(false)
+        })
+        .unwrap_or(false)
 }
 
 /// C++ TransportContain/MobNexusContain: if the rider is a special zero-slot
 /// container (parachute), validate the first contained infantry instead.
-pub(crate) fn unwrap_special_zero_slot_rider(obj: &Object) -> Option<Arc<RwLock<Object>>> {
+pub(crate) fn unwrap_special_zero_slot_rider(obj: &Object) -> Option<ObjectID> {
     let contain = obj.get_contain()?;
-    let first_id = {
-        let guard = contain.lock().ok()?;
-        if guard.get_max_capacity() != 0 {
-            return None;
-        }
-        *guard.get_contained_objects().first()?
-    };
-    crate::helpers::TheGameLogic::find_object_by_id(first_id)
-        .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(first_id))
+    let guard = contain.lock().ok()?;
+    if guard.get_max_capacity() != 0 {
+        return None;
+    }
+    Some(*guard.get_contained_objects().first()?)
 }
 
 /// Trait for common container functionality

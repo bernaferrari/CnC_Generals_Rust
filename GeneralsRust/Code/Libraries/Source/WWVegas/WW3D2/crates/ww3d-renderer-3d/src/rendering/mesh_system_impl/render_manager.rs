@@ -282,7 +282,7 @@ pub struct MeshRenderManager {
     /// texture on first use (W3DAssetManager.cpp:127-225); the port's pass
     /// textures are built with pixel data but no GPU upload, so the mesh
     /// manager owns the first-bind upload, keyed by texture name.
-    gpu_texture_views: Mutex<HashMap<String, Arc<wgpu::TextureView>>>,
+    gpu_texture_views: HashMap<String, Arc<wgpu::TextureView>>,
     stats: MeshRenderStats,
     pipeline_mgr: WgpuPipelineManager,
     asset_manager: Option<Arc<Mutex<AssetManager>>>,
@@ -312,7 +312,7 @@ pub struct MeshRenderManager {
     /// Warn-once dedup for missing-texture binds, keyed by
     /// (lowercased texture name, reason). Mirrors C++ WW3D's single
     /// "texture not found" debug spam guard; prevents per-frame log floods.
-    fallback_bind_warnings: Mutex<HashMap<(String, &'static str), ()>>,
+    fallback_bind_warnings: HashMap<(String, &'static str), ()>,
 }
 
 impl MeshRenderManager {
@@ -352,8 +352,8 @@ impl MeshRenderManager {
         Self {
             gpu_device,
             preparedmodels: HashMap::new(),
-            gpu_texture_views: Mutex::new(HashMap::new()),
-            fallback_bind_warnings: Mutex::new(HashMap::new()),
+            gpu_texture_views: HashMap::new(),
+            fallback_bind_warnings: HashMap::new(),
             stats: MeshRenderStats::default(),
             pipeline_mgr,
             asset_manager: None,
@@ -1480,7 +1480,7 @@ impl MeshRenderManager {
     }
 
     fn create_texture_bind_groups(
-        &self,
+        &mut self,
         pipeline: &wgpu::RenderPipeline,
         pass: &MaterialPassClass,
         first_group_index: u32,
@@ -1533,7 +1533,7 @@ impl MeshRenderManager {
         bind_groups
     }
 
-    fn stage_resources_for(&self, pass: &MaterialPassClass, stage: usize) -> StageResources {
+    fn stage_resources_for(&mut self, pass: &MaterialPassClass, stage: usize) -> StageResources {
         let texture_opt = pass.get_texture(stage);
         let resources = if let Some(texture) = texture_opt {
             if let Some(view) = texture.get_texture_view() {
@@ -1614,11 +1614,9 @@ impl MeshRenderManager {
     /// resolve and the magenta missing texture is bound instead. C++ logs the
     /// miss once at the asset-manager layer; without the dedup this fires
     /// per stage per frame.
-    fn warn_fallback_bind_once(&self, texture_name: &str, reason: &'static str) {
-        let Ok(mut seen) = self.fallback_bind_warnings.lock() else {
-            return;
-        };
-        if seen
+    fn warn_fallback_bind_once(&mut self, texture_name: &str, reason: &'static str) {
+        if self
+            .fallback_bind_warnings
             .insert((texture_name.to_ascii_lowercase(), reason), ())
             .is_none()
         {
@@ -1652,12 +1650,13 @@ impl MeshRenderManager {
     /// map stage in this lane — every stage hint (diffuse/emissive/env/spec
     /// mask) is color content — so all four 32-bit formats map to their Srgb
     /// view variant.
-    fn ensure_gpu_texture_view(&self, texture: &TextureClass) -> Option<Arc<wgpu::TextureView>> {
+    fn ensure_gpu_texture_view(
+        &mut self,
+        texture: &TextureClass,
+    ) -> Option<Arc<wgpu::TextureView>> {
         let key = texture.get_name().to_ascii_lowercase();
-        if let Ok(cache) = self.gpu_texture_views.lock() {
-            if let Some(view) = cache.get(&key) {
-                return Some(Arc::clone(view));
-            }
+        if let Some(view) = self.gpu_texture_views.get(&key) {
+            return Some(Arc::clone(view));
         }
 
         let pixels = texture.raw_pixels();
@@ -1718,13 +1717,7 @@ impl MeshRenderManager {
         );
         let view = Arc::new(gpu_texture.create_view(&wgpu::TextureViewDescriptor::default()));
 
-        if let Ok(mut cache) = self.gpu_texture_views.lock() {
-            if let Some(existing) = cache.get(&key) {
-                // Another thread won the upload race; reuse its view.
-                return Some(Arc::clone(existing));
-            }
-            cache.insert(key, Arc::clone(&view));
-        }
+        self.gpu_texture_views.insert(key, Arc::clone(&view));
         Some(view)
     }
 
@@ -1909,6 +1902,46 @@ mod per_mesh_lighting_tests {
     use super::*;
     use crate::rendering::camera_system::CameraClass;
     use crate::rendering::lighting_system::LightEnvironmentClass;
+
+    #[test]
+    fn first_bind_texture_cache_reuses_views_within_its_renderer_only() {
+        // C++ assetmgr.cpp:1030-1050 looks up the lowercase name before
+        // creating a texture. WGPU resources additionally belong to a device.
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+            backends: wgpu::Backends::all(),
+            ..wgpu::InstanceDescriptor::new_without_display_handle()
+        });
+        let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+            power_preference: wgpu::PowerPreference::LowPower,
+            compatible_surface: None,
+            force_fallback_adapter: false,
+            apply_limit_buckets: false,
+        }))
+        .expect("texture-cache integration test requires a GPU adapter");
+        // STANDALONE DEVICE: offscreen texture-cache test, not on the game path.
+        let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+            required_limits: wgpu::Limits::downlevel_defaults(),
+            label: Some("texture-cache-ownership-test"),
+            ..Default::default()
+        }))
+        .unwrap();
+        let gpu = Arc::new(GpuDevice::from_shared(Arc::new(device), Arc::new(queue)));
+        let mut first = MeshRenderManager::new(Arc::clone(&gpu));
+        let mut second = MeshRenderManager::new(gpu);
+        let mut texture = TextureClass::new("Unit.TGA", 1, 1);
+        texture.replace_pixels(vec![255, 0, 0, 255]).unwrap();
+        let retained = first.ensure_gpu_texture_view(&texture).unwrap();
+        texture.name = "unit.tga".to_owned();
+        let again = first.ensure_gpu_texture_view(&texture).unwrap();
+        assert!(Arc::ptr_eq(&retained, &again));
+        let independent = second.ensure_gpu_texture_view(&texture).unwrap();
+        assert!(!Arc::ptr_eq(&retained, &independent));
+        drop(first);
+        assert!(Arc::ptr_eq(
+            &independent,
+            &second.ensure_gpu_texture_view(&texture).unwrap()
+        ));
+    }
 
     #[test]
     fn mesh_owned_lighting_overrides_only_the_selected_render_info() {

@@ -636,8 +636,16 @@ pub struct WgpuRenderBackend {
 }
 
 #[cfg(target_arch = "wasm32")]
+// SAFETY: wasm32-only. The wgpu handles in `buffers`, `textures`, `pipelines`
+// and `command_encoder` are `Rc`-backed and `!Send` on the web backend, but
+// wasm32 has no threads, so they can never move to or be observed from
+// another thread. The impl only satisfies the `Send`/`Sync` bounds of the
+// backend's owners. Native keeps the auto traits.
 unsafe impl Send for WgpuRenderBackend {}
 #[cfg(target_arch = "wasm32")]
+// SAFETY: same wasm32-only scope: the target is single-threaded, so
+// `&WgpuRenderBackend` is never accessed from two threads and the handles'
+// `!Sync` default is unreachable.
 unsafe impl Sync for WgpuRenderBackend {}
 
 impl WgpuRenderBackend {

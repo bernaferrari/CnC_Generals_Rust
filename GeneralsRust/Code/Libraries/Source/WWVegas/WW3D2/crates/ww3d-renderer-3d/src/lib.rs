@@ -256,8 +256,16 @@ pub struct Renderer {
 }
 
 #[cfg(target_arch = "wasm32")]
+// SAFETY: wasm32-only. `Renderer` transitively owns wgpu handles through
+// `Arc<GpuDevice>`, `PipelineManager`, `TextureManager`, `BufferManager` and
+// the frame uniform arenas; they are `Rc`-backed and `!Send` on the web
+// backend, but wasm32 has no threads. The impl only satisfies the
+// `Send`/`Sync` bounds of the `Arc<Mutex<Renderer>>` owners.
 unsafe impl Send for Renderer {}
 #[cfg(target_arch = "wasm32")]
+// SAFETY: same wasm32-only scope: the target is single-threaded, so
+// `&Renderer` is never accessed from two threads and the handles' `!Sync`
+// default is unreachable.
 unsafe impl Sync for Renderer {}
 
 impl Renderer {

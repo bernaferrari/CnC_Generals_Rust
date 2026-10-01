@@ -623,8 +623,7 @@ impl Default for CollisionManager {
 
 /// C++ Object.cpp:2369 — call CollideModuleInterface on each behavior module.
 fn dispatch_behavior_collides(object_id: ObjectId, other: Option<&dyn GameObject>) {
-    let obj = crate::helpers::TheGameLogic::find_object_by_id(object_id)
-        .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(object_id));
+    let obj = crate::object::registry::OBJECT_REGISTRY.get_object(object_id);
     let Some(obj) = obj else {
         return;
     };
@@ -638,8 +637,7 @@ fn dispatch_behavior_collides(object_id: ObjectId, other: Option<&dyn GameObject
     drop(guard);
     let other_id = other.map(|o| o.get_id()).unwrap_or(INVALID_ID);
     for behavior in behaviors {
-        if let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(object_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(object_id))
+        if let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(object_id)
         {
             if let Ok(guard) = obj.try_read() {
                 if guard.test_status(ObjectStatusTypes::NoCollisions) {
@@ -655,8 +653,7 @@ fn dispatch_behavior_collides(object_id: ObjectId, other: Option<&dyn GameObject
         }
     }
     if other_id != INVALID_ID {
-        if let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(object_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(object_id))
+        if let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(object_id)
         {
             let contain = obj.try_read().ok().and_then(|guard| guard.get_contain());
             if let Some(contain) = contain {

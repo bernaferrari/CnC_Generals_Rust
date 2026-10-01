@@ -1809,8 +1809,7 @@ impl UnitAIUpdate {
         if surrendered {
             self.surrendered_frames_left = self.surrender_duration_frames;
             self.surrendered_player_index = to_object_id.and_then(|id| {
-                let obj = crate::helpers::TheGameLogic::find_object_by_id(id)
-                    .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(id))?;
+                let obj = crate::object::registry::OBJECT_REGISTRY.get_object(id)?;
                 let guard = obj.read().ok()?;
                 guard
                     .get_controlling_player_id()
@@ -1974,15 +1973,13 @@ impl UnitAIUpdate {
                 .ok()
                 .map(|obj| obj.get_id())
                 .unwrap_or(crate::common::INVALID_ID);
-            if let Some(old_victim) = crate::helpers::TheGameLogic::find_object_by_id(old_id) {
-                if let Ok(old_guard) = old_victim.read() {
-                    if let Some(ai) = old_guard.get_ai_update_interface() {
-                        if let Ok(mut ai_guard) = ai.lock() {
-                            ai_guard.add_targeter(self_id, false);
-                        }
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object(old_id, |old_guard| {
+                if let Some(ai) = old_guard.get_ai_update_interface() {
+                    if let Ok(mut ai_guard) = ai.lock() {
+                        ai_guard.add_targeter(self_id, false);
                     }
                 }
-            }
+                });
         }
 
         guard.attack_target = victim;

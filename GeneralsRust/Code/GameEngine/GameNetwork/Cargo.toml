@@ -31,6 +31,8 @@ rcgen = {workspace = true}
 
 # HTTP/gRPC for matchmaking services
 hyper = {workspace = true, features = ["full"]}
+hyper-util = { workspace = true, features = ["tokio"] }
+http-body-util = { workspace = true }
 reqwest = { workspace = true, features = ["stream"] }
 
 # Serialization

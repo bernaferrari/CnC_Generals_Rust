@@ -17,13 +17,11 @@ impl Object {
         let holder_id = self.contained_by_id;
 
         if self.held_helper.is_none() {
-            self.held_helper = Some(Arc::new(Mutex::new(ObjectHeldHelper::new())));
+            self.held_helper = Some(Box::new(ObjectHeldHelper::new()));
         }
 
-        if let Some(helper) = &self.held_helper {
-            if let Ok(mut guard) = helper.lock() {
-                guard.set_held(held, holder_id);
-            }
+        if let Some(helper) = &mut self.held_helper {
+            helper.set_held(held, holder_id);
         }
 
         if held {
@@ -141,16 +139,14 @@ impl Object {
         if let Some(contain) = &self.contain {
             if let Ok(contain_guard) = contain.lock() {
                 if let Some(rider_id) = contain_guard.get_rider_id() {
-                    if let Some(rider) = crate::helpers::TheGameLogic::find_object_by_id(rider_id) {
-                        if let Ok(mut rider_guard) = rider.write() {
-                            // If this was a FOREVER disable, clear the rider's matching disable
-                            if let Some(index) = self.get_disabled_type_index(disabled_type) {
-                                if self.disabled_till_frame[index] == FOREVER {
-                                    let _ = rider_guard.clear_disabled(disabled_type);
-                                }
+                    let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(rider_id, |rider_guard| {
+                        // If this was a FOREVER disable, clear the rider's matching disable
+                        if let Some(index) = self.get_disabled_type_index(disabled_type) {
+                            if self.disabled_till_frame[index] == FOREVER {
+                                let _ = rider_guard.clear_disabled(disabled_type);
                             }
                         }
-                    }
+                        });
                 }
             }
         }

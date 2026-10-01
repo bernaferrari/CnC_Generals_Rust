@@ -64,6 +64,10 @@
       "constructs": 1,
       "undocumented": 0
     },
+    "Code/GameEngine/Common/src/common/system/registry.rs": {
+      "constructs": 2,
+      "undocumented": 0
+    },
     "Code/GameEngine/Common/src/common/system/save_game/game_state_map.rs": {
       "constructs": 2,
       "undocumented": 0
@@ -91,6 +95,10 @@
     "Code/GameEngine/Common/src/common/system/xfer_tests.rs": {
       "constructs": 2,
       "undocumented": 0
+    },
+    "Code/GameEngine/Common/src/common/thing/module_factory.rs": {
+      "constructs": 1,
+      "undocumented": 1
     },
     "Code/GameEngine/Common/src/memory/allocator.rs": {
       "constructs": 30,
@@ -124,6 +132,10 @@
       "constructs": 1,
       "undocumented": 0
     },
+    "Code/GameEngine/GameClient/src/assets/mod.rs": {
+      "constructs": 2,
+      "undocumented": 0
+    },
     "Code/GameEngine/GameClient/src/bink.rs": {
       "constructs": 2,
       "undocumented": 0
@@ -144,11 +156,47 @@
       "constructs": 1,
       "undocumented": 0
     },
+    "Code/GameEngine/GameClient/src/display/image.rs": {
+      "constructs": 2,
+      "undocumented": 0
+    },
+    "Code/GameEngine/GameClient/src/display/shader_filter.rs": {
+      "constructs": 2,
+      "undocumented": 0
+    },
+    "Code/GameEngine/GameClient/src/display/shadow_pass.rs": {
+      "constructs": 2,
+      "undocumented": 0
+    },
+    "Code/GameEngine/GameClient/src/display/status_circle.rs": {
+      "constructs": 2,
+      "undocumented": 0
+    },
+    "Code/GameEngine/GameClient/src/drawable/drawable_draw_pipeline.rs": {
+      "constructs": 2,
+      "undocumented": 0
+    },
+    "Code/GameEngine/GameClient/src/effects/particle_renderer.rs": {
+      "constructs": 2,
+      "undocumented": 0
+    },
     "Code/GameEngine/GameClient/src/gui/gadgets/mod.rs": {
       "constructs": 3,
       "undocumented": 0
     },
     "Code/GameEngine/GameClient/src/gui/game_window/callbacks.rs": {
+      "constructs": 1,
+      "undocumented": 0
+    },
+    "Code/GameEngine/GameClient/src/gui/ui_renderer.rs": {
+      "constructs": 2,
+      "undocumented": 0
+    },
+    "Code/GameEngine/GameClient/src/gui/w3d_gadget_draw/common.rs": {
+      "constructs": 4,
+      "undocumented": 0
+    },
+    "Code/GameEngine/GameClient/src/terrain/terrain_visual/visual_struct.rs": {
       "constructs": 1,
       "undocumented": 0
     },
@@ -250,6 +298,10 @@
     },
     "Code/GameEngine/GameLogic/src/ai/ai_player/tests.rs": {
       "constructs": 2,
+      "undocumented": 0
+    },
+    "Code/GameEngine/GameLogic/src/ai/state_machine.rs": {
+      "constructs": 1,
       "undocumented": 0
     },
     "Code/GameEngine/GameLogic/src/ai/turret_ai_full.rs": {
@@ -480,6 +532,10 @@
       "constructs": 16,
       "undocumented": 0
     },
+    "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-assets/src/rendering.rs": {
+      "constructs": 2,
+      "undocumented": 0
+    },
     "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-assets/src/shatter.rs": {
       "constructs": 1,
       "undocumented": 0
@@ -492,8 +548,48 @@
       "constructs": 1,
       "undocumented": 0
     },
+    "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-engine/src/frame_submit.rs": {
+      "constructs": 2,
+      "undocumented": 0
+    },
+    "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-engine/src/lib.rs": {
+      "constructs": 2,
+      "undocumented": 0
+    },
     "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-geometry/src/simd_math.rs": {
       "constructs": 12,
+      "undocumented": 0
+    },
+    "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-gpu/src/buffer.rs": {
+      "constructs": 2,
+      "undocumented": 0
+    },
+    "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-gpu/src/device.rs": {
+      "constructs": 2,
+      "undocumented": 0
+    },
+    "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-gpu/src/device_authority.rs": {
+      "constructs": 2,
+      "undocumented": 0
+    },
+    "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-gpu/src/lib.rs": {
+      "constructs": 2,
+      "undocumented": 0
+    },
+    "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-gpu/src/pipeline.rs": {
+      "constructs": 2,
+      "undocumented": 0
+    },
+    "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-gpu/src/pipeline_cache.rs": {
+      "constructs": 2,
+      "undocumented": 0
+    },
+    "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-gpu/src/sorting_renderer.rs": {
+      "constructs": 4,
+      "undocumented": 0
+    },
+    "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-gpu/src/texture.rs": {
+      "constructs": 2,
       "undocumented": 0
     },
     "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-particles/src/line_renderer.rs": {
@@ -508,8 +604,16 @@
       "constructs": 1,
       "undocumented": 0
     },
+    "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-renderer-3d/src/lib.rs": {
+      "constructs": 2,
+      "undocumented": 0
+    },
     "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-renderer-3d/src/render_object_system.rs": {
       "constructs": 1,
+      "undocumented": 0
+    },
+    "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-renderer-3d/src/rendering/mesh_system_impl/mod.rs": {
+      "constructs": 2,
       "undocumented": 0
     },
     "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-renderer-3d/src/rendering/mesh_system_impl/render_manager.rs": {
@@ -524,6 +628,14 @@
       "constructs": 2,
       "undocumented": 0
     },
+    "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-renderer-3d/src/rendering/texture_system/texfcach.rs": {
+      "constructs": 2,
+      "undocumented": 0
+    },
+    "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-renderer-3d/src/rendering/wgpu_main_renderer.rs": {
+      "constructs": 4,
+      "undocumented": 0
+    },
     "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-renderer-3d/src/rendering/wgpu_renderer/runtime.rs": {
       "constructs": 2,
       "undocumented": 0
@@ -533,6 +645,10 @@
       "undocumented": 0
     },
     "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-renderer-3d/src/rendering/wgpu_renderer/wgpu_surface.rs": {
+      "constructs": 2,
+      "undocumented": 0
+    },
+    "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-renderer-3d/src/rendering/wgpu_renderer/wgpu_wrapper.rs": {
       "constructs": 2,
       "undocumented": 0
     },
@@ -688,6 +804,10 @@
       "constructs": 2,
       "undocumented": 0
     },
+    "Code/Main/src/assets/manager.rs": {
+      "constructs": 1,
+      "undocumented": 0
+    },
     "Code/Main/src/cnc_game_engine/selection_hud.rs": {
       "constructs": 4,
       "undocumented": 0
@@ -716,6 +836,18 @@
       "constructs": 1,
       "undocumented": 0
     },
+    "Code/Main/src/graphics/occlusion_bridge.rs": {
+      "constructs": 2,
+      "undocumented": 0
+    },
+    "Code/Main/src/graphics/render_pipeline/forward_render.rs": {
+      "constructs": 2,
+      "undocumented": 0
+    },
+    "Code/Main/src/graphics/render_pipeline/pipeline_execute.rs": {
+      "constructs": 2,
+      "undocumented": 0
+    },
     "Code/Main/src/main.rs": {
       "constructs": 3,
       "undocumented": 0
@@ -733,6 +865,10 @@
       "undocumented": 0
     },
     "Code/Main/src/single_instance.rs": {
+      "constructs": 1,
+      "undocumented": 0
+    },
+    "Code/Main/src/win32_game_engine.rs": {
       "constructs": 1,
       "undocumented": 0
     },

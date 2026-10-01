@@ -33,13 +33,20 @@ and engine stores remain separate migration boundaries. GPU upload structures
 use compiler-checked Pod/Zeroable derives; this removes handwritten layout
 assertions without changing their C representations.
 
-The current reduction batches remove 37 synchronization fields and 22
+The current reduction batches remove 47 synchronization fields and 40
 mutable-state/configuration `Arc` allocations across the migrated constructors:
 guard records (13 mutex fields to 3), player timers, collision bookkeeping,
 minefields, ten sabotage/conversion definitions, flight-deck state, three Object
 ctor helpers, the AI crate marker, economy event history, and armor/max-health
 upgrade state, warehouse heal clocks, the private death-weapon definition,
 fallback AI controllers, and two immutable upgrade identity records.
+The selected parallel-worktree changes additionally own six Object helpers
+(weapon status, status/subdual damage, temporary weapon bonus, firing tracker,
+and held state), the renderer's texture-view and warning caches, and immutable
+audio-environment definitions. Localization and validation retain their shared
+manager boundaries and existing locks, but no longer allocate ten private
+`Arc` wrappers. The offline metadata store drops a write-only cache: its reads
+already come from disk. No global or thread-local replacement was introduced.
 These are constructor/field counts, not process-wide live lock
 counts or a measured frame-rate result. Outer shared interfaces remain.
 Frame FX pose publication now acquires one map write lock rather than one per
@@ -61,6 +68,13 @@ already-borrowed object facts instead of reading the same write-locked object.
 Destruction unregisters updates and queues trigger-area changes through the
 driving GameLogic borrow at the original synchronous phases. Standalone ambient
 adapters and other callback/global dependencies still require migration.
+Status damage and temporary bonus initiation also use the borrowed Object;
+looking up that same write-locked Object through the registry could deadlock.
+Helper update order and Object Xfer tag order stay unchanged. Same-ID object
+isolation and existing-format roundtrips do not prove whole-world isolation or
+original-save compatibility. Only bounded changes from the parallel branch
+were selected; GUI callback reentrancy and shared light/animation identity
+remain unverified in that branch.
 
 Handwritten unsafe assertions decreased by 34: 26 GPU Pod/Zeroable assertions
 became checked derives, and eight redundant Send/Sync assertions became

@@ -10,6 +10,8 @@ internal = []
 
 [dependencies]
 rand = {workspace = true, features = ["std_rng"]}
+# rsa 0.9 speaks rand_core 0.6 traits; its OsRng comes from here, not rand 0.10.
+rand_core = { version = "0.6", features = ["getrandom"] }
 tokio = {workspace = true, features = ["full"]}
 thiserror = {workspace = true}
 serde = {workspace = true, features = ["derive"]}

@@ -419,8 +419,7 @@ impl TransportContain {
         if id == crate::common::INVALID_ID {
             return None;
         }
-        crate::helpers::TheGameLogic::find_object_by_id(id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(id))
+        crate::object::registry::OBJECT_REGISTRY.get_object(id)
     }
 
     /// Check if this container is valid for the given object
@@ -433,16 +432,17 @@ impl TransportContain {
         // C++ TransportContain::isValidContainerFor: if the rider is a special
         // zero-slot container (parachute), replace the check target with the
         // first contained infantry so a plane can accept a paratrooper.
-        let unwrapped = super::unwrap_special_zero_slot_rider(obj);
-        let unwrapped_guard = if let Some(arc) = unwrapped.as_ref() {
-            let Ok(guard) = arc.try_read() else {
-                return false;
-            };
-            Some(guard)
-        } else {
-            None
-        };
-        let actual_obj = unwrapped_guard.as_deref().unwrap_or(obj);
+        if let Some(rider_id) = super::unwrap_special_zero_slot_rider(obj) {
+            return crate::object::registry::OBJECT_REGISTRY
+                .with_object(rider_id, |actual_obj| {
+                    self.is_valid_container_for_rider(actual_obj, check_capacity)
+                })
+                .unwrap_or(false);
+        }
+        self.is_valid_container_for_rider(obj, check_capacity)
+    }
+
+    fn is_valid_container_for_rider(&self, actual_obj: &Object, check_capacity: bool) -> bool {
 
         // Call base validation
         if !self.base.is_valid_container_for(actual_obj, check_capacity) {
@@ -596,8 +596,7 @@ impl TransportContain {
             return Ok(());
         }
 
-        let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id)
         else {
             return Ok(());
         };
@@ -651,8 +650,7 @@ impl TransportContain {
         if let Some(owner_transport) = (if self.object_id == crate::common::INVALID_ID {
             None
         } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+            crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id)
         }) {
             if let Ok(mut transport_guard) = owner_transport.try_write() {
                 transport_guard.set_is_transporting(true);
@@ -750,8 +748,7 @@ impl TransportContain {
             return Ok(());
         }
 
-        let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id)
         else {
             return Ok(());
         };
@@ -812,8 +809,7 @@ impl TransportContain {
         if let Some(owner_transport) = (if self.object_id == crate::common::INVALID_ID {
             None
         } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+            crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id)
         }) {
             if let Ok(mut transport_guard) = owner_transport.try_write() {
                 let still_contains = self.base.get_contain_count() > 0;
@@ -933,8 +929,7 @@ impl TransportContain {
         if self.module_data.health_regen != 0.0 {
             let owner_id = self.get_object_id();
             for object_id in self.base.get_contained_object_ids().to_vec() {
-                if let Some(object) = TheGameLogic::find_object_by_id(object_id)
-                    .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(object_id))
+                if let Some(object) = crate::object::registry::OBJECT_REGISTRY.get_object(object_id)
                 {
                     let Ok(guard) = object.try_read() else {
                         log::warn!("TransportContain::update regen lock busy for {}", object_id);
@@ -1100,8 +1095,7 @@ impl TransportContain {
             return dock_open;
         }
 
-        let Some(obj) = TheGameLogic::find_object_by_id(rider_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(rider_id))
+        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(rider_id)
         else {
             return false;
         };
@@ -1230,8 +1224,7 @@ impl TransportContain {
         // C++ TransportContain::isPassengerAllowedToFire: infantry only,
         // then Overlord-style parent nest, else OpenContain.
         if let Some(obj_id) = id {
-            if let Some(passenger) = TheGameLogic::find_object_by_id(obj_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+            if let Some(passenger) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id)
             {
                 if let Ok(passenger_guard) = passenger.try_read() {
                     if !transport_contain_passenger_kind_allowed_to_fire(
@@ -1249,8 +1242,7 @@ impl TransportContain {
             .with_owner_object(|owner| owner.get_contained_by())
             .flatten()
         {
-            if let Some(parent) = TheGameLogic::find_object_by_id(parent_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(parent_id))
+            if let Some(parent) = crate::object::registry::OBJECT_REGISTRY.get_object(parent_id)
             {
                 let Ok(parent_guard) = parent.try_read() else {
                     return false;
@@ -1387,8 +1379,7 @@ impl TransportContain {
 
             // Check all riders for viable weapons
             for rider_id in self.base.get_contained_object_ids().to_vec() {
-                let Some(rider_obj) = TheGameLogic::find_object_by_id(rider_id)
-                    .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(rider_id))
+                let Some(rider_obj) = crate::object::registry::OBJECT_REGISTRY.get_object(rider_id)
                 else {
                     continue;
                 };
@@ -1531,8 +1522,7 @@ impl TransportContain {
             return Ok(());
         }
 
-        let obj = TheGameLogic::find_object_by_id(obj_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+        let obj = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id)
             .ok_or("Transport contain object not found")?;
 
         let was_selected = obj
@@ -1605,8 +1595,7 @@ impl TransportContain {
             return Ok((false, false));
         }
 
-        let Some(obj) = TheGameLogic::find_object_by_id(obj_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id)
         else {
             return Ok((false, false));
         };
@@ -1720,11 +1709,9 @@ impl Snapshotable for TransportContain {
 
 impl ContainModuleInterface for TransportContain {
     fn can_contain(&self, object_id: ObjectID) -> bool {
-        if let Some(obj) = TheGameLogic::find_object_by_id(object_id) {
-            if let Ok(obj_guard) = obj.read() {
-                return self.is_valid_container_for(&*obj_guard, true);
-            }
-        }
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object(object_id, |obj_guard| {
+            return self.is_valid_container_for(&*obj_guard, true);
+            });
         false
     }
 
@@ -1812,8 +1799,7 @@ impl ContainModuleInterface for TransportContain {
         if !self.base.collide_enter_eject_foreign(other_id)? {
             return Ok(());
         }
-        let Some(other) = TheGameLogic::find_object_by_id(other_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(other_id))
+        let Some(other) = crate::object::registry::OBJECT_REGISTRY.get_object(other_id)
         else {
             return Ok(());
         };
@@ -1921,8 +1907,7 @@ impl ContainModuleInterface for TransportContain {
             return Ok(());
         }
 
-        let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id)
         else {
             return Ok(());
         };
@@ -1939,8 +1924,7 @@ impl ContainModuleInterface for TransportContain {
             return Ok(());
         }
 
-        let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id)
         else {
             return Ok(());
         };
@@ -1984,8 +1968,7 @@ impl ContainModuleInterface for TransportContain {
                 );
                 continue;
             }
-            if let Some(obj) = TheGameLogic::find_object_by_id(obj_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+            if let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id)
             {
                 if let Ok(mut guard) = obj.try_write() {
                     let _ = guard.attempt_damage(damage_info);
@@ -2011,8 +1994,7 @@ impl ContainModuleInterface for TransportContain {
                 );
                 continue;
             }
-            if let Some(obj) = TheGameLogic::find_object_by_id(obj_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+            if let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id)
             {
                 if let Ok(mut guard) = obj.try_write() {
                     guard.kill(None, None);

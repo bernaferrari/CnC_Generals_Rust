@@ -1554,8 +1554,17 @@ impl Drop for WgpuWrapper {
 }
 
 #[cfg(target_arch = "wasm32")]
+// SAFETY: wasm32-only. The instance/adapter/device/queue, surface config and
+// every pipeline/buffer/texture handle are `Rc`-backed and `!Send` on the web
+// backend, but wasm32 has no threads, so they can never cross a thread
+// boundary. The impl only satisfies the bounds of the `static
+// OnceLock<Mutex<WgpuWrapper>>` mirroring the DX8 singleton.
 unsafe impl Send for WgpuWrapper {}
 #[cfg(target_arch = "wasm32")]
+// SAFETY: same wasm32-only scope: the target is single-threaded, so
+// `&WgpuWrapper` is never accessed from two threads and the handles' `!Sync`
+// default is unreachable; the surrounding `Mutex` in the global is
+// uncontended by construction.
 unsafe impl Sync for WgpuWrapper {}
 
 /// Global wrapper instance mirroring the DX8 global singleton.

@@ -30,11 +30,9 @@ impl InactiveBody {
         let base = BodyModule::new(module_data);
 
         if owner_id != INVALID_ID {
-            if let Some(owner) = TheGameLogic::find_object_by_id(owner_id) {
-                if let Ok(mut owner_guard) = owner.write() {
-                    owner_guard.set_effectively_dead(true);
-                }
-            }
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner_id, |owner_guard| {
+                owner_guard.set_effectively_dead(true);
+                });
         }
 
         Self {
@@ -94,7 +92,9 @@ impl BodyModuleInterface for InactiveBody {
             damage_info.output.no_effect = false;
             if !self.is_die_called() {
                 if self.owner_id != INVALID_ID {
-                    if let Some(owner) = TheGameLogic::find_object_by_id(self.owner_id) {
+                    if let Some(owner) =
+                        crate::object::registry::OBJECT_REGISTRY.get_object(self.owner_id)
+                    {
                         if let Ok(mut owner_guard) = owner.write() {
                             owner_guard.on_die(damage_info);
                             self.set_die_called()?;

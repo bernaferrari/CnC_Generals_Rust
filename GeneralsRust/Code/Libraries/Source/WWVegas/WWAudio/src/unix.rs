@@ -29,7 +29,10 @@ impl UnixAudioDevice {
         let host = cpal::default_host();
         let device = select_device(&host, device_name)?;
 
-        let resolved_name = device.name().unwrap_or_else(|_| "default".to_string());
+        let resolved_name = device
+            .description()
+            .map(|d| d.name().to_string())
+            .unwrap_or_else(|_| "default".to_string());
         info!("Selected audio output device: {resolved_name}");
 
         Ok(Self {
@@ -107,7 +110,12 @@ impl UnixAudioUtils {
         let host = cpal::default_host();
         Ok(host
             .default_output_device()
-            .and_then(|device| device.name().ok()))
+            .and_then(|device| {
+                device
+                    .description()
+                    .ok()
+                    .map(|description| description.name().to_string())
+            }))
     }
 }
 
@@ -120,7 +128,11 @@ fn select_device(host: &cpal::Host, name: Option<&str>) -> Result<Device> {
         })?;
 
         for device in candidates.by_ref() {
-            if device.name().map(|n| n == requested).unwrap_or(false) {
+            if device
+                .description()
+                .map(|d| d.name() == requested)
+                .unwrap_or(false)
+            {
                 return Ok(device);
             }
         }
@@ -151,8 +163,8 @@ fn select_supported_config(
             continue;
         }
 
-        let min_rate = config.min_sample_rate().0;
-        let max_rate = config.max_sample_rate().0;
+        let min_rate = config.min_sample_rate();
+        let max_rate = config.max_sample_rate();
         if desired_rate < min_rate || desired_rate > max_rate {
             continue;
         }
@@ -169,7 +181,7 @@ fn select_supported_config(
         };
 
         let stream_config = config
-            .with_sample_rate(cpal::SampleRate(desired_rate))
+            .with_sample_rate(desired_rate)
             .config();
 
         return Ok((stream_config, chosen_format));
@@ -183,9 +195,9 @@ fn enumerate_host_devices(host: cpal::Host) -> Result<Vec<String>> {
     match host.output_devices() {
         Ok(iterator) => {
             for device in iterator {
-                match device.name() {
-                    Ok(name) => devices.push(name),
-                    Err(e) => debug!("Failed to query device name: {e}"),
+                match device.description() {
+                    Ok(description) => devices.push(description.name().to_string()),
+                    Err(e) => debug!("Failed to query device description: {e}"),
                 }
             }
         }
@@ -217,7 +229,7 @@ fn build_silent_stream(
 
     let stream = match sample_format {
         SampleFormat::F32 => device.build_output_stream(
-            config,
+            config.clone(),
             |data: &mut [f32], _| {
                 data.fill(0.0);
             },
@@ -225,7 +237,7 @@ fn build_silent_stream(
             None,
         ),
         SampleFormat::I16 => device.build_output_stream(
-            config,
+            config.clone(),
             |data: &mut [i16], _| {
                 data.fill(0);
             },
@@ -233,7 +245,7 @@ fn build_silent_stream(
             None,
         ),
         SampleFormat::I32 => device.build_output_stream(
-            config,
+            config.clone(),
             |data: &mut [i32], _| {
                 data.fill(0);
             },
@@ -241,7 +253,7 @@ fn build_silent_stream(
             None,
         ),
         SampleFormat::U8 => device.build_output_stream(
-            config,
+            config.clone(),
             |data: &mut [u8], _| {
                 data.fill(u8::MAX / 2);
             },

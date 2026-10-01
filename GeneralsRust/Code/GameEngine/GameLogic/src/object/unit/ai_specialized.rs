@@ -98,8 +98,7 @@ impl UnitAIUpdate {
             return Ok(());
         }
 
-        let target_pos = crate::helpers::TheGameLogic::find_object_by_id(target_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(target_id))
+        let target_pos = crate::object::registry::OBJECT_REGISTRY.get_object(target_id)
             .and_then(|arc| arc.read().ok().map(|g| *g.get_position()))
             .ok_or("guard target not found")?;
         let unit =

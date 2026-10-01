@@ -125,8 +125,7 @@ impl Object {
             if obj_id == self.id {
                 continue;
             }
-            let Some(mine) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
-                .or_else(|| OBJECT_REGISTRY.get_object(obj_id))
+            let Some(mine) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id)
             else {
                 continue;
             };

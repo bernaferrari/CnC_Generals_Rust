@@ -232,8 +232,16 @@ pub struct TextureFileCache {
 }
 
 #[cfg(target_arch = "wasm32")]
+// SAFETY: wasm32-only. `entries` caches `Arc<TextureBaseClass>` owning
+// `Rc`-backed wgpu textures (`!Send` on the web backend), and `file` is a
+// native-only `std::fs::File`. wasm32 has no threads, so the cached textures
+// can never move to or be observed from another thread; the impl only
+// satisfies the bounds of the texture-system owner. Native keeps auto traits.
 unsafe impl Send for TextureFileCache {}
 #[cfg(target_arch = "wasm32")]
+// SAFETY: same wasm32-only scope: the target is single-threaded, so
+// `&TextureFileCache` is never accessed from two threads and the cached
+// textures' `!Sync` default is unreachable.
 unsafe impl Sync for TextureFileCache {}
 
 impl TextureFileCache {

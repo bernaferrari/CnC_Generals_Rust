@@ -36,8 +36,16 @@ pub struct RenderBatch {
 }
 
 #[cfg(target_arch = "wasm32")]
+// SAFETY: wasm32-only. `GpuBuffer`, `Arc<pipeline::RenderPipeline>`,
+// `Arc<wgpu::RenderPipeline>` and the `Arc<wgpu::BindGroup>` list are
+// `Rc`-backed and `!Send` on the web backend, but wasm32 has no threads, so
+// they can never move to or be observed from another thread. The impl only
+// satisfies the `Send` bound of the renderer's `Vec<RenderBatch>`.
 unsafe impl Send for RenderBatch {}
 #[cfg(target_arch = "wasm32")]
+// SAFETY: same wasm32-only scope: the target is single-threaded, so
+// `&RenderBatch` is never accessed from two threads and the handles' `!Sync`
+// default is unreachable.
 unsafe impl Sync for RenderBatch {}
 
 impl RenderBatch {
@@ -101,8 +109,16 @@ pub struct SortingRenderer {
 }
 
 #[cfg(target_arch = "wasm32")]
+// SAFETY: wasm32-only. `batches: Vec<RenderBatch>` owns the `!Send` wgpu
+// handles documented on `RenderBatch` above, so `SortingRenderer` inherits
+// `!Send` there. wasm32 has no threads, so those handles can never move to or
+// be observed from another thread; the impl only satisfies the bounds of the
+// global owners of the renderer. Native keeps the auto traits.
 unsafe impl Send for SortingRenderer {}
 #[cfg(target_arch = "wasm32")]
+// SAFETY: same wasm32-only scope: the target is single-threaded, so
+// `&SortingRenderer` is never accessed from two threads and the batches'
+// `!Sync` default is unreachable.
 unsafe impl Sync for SortingRenderer {}
 
 impl SortingRenderer {

@@ -133,8 +133,7 @@ impl UpgradeModuleInterface for LocomotorSetUpgrade {
 
         // C++ LocomotorSetUpgrade::upgradeImplementation: getObject()->getAIUpdateInterface()
         // Live host objects live on TheGameLogic (registry may be empty).
-        let object = TheGameLogic::find_object_by_id(self.object_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id));
+        let object = crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id);
 
         let Some(object) = object else {
             log::warn!("LocomotorSetUpgrade: Object {} not found", self.object_id);

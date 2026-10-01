@@ -32,8 +32,9 @@
 
 use crate::error::{NetworkError, NetworkResult};
 use crate::time::NetworkInstant;
-use rand::RngCore;
-use rand::rngs::OsRng;
+use rand::Rng;
+use rand::rand_core::UnwrapErr;
+use rand::rngs::SysRng;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 use std::time::Duration;
@@ -439,7 +440,7 @@ impl StunClient {
 
         // Transaction ID (96 bits / 12 bytes random)
         let mut transaction_id = [0u8; 12];
-        OsRng.fill_bytes(&mut transaction_id);
+        UnwrapErr(SysRng).fill_bytes(&mut transaction_id);
         request.extend_from_slice(&transaction_id);
 
         request

@@ -532,20 +532,16 @@ impl BuildPlacementMode {
         }
 
         // Set model condition on the building
-        if let Some(building) = TheGameLogic::find_object_by_id(building_id) {
-            if let Ok(mut guard) = building.write() {
-                guard.clear_model_condition_state(ModelConditionFlags::AWAITING_CONSTRUCTION);
-                guard.set_model_condition_state(ModelConditionFlags::ACTIVELY_BEING_CONSTRUCTED);
-            }
-        }
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(building_id, |guard| {
+            guard.clear_model_condition_state(ModelConditionFlags::AWAITING_CONSTRUCTION);
+            guard.set_model_condition_state(ModelConditionFlags::ACTIVELY_BEING_CONSTRUCTED);
+            });
 
         // Tell the dozer to build
-        if let Some(dozer) = TheGameLogic::find_object_by_id(dozer_id) {
-            if let Ok(mut guard) = dozer.write() {
-                guard.set_model_condition_state(ModelConditionFlags::ACTIVELY_CONSTRUCTING);
-                // The DozerAIUpdate will pick up the construction via the construction manager
-            }
-        }
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(dozer_id, |guard| {
+            guard.set_model_condition_state(ModelConditionFlags::ACTIVELY_CONSTRUCTING);
+            // The DozerAIUpdate will pick up the construction via the construction manager
+            });
 
         log::info!(
             "Started construction of '{}' (id={}) by dozer (id={}) at {:?}",

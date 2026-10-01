@@ -709,11 +709,9 @@ impl MissileAIUpdate {
             }
 
             if self.launcher_id != INVALID_ID {
-                if let Some(launcher_arc) = TheGameLogic::find_object_by_id(self.launcher_id) {
-                    if let Ok(mut launcher_guard) = launcher_arc.write() {
-                        launcher_guard.score_the_kill(&contained_guard);
-                    }
-                }
+                let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(self.launcher_id, |launcher_guard| {
+                    launcher_guard.score_the_kill(&contained_guard);
+                    });
             }
             contained_guard.kill(None, None);
             num_killed += 1;
@@ -1188,8 +1186,7 @@ impl MissileAIUpdate {
         if goal_id == crate::common::INVALID_ID {
             return None;
         }
-        crate::helpers::TheGameLogic::find_object_by_id(goal_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(goal_id))
+        crate::object::registry::OBJECT_REGISTRY.get_object(goal_id)
     }
 
     fn set_locomotor_acceleration_and_turn(&self, acceleration: Real, turn_rate: Real) {
@@ -1231,11 +1228,9 @@ impl MissileAIUpdate {
             return;
         }
 
-        if let Some(object) = TheGameLogic::find_object_by_id(self.object_id) {
-            if let Ok(mut guard) = object.write() {
-                guard.set_status(ObjectStatusMaskType::BRAKING, true);
-            }
-        }
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(self.object_id, |guard| {
+            guard.set_status(ObjectStatusMaskType::BRAKING, true);
+            });
 
         self.set_locomotor_acceleration_and_turn(self.max_accel, BIGNUM);
 
@@ -1250,11 +1245,9 @@ impl MissileAIUpdate {
                     < close_enough * close_enough
                 {
                     if let Some(goal_pos) = goal.read().ok().map(|guard| *guard.get_position()) {
-                        if let Some(object) = TheGameLogic::find_object_by_id(self.object_id) {
-                            if let Ok(mut guard) = object.write() {
-                                let _ = guard.set_position(&goal_pos);
-                            }
-                        }
+                        let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(self.object_id, |guard| {
+                            let _ = guard.set_position(&goal_pos);
+                            });
                     }
                     self.detonate();
                 } else if let Some(goal_id) = goal.read().ok().map(|guard| guard.get_id()) {
@@ -1327,11 +1320,9 @@ impl MissileAIUpdate {
 
         if self.detonation_weapon_tmpl.is_some() {
             if self.data.detonate_calls_kill {
-                if let Some(obj_arc) = TheGameLogic::find_object_by_id(self.object_id) {
-                    if let Ok(mut obj_guard) = obj_arc.write() {
-                        obj_guard.kill(None, None);
-                    }
-                }
+                let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(self.object_id, |obj_guard| {
+                    obj_guard.kill(None, None);
+                    });
             } else {
                 let _ = TheGameLogic::destroy_object_by_id(self.object_id);
             }
@@ -1377,11 +1368,9 @@ impl MissileAIUpdate {
             return; // Already jammed
         }
 
-        if let Some(object) = TheGameLogic::find_object_by_id(self.object_id) {
-            if let Ok(mut guard) = object.write() {
-                guard.set_model_condition_state(MODELCONDITION_JAMMED);
-            }
-        }
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(self.object_id, |guard| {
+            guard.set_model_condition_state(MODELCONDITION_JAMMED);
+            });
 
         let scatter = self.data.distance_scatter_when_jammed;
         let mut target_position = if self.is_tracking_target {

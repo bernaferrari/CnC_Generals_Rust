@@ -160,8 +160,7 @@ impl CaveContain {
         if id == crate::common::INVALID_ID {
             return None;
         }
-        crate::helpers::TheGameLogic::find_object_by_id(id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(id))
+        crate::object::registry::OBJECT_REGISTRY.get_object(id)
     }
 
     /// Check if this is a garrisonable unit
@@ -186,8 +185,7 @@ impl CaveContain {
             return Ok(());
         }
 
-        let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id)
         else {
             return Ok(());
         };
@@ -212,8 +210,7 @@ impl CaveContain {
             return Ok(());
         }
 
-        let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id)
         else {
             return Ok(());
         };
@@ -296,8 +293,7 @@ impl CaveContain {
             return Ok(());
         }
 
-        let obj = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+        let obj = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id)
             .ok_or("Contain object not found")?;
         let tracker = if let Some(cave_system) = &self.cave_system {
             let system = cave_system.lock().map_err(|_| GameError::LockError)?;
@@ -322,8 +318,7 @@ impl CaveContain {
             return Ok(());
         }
 
-        let obj = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+        let obj = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id)
             .ok_or("Contain object not found")?;
         if super::should_cancel_containment_after_booby_trap(
             {
@@ -426,8 +421,7 @@ impl CaveContain {
             return Ok(());
         }
 
-        let obj = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+        let obj = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id)
             .ok_or("Contain object not found")?;
         let tracker = if let Some(cave_system) = &self.cave_system {
             let system = cave_system.lock().map_err(|_| GameError::LockError)?;
@@ -785,8 +779,7 @@ impl CaveContain {
         if self.get_contain_count()? == 1 {
             if let Ok(ids) = self.get_contained_item_ids() {
                 if let Some(&rider_id) = ids.first() {
-                    if let Some(rider) = TheGameLogic::find_object_by_id(rider_id)
-                        .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(rider_id))
+                    if let Some(rider) = crate::object::registry::OBJECT_REGISTRY.get_object(rider_id)
                     {
                         if let Ok(rider_obj) = rider.read() {
                             if let Some(controlling_player) = rider_obj.get_controlling_player() {
@@ -993,13 +986,11 @@ impl Snapshotable for CaveContain {
 
 impl ContainModuleInterface for CaveContain {
     fn can_contain(&self, object_id: ObjectID) -> bool {
-        if let Some(obj) = TheGameLogic::find_object_by_id(object_id) {
-            if let Ok(obj_guard) = obj.read() {
-                return self
-                    .is_valid_container_for(&*obj_guard, true)
-                    .unwrap_or(false);
-            }
-        }
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object(object_id, |obj_guard| {
+            return self
+                .is_valid_container_for(&*obj_guard, true)
+                .unwrap_or(false);
+            });
         false
     }
 
@@ -1105,8 +1096,7 @@ impl ContainModuleInterface for CaveContain {
         if !self.base.collide_enter_eject_foreign(other_id)? {
             return Ok(());
         }
-        let Some(other) = TheGameLogic::find_object_by_id(other_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(other_id))
+        let Some(other) = crate::object::registry::OBJECT_REGISTRY.get_object(other_id)
         else {
             return Ok(());
         };

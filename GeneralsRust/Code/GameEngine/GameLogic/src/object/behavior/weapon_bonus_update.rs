@@ -113,63 +113,60 @@ impl UpdateModuleInterface for WeaponBonusUpdate {
             return Ok(UpdateSleepTime::Forever);
         }
 
-        let Some(obj_arc) = (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-        }) else {
+        if self.object_id == crate::common::INVALID_ID {
             return Ok(UpdateSleepTime::Forever);
-        };
-        let Ok(obj) = obj_arc.read() else {
-            return Ok(UpdateSleepTime::None);
-        };
-
-        let Some(partition) = ThePartitionManager::get() else {
-            return Ok(UpdateSleepTime::from_u32(self.module_data.bonus_delay));
-        };
-
-        let candidates =
-            partition.get_objects_in_range(obj.get_position(), self.module_data.bonus_range);
-        let same_map_status = obj.is_off_map();
-        for id in candidates {
-            let required = self.module_data.required_affect_kind_of;
-            let forbidden = self.module_data.forbidden_affect_kind_of;
-            let condition = self.module_data.bonus_condition_type;
-            let duration = self.module_data.bonus_duration;
-            let _ = OBJECT_REGISTRY.with_object_mut(id, |target| {
-                if target.is_effectively_dead() {
-                    return;
-                }
-
-                let relationship = obj.relationship_to(target);
-                if !matches!(relationship, crate::common::Relationship::Allies) {
-                    return;
-                }
-
-                if target.is_off_map() != same_map_status {
-                    return;
-                }
-
-                if target.is_kind_of_multi(required, forbidden) {
-                    target.do_temp_weapon_bonus(condition, duration);
-                }
-
-                if let Some(contain) = target.get_contain() {
-                    if let Ok(contain_guard) = contain.lock() {
-                        for contained_id in contain_guard.get_contained_objects().iter() {
-                            let _ = OBJECT_REGISTRY.with_object_mut(*contained_id, |contained| {
-                                if contained.is_kind_of_multi(required, forbidden) {
-                                    contained.do_temp_weapon_bonus(condition, duration);
-                                }
-                            });
-                        }
-                    }
-                }
-            });
         }
+        let sleep = crate::object::registry::OBJECT_REGISTRY
+            .with_object(self.object_id, |obj| {
+                let Some(partition) = ThePartitionManager::get() else {
+                    return UpdateSleepTime::from_u32(self.module_data.bonus_delay);
+                };
 
-        Ok(UpdateSleepTime::from_u32(self.module_data.bonus_delay))
+                let candidates = partition
+                    .get_objects_in_range(obj.get_position(), self.module_data.bonus_range);
+                let same_map_status = obj.is_off_map();
+                for id in candidates {
+                    let required = self.module_data.required_affect_kind_of;
+                    let forbidden = self.module_data.forbidden_affect_kind_of;
+                    let condition = self.module_data.bonus_condition_type;
+                    let duration = self.module_data.bonus_duration;
+                    let _ = OBJECT_REGISTRY.with_object_mut(id, |target| {
+                        if target.is_effectively_dead() {
+                            return;
+                        }
+
+                        let relationship = obj.relationship_to(target);
+                        if !matches!(relationship, crate::common::Relationship::Allies) {
+                            return;
+                        }
+
+                        if target.is_off_map() != same_map_status {
+                            return;
+                        }
+
+                        if target.is_kind_of_multi(required, forbidden) {
+                            target.do_temp_weapon_bonus(condition, duration);
+                        }
+
+                        if let Some(contain) = target.get_contain() {
+                            if let Ok(contain_guard) = contain.lock() {
+                                for contained_id in contain_guard.get_contained_objects().iter() {
+                                    let _ =
+                                        OBJECT_REGISTRY.with_object_mut(*contained_id, |contained| {
+                                            if contained.is_kind_of_multi(required, forbidden) {
+                                                contained.do_temp_weapon_bonus(condition, duration);
+                                            }
+                                        });
+                                }
+                            }
+                        }
+                    });
+                }
+
+                UpdateSleepTime::from_u32(self.module_data.bonus_delay)
+            })
+            .unwrap_or(UpdateSleepTime::Forever);
+        Ok(sleep)
     }
 }
 

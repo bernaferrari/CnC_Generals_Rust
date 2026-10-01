@@ -157,8 +157,7 @@ impl HelixContain {
         if id == crate::common::INVALID_ID {
             return None;
         }
-        crate::helpers::TheGameLogic::find_object_by_id(id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(id))
+        crate::object::registry::OBJECT_REGISTRY.get_object(id)
     }
 
     /// Treat as open container
@@ -202,8 +201,7 @@ impl HelixContain {
         }
 
         if let Some(portable_id) = self.portable_structure_id() {
-            if let Some(portable) = TheGameLogic::find_object_by_id(portable_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(portable_id))
+            if let Some(portable) = crate::object::registry::OBJECT_REGISTRY.get_object(portable_id)
             {
                 if let Ok(mut portable_guard) = portable.write() {
                     portable_guard.kill(None, None);
@@ -236,8 +234,7 @@ impl HelixContain {
         }
 
         if let Some(portable_id) = self.portable_structure_id() {
-            if let Some(portable) = TheGameLogic::find_object_by_id(portable_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(portable_id))
+            if let Some(portable) = crate::object::registry::OBJECT_REGISTRY.get_object(portable_id)
             {
                 if let (Ok(mut portable_guard), Some(new_owner_arc)) = (portable.write(), new_owner)
                 {
@@ -265,8 +262,7 @@ impl HelixContain {
             return Ok(());
         }
 
-        let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id)
         else {
             return Ok(());
         };
@@ -318,8 +314,7 @@ impl HelixContain {
             return Ok(());
         }
 
-        let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id)
         else {
             return Ok(());
         };
@@ -347,8 +342,7 @@ impl HelixContain {
 
         if new_state != BodyDamageType::Rubble {
             if let Some(portable_id) = self.portable_structure_id() {
-                if let Some(portable) = TheGameLogic::find_object_by_id(portable_id)
-                    .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(portable_id))
+                if let Some(portable) = crate::object::registry::OBJECT_REGISTRY.get_object(portable_id)
                 {
                     let Ok(portable_guard) = portable.try_read() else {
                         return Err("Helix portable lock busy".into());
@@ -383,8 +377,7 @@ impl HelixContain {
 
         // Update portable structure position to follow Helix (matches C++ lines 101-105)
         if let Some(_portable_id) = self.portable_structure_id {
-            if let Some(portable_obj) = TheGameLogic::find_object_by_id(_portable_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(_portable_id))
+            if let Some(portable_obj) = crate::object::registry::OBJECT_REGISTRY.get_object(_portable_id)
             {
                 if let Some((owner_pos, owner_orient)) =
                     self.with_owner_object(|owner| (*owner.get_position(), owner.get_orientation()))
@@ -423,8 +416,7 @@ impl HelixContain {
             return Ok(());
         }
 
-        let obj = TheGameLogic::find_object_by_id(obj_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+        let obj = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id)
             .ok_or("Helix contain object not found")?;
 
         let Ok(guard) = obj.try_read() else {
@@ -509,8 +501,7 @@ impl HelixContain {
             return Ok(());
         }
 
-        let obj = TheGameLogic::find_object_by_id(obj_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+        let obj = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id)
             .ok_or("Helix contain object not found")?;
 
         let Ok(guard) = obj.try_read() else {
@@ -553,8 +544,7 @@ impl HelixContain {
             return Ok(());
         }
 
-        let Some(obj) = TheGameLogic::find_object_by_id(obj_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id)
         else {
             return Ok(());
         };
@@ -597,12 +587,13 @@ impl HelixContain {
     pub fn is_enclosing_container_for(&self, obj: &Object) -> bool {
         if let Some(portable_id) = self.portable_structure_id {
             if portable_id == obj.get_id() {
-                if let Some(portable) = TheGameLogic::find_object_by_id(portable_id) {
-                    if let Ok(portable_guard) = portable.read() {
-                        if portable_guard.get_id() == obj.get_id() {
-                            return false;
-                        }
-                    }
+                let is_same = crate::object::registry::OBJECT_REGISTRY
+                    .with_object(portable_id, |portable_guard| {
+                        portable_guard.get_id() == obj.get_id()
+                    })
+                    .unwrap_or(false);
+                if is_same {
+                    return false;
                 }
             }
         }
@@ -652,8 +643,7 @@ impl HelixContain {
         }
 
         let id = self.portable_structure_id()?;
-        let portable = TheGameLogic::find_object_by_id(id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(id))?;
+        let portable = crate::object::registry::OBJECT_REGISTRY.get_object(id)?;
         let guard = portable.read().ok()?;
         if guard.is_kind_of(crate::common::KindOf::PortableStructure) {
             Some(id)
@@ -670,8 +660,7 @@ impl HelixContain {
         }
 
         if let Some(portable_id) = self.portable_structure_id() {
-            if let Some(portable) = TheGameLogic::find_object_by_id(portable_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(portable_id))
+            if let Some(portable) = crate::object::registry::OBJECT_REGISTRY.get_object(portable_id)
             {
                 let drawable = {
                     let Ok(portable_guard) = portable.try_read() else {
@@ -704,8 +693,7 @@ impl HelixContain {
         {
             fire_pos.z += 8.0;
             for rider_id in self.base.base.get_contained_object_ids().to_vec() {
-                if let Some(rider) = TheGameLogic::find_object_by_id(rider_id)
-                    .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(rider_id))
+                if let Some(rider) = crate::object::registry::OBJECT_REGISTRY.get_object(rider_id)
                 {
                     if let Ok(mut rider_guard) = rider.write() {
                         if let Err(err) = rider_guard.set_position(&fire_pos) {
@@ -892,11 +880,9 @@ impl Snapshotable for HelixContain {
 
 impl ContainModuleInterface for HelixContain {
     fn can_contain(&self, object_id: ObjectID) -> bool {
-        if let Some(obj) = TheGameLogic::find_object_by_id(object_id) {
-            if let Ok(obj_guard) = obj.read() {
-                return self.is_valid_container_for(&*obj_guard, true);
-            }
-        }
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object(object_id, |obj_guard| {
+            return self.is_valid_container_for(&*obj_guard, true);
+            });
         false
     }
 
@@ -997,8 +983,7 @@ impl ContainModuleInterface for HelixContain {
         if !self.base.base.collide_enter_eject_foreign(other_id)? {
             return Ok(());
         }
-        let Some(other) = TheGameLogic::find_object_by_id(other_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(other_id))
+        let Some(other) = crate::object::registry::OBJECT_REGISTRY.get_object(other_id)
         else {
             return Ok(());
         };
@@ -1084,8 +1069,7 @@ impl ContainModuleInterface for HelixContain {
             return Ok(());
         }
 
-        let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id)
         else {
             return Ok(());
         };
@@ -1106,8 +1090,7 @@ impl ContainModuleInterface for HelixContain {
             return Ok(());
         }
 
-        let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id)
         else {
             return Ok(());
         };

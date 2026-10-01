@@ -180,18 +180,20 @@ impl OclSpecialPower {
             return None;
         }
 
-        if let Some(owner) = TheGameLogic::find_object_by_id(self.owner_object_id) {
-            if let Ok(owner_guard) = owner.read() {
-                if let Some(player) = owner_guard.get_controlling_player() {
-                    if let Ok(player_guard) = player.read() {
-                        for upgrade in &self.data.upgrade_ocl {
-                            if player_guard.has_science(upgrade.science) {
-                                return Some(upgrade.ocl_name.clone());
-                            }
-                        }
-                    }
-                }
-            }
+        let upgraded_ocl = crate::object::registry::OBJECT_REGISTRY
+            .with_object(self.owner_object_id, |owner_guard| {
+                owner_guard.get_controlling_player().and_then(|player| {
+                    let player_guard = player.read().ok()?;
+                    self.data
+                        .upgrade_ocl
+                        .iter()
+                        .find(|upgrade| player_guard.has_science(upgrade.science))
+                        .map(|upgrade| upgrade.ocl_name.clone())
+                })
+            })
+            .flatten();
+        if let Some(ocl) = upgraded_ocl {
+            return Some(ocl);
         }
         if self.data.default_ocl.is_empty() {
             None
@@ -332,12 +334,11 @@ impl OclSpecialPower {
         }
 
         // Check disabled
-        if let Some(owner) = TheGameLogic::find_object_by_id(self.owner_object_id) {
-            if let Ok(owner_guard) = owner.read() {
-                if owner_guard.is_disabled() {
-                    return Ok(());
-                }
-            }
+        let owner_disabled = crate::object::registry::OBJECT_REGISTRY
+            .with_object(self.owner_object_id, |owner_guard| owner_guard.is_disabled())
+            .unwrap_or(false);
+        if owner_disabled {
+            return Ok(());
         }
 
         let Some(obj) = TheGameLogic::find_object_by_id(obj_id) else {
@@ -427,14 +428,12 @@ impl OclSpecialPower {
         let _ = OclSpecialPower::do_special_power_at_object(self, object_id);
         // Inherent at-object path already converts to location; call base via location
         // after spawn so recharge/EVA still run if the target existed.
-        if let Some(obj) = TheGameLogic::find_object_by_id(object_id) {
-            if let Ok(guard) = obj.read() {
-                let pos = *guard.get_position();
-                drop(guard);
-                self.base_module
-                    .do_special_power_at_location(&pos, -999999.0, command_options);
-            }
-        }
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object(object_id, |guard| {
+            let pos = *guard.get_position();
+            drop(guard);
+            self.base_module
+                .do_special_power_at_location(&pos, -999999.0, command_options);
+            });
     }
 
     fn dispatch_do_special_power_at_location(

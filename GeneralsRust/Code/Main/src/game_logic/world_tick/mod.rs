@@ -15,6 +15,7 @@ mod combat_fire_fx;
 mod crates;
 mod mood;
 mod movement;
+mod movement_support;
 mod physics;
 mod presence;
 mod production;

@@ -2119,41 +2119,39 @@ impl JetAIUpdate {
             }
         }
 
-        if let Some(airfield) = TheGameLogic::find_object_by_id(airfield_id) {
-            if let Ok(air_guard) = airfield.read() {
-                let mut reserved = false;
-                let is_helipad = air_guard.is_kind_of(KindOf::ProducedAtHelipad);
-                let _ = self.with_airfield_parking_place(airfield_id, |pp| {
-                    let mut info = PPInfo::default();
-                    if pp.reserve_space(self.object_id, self.data.parking_offset, &mut info)
-                        || is_helipad
-                    {
-                        reserved = true;
-                    }
-                });
-                if reserved {
-                    let old_producer_id = self
-                        .with_object(|guard| guard.get_producer_id())
-                        .unwrap_or(INVALID_ID);
-                    if old_producer_id != airfield_id {
-                        let _ = self.with_producer_parking_place(|pp| {
-                            let _ = pp.release_space(self.object_id);
-                        });
-                    }
-                    let _ = self.with_object_mut(|guard| {
-                        let _ = OBJECT_REGISTRY.with_object(airfield_id, |airfield_guard| {
-                            guard.set_producer(Some(airfield_guard));
-                        });
-                    });
-                    self.set_use_special_return_loco(false);
-                    self.set_flag(JetFlag::AllowInterruptAndResumeOfCurStateForReload, false);
-                    ai.set_last_command_source(cmd_source);
-                    self.with_state_machine(|machine, jet| {
-                        machine.set_state(JetAIStateType::ReturningForLanding, ai, jet)
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object(airfield_id, |air_guard| {
+            let mut reserved = false;
+            let is_helipad = air_guard.is_kind_of(KindOf::ProducedAtHelipad);
+            let _ = self.with_airfield_parking_place(airfield_id, |pp| {
+                let mut info = PPInfo::default();
+                if pp.reserve_space(self.object_id, self.data.parking_offset, &mut info)
+                    || is_helipad
+                {
+                    reserved = true;
+                }
+            });
+            if reserved {
+                let old_producer_id = self
+                    .with_object(|guard| guard.get_producer_id())
+                    .unwrap_or(INVALID_ID);
+                if old_producer_id != airfield_id {
+                    let _ = self.with_producer_parking_place(|pp| {
+                        let _ = pp.release_space(self.object_id);
                     });
                 }
+                let _ = self.with_object_mut(|guard| {
+                    let _ = OBJECT_REGISTRY.with_object(airfield_id, |airfield_guard| {
+                        guard.set_producer(Some(airfield_guard));
+                    });
+                });
+                self.set_use_special_return_loco(false);
+                self.set_flag(JetFlag::AllowInterruptAndResumeOfCurStateForReload, false);
+                ai.set_last_command_source(cmd_source);
+                self.with_state_machine(|machine, jet| {
+                    machine.set_state(JetAIStateType::ReturningForLanding, ai, jet)
+                });
             }
-        }
+            });
     }
 
     fn is_parked_at(&self, obj_id: Option<ObjectID>, obj: &crate::object::Object) -> bool {
@@ -2223,8 +2221,8 @@ impl JetAIUpdate {
         let mut allow_air_loco = true;
         let mut has_parking_place = false;
 
-        if let Some(airfield) = TheGameLogic::find_object_by_id(producer_id) {
-            if let Ok(air_guard) = airfield.read() {
+        let producer_found = crate::object::registry::OBJECT_REGISTRY
+            .with_object(producer_id, |air_guard| {
                 self.producer_location = *air_guard.get_position();
                 air_guard.with_parking_place_behavior(|pp| {
                     has_parking_place = true;
@@ -2232,10 +2230,13 @@ impl JetAIUpdate {
                         allow_air_loco = false;
                     }
                 });
+            })
+            .is_some();
+        if !producer_found {
+            if let Some(pos) = self.with_object(|obj_guard| *obj_guard.get_position()) {
+                self.producer_location = pos;
+                allow_air_loco = true;
             }
-        } else if let Some(pos) = self.with_object(|obj_guard| *obj_guard.get_position()) {
-            self.producer_location = pos;
-            allow_air_loco = true;
         }
 
         if !has_parking_place {
@@ -2803,13 +2804,11 @@ impl JetAIUpdate {
 impl Drop for JetAIUpdate {
     fn drop(&mut self) {
         if let Some(producer_id) = self.with_object(|guard| guard.get_producer_id()) {
-            if let Some(airfield) = TheGameLogic::find_object_by_id(producer_id) {
-                if let Ok(air_guard) = airfield.read() {
-                    air_guard.with_parking_place_behavior(|pp| {
-                        pp.release_space(self.object_id);
-                    });
-                }
-            }
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object(producer_id, |air_guard| {
+                air_guard.with_parking_place_behavior(|pp| {
+                    pp.release_space(self.object_id);
+                });
+                });
         }
 
         if let Some(drawable_id) = self.lockon_drawable.take() {

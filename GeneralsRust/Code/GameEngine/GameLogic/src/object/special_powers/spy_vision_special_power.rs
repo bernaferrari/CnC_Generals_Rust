@@ -109,13 +109,11 @@ impl SpyVisionSpecialPower {
     /// Matches C++ SpyVisionSpecialPower::doSpecialPower().
     pub fn do_special_power(&self, _command_options: u32) {
         // Check if disabled
-        if let Some(owner) = TheGameLogic::find_object_by_id(self.owner_object_id) {
-            if let Ok(owner_guard) = owner.read() {
-                if owner_guard.is_disabled() {
-                    return;
-                }
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object(self.owner_object_id, |owner_guard| {
+            if owner_guard.is_disabled() {
+                return;
             }
-        }
+            });
 
         // Calculate duration from module data
         // Matches C++ SpyVisionSpecialPower::doSpecialPower() duration calculation

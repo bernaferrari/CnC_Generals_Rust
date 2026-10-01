@@ -389,16 +389,10 @@ impl EconomyManager {
         {
             existing
         } else {
-            let list_guard = crate::player::ThePlayerList()
-                .read()
-                .map_err(|_| GameLogicError::SystemNotInitialized("PlayerList".to_string()))?;
-            let player_arc = list_guard
-                .get_player(player_key as i32)
-                .ok_or_else(|| GameLogicError::InvalidObject(player_key))?;
-            let player_guard = player_arc
-                .read()
-                .map_err(|_| GameLogicError::Threading("Player lock poisoned".to_string()))?;
-            let current_money = player_guard.get_money().get_money();
+            let current_money = crate::player::with_player(player_key as i32, |player_guard| {
+                player_guard.get_money().get_money()
+            })
+            .ok_or_else(|| GameLogicError::InvalidObject(player_key))?;
             let mut starting_resources = HashMap::new();
             starting_resources.insert(
                 ResourceType::Money,
@@ -452,27 +446,22 @@ impl EconomyManager {
         let current_money = *storage.resources.get(&ResourceType::Money).unwrap_or(&0);
 
         if _actual_delta != 0 {
-            if let Ok(list) = crate::player::ThePlayerList().read() {
-                if let Some(player) = list.get_player(player_key as i32) {
-                    if let Ok(mut player_guard) = player.write() {
-                        if _actual_delta > 0 {
-                            let actual_added = _actual_delta as u32;
-                            let _ = player_guard.get_money_mut().deposit(actual_added);
-                            player_guard
-                                .get_score_keeper_mut()
-                                .add_money_earned(actual_added);
-                        } else {
-                            let spend = (-_actual_delta) as u32;
-                            if spend > 0 {
-                                let _ = player_guard.get_money_mut().withdraw(spend);
-                                player_guard.get_score_keeper_mut().add_money_spent(spend);
-                            }
-                        }
-                        // Keep player money in sync with storage, even if other systems changed it.
-                        player_guard.get_money_mut().set_money(current_money);
+            let _ = crate::player::with_player_mut(player_key as i32, |player_guard| {
+                if _actual_delta > 0 {
+                    let actual_added = _actual_delta as u32;
+                    let _ = player_guard.get_money_mut().deposit(actual_added);
+                    player_guard
+                        .get_score_keeper_mut()
+                        .add_money_earned(actual_added);
+                } else {
+                    let spend = (-_actual_delta) as u32;
+                    if spend > 0 {
+                        let _ = player_guard.get_money_mut().withdraw(spend);
+                        player_guard.get_score_keeper_mut().add_money_spent(spend);
                     }
                 }
-            }
+                player_guard.get_money_mut().set_money(current_money);
+            });
         }
 
         Ok(())
@@ -950,13 +939,10 @@ impl EconomyManager {
             return Ok(1.0);
         }
 
-        if let Ok(list) = crate::player::ThePlayerList().read() {
-            if let Some(player) = list.get_player(player_id as i32) {
-                if let Ok(player_guard) = player.read() {
-                    let ratio = player_guard.get_energy().supply_ratio() as f32;
-                    return Ok(ratio.clamp(0.0, 1.0));
-                }
-            }
+        if let Some(ratio) = crate::player::with_player(player_id as i32, |player_guard| {
+            player_guard.get_energy().supply_ratio() as f32
+        }) {
+            return Ok(ratio.clamp(0.0, 1.0));
         }
 
         Ok(1.0)

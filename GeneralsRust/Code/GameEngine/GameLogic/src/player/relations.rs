@@ -414,11 +414,9 @@ impl Player {
 
         let owned_objects = self.owned_objects.clone();
         for object_id in owned_objects {
-            if let Some(obj_arc) = TheGameLogic::find_object_by_id(object_id) {
-                if let Ok(mut guard) = obj_arc.write() {
-                    self.local_apply_battle_plan_bonuses_to_object(&mut guard, bonus);
-                }
-            }
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(object_id, |obj| {
+                self.local_apply_battle_plan_bonuses_to_object(obj, bonus);
+            });
         }
     }
 }

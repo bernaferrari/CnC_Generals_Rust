@@ -241,8 +241,16 @@ struct OcclusionOverlayRenderer {
 }
 
 #[cfg(target_arch = "wasm32")]
+// SAFETY: wasm32-only. Every field is a wgpu handle (`Arc<Device>`,
+// `Arc<Queue>`, `RenderPipeline`, `Buffer`, `BindGroup`), `Rc`-backed and
+// `!Send`/`!Sync` on the web backend — but wasm32 has no threads, so they can
+// never cross a thread boundary. The impl only satisfies the bounds of the
+// cached global owning the renderer. Native keeps the auto traits.
 unsafe impl Send for OcclusionOverlayRenderer {}
 #[cfg(target_arch = "wasm32")]
+// SAFETY: same wasm32-only scope: the target is single-threaded, so
+// `&OcclusionOverlayRenderer` is never accessed from two threads and the
+// handles' `!Sync` default is unreachable.
 unsafe impl Sync for OcclusionOverlayRenderer {}
 
 impl OcclusionOverlayRenderer {

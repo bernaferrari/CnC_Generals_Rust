@@ -469,13 +469,11 @@ impl LaserUpdate {
         if self.thing != 0 {
             client.set_drawable_position(self.thing, pos);
         }
-        if let Some(object) = TheGameLogic::find_object_by_id(self.thing) {
-            if let Ok(guard) = object.read() {
-                if let Some(drawable) = guard.get_drawable() {
-                    client.set_drawable_position(drawable.get_id(), pos);
-                }
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object(self.thing, |guard| {
+            if let Some(drawable) = guard.get_drawable() {
+                client.set_drawable_position(drawable.get_id(), pos);
             }
-        }
+            });
     }
 
     pub fn is_dirty(&self) -> bool {
