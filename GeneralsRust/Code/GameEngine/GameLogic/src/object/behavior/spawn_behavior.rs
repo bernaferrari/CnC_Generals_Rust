@@ -640,8 +640,10 @@ impl SpawnBehavior {
         if id == INVALID_ID {
             return Err("Object not set".into());
         }
-        crate::helpers::TheGameLogic::find_object_by_id(id)
-            .ok_or_else(|| "Object not found".into())
+        if !crate::object::registry::OBJECT_REGISTRY.contains(id) {
+            return Err("Object not found".into());
+        }
+        Ok(id)
     }
 
     fn notify_slaved_update(
@@ -654,15 +656,13 @@ impl SpawnBehavior {
             return Ok(());
         }
 
-        let spawned = crate::helpers::TheGameLogic::find_object_by_id(spawned_id)
+        let modules = crate::object::registry::OBJECT_REGISTRY
+            .with_object(spawned_id, |spawned| spawned.copy_module_entries())
             .ok_or("spawned object unavailable")?;
-        let modules = {
-            let spawn_guard = spawned.read().map_err(|_| "Failed to read spawn")?;
-            spawn_guard.copy_module_entries()
-        };
         Object::enslave_first_in(&modules, master_id)?;
         Ok(())
     }
+
 
     fn should_try_to_spawn(&mut self) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
         let data = Arc::clone(&self.module_data);
@@ -748,16 +748,12 @@ impl SpawnBehavior {
                 .with_object(|obj_guard| obj_guard.get_controlling_player())
                 .map_err(|_| "Failed to read object")?;
 
-            let producer_id = self.get_object_id();
-            let unit_id = spawn_obj
-                .read()
-                .ok()
-                .map(|guard| guard.get_id())
-                .unwrap_or(crate::common::INVALID_ID);
+            let unit_id = spawn_obj;
             if let Some(player) = controlling_player {
-                let mut player_guard = player.write().map_err(|_| "Failed to write player")?;
-                player_guard.on_unit_created_id(producer_id, unit_id);
-                drop(player_guard);
+                let producer_id = self.get_object_id();
+                let _ = crate::player::with_player_mut(player, |player_guard| {
+                    player_guard.on_unit_created_id(producer_id, unit_id);
+                });
             }
 
             // Advance template iterator
@@ -777,30 +773,22 @@ impl SpawnBehavior {
 
         // Set producer relationship
         {
-            let mut spawn_guard = new_spawn.write().map_err(|_| "Failed to write spawn")?;
-            let _ = self.with_object(|parent_obj| {
-                spawn_guard.set_producer(Some(parent_obj));
-            })?;
-            drop(spawn_guard);
+            let producer_id = self.get_object_id();
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(new_spawn, |spawn| {
+                let _ = crate::object::registry::OBJECT_REGISTRY
+                    .with_object(producer_id, |parent_obj| {
+                        spawn.set_producer(Some(parent_obj));
+                    });
+            });
         }
 
         // If spawned object has a SlavedUpdate, tell them who their master is
         {
-            let spawn_id = new_spawn
-                .read()
-                .ok()
-                .map(|g| g.get_id())
-                .unwrap_or(INVALID_ID);
-            let master_id = self.get_object_id();
-            self.notify_slaved_update(spawn_id, master_id)?;
+            self.notify_slaved_update(new_spawn, self.get_object_id())?;
         }
 
         // Add to spawn tracking
-        let new_spawn_id = {
-            let spawn_guard = new_spawn.read().map_err(|_| "Failed to read spawn")?;
-            spawn_guard.get_id()
-        };
-        self.spawn_ids.push(new_spawn_id);
+        self.spawn_ids.push(new_spawn);
 
 
         // Handle exit behavior
@@ -815,44 +803,50 @@ impl SpawnBehavior {
                         .with_object(|obj_guard| obj_guard.get_producer_id())
                         .map_err(|_| "Failed to read object")?;
 
-                    if producer_id != INVALID_ID {
-                        if let Some(barracks) = TheGameLogic::find_object_by_id(producer_id) {
-                            let barracks_guard =
-                                barracks.read().map_err(|_| "Failed to read barracks")?;
-                            let is_structure = barracks_guard.is_kind_of(KindOf::Structure);
-                            drop(barracks_guard);
+                    if producer_id != INVALID_ID
+                        && crate::object::registry::OBJECT_REGISTRY.contains(producer_id)
+                    {
+                        let is_structure = crate::object::registry::OBJECT_REGISTRY
+                            .with_object(producer_id, |barracks| {
+                                barracks.is_kind_of(KindOf::Structure)
+                            })
+                            .unwrap_or(false);
 
-                            if is_structure {
-                                let spawn_id = new_spawn
-                                    .read()
-                                    .ok()
-                                    .map(|guard| guard.get_id())
-                                    .unwrap_or(0);
-                                let mut barracks_write =
-                                    barracks.write().map_err(|_| "Failed to write barracks")?;
-                                if let Some(mut barracks_exit_guard) =
-                                    barracks_write.get_object_exit_interface()
-                                {
-                                    let barracks_door =
-                                        barracks_exit_guard.reserve_door_for_exit(None, None);
-                                    barracks_exit_guard
-                                        .exit_object_via_door(spawn_id, barracks_door)?;
-                                    drop(barracks_exit_guard);
-                                    drop(barracks_write);
+                        if is_structure {
+                            let spawn_id = new_spawn;
+                            let mut barracks_exit_success_here = false;
+                            let exit_result: Result<
+                                bool,
+                                Box<dyn std::error::Error + Send + Sync>,
+                            > = crate::object::registry::OBJECT_REGISTRY
+                                .with_object_mut(producer_id, |barracks| {
+                                    if let Some(mut barracks_exit_guard) =
+                                        barracks.get_object_exit_interface()
+                                    {
+                                        let barracks_door =
+                                            barracks_exit_guard.reserve_door_for_exit(None, None);
+                                        barracks_exit_guard
+                                            .exit_object_via_door(spawn_id, barracks_door)?;
+                                        return Ok(true);
+                                    }
+                                    Ok(false)
+                                })
+                                .unwrap_or(Ok(false));
+                            if exit_result? {
+                                // Set producer back to parent
+                                let parent_id = self.get_object_id();
+                                let _ = crate::object::registry::OBJECT_REGISTRY
+                                    .with_object_mut(spawn_id, |spawn| {
+                                        let _ = crate::object::registry::OBJECT_REGISTRY
+                                            .with_object(parent_id, |parent_obj| {
+                                                spawn.set_producer(Some(parent_obj));
+                                            });
+                                    });
 
-                                    // Set producer back to parent
-                                    let mut spawn_guard = new_spawn
-                                        .write()
-                                        .map_err(|_| "Failed to write spawn")?;
-                                    let _ = self.with_object(|parent_obj| {
-                                        spawn_guard.set_producer(Some(parent_obj));
-                                    })?;
-                                    drop(spawn_guard);
-
-                                    self.initial_burst_countdown -= 1;
-                                    barracks_exit_success = true;
-                                }
+                                self.initial_burst_countdown -= 1;
+                                barracks_exit_success_here = true;
                             }
+                            barracks_exit_success = barracks_exit_success_here;
                         }
                     }
                 }
@@ -863,46 +857,40 @@ impl SpawnBehavior {
                     let mut closest_distance = BIG_DISTANCE;
 
                     for &spawn_id in &self.spawn_ids {
-                        if spawn_id == new_spawn_id {
+                        if spawn_id == new_spawn {
                             continue; // Skip the new spawn itself
                         }
 
-                        if let Some(cur_spawn) = TheGameLogic::find_object_by_id(spawn_id) {
-                            let distance = {
-                                let cur_spawn_guard =
-                                    cur_spawn.read().map_err(|_| "Failed to read spawn")?;
-                                self.with_object(|parent_guard| {
+                        if let Ok(Some(distance)) = self.with_object(|parent_guard| {
+                            crate::object::registry::OBJECT_REGISTRY
+                                .with_object(spawn_id, |cur_spawn| {
                                     ThePartitionManager::get_distance_squared(
-                                        &cur_spawn_guard,
+                                        cur_spawn,
                                         parent_guard,
                                         FROM_CENTER_2D,
                                     )
                                 })
-                                .map_err(|_| "Failed to read parent")?
-                            };
+                        }) {
                             if distance < closest_distance {
                                 closest_distance = distance;
-                                bud_host = Some(cur_spawn);
+                                bud_host = Some(spawn_id);
                             }
                         }
                     }
 
-                    let host_id = bud_host.as_ref().and_then(|host| {
-                        host.read().ok().map(|guard| guard.get_id())
-                    });
                     self.with_object_mut(|obj_guard| {
                         if let Some(mut exit_guard) = obj_guard.get_object_exit_interface() {
-                            exit_guard.exit_object_by_budding(new_spawn_id, host_id)?;
+                            exit_guard.exit_object_by_budding(new_spawn, bud_host)?;
                         }
-                        Ok(())
+                        Ok::<(), Box<dyn std::error::Error + Send + Sync>>(())
                     })??;
                 }
             } else {
                 self.with_object_mut(|obj_guard| {
                     if let Some(mut exit_guard) = obj_guard.get_object_exit_interface() {
-                        exit_guard.exit_object_via_door(new_spawn_id, exit_door)?;
+                        exit_guard.exit_object_via_door(new_spawn, exit_door)?;
                     }
-                    Ok(())
+                    Ok::<(), Box<dyn std::error::Error + Send + Sync>>(())
                 })??;
             }
         } else {
@@ -959,40 +947,39 @@ impl SpawnBehavior {
             let mut closest = None;
             let mut closest_distance = BIG_DISTANCE;
             if let Some(template) = TheObjectFactory::find_template(template_name) {
-                let player_object_ids = {
-                    let player_guard = player.read().map_err(|_| "Failed to read player")?;
+                let player_object_ids = crate::player::with_player(player, |player_guard| {
                     player_guard.get_object_ids()
-                };
+                })
+                .unwrap_or_default();
 
                 for obj_id in player_object_ids {
-                    let Some(player_obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
+                    // C++ scans the player's objects for an unclaimed spawn of
+                    // this template (SpawnBehavior.cpp reclaim logic).
+                    let Some(distance) = crate::object::registry::OBJECT_REGISTRY
+                        .with_object(obj_id, |obj_guard| {
+                            if !obj_guard
+                                .get_template()
+                                .is_equivalent_to(template.as_ref())
+                            {
+                                return None;
+                            }
+                            if obj_guard.get_producer_id() != INVALID_ID {
+                                return None;
+                            }
+                            Some(ThePartitionManager::get_distance_squared_to_pos(
+                                obj_guard,
+                                &object_pos,
+                                FROM_CENTER_2D,
+                            ))
+                        })
+                        .flatten()
                     else {
                         continue;
                     };
-                    let obj_guard = player_obj
-                        .read()
-                        .map_err(|_| "Failed to read player object")?;
-
-                    if !obj_guard
-                        .get_template()
-                        .is_equivalent_to(template.as_ref())
-                    {
-                        continue;
-                    }
-
-                    if obj_guard.get_producer_id() != INVALID_ID {
-                        continue;
-                    }
-
-                    let distance = ThePartitionManager::get_distance_squared_to_pos(
-                        &obj_guard,
-                        &object_pos,
-                        FROM_CENTER_2D,
-                    );
 
                     if distance < closest_distance {
                         closest_distance = distance;
-                        closest = Some(player_obj.clone());
+                        closest = Some(obj_id);
                     }
                 }
             }
@@ -1028,75 +1015,79 @@ impl SpawnBehavior {
         self.self_tasking_spawn_count = 0;
 
         // Process each spawn
-        for &spawn_id in &self.spawn_ids {
-            if let Some(current_spawn) = TheGameLogic::find_object_by_id(spawn_id) {
-                // Count self-tasking spawns (write scope: the slaved-update
-                // probe needs &mut behavior modules)
-                {
-                    let mut spawn_write =
-                        current_spawn.write().map_err(|_| "Failed to write spawn")?;
-                    for behavior in spawn_write.get_behavior_modules_mut() {
-                        if let Some(slaved) = behavior.get_slaved_update_interface() {
-                            if slaved.is_self_tasking() {
-                                self.self_tasking_spawn_count += 1;
-                            }
-                            break;
+        let spawn_ids = self.spawn_ids.clone();
+        for &spawn_id in &spawn_ids {
+            // Count self-tasking spawns (write scope: the slaved-update
+            // probe needs &mut behavior modules)
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(spawn_id, |spawn| {
+                for behavior in spawn.get_behavior_modules_mut() {
+                    if let Some(slaved) = behavior.get_slaved_update_interface() {
+                        if slaved.is_self_tasking() {
+                            self.self_tasking_spawn_count += 1;
                         }
+                        break;
                     }
                 }
+            });
 
-                let mut spawn_guard = current_spawn.read().map_err(|_| "Failed to read spawn")?;
+            let Some(spawn_snapshot) = crate::object::registry::OBJECT_REGISTRY.with_object(
+                spawn_id,
+                |spawn| {
+                    let vet = spawn.get_veterancy_level();
+                    let pos = *spawn.get_position();
+                    let health = spawn
+                        .get_body_module()
+                        .map(|body| (body.get_health(), body.get_max_health()));
+                    let selected = spawn
+                        .get_drawable()
+                        .and_then(|d| d.read().ok().map(|g| g.is_selected()));
+                    (vet, pos, health, selected)
+                },
+            ) else {
+                continue;
+            };
+            let (spawn_vet_level, spawn_pos, spawn_health, spawn_selected) = spawn_snapshot;
 
-                // Handle veterancy synchronization
-                let spawn_vet_level = spawn_guard.get_veterancy_level();
-                let obj_vet_level = self
-                    .with_object(|obj_guard| obj_guard.get_veterancy_level())
-                    .map_err(|_| "Failed to read object")?;
+            // Handle veterancy synchronization
+            let obj_vet_level = self
+                .with_object(|obj_guard| obj_guard.get_veterancy_level())
+                .map_err(|_| "Failed to read object")?;
 
-                if spawn_vet_level > obj_vet_level {
-                    // C++ SpawnBehavior.cpp:889-892: setVeterancyLevel(spawnVetLevel)
-                    // on the producer (ExperienceTracker.h:30 default provideFeedback
-                    // TRUE); the C++ tracker fires Object::onVeterancyLevelChanged
-                    // itself (ExperienceTracker.cpp:82-95).
-                    let _ = self.with_object_mut(|obj_guard| {
-                        obj_guard.set_veterancy_level_with_side_effects(spawn_vet_level, true);
-                    });
-                } else if spawn_vet_level < obj_vet_level {
-                    // C++ SpawnBehavior.cpp:893-896: setVeterancyLevel(vetLevel) on the
-                    // spawn instead — same side-effect fan-out, feedback TRUE.
-                    drop(spawn_guard);
-                    if let Some(spawn_arc) = TheGameLogic::find_object_by_id(spawn_id) {
-                        if let Ok(mut spawn_write_guard) = spawn_arc.write() {
-                            spawn_write_guard
-                                .set_veterancy_level_with_side_effects(obj_vet_level, true);
-                        }
-                    }
-                    spawn_guard = current_spawn.read().map_err(|_| "Failed to read spawn")?;
-                }
-
-                // Aggregate position and health
-                avg_spawn_pos += *spawn_guard.get_position();
-
-                if let Some(body) = spawn_guard.get_body_module() {
-                    acr_health += body.get_health();
-                    avg_health_max += body.get_max_health();
-                }
-
-                // Check selection status
-                if let Some(drawable) = spawn_guard.get_drawable() {
-                    let drawable_guard = drawable
-                        .read()
-                        .map_err(|_| "Failed to read spawn drawable")?;
-                    if drawable_guard.is_selected() {
-                        somebody_is_selected = true;
-                    } else {
-                        somebody_is_not_selected = true;
-                    }
-                }
-
-                spawn_count += 1;
-                drop(spawn_guard);
+            if spawn_vet_level > obj_vet_level {
+                // C++ SpawnBehavior.cpp:889-892: setVeterancyLevel(spawnVetLevel)
+                // on the producer (ExperienceTracker.h:30 default provideFeedback
+                // TRUE); the C++ tracker fires Object::onVeterancyLevelChanged
+                // itself (ExperienceTracker.cpp:82-95).
+                let _ = self.with_object_mut(|obj_guard| {
+                    obj_guard.set_veterancy_level_with_side_effects(spawn_vet_level, true);
+                });
+            } else if spawn_vet_level < obj_vet_level {
+                // C++ SpawnBehavior.cpp:893-896: setVeterancyLevel(vetLevel) on the
+                // spawn instead — same side-effect fan-out, feedback TRUE.
+                let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(
+                    spawn_id,
+                    |spawn| {
+                        spawn.set_veterancy_level_with_side_effects(obj_vet_level, true);
+                    },
+                );
             }
+
+            // Aggregate position and health
+            avg_spawn_pos += spawn_pos;
+
+            if let Some((health, max_health)) = spawn_health {
+                acr_health += health;
+                avg_health_max += max_health;
+            }
+
+            // Check selection status
+            match spawn_selected {
+                Some(true) => somebody_is_selected = true,
+                Some(false) => somebody_is_not_selected = true,
+                None => {}
+            }
+
+            spawn_count += 1;
         }
 
         if somebody_is_selected {
@@ -1117,21 +1108,24 @@ impl SpawnBehavior {
                 // Select all unselected spawns
                 if somebody_is_not_selected {
                     for &spawn_id in &self.spawn_ids {
-                        if let Some(current_spawn) = TheGameLogic::find_object_by_id(spawn_id) {
-                            let spawn_guard =
-                                current_spawn.read().map_err(|_| "Failed to read spawn")?;
-                            if let Some(drawable) = spawn_guard.get_drawable() {
-                                let drawable_guard = drawable
-                                    .read()
-                                    .map_err(|_| "Failed to read spawn drawable")?;
-                                if !drawable_guard.is_selected() {
-                                    TheInGameUI::select_drawable(&drawable);
-                                    TheInGameUI::set_displayed_max_warning(false);
-                                    team_msg.append_boolean_argument(false);
-                                    team_msg.append_object_id_argument(spawn_id);
+                        let _ = crate::object::registry::OBJECT_REGISTRY.with_object(
+                            spawn_id,
+                            |spawn| {
+                                if let Some(drawable) = spawn.get_drawable() {
+                                    let unselected = drawable
+                                        .read()
+                                        .ok()
+                                        .map(|g| !g.is_selected())
+                                        .unwrap_or(false);
+                                    if unselected {
+                                        TheInGameUI::select_drawable(&drawable);
+                                        TheInGameUI::set_displayed_max_warning(false);
+                                        team_msg.append_boolean_argument(false);
+                                        team_msg.append_object_id_argument(spawn_id);
+                                    }
                                 }
-                            }
-                        }
+                            },
+                        );
                     }
                 }
 
@@ -1291,49 +1285,49 @@ impl DieModuleInterface for SpawnBehavior {
 
         // Notify all spawns that their master has died
         for &spawn_id in &spawn_ids {
-            if let Some(current_spawn) = TheGameLogic::find_object_by_id(spawn_id) {
-                let mut handled = false;
-                {
-                    let spawn_guard = current_spawn.read().map_err(|_| "Failed to read spawn")?;
-                    if let Some(result) = spawn_guard.with_slaved_update_interface(|slaved| {
+            let mut handled = false;
+            if let Some(Some(result)) = crate::object::registry::OBJECT_REGISTRY.with_object(
+                spawn_id,
+                |spawn| {
+                    spawn.with_slaved_update_interface(|slaved| {
                         slaved.on_slaver_die(Some(damage_info))
-                    }) {
-                        result?;
-                        handled = true;
-                    }
-                }
-
-                if !handled {
-                    let mut spawn_guard =
-                        current_spawn.write().map_err(|_| "Failed to write spawn")?;
-                    for behavior in spawn_guard.get_behavior_modules_mut() {
-                        if let Some(slaved) = behavior.get_slaved_update_interface() {
-                            slaved.on_slaver_die(Some(damage_info))?;
-                            break;
-                        }
-                    }
-                    drop(spawn_guard);
-                }
-
-                let mut spawn_guard = current_spawn.write().map_err(|_| "Failed to write spawn")?;
-                spawn_guard.set_producer(None);
+                    })
+                },
+            ) {
+                result?;
+                handled = true;
             }
+
+            if !handled {
+                let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(
+                    spawn_id,
+                    |spawn| {
+                        for behavior in spawn.get_behavior_modules_mut() {
+                            if let Some(slaved) = behavior.get_slaved_update_interface() {
+                                let _ = slaved.on_slaver_die(Some(damage_info));
+                                break;
+                            }
+                        }
+                    },
+                );
+            }
+
+            let _ = crate::object::registry::OBJECT_REGISTRY
+                .with_object_mut(spawn_id, |spawn| spawn.set_producer(None));
         }
 
         // Kill spawns that require the spawner
         if spawned_require_spawner {
             for &spawn_id in &spawn_ids {
-                if let Some(spawn_obj) = TheGameLogic::find_object_by_id(spawn_id) {
-                    let spawn_guard = spawn_obj.read().map_err(|_| "Failed to read spawn")?;
-                    let is_dead = spawn_guard.is_effectively_dead();
-                    drop(spawn_guard);
+                let is_dead = crate::object::registry::OBJECT_REGISTRY
+                    .with_object(spawn_id, |spawn| spawn.is_effectively_dead())
+                    .unwrap_or(true);
 
-                    if !is_dead {
-                        let mut spawn_guard =
-                            spawn_obj.write().map_err(|_| "Failed to write spawn")?;
-                        spawn_guard.kill(None, None);
-                        drop(spawn_guard);
-                    }
+                if !is_dead {
+                    let _ = crate::object::registry::OBJECT_REGISTRY
+                        .with_object_mut(spawn_id, |spawn| {
+                            spawn.kill(None, None);
+                        });
                 }
             }
         }
@@ -1358,28 +1352,31 @@ impl DamageModuleInterface for SpawnBehavior {
 
         // Notify all spawns that their master was damaged
         for &spawn_id in &self.spawn_ids {
-            if let Some(current_spawn) = TheGameLogic::find_object_by_id(spawn_id) {
-                let mut handled = false;
-                {
-                    let spawn_guard = current_spawn.read().map_err(|_| "Failed to read spawn")?;
-                    if let Some(result) = spawn_guard
-                        .with_slaved_update_interface(|slaved| slaved.on_slaver_damage(damage_info))
-                    {
-                        result?;
-                        handled = true;
-                    }
-                }
+            let mut handled = false;
+            if let Some(Some(result)) = crate::object::registry::OBJECT_REGISTRY.with_object(
+                spawn_id,
+                |spawn| {
+                    spawn.with_slaved_update_interface(|slaved| {
+                        slaved.on_slaver_damage(damage_info)
+                    })
+                },
+            ) {
+                result?;
+                handled = true;
+            }
 
-                if !handled {
-                    let mut spawn_guard =
-                        current_spawn.write().map_err(|_| "Failed to write spawn")?;
-                    for behavior in spawn_guard.get_behavior_modules_mut() {
-                        if let Some(slaved) = behavior.get_slaved_update_interface() {
-                            slaved.on_slaver_damage(damage_info)?;
-                            break;
+            if !handled {
+                let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(
+                    spawn_id,
+                    |spawn| {
+                        for behavior in spawn.get_behavior_modules_mut() {
+                            if let Some(slaved) = behavior.get_slaved_update_interface() {
+                                let _ = slaved.on_slaver_damage(damage_info);
+                                break;
+                            }
                         }
-                    }
-                }
+                    },
+                );
             }
         }
 
@@ -1445,12 +1442,15 @@ impl SpawnBehaviorInterface for SpawnBehavior {
             // If aggregate health and no spawns left, destroy parent.
             // C++ --m_spawnCount goes negative, so a count that was already 0 does not match.
             if !count_was_zero && self.spawn_count == 0 && self.aggregate_health {
-                if let Some(killer) = TheGameLogic::find_object_by_id(damage_info.input.source_id) {
-                    let mut killer_guard = killer.write().map_err(|_| "Failed to write killer")?;
-                    let _ = self.with_object(|obj_guard| {
-                        killer_guard.score_the_kill(obj_guard);
-                    });
-                }
+                // C++ SpawnBehavior.cpp: killer->scoreTheKill(this).
+                let parent_id = self.get_object_id();
+                let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(
+                    damage_info.input.source_id,
+                    |killer| {
+                        let _ = crate::object::registry::OBJECT_REGISTRY
+                            .with_object(parent_id, |obj| killer.score_the_kill(obj));
+                    },
+                );
 
                 TheGameLogic::destroy_object_by_id(self.get_object_id())?;
             }
@@ -1469,21 +1469,22 @@ impl SpawnBehaviorInterface for SpawnBehavior {
         let mut closest_distance = Real::INFINITY;
 
         for &spawn_id in &self.spawn_ids {
-            if let Some(spawn_obj) = TheGameLogic::find_object_by_id(spawn_id) {
-                let distance = if let Ok(spawn_guard) = spawn_obj.read() {
+            let Some(distance) = crate::object::registry::OBJECT_REGISTRY.with_object(
+                spawn_id,
+                |spawn| {
                     ThePartitionManager::get_distance_squared_to_pos(
-                        &spawn_guard,
+                        spawn,
                         pos,
                         FROM_CENTER_2D,
                     )
-                } else {
-                    continue;
-                };
+                },
+            ) else {
+                continue;
+            };
 
-                if closest.is_none() || closest_distance > distance {
-                    closest = Some(spawn_obj);
-                    closest_distance = distance;
-                }
+            if closest.is_none() || closest_distance > distance {
+                closest = Some(spawn_id);
+                closest_distance = distance;
             }
         }
 
@@ -1503,14 +1504,14 @@ impl SpawnBehaviorInterface for SpawnBehavior {
         let target_id = target.get_id();
         let ids = self.spawn_ids.clone();
         for spawn_id in ids {
-            let Some(spawn_obj) = TheGameLogic::find_object_by_id(spawn_id) else {
-                continue;
-            };
-            if let Ok(mut spawn_guard) = spawn_obj.write() {
-                if let Some(ai) = spawn_guard.get_ai_update_interface_mut() {
-                    ai.ai_force_attack_object(target_id, max_shots_to_fire, cmd_source);
-                }
-            }
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(
+                spawn_id,
+                |spawn| {
+                    if let Some(ai) = spawn.get_ai_update_interface_mut() {
+                        ai.ai_force_attack_object(target_id, max_shots_to_fire, cmd_source);
+                    }
+                },
+            );
         }
         Ok(())
     }
@@ -1528,14 +1529,14 @@ impl SpawnBehaviorInterface for SpawnBehavior {
 
         let ids = self.spawn_ids.clone();
         for spawn_id in ids {
-            let Some(spawn_obj) = TheGameLogic::find_object_by_id(spawn_id) else {
-                continue;
-            };
-            if let Ok(mut spawn_guard) = spawn_obj.write() {
-                if let Some(ai) = spawn_guard.get_ai_update_interface_mut() {
-                    ai.ai_attack_position(pos, max_shots_to_fire, cmd_source);
-                }
-            }
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(
+                spawn_id,
+                |spawn| {
+                    if let Some(ai) = spawn.get_ai_update_interface_mut() {
+                        ai.ai_attack_position(pos, max_shots_to_fire, cmd_source);
+                    }
+                },
+            );
         }
         Ok(())
     }
@@ -1554,19 +1555,17 @@ impl SpawnBehaviorInterface for SpawnBehavior {
         let mut invalid_shot = false;
 
         for &spawn_id in &self.spawn_ids {
-            if let Some(spawn_obj) = TheGameLogic::find_object_by_id(spawn_id) {
-                let Ok(spawn_guard) = spawn_obj.read() else {
-                    continue;
-                };
-                let result =
-                    spawn_guard.get_able_to_attack_specific_object(attack_type, target, cmd_source);
-                drop(spawn_guard);
+            let Some(result) = crate::object::registry::OBJECT_REGISTRY.with_object(
+                spawn_id,
+                |spawn| spawn.get_able_to_attack_specific_object(attack_type, target, cmd_source),
+            ) else {
+                continue;
+            };
 
-                match result {
-                    ATTACKRESULT_POSSIBLE | ATTACKRESULT_POSSIBLE_AFTER_MOVING => return result,
-                    ATTACKRESULT_NOT_POSSIBLE => {}
-                    ATTACKRESULT_INVALID_SHOT => invalid_shot = true,
-                }
+            match result {
+                ATTACKRESULT_POSSIBLE | ATTACKRESULT_POSSIBLE_AFTER_MOVING => return result,
+                ATTACKRESULT_NOT_POSSIBLE => {}
+                ATTACKRESULT_INVALID_SHOT => invalid_shot = true,
             }
         }
 
@@ -1592,23 +1591,24 @@ impl SpawnBehaviorInterface for SpawnBehavior {
         let mut invalid_shot = false;
 
         for &spawn_id in &self.spawn_ids {
-            if let Some(spawn_obj) = TheGameLogic::find_object_by_id(spawn_id) {
-                let Ok(spawn_guard) = spawn_obj.read() else {
-                    continue;
-                };
-                let result = spawn_guard.get_able_to_use_weapon_against_target(
-                    attack_type,
-                    victim,
-                    pos,
-                    cmd_source,
-                );
-                drop(spawn_guard);
+            let Some(result) = crate::object::registry::OBJECT_REGISTRY.with_object(
+                spawn_id,
+                |spawn| {
+                    spawn.get_able_to_use_weapon_against_target(
+                        attack_type,
+                        victim,
+                        pos,
+                        cmd_source,
+                    )
+                },
+            ) else {
+                continue;
+            };
 
-                match result {
-                    ATTACKRESULT_POSSIBLE | ATTACKRESULT_POSSIBLE_AFTER_MOVING => return result,
-                    ATTACKRESULT_NOT_POSSIBLE => {}
-                    ATTACKRESULT_INVALID_SHOT => invalid_shot = true,
-                }
+            match result {
+                ATTACKRESULT_POSSIBLE | ATTACKRESULT_POSSIBLE_AFTER_MOVING => return result,
+                ATTACKRESULT_NOT_POSSIBLE => {}
+                ATTACKRESULT_INVALID_SHOT => invalid_shot = true,
             }
         }
 
@@ -1626,16 +1626,11 @@ impl SpawnBehaviorInterface for SpawnBehavior {
         }
 
         for &spawn_id in &self.spawn_ids {
-            if let Some(spawn_obj) = TheGameLogic::find_object_by_id(spawn_id) {
-                let Ok(spawn_guard) = spawn_obj.read() else {
-                    continue;
-                };
-                let can_attack = spawn_guard.is_able_to_attack();
-                drop(spawn_guard);
-
-                if can_attack {
-                    return true;
-                }
+            if crate::object::registry::OBJECT_REGISTRY
+                .with_object(spawn_id, |spawn| spawn.is_able_to_attack())
+                .unwrap_or(false)
+            {
+                return true;
             }
         }
         false
@@ -1652,14 +1647,14 @@ impl SpawnBehaviorInterface for SpawnBehavior {
 
         let ids = self.spawn_ids.clone();
         for spawn_id in ids {
-            let Some(spawn_obj) = TheGameLogic::find_object_by_id(spawn_id) else {
-                continue;
-            };
-            if let Ok(mut spawn_guard) = spawn_obj.write() {
-                if let Some(ai) = spawn_guard.get_ai_update_interface_mut() {
-                    ai.ai_idle(cmd_source);
-                }
-            }
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(
+                spawn_id,
+                |spawn| {
+                    if let Some(ai) = spawn.get_ai_update_interface_mut() {
+                        let _ = ai.ai_idle();
+                    }
+                },
+            );
         }
         Ok(())
     }
@@ -1676,15 +1671,15 @@ impl SpawnBehaviorInterface for SpawnBehavior {
 
         let ids = self.spawn_ids.clone();
         for spawn_id in ids {
-            let Some(spawn_obj) = TheGameLogic::find_object_by_id(spawn_id) else {
-                continue;
-            };
-            if let Ok(mut spawn_guard) = spawn_obj.write() {
-                if let Some(ai) = spawn_guard.get_ai_update_interface_mut() {
-                    ai.ai_idle(CMD_FROM_AI);
-                }
-                spawn_guard.set_disabled_until(disabled_type, frame);
-            }
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(
+                spawn_id,
+                |spawn| {
+                    if let Some(ai) = spawn.get_ai_update_interface_mut() {
+                        let _ = ai.ai_idle();
+                    }
+                    spawn.set_disabled_until(disabled_type, frame);
+                },
+            );
         }
         Ok(())
     }
@@ -1699,11 +1694,10 @@ impl SpawnBehaviorInterface for SpawnBehavior {
         }
 
         for &spawn_id in &self.spawn_ids {
-            if let Some(spawn_obj) = TheGameLogic::find_object_by_id(spawn_id) {
-                let mut spawn_guard = spawn_obj.write().map_err(|_| "Failed to write spawn")?;
-                spawn_guard.clear_disabled(disabled_type);
-                drop(spawn_guard);
-            }
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(
+                spawn_id,
+                |spawn| spawn.clear_disabled(disabled_type),
+            );
         }
         Ok(())
     }
@@ -1718,14 +1712,15 @@ impl SpawnBehaviorInterface for SpawnBehavior {
         }
 
         for &spawn_id in &self.spawn_ids {
-            if let Some(spawn_obj) = TheGameLogic::find_object_by_id(spawn_id) {
-                let mut spawn_guard = spawn_obj.write().map_err(|_| "Failed to write spawn")?;
-                spawn_guard.set_status(
-                    MAKE_OBJECT_STATUS_MASK!(OBJECT_STATUS_CAN_STEALTH),
-                    grant_stealth,
-                );
-                drop(spawn_guard);
-            }
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(
+                spawn_id,
+                |spawn| {
+                    spawn.set_status(
+                        MAKE_OBJECT_STATUS_MASK!(OBJECT_STATUS_CAN_STEALTH),
+                        grant_stealth,
+                    );
+                },
+            );
         }
         Ok(())
     }
@@ -1737,25 +1732,20 @@ impl SpawnBehaviorInterface for SpawnBehavior {
         }
 
         for &spawn_id in &self.spawn_ids {
-            if let Some(spawn_obj) = TheGameLogic::find_object_by_id(spawn_id) {
-                let Ok(spawn_guard) = spawn_obj.read() else {
-                    continue;
-                };
-                if let Some(stealth) = spawn_guard.get_stealth() {
-                    let Ok(stealth_guard) = stealth.lock() else {
-                        return false;
-                    };
-                    let allowed = stealth_guard.allowed_to_stealth(&*spawn_guard);
-                    drop(stealth_guard);
-                    drop(spawn_guard);
-
-                    if !allowed {
-                        return false;
-                    }
-                } else {
-                    drop(spawn_guard);
-                    return false;
-                }
+            let Some(allowed) = crate::object::registry::OBJECT_REGISTRY.with_object(
+                spawn_id,
+                |spawn| match spawn.get_stealth() {
+                    Some(stealth) => stealth
+                        .lock()
+                        .ok()
+                        .map(|stealth_guard| stealth_guard.allowed_to_stealth(spawn)),
+                    None => Some(false),
+                },
+            ) else {
+                continue;
+            };
+            if !allowed.unwrap_or(false) {
+                return false;
             }
         }
         true
@@ -1768,17 +1758,16 @@ impl SpawnBehaviorInterface for SpawnBehavior {
         }
 
         for &spawn_id in &self.spawn_ids {
-            if let Some(spawn_obj) = TheGameLogic::find_object_by_id(spawn_id) {
-                let Ok(spawn_guard) = spawn_obj.read() else {
-                    continue;
-                };
-                if let Some(stealth) = spawn_guard.get_stealth() {
-                    let mut stealth_guard = stealth.lock().map_err(|_| "Failed to lock stealth")?;
-                    stealth_guard.mark_as_detected();
-                    drop(stealth_guard);
-                }
-                drop(spawn_guard);
-            }
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object(
+                spawn_id,
+                |spawn| {
+                    if let Some(stealth) = spawn.get_stealth() {
+                        if let Ok(mut stealth_guard) = stealth.lock() {
+                            stealth_guard.mark_as_detected();
+                        }
+                    }
+                },
+            );
         }
         Ok(())
     }
@@ -1847,12 +1836,11 @@ impl Drop for SpawnBehavior {
         // Destroy spawns that require the spawner
         if data.spawned_require_spawner {
             for &spawn_id in &self.spawn_ids {
-                if let Some(spawn_obj) = TheGameLogic::find_object_by_id(spawn_id) {
-                    if let Ok(spawn_guard) = spawn_obj.read() {
-                        if !spawn_guard.is_effectively_dead() {
-                            let _ = TheGameLogic::destroy_object(&*spawn_guard);
-                        }
-                    }
+                let alive = crate::object::registry::OBJECT_REGISTRY
+                    .with_object(spawn_id, |spawn| !spawn.is_effectively_dead())
+                    .unwrap_or(false);
+                if alive {
+                    let _ = TheGameLogic::destroy_object_by_id(spawn_id);
                 }
             }
         }
@@ -2011,7 +1999,7 @@ impl SpawnControlInterface for SpawnBehaviorModule {
                 y: pos[1],
                 z: pos[2],
             })
-            .and_then(|slave| slave.read().ok().map(|guard| guard.get_id()))
+            .map(|slave| slave)
     }
 }
 
