@@ -615,7 +615,7 @@ mod tests {
         template_name: &str,
         team_arc: &Arc<RwLock<crate::team::Team>>,
         position: Coord3D,
-    ) -> Arc<RwLock<crate::object::Object>> {
+    ) -> ObjectID {
         ensure_template_exists(template_name);
         let team_guard = team_arc.read().expect("Team lock poisoned");
 
@@ -643,7 +643,7 @@ mod tests {
         id: ObjectId,
         team_arc: &Arc<RwLock<crate::team::Team>>,
         position: Coord3D,
-    ) -> Arc<RwLock<crate::object::Object>> {
+    ) -> ObjectID {
         let object = Arc::new(RwLock::new(crate::object::Object::new_test(id, 100.0)));
         {
             let mut guard = object.write().expect("object write");

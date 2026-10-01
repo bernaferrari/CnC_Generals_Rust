@@ -122,8 +122,8 @@ mod tests {
 
     #[test]
     fn empty_pack_is_honest() {
-        let logic = GameLogic::new();
-        let frame = PresentationFrame::build_from_logic(&logic, 0);
+        let mut logic = GameLogic::new();
+        let frame = PresentationFrame::build_from_logic(&mut logic, 0);
         let pack = AttackLineUpload::pack_from_presentation(&frame);
         assert!(pack.honesty.cpu_pack_ok);
         assert!(!pack.honesty.has_geometry);
@@ -146,7 +146,7 @@ mod tests {
         if let Some(obj) = logic.host_object_mut(a) {
             obj.target = Some(b);
         }
-        let frame = PresentationFrame::build_from_logic(&logic, 0);
+        let frame = PresentationFrame::build_from_logic(&mut logic, 0);
         let ro = frame.objects.iter().find(|o| o.id == a).expect("a");
         assert_eq!(ro.attack_target, Some(b));
         let pack = AttackLineUpload::pack_from_presentation(&frame);

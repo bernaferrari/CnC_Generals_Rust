@@ -88,7 +88,7 @@ impl AIHuntState {
         }
     }
 
-    pub(crate) fn find_hunt_victim(&self, owner: &Object) -> Option<Arc<RwLock<Object>>> {
+    pub(crate) fn find_hunt_victim(&self, owner: &Object) -> Option<ObjectID> {
         // Wave 257: empty dual-world → None.
         if dual_world_registry_unavailable() {
             return None;
@@ -99,23 +99,24 @@ impl AIHuntState {
 
         let team_arc = owner.get_team();
         let mut attack_common_target = false;
-        let mut team_victim: Option<Arc<RwLock<Object>>> = None;
+        let mut team_victim: Option<ObjectID> = None;
         if let Some(team) = team_arc.as_ref() {
             if let Ok(team_guard) = team.read() {
                 attack_common_target = team_guard.attack_common_target();
                 if attack_common_target {
                     let team_target = team_guard.get_team_target_object();
                     if team_target != INVALID_ID {
-                        team_victim = get_legacy_object(team_target);
+                        team_victim = Some(team_target);
                     }
                 }
             }
         }
 
         let mut victim = if team_victim.is_some() && attack_info.is_none() {
-            team_victim.clone()
+            team_victim
         } else {
-            let ai_store = the_ai();let enemy_id = ai_store.read().ok().and_then(|ai| {
+            let ai_store = the_ai();
+            ai_store.read().ok().and_then(|ai| {
                 ai.find_closest_enemy(
                     owner_id,
                     9999.9,
@@ -125,8 +126,7 @@ impl AIHuntState {
                 )
                 .ok()
                 .flatten()
-            });
-            enemy_id.and_then(get_legacy_object)
+            })
         };
 
         if victim.is_none() {
@@ -151,40 +151,40 @@ impl AIHuntState {
                     .ok()
                     .flatten()
                 });
-                victim = fallback_id.and_then(get_legacy_object);
+                victim = fallback_id;
             }
         }
 
         if attack_common_target {
-            if let (Some(team_target), Some(info)) = (team_victim.as_ref(), attack_info.as_ref()) {
+            if let (Some(team_target), Some(info)) = (team_victim, attack_info.as_ref()) {
                 if victim.is_none() {
-                    victim = Some(team_target.clone());
+                    victim = Some(team_target);
                 }
-                let team_priority = team_target
-                    .read()
-                    .ok()
-                    .map(|obj| info.get_priority(obj.get_template().get_name().as_str()))
-                    .unwrap_or(0);
-                let victim_priority = victim
-                    .as_ref()
-                    .and_then(|obj| {
-                        obj.read().ok().map(|guard| {
-                            info.get_priority(guard.get_template().get_name().as_str())
-                        })
+                let team_priority = OBJECT_REGISTRY
+                    .with_object(team_target, |obj| {
+                        info.get_priority(obj.get_template().get_name().as_str())
                     })
                     .unwrap_or(0);
+                let victim_id_for_prio = victim.filter(|id| *id != team_target);
+                let victim_priority = if let Some(vid) = victim_id_for_prio {
+                    OBJECT_REGISTRY
+                        .with_object(vid, |guard| {
+                            info.get_priority(guard.get_template().get_name().as_str())
+                        })
+                        .unwrap_or(0)
+                } else if victim == Some(team_target) {
+                    team_priority
+                } else {
+                    0
+                };
                 if team_priority >= victim_priority {
-                    victim = Some(team_target.clone());
+                    victim = Some(team_target);
                 }
             }
 
             if let Some(team) = team_arc.as_ref() {
                 if let Ok(mut team_guard) = team.write() {
-                    let victim_id = victim
-                        .as_ref()
-                        .and_then(|obj| obj.read().ok().map(|guard| guard.get_id()))
-                        .unwrap_or(INVALID_ID);
-                    team_guard.set_team_target_object(victim_id);
+                    team_guard.set_team_target_object(victim.unwrap_or(INVALID_ID));
                 }
             }
         }
@@ -230,7 +230,7 @@ impl ClassicState for AIHuntState {
             .get_machine_owner()
             .ok_or_else(|| "hunt state missing machine owner".to_string())?;
         let mut hunt_machine = AIAttackThenIdleStateMachine::new(
-            Arc::downgrade(&owner),
+            owner,
             "AIAttackThenIdleStateMachine",
         );
 
@@ -250,45 +250,47 @@ impl ClassicState for AIHuntState {
                 .base
                 .get_machine_owner()
                 .ok_or_else(|| "hunt state missing machine owner".to_string())?;
-            let owner_guard = owner
-                .read()
-                .map_err(|_| "hunt state owner lock poisoned".to_string())?;
-
-            if owner_guard.is_out_of_ammo() && !owner_guard.is_kind_of(KindOf::Projectile) {
-                return Ok(StateReturnType::Failure);
-            }
-
-            if owner_guard.ai_fire_crate_id != crate::common::INVALID_ID {
-                let crate_id = owner_guard.ai_fire_crate_id;
-                if let Some(hunt_machine) = self.hunt_machine.as_mut() {
-                    hunt_machine.set_goal_object(Some(crate_id));
-                    let _ = hunt_machine.set_state(AIStateType::PickUpCrate);
-                    return Ok(StateReturnType::Continue);
+            let scan = crate::object::registry::OBJECT_REGISTRY.with_object(owner, |owner_guard| {
+                if owner_guard.is_out_of_ammo() && !owner_guard.is_kind_of(KindOf::Projectile) {
+                    return Err(());
                 }
-            }
-
+                if owner_guard.ai_fire_crate_id != crate::common::INVALID_ID {
+                    return Ok(Err(owner_guard.ai_fire_crate_id));
+                }
+                let units_should_hunt = owner_guard
+                    .get_controlling_player()
+                    .and_then(|player| {
+                        player
+                            .read()
+                            .ok()
+                            .map(|guard| guard.get_units_should_hunt())
+                    })
+                    .unwrap_or(false);
+                let victim = self.find_hunt_victim(owner_guard);
+                Ok(Ok((units_should_hunt, victim)))
+            });
+            let Some(scan) = scan else {
+                return Err("hunt state owner missing".to_string());
+            };
+            let (units_should_hunt, victim) = match scan {
+                Err(()) => return Ok(StateReturnType::Failure),
+                Ok(Err(crate_id)) => {
+                    if let Some(hunt_machine) = self.hunt_machine.as_mut() {
+                        hunt_machine.set_goal_object(Some(crate_id));
+                        let _ = hunt_machine.set_state(AIStateType::PickUpCrate);
+                        return Ok(StateReturnType::Continue);
+                    }
+                    (false, None)
+                }
+                Ok(Ok(pair)) => pair,
+            };
             self.next_enemy_scan_time = now.saturating_add(ENEMY_SCAN_RATE);
-
-            let units_should_hunt = owner_guard
-                .get_controlling_player()
-                .and_then(|player| {
-                    player
-                        .read()
-                        .ok()
-                        .map(|guard| guard.get_units_should_hunt())
-                })
-                .unwrap_or(false);
-            let victim = self.find_hunt_victim(&owner_guard);
-            drop(owner_guard);
 
             let Some(hunt_machine) = self.hunt_machine.as_mut() else {
                 return Ok(StateReturnType::Failure);
             };
-            hunt_machine.set_goal_object(
-                victim
-                    .as_ref()
-                    .and_then(|a| a.read().ok().map(|g| g.get_id())),
-            );
+            hunt_machine.set_goal_object(victim);
+
 
             if hunt_machine.get_current_state_id() == Some(AIStateType::Idle as u32)
                 && victim.is_some()
@@ -320,9 +322,9 @@ impl ClassicState for AIHuntState {
             let _ = machine.halt();
         }
         if let Some(owner) = self.base.get_machine_owner() {
-            if let Ok(mut owner_guard) = owner.write() {
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner, |owner_guard| {
                 owner_guard.release_weapon_lock(WeaponLockType::LockedTemporarily);
-            }
+            });
         }
         Ok(())
     }
@@ -373,7 +375,7 @@ impl Snapshotable for AIHuntState {
                 .get_machine_owner()
                 .ok_or_else(|| "hunt state missing machine owner".to_string())?;
             self.hunt_machine = Some(AIAttackThenIdleStateMachine::new(
-                Arc::downgrade(&owner),
+                owner,
                 "AIAttackThenIdleStateMachine",
             ));
         }

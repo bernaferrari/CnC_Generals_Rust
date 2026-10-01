@@ -83,23 +83,23 @@ pub(super) fn build_die_module<T>(
     module_name: &str,
     thing: Arc<dyn ModuleThing>,
     data: T,
-    create_die: fn(Arc<RwLock<crate::object::Object>>, Arc<T>) -> Box<dyn DieModuleInterface>,
+    create_die: fn(ObjectID, Arc<T>) -> Box<dyn DieModuleInterface>,
 ) -> Box<dyn Module>
 where
     T: ModuleData + Clone + Send + Sync + std::fmt::Debug + 'static,
 {
     let object_id = resolve_owner_id(&thing);
-    let Some(object) = TheGameLogic::find_object_by_id(object_id) else {
+    if !TheGameLogic::find_object_by_id(object_id) {
         // Wave 449: missing owner → no-op module.
         return missing_owner_module(module_name, Arc::new(data.clone()) as Arc<dyn ModuleData>);
-    };
+    }
     let typed_data = Arc::new(data);
     let module_data: Arc<dyn ModuleData> = typed_data.clone();
-    let die_module = create_die(Arc::clone(&object), typed_data);
+    let die_module = create_die(object_id, typed_data);
     Box::new(DieModuleWrapper::new(
         &AsciiString::from(module_name),
         module_data,
-        object,
+        object_id,
         die_module,
     ))
 }
@@ -257,14 +257,14 @@ pub(super) fn slow_death_behavior_module_factory(
         SlowDeathBehaviorModuleData::new,
     );
     let object_id = resolve_owner_id(&thing);
-    let Some(object) = TheGameLogic::find_object_by_id(object_id) else {
+    if !TheGameLogic::find_object_by_id(object_id) { 
         // Wave 449: missing owner → no-op module.
         let data_for_missing: Arc<dyn ModuleData> = typed_data;
         return missing_owner_module("SlowDeathBehavior", data_for_missing);
     };
     let data: Arc<dyn crate::common::ModuleData> = typed_data;
     Box::new(
-        SlowDeathBehavior::new(object, data)
+        SlowDeathBehavior::new(object_id, data)
             .expect("SlowDeathBehavior failed to initialize from module data"),
     )
 }
@@ -292,12 +292,12 @@ pub(super) fn helicopter_slow_death_module_factory(
         &module_data,
     );
     let object_id = resolve_owner_id(&thing);
-    let Some(object) = TheGameLogic::find_object_by_id(object_id) else {
+    if !TheGameLogic::find_object_by_id(object_id) { 
         // Wave 449: missing owner → no-op module.
         let data_for_missing: Arc<dyn ModuleData> = data_arc.clone();
         return missing_owner_module("HelicopterSlowDeathBehavior", data_for_missing);
     };
-    let behavior = HelicopterSlowDeathBehavior::new(object, Arc::clone(&data_arc));
+    let behavior = HelicopterSlowDeathBehavior::new(object_id, Arc::clone(&data_arc));
     let module_name = AsciiString::from("HelicopterSlowDeathBehavior");
     Box::new(HelicopterSlowDeathBehaviorModule::new(
         behavior,
@@ -327,12 +327,12 @@ pub(super) fn poisoned_behavior_module_factory(
     let data_arc =
         cloned_module_data::<PoisonedBehaviorModuleData>("PoisonedBehavior", &module_data);
     let object_id = resolve_owner_id(&thing);
-    let Some(object) = TheGameLogic::find_object_by_id(object_id) else {
+    if !TheGameLogic::find_object_by_id(object_id) { 
         // Wave 449: missing owner → no-op module.
         let data_for_missing: Arc<dyn ModuleData> = data_arc.clone();
         return missing_owner_module("PoisonedBehavior", data_for_missing);
     };
-    let behavior = PoisonedBehavior::new(object, Arc::clone(&data_arc));
+    let behavior = PoisonedBehavior::new(object_id, Arc::clone(&data_arc));
     let module_name = AsciiString::from("PoisonedBehavior");
     Box::new(PoisonedBehaviorModule::new(
         behavior,
@@ -362,12 +362,12 @@ pub(super) fn jet_slow_death_behavior_module_factory(
     let data_arc =
         cloned_module_data::<JetSlowDeathBehaviorModuleData>("JetSlowDeathBehavior", &module_data);
     let object_id = resolve_owner_id(&thing);
-    let Some(object) = TheGameLogic::find_object_by_id(object_id) else {
+    if !TheGameLogic::find_object_by_id(object_id) { 
         // Wave 449: missing owner → no-op module.
         let data_for_missing: Arc<dyn ModuleData> = data_arc.clone();
         return missing_owner_module("JetSlowDeathBehavior", data_for_missing);
     };
-    let behavior = JetSlowDeathBehavior::new(object, Arc::clone(&data_arc));
+    let behavior = JetSlowDeathBehavior::new(object_id, Arc::clone(&data_arc));
     let module_name = AsciiString::from("JetSlowDeathBehavior");
     Box::new(JetSlowDeathBehaviorModule::new(
         behavior,

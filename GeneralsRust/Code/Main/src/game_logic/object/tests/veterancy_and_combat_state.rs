@@ -721,7 +721,6 @@ fn fire_at_scales_secondary_damage_with_damage_bonus() {
     use crate::game_logic::host_unit_training::VETERANCY_DAMAGE_BONUS_VETERAN;
     use crate::game_logic::{KindOf, Team, ThingTemplate, Weapon};
 
-    crate::game_logic::combat::clear_pending_projectile_queue_for_test();
     let mut tmpl = ThingTemplate::new("Scorpion");
     tmpl.add_kind_of(KindOf::Vehicle);
     tmpl.add_kind_of(KindOf::Attackable);
@@ -744,14 +743,16 @@ fn fire_at_scales_secondary_damage_with_damage_bonus() {
         "ScorpionTankGun",
     );
     assert!(raw > 0.0, "ScorpionTankGun must have a secondary ring");
-    let stamped = crate::game_logic::combat::last_pending_projectile_secondary_damage_for_test()
+    let stamped = atk
+        .staged_projectiles
+        .last()
+        .map(|p| p.secondary_damage)
         .expect("queued splash");
     let expected = raw * VETERANCY_DAMAGE_BONUS_VETERAN;
     assert!(
         (stamped - expected).abs() < 0.01,
         "secondary ring must scale with DAMAGE bonus ({stamped} vs {expected})"
     );
-    crate::game_logic::combat::clear_pending_projectile_queue_for_test();
 }
 
 #[test]

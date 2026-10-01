@@ -313,15 +313,8 @@ pub struct SurfaceLock<'a> {
 }
 
 impl<'a> SurfaceLock<'a> {
-    /// Get a pointer to pixel data at the given coordinates.
-    /// Returns None if coordinates are out of bounds.
-    ///
-    /// # Safety
-    ///
-    /// The returned pointer is only valid while the lock is held.
-    /// Caller must ensure proper bounds checking and pixel format alignment.
-    // SAFETY: [Category 10 — OOB] point was bounds-checked against the surface above; offset is row-major within the locked region and stays in-bounds.
-    pub unsafe fn get_pixel_ptr(&self, point: Point2D) -> Option<*mut u8> {
+    /// Row-major byte offset of `point`, or `None` when it is outside the lock.
+    pub fn pixel_offset(&self, point: Point2D) -> Option<usize> {
         if point.x < 0
             || point.y < 0
             || point.x >= self.surface.width as i32
@@ -337,9 +330,34 @@ impl<'a> SurfaceLock<'a> {
             return None;
         }
 
-        let offset = (adjusted_y as usize * self.stride)
-            + (adjusted_x as usize * self.surface.pixel_format.bytes_per_pixel());
+        Some(
+            (adjusted_y as usize * self.stride)
+                + (adjusted_x as usize * self.surface.pixel_format.bytes_per_pixel()),
+        )
+    }
 
+    /// Copy one pixel into `dest`. `dest` must be at least `bytes_per_pixel` long;
+    /// a short destination panics, matching the previous slice copy.
+    pub fn copy_pixel_to(&self, point: Point2D, dest: &mut [u8]) -> bool {
+        let Some(offset) = self.pixel_offset(point) else {
+            return false;
+        };
+        let bpp = self.surface.pixel_format.bytes_per_pixel();
+        let src = &self.surface.buffer[offset..offset + bpp];
+        dest[..bpp].copy_from_slice(src);
+        true
+    }
+
+    /// Get a pointer to pixel data at the given coordinates.
+    /// Returns None if coordinates are out of bounds.
+    ///
+    /// # Safety
+    ///
+    /// The returned pointer is only valid while the lock is held.
+    /// Caller must ensure proper bounds checking and pixel format alignment.
+    // SAFETY: [Category 10 — OOB] point was bounds-checked against the surface above; offset is row-major within the locked region and stays in-bounds.
+    pub unsafe fn get_pixel_ptr(&self, point: Point2D) -> Option<*mut u8> {
+        let offset = self.pixel_offset(point)?;
         // SAFETY: [Category 10 — OOB] point was bounds-checked against the surface above; offset is row-major within the locked region and stays in-bounds.
         unsafe { Some(self.data.add(offset)) }
     }

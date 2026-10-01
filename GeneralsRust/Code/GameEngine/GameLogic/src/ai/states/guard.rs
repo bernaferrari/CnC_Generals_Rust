@@ -132,22 +132,18 @@ impl StateImplementation for AIGuardState {
         if dual_world_registry_unavailable() {
             return StateReturnType::Failure;
         }
-        let Some(owner) = self.base.get_machine_owner() else {
+        let Some(owner_id) = self.base.get_machine_owner() else {
             return StateReturnType::Failure;
         };
-        let mut guard_machine = AIGuardMachine::new(Arc::downgrade(&owner));
+        let mut guard_machine = AIGuardMachine::new(owner_id);
         if let Some(polygon) = self.enter_polygon.clone() {
             guard_machine.set_area_to_guard(Some(polygon.clone()));
             let center = polygon.get_center_point();
             guard_machine.set_target_position_to_guard(&center);
+        } else if goal_id != crate::common::INVALID_ID && get_legacy_object(goal_id).is_some() {
+            guard_machine.set_target_to_guard(Some(goal_id));
         } else if goal_id != crate::common::INVALID_ID {
-            if let Some(target) = crate::helpers::TheGameLogic::find_object_by_id(goal_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(goal_id))
-            {
-                guard_machine.set_target_to_guard(Some(&target));
-            } else {
-                guard_machine.set_target_position_to_guard(&goal_pos);
-            }
+            guard_machine.set_target_position_to_guard(&goal_pos);
         } else {
             guard_machine.set_target_position_to_guard(&goal_pos);
         }
@@ -218,17 +214,16 @@ impl ClassicState for AIGuardState {
             .get_machine_owner()
             .ok_or_else(|| "guard state missing machine owner".to_string())?;
 
-        let mut guard_machine = AIGuardMachine::new(Arc::downgrade(&owner));
+        let mut guard_machine = AIGuardMachine::new(owner);
 
         if let Some(polygon) = self.base.get_machine_goal_polygon() {
             guard_machine.set_area_to_guard(Some(polygon.clone()));
             let center = polygon.get_center_point();
             guard_machine.set_target_position_to_guard(&center);
-        } else if let Some(target) = self.base.get_machine_goal_object_id().and_then(|id| {
-            crate::helpers::TheGameLogic::find_object_by_id(id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(id))
-        }) {
-            guard_machine.set_target_to_guard(Some(&target));
+        } else if let Some(id) = self.base.get_machine_goal_object_id() {
+            if get_legacy_object(id).is_some() {
+                guard_machine.set_target_to_guard(Some(id));
+            }
         } else if let Some(pos) = self.base.get_machine_goal_position() {
             guard_machine.set_target_position_to_guard(&pos);
         } else if let Ok(owner_guard) = owner.try_read() {
@@ -358,7 +353,7 @@ impl ClassicState for AIGuardRetaliateState {
             .get_machine_owner()
             .ok_or_else(|| "guard retaliate state missing machine owner".to_string())?;
 
-        let mut guard_machine = AIGuardRetaliateMachine::new(Arc::downgrade(&owner));
+        let mut guard_machine = AIGuardRetaliateMachine::new(owner);
 
         if let Some(pos) = self.base.get_machine_goal_position() {
             guard_machine.set_target_position_to_guard(&pos);
@@ -366,12 +361,9 @@ impl ClassicState for AIGuardRetaliateState {
             guard_machine.set_target_position_to_guard(owner_guard.get_position());
         }
 
-        if let Some(goal) = self.base.get_machine_goal_object_id().and_then(|id| {
-            crate::helpers::TheGameLogic::find_object_by_id(id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(id))
-        }) {
-            if let Ok(goal_guard) = goal.try_read() {
-                guard_machine.set_nemesis_id(goal_guard.get_id());
+        if let Some(id) = self.base.get_machine_goal_object_id() {
+            if get_legacy_object(id).is_some() {
+                guard_machine.set_nemesis_id(id);
             }
         }
 
@@ -477,7 +469,7 @@ impl ClassicState for AITunnelNetworkGuardState {
             .get_machine_owner()
             .ok_or_else(|| "tunnel network guard state missing machine owner".to_string())?;
 
-        let mut guard_machine = AITNGuardMachine::new(Arc::downgrade(&owner));
+        let mut guard_machine = AITNGuardMachine::new(owner);
 
         if let Some(pos) = self.base.get_machine_goal_position() {
             guard_machine.set_target_position_to_guard(&pos);
@@ -552,7 +544,7 @@ impl Snapshotable for AIGuardState {
                 .base
                 .get_machine_owner()
                 .ok_or_else(|| "guard state missing machine owner".to_string())?;
-            self.guard_machine = Some(AIGuardMachine::new(Arc::downgrade(&owner)));
+            self.guard_machine = Some(AIGuardMachine::new(owner));
         }
 
         if let Some(machine) = self.guard_machine.as_mut() {
@@ -601,7 +593,7 @@ impl Snapshotable for AIGuardRetaliateState {
                 .base
                 .get_machine_owner()
                 .ok_or_else(|| "guard retaliate state missing machine owner".to_string())?;
-            self.guard_machine = Some(AIGuardRetaliateMachine::new(Arc::downgrade(&owner)));
+            self.guard_machine = Some(AIGuardRetaliateMachine::new(owner));
         }
 
         if let Some(machine) = self.guard_machine.as_mut() {
@@ -650,7 +642,7 @@ impl Snapshotable for AITunnelNetworkGuardState {
                 .base
                 .get_machine_owner()
                 .ok_or_else(|| "tunnel network guard state missing machine owner".to_string())?;
-            self.guard_machine = Some(AITNGuardMachine::new(Arc::downgrade(&owner)));
+            self.guard_machine = Some(AITNGuardMachine::new(owner));
         }
 
         if let Some(machine) = self.guard_machine.as_mut() {
@@ -673,8 +665,7 @@ fn clear_owner_guard_target_type(state: &State) {
     let Some(owner) = state.get_machine_owner() else {
         return;
     };
-    let Ok(mut owner_guard) = owner.write() else {
-        return;
-    };
-    owner_guard.ai_pending_clear_guard_target = true;
+    let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner, |owner_guard| {
+        owner_guard.ai_pending_clear_guard_target = true;
+    });
 }

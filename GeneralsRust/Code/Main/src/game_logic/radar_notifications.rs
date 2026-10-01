@@ -1,7 +1,3 @@
-use parking_lot::Mutex;
-use std::collections::VecDeque;
-use std::sync::OnceLock;
-
 use glam::Vec3;
 
 #[derive(Debug, Clone)]
@@ -18,46 +14,4 @@ pub enum RadarKind {
     Generic,
     Attack,
     Ally,
-}
-
-pub struct RadarNotifications {
-    queue: Mutex<VecDeque<RadarEntry>>,
-}
-
-impl Default for RadarNotifications {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl RadarNotifications {
-    pub fn new() -> Self {
-        Self {
-            queue: Mutex::new(VecDeque::new()),
-        }
-    }
-
-    pub fn push(&self, entry: RadarEntry) {
-        self.queue.lock().push_back(entry);
-    }
-
-    pub fn drain(&self) -> Vec<RadarEntry> {
-        let mut guard = self.queue.lock();
-        if guard.is_empty() {
-            Vec::new()
-        } else {
-            guard.drain(..).collect()
-        }
-    }
-
-    /// Non-destructive copy for presentation freeze (UI drain remains authoritative).
-    pub fn snapshot(&self) -> Vec<RadarEntry> {
-        self.queue.lock().iter().cloned().collect()
-    }
-}
-
-static GLOBAL_RADAR_NOTIFICATIONS: OnceLock<RadarNotifications> = OnceLock::new();
-
-pub fn global_radar_notifications() -> &'static RadarNotifications {
-    GLOBAL_RADAR_NOTIFICATIONS.get_or_init(RadarNotifications::new)
 }

@@ -52,11 +52,8 @@ impl GhostObject {
         }
     }
 
-    pub fn set_parent(&mut self, parent: Option<Arc<RwLock<Object>>>) {
-        self.parent_object_id = parent
-            .as_ref()
-            .and_then(|arc| arc.read().ok().map(|o| o.get_id()))
-            .unwrap_or(INVALID_ID);
+    pub fn set_parent(&mut self, parent_id: Option<ObjectID>) {
+        self.parent_object_id = parent_id.unwrap_or(INVALID_ID);
     }
 
     pub fn set_parent_id(&mut self, parent_id: ObjectID) {
@@ -67,11 +64,13 @@ impl GhostObject {
         self.parent_object_id
     }
 
-    pub fn get_parent(&self) -> Option<Arc<RwLock<Object>>> {
+    pub fn get_parent(&self) -> Option<ObjectID> {
         if self.parent_object_id == INVALID_ID {
             return None;
         }
-        TheGameLogic::find_object_by_id(self.parent_object_id)
+        crate::object::registry::OBJECT_REGISTRY
+            .with_object(self.parent_object_id, |_| ())
+            .map(|_| self.parent_object_id)
     }
 
     pub fn set_partition_data(&mut self, data: Option<PartitionData>) {
@@ -164,7 +163,7 @@ impl GhostObjectManager {
 
     pub fn add_ghost_object(
         &mut self,
-        object: &Arc<RwLock<Object>>,
+        object_id: ObjectID,
         partition_data: Option<PartitionData>,
     ) -> Option<Arc<RwLock<GhostObject>>> {
         // Respect the lock flag — C++ uses this during map border resizing.
@@ -172,25 +171,22 @@ impl GhostObjectManager {
             return None;
         }
 
-        let (position, angle, geometry_type, is_small, major_radius, minor_radius) = {
-            match object.read() {
-                Ok(obj) => {
-                    let geom = obj.get_geometry_info();
-                    (
-                        *obj.get_position(),
-                        obj.get_orientation(),
-                        geom.get_geometry_type(),
-                        geom.get_is_small(),
-                        geom.get_major_radius(),
-                        geom.get_minor_radius(),
-                    )
-                }
-                Err(_) => return None,
-            }
-        };
+        let snapshot = crate::object::registry::OBJECT_REGISTRY.with_object(object_id, |obj| {
+            let geom = obj.get_geometry_info();
+            (
+                *obj.get_position(),
+                obj.get_orientation(),
+                geom.get_geometry_type(),
+                geom.get_is_small(),
+                geom.get_major_radius(),
+                geom.get_minor_radius(),
+            )
+        })?;
+
+        let (position, angle, geometry_type, is_small, major_radius, minor_radius) = snapshot;
 
         let ghost = GhostObject {
-            parent_object_id: object.read().ok().map(|o| o.get_id()).unwrap_or(INVALID_ID),
+            parent_object_id: object_id,
             parent_position: position,
             parent_angle: angle,
             parent_geometry_type: geometry_type,

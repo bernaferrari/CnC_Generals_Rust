@@ -1021,17 +1021,13 @@ fn drawable_state_is_shrouded(
     if state.shroud_status_object_id == 0 {
         return false;
     }
-    let Some(object) =
-        gamelogic::helpers::TheGameLogic::find_object_by_id(state.shroud_status_object_id)
-    else {
-        return false;
-    };
-    let Ok(guard) = object.read() else {
-        return false;
-    };
     use gamelogic::common::types::ObjectShroudStatus;
-    // Fallback when the drawable flag is unavailable: full black shroud only.
-    (guard.get_shrouded_status(local_player_index) as u8) >= (ObjectShroudStatus::Shrouded as u8)
+    gamelogic::object::registry::OBJECT_REGISTRY
+        .with_object(state.shroud_status_object_id, |guard| {
+            (guard.get_shrouded_status(local_player_index) as u8)
+                >= (ObjectShroudStatus::Shrouded as u8)
+        })
+        .unwrap_or(false)
 }
 
 fn xfer_random_variable(
@@ -1819,33 +1815,35 @@ impl ParticleSystem {
                 self.apply_host_fx_object_pose(&pose);
                 return;
             }
-            if let Some(object) =
-                gamelogic::helpers::TheGameLogic::find_object_by_id(self.attached_object_id)
-            {
-                if let Ok(guard) = object.read() {
+            let attached_id = self.attached_object_id;
+            let sampled = gamelogic::object::registry::OBJECT_REGISTRY.with_object(
+                attached_id,
+                |guard| {
                     use gamelogic::common::types::ObjectShroudStatus;
                     let status = guard.get_shrouded_status(local_player_index);
-                    self.is_shrouded = (status as u8) >= (ObjectShroudStatus::Fogged as u8);
-                    self.last_position = self.position;
-                    if let Some(draw) = guard.get_drawable() {
-                        if let Ok(draw_guard) = draw.read() {
-                            let (rot, trans) = affine_from_glam_cols(
-                                draw_guard.get_transform_matrix().to_cols_array(),
-                            );
-                            self.parent_transform = Some(rot);
-                            self.position = Vec3::from(trans);
-                        } else {
-                            let (rot, trans) =
-                                affine_from_glam_cols(guard.get_transform_matrix().to_cols_array());
-                            self.parent_transform = Some(rot);
-                            self.position = Vec3::from(trans);
-                        }
+                    let is_shrouded = (status as u8) >= (ObjectShroudStatus::Fogged as u8);
+                    (is_shrouded, guard.get_drawable(), guard.get_transform_matrix())
+                },
+            );
+            if let Some((is_shrouded, drawable, matrix)) = sampled {
+                self.is_shrouded = is_shrouded;
+                self.last_position = self.position;
+                if let Some(draw) = drawable {
+                    if let Ok(draw_guard) = draw.read() {
+                        let (rot, trans) = affine_from_glam_cols(
+                            draw_guard.get_transform_matrix().to_cols_array(),
+                        );
+                        self.parent_transform = Some(rot);
+                        self.position = Vec3::from(trans);
                     } else {
-                        let (rot, trans) =
-                            affine_from_glam_cols(guard.get_transform_matrix().to_cols_array());
+                        let (rot, trans) = affine_from_glam_cols(matrix.to_cols_array());
                         self.parent_transform = Some(rot);
                         self.position = Vec3::from(trans);
                     }
+                } else {
+                    let (rot, trans) = affine_from_glam_cols(matrix.to_cols_array());
+                    self.parent_transform = Some(rot);
+                    self.position = Vec3::from(trans);
                 }
                 return;
             }

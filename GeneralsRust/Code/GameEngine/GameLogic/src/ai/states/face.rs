@@ -148,10 +148,16 @@ impl ClassicState for AIFaceObjectState {
         if dual_world_registry_unavailable() {
             return Ok(StateReturnType::Failure);
         }
-        let owner = self
-            .base
-            .get_machine_owner()
-            .ok_or_else(|| "face object missing owner".to_string())?;
+        let owner_id = {
+            let owner = self
+                .base
+                .get_machine_owner()
+                .ok_or_else(|| "face object missing owner".to_string())?;
+            owner
+                .read()
+                .map_err(|_| "face object owner lock poisoned".to_string())?
+                .get_id()
+        };
         let Some(goal_id) = self.base.get_machine_goal_object_id() else {
             return Ok(StateReturnType::Failure);
         };
@@ -160,7 +166,7 @@ impl ClassicState for AIFaceObjectState {
         else {
             return Ok(StateReturnType::Failure);
         };
-        face_towards(&owner, goal_pos, self.can_turn_in_place)
+        face_towards(owner_id, goal_pos, self.can_turn_in_place)
     }
 
     fn classic_on_exit(&mut self, _exit: StateExitType) -> Result<(), String> {
@@ -243,14 +249,20 @@ impl ClassicState for AIFacePositionState {
         if dual_world_registry_unavailable() {
             return Ok(StateReturnType::Failure);
         }
-        let owner = self
-            .base
-            .get_machine_owner()
-            .ok_or_else(|| "face position missing owner".to_string())?;
+        let owner_id = {
+            let owner = self
+                .base
+                .get_machine_owner()
+                .ok_or_else(|| "face position missing owner".to_string())?;
+            owner
+                .read()
+                .map_err(|_| "face position owner lock poisoned".to_string())?
+                .get_id()
+        };
         let Some(goal) = self.base.get_machine_goal_position() else {
             return Ok(StateReturnType::Failure);
         };
-        face_towards(&owner, goal, self.can_turn_in_place)
+        face_towards(owner_id, goal, self.can_turn_in_place)
     }
 
     fn classic_on_exit(&mut self, _exit: StateExitType) -> Result<(), String> {
@@ -289,26 +301,28 @@ fn locomotor_can_turn_in_place(owner: &Object) -> bool {
 
 /// C++ `AIFaceState::update` — keep turning until within ~2°.
 fn face_towards(
-    owner: &Arc<RwLock<Object>>,
+    owner_id: crate::common::ObjectID,
     target_pos: Coord3D,
     can_turn_in_place: bool,
 ) -> Result<StateReturnType, String> {
     const REL_THRESH: f32 = 0.035;
-    let Ok(mut owner_guard) = owner.write() else {
+    let Some(result) = OBJECT_REGISTRY.with_object_mut(owner_id, |owner_guard| {
+        let owner_pos = *owner_guard.get_position();
+        let owner_orientation = owner_guard.get_orientation();
+        let rel_angle = relative_angle_2d(&owner_pos, owner_orientation, &target_pos);
+        if rel_angle.abs() < REL_THRESH {
+            return StateReturnType::Success;
+        }
+        if can_turn_in_place {
+            owner_guard.ai_pending_goal_orientation = Some(owner_orientation + rel_angle);
+        } else {
+            owner_guard.ai_pending_goal_position = Some(target_pos);
+        }
+        StateReturnType::Continue
+    }) else {
         return Ok(StateReturnType::Failure);
     };
-    let owner_pos = *owner_guard.get_position();
-    let owner_orientation = owner_guard.get_orientation();
-    let rel_angle = relative_angle_2d(&owner_pos, owner_orientation, &target_pos);
-    if rel_angle.abs() < REL_THRESH {
-        return Ok(StateReturnType::Success);
-    }
-    if can_turn_in_place {
-        owner_guard.ai_pending_goal_orientation = Some(owner_orientation + rel_angle);
-    } else {
-        owner_guard.ai_pending_goal_position = Some(target_pos);
-    }
-    Ok(StateReturnType::Continue)
+    Ok(result)
 }
 
 /// C++ `AIFaceState::xfer` version 1: `m_canTurnInPlace`.

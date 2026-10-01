@@ -95,35 +95,28 @@ pub(crate) fn should_cancel_containment_after_booby_trap(
     if owner_id == crate::common::INVALID_ID || obj_id == crate::common::INVALID_ID {
         return false;
     }
-    let Some(owner) = crate::helpers::TheGameLogic::find_object_by_id(owner_id)
-        .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(owner_id))
-    else {
-        return false;
-    };
-    let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
-        .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
-    else {
-        return false;
-    };
-
-    let (Ok(owner_guard), Ok(obj_guard)) = (owner.read(), obj.read()) else {
-        return false;
-    };
-
-    owner_guard.check_and_detonate_booby_trap(Some(&*obj_guard))
-        && (owner_guard.is_effectively_dead() || obj_guard.is_effectively_dead())
+    let owner_dead = crate::object::registry::OBJECT_REGISTRY
+        .with_object(owner_id, |owner| {
+            let obj_dead = crate::object::registry::OBJECT_REGISTRY.with_object(obj_id, |obj| {
+                owner.check_and_detonate_booby_trap(Some(obj))
+                    && (owner.is_effectively_dead() || obj.is_effectively_dead())
+            });
+            obj_dead.unwrap_or(false)
+        })
+        .unwrap_or(false);
+    owner_dead
 }
 
 /// C++ TransportContain/MobNexusContain: if the rider is a special zero-slot
 /// container (parachute), validate the first contained infantry instead.
-pub(crate) fn unwrap_special_zero_slot_rider(obj: &Object) -> Option<Arc<RwLock<Object>>> {
+pub(crate) fn unwrap_special_zero_slot_rider(obj: &Object) -> Option<ObjectID> {
     let contain = obj.get_contain()?;
     if contain.get_max_capacity() != 0 {
         return None;
     }
     let first_id = *contain.get_contained_objects().first()?;
-    crate::helpers::TheGameLogic::find_object_by_id(first_id)
-        .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(first_id))
+    crate::object::registry::OBJECT_REGISTRY
+        .with_object(*first_id, |_| *first_id)
 }
 
 /// Trait for common container functionality
@@ -159,31 +152,29 @@ impl ContainerFactory {
     /// Create a container based on type string
     pub fn create_container(
         container_type: &str,
-        object: Arc<RwLock<Object>>,
+        object_id: ObjectID,
         config: &str, // JSON or INI config
     ) -> GameResult<Box<dyn ContainerInterface>> {
-        let weak_object = Arc::downgrade(&object);
-        drop(object);
 
         match container_type {
             "OpenContain" => {
                 let data = Self::load_config::<OpenContainModuleData>(config);
-                let container = OpenContain::new(weak_object.clone(), &data)?;
+                let container = OpenContain::new(object_id, &data)?;
                 Ok(Box::new(container))
             }
             "TransportContain" => {
                 let data = Self::load_config::<TransportContainModuleData>(config);
-                let container = TransportContain::new(weak_object.clone(), &data)?;
+                let container = TransportContain::new(object_id, &data)?;
                 Ok(Box::new(container))
             }
             "GarrisonContain" => {
                 let data = Self::load_config::<GarrisonContainModuleData>(config);
-                let container = GarrisonContain::new(weak_object.clone(), &data)?;
+                let container = GarrisonContain::new(object_id, &data)?;
                 Ok(Box::new(container))
             }
             "HealContain" => {
                 let data = Self::load_config::<HealContainModuleData>(config);
-                let container = HealContain::new(weak_object.clone(), &data)?;
+                let container = HealContain::new(object_id, &data)?;
                 Ok(Box::new(container))
             }
             "CaveContain" => {
@@ -197,42 +188,42 @@ impl ContainerFactory {
             }
             "TunnelContain" => {
                 let data = Self::load_config::<TunnelContainModuleData>(config);
-                let container = TunnelContain::new(weak_object.clone(), &data)?;
+                let container = TunnelContain::new(object_id, &data)?;
                 Ok(Box::new(container))
             }
             "HelixContain" => {
                 let data = Self::load_config::<HelixContainModuleData>(config);
-                let container = HelixContain::new(weak_object.clone(), &data)?;
+                let container = HelixContain::new(object_id, &data)?;
                 Ok(Box::new(container))
             }
             "OverlordContain" => {
                 let data = Self::load_config::<OverlordContainModuleData>(config);
-                let container = OverlordContain::new(weak_object.clone(), &data)?;
+                let container = OverlordContain::new(object_id, &data)?;
                 Ok(Box::new(container))
             }
             "ParachuteContain" => {
                 let data = Self::load_config::<ParachuteContainModuleData>(config);
-                let container = ParachuteContain::new(weak_object.clone(), &data)?;
+                let container = ParachuteContain::new(object_id, &data)?;
                 Ok(Box::new(container))
             }
             "RailedTransportContain" => {
                 let data = Self::load_config::<RailedTransportContainModuleData>(config);
-                let container = RailedTransportContain::new(weak_object.clone(), &data)?;
+                let container = RailedTransportContain::new(object_id, &data)?;
                 Ok(Box::new(container))
             }
             "RiderChangeContain" => {
                 let data = Self::load_config::<RiderChangeContainModuleData>(config);
-                let container = RiderChangeContain::new(weak_object.clone(), &data)?;
+                let container = RiderChangeContain::new(object_id, &data)?;
                 Ok(Box::new(container))
             }
             "InternetHackContain" => {
                 let data = Self::load_config::<InternetHackContainModuleData>(config);
-                let container = InternetHackContain::new(weak_object.clone(), &data)?;
+                let container = InternetHackContain::new(object_id, &data)?;
                 Ok(Box::new(container))
             }
             "MobNexusContain" => {
                 let data = Self::load_config::<MobNexusContainModuleData>(config);
-                let container = MobNexusContain::new(weak_object.clone(), &data)?;
+                let container = MobNexusContain::new(object_id, &data)?;
                 Ok(Box::new(container))
             }
             _ => Err(format!("Unknown container type: {}", container_type).into()),

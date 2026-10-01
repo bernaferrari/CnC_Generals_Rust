@@ -3,6 +3,7 @@
 //! Split from `scripting/executor.rs` for module-size parity.
 //! Observable script behavior is unchanged.
 
+use crate::object::registry::OBJECT_REGISTRY;
 use super::*;
 use crate::modules::AIUpdateInterfaceExt;
 
@@ -137,22 +138,27 @@ impl ScriptActionDispatcher {
 
         let night_time = global_data::read().time_of_day == global_data::TimeOfDay::Night;
         for object_id in members {
-            let Some(obj_arc) = TheGameLogic::find_object_by_id(object_id) else {
-                continue;
-            };
-            let Ok(mut obj_guard) = obj_arc.write() else {
-                continue;
-            };
-            obj_guard.handle_partition_cell_maintenance();
-            obj_guard.update_upgrade_modules_from_player();
-            let color = if night_time {
-                obj_guard.get_night_indicator_color()
-            } else {
-                obj_guard.get_indicator_color()
-            };
-            if let Some(drawable) = obj_guard.get_drawable() {
-                if let Ok(mut draw_guard) = drawable.write() {
-                    draw_guard.set_indicator_color(color);
+            {
+                enum _ObjFlow<T> { Cont, Ret(T), Fall }
+                let _flow = OBJECT_REGISTRY.with_object_mut(object_id, |mut obj_guard| {
+                    obj_guard.handle_partition_cell_maintenance();
+                    obj_guard.update_upgrade_modules_from_player();
+                    let color = if night_time {
+                        obj_guard.get_night_indicator_color()
+                    } else {
+                        obj_guard.get_indicator_color()
+                    };
+                    if let Some(drawable) = obj_guard.get_drawable() {
+                        if let Ok(mut draw_guard) = drawable.write() {
+                            draw_guard.set_indicator_color(color);
+                        }
+                    }
+                    _ObjFlow::Fall
+                });
+                match _flow {
+                    None | Some(_ObjFlow::Cont) => continue,
+                    Some(_ObjFlow::Ret(v)) => return v,
+                    Some(_ObjFlow::Fall) => {}
                 }
             }
         }
@@ -378,25 +384,30 @@ impl ScriptActionDispatcher {
         let mut transports = game_engine::common::partition_solver::SpacesVec::new();
 
         for member_id in members {
-            let Some(obj) = TheGameLogic::find_object_by_id(member_id) else {
-                continue;
-            };
-            let Ok(guard) = obj.read() else {
-                continue;
-            };
-            if guard.is_kind_of(crate::common::KindOf::Transport) {
-                let capacity = match guard.get_contain() {
-                    Some(contain) => contain
-                        .lock()
-                        .ok()
-                        .map(|c| c.get_contain_max().max(0) as u32)
-                        .unwrap_or(0),
-                    None => 0,
-                };
-                transports.push((member_id, capacity));
-            } else {
-                let slots = guard.get_transport_slot_count() as u32;
-                units.push((member_id, slots));
+            {
+                enum _ObjFlow<T> { Cont, Ret(T), Fall }
+                let _flow = OBJECT_REGISTRY.with_object(member_id, |guard| {
+                    if guard.is_kind_of(crate::common::KindOf::Transport) {
+                        let capacity = match guard.get_contain() {
+                            Some(contain) => contain
+                                .lock()
+                                .ok()
+                                .map(|c| c.get_contain_max().max(0) as u32)
+                                .unwrap_or(0),
+                            None => 0,
+                        };
+                        transports.push((member_id, capacity));
+                    } else {
+                        let slots = guard.get_transport_slot_count() as u32;
+                        units.push((member_id, slots));
+                    }
+                    _ObjFlow::Fall
+                });
+                match _flow {
+                    None | Some(_ObjFlow::Cont) => continue,
+                    Some(_ObjFlow::Ret(v)) => return v,
+                    Some(_ObjFlow::Fall) => {}
+                }
             }
         }
 
@@ -408,12 +419,15 @@ impl ScriptActionDispatcher {
         solver.solve();
 
         for (unit_id, transport_id) in solver.get_solution() {
-            let Some(unit) = TheGameLogic::find_object_by_id(*unit_id) else {
-                continue;
-            };
-            if let Ok(unit_guard) = unit.read() {
-                if let Some(ai) = unit_guard.get_ai_update_interface() {
-                    ai.ai_enter(*transport_id, crate::ai::CommandSourceType::FromScript);
+            {
+                enum _ObjFlow<T> { Cont, Ret(T), Fall }
+                let _flow = OBJECT_REGISTRY.with_object(*unit_id, |unit_guard| {
+                    _ObjFlow::Fall
+                });
+                match _flow {
+                    None | Some(_ObjFlow::Cont) => continue,
+                    Some(_ObjFlow::Ret(v)) => return v,
+                    Some(_ObjFlow::Fall) => {}
                 }
             }
         }
@@ -593,21 +607,17 @@ impl ScriptActionDispatcher {
             .unwrap_or_default();
 
         for member_id in members {
-            let Some(member_obj) = TheGameLogic::find_object_by_id(member_id) else {
-                continue;
-            };
-            if let Ok(mut member_guard) = member_obj.write() {
-                let Some(ai_arc) = member_guard.get_ai_update_interface() else {
-                    continue;
-                };
-                member_guard.leave_group();
-                if let Ok(mut ai_guard) = ai_arc.lock() {
-                    let _ = ai_guard.choose_locomotor_set(crate::common::LocomotorSetType::Normal);
-                    let params =
-                        AiCommandParams::new(AiCommandType::Exit, CommandSourceType::FromScript);
-                    let _ = ai_guard.execute_command(&params);
-                };
-            };
+            {
+                enum _ObjFlow<T> { Cont, Ret(T), Fall }
+                let _flow = OBJECT_REGISTRY.with_object_mut(member_id, |mut member_guard| {
+                    _ObjFlow::Fall
+                });
+                match _flow {
+                    None | Some(_ObjFlow::Cont) => continue,
+                    Some(_ObjFlow::Ret(v)) => return v,
+                    Some(_ObjFlow::Fall) => {}
+                }
+            }
         }
 
         Ok(ScriptActionResult::Success)
@@ -689,7 +699,7 @@ impl ScriptActionDispatcher {
         let target_id = tracker.get_object_id(&object_name).ok().flatten();
 
         if let Some(tid) = target_id {
-            if TheGameLogic::find_object_by_id(tid).is_none() {
+            if OBJECT_REGISTRY.with_object(tid, |_| ()).is_none() {
                 log::warn!("Object '{}' object {} no longer exists", object_name, tid);
                 return Ok(ScriptActionResult::Success);
             }
@@ -1082,7 +1092,7 @@ impl ScriptActionDispatcher {
         let target_id = tracker.get_object_id(&target_name).ok().flatten();
 
         if let Some(tid) = target_id {
-            if TheGameLogic::find_object_by_id(tid).is_none() {
+            if OBJECT_REGISTRY.with_object(tid, |_| ()).is_none() {
                 log::warn!("Target '{}' object {} no longer exists", target_name, tid);
                 return Ok(ScriptActionResult::Success);
             }
@@ -1563,32 +1573,37 @@ impl ScriptActionDispatcher {
 
         let mut any_considered = false;
         for member_id in members {
-            let Some(obj_arc) = TheGameLogic::find_object_by_id(member_id) else {
-                continue;
-            };
-            let Ok(obj) = obj_arc.read() else {
-                continue;
-            };
-
-            let mut is_contained = obj.get_contained_by().is_some();
-            if !is_contained {
-                if let Some(ai_arc) = obj.get_ai_update_interface() {
-                    if let Ok(ai) = ai_arc.lock() {
-                        is_contained = ai.get_current_state_id()
-                            == Some(crate::ai::states::AIStateType::Exit as u32);
+            {
+                enum _ObjFlow<T> { Cont, Ret(T), Fall }
+                let _flow = OBJECT_REGISTRY.with_object(member_id, |obj| {
+                    
+                    let mut is_contained = obj.get_contained_by().is_some();
+                    if !is_contained {
+                        if let Some(ai_arc) = obj.get_ai_update_interface() {
+                            if let Ok(ai) = ai_arc.lock() {
+                                is_contained = ai.get_current_state_id()
+                                    == Some(crate::ai::states::AIStateType::Exit as u32);
+                            }
+                        }
                     }
+                    
+                    if is_contained {
+                        if !all_contained {
+                            return _ObjFlow::Ret(true);
+                        }
+                    } else if all_contained {
+                        return _ObjFlow::Ret(false);
+                    }
+                    
+                    any_considered = true;
+                    _ObjFlow::Fall
+                });
+                match _flow {
+                    None | Some(_ObjFlow::Cont) => continue,
+                    Some(_ObjFlow::Ret(v)) => return v,
+                    Some(_ObjFlow::Fall) => {}
                 }
             }
-
-            if is_contained {
-                if !all_contained {
-                    return true;
-                }
-            } else if all_contained {
-                return false;
-            }
-
-            any_considered = true;
         }
 
         if any_considered {
@@ -1655,19 +1670,24 @@ impl ScriptActionDispatcher {
         let mut source_off_map = false;
         let mut source_pos = estimate_team_pos.unwrap_or(Coord3D::new(0.0, 0.0, 0.0));
         for &member_id in &members {
-            let Some(obj_arc) = TheGameLogic::find_object_by_id(member_id) else {
-                continue;
-            };
-            let Ok(obj) = obj_arc.read() else {
-                continue;
-            };
-            if obj.get_ai_update_interface().is_some() {
-                source_object_id = member_id;
-                source_off_map = obj.is_off_map();
-                if estimate_team_pos.is_none() {
-                    source_pos = *obj.get_position();
+            {
+                enum _ObjFlow<T> { Cont, Ret(T), Fall }
+                let _flow = OBJECT_REGISTRY.with_object(member_id, |obj| {
+                    if obj.get_ai_update_interface().is_some() {
+                        source_object_id = member_id;
+                        source_off_map = obj.is_off_map();
+                        if estimate_team_pos.is_none() {
+                            source_pos = *obj.get_position();
+                        }
+                        break;
+                    }
+                    _ObjFlow::Fall
+                });
+                match _flow {
+                    None | Some(_ObjFlow::Cont) => continue,
+                    Some(_ObjFlow::Ret(v)) => return v,
+                    Some(_ObjFlow::Fall) => {}
                 }
-                break;
             }
         }
         if source_object_id == INVALID_ID {

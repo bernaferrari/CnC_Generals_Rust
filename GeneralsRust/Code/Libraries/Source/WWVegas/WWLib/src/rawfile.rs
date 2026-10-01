@@ -959,11 +959,8 @@ impl Drop for RawFile {
     }
 }
 
-// Thread-safe implementation
-// SAFETY: RawFile owns its file handle exclusively and all methods take &mut self, so moving it between threads is sound.
-unsafe impl Send for RawFile {}
-// SAFETY: RawFile owns its file handle exclusively and all methods take &mut self, so moving it between threads is sound.
-unsafe impl Sync for RawFile {}
+// `File` / `BufReader` / `BufWriter` / `PathBuf` are already Send + Sync, so
+// `RawFile` is Send + Sync without a manual impl.
 
 #[cfg(test)]
 mod tests {

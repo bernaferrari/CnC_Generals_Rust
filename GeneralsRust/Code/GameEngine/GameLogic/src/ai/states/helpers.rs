@@ -107,22 +107,21 @@ pub(crate) fn is_point_on_wall(pos: &Coord3D) -> bool {
         return false;
     }
     for obj_id in OBJECT_REGISTRY.get_all_object_ids() {
-        if let Some(obj) = OBJECT_REGISTRY.get_object(obj_id) {
-            if let Ok(obj_guard) = obj.read() {
-                if !obj_guard.is_any_kind_of(&[KindOf::Barrier]) {
-                    continue;
-                }
-                let wall_pos = obj_guard.get_position();
-                let geom = obj_guard.get_template().get_template_geometry_info();
-                let radius = geom.get_bounding_circle_radius();
-                let dx = wall_pos.x - pos.x;
-                let dy = wall_pos.y - pos.y;
-                let dist_sq = dx * dx + dy * dy;
-                let allowed = radius + cell_pad;
-                if dist_sq <= allowed * allowed {
-                    return true;
-                }
+        let hit = OBJECT_REGISTRY.with_object(obj_id, |obj_guard| {
+            if !obj_guard.is_any_kind_of(&[KindOf::Barrier]) {
+                return false;
             }
+            let wall_pos = obj_guard.get_position();
+            let geom = obj_guard.get_template().get_template_geometry_info();
+            let radius = geom.get_bounding_circle_radius();
+            let dx = wall_pos.x - pos.x;
+            let dy = wall_pos.y - pos.y;
+            let dist_sq = dx * dx + dy * dy;
+            let allowed = radius + cell_pad;
+            dist_sq <= allowed * allowed
+        });
+        if hit == Some(true) {
+            return true;
         }
     }
     false

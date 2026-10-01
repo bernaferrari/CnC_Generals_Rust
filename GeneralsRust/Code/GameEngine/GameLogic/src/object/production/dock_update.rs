@@ -330,13 +330,10 @@ impl BehaviorModuleInterface for DockUpdate {
                     break;
                 }
             }
-        } else if let Some(owner) = crate::helpers::TheGameLogic::find_object_by_id(self.owner_id) {
-            if let Ok(owner_guard) = owner.read() {
+        } else {
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object(self.owner_id, |owner_guard| {
                 if owner_guard.is_kind_of(KindOf::SupplySource) {
-                    if let Some(docker) =
-                        crate::helpers::TheGameLogic::find_object_by_id(self.active_docker)
-                    {
-                        if let Ok(mut docker_guard) = docker.write() {
+                    let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(self.active_docker, |docker_guard| {
                             if docker_guard.is_kind_of(KindOf::Dozer)
                                 && docker_guard.is_kind_of(KindOf::Harvester)
                             {
@@ -349,10 +346,9 @@ impl BehaviorModuleInterface for DockUpdate {
                                     }
                                 }
                             }
-                        }
-                    }
+                    });
                 }
-            }
+            });
         }
 
         Ok(())
@@ -385,12 +381,11 @@ impl BehaviorModule for DockUpdate {
     }
 }
 
-fn resolve_dock_object(id: ObjectID) -> Option<Arc<RwLock<Object>>> {
+fn resolve_dock_object(id: ObjectID) -> Option<ObjectID> {
     if id == INVALID_ID {
         return None;
     }
-    crate::helpers::TheGameLogic::find_object_by_id(id)
-        .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(id))
+    Some(id)
 }
 
 fn peek_pristine_dock_bone(owner_id: ObjectID, bone: &str) -> Option<Coord3D> {
@@ -437,10 +432,9 @@ impl DockUpdateInterface for DockUpdate {
         &mut self,
         obj_id: ObjectID,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let Some(obj) = resolve_dock_object(obj_id) else {
+        if resolve_dock_object(obj_id).is_none() {
             return Ok(());
-        };
-        let mut obj_guard = obj.write().unwrap();
+        }
 
         for (owner, reached) in self
             .approach_position_owners
@@ -460,12 +454,12 @@ impl DockUpdateInterface for DockUpdate {
                 | MODELCONDITION_DOCKING_BEGINNING
                 | MODELCONDITION_DOCKING_ACTIVE
                 | MODELCONDITION_DOCKING;
-            if let Some(owner) = crate::helpers::TheGameLogic::find_object_by_id(self.owner_id) {
-                if let Ok(mut owner_guard) = owner.write() {
-                    let _ = owner_guard.clear_model_condition_flags(clear);
-                }
-            }
-            let _ = obj_guard.clear_model_condition_flags(clear).ok();
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(self.owner_id, |owner_guard| {
+                let _ = owner_guard.clear_model_condition_flags(clear);
+            });
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(obj_id, |obj_guard| {
+                let _ = obj_guard.clear_model_condition_flags(clear).ok();
+            });
         }
 
         Ok(())
@@ -481,20 +475,23 @@ impl DockUpdateInterface for DockUpdate {
             self.load_dock_positions();
         }
 
-        let Some(obj) = resolve_dock_object(obj_id) else {
+        if resolve_dock_object(obj_id).is_none() {
             return Ok(false);
-        };
-        let obj_guard = obj.write().unwrap();
+        }
 
         for (position_index, owner) in self.approach_position_owners.iter().enumerate() {
             if *owner == obj_id {
-                *goal_pos = self.compute_approach_position(position_index, &obj_guard);
+                *goal_pos = crate::object::registry::OBJECT_REGISTRY.with_object(obj_id, |obj_guard| {
+                    self.compute_approach_position(position_index, obj_guard)
+                }).unwrap_or(*goal_pos);
                 *approach_pos = position_index as i32;
                 return Ok(true);
             }
             if *owner == INVALID_ID {
                 self.approach_position_owners[position_index] = obj_id;
-                *goal_pos = self.compute_approach_position(position_index, &obj_guard);
+                *goal_pos = crate::object::registry::OBJECT_REGISTRY.with_object(obj_id, |obj_guard| {
+                    self.compute_approach_position(position_index, obj_guard)
+                }).unwrap_or(*goal_pos);
                 *approach_pos = position_index as i32;
                 return Ok(true);
             }
@@ -509,7 +506,9 @@ impl DockUpdateInterface for DockUpdate {
 
             let position_index = self.approach_position_owners.len() - 1;
             self.approach_position_owners[position_index] = obj_id;
-            *goal_pos = self.compute_approach_position(position_index, &obj_guard);
+            *goal_pos = crate::object::registry::OBJECT_REGISTRY.with_object(obj_id, |obj_guard| {
+                    self.compute_approach_position(position_index, obj_guard)
+                }).unwrap_or(*goal_pos);
             *approach_pos = position_index as i32;
             return Ok(true);
         }
@@ -527,10 +526,9 @@ impl DockUpdateInterface for DockUpdate {
             self.load_dock_positions();
         }
 
-        let Some(obj) = resolve_dock_object(obj_id) else {
+        if resolve_dock_object(obj_id).is_none() {
             return Ok(false);
-        };
-        let obj_guard = obj.write().unwrap();
+        }
 
         if *approach_pos <= 0 {
             return Ok(false);
@@ -548,7 +546,9 @@ impl DockUpdateInterface for DockUpdate {
         self.approach_position_owners[current_pos] = INVALID_ID;
         self.approach_position_reached[current_pos] = false;
 
-        *goal_pos = self.compute_approach_position(current_pos - 1, &obj_guard);
+        *goal_pos = crate::object::registry::OBJECT_REGISTRY.with_object(obj_id, |obj_guard| {
+            self.compute_approach_position(current_pos - 1, obj_guard)
+        }).unwrap_or(*goal_pos);
         *approach_pos = (current_pos - 1) as i32;
         Ok(true)
     }
@@ -615,30 +615,29 @@ impl DockUpdateInterface for DockUpdate {
         let enter = self.enter_position_or_peek();
         let zero = Coord3D::ZERO;
         if enter == zero {
-            if let Some(obj) = resolve_dock_object(obj_id) {
-                if let Ok(docker_guard) = obj.read() {
-                    if docker_guard.is_using_airborne_locomotor() {
-                        if let Some(owner) =
-                            crate::helpers::TheGameLogic::find_object_by_id(self.owner_id)
-                        {
-                            if let Ok(owner_guard) = owner.read() {
-                                *goal_pos = *owner_guard.get_position();
-                                return Ok(());
-                            }
-                        }
-                    }
-                    *goal_pos = *docker_guard.get_position();
+            let airborne = crate::object::registry::OBJECT_REGISTRY.with_object(obj_id, |docker_guard| {
+                docker_guard.is_using_airborne_locomotor()
+            }).unwrap_or(false);
+            if airborne {
+                if let Some(pos) = crate::object::registry::OBJECT_REGISTRY.with_object(self.owner_id, |owner_guard| {
+                    *owner_guard.get_position()
+                }) {
+                    *goal_pos = pos;
+                    return Ok(());
                 }
+            }
+            if let Some(pos) = crate::object::registry::OBJECT_REGISTRY.with_object(obj_id, |docker_guard| {
+                *docker_guard.get_position()
+            }) {
+                *goal_pos = pos;
             }
             return Ok(());
         }
 
-        if let Some(owner) = crate::helpers::TheGameLogic::find_object_by_id(self.owner_id) {
-            if let Ok(owner_guard) = owner.read() {
-                let world = owner_guard.convert_bone_pos_to_world_pos(Some(&enter), None);
-                *goal_pos = world.transform_point3(Coord3D::ZERO);
-            }
-        }
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object(self.owner_id, |owner_guard| {
+            let world = owner_guard.convert_bone_pos_to_world_pos(Some(&enter), None);
+            *goal_pos = world.transform_point3(Coord3D::ZERO);
+        });
         Ok(())
     }
 
@@ -646,19 +645,18 @@ impl DockUpdateInterface for DockUpdate {
         &mut self,
         obj_id: ObjectID,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let Some(obj) = resolve_dock_object(obj_id) else {
+        if resolve_dock_object(obj_id).is_none() {
             return Ok(());
-        };
-        let mut obj_guard = obj.write().unwrap();
+        }
 
         let clear = MODELCONDITION_DOCKING_ENDING;
         let set = MODELCONDITION_DOCKING_BEGINNING | MODELCONDITION_DOCKING;
-        if let Some(owner) = crate::helpers::TheGameLogic::find_object_by_id(self.owner_id) {
-            if let Ok(mut owner_guard) = owner.write() {
-                let _ = owner_guard.clear_and_set_model_condition_flags(clear, set);
-            }
-        }
-        let _ = obj_guard.clear_and_set_model_condition_flags(clear, set);
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(self.owner_id, |owner_guard| {
+            let _ = owner_guard.clear_and_set_model_condition_flags(clear, set);
+        });
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(obj_id, |obj_guard| {
+            let _ = obj_guard.clear_and_set_model_condition_flags(clear, set);
+        });
 
         self.docker_inside = true;
 
@@ -681,20 +679,18 @@ impl DockUpdateInterface for DockUpdate {
         let dock = self.dock_position_or_peek();
         let zero = Coord3D::ZERO;
         if enter == zero {
-            if let Some(obj) = resolve_dock_object(obj_id) {
-                if let Ok(docker_guard) = obj.read() {
-                    *goal_pos = *docker_guard.get_position();
-                }
+            if let Some(pos) = crate::object::registry::OBJECT_REGISTRY.with_object(obj_id, |docker_guard| {
+                *docker_guard.get_position()
+            }) {
+                *goal_pos = pos;
             }
             return Ok(());
         }
 
-        if let Some(owner) = crate::helpers::TheGameLogic::find_object_by_id(self.owner_id) {
-            if let Ok(owner_guard) = owner.read() {
-                let world = owner_guard.convert_bone_pos_to_world_pos(Some(&dock), None);
-                *goal_pos = world.transform_point3(Coord3D::ZERO);
-            }
-        }
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object(self.owner_id, |owner_guard| {
+            let world = owner_guard.convert_bone_pos_to_world_pos(Some(&dock), None);
+            *goal_pos = world.transform_point3(Coord3D::ZERO);
+        });
         Ok(())
     }
 
@@ -702,19 +698,18 @@ impl DockUpdateInterface for DockUpdate {
         &mut self,
         obj_id: ObjectID,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let Some(obj) = resolve_dock_object(obj_id) else {
+        if resolve_dock_object(obj_id).is_none() {
             return Ok(());
-        };
-        let mut obj_guard = obj.write().unwrap();
+        }
 
         let clear = MODELCONDITION_DOCKING_BEGINNING;
         let set = MODELCONDITION_DOCKING_ACTIVE;
-        if let Some(owner) = crate::helpers::TheGameLogic::find_object_by_id(self.owner_id) {
-            if let Ok(mut owner_guard) = owner.write() {
-                let _ = owner_guard.clear_and_set_model_condition_flags(clear, set);
-            }
-        }
-        let _ = obj_guard.clear_and_set_model_condition_flags(clear, set);
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(self.owner_id, |owner_guard| {
+            let _ = owner_guard.clear_and_set_model_condition_flags(clear, set);
+        });
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(obj_id, |obj_guard| {
+            let _ = obj_guard.clear_and_set_model_condition_flags(clear, set);
+        });
 
         Ok(())
     }
@@ -736,20 +731,18 @@ impl DockUpdateInterface for DockUpdate {
         let exit = self.exit_position_or_peek();
         let zero = Coord3D::ZERO;
         if enter == zero {
-            if let Some(obj) = resolve_dock_object(obj_id) {
-                if let Ok(docker_guard) = obj.read() {
-                    *goal_pos = *docker_guard.get_position();
-                }
+            if let Some(pos) = crate::object::registry::OBJECT_REGISTRY.with_object(obj_id, |docker_guard| {
+                *docker_guard.get_position()
+            }) {
+                *goal_pos = pos;
             }
             return Ok(());
         }
 
-        if let Some(owner) = crate::helpers::TheGameLogic::find_object_by_id(self.owner_id) {
-            if let Ok(owner_guard) = owner.read() {
-                let world = owner_guard.convert_bone_pos_to_world_pos(Some(&exit), None);
-                *goal_pos = world.transform_point3(Coord3D::ZERO);
-            }
-        }
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object(self.owner_id, |owner_guard| {
+            let world = owner_guard.convert_bone_pos_to_world_pos(Some(&exit), None);
+            *goal_pos = world.transform_point3(Coord3D::ZERO);
+        });
         Ok(())
     }
 
@@ -757,19 +750,18 @@ impl DockUpdateInterface for DockUpdate {
         &mut self,
         obj_id: ObjectID,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let Some(obj) = resolve_dock_object(obj_id) else {
+        if resolve_dock_object(obj_id).is_none() {
             return Ok(());
-        };
-        let mut obj_guard = obj.write().unwrap();
+        }
 
         let clear = MODELCONDITION_DOCKING_ACTIVE | MODELCONDITION_DOCKING;
         let set = MODELCONDITION_DOCKING_ENDING;
-        if let Some(owner) = crate::helpers::TheGameLogic::find_object_by_id(self.owner_id) {
-            if let Ok(mut owner_guard) = owner.write() {
-                let _ = owner_guard.clear_and_set_model_condition_flags(clear, set);
-            }
-        }
-        let _ = obj_guard.clear_and_set_model_condition_flags(clear, set);
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(self.owner_id, |owner_guard| {
+            let _ = owner_guard.clear_and_set_model_condition_flags(clear, set);
+        });
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(obj_id, |obj_guard| {
+            let _ = obj_guard.clear_and_set_model_condition_flags(clear, set);
+        });
 
         self.docker_inside = false;
         if self.active_docker == obj_id {
@@ -986,17 +978,16 @@ impl RepairDockUpdate {
     }
 
     fn repair_unit(&mut self, unit_id: ObjectID) -> Result<bool, String> {
-        let Some(unit) = resolve_dock_object(unit_id) else {
+        let Some((current_health, max_health, id)) =
+            crate::object::registry::OBJECT_REGISTRY.with_object(unit_id, |unit_guard| {
+                (unit_guard.get_health(), unit_guard.get_max_health(), unit_guard.get_id())
+            })
+        else {
             return Ok(false);
         };
 
-        let source = crate::helpers::TheGameLogic::find_object_by_id(self.base.owner_id);
-        let mut unit_guard = unit.write().unwrap();
-        let current_health = unit_guard.get_health();
-        let max_health = unit_guard.get_max_health();
-
         if self.last_repair == INVALID_ID {
-            self.last_repair = unit_guard.get_id();
+            self.last_repair = id;
             let frames = self.data.frames_for_full_heal.max(1.0);
             self.health_to_add_per_frame = (max_health - current_health) / frames;
         }
@@ -1006,8 +997,13 @@ impl RepairDockUpdate {
             return Ok(false);
         }
 
-        let source_guard = source.as_ref().and_then(|owner| owner.read().ok());
-        let _ = unit_guard.attempt_healing(self.health_to_add_per_frame, source_guard.as_deref());
+        let amount = self.health_to_add_per_frame;
+        let owner_id = self.base.owner_id();
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(unit_id, |unit_guard| {
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object(owner_id, |source| {
+                let _ = unit_guard.attempt_healing(amount, Some(source));
+            });
+        });
         Ok(true)
     }
 }
@@ -1145,15 +1141,13 @@ impl DockUpdateInterface for RepairDockUpdate {
         let keep_docked = self.repair_unit(obj_id)?;
         if keep_docked {
             if let Some(drone_id) = drone_id {
-                if let Some(drone) = resolve_dock_object(drone_id) {
-                    if let Ok(mut drone_guard) = drone.write() {
-                        let max_health = drone_guard.get_max_health();
-                        let source =
-                            crate::helpers::TheGameLogic::find_object_by_id(self.base.owner_id);
-                        let source_guard = source.as_ref().and_then(|owner| owner.read().ok());
-                        let _ = drone_guard.attempt_healing(max_health, source_guard.as_deref());
-                    }
-                }
+                let owner_id = self.base.owner_id();
+                let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(drone_id, |drone_guard| {
+                    let max_health = drone_guard.get_max_health();
+                    let _ = crate::object::registry::OBJECT_REGISTRY.with_object(owner_id, |source| {
+                        let _ = drone_guard.attempt_healing(max_health, Some(source));
+                    });
+                });
             }
         }
         Ok(keep_docked)
@@ -1429,32 +1423,43 @@ impl DockUpdateInterface for SupplyCenterDockUpdate {
         obj_id: ObjectID,
         _drone_id: Option<ObjectID>,
     ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
-        let Some(obj) = resolve_dock_object(obj_id) else {
+        if resolve_dock_object(obj_id).is_none() {
+            return Ok(false);
+        }
+        let owner_id = self.base.owner_id();
+        let Some(owner_player) = crate::object::registry::OBJECT_REGISTRY.with_object(owner_id, |owner| {
+            owner.get_controlling_player()
+        }).flatten() else {
             return Ok(false);
         };
-        let mut docker_guard = obj.write().unwrap();
-        let Some(ai) = docker_guard.get_ai_update_interface_mut() else {
+        let Some(has_truck) = crate::object::registry::OBJECT_REGISTRY.with_object(obj_id, |docker_guard| {
+            docker_guard.get_ai_update_interface().is_some_and(|ai| ai.get_supply_truck_ai_interface().is_some())
+        }) else {
             return Ok(false);
         };
-
-        let Some(owner_player) =
-            crate::helpers::TheGameLogic::find_object_by_id(self.base.owner_id)
-                .and_then(|owner| owner.read().ok()?.get_controlling_player())
-        else {
+        if !has_truck {
             return Ok(false);
-        };
+        }
         let supply_box_value = owner_player
             .read()
             .map(|player| player.get_supply_box_value())
             .unwrap_or(0);
 
         let mut value: u32 = 0;
-        if let Some(truck) = ai.get_supply_truck_ai_interface_mut() {
+        let drained = crate::object::registry::OBJECT_REGISTRY.with_object_mut(obj_id, |docker_guard| {
+            let Some(ai) = docker_guard.get_ai_update_interface_mut() else {
+                return false;
+            };
+            let Some(truck) = ai.get_supply_truck_ai_interface_mut() else {
+                return false;
+            };
             while truck.lose_one_box() {
                 value = value.saturating_add(supply_box_value);
             }
             value = value.saturating_add(truck.get_upgraded_supply_boost());
-        } else {
+            true
+        });
+        if drained != Some(true) {
             return Ok(false);
         }
 
@@ -1465,47 +1470,39 @@ impl DockUpdateInterface for SupplyCenterDockUpdate {
             }
 
             if self.data.grant_temporary_stealth_frames > 0 {
-                if let Some(owner) =
-                    crate::helpers::TheGameLogic::find_object_by_id(self.base.owner_id)
-                {
-                    if let Ok(owner_guard) = owner.read() {
-                        if owner_guard.test_status(ObjectStatusTypes::Stealthed) {
-                            let can_stealth =
-                                docker_guard.test_status(ObjectStatusTypes::CanStealth);
-                            if let Some(stealth) = docker_guard.get_stealth() {
-                                if let Ok(mut stealth_guard) = stealth.lock() {
-                                    // GPS / innate stealth wins unless the existing grant is temporary.
-                                    if stealth_guard.is_temporary_grant() || !can_stealth {
-                                        let _ = stealth_guard.receive_grant(
-                                            true,
-                                            self.data.grant_temporary_stealth_frames,
-                                            crate::helpers::TheGameLogic::get_frame(),
-                                        );
-                                    }
+                let frames = self.data.grant_temporary_stealth_frames;
+                let now = crate::helpers::TheGameLogic::get_frame();
+                let owner_stealthed = crate::object::registry::OBJECT_REGISTRY.with_object(owner_id, |owner_guard| {
+                    owner_guard.test_status(ObjectStatusTypes::Stealthed)
+                }).unwrap_or(false);
+                if owner_stealthed {
+                    let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(obj_id, |docker_guard| {
+                        let can_stealth = docker_guard.test_status(ObjectStatusTypes::CanStealth);
+                        if let Some(stealth) = docker_guard.get_stealth() {
+                            if let Ok(mut stealth_guard) = stealth.lock() {
+                                if stealth_guard.is_temporary_grant() || !can_stealth {
+                                    let _ = stealth_guard.receive_grant(true, frames, now);
                                 }
                             }
                         }
-                    }
+                    });
                 }
             }
 
             let mut display_money = true;
-            if let Some(owner) = crate::helpers::TheGameLogic::find_object_by_id(self.base.owner_id)
-            {
-                if let Ok(owner_guard) = owner.read() {
-                    if owner_guard.test_status(ObjectStatusTypes::Stealthed) {
-                        if !owner_guard.is_locally_controlled()
-                            && !owner_guard.test_status(ObjectStatusTypes::Detected)
-                        {
-                            display_money = false;
-                        }
-                    }
-                }
+            if crate::object::registry::OBJECT_REGISTRY.with_object(owner_id, |owner_guard| {
+                owner_guard.test_status(ObjectStatusTypes::Stealthed)
+                    && !owner_guard.is_locally_controlled()
+                    && !owner_guard.test_status(ObjectStatusTypes::Detected)
+            }).unwrap_or(false) {
+                display_money = false;
             }
 
             if display_money {
-                let docker_pos = docker_guard.get_position();
-                let mut pos = *docker_pos;
+                let docker_pos = crate::object::registry::OBJECT_REGISTRY.with_object(obj_id, |docker_guard| {
+                    *docker_guard.get_position()
+                }).unwrap_or(Coord3D::ZERO);
+                let mut pos = docker_pos;
                 pos.z = TheTerrainLogic::get()
                     .map(|terrain| terrain.get_ground_height(pos.x, pos.y, None))
                     .unwrap_or(pos.z);
@@ -1519,26 +1516,18 @@ impl DockUpdateInterface for SupplyCenterDockUpdate {
                 } else {
                     format!("{}{}", template, value)
                 };
-                let color = if let Some(owner) =
-                    crate::helpers::TheGameLogic::find_object_by_id(self.base.owner_id)
-                {
-                    if let Ok(owner_guard) = owner.read() {
-                        if let Some(player) = owner_guard.get_controlling_player() {
-                            if let Ok(player_guard) = player.read() {
-                                let base = player_guard.get_player_color();
-                                Color::new(base.r, base.g, base.b, 230)
-                            } else {
-                                Color::white()
-                            }
+                let color = crate::object::registry::OBJECT_REGISTRY.with_object(owner_id, |owner_guard| {
+                    if let Some(player) = owner_guard.get_controlling_player() {
+                        if let Ok(player_guard) = player.read() {
+                            let base = player_guard.get_player_color();
+                            Color::new(base.r, base.g, base.b, 230)
                         } else {
                             Color::white()
                         }
                     } else {
                         Color::white()
                     }
-                } else {
-                    Color::white()
-                };
+                }).unwrap_or_else(Color::white);
 
                 let _ = TheInGameUI::add_floating_text(&text, &pos, color);
             }
@@ -1753,7 +1742,7 @@ mod tests {
         assert!((data.frames_for_full_heal - 45.0).abs() < f32::EPSILON);
     }
 
-    fn test_object_with_health(id: ObjectID, health: f32, max_health: f32) -> Arc<RwLock<Object>> {
+    fn test_object_with_health(id: ObjectID, health: f32, max_health: f32) -> ObjectID {
         let mut obj = Object::new_test(id, max_health);
         let mut module_data = ActiveBodyModuleData::default();
         module_data.max_health = max_health;
@@ -1762,7 +1751,8 @@ mod tests {
             module_data,
             obj.get_id(),
         ))));
-        Arc::new(RwLock::new(obj))
+        crate::object::registry::OBJECT_REGISTRY.register_object(id, obj);
+        id
     }
 
     #[test]
@@ -1774,15 +1764,15 @@ mod tests {
         let mut dock = RepairDockUpdate::new(data, 1, &Coord3D::ZERO);
         let docker = test_object_with_health(2, 50.0, 100.0);
         let drone = test_object_with_health(3, 10.0, 25.0);
-        let docker_id = docker.read().unwrap().get_id();
-        let drone_id = drone.read().unwrap().get_id();
+        let docker_id = docker;
+        let drone_id = drone;
 
         assert!(
             dock.action(docker_id, Some(drone_id))
                 .expect("repair action")
         );
-        assert_eq!(docker.read().unwrap().get_health(), 55.0);
-        assert_eq!(drone.read().unwrap().get_health(), 25.0);
+        assert_eq!(crate::object::registry::OBJECT_REGISTRY.with_object(docker, |o| o.get_health()).unwrap(), 55.0);
+        assert_eq!(crate::object::registry::OBJECT_REGISTRY.with_object(drone, |o| o.get_health()).unwrap(), 25.0);
     }
 
     #[test]
@@ -1790,14 +1780,14 @@ mod tests {
         let mut dock = RepairDockUpdate::new(RepairDockUpdateData::default(), 1, &Coord3D::ZERO);
         let docker = test_object_with_health(2, 100.0, 100.0);
         let drone = test_object_with_health(3, 10.0, 25.0);
-        let docker_id = docker.read().unwrap().get_id();
-        let drone_id = drone.read().unwrap().get_id();
+        let docker_id = docker;
+        let drone_id = drone;
 
         assert!(
             !dock
                 .action(docker_id, Some(drone_id))
                 .expect("repair action")
         );
-        assert_eq!(drone.read().unwrap().get_health(), 10.0);
+        assert_eq!(crate::object::registry::OBJECT_REGISTRY.with_object(drone, |o| o.get_health()).unwrap(), 10.0);
     }
 }

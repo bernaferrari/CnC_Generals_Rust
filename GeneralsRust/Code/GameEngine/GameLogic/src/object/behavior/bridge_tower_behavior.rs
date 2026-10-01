@@ -76,7 +76,7 @@ impl BridgeTowerBehavior {
     fn construct_with_object_id(
         object_id: ObjectID,
         module_data: Arc<BridgeTowerBehaviorModuleData>,
-        _initial_object: Option<Arc<RwLock<GameObject>>>,
+        _initial_object: Option<ObjectID>,
     ) -> Self {
         Self {
             module_data,
@@ -87,7 +87,7 @@ impl BridgeTowerBehavior {
     }
 
     pub fn new_from_object_handle(
-        object: Arc<RwLock<GameObject>>,
+        object_id: ObjectID,
         module_data: Arc<BridgeTowerBehaviorModuleData>,
     ) -> Self {
         let object_id = object
@@ -116,7 +116,7 @@ impl BridgeTowerBehavior {
             .get_object(object_id)
             .ok_or_else(|| format!("BridgeTowerBehavior requires object {object_id} to exist"))?;
 
-        Ok(Self::new_from_object_handle(object, module_data))
+        Ok(Self::new_from_object_handle(object_id, module_data))
     }
 
     fn owner_object_id(&self) -> ObjectID {
@@ -151,7 +151,7 @@ impl BridgeTowerBehavior {
 
     fn get_object(
         &self,
-    ) -> Result<Arc<RwLock<GameObject>>, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<ObjectID>, Box<dyn std::error::Error + Send + Sync>> {
         // Wave 318: empty dual-world → fail closed.
         if dual_world_registry_unavailable() {
             return Err("dual-world object registry unavailable".into());
@@ -166,7 +166,7 @@ impl BridgeTowerBehavior {
             .ok_or_else(|| "owning object not found".into())
     }
 
-    fn get_bridge_object(&self) -> Option<Arc<RwLock<GameObject>>> {
+    fn get_bridge_object(&self) -> Option<ObjectID> {
         // Wave 318: empty dual-world → None.
         if dual_world_registry_unavailable() {
             return None;
@@ -191,7 +191,7 @@ impl BridgeTowerBehavior {
 
     fn collect_tower_ids(
         &self,
-        bridge_object: &Arc<RwLock<GameObject>>,
+        bridge_object: ObjectID,
     ) -> Result<Vec<(BridgeTowerType, ObjectID)>, Box<dyn std::error::Error + Send + Sync>> {
         let bridge_read = bridge_object
             .read()
@@ -414,7 +414,7 @@ impl BridgeTowerBehavior {
 }
 
 impl BridgeTowerBehaviorInterface for BridgeTowerBehavior {
-    fn set_bridge(&mut self, bridge: Option<Arc<RwLock<GameObject>>>) {
+    fn set_bridge(&mut self, bridge: Option<ObjectID>) {
         self.bridge_id = bridge
             .map(|b| {
                 b.read()

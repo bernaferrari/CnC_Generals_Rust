@@ -1293,32 +1293,24 @@ impl AiGroup {
         self.dispatch_command_to_members(&params);
     }
 
-    pub fn get_special_power_source_object(
-        &self,
-        _special_power_id: u32,
-    ) -> Option<Arc<RwLock<Object>>> {
+    pub fn get_special_power_source_object(&self, _special_power_id: u32) -> Option<ObjectID> {
         // Wave 263: empty dual-world → None.
         if dual_world_registry_unavailable() {
             return None;
         }
-
-        self.member_list
-            .iter()
-            .find_map(|obj_id| OBJECT_REGISTRY.get_object(*obj_id))
+        self.member_list.iter().copied().find(|obj_id| {
+            OBJECT_REGISTRY.with_object(*obj_id, |_| ()).is_some()
+        })
     }
 
-    pub fn get_command_button_source_object(
-        &self,
-        _command_button_id: u32,
-    ) -> Option<Arc<RwLock<Object>>> {
+    pub fn get_command_button_source_object(&self, _command_button_id: u32) -> Option<ObjectID> {
         // Wave 263: empty dual-world → None.
         if dual_world_registry_unavailable() {
             return None;
         }
-
-        self.member_list
-            .iter()
-            .find_map(|obj_id| OBJECT_REGISTRY.get_object(*obj_id))
+        self.member_list.iter().copied().find(|obj_id| {
+            OBJECT_REGISTRY.with_object(*obj_id, |_| ()).is_some()
+        })
     }
 
     fn recompute(&mut self) {

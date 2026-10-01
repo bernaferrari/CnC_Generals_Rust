@@ -460,7 +460,7 @@ pub trait SpawnBehaviorInterface: Send + Sync {
         dead_spawn: ObjectID,
         damage_info: &mut DamageInfo,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>>;
-    fn get_closest_slave(&self, pos: &Coord3D) -> Option<Arc<RwLock<Object>>>;
+    fn get_closest_slave(&self, pos: &Coord3D) -> Option<ObjectID>;
     fn order_slaves_to_attack_target(
         &mut self,
         target: &Object,
@@ -630,7 +630,7 @@ impl SpawnBehavior {
             .ok_or_else(|| "Object not found".into())
     }
 
-    fn get_object(&self) -> Result<Arc<RwLock<Object>>, Box<dyn std::error::Error + Send + Sync>> {
+    fn get_object(&self) -> Result<ObjectID>, Box<dyn std::error::Error + Send + Sync>> {
         // Wave 346: empty dual-world → fail-closed.
         if dual_world_registry_unavailable() {
             return Err("dual-world object registry unavailable".into());
@@ -933,7 +933,7 @@ impl SpawnBehavior {
 
     fn reclaim_orphan_spawn(
         &self,
-    ) -> Result<Option<Arc<RwLock<Object>>>, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<Option<ObjectID>>, Box<dyn std::error::Error + Send + Sync>> {
         // Wave 346: empty dual-world → Ok(None).
         if dual_world_registry_unavailable() {
             return Ok(None);
@@ -1462,13 +1462,13 @@ impl SpawnBehaviorInterface for SpawnBehavior {
         Ok(())
     }
 
-    fn get_closest_slave(&self, pos: &Coord3D) -> Option<Arc<RwLock<Object>>> {
+    fn get_closest_slave(&self, pos: &Coord3D) -> Option<ObjectID> {
         // Wave 346: empty dual-world → None.
         if dual_world_registry_unavailable() {
             return None;
         }
 
-        let mut closest: Option<Arc<RwLock<Object>>> = None;
+        let mut closest: Option<ObjectID> = None;
         let mut closest_distance = Real::INFINITY;
 
         for &spawn_id in &self.spawn_ids {

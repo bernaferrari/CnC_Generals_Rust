@@ -73,21 +73,24 @@ pub(super) fn collect_selectable_objects(
                 crate::display::view::PickType::Selectable,
             )
         }) {
-            if let Some(obj_ref) = OBJECT_REGISTRY.get_object(ObjectID::from(picked)) {
-                if let Ok(obj) = obj_ref.read() {
-                    if object_matches_context_pick_profile(&obj, profile)
-                        && !object_is_hidden_for_player(&obj, local_player_index)
-                    {
-                        let pos = obj.get_position();
-                        let world = Coord3D::new(pos.x, pos.y, pos.z);
-                        if !world_position_is_under_opaque_window_for_command(&world) {
-                            if obj.is_locally_controlled() {
-                                return (vec![(obj.get_id(), 0.0)], Vec::new());
-                            }
-                            return (Vec::new(), vec![(obj.get_id(), 0.0)]);
-                        }
+            let picked_id = ObjectID::from(picked);
+            let classified = OBJECT_REGISTRY.with_object(picked_id, |obj| {
+                if object_matches_context_pick_profile(obj, profile)
+                    && !object_is_hidden_for_player(obj, local_player_index)
+                {
+                    let pos = obj.get_position();
+                    let world = Coord3D::new(pos.x, pos.y, pos.z);
+                    if !world_position_is_under_opaque_window_for_command(&world) {
+                        return Some(obj.is_locally_controlled());
                     }
                 }
+                None
+            });
+            if let Some(Some(local)) = classified {
+                if local {
+                    return (vec![(picked_id, 0.0)], Vec::new());
+                }
+                return (Vec::new(), vec![(picked_id, 0.0)]);
             }
         }
     }
@@ -110,32 +113,29 @@ pub(super) fn collect_selectable_objects(
     }
     let mut mine = Vec::new();
     let mut other = Vec::new();
-    for obj_ref in OBJECT_REGISTRY.get_all_objects() {
-        let Ok(obj) = obj_ref.read() else {
+    for object_id in OBJECT_REGISTRY.get_all_object_ids() {
+        let hit = OBJECT_REGISTRY.with_object(object_id, |obj| {
+            if !object_matches_context_pick_profile(obj, profile) {
+                return None;
+            }
+            if object_is_hidden_for_player(obj, local_player_index) {
+                return None;
+            }
+            let pos = obj.get_position();
+            let pos = Coord3D::new(pos.x, pos.y, pos.z);
+            if world_position_is_under_opaque_window_for_command(&pos) {
+                return None;
+            }
+            let distance = object_pick_distance(&pos, region, is_point, point_world.as_ref(), radius)?;
+            Some((obj.is_locally_controlled(), distance))
+        });
+        let Some(Some((local, distance))) = hit else {
             continue;
         };
-        if !object_matches_context_pick_profile(&obj, profile) {
-            continue;
-        }
-        if object_is_hidden_for_player(&obj, local_player_index) {
-            continue;
-        }
-        let pos = obj.get_position();
-        let pos = Coord3D::new(pos.x, pos.y, pos.z);
-        if world_position_is_under_opaque_window_for_command(&pos) {
-            continue;
-        }
-
-        let Some(distance) =
-            object_pick_distance(&pos, region, is_point, point_world.as_ref(), radius)
-        else {
-            continue;
-        };
-
-        if obj.is_locally_controlled() {
-            mine.push((obj.get_id(), distance));
+        if local {
+            mine.push((object_id, distance));
         } else {
-            other.push((obj.get_id(), distance));
+            other.push((object_id, distance));
         }
     }
 
@@ -245,24 +245,20 @@ pub(super) fn selection_has_quick_path_to(selection: &HashSet<ObjectID>, world: 
     }
 
     for id in selection {
-        let Some(obj) = OBJECT_REGISTRY.get_object(*id) else {
-            continue;
-        };
-        let Ok(guard) = obj.read() else {
-            continue;
-        };
-        let Some(ai) = guard.get_ai() else {
-            continue;
-        };
-        let Ok(ai_guard) = ai.lock() else {
-            continue;
-        };
-        if ai_guard.is_quick_path_available(&dest) {
-            return true;
-        }
-        if ai_guard.has_locomotor_for_surface(SURFACE_CLIFF)
-            && TheTerrainLogic.is_cliff_cell(world.x, world.y)
-        {
+        let quick = OBJECT_REGISTRY.with_object(*id, |guard| {
+            let Some(ai) = guard.get_ai() else {
+                return false;
+            };
+            let Ok(ai_guard) = ai.lock() else {
+                return false;
+            };
+            if ai_guard.is_quick_path_available(&dest) {
+                return true;
+            }
+            ai_guard.has_locomotor_for_surface(SURFACE_CLIFF)
+                && TheTerrainLogic.is_cliff_cell(world.x, world.y)
+        });
+        if quick == Some(true) {
             return true;
         }
     }
@@ -274,17 +270,12 @@ pub(super) fn selection_can_set_rally_point(selection: &HashSet<ObjectID>) -> bo
         return false;
     }
     for id in selection {
-        let Some(obj) = OBJECT_REGISTRY.get_object(*id) else {
-            return false;
-        };
-        let Ok(guard) = obj.read() else {
-            return false;
-        };
-        if !guard.is_locally_controlled() || guard.is_effectively_dead() {
-            return false;
-        }
-        // C++ InGameUI.cpp:4373-4380 ACTIONTYPE_SET_RALLY_POINT: KINDOF_AUTO_RALLYPOINT.
-        if !guard.is_kind_of(KindOf::AutoRallypoint) {
+        let ok = OBJECT_REGISTRY.with_object(*id, |guard| {
+            guard.is_locally_controlled()
+                && !guard.is_effectively_dead()
+                && guard.is_kind_of(KindOf::AutoRallypoint)
+        });
+        if ok != Some(true) {
             return false;
         }
     }

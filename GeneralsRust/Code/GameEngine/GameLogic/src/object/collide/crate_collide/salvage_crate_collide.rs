@@ -24,7 +24,7 @@ fn dual_world_registry_unavailable() -> bool {
     crate::object::registry::OBJECT_REGISTRY.is_empty()
 }
 
-fn resolve_crate_object(id: ObjectID) -> Option<Arc<RwLock<Object>>> {
+fn resolve_crate_object(id: ObjectID) -> Option<ObjectID> {
     // Wave 390: empty dual-world → None.
     if dual_world_registry_unavailable() {
         return None;
@@ -343,7 +343,7 @@ impl SalvageCrateCollide {
     fn require_object_handle(
         &self,
         other: &dyn GameObject,
-    ) -> Result<Arc<RwLock<Object>>, CollisionError> {
+    ) -> Result<ObjectID, CollisionError> {
         other.as_object_handle().ok_or_else(|| {
             CollisionError::InvalidObject(
                 "Salvage crate requires a concrete Object handle".to_string(),
@@ -564,7 +564,7 @@ impl SalvageCrateCollide {
     fn display_money_floating_text(
         &self,
         amount: u32,
-        object: &Arc<RwLock<Object>>,
+        object: &ObjectID,
         player: &Arc<RwLock<Player>>,
     ) -> Result<(), CollisionError> {
         let (position, color) = {
@@ -776,7 +776,7 @@ mod tests {
         }
     }
 
-    fn object_with_kind_of(id: ObjectId, kind_of: &str) -> Arc<RwLock<Object>> {
+    fn object_with_kind_of(id: ObjectId, kind_of: &str) -> ObjectID {
         let mut template = DefaultThingTemplate::new(format!("TestKindOf{id}"));
         let mut properties = HashMap::new();
         properties.insert("KindOf".to_string(), kind_of.to_string());

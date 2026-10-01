@@ -166,9 +166,9 @@ pub struct CreateObjectDie {
 
 impl CreateObjectDie {
     /// Create a new CreateObjectDie module
-    pub fn new(object: Arc<RwLock<Object>>, module_data: Arc<CreateObjectDieModuleData>) -> Self {
+    pub fn new(object_id: ObjectID, module_data: Arc<CreateObjectDieModuleData>) -> Self {
         Self {
-            base: DieModule::new(object, module_data),
+            base: DieModule::new(object_id, module_data),
         }
     }
 
@@ -182,7 +182,7 @@ impl CreateObjectDie {
         &self,
         dying_object: &Object,
         damage_dealer: Option<&Object>,
-    ) -> Vec<Arc<RwLock<Object>>> {
+    ) -> Vec<ObjectID> {
         let mut created_objects = Vec::new();
 
         let ocl_name = match self.base.module_data.ocl.first() {

@@ -28,7 +28,7 @@ fn presentation_carries_transform_health_team_model() {
         .create_object("SmokeHQ", Team::USA, Vec3::new(30.0, 0.0, 40.0))
         .expect("hq");
     logic.update();
-    let frame = PresentationFrame::build_from_logic(&logic, 0);
+    let frame = PresentationFrame::build_from_logic(&mut logic, 0);
     let obj = frame
         .objects
         .iter()

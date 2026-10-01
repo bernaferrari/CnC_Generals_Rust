@@ -29,12 +29,12 @@ fn open_contain_module_factory(
     let typed_data =
         expect_contain_data::<OpenContainModuleData>(module_data.as_ref(), "OpenContain");
     let (owner_id, _) = resolve_owner_info(&thing);
-    let contain = OpenContain::new(make_owner_weak(owner_id), typed_data).unwrap_or_else(|err| {
+    let contain = OpenContain::new(make_owner_id, typed_data).unwrap_or_else(|err| {
         warn!(
             "Failed to create OpenContain for object {}: {}",
             owner_id, err
         );
-        OpenContain::new(Weak::new(), &OpenContainModuleData::default())
+        OpenContain::new(crate::common::INVALID_ID, &OpenContainModuleData::default())
             .expect("OpenContain default construction failed")
     });
     let contain: Arc<Mutex<dyn ContainModuleInterface>> = Arc::new(Mutex::new(contain));
@@ -63,12 +63,12 @@ fn transport_contain_module_factory(
         expect_contain_data::<TransportContainModuleData>(module_data.as_ref(), "TransportContain");
     let (owner_id, _) = resolve_owner_info(&thing);
     let contain =
-        TransportContain::new(make_owner_weak(owner_id), typed_data).unwrap_or_else(|err| {
+        TransportContain::new(make_owner_id, typed_data).unwrap_or_else(|err| {
             warn!(
                 "Failed to create TransportContain for object {}: {}",
                 owner_id, err
             );
-            TransportContain::new(Weak::new(), &TransportContainModuleData::default())
+            TransportContain::new(crate::common::INVALID_ID, &TransportContainModuleData::default())
                 .expect("TransportContain default construction failed")
         });
     let contain: Arc<Mutex<dyn ContainModuleInterface>> = Arc::new(Mutex::new(contain));
@@ -97,12 +97,12 @@ fn garrison_contain_module_factory(
         expect_contain_data::<GarrisonContainModuleData>(module_data.as_ref(), "GarrisonContain");
     let (owner_id, _) = resolve_owner_info(&thing);
     let contain =
-        GarrisonContain::new(make_owner_weak(owner_id), typed_data).unwrap_or_else(|err| {
+        GarrisonContain::new(make_owner_id, typed_data).unwrap_or_else(|err| {
             warn!(
                 "Failed to create GarrisonContain for object {}: {}",
                 owner_id, err
             );
-            GarrisonContain::new(Weak::new(), &GarrisonContainModuleData::default())
+            GarrisonContain::new(crate::common::INVALID_ID, &GarrisonContainModuleData::default())
                 .expect("GarrisonContain default construction failed")
         });
     let contain: Arc<Mutex<dyn ContainModuleInterface>> = Arc::new(Mutex::new(contain));
@@ -130,12 +130,12 @@ fn tunnel_contain_module_factory(
     let typed_data =
         expect_contain_data::<TunnelContainModuleData>(module_data.as_ref(), "TunnelContain");
     let (owner_id, _) = resolve_owner_info(&thing);
-    let contain = TunnelContain::new(make_owner_weak(owner_id), typed_data).unwrap_or_else(|err| {
+    let contain = TunnelContain::new(make_owner_id, typed_data).unwrap_or_else(|err| {
         warn!(
             "Failed to create TunnelContain for object {}: {}",
             owner_id, err
         );
-        TunnelContain::new(Weak::new(), &TunnelContainModuleData::default())
+        TunnelContain::new(crate::common::INVALID_ID, &TunnelContainModuleData::default())
             .expect("TunnelContain default construction failed")
     });
     let contain: Arc<Mutex<dyn ContainModuleInterface>> = Arc::new(Mutex::new(contain));
@@ -164,12 +164,12 @@ fn overlord_contain_module_factory(
         expect_contain_data::<OverlordContainModuleData>(module_data.as_ref(), "OverlordContain");
     let (owner_id, _) = resolve_owner_info(&thing);
     let contain =
-        OverlordContain::new(make_owner_weak(owner_id), typed_data).unwrap_or_else(|err| {
+        OverlordContain::new(make_owner_id, typed_data).unwrap_or_else(|err| {
             warn!(
                 "Failed to create OverlordContain for object {}: {}",
                 owner_id, err
             );
-            OverlordContain::new(Weak::new(), &OverlordContainModuleData::default())
+            OverlordContain::new(crate::common::INVALID_ID, &OverlordContainModuleData::default())
                 .expect("OverlordContain default construction failed")
         });
     let contain: Arc<Mutex<dyn ContainModuleInterface>> = Arc::new(Mutex::new(contain));
@@ -197,12 +197,12 @@ fn helix_contain_module_factory(
     let typed_data =
         expect_contain_data::<HelixContainModuleData>(module_data.as_ref(), "HelixContain");
     let (owner_id, _) = resolve_owner_info(&thing);
-    let contain = HelixContain::new(make_owner_weak(owner_id), typed_data).unwrap_or_else(|err| {
+    let contain = HelixContain::new(make_owner_id, typed_data).unwrap_or_else(|err| {
         warn!(
             "Failed to create HelixContain for object {}: {}",
             owner_id, err
         );
-        HelixContain::new(Weak::new(), &HelixContainModuleData::default())
+        HelixContain::new(crate::common::INVALID_ID, &HelixContainModuleData::default())
             .expect("HelixContain default construction failed")
     });
     let contain: Arc<Mutex<dyn ContainModuleInterface>> = Arc::new(Mutex::new(contain));
@@ -232,13 +232,13 @@ fn railed_transport_contain_module_factory(
         "RailedTransportContain",
     );
     let (owner_id, _) = resolve_owner_info(&thing);
-    let contain = RailedTransportContain::new(make_owner_weak(owner_id), typed_data)
+    let contain = RailedTransportContain::new(make_owner_id, typed_data)
         .unwrap_or_else(|err| {
             warn!(
                 "Failed to create RailedTransportContain for object {}: {}",
                 owner_id, err
             );
-            RailedTransportContain::new(Weak::new(), &RailedTransportContainModuleData::default())
+            RailedTransportContain::new(crate::common::INVALID_ID, &RailedTransportContainModuleData::default())
                 .expect("RailedTransportContain default construction failed")
         });
     let contain: Arc<Mutex<dyn ContainModuleInterface>> = Arc::new(Mutex::new(contain));
@@ -269,12 +269,12 @@ fn rider_change_contain_module_factory(
     );
     let (owner_id, _) = resolve_owner_info(&thing);
     let contain =
-        RiderChangeContain::new(make_owner_weak(owner_id), typed_data).unwrap_or_else(|err| {
+        RiderChangeContain::new(make_owner_id, typed_data).unwrap_or_else(|err| {
             warn!(
                 "Failed to create RiderChangeContain for object {}: {}",
                 owner_id, err
             );
-            RiderChangeContain::new(Weak::new(), &RiderChangeContainModuleData::default())
+            RiderChangeContain::new(crate::common::INVALID_ID, &RiderChangeContainModuleData::default())
                 .expect("RiderChangeContain default construction failed")
         });
     let contain: Arc<Mutex<dyn ContainModuleInterface>> = Arc::new(Mutex::new(contain));
@@ -305,12 +305,12 @@ fn internet_hack_contain_module_factory(
     );
     let (owner_id, _) = resolve_owner_info(&thing);
     let contain =
-        InternetHackContain::new(make_owner_weak(owner_id), typed_data).unwrap_or_else(|err| {
+        InternetHackContain::new(make_owner_id, typed_data).unwrap_or_else(|err| {
             warn!(
                 "Failed to create InternetHackContain for object {}: {}",
                 owner_id, err
             );
-            InternetHackContain::new(Weak::new(), &InternetHackContainModuleData::default())
+            InternetHackContain::new(crate::common::INVALID_ID, &InternetHackContainModuleData::default())
                 .expect("InternetHackContain default construction failed")
         });
     let contain: Arc<Mutex<dyn ContainModuleInterface>> = Arc::new(Mutex::new(contain));
@@ -338,12 +338,12 @@ fn heal_contain_module_factory(
     let typed_data =
         expect_contain_data::<HealContainModuleData>(module_data.as_ref(), "HealContain");
     let (owner_id, _) = resolve_owner_info(&thing);
-    let contain = HealContain::new(make_owner_weak(owner_id), typed_data).unwrap_or_else(|err| {
+    let contain = HealContain::new(make_owner_id, typed_data).unwrap_or_else(|err| {
         warn!(
             "Failed to create HealContain for object {}: {}",
             owner_id, err
         );
-        HealContain::new(Weak::new(), &HealContainModuleData::default())
+        HealContain::new(crate::common::INVALID_ID, &HealContainModuleData::default())
             .expect("HealContain default construction failed")
     });
     let contain: Arc<Mutex<dyn ContainModuleInterface>> = Arc::new(Mutex::new(contain));
@@ -372,14 +372,14 @@ fn cave_contain_module_factory(
         expect_contain_data::<CaveContainModuleData>(module_data.as_ref(), "CaveContain");
     let (owner_id, _) = resolve_owner_info(&thing);
     let cave_system = crate::system::cave_system::TheCaveSystem();
-    let contain = CaveContain::new(make_owner_weak(owner_id), typed_data, Some(cave_system.clone()))
+    let contain = CaveContain::new(make_owner_id, typed_data, Some(cave_system.clone()))
         .unwrap_or_else(|err| {
             warn!(
                 "Failed to create CaveContain for object {}: {}",
                 owner_id, err
             );
             CaveContain::new(
-                Weak::new(),
+                crate::common::INVALID_ID,
                 &CaveContainModuleData::default(),
                 Some(cave_system),
             )
@@ -417,12 +417,12 @@ fn parachute_contain_module_factory(
         expect_contain_data::<ParachuteContainModuleData>(module_data.as_ref(), "ParachuteContain");
     let (owner_id, _) = resolve_owner_info(&thing);
     let contain =
-        ParachuteContain::new(make_owner_weak(owner_id), typed_data).unwrap_or_else(|err| {
+        ParachuteContain::new(make_owner_id, typed_data).unwrap_or_else(|err| {
             warn!(
                 "Failed to create ParachuteContain for object {}: {}",
                 owner_id, err
             );
-            ParachuteContain::new(Weak::new(), &ParachuteContainModuleData::default())
+            ParachuteContain::new(crate::common::INVALID_ID, &ParachuteContainModuleData::default())
                 .expect("ParachuteContain default construction failed")
         });
     let contain: Arc<Mutex<dyn ContainModuleInterface>> = Arc::new(Mutex::new(contain));
@@ -451,12 +451,12 @@ fn mob_nexus_contain_module_factory(
         expect_contain_data::<MobNexusContainModuleData>(module_data.as_ref(), "MobNexusContain");
     let (owner_id, _) = resolve_owner_info(&thing);
     let contain =
-        MobNexusContain::new(make_owner_weak(owner_id), typed_data).unwrap_or_else(|err| {
+        MobNexusContain::new(make_owner_id, typed_data).unwrap_or_else(|err| {
             warn!(
                 "Failed to create MobNexusContain for object {}: {}",
                 owner_id, err
             );
-            MobNexusContain::new(Weak::new(), &MobNexusContainModuleData::default())
+            MobNexusContain::new(crate::common::INVALID_ID, &MobNexusContainModuleData::default())
                 .expect("MobNexusContain default construction failed")
         });
     let contain: Arc<Mutex<dyn ContainModuleInterface>> = Arc::new(Mutex::new(contain));

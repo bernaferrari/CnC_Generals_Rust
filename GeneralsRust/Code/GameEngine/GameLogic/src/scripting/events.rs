@@ -1035,14 +1035,14 @@ impl AreaTracker {
         object_id: u32,
         position: [f32; 3],
     ) -> GameLogicResult<Vec<GameEvent>> {
-        if let Some(obj_arc) = crate::helpers::TheGameLogic::find_object_by_id(object_id) {
-            if let Ok(obj_guard) = obj_arc.try_read() {
-                if obj_guard.is_kind_of(crate::common::KindOf::Projectile)
+        let skip = crate::object::registry::OBJECT_REGISTRY
+            .with_object(object_id, |obj_guard| {
+                obj_guard.is_kind_of(crate::common::KindOf::Projectile)
                     || obj_guard.is_kind_of(crate::common::KindOf::Inert)
-                {
-                    return Ok(Vec::new());
-                }
-            }
+            })
+            .unwrap_or(false);
+        if skip {
+            return Ok(Vec::new());
         }
         let frame = crate::helpers::TheGameLogic::get_frame() as u32;
         Ok(self.with_state(|state| {
@@ -1093,17 +1093,14 @@ impl AreaTracker {
 
                     last_enter_frame.insert((area_name.clone(), object_id), frame);
 
-                    if let Some(obj_arc) = crate::helpers::TheGameLogic::find_object_by_id(object_id) {
-                        // Avoid self-deadlock when called from Object::set_position while that object
-                        // is already write-locked by the caller.
-                        if let Ok(obj_guard) = obj_arc.try_read() {
-                            if let Some(team_arc) = obj_guard.get_team() {
-                                if let Ok(mut team_guard) = team_arc.write() {
-                                    team_guard.set_entered_exited();
-                                }
+                    // Same-id checkout is None when set_position already holds this object.
+                    let _ = crate::object::registry::OBJECT_REGISTRY.with_object(object_id, |obj_guard| {
+                        if let Some(team_arc) = obj_guard.get_team() {
+                            if let Ok(mut team_guard) = team_arc.write() {
+                                team_guard.set_entered_exited();
                             }
                         }
-                    }
+                    });
 
                     let event = GameEvent::new(
                         GameEventType::UnitEntersArea,
@@ -1125,17 +1122,14 @@ impl AreaTracker {
 
                     last_exit_frame.insert((area_name.clone(), object_id), frame);
 
-                    if let Some(obj_arc) = crate::helpers::TheGameLogic::find_object_by_id(object_id) {
-                        // Avoid self-deadlock when called from Object::set_position while that object
-                        // is already write-locked by the caller.
-                        if let Ok(obj_guard) = obj_arc.try_read() {
-                            if let Some(team_arc) = obj_guard.get_team() {
-                                if let Ok(mut team_guard) = team_arc.write() {
-                                    team_guard.set_entered_exited();
-                                }
+                    // Same-id checkout is None when set_position already holds this object.
+                    let _ = crate::object::registry::OBJECT_REGISTRY.with_object(object_id, |obj_guard| {
+                        if let Some(team_arc) = obj_guard.get_team() {
+                            if let Ok(mut team_guard) = team_arc.write() {
+                                team_guard.set_entered_exited();
                             }
                         }
-                    }
+                    });
 
                     let event = GameEvent::new(
                         GameEventType::UnitLeavesArea,

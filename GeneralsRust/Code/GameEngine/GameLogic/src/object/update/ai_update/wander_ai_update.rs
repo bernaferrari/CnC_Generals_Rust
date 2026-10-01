@@ -143,13 +143,11 @@ impl WanderAIUpdate {
             return Ok(());
         }
 
-        let Some(owner) = TheGameLogic::find_object_by_id(self.owner_id) else {
+        let Some(pos) = crate::object::registry::OBJECT_REGISTRY.with_object(self.owner_id, |owner_guard| {
+            *owner_guard.get_position()
+        }) else {
             return Ok(());
         };
-        let Ok(owner_guard) = owner.read() else {
-            return Ok(());
-        };
-        let pos = owner_guard.get_position();
         let dx = get_game_logic_random_value(5, 50) as f32;
         let dy = get_game_logic_random_value(5, 50) as f32;
         let dest = Coord3D::new(pos.x + dx, pos.y + dy, pos.z);

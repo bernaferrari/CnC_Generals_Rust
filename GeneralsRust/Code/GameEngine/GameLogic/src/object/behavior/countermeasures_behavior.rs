@@ -437,7 +437,7 @@ impl CountermeasuresBehavior {
     fn construct_with_object_id(
         object_id: ObjectID,
         module_data: Arc<CountermeasuresBehaviorModuleData>,
-        _initial_object: Option<Arc<RwLock<GameObject>>>,
+        _initial_object: Option<ObjectID>,
     ) -> Self {
         let mut state = CountermeasuresState::default();
         state.available_countermeasures = module_data
@@ -460,7 +460,7 @@ impl CountermeasuresBehavior {
     }
 
     pub fn new_from_object_handle(
-        object: Arc<RwLock<GameObject>>,
+        object_id: ObjectID,
         module_data: Arc<CountermeasuresBehaviorModuleData>,
     ) -> Self {
         let object_id = object
@@ -697,7 +697,7 @@ impl CountermeasuresBehavior {
             .ok_or(BehaviorError::ObjectNotFound { id })
     }
 
-    fn get_object(&self) -> BehaviorResult<Arc<RwLock<GameObject>>> {
+    fn get_object(&self) -> BehaviorResult<ObjectID> {
         // Wave 328: empty dual-world → ObjectNotFound.
         if dual_world_registry_unavailable() {
             return Err(BehaviorError::ObjectNotFound {
@@ -1026,7 +1026,7 @@ pub struct CountermeasuresBehaviorFactory;
 
 impl CountermeasuresBehaviorFactory {
     pub fn create_behavior(
-        thing: Arc<RwLock<GameObject>>,
+        object_id: ObjectID,
         module_data: Arc<dyn crate::common::ModuleData>,
     ) -> Result<
         Box<dyn crate::modules::BehaviorModuleInterface>,

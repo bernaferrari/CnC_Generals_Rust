@@ -14,7 +14,7 @@ use crate::helpers::{ThePartitionManager, TheThingFactory};
 use crate::locomotor::core::{LocomotorSurfaceTypeMask, SURFACE_GROUND};
 use crate::object::registry::OBJECT_REGISTRY;
 use crate::object_manager::get_object_manager;
-use crate::player::{PLAYER_INDEX_INVALID, player_list};
+use crate::player::{PLAYER_INDEX_INVALID, player_list, with_player_mut};
 use crate::polygon_trigger::PolygonTrigger;
 use crate::scripting::core::Script;
 use crate::scripting::engine::{get_area_tracker, get_script_engine};

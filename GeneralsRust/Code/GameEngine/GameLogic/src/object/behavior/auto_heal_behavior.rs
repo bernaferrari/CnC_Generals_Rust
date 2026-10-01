@@ -348,7 +348,7 @@ fn parse_particle_system_template(
 
 /// C++ AutoHealBehavior::update SingleBurst path: TheInGameUI->addWorldAnimation
 /// of TheGlobalData->m_getHealedAnimationName at the healed unit's top.
-fn spawn_get_healed_world_icon(obj: &Arc<RwLock<GameObject>>) {
+fn spawn_get_healed_world_icon(obj: ObjectID) {
     if !TheGameLogic::get_draw_icon_ui() {
         return;
     }
@@ -831,7 +831,7 @@ impl AutoHealBehavior {
     }
 
     pub fn new_from_object_handle(
-        object: Arc<RwLock<GameObject>>,
+        object_id: ObjectID,
         module_data: Arc<AutoHealBehaviorModuleData>,
     ) -> Self {
         let object_id = object
@@ -869,7 +869,7 @@ impl AutoHealBehavior {
     /// Pulse heal a single object
     pub fn pulse_heal_object(
         &mut self,
-        obj: Arc<RwLock<GameObject>>,
+        object_id: ObjectID,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         // Wave 306: empty dual-world → Ok(()).
         if dual_world_registry_unavailable() {
@@ -967,7 +967,7 @@ impl AutoHealBehavior {
     }
 
     /// Short-lived Arc resolve; prefer `with_object` / `owner_object_id`.
-    fn get_object(&self) -> Option<Arc<RwLock<GameObject>>> {
+    fn get_object(&self) -> Option<ObjectID> {
         // Wave 306: empty dual-world → None.
         if dual_world_registry_unavailable() {
             return None;

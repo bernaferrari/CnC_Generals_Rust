@@ -75,7 +75,7 @@ pub struct FloatUpdate {
 
 impl FloatUpdate {
     pub fn new(
-        object: Arc<RwLock<GameObject>>,
+        object_id: ObjectID,
         module_data: Arc<dyn ModuleData>,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let specific_data = module_data
@@ -84,11 +84,7 @@ impl FloatUpdate {
             .ok_or("Invalid module data")?;
 
         Ok(Self {
-            object_id: object
-                .read()
-                .ok()
-                .map(|g| g.get_id())
-                .unwrap_or(crate::common::INVALID_ID),
+            object_id: object_id,
             module_data: Arc::new(specific_data.clone()),
             next_call_frame_and_phase: 0,
             enabled: specific_data.enabled,
@@ -258,10 +254,10 @@ impl Module for FloatUpdateModule {
 pub struct FloatUpdateFactory;
 impl FloatUpdateFactory {
     pub fn create_behavior(
-        thing: Arc<RwLock<GameObject>>,
+        object_id: ObjectID,
         module_data: Arc<dyn ModuleData>,
     ) -> Result<Box<dyn BehaviorModuleInterface>, Box<dyn std::error::Error + Send + Sync>> {
-        Ok(Box::new(FloatUpdate::new(thing, module_data)?))
+        Ok(Box::new(FloatUpdate::new(object_id, module_data)?))
     }
 }
 

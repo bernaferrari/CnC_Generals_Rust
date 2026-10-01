@@ -1472,15 +1472,16 @@ impl Object {
         ai.get_current_victim()
     }
 
-    pub fn get_current_victim(&self) -> Option<Arc<RwLock<Object>>> {
+    pub fn get_current_victim(&self) -> Option<ObjectID> {
         // Wave 264: empty dual-world → None.
         if dual_world_registry_unavailable() {
             return None;
         }
 
         let victim_id = self.get_current_victim_id()?;
-        crate::helpers::TheGameLogic::find_object_by_id(victim_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(victim_id))
+        crate::object::registry::OBJECT_REGISTRY
+            .with_object(victim_id, |_| ())
+            .map(|_| victim_id)
     }
 
     /// Get the current victim/target position of this object

@@ -238,9 +238,14 @@ impl<T: Clone> VectorClass<T> {
             return 0;
         }
 
-        let base_ptr = self.vector.as_ptr();
-        // SAFETY: [Category 11 — provenance] `ptr` points at an element of this same Vec allocation (caller contract), so offset_from is well-defined and range-checked right after.
-        let offset = unsafe { ptr.offset_from(base_ptr) };
+        let size = std::mem::size_of::<T>() as isize;
+        let base = self.vector.as_ptr() as isize;
+        let byte_off = (ptr as isize).wrapping_sub(base);
+        // `size == 0` panics, matching `pointer::offset_from` on a ZST.
+        if byte_off % size != 0 {
+            return -1;
+        }
+        let offset = byte_off / size;
 
         if offset >= 0 && (offset as usize) < self.vector.len() {
             offset as i32

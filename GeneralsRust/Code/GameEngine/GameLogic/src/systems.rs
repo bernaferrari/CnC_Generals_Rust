@@ -14,6 +14,7 @@ use std::time::{Duration, Instant};
 use crate::common::{ObjectID, Real, UnsignedInt};
 use crate::modules::{UpdateModule, UpdateModulePtr};
 use crate::object::Object;
+use crate::object::registry::OBJECT_REGISTRY;
 use crate::GameLogicResult;
 
 /// Sleepy update entry for priority queue
@@ -202,61 +203,50 @@ impl UpdateSystem {
     }
 
     /// Process one frame of updates
-    pub fn process_frame(
-        &mut self,
-        objects: &HashMap<ObjectID, Arc<RwLock<Object>>>,
-    ) -> GameLogicResult<()> {
+    pub fn process_frame(&mut self) -> GameLogicResult<()> {
         let frame_start = Instant::now();
         self.current_frame += 1;
         self.frame_start_time = frame_start;
 
-        // Process sleepy updates that are ready to wake
-        self.process_sleepy_updates(objects)?;
+        self.process_sleepy_updates()?;
+        self.process_normal_updates()?;
 
-        // Process normal updates
-        self.process_normal_updates(objects)?;
-
-        // Update statistics
         self.update_stats(frame_start);
 
         Ok(())
     }
 
     /// Process sleepy updates that are ready to wake
-    fn process_sleepy_updates(
-        &mut self,
-        objects: &HashMap<ObjectID, Arc<RwLock<Object>>>,
-    ) -> GameLogicResult<()> {
+    fn process_sleepy_updates(&mut self) -> GameLogicResult<()> {
         let mut processed = 0;
         let mut temp_entries = Vec::new();
 
-        // Extract entries that are ready to wake
         while let Some(entry) = self.sleepy_updates.pop() {
             if entry.wake_frame <= self.current_frame {
-                // Process this update
-                if let Some(object) = objects.get(&entry.object_id) {
-                    if let Ok(mut object_guard) = object.write() {
-                        if let Ok(mut module_guard) = entry.module.write() {
-                            module_guard.update(&mut *object_guard)?;
-                            self.stats.sleepy_updates_processed += 1;
-                            processed += 1;
-                        }
+                let module = entry.module.clone();
+                let wake_ok = OBJECT_REGISTRY.with_object_mut(entry.object_id, |object_guard| {
+                    if let Ok(mut module_guard) = module.write() {
+                        module_guard.update(object_guard).is_ok()
+                    } else {
+                        false
                     }
+                });
+                if wake_ok == Some(true) {
+                    self.stats.sleepy_updates_processed += 1;
+                    processed += 1;
                 }
 
-                // Check if we hit the per-frame limit
                 if processed >= self.config.max_updates_per_frame {
-                    // Re-queue remaining entries
                     while let Some(remaining) = self.sleepy_updates.pop() {
                         temp_entries.push(remaining);
                     }
                     break;
                 }
             } else {
-                // Not ready yet, put back
                 temp_entries.push(entry);
             }
         }
+
 
         // Re-queue entries that weren't processed
         for entry in temp_entries {
@@ -267,27 +257,23 @@ impl UpdateSystem {
     }
 
     /// Process normal updates (every frame)
-    fn process_normal_updates(
-        &mut self,
-        objects: &HashMap<ObjectID, Arc<RwLock<Object>>>,
-    ) -> GameLogicResult<()> {
+    fn process_normal_updates(&mut self) -> GameLogicResult<()> {
         for entry in &self.normal_updates {
-            let Some(object) = objects.get(&entry.object_id) else {
-                continue;
-            };
-
             let Ok(mut module_guard) = entry.module.write() else {
                 continue;
             };
-
-            if let Ok(mut object_guard) = object.write() {
-                module_guard.update(&mut *object_guard)?;
+            if OBJECT_REGISTRY
+                .with_object_mut(entry.object_id, |object_guard| {
+                    module_guard.update(object_guard).is_ok()
+                })
+                == Some(true)
+            {
                 self.stats.normal_updates_processed += 1;
             }
         }
-
         Ok(())
     }
+
 
     /// Put a module to sleep until a specific frame
     pub fn sleep_module(&mut self, module: UpdateModulePtr, wake_frame: UnsignedInt) {

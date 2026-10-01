@@ -799,7 +799,7 @@ mod tests {
         }
     }
 
-    fn setup_owner(owner_id: ObjectID, templates: &[&str]) -> Arc<RwLock<Object>> {
+    fn setup_owner(owner_id: ObjectID, templates: &[&str]) -> ObjectID {
         for template in templates {
             ensure_template_exists(template);
         }

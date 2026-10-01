@@ -6,15 +6,15 @@
 use super::registry::OBJECT_REGISTRY;
 use crate::common::{INVALID_ID, ObjectID};
 use crate::object::Object;
-use std::sync::{Arc, RwLock};
 
-/// Bind a crate-created GameLogic object into [`OBJECT_REGISTRY`].
+/// Bind a crate-created object into [`OBJECT_REGISTRY`].
 ///
 /// Host create/couple tests assert the registry store stays empty; they must
 /// never call this helper.
-pub fn bind_crate_object(id: ObjectID, object: &Arc<RwLock<Object>>) {
+pub fn bind_crate_object(id: ObjectID, object: Object) {
     if id == INVALID_ID {
         return;
     }
-    OBJECT_REGISTRY.register_object(id, object);
+    let handle = std::sync::Arc::new(std::sync::RwLock::new(object));
+    OBJECT_REGISTRY.register_object(id, &handle);
 }

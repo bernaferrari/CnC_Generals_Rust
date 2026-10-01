@@ -299,7 +299,7 @@ mod restrict_a_tests {
         if let Some(p) = logic.get_player_mut(0) {
             p.selected_objects = vec![cid];
         }
-        let frame = PresentationFrame::build_from_logic(&logic, 0);
+        let frame = PresentationFrame::build_from_logic(&mut logic, 0);
         assert!(frame.restrict_a.has_battle_plan_update);
         assert!(!frame.restrict_a.active_bombardment);
         assert!(!frame.restrict_a.dock_open);
@@ -314,12 +314,12 @@ mod restrict_a_tests {
         if let Some(p) = logic.get_player_mut(0) {
             p.selected_objects = vec![fid];
         }
-        let ferry_frame = PresentationFrame::build_from_logic(&logic, 0);
+        let ferry_frame = PresentationFrame::build_from_logic(&mut logic, 0);
         assert!(ferry_frame.restrict_a.dock_open);
         if let Some(o) = logic.host_object_mut(fid) {
             o.railed_in_transit = true;
         }
-        let closed = PresentationFrame::build_from_logic(&logic, 0);
+        let closed = PresentationFrame::build_from_logic(&mut logic, 0);
         assert!(!closed.restrict_a.dock_open);
     }
 
@@ -360,7 +360,7 @@ mod restrict_a_tests {
     }
 
     fn sample_ro(name: &str) -> RenderableObject {
-        let frame = PresentationFrame::build_from_logic(&GameLogic::new(), 0);
+        let frame = PresentationFrame::build_from_logic(&mut GameLogic::new(), 0);
         let mut ro = frame
             .objects
             .first()
@@ -384,7 +384,7 @@ mod restrict_a_tests {
         let id = logic
             .create_object("RestrictADummy", Team::USA, glam::Vec3::ZERO)
             .expect("dummy");
-        let frame = PresentationFrame::build_from_logic(&logic, 0);
+        let frame = PresentationFrame::build_from_logic(&mut logic, 0);
         frame
             .objects
             .into_iter()

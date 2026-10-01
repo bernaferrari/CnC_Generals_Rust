@@ -56,7 +56,9 @@ pub use area_damage::{
 };
 pub use base_power::{SpecialPowerModule, SpecialPowerModuleData, SpecialPowerModuleInterface};
 pub use cooldown::{CooldownManager, CooldownState};
-pub use owner_resolve::{resolve_special_power_owner, resolve_special_power_owner_id};
+pub use owner_resolve::{
+    resolve_special_power_owner_id, with_special_power_owner, with_special_power_owner_mut,
+};
 pub use player_money::{
     PlayerMoney, PlayerMoneyManager, get_player_money_manager, initialize_player_money,
 };

@@ -28,12 +28,7 @@ fn dual_world_registry_unavailable() -> bool {
     crate::object::registry::OBJECT_REGISTRY.is_empty()
 }
 
-fn set_special_power_creator(object: &Arc<RwLock<Object>>, creator_id: ObjectID) {
-    let object_id = object
-        .read()
-        .ok()
-        .map(|guard| guard.get_id())
-        .unwrap_or(INVALID_ID);
+fn set_special_power_creator(object_id: ObjectID, creator_id: ObjectID) {
     set_special_power_creator_id(object_id, creator_id);
 }
 
@@ -297,7 +292,7 @@ impl ObjectCreationNugget for DeliverPayloadNugget {
             return None;
         };
 
-        let mut first_transport: Option<Arc<RwLock<Object>>> = None;
+        let mut first_transport: Option<ObjectID> = None;
 
         // Create each transport in formation
         for formation_index in 0..self.formation_size as Int {
@@ -324,9 +319,7 @@ impl ObjectCreationNugget for DeliverPayloadNugget {
             let target_pos = pose.target_pos;
             let orient = pose.orient;
 
-            // Create or use existing transport
             let transport = if create_owner {
-                // Create new transport
                 let Some(transport_template) =
                     ctx.thing_factory.find_template(&self.transport_name)
                 else {
@@ -339,64 +332,52 @@ impl ObjectCreationNugget for DeliverPayloadNugget {
                 };
 
                 if first_transport.is_none() {
-                    first_transport = Some(Arc::clone(&transport));
+                    first_transport = Some(transport);
                 }
 
-                // Set position, orientation, and producer
-                if let Ok(mut transport_write) = transport.write() {
+                let _ = OBJECT_REGISTRY.with_object_mut(transport, |transport_write| {
                     let _ = transport_write.set_position(&start_pos);
                     let _ = transport_write.set_orientation(orient);
                     transport_write.set_producer(Some(primary_object));
                     transport_write
                         .set_script_status(ObjectScriptStatusBit::ScriptTargetable, true);
-                }
+                });
 
-                // Apply random delivery delay (C++ always setDisabledUntil when max > 0,
-                // including a rolled delay of 0 frames).
                 if self.delay_delivery_frames_max > 0 {
                     let delay = ctx
                         .game_logic
                         .random_value(0, self.delay_delivery_frames_max as Int)
                         .max(0) as UnsignedInt;
-                    if let Ok(mut transport_write) = transport.write() {
+                    let _ = OBJECT_REGISTRY.with_object_mut(transport, |transport_write| {
                         transport_write.set_disabled_until(
                             DisabledType::DisabledDefault,
                             ctx.game_logic.get_frame().saturating_add(delay),
                         );
-                    }
+                    });
                 }
 
                 transport
             } else {
-                // Use primary object as transport
-                let Some(transport) = OBJECT_REGISTRY.get_object(primary_object.get_id()) else {
-                    return None;
-                };
-                transport
+                primary_object.get_id()
             };
 
-            // Notify special power tracking
-            let transport_id = transport
-                .read()
-                .ok()
-                .map(|g| g.get_id())
-                .unwrap_or(INVALID_ID);
+            let transport_id = transport;
             if formation_index == 0 {
                 set_special_power_creator_id(transport_id, primary_object.get_id());
             } else {
                 set_special_power_creator_id(transport_id, INVALID_ID);
             }
 
-            // C++ only applies max-speed / deliverPayload / height / payload when the
-            // transport has DeliverPayloadAIUpdate. Motive force is applied first.
-            let has_deliver_payload_ai = transport
-                .read()
-                .ok()
-                .and_then(|transport_read| transport_read.get_ai_update_interface())
-                .and_then(|ai| {
-                    ai.lock().ok().map(|mut ai_guard| {
-                        ai_guard.get_deliver_payload_ai_update_interface().is_some()
-                    })
+            let has_deliver_payload_ai = OBJECT_REGISTRY
+                .with_object(transport, |transport_read| {
+                    transport_read
+                        .get_ai_update_interface()
+                        .and_then(|ai| {
+                            ai.lock().ok().map(|mut ai_guard| {
+                                ai_guard.get_deliver_payload_ai_update_interface().is_some()
+                            })
+                        })
+                        .unwrap_or(false)
                 })
                 .unwrap_or(false);
 
@@ -409,13 +390,15 @@ impl ObjectCreationNugget for DeliverPayloadNugget {
             }
 
             if self.start_at_max_speed && create_owner {
-                if let Ok(transport_read) = transport.read() {
-                    let physics = transport_read.get_physics();
-                    let ai = transport_read.get_ai_update_interface();
-                    let body = transport_read.get_body_module();
-                    let (dir_x, dir_y) = transport_read.get_unit_direction_vector_2d();
-                    drop(transport_read);
-
+                let snapped = OBJECT_REGISTRY.with_object(transport, |transport_read| {
+                    (
+                        transport_read.get_physics(),
+                        transport_read.get_ai_update_interface(),
+                        transport_read.get_body_module(),
+                        transport_read.get_unit_direction_vector_2d(),
+                    )
+                });
+                if let Some((physics, ai, body, (dir_x, dir_y))) = snapped {
                     if let (Some(physics), Some(ai), Some(body)) = (physics, ai, body) {
                         if let Ok(body_guard) = body.lock() {
                             let damage = match body_guard.get_damage_state() {
@@ -432,22 +415,19 @@ impl ObjectCreationNugget for DeliverPayloadNugget {
                                     crate::locomotor::BodyDamageType::Rubble
                                 }
                             };
-                            let mut max_speed = None;
-                            ai.with_cur_locomotor(&mut |loco| {
-                                max_speed = Some(loco.get_max_speed_for_condition(damage));
-                            });
-                            if let Some(max_speed) = max_speed {
-                                let mut starting_force = Vec3D::new(dir_x, dir_y, 0.0);
-                                let factor = max_speed * physics.get_mass();
-                                starting_force *= factor;
-                                physics.apply_motive_force(&starting_force);
+                            drop(body_guard);
+                            if let Some(loco) = ai.get_cur_locomotor() {
+                                let speed = loco.get_max_speed_for_condition(damage);
+                                physics.apply_motive_force(
+                                    &Coord3D::new(dir_x * speed, dir_y * speed, 0.0),
+                                );
                             }
                         }
                     }
                 }
             }
 
-            if let Ok(transport_read) = transport.read() {
+            let _ = OBJECT_REGISTRY.with_object(transport, |transport_read| {
                 if let Some(ai) = transport_read.get_ai_update_interface() {
                     if let Ok(mut ai_guard) = ai.lock() {
                         if let Some(deliver_ai) = ai_guard.get_deliver_payload_ai_update_interface()
@@ -460,26 +440,25 @@ impl ObjectCreationNugget for DeliverPayloadNugget {
                         }
                     }
                 }
-            }
+            });
 
             if self.start_at_preferred_height && create_owner {
-                let preferred_height = transport
-                    .read()
-                    .ok()
-                    .and_then(|transport_read| transport_read.get_ai_update_interface())
-                    .and_then(|ai| ai.get_preferred_height());
+                let preferred_height = OBJECT_REGISTRY.with_object(transport, |transport_read| {
+                    transport_read
+                        .get_ai_update_interface()
+                        .and_then(|ai| ai.get_preferred_height())
+                }).flatten();
                 if let Some(height) = preferred_height {
                     start_pos.z = ctx
                         .terrain_logic
                         .get_ground_height(start_pos.x, start_pos.y)
                         + height;
-                    if let Ok(mut transport_write) = transport.write() {
+                    let _ = OBJECT_REGISTRY.with_object_mut(transport, |transport_write| {
                         let _ = transport_write.set_position(&start_pos);
-                    }
+                    });
                 }
             }
 
-            // Create and load payload objects into transport
             let put_in_container_tmpl = if !self.put_in_container_name.is_empty() {
                 ctx.thing_factory.find_template(&self.put_in_container_name)
             } else {
@@ -500,63 +479,62 @@ impl ObjectCreationNugget for DeliverPayloadNugget {
                         continue;
                     };
 
-                    // Set position and producer
-                    if let Ok(mut payload_write) = payload_obj.write() {
+                    let _ = OBJECT_REGISTRY.with_object_mut(payload_obj, |payload_write| {
                         let _ = payload_write.set_position(&start_pos);
-                        if let Ok(transport_read) = transport.read() {
-                            payload_write.set_producer(Some(&*transport_read));
-                        }
-                    }
+                    });
+                    let _ = OBJECT_REGISTRY.with_object(transport, |transport_read| {
+                        let _ = OBJECT_REGISTRY.with_object_mut(payload_obj, |payload_write| {
+                            payload_write.set_producer(Some(transport_read));
+                        });
+                    });
 
                     if formation_index == 0 && payload_index == 0 {
-                        set_special_power_creator(&payload_obj, primary_object.get_id());
+                        set_special_power_creator(payload_obj, primary_object.get_id());
                     } else {
-                        set_special_power_creator(&payload_obj, INVALID_ID);
+                        set_special_power_creator(payload_obj, INVALID_ID);
                     }
 
-                    // Optionally put payload in container first
                     let final_payload = if let Some(ref container_tmpl) = put_in_container_tmpl {
                         if let Ok(container) = ctx
                             .thing_factory
                             .new_object(Arc::clone(container_tmpl), &*owner)
                         {
-                            if let Ok(mut container_write) = container.write() {
+                            let _ = OBJECT_REGISTRY.with_object_mut(container, |container_write| {
                                 let _ = container_write.set_position(&start_pos);
-                                if let Ok(transport_read) = transport.read() {
-                                    container_write.set_producer(Some(&*transport_read));
-                                }
-                            }
+                            });
+                            let _ = OBJECT_REGISTRY.with_object(transport, |transport_read| {
+                                let _ = OBJECT_REGISTRY.with_object_mut(container, |container_write| {
+                                    container_write.set_producer(Some(transport_read));
+                                });
+                            });
 
                             if formation_index == 0 && payload_index == 0 {
-                                set_special_power_creator(&container, primary_object.get_id());
+                                set_special_power_creator(container, primary_object.get_id());
                             } else {
-                                set_special_power_creator(&container, INVALID_ID);
+                                set_special_power_creator(container, INVALID_ID);
                             }
 
-                            // Check if payload can be contained
-                            let can_contain = if let Ok(container_read) = container.read() {
-                                if let Some(contain) = container_read.get_contain() {
-                                    if let Ok(payload_read) = payload_obj.read() {
-                                        contain.is_valid_container_for(&*payload_read, true)
-                                    } else {
-                                        false
-                                    }
-                                } else {
-                                    false
-                                }
-                            } else {
-                                false
-                            };
+                            let can_contain = OBJECT_REGISTRY
+                                .with_object(container, |container_read| {
+                                    container_read.get_contain().map(|contain| {
+                                        OBJECT_REGISTRY
+                                            .with_object(payload_obj, |payload_read| {
+                                                contain.is_valid_container_for(payload_read, true)
+                                            })
+                                            .unwrap_or(false)
+                                    })
+                                })
+                                .flatten()
+                                .unwrap_or(false);
 
                             if can_contain {
-                                // Add to container
-                                if let Ok(container_read) = container.read() {
+                                let _ = OBJECT_REGISTRY.with_object(container, |container_read| {
                                     if let Some(contain) = container_read.get_contain() {
-                                        if let Ok(payload_read) = payload_obj.read() {
-                                            contain.add_to_contain(&*payload_read);
-                                        }
+                                        let _ = OBJECT_REGISTRY.with_object(payload_obj, |payload_read| {
+                                            contain.add_to_contain(payload_read);
+                                        });
                                     }
-                                }
+                                });
                                 container
                             } else {
                                 payload_obj
@@ -568,19 +546,16 @@ impl ObjectCreationNugget for DeliverPayloadNugget {
                         payload_obj
                     };
 
-                    // Add to transport
-                    if let Ok(transport_read) = transport.read() {
+                    let _ = OBJECT_REGISTRY.with_object(transport, |transport_read| {
                         if let Some(transport_contain) = transport_read.get_contain() {
-                            if let Ok(final_payload_read) = final_payload.read() {
-                                if transport_contain
-                                    .is_valid_container_for(&*final_payload_read, true)
+                            let _ = OBJECT_REGISTRY.with_object(final_payload, |final_payload_read| {
+                                if transport_contain.is_valid_container_for(final_payload_read, true)
                                 {
-                                    // Extension trait expects &Object
-                                    transport_contain.add_to_contain(&*final_payload_read);
+                                    transport_contain.add_to_contain(final_payload_read);
                                 }
-                            }
+                            });
                         }
-                    }
+                    });
                 }
             }
         }
@@ -843,7 +818,7 @@ mod tests {
             &self,
             _template: Arc<dyn crate::common::ThingTemplate>,
             _team: &Team,
-        ) -> Result<Arc<RwLock<Object>>, GameError> {
+        ) -> Result<ObjectID, GameError> {
             Err(GameError::SystemError("test factory".into()))
         }
     }

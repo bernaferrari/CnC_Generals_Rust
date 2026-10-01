@@ -71,7 +71,7 @@ pub struct RadiusDecalUpdate {
 
 impl RadiusDecalUpdate {
     pub fn new(
-        object: Arc<RwLock<GameObject>>,
+        object_id: ObjectID,
         module_data: Arc<dyn ModuleData>,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let data = module_data
@@ -85,11 +85,7 @@ impl RadiusDecalUpdate {
 
 
         Ok(Self {
-            object_id: object
-                .read()
-                .ok()
-                .map(|g| g.get_id())
-                .unwrap_or(crate::common::INVALID_ID),
+            object_id: object_id,
             module_data: Arc::new(data.clone()),
             next_call_frame_and_phase: UpdateSleepTime::Forever.to_u32(),
             delivery_decal: decal,
@@ -346,10 +342,10 @@ impl Snapshotable for RadiusDecalUpdate {
 pub struct RadiusDecalUpdateFactory;
 impl RadiusDecalUpdateFactory {
     pub fn create_behavior(
-        thing: Arc<RwLock<GameObject>>,
+        object_id: ObjectID,
         module_data: Arc<dyn ModuleData>,
     ) -> Result<Box<dyn BehaviorModuleInterface>, Box<dyn std::error::Error + Send + Sync>> {
-        Ok(Box::new(RadiusDecalUpdate::new(thing, module_data)?))
+        Ok(Box::new(RadiusDecalUpdate::new(object_id, module_data)?))
     }
 }
 
@@ -374,7 +370,7 @@ pub fn radius_decal_update_module_factory(
         .unwrap_or(INVALID_ID);
     let object =
         TheGameLogic::find_object_by_id(owner_id).expect("RadiusDecalUpdate requires object");
-    let behavior = RadiusDecalUpdate::new(object, module_data_arc.clone())
+    let behavior = RadiusDecalUpdate::new(object_id, module_data_arc.clone())
         .expect("RadiusDecalUpdate failed to initialize");
     let module_name = AsciiString::from("RadiusDecalUpdate");
     Box::new(RadiusDecalUpdateModule::new(

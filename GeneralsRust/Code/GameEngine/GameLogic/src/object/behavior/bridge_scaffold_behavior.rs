@@ -92,7 +92,7 @@ impl BridgeScaffoldBehavior {
     fn construct_with_object_id(
         object_id: ObjectID,
         module_data: Arc<BridgeScaffoldBehaviorModuleData>,
-        initial_object: Option<Arc<RwLock<GameObject>>>,
+        initial_object: Option<ObjectID>,
     ) -> Self {
         let initial_pos = match initial_object {
             Some(object) => object.read().ok().map(|guard| *guard.get_position()),
@@ -132,7 +132,7 @@ impl BridgeScaffoldBehavior {
     }
 
     pub fn new_from_object_handle(
-        object: Arc<RwLock<GameObject>>,
+        object_id: ObjectID,
         module_data: Arc<BridgeScaffoldBehaviorModuleData>,
     ) -> Self {
         let object_id = object
@@ -161,12 +161,12 @@ impl BridgeScaffoldBehavior {
             format!("BridgeScaffoldBehavior requires object {object_id} to exist")
         })?;
 
-        Ok(Self::new_from_object_handle(object, module_data))
+        Ok(Self::new_from_object_handle(object_id, module_data))
     }
 
     /// Get bridge scaffold behavior interface from object
     pub fn get_bridge_scaffold_behavior_interface_from_object(
-        obj: Arc<RwLock<GameObject>>,
+        object_id: ObjectID,
     ) -> Option<Arc<Mutex<dyn BridgeScaffoldBehaviorInterface>>> {
         let _ = obj;
         None
@@ -238,7 +238,7 @@ impl BridgeScaffoldBehavior {
 
     fn get_object(
         &self,
-    ) -> Result<Arc<RwLock<GameObject>>, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<ObjectID>, Box<dyn std::error::Error + Send + Sync>> {
         // Wave 335: empty dual-world → fail closed.
         if dual_world_registry_unavailable() {
             return Err("dual-world object registry unavailable".into());

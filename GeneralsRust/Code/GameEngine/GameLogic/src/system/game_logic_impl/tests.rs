@@ -26,7 +26,7 @@ mod tests {
         let players = player_list();
         let mut players = players.write().expect("player list lock");
         players.clear();
-        players.add_player(Arc::new(RwLock::new(player)));
+        players.add_player(player);
     }
 
     fn save_player_runtime_fixture(path: &std::path::Path) {
@@ -50,8 +50,7 @@ mod tests {
         let mut player_count = players.get_player_count() as i32;
         xfer.xfer_int(&mut player_count)
             .expect("legacy player count");
-        for player_arc in players.iter() {
-            let player = player_arc.read().expect("player lock");
+        for player in players.iter() {
             let mut money = player.get_money().get_money();
             xfer.xfer_int(&mut money).expect("legacy money");
             let mut power_production = player.get_energy().production();
@@ -136,11 +135,11 @@ mod tests {
         .expect("destination AI integration manager");
         load_player_runtime_fixture(&path).expect("v2 player runtime load");
 
-        let contained_object = Arc::new(RwLock::new(Object::new_test(401, 100.0)));
+        OBJECT_REGISTRY.register_object(401, Object::new_test(401, 100.0));
         get_game_logic()
             .lock()
             .expect("game logic lock")
-            .register_object(contained_object)
+            .register_object(401)
             .expect("register contained object");
         let mut player_snapshot = PlayerListSnapshotBridge;
         XferSnapshotTrait::load_post_process(&mut player_snapshot)
@@ -148,11 +147,7 @@ mod tests {
 
         let players = player_list();
         let players = players.read().expect("player list lock");
-        let loaded = players
-            .get_player(0)
-            .expect("loaded player")
-            .read()
-            .expect("loaded player lock");
+        let loaded = players.get_player(0).expect("loaded player");
         let resources = loaded
             .get_resource_manager()
             .expect("loaded resource manager");
@@ -180,7 +175,6 @@ mod tests {
         .expect("loaded AI player");
         assert_eq!((team_delay, team_timer), (77, 33));
 
-        drop(loaded);
         drop(players);
         // Do not destroy this minimal fixture object here: its normal destroy
         // path performs a pathfinder registry read while holding the object's
@@ -210,18 +204,13 @@ mod tests {
 
         let players = player_list();
         let players = players.read().expect("player list lock");
-        let loaded = players
-            .get_player(0)
-            .expect("loaded player")
-            .read()
-            .expect("loaded player lock");
+        let loaded = players.get_player(0).expect("loaded player");
         assert_eq!(loaded.get_money().get_money(), 7_654);
         assert_eq!(loaded.get_rank_level(), 4);
         assert_eq!(loaded.get_science_purchase_points(), 9);
         assert!(loaded.get_resource_manager().is_some());
         assert!(loaded.get_tunnel_system().is_some());
 
-        drop(loaded);
         drop(players);
         let _ = fs::remove_file(path);
     }
@@ -348,8 +337,8 @@ mod tests {
         assert!(!logic.last_update_was_empty_noop());
         assert_eq!(logic.empty_world_tick_count(), 0);
 
-        let dummy = Arc::new(RwLock::new(Object::new_test(42, 100.0)));
-        logic.objects.insert(42, dummy);
+        OBJECT_REGISTRY.register_object(42, Object::new_test(42, 100.0));
+        logic.objects.insert(42, ());
         logic.set_game_paused(true, false);
         logic.update(1).expect("non-empty update still Ok");
         assert!(
@@ -504,8 +493,8 @@ mod tests {
             "empty world continues past MARKER:Objects (seed/partition/players/AI)"
         );
 
-        let first = Arc::new(RwLock::new(Object::new_test(11, 100.0)));
-        logic.register_object(first).expect("register first");
+        OBJECT_REGISTRY.register_object(11, Object::new_test(11, 100.0));
+        logic.register_object(11).expect("register first");
         let with_obj = logic.get_crc(CrcMode::Recalc);
         assert_ne!(with_obj, empty_crc, "registering an object changes CRC");
 
@@ -520,11 +509,11 @@ mod tests {
         let _guard = test_state_lock();
         OBJECT_REGISTRY.clear();
         let mut logic = GameLogic::new();
-        let object = Arc::new(RwLock::new(Object::new_test(9001, 100.0)));
-        logic
-            .register_object(Arc::clone(&object))
-            .expect("register");
-        let bound = object.read().expect("object").get_drawable().is_some();
+        OBJECT_REGISTRY.register_object(9001, Object::new_test(9001, 100.0));
+        logic.register_object(9001).expect("register");
+        let bound = OBJECT_REGISTRY
+            .with_object(9001, |object| object.get_drawable().is_some())
+            .unwrap_or(false);
         assert!(
             bound,
             "C++ sendObjectCreated binds a drawable onto the logic object"
@@ -541,70 +530,42 @@ mod tests {
         OBJECT_REGISTRY.clear();
 
         let mut logic = GameLogic::new();
-        let first = Arc::new(RwLock::new(Object::new_test(11, 100.0)));
-        let middle = Arc::new(RwLock::new(Object::new_test(22, 100.0)));
-        let last = Arc::new(RwLock::new(Object::new_test(33, 100.0)));
+        OBJECT_REGISTRY.register_object(11, Object::new_test(11, 100.0));
+        OBJECT_REGISTRY.register_object(22, Object::new_test(22, 100.0));
+        OBJECT_REGISTRY.register_object(33, Object::new_test(33, 100.0));
 
-        OBJECT_REGISTRY.register_object(11, &first);
-        OBJECT_REGISTRY.register_object(22, &middle);
-        OBJECT_REGISTRY.register_object(33, &last);
-
-        logic.add_restored_object(Arc::clone(&first));
-        logic.add_restored_object(Arc::clone(&middle));
-        logic.add_restored_object(Arc::clone(&last));
+        logic.add_restored_object(11);
+        logic.add_restored_object(22);
+        logic.add_restored_object(33);
 
         // C++ GameLogic.cpp:3866 prependToList — newest restored object is head.
         assert_eq!(logic.all_objects, vec![33, 22, 11]);
         assert_eq!(
-            last.read()
-                .unwrap()
-                .get_next_object()
-                .unwrap()
-                .read()
-                .unwrap()
-                .get_id(),
-            22
+            OBJECT_REGISTRY.with_object(33, |o| o.get_next_object_id()),
+            Some(Some(22))
         );
         assert_eq!(
-            middle
-                .read()
-                .unwrap()
-                .get_prev_object()
-                .unwrap()
-                .read()
-                .unwrap()
-                .get_id(),
-            33
+            OBJECT_REGISTRY.with_object(22, |o| o.get_prev_object_id()),
+            Some(Some(33))
         );
 
         logic.destroy_object(22);
         assert!(
-            middle.read().unwrap().is_destroyed(),
+            OBJECT_REGISTRY
+                .with_object(22, |o| o.is_destroyed())
+                .unwrap_or(false),
             "C++ destroyObject sets OBJECT_STATUS_DESTROYED immediately"
         );
         assert!(logic.cleanup_dead_objects().is_ok());
 
         assert_eq!(logic.all_objects, vec![33, 11]);
         assert_eq!(
-            last.read()
-                .unwrap()
-                .get_next_object()
-                .unwrap()
-                .read()
-                .unwrap()
-                .get_id(),
-            11
+            OBJECT_REGISTRY.with_object(33, |o| o.get_next_object_id()),
+            Some(Some(11))
         );
         assert_eq!(
-            first
-                .read()
-                .unwrap()
-                .get_prev_object()
-                .unwrap()
-                .read()
-                .unwrap()
-                .get_id(),
-            33
+            OBJECT_REGISTRY.with_object(11, |o| o.get_prev_object_id()),
+            Some(Some(33))
         );
 
         OBJECT_REGISTRY.clear();
@@ -620,12 +581,11 @@ mod tests {
 
         OBJECT_REGISTRY.clear();
         let mut logic = GameLogic::new();
-        let obj = Arc::new(RwLock::new(Object::new_test(77, 100.0)));
+        let mut obj = Object::new_test(77, 100.0);
         let dummy: UpdateModulePtr = Arc::new(RwLock::new(UpdateModuleDummy));
-        obj.write()
-            .unwrap()
-            .attach_update_module_registration(dummy);
-        logic.add_restored_object(Arc::clone(&obj));
+        obj.attach_update_module_registration(dummy);
+        OBJECT_REGISTRY.register_object(77, obj);
+        logic.add_restored_object(77);
         logic.sleepy_updates.clear();
         logic.normal_updates.clear();
         logic.module_lookup.clear();
@@ -652,12 +612,9 @@ mod tests {
 
         let obj_id: ObjectID = 9001;
         let pos = Coord3D::new(250.0, 250.0, 0.0);
-        let obj = Arc::new(RwLock::new(Object::new_test(obj_id, 100.0)));
-        obj.write()
-            .expect("object write")
-            .set_position(&pos)
-            .expect("set position");
-        OBJECT_REGISTRY.register_object(obj_id, &obj);
+        let mut obj = Object::new_test(obj_id, 100.0);
+        obj.set_position(&pos).expect("set position");
+        OBJECT_REGISTRY.register_object(obj_id, obj);
 
         {
             let mut logic = get_game_logic().lock().unwrap_or_else(|e| e.into_inner());
@@ -704,19 +661,16 @@ mod tests {
         use std::sync::{Arc, RwLock};
 
         OBJECT_REGISTRY.clear();
-        let obj = Arc::new(RwLock::new(Object::new_test(4242, 10.0)));
+        OBJECT_REGISTRY.register_object(4242, Object::new_test(4242, 10.0));
         {
             let mut logic = get_game_logic().lock().unwrap_or_else(|e| e.into_inner());
-            logic.objects.insert(4242, Arc::clone(&obj));
+            logic.objects.insert(4242, ());
             logic.all_objects.push(4242);
         }
-        assert!(
-            OBJECT_REGISTRY.contains(4242),
-            "C++ GameLogic.objects is authority when factory registry store is empty"
-        );
+        assert!(OBJECT_REGISTRY.with_object(4242, |_| ()).is_some());
         let ids = OBJECT_REGISTRY.get_all_object_ids();
         assert!(ids.contains(&4242), "get_all_object_ids={ids:?}");
-        assert!(OBJECT_REGISTRY.get_object(4242).is_some());
+        assert!(OBJECT_REGISTRY.with_object(4242, |_| ()).is_some());
         {
             let mut logic = get_game_logic().lock().unwrap_or_else(|e| e.into_inner());
             logic.objects.remove(&4242);
@@ -735,18 +689,30 @@ mod tests {
         OBJECT_REGISTRY.clear();
 
         let mut logic = GameLogic::new();
-        let first = Arc::new(RwLock::new(Object::new_test(44, 100.0)));
-        let second = Arc::new(RwLock::new(Object::new_test(55, 100.0)));
+        OBJECT_REGISTRY.register_object(44, Object::new_test(44, 100.0));
+        OBJECT_REGISTRY.register_object(55, Object::new_test(55, 100.0));
 
-        assert_eq!(logic.register_object(Arc::clone(&first)).unwrap(), 44);
-        assert_eq!(logic.register_object(Arc::clone(&second)).unwrap(), 55);
+        assert_eq!(logic.register_object(44).unwrap(), 44);
+        assert_eq!(logic.register_object(55).unwrap(), 55);
 
         // C++ GameLogic.cpp:3866 obj->prependToList(&m_objList) — newest first.
         assert_eq!(logic.all_objects, vec![55, 44]);
-        assert_eq!(second.read().unwrap().get_next_object_id(), Some(44));
-        assert_eq!(second.read().unwrap().get_prev_object_id(), None);
-        assert_eq!(first.read().unwrap().get_prev_object_id(), Some(55));
-        assert_eq!(first.read().unwrap().get_next_object_id(), None);
+        assert_eq!(
+            OBJECT_REGISTRY.with_object(55, |o| o.get_next_object_id()),
+            Some(Some(44))
+        );
+        assert_eq!(
+            OBJECT_REGISTRY.with_object(55, |o| o.get_prev_object_id()),
+            Some(None)
+        );
+        assert_eq!(
+            OBJECT_REGISTRY.with_object(44, |o| o.get_prev_object_id()),
+            Some(Some(55))
+        );
+        assert_eq!(
+            OBJECT_REGISTRY.with_object(44, |o| o.get_next_object_id()),
+            Some(None)
+        );
 
         OBJECT_REGISTRY.clear();
     }
@@ -852,14 +818,14 @@ mod tests {
         let mut logic = GameLogic::new();
         let mut obj = Object::new_test(77, 100.0);
         let _ = obj.set_position(&Coord3D::new(5.0, 6.0, 7.0));
-        let arc = std::sync::Arc::new(std::sync::RwLock::new(obj));
-        logic.objects.insert(77, Arc::clone(&arc));
+        OBJECT_REGISTRY.register_object(77, obj);
+        logic.objects.insert(77, ());
         logic.all_objects = vec![77];
         logic.destroy_object(77);
-        let guard = arc.read().expect("read");
         assert!(
-            guard.is_destroyed(),
-            "C++ sets OBJECT_STATUS_DESTROYED inside destroyObject"
+            OBJECT_REGISTRY
+                .with_object(77, |guard| guard.is_destroyed())
+                .unwrap_or(false),
         );
         assert!(
             logic.dead_objects.contains(&77),
@@ -882,10 +848,10 @@ mod tests {
         // C++ GameLogic.cpp:2449-2510 — iterator re-evaluates end() so a
         // sub-object queued during processDestroyList is deleted same frame.
         let mut logic = GameLogic::new();
-        let parent = Arc::new(RwLock::new(Object::new_test(11, 100.0)));
-        let child = Arc::new(RwLock::new(Object::new_test(22, 100.0)));
-        logic.objects.insert(11, Arc::clone(&parent));
-        logic.objects.insert(22, Arc::clone(&child));
+        OBJECT_REGISTRY.register_object(11, Object::new_test(11, 100.0));
+        OBJECT_REGISTRY.register_object(22, Object::new_test(22, 100.0));
+        logic.objects.insert(11, ());
+        logic.objects.insert(22, ());
         logic.all_objects = vec![22, 11];
         logic.dead_objects.push(11);
         GameLogic::test_queue_cleanup_cascade(22);
@@ -934,13 +900,14 @@ mod tests {
         }
 
         let mut logic = GameLogic::new();
-        let arc = Arc::new(RwLock::new(obj));
-        logic.objects.insert(88, Arc::clone(&arc));
+        OBJECT_REGISTRY.register_object(88, obj);
+        logic.objects.insert(88, ());
         logic.all_objects = vec![88];
         logic.destroy_object(88);
         assert!(
-            arc.read().unwrap().is_destroyed(),
-            "C++ destroyObject sets OBJECT_STATUS_DESTROYED immediately"
+            OBJECT_REGISTRY
+                .with_object(88, |o| o.is_destroyed())
+                .unwrap_or(false),
         );
         let src = include_str!("impl_lifecycle.rs");
         let destroy_fn = src
@@ -985,9 +952,8 @@ mod tests {
         save_logic.frame = 42;
         let mut obj = Object::new_test(11, 100.0);
         let _ = obj.set_position(&Coord3D::new(1.0, 2.0, 3.0));
-        save_logic
-            .register_object(std::sync::Arc::new(std::sync::RwLock::new(obj)))
-            .unwrap();
+        OBJECT_REGISTRY.register_object(11, obj);
+        save_logic.register_object(11).unwrap();
 
         let path = std::env::temp_dir().join(format!(
             "generals_xfer_v10_{}_{}.bin",
@@ -1015,13 +981,13 @@ mod tests {
             load_logic.find_toc_entry_by_name("TestObject").is_some(),
             "C++ xferObjectTOC must survive roundtrip"
         );
-        let loaded = load_logic
-            .find_object_by_id(11)
-            .expect("object from TOC block");
-        let guard = loaded.read().unwrap();
-        assert_eq!(guard.get_position().x, 1.0);
-        assert_eq!(guard.get_position().y, 2.0);
-        assert_eq!(guard.get_position().z, 3.0);
+        assert!(load_logic.find_object_by_id(11), "object from TOC block");
+        let pos = OBJECT_REGISTRY
+            .with_object(11, |guard| *guard.get_position())
+            .expect("loaded object");
+        assert_eq!(pos.x, 1.0);
+        assert_eq!(pos.y, 2.0);
+        assert_eq!(pos.z, 3.0);
         assert_eq!(
             load_logic.get_object_id_counter(),
             1,

@@ -292,13 +292,9 @@ impl WeaponTemplate {
         let Some(victim_id) = victim_obj else {
             return false;
         };
-        let Some(victim_obj) = TheGameLogic::find_object_by_id(victim_id) else {
-            return false;
-        };
-        let Ok(victim_guard) = victim_obj.read() else {
-            return false;
-        };
-        victim_guard.is_kind_of(KindOf::Infantry)
+        crate::object::registry::OBJECT_REGISTRY
+            .with_object(victim_id, |victim_guard| victim_guard.is_kind_of(KindOf::Infantry))
+            .unwrap_or(false)
     }
 
     fn effective_scatter_radius(&self, target_is_infantry: bool) -> f32 {
@@ -546,138 +542,94 @@ impl WeaponTemplate {
         projectile_launcher: ObjectID,
         projectile: ObjectID,
         thing_we_collided_with: ObjectID,
-        intended_victim_id: ObjectID, // Could be INVALID_OBJECT_ID for position shots
+        intended_victim_id: ObjectID,
     ) -> bool {
-        // Wave 356: empty dual-world → false.
-        if dual_world_registry_unavailable() {
-            return false;
-        }
-
-        let Some(projectile_obj) = crate::helpers::TheGameLogic::find_object_by_id(projectile)
-        else {
-            return false;
-        };
-        let Some(collided_obj) =
-            crate::helpers::TheGameLogic::find_object_by_id(thing_we_collided_with)
-        else {
-            return false;
-        };
-
-        let Ok(projectile_guard) = projectile_obj.read() else {
-            return false;
-        };
-        let Ok(collided_guard) = collided_obj.read() else {
-            return false;
-        };
-
-        // Always collide with intended target.
-        if collided_guard.get_id() == intended_victim_id {
+        if intended_victim_id != INVALID_ID && thing_we_collided_with == intended_victim_id {
             return true;
         }
 
-        if let Some(launcher_obj) =
-            crate::helpers::TheGameLogic::find_object_by_id(projectile_launcher)
-        {
-            if let Ok(launcher_guard) = launcher_obj.read() {
-                // Never hit your own launcher.
-                if launcher_guard.get_id() == collided_guard.get_id() {
+        let Some(decision) = crate::object::registry::OBJECT_REGISTRY.with_object(projectile, |projectile_guard| {
+            crate::object::registry::OBJECT_REGISTRY.with_object(thing_we_collided_with, |collided_guard| {
+                if let Some(reject_self) = crate::object::registry::OBJECT_REGISTRY.with_object(
+                    projectile_launcher,
+                    |launcher_guard| {
+                        launcher_guard.get_id() == collided_guard.get_id()
+                            || launcher_guard.get_contained_by() == Some(collided_guard.get_id())
+                    },
+                ) {
+                    if reject_self {
+                        return false;
+                    }
+                }
+
+                if matches!(
+                    self.damage_type,
+                    DamageType::Flame | DamageType::ParticleBeam
+                ) && collided_guard.test_status(crate::common::ObjectStatusTypes::Burned)
+                {
                     return false;
                 }
 
-                // If our launcher is inside the collided object, ignore collision.
-                if launcher_guard.get_contained_by() == Some(collided_guard.get_id()) {
+                if collided_guard.is_kind_of(KindOf::FSAirfield)
+                    && intended_victim_id != INVALID_ID
+                    && collided_guard
+                        .with_parking_place_behavior(|parking| {
+                            parking.has_reserved_space(intended_victim_id)
+                        })
+                        .unwrap_or(false)
+                {
                     return false;
                 }
-            }
-        }
 
-        // Never bother burning already-burned things.
-        if matches!(
-            self.get_damage_type(),
-            DamageType::Flame | DamageType::ParticleBeam
-        ) && collided_guard.test_status(ObjectStatusTypes::Burned)
-        {
+                if let Some(ai) = collided_guard.get_ai() {
+                    if let Ok(ai_guard) = ai.lock() {
+                        let mut offset = Coord3D::ZERO;
+                        if ai_guard.get_sneaky_targeting_offset(&mut offset) {
+                            return false;
+                        }
+                    }
+                }
+
+                let mut required_mask = 0u32;
+                match projectile_guard.relationship_to(collided_guard) {
+                    Relationship::Allies => required_mask |= WeaponCollideMask::ALLIES,
+                    Relationship::Enemies => required_mask |= WeaponCollideMask::ENEMIES,
+                    _ => {}
+                }
+
+                if collided_guard.is_kind_of(KindOf::Structure) {
+                    if collided_guard.get_controlling_player_id()
+                        == projectile_guard.get_controlling_player_id()
+                    {
+                        required_mask |= WeaponCollideMask::CONTROLLED_STRUCTURES;
+                    } else {
+                        required_mask |= WeaponCollideMask::STRUCTURES;
+                    }
+                }
+                if collided_guard.is_kind_of(KindOf::Shrubbery) {
+                    required_mask |= WeaponCollideMask::SHRUBBERY;
+                }
+                if collided_guard.is_kind_of(KindOf::Projectile) {
+                    required_mask |= WeaponCollideMask::PROJECTILE;
+                }
+                if collided_guard.get_template().get_fence_width() > 0.0 {
+                    required_mask |= WeaponCollideMask::WALLS;
+                }
+                if collided_guard.is_kind_of(KindOf::SmallMissile) {
+                    required_mask |= WeaponCollideMask::SMALL_MISSILES;
+                }
+                if collided_guard.is_kind_of(KindOf::BallisticMissile) {
+                    required_mask |= WeaponCollideMask::BALLISTIC_MISSILES;
+                }
+
+                (self.collide_mask.bits() & required_mask) != 0
+            })
+        }) else {
             return false;
-        }
-
-        // Special case: projectiles targeting parked planes should not detonate on the airfield.
-        if collided_guard.is_kind_of(KindOf::FSAirfield)
-            && intended_victim_id != INVALID_OBJECT_ID
-            && collided_guard
-                .with_parking_place_behavior(|parking| {
-                    parking.has_reserved_space(intended_victim_id)
-                })
-                .unwrap_or(false)
-        {
-            return false;
-        }
-
-        // If target has a sneaky targeting offset, do not collide this frame.
-        if let Some(ai_guard) = collided_guard.get_ai() {
-            let mut offset = Coord3D::new(0.0, 0.0, 0.0);
-            if ai_guard.get_sneaky_targeting_offset(&mut offset) {
-                return false;
-            }
-        }
-
-        let mut required_mask = 0u32;
-        match projectile_guard.relationship_to(&collided_guard) {
-            Relationship::Allies => {
-                required_mask |= WeaponCollideMask::ALLIES;
-            }
-            Relationship::Enemies => {
-                required_mask |= WeaponCollideMask::ENEMIES;
-            }
-            _ => {}
-        }
-
-        if collided_guard.is_kind_of(KindOf::Structure) {
-            if collided_guard.get_controlling_player_id()
-                == projectile_guard.get_controlling_player_id()
-            {
-                required_mask |= WeaponCollideMask::CONTROLLED_STRUCTURES;
-            } else {
-                required_mask |= WeaponCollideMask::STRUCTURES;
-            }
-        }
-        if collided_guard.is_kind_of(KindOf::Shrubbery) {
-            required_mask |= WeaponCollideMask::SHRUBBERY;
-        }
-        if collided_guard.is_kind_of(KindOf::Projectile) {
-            required_mask |= WeaponCollideMask::PROJECTILE;
-        }
-        if collided_guard.is_kind_of(KindOf::Barrier) {
-            required_mask |= WeaponCollideMask::WALLS;
-        }
-
-        if collided_guard.is_kind_of(KindOf::SmallMissile) {
-            required_mask |= WeaponCollideMask::SMALL_MISSILES;
-        }
-        if collided_guard.is_kind_of(KindOf::BallisticMissile) {
-            required_mask |= WeaponCollideMask::BALLISTIC_MISSILES;
-        }
-
-        for flag in [
-            WeaponCollideMask::ALLIES,
-            WeaponCollideMask::ENEMIES,
-            WeaponCollideMask::STRUCTURES,
-            WeaponCollideMask::SHRUBBERY,
-            WeaponCollideMask::PROJECTILE,
-            WeaponCollideMask::WALLS,
-            WeaponCollideMask::SMALL_MISSILES,
-            WeaponCollideMask::BALLISTIC_MISSILES,
-            WeaponCollideMask::CONTROLLED_STRUCTURES,
-        ] {
-            if (required_mask & flag) != 0 && self.collide_mask.contains(flag) {
-                return true;
-            }
-        }
-
-        false
+        };
+        decision.unwrap_or(false)
     }
 
-    /// Snapshot this template as the store's `WeaponTemplate`.
-    /// Damage, speed, and reload fields are copied unchanged.
     fn store_template(&self) -> super::template::WeaponTemplate {
         let mut template = super::template::WeaponTemplate::new(self.name.clone());
         template.name_key = self.name_key;
@@ -828,9 +780,10 @@ impl WeaponTemplate {
         // Bridge attack point selection (C++ lines 819-831)
         // Bridges have two targetable points at either end - select the closer one
         if let Some(victim_id) = actual_victim_obj {
-            if let Some(victim_obj_arc) = TheGameLogic::find_object_by_id(victim_id) {
-                if let Ok(victim_guard) = victim_obj_arc.read() {
-                    if victim_guard.is_kind_of(KindOf::Bridge) {
+            let is_bridge = crate::object::registry::OBJECT_REGISTRY
+                .with_object(victim_id, |victim_guard| victim_guard.is_kind_of(KindOf::Bridge))
+                .unwrap_or(false);
+            if is_bridge {
                         // Get bridge attack points
                         let mut info = crate::terrain::BridgeAttackInfo::new();
                         if let Some(_terrain) = TheTerrainLogic::get() {
@@ -854,8 +807,6 @@ impl WeaponTemplate {
                             // Use attack point 1 (closer to source, or equal distance)
                             actual_victim_pos = info.attack_point1;
                         }
-                    }
-                }
             }
         }
 
@@ -892,18 +843,18 @@ impl WeaponTemplate {
         // controlled plays no fire FX at all — pretend the FX was handled so
         // both the drawable muzzle call and the FXList fallback are skipped.
         let mut stealth_suppressed = false;
-        if let Some(source_arc) = TheGameLogic::find_object_by_id(source_id) {
-            if let Ok(source_guard) = source_arc.read() {
-                if !source_guard.is_locally_controlled()
+        if crate::object::registry::OBJECT_REGISTRY
+            .with_object(source_id, |source_guard| {
+                !source_guard.is_locally_controlled()
                     && source_guard.test_status(ObjectStatusTypes::Stealthed)
                     && !source_guard.test_status(ObjectStatusTypes::Detected)
                     && !source_guard.test_status(ObjectStatusTypes::Disguised)
                     && !source_guard.is_kind_of(KindOf::Mine)
                     && !self.is_play_fx_when_stealthed()
-                {
-                    stealth_suppressed = true;
-                }
-            }
+            })
+            .unwrap_or(false)
+        {
+            stealth_suppressed = true;
         }
 
         let muzzle_fx = if fx_suspended {
@@ -915,12 +866,10 @@ impl WeaponTemplate {
         };
         let mut handled_fire_fx = stealth_suppressed;
         if !stealth_suppressed {
-            if let Some(source_arc) = TheGameLogic::find_object_by_id(source_id) {
-                let drawable = source_arc
-                    .read()
-                    .ok()
-                    .and_then(|guard| guard.get_drawable());
-                if let Some(drawable) = drawable {
+            if let Some(drawable) = crate::object::registry::OBJECT_REGISTRY
+                .with_object(source_id, |guard| guard.get_drawable())
+                .flatten()
+            {
                     if let Ok(mut draw_guard) = drawable.write() {
                         handled_fire_fx = draw_guard.handle_weapon_fire_fx(
                             crate::common::WeaponSlotType::from(weapon_slot),
@@ -931,7 +880,6 @@ impl WeaponTemplate {
                             self.get_primary_damage_radius(bonus),
                         );
                     }
-                }
             }
         }
 
@@ -968,10 +916,10 @@ impl WeaponTemplate {
         let mut target_layer = PathfindLayerEnum::Ground;
 
         if let Some(victim_id) = actual_victim_obj {
-            if let Some(victim_obj) = TheGameLogic::find_object_by_id(victim_id) {
-                if let Ok(victim_guard) = victim_obj.read() {
-                    target_layer = victim_guard.get_layer();
-                }
+            if let Some(layer) = crate::object::registry::OBJECT_REGISTRY
+                .with_object(victim_id, |victim_guard| victim_guard.get_layer())
+            {
+                target_layer = layer;
             }
         }
 
@@ -1050,16 +998,18 @@ impl WeaponTemplate {
                 let is_missile = self.projectile_has_behavior("MissileAIUpdate")
                     || self.projectile_has_behavior("SmartBombTargetHomingUpdate");
                 if is_missile {
-                    if let Some(victim_arc) = TheGameLogic::find_object_by_id(victim_id) {
-                        if let Ok(mut victim_guard) = victim_arc.write() {
-                            for behavior in victim_guard.get_behavior_modules_mut() {
-                                if let Some(countermeasures) =
-                                    behavior.get_countermeasures_behavior_interface()
-                                {
-                                    let _ = countermeasures
-                                        .report_missile_for_countermeasures(projectile_id);
-                                    break;
-                                }
+                    if let Some(behaviors) = crate::object::registry::OBJECT_REGISTRY
+                        .with_object(victim_id, |victim_guard| {
+                            victim_guard.get_behavior_modules_mut()
+                        })
+                    {
+                        for behavior in behaviors {
+                            if let Some(countermeasures) =
+                                behavior.get_countermeasures_behavior_interface()
+                            {
+                                let _ = countermeasures
+                                    .report_missile_for_countermeasures(projectile_id);
+                                break;
                             }
                         }
                     }
@@ -1233,24 +1183,11 @@ impl WeaponTemplate {
             return primary_damage;
         };
 
-        let source_id =
-            if let Some(source_arc) = crate::helpers::TheGameLogic::find_object_by_id(source_obj) {
-                if let Ok(source_guard) = source_arc.read() {
-                    source_guard.get_id()
-                } else {
-                    source_obj
-                }
-            } else {
-                source_obj
-            };
+        let source_id = crate::object::registry::OBJECT_REGISTRY
+            .with_object(source_obj, |source_guard| source_guard.get_id())
+            .unwrap_or(source_obj);
 
-        let Some(victim_arc) = crate::helpers::TheGameLogic::find_object_by_id(victim_id) else {
-            return primary_damage;
-        };
-        let Ok(victim_guard) = victim_arc.read() else {
-            return primary_damage;
-        };
-
+        let estimated = crate::object::registry::OBJECT_REGISTRY.with_object(victim_id, |victim_guard| {
         if victim_guard.is_kind_of(KindOf::Shrubbery) {
             return if self.death_type == DeathType::Burned {
                 1.0
@@ -1296,6 +1233,8 @@ impl WeaponTemplate {
             ..Default::default()
         };
         victim_guard.estimate_damage(&damage_info)
+        });
+        estimated.unwrap_or(primary_damage)
     }
 
     // ===== PRIVATE IMPLEMENTATION METHODS =====
@@ -1321,12 +1260,9 @@ impl WeaponTemplate {
         // 2. Implement object registry with ID-based lookup
         // 3. Return object position or ObjectNotFound error
         //
-        if let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id) {
-            if let Ok(guard) = obj.read() {
-                return Ok(*guard.get_position());
-            }
-        }
-        Err(GameLogicError::InvalidObject(obj_id))
+        crate::object::registry::OBJECT_REGISTRY
+            .with_object(obj_id, |guard| *guard.get_position())
+            .ok_or(GameLogicError::InvalidObject(obj_id))
     }
 
     /// Get veterancy level from object
@@ -1349,12 +1285,9 @@ impl WeaponTemplate {
         // NOTE: Requires object manager integration
         // Objects track veterancy through ExperienceTracker module
         //
-        if let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id) {
-            if let Ok(guard) = obj.read() {
-                return guard.get_veterancy_level();
-            }
-        }
-        VeterancyLevel::Regular
+        crate::object::registry::OBJECT_REGISTRY
+            .with_object(obj_id, |guard| guard.get_veterancy_level())
+            .unwrap_or(VeterancyLevel::Regular)
     }
 
     /// Get all objects within a radius (for area damage)
@@ -1391,60 +1324,52 @@ impl WeaponTemplate {
             return false;
         }
 
-        let Some(target) = crate::helpers::TheGameLogic::find_object_by_id(target_id) else {
-            return false;
-        };
-        let Ok(target_guard) = target.read() else {
-            return false;
-        };
-        if target_guard.is_destroyed() {
-            return false;
-        }
-
-        let Some(source) = crate::helpers::TheGameLogic::find_object_by_id(source_id) else {
-            if (affects_mask & WeaponAffectsMask::DOESNT_AFFECT_AIRBORNE) != 0
-                && target_guard.is_significantly_above_terrain()
-            {
-                return false;
+        let Some(decision) = crate::object::registry::OBJECT_REGISTRY.with_object(target_id, |target_guard| {
+            if target_guard.is_destroyed() {
+                return Some(false);
             }
-            return true;
-        };
-        let Ok(source_guard) = source.read() else {
-            return false;
-        };
-
-        if (affects_mask & WeaponAffectsMask::SELF) == 0 {
-            if source_id == target_id || source_guard.get_producer_id() == target_id {
-                return false;
-            }
-        }
-
-        if (affects_mask & WeaponAffectsMask::DOESNT_AFFECT_SIMILAR) != 0 {
-            let relationship = target_guard.relationship_to(&source_guard);
-            if matches!(relationship, Relationship::Allies) {
-                if source_guard
-                    .get_template()
-                    .is_equivalent_to(target_guard.get_template().as_ref())
+            let source_decision = crate::object::registry::OBJECT_REGISTRY.with_object(source_id, |source_guard| {
+                if (affects_mask & WeaponAffectsMask::SELF) == 0
+                    && (source_id == target_id || source_guard.get_producer_id() == target_id)
                 {
                     return false;
                 }
+                if (affects_mask & WeaponAffectsMask::DOESNT_AFFECT_SIMILAR) != 0 {
+                    let relationship = target_guard.relationship_to(source_guard);
+                    if matches!(relationship, Relationship::Allies)
+                        && source_guard
+                            .get_template()
+                            .is_equivalent_to(target_guard.get_template().as_ref())
+                    {
+                        return false;
+                    }
+                }
+                if (affects_mask & WeaponAffectsMask::DOESNT_AFFECT_AIRBORNE) != 0
+                    && target_guard.is_significantly_above_terrain()
+                {
+                    return false;
+                }
+                let relationship = target_guard.relationship_to(source_guard);
+                let required_mask = match relationship {
+                    Relationship::Allies => WeaponAffectsMask::ALLIES,
+                    Relationship::Enemies => WeaponAffectsMask::ENEMIES,
+                    _ => WeaponAffectsMask::NEUTRALS,
+                };
+                (affects_mask & required_mask) != 0
+            });
+            if let Some(source_decision) = source_decision {
+                return Some(source_decision);
             }
-        }
-
-        if (affects_mask & WeaponAffectsMask::DOESNT_AFFECT_AIRBORNE) != 0
-            && target_guard.is_significantly_above_terrain()
-        {
+            if (affects_mask & WeaponAffectsMask::DOESNT_AFFECT_AIRBORNE) != 0
+                && target_guard.is_significantly_above_terrain()
+            {
+                return Some(false);
+            }
+            Some(true)
+        }) else {
             return false;
-        }
-
-        let relationship = target_guard.relationship_to(&source_guard);
-        let required_mask = match relationship {
-            Relationship::Allies => WeaponAffectsMask::ALLIES,
-            Relationship::Enemies => WeaponAffectsMask::ENEMIES,
-            _ => WeaponAffectsMask::NEUTRALS,
         };
-
-        (affects_mask & required_mask) != 0
+        decision.unwrap_or(false)
     }
 
     /// Apply damage to a specific object
@@ -1500,9 +1425,9 @@ impl WeaponTemplate {
         // 3. BodyModule for health management
         // 4. ExperienceTracker for veterancy
         //
-        let Some(target_obj) = crate::helpers::TheGameLogic::find_object_by_id(target_id) else {
+        if !crate::object::registry::OBJECT_REGISTRY.contains(target_id) {
             return Err(GameLogicError::InvalidObject(target_id));
-        };
+        }
 
         let mut damage_info = DamageInfo::default();
         damage_info.input.source_id = source_id;
@@ -1511,17 +1436,23 @@ impl WeaponTemplate {
         damage_info.input.damage_status_type = damage_status;
         damage_info.input.amount = damage_amount;
 
-        if let Some(source_obj) = crate::helpers::TheGameLogic::find_object_by_id(source_id) {
-            if let Ok(source_guard) = source_obj.read() {
-                damage_info.input.source_template = Some(source_guard.get_template().clone());
-                if let Some(player_id) = source_guard.get_controlling_player_id() {
+        if let Some((template, player_id)) = crate::object::registry::OBJECT_REGISTRY.with_object(
+            source_id,
+            |source_guard| {
+                (
+                    Some(source_guard.get_template().clone()),
+                    source_guard.get_controlling_player_id(),
+                )
+            },
+        ) {
+            damage_info.input.source_template = template;
+            if let Some(player_id) = player_id {
                     let bit = if (0..16).contains(&player_id) {
                         1u32 << player_id
                     } else {
                         0
                     };
                     damage_info.input.source_player_mask = PlayerMaskType::from_bits_truncate(bit);
-                }
             }
         }
 
@@ -1539,9 +1470,9 @@ impl WeaponTemplate {
         }
 
         damage_info.sync_from_input();
-        if let Ok(mut guard) = target_obj.write() {
+        crate::object::registry::OBJECT_REGISTRY.with_object_mut(target_id, |guard| {
             let _ = guard.attempt_damage(&mut damage_info);
-        }
+        });
 
         Ok(())
     }
@@ -1717,17 +1648,16 @@ impl WeaponTemplate {
                 if allowed_angle < std::f32::consts::PI {
                     // Directional cone damage - only affect targets in front of the source
                     // Get source object to determine facing direction
-                    let Some(source_obj_arc) =
-                        crate::helpers::TheGameLogic::find_object_by_id(source_obj)
+                    let Some((x_axis, source_pos)) = crate::object::registry::OBJECT_REGISTRY
+                        .with_object(source_obj, |source_guard| {
+                            (
+                                source_guard.get_transform_matrix().x_axis,
+                                *source_guard.get_position(),
+                            )
+                        })
                     else {
-                        continue; // Can't determine source direction, bail
+                        continue;
                     };
-                    let Ok(source_guard) = source_obj_arc.read() else {
-                        continue; // Can't read source, bail
-                    };
-
-                    let x_axis = source_guard.get_transform_matrix().x_axis;
-                    let source_pos = source_guard.get_position();
                     let dx = target_pos.x - source_pos.x;
                     let dy = target_pos.y - source_pos.y;
                     let dz = target_pos.z - source_pos.z;
@@ -1911,62 +1841,64 @@ impl WeaponTemplate {
         );
 
         if let Some(projectile_template) = TheObjectFactory::find_template(&self.projectile_name) {
-            let mut owning_player = None;
-            let mut projectile_team = None;
-            let mut source_veterancy = crate::common::VeterancyLevel::Regular;
+            let (owning_player, projectile_team, source_veterancy) =
+                crate::object::registry::OBJECT_REGISTRY
+                    .with_object(source_obj, |source_guard| {
+                        let owning_player = source_guard.get_controlling_player();
+                        let projectile_team = owning_player
+                            .and_then(|player_index| {
+                                crate::player::player_list().read().ok().and_then(|list| {
+                                    list.get_player(player_index)
+                                        .and_then(|player| player.get_default_team_id())
+                                })
+                            })
+                            .or_else(|| source_guard.get_team_id());
+                        (
+                            owning_player,
+                            projectile_team,
+                            source_guard.get_veterancy_level(),
+                        )
+                    })
+                    .unwrap_or((None, None, crate::common::VeterancyLevel::Regular));
 
-            if let Some(source_arc) = TheGameLogic::find_object_by_id(source_obj) {
-                if let Ok(source_guard) = source_arc.read() {
-                    owning_player = source_guard.get_controlling_player();
-                    source_veterancy = source_guard.get_veterancy_level();
-                    if let Some(player_arc) = &owning_player {
-                        if let Ok(player_guard) = player_arc.read() {
-                            projectile_team = player_guard.get_default_team();
-                        }
-                    }
-                    if projectile_team.is_none() {
-                        projectile_team = source_guard.get_team();
-                    }
-                }
-            }
-
-            let projectile_arc = TheObjectFactory::new_object(
-                projectile_template,
-                projectile_team.as_ref().map(Arc::clone),
-            )
+            let projectile_id = TheObjectFactory::new_object(projectile_template, None)
             .map_err(|e| {
                 GameLogicError::Configuration(format!("Projectile create failed: {}", e))
             })?;
+            crate::object::registry::OBJECT_REGISTRY.with_object_mut(projectile_id, |proj| {
+                let _ = proj.set_team_id(projectile_team);
+            });
 
-            let projectile_id = projectile_arc
-                .read()
-                .map_err(|_| GameLogicError::Threading("Projectile lock poisoned".into()))?
-                .get_id();
-
-            {
-                let mut proj_guard = projectile_arc
-                    .write()
-                    .map_err(|_| GameLogicError::Threading("Projectile lock poisoned".into()))?;
+            crate::object::registry::OBJECT_REGISTRY.with_object_mut(projectile_id, |proj_guard| {
                 let _ = proj_guard.set_position(source_pos);
-
-                if let Some(source_arc) = TheGameLogic::find_object_by_id(source_obj) {
-                    if let Ok(source_guard) = source_arc.read() {
-                        proj_guard.set_producer(Some(&source_guard));
-                        if source_guard.notify_special_power_completion_die() {
-                            proj_guard.set_special_power_completion_creator(INVALID_OBJECT_ID);
-                        } else {
-                            proj_guard.set_special_power_completion_creator(source_obj);
-                        }
+            });
+            if let Some((producer_id, notify_die)) =
+                crate::object::registry::OBJECT_REGISTRY.with_object(source_obj, |source_guard| {
+                    (
+                        source_guard.get_id(),
+                        source_guard.notify_special_power_completion_die(),
+                    )
+                })
+            {
+                crate::object::registry::OBJECT_REGISTRY.with_object_mut(projectile_id, |proj_guard| {
+                    proj_guard.set_producer_id(producer_id);
+                    if notify_die {
+                        proj_guard.set_special_power_completion_creator(INVALID_OBJECT_ID);
+                    } else {
+                        proj_guard.set_special_power_completion_creator(source_obj);
                     }
-                }
+                });
             }
 
             if let Some(player_arc) = owning_player {
                 if let Ok(player_guard) = player_arc.read() {
                     if player_guard.get_num_battle_plans_active() > 0 {
-                        if let Ok(mut proj_guard) = projectile_arc.write() {
-                            player_guard.apply_battle_plan_bonuses_for_object(&mut proj_guard);
-                        }
+                        crate::object::registry::OBJECT_REGISTRY.with_object_mut(
+                            projectile_id,
+                            |proj_guard| {
+                                player_guard.apply_battle_plan_bonuses_for_object(proj_guard);
+                            },
+                        );
                     }
                 }
             }
@@ -1976,94 +1908,89 @@ impl WeaponTemplate {
                 .map(|tmpl| Arc::new(tmpl.clone()));
 
             let mut launched = false;
-            if let Ok(mut proj_guard) = projectile_arc.write() {
-                let modules = proj_guard.behavior_modules();
-                drop(proj_guard);
+            let modules = crate::object::registry::OBJECT_REGISTRY
+                .with_object(projectile_id, |proj_guard| proj_guard.behavior_modules())
+                .unwrap_or_default();
 
-                for module in modules {
-                    let mut did_launch = false;
-                    module.with_module(|behavior| {
-                        let Some(projectile_behavior) = module_projectile_launch_kind(behavior)
-                        else {
-                            return;
-                        };
+            for module in modules {
+                let mut did_launch = false;
+                module.with_module(|behavior| {
+                    let Some(projectile_behavior) = module_projectile_launch_kind(behavior) else {
+                        return;
+                    };
 
-                        match projectile_behavior {
-                            ProjectileLaunchKindMut::MissileAIUpdateBehavior(missile) => {
-                                missile.projectile_launch_at_object_or_position(
-                                    victim_obj,
-                                    target_pos,
-                                    Some(source_obj),
-                                    weapon_slot,
-                                    specific_barrel_to_use,
-                                    None,
-                                    exhaust.clone(),
-                                );
-                                did_launch = true;
-                            }
-                            ProjectileLaunchKindMut::NeutronMissileUpdate(neutron) => {
-                                if let Some(launcher_arc) =
-                                    TheGameLogic::find_object_by_id(source_obj)
-                                {
-                                    if let Ok(launcher_guard) = launcher_arc.read() {
-                                        if let Some(victim_id) = victim_obj {
-                                            if let Some(victim_arc) =
-                                                TheGameLogic::find_object_by_id(victim_id)
-                                            {
-                                                if let Ok(victim_guard) = victim_arc.read() {
-                                                    neutron
-                                                        .projectile_launch_at_object_or_position(
-                                                            Some(&victim_guard),
-                                                            Some(target_pos),
-                                                            Some(&launcher_guard),
-                                                            map_weapon_slot_to_common(weapon_slot),
-                                                            specific_barrel_to_use,
-                                                            None,
-                                                            None,
-                                                        );
-                                                    did_launch = true;
-                                                }
-                                            }
-                                        } else {
-                                            neutron.projectile_launch_at_object_or_position(
-                                                None,
-                                                Some(target_pos),
-                                                Some(&launcher_guard),
-                                                map_weapon_slot_to_common(weapon_slot),
-                                                specific_barrel_to_use,
-                                                None,
-                                                None,
-                                            );
-                                            did_launch = true;
-                                        }
+                    match projectile_behavior {
+                        ProjectileLaunchKindMut::MissileAIUpdateBehavior(missile) => {
+                            missile.projectile_launch_at_object_or_position(
+                                victim_obj,
+                                target_pos,
+                                Some(source_obj),
+                                weapon_slot,
+                                specific_barrel_to_use,
+                                None,
+                                exhaust.clone(),
+                            );
+                            did_launch = true;
+                        }
+                        ProjectileLaunchKindMut::NeutronMissileUpdate(neutron) => {
+                            let launched_neutron = crate::object::registry::OBJECT_REGISTRY
+                                .with_object(source_obj, |launcher_guard| {
+                                    if let Some(victim_id) = victim_obj {
+                                        crate::object::registry::OBJECT_REGISTRY
+                                            .with_object(victim_id, |victim_guard| {
+                                                neutron.projectile_launch_at_object_or_position(
+                                                    Some(victim_guard),
+                                                    Some(target_pos),
+                                                    Some(launcher_guard),
+                                                    map_weapon_slot_to_common(weapon_slot),
+                                                    specific_barrel_to_use,
+                                                    None,
+                                                    None,
+                                                );
+                                            })
+                                            .is_some()
+                                    } else {
+                                        neutron.projectile_launch_at_object_or_position(
+                                            None,
+                                            Some(target_pos),
+                                            Some(launcher_guard),
+                                            map_weapon_slot_to_common(weapon_slot),
+                                            specific_barrel_to_use,
+                                            None,
+                                            None,
+                                        );
+                                        true
                                     }
-                                }
-                            }
-                            ProjectileLaunchKindMut::DumbProjectileBehavior(dumb) => {
-                                dumb.projectile_launch_at_object_or_position(
-                                    victim_obj,
-                                    target_pos,
-                                    source_obj,
-                                    weapon_slot,
-                                    specific_barrel_to_use,
-                                    None,
-                                );
+                                })
+                                .unwrap_or(false);
+                            if launched_neutron {
                                 did_launch = true;
                             }
                         }
-                    });
-
-                    if did_launch {
-                        launched = true;
-                        break;
+                        ProjectileLaunchKindMut::DumbProjectileBehavior(dumb) => {
+                            dumb.projectile_launch_at_object_or_position(
+                                victim_obj,
+                                target_pos,
+                                source_obj,
+                                weapon_slot,
+                                specific_barrel_to_use,
+                                None,
+                            );
+                            did_launch = true;
+                        }
                     }
+                });
+
+                if did_launch {
+                    launched = true;
+                    break;
                 }
             }
 
             if !launched {
-                if let Ok(mut proj_guard) = projectile_arc.write() {
+                crate::object::registry::OBJECT_REGISTRY.with_object_mut(projectile_id, |proj_guard| {
                     let _ = proj_guard.set_position(target_pos);
-                }
+                });
             }
 
             return Ok(Some(projectile_id));
@@ -2093,19 +2020,16 @@ impl WeaponTemplate {
 
         log::debug!("Creating laser object '{}'", self.laser_name);
 
-        let Some(source_arc) = crate::helpers::TheGameLogic::find_object_by_id(source_obj) else {
+        let Some(team_and_pos) = crate::object::registry::OBJECT_REGISTRY.with_object(
+            source_obj,
+            |source_guard| source_guard.get_team().map(|team| (team, *source_guard.get_position())),
+        ) else {
             return Err(GameLogicError::InvalidObject(source_obj));
         };
-        let (team_arc, source_pos) = {
-            let source_guard = source_arc.read().map_err(|_| {
-                GameLogicError::Threading("Failed to lock source object".to_string())
-            })?;
-            let Some(team_arc) = source_guard.get_team() else {
-                return Err(GameLogicError::Configuration(
-                    "Laser creation requires a source team".to_string(),
-                ));
-            };
-            (team_arc, *source_guard.get_position())
+        let Some((team_arc, source_pos)) = team_and_pos else {
+            return Err(GameLogicError::Configuration(
+                "Laser creation requires a source team".to_string(),
+            ));
         };
         let team_guard = team_arc
             .read()
@@ -2131,8 +2055,8 @@ impl WeaponTemplate {
         let end_pos = if let Some(pos) = victim_pos {
             *pos
         } else if let Some(target_id) = victim_obj {
-            crate::helpers::TheGameLogic::find_object_by_id(target_id)
-                .and_then(|target_arc| target_arc.read().ok().map(|guard| *guard.get_position()))
+            crate::object::registry::OBJECT_REGISTRY
+                .with_object(target_id, |guard| *guard.get_position())
                 .unwrap_or(source_pos)
         } else {
             source_pos
@@ -2144,15 +2068,6 @@ impl WeaponTemplate {
             laser_guard.drawable_modules_with_interface(ModuleInterfaceType::CLIENT_UPDATE);
         drop(laser_guard);
 
-        let source_guard = source_arc
-            .read()
-            .map_err(|_| GameLogicError::Threading("Failed to lock source object".to_string()))?;
-        let target_arc = victim_obj.and_then(crate::helpers::TheGameLogic::find_object_by_id);
-        let target_guard = match target_arc.as_ref() {
-            Some(target_arc) => target_arc.read().ok(),
-            None => None,
-        };
-        let target_ref = target_guard.as_deref();
         let end_pos_ref = victim_pos.or(if victim_obj.is_some() {
             None
         } else {
@@ -2163,8 +2078,8 @@ impl WeaponTemplate {
             module.with_module(|module| {
                 if let Some(laser_update) = module.get_laser_update_interface() {
                     laser_update.init_laser(
-                        Some(source_guard.get_id()),
-                        target_ref.map(|target| target.get_id()),
+                        Some(source_obj),
+                        victim_obj,
                         None,
                         end_pos_ref.map(|pos| pos.to_array()),
                         self.laser_bone_name.clone(),
@@ -3145,7 +3060,7 @@ mod tests {
         id: ObjectID,
         name: &str,
         kind_of: &str,
-    ) -> Arc<RwLock<crate::object::Object>> {
+    ) -> ObjectID {
         let mut template = crate::common::DefaultThingTemplate::new(name.to_string());
         let properties =
             std::collections::HashMap::from([("KindOf".to_string(), kind_of.to_string())]);
@@ -3158,12 +3073,13 @@ mod tests {
             None,
         )
         .expect("create weapon template collision object");
-        crate::system::game_logic::get_game_logic()
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .register_object(object.clone())
+        let object = std::sync::Arc::try_unwrap(object)
+            .expect("unique collision object")
+            .into_inner()
+            .expect("object lock");
+        crate::helpers::TheGameLogic::register_object(object)
             .expect("register weapon template collision object");
-        object
+        id
     }
 
     fn reset_collision_objects() {

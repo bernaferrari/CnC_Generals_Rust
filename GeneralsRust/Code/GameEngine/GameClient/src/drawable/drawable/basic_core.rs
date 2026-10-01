@@ -173,14 +173,12 @@ impl BasicDrawable {
         let Some(obj_id) = self.object_id else {
             return BodyDamageType::Pristine;
         };
-        let Some(arc) = OBJECT_REGISTRY.get_object(obj_id) else {
-            return BodyDamageType::Pristine;
-        };
-        let Ok(obj) = arc.read() else {
-            return BodyDamageType::Pristine;
-        };
-        obj.get_body_module()
-            .and_then(|body| body.lock().ok().map(|guard| guard.get_damage_state()))
+        OBJECT_REGISTRY
+            .with_object(obj_id, |obj| {
+                obj.get_body_module()
+                    .and_then(|body| body.lock().ok().map(|guard| guard.get_damage_state()))
+            })
+            .flatten()
             .unwrap_or(BodyDamageType::Pristine)
     }
 
@@ -202,22 +200,25 @@ impl BasicDrawable {
     ) -> Option<AudioEventRts> {
         use gamelogic::common::types::BodyDamageType;
         let obj_id = self.object_id?;
-        let obj_arc = OBJECT_REGISTRY.get_object(obj_id)?;
-        let obj = obj_arc.read().ok()?;
-        let tmpl = obj.get_template();
-        let logic = match dt {
-            BodyDamageType::Damaged => tmpl.get_sound_ambient_damaged(),
-            BodyDamageType::ReallyDamaged => tmpl.get_sound_ambient_really_damaged(),
-            BodyDamageType::Rubble => tmpl.get_sound_ambient_rubble(),
-            _ => tmpl.get_sound_ambient(),
-        }?;
-        if logic.get_event_name().is_empty() {
-            return None;
-        }
+        let event_name = OBJECT_REGISTRY.with_object(obj_id, |obj| {
+            let tmpl = obj.get_template();
+            let logic = match dt {
+                BodyDamageType::Damaged => tmpl.get_sound_ambient_damaged(),
+                BodyDamageType::ReallyDamaged => tmpl.get_sound_ambient_really_damaged(),
+                BodyDamageType::Rubble => tmpl.get_sound_ambient_rubble(),
+                _ => tmpl.get_sound_ambient(),
+            }?;
+            let name = logic.get_event_name();
+            if name.is_empty() {
+                None
+            } else {
+                Some(name.to_string())
+            }
+        })??;
         let mut event = AudioEventRts::new();
-        event.set_event_name(logic.get_event_name().to_string());
+        event.set_event_name(event_name);
         Some(event)
-    }
+}
 
     fn ambient_from_common_template(
         &self,
@@ -701,20 +702,7 @@ impl BasicDrawable {
 
         // Get the object and check if it has a contain module
         use gamelogic::object::registry::OBJECT_REGISTRY;
-        let Some(obj_arc) = OBJECT_REGISTRY.get_object(object_id) else {
-            return;
-        };
-        let Ok(obj_guard) = obj_arc.read() else {
-            return;
-        };
-
-        // Check if object has a contain module with visible contained units
-        let Some(contain) = obj_guard.get_contain() else {
-            return;
-        };
-
-        // Flash all visible contained drawables
-        // This matches C++ ContainModuleInterface::clientVisibleContainedFlashAsSelected()
+        let contain = OBJECT_REGISTRY.with_object(object_id, |obj| obj.get_contain())?;
         let Ok(contain_guard) = contain.lock() else {
             return;
         };
@@ -722,17 +710,9 @@ impl BasicDrawable {
         drop(contain_guard);
 
         // Wave 984: prefer contain module flash-as-selected (C++ parity).
-        drop(obj_guard);
-        let Some(obj_arc) = OBJECT_REGISTRY.get_object(object_id) else {
-            return;
-        };
-        let Ok(obj_guard) = obj_arc.read() else {
-            return;
-        };
-        if let Some(contain) = obj_guard.get_contain() {
-            if let Ok(mut contain_guard) = contain.lock() {
-                let _ = contain_guard.client_visible_contained_flash_as_selected();
-            }
+        let contain = OBJECT_REGISTRY.with_object(object_id, |obj| obj.get_contain())?;
+        if let Ok(mut contain_guard) = contain.lock() {
+            let _ = contain_guard.client_visible_contained_flash_as_selected();
         }
         let _ = contained_count;
     }
@@ -754,10 +734,10 @@ impl BasicDrawable {
         let Some(object_id) = self.object_id else {
             return !self.presentation_disabled;
         };
-        if let Some(object) = gamelogic::helpers::TheGameLogic::find_object_by_id(object_id) {
-            if let Ok(obj) = object.read() {
-                return gamelogic::object::draw::object_should_animate(&obj, consider_power);
-            }
+        if let Some(animate) = OBJECT_REGISTRY.with_object(object_id, |obj| {
+            gamelogic::object::draw::object_should_animate(obj, consider_power)
+        }) {
+            return animate;
         }
         !self.presentation_disabled
     }
@@ -1046,8 +1026,8 @@ impl BasicDrawable {
 
         self.object_id.is_some_and(|obj_id| {
             OBJECT_REGISTRY
-                .get_object(obj_id)
-                .is_some_and(|obj_arc| obj_arc.read().is_ok_and(|obj| obj.is_kind_of(kind)))
+                .with_object(obj_id, |obj| obj.is_kind_of(kind))
+                .unwrap_or(false)
         })
     }
 
@@ -1061,8 +1041,7 @@ impl BasicDrawable {
         }
 
         let object_id = self.object_id?;
-        let obj_arc = OBJECT_REGISTRY.get_object(object_id)?;
-        let stealth = obj_arc.read().ok()?.get_stealth()?;
+        let stealth = OBJECT_REGISTRY.with_object(object_id, |obj| obj.get_stealth())??;
         let stealth = stealth.lock().ok()?;
         Some((stealth.is_disguised(), stealth.get_friendly_opacity()))
     }
@@ -1176,16 +1155,16 @@ impl BasicDrawable {
         }
 
         let object_id = self.object_id?;
-        let object_arc = OBJECT_REGISTRY.get_object(object_id)?;
-        let object = object_arc.read().ok()?;
-        let use_night_color = get_global_data()
-            .map(|data| data.read().time_of_day)
-            .is_some_and(|time_of_day| matches!(time_of_day, IniTimeOfDay::Night));
-        let color = if use_night_color {
-            object.get_night_indicator_color()
-        } else {
-            object.get_indicator_color()
-        };
+        let color = OBJECT_REGISTRY.with_object(object_id, |object| {
+            let use_night_color = get_global_data()
+                .map(|data| data.read().time_of_day)
+                .is_some_and(|time_of_day| matches!(time_of_day, IniTimeOfDay::Night));
+            if use_night_color {
+                object.get_night_indicator_color()
+            } else {
+                object.get_indicator_color()
+            }
+        })?;
         Some((color.r, color.g, color.b))
     }
 }

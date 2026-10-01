@@ -641,20 +641,19 @@ impl Snapshotable for BasicDrawable {
     fn load_post_process(&mut self) -> Result<(), String> {
         // C++ Drawable.cpp:5400-5403 — object matrix is authoritative after load.
         if let Some(object_id) = self.object_id {
-            if let Some(obj_arc) = OBJECT_REGISTRY.get_object(object_id) {
-                if let Ok(obj) = obj_arc.read() {
-                    let transform = Matrix4::from_glam(obj.get_transform_matrix());
-                    self.position = Vector3::new(
-                        transform.elements[0][3],
-                        transform.elements[1][3],
-                        transform.elements[2][3],
-                    );
-                    let mut rotation = transform;
-                    rotation.elements[0][3] = 0.0;
-                    rotation.elements[1][3] = 0.0;
-                    rotation.elements[2][3] = 0.0;
-                    self.instance_transform = rotation;
-                }
+            if let Some(transform) = OBJECT_REGISTRY.with_object(object_id, |obj| {
+                Matrix4::from_glam(obj.get_transform_matrix())
+            }) {
+                self.position = Vector3::new(
+                    transform.elements[0][3],
+                    transform.elements[1][3],
+                    transform.elements[2][3],
+                );
+                let mut rotation = transform;
+                rotation.elements[0][3] = 0.0;
+                rotation.elements[1][3] = 0.0;
+                rotation.elements[2][3] = 0.0;
+                self.instance_transform = rotation;
             }
         }
 

@@ -26,15 +26,18 @@ const ST_DOCKING: u32 = 4;
 
 const REGROUP_SUCCESS_DISTANCE_SQUARED: Real = 225.0;
 
-fn resolve_supply_object(id: ObjectID) -> Result<Arc<RwLock<Object>>, String> {
+fn supply_object_present(id: ObjectID) -> Result<(), String> {
     // Wave 298: empty dual-world → not found.
     if dual_world_registry_unavailable() {
         return Err("Supply object unavailable on host-only path".into());
     }
-
-    crate::helpers::TheGameLogic::find_object_by_id(id)
-        .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(id))
-        .ok_or_else(|| format!("SupplyTruck object {id} not found"))
+    if crate::object::registry::OBJECT_REGISTRY
+        .with_object(id, |_| ())
+        .is_none()
+    {
+        return Err(format!("SupplyTruck object {id} not found"));
+    }
+    Ok(())
 }
 
 fn owner_id_from_state(state: &dyn StateImplementation) -> Option<ObjectID> {
@@ -44,21 +47,20 @@ fn owner_id_from_state(state: &dyn StateImplementation) -> Option<ObjectID> {
         .filter(|id| *id != INVALID_ID)
 }
 
-fn owner_from_state(state: &dyn StateImplementation) -> Option<Arc<RwLock<Object>>> {
-    let owner_id = owner_id_from_state(state)?;
-    resolve_supply_object(owner_id).ok()
-}
-
 /// Run `f` against the owner's AI update module while the owner read lock is
 /// held (the AI module is owned by the Object; there is no separate handle).
 fn with_owner_ai<R>(
     state: &dyn StateImplementation,
     f: impl FnOnce(&dyn crate::modules::AIUpdateInterface) -> R,
 ) -> Option<R> {
-    let owner = owner_from_state(state)?;
-    let guard = owner.read().ok()?;
-    let ai = guard.get_ai_update_interface()?;
-    Some(f(ai))
+    let owner_id = owner_id_from_state(state)?;
+    if dual_world_registry_unavailable() {
+        return None;
+    }
+    crate::object::registry::OBJECT_REGISTRY.with_object(owner_id, |guard| {
+        let ai = guard.get_ai_update_interface()?;
+        Some(f(ai))
+    })?
 }
 
 fn with_supply_truck_interface<R>(
@@ -68,17 +70,15 @@ fn with_supply_truck_interface<R>(
     let owner_id = state
         .get_machine_owner_id()
         .ok_or_else(|| "SupplyTruck state missing owner".to_string())?;
-    let owner = resolve_supply_object(owner_id)?;
-    let mut guard = owner
-        .write()
-        .map_err(|_| "SupplyTruck owner lock poisoned".to_string())?;
-    let ai = guard
-        .get_ai_update_interface_mut()
-        .ok_or_else(|| "SupplyTruck owner missing AIUpdateInterface".to_string())?;
-    let truck = ai
-        .get_supply_truck_ai_interface_mut()
-        .ok_or_else(|| "SupplyTruck AI interface missing".to_string())?;
-    Ok(f(truck))
+    supply_object_present(owner_id)?;
+    crate::object::registry::OBJECT_REGISTRY
+        .with_object_mut(owner_id, |guard| {
+            let ai = guard.get_ai_update_interface_mut()?;
+            let truck = ai.get_supply_truck_ai_interface_mut()?;
+            Some(f(truck))
+        })
+        .flatten()
+        .ok_or_else(|| "SupplyTruck owner missing AIUpdateInterface".to_string())
 }
 
 #[derive(Debug)]
@@ -208,23 +208,23 @@ impl SupplyTruckWantsToPickUpOrDeliverBoxesState {
             .base
             .get_machine_owner_id()
             .ok_or_else(|| "SupplyTruck state missing owner".to_string())?;
-        let owner = resolve_supply_object(owner_id)?;
+        supply_object_present(owner_id)?;
 
         // Phase 1 (owner read): availability and box count.
-        let num_boxes = {
-            let Ok(guard) = owner.read() else {
-                return Err("SupplyTruck owner lock poisoned".to_string());
-            };
-            let Some(ai) = guard.get_ai_update_interface() else {
-                return Err("SupplyTruck owner missing AIUpdateInterface".to_string());
-            };
-            let Some(truck) = ai.get_supply_truck_ai_interface() else {
-                return Err("SupplyTruck AI interface missing".to_string());
-            };
-            if !truck.is_available_for_supplying() {
-                return Ok(StateReturnType::Failure);
-            }
-            truck.get_number_boxes()
+        let phase = crate::object::registry::OBJECT_REGISTRY
+            .with_object(owner_id, |guard| {
+                let ai = guard.get_ai_update_interface()?;
+                let truck = ai.get_supply_truck_ai_interface()?;
+                if !truck.is_available_for_supplying() {
+                    return Some(Err(()));
+                }
+                Some(Ok(truck.get_number_boxes()))
+            })
+            .flatten()
+            .ok_or_else(|| "SupplyTruck owner missing AIUpdateInterface".to_string())?;
+        let num_boxes = match phase {
+            Err(()) => return Ok(StateReturnType::Failure),
+            Ok(n) => n,
         };
 
         // Phase 2 (no owner lock): the resource service queries the world.
@@ -238,20 +238,22 @@ impl SupplyTruckWantsToPickUpOrDeliverBoxesState {
         };
 
         // Phase 3 (owner write): issue the dock command.
-        let mut guard = owner
-            .write()
-            .map_err(|_| "SupplyTruck owner lock poisoned".to_string())?;
-        let Some(ai) = guard.get_ai_update_interface_mut() else {
-            return Err("SupplyTruck owner missing AIUpdateInterface".to_string());
-        };
-        let mut params = AiCommandParams::new(AiCommandType::Dock, CommandSourceType::FromAi);
-        params.obj = Some(dock_target);
-        if let Err(err) = ai.execute_command(&params) {
-            log::debug!(
-                "SupplyTruckWantsToPickUpOrDeliverBoxesState::update dock failed: {}",
-                err
-            );
-        }
+        crate::object::registry::OBJECT_REGISTRY
+            .with_object_mut(owner_id, |guard| {
+                let ai = guard.get_ai_update_interface_mut()?;
+                let mut params =
+                    AiCommandParams::new(AiCommandType::Dock, CommandSourceType::FromAi);
+                params.obj = Some(dock_target);
+                if let Err(err) = ai.execute_command(&params) {
+                    log::debug!(
+                        "SupplyTruckWantsToPickUpOrDeliverBoxesState::update dock failed: {}",
+                        err
+                    );
+                }
+                Some(())
+            })
+            .flatten()
+            .ok_or_else(|| "SupplyTruck owner missing AIUpdateInterface".to_string())?;
         Ok(StateReturnType::Success)
     }
 
@@ -299,25 +301,22 @@ impl RegroupingState {
             .base
             .get_machine_owner_id()
             .ok_or_else(|| "SupplyTruck state missing owner".to_string())?;
-        let owner_arc = resolve_supply_object(owner_id)?;
+        supply_object_present(owner_id)?;
 
-        {
-            let mut owner_guard = owner_arc
-                .write()
-                .map_err(|_| "SupplyTruck owner lock poisoned".to_string())?;
-            let Some(ai) = owner_guard.get_ai_update_interface_mut() else {
-                return Err("SupplyTruck owner missing AIUpdateInterface".to_string());
-            };
-            if let Err(err) = ai.ignore_obstacle(None) {
-                log::debug!("RegroupingState::on_enter ignore_obstacle failed: {}", err);
-            }
-        }
+        crate::object::registry::OBJECT_REGISTRY
+            .with_object_mut(owner_id, |owner_guard| {
+                let ai = owner_guard.get_ai_update_interface_mut()?;
+                if let Err(err) = ai.ignore_obstacle(None) {
+                    log::debug!("RegroupingState::on_enter ignore_obstacle failed: {}", err);
+                }
+                Some(())
+            })
+            .flatten()
+            .ok_or_else(|| "SupplyTruck owner missing AIUpdateInterface".to_string())?;
 
-        let owner_guard = owner_arc
-            .read()
-            .map_err(|_| "SupplyTruck owner lock poisoned".to_string())?;
-        let owner_player_id = owner_guard
-            .get_controlling_player_id()
+        let owner_player_id = crate::object::registry::OBJECT_REGISTRY
+            .with_object(owner_id, |owner_guard| owner_guard.get_controlling_player_id())
+            .flatten()
             .ok_or_else(|| "SupplyTruck owner missing player".to_string())?;
         let owner_player = {
             let list_guard = player_list()
@@ -332,20 +331,30 @@ impl RegroupingState {
             .read()
             .map_err(|_| "Player lock poisoned".to_string())?;
 
-        let destination_object = find_regroup_target(&owner_guard, &owner_player_guard);
-        let Some(destination_object) = destination_object else {
+        let destination_id = crate::object::registry::OBJECT_REGISTRY
+            .with_object(owner_id, |owner_guard| {
+                find_regroup_target(owner_guard, &owner_player_guard)
+            })
+            .flatten();
+        drop(owner_player_guard);
+        let Some(destination_id) = destination_id else {
             return Ok(StateReturnType::Failure);
         };
 
-        let destination_guard = destination_object
-            .read()
-            .map_err(|_| "Regroup target lock poisoned".to_string())?;
-        let dist_sq = ThePartitionManager::get_distance_squared(
-            &owner_guard,
-            &destination_guard,
-            crate::common::FROM_BOUNDING_SPHERE_2D,
-        );
-        if dist_sq < REGROUP_SUCCESS_DISTANCE_SQUARED {
+        let near = crate::object::registry::OBJECT_REGISTRY.with_object(destination_id, |destination_guard| {
+            crate::object::registry::OBJECT_REGISTRY.with_object(owner_id, |owner_guard| {
+                let dist_sq = ThePartitionManager::get_distance_squared(
+                    owner_guard,
+                    destination_guard,
+                    crate::common::FROM_BOUNDING_SPHERE_2D,
+                );
+                if dist_sq < REGROUP_SUCCESS_DISTANCE_SQUARED {
+                    return true;
+                }
+                false
+            }).unwrap_or(false)
+        }).unwrap_or(false);
+        if near {
             return Ok(StateReturnType::Continue);
         }
 
@@ -354,34 +363,36 @@ impl RegroupingState {
         options.min_radius = 0.0;
         options.max_radius = 100.0;
 
-        let can_find_destination = ThePartitionManager::get()
-            .map(|partition| {
-                partition.find_position_around_with_options(
-                    destination_guard.get_position(),
-                    &options,
-                    &mut destination,
-                )
+        let can_find_destination = crate::object::registry::OBJECT_REGISTRY
+            .with_object(destination_id, |destination_guard| {
+                ThePartitionManager::get()
+                    .map(|partition| {
+                        partition.find_position_around_with_options(
+                            destination_guard.get_position(),
+                            &options,
+                            &mut destination,
+                        )
+                    })
+                    .unwrap_or(false)
             })
             .unwrap_or(false);
-        drop(destination_guard);
-        drop(owner_guard);
-        drop(owner_player_guard);
         if !can_find_destination {
             return Ok(StateReturnType::Failure);
         }
 
-        let mut owner_guard = owner_arc
-            .write()
-            .map_err(|_| "SupplyTruck owner lock poisoned".to_string())?;
-        let Some(ai) = owner_guard.get_ai_update_interface_mut() else {
-            return Err("SupplyTruck owner missing AIUpdateInterface".to_string());
-        };
-        let mut params =
-            AiCommandParams::new(AiCommandType::MoveToPosition, CommandSourceType::FromAi);
-        params.pos = destination;
-        if let Err(err) = ai.execute_command(&params) {
-            log::debug!("RegroupingState::on_enter move command failed: {}", err);
-        }
+        crate::object::registry::OBJECT_REGISTRY
+            .with_object_mut(owner_id, |owner_guard| {
+                let ai = owner_guard.get_ai_update_interface_mut()?;
+                let mut params =
+                    AiCommandParams::new(AiCommandType::MoveToPosition, CommandSourceType::FromAi);
+                params.pos = destination;
+                if let Err(err) = ai.execute_command(&params) {
+                    log::debug!("RegroupingState::on_enter move command failed: {}", err);
+                }
+                Some(())
+            })
+            .flatten()
+            .ok_or_else(|| "SupplyTruck owner missing AIUpdateInterface".to_string())?;
 
         Ok(StateReturnType::Continue)
     }
@@ -699,10 +710,7 @@ impl SupplyTruckStateMachine {
     }
 }
 
-fn find_regroup_target(
-    owner: &Object,
-    player: &crate::player::Player,
-) -> Option<Arc<RwLock<Object>>> {
+fn find_regroup_target(owner: &Object, player: &crate::player::Player) -> Option<ObjectID> {
     let candidates = [
         KindOf::CashGenerator,
         KindOf::CommandCenter,
@@ -710,31 +718,34 @@ fn find_regroup_target(
     ];
 
     for kindof in candidates {
-        let mut best: Option<(Arc<RwLock<Object>>, Real)> = None;
+        let mut best: Option<(ObjectID, Real)> = None;
         for object_id in player.get_all_objects() {
-            let Some(obj) = TheGameLogic::find_object_by_id(object_id) else {
+            let Some(dist_sq) =
+                crate::object::registry::OBJECT_REGISTRY.with_object(object_id, |obj_guard| {
+                    if obj_guard.is_destroyed() || !obj_guard.is_kind_of(kindof) {
+                        return None;
+                    }
+                    Some(ThePartitionManager::get_distance_squared(
+                        owner,
+                        obj_guard,
+                        crate::common::FROM_BOUNDING_SPHERE_2D,
+                    ))
+                })
+            else {
                 continue;
             };
-            let Ok(obj_guard) = obj.read() else {
+            let Some(dist_sq) = dist_sq else {
                 continue;
             };
-            if obj_guard.is_destroyed() || !obj_guard.is_kind_of(kindof) {
-                continue;
-            }
-            let dist_sq = ThePartitionManager::get_distance_squared(
-                owner,
-                &obj_guard,
-                crate::common::FROM_BOUNDING_SPHERE_2D,
-            );
             if best
                 .as_ref()
                 .map_or(true, |(_, best_dist)| dist_sq < *best_dist)
             {
-                best = Some((obj.clone(), dist_sq));
+                best = Some((object_id, dist_sq));
             }
         }
-        if let Some((obj, _)) = best {
-            return Some(obj);
+        if let Some((id, _)) = best {
+            return Some(id);
         }
     }
     None

@@ -2,7 +2,6 @@
 #![allow(dead_code)]
 
 use crate::{error::Result, formats::AudioFormat};
-use parking_lot::RwLock;
 
 /// Audio buffer for internal use
 pub(crate) struct AudioBuffer {
@@ -21,9 +20,12 @@ pub(crate) struct CircularBuffer {
     capacity: usize,
 }
 
-/// Buffer pool for reusing audio buffers
+/// Buffer pool for reusing audio buffers.
+///
+/// Single owner: nothing shares the pool, so the free list is a plain `Vec`
+/// and callers mutate through `&mut self`.
 pub(crate) struct BufferPool {
-    available: RwLock<Vec<AudioBuffer>>,
+    available: Vec<AudioBuffer>,
     max_buffers: usize,
     buffer_size: usize,
 }
@@ -157,17 +159,15 @@ impl BufferPool {
     /// Create new buffer pool
     pub fn new(max_buffers: usize, buffer_size: usize) -> Self {
         Self {
-            available: RwLock::new(Vec::new()),
+            available: Vec::new(),
             max_buffers,
             buffer_size,
         }
     }
 
     /// Get buffer from pool or create new one
-    pub fn get_buffer(&self, format: AudioFormat) -> AudioBuffer {
-        let mut available = self.available.write();
-
-        if let Some(mut buffer) = available.pop() {
+    pub fn get_buffer(&mut self, format: AudioFormat) -> AudioBuffer {
+        if let Some(mut buffer) = self.available.pop() {
             buffer.reset();
             buffer
         } else {
@@ -176,20 +176,17 @@ impl BufferPool {
     }
 
     /// Return buffer to pool
-    pub fn return_buffer(&self, buffer: AudioBuffer) {
-        let mut available = self.available.write();
-
-        if available.len() < self.max_buffers {
-            available.push(buffer);
+    pub fn return_buffer(&mut self, buffer: AudioBuffer) {
+        if self.available.len() < self.max_buffers {
+            self.available.push(buffer);
         }
         // If pool is full, buffer will be dropped
     }
 
     /// Get pool statistics
     pub fn stats(&self) -> BufferPoolStats {
-        let available = self.available.read();
         BufferPoolStats {
-            available_buffers: available.len(),
+            available_buffers: self.available.len(),
             max_buffers: self.max_buffers,
             buffer_size: self.buffer_size,
         }

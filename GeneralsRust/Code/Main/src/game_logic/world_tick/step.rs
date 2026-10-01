@@ -1131,6 +1131,7 @@ impl GameLogic {
         // Projectiles: drain global fire queue into host CombatSystem and step.
         // Sole ownership — engine must not maintain a second mid-frame CombatSystem.
         crate::game_logic::host_historic_bonus::set_logic_frame(self.frame);
+        self.flush_staged_projectiles();
         {
             let objects = &self.objects;
             crate::game_logic::combat::drain_pending_projectiles(&mut self.combat_system, objects);

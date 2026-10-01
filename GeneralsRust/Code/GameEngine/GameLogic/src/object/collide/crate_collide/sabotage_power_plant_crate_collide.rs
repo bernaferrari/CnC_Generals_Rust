@@ -267,7 +267,7 @@ pub struct SabotagePowerPlantCrateCollide {
 impl SabotagePowerPlantCrateCollide {
     /// Create new sabotage power plant crate collide module
     pub fn new(
-        object: &Arc<RwLock<Object>>,
+        object: &ObjectID,
         module_data: SabotagePowerPlantCrateCollideModuleData,
     ) -> Self {
         Self {

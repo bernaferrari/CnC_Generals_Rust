@@ -1137,7 +1137,7 @@ pub struct GameLogic {
     pub selected_objects: Vec<ObjectId>,
 
     pub(super) partition_manager: PartitionManager,
-    pub(super) radar_notifications: &'static RadarNotifications,
+    pub(super) radar_notifications: std::collections::VecDeque<RadarEntry>,
     pub(super) last_radar_kind_time: [f32; 3],
     pub(super) last_radar_audio_time: f32,
     pub(super) last_radar_event: Option<RadarEntry>,
@@ -1339,6 +1339,9 @@ pub struct GameLogic {
     pub(super) script_source_path: Option<PathBuf>,
     pub(super) mission_scripts: Arc<MissionScriptHooks>,
     pub(super) script_broadcasts: Vec<ScriptBroadcast>,
+    /// Same-thread script events. Drained by `evaluate_and_execute_scripts`
+    /// before `ScriptEngine::update`, so the vec is empty across that callback.
+    pub(super) pending_script_events: Vec<ScriptEvent>,
     pub(super) new_script_messages: Vec<String>,
     pub(super) cinematic_letterbox: bool,
     pub(super) cinematic_text: Option<(String, f32)>,

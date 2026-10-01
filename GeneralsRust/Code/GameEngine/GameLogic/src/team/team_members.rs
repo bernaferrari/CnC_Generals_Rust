@@ -87,7 +87,7 @@ impl Team {
             return;
         }
         for &object_id in &self.members {
-            if OBJECT_REGISTRY.get_object(object_id).is_some() {
+            if OBJECT_REGISTRY.with_object(object_id, |_| ()).is_some() {
                 func(object_id);
             }
         }
@@ -112,7 +112,8 @@ impl Team {
     where
         F: FnMut(Arc<RwLock<crate::object::Object>>),
     {
-        // Legacy Arc callback path for callers that still need handles.
+        // Legacy Arc callback. Registry checkout does not hand out Arcs; resolve
+        // through the object id path instead when the registry still exposes get_object.
         self.for_each_live_member_id(|object_id| {
             if let Some(object_arc) = OBJECT_REGISTRY.get_object(object_id) {
                 func(object_arc);

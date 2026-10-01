@@ -161,12 +161,8 @@ impl AIPlayer {
                 return false;
             }
             return OBJECT_REGISTRY.get_all_object_ids().iter().any(|obj_id| {
-                let Some(obj) = OBJECT_REGISTRY.get_object(*obj_id) else {
-                    return false;
-                };
-                obj.read()
-                    .ok()
-                    .map(|g| {
+                OBJECT_REGISTRY
+                    .with_object(*obj_id, |g| {
                         g.find_update_module("SupplyWarehouseDockUpdate")
                             .and_then(|m| {
                                 m.with_module(|mm| {
@@ -181,13 +177,13 @@ impl AIPlayer {
         };
 
         for obj_id in partition.get_objects_in_range(&center_pos, radius) {
-            let Some((their_team, team_arc, boxes)) = OBJECT_REGISTRY
+            let Some((their_player, team_id, boxes)) = OBJECT_REGISTRY
                 .with_object(obj_id, |obj| {
                     if !obj.is_kind_of(KindOf::SupplySource) {
                         return None;
                     }
-                    let their_team = obj.get_controlling_player_id();
-                    let team_arc = obj.get_team();
+                    let their_player = obj.get_controlling_player_id();
+                    let team_id = obj.get_team_id();
                     let boxes = obj
                         .find_update_module("SupplyWarehouseDockUpdate")
                         .and_then(|module| {
@@ -197,32 +193,23 @@ impl AIPlayer {
                             })
                         })
                         .unwrap_or(0);
-                    Some((their_team, team_arc, boxes))
+                    Some((their_player, team_id, boxes))
                 })
                 .flatten()
             else {
                 continue;
             };
-            // Skip enemies.
-            if let (Some(my_team), Some(their_team)) = (
-                // approximate: controlling player
-                Some(self.player_id),
-                their_team,
-            ) {
-                if my_team != their_team {
-                    // relationship residual: skip if not same player
-                    // (C++ ENEMIES check via team relationship)
+            if let (Some(my_team), Some(their_player)) = (Some(self.player_id), their_player) {
+                if my_team != their_player {
                     if let Ok(list) = player_list().read() {
-                        if let Some(me) = list.get_player(self.player_id as i32) {
-                            if let Ok(me_g) = me.read() {
-                                if let Some(tarc) = team_arc {
-                                    if let Ok(tg) = tarc.read() {
-                                        if me_g.get_relationship_with_team(&tg)
-                                            == Relationship::Enemies
-                                        {
-                                            continue;
-                                        }
-                                    }
+                        if let Some(me_g) = list.get_player(self.player_id as i32) {
+                            if let Some(tid) = team_id {
+                                let enemy = crate::team::with_team(tid, |tg| {
+                                    me_g.get_relationship_with_team(tg) == Relationship::Enemies
+                                })
+                                .unwrap_or(false);
+                                if enemy {
+                                    continue;
                                 }
                             }
                         }
@@ -453,11 +440,8 @@ impl AIPlayer {
             if let Ok(list) = player_list().read() {
                 if let Some(player_arc) = list.get_player(self.player_id as i32) {
                     if let Ok(pg) = player_arc.read() {
-                        if let Some(dt) = pg.get_default_team() {
-                            if let Ok(tg) = dt.read() {
-                                team.team_name = Some(tg.get_name().to_string());
-                            }
-                            team.team = Some(dt);
+                        if let Some(dt) = pg.get_default_team_id() {
+                            team.team_id = Some(dt);
                         }
                     }
                 }
@@ -571,31 +555,27 @@ impl AIPlayer {
                         // C++ GLA hole scan by spawnerID.
                         // Host path: empty dual-world registry → no rebuild-hole residual.
                         if !OBJECT_REGISTRY.is_empty() {
-                            for obj_id in OBJECT_REGISTRY.get_all_object_ids() {
-                                let hole_arc = match OBJECT_REGISTRY.get_object(obj_id) {
-                                    Some(v) => v,
-                                    None => continue,
-                                };
-                                let Ok(hg) = hole_arc.read() else {
-                                    continue;
-                                };
-                                if !hg.is_kind_of(KindOf::RebuildHole) {
-                                    continue;
-                                }
-                                let mut matched = false;
-                                for behavior in hg.get_behavior_modules() {
-                                    if let Ok(mut bg) = behavior.lock() {
-                                        if let Some(rhbi) = bg.get_rebuild_hole_behavior_interface()
-                                        {
-                                            if rhbi.get_spawner_id() == prior_id {
-                                                matched = true;
+                            for hole_id in OBJECT_REGISTRY.get_all_object_ids() {
+                                let matched_id = OBJECT_REGISTRY.with_object(hole_id, |hg| {
+                                    if !hg.is_kind_of(KindOf::RebuildHole) {
+                                        return None;
+                                    }
+                                    let mut matched = false;
+                                    for behavior in hg.get_behavior_modules() {
+                                        if let Ok(mut bg) = behavior.lock() {
+                                            if let Some(rhbi) = bg.get_rebuild_hole_behavior_interface()
+                                            {
+                                                if rhbi.get_spawner_id() == prior_id {
+                                                    matched = true;
+                                                }
+                                                break;
                                             }
-                                            break;
                                         }
                                     }
-                                }
-                                if matched {
-                                    info.set_object_id(hg.get_id());
+                                    if matched { Some(hg.get_id()) } else { None }
+                                });
+                                if let Some(Some(id)) = matched_id {
+                                    info.set_object_id(id);
                                     break;
                                 }
                             }

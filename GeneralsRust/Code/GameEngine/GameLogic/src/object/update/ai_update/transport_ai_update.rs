@@ -149,12 +149,12 @@ impl TransportAIUpdate {
             return;
         }
 
-        let Some(victim) = TheGameLogic::find_object_by_id(victim_id) else {
+        if !crate::object::registry::OBJECT_REGISTRY.contains(victim_id) {
             return;
-        };
+        }
         self.relay_attack_to_passengers(|ai| {
             ai.ai_attack_object(
-                victim.read().ok().map(|g| g.get_id()).unwrap_or(0),
+                victim_id,
                 max_shots_to_fire,
                 cmd_source,
             );
@@ -174,12 +174,12 @@ impl TransportAIUpdate {
             return;
         }
 
-        let Some(victim) = TheGameLogic::find_object_by_id(victim_id) else {
+        if !crate::object::registry::OBJECT_REGISTRY.contains(victim_id) {
             return;
-        };
+        }
         self.relay_attack_to_passengers(|ai| {
             ai.ai_force_attack_object(
-                victim.read().ok().map(|g| g.get_id()).unwrap_or(0),
+                victim_id,
                 max_shots_to_fire,
                 cmd_source,
             );
@@ -208,13 +208,10 @@ impl TransportAIUpdate {
     where
         F: FnMut(&Arc<Mutex<dyn AIUpdateInterface>>),
     {
-        let Some(transport) = TheGameLogic::find_object_by_id(self.owner_id) else {
-            return;
-        };
-        let Ok(transport_guard) = transport.read() else {
-            return;
-        };
-        let Some(contain) = transport_guard.get_contain() else {
+        let Some(contain) = crate::object::registry::OBJECT_REGISTRY
+            .with_object(self.owner_id, |transport_guard| transport_guard.get_contain())
+            .flatten()
+        else {
             return;
         };
         let Ok(contain_guard) = contain.lock() else {
@@ -225,26 +222,22 @@ impl TransportAIUpdate {
         }
 
         for passenger_id in contain_guard.get_contained_objects().iter().copied() {
-            let Some(passenger) = TheGameLogic::find_object_by_id(passenger_id) else {
-                continue;
-            };
-            let Ok(passenger_guard) = passenger.read() else {
-                continue;
-            };
-
-            if passenger_guard.is_kind_of(KindOf::PortableStructure)
-                && (passenger_guard.is_disabled_by_type(DisabledType::DisabledHacked)
-                    || passenger_guard.is_disabled_by_type(DisabledType::DisabledEmp)
-                    || passenger_guard.is_disabled_by_type(DisabledType::DisabledSubdued)
-                    || passenger_guard.is_disabled_by_type(DisabledType::Paralyzed))
-            {
+            let disabled = crate::object::registry::OBJECT_REGISTRY.with_object(passenger_id, |passenger_guard| {
+                passenger_guard.is_kind_of(KindOf::PortableStructure)
+                    && (passenger_guard.is_disabled_by_type(DisabledType::DisabledHacked)
+                        || passenger_guard.is_disabled_by_type(DisabledType::DisabledEmp)
+                        || passenger_guard.is_disabled_by_type(DisabledType::DisabledSubdued)
+                        || passenger_guard.is_disabled_by_type(DisabledType::Paralyzed))
+            });
+            if disabled.unwrap_or(true) {
                 continue;
             }
-
-            let Some(ai) = passenger_guard.get_ai_update_interface() else {
+            let Some(ai) = crate::object::registry::OBJECT_REGISTRY
+                .with_object(passenger_id, |passenger_guard| passenger_guard.get_ai_update_interface())
+                .flatten()
+            else {
                 continue;
             };
-            drop(passenger_guard);
             action(&ai);
         }
     }

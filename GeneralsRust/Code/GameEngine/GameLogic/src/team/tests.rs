@@ -87,7 +87,7 @@ mod tests {
         let team = factory
             .find_team("AutoCreateTeam")
             .expect("find_team should auto-create for non-singleton prototype");
-        let team_name = team.read().expect("team read lock").get_name().to_string();
+        let team_name = factory.find_team_by_id(team).expect("team").get_name().to_string();
 
         assert_eq!(team_name, "AutoCreateTeam");
         assert_eq!(factory.get_all_teams().len(), 1);
@@ -112,7 +112,7 @@ mod tests {
         let team = factory
             .create_team("ActiveTeam")
             .expect("create_team should create from prototype");
-        assert!(team.read().expect("team read lock").is_active());
+        assert!(factory.find_team_by_id(team).expect("team").is_active());
     }
 
     #[test]
@@ -447,7 +447,7 @@ mod tests {
             .expect("team should be created");
 
         {
-            let mut guard = team.write().expect("team write lock");
+            let guard = factory.find_team_by_id_mut(team).expect("team write lock");
             guard.update_state();
             guard.notify_team_of_object_death();
         }
@@ -489,7 +489,7 @@ mod tests {
             .expect("team should be created");
 
         {
-            let mut guard = team.write().expect("team write lock");
+            let guard = factory.find_team_by_id_mut(team).expect("team write lock");
             guard.update_state();
         }
 
@@ -573,7 +573,7 @@ mod tests {
         );
 
         {
-            let mut guard = team.write().expect("write");
+            let guard = factory.find_team_by_id_mut(team).expect("write");
             guard.update_state();
         }
         let first = drain_pending_team_script_events();
@@ -604,7 +604,7 @@ mod tests {
         );
 
         {
-            let mut guard = team.write().expect("write");
+            let guard = factory.find_team_by_id_mut(team).expect("write");
             guard.update_state();
         }
         let second = drain_pending_team_script_events();
@@ -635,7 +635,7 @@ mod tests {
             },
         );
         {
-            let mut guard = team.write().expect("write");
+            let guard = factory.find_team_by_id_mut(team).expect("write");
             guard.update_state();
         }
         let third = drain_pending_team_script_events();
@@ -673,7 +673,7 @@ mod tests {
             .create_team("NoSnapDestroyed")
             .expect("team");
         {
-            let mut guard = team.write().expect("write");
+            let guard = factory.find_team_by_id_mut(team).expect("write");
             guard.add_member(7);
             guard.add_member(8);
             guard.update_state();

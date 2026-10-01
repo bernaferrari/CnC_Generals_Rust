@@ -9,7 +9,9 @@ use gamelogic::commands::selection::get_selection_manager;
 use gamelogic::control_bar::get_control_bar_bridge;
 use gamelogic::helpers::TheThingFactory;
 use gamelogic::object::registry::OBJECT_REGISTRY;
-use gamelogic::player::{PLAYER_INDEX_INVALID, PlayerIndex, player_list as logic_player_list};
+use gamelogic::player::{
+    PLAYER_INDEX_INVALID, PlayerIndex, player_list as logic_player_list, with_player,
+};
 
 const CMD_NEED_TARGET_POS: u32 = 0x0000_0020;
 const CMD_ATTACK_OBJECTS_POSITION: u32 = 0x0000_1000;
@@ -361,19 +363,15 @@ impl ControlBarCommandProcessor {
         let mapped_source = map_command_source(source);
         let mut sent_any = false;
         for object_id in selected {
-            let Some(obj_arc) = OBJECT_REGISTRY.get_object(object_id) else {
-                continue;
-            };
-            {
-                let Ok(mut obj) = obj_arc.write() else {
-                    continue;
-                };
+            let applied = OBJECT_REGISTRY.with_object_mut(object_id, |obj| {
                 let _ = obj.do_command_button(logic_button.get_id(), mapped_source);
                 if (button.options & CommandOption::SingleUseCommand as u32) != 0 {
                     obj.mark_single_use_command_used();
                 }
+            });
+            if applied.is_some() {
+                sent_any = true;
             }
-            sent_any = true;
         }
 
         sent_any
@@ -383,28 +381,18 @@ impl ControlBarCommandProcessor {
         let Some(local_player_index) = local_player_index() else {
             return false;
         };
-        let player_arc = logic_player_list()
-            .read()
-            .ok()
-            .and_then(|list| list.get_player(local_player_index).cloned());
-        let Some(player_arc) = player_arc else {
-            return false;
-        };
-        let Ok(player) = player_arc.read() else {
-            return false;
-        };
-        let Some(store) = game_engine::common::rts::get_science_store() else {
-            return false;
-        };
-
-        let selected_science = button.sciences_ids.iter().copied().find(|science| {
-            *science != game_engine::common::rts::SCIENCE_INVALID
-                && !player.has_science(*science)
-                && store.player_has_prereqs_for_science(&*player, *science)
-                && store.get_science_purchase_cost(*science) <= player.get_science_purchase_points()
-        });
-
-        let Some(science) = selected_science else {
+        let Some(science) = with_player(local_player_index, |player| {
+            let store = game_engine::common::rts::get_science_store()?;
+            button.sciences_ids.iter().copied().find(|science| {
+                *science != game_engine::common::rts::SCIENCE_INVALID
+                    && !player.has_science(*science)
+                    && store.player_has_prereqs_for_science(player, *science)
+                    && store.get_science_purchase_cost(*science)
+                        <= player.get_science_purchase_points()
+            })
+        })
+        .flatten()
+        else {
             return false;
         };
 
@@ -419,36 +407,28 @@ impl ControlBarCommandProcessor {
         let Some(local_player_index) = local_player_index() else {
             return false;
         };
-        let player_arc = logic_player_list()
-            .read()
-            .ok()
-            .and_then(|list| list.get_player(local_player_index).cloned());
-        let Some(player_arc) = player_arc else {
-            return false;
-        };
-
-        let template_id = if !button.object.is_empty() {
+        let Some(template_id) = (if !button.object.is_empty() {
             TheThingFactory::find_template(button.object.as_str()).map(|t| t.get_id())
         } else {
             None
-        };
-        let Some(template_id) = template_id else {
+        }) else {
             return false;
         };
-
-        let Ok(player) = player_arc.read() else {
+        let Some(matches) = with_player(local_player_index, |player| {
+            let mut matches = Vec::new();
+            let _ = player.iterate_object_ids(|id| {
+                let matches_template = OBJECT_REGISTRY
+                    .with_object(id, |guard| guard.get_template().get_id() == template_id)
+                    .unwrap_or(false);
+                if matches_template {
+                    matches.push(id);
+                }
+                Ok(())
+            });
+            matches
+        }) else {
             return false;
         };
-        let mut matches = Vec::new();
-        let _ = player.iterate_objects(|obj| {
-            let guard = obj
-                .read()
-                .map_err(|_| gamelogic::common::GameError::LockError)?;
-            if guard.get_template().get_id() == template_id {
-                matches.push(guard.get_id());
-            }
-            Ok(())
-        });
 
         if matches.is_empty() {
             return false;
@@ -478,19 +458,13 @@ impl ControlBarCommandProcessor {
         let Some(local_player_index) = local_player_index() else {
             return false;
         };
-        let player_arc = logic_player_list()
-            .read()
-            .ok()
-            .and_then(|list| list.get_player(local_player_index).cloned());
-        let Some(player_arc) = player_arc else {
-            return false;
-        };
-
-        let Ok(player) = player_arc.read() else {
-            return false;
-        };
-        if !player.can_build_template(thing_template.as_ref()) {
-            TheInGameUI::display_cant_build_message("GUI:NotEnoughMoneyToBuild");
+        let can_build = with_player(local_player_index, |player| {
+            player.can_build_template(thing_template.as_ref())
+        });
+        if can_build != Some(true) {
+            if can_build == Some(false) {
+                TheInGameUI::display_cant_build_message("GUI:NotEnoughMoneyToBuild");
+            }
             return false;
         }
 
@@ -517,13 +491,12 @@ impl ControlBarCommandProcessor {
         let production_id = selected_objects_for_local_player()
             .first()
             .copied()
-            .and_then(|producer_id| OBJECT_REGISTRY.get_object(producer_id))
-            .and_then(|producer| {
-                producer
-                    .write()
-                    .ok()
-                    .and_then(|mut guard| guard.request_unique_unit_production_id())
+            .and_then(|producer_id| {
+                OBJECT_REGISTRY.with_object_mut(producer_id, |guard| {
+                    guard.request_unique_unit_production_id()
+                })
             })
+            .flatten()
             .unwrap_or(0);
 
         if let Ok(mut stream) = get_message_stream().write() {

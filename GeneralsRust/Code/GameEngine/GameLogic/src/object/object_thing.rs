@@ -88,25 +88,20 @@ impl engine_module::Thing for Object {
     }
 }
 
-#[derive(Debug, Clone)]
 pub(crate) struct ObjectThingHandle {
-    object: Weak<RwLock<Object>>,
+    object_id: ObjectID,
 }
 
 impl ObjectThingHandle {
-    pub(crate) fn new(object: &Arc<RwLock<Object>>) -> Self {
-        Self {
-            object: Arc::downgrade(object),
-        }
+    pub(crate) fn new(object_id: ObjectID) -> Self {
+        Self { object_id }
     }
 
     fn with_object<F, R>(&self, f: F) -> Option<R>
     where
         F: FnOnce(&Object) -> R,
     {
-        self.object
-            .upgrade()
-            .and_then(|arc| arc.read().ok().map(|guard| f(&*guard)))
+        crate::object::registry::OBJECT_REGISTRY.with_object(self.object_id, f)
     }
 }
 
@@ -131,13 +126,10 @@ impl ModuleObjectTrait for ObjectThingHandle {
     }
 
     fn init_object(&self) {
-        if let Some(arc) = self.object.upgrade() {
-            if let Ok(guard) = arc.write() {
-                let _ = guard.init_object();
-            }
-        }
+        crate::object::registry::OBJECT_REGISTRY.with_object_mut(self.object_id, |guard| {
+            let _ = guard.init_object();
+        });
     }
-
     fn upgrade_handle(&self) -> Option<Arc<RwLock<dyn engine_module::Object>>> {
         None
     }
@@ -158,12 +150,9 @@ impl ModuleObjectTrait for ObjectThingHandle {
         if mask_bits.is_empty() {
             return;
         }
-
-        if let Some(arc) = self.object.upgrade() {
-            if let Ok(mut guard) = arc.write() {
-                guard.remove_upgrade_mask(mask_bits);
-            }
-        }
+        crate::object::registry::OBJECT_REGISTRY.with_object_mut(self.object_id, |guard| {
+            guard.remove_upgrade_mask(mask_bits);
+        });
     }
 }
 
@@ -200,10 +189,10 @@ impl ModuleThing for ObjectDrawableThingHandle {
 }
 
 pub(crate) fn make_drawable_module_thing_handle(
-    object: &Arc<RwLock<Object>>,
+    object_id: ObjectID,
     drawable: &Arc<RwLock<Drawable>>,
 ) -> Arc<dyn ModuleThing> {
-    let object_handle = ObjectThingHandle::new(object);
+    let object_handle = ObjectThingHandle::new(object_id);
     let drawable_handle = DrawableThingHandle::new(drawable);
     Arc::new(ObjectDrawableThingHandle::new(
         object_handle,
@@ -211,7 +200,6 @@ pub(crate) fn make_drawable_module_thing_handle(
     ))
 }
 
-// Display implementation for debugging
 impl fmt::Display for Object {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         if !self.name.is_empty() {

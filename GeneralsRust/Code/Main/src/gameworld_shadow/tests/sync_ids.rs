@@ -184,7 +184,7 @@ fn same_faction_slots_keep_owner_authority_through_shadow_and_presentation() {
         "shadow must not collapse two USA owners"
     );
 
-    let frame = PresentationFrame::build_from_logic(&logic, 0);
+    let frame = PresentationFrame::build_from_logic(&mut logic, 0);
     let mine_frame = frame
         .objects
         .iter()
@@ -252,7 +252,7 @@ fn presentation_overlay_uses_shadow_health() {
     shadow.sync_from_host(&logic);
     assert!(shadow.queue_damage_for_host(id, 40.0));
     let _ = shadow.apply_pending();
-    let mut pres = PresentationFrame::build_from_logic(&logic, 0);
+    let mut pres = PresentationFrame::build_from_logic(&mut logic, 0);
     let before = pres
         .objects
         .iter()

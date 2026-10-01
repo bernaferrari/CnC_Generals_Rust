@@ -57,7 +57,7 @@ pub struct BaseRegenerateUpdate {
 
 impl BaseRegenerateUpdate {
     pub fn new(
-        object: Arc<RwLock<GameObject>>,
+        object_id: ObjectID,
         module_data: Arc<dyn ModuleData>,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let specific_data = module_data
@@ -66,11 +66,7 @@ impl BaseRegenerateUpdate {
             .ok_or("Invalid module data")?;
 
         Ok(Self {
-            object_id: object
-                .read()
-                .ok()
-                .map(|g| g.get_id())
-                .unwrap_or(crate::common::INVALID_ID),
+            object_id: object_id,
             module_data: Arc::new(specific_data.clone()),
             next_call_frame_and_phase: 0,
         })
@@ -321,10 +317,10 @@ impl Module for BaseRegenerateUpdateModule {
 pub struct BaseRegenerateUpdateFactory;
 impl BaseRegenerateUpdateFactory {
     pub fn create_behavior(
-        thing: Arc<RwLock<GameObject>>,
+        object_id: ObjectID,
         module_data: Arc<dyn ModuleData>,
     ) -> Result<Box<dyn BehaviorModuleInterface>, Box<dyn std::error::Error + Send + Sync>> {
-        Ok(Box::new(BaseRegenerateUpdate::new(thing, module_data)?))
+        Ok(Box::new(BaseRegenerateUpdate::new(object_id, module_data)?))
     }
 }
 
@@ -338,7 +334,7 @@ mod tests {
     fn processes_while_underpowered_like_cpp() {
         let object = Arc::new(RwLock::new(GameObject::new_test(9601, 100.0)));
         let data: Arc<dyn ModuleData> = Arc::new(BaseRegenerateUpdateModuleData::default());
-        let update = BaseRegenerateUpdate::new(object, data).unwrap();
+        let update = BaseRegenerateUpdate::new(object_id, data).unwrap();
 
         assert_eq!(
             update.get_disabled_types_to_process(),

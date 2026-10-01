@@ -40,7 +40,7 @@ pub struct Player {
     pub(super) general_name: String,
 
     // Team and relationships
-    pub(super) default_team: Option<Arc<RwLock<Team>>>,
+    pub(super) default_team: Option<TeamID>,
     pub(super) player_team_prototypes: Vec<Arc<TeamPrototype>>,
     pub(super) player_relations: PlayerRelationMap,
     pub(super) team_relations: Option<TeamRelationMap>,
@@ -723,13 +723,14 @@ impl Player {
         self.attacked_frame = 0;
     }
 
-    /// Set default team
-    pub fn set_default_team(&mut self, team: Option<Arc<RwLock<Team>>>) {
-        self.default_team = team;
+    /// Set default team by factory id. The team value stays in the team factory.
+    pub fn set_default_team(&mut self, team_id: Option<TeamID>) {
+        self.default_team = team_id;
     }
 
-    pub fn get_default_team(&self) -> Option<Arc<RwLock<Team>>> {
-        self.default_team.as_ref().map(Arc::clone)
+    /// Get the default team ID for this player.
+    pub fn get_default_team_id(&self) -> Option<TeamID> {
+        self.default_team
     }
 
     /// C++ Player::getPlayerTeams() — team prototypes owned by this player.
@@ -760,24 +761,22 @@ impl Player {
         }
     }
 
-    /// Get the default team ID for this player
-    pub fn get_default_team_id(&self) -> Option<TeamID> {
-        self.default_team
-            .as_ref()
-            .and_then(|team| team.read().ok().map(|t| t.get_id()))
-    }
 
     /// Heal all objects owned by this player.
     /// Matches C++ Player::healAllObjects.
     pub fn heal_all_objects(&mut self) {
-        if let Ok(factory) = get_team_factory().lock() {
+        let team_ids = {
+            let Ok(factory) = get_team_factory().lock() else {
+                return;
+            };
+            let mut team_ids = Vec::new();
             for prototype in &self.player_team_prototypes {
-                for team in factory.find_team_instances(prototype.get_name().as_str()) {
-                    if let Ok(mut team_guard) = team.write() {
-                        team_guard.heal_all_objects();
-                    }
-                }
+                team_ids.extend(factory.find_team_instances(prototype.get_name().as_str()));
             }
+            team_ids
+        };
+        for team_id in team_ids {
+            let _ = crate::team::with_team_mut(team_id, |team| team.heal_all_objects());
         }
     }
 

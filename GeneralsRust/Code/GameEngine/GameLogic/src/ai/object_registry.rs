@@ -1,37 +1,31 @@
 use crate::common::ObjectID;
 use crate::object::Object;
-use once_cell::sync::Lazy;
-use std::collections::HashMap;
+use crate::object::registry::OBJECT_REGISTRY;
+use std::collections::HashSet;
+use std::sync::LazyLock;
+use std::sync::RwLock;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, RwLock, Weak};
 
+/// Legacy AI object map. Live objects live in `OBJECT_REGISTRY`; this set only
+/// records which ids the legacy AI path registered. Resolution always goes
+/// through `OBJECT_REGISTRY.with_object` / `with_object_mut`, which check the
+/// object out and drop the registry lock before the callback.
 #[derive(Default)]
 struct LegacyObjectRegistry {
-    objects: HashMap<ObjectID, Weak<RwLock<Object>>>,
+    objects: HashSet<ObjectID>,
 }
 
 impl LegacyObjectRegistry {
-    fn register(&mut self, id: ObjectID, object: &Arc<RwLock<Object>>) {
-        self.objects.insert(id, Arc::downgrade(object));
+    fn register(&mut self, id: ObjectID) {
+        self.objects.insert(id);
     }
 
     fn unregister(&mut self, id: ObjectID) {
         self.objects.remove(&id);
     }
 
-    /// Read-only upgrade without retaining dead weaks (retain deferred to write path).
-    fn get_readonly(&self, id: ObjectID) -> Option<Arc<RwLock<Object>>> {
-        self.objects.get(&id).and_then(|entry| entry.upgrade())
-    }
-
-    fn get_and_prune(&mut self, id: ObjectID) -> Option<Arc<RwLock<Object>>> {
-        if let Some(entry) = self.objects.get(&id) {
-            if let Some(obj) = entry.upgrade() {
-                return Some(obj);
-            }
-        }
-        self.objects.retain(|_, handle| handle.strong_count() > 0);
-        None
+    fn contains(&self, id: ObjectID) -> bool {
+        self.objects.contains(&id)
     }
 
     fn clear(&mut self) {
@@ -45,7 +39,6 @@ impl LegacyObjectRegistry {
 
 struct LegacyObjectRegistryFacade {
     store: RwLock<LegacyObjectRegistry>,
-    /// Wave 248: lock-free empty short-circuit for host path (Main does not populate legacy).
     live_count: AtomicUsize,
 }
 
@@ -59,26 +52,23 @@ impl Default for LegacyObjectRegistryFacade {
 }
 
 impl LegacyObjectRegistryFacade {
-    #[inline]
-    fn set_live_count(&self, n: usize) {
-        self.live_count.store(n, Ordering::Release);
-    }
-
-    #[inline]
     fn is_empty(&self) -> bool {
         self.live_count.load(Ordering::Acquire) == 0
     }
+
+    fn set_live_count(&self, n: usize) {
+        self.live_count.store(n, Ordering::Release);
+    }
 }
 
-static LEGACY_OBJECT_REGISTRY: Lazy<LegacyObjectRegistryFacade> =
-    Lazy::new(LegacyObjectRegistryFacade::default);
+static LEGACY_OBJECT_REGISTRY: LazyLock<LegacyObjectRegistryFacade> =
+    LazyLock::new(LegacyObjectRegistryFacade::default);
 
-pub fn register_legacy_object(object: &Arc<RwLock<Object>>) {
+/// Register an id already present in `OBJECT_REGISTRY`. Does not retain an Arc.
+pub fn register_legacy_object(object_id: ObjectID) {
     if let Ok(mut guard) = LEGACY_OBJECT_REGISTRY.store.write() {
-        if let Ok(obj_guard) = object.read() {
-            guard.register(obj_guard.get_id(), object);
-            LEGACY_OBJECT_REGISTRY.set_live_count(guard.len());
-        }
+        guard.register(object_id);
+        LEGACY_OBJECT_REGISTRY.set_live_count(guard.len());
     }
 }
 
@@ -89,27 +79,46 @@ pub fn unregister_legacy_object(object_id: ObjectID) {
     }
 }
 
-/// Wave 248: prefer read lock; host empty path skips locks entirely.
-pub fn get_legacy_object(object_id: ObjectID) -> Option<Arc<RwLock<Object>>> {
+fn legacy_contains(object_id: ObjectID) -> bool {
     if LEGACY_OBJECT_REGISTRY.is_empty() {
+        return false;
+    }
+    LEGACY_OBJECT_REGISTRY
+        .store
+        .read()
+        .map(|guard| guard.contains(object_id))
+        .unwrap_or(false)
+}
+
+/// Wave 248: prefer read lock; host empty path skips locks entirely.
+/// Returns the id when the legacy set still tracks it and the live registry can resolve it.
+/// Does not return an object handle.
+pub fn get_legacy_object(object_id: ObjectID) -> Option<ObjectID> {
+    if !legacy_contains(object_id) {
         return None;
     }
-    // Fast path: read lock + upgrade.
-    if let Ok(guard) = LEGACY_OBJECT_REGISTRY.store.read() {
-        if let Some(obj) = guard.get_readonly(object_id) {
-            return Some(obj);
-        }
-    } else {
+    OBJECT_REGISTRY
+        .with_object(object_id, |_| ())
+        .map(|_| object_id)
+}
+
+/// Resolve a legacy-registered object without holding the registry lock inside `f`.
+/// Same-id re-entry of `OBJECT_REGISTRY` inside `f` returns None.
+pub fn with_legacy_object<R>(object_id: ObjectID, f: impl FnOnce(&Object) -> R) -> Option<R> {
+    if !legacy_contains(object_id) {
         return None;
     }
-    // Slow path: dead weak — prune under write lock.
-    if let Ok(mut guard) = LEGACY_OBJECT_REGISTRY.store.write() {
-        let obj = guard.get_and_prune(object_id);
-        LEGACY_OBJECT_REGISTRY.set_live_count(guard.len());
-        obj
-    } else {
-        None
+    OBJECT_REGISTRY.with_object(object_id, f)
+}
+
+pub fn with_legacy_object_mut<R>(
+    object_id: ObjectID,
+    f: impl FnOnce(&mut Object) -> R,
+) -> Option<R> {
+    if !legacy_contains(object_id) {
+        return None;
     }
+    OBJECT_REGISTRY.with_object_mut(object_id, f)
 }
 
 pub fn clear_legacy_objects() {

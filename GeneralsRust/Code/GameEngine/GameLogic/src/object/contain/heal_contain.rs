@@ -87,33 +87,25 @@ pub struct HealContain {
 impl HealContain {
     /// Create a new HealContain module
     pub fn new(
-        object: Weak<RwLock<Object>>,
+        object_id: ObjectID,
         module_data: &HealContainModuleData,
     ) -> GameResult<Self> {
-        let base = OpenContain::new(object.clone(), &module_data.base)?;
+        let base = OpenContain::new(object_id, &module_data.base)?;
         Ok(Self {
             base,
-            object_id: object
-                .upgrade()
-                .and_then(|arc| arc.read().ok().map(|g| g.get_id()))
-                .unwrap_or(crate::common::INVALID_ID),
+            object_id: object_id,
             module_data: module_data.clone(),
         })
     }
 
     /// Get the object this module belongs to
-    pub fn get_object(&self) -> Option<Arc<RwLock<Object>>> {
-        // Wave 370: empty dual-world → None.
-        if dual_world_registry_unavailable() {
-            return None;
-        }
-
-        (if self.object_id == crate::common::INVALID_ID {
+    pub fn get_object(&self) -> Option<ObjectID> {
+        let id = self.object_id;
+        if id == crate::common::INVALID_ID {
             None
         } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-        })
+            Some(id)
+        }
     }
 
     /// Update method called once per frame
@@ -145,27 +137,19 @@ impl HealContain {
             };
 
             if done_healing {
-                // Reserve door for exit
-                if let Some(obj) = TheGameLogic::find_object_by_id(patient_id)
-                    .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(patient_id))
-                {
-                    if let Ok(object) = obj.try_read() {
-                        if let Ok(exit_door) = self
-                            .base
-                            .reserve_door_for_exit(&super::open_contain::ObjectTemplate {}, &object)
-                        {
-                            if exit_door != ExitDoorType::NoneAvailable {
-                                drop(object);
-                                if let Err(err) =
-                                    self.base.exit_object_via_door(patient_id, exit_door)
-                                {
-                                    log::warn!(
-                                        "HealContain::update exit failed for {}: {}",
-                                        patient_id,
-                                        err
-                                    );
-                                }
-                            }
+                let exit_door = crate::object::registry::OBJECT_REGISTRY.with_object(patient_id, |object| {
+                    self.base
+                        .reserve_door_for_exit(&super::open_contain::ObjectTemplate {}, object)
+                        .ok()
+                });
+                if let Some(Ok(exit_door)) = exit_door {
+                    if exit_door != ExitDoorType::NoneAvailable {
+                        if let Err(err) = self.base.exit_object_via_door(patient_id, exit_door) {
+                            log::warn!(
+                                "HealContain::update exit failed for {}: {}",
+                                patient_id,
+                                err
+                            );
                         }
                     }
                 }
@@ -192,13 +176,14 @@ impl HealContain {
             return Ok(false);
         }
 
-        let mut done_healing = false;
 
-        let obj = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
+        if crate::helpers::TheGameLogic::find_object_by_id(obj_id)
             .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
-            .ok_or("HealContain patient not found")?;
+            .is_none()
+        {
+            return Err("HealContain patient not found".into());
+        }
 
-        // Setup healing damage info structure
         let source_id = if self.object_id == crate::common::INVALID_ID {
             0
         } else {
@@ -212,30 +197,31 @@ impl HealContain {
         heal_info.input.amount = 0.0;
         heal_info.sync_from_input();
 
-        // Get current frame and contained frame
         let current_frame = self.get_current_frame();
 
-        let Ok(mut object) = obj.try_write() else {
+        let healed = crate::object::registry::OBJECT_REGISTRY.with_object_mut(obj_id, |object| {
+            let contained_by_frame = object.get_contained_by_frame();
+            let Some(body_module) = object.get_body_module_mut() else {
+                return Ok(false);
+            };
+            let max_health = body_module.get_max_health();
+            let frames_contained = current_frame.saturating_sub(contained_by_frame);
+            if frames_contained >= frames_for_full_heal {
+                heal_info.input.amount = max_health;
+                heal_info.sync_from_input();
+                body_module.attempt_healing(&mut heal_info)?;
+                Ok(true)
+            } else {
+                heal_info.input.amount = max_health / frames_for_full_heal as f32;
+                heal_info.sync_from_input();
+                body_module.attempt_healing(&mut heal_info)?;
+                Ok(false)
+            }
+        });
+        let Some(healed) = healed else {
             return Err("HealContain patient lock busy".into());
         };
-        let contained_by_frame = object.get_contained_by_frame();
-        let Some(body_module) = object.get_body_module_mut() else {
-            return Ok(false);
-        };
-        let max_health = body_module.get_max_health();
-        let frames_contained = current_frame.saturating_sub(contained_by_frame);
-        if frames_contained >= frames_for_full_heal {
-            heal_info.input.amount = max_health;
-            heal_info.sync_from_input();
-            body_module.attempt_healing(&mut heal_info)?;
-            done_healing = true;
-        } else {
-            heal_info.input.amount = max_health / frames_for_full_heal as f32;
-            heal_info.sync_from_input();
-            body_module.attempt_healing(&mut heal_info)?;
-        }
-
-        Ok(done_healing)
+        healed
     }
 
     /// Get current frame from game logic singleton (C++ parity path).
@@ -312,34 +298,25 @@ impl Snapshotable for HealContain {
 
 impl ContainModuleInterface for HealContain {
     fn can_contain(&self, object_id: ObjectID) -> bool {
-        // Wave 370: empty dual-world → false.
         if dual_world_registry_unavailable() {
             return false;
         }
-
-        if let Some(obj) = TheGameLogic::find_object_by_id(object_id) {
-            if let Ok(obj_guard) = obj.read() {
-                return self.base.is_valid_container_for(&*obj_guard, true);
-            }
-        }
-        false
+        crate::object::registry::OBJECT_REGISTRY
+            .with_object(object_id, |obj_guard| {
+                self.base.is_valid_container_for(obj_guard, true)
+            })
+            .unwrap_or(false)
     }
 
     fn contain_object(&mut self, object_id: ObjectID) -> Result<(), String> {
-        // Wave 370: empty dual-world → Ok(()).
         if dual_world_registry_unavailable() {
             return Ok(());
         }
-
-        let obj = TheGameLogic::find_object_by_id(object_id)
-            .ok_or_else(|| format!("Contain object {} not found", object_id))?;
+        if TheGameLogic::find_object_by_id(object_id).is_none() {
+            return Err(format!("Contain object {} not found", object_id));
+        }
         self.base
-            .add_to_contain(
-                obj.read()
-                    .ok()
-                    .map(|g| g.get_id())
-                    .unwrap_or(crate::common::INVALID_ID),
-            )
+            .add_to_contain(object_id)
             .map_err(|e| e.to_string())
     }
 
@@ -433,14 +410,10 @@ impl ContainModuleInterface for HealContain {
         if !self.base.collide_enter_eject_foreign(other_id)? {
             return Ok(());
         }
-        let Some(other) = TheGameLogic::find_object_by_id(other_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(other_id))
-        else {
-            return Ok(());
-        };
-        let valid = other
-            .try_read()
-            .map(|guard| ContainModuleInterface::is_valid_container_for(self, &*guard, true))
+        let valid = crate::object::registry::OBJECT_REGISTRY
+            .with_object(other_id, |guard| {
+                ContainModuleInterface::is_valid_container_for(self, guard, true)
+            })
             .unwrap_or(false);
         if valid {
             self.contain_object(other_id)?;
@@ -614,7 +587,7 @@ mod tests {
         }
     }
 
-    fn test_object(name: &str, id: ObjectID) -> Arc<RwLock<Object>> {
+    fn test_object(name: &str, id: ObjectID) -> ObjectID {
         Object::new_with_id(
             Arc::new(DefaultThingTemplate::new(name.to_string())),
             id,
@@ -624,8 +597,8 @@ mod tests {
         .expect("test object")
     }
 
-    fn attach_active_body(obj: &Arc<RwLock<Object>>, max_health: f32, initial_health: f32) {
-        let id = obj.read().expect("object read").get_id();
+    fn attach_active_body(obj: &ObjectID, max_health: f32, initial_health: f32) {
+        let id = *obj;
         let body = ActiveBody::new_with_owner(
             ActiveBodyModuleData {
                 max_health,
@@ -634,9 +607,11 @@ mod tests {
             },
             id,
         );
-        obj.write()
-            .expect("object write")
-            .set_body_module(Some(Box::new(body)));
+        crate::object::registry::OBJECT_REGISTRY
+            .with_object_mut(id, |object| {
+                object.set_body_module(Some(Box::new(body)));
+            })
+            .expect("object write");
     }
 
     #[test]
@@ -698,25 +673,19 @@ mod tests {
                 .expect("heal contain");
 
         assert!(
-            contain
-                .do_heal(
-                    patient
-                        .read()
-                        .ok()
-                        .map(|g| g.get_id())
-                        .unwrap_or(crate::common::INVALID_ID),
-                    0,
-                )
-                .expect("heal succeeds"),
+            contain.do_heal(patient, 0).expect("heal succeeds"),
             "TimeForFullHeal=0 should immediately finish healing"
         );
 
-        let body = patient
-            .read()
-            .expect("patient read")
-            .get_body_module()
-            .expect("body module");
-        assert_eq!(body.get_health(), 100.0);
+        let health = crate::object::registry::OBJECT_REGISTRY
+            .with_object(patient, |patient| {
+                patient
+                    .get_body_module()
+                    .expect("body module")
+                    .get_health()
+            })
+            .expect("patient read");
+        assert_eq!(health, 100.0);
     }
 
     #[test]
@@ -730,24 +699,18 @@ mod tests {
                 .expect("heal contain");
 
         assert!(
-            !contain
-                .do_heal(
-                    patient
-                        .read()
-                        .ok()
-                        .map(|g| g.get_id())
-                        .unwrap_or(crate::common::INVALID_ID),
-                    50,
-                )
-                .expect("heal succeeds"),
+            !contain.do_heal(patient, 50).expect("heal succeeds"),
             "patient should remain contained until the full-heal frame"
         );
 
-        let body = patient
-            .read()
-            .expect("patient read")
-            .get_body_module()
-            .expect("body module");
-        assert_eq!(body.get_health(), 27.0);
+        let health = crate::object::registry::OBJECT_REGISTRY
+            .with_object(patient, |patient| {
+                patient
+                    .get_body_module()
+                    .expect("body module")
+                    .get_health()
+            })
+            .expect("patient read");
+        assert_eq!(health, 27.0);
     }
 }

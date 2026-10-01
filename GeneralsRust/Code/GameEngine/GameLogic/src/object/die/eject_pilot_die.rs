@@ -173,9 +173,9 @@ pub struct EjectPilotDie {
 
 impl EjectPilotDie {
     /// Create a new EjectPilotDie module
-    pub fn new(object: Arc<RwLock<Object>>, module_data: Arc<EjectPilotDieModuleData>) -> Self {
+    pub fn new(object_id: ObjectID, module_data: Arc<EjectPilotDieModuleData>) -> Self {
         Self {
-            base: DieModule::new(object, module_data),
+            base: DieModule::new(object_id, module_data),
         }
     }
 

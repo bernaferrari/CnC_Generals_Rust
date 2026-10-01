@@ -438,7 +438,7 @@ impl GameWorldShadow {
                     ev.secondary_damage = 0.0;
                 }
             }
-            crate::game_logic::combat::queue_projectile_direct(ev);
+            crate::game_logic::combat::queue_projectile_direct(&mut logic.combat_system, ev);
         }
         {
             let objects = logic.host_objects();

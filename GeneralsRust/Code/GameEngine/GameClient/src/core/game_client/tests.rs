@@ -21,6 +21,7 @@ mod tests {
         recorder::Recorder,
     };
     use gamelogic::common::types::{ObjectShroudStatus, ObjectStatusMaskType};
+    use gamelogic::object::Object as GameLogicObject;
     use gamelogic::thing_template::DefaultThingTemplate as LogicDefaultThingTemplate;
     use std::io::Cursor;
     use std::path::{Path, PathBuf};
@@ -1846,13 +1847,13 @@ mod tests {
         let template: Arc<dyn gamelogic::thing_template::ThingTemplate> = Arc::new(
             LogicDefaultThingTemplate::new("FallbackTemplate".to_string()),
         );
-        let object = Arc::new(RwLock::new(GameLogicObject::new_raw(
+        let object = GameLogicObject::new_raw(
             template,
             object_id,
             ObjectStatusMaskType::none(),
             None,
-        )));
-        OBJECT_REGISTRY.register_object(object_id, &object);
+        );
+        OBJECT_REGISTRY.register_object(object_id, object);
 
         let mut drawable = BasicDrawable::new(DrawableId::INVALID);
         drawable.set_object_id(Some(object_id));
@@ -1888,13 +1889,13 @@ mod tests {
         let template: Arc<dyn gamelogic::thing_template::ThingTemplate> = Arc::new(
             LogicDefaultThingTemplate::new("FallbackPersistTemplate".to_string()),
         );
-        let object = Arc::new(RwLock::new(GameLogicObject::new_raw(
+        let object = GameLogicObject::new_raw(
             template,
             object_id,
             ObjectStatusMaskType::none(),
             None,
-        )));
-        OBJECT_REGISTRY.register_object(object_id, &object);
+        );
+        OBJECT_REGISTRY.register_object(object_id, object);
 
         let mut bound_no_save = BasicDrawable::new(DrawableId::INVALID);
         bound_no_save.set_object_id(Some(object_id));
@@ -1947,13 +1948,13 @@ mod tests {
         let logic_template: Arc<dyn gamelogic::thing_template::ThingTemplate> = Arc::new(
             LogicDefaultThingTemplate::new("AmbientBoundTemplate".to_string()),
         );
-        let object = Arc::new(RwLock::new(GameLogicObject::new_raw(
+        let object = GameLogicObject::new_raw(
             logic_template,
             object_id,
             ObjectStatusMaskType::none(),
             None,
-        )));
-        OBJECT_REGISTRY.register_object(object_id, &object);
+        );
+        OBJECT_REGISTRY.register_object(object_id, object);
 
         let mut client = GameClient::new().unwrap();
         let mut drawable = BasicDrawable::new(DrawableId::INVALID);
@@ -1975,13 +1976,13 @@ mod tests {
         let template: Arc<dyn gamelogic::thing_template::ThingTemplate> = Arc::new(
             LogicDefaultThingTemplate::new("FallbackTemplate".to_string()),
         );
-        let object = Arc::new(RwLock::new(GameLogicObject::new_raw(
+        let object = GameLogicObject::new_raw(
             template,
             object_id,
             ObjectStatusMaskType::none(),
             None,
-        )));
-        OBJECT_REGISTRY.register_object(object_id, &object);
+        );
+        OBJECT_REGISTRY.register_object(object_id, object);
 
         let mut drawable = BasicDrawable::new(DrawableId::INVALID);
         drawable.set_object_id(Some(object_id));

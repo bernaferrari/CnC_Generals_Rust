@@ -167,17 +167,15 @@ fn next_plane_camera_lock_object_id() -> Option<u32> {
     let mut candidates: Vec<u32> = Vec::new();
     // Wave 345: scan dual-world registry only when populated.
     if !dual_world_registry_unavailable() {
-        for object in OBJECT_REGISTRY.get_all_objects() {
-            let Ok(object_guard) = object.read() else {
-                continue;
-            };
-            if !object_guard.is_above_terrain() {
-                continue;
+        for object_id in OBJECT_REGISTRY.get_all_object_ids() {
+            let keep = OBJECT_REGISTRY
+                .with_object(object_id, |object_guard| {
+                    object_guard.is_above_terrain() && !object_guard.is_kind_of(KindOf::Projectile)
+                })
+                .unwrap_or(false);
+            if keep {
+                candidates.push(object_id);
             }
-            if object_guard.is_kind_of(KindOf::Projectile) {
-                continue;
-            }
-            candidates.push(object_guard.get_id());
         }
     }
     // Wave 979: host empty dual-world → presentation catalog airborne residual.
@@ -207,19 +205,14 @@ fn next_plane_camera_lock_object_id() -> Option<u32> {
     // Fallback: local selection via TheGameLogic when catalog has no airborne.
     if candidates.is_empty() {
         for object_id in local_selection_object_ids() {
-            let Some(object_arc) = TheGameLogic::find_object_by_id(object_id) else {
-                continue;
-            };
-            let Ok(object_guard) = object_arc.read() else {
-                continue;
-            };
-            if !object_guard.is_above_terrain() {
-                continue;
+            let keep = OBJECT_REGISTRY
+                .with_object(object_id, |object_guard| {
+                    object_guard.is_above_terrain() && !object_guard.is_kind_of(KindOf::Projectile)
+                })
+                .unwrap_or(false);
+            if keep {
+                candidates.push(object_id);
             }
-            if object_guard.is_kind_of(KindOf::Projectile) {
-                continue;
-            }
-            candidates.push(object_id);
         }
     }
 
@@ -401,21 +394,25 @@ fn dump_player_object_counts(include_all_objects: bool) {
 
         let mut object_count = 0;
         let mut object_lines: Vec<String> = Vec::new();
-        let _ = player_guard.iterate_objects(|object_arc| {
-            let Ok(object_guard) = object_arc.read() else {
+        let _ = player_guard.iterate_object_ids(|object_id| {
+            let line = OBJECT_REGISTRY
+                .with_object(object_id, |object_guard| {
+                    if object_guard.is_effectively_dead() {
+                        return None;
+                    }
+                    Some(format!(
+                        "Object {} ({})",
+                        object_guard.get_id(),
+                        object_guard.get_template().get_name()
+                    ))
+                })
+                .flatten();
+            let Some(line) = line else {
                 return Ok(());
             };
-            if object_guard.is_effectively_dead() {
-                return Ok(());
-            }
-
             object_count += 1;
             if include_all_objects || object_count <= 5 {
-                object_lines.push(format!(
-                    "Object {} ({})",
-                    object_guard.get_id(),
-                    object_guard.get_template().get_name()
-                ));
+                object_lines.push(line);
             }
             Ok(())
         });
@@ -449,7 +446,7 @@ fn report_object_id_lookup_performance() {
     for number_lookups in [10_000_u32, 100_000_u32, 1_000_000_u32] {
         let start = Instant::now();
         for test_index in 1..number_lookups {
-            black_box(TheGameLogic::find_object_by_id(test_index));
+            black_box(OBJECT_REGISTRY.with_object(test_index, |_| ()));
         }
         let elapsed = start.elapsed().as_secs_f64();
         let next_index = TheGameLogic::get_object_id_counter();

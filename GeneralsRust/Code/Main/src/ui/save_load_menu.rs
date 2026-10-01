@@ -9,7 +9,8 @@ use super::{
 };
 use crate::localization;
 use crate::save_load::{
-    SaveFileType, SaveLoadManager, get_save_load_manager, init_save_load_system,
+    with_save_load_manager, with_save_load_manager_mut, init_save_load_system, AvailableGameInfo,
+    SaveFileType, SaveLoadManager,
 };
 use log::info;
 use std::time::SystemTime;
@@ -490,21 +491,17 @@ impl SaveLoadMenu {
     }
 
     fn remove_save_file(&self, filename: &str) {
-        let remove = |manager: &SaveLoadManager| {
-            let path = manager.get_save_path(filename);
-            if path.exists() {
-                if let Err(err) = std::fs::remove_file(&path) {
-                    info!("Failed to delete save {}: {err}", path.display());
-                }
-            }
+        let path = if let Some(path) = with_save_load_manager(|manager| manager.get_save_path(filename))
+        {
+            path
+        } else {
+            SaveLoadManager::new().get_save_path(filename)
         };
-        if let Some(manager_arc) = get_save_load_manager() {
-            if let Ok(manager) = manager_arc.lock() {
-                remove(&manager);
-                return;
+        if path.exists() {
+            if let Err(err) = std::fs::remove_file(&path) {
+                info!("Failed to delete save {}: {err}", path.display());
             }
         }
-        remove(&SaveLoadManager::new());
     }
 
     fn overwrite_target_index(&self) -> Option<usize> {
@@ -636,24 +633,24 @@ impl SaveLoadMenu {
         self.entry_clicks.clear();
         let _ = init_save_load_system();
 
-        if let Some(manager_arc) = get_save_load_manager() {
-            if let Ok(mut manager) = manager_arc.lock() {
-                let _ = manager.refresh_save_list();
-                self.add_save_entries_from_manager(&manager);
-                return;
-            }
-        }
-
-        // Fallback for contexts where the global manager is not set up yet.
-        let mut manager = SaveLoadManager::new();
-        if manager.init().is_ok() {
+        if let Some(saves) = with_save_load_manager_mut(|manager| {
             let _ = manager.refresh_save_list();
-            self.add_save_entries_from_manager(&manager);
+            manager.get_available_saves().to_vec()
+        }) {
+            self.add_save_entries(&saves);
         } else {
-            info!(
-                "{}",
-                Self::text("save_load.log.no_manager", "Save system unavailable")
-            );
+            // Fallback for contexts where the global manager is not set up yet.
+            let mut manager = SaveLoadManager::new();
+            if manager.init().is_ok() {
+                let _ = manager.refresh_save_list();
+                let saves = manager.get_available_saves().to_vec();
+                self.add_save_entries(&saves);
+            } else {
+                info!(
+                    "{}",
+                    Self::text("save_load.log.no_manager", "Save system unavailable")
+                );
+            }
         }
 
         info!(
@@ -666,8 +663,8 @@ impl SaveLoadMenu {
         );
     }
 
-    fn add_save_entries_from_manager(&mut self, manager: &SaveLoadManager) {
-        for entry in manager.get_available_saves() {
+    fn add_save_entries(&mut self, saves: &[AvailableGameInfo]) {
+        for entry in saves {
             let save = &entry.save_info;
             self.save_files.push(SaveGameEntry {
                 filename: save.filename.clone(),

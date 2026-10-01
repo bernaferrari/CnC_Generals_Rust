@@ -49,40 +49,40 @@ impl DefaultCommandHandler {
 
         let mut any_toggled = false;
         for object_id in object_ids {
-            let Some(obj_arc) = crate::helpers::TheGameLogic::find_object_by_id(object_id) else {
-                continue;
-            };
-            let Ok(obj_guard) = obj_arc.write() else {
-                continue;
-            };
-            let mut toggled = false;
-            for module_handle in obj_guard.behavior_modules() {
-                let matched = module_handle.with_module(|module| {
-                    module
-                        .get_overcharge_control_interface()
-                        .map(|overcharge| {
-                            let _ = overcharge.toggle();
-                        })
-                        .is_some()
-                });
-                if matched {
-                    toggled = true;
-                    break;
-                }
-            }
-
-            if !toggled {
-                for behavior in obj_guard.get_behavior_modules() {
-                    if let Ok(mut behavior_guard) = behavior.lock() {
-                        if let Some(overcharge) = behavior_guard.get_overcharge_behavior_interface()
-                        {
-                            let _ = overcharge.toggle();
+            let toggled = crate::object::registry::OBJECT_REGISTRY
+                .with_object_mut(object_id, |obj_guard| {
+                    let mut toggled = false;
+                    for module_handle in obj_guard.behavior_modules() {
+                        let matched = module_handle.with_module(|module| {
+                            module
+                                .get_overcharge_control_interface()
+                                .map(|overcharge| {
+                                    let _ = overcharge.toggle();
+                                })
+                                .is_some()
+                        });
+                        if matched {
                             toggled = true;
                             break;
                         }
                     }
-                }
-            }
+
+                    if !toggled {
+                        for behavior in obj_guard.get_behavior_modules() {
+                            if let Ok(mut behavior_guard) = behavior.lock() {
+                                if let Some(overcharge) =
+                                    behavior_guard.get_overcharge_behavior_interface()
+                                {
+                                    let _ = overcharge.toggle();
+                                    toggled = true;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    toggled
+                })
+                .unwrap_or(false);
 
             if toggled {
                 any_toggled = true;
@@ -309,8 +309,8 @@ impl DefaultCommandHandler {
         if command.command.get_type() == CommandType::CombatDropAtObject {
             target_object = self.extract_object_ids(command).first().copied();
             if let Some(target_id) = target_object {
-                target_position = TheGameLogic::find_object_by_id(target_id)
-                    .and_then(|obj| obj.read().ok().map(|guard| *guard.get_position()));
+                target_position = crate::object::registry::OBJECT_REGISTRY
+                    .with_object(target_id, |guard| *guard.get_position());
             }
         }
 

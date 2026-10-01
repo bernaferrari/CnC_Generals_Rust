@@ -204,14 +204,11 @@ impl AIPlayer {
             });
         }
 
-        let team = player_guard.get_default_team();
+        let team_id = player_guard.get_default_team_id();
         drop(player_guard);
         drop(list);
 
-        let Some(team_arc) = team else {
-            return Ok(None);
-        };
-        let Ok(team_guard) = team_arc.read() else {
+        let Some(team_id) = team_id else {
             return Ok(None);
         };
         let Ok(factory) = TheThingFactory::get() else {
@@ -221,12 +218,13 @@ impl AIPlayer {
         if template.is_kind_of(crate::common::KindOf::Structure) {
             starting_status.set_status(crate::common::ObjectStatusTypes::UnderConstruction);
         }
-        let Ok(new_object) =
-            factory.new_object_with_status(template.clone(), &*team_guard, starting_status)
+        let Ok(new_object) = crate::team::with_team(team_id, |team_guard| {
+            factory.new_object_with_status(template.clone(), team_guard, starting_status)
+        })
+        .unwrap_or(Err("no team".into()))
         else {
             return Ok(None);
         };
-        drop(team_guard);
 
         let mut build_max_health = 0.0;
         if let Ok(guard) = new_object.read() {
@@ -256,16 +254,10 @@ impl AIPlayer {
             guard.get_id()
         };
 
-        let total_build_frames = player_list()
-            .read()
-            .ok()
-            .and_then(|list| list.get_player(self.player_id as i32).cloned())
-            .and_then(|p| {
-                p.read()
-                    .ok()
-                    .map(|pg| template.calc_time_to_build(Some(&*pg)).max(1) as u32)
-            })
-            .unwrap_or(300);
+        let total_build_frames = crate::player::with_player(self.player_id as i32, |pg| {
+            template.calc_time_to_build(Some(pg)).max(1) as u32
+        })
+        .unwrap_or(300);
 
         let _ = OBJECT_REGISTRY.with_object_mut(dozer_id, |dozer_g| {
             if let Some(ai_g) = dozer_g.get_ai_update_interface_mut() {
@@ -387,20 +379,12 @@ impl AIPlayer {
         let Ok(list) = player_list().read() else {
             return Ok(None);
         };
-        let Some(player_arc) = list.get_player(self.player_id as i32) else {
-            return Ok(None);
-        };
-        let Ok(player_guard) = player_arc.read() else {
-            return Ok(None);
-        };
-        let team = player_guard.get_default_team();
-        drop(player_guard);
+        let team_id = list
+            .get_player(self.player_id as i32)
+            .and_then(|player_guard| player_guard.get_default_team_id());
         drop(list);
 
-        let Some(team_arc) = team else {
-            return Ok(None);
-        };
-        let Ok(team_guard) = team_arc.read() else {
+        let Some(team_id) = team_id else {
             return Ok(None);
         };
         let Ok(factory) = TheThingFactory::get() else {
@@ -410,12 +394,13 @@ impl AIPlayer {
         if template.is_kind_of(crate::common::KindOf::Structure) {
             starting_status.set_status(crate::common::ObjectStatusTypes::UnderConstruction);
         }
-        let Ok(new_object) =
-            factory.new_object_with_status(template.clone(), &*team_guard, starting_status)
+        let Ok(new_object) = crate::team::with_team(team_id, |team_guard| {
+            factory.new_object_with_status(template.clone(), team_guard, starting_status)
+        })
+        .unwrap_or(Err("no team".into()))
         else {
             return Ok(None);
         };
-        drop(team_guard);
 
         let mut pos = location;
         if let Some(terrain) = TheTerrainLogic::get() {
@@ -954,7 +939,7 @@ impl AIPlayer {
                 .collect()
         };
 
-        let mut best: Option<(String, Arc<RwLock<crate::team::Team>>, String, i32)> = None;
+        let mut best: Option<(String, crate::team::TeamID, String, i32)> = None;
         // C++ curPriority starts at minPriority; only priorities *above* min win.
         let mut cur_priority = min_priority;
 
@@ -970,11 +955,9 @@ impl AIPlayer {
 
             // C++: busy if any TeamInQueue.m_team->getPrototype() == proto.
             let busy = self.team_build_queue.iter().any(|q| {
-                if let Some(team_arc) = q.team.as_ref() {
-                    if let Ok(tg) = team_arc.read() {
-                        if tg.get_name().as_str() == name.as_str() {
-                            return true;
-                        }
+                if let Some(team_id) = q.team_id {
+                    if crate::team::with_team(team_id, |tg| tg.get_name().as_str() == name.as_str()).unwrap_or(false) {
+                        return true;
                     }
                 }
                 q.team_name
@@ -992,55 +975,38 @@ impl AIPlayer {
             let instances = factory_guard.find_team_instances(&name);
             drop(factory_guard);
 
-            for team_arc in instances {
-                let Ok(team_g) = team_arc.read() else {
-                    continue;
-                };
-                if !team_g.has_any_units() {
+            for team_id in instances {
+                let under = crate::team::with_team(team_id, |team_g| {
+                    if !team_g.has_any_units() {
+                        return None;
+                    }
+                    let mut picked = None;
+                    for unit_info in proto.units_info() {
+                        if unit_info.max_units < 1 || unit_info.unit_thing_name.is_empty() {
+                            continue;
+                        }
+                        let Some(thing) = TheThingFactory::find_template(unit_info.unit_thing_name) else {
+                            continue;
+                        };
+                        let mut counts = [0i32; 1];
+                        team_g.count_objects_by_thing_template(std::slice::from_ref(&thing), false, false, &mut counts);
+                        if counts[0] < unit_info.max_units {
+                            picked = Some(unit_info.unit_thing_name.to_string());
+                            break;
+                        }
+                    }
+                    picked
+                });
+                let Some(Some(thing_name_pick)) = under else { continue };
+                if self.find_factory_internal(&thing_name_pick, false)?.is_none() {
                     continue;
                 }
-
-                for unit_info in proto.units_info() {
-                    if unit_info.max_units < 1 {
-                        continue;
-                    }
-                    if unit_info.unit_thing_name.is_empty() {
-                        continue;
-                    }
-                    let Some(thing) = TheThingFactory::find_template(unit_info.unit_thing_name)
-                    else {
-                        continue;
-                    };
-                    let mut counts = [0i32; 1];
-                    team_g.count_objects_by_thing_template(
-                        std::slice::from_ref(&thing),
-                        false,
-                        false,
-                        &mut counts,
-                    );
-                    if counts[0] >= unit_info.max_units {
-                        continue;
-                    }
-                    // Idle factory required (findFactory(thing, false)).
-                    if self
-                        .find_factory_internal(unit_info.unit_thing_name, false)?
-                        .is_none()
-                    {
-                        continue;
-                    }
-                    // Better candidate.
-                    best = Some((
-                        name.clone(),
-                        team_arc.clone(),
-                        unit_info.unit_thing_name.to_string(),
-                        priority,
-                    ));
-                    cur_priority = priority;
-                }
+                best = Some((name.clone(), team_id, thing_name_pick, priority));
+                cur_priority = priority;
             }
         }
 
-        let Some((team_name, team_arc, thing_name, _)) = best else {
+        let Some((team_name, team_id, thing_name, _)) = best else {
             return Ok(false);
         };
 
@@ -1049,27 +1015,24 @@ impl AIPlayer {
         };
 
         // Origin: home location, else first member position.
-        let (origin, _team_id) = {
-            let Ok(team_g) = team_arc.read() else {
-                return Ok(false);
-            };
-            let tid = team_g.get_id() as ObjectID;
-            // C++: origin = homeLocation; if first member exists, use its position.
-            let mut origin = Coord3D::new(0.0, 0.0, 0.0);
-            if let Ok(factory) = get_team_factory().lock() {
-                if let Some(proto) = factory.find_team_prototype(team_g.get_name().as_str()) {
-                    if proto.has_home_location() {
-                        origin = proto.home_location();
-                    }
-                }
-            }
-            if let Some(&mid) = team_g.get_members().first() {
-                if let Some(pos) = OBJECT_REGISTRY.with_object(mid, |g| *g.get_position()) {
-                    origin = pos;
-                }
-            }
-            (origin, tid)
+        let Some((team_name_live, member)) = crate::team::with_team(team_id, |team_g| {
+            (team_g.get_name().to_string(), team_g.get_members().first().copied())
+        }) else {
+            return Ok(false);
         };
+        let mut origin = Coord3D::new(0.0, 0.0, 0.0);
+        if let Ok(factory) = get_team_factory().lock() {
+            if let Some(proto) = factory.find_team_prototype(team_name_live.as_str()) {
+                if proto.has_home_location() {
+                    origin = proto.home_location();
+                }
+            }
+        }
+        if let Some(mid) = member {
+            if let Some(pos) = OBJECT_REGISTRY.with_object(mid, |g| *g.get_position()) {
+                origin = pos;
+            }
+        }
 
         let ai_store = the_ai();let max_recruit = ai_store
             .read()
@@ -1083,18 +1046,15 @@ impl AIPlayer {
         order.factory_id = None;
 
         let mut recruited_id = None;
-        if let Ok(team_g) = team_arc.read() {
-            if let Some(unit_arc) = team_g.try_to_recruit(&thing, &origin, max_recruit) {
-                // Transfer to this team + idle (C++ setTeam + aiIdle).
-                if let Ok(mut unit_g) = unit_arc.write() {
-                    let _ = unit_g.set_team(Some(team_arc.clone()));
-                    if let Some(ai) = unit_g.get_ai_update_interface_mut() {
-                        ai.ai_idle(CommandSourceType::FromAi);
-                    }
-                    recruited_id = Some(unit_g.get_id());
+        if let Some(Some(unit_arc)) = crate::team::with_team(team_id, |team_g| team_g.try_to_recruit(&thing, &origin, max_recruit)) {
+            if let Ok(mut unit_g) = unit_arc.write() {
+                let _ = unit_g.set_team_id(Some(team_id));
+                if let Some(ai) = unit_g.get_ai_update_interface_mut() {
+                    ai.ai_idle(CommandSourceType::FromAi);
                 }
-                order.num_completed = 1;
+                recruited_id = Some(unit_g.get_id());
             }
+            order.num_completed = 1;
         }
 
         if recruited_id.is_none() {
@@ -1104,7 +1064,7 @@ impl AIPlayer {
 
         let mut team_q = TeamInQueue::new();
         team_q.team_name = Some(team_name);
-        team_q.team = Some(team_arc);
+        team_q.team_id = Some(team_id);
         team_q.priority_build = false;
         team_q.reinforcement = true;
         // C++ m_reinforcementID is the recruited unit, else INVALID until trained.

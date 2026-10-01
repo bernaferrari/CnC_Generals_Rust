@@ -1,3 +1,4 @@
+use crate::object::registry::OBJECT_REGISTRY;
 // Destroyed, created, and team-state condition evaluators
 //
 // Split from `scripting/evaluator.rs` for module-size parity.
@@ -150,10 +151,10 @@ impl ScriptEvaluator {
 
         let tracker = get_named_object_tracker();
         if let Ok(Some(object_id)) = tracker.get_object_id(unit_name) {
-            if let Some(obj_arc) = TheGameLogic::find_object_by_id(object_id) {
-                if let Ok(obj) = obj_arc.read() {
-                    return Ok(obj.is_effectively_dead());
-                }
+            if let Some(dead) = crate::object::registry::OBJECT_REGISTRY
+                .with_object(object_id, |obj| obj.is_effectively_dead())
+            {
+                return Ok(dead);
             }
             return Ok(true);
         }
@@ -175,7 +176,7 @@ impl ScriptEvaluator {
         let Some(object_id) = tracker.get_object_id(unit_name).ok().flatten() else {
             return Ok(false);
         };
-        Ok(TheGameLogic::find_object_by_id(object_id).is_some())
+        Ok(OBJECT_REGISTRY.with_object(object_id, |_| ()).is_some())
     }
 
     fn evaluate_team_created_condition(&self, condition: &Condition) -> GameLogicResult<bool> {

@@ -10,10 +10,9 @@ mod tests {
     use crate::object::registry::OBJECT_REGISTRY;
     use std::sync::{Arc, RwLock};
 
-    fn register_test_owner(owner_id: ObjectID) -> Arc<RwLock<Object>> {
+    fn register_test_owner(owner_id: ObjectID) {
         let owner = Arc::new(RwLock::new(Object::new_test(owner_id, 100.0)));
         OBJECT_REGISTRY.register_object(owner_id, &owner);
-        owner
     }
 
     #[test]

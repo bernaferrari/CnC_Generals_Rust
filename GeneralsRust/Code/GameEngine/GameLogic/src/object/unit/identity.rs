@@ -100,24 +100,13 @@ pub struct Unit {
 impl Unit {
     /// Create a new Unit
     pub fn new(
-        base_object: Arc<RwLock<Object>>,
+        object_id: ObjectID,
         thing_template: &dyn ThingTemplate,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let locomotor_set = LocomotorSet::new();
 
         Ok(Unit {
-            object_id: {
-                let id = base_object
-                    .read()
-                    .ok()
-                    .map(|g| g.get_id())
-                    .unwrap_or(INVALID_ID);
-                if id != INVALID_ID {
-                    crate::object::registry::OBJECT_REGISTRY.register_object(id, &base_object);
-                    crate::ai::object_registry::register_legacy_object(&base_object);
-                }
-                id
-            },
+            object_id,
             locomotor_set,
             movement_state: MovementState::Idle,
             target_position: None,
@@ -232,21 +221,19 @@ impl Unit {
     pub fn occupant_count(&self) -> usize {
         self.transported_units.len()
     }
-    pub fn base_object(&self) -> Option<Arc<RwLock<Object>>> {
+    pub fn base_object(&self) -> Option<ObjectID> {
         self.get_base_object()
     }
     pub fn object_id(&self) -> ObjectID {
         self.object_id
     }
-    pub(super) fn get_base_object(&self) -> Option<Arc<RwLock<Object>>> {
+    pub(super) fn get_base_object(&self) -> Option<ObjectID> {
         if self.object_id == INVALID_ID {
             return None;
         }
-        crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-            .or_else(|| crate::ai::object_registry::get_legacy_object(self.object_id))
+        Some(self.object_id)
     }
-    pub(super) fn base_arc(&self) -> Arc<RwLock<Object>> {
+    pub(super) fn base_arc(&self) -> ObjectID {
         self.get_base_object()
             .expect("Unit base object unavailable — register via Unit::new / OBJECT_REGISTRY")
     }
@@ -254,30 +241,24 @@ impl Unit {
         self.object_id
     }
     pub fn get_orientation(&self) -> Real {
-        self.base_arc()
-            .read()
-            .ok()
-            .map(|guard| guard.get_orientation())
+        crate::object::registry::OBJECT_REGISTRY
+            .with_object(self.base_arc(), |guard| guard.get_orientation())
             .unwrap_or(0.0)
     }
     pub fn set_orientation(&mut self, angle: Real) -> Result<(), String> {
-        let base = self.base_arc();
-        let Ok(mut guard) = base.write() else {
-            return Err("Unit base object lock poisoned".to_string());
-        };
-        guard.set_orientation(angle)
+        crate::object::registry::OBJECT_REGISTRY
+            .with_object_mut(self.base_arc(), |guard| guard.set_orientation(angle))
+            .unwrap_or(Err("Unit base object lock poisoned".to_string()))
     }
     pub fn get_unit_direction_vector_2d(&self) -> (f32, f32) {
-        self.base_arc()
-            .read()
-            .ok()
-            .map(|guard| guard.get_unit_direction_vector_2d())
+        crate::object::registry::OBJECT_REGISTRY
+            .with_object(self.base_arc(), |guard| guard.get_unit_direction_vector_2d())
             .unwrap_or((1.0, 0.0))
     }
     pub(crate) fn forward_command_to_flight_deck(&self, params: &crate::ai::AiCommandParams) {
-        if let Ok(mut guard) = self.base_arc().write() {
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(self.base_arc(), |guard| {
             guard.forward_command_to_flight_deck(params);
-        }
+        });
     }
 }
 

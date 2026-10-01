@@ -1255,13 +1255,12 @@ impl ScriptActionHandler for GameClientScriptActionHandler {
         let Some(object_id) = object_id else {
             return Ok(());
         };
-        if let Some(obj_arc) = TheGameLogic::find_object_by_id(object_id) {
-            if let Ok(obj_guard) = obj_arc.read() {
-                if let Some(drawable) = obj_guard.get_drawable() {
-                    if let Ok(mut draw_guard) = drawable.write() {
-                        draw_guard.enable_ambient_sound_from_script(enable);
-                    }
-                }
+        let drawable = gamelogic::object::registry::OBJECT_REGISTRY
+            .with_object(object_id, |obj| obj.get_drawable())
+            .flatten();
+        if let Some(drawable) = drawable {
+            if let Ok(mut draw_guard) = drawable.write() {
+                draw_guard.enable_ambient_sound_from_script(enable);
             }
         }
         Ok(())

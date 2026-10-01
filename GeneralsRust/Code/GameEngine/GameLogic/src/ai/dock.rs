@@ -100,15 +100,18 @@ impl From<AIDockState> for u32 {
     }
 }
 
-fn resolve_dock_object(id: ObjectID, label: &str) -> Result<Arc<RwLock<Object>>, String> {
+fn resolve_dock_object(id: ObjectID, label: &str) -> Result<ObjectID, String> {
     // Wave 397: empty dual-world → Err(format!("{label} object {id} not found")).
     if dual_world_registry_unavailable() {
         return Err(format!("{label} object {id} not found"));
     }
-
-    crate::helpers::TheGameLogic::find_object_by_id(id)
-        .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(id))
-        .ok_or_else(|| format!("{label} object {id} not found"))
+    if crate::object::registry::OBJECT_REGISTRY
+        .with_object(id, |_| ())
+        .is_none()
+    {
+        return Err(format!("{label} object {id} not found"));
+    }
+    Ok(id)
 }
 
 fn fetch_owner_and_goal_ids_from_move(
@@ -121,12 +124,14 @@ fn fetch_owner_and_goal_ids_from_move(
         .get_machine_goal_object_id()?
         .or(fallback_goal)
         .ok_or_else(|| format!("{} missing goal object", label))?;
-    let goal_obj = resolve_dock_object(goal_id, label)?;
+    resolve_dock_object(goal_id, label)?;
 
-    let has_dock = goal_obj
-        .lock()
-        .map_err(|_| format!("{} goal object poisoned", label))?
-        .with_dock_update_interface(|_| true)
+    let has_dock = crate::object::registry::OBJECT_REGISTRY
+        .with_object(goal_id, |goal_obj| {
+            goal_obj
+                .with_dock_update_interface(|_| true)
+                .unwrap_or(false)
+        })
         .unwrap_or(false);
 
     if !has_dock {
@@ -145,7 +150,7 @@ fn fetch_owner_and_goal_ids_from_move(
 fn fetch_owner_and_goal_from_move(
     helper: &AIInternalMoveToState,
     label: &str,
-) -> Result<(Arc<RwLock<Object>>, Arc<RwLock<Object>>), String> {
+) -> Result<(ObjectID, ObjectID), String> {
     let (owner_id, goal_id) = fetch_owner_and_goal_ids_from_move(
         helper,
         None,
@@ -179,9 +184,8 @@ pub struct AIDockMachine {
 impl AIDockMachine {
     /// Create an AI state machine. Define all of the states the machine
     /// can possibly be in, and set the initial (default) state.
-    pub fn new(owner: Arc<RwLock<Object>>) -> Result<Self, String> {
-        let owner_weak = Arc::downgrade(&owner);
-        let mut state_machine = StateMachine::new(Some(owner_weak), "AIDockMachine");
+    pub fn new(owner: ObjectID) -> Result<Self, String> {
+        let mut state_machine = StateMachine::new_with_owner_id(owner, "AIDockMachine");
         let shared = Arc::new(DockSharedState::default());
 
         let wait_for_clearance_conditions = vec![legacy_transition(
@@ -277,11 +281,7 @@ impl AIDockMachine {
 
         // Sanity check
         if goal_object_id != crate::common::INVALID_ID {
-            let owner = self
-                .state_machine
-                .get_owner()
-                .ok_or_else(|| "Dock machine missing owner".to_string())?;
-            let owner_id = owner.read().map(|g| g.get_id()).unwrap_or(0);
+            let owner_id = self.state_machine.get_owner_id();
 
             crate::object::registry::OBJECT_REGISTRY
                 .with_object(goal_object_id, |goal| {
@@ -387,17 +387,15 @@ impl ClassicState for AIDockApproachState {
                 return Ok(StateReturnType::Failure);
             }
         };
-        let owner = resolve_dock_object(owner_id, "dock")?;
-        let goal = resolve_dock_object(goal_id, "dock")?;
+        let _ = resolve_dock_object(owner_id, "dock")?;
+        let _ = resolve_dock_object(goal_id, "dock")?;
 
-        let goal_guard = goal
-            .lock()
-            .map_err(|_| "goal object poisoned".to_string())?;
-
+        let _docked = crate::object::registry::OBJECT_REGISTRY
+            .with_object(goal_id, |goal_guard| {
         goal_guard
             .with_dock_update_interface(|dock| {
                 if !dock.is_dock_open().into_string_err()? {
-                    dock.cancel_dock(owner.read().map(|g| g.get_id()).unwrap_or(0))
+                    dock.cancel_dock(owner_id)
                         .into_string_err()?;
                     return Ok(StateReturnType::Failure);
                 }
@@ -406,7 +404,7 @@ impl ClassicState for AIDockApproachState {
                 let mut approach_position = 0;
                 if !dock
                     .reserve_approach_position(
-                        owner.read().map(|g| g.get_id()).unwrap_or(0),
+                        owner_id,
                         &mut goal_position,
                         &mut approach_position,
                     )
@@ -419,16 +417,17 @@ impl ClassicState for AIDockApproachState {
 
                 self.move_helper.set_goal_position(goal_position);
 
-                if let Ok(mut owner_guard) = owner.write() {
+                let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner_id, |owner_guard| {
                     if let Some(ai_guard) = owner_guard.get_ai_update_interface_mut() {
                         ai_guard
                             .ignore_obstacle(None)
                             .map_err(|err| err.to_string())?;
                     }
-                }
+                });
 
                 self.move_helper.on_enter()
             })
+            }).flatten()
             .ok_or_else(|| "Missing dock interface".to_string())?
     }
 
@@ -447,21 +446,19 @@ impl ClassicState for AIDockApproachState {
 
     fn classic_on_exit(&mut self, exit: StateExitType) -> Result<(), String> {
         if let Ok((owner_id, goal_id)) = self.goal_owner() {
-            let owner = resolve_dock_object(owner_id, "dock")?;
-            let goal = resolve_dock_object(goal_id, "dock")?;
-            let goal_guard = goal
-                .lock()
-                .map_err(|_| "goal object poisoned".to_string())?;
-
+            let _ = resolve_dock_object(owner_id, "dock")?;
+            let _ = resolve_dock_object(goal_id, "dock")?;
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object(goal_id, |goal_guard| {
             goal_guard.with_dock_update_interface(|dock| {
                 if exit == StateExitType::Reset || !dock.is_dock_open().into_string_err()? {
-                    dock.cancel_dock(owner.read().map(|g| g.get_id()).unwrap_or(0))
+                    dock.cancel_dock(owner_id)
                         .into_string_err()?;
                 } else {
-                    dock.on_approach_reached(owner.read().map(|g| g.get_id()).unwrap_or(0))
+                    dock.on_approach_reached(owner_id)
                         .into_string_err()?;
                 }
                 Ok::<_, String>(())
+            });
             }); // Ignore error on exit if dock missing
         }
 
@@ -516,12 +513,14 @@ impl AIDockWaitForClearanceState {
             .base
             .get_machine_goal_object_id()
             .ok_or_else(|| "dock wait missing goal object".to_string())?;
-        let goal_object = resolve_dock_object(goal_id, "dock wait")?;
+        resolve_dock_object(goal_id, "dock wait")?;
 
-        let has_dock = goal_object
-            .read()
-            .map_err(|_| "goal object poisoned".to_string())?
-            .with_dock_update_interface(|_| true)
+        let has_dock = crate::object::registry::OBJECT_REGISTRY
+            .with_object(goal_id, |goal_object| {
+                goal_object
+                    .with_dock_update_interface(|_| true)
+                    .unwrap_or(false)
+            })
             .unwrap_or(false);
 
         if !has_dock {
@@ -541,17 +540,16 @@ impl AIDockWaitForClearanceState {
         _user_data: &StateTransitionUserData,
     ) -> Result<bool, String> {
         let (owner_id, goal_id) = state.owner_and_goal()?;
-        let goal = resolve_dock_object(goal_id, "dock")?;
-        let goal_guard = goal
-            .lock()
-            .map_err(|_| "goal object poisoned".to_string())?;
-
-        goal_guard
-            .with_dock_update_interface(|dock| {
-                let approach_position = state.shared.approach_position();
-                dock.is_clear_to_advance(owner_id, approach_position)
-                    .into_string_err()
+        let _ = resolve_dock_object(goal_id, "dock")?;
+        crate::object::registry::OBJECT_REGISTRY
+            .with_object(goal_id, |goal_guard| {
+                goal_guard.with_dock_update_interface(|dock| {
+                    let approach_position = state.shared.approach_position();
+                    dock.is_clear_to_advance(owner_id, approach_position)
+                        .into_string_err()
+                })
             })
+            .flatten()
             .ok_or_else(|| "Missing dock interface".to_string())?
     }
 }
@@ -575,23 +573,21 @@ impl ClassicState for AIDockWaitForClearanceState {
             Ok(values) => values,
             Err(_) => return Ok(StateReturnType::Failure),
         };
-        let owner = resolve_dock_object(owner_id, "dock")?;
-        let goal = resolve_dock_object(goal_id, "dock")?;
+        let _ = resolve_dock_object(owner_id, "dock")?;
+        let _ = resolve_dock_object(goal_id, "dock")?;
 
-        let goal_guard = goal
-            .lock()
-            .map_err(|_| "goal object poisoned".to_string())?;
-
+        let _docked = crate::object::registry::OBJECT_REGISTRY
+            .with_object(goal_id, |goal_guard| {
         goal_guard
             .with_dock_update_interface(|dock| {
                 if !dock.is_dock_open().into_string_err()? {
-                    dock.cancel_dock(owner.read().map(|g| g.get_id()).unwrap_or(0))
+                    dock.cancel_dock(owner_id)
                         .into_string_err()?;
                     return Ok::<StateReturnType, String>(StateReturnType::Failure);
                 }
 
                 if dock
-                    .is_clear_to_enter(owner.read().map(|g| g.get_id()).unwrap_or(0))
+                    .is_clear_to_enter(owner_id)
                     .into_string_err()?
                 {
                     return Ok(StateReturnType::Success);
@@ -605,23 +601,22 @@ impl ClassicState for AIDockWaitForClearanceState {
 
                 Ok(StateReturnType::Continue)
             })
+            }).flatten()
             .ok_or_else(|| "Missing dock interface".to_string())?
     }
 
     fn classic_on_exit(&mut self, exit: StateExitType) -> Result<(), String> {
         if let Ok((owner_id, goal_id)) = self.owner_and_goal() {
-            let owner = resolve_dock_object(owner_id, "dock")?;
-            let goal = resolve_dock_object(goal_id, "dock")?;
-            let goal_guard = goal
-                .lock()
-                .map_err(|_| "goal object poisoned".to_string())?;
-
+            let _ = resolve_dock_object(owner_id, "dock")?;
+            let _ = resolve_dock_object(goal_id, "dock")?;
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object(goal_id, |goal_guard| {
             goal_guard.with_dock_update_interface(|dock| {
                 if exit == StateExitType::Reset || !dock.is_dock_open().into_string_err()? {
-                    dock.cancel_dock(owner.read().map(|g| g.get_id()).unwrap_or(0))
+                    dock.cancel_dock(owner_id)
                         .into_string_err()?;
                 }
                 Ok::<_, String>(())
+            });
             });
         }
 
@@ -678,17 +673,15 @@ impl ClassicState for AIDockAdvancePositionState {
             Ok(values) => values,
             Err(_) => return Ok(StateReturnType::Failure),
         };
-        let owner = resolve_dock_object(owner_id, "dock")?;
-        let goal = resolve_dock_object(goal_id, "dock")?;
+        let _ = resolve_dock_object(owner_id, "dock")?;
+        let _ = resolve_dock_object(goal_id, "dock")?;
 
-        let goal_guard = goal
-            .lock()
-            .map_err(|_| "goal object poisoned".to_string())?;
-
+        let _docked = crate::object::registry::OBJECT_REGISTRY
+            .with_object(goal_id, |goal_guard| {
         goal_guard
             .with_dock_update_interface(|dock| {
                 if !dock.is_dock_open().map_err(|err| err.to_string())? {
-                    dock.cancel_dock(owner.read().map(|g| g.get_id()).unwrap_or(0))
+                    dock.cancel_dock(owner_id)
                         .into_string_err()?;
                     return Ok::<StateReturnType, String>(StateReturnType::Failure);
                 }
@@ -697,7 +690,7 @@ impl ClassicState for AIDockAdvancePositionState {
                 let mut approach_position = 0;
                 if !dock
                     .advance_approach_position(
-                        owner.read().map(|g| g.get_id()).unwrap_or(0),
+                        owner_id,
                         &mut goal_position,
                         &mut approach_position,
                     )
@@ -709,16 +702,17 @@ impl ClassicState for AIDockAdvancePositionState {
                 self.shared.set_approach_position(approach_position);
                 self.move_helper.set_goal_position(goal_position);
 
-                if let Ok(mut owner_guard) = owner.write() {
+                let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner_id, |owner_guard| {
                     if let Some(ai_guard) = owner_guard.get_ai_update_interface_mut() {
                         ai_guard
                             .ignore_obstacle(None)
                             .map_err(|err| err.to_string())?;
                     }
-                }
+                });
 
                 self.move_helper.on_enter()
             })
+            }).flatten()
             .ok_or_else(|| "Missing dock interface".to_string())?
     }
 
@@ -737,21 +731,19 @@ impl ClassicState for AIDockAdvancePositionState {
 
     fn classic_on_exit(&mut self, exit: StateExitType) -> Result<(), String> {
         if let Ok((owner_id, goal_id)) = self.goal_owner() {
-            let owner = resolve_dock_object(owner_id, "dock")?;
-            let goal = resolve_dock_object(goal_id, "dock")?;
-            let goal_guard = goal
-                .lock()
-                .map_err(|_| "goal object poisoned".to_string())?;
-
+            let _ = resolve_dock_object(owner_id, "dock")?;
+            let _ = resolve_dock_object(goal_id, "dock")?;
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object(goal_id, |goal_guard| {
             goal_guard.with_dock_update_interface(|dock| {
                 if exit == StateExitType::Reset || !dock.is_dock_open().into_string_err()? {
-                    dock.cancel_dock(owner.read().map(|g| g.get_id()).unwrap_or(0))
+                    dock.cancel_dock(owner_id)
                         .into_string_err()?;
                 } else {
-                    dock.on_approach_reached(owner.read().map(|g| g.get_id()).unwrap_or(0))
+                    dock.on_approach_reached(owner_id)
                         .into_string_err()?;
                 }
                 Ok::<_, String>(())
+            });
             });
         }
 
@@ -809,34 +801,32 @@ impl ClassicState for AIDockMoveToEntryState {
             Ok(values) => values,
             Err(_) => return Ok(StateReturnType::Failure),
         };
-        let owner = resolve_dock_object(owner_id, "dock")?;
-        let goal = resolve_dock_object(goal_id, "dock")?;
+        let _ = resolve_dock_object(owner_id, "dock")?;
+        let _ = resolve_dock_object(goal_id, "dock")?;
 
-        let goal_guard = goal
-            .lock()
-            .map_err(|_| "goal object poisoned".to_string())?;
-
+        let _docked = crate::object::registry::OBJECT_REGISTRY
+            .with_object(goal_id, |goal_guard| {
         goal_guard
             .with_dock_update_interface(|dock| {
                 if !dock.is_dock_open().into_string_err()? {
-                    dock.cancel_dock(owner.read().map(|g| g.get_id()).unwrap_or(0))
+                    dock.cancel_dock(owner_id)
                         .into_string_err()?;
                     return Ok(StateReturnType::Failure);
                 }
 
-                if let Ok(mut owner_guard) = owner.write() {
+                let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner_id, |owner_guard| {
                     if let Some(ai_guard) = owner_guard.get_ai_update_interface_mut() {
                         if dock.is_allow_passthrough_type().into_string_err()? {
                             ai_guard
                                 .ignore_obstacle(Some(goal_id))
                                 .map_err(|err| err.to_string())?;
-                        }
                     }
+                });
                 }
 
                 let mut goal_position = Vec3D::default();
                 dock.get_enter_position(
-                    owner.read().map(|g| g.get_id()).unwrap_or(0),
+                    owner_id,
                     &mut goal_position,
                 )
                 .into_string_err()?;
@@ -846,6 +836,7 @@ impl ClassicState for AIDockMoveToEntryState {
 
                 self.move_helper.on_enter()
             })
+            }).flatten()
             .ok_or_else(|| "Missing dock interface".to_string())?
     }
 
@@ -864,21 +855,19 @@ impl ClassicState for AIDockMoveToEntryState {
 
     fn classic_on_exit(&mut self, exit: StateExitType) -> Result<(), String> {
         if let Ok((owner_id, goal_id)) = self.goal_owner() {
-            let owner = resolve_dock_object(owner_id, "dock")?;
-            let goal = resolve_dock_object(goal_id, "dock")?;
-            let goal_guard = goal
-                .lock()
-                .map_err(|_| "goal object poisoned".to_string())?;
-
+            let _ = resolve_dock_object(owner_id, "dock")?;
+            let _ = resolve_dock_object(goal_id, "dock")?;
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object(goal_id, |goal_guard| {
             goal_guard.with_dock_update_interface(|dock| {
                 if exit == StateExitType::Reset || !dock.is_dock_open().into_string_err()? {
-                    dock.cancel_dock(owner.read().map(|g| g.get_id()).unwrap_or(0))
+                    dock.cancel_dock(owner_id)
                         .into_string_err()?;
                 } else {
-                    dock.on_enter_reached(owner.read().map(|g| g.get_id()).unwrap_or(0))
+                    dock.on_enter_reached(owner_id)
                         .into_string_err()?;
                 }
                 Ok::<_, String>(())
+            });
             });
         }
 
@@ -937,24 +926,22 @@ impl ClassicState for AIDockMoveToDockState {
             Ok(values) => values,
             Err(_) => return Ok(StateReturnType::Failure),
         };
-        let owner = resolve_dock_object(owner_id, "dock")?;
-        let goal = resolve_dock_object(goal_id, "dock")?;
+        let _ = resolve_dock_object(owner_id, "dock")?;
+        let _ = resolve_dock_object(goal_id, "dock")?;
 
-        let goal_guard = goal
-            .lock()
-            .map_err(|_| "goal object poisoned".to_string())?;
-
+        let _docked = crate::object::registry::OBJECT_REGISTRY
+            .with_object(goal_id, |goal_guard| {
         goal_guard
             .with_dock_update_interface(|dock| {
                 if !dock.is_dock_open().into_string_err()? {
-                    dock.cancel_dock(owner.read().map(|g| g.get_id()).unwrap_or(0))
+                    dock.cancel_dock(owner_id)
                         .into_string_err()?;
                     return Ok(StateReturnType::Failure);
                 }
 
                 let mut goal_position = Vec3D::default();
                 dock.get_dock_position(
-                    owner.read().map(|g| g.get_id()).unwrap_or(0),
+                    owner_id,
                     &mut goal_position,
                 )
                 .into_string_err()?;
@@ -964,17 +951,18 @@ impl ClassicState for AIDockMoveToDockState {
                     .is_allow_passthrough_type()
                     .map_err(|err| err.to_string())?
                 {
-                    if let Ok(mut owner_guard) = owner.write() {
-                        if let Some(ai_guard) = owner_guard.get_ai_update_interface_mut() {
+                    let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner_id, |owner_guard| {
+                    if let Some(ai_guard) = owner_guard.get_ai_update_interface_mut() {
                             ai_guard
                                 .ignore_obstacle(Some(goal_id))
                                 .map_err(|err| err.to_string())?;
                             self.move_helper.set_adjusts_destination(false);
-                        }
                     }
+                });
                 }
                 Ok::<StateReturnType, String>(StateReturnType::Continue)
             })
+            }).flatten()
             .ok_or_else(|| "Missing dock interface".to_string())??;
 
         if let Ok(Some(id)) = self.move_helper.get_machine_goal_object_id() {
@@ -997,18 +985,17 @@ impl ClassicState for AIDockMoveToDockState {
         }
 
         if let Ok((_, goal_id)) = self.goal_owner() {
-            let goal = resolve_dock_object(goal_id, "dock")?;
-            let goal_guard = goal
-                .lock()
-                .map_err(|_| "goal object poisoned".to_string())?;
-
-            goal_guard
-                .with_dock_update_interface(|dock| {
-                    if !dock.is_dock_open().map_err(|err| err.to_string())? {
-                        return Ok::<StateReturnType, String>(StateReturnType::Failure);
-                    }
-                    Ok::<StateReturnType, String>(StateReturnType::Continue)
+            let _ = resolve_dock_object(goal_id, "dock")?;
+            crate::object::registry::OBJECT_REGISTRY
+                .with_object(goal_id, |goal_guard| {
+                    goal_guard.with_dock_update_interface(|dock| {
+                        if !dock.is_dock_open().map_err(|err| err.to_string())? {
+                            return Ok::<StateReturnType, String>(StateReturnType::Failure);
+                        }
+                        Ok::<StateReturnType, String>(StateReturnType::Continue)
+                    })
                 })
+                .flatten()
                 .ok_or_else(|| "Missing dock interface".to_string())??;
         }
 
@@ -1017,21 +1004,19 @@ impl ClassicState for AIDockMoveToDockState {
 
     fn classic_on_exit(&mut self, exit: StateExitType) -> Result<(), String> {
         if let Ok((owner_id, goal_id)) = self.goal_owner() {
-            let owner = resolve_dock_object(owner_id, "dock")?;
-            let goal = resolve_dock_object(goal_id, "dock")?;
-            let goal_guard = goal
-                .lock()
-                .map_err(|_| "goal object poisoned".to_string())?;
-
+            let _ = resolve_dock_object(owner_id, "dock")?;
+            let _ = resolve_dock_object(goal_id, "dock")?;
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object(goal_id, |goal_guard| {
             goal_guard.with_dock_update_interface(|dock| {
                 if exit == StateExitType::Reset || !dock.is_dock_open().into_string_err()? {
-                    dock.cancel_dock(owner.read().map(|g| g.get_id()).unwrap_or(0))
+                    dock.cancel_dock(owner_id)
                         .into_string_err()?;
                 } else {
-                    dock.on_dock_reached(owner.read().map(|g| g.get_id()).unwrap_or(0))
+                    dock.on_dock_reached(owner_id)
                         .into_string_err()?;
                 }
                 Ok::<_, String>(())
+            });
             });
         }
         self.move_helper.on_exit(exit)?;
@@ -1075,12 +1060,14 @@ impl AIDockProcessDockState {
             .base
             .get_machine_goal_object_id()
             .ok_or_else(|| "dock process missing goal object".to_string())?;
-        let goal_object = resolve_dock_object(goal_id, "dock process")?;
+        resolve_dock_object(goal_id, "dock process")?;
 
-        let has_dock = goal_object
-            .lock()
-            .map_err(|_| "goal object poisoned".to_string())?
-            .with_dock_update_interface(|_| true)
+        let has_dock = crate::object::registry::OBJECT_REGISTRY
+            .with_object(goal_id, |goal_object| {
+                goal_object
+                    .with_dock_update_interface(|_| true)
+                    .unwrap_or(false)
+            })
             .unwrap_or(false);
 
         if !has_dock {
@@ -1097,19 +1084,22 @@ impl AIDockProcessDockState {
 
     fn set_next_dock_action_frame(&mut self) -> Result<(), String> {
         let (owner_id, goal_id) = self.owner_and_goal()?;
-        let owner = resolve_dock_object(owner_id, "dock")?;
-        let goal_object = resolve_dock_object(goal_id, "dock")?;
+        let _ = resolve_dock_object(owner_id, "dock")?;
+        let _ = resolve_dock_object(goal_id, "dock")?;
 
-        if let Ok(owner_guard) = owner.read() {
-            if let Some(ai) = owner_guard.get_ai() {
-                if let Some(supply_truck) = ai.get_supply_truck_ai_interface() {
-                    self.next_dock_action_frame = TheGameLogic::try_get_frame()?
-                        + supply_truck
+        let delayed = crate::object::registry::OBJECT_REGISTRY.with_object(owner_id, |owner_guard| {
+            owner_guard.get_ai().and_then(|ai| {
+                ai.get_supply_truck_ai_interface()
+                    .map(|supply_truck| {
+                        supply_truck
                             .get_action_delay_for_dock(goal_id)
-                            .map_err(|err| err.to_string())?;
-                    return Ok(());
-                }
-            }
+                            .map_err(|err| err.to_string())
+                    })
+            })
+        }).flatten();
+        if let Some(delay) = delayed {
+            self.next_dock_action_frame = TheGameLogic::try_get_frame()? + delay?;
+            return Ok(());
         }
 
         self.next_dock_action_frame = TheGameLogic::try_get_frame()?;
@@ -1124,7 +1114,7 @@ impl AIDockProcessDockState {
 
         if let Some(drone_id) = self.drone_id {
             if crate::object::registry::OBJECT_REGISTRY
-                .get_object(drone_id)
+                .with_object(drone_id, |_| ())
                 .is_some()
             {
                 return Ok(Some(drone_id));
@@ -1132,36 +1122,36 @@ impl AIDockProcessDockState {
             self.drone_id = None;
         }
 
-        let owner = self
+        let owner_id = self
             .base
-            .get_machine_owner()
+            .get_machine_owner_id()
             .ok_or_else(|| "dock process missing owner".to_string())?;
-        let owner_guard = owner
-            .read()
-            .map_err(|_| "dock process owner poisoned".to_string())?;
-        if let Some(player) = owner_guard.get_controlling_player() {
-            let owner_id = owner_guard.get_id();
-            if let Ok(player_guard) = player.read() {
-                let drone_id = player_guard.find_drone_id_by_producer_id(owner_id);
-                if drone_id.is_some() {
-                    self.drone_id = drone_id;
-                }
-                return Ok(drone_id);
-            }
+        let drone_id = crate::object::registry::OBJECT_REGISTRY.with_object(owner_id, |owner_guard| {
+            owner_guard
+                .get_controlling_player()
+                .and_then(|player| player.read().ok())
+                .map(|player_guard| player_guard.find_drone_id_by_producer_id(owner_id))
+        }).flatten().flatten();
+        if drone_id.is_some() {
+            self.drone_id = drone_id;
+            return Ok(drone_id);
         }
 
         Ok(None)
     }
 
-    fn find_my_drone(&mut self) -> Result<Option<Arc<RwLock<Object>>>, String> {
+    fn find_my_drone(&mut self) -> Result<Option<ObjectID>, String> {
         // Wave 397: empty dual-world → Ok(None).
         if dual_world_registry_unavailable() {
             return Ok(None);
         }
 
-        Ok(self
-            .find_my_drone_id()?
-            .and_then(|id| crate::object::registry::OBJECT_REGISTRY.get_object(id)))
+        let id = self.find_my_drone_id()?;
+        Ok(id.filter(|id| {
+            crate::object::registry::OBJECT_REGISTRY
+                .with_object(*id, |_| ())
+                .is_some()
+        }))
     }
 
 }
@@ -1190,13 +1180,11 @@ impl ClassicState for AIDockProcessDockState {
             Ok(values) => values,
             Err(_) => return Ok(StateReturnType::Failure),
         };
-        let owner = resolve_dock_object(owner_id, "dock")?;
-        let goal = resolve_dock_object(goal_id, "dock")?;
+        let _ = resolve_dock_object(owner_id, "dock")?;
+        let _ = resolve_dock_object(goal_id, "dock")?;
 
-        let goal_guard = goal
-            .write()
-            .map_err(|_| "goal object poisoned".to_string())?;
-
+        crate::object::registry::OBJECT_REGISTRY
+            .with_object(goal_id, |goal_guard| {
         goal_guard
             .with_dock_update_interface(|dock| {
                 if TheGameLogic::try_get_frame()? < self.next_dock_action_frame {
@@ -1206,7 +1194,7 @@ impl ClassicState for AIDockProcessDockState {
                 self.set_next_dock_action_frame()?;
 
                 let drone_id = self.find_my_drone_id()?;
-                let owner_id = owner.read().map(|g| g.get_id()).unwrap_or(0);
+                let owner_id = owner_id;
 
                 if !dock.is_dock_open().into_string_err()?
                     || !dock.action(owner_id, drone_id).into_string_err()?
@@ -1216,6 +1204,7 @@ impl ClassicState for AIDockProcessDockState {
 
                 Ok(StateReturnType::Continue)
             })
+            }).flatten()
             .ok_or_else(|| "Missing dock interface".to_string())?
     }
 
@@ -1270,18 +1259,16 @@ impl ClassicState for AIDockMoveToExitState {
             Ok(values) => values,
             Err(_) => return Ok(StateReturnType::Failure),
         };
-        let owner = resolve_dock_object(owner_id, "dock")?;
-        let goal = resolve_dock_object(goal_id, "dock")?;
+        let _ = resolve_dock_object(owner_id, "dock")?;
+        let _ = resolve_dock_object(goal_id, "dock")?;
 
-        let goal_guard = goal
-            .lock()
-            .map_err(|_| "goal object poisoned".to_string())?;
-
+        let _docked = crate::object::registry::OBJECT_REGISTRY
+            .with_object(goal_id, |goal_guard| {
         goal_guard
             .with_dock_update_interface(|dock| {
                 let mut goal_position = Vec3D::default();
                 dock.get_exit_position(
-                    owner.read().map(|g| g.get_id()).unwrap_or(0),
+                    owner_id,
                     &mut goal_position,
                 )
                 .into_string_err()?;
@@ -1291,17 +1278,18 @@ impl ClassicState for AIDockMoveToExitState {
                     .is_allow_passthrough_type()
                     .map_err(|err| err.to_string())?
                 {
-                    if let Ok(mut owner_guard) = owner.write() {
-                        if let Some(ai_guard) = owner_guard.get_ai_update_interface_mut() {
+                    let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner_id, |owner_guard| {
+                    if let Some(ai_guard) = owner_guard.get_ai_update_interface_mut() {
                             ai_guard
                                 .ignore_obstacle(Some(goal_id))
                                 .map_err(|err| err.to_string())?;
                             self.move_helper.set_adjusts_destination(false);
-                        }
                     }
+                });
                 }
                 Ok::<StateReturnType, String>(StateReturnType::Continue)
             })
+            }).flatten()
             .ok_or_else(|| "Missing dock interface".to_string())??;
 
         self.move_helper.on_enter()
@@ -1322,16 +1310,14 @@ impl ClassicState for AIDockMoveToExitState {
 
     fn classic_on_exit(&mut self, exit: StateExitType) -> Result<(), String> {
         if let Ok((owner_id, goal_id)) = self.goal_owner() {
-            let owner = resolve_dock_object(owner_id, "dock")?;
-            let goal = resolve_dock_object(goal_id, "dock")?;
-            let goal_guard = goal
-                .lock()
-                .map_err(|_| "goal object poisoned".to_string())?;
-
+            let _ = resolve_dock_object(owner_id, "dock")?;
+            let _ = resolve_dock_object(goal_id, "dock")?;
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object(goal_id, |goal_guard| {
             goal_guard.with_dock_update_interface(|dock| {
-                dock.on_exit_reached(owner.read().map(|g| g.get_id()).unwrap_or(0))
+                dock.on_exit_reached(owner_id)
                     .into_string_err()?;
                 Ok::<_, String>(())
+            });
             });
         }
 
@@ -1383,12 +1369,14 @@ impl ClassicState for AIDockMoveToRallyState {
         };
         let goal_object = resolve_dock_object(goal_id, "dock")?;
 
-        let is_rally_type = match goal_object
-            .lock()
-            .map_err(|_| "goal object poisoned".to_string())?
-            .with_dock_update_interface(|dock| {
-                dock.is_rally_point_after_dock_type().into_string_err()
-            }) {
+        let is_rally_type = match crate::object::registry::OBJECT_REGISTRY
+            .with_object(goal_object, |goal| {
+                goal.with_dock_update_interface(|dock| {
+                    dock.is_rally_point_after_dock_type().into_string_err()
+                })
+            })
+            .flatten()
+        {
             Some(result) => result?,
             None => return Ok(StateReturnType::Failure),
         };
@@ -1397,10 +1385,11 @@ impl ClassicState for AIDockMoveToRallyState {
             return Ok(StateReturnType::Success);
         }
 
-        let rally_point_opt = goal_object
-            .lock()
-            .map_err(|_| "goal object poisoned".to_string())?
-            .with_object_exit_interface(|exit| exit.get_rally_point().unwrap_or(None))
+        let rally_point_opt = crate::object::registry::OBJECT_REGISTRY
+            .with_object(goal_object, |goal| {
+                goal.with_object_exit_interface(|exit| exit.get_rally_point().unwrap_or(None))
+            })
+            .flatten()
             .flatten();
 
         if let Some(rally_point) = rally_point_opt {
@@ -1445,13 +1434,16 @@ impl DroneInfo {
         }
     }
 
-    pub fn drone(&self) -> Option<Arc<RwLock<Object>>> {
+    pub fn drone(&self) -> Option<ObjectID> {
         // Wave 397: empty dual-world → None.
         if dual_world_registry_unavailable() {
             return None;
         }
 
-        self.drone_id
-            .and_then(|id| crate::object::registry::OBJECT_REGISTRY.get_object(id))
+        self.drone_id.filter(|id| {
+            crate::object::registry::OBJECT_REGISTRY
+                .with_object(*id, |_| ())
+                .is_some()
+        })
     }
 }

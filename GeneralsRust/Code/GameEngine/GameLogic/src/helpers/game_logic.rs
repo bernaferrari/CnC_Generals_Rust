@@ -512,35 +512,19 @@ impl TheGameLogic {
         crate::system::game_logic::try_current_frame()
     }
 
-    /// Find object by ID using the global registry (mirrors C++ TheGameLogic::findObjectByID).
-    pub fn find_object_by_id(
-        id: ObjectID,
-    ) -> Option<std::sync::Arc<std::sync::RwLock<crate::object::Object>>> {
-        // Wave 281: dual_world_registry_unavailable no longer forces None;
-        // try OBJECT_REGISTRY then GameLogic.objects via try_lock.
-        if let Some(obj) = OBJECT_REGISTRY.get_object(id) {
-            return Some(obj);
-        }
-        // Host path: objects live on GameLogic.objects. try_lock avoids deadlock
-        // if we are already inside GameLogic::update.
-        crate::system::game_logic::get_game_logic()
-            .try_lock()
-            .ok()
-            .and_then(|logic| logic.find_object_by_id(id))
+    /// Presence check. Object values stay in `OBJECT_REGISTRY`; use
+    /// `OBJECT_REGISTRY.with_object` / `with_object_mut` to read or mutate.
+    pub fn find_object_by_id(id: ObjectID) -> bool {
+        crate::object::registry::OBJECT_REGISTRY.contains(id)
     }
 
-    /// Register a newly created object handle with the global registry.
-    pub fn register_object(
-        object: std::sync::Arc<std::sync::RwLock<crate::object::Object>>,
-    ) -> Result<(), GameError> {
-        let id = { object.read().map_err(|_| GameError::LockError)?.get_id() };
-        OBJECT_REGISTRY.register_object(id, &object);
-        register_legacy_object(&object);
-
+    /// Register a newly created object with the owned registry.
+    pub fn register_object(object: crate::object::Object) -> Result<(), GameError> {
+        let id = object.get_id();
+        crate::object::registry::OBJECT_REGISTRY.register_object(id, object);
         if let Ok(mut logic) = crate::system::game_logic::get_game_logic().lock() {
-            let _ = logic.track_object_in_update_list(object);
+            let _ = logic.track_object_in_update_list(id);
         }
-
         Ok(())
     }
 

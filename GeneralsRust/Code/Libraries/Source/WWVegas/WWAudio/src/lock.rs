@@ -1,24 +1,27 @@
 //! Audio-specific locking and synchronization primitives.
 
 use parking_lot::{Condvar, Mutex, RwLock};
-use std::sync::Arc;
+use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
-/// Audio-specific mutex with timeout support
+/// Audio-specific mutex with timeout support.
+///
+/// The mutex is owned here. `Clone` used to alias an `Arc`, but nothing
+/// cloned these locks, so the `Arc` is gone.
 pub struct AudioMutex<T> {
-    inner: Arc<Mutex<T>>,
+    inner: Mutex<T>,
     name: String,
 }
 
 /// Audio-specific read-write lock
 pub struct AudioRwLock<T> {
-    inner: Arc<RwLock<T>>,
+    inner: RwLock<T>,
     name: String,
 }
 
 /// Audio condition variable for thread synchronization
 pub struct AudioCondvar {
-    inner: Arc<Condvar>,
+    inner: Condvar,
     name: String,
 }
 
@@ -34,7 +37,7 @@ impl<T> AudioMutex<T> {
     /// Create new audio mutex
     pub fn new(data: T, name: impl Into<String>) -> Self {
         Self {
-            inner: Arc::new(Mutex::new(data)),
+            inner: Mutex::new(data),
             name: name.into(),
         }
     }
@@ -76,7 +79,7 @@ impl<T> AudioRwLock<T> {
     /// Create new audio read-write lock
     pub fn new(data: T, name: impl Into<String>) -> Self {
         Self {
-            inner: Arc::new(RwLock::new(data)),
+            inner: RwLock::new(data),
             name: name.into(),
         }
     }
@@ -145,7 +148,7 @@ impl AudioCondvar {
     /// Create new audio condition variable
     pub fn new(name: impl Into<String>) -> Self {
         Self {
-            inner: Arc::new(Condvar::new()),
+            inner: Condvar::new(),
             name: name.into(),
         }
     }
@@ -192,10 +195,12 @@ impl<'a, T> Drop for ScopedLock<'a, T> {
     }
 }
 
-/// Lock manager for tracking and debugging locks
+/// Lock manager for tracking and debugging locks.
+///
+/// Single owner: callers mutate through `&mut self`, so the map is not locked.
 pub struct LockManager {
     config: LockConfig,
-    active_locks: Mutex<std::collections::HashMap<String, Instant>>,
+    active_locks: HashMap<String, Instant>,
 }
 
 impl LockManager {
@@ -203,23 +208,21 @@ impl LockManager {
     pub fn new(config: LockConfig) -> Self {
         Self {
             config,
-            active_locks: Mutex::new(std::collections::HashMap::new()),
+            active_locks: HashMap::new(),
         }
     }
 
     /// Register lock acquisition
-    pub fn register_lock(&self, name: &str) {
+    pub fn register_lock(&mut self, name: &str) {
         if self.config.enable_profiling {
-            let mut locks = self.active_locks.lock();
-            locks.insert(name.to_string(), Instant::now());
+            self.active_locks.insert(name.to_string(), Instant::now());
         }
     }
 
     /// Unregister lock release
-    pub fn unregister_lock(&self, name: &str) {
+    pub fn unregister_lock(&mut self, name: &str) {
         if self.config.enable_profiling {
-            let mut locks = self.active_locks.lock();
-            if let Some(start_time) = locks.remove(name) {
+            if let Some(start_time) = self.active_locks.remove(name) {
                 let duration = start_time.elapsed();
                 log::debug!("Lock '{}' held for {:?}", name, duration);
             }
@@ -227,14 +230,13 @@ impl LockManager {
     }
 
     /// Check for potential deadlocks
-    pub fn check_deadlocks(&self) -> Vec<String> {
+    pub fn check_deadlocks(&mut self) -> Vec<String> {
         let mut deadlocked = Vec::new();
 
         if self.config.enable_deadlock_detection {
-            let locks = self.active_locks.lock();
             let now = Instant::now();
 
-            for (name, start_time) in locks.iter() {
+            for (name, start_time) in self.active_locks.iter() {
                 if now.duration_since(*start_time) > self.config.timeout * 2 {
                     deadlocked.push(name.clone());
                 }
@@ -258,33 +260,6 @@ impl Default for LockConfig {
 impl Default for LockManager {
     fn default() -> Self {
         Self::new(LockConfig::default())
-    }
-}
-
-impl<T> Clone for AudioMutex<T> {
-    fn clone(&self) -> Self {
-        Self {
-            inner: self.inner.clone(),
-            name: self.name.clone(),
-        }
-    }
-}
-
-impl<T> Clone for AudioRwLock<T> {
-    fn clone(&self) -> Self {
-        Self {
-            inner: self.inner.clone(),
-            name: self.name.clone(),
-        }
-    }
-}
-
-impl Clone for AudioCondvar {
-    fn clone(&self) -> Self {
-        Self {
-            inner: self.inner.clone(),
-            name: self.name.clone(),
-        }
     }
 }
 

@@ -70,32 +70,41 @@ pub(super) fn do_transport_inventory_ui(
     let mut used_registry = false;
     let mut unmanned = false;
 
-    if let Some(object_arc) = OBJECT_REGISTRY.get_object(context.selected_objects[0]) {
-        if let Ok(object) = object_arc.read() {
-            unmanned = object.is_disabled_by_type(DisabledType::DisabledUnmanned);
-            if let Some(contain) = object.get_contain() {
-                if let Ok(contain_guard) = contain.lock() {
-                    if !contain_guard.is_displayed_on_control_bar()
-                        || contain_guard.get_max_capacity() == 0
-                    {
-                        return Ok(());
-                    }
-                    max_capacity = contain_guard.get_max_capacity();
-                    let contained = contain_guard.get_contained_objects();
-                    let (pip_max, pip_full, _) = contain_guard.get_container_pips_to_show();
-                    extra_slots = (pip_full as usize).saturating_sub(contained.len());
-                    if pip_max > 0 {
-                        max_capacity = pip_max as usize;
-                    }
-                    for &occupant_id in contained.iter() {
-                        occupants.push(occupant_from_registry(occupant_id));
-                    }
-                    used_registry = true;
-                }
-            } else {
-                return Ok(());
-            }
+    let registry_view = OBJECT_REGISTRY.with_object(context.selected_objects[0], |object| {
+        let unmanned = object.is_disabled_by_type(DisabledType::DisabledUnmanned);
+        let Some(contain) = object.get_contain() else {
+            return Some(None);
+        };
+        let Ok(contain_guard) = contain.lock() else {
+            return None;
+        };
+        if !contain_guard.is_displayed_on_control_bar() || contain_guard.get_max_capacity() == 0 {
+            return Some(None);
         }
+        let mut max_capacity = contain_guard.get_max_capacity();
+        let contained = contain_guard.get_contained_objects().to_vec();
+        let (pip_max, pip_full, _) = contain_guard.get_container_pips_to_show();
+        let extra_slots = (pip_full as usize).saturating_sub(contained.len());
+        if pip_max > 0 {
+            max_capacity = pip_max as usize;
+        }
+        drop(contain_guard);
+        let occupants: Vec<_> = contained
+            .iter()
+            .map(|&occupant_id| occupant_from_registry(occupant_id))
+            .collect();
+        Some(Some((unmanned, max_capacity, extra_slots, occupants)))
+    });
+    match registry_view {
+        Some(Some((u, cap, extra, occ))) => {
+            unmanned = u;
+            max_capacity = cap;
+            extra_slots = extra;
+            occupants = occ;
+            used_registry = true;
+        }
+        Some(None) => return Ok(()),
+        None => {}
     }
 
     if !used_registry {
@@ -210,24 +219,34 @@ pub(super) fn append_structure_inventory_commands_with_presentation(
     let mut occupants: Vec<StructureInventoryOccupant> = Vec::new();
     let mut used_registry = false;
 
-    if let Some(object_arc) = OBJECT_REGISTRY.get_object(context.selected_objects[0]) {
-        if let Ok(object) = object_arc.read() {
-            if let Some(contain) = object.get_contain() {
-                if let Ok(contain_guard) = contain.lock() {
-                    if contain_guard.is_displayed_on_control_bar()
-                        && contain_guard.get_max_capacity() > 0
-                    {
-                        max_capacity = contain_guard.get_max_capacity();
-                        for &occupant_id in contain_guard.get_contained_objects().iter() {
-                            occupants.push(occupant_from_registry(occupant_id));
-                        }
-                        used_registry = true;
-                    } else {
-                        return Ok(());
-                    }
-                }
-            }
+    let registry_view = OBJECT_REGISTRY.with_object(context.selected_objects[0], |object| {
+        let Some(contain) = object.get_contain() else {
+            return None;
+        };
+        let Ok(contain_guard) = contain.lock() else {
+            return None;
+        };
+        if contain_guard.is_displayed_on_control_bar() && contain_guard.get_max_capacity() > 0 {
+            let max_capacity = contain_guard.get_max_capacity();
+            let contained = contain_guard.get_contained_objects().to_vec();
+            drop(contain_guard);
+            let occupants: Vec<_> = contained
+                .iter()
+                .map(|&occupant_id| occupant_from_registry(occupant_id))
+                .collect();
+            Some((max_capacity, occupants))
+        } else {
+            Some((0, Vec::new()))
         }
+    });
+    match registry_view {
+        Some(Some((0, _))) => return Ok(()),
+        Some(Some((cap, occ))) => {
+            max_capacity = cap;
+            occupants = occ;
+            used_registry = true;
+        }
+        _ => {}
     }
 
     if !used_registry {
@@ -348,24 +367,20 @@ pub(super) fn append_structure_inventory_commands_with_presentation(
 
 fn occupant_from_registry(occupant_id: impl Into<u32>) -> StructureInventoryOccupant {
     let object_id = occupant_id.into();
-    let Some(object_arc) = OBJECT_REGISTRY.get_object(object_id) else {
-        return StructureInventoryOccupant {
+    OBJECT_REGISTRY
+        .with_object(object_id, |object| {
+            let template_name = object.get_template_name().to_string();
+            let overlay = veterancy_overlay_for_level(object.get_veterancy_level());
+            StructureInventoryOccupant {
+                object_id,
+                button_image: button_image_from_template_name(&template_name),
+                overlay_image: overlay,
+            }
+        })
+        .unwrap_or(StructureInventoryOccupant {
             object_id,
             ..StructureInventoryOccupant::default()
-        };
-    };
-    let Ok(object) = object_arc.read() else {
-        return StructureInventoryOccupant {
-            object_id,
-            ..StructureInventoryOccupant::default()
-        };
-    };
-    let template_name = object.get_template_name().to_string();
-    StructureInventoryOccupant {
-        object_id,
-        button_image: button_image_from_template_name(&template_name),
-        overlay_image: veterancy_overlay_for_level(object.get_veterancy_level()),
-    }
+        })
 }
 
 /// Live-host occupant portrait from PresentationFrame garrisoned unit freeze.

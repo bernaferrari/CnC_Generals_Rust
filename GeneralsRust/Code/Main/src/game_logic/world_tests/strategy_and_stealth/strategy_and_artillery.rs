@@ -454,7 +454,7 @@ fn projectiles_step_inside_game_logic_update() {
     logic.objects.insert(shooter, s);
     logic.objects.insert(target, t);
 
-    crate::game_logic::combat::queue_projectile(crate::game_logic::combat::PendingProjectile {
+    crate::game_logic::combat::queue_projectile(&mut logic.combat_system, crate::game_logic::combat::PendingProjectile {
         shooter_id: shooter,
         shooter_pos: glam::Vec3::ZERO,
         source_context: None,
@@ -827,7 +827,7 @@ fn reset_camera_clears_stale_rotate() {
         "RESET_CAMERA must drop the stale ROTATE_CAMERA"
     );
     assert!(game_logic.peek_pending_camera_zoom_reset());
-    let frame = crate::presentation_frame::PresentationFrame::build_from_logic(&game_logic, 0);
+    let frame = crate::presentation_frame::PresentationFrame::build_from_logic(&mut game_logic, 0);
     assert!(
         frame.camera_rotate.is_none(),
         "RESET_CAMERA must not leave ROTATE_CAMERA on the presentation frame"
@@ -934,7 +934,7 @@ fn script_zoom_pitch_rotate_preserve_ease_on_presentation_frame() {
         });
     game_logic.evaluate_and_execute_scripts(0.0);
 
-    let frame = crate::presentation_frame::PresentationFrame::build_from_logic(&game_logic, 0);
+    let frame = crate::presentation_frame::PresentationFrame::build_from_logic(&mut game_logic, 0);
     assert_eq!(frame.camera_zoom, Some((1.2, 2.0)));
     assert_eq!(frame.camera_zoom_ease, (0.3, 0.5));
     assert_eq!(frame.camera_pitch, Some((0.8, 1.5)));
@@ -2243,7 +2243,7 @@ fn weapon_discharge_world_tick_combat_preserves_preadvance_barrel_and_freezes_on
         "C++ retains the raw post-last-shot cursor until the next pre-fire topology guard"
     );
 
-    let frozen = crate::presentation_frame::PresentationFrame::build_from_logic(&game_logic, 0);
+    let frozen = crate::presentation_frame::PresentationFrame::build_from_logic(&mut game_logic, 0);
     assert!(frozen.events.iter().any(|event| matches!(
         event,
         crate::presentation_frame::PresentationEvent::WeaponDischarged {
@@ -2256,7 +2256,7 @@ fn weapon_discharge_world_tick_combat_preserves_preadvance_barrel_and_freezes_on
         } if *source == attacker_id
     )));
     assert!(
-        crate::presentation_frame::PresentationFrame::build_from_logic(&game_logic, 0)
+        crate::presentation_frame::PresentationFrame::build_from_logic(&mut game_logic, 0)
             .events
             .iter()
             .all(|event| !matches!(

@@ -601,27 +601,13 @@ impl ProductionUpdate {
     /// Handle unit production: spawn the produced object via TheThingFactory,
     /// run door animations, and hand the unit off to the exit interface.
     fn handle_unit_production_complete(&mut self, idx: usize, ctx: &mut UpdateContext<'_>) {
-        // We need the building as Arc<RwLock<Object>> for on_unit_created and exit interface.
-        let building = crate::helpers::TheGameLogic::find_object_by_id(self.thing);
-
-        let building = match building {
-            Some(b) => b,
-            None => {
-                self.remove_from_production_queue(idx, ctx);
-                return;
-            }
-        };
-
-        let player = {
-            let obj_guard = building.read().ok();
-            let player_opt = obj_guard.and_then(|g| g.get_controlling_player());
-            match player_opt {
-                Some(p) => p,
-                None => {
-                    self.remove_from_production_queue(idx, ctx);
-                    return;
-                }
-            }
+        let building = self.thing;
+        let Some(player) = crate::object::registry::OBJECT_REGISTRY
+            .with_object(building, |g| g.get_controlling_player())
+            .flatten()
+        else {
+            self.remove_from_production_queue(idx, ctx);
+            return;
         };
 
         let template_id = match self.production_queue[idx].object_to_produce {
@@ -644,14 +630,12 @@ impl ProductionUpdate {
             }
         };
 
-        let exit_interface = {
-            let obj_guard = building.read().ok();
-            obj_guard.and_then(|g| g.get_object_exit_interface())
-        };
+        let exit_interface = crate::object::registry::OBJECT_REGISTRY
+            .with_object(building, |g| g.get_object_exit_interface())
+            .flatten();
 
         let Some(exit_interface) = exit_interface else {
-            // No exit interface — create the unit directly
-            self.create_unit_no_exit(&template, &player, &building, idx, ctx);
+            self.create_unit_no_exit(&template, &player, building, idx, ctx);
             return;
         };
 
@@ -684,7 +668,7 @@ impl ProductionUpdate {
             self.spawn_unit_from_door(
                 &template,
                 &player,
-                &building,
+                building,
                 &exit_interface,
                 exit_door.to_modules_exit_door_type(),
                 idx,
@@ -698,7 +682,7 @@ impl ProductionUpdate {
         &mut self,
         template: &Arc<dyn crate::common::ThingTemplate>,
         player: &Arc<RwLock<crate::player::Player>>,
-        building: &Arc<RwLock<crate::object::Object>>,
+        building: crate::common::ObjectID,
         exit_interface: &Arc<std::sync::Mutex<dyn crate::modules::ExitInterface>>,
         door: crate::modules::ExitDoorType,
         idx: usize,
@@ -722,27 +706,18 @@ impl ProductionUpdate {
             }
         };
 
-        let producer_id = building
-            .read()
-            .ok()
-            .map(|guard| guard.get_id())
-            .unwrap_or(crate::common::INVALID_ID);
-        if let Ok(mut new_obj_guard) = new_obj.write() {
-            new_obj_guard.set_producer_id(producer_id);
-        }
+        let producer_id = building;
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(new_obj, |guard| {
+            guard.set_producer_id(producer_id);
+        });
 
         if let Ok(mut exit_guard) = exit_interface.lock() {
-            let new_id = new_obj.read().map(|g| g.get_id()).unwrap_or(0);
-            let _ = exit_guard.exit_object_via_door(new_id, door);
+            let _ = exit_guard.exit_object_via_door(new_obj, door);
             // A successful exit owns the reservation. Do not unreserve it later.
             self.production_queue[idx].exit_door = ExitDoorType::NoneAvailable;
         }
 
-        let unit_id = new_obj
-            .read()
-            .ok()
-            .map(|g| g.get_id())
-            .unwrap_or(crate::common::INVALID_ID);
+        let unit_id = new_obj;
         let first_of_batch = self.production_queue[idx].production_quantity_total
             == self.production_queue[idx].get_production_quantity_remaining();
         if let Some(audio) = crate::helpers::TheAudio::get() {
@@ -754,9 +729,9 @@ impl ProductionUpdate {
         if let Ok(mut player_guard) = player.write() {
             player_guard.on_unit_created_id(producer_id, unit_id);
         }
-        if let Ok(mut new_obj_guard) = new_obj.write() {
-            new_obj_guard.on_build_complete();
-        }
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(new_obj, |guard| {
+            guard.on_build_complete();
+        });
 
         if first_of_batch {
             if let Some(audio) = crate::helpers::TheAudio::get() {
@@ -783,7 +758,7 @@ impl ProductionUpdate {
         &mut self,
         template: &Arc<dyn crate::common::ThingTemplate>,
         player: &Arc<RwLock<crate::player::Player>>,
-        building: &Arc<RwLock<crate::object::Object>>,
+        building: crate::common::ObjectID,
         idx: usize,
         ctx: &mut UpdateContext<'_>,
     ) {
@@ -801,34 +776,17 @@ impl ProductionUpdate {
             }
         };
 
-        let producer_id = building
-            .read()
-            .ok()
-            .map(|guard| guard.get_id())
-            .unwrap_or(crate::common::INVALID_ID);
-        if let Ok(mut new_obj_guard) = new_obj.write() {
-            new_obj_guard.set_producer_id(producer_id);
-        }
+        let producer_id = building;
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(new_obj, |guard| {
+            guard.set_producer_id(producer_id);
+        });
 
-        // Notify player
         if let Ok(mut player_guard) = player.write() {
-            {
-                let producer_id = building
-                    .read()
-                    .ok()
-                    .map(|g| g.get_id())
-                    .unwrap_or(crate::common::INVALID_ID);
-                let unit_id = new_obj
-                    .read()
-                    .ok()
-                    .map(|g| g.get_id())
-                    .unwrap_or(crate::common::INVALID_ID);
-                player_guard.on_unit_created_id(producer_id, unit_id);
-            }
+            player_guard.on_unit_created_id(producer_id, new_obj);
         }
-        if let Ok(mut new_obj_guard) = new_obj.write() {
-            new_obj_guard.on_build_complete();
-        }
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(new_obj, |guard| {
+            guard.on_build_complete();
+        });
 
         // Set construction complete on first spawn
         if self.production_queue[idx].production_quantity_produced == 0 {

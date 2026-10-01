@@ -139,11 +139,8 @@ impl AIGroup {
     }
 
     /// Return true if object is in this group
-    pub fn is_member(&self, obj: &Arc<RwLock<Object>>) -> bool {
-        obj.try_read()
-            .ok()
-            .map(|guard| self.is_member_id(guard.get_id()))
-            .unwrap_or(false)
+    pub fn is_member(&self, object_id: ObjectID) -> bool {
+        self.is_member_id(object_id)
     }
 
     /// ID-first membership test.
@@ -173,27 +170,18 @@ impl AIGroup {
     /// Prefer this over cloning Arc handles at each command_processor call site.
     /// Add object to group by stable ID (primary membership API).
     pub fn add_by_id(&mut self, object_id: ObjectID) -> Result<(), String> {
-        let obj = OBJECT_REGISTRY
-            .get_object(object_id)
-            .or_else(|| crate::helpers::TheGameLogic::find_object_by_id(object_id))
+        let eligible = OBJECT_REGISTRY
+            .with_object(object_id, |obj_ref| {
+                let has_ai = obj_ref.get_ai_update_interface().is_some();
+                let is_structure = obj_ref.is_any_kind_of(&[KindOf::Structure]);
+                let is_always_selectable = obj_ref.is_any_kind_of(&[KindOf::AlwaysSelectable]);
+                has_ai || is_structure || is_always_selectable
+            })
             .ok_or_else(|| format!("Object {object_id} not in registry"))?;
 
-        {
-            let obj_ref = obj.try_read().map_err(|_| "Could not lock object")?;
-
-            // Check if object has AIUpdateInterface or is a valid structure
-            let has_ai = obj_ref.get_ai_update_interface().is_some();
-            let is_structure = obj_ref.is_any_kind_of(&[KindOf::Structure]);
-            let is_always_selectable = obj_ref.is_any_kind_of(&[KindOf::AlwaysSelectable]);
-
-            if !has_ai && !is_structure && !is_always_selectable {
-                return Err("Object is not AI-capable or valid for group".to_string());
-            }
-            if obj_ref.get_id() != object_id && object_id == crate::object::INVALID_ID {
-                return Err("Object has invalid id".to_string());
-            }
+        if !eligible {
+            return Err("Object is not AI-capable or valid for group".to_string());
         }
-
         if object_id == crate::object::INVALID_ID {
             return Err("Object has invalid id".to_string());
         }
@@ -201,36 +189,25 @@ impl AIGroup {
             return Ok(());
         }
 
-        // Store stable ID; resolve only for the duration of an operation.
         self.member_list.push(object_id);
         self.member_list_size += 1;
 
-        // Tell object to enter this group
-        if let Ok(mut obj_ref) = obj.try_write() {
+        let _ = OBJECT_REGISTRY.with_object_mut(object_id, |obj_ref| {
             obj_ref.enter_group(self);
-        }
+        });
 
-        // List has changed, properties need recomputation
         self.dirty = true;
         Ok(())
     }
 
-    /// Arc convenience: extract ID and add.
-    pub fn add(&mut self, obj: Arc<RwLock<Object>>) -> Result<(), String> {
-        let object_id = obj
-            .try_read()
-            .map_err(|_| "Could not lock object")?
-            .get_id();
+    /// ID membership add. Arc overload removed.
+    pub fn add(&mut self, object_id: ObjectID) -> Result<(), String> {
         self.add_by_id(object_id)
     }
 
-    /// Remove object from group
+    /// Remove object from group by id.
     /// Returns true if group was destroyed due to emptiness
-    pub fn remove(&mut self, obj: &Arc<RwLock<Object>>) -> Result<bool, String> {
-        let object_id = obj
-            .try_read()
-            .map_err(|_| "Could not lock object")?
-            .get_id();
+    pub fn remove(&mut self, object_id: ObjectID) -> Result<bool, String> {
         self.remove_by_id(object_id)
     }
 
@@ -436,21 +413,20 @@ impl AIGroup {
             return Some(*group_dest);
         }
 
-        let obj = OBJECT_REGISTRY
-            .get_object(object_id)
-            .or_else(|| crate::helpers::TheGameLogic::find_object_by_id(object_id))?;
-        let obj_guard = obj.try_read().ok()?;
-
-        // Compute vector from "group center" to self
-        let pos = obj_guard.get_position();
-        let mut v = if is_formation {
-            obj_guard.get_formation_offset()
-        } else {
-            Coord2D::new(pos.x - center.x, pos.y - center.y)
-        };
+        let sampled = OBJECT_REGISTRY.with_object(object_id, |obj_guard| {
+            let pos = obj_guard.get_position();
+            let v = if is_formation {
+                obj_guard.get_formation_offset()
+            } else {
+                Coord2D::new(pos.x - center.x, pos.y - center.y)
+            };
+            let radius = obj_guard.get_geometry_info().get_bounding_circle_radius();
+            (v, radius)
+        })?;
+        let (mut v, radius) = sampled;
 
         let mut length = (v.x * v.x + v.y * v.y).sqrt();
-        let max_length = 6.0 * obj_guard.get_geometry_info().get_bounding_circle_radius();
+        let max_length = 6.0 * radius;
         if length > max_length {
             length = max_length;
         }
@@ -477,11 +453,6 @@ impl AIGroup {
         if let Ok(terrain) = crate::terrain::get_terrain_logic().read() {
             dest.z = terrain.get_layer_height(dest.x, dest.y, layer, None, true);
         }
-
-        // Adjust destination for ground movement if object has AI
-        // Note: The full adjustment requires mutable access to AI which we can't get while holding obj_guard
-        // The pathfinder adjustment is a best-effort simplification here
-        drop(obj_guard);
 
         Some(dest)
     }
@@ -1892,7 +1863,7 @@ impl AIGroup {
     pub fn get_special_power_source_object(
         &self,
         special_power_id: UnsignedInt,
-    ) -> Option<Arc<RwLock<Object>>> {
+    ) -> Option<ObjectID> {
         let store = get_special_power_store()?;
         let template = store.find_special_power_template_by_id(special_power_id as u32)?;
 
@@ -1905,7 +1876,7 @@ impl AIGroup {
                 })
                 .unwrap_or(false);
             if has_special_power {
-                return OBJECT_REGISTRY.get_object(member_id);
+                return Some(member_id);
             }
         }
 
@@ -1916,7 +1887,7 @@ impl AIGroup {
     pub fn get_command_button_source_object(
         &self,
         command_type: GUICommandType,
-    ) -> Option<Arc<RwLock<Object>>> {
+    ) -> Option<ObjectID> {
         let control_bar = get_control_bar_bridge()?;
         for &member_id in &self.member_list {
             let has_command_button = OBJECT_REGISTRY
@@ -1934,7 +1905,7 @@ impl AIGroup {
                 })
                 .unwrap_or(false);
             if has_command_button {
-                return OBJECT_REGISTRY.get_object(member_id);
+                return Some(member_id);
             }
         }
 

@@ -183,7 +183,7 @@ pub struct LightData {
 }
 
 impl SimpleObject {
-    pub fn base_object(&self) -> Option<Arc<RwLock<Object>>> {
+    pub fn base_object(&self) -> Option<ObjectID> {
         self.get_base_object()
     }
 
@@ -191,17 +191,16 @@ impl SimpleObject {
         self.object_id
     }
 
-    fn get_base_object(&self) -> Option<Arc<RwLock<Object>>> {
+    fn get_base_object(&self) -> Option<ObjectID> {
         if self.object_id == crate::common::INVALID_ID {
             return None;
         }
-        crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        Some(self.object_id)
     }
 
     /// Create a new SimpleObject
     pub fn new(
-        base_object: Arc<RwLock<Object>>,
+        object_id: ObjectID,
         thing_template: &dyn ThingTemplate,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let simple_object_type = Self::determine_simple_object_type(thing_template);
@@ -210,19 +209,7 @@ impl SimpleObject {
         let capture_time = if can_be_captured { 1.0 } else { 0.0 };
 
         Ok(SimpleObject {
-            object_id: {
-                let id = base_object
-                    .read()
-                    .ok()
-                    .map(|g| g.get_id())
-                    .unwrap_or(crate::common::INVALID_ID);
-
-                if id != crate::common::INVALID_ID {
-                    crate::object::crate_registry_bind::bind_crate_object(id, &base_object);
-                }
-
-                id
-            },
+            object_id,
             simple_object_type,
             is_interactive: false,
             is_destructible: thing_template.is_kind_of(KindOf::Structure),

@@ -442,7 +442,7 @@ pub trait AIUpdateInterface: Send + Sync + std::fmt::Debug {
         crate::common::INVALID_ID
     }
     /// Resolve goal object for the duration of a call.
-    fn get_goal_object(&self) -> Option<Arc<RwLock<Object>>> {
+    fn get_goal_object(&self) -> Option<ObjectID> {
         // Wave 340: empty dual-world → None.
         if dual_world_registry_unavailable() {
             return None;
@@ -452,8 +452,7 @@ pub trait AIUpdateInterface: Send + Sync + std::fmt::Debug {
         if id == crate::common::INVALID_ID {
             None
         } else {
-            crate::helpers::TheGameLogic::find_object_by_id(id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(id))
+            Some(id)
         }
     }
 
@@ -572,7 +571,7 @@ pub trait AIUpdateInterface: Send + Sync + std::fmt::Debug {
     fn check_for_crate_to_pickup_id(&mut self) -> ObjectID {
         crate::common::INVALID_ID
     }
-    fn check_for_crate_to_pickup(&mut self) -> Option<Arc<RwLock<Object>>> {
+    fn check_for_crate_to_pickup(&mut self) -> Option<ObjectID> {
         // Consume the marker before attempting object resolution, matching C++.
         let id = self.check_for_crate_to_pickup_id();
         if id == crate::common::INVALID_ID {
@@ -584,8 +583,7 @@ pub trait AIUpdateInterface: Send + Sync + std::fmt::Debug {
             return None;
         }
 
-        crate::helpers::TheGameLogic::find_object_by_id(id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(id))
+        Some(id)
     }
     /// Get next target based on mood/auto-acquire (matching C++ AIUpdateInterface::getNextMoodTarget)
     fn get_next_mood_target_id(
@@ -599,7 +597,7 @@ pub trait AIUpdateInterface: Send + Sync + std::fmt::Debug {
         &mut self,
         use_existing_target: bool,
         ignore_attacked: bool,
-    ) -> Option<Arc<RwLock<Object>>> {
+    ) -> Option<ObjectID> {
         // Wave 340: empty dual-world → None.
         if dual_world_registry_unavailable() {
             return None;
@@ -609,8 +607,7 @@ pub trait AIUpdateInterface: Send + Sync + std::fmt::Debug {
         if id == crate::common::INVALID_ID {
             None
         } else {
-            crate::helpers::TheGameLogic::find_object_by_id(id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(id))
+            Some(id)
         }
     }
     /// Get next mood check time (matching C++ AIUpdateInterface::getNextMoodCheckTime)

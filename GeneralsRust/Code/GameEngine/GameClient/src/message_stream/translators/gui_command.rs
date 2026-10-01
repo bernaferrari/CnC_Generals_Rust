@@ -99,23 +99,23 @@ impl GUICommandTranslator {
             }
 
             if translated.is_empty() && pending_command_accepts_position(pending.options) {
-                if let Some(obj) = OBJECT_REGISTRY.get_object(target_id) {
-                    if let Ok(obj_guard) = obj.read() {
-                        let position = logic_to_message_coord(obj_guard.get_position());
-                        if pending_command_position_valid(
+                let position = OBJECT_REGISTRY.with_object(target_id, |obj_guard| {
+                    logic_to_message_coord(obj_guard.get_position())
+                });
+                if let Some(position) = position {
+                    if pending_command_position_valid(
+                        &pending,
+                        local_player_u32,
+                        &selection_ids,
+                        &position,
+                        Some(target_id),
+                    ) {
+                        translated = pending_command_messages_for_position(
                             &pending,
-                            local_player_u32,
+                            position,
                             &selection_ids,
-                            &position,
                             Some(target_id),
-                        ) {
-                            translated = pending_command_messages_for_position(
-                                &pending,
-                                position,
-                                &selection_ids,
-                                Some(target_id),
-                            );
-                        }
+                        );
                     }
                 }
             }

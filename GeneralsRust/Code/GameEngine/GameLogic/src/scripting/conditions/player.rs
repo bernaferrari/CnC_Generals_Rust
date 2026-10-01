@@ -208,36 +208,41 @@ impl ScriptCondition for PlayerHasUnitsCondition {
         let owned = manager.get_objects_owned_by_player(player_id);
         let mut matches = 0i64;
         for object_id in owned {
-            let Some(obj_arc) = manager.get_object(object_id) else {
-                continue;
-            };
-            let Ok(obj_guard) = obj_arc.read() else {
-                continue;
-            };
-            let __base_arc = obj_guard.base();
-            let Ok(base_guard) = __base_arc.read() else {
-                continue;
-            };
-            if base_guard.is_destroyed() {
-                continue;
-            }
-
-            let Some(template) = obj_guard.template.as_ref() else {
-                continue;
-            };
-
-            if template.is_kind_of(KindOf::Structure) || template.is_kind_of(KindOf::Building) {
-                continue;
-            }
-
-            if template
-                .get_name()
-                .as_str()
-                .eq_ignore_ascii_case(unit_type.as_str())
             {
-                matches += 1;
-                if matches >= count {
-                    return Ok(true);
+                enum _ObjFlow<T> { Cont, Ret(T), Fall }
+                let _flow = OBJECT_REGISTRY.with_object(object_id, |obj_guard| {
+                    let __base_arc = obj_guard.base();
+                    let Ok(base_guard) = __base_arc.read() else {
+                        return _ObjFlow::Cont;
+                    };
+                    if base_guard.is_destroyed() {
+                        return _ObjFlow::Cont;
+                    }
+                    
+                    let Some(template) = obj_guard.template.as_ref() else {
+                        return _ObjFlow::Cont;
+                    };
+                    
+                    if template.is_kind_of(KindOf::Structure) || template.is_kind_of(KindOf::Building) {
+                        return _ObjFlow::Cont;
+                    }
+                    
+                    if template
+                        .get_name()
+                        .as_str()
+                        .eq_ignore_ascii_case(unit_type.as_str())
+                    {
+                        matches += 1;
+                        if matches >= count {
+                            return _ObjFlow::Ret(Ok(true));
+                        }
+                    }
+                    _ObjFlow::Fall
+                });
+                match _flow {
+                    None | Some(_ObjFlow::Cont) => continue,
+                    Some(_ObjFlow::Ret(v)) => return v,
+                    Some(_ObjFlow::Fall) => {}
                 }
             }
         }
@@ -300,38 +305,43 @@ impl ScriptCondition for PlayerHasBuildingsCondition {
         let owned = manager.get_objects_owned_by_player(player_id);
         let mut matches = 0i64;
         for object_id in owned {
-            let Some(obj_arc) = manager.get_object(object_id) else {
-                continue;
-            };
-            let Ok(obj_guard) = obj_arc.read() else {
-                continue;
-            };
-            let __base_arc = obj_guard.base();
-            let Ok(base_guard) = __base_arc.read() else {
-                continue;
-            };
-            if base_guard.is_destroyed() {
-                continue;
-            }
-
-            let Some(template) = obj_guard.template.as_ref() else {
-                continue;
-            };
-
-            let is_building =
-                template.is_kind_of(KindOf::Structure) || template.is_kind_of(KindOf::Building);
-            if !is_building {
-                continue;
-            }
-
-            if template
-                .get_name()
-                .as_str()
-                .eq_ignore_ascii_case(building_type.as_str())
             {
-                matches += 1;
-                if matches >= count {
-                    return Ok(true);
+                enum _ObjFlow<T> { Cont, Ret(T), Fall }
+                let _flow = OBJECT_REGISTRY.with_object(object_id, |obj_guard| {
+                    let __base_arc = obj_guard.base();
+                    let Ok(base_guard) = __base_arc.read() else {
+                        return _ObjFlow::Cont;
+                    };
+                    if base_guard.is_destroyed() {
+                        return _ObjFlow::Cont;
+                    }
+                    
+                    let Some(template) = obj_guard.template.as_ref() else {
+                        return _ObjFlow::Cont;
+                    };
+                    
+                    let is_building =
+                        template.is_kind_of(KindOf::Structure) || template.is_kind_of(KindOf::Building);
+                    if !is_building {
+                        return _ObjFlow::Cont;
+                    }
+                    
+                    if template
+                        .get_name()
+                        .as_str()
+                        .eq_ignore_ascii_case(building_type.as_str())
+                    {
+                        matches += 1;
+                        if matches >= count {
+                            return _ObjFlow::Ret(Ok(true));
+                        }
+                    }
+                    _ObjFlow::Fall
+                });
+                match _flow {
+                    None | Some(_ObjFlow::Cont) => continue,
+                    Some(_ObjFlow::Ret(v)) => return v,
+                    Some(_ObjFlow::Fall) => {}
                 }
             }
         }
@@ -1908,29 +1918,35 @@ impl ScriptCondition for PlayerLostObjectTypeCondition {
                     .all_object_ids()
                     .into_iter()
                     .filter(|object_id| {
-                        let Some(obj_arc) = manager.get_object(*object_id) else {
-                            return false;
-                        };
-                        let Ok(obj_guard) = obj_arc.read() else {
-                            return false;
-                        };
-                        if obj_guard.is_destroyed() {
-                            return false;
+                        {
+                            enum _ObjFlow<T> { Cont, Ret(T), Fall }
+                            let _flow = OBJECT_REGISTRY.with_object(*object_id, |obj_guard| {
+                                if obj_guard.is_destroyed() {
+                                    return _ObjFlow::Ret(false);
+                                }
+                                let owner = {
+                                    let player = obj_guard.get_controlling_player();
+                                    player
+                                        .and_then(|p| p.read().ok().map(|g| g.get_player_index()))
+                                        .unwrap_or(-1)
+                                };
+                                if owner != player_index {
+                                    return _ObjFlow::Ret(false);
+                                }
+                                obj_guard
+                                    .template
+                                    .as_ref()
+                                    .map(|template| template.get_name() == object_type.as_str())
+                                    .unwrap_or(false)
+                                _ObjFlow::Fall
+                            });
+                            match _flow {
+                                None => { return false; }
+                                Some(_ObjFlow::Cont) => continue,
+                                Some(_ObjFlow::Ret(v)) => return v,
+                                Some(_ObjFlow::Fall) => {}
+                            }
                         }
-                        let owner = {
-                            let player = obj_guard.get_controlling_player();
-                            player
-                                .and_then(|p| p.read().ok().map(|g| g.get_player_index()))
-                                .unwrap_or(-1)
-                        };
-                        if owner != player_index {
-                            return false;
-                        }
-                        obj_guard
-                            .template
-                            .as_ref()
-                            .map(|template| template.get_name() == object_type.as_str())
-                            .unwrap_or(false)
                     })
                     .count() as i32
             })

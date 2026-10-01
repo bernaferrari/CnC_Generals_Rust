@@ -698,9 +698,7 @@ impl CnCGameEngine {
         let leftover = gamelogic::ai::guard::AIGuardMachine::get_std_guard_range(id.0);
         if leftover > 0.0 {
             if leftover > 100.0
-                || gamelogic::object::registry::OBJECT_REGISTRY
-                    .get_object(id.0)
-                    .is_some()
+                || gamelogic::object::registry::OBJECT_REGISTRY.contains(id.0)
             {
                 return leftover;
             }

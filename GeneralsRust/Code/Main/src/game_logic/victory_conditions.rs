@@ -129,12 +129,9 @@ fn default_team_instance_names(player: &Player) -> Vec<String> {
 }
 
 fn leftover_default_team_instance_name(player: &Player) -> Option<String> {
-    let arc = leftover_player_arc_for_host(player.id, &player.name, false)?;
-    let team = {
-        let guard = arc.read().ok()?;
-        guard.get_default_team()?
-    };
-    let name = team.read().ok()?.get_name().to_string();
+    let index = leftover_player_index_for_host(player.id, &player.name, false)?;
+    let team_id = gamelogic::player::with_player(index, |guard| guard.get_default_team_id())??;
+    let name = gamelogic::team::with_team(team_id, |team| team.get_name().to_string())?;
     if name.trim().is_empty() {
         None
     } else {
@@ -147,15 +144,15 @@ fn leftover_relationship_to_default_team(
     source: &Player,
     target: &Player,
 ) -> Option<gamelogic::common::Relationship> {
-    let source_arc = leftover_player_arc_for_host(source.id, &source.name, false)?;
-    let target_arc = leftover_player_arc_for_host(target.id, &target.name, false)?;
-    let team = {
-        let target_guard = target_arc.read().ok()?;
-        target_guard.get_default_team()?
-    };
-    let team_guard = team.read().ok()?;
-    let source_guard = source_arc.read().ok()?;
-    source_guard.override_relationship_for_team(&team_guard)
+    let source_index = leftover_player_index_for_host(source.id, &source.name, false)?;
+    let target_index = leftover_player_index_for_host(target.id, &target.name, false)?;
+    let team_id =
+        gamelogic::player::with_player(target_index, |guard| guard.get_default_team_id())??;
+    gamelogic::team::with_team(team_id, |team| {
+        gamelogic::player::with_player(source_index, |source_guard| {
+            source_guard.override_relationship_for_team(team)
+        })
+    })?
 }
 
 /// C++ leftover `Player::m_teamRelations` keyed by named team instance.
@@ -167,7 +164,7 @@ fn leftover_player_team_relationship_override(
     if team_name.trim().is_empty() {
         return None;
     }
-    let team = {
+    let team_id = {
         let Some(team_factory) = team_factory else {
             return None;
         };
@@ -176,14 +173,12 @@ fn leftover_player_team_relationship_override(
         };
         factory.find_team_instances(team_name).into_iter().next()?
     };
-    let player_arc = leftover_player_arc_for_host(source.id, &source.name, false)?;
-    let Ok(player) = player_arc.read() else {
-        return None;
-    };
-    let Ok(team_guard) = team.read() else {
-        return None;
-    };
-    player.override_relationship_for_team(&team_guard)
+    let player_index = leftover_player_index_for_host(source.id, &source.name, false)?;
+    gamelogic::team::with_team(team_id, |team| {
+        gamelogic::player::with_player(player_index, |player| {
+            player.override_relationship_for_team(team)
+        })
+    })?
 }
 
 /// C++ `VictoryConditions::areAllies`.
@@ -286,9 +281,9 @@ fn is_playable_victory_player(
 }
 
 fn leftover_player_is_faction_civilian(player_id: u32) -> bool {
-    leftover_player_arc_for_host(player_id, "", false)
-        .and_then(|player| {
-            player.read().ok().map(|guard| {
+    leftover_player_index_for_host(player_id, "", false)
+        .and_then(|index| {
+            gamelogic::player::with_player(index, |guard| {
                 guard.get_player_template().is_some_and(|template| {
                     template.get_name().eq_ignore_ascii_case("FactionCivilian")
                 })
@@ -302,58 +297,54 @@ fn leftover_player_is_markable(player: &gamelogic::player::Player) -> bool {
         && player.get_player_type() != gamelogic::player::PlayerType::Neutral
 }
 
-fn leftover_player_arc_for_host(
+fn leftover_player_index_for_host(
     player_id: u32,
     host_name: &str,
     markable_only: bool,
-) -> Option<std::sync::Arc<std::sync::RwLock<gamelogic::player::Player>>> {
+) -> Option<gamelogic::player::PlayerIndex> {
     let Ok(list) = gamelogic::player::ThePlayerList().read() else {
         return None;
     };
     let named = format!("player{player_id}");
     if let Some(player) = list.find_player_by_name(&named) {
-        return Some(player);
+        return Some(player.get_player_index());
     }
     if !host_name.is_empty() {
         if let Some(player) = list.find_player_by_name(host_name) {
-            return Some(player);
+            return Some(player.get_player_index());
         }
     }
     if let Some(player) = list.get_player(player_id as gamelogic::player::PlayerIndex) {
-        if !markable_only
-            || player
-                .read()
-                .ok()
-                .is_some_and(|guard| leftover_player_is_markable(&guard))
-        {
-            return Some(std::sync::Arc::clone(player));
+        if !markable_only || leftover_player_is_markable(player) {
+            return Some(player.get_player_index());
         }
     }
-    for arc in list.iter() {
-        if arc.read().ok().is_some_and(|guard| {
-            guard.get_player_index() as u32 == player_id
-                && (!markable_only || leftover_player_is_markable(&guard))
-        }) {
-            return Some(std::sync::Arc::clone(arc));
+    for player in list.iter() {
+        if player.get_player_index() as u32 == player_id
+            && (!markable_only || leftover_player_is_markable(player))
+        {
+            return Some(player.get_player_index());
         }
     }
     None
 }
 
 fn leftover_player_is_observer(player_id: u32) -> bool {
-    leftover_player_arc_for_host(player_id, "", false)
-        .and_then(|player| player.read().ok().map(|guard| guard.is_player_observer()))
+    leftover_player_index_for_host(player_id, "", false)
+        .and_then(|index| {
+            gamelogic::player::with_player(index, |guard| guard.is_player_observer())
+        })
         .unwrap_or(false)
 }
 
 fn mark_leftover_player_defeated(player_id: u32, host: &Player) {
-    let Some(arc) = leftover_player_arc_for_host(player_id, &host.name, true) else {
+    let Some(index) = leftover_player_index_for_host(player_id, &host.name, true) else {
         return;
     };
-    if let Ok(mut guard) = arc.write() {
+    gamelogic::player::with_player_mut(index, |guard| {
         guard.set_defeated(true);
         guard.set_player_dead(true);
-    }
+    });
     if host.is_local {
         gamelogic::helpers::TheVictoryConditions::set_local_player_defeated(true);
     }

@@ -298,7 +298,7 @@ pub trait ToppleControlInterface {
     fn apply_toppling_force_with_object(
         &mut self,
         obj: &mut crate::object::Object,
-        object_arc: &Arc<RwLock<crate::object::Object>>,
+        object_arc: crate::common::ObjectID,
         topple_direction: &Coord3D,
         topple_speed: Real,
         options: u32,

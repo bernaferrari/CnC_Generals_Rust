@@ -102,7 +102,7 @@ pub trait RebuildHoleBehaviorInterface: Send + Sync {
 }
 
 pub trait BridgeBehaviorInterface: Send + Sync {
-    fn set_tower(&mut self, tower_type: BridgeTowerType, tower: Option<Arc<RwLock<Object>>>);
+    fn set_tower(&mut self, tower_type: BridgeTowerType, tower: Option<ObjectID>);
     fn get_tower_id(&self, tower_type: BridgeTowerType) -> ObjectID;
     fn create_scaffolding(&mut self);
     fn remove_scaffolding(&mut self);
@@ -115,7 +115,7 @@ pub trait BridgeBehaviorInterface: Send + Sync {
 }
 
 pub trait BridgeTowerBehaviorInterface: Send + Sync {
-    fn set_bridge(&mut self, bridge: Option<Arc<RwLock<Object>>>);
+    fn set_bridge(&mut self, bridge: Option<ObjectID>);
     fn get_bridge_id(&self) -> ObjectID;
     fn set_tower_type(&mut self, tower_type: BridgeTowerType);
 }
@@ -263,12 +263,7 @@ pub struct BehaviorModule {
 }
 
 impl BehaviorModule {
-    pub fn new(thing: Arc<RwLock<Object>>, module_data: Arc<dyn ModuleData>) -> Self {
-        let object_id = thing
-            .read()
-            .ok()
-            .map(|g| g.get_id())
-            .unwrap_or(crate::common::INVALID_ID);
+    pub fn new(object_id: ObjectID, module_data: Arc<dyn ModuleData>) -> Self {
         Self {
             object_id,
             module_data,
@@ -295,14 +290,14 @@ impl BehaviorModule {
         crate::object::registry::OBJECT_REGISTRY.with_object_mut(id, f)
     }
 
-    /// Short-lived Arc resolve; prefer `with_object` / `get_object_id`.
-    pub fn get_object(&self) -> Option<Arc<RwLock<Object>>> {
+    pub fn get_object(&self) -> Option<ObjectID> {
         let id = self.get_object_id();
         if id == crate::common::INVALID_ID {
             return None;
         }
-        crate::helpers::TheGameLogic::find_object_by_id(id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(id))
+        crate::object::registry::OBJECT_REGISTRY
+            .with_object(id, |_| ())
+            .map(|_| id)
     }
 
     pub fn get_interface_mask() -> Int {

@@ -74,21 +74,18 @@ impl InternetHackContain {
     }
 
     fn on_containing(&mut self, obj_id: ObjectID) -> GameResult<()> {
-        let Some(rider) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
-        else {
-            return Ok(());
-        };
-
-        let Ok(mut rider_guard) = rider.try_write() else {
-            return Err("Internet hack rider lock busy".into());
-        };
-        let Some(ai) = rider_guard.get_ai_mut() else {
-            return Ok(());
-        };
-        let params = AiCommandParams::new(AiCommandType::HackInternet, CommandSourceType::FromAi);
-        ai.execute_command(&params)?;
-        Ok(())
+        let result = crate::object::registry::OBJECT_REGISTRY.with_object_mut(obj_id, |rider_guard| {
+            let Some(ai) = rider_guard.get_ai_mut() else {
+                return Ok(());
+            };
+            let params = AiCommandParams::new(AiCommandType::HackInternet, CommandSourceType::FromAi);
+            ai.execute_command(&params)?;
+            Ok(())
+        });
+        match result {
+            Some(inner) => inner,
+            None => Err("Internet hack rider lock busy".into()),
+        }
     }
 
     /// Serialize state for save/load
@@ -104,12 +101,11 @@ impl InternetHackContain {
 
 impl ContainModuleInterface for InternetHackContain {
     fn can_contain(&self, object_id: ObjectID) -> bool {
-        if let Some(obj) = TheGameLogic::find_object_by_id(object_id) {
-            if let Ok(obj_guard) = obj.read() {
-                return self.base.is_valid_container_for(&*obj_guard, true);
-            }
-        }
-        false
+        crate::object::registry::OBJECT_REGISTRY
+            .with_object(object_id, |obj_guard| {
+                self.base.is_valid_container_for(obj_guard, true)
+            })
+            .unwrap_or(false)
     }
 
     fn contain_object(&mut self, object_id: ObjectID) -> Result<(), String> {
@@ -184,14 +180,10 @@ impl ContainModuleInterface for InternetHackContain {
         if !self.base.base.collide_enter_eject_foreign(other_id)? {
             return Ok(());
         }
-        let Some(other) = TheGameLogic::find_object_by_id(other_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(other_id))
-        else {
-            return Ok(());
-        };
-        let valid = other
-            .try_read()
-            .map(|guard| ContainModuleInterface::is_valid_container_for(self, &*guard, true))
+        let valid = crate::object::registry::OBJECT_REGISTRY
+            .with_object(other_id, |guard| {
+                ContainModuleInterface::is_valid_container_for(self, guard, true)
+            })
             .unwrap_or(false);
         if valid {
             self.add_to_contain(other_id)?;
@@ -231,8 +223,8 @@ impl ContainModuleInterface for InternetHackContain {
     fn on_capture(
         &mut self,
         owner: &Object,
-        old_owner: Option<&Arc<RwLock<crate::player::Player>>>,
-        new_owner: Option<&Arc<RwLock<crate::player::Player>>>,
+        old_owner: Option<PlayerIndex>,
+        new_owner: Option<PlayerIndex>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         self.base
             .on_capture(owner, old_owner, new_owner)

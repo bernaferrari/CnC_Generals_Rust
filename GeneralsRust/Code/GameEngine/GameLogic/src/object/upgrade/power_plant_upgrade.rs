@@ -218,8 +218,8 @@ impl UpgradeModuleInterface for PowerPlantUpgrade {
     fn on_capture(
         &mut self,
         object: &mut crate::object::Object,
-        old_owner: Option<&Arc<std::sync::RwLock<crate::player::Player>>>,
-        new_owner: Option<&Arc<std::sync::RwLock<crate::player::Player>>>,
+        old_owner: Option<PlayerIndex>,
+        new_owner: Option<PlayerIndex>,
     ) {
         if !self.applied || object.is_disabled() {
             return;
@@ -228,15 +228,21 @@ impl UpgradeModuleInterface for PowerPlantUpgrade {
         let bonus = object.get_template().get_energy_bonus();
         if bonus != 0 {
             if let Some(old_owner) = old_owner {
-                if let Ok(mut player_guard) = old_owner.write() {
-                    player_guard.add_power_production(-bonus);
+                if crate::player::with_player_mut(old_owner, |player| {
+                    player.add_power_production(-bonus);
+                })
+                .is_some()
+                {
                     self.applied = false;
                 }
             }
 
             if let Some(new_owner) = new_owner {
-                if let Ok(mut player_guard) = new_owner.write() {
-                    player_guard.add_power_production(bonus);
+                if crate::player::with_player_mut(new_owner, |player| {
+                    player.add_power_production(bonus);
+                })
+                .is_some()
+                {
                     self.applied = true;
                 }
             }

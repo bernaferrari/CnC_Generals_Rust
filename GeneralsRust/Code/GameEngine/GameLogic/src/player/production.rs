@@ -188,21 +188,20 @@ impl Player {
             )
         });
 
-        // C++ Player::setUnitsShouldHunt: team prototypes → instances → members.
         let mut member_ids: Vec<ObjectID> = Vec::new();
         if let Ok(factory) = get_team_factory().lock() {
             for prototype in &self.player_team_prototypes {
-                for team in factory.find_team_instances(prototype.get_name().as_str()) {
-                    if let Ok(team_guard) = team.read() {
-                        member_ids.extend_from_slice(team_guard.get_members());
+                for team_id in factory.find_team_instances(prototype.get_name().as_str()) {
+                    if let Some(team) = factory.find_team_by_id(team_id) {
+                        member_ids.extend_from_slice(team.get_members());
                     }
                 }
             }
-        }
-        if member_ids.is_empty() {
-            if let Some(team) = &self.default_team {
-                if let Ok(team_guard) = team.read() {
-                    member_ids.extend_from_slice(team_guard.get_members());
+            if member_ids.is_empty() {
+                if let Some(team_id) = self.default_team {
+                    if let Some(team) = factory.find_team_by_id(team_id) {
+                        member_ids.extend_from_slice(team.get_members());
+                    }
                 }
             }
         }
@@ -237,22 +236,27 @@ impl Player {
     /// Kill this player: evacuate, mark dead, kill with death FX, SP-AI resurrect.
     /// C++ Reference: Player::killPlayer() (Player.cpp:2023-2071)
     pub fn kill_player(&mut self) {
-        let mut teams: Vec<Arc<RwLock<Team>>> = Vec::new();
-        if let Ok(factory) = get_team_factory().lock() {
-            for prototype in &self.player_team_prototypes {
-                teams.extend(factory.find_team_instances(prototype.get_name().as_str()));
+        let team_ids = {
+            let mut team_ids = Vec::new();
+            if let Ok(factory) = get_team_factory().lock() {
+                for prototype in &self.player_team_prototypes {
+                    team_ids.extend(factory.find_team_instances(prototype.get_name().as_str()));
+                }
+                if team_ids.is_empty() {
+                    if let Some(team_id) = self.default_team {
+                        team_ids.push(team_id);
+                    }
+                }
             }
-        }
-        if teams.is_empty() {
-            if let Some(team) = &self.default_team {
-                teams.push(Arc::clone(team));
-            }
-        }
+            team_ids
+        };
 
         let mut member_ids: Vec<ObjectID> = Vec::new();
-        for team in &teams {
-            if let Ok(team_guard) = team.read() {
-                member_ids.extend_from_slice(team_guard.get_members());
+        if let Ok(factory) = get_team_factory().lock() {
+            for team_id in &team_ids {
+                if let Some(team) = factory.find_team_by_id(*team_id) {
+                    member_ids.extend_from_slice(team.get_members());
+                }
             }
         }
         if member_ids.is_empty() {
@@ -265,7 +269,6 @@ impl Player {
             member_ids.dedup();
         }
 
-        // C++ first pass: evacuateTeam on every instance so dumped cargo exists before kill.
         for object_id in &member_ids {
             let Some(contain_arc) = crate::object::registry::OBJECT_REGISTRY
                 .with_object(*object_id, |object_guard| {
@@ -285,14 +288,25 @@ impl Player {
             }
         }
 
-        // Mark dead so OCLs don't spawn useful units.
         self.is_player_dead = true;
 
-        if !teams.is_empty() {
-            for team in &teams {
-                if let Ok(mut team_guard) = team.write() {
-                    team_guard.kill_team();
-                }
+        let beacon_name = self
+            .player_template
+            .as_ref()
+            .map(|template| template.beacon_name.clone());
+        let neutral_team_id = if self.get_player_type() == PlayerType::Neutral {
+            self.get_default_team_id()
+        } else {
+            player_list().try_read().ok().and_then(|list| {
+                list.get_neutral_player()
+                    .and_then(|player| player.get_default_team_id())
+            })
+        };
+        if !team_ids.is_empty() {
+            for team_id in &team_ids {
+                let _ = crate::team::with_team_mut(*team_id, |team| {
+                    team.kill_team_prepared(neutral_team_id, beacon_name.as_deref());
+                });
             }
         } else {
             for object_id in &member_ids {

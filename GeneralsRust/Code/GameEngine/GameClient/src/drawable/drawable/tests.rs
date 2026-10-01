@@ -1825,19 +1825,15 @@ fn draw_bombed_carbomb_icon_requires_local_player_not_status() {
     use gamelogic::common::{ObjectStatusMaskType, ObjectStatusTypes};
     use gamelogic::object::Object;
     use gamelogic::weapon::WeaponSetType;
-    use std::sync::{Arc, RwLock};
 
     let object_id = 900_002;
-    let object = Arc::new(RwLock::new(Object::new_test(object_id, 100.0)));
-    object
-        .write()
-        .unwrap()
-        .set_weapon_set_flag(WeaponSetType::CarBomb);
-    object.write().unwrap().set_status(
+    let mut object = Object::new_test(object_id, 100.0);
+    object.set_weapon_set_flag(WeaponSetType::CarBomb);
+    object.set_status(
         ObjectStatusMaskType::from_status(ObjectStatusTypes::IsCarBomb),
         true,
     );
-    OBJECT_REGISTRY.register_object(object_id, &object);
+    OBJECT_REGISTRY.register_object(object_id, object);
 
     let mut drawable = BasicDrawable::new(DrawableId(2));
     drawable.set_object_id(Some(object_id));

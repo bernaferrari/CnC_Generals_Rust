@@ -4,17 +4,18 @@
 //! including payload templates and special overlord-style container behavior.
 
 use std::collections::HashMap;
-use std::sync::{Arc, RwLock, Weak};
 
 use super::{ContainerIniParse, ContainerInterface, TransportContain};
 use crate::common::{
-    BodyDamageType, Coord3D, GameResult, INVALID_ID, Matrix3D, ObjectID, PlayerMaskType,
+    BodyDamageType, Coord3D, GameResult, INVALID_ID, Matrix3D, ObjectID, PlayerIndex,
+    PlayerMaskType,
 };
 use crate::damage::DamageInfo;
 use crate::helpers::{TheGameLogic, TheThingFactory};
 use crate::modules::{
     ContainModuleInterface, ContainModuleInterfaceExt, ContainWant, UpdateSleepTime,
 };
+use crate::object::registry::OBJECT_REGISTRY;
 use crate::object::Object;
 use crate::player::Player;
 use game_engine::common::ini::{FieldParse, INI, INIError};
@@ -117,17 +118,14 @@ pub struct HelixContain {
 impl HelixContain {
     /// Create a new HelixContain module
     pub fn new(
-        object: Weak<RwLock<Object>>,
+        object_id: ObjectID,
         module_data: &HelixContainModuleData,
     ) -> GameResult<Self> {
-        let base = TransportContain::new(object.clone(), &module_data.base)?;
+        let base = TransportContain::new(object_id, &module_data.base)?;
 
         Ok(Self {
             base,
-            object_id: object
-                .upgrade()
-                .and_then(|arc| arc.read().ok().map(|g| g.get_id()))
-                .unwrap_or(crate::common::INVALID_ID),
+            object_id: object_id,
             module_data: module_data.clone(),
             portable_structure_id: None,
         })
@@ -147,18 +145,13 @@ impl HelixContain {
     }
 
     /// Short-lived Arc resolve; prefer `with_owner_object` / `get_object_id`.
-    pub fn get_object(&self) -> Option<Arc<RwLock<Object>>> {
-        // Wave 274: empty dual-world → None.
-        if dual_world_registry_unavailable() {
-            return None;
-        }
-
-        let id = self.get_object_id();
+    pub fn get_object(&self) -> Option<ObjectID> {
+        let id = self.object_id;
         if id == crate::common::INVALID_ID {
-            return None;
+            None
+        } else {
+            Some(id)
         }
-        crate::helpers::TheGameLogic::find_object_by_id(id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(id))
     }
 
     /// Treat as open container
@@ -202,13 +195,9 @@ impl HelixContain {
         }
 
         if let Some(portable_id) = self.portable_structure_id() {
-            if let Some(portable) = TheGameLogic::find_object_by_id(portable_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(portable_id))
-            {
-                if let Ok(mut portable_guard) = portable.write() {
-                    portable_guard.kill(None, None);
-                }
-            }
+            let _ = OBJECT_REGISTRY.with_object_mut(portable_id, |portable_guard| {
+                portable_guard.kill(None, None);
+            });
         }
         self.base.on_die_for_owner(owner, damage_info)?;
         Ok(())
@@ -227,8 +216,8 @@ impl HelixContain {
     pub fn on_capture(
         &mut self,
         _owner: &Object,
-        _old_owner: Option<&Arc<RwLock<Player>>>,
-        new_owner: Option<&Arc<RwLock<Player>>>,
+        _old_owner: Option<PlayerIndex>,
+        new_owner: Option<PlayerIndex>,
     ) -> GameResult<()> {
         // Wave 274: empty dual-world → Ok(()).
         if dual_world_registry_unavailable() {
@@ -236,14 +225,18 @@ impl HelixContain {
         }
 
         if let Some(portable_id) = self.portable_structure_id() {
-            if let Some(portable) = TheGameLogic::find_object_by_id(portable_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(portable_id))
-            {
-                if let (Ok(mut portable_guard), Some(new_owner_arc)) = (portable.write(), new_owner)
-                {
-                    if let Ok(new_owner_guard) = new_owner_arc.read() {
-                        let default_team = new_owner_guard.get_default_team();
-                        portable_guard.set_team(default_team)?;
+            if let Some(index) = new_owner {
+                if TheGameLogic::find_object_by_id(portable_id) {
+                    let default_team = crate::player::with_player(index, |player| {
+                        player.get_default_team_id()
+                    })
+                    .flatten();
+                    if let Some(set_team) =
+                        OBJECT_REGISTRY.with_object_mut(portable_id, |portable_guard| {
+                            portable_guard.set_team_id(default_team)
+                        })
+                    {
+                        set_team?;
                     }
                 }
             }
@@ -265,16 +258,31 @@ impl HelixContain {
             return Ok(());
         }
 
-        let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
-        else {
+        if !TheGameLogic::find_object_by_id(obj_id) {
             return Ok(());
-        };
+        }
 
         self.base.on_containing(obj_id, was_selected)?;
 
         // Give the object a garrisoned version of its weapon (matches C++ line 374)
-        let Ok(mut contained) = obj.try_write() else {
+        let Some(held) = OBJECT_REGISTRY.with_object_mut(obj_id, |contained| {
+            contained
+                .set_weapon_bonus_condition(crate::common::WeaponBonusConditionType::Garrisoned);
+            let held = contained.set_disabled_held(true);
+            if held.is_ok() && contained.is_kind_of(crate::common::KindOf::PortableStructure) {
+                if self
+                    .with_owner_object(|owner| owner.is_stealthed())
+                    .unwrap_or(false)
+                {
+                    if let Some(stealth) = contained.get_stealth() {
+                        if let Ok(mut stealth_guard) = stealth.try_lock() {
+                            let _ = stealth_guard.receive_grant(true, 0, 0);
+                        }
+                    }
+                }
+            }
+            held
+        }) else {
             self.base.base.unlink_contained_id(obj_id);
             self.base.release_last_extra_slots();
             if self.base.base.get_contain_count() == 0 {
@@ -291,22 +299,7 @@ impl HelixContain {
             }
             return Err("Helix passenger lock busy".into());
         };
-        contained.set_weapon_bonus_condition(crate::common::WeaponBonusConditionType::Garrisoned);
-        contained.set_disabled_held(true)?;
-        if contained.is_kind_of(crate::common::KindOf::PortableStructure) {
-            if self
-                .with_owner_object(|owner| owner.is_stealthed())
-                .unwrap_or(false)
-            {
-                if let Some(stealth) = contained.get_stealth() {
-                    if let Ok(mut stealth_guard) = stealth.try_lock() {
-                        let _ = stealth_guard.receive_grant(true, 0, 0);
-                    }
-                }
-            }
-        }
-        drop(contained);
-
+        held?;
         Ok(())
     }
 
@@ -318,18 +311,18 @@ impl HelixContain {
             return Ok(());
         }
 
-        let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
-        else {
+        if !TheGameLogic::find_object_by_id(obj_id) {
             return Ok(());
-        };
+        }
 
-        let Ok(mut contained) = obj.try_write() else {
+        let Some(held) = OBJECT_REGISTRY.with_object_mut(obj_id, |contained| {
+            contained
+                .clear_weapon_bonus_condition(crate::common::WeaponBonusConditionType::Garrisoned);
+            contained.set_disabled_held(false)
+        }) else {
             return Err("Helix passenger lock busy".into());
         };
-        contained.clear_weapon_bonus_condition(crate::common::WeaponBonusConditionType::Garrisoned);
-        contained.set_disabled_held(false)?;
-        drop(contained);
+        held?;
         self.base.on_removing(obj_id)?;
         Ok(())
     }
@@ -347,14 +340,18 @@ impl HelixContain {
 
         if new_state != BodyDamageType::Rubble {
             if let Some(portable_id) = self.portable_structure_id() {
-                if let Some(portable) = TheGameLogic::find_object_by_id(portable_id)
-                    .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(portable_id))
-                {
-                    let Ok(mut portable_guard) = portable.try_write() else {
+                if TheGameLogic::find_object_by_id(portable_id) {
+                    let Some(state_result) =
+                        OBJECT_REGISTRY.with_object_mut(portable_id, |portable_guard| {
+                            portable_guard
+                                .get_body_module_mut()
+                                .map(|body| body.set_damage_state(new_state))
+                        })
+                    else {
                         return Err("Helix portable lock busy".into());
                     };
-                    if let Some(body) = portable_guard.get_body_module_mut() {
-                        body.set_damage_state(new_state)?;
+                    if let Some(state_result) = state_result {
+                        state_result?;
                     }
                 }
             }
@@ -377,21 +374,28 @@ impl HelixContain {
         }
 
         // Update portable structure position to follow Helix (matches C++ lines 101-105)
-        if let Some(_portable_id) = self.portable_structure_id {
-            if let Some(portable_obj) = TheGameLogic::find_object_by_id(_portable_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(_portable_id))
-            {
+        if let Some(portable_id) = self.portable_structure_id {
+            if TheGameLogic::find_object_by_id(portable_id) {
                 if let Some((owner_pos, owner_orient)) =
                     self.with_owner_object(|owner| (*owner.get_position(), owner.get_orientation()))
                 {
-                    if let Ok(mut portable) = portable_obj.try_write() {
-                        if let Err(err) = portable.set_position(&owner_pos) {
-                            log::warn!("HelixContain::update failed to place portable: {}", err);
-                        }
-                        if let Err(err) = portable.set_orientation(owner_orient) {
-                            log::warn!("HelixContain::update failed to orient portable: {}", err);
-                        }
-                    } else {
+                    if OBJECT_REGISTRY
+                        .with_object_mut(portable_id, |portable| {
+                            if let Err(err) = portable.set_position(&owner_pos) {
+                                log::warn!(
+                                    "HelixContain::update failed to place portable: {}",
+                                    err
+                                );
+                            }
+                            if let Err(err) = portable.set_orientation(owner_orient) {
+                                log::warn!(
+                                    "HelixContain::update failed to orient portable: {}",
+                                    err
+                                );
+                            }
+                        })
+                        .is_none()
+                    {
                         log::warn!("HelixContain::update portable lock busy");
                     }
                 }
@@ -418,26 +422,27 @@ impl HelixContain {
             return Ok(());
         }
 
-        let obj = TheGameLogic::find_object_by_id(obj_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
-            .ok_or("Helix contain object not found")?;
+        if !TheGameLogic::find_object_by_id(obj_id) {
+            return Err("Helix contain object not found".into());
+        }
 
-        let Ok(guard) = obj.try_read() else {
+        let Some(is_portable) = OBJECT_REGISTRY.with_object(obj_id, |guard| {
+            guard.is_kind_of(crate::common::KindOf::PortableStructure)
+                && self.portable_structure_id.is_none()
+        }) else {
             return Err("Helix passenger lock busy".into());
         };
-        let is_portable = guard.is_kind_of(crate::common::KindOf::PortableStructure)
-            && self.portable_structure_id.is_none();
-        drop(guard);
 
         if is_portable {
             let owner_id = self.get_object_id();
-            let Ok(mut obj_mut) = obj.try_write() else {
+            let Some(set_result) = OBJECT_REGISTRY.with_object_mut(obj_id, |obj_mut| {
+                obj_mut.set_contained_by(Some(owner_id))
+            }) else {
                 return Err("Helix passenger lock busy".into());
             };
-            if let Err(err) = obj_mut.set_contained_by(Some(owner_id)) {
+            if let Err(err) = set_result {
                 return Err(err.into());
             }
-            drop(obj_mut);
             let previous = self.portable_structure_id();
             self.portable_structure_id = Some(obj_id);
             if let Some(existing_id) = previous {
@@ -462,24 +467,30 @@ impl HelixContain {
             return Ok(());
         }
 
-        let Ok(obj_ref) = obj.try_read() else {
+        let Some(gate) = OBJECT_REGISTRY.with_object(obj_id, |obj_ref| {
+            let was_selected = obj_ref
+                .get_drawable()
+                .and_then(|drawable| drawable.try_read().ok().map(|draw| draw.is_selected()))
+                .unwrap_or(false);
+            if !self.base.is_valid_container_for(obj_ref, true) {
+                return Err("Object not valid for this helix container");
+            }
+            let already_listed = self.base.base.get_contained_object_ids().contains(&obj_id);
+            let contained_by = obj_ref.get_contained_by();
+            if contained_by.is_some() && (already_listed || contained_by != Some(self.get_object_id()))
+            {
+                return Ok(None);
+            }
+            let should_remove_from_world = self.is_enclosing_container_for(obj_ref);
+            Ok(Some((was_selected, should_remove_from_world)))
+        }) else {
             return Err("Helix passenger lock busy".into());
         };
-        let was_selected = obj_ref
-            .get_drawable()
-            .and_then(|drawable| drawable.try_read().ok().map(|draw| draw.is_selected()))
-            .unwrap_or(false);
-        if !self.base.is_valid_container_for(&*obj_ref, true) {
-            return Err("Object not valid for this helix container".into());
-        }
-        let already_listed = self.base.base.get_contained_object_ids().contains(&obj_id);
-        let contained_by = obj_ref.get_contained_by();
-        if contained_by.is_some() && (already_listed || contained_by != Some(self.get_object_id()))
-        {
-            return Ok(());
-        }
-        let should_remove_from_world = self.is_enclosing_container_for(&*obj_ref);
-        drop(obj_ref);
+        let (was_selected, should_remove_from_world) = match gate {
+            Err(msg) => return Err(msg.into()),
+            Ok(None) => return Ok(()),
+            Ok(Some(pair)) => pair,
+        };
         self.base.add_to_contain_list(obj_id)?;
         if should_remove_from_world {
             let _ = self.base.base.add_or_remove_obj_from_world(obj_id, false);
@@ -504,26 +515,27 @@ impl HelixContain {
             return Ok(());
         }
 
-        let obj = TheGameLogic::find_object_by_id(obj_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
-            .ok_or("Helix contain object not found")?;
+        if !TheGameLogic::find_object_by_id(obj_id) {
+            return Err("Helix contain object not found".into());
+        }
 
-        let Ok(guard) = obj.try_read() else {
+        let Some(is_portable) = OBJECT_REGISTRY.with_object(obj_id, |guard| {
+            guard.is_kind_of(crate::common::KindOf::PortableStructure)
+                && self.portable_structure_id.is_none()
+        }) else {
             return Err("Helix passenger lock busy".into());
         };
-        let is_portable = guard.is_kind_of(crate::common::KindOf::PortableStructure)
-            && self.portable_structure_id.is_none();
-        drop(guard);
 
         if is_portable {
             let owner_id = self.get_object_id();
-            let Ok(mut obj_mut) = obj.try_write() else {
+            let Some(set_result) = OBJECT_REGISTRY.with_object_mut(obj_id, |obj_mut| {
+                obj_mut.set_contained_by(Some(owner_id))
+            }) else {
                 return Err("Helix passenger lock busy".into());
             };
-            if let Err(err) = obj_mut.set_contained_by(Some(owner_id)) {
+            if let Err(err) = set_result {
                 return Err(err.into());
             }
-            drop(obj_mut);
             let previous = self.portable_structure_id();
             self.portable_structure_id = Some(obj_id);
             if let Some(existing_id) = previous {
@@ -548,25 +560,20 @@ impl HelixContain {
             return Ok(());
         }
 
-        let Some(obj) = TheGameLogic::find_object_by_id(obj_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
-        else {
+        if !TheGameLogic::find_object_by_id(obj_id) {
             return Ok(());
-        };
+        }
 
-        let Ok(obj_guard) = obj.try_read() else {
+        let Some(clear_portable) = OBJECT_REGISTRY.with_object(obj_id, |obj_guard| {
+            obj_guard.is_kind_of(crate::common::KindOf::PortableStructure)
+                && self.portable_structure_id == Some(obj_id)
+        }) else {
             return Err("Helix passenger lock busy".into());
         };
-        if obj_guard.is_kind_of(crate::common::KindOf::PortableStructure) {
-            if let Some(portable_id) = self.portable_structure_id {
-                if obj_id == portable_id {
-                    drop(obj_guard);
-                    self.portable_structure_id = None;
-                    return Ok(());
-                }
-            }
+        if clear_portable {
+            self.portable_structure_id = None;
+            return Ok(());
         }
-        drop(obj_guard);
 
         let (stealth_garrison, shown) =
             self.base
@@ -591,14 +598,10 @@ impl HelixContain {
     /// Matches C++ HelixContain::isEnclosingContainerFor
     pub fn is_enclosing_container_for(&self, obj: &Object) -> bool {
         if let Some(portable_id) = self.portable_structure_id {
-            if portable_id == obj.get_id() {
-                if let Some(portable) = TheGameLogic::find_object_by_id(portable_id) {
-                    if let Ok(portable_guard) = portable.read() {
-                        if portable_guard.get_id() == obj.get_id() {
-                            return false;
-                        }
-                    }
-                }
+            if portable_id != crate::common::INVALID_ID && portable_id == obj.get_id() {
+                // Caller already holds this object. Same-id checkout would miss,
+                // and a live id match is not an enclosing container.
+                return false;
             }
         }
         self.base.is_enclosing_container_for(obj)
@@ -622,12 +625,13 @@ impl HelixContain {
                 }
             }
 
-            if let Some(rider) = TheGameLogic::find_object_by_id(obj_id) {
-                if let Ok(rider_guard) = rider.try_read() {
-                    if rider_guard.is_kind_of(crate::common::KindOf::Infantry) {
-                        return self.base.is_passenger_allowed_to_fire(id);
-                    }
-                }
+            if OBJECT_REGISTRY
+                .with_object(obj_id, |rider_guard| {
+                    rider_guard.is_kind_of(crate::common::KindOf::Infantry)
+                })
+                .unwrap_or(false)
+            {
+                return self.base.is_passenger_allowed_to_fire(id);
             }
         }
 
@@ -647,10 +651,10 @@ impl HelixContain {
         }
 
         let id = self.portable_structure_id()?;
-        let portable = TheGameLogic::find_object_by_id(id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(id))?;
-        let guard = portable.read().ok()?;
-        if guard.is_kind_of(crate::common::KindOf::PortableStructure) {
+        let is_portable = OBJECT_REGISTRY.with_object(id, |guard| {
+            guard.is_kind_of(crate::common::KindOf::PortableStructure)
+        })?;
+        if is_portable {
             Some(id)
         } else {
             None
@@ -665,22 +669,15 @@ impl HelixContain {
         }
 
         if let Some(portable_id) = self.portable_structure_id() {
-            if let Some(portable) = TheGameLogic::find_object_by_id(portable_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(portable_id))
-            {
-                let drawable = {
-                    let Ok(portable_guard) = portable.try_read() else {
-                        return Ok(());
-                    };
-                    if !portable_guard.is_kind_of(crate::common::KindOf::PortableStructure) {
-                        return Ok(());
-                    }
-                    portable_guard.get_drawable()
-                };
-                if let Some(drawable) = drawable {
-                    if let Ok(mut drawable_guard) = drawable.try_write() {
-                        drawable_guard.flash_as_selected();
-                    }
+            let drawable = OBJECT_REGISTRY.with_object(portable_id, |portable_guard| {
+                if !portable_guard.is_kind_of(crate::common::KindOf::PortableStructure) {
+                    return None;
+                }
+                portable_guard.get_drawable()
+            });
+            if let Some(Some(drawable)) = drawable {
+                if let Ok(mut drawable_guard) = drawable.try_write() {
+                    drawable_guard.flash_as_selected();
                 }
             }
         }
@@ -699,19 +696,15 @@ impl HelixContain {
         {
             fire_pos.z += 8.0;
             for rider_id in self.base.base.get_contained_object_ids().to_vec() {
-                if let Some(rider) = TheGameLogic::find_object_by_id(rider_id)
-                    .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(rider_id))
-                {
-                    if let Ok(mut rider_guard) = rider.write() {
-                        if let Err(err) = rider_guard.set_position(&fire_pos) {
-                            log::warn!(
-                                "HelixContain::redeploy_occupants failed to place rider {}: {}",
-                                rider_guard.get_id(),
-                                err
-                            );
-                        }
+                let _ = OBJECT_REGISTRY.with_object_mut(rider_id, |rider_guard| {
+                    if let Err(err) = rider_guard.set_position(&fire_pos) {
+                        log::warn!(
+                            "HelixContain::redeploy_occupants failed to place rider {}: {}",
+                            rider_guard.get_id(),
+                            err
+                        );
                     }
-                }
+                });
             }
         }
         Ok(())
@@ -759,7 +752,7 @@ impl HelixContain {
                 factory.new_object_optional_team(template, None)
             };
 
-            let Ok(payload) = payload else {
+            let Ok(payload_id) = payload else {
                 log::warn!(
                     "HelixContain::createPayload: failed to create payload {}",
                     template_name
@@ -767,17 +760,12 @@ impl HelixContain {
                 continue;
             };
 
-            let can_add = payload
-                .read()
-                .ok()
-                .map(|payload_guard| self.is_valid_container_for(&*payload_guard, true))
+            let can_add = OBJECT_REGISTRY
+                .with_object(payload_id, |payload_guard| {
+                    self.is_valid_container_for(payload_guard, true)
+                })
                 .unwrap_or(false);
             if can_add {
-                let payload_id = payload
-                    .read()
-                    .ok()
-                    .map(|g| g.get_id())
-                    .unwrap_or(crate::common::INVALID_ID);
                 if let Err(err) = self.add_to_contain(payload_id) {
                     log::warn!(
                         "HelixContain::createPayload: failed to add payload {} to {}: {}",
@@ -887,12 +875,11 @@ impl Snapshotable for HelixContain {
 
 impl ContainModuleInterface for HelixContain {
     fn can_contain(&self, object_id: ObjectID) -> bool {
-        if let Some(obj) = TheGameLogic::find_object_by_id(object_id) {
-            if let Ok(obj_guard) = obj.read() {
-                return self.is_valid_container_for(&*obj_guard, true);
-            }
-        }
-        false
+        OBJECT_REGISTRY
+            .with_object(object_id, |obj_guard| {
+                self.is_valid_container_for(obj_guard, true)
+            })
+            .unwrap_or(false)
     }
 
     fn contain_object(&mut self, object_id: ObjectID) -> Result<(), String> {
@@ -992,15 +979,11 @@ impl ContainModuleInterface for HelixContain {
         if !self.base.base.collide_enter_eject_foreign(other_id)? {
             return Ok(());
         }
-        let Some(other) = TheGameLogic::find_object_by_id(other_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(other_id))
-        else {
+        let Some(valid) = OBJECT_REGISTRY.with_object(other_id, |guard| {
+            self.is_valid_container_for(guard, true)
+        }) else {
             return Ok(());
         };
-        let valid = other
-            .try_read()
-            .map(|guard| self.is_valid_container_for(&*guard, true))
-            .unwrap_or(false);
         if valid {
             self.add_to_contain(other_id)?;
         }
@@ -1051,8 +1034,8 @@ impl ContainModuleInterface for HelixContain {
     fn on_capture(
         &mut self,
         owner: &Object,
-        old_owner: Option<&Arc<RwLock<Player>>>,
-        new_owner: Option<&Arc<RwLock<Player>>>,
+        old_owner: Option<PlayerIndex>,
+        new_owner: Option<PlayerIndex>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         HelixContain::on_capture(self, owner, old_owner, new_owner).map_err(|e| e.into())
     }
@@ -1079,11 +1062,9 @@ impl ContainModuleInterface for HelixContain {
             return Ok(());
         }
 
-        let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
-        else {
+        if !TheGameLogic::find_object_by_id(obj_id) {
             return Ok(());
-        };
+        }
 
         HelixContain::on_containing(self, obj_id, was_selected).map_err(|e| e.into())
     }
@@ -1101,11 +1082,9 @@ impl ContainModuleInterface for HelixContain {
             return Ok(());
         }
 
-        let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
-        else {
+        if !TheGameLogic::find_object_by_id(obj_id) {
             return Ok(());
-        };
+        }
 
         HelixContain::on_removing(self, obj_id).map_err(|e| e.into())
     }
@@ -1183,12 +1162,19 @@ impl ContainerInterface for HelixContain {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::common::{Coord3D, DefaultThingTemplate, ObjectStatusMaskType};
+    use crate::common::{
+        BodyDamageType, Coord3D, DefaultThingTemplate, INVALID_ID, ObjectID, ObjectStatusMaskType,
+    };
     use crate::damage::DamageInfo;
+    use crate::modules::ContainModuleInterface;
     use crate::object::body::active_body::{ActiveBody, ActiveBodyModuleData};
+    use crate::object::contain::ContainerInterface;
     use crate::object::registry::OBJECT_REGISTRY;
-    use game_engine::common::system::{XferBlockSize, XferMode, XferStatus};
+    use crate::object::Object;
+    use game_engine::common::system::{Snapshotable, Xfer, XferBlockSize, XferMode, XferStatus};
+    use std::collections::HashMap;
     use std::io;
+    use std::sync::Arc;
 
     struct RecordingXfer {
         bytes: Vec<u8>,
@@ -1266,27 +1252,32 @@ mod tests {
         }
     }
 
-    fn object_with_kind(name: &str, id: ObjectID, kind_of: &str) -> Arc<RwLock<Object>> {
+    fn object_with_kind(name: &str, id: ObjectID, kind_of: &str) -> ObjectID {
         let mut template = DefaultThingTemplate::new(name.to_string());
         let mut fields = HashMap::new();
         fields.insert("KindOf".to_string(), kind_of.to_string());
         template.parse_object_fields_from_ini(&fields);
-        Object::new_with_id(Arc::new(template), id, ObjectStatusMaskType::none(), None)
-            .expect("test object")
+        OBJECT_REGISTRY.register_object(
+            id,
+            Object::new_raw(Arc::new(template), id, ObjectStatusMaskType::none(), None),
+        );
+        id
     }
 
-    fn transportable_object(name: &str, id: ObjectID) -> Arc<RwLock<Object>> {
+    fn transportable_object(name: &str, id: ObjectID) -> ObjectID {
         let mut template = DefaultThingTemplate::new(name.to_string());
         let mut fields = HashMap::new();
         fields.insert("KindOf".to_string(), "INFANTRY".to_string());
         fields.insert("TransportSlotCount".to_string(), "1".to_string());
         template.parse_object_fields_from_ini(&fields);
-        Object::new_with_id(Arc::new(template), id, ObjectStatusMaskType::none(), None)
-            .expect("test object")
+        OBJECT_REGISTRY.register_object(
+            id,
+            Object::new_raw(Arc::new(template), id, ObjectStatusMaskType::none(), None),
+        );
+        id
     }
 
-    fn attach_active_body(obj: &Arc<RwLock<Object>>) {
-        let id = obj.read().expect("object read").get_id();
+    fn attach_active_body(id: ObjectID) {
         let body = ActiveBody::new_with_owner(
             ActiveBodyModuleData {
                 max_health: 100.0,
@@ -1295,9 +1286,11 @@ mod tests {
             },
             id,
         );
-        obj.write()
-            .expect("object write")
-            .set_body_module(Some(Box::new(body)));
+        OBJECT_REGISTRY
+            .with_object_mut(id, |obj| {
+                obj.set_body_module(Some(Box::new(body)));
+            })
+            .expect("object write");
     }
 
     #[test]
@@ -1327,7 +1320,7 @@ mod tests {
             ..Default::default()
         };
         let contain =
-            HelixContain::new(Weak::new(), &module_data).expect("helix contain constructs");
+            HelixContain::new(INVALID_ID, &module_data).expect("helix contain constructs");
 
         assert_eq!(
             contain.get_container_pips_to_show(&module_data),
@@ -1341,7 +1334,7 @@ mod tests {
 
     #[test]
     fn xfer_writes_portable_structure_id_before_transport_state_like_cpp() {
-        let mut contain = HelixContain::new(Weak::new(), &HelixContainModuleData::default())
+        let mut contain = HelixContain::new(INVALID_ID, &HelixContainModuleData::default())
             .expect("helix contain constructs");
         contain.set_portable_structure_id(Some(0x0102_0304));
         contain.base.set_payload_created(true);
@@ -1360,7 +1353,7 @@ mod tests {
 
     #[test]
     fn helix_payload_created_uses_transport_state() {
-        let mut contain = HelixContain::new(Weak::new(), &HelixContainModuleData::default())
+        let mut contain = HelixContain::new(INVALID_ID, &HelixContainModuleData::default())
             .expect("helix contain constructs");
         contain.base.set_payload_created(true);
 
@@ -1382,7 +1375,7 @@ mod tests {
             ..Default::default()
         };
         let mut contain =
-            HelixContain::new(Arc::downgrade(&owner), &data).expect("helix contain constructs");
+            HelixContain::new(owner, &data).expect("helix contain constructs");
 
         contain
             .update()
@@ -1399,7 +1392,7 @@ mod tests {
 
     #[test]
     fn save_load_state_round_trips_invalid_portable_structure_id_like_cpp() {
-        let contain = HelixContain::new(Weak::new(), &HelixContainModuleData::default())
+        let contain = HelixContain::new(INVALID_ID, &HelixContainModuleData::default())
             .expect("helix contain constructs");
 
         let state = contain.save_state().expect("helix saves state");
@@ -1410,7 +1403,7 @@ mod tests {
             "C++ xfers m_portableStructureID even when it is INVALID_ID"
         );
 
-        let mut loaded = HelixContain::new(Weak::new(), &HelixContainModuleData::default())
+        let mut loaded = HelixContain::new(INVALID_ID, &HelixContainModuleData::default())
             .expect("helix contain constructs");
         loaded.set_portable_structure_id(Some(1234));
         loaded.load_state(&state).expect("helix loads state");
@@ -1438,22 +1431,14 @@ mod tests {
     fn container_interface_uses_helix_portable_structure_semantics() {
         let _lock = crate::test_sync::lock();
         let portable = object_with_kind("PortableGattling", 98001, "PORTABLE_STRUCTURE");
-        let mut contain = HelixContain::new(Weak::new(), &HelixContainModuleData::default())
+        let mut contain = HelixContain::new(INVALID_ID, &HelixContainModuleData::default())
             .expect("helix contain constructs");
 
-        assert!(ContainerInterface::can_contain(
-            &contain,
-            &portable.read().expect("portable read")
-        ));
-        ContainerInterface::add_object(
-            &mut contain,
-            portable
-                .read()
-                .ok()
-                .map(|g| g.get_id())
-                .unwrap_or(crate::common::INVALID_ID),
-        )
-        .expect("portable structure enters as helix rider");
+        assert!(OBJECT_REGISTRY
+            .with_object(portable, |obj| ContainerInterface::can_contain(&contain, obj))
+            .expect("portable read"));
+        ContainerInterface::add_object(&mut contain, portable)
+            .expect("portable structure enters as helix rider");
 
         assert_eq!(ContainModuleInterface::get_contained_count(&contain), 0);
         assert_eq!(
@@ -1468,25 +1453,26 @@ mod tests {
     fn add_to_contain_redeploys_passengers_to_owner_z_plus_eight_like_cpp() {
         let _lock = crate::test_sync::lock();
         let owner = object_with_kind("HelixOwner", 98002, "VEHICLE");
-        owner
-            .write()
-            .expect("owner write")
-            .set_position(&Coord3D::new(10.0, 20.0, 30.0))
-            .expect("owner position");
+        OBJECT_REGISTRY
+            .with_object_mut(owner, |obj| {
+                obj.set_position(&Coord3D::new(10.0, 20.0, 30.0))
+                    .expect("owner position");
+            })
+            .expect("owner write");
         let passenger = transportable_object("HelixPassenger", 98003);
         let mut data = HelixContainModuleData::default();
         data.base.slot_capacity = 1;
         data.base.base.allow_neutral_inside = true;
-        let mut contain =
-            HelixContain::new(Arc::downgrade(&owner), &data).expect("helix contain constructs");
+        let mut contain = HelixContain::new(owner, &data).expect("helix contain constructs");
 
-        let passenger_id = passenger.read().expect("passenger read").get_id();
         contain
-            .add_to_contain(passenger_id)
+            .add_to_contain(passenger)
             .expect("passenger enters helix");
 
         assert_eq!(
-            *passenger.read().expect("passenger read").get_position(),
+            OBJECT_REGISTRY
+                .with_object(passenger, |obj| *obj.get_position())
+                .expect("passenger read"),
             Coord3D::new(10.0, 20.0, 38.0)
         );
         assert_eq!(ContainModuleInterface::get_contained_count(&contain), 1);
@@ -1499,18 +1485,11 @@ mod tests {
     fn contain_body_damage_callback_updates_portable_structure_body() {
         let _lock = crate::test_sync::lock();
         let portable = object_with_kind("PortableDamageMirror", 98004, "PORTABLE_STRUCTURE");
-        attach_active_body(&portable);
-        let mut contain = HelixContain::new(Weak::new(), &HelixContainModuleData::default())
+        attach_active_body(portable);
+        let mut contain = HelixContain::new(INVALID_ID, &HelixContainModuleData::default())
             .expect("helix contain constructs");
-        ContainerInterface::add_object(
-            &mut contain,
-            portable
-                .read()
-                .ok()
-                .map(|g| g.get_id())
-                .unwrap_or(crate::common::INVALID_ID),
-        )
-        .expect("portable structure enters as helix rider");
+        ContainerInterface::add_object(&mut contain, portable)
+            .expect("portable structure enters as helix rider");
 
         ContainModuleInterface::on_body_damage_state_change(
             &mut contain,
@@ -1520,15 +1499,14 @@ mod tests {
         )
         .expect("body damage callback");
 
-        let body = portable
-            .read()
-            .expect("portable read")
-            .get_body_module()
-            .expect("portable body");
-        assert_eq!(
-            body.get_damage_state(),
-            BodyDamageType::ReallyDamaged
-        );
+        let damage_state = OBJECT_REGISTRY
+            .with_object(portable, |obj| {
+                obj.get_body_module()
+                    .expect("portable body")
+                    .get_damage_state()
+            })
+            .expect("portable read");
+        assert_eq!(damage_state, BodyDamageType::ReallyDamaged);
 
         OBJECT_REGISTRY.unregister_object(98004);
     }

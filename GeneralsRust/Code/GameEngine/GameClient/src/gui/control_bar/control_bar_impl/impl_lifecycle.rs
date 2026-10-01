@@ -212,10 +212,7 @@ impl ControlBar {
         // Host/presentation path: Main feeds selection via
         // sync_selection_display_from_presentation (no OBJECT_REGISTRY).
         // Dual-world registry is opt-in; do not wipe context when registry empty.
-        let registry_exists = OBJECT_REGISTRY
-            .get_object(first_id)
-            .map(|arc| arc.read().is_ok())
-            .unwrap_or(false);
+        let registry_exists = OBJECT_REGISTRY.contains(first_id);
         let presentation_selection_active =
             self.portrait_state.is_visible && self.portrait_state.selected_count > 0;
         if !registry_exists && !presentation_selection_active {
@@ -467,23 +464,20 @@ impl ControlBar {
 
     /// C++ InGameUI.cpp:4116 — first selected drawable's isLocallyControlled.
     fn first_selected_is_controllable(&self, obj_id: u32) -> bool {
-        if let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) {
-            if let Ok(obj) = obj_arc.read() {
-                return obj.is_locally_controlled();
-            }
-        }
-        self.presentation_selection_controllable
+        OBJECT_REGISTRY
+            .with_object(obj_id, |obj| obj.is_locally_controlled())
+            .unwrap_or(self.presentation_selection_controllable)
     }
 
     fn first_selected_is_beacon(&self, obj_id: u32) -> bool {
-        if let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) {
-            if let Ok(obj) = obj_arc.read() {
-                if Self::presentation_name_is_beacon(obj.get_template_name())
+        if OBJECT_REGISTRY
+            .with_object(obj_id, |obj| {
+                Self::presentation_name_is_beacon(obj.get_template_name())
                     || Self::presentation_name_is_beacon(obj.get_command_set_string())
-                {
-                    return true;
-                }
-            }
+            })
+            .unwrap_or(false)
+        {
+            return true;
         }
         if Self::presentation_name_is_beacon(&self.presentation_primary_command_set)
             || Self::presentation_name_is_beacon(&self.portrait_state.portrait_image)
@@ -500,26 +494,23 @@ impl ControlBar {
 
     /// C++ evaluateContextUI: only NEUTRAL garrisonable containers peek past NONE.
     fn non_controllable_neutral_garrison_peek(&self, obj_id: u32) -> bool {
-        if let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) {
-            if let Ok(obj) = obj_arc.read() {
-                let Some(contain) = obj.get_contain() else {
-                    return false;
-                };
-                let Ok(contain) = contain.lock() else {
-                    return false;
-                };
-                if contain.get_contain_max() <= 0 || !contain.is_garrisonable() {
-                    return false;
-                }
-                drop(contain);
+        if let Some(obj_player_id) = OBJECT_REGISTRY.with_object(obj_id, |obj| {
+            let contain = obj.get_contain()?;
+            let contain = contain.lock().ok()?;
+            if contain.get_contain_max() <= 0 || !contain.is_garrisonable() {
+                return None;
+            }
+            Some(obj.get_controlling_player_id().unwrap_or(0xFFFF) as PlayerIndex)
+        }) {
+            let Some(obj_player_id) = obj_player_id else {
+                return false;
+            };
                 let player_list = logic_player_list();
                 let local_index = player_list
                     .read()
                     .ok()
                     .map(|list| list.get_local_player_index())
                     .unwrap_or(gamelogic::player::PLAYER_INDEX_INVALID);
-                let obj_player_id =
-                    obj.get_controlling_player_id().unwrap_or(0xFFFF) as PlayerIndex;
                 let local_arc = player_list
                     .read()
                     .ok()
@@ -536,7 +527,6 @@ impl ControlBar {
                     }
                 }
                 return false;
-            }
         }
         let catalog = crate::presentation_translator_residual::translator_catalog_entry(obj_id);
         let garrisonable = self.presentation_max_garrison > 0
@@ -650,7 +640,7 @@ impl ControlBar {
             return Ok(());
         };
 
-        let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) else {
+        if !OBJECT_REGISTRY.contains(obj_id) {
             // Presentation-only selection residual (host path, no dual-world registry).
             // Wave 1033/1034: C++ OBJECT_STATUS_SOLD / UNSELECTABLE residual — clear bar.
             // Wave 1070: destroyed/masked residual also clears dual-world ControlBar.
@@ -809,72 +799,70 @@ impl ControlBar {
                 .map_err(|_| "Failed to acquire context write lock")?;
             *guard = context;
             return Ok(());
-        };
-        let Ok(obj) = obj_arc.read() else {
-            context.current_state = ControlBarState::None;
-            let mut guard = self
-                .context
-                .write()
-                .map_err(|_| "Failed to acquire context write lock")?;
-            *guard = context;
-            return Ok(());
-        };
-
-        if obj.test_status(OBJECT_STATUS_SOLD) {
-            drop(obj);
-            context.current_state = ControlBarState::None;
-            let mut guard = self
-                .context
-                .write()
-                .map_err(|_| "Failed to acquire context write lock")?;
-            *guard = context;
-            return Ok(());
         }
-
-        let under_construction = obj.test_status(OBJECT_STATUS_UNDER_CONSTRUCTION);
-
-        if under_construction {
-            drop(obj);
-            context.current_state = ControlBarState::UnderConstruction;
-        } else if self.presentation_ocl_timer_seconds > 0 {
-            // Wave 1031: presentation/host OCL timer residual (C++ OCLUpdate module path).
-            drop(obj);
-            context.current_state = ControlBarState::OclTimer;
-        } else {
-            let has_command_set = !obj.get_command_set_string().is_empty();
-
+        let live = OBJECT_REGISTRY.with_object(obj_id, |obj| {
+            if obj.test_status(OBJECT_STATUS_SOLD) {
+                return 1u8;
+            }
+            if obj.test_status(OBJECT_STATUS_UNDER_CONSTRUCTION) {
+                return 2u8;
+            }
+            let has_command_set = __omp_shell("obj.get_command_set_string().is_empty();")
             let has_garrisonable_contain = obj
                 .get_contain()
                 .and_then(|contain| contain.lock().ok().map(|c| c.is_displayed_on_control_bar()))
                 .unwrap_or(false);
-
             if has_garrisonable_contain && !has_command_set {
-                drop(obj);
-                context.current_state = ControlBarState::StructureInventory;
+                3u8
             } else if has_command_set {
-                // Wave 1032: C++ beacon template residual before generic Command.
                 let template_name = obj.get_template_name().to_string();
                 let cmd_set = obj.get_command_set_string().to_string();
-                drop(obj);
                 if Self::presentation_name_is_beacon(&template_name)
                     || Self::presentation_name_is_beacon(&cmd_set)
                 {
-                    context.current_state = ControlBarState::Beacon;
+                    4u8
                 } else {
-                    context.current_state = ControlBarState::Command;
+                    5u8
                 }
             } else {
                 let template_name = obj.get_template_name().to_string();
-                drop(obj);
-                // Wave 1032: C++ CB_CONTEXT_BEACON when template matches beacon (no command set).
                 if Self::presentation_name_is_beacon(&template_name) {
-                    context.current_state = ControlBarState::Beacon;
+                    4u8
                 } else {
-                    context.current_state = ControlBarState::None;
+                    0u8
                 }
             }
+        });
+        let Some(live) = live else {
+            context.current_state = ControlBarState::None;
+            let mut guard = self
+                .context
+                .write()
+                .map_err(|_| "Failed to acquire context write lock")?;
+            *guard = context;
+            return Ok(());
+        };
+        if live == 1 {
+            context.current_state = ControlBarState::None;
+            let mut guard = self
+                .context
+                .write()
+                .map_err(|_| "Failed to acquire context write lock")?;
+            *guard = context;
+            return Ok(());
         }
-
+        if self.presentation_ocl_timer_seconds > 0 && live != 2 {
+            // Wave 1031: presentation/host OCL timer residual (C++ OCLUpdate module path).
+            context.current_state = ControlBarState::OclTimer;
+        } else {
+            context.current_state = match live {
+                2 => ControlBarState::UnderConstruction,
+                3 => ControlBarState::StructureInventory,
+                4 => ControlBarState::Beacon,
+                5 => ControlBarState::Command,
+                _ => ControlBarState::None,
+            };
+        }
         self.build_queue_data.clear();
         self.displayed_queue_count = 0;
         self.update_portrait_for_object(obj_id);

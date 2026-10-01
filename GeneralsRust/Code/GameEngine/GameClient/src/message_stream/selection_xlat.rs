@@ -367,21 +367,15 @@ impl SelectionTranslator {
     /// (no contained / MASKED peel). Missing leftover objects stay live so the
     /// host registry can own garrisoned/transported riders.
     fn leftover_squad_member_is_live(object_id: ObjectID) -> bool {
-        let Some(obj) = TheGameLogic::find_object_by_id(object_id) else {
-            return true;
-        };
-        obj.try_read()
-            .map(|guard| guard.is_selectable())
+        OBJECT_REGISTRY
+            .with_object(object_id, |guard| guard.is_selectable())
             .unwrap_or(true)
     }
 
     /// C++ SELECT_TEAM: `obj->getControllingPlayer() == player`.
     fn leftover_squad_member_is_local(object_id: ObjectID) -> bool {
-        let Some(obj) = TheGameLogic::find_object_by_id(object_id) else {
-            return true;
-        };
-        obj.try_read()
-            .map(|guard| guard.is_locally_controlled())
+        OBJECT_REGISTRY
+            .with_object(object_id, |guard| guard.is_locally_controlled())
             .unwrap_or(true)
     }
 
@@ -494,10 +488,8 @@ impl SelectionTranslator {
             .unwrap_or(PLAYER_INDEX_INVALID);
 
         let mut drawables = Vec::new();
-        for obj_ref in OBJECT_REGISTRY.get_all_objects() {
-            let Ok(obj) = obj_ref.read() else {
-                continue;
-            };
+        for object_id in OBJECT_REGISTRY.get_all_object_ids() {
+            let Some(drawable) = OBJECT_REGISTRY.with_object(object_id, |obj| {
 
             let shroud = obj.get_shrouded_status(local_player_index);
             let is_hidden = matches!(
@@ -544,7 +536,7 @@ impl SelectionTranslator {
                 .get_contain()
                 .and_then(|contain| contain.lock().ok().map(|guard| guard.is_garrisonable()))
                 .unwrap_or(false);
-            drawables.push(SelectableDrawable {
+            SelectableDrawable {
                 id: obj.get_id(),
                 object_id: obj.get_id(),
                 position: Coord3D::new(pos.x, pos.y, pos.z),
@@ -557,7 +549,11 @@ impl SelectionTranslator {
                 is_local_controlled: obj.is_locally_controlled(),
                 kind_of_flags,
                 status_bits,
-            });
+            }
+            }) else {
+                continue;
+            };
+            drawables.push(drawable);
         }
 
         drawables

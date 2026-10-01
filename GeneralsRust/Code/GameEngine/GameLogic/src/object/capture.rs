@@ -9,13 +9,11 @@ use super::*;
 
 impl Object {
     /// C++ `newOwner->getScoreKeeper()->addObjectCaptured(this)`.
-    pub(super) fn on_capture_award_score(&self, new_owner: &Option<Arc<RwLock<Player>>>) {
-        if let Some(new_owner_arc) = new_owner {
-            if let Ok(mut owner_guard) = new_owner_arc.write() {
-                owner_guard
-                    .get_score_keeper_mut()
-                    .add_object_captured_obj(self);
-            }
+    pub(super) fn on_capture_award_score(&self, new_owner: Option<PlayerIndex>) {
+        if let Some(index) = new_owner {
+            let _ = crate::player::with_player_mut(index, |owner| {
+                owner.get_score_keeper_mut().add_object_captured_obj(self);
+            });
         }
     }
 
@@ -23,18 +21,15 @@ impl Object {
     pub(super) fn on_capture_sell_ai_faction_building(
         &self,
         owners_differ: bool,
-        new_owner: &Option<Arc<RwLock<Player>>>,
+        new_owner: Option<PlayerIndex>,
     ) {
         if !owners_differ {
             return;
         }
-        let Some(new_owner_arc) = new_owner else {
+        let Some(index) = new_owner else {
             return;
         };
-        let is_skirmish = new_owner_arc
-            .read()
-            .ok()
-            .map(|g| g.is_skirmish_ai_player())
+        let is_skirmish = crate::player::with_player(index, |g| g.is_skirmish_ai_player())
             .unwrap_or(false);
         if !is_skirmish || !self.is_faction_structure() {
             return;
@@ -59,15 +54,12 @@ impl Object {
     /// C++ `Player::becomingTeamMember` AutoDeposit `awardInitialCaptureBonus`.
     pub(super) fn award_initial_capture_bonus_if_needed(
         &self,
-        new_owner: Option<Arc<RwLock<Player>>>,
+        new_owner: Option<PlayerIndex>,
     ) {
-        let Some(player_arc) = new_owner else {
+        let Some(index) = new_owner else {
             return;
         };
-        let is_neutral = player_arc
-            .read()
-            .ok()
-            .map(|g| g.get_player_type() == PlayerType::Neutral)
+        let is_neutral = crate::player::with_player(index, |g| g.get_player_type() == PlayerType::Neutral)
             .unwrap_or(true);
         if is_neutral {
             return;
@@ -80,7 +72,7 @@ impl Object {
             >(|module| {
                 module
                     .behavior_mut()
-                    .award_initial_capture_bonus(Some(player_arc.clone()));
+                    .award_initial_capture_bonus(Some(index));
             });
         }
     }

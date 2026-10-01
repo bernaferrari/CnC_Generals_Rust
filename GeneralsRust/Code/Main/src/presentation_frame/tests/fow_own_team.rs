@@ -15,7 +15,7 @@ fn own_team_objects_are_fully_visible_in_presentation_fow() {
         .create_object("USA_Dozer", Team::USA, Vec3::new(50.0, 0.0, 50.0))
         .expect("dozer");
     // Poison FOW: without residual, unexplored would hide.
-    let frame = PresentationFrame::build_from_logic(&logic, 0);
+    let frame = PresentationFrame::build_from_logic(&mut logic, 0);
     let ro = frame.objects.iter().find(|o| o.id == id).expect("ro");
     assert!(
         ro.fow_visibility.should_render(),

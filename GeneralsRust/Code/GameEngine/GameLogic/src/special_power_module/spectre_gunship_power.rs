@@ -122,26 +122,22 @@ impl SpectreGunshipPower {
                     self.data.gunship_ocl,
                     spawn_pos
                 );
-                let Some(owner_arc) = (self.owner_object_id != INVALID_ID)
-                    .then(|| crate::helpers::TheGameLogic::find_object_by_id(self.owner_object_id))
-                    .flatten()
-                else {
+                let created = crate::object::registry::OBJECT_REGISTRY.with_object(
+                    self.owner_object_id,
+                    |primary_obj| {
+                        ocl.create_with_owner_flag(
+                            &ctx,
+                            Some(primary_obj),
+                            &spawn_pos,
+                            &targeting.position,
+                            true,
+                            0,
+                        )
+                    },
+                );
+                let Some(created) = created else {
                     self.gunship_id = None;
                     return Ok(());
-                };
-                let created = {
-                    let Ok(primary_obj) = owner_arc.read() else {
-                        self.gunship_id = None;
-                        return Ok(());
-                    };
-                    ocl.create_with_owner_flag(
-                        &ctx,
-                        Some(&*primary_obj),
-                        &spawn_pos,
-                        &targeting.position,
-                        true,
-                        0,
-                    )
                 };
                 self.gunship_id = created.and_then(|h| h.read().ok().map(|o| o.get_id()));
             } else {
@@ -163,85 +159,53 @@ impl SpectreGunshipPower {
                 // Remove gunship - matches C++ SpectreGunshipUpdate.cpp lines 654-658
                 // In C++: TheGameLogic->destroyObject(gunship)
                 use crate::helpers::TheGameLogic;
-                if let Some(gunship_arc) = TheGameLogic::find_object_by_id(gunship_id) {
-                    if let Ok(gunship_guard) = gunship_arc.read() {
-                        let _ = TheGameLogic::destroy_object(&*gunship_guard);
-                    }
-                }
+                crate::object::registry::OBJECT_REGISTRY.with_object(gunship_id, |gunship_guard| {
+                    let _ = TheGameLogic::destroy_object(gunship_guard);
+                });
                 self.gunship_id = None;
             } else {
                 // Update gunship orbit position and fire weapons
                 // Matches C++ SpectreGunshipUpdate.cpp lines 368-647
 
-                use crate::helpers::TheGameLogic;
-
-                if let Some(gunship_arc) = TheGameLogic::find_object_by_id(gunship_id) {
-                    if let Ok(gunship_guard) = gunship_arc.read() {
-                        // Calculate orbital position using declination algorithm
-                        // Matches C++ lines 388-420
-
-                        let gunship_pos = gunship_guard.get_position();
-
-                        // Perigee: vector from target to gunship (projected to XY plane)
-                        let mut perigee = Coord3D::new(
-                            gunship_pos.x - self.orbit_center.x,
-                            gunship_pos.y - self.orbit_center.y,
-                            0.0,
-                        );
-
-                        let distance_to_target =
-                            (perigee.x * perigee.x + perigee.y * perigee.y).sqrt();
-
-                        if distance_to_target > 0.0 {
-                            perigee.x /= distance_to_target;
-                            perigee.y /= distance_to_target;
-                        }
-
-                        // Apogee: perpendicular to perigee (90 degrees counterclockwise)
-                        // Matches C++ lines 395-399
-                        let apogee = Coord3D::new(-perigee.y, perigee.x, 0.0);
-
-                        // Declination: orbital insertion slope determines the approach angle
-                        // Matches C++ lines 401-407
-                        const ORBIT_INSERTION_SLOPE: Real = 0.7;
-                        let n1 = ORBIT_INSERTION_SLOPE;
-                        let n2 = 1.0 - n1;
-
-                        let mut declination = Coord3D::new(
-                            perigee.x * n1 + apogee.x * n2,
-                            perigee.y * n1 + apogee.y * n2,
-                            0.0,
-                        );
-
-                        // Scale to orbital radius (matches C++ lines 409-412)
-                        declination.x *= self.data.orbit_radius;
-                        declination.y *= self.data.orbit_radius;
-
-                        let satellite_pos = Coord3D::new(
-                            self.orbit_center.x + declination.x,
-                            self.orbit_center.y + declination.y,
-                            self.orbit_center.z + self.data.orbit_height,
-                        );
-
-                        // In full implementation, would:
-                        // 1. Move gunship AI to satellite_pos (C++ line 419)
-                        // 2. Search for targets in orbit area (C++ lines 498-526)
-                        // 3. Fire gattling gun at targets (C++ lines 561-567)
-                        // 4. Fire howitzer with follow-up (C++ lines 573-589)
-                        // 5. Update gattling targeting position (C++ lines 609-623)
-                        // 6. Create particle effects for strafing (C++ lines 633-642)
-
-                        log::trace!(
-                            "Gunship {} orbiting at ({:.1}, {:.1}, {:.1}), target center ({:.1}, {:.1})",
-                            gunship_id,
-                            satellite_pos.x,
-                            satellite_pos.y,
-                            satellite_pos.z,
-                            self.orbit_center.x,
-                            self.orbit_center.y
-                        );
+                crate::object::registry::OBJECT_REGISTRY.with_object(gunship_id, |gunship_guard| {
+                    let gunship_pos = gunship_guard.get_position();
+                    let mut perigee = Coord3D::new(
+                        gunship_pos.x - self.orbit_center.x,
+                        gunship_pos.y - self.orbit_center.y,
+                        0.0,
+                    );
+                    let distance_to_target =
+                        (perigee.x * perigee.x + perigee.y * perigee.y).sqrt();
+                    if distance_to_target > 0.0 {
+                        perigee.x /= distance_to_target;
+                        perigee.y /= distance_to_target;
                     }
-                }
+                    let apogee = Coord3D::new(-perigee.y, perigee.x, 0.0);
+                    const ORBIT_INSERTION_SLOPE: Real = 0.7;
+                    let n1 = ORBIT_INSERTION_SLOPE;
+                    let n2 = 1.0 - n1;
+                    let mut declination = Coord3D::new(
+                        perigee.x * n1 + apogee.x * n2,
+                        perigee.y * n1 + apogee.y * n2,
+                        0.0,
+                    );
+                    declination.x *= self.data.orbit_radius;
+                    declination.y *= self.data.orbit_radius;
+                    let satellite_pos = Coord3D::new(
+                        self.orbit_center.x + declination.x,
+                        self.orbit_center.y + declination.y,
+                        self.orbit_center.z + self.data.orbit_height,
+                    );
+                    log::trace!(
+                        "Gunship {} orbiting at ({:.1}, {:.1}, {:.1}), target center ({:.1}, {:.1})",
+                        gunship_id,
+                        satellite_pos.x,
+                        satellite_pos.y,
+                        satellite_pos.z,
+                        self.orbit_center.x,
+                        self.orbit_center.y
+                    );
+                });
             }
         }
     }

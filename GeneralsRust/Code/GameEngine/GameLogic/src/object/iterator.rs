@@ -3,10 +3,8 @@
 //! This closely mirrors the original C++ `SimpleObjectIterator` implementation.
 
 use std::cmp::Ordering;
-use std::sync::{Arc, RwLock};
 
 use crate::common::{INVALID_ID, Int, ObjectID, Real};
-use crate::helpers::TheGameLogic;
 use crate::object::registry::OBJECT_REGISTRY;
 
 use super::Object;
@@ -38,17 +36,20 @@ impl Clump {
         Self { object_id, numeric }
     }
 
-    fn from_object(object: &Arc<RwLock<Object>>, numeric: Real) -> Self {
-        let object_id = object.read().ok().map(|g| g.get_id()).unwrap_or(INVALID_ID);
-        Self::new(object_id, numeric)
+    fn is_live(&self) -> bool {
+        if self.object_id == INVALID_ID {
+            return false;
+        }
+        OBJECT_REGISTRY
+            .with_object(self.object_id, |_| ())
+            .is_some()
     }
 
-    fn upgrade(&self) -> Option<Arc<RwLock<Object>>> {
+    fn build_cost(&self) -> Option<Int> {
         if self.object_id == INVALID_ID {
             return None;
         }
-        TheGameLogic::find_object_by_id(self.object_id)
-            .or_else(|| OBJECT_REGISTRY.get_object(self.object_id))
+        OBJECT_REGISTRY.with_object(self.object_id, |o| o.get_build_cost())
     }
 
     fn is_live(&self) -> bool {
@@ -87,8 +88,8 @@ impl SimpleObjectIterator {
     }
 
     /// Prefer [`Self::insert_id`].
-    pub fn insert(&mut self, object: &Arc<RwLock<Object>>, numeric: Real) {
-        self.clumps.insert(0, Clump::from_object(object, numeric));
+    pub fn insert(&mut self, object_id: ObjectID, numeric: Real) {
+        self.insert_id(object_id, numeric);
         self.cursor = 0;
     }
 
@@ -113,13 +114,13 @@ impl SimpleObjectIterator {
     }
 
     /// Convenience helper: reset and return the first object (if any).
-    pub fn first(&mut self) -> Option<Arc<RwLock<Object>>> {
-        self.first_with_numeric().map(|(object, _)| object)
+    pub fn first(&mut self) -> Option<ObjectID> {
+        self.first_id()
     }
 
-    /// Convenience helper: return next object without numeric value.
-    pub fn next(&mut self) -> Option<Arc<RwLock<Object>>> {
-        self.next_with_numeric().map(|(object, _)| object)
+    /// Convenience helper: return next object id without numeric value.
+    pub fn next(&mut self) -> Option<ObjectID> {
+        self.next_id()
     }
 
     /// Reset and return the first live object ID alongside its numeric value.
@@ -142,21 +143,13 @@ impl SimpleObjectIterator {
     }
 
     /// Reset and return the first object alongside its numeric value.
-    pub fn first_with_numeric(&mut self) -> Option<(Arc<RwLock<Object>>, Real)> {
-        self.first_id_with_numeric().and_then(|(id, numeric)| {
-            TheGameLogic::find_object_by_id(id)
-                .or_else(|| OBJECT_REGISTRY.get_object(id))
-                .map(|obj| (obj, numeric))
-        })
+    pub fn first_with_numeric(&mut self) -> Option<(ObjectID, Real)> {
+        self.first_id_with_numeric()
     }
 
-    /// Return next object together with its numeric value.
-    pub fn next_with_numeric(&mut self) -> Option<(Arc<RwLock<Object>>, Real)> {
-        self.next_id_with_numeric().and_then(|(id, numeric)| {
-            TheGameLogic::find_object_by_id(id)
-                .or_else(|| OBJECT_REGISTRY.get_object(id))
-                .map(|obj| (obj, numeric))
-        })
+    /// Return next object id together with its numeric value.
+    pub fn next_with_numeric(&mut self) -> Option<(ObjectID, Real)> {
+        self.next_id_with_numeric()
     }
 
     /// Sort according to the requested order.

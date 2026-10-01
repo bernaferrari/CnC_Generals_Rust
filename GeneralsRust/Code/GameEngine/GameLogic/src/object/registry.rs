@@ -5,46 +5,23 @@
 //! the interface so the remaining legacy modules (crate collide logic, factory
 //! helpers, etc.) can continue to function while the ownership model migrates
 //! towards explicit handles.
+//!
+//! This registry is the sole owner of `Object` values. Callers borrow through
+//! `with_object` / `with_object_mut`, which check the value out of the map and
+//! drop the map lock before the callback runs.
 
 use crate::common::ObjectID;
 use crate::object::Object;
 use crate::scripting::engine::get_script_engine;
-use once_cell::sync::Lazy;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, RwLock};
+use std::sync::{LazyLock, RwLock};
 
 /// Internal storage for the registry.
 #[derive(Default)]
 struct RegistryStore {
-    /// Strong handles: registry is the ID→Object authority until unregister/destroy.
-    objects: HashMap<ObjectID, Arc<RwLock<Object>>>,
-}
-
-impl RegistryStore {
-    fn register(
-        &mut self,
-        id: ObjectID,
-        object: &Arc<RwLock<Object>>,
-    ) -> Option<Arc<RwLock<Object>>> {
-        self.objects.insert(id, Arc::clone(object))
-    }
-
-    fn unregister(&mut self, id: ObjectID) -> Option<Arc<RwLock<Object>>> {
-        self.objects.remove(&id)
-    }
-
-    fn get(&self, id: ObjectID) -> Option<Arc<RwLock<Object>>> {
-        self.objects.get(&id).cloned()
-    }
-
-    fn contains(&self, id: ObjectID) -> bool {
-        self.objects.contains_key(&id)
-    }
-
-    fn clear(&mut self) -> HashMap<ObjectID, Arc<RwLock<Object>>> {
-        std::mem::take(&mut self.objects)
-    }
+    /// Owned objects. The registry is the ID→Object authority until unregister/destroy.
+    objects: HashMap<ObjectID, Object>,
 }
 
 /// Public façade matching the legacy `ObjectRegistry` API.
@@ -56,30 +33,67 @@ pub struct ObjectRegistry {
     live_count: AtomicUsize,
 }
 
+/// Puts a checked-out object back when `with_object*` returns or unwinds.
+/// The map lock is never held across the callback, and `Object` is not dropped
+/// while that lock is held.
+struct CheckedOut<'a> {
+    registry: &'a ObjectRegistry,
+    id: ObjectID,
+    object: Option<Object>,
+}
+
+impl Drop for CheckedOut<'_> {
+    fn drop(&mut self) {
+        if let Some(object) = self.object.take() {
+            self.registry.reinsert(self.id, object);
+        }
+    }
+}
+
 impl ObjectRegistry {
     #[inline]
     fn set_live_count(&self, n: usize) {
         self.live_count.store(n, Ordering::Release);
     }
 
-    /// Register a live object handle.
-    pub fn register_object(&self, id: ObjectID, object: &Arc<RwLock<Object>>) {
-        let replaced = if let Ok(mut guard) = self.store.write() {
-            let replaced = guard.register(id, object);
+    /// Insert under the write lock. The displaced object is dropped only after
+    /// the guard is released (`Object::drop` re-enters the registry).
+    fn insert_replacing(&self, id: ObjectID, object: Object) -> Option<Object> {
+        if let Ok(mut guard) = self.store.write() {
+            let displaced = guard.objects.insert(id, object);
             self.set_live_count(guard.objects.len());
-            replaced
+            displaced
         } else {
+            // Poisoned: we are not holding the lock, so dropping here is safe.
+            drop(object);
             None
-        };
-        // Object::drop can query the registry through pathfinder cleanup.
-        // Never run it while this registry's write lock is held.
-        drop(replaced);
+        }
     }
 
-    /// Remove a handle from the registry.
+    fn reinsert(&self, id: ObjectID, object: Object) {
+        let displaced = self.insert_replacing(id, object);
+        drop(displaced);
+    }
+
+    /// Remove `id` without touching `live_count`. The id is absent until reinsert,
+    /// but an empty live_count would make `is_empty` hide every other id.
+    fn checkout(&self, id: ObjectID) -> Option<Object> {
+        let mut guard = self.store.write().ok()?;
+        guard.objects.remove(&id)
+    }
+
+    /// Register a live object. The registry takes ownership.
+    pub fn register_object(&self, id: ObjectID, object: Object) {
+        let displaced = self.insert_replacing(id, object);
+        // Object::drop can query the registry through pathfinder cleanup.
+        // Never run it while this registry's write lock is held.
+        drop(displaced);
+    }
+
+    /// Remove an object from the registry and drop it after the write lock.
     pub fn unregister_object(&self, id: ObjectID) {
         let removed = if let Ok(mut guard) = self.store.write() {
-            let removed = guard.unregister(id);
+            let removed = guard.objects.remove(&id);
             self.set_live_count(guard.objects.len());
             removed
         } else {
@@ -95,47 +109,22 @@ impl ObjectRegistry {
         }
     }
 
-    /// Retrieve a strong reference to an object by identifier.
-    pub fn get_object(&self, id: ObjectID) -> Option<Arc<RwLock<Object>>> {
-        // Wave 247: host path (empty registry) skips RwLock entirely.
-        if !self.is_empty() {
-            if let Ok(guard) = self.store.read() {
-                if let Some(arc) = guard.get(id) {
-                    return Some(arc);
-                }
-            }
-        }
-        // C++ has no dual-world skip: GameLogic.objects is the authority.
-        match crate::system::game_logic::get_game_logic().try_lock() {
-            Ok(logic) => logic.find_object_by_id(id),
-            // C++ findObjectByID (GameLogic.h:386-397) is a plain array
-            // index: lock contention NEVER means the object is missing. The
-            // global GameLogic mutex is held across the entire update
-            // (game_logic_impl/globals.rs update_game_logic), so this arm is
-            // "store miss + update in flight". Surface it instead of a
-            // silent None; callers that can borrow GameLogic directly
-            // (e.g. GameLogic::resolve_damage_and_physics) should use
-            // find_object_by_id.
-            Err(_) => {
-                log::warn!(
-                    "OBJECT_REGISTRY::get_object({id}): GameLogic lock held; reporting None on store miss — lock-held is not missing (C++ GameLogic.h:386-397)"
-                );
-                None
-            }
-        }
-    }
-    /// True when `id` is currently registered (no Arc clone).
+    /// True when `id` is currently registered.
+    ///
+    /// Same-id re-entry from a `with_object*` callback is false: that object is
+    /// checked out. Other ids still resolve.
     pub fn contains(&self, id: ObjectID) -> bool {
         // Wave 247: host path (empty registry) skips RwLock entirely.
         if self.is_empty() {
             return false;
         }
         if let Ok(guard) = self.store.read() {
-            if guard.contains(id) {
+            if guard.objects.contains_key(&id) {
                 return true;
             }
         }
-        // C++ GameLogic.objects is the authority when the factory registry is empty.
+        // C++ GameLogic.objects is an id roster. A store miss can still be a
+        // logic id while that roster is being moved onto this registry.
         match crate::system::game_logic::get_game_logic().try_lock() {
             Ok(logic) => logic.find_object_by_id(id).is_some(),
             // Lock-held ≠ missing (C++ GameLogic.h:386-397): the global
@@ -151,20 +140,54 @@ impl ObjectRegistry {
         }
     }
 
-    /// Borrow-first object access without keeping an Arc at the call site.
-    /// Prefer this over `get_object(id).read()` when the registry handle need
-    /// not outlive the callback. Intermediate step toward retiring Arc stores.
+    /// Borrow an owned object. The map lock is dropped before `f` runs.
+    ///
+    /// The object is absent for the duration of `f`, so a nested lookup of the
+    /// same id returns `None`. Other ids still resolve. The value is reinserted
+    /// after `f` returns (and if `f` unwinds).
     pub fn with_object<R>(&self, id: ObjectID, f: impl FnOnce(&Object) -> R) -> Option<R> {
-        let arc = self.get_object(id)?;
-        let guard = arc.read().ok()?;
-        Some(f(&guard))
+        self.with_object_mut(id, |obj| f(obj))
     }
 
-    /// Mutable borrow-first object access without keeping an Arc at the call site.
+    /// Mutable borrow. Same checkout protocol as [`with_object`].
     pub fn with_object_mut<R>(&self, id: ObjectID, f: impl FnOnce(&mut Object) -> R) -> Option<R> {
-        let arc = self.get_object(id)?;
-        let mut guard = arc.write().ok()?;
-        Some(f(&mut guard))
+        let object = self.checkout(id)?;
+        let mut checked = CheckedOut {
+            registry: self,
+            id,
+            object: Some(object),
+        };
+        let obj = checked.object.as_mut()?;
+        Some(f(obj))
+    }
+
+    /// Iterate owned objects. Each callback runs without the map lock held.
+    pub fn with_each(&self, mut f: impl FnMut(ObjectID, &Object)) {
+        let mut ids = self.owned_ids();
+        ids.sort_unstable();
+        for id in ids {
+            let _ = self.with_object(id, |obj| f(id, obj));
+        }
+    }
+
+    /// Mutable iteration. Each callback runs without the map lock held.
+    pub fn with_each_mut(&self, mut f: impl FnMut(ObjectID, &mut Object)) {
+        let mut ids = self.owned_ids();
+        ids.sort_unstable();
+        for id in ids {
+            let _ = self.with_object_mut(id, |obj| f(id, obj));
+        }
+    }
+
+    fn owned_ids(&self) -> Vec<ObjectID> {
+        if self.live_count.load(Ordering::Acquire) == 0 {
+            return Vec::new();
+        }
+        if let Ok(guard) = self.store.read() {
+            guard.objects.keys().copied().collect()
+        } else {
+            Vec::new()
+        }
     }
 
     /// Host/presentation path: true when no dual-world factory objects are registered.
@@ -195,33 +218,7 @@ impl ObjectRegistry {
         self.live_count.load(Ordering::Acquire) == 0
     }
 
-    /// Retrieve all registered objects.
-    pub fn get_all_objects(&self) -> Vec<Arc<RwLock<Object>>> {
-        // Wave 247: host path short-circuit when both registry and GameLogic empty.
-        if self.live_count.load(Ordering::Acquire) == 0 {
-            if let Ok(logic) = crate::system::game_logic::get_game_logic().try_lock() {
-                if logic.get_object_count() == 0 {
-                    return Vec::new();
-                }
-                let mut result: Vec<Arc<RwLock<Object>>> = logic
-                    .get_all_object_ids()
-                    .iter()
-                    .filter_map(|id| logic.find_object_by_id(*id))
-                    .collect();
-                result.sort_by_key(|obj| obj.read().map(|o| o.get_id()).unwrap_or(0));
-                return result;
-            }
-        }
-        if let Ok(guard) = self.store.read() {
-            let mut result: Vec<Arc<RwLock<Object>>> = guard.objects.values().cloned().collect();
-            result.sort_by_key(|obj| obj.read().map(|o| o.get_id()).unwrap_or(0));
-            result
-        } else {
-            Vec::new()
-        }
-    }
-
-    /// Object IDs currently registered (no Arc clones).
+    /// Object IDs currently registered.
     pub fn get_all_object_ids(&self) -> Vec<ObjectID> {
         // Wave 247: host path short-circuit when both registry and GameLogic empty.
         if self.live_count.load(Ordering::Acquire) == 0 {
@@ -247,10 +244,10 @@ impl ObjectRegistry {
         }
     }
 
-    /// Clear all registered handles.
+    /// Clear all registered objects, dropping them after the write lock.
     pub fn clear(&self) {
         let removed = if let Ok(mut guard) = self.store.write() {
-            let removed = guard.clear();
+            let removed = std::mem::take(&mut guard.objects);
             self.set_live_count(0);
             removed
         } else {
@@ -263,28 +260,23 @@ impl ObjectRegistry {
 
     /// Remove dead weak references from the registry.
     ///
-    /// The registry already drops stale entries opportunistically when `get()`
-    /// or `get_all_objects()` is called.  This method allows the game loop to
-    /// periodically sweep the table so that objects which are looked up
-    /// infrequently (or never) do not accumulate as dead entries.
+    /// No-op with owned storage (kept for call-site compatibility).
     ///
     /// Returns the number of entries that were removed.
-    /// No-op with strong registry storage (kept for call-site compatibility).
     pub fn cleanup_dead_references(&self) -> usize {
         0
     }
 }
 
 /// Global instance mirroring the legacy singleton.
-pub static OBJECT_REGISTRY: Lazy<ObjectRegistry> = Lazy::new(ObjectRegistry::default);
+pub static OBJECT_REGISTRY: LazyLock<ObjectRegistry> = LazyLock::new(ObjectRegistry::default);
 
 /// Process-wide mutex for tests that clear/register objects on the shared
 /// [`OBJECT_REGISTRY`] / GameLogic singleton. Parallel weapon collision tests
 /// otherwise clobber each other mid-assertion.
 pub fn test_isolation_lock() -> &'static std::sync::Mutex<()> {
-    use std::sync::{Mutex, OnceLock};
-    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-    LOCK.get_or_init(|| Mutex::new(()))
+    static LOCK: LazyLock<std::sync::Mutex<()>> = LazyLock::new(|| std::sync::Mutex::new(()));
+    &LOCK
 }
 
 #[cfg(test)]
@@ -292,87 +284,64 @@ mod tests {
     use super::*;
     use crate::common::{DefaultThingTemplate, ObjectStatusMaskType};
     use crate::object::Object;
-    use crate::object::crate_registry_bind::bind_crate_object;
-    use std::sync::{Arc, RwLock};
+    use std::sync::Arc;
 
-    fn crate_test_object(id: ObjectID) -> Arc<RwLock<Object>> {
+    fn crate_test_object(id: ObjectID) -> Object {
         let template = Arc::new(DefaultThingTemplate::new(format!("CrateBind{id}")));
-        Arc::new(RwLock::new(Object::new_raw(
-            template,
-            id,
-            ObjectStatusMaskType::none(),
-            None,
-        )))
+        Object::new_raw(template, id, ObjectStatusMaskType::none(), None)
     }
 
     #[test]
-    fn bind_crate_object_fills_object_registry_store() {
+    fn register_object_moves_owned_value_into_store() {
         let _lock = test_isolation_lock().lock().unwrap();
         let id = 0xC0_FF_EE;
-        let object = crate_test_object(id);
         OBJECT_REGISTRY.clear();
         assert!(
             OBJECT_REGISTRY.store_is_empty(),
             "cleared store must start empty"
         );
 
-        bind_crate_object(id, &object);
+        OBJECT_REGISTRY.register_object(id, crate_test_object(id));
 
         assert!(
             !OBJECT_REGISTRY.store_is_empty(),
-            "crate bind must fill OBJECT_REGISTRY store"
+            "register_object must fill OBJECT_REGISTRY store"
         );
         assert!(!OBJECT_REGISTRY.is_empty());
         let found = OBJECT_REGISTRY.with_object(id, |obj| obj.get_id());
         assert_eq!(found, Some(id));
 
         OBJECT_REGISTRY.unregister_object(id);
+        assert!(OBJECT_REGISTRY.with_object(id, |_| ()).is_none());
         OBJECT_REGISTRY.clear();
     }
 
     #[test]
-    fn crate_object_manager_create_registers_in_object_registry() {
+    fn with_object_checks_out_same_id_and_keeps_other_ids() {
         let _lock = test_isolation_lock().lock().unwrap();
         let id = 0xC0_11_EC;
-        let object = crate_test_object(id);
+        let other = 0xC0_11_ED;
         OBJECT_REGISTRY.clear();
+        OBJECT_REGISTRY.register_object(id, crate_test_object(id));
+        OBJECT_REGISTRY.register_object(other, crate_test_object(other));
 
-        // Same helper crate object_manager new/from_existing/create/register call.
-        bind_crate_object(id, &object);
+        let nested = OBJECT_REGISTRY.with_object(id, |_| {
+            OBJECT_REGISTRY.with_object(id, |obj| obj.get_id())
+        });
+        assert_eq!(nested, Some(None), "same-id re-entry must miss");
 
-        assert!(
-            !OBJECT_REGISTRY.is_empty(),
-            "crate object_manager create must fill OBJECT_REGISTRY"
-        );
-        assert!(!OBJECT_REGISTRY.store_is_empty());
-        let found = OBJECT_REGISTRY.with_object(id, |obj| obj.get_id());
-        assert_eq!(found, Some(id));
+        let seen = OBJECT_REGISTRY.with_object(id, |_| {
+            OBJECT_REGISTRY.with_object(other, |obj| obj.get_id())
+        });
+        assert_eq!(seen, Some(Some(other)));
 
-        OBJECT_REGISTRY.unregister_object(id);
+        let mut seen_ids = Vec::new();
+        OBJECT_REGISTRY.with_each(|oid, obj| {
+            assert_eq!(oid, obj.get_id());
+            seen_ids.push(oid);
+        });
+        assert_eq!(seen_ids, vec![id, other]);
+
         OBJECT_REGISTRY.clear();
-    }
-
-    #[test]
-    fn object_manager_crate_create_path_calls_bind_crate_object() {
-        let src = include_str!("../object_manager.rs");
-        let bind_count = src.matches("bind_crate_object(").count();
-        assert!(
-            bind_count >= 4,
-            "crate object_manager new/from_existing/create/register must call bind_crate_object, got {bind_count}"
-        );
-        let manager_impl = src.find("impl ObjectManager").expect("ObjectManager impl");
-        let create_rel = src[manager_impl..]
-            .find("pub fn create_object(")
-            .expect("ObjectManager::create_object");
-        let create_idx = manager_impl + create_rel;
-        let create_window = &src[create_idx..src.len().min(create_idx + 2800)];
-        assert!(
-            create_window.contains("bind_crate_object("),
-            "ObjectManager::create_object must bind crate objects"
-        );
-        assert!(
-            !src.contains("gameworld_shadow"),
-            "crate object_manager must not be the host create/couple path"
-        );
     }
 }

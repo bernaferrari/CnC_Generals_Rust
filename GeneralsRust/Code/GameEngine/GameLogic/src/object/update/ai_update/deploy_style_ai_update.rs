@@ -386,14 +386,11 @@ impl DeployStyleAIUpdate {
         &mut self,
         ai: &mut dyn AIUpdateInterface,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let Some(owner) = TheGameLogic::find_object_by_id(self.owner_id) else {
+        let Some(weapon) = crate::object::registry::OBJECT_REGISTRY.with_object(self.owner_id, |owner_guard| {
+            owner_guard.get_current_weapon().map(|(weapon, _)| weapon)
+        }) else {
             return Ok(());
         };
-        let Ok(owner_guard) = owner.read() else {
-            return Ok(());
-        };
-
-        let weapon = owner_guard.get_current_weapon().map(|(weapon, _)| weapon);
         let now = TheGameLogic::get_frame();
 
         let is_trying_to_move = ai.is_waiting_for_path() || ai.get_path().is_some();
@@ -403,7 +400,7 @@ impl DeployStyleAIUpdate {
         let mut is_in_range = false;
         if is_trying_to_attack {
             if let Some(weapon) = weapon {
-                let _source_pos = owner_guard.get_position();
+                let _source_pos = self.owner_id;
 
                 if let Some(victim_id) = ai
                     .get_current_victim()
@@ -411,21 +408,20 @@ impl DeployStyleAIUpdate {
                 {
                     if TheGameLogic::find_object_by_id(victim_id).is_some() {
                         is_in_range = weapon.is_within_attack_range(
-                            owner_guard.get_id(),
+                            self.owner_id,
                             Some(victim_id),
                             None,
                         );
                     }
                 } else if let Some(pos) = ai.get_current_victim_pos() {
                     is_in_range = weapon.is_within_attack_range(
-                        owner_guard.get_id(),
+                        self.owner_id,
                         None,
                         Some(&pos),
                     );
                 }
             }
         }
-        drop(owner_guard);
 
 
         if self.frame_to_wait_for_deploy != 0 && now >= self.frame_to_wait_for_deploy {
@@ -482,7 +478,7 @@ impl DeployStyleAIUpdate {
             }
         }
 
-        if let Ok(mut owner_guard) = owner.write() {
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(self.owner_id, |owner_guard| {
             match self.state {
                 DeployStateType::ReadyToMove => {
                     if is_trying_to_move {
@@ -505,7 +501,7 @@ impl DeployStyleAIUpdate {
                 }
                 DeployStateType::AligningTurrets => {}
             }
-        }
+        });
 
         if matches!(
             self.state,
@@ -528,14 +524,9 @@ impl DeployStyleAIUpdate {
 
     fn set_my_state(&mut self, ai: &mut dyn AIUpdateInterface, state: DeployStateType, reverse_deploy: Bool) {
         self.state = state;
-        let Some(owner) = TheGameLogic::find_object_by_id(self.owner_id) else {
-            return;
-        };
-        let Ok(mut owner_guard) = owner.write() else {
-            return;
-        };
         let now = TheGameLogic::get_frame();
         let mut turret_action: Option<(crate::common::TurretType, bool, bool)> = None;
+        let Some(()) = crate::object::registry::OBJECT_REGISTRY.with_object_mut(self.owner_id, |owner_guard| {
 
         match state {
             DeployStateType::Deploy => {
@@ -625,7 +616,9 @@ impl DeployStyleAIUpdate {
             }
         }
 
-        drop(owner_guard);
+        }) else {
+            return;
+        };
         if let Some((turret, enable, recenter)) = turret_action {
             if recenter {
                 ai.recenter_turret(turret);

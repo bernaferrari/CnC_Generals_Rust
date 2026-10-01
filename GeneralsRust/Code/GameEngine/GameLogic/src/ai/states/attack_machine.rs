@@ -338,13 +338,13 @@ pub trait AttackExitConditionsInterface: Send + Sync {
 impl AttackStateMachine {
     pub fn new(
         owner: Weak<RwLock<Object>>,
-        name: &str,
+        owner: crate::common::ObjectID,
         follow: Bool,
         attacking_object: Bool,
         force_attacking: Bool,
     ) -> Self {
         let mut base = StateMachine::new(Some(owner), name);
-        let aim_state = AIAttackAimAtTargetState::new(&base, attacking_object, force_attacking);
+        let mut base = StateMachine::new_with_owner_id(owner, name);
         let fire_state = AIAttackFireWeaponState::new(&base, attacking_object);
         let pursue_state =
             AIAttackPursueTargetState::new(&base, follow, attacking_object, force_attacking);
@@ -686,13 +686,13 @@ impl ClassicState for AIAttackAimAtTargetState {
                                 });
                                 if let Some(target) = goal {
                                     in_range = contain_guard.attempt_best_fire_point_position(
-                                        owner.read().map(|g| g.get_id()).unwrap_or(0),
+                                        owner,
                                         weapon,
                                         target.read().map(|g| g.get_id()).unwrap_or(0),
                                     );
                                 } else if let Some(pos) = target_pos {
                                     in_range = contain_guard.attempt_best_fire_point_position_coord(
-                                        owner.read().map(|g| g.get_id()).unwrap_or(0),
+                                        owner,
                                         weapon,
                                         &pos,
                                     );
@@ -943,12 +943,12 @@ impl ClassicState for AIAttackAimAtTargetState {
 
     fn classic_on_exit(&mut self, _exit: StateExitType) -> Result<(), String> {
         if let Some(owner) = self.base.get_machine_owner() {
-            if let Ok(mut guard) = owner.lock() {
+            if let Some(guard) = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner, |guard| {
                 guard.set_status(ObjectStatusMaskType::IS_AIMING_WEAPON, false);
                 if self.can_turn_in_place && self.set_locomotor {
                     guard.ai_pending_goal_none = true;
                 }
-            }
+            });
         }
         Ok(())
     }
@@ -1486,9 +1486,9 @@ impl AIAttackPursueTargetState {
             })
             .unwrap_or(true)
         {
-            if let Ok(mut owner_guard) = owner.lock() {
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner, |owner_guard| {
                 owner_guard.ai_pending_victim_dead = true;
-            }
+            });
             return Ok(StateReturnType::Failure);
         }
 
@@ -1615,7 +1615,7 @@ impl StateImplementation for AIAttackPursueTargetState {
         };
         if self.is_initial_approach {
             if let Some(owner) = self.base.base.get_machine_owner() {
-                if let Ok(mut owner_guard) = owner.lock() {
+                let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner, |owner_guard| {
                     let turret = owner_guard.ai_fire_which_turret;
                     if turret != TurretType::Invalid {
                         if let Some(mood_id) = owner_guard.ai_fire_mood_target {
@@ -1626,7 +1626,7 @@ impl StateImplementation for AIAttackPursueTargetState {
                             ));
                         }
                     }
-                }
+                });
             }
         }
         code
@@ -1754,7 +1754,7 @@ impl ClassicState for AIAttackPursueTargetState {
                 .base
                 .get_machine_owner()
                 .ok_or_else(|| "attack pursue missing owner".to_string())?;
-            if let Ok(mut owner_guard) = owner.lock() {
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner, |owner_guard| {
                 let turret = owner_guard.ai_fire_which_turret;
                 if turret != TurretType::Invalid {
                     if let Some(mood_id) = owner_guard.ai_fire_mood_target {
@@ -1765,7 +1765,7 @@ impl ClassicState for AIAttackPursueTargetState {
                         ));
                     }
                 }
-            }
+            });
         }
 
         Ok(code)
@@ -1939,9 +1939,9 @@ impl AIAttackApproachTargetState {
             })
             .unwrap_or(false)
         {
-            if let Ok(mut owner_guard) = owner.lock() {
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner, |owner_guard| {
                 owner_guard.ai_pending_victim_dead = true;
-            }
+            });
             return Ok(StateReturnType::Failure);
         }
 
@@ -2111,7 +2111,7 @@ impl StateImplementation for AIAttackApproachTargetState {
         }
         if self.is_initial_approach {
             if let Some(owner) = self.base.base.get_machine_owner() {
-                if let Ok(mut owner_guard) = owner.lock() {
+                let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner, |owner_guard| {
                     let turret = owner_guard.ai_fire_which_turret;
                     if turret != TurretType::Invalid {
                         if let Some(mood_id) = owner_guard.ai_fire_mood_target {
@@ -2122,7 +2122,7 @@ impl StateImplementation for AIAttackApproachTargetState {
                             ));
                         }
                     }
-                }
+                });
             }
         }
         code
@@ -2288,7 +2288,7 @@ impl ClassicState for AIAttackApproachTargetState {
                 .base
                 .get_machine_owner()
                 .ok_or_else(|| "attack approach missing owner".to_string())?;
-            let keep_following = if let Ok(owner_guard) = owner.read() {
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object(owner, |owner_guard| {
                 if let Some(victim) = self.base.base.get_machine_goal_object_id().and_then(|id| {
                     crate::helpers::TheGameLogic::find_object_by_id(id)
                         .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(id))
@@ -2304,7 +2304,7 @@ impl ClassicState for AIAttackApproachTargetState {
                 }
             } else {
                 false
-            };
+            });
 
             if keep_following {
                 if code != StateReturnType::Continue {
@@ -2320,7 +2320,7 @@ impl ClassicState for AIAttackApproachTargetState {
                 .base
                 .get_machine_owner()
                 .ok_or_else(|| "attack approach missing owner".to_string())?;
-            if let Ok(mut owner_guard) = owner.lock() {
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner, |owner_guard| {
                 let turret = owner_guard.ai_fire_which_turret;
                 if turret != TurretType::Invalid {
                     if let Some(mood_id) = owner_guard.ai_fire_mood_target {
@@ -2331,7 +2331,7 @@ impl ClassicState for AIAttackApproachTargetState {
                         ));
                     }
                 }
-            }
+            });
         }
 
         Ok(code)
@@ -2341,7 +2341,7 @@ impl ClassicState for AIAttackApproachTargetState {
         self.base.classic_on_exit(_exit)?;
 
         if let Some(owner) = self.base.base.get_machine_owner() {
-            if let Ok(mut owner_guard) = owner.lock() {
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner, |owner_guard| {
                 if owner_guard.ai_fire_ground_movement {
                     let dx = self.base.goal_position.x - owner_guard.get_position().x;
                     let dy = self.base.goal_position.y - owner_guard.get_position().y;
@@ -2352,7 +2352,7 @@ impl ClassicState for AIAttackApproachTargetState {
                     }
                 }
                 owner_guard.ai_pending_clear_ignore = true;
-            }
+            });
         }
 
         self.is_initial_approach = false;
@@ -2370,8 +2370,8 @@ pub struct AIAttackMoveStateMachine {
 }
 
 impl AIAttackMoveStateMachine {
-    pub fn new(owner: Weak<RwLock<Object>>, name: &str) -> Self {
-        let mut base = StateMachine::new(Some(owner), name);
+    pub fn new(owner: crate::common::ObjectID, name: &str) -> Self {
+        let mut base = StateMachine::new_with_owner_id(owner, name);
         let idle_state = AIIdleState::new(&base, false);
         register_classic_state(
             &mut base,

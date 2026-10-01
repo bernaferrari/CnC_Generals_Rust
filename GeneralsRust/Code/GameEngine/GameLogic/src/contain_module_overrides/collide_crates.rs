@@ -264,11 +264,11 @@ pub(super) fn convert_to_car_bomb_crate_collide_module_factory(
         CrateCollideDataAdapter<ConvertToCarBombCrateCollideModuleData>,
     >("ConvertToCarBombCrateCollide", &module_data);
     let object_id = resolve_owner_id(&thing);
-    let Some(object) = TheGameLogic::find_object_by_id(object_id) else {
+    if !TheGameLogic::find_object_by_id(object_id) { 
         // Wave 449: missing owner → no-op module.
         return missing_owner_module_auto("ConvertToCarBombCrateCollide", &module_data);
     };
-    let collide = ConvertToCarBombCrateCollide::new(&object, data_arc.data.clone());
+    let collide = ConvertToCarBombCrateCollide::new(&object_id, data_arc.data.clone());
     Box::new(LegacyCrateCollideModule::new(
         "ConvertToCarBombCrateCollide",
         data_arc,
@@ -300,12 +300,12 @@ pub(super) fn convert_to_hijacked_vehicle_crate_collide_module_factory(
         CrateCollideDataAdapter<ConvertToHijackedVehicleCrateCollideModuleData>,
     >("ConvertToHijackedVehicleCrateCollide", &module_data);
     let object_id = resolve_owner_id(&thing);
-    let Some(object) = TheGameLogic::find_object_by_id(object_id) else {
+    if !TheGameLogic::find_object_by_id(object_id) { 
         // Wave 449: missing owner → no-op module.
         let data_for_missing: Arc<dyn ModuleData> = data_arc.clone();
         return missing_owner_module("ConvertToHijackedVehicleCrateCollide", data_for_missing);
     };
-    let collide = ConvertToHijackedVehicleCrateCollide::new(&object, data_arc.data.clone());
+    let collide = ConvertToHijackedVehicleCrateCollide::new(&object_id, data_arc.data.clone());
     Box::new(LegacyCrateCollideModule::new(
         "ConvertToHijackedVehicleCrateCollide",
         data_arc,
@@ -368,12 +368,12 @@ pub(super) fn sabotage_command_center_crate_collide_module_factory(
         CrateCollideDataAdapter<SabotageCommandCenterCrateCollideModuleData>,
     >("SabotageCommandCenterCrateCollide", &module_data);
     let object_id = resolve_owner_id(&thing);
-    let Some(object) = TheGameLogic::find_object_by_id(object_id) else {
+    if !TheGameLogic::find_object_by_id(object_id) { 
         // Wave 449: missing owner → no-op module.
         let data_for_missing: Arc<dyn ModuleData> = data_arc.clone();
         return missing_owner_module("SabotageCommandCenterCrateCollide", data_for_missing);
     };
-    let collide = SabotageCommandCenterCrateCollide::new(&object, data_arc.data.clone());
+    let collide = SabotageCommandCenterCrateCollide::new(&object_id, data_arc.data.clone());
     Box::new(LegacyCrateCollideModule::new(
         "SabotageCommandCenterCrateCollide",
         data_arc,
@@ -405,12 +405,12 @@ pub(super) fn sabotage_fake_building_crate_collide_module_factory(
         CrateCollideDataAdapter<SabotageFakeBuildingCrateCollideModuleData>,
     >("SabotageFakeBuildingCrateCollide", &module_data);
     let object_id = resolve_owner_id(&thing);
-    let Some(object) = TheGameLogic::find_object_by_id(object_id) else {
+    if !TheGameLogic::find_object_by_id(object_id) { 
         // Wave 449: missing owner → no-op module.
         let data_for_missing: Arc<dyn ModuleData> = data_arc.clone();
         return missing_owner_module("SabotageFakeBuildingCrateCollide", data_for_missing);
     };
-    let collide = SabotageFakeBuildingCrateCollide::new(&object, data_arc.data.clone());
+    let collide = SabotageFakeBuildingCrateCollide::new(&object_id, data_arc.data.clone());
     Box::new(LegacyCrateCollideModule::new(
         "SabotageFakeBuildingCrateCollide",
         data_arc,
@@ -442,11 +442,11 @@ pub(super) fn sabotage_internet_center_crate_collide_module_factory(
         CrateCollideDataAdapter<SabotageInternetCenterCrateCollideModuleData>,
     >("SabotageInternetCenterCrateCollide", &module_data);
     let object_id = resolve_owner_id(&thing);
-    let Some(object) = TheGameLogic::find_object_by_id(object_id) else {
+    if !TheGameLogic::find_object_by_id(object_id) { 
         // Wave 449: missing owner → no-op module.
         return missing_owner_module_auto("SabotageInternetCenterCrateCollide", &module_data);
     };
-    let collide = SabotageInternetCenterCrateCollide::new(&object, data_arc.data.clone());
+    let collide = SabotageInternetCenterCrateCollide::new(&object_id, data_arc.data.clone());
     Box::new(LegacyCrateCollideModule::new(
         "SabotageInternetCenterCrateCollide",
         data_arc,
@@ -478,11 +478,11 @@ pub(super) fn sabotage_military_factory_crate_collide_module_factory(
         CrateCollideDataAdapter<SabotageMilitaryFactoryCrateCollideModuleData>,
     >("SabotageMilitaryFactoryCrateCollide", &module_data);
     let object_id = resolve_owner_id(&thing);
-    let Some(object) = TheGameLogic::find_object_by_id(object_id) else {
+    if !TheGameLogic::find_object_by_id(object_id) { 
         // Wave 449: missing owner → no-op module.
         return missing_owner_module_auto("SabotageMilitaryFactoryCrateCollide", &module_data);
     };
-    let collide = SabotageMilitaryFactoryCrateCollide::new(&object, data_arc.data.clone());
+    let collide = SabotageMilitaryFactoryCrateCollide::new(&object_id, data_arc.data.clone());
     Box::new(LegacyCrateCollideModule::new(
         "SabotageMilitaryFactoryCrateCollide",
         data_arc,
@@ -514,11 +514,11 @@ pub(super) fn sabotage_power_plant_crate_collide_module_factory(
         CrateCollideDataAdapter<SabotagePowerPlantCrateCollideModuleData>,
     >("SabotagePowerPlantCrateCollide", &module_data);
     let object_id = resolve_owner_id(&thing);
-    let Some(object) = TheGameLogic::find_object_by_id(object_id) else {
+    if !TheGameLogic::find_object_by_id(object_id) { 
         // Wave 449: missing owner → no-op module.
         return missing_owner_module_auto("SabotagePowerPlantCrateCollide", &module_data);
     };
-    let collide = SabotagePowerPlantCrateCollide::new(&object, data_arc.data.clone());
+    let collide = SabotagePowerPlantCrateCollide::new(&object_id, data_arc.data.clone());
     Box::new(LegacyCrateCollideModule::new(
         "SabotagePowerPlantCrateCollide",
         data_arc,
@@ -550,12 +550,12 @@ pub(super) fn sabotage_superweapon_crate_collide_module_factory(
         CrateCollideDataAdapter<SabotageSuperweaponCrateCollideModuleData>,
     >("SabotageSuperweaponCrateCollide", &module_data);
     let object_id = resolve_owner_id(&thing);
-    let Some(object) = TheGameLogic::find_object_by_id(object_id) else {
+    if !TheGameLogic::find_object_by_id(object_id) { 
         // Wave 449: missing owner → no-op module.
         let data_for_missing: Arc<dyn ModuleData> = data_arc.clone();
         return missing_owner_module("SabotageSuperweaponCrateCollide", data_for_missing);
     };
-    let collide = SabotageSuperweaponCrateCollide::new(&object, data_arc.data.clone());
+    let collide = SabotageSuperweaponCrateCollide::new(&object_id, data_arc.data.clone());
     Box::new(LegacyCrateCollideModule::new(
         "SabotageSuperweaponCrateCollide",
         data_arc,
@@ -587,11 +587,11 @@ pub(super) fn sabotage_supply_center_crate_collide_module_factory(
         CrateCollideDataAdapter<SabotageSupplyCenterCrateCollideModuleData>,
     >("SabotageSupplyCenterCrateCollide", &module_data);
     let object_id = resolve_owner_id(&thing);
-    let Some(object) = TheGameLogic::find_object_by_id(object_id) else {
+    if !TheGameLogic::find_object_by_id(object_id) { 
         // Wave 449: missing owner → no-op module.
         return missing_owner_module_auto("SabotageSupplyCenterCrateCollide", &module_data);
     };
-    let collide = SabotageSupplyCenterCrateCollide::new(&object, data_arc.data.clone());
+    let collide = SabotageSupplyCenterCrateCollide::new(&object_id, data_arc.data.clone());
     Box::new(LegacyCrateCollideModule::new(
         "SabotageSupplyCenterCrateCollide",
         data_arc,
@@ -624,11 +624,11 @@ pub(super) fn sabotage_supply_dropzone_crate_collide_module_factory(
         CrateCollideDataAdapter<SabotageSupplyDropzoneCrateCollideModuleData>,
     >("SabotageSupplyDropzoneCrateCollide", &module_data);
     let object_id = resolve_owner_id(&thing);
-    let Some(object) = TheGameLogic::find_object_by_id(object_id) else {
+    if !TheGameLogic::find_object_by_id(object_id) { 
         // Wave 449: missing owner → no-op module.
         return missing_owner_module_auto("SabotageSupplyDropzoneCrateCollide", &module_data);
     };
-    let collide = SabotageSupplyDropzoneCrateCollide::new(&object, data_arc.data.clone());
+    let collide = SabotageSupplyDropzoneCrateCollide::new(&object_id, data_arc.data.clone());
     Box::new(LegacyCrateCollideModule::new(
         "SabotageSupplyDropzoneCrateCollide",
         data_arc,

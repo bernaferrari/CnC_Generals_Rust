@@ -453,7 +453,7 @@ pub struct WaveGuideUpdate {
 
 impl WaveGuideUpdate {
     pub fn new(
-        object: Arc<RwLock<GameObject>>,
+        object_id: ObjectID,
         module_data: Arc<dyn ModuleData>,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let data = module_data
@@ -462,11 +462,7 @@ impl WaveGuideUpdate {
             .ok_or("Invalid module data")?;
 
         Ok(Self {
-            object_id: object
-                .read()
-                .ok()
-                .map(|g| g.get_id())
-                .unwrap_or(crate::common::INVALID_ID),
+            object_id: object_id,
             module_data: Arc::new(data.clone()),
             next_call_frame_and_phase: 0,
             active_frame: 0,
@@ -1082,10 +1078,10 @@ impl Snapshotable for WaveGuideUpdate {
 pub struct WaveGuideUpdateFactory;
 impl WaveGuideUpdateFactory {
     pub fn create_behavior(
-        thing: Arc<RwLock<GameObject>>,
+        object_id: ObjectID,
         module_data: Arc<dyn ModuleData>,
     ) -> Result<Box<dyn BehaviorModuleInterface>, Box<dyn std::error::Error + Send + Sync>> {
-        Ok(Box::new(WaveGuideUpdate::new(thing, module_data)?))
+        Ok(Box::new(WaveGuideUpdate::new(object_id, module_data)?))
     }
 }
 

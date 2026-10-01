@@ -213,11 +213,11 @@ pub struct RebuildHoleExposeDie {
 impl RebuildHoleExposeDie {
     /// Create a new RebuildHoleExposeDie module
     pub fn new(
-        object: Arc<RwLock<Object>>,
+        object_id: ObjectID,
         module_data: Arc<RebuildHoleExposeDieModuleData>,
     ) -> Self {
         Self {
-            base: DieModule::new(object, module_data),
+            base: DieModule::new(object_id, module_data),
         }
     }
 
@@ -227,7 +227,7 @@ impl RebuildHoleExposeDie {
     }
 
     /// Create the rebuild hole object
-    fn create_hole(&self, dying_object: &Object) -> Option<Arc<RwLock<Object>>> {
+    fn create_hole(&self, dying_object: &Object) -> Option<ObjectID> {
         let hole_name = &self.base.module_data.hole_name;
 
         let position = dying_object.get_position();
@@ -279,7 +279,7 @@ impl RebuildHoleExposeDie {
             }
         }
 
-        Some(hole)
+        hole.read().ok().map(|g| g.get_id())
     }
 
     /// Transfer attackers from dying building to the hole

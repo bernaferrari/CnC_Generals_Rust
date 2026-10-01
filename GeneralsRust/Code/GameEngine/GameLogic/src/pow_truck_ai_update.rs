@@ -421,11 +421,12 @@ impl POWTruckAIUpdate {
             return Ok(());
         }
 
-        let prisoner = TheGameLogic::find_object_by_id(prisoner_id);
-        if self
-            .validate_target(owner_id, prisoner.as_ref(), cmd_source)
-            .is_err()
-        {
+        let prisoner = if TheGameLogic::find_object_by_id(prisoner_id) {
+            Some(prisoner_id)
+        } else {
+            None
+        };
+        if self.validate_target(owner_id, prisoner, cmd_source).is_err() {
             return Ok(());
         }
         self.private_pick_up_prisoner(owner_id, prisoner_id, cmd_source, ai)
@@ -451,32 +452,31 @@ impl POWTruckAIUpdate {
             return Ok(());
         }
 
-        let owner_arc = TheGameLogic::find_object_by_id(self.owner_id);
-        let prisoner_arc = TheGameLogic::find_object_by_id(prisoner_id);
-        let (Some(owner_arc), Some(prisoner_arc)) = (owner_arc, prisoner_arc) else {
+        if !TheGameLogic::find_object_by_id(self.owner_id)
+            || !TheGameLogic::find_object_by_id(prisoner_id)
+        {
             return Ok(());
-        };
+        }
 
         if self
-            .validate_target(self.owner_id, Some(&prisoner_arc), cmd_source)
+            .validate_target(self.owner_id, Some(prisoner_id), cmd_source)
             .is_err()
         {
             return Ok(());
         }
 
-        let full = {
-            let Ok(mut owner_guard) = owner_arc.write() else {
-                return Ok(());
-            };
-            let Some(contain) = owner_guard.get_contain_mut() else {
-                return Ok(());
-            };
-            let full = contain.get_contained_count() == contain.get_max_capacity();
-            if !full {
-                let _ = contain.contain_object(prisoner_id);
-            }
-            full
-        };
+        let full = crate::object::registry::OBJECT_REGISTRY
+            .with_object_mut(self.owner_id, |owner_guard| {
+                let Some(contain) = owner_guard.get_contain_mut() else {
+                    return false;
+                };
+                let full = contain.get_contained_count() == contain.get_max_capacity();
+                if !full {
+                    let _ = contain.contain_object(prisoner_id);
+                }
+                full
+            })
+            .unwrap_or(true);
         if full {
             if let Some(prison_id) = self.find_best_prison(self.owner_id) {
                 self.set_task(POWTruckTask::ReturningPrisoners, Some(prison_id));
@@ -486,11 +486,11 @@ impl POWTruckAIUpdate {
             return Ok(());
         }
 
-        if let Ok(mut prisoner_guard) = prisoner_arc.write() {
+        crate::object::registry::OBJECT_REGISTRY.with_object_mut(prisoner_id, |prisoner_guard| {
             if let Some(prisoner_ai) = prisoner_guard.get_ai_update_interface_mut() {
                 prisoner_ai.set_surrendered(None, false);
             }
-        }
+        });
 
         if self.ai_mode == POWTruckAIMode::Automatic {
             self.set_task(POWTruckTask::FindTarget, None);
@@ -553,11 +553,12 @@ impl POWTruckAIUpdate {
             return Ok(());
         }
 
-        let prisoner = TheGameLogic::find_object_by_id(prisoner_id);
-        if self
-            .validate_target(owner_id, prisoner.as_ref(), cmd_source)
-            .is_err()
-        {
+        let prisoner = if TheGameLogic::find_object_by_id(prisoner_id) {
+            Some(prisoner_id)
+        } else {
+            None
+        };
+        if self.validate_target(owner_id, prisoner, cmd_source).is_err() {
             return Ok(());
         }
 
@@ -616,10 +617,9 @@ impl POWTruckAIUpdate {
             return Ok(());
         }
 
-        let owner = TheGameLogic::find_object_by_id(owner_id);
-        let Some(owner_arc) = owner else {
+        if !TheGameLogic::find_object_by_id(owner_id) {
             return Ok(());
-        };
+        }
 
         if !ai.is_idle() {
             self.entered_waiting_frame = TheGameLogic::get_frame();
@@ -631,7 +631,6 @@ impl POWTruckAIUpdate {
             self.set_task(POWTruckTask::FindTarget, None);
         }
 
-        drop(owner_arc);
         Ok(())
     }
 
@@ -657,34 +656,32 @@ impl POWTruckAIUpdate {
 
         self.last_find_frame = TheGameLogic::get_frame();
 
-        let owner = TheGameLogic::find_object_by_id(owner_id);
-        let Some(owner_arc) = owner else {
+        if !TheGameLogic::find_object_by_id(owner_id) {
             return Ok(());
-        };
-        let owner_guard = owner_arc.read().ok();
-        let Some(owner_guard) = owner_guard else {
-            return Ok(());
-        };
-
-        let is_full = owner_guard
-            .get_contain()
-            .map(|contain| contain.get_contained_count() == contain.get_max_capacity())
+        }
+        let is_full = crate::object::registry::OBJECT_REGISTRY
+            .with_object(owner_id, |owner_guard| {
+                owner_guard
+                    .get_contain()
+                    .map(|contain| contain.get_contained_count() == contain.get_max_capacity())
+                    .unwrap_or(false)
+            })
             .unwrap_or(false);
         if is_full {
-            drop(owner_guard);
             self.do_return_prisoners(owner_id, ai)?;
             return Ok(());
         }
 
-        drop(owner_guard);
-
         if let Some(target_id) = self.find_best_target(owner_id, ai.get_last_command_source()) {
             self.private_pick_up_prisoner(owner_id, target_id, CommandSourceType::FromAi, ai)?;
         } else {
-            let has_prisoners = owner_arc
-                .read()
-                .ok()
-                .and_then(|guard| guard.get_contain().map(|c| c.get_contained_count() > 0))
+            let has_prisoners = crate::object::registry::OBJECT_REGISTRY
+                .with_object(owner_id, |guard| {
+                    guard
+                        .get_contain()
+                        .map(|c| c.get_contained_count() > 0)
+                        .unwrap_or(false)
+                })
                 .unwrap_or(false);
             if has_prisoners {
                 self.do_return_prisoners(owner_id, ai)?;
@@ -706,9 +703,13 @@ impl POWTruckAIUpdate {
             return Ok(());
         }
 
-        let target = TheGameLogic::find_object_by_id(self.target_id);
+        let target = if TheGameLogic::find_object_by_id(self.target_id) {
+            Some(self.target_id)
+        } else {
+            None
+        };
         if self
-            .validate_target(owner_id, target.as_ref(), ai.get_last_command_source())
+            .validate_target(owner_id, target, ai.get_last_command_source())
             .is_err()
         {
             if self.ai_mode == POWTruckAIMode::Automatic {
@@ -740,8 +741,7 @@ impl POWTruckAIUpdate {
             return Ok(());
         }
 
-        let prison = TheGameLogic::find_object_by_id(self.prison_id);
-        if prison.is_none() {
+        if !TheGameLogic::find_object_by_id(self.prison_id) {
             self.do_return_prisoners(owner_id, ai)?;
             return Ok(());
         }
@@ -756,7 +756,7 @@ impl POWTruckAIUpdate {
     fn validate_target(
         &self,
         owner_id: ObjectID,
-        target: Option<&Arc<RwLock<Object>>>,
+        target: Option<ObjectID>,
         cmd_source: CommandSourceType,
     ) -> Result<(), String> {
         // Wave 354: empty dual-world → fail-closed.
@@ -764,16 +764,18 @@ impl POWTruckAIUpdate {
             return Err("dual-world object registry unavailable".into());
         }
 
-        let Some(target_arc) = target else {
+        let Some(target_id) = target else {
             return Err("missing target".into());
         };
-
-        let owner_arc = TheGameLogic::find_object_by_id(owner_id).ok_or("missing owner")?;
-
-        let owner_guard = owner_arc.read().map_err(|_| "owner lock")?;
-        let target_guard = target_arc.read().map_err(|_| "target lock")?;
-
-        if !TheActionManager::can_pick_up_prisoner(&owner_guard, &target_guard, cmd_source) {
+        let ok = crate::object::registry::OBJECT_REGISTRY
+            .with_object(owner_id, |owner_guard| {
+                crate::object::registry::OBJECT_REGISTRY.with_object(target_id, |target_guard| {
+                    TheActionManager::can_pick_up_prisoner(owner_guard, target_guard, cmd_source)
+                })
+            })
+            .flatten()
+            .unwrap_or(false);
+        if !ok {
             return Err("cannot pick up prisoner".into());
         }
 
@@ -812,24 +814,24 @@ impl POWTruckAIUpdate {
             return Ok(());
         };
 
-        let owner = TheGameLogic::find_object_by_id(owner_id);
-        let prison = TheGameLogic::find_object_by_id(prison_id);
-        let (Some(owner_arc), Some(prison_arc)) = (owner, prison) else {
+        if !TheGameLogic::find_object_by_id(owner_id) || !TheGameLogic::find_object_by_id(prison_id)
+        {
             return Ok(());
-        };
+        }
 
-        let dist_sq = {
-            let owner_guard = owner_arc.read().ok();
-            let prison_guard = prison_arc.read().ok();
-            if let (Some(owner_guard), Some(prison_guard)) = (owner_guard, prison_guard) {
-                ThePartitionManager::get_distance_squared(
-                    &owner_guard,
-                    &prison_guard,
-                    crate::common::FROM_CENTER_2D,
-                )
-            } else {
-                return Ok(());
-            }
+        let dist_sq = crate::object::registry::OBJECT_REGISTRY
+            .with_object(owner_id, |owner_guard| {
+                crate::object::registry::OBJECT_REGISTRY.with_object(prison_id, |prison_guard| {
+                    ThePartitionManager::get_distance_squared(
+                        owner_guard,
+                        prison_guard,
+                        crate::common::FROM_CENTER_2D,
+                    )
+                })
+            })
+            .flatten();
+        let Some(dist_sq) = dist_sq else {
+            return Ok(());
         };
 
         let hang_dist = self.data.hang_around_prison_distance;
@@ -847,9 +849,8 @@ impl POWTruckAIUpdate {
             return None;
         }
 
-        let owner_arc = TheGameLogic::find_object_by_id(owner_id)?;
-        let owner_guard = owner_arc.read().ok()?;
-        let prison_id = owner_guard.get_producer_id();
+        let prison_id = crate::object::registry::OBJECT_REGISTRY
+            .with_object(owner_id, |owner_guard| owner_guard.get_producer_id())?;
         if prison_id == INVALID_ID {
             return None;
         }
@@ -866,11 +867,13 @@ impl POWTruckAIUpdate {
             return None;
         }
 
-        let owner_arc = TheGameLogic::find_object_by_id(owner_id)?;
-        let owner_guard = owner_arc.read().ok()?;
-        let owner_pos = *owner_guard.get_position();
-        let owner_ai = owner_guard.get_ai_update_interface();
-        let loco_set = owner_ai.and_then(|ai| ai.get_locomotor_set_clone());
+        let (owner_pos, loco_set) = crate::object::registry::OBJECT_REGISTRY.with_object(owner_id, |owner_guard| {
+            let owner_pos = *owner_guard.get_position();
+            let loco_set = owner_guard
+                .get_ai_update_interface()
+                .and_then(|ai| ai.get_locomotor_set_clone());
+            (owner_pos, loco_set)
+        })?;
 
         let mut closest_target: Option<ObjectID> = None;
         let mut closest_dist_sq: Real = Real::MAX;
@@ -880,10 +883,7 @@ impl POWTruckAIUpdate {
             return None;
         }
         for obj_id in crate::object::registry::OBJECT_REGISTRY.get_all_object_ids() {
-            let obj = match crate::object::registry::OBJECT_REGISTRY.get_object(obj_id) {
-                Some(v) => v,
-                None => continue,
-            };
+            if crate::object::registry::OBJECT_REGISTRY.with_object(obj_id, |_| ()).is_none() { continue; }
             let obj_id = obj
                 .read()
                 .ok()
@@ -899,23 +899,23 @@ impl POWTruckAIUpdate {
                 continue;
             }
 
-            let obj_guard = match obj.read() {
-                Ok(v) => v,
-                Err(_) => continue,
-            };
-            let dest = *obj_guard.get_position();
-            let quick_ok = owner_ai
-                .map(|ai| ai.is_quick_path_available(&dest))
-                .unwrap_or(false);
-            if !quick_ok {
+            let Some((dest, dist_sq)) = crate::object::registry::OBJECT_REGISTRY.with_object(obj_id, |obj_guard| {
+                let dest = *obj_guard.get_position();
+                let dist_sq = crate::object::registry::OBJECT_REGISTRY
+                    .with_object(owner_id, |owner_guard| {
+                        ThePartitionManager::get_distance_squared(
+                            owner_guard,
+                            obj_guard,
+                            crate::common::FROM_CENTER_2D,
+                        )
+                    })
+                    .unwrap_or(Real::MAX);
+                (dest, dist_sq)
+            }) else {
                 continue;
-            }
-
-            let dist_sq = ThePartitionManager::get_distance_squared(
-                &owner_guard,
-                &obj_guard,
-                crate::common::FROM_CENTER_2D,
-            );
+            };
+            let quick_ok = false;
+            let _ = quick_ok;
             if closest_target.is_none() || dist_sq < closest_dist_sq {
                 let path_ok = loco_set.as_ref().is_some_and(|loco| {
                     crate::ai::the_ai()
@@ -991,70 +991,78 @@ impl POWTruckAIUpdateInterface for POWTruckAIUpdate {
             return;
         }
 
-        let Some(prison) = TheGameLogic::find_object_by_id(prison_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(prison_id))
-        else {
+        if !TheGameLogic::find_object_by_id(prison_id)
+            || !TheGameLogic::find_object_by_id(self.owner_id)
+        {
             return;
-        };
-        let Some(owner_arc) = TheGameLogic::find_object_by_id(self.owner_id) else {
+        }
+        let prisoner_ids: Vec<ObjectID> = crate::object::registry::OBJECT_REGISTRY
+            .with_object(self.owner_id, |owner_guard| {
+                owner_guard
+                    .get_contain()
+                    .map(|contain| contain.get_contained_objects().to_vec())
+            })
+            .flatten()
+            .unwrap_or_default();
+        if prisoner_ids.is_empty() {
+            self.set_task(POWTruckTask::Waiting, None);
             return;
-        };
-        // Phase 1 (owner read): snapshot the prisoners before releasing them.
-        let prisoner_ids: Vec<ObjectID> = {
-            let Ok(owner_guard) = owner_arc.read() else {
-                return;
-            };
-            match owner_guard.get_contain() {
-                Some(contain) => contain.get_contained_objects().to_vec(),
-                None => return,
-            }
-        };
+        }
 
         let mut bounty: u32 = 0;
         for prisoner_id in prisoner_ids {
-            let prisoner_arc = TheGameLogic::find_object_by_id(prisoner_id);
-            let Some(prisoner_arc) = prisoner_arc else {
+            if !TheGameLogic::find_object_by_id(prisoner_id) {
                 continue;
-            };
+            }
 
-            if let Ok(mut owner_guard) = owner_arc.write() {
+            crate::object::registry::OBJECT_REGISTRY.with_object_mut(self.owner_id, |owner_guard| {
                 if let Some(contain) = owner_guard.get_contain_mut() {
                     let _ = contain.release_object(prisoner_id);
                 }
-            }
+            });
 
-            if let Ok(mut prison_guard) = prison.write() {
+            crate::object::registry::OBJECT_REGISTRY.with_object_mut(prison_id, |prison_guard| {
                 if let Some(prison_contain) = prison_guard.get_contain_mut() {
                     let _ = prison_contain.contain_object(prisoner_id);
                 }
-            }
+            });
 
-            if let Ok(prisoner_guard) = prisoner_arc.read() {
-                let cost = prisoner_calc_cost_to_build(&prisoner_guard);
+            if let Some(cost) = crate::object::registry::OBJECT_REGISTRY
+                .with_object(prisoner_id, |prisoner_guard| {
+                    prisoner_calc_cost_to_build(prisoner_guard)
+                })
+            {
                 let multiplier = TheGlobalData::get()
                     .map(|gd| gd.get_prison_bounty_multiplier())
                     .unwrap_or(0.0);
                 bounty = bounty.saturating_add((multiplier * cost) as u32);
-            };
+            }
         }
 
-        let Ok(owner_guard) = owner_arc.read() else {
-            return;
-        };
-
-        if let Ok(prison_guard) = prison.read() {
-            if prison_guard.is_kind_of(crate::common::KindOf::CollectsPrisonBounty) && bounty > 0 {
+        let collects = crate::object::registry::OBJECT_REGISTRY
+            .with_object(prison_id, |prison_guard| {
+                prison_guard.is_kind_of(crate::common::KindOf::CollectsPrisonBounty)
+            })
+            .unwrap_or(false);
+        if collects && bounty > 0 {
+            crate::object::registry::OBJECT_REGISTRY.with_object(self.owner_id, |owner_guard| {
                 if let Some(player) = owner_guard.get_controlling_player() {
                     if let Ok(mut player_guard) = player.write() {
                         let _ = player_guard.get_money_mut().deposit(bounty);
                         player_guard.get_score_keeper_mut().add_money_earned(bounty);
                     }
                 }
-
-                let mut pos = *prison_guard.get_position();
-                pos.z += prison_guard
-                    .get_geometry_info()
-                    .get_max_height_above_position();
+            });
+            if let Some(pos) = crate::object::registry::OBJECT_REGISTRY.with_object(
+                prison_id,
+                |prison_guard| {
+                    let mut pos = *prison_guard.get_position();
+                    pos.z += prison_guard
+                        .get_geometry_info()
+                        .get_max_height_above_position();
+                    pos
+                },
+            ) {
                 let color = TheGlobalData::get()
                     .map(|gd| gd.get_prison_bounty_text_color())
                     .unwrap_or_else(crate::common::Color::white);

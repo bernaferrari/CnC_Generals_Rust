@@ -57,18 +57,17 @@ impl Drop for HistoricWeaponFixture {
 }
 
 struct RestorePlayerList {
-    players: Vec<Arc<RwLock<crate::player::Player>>>,
+    players: Vec<crate::player::Player>,
     local_player_index: i32,
 }
 
 impl RestorePlayerList {
-    fn with_player(player: Arc<RwLock<crate::player::Player>>) -> Self {
+    fn with_player(player: crate::player::Player) -> Self {
         let mut list = crate::player::player_list().write().unwrap();
         let previous = Self {
-            players: list.iter().cloned().collect(),
+            players: list.take_players(),
             local_player_index: list.get_local_player_index(),
         };
-        list.clear();
         list.add_player(player);
         list.set_local_player_index(0);
         previous
@@ -761,10 +760,8 @@ fn kills_self_dies_on_zero_secondary_radius_damage() {
         geometry.bounds.min = Coord3D::new(-5.0, 0.0, 0.0);
         geometry.bounds.max = Coord3D::new(5.0, 0.0, 0.0);
         object.set_geometry_info(geometry);
-
-        let object = Arc::new(RwLock::new(object));
-        crate::object::registry::OBJECT_REGISTRY.register_object(id, &object);
-        object
+        crate::helpers::TheGameLogic::register_object(object).expect("register test object");
+        id
     };
 
     // The blast center is 20 units from both object centers. Their 5-unit
@@ -773,11 +770,11 @@ fn kills_self_dies_on_zero_secondary_radius_damage() {
     let source_id = 96_001;
     let target_id = 96_002;
 
-    let player = Arc::new(RwLock::new(crate::player::Player::new(0)));
+    let mut player = crate::player::Player::new(0);
     let mut player_template = crate::player::PlayerTemplate::new("SelfKillPlayable".to_string());
     player_template.playable = true;
-    player.write().unwrap().init(Arc::new(player_template));
-    let _restore_players = RestorePlayerList::with_player(Arc::clone(&player));
+    player.init(Arc::new(player_template));
+    let _restore_players = RestorePlayerList::with_player(player);
     let team = Arc::new(RwLock::new(crate::team::Team::new(
         "SelfKillTeam".into(),
         96_000,
@@ -792,11 +789,11 @@ fn kills_self_dies_on_zero_secondary_radius_damage() {
         source_id,
         0.0,
     );
-    source
-        .write()
-        .unwrap()
-        .set_team(Some(team))
-        .expect("assign playable source team");
+    crate::object::registry::OBJECT_REGISTRY
+        .with_object_mut(source, |object| {
+            object.set_team(Some(team)).expect("assign playable source team");
+        })
+        .expect("source present");
     let target = register_at(
         crate::object::Object::new_test(target_id, 100.0),
         target_id,
@@ -805,7 +802,9 @@ fn kills_self_dies_on_zero_secondary_radius_damage() {
     assert!(crate::object::registry::OBJECT_REGISTRY.contains(source_id));
     assert!(crate::object::registry::OBJECT_REGISTRY.contains(target_id));
     assert_eq!(
-        source.read().unwrap().get_controlling_player_id(),
+        crate::object::registry::OBJECT_REGISTRY
+            .with_object(source, |object| object.get_controlling_player_id())
+            .flatten(),
         Some(0),
         "source must resolve to the playable owner used by the kill-score path"
     );
@@ -844,29 +843,32 @@ fn kills_self_dies_on_zero_secondary_radius_damage() {
         )
         .expect("apply radius damage");
 
-    let source = source.read().expect("source read lock");
-    assert!(source.is_effectively_dead(), "KILLS_SELF source must die");
+    let source_dead = crate::object::registry::OBJECT_REGISTRY
+        .with_object(source, |source| {
+            (
+                source.is_effectively_dead(),
+                source.get_health(),
+                source.get_last_death_type(),
+                source.get_template().get_name().as_str().to_string(),
+                source
+                    .get_last_damage_info()
+                    .and_then(|info| info.input.source_template)
+                    .map(|template| template.get_name().as_str().to_string()),
+            )
+        })
+        .expect("source read");
+    assert!(source_dead.0, "KILLS_SELF source must die");
+    assert_eq!(source_dead.1, 0.0, "self-kill must exhaust hull health");
     assert_eq!(
-        source.get_health(),
-        0.0,
-        "self-kill must exhaust hull health"
-    );
-    assert_eq!(
-        source.get_last_death_type(),
+        source_dead.2,
         Some(crate::damage::DeathType::Burned),
         "self-kill must preserve the weapon's authored death type"
     );
-    let expected_source_template = source.get_template().get_name().as_str().to_string();
-    let recorded_source_template = source
-        .get_last_damage_info()
-        .and_then(|info| info.input.source_template)
-        .map(|template| template.get_name().as_str().to_string());
     assert_eq!(
-        recorded_source_template,
-        Some(expected_source_template),
+        source_dead.4,
+        Some(source_dead.3),
         "self-sourced damage must retain the actual source template"
     );
-    drop(source);
     let score = player.read().unwrap();
     assert_eq!(
         score.get_score_keeper().get_total_units_lost(),
@@ -880,14 +882,14 @@ fn kills_self_dies_on_zero_secondary_radius_damage() {
     );
     drop(score);
 
-    let target = target.read().expect("target read lock");
+    let (health, destroyed) = crate::object::registry::OBJECT_REGISTRY
+        .with_object(target, |target| (target.get_health(), target.is_destroyed()))
+        .expect("target read");
     assert_eq!(
-        target.get_health(),
-        100.0,
+        health, 100.0,
         "zero-secondary-damage bystander must remain unchanged"
     );
-    assert!(!target.is_destroyed());
-    drop(target);
+    assert!(!destroyed);
 
     crate::object::registry::OBJECT_REGISTRY.clear();
 }
@@ -941,7 +943,7 @@ fn registered_test_object_with_radius(
     x: Real,
     y: Real,
     radius: Real,
-) -> Arc<RwLock<crate::object::Object>> {
+) -> ObjectId {
     let template = Arc::new(crate::common::DefaultThingTemplate::new(format!(
         "WeaponRangeObject{}",
         id
@@ -953,25 +955,23 @@ fn registered_test_object_with_radius(
         None,
     )
     .expect("create test object");
+    let mut object = std::sync::Arc::try_unwrap(object)
+        .expect("unique test object")
+        .into_inner()
+        .expect("object lock");
 
     let mut geometry = crate::common::GeometryInfo::default();
     geometry.bounds.min = Coord3D::new(-radius, 0.0, 0.0);
     geometry.bounds.max = Coord3D::new(radius, 0.0, 0.0);
-
-    let mut object_guard = object.write().expect("object write lock");
-    object_guard
+    object
         .set_position(&Coord3D::new(x, y, 0.0))
         .expect("set object position");
-    object_guard.set_geometry_info(geometry);
-    drop(object_guard);
-
-    object
+    object.set_geometry_info(geometry);
+    crate::helpers::TheGameLogic::register_object(object).expect("register test object");
+    id
 }
 
-fn registered_projectile_collision_object(
-    id: ObjectID,
-    kind_of: &str,
-) -> Arc<RwLock<crate::object::Object>> {
+fn registered_projectile_collision_object(id: ObjectID, kind_of: &str) -> ObjectID {
     let mut template =
         crate::common::DefaultThingTemplate::new(format!("ProjectileCollisionObject{}", id));
     let properties = std::collections::HashMap::from([("KindOf".to_string(), kind_of.to_string())]);
@@ -984,12 +984,13 @@ fn registered_projectile_collision_object(
         None,
     )
     .expect("create projectile collision object");
-    crate::system::game_logic::get_game_logic()
-        .lock()
-        .unwrap()
-        .register_object(object.clone())
+    let object = std::sync::Arc::try_unwrap(object)
+        .expect("unique projectile collision object")
+        .into_inner()
+        .expect("object lock");
+    crate::helpers::TheGameLogic::register_object(object)
         .expect("register projectile collision object");
-    object
+    id
 }
 
 fn reset_projectile_collision_objects() {
@@ -1028,10 +1029,9 @@ fn projectile_collision_filter_rejects_burned_flame_targets() {
 
     let projectile = registered_projectile_collision_object(95_003, "PROJECTILE");
     let target = registered_projectile_collision_object(95_004, "STRUCTURE");
-    target
-        .write()
-        .unwrap()
-        .set_status(crate::common::ObjectStatusMaskType::BURNED, true);
+    crate::object::registry::OBJECT_REGISTRY.with_object_mut(target, |object| {
+        object.set_status(crate::common::ObjectStatusMaskType::BURNED, true);
+    });
 
     let mut template = WeaponTemplate::new("ProjectileCollisionFlame".to_string());
     template.damage_type = DamageType::Flame;

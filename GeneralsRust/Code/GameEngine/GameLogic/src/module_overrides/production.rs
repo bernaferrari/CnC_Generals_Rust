@@ -161,8 +161,10 @@ fn parking_place_behavior_module_factory(
 
     let module_data_arc = Arc::new(typed_data.clone());
     let (owner_id, _) = resolve_owner_info(&thing);
-    let object = TheGameLogic::find_object_by_id(owner_id)
-        .expect("ParkingPlaceBehavior requires owning object");
+    if !TheGameLogic::find_object_by_id(owner_id) {
+        panic!("ParkingPlaceBehavior requires owning object");
+    }
+    let object = owner_id;
     let behavior = ParkingPlaceBehavior::new(object, module_data_arc.clone())
         .expect("Failed to create ParkingPlaceBehavior");
 

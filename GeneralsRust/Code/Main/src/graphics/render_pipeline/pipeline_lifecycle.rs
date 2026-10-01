@@ -374,9 +374,9 @@ mod presentation_handle_tests {
 
     #[test]
     fn presentation_handles_share_frozen_frame_and_mutation_detaches() {
-        let logic = crate::game_logic::GameLogic::new();
+        let mut logic = crate::game_logic::GameLogic::new();
         let mut host: Rc<crate::presentation_frame::PresentationFrame> =
-            crate::presentation_frame::PresentationFrame::build_from_logic(&logic, 0).into();
+            crate::presentation_frame::PresentationFrame::build_from_logic(&mut logic, 0).into();
         let original_supplies = host.local_supplies;
         let renderer = host.clone();
         let ui = renderer.clone();

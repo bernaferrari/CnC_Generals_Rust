@@ -10,6 +10,7 @@
 //! `doUnitGarrisonNearestBuilding` / `doUnitExitBuilding` /
 //! `doPlayerGarrisonAllBuildings` / `doPlayerExitAllBuildings`.
 
+use crate::object::registry::OBJECT_REGISTRY;
 use std::cell::RefCell;
 
 /// Live host drain: enter / garrison / evacuate / exit.

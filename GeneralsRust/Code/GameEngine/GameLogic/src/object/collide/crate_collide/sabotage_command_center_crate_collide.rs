@@ -245,7 +245,7 @@ pub struct SabotageCommandCenterCrateCollide {
 impl SabotageCommandCenterCrateCollide {
     /// Create new sabotage command center crate collide module
     pub fn new(
-        object: &Arc<RwLock<Object>>,
+        object: &ObjectID,
         module_data: SabotageCommandCenterCrateCollideModuleData,
     ) -> Self {
         Self {

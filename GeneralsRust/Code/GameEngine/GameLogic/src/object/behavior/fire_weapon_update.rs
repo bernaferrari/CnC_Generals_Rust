@@ -159,7 +159,7 @@ impl FireWeaponUpdate {
     /// 3. Load ammo for the weapon
     /// 4. Calculate initial delay frame: current_frame + initial_delay_frames
     pub fn new(
-        object: Arc<RwLock<GameObject>>,
+        object_id: ObjectID,
         module_data: Arc<dyn ModuleData>,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let specific_data = module_data
@@ -207,11 +207,7 @@ impl FireWeaponUpdate {
         let initial_delay_frame = current_frame.wrapping_add(data.initial_delay_frames);
 
         Ok(Self {
-            object_id: object
-                .read()
-                .ok()
-                .map(|g| g.get_id())
-                .unwrap_or(crate::common::INVALID_ID),
+            object_id: object_id,
             module_data: data,
             weapon,
             next_call_frame_and_phase: 0,
@@ -471,10 +467,10 @@ pub struct FireWeaponUpdateFactory;
 
 impl FireWeaponUpdateFactory {
     pub fn create_behavior(
-        thing: Arc<RwLock<GameObject>>,
+        object_id: ObjectID,
         module_data: Arc<dyn ModuleData>,
     ) -> Result<Box<dyn BehaviorModuleInterface>, Box<dyn std::error::Error + Send + Sync>> {
-        Ok(Box::new(FireWeaponUpdate::new(thing, module_data)?))
+        Ok(Box::new(FireWeaponUpdate::new(object_id, module_data)?))
     }
 }
 

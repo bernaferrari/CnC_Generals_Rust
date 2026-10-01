@@ -70,31 +70,24 @@ impl AIPlayer {
         let Ok(factory) = get_team_factory().lock() else {
             return false;
         };
-        let Some(team_arc) = factory.find_team_instances(team_name).into_iter().next() else {
+        let Some(team_id) = factory.find_team_instances(team_name).into_iter().next() else {
             return false;
         };
         drop(factory);
-        let Ok(team) = team_arc.read() else {
-            return false;
-        };
-        team.get_members()
-            .iter()
-            .copied()
-            .any(Self::object_ai_is_idle)
+        crate::team::with_team(team_id, |team| {
+            team.get_members().iter().copied().any(Self::object_ai_is_idle)
+        }).unwrap_or(false)
     }
 
     pub(super) fn team_all_members_idle(team_name: &str) -> bool {
         let Ok(factory) = get_team_factory().lock() else {
             return true;
         };
-        let Some(team_arc) = factory.find_team_instances(team_name).into_iter().next() else {
+        let Some(team_id) = factory.find_team_instances(team_name).into_iter().next() else {
             return true;
         };
         drop(factory);
-        let Ok(team) = team_arc.read() else {
-            return true;
-        };
-        team.is_idle()
+        crate::team::with_team(team_id, |team| team.is_idle()).unwrap_or(true)
     }
 
     /// C++ `AIPlayer::checkReadyTeams` (AIPlayer.cpp).
@@ -126,14 +119,15 @@ impl AIPlayer {
                             any_idle = idle;
                         }
                     }
-                } else if let Some(team_arc) = team_q.team.as_ref() {
-                    // C++ team->m_team->isIdle() + member anyIdle walk.
-                    if let Ok(tg) = team_arc.read() {
-                        all_idle = tg.is_idle();
+                } else if let Some(team_id) = team_q.team_id {
+                    if let Some((idle, members)) = crate::team::with_team(team_id, |tg| {
+                        (tg.is_idle(), tg.get_members().to_vec())
+                    }) {
+                        all_idle = idle;
                         any_idle = false;
-                        for mid in tg.get_members() {
+                        for mid in members {
                             if OBJECT_REGISTRY
-                                .with_object(*mid, |og| {
+                                .with_object(mid, |og| {
                                     let Some(ai) = og.get_ai_update_interface() else {
                                         return false;
                                     };
@@ -156,9 +150,8 @@ impl AIPlayer {
                 // Resolve prototype via concrete team name first, then team_name field.
                 if any_idle {
                     let proto_name = team_q
-                        .team
-                        .as_ref()
-                        .and_then(|arc| arc.read().ok().map(|tg| tg.get_name().to_string()))
+                        .team_id
+                        .and_then(|id| crate::team::with_team(id, |tg| tg.get_name().to_string()))
                         .or_else(|| team_q.team_name.clone());
                     if let Some(team_name) = proto_name {
                         if let Ok(factory) = get_team_factory().lock() {
@@ -206,26 +199,20 @@ impl AIPlayer {
                 if let Some(obj_id) = team_q.reinforcement_id {
                     self.join_team_reinforcement(
                         obj_id,
-                        team_q.team.clone(),
+                        team_q.team_id,
                         team_q.team_name.as_deref(),
                     );
                 }
             } else {
                 // C++ m_team->setActive() on the concrete team handle.
-                if let Some(team_arc) = team_q.team.as_ref() {
-                    if let Ok(mut tg) = team_arc.write() {
-                        tg.set_active();
-                    }
+                if let Some(team_id) = team_q.team_id {
+                    crate::team::with_team_mut(team_id, |tg| tg.set_active());
                 } else if let Some(team_name) = team_q.team_name.as_deref() {
-                    if let Ok(factory) = get_team_factory().lock() {
-                        if let Some(team_arc) =
-                            factory.find_team_instances(team_name).into_iter().next()
-                        {
-                            drop(factory);
-                            if let Ok(mut tg) = team_arc.write() {
-                                tg.set_active();
-                            }
-                        }
+                    let id = get_team_factory().lock().ok().and_then(|factory| {
+                        factory.find_team_instances(team_name).into_iter().next()
+                    });
+                    if let Some(team_id) = id {
+                        crate::team::with_team_mut(team_id, |tg| tg.set_active());
                     }
                 }
                 if self.is_skirmish_ai_player() {
@@ -246,7 +233,7 @@ impl AIPlayer {
     pub(super) fn join_team_reinforcement(
         &self,
         obj_id: ObjectID,
-        _team: Option<Arc<RwLock<crate::team::Team>>>,
+        _team: Option<crate::team::TeamID>,
         _team_name: Option<&str>,
     ) {
         // Wave 255: empty dual-world → no factory object walks.
@@ -321,28 +308,25 @@ impl AIPlayer {
             // C++ walks team->m_team members; prefer concrete handle.
             let any_idle = {
                 let tq = &self.team_build_queue[i];
-                if let Some(team_arc) = tq.team.as_ref() {
-                    if let Ok(tg) = team_arc.read() {
-                        let mut idle = false;
-                        for mid in tg.get_members() {
-                            let Some(ai) = OBJECT_REGISTRY
-                                .with_object(*mid, |og| og.get_ai_update_interface())
-                                .flatten()
-                            else {
-                                continue;
-                            };
-                            let Ok(aig) = ai.lock() else {
-                                continue;
-                            };
-                            if aig.is_idle() {
-                                idle = true;
-                                break;
-                            }
+                if let Some(team_id) = tq.team_id {
+                    let members = crate::team::with_team(team_id, |tg| tg.get_members().to_vec()).unwrap_or_default();
+                    let mut idle = false;
+                    for mid in members {
+                        let Some(ai) = OBJECT_REGISTRY
+                            .with_object(mid, |og| og.get_ai_update_interface())
+                            .flatten()
+                        else {
+                            continue;
+                        };
+                        let Ok(aig) = ai.lock() else {
+                            continue;
+                        };
+                        if aig.is_idle() {
+                            idle = true;
+                            break;
                         }
-                        idle
-                    } else {
-                        false
                     }
+                    idle
                 } else if let Some(ref name) = tq.team_name {
                     Self::team_any_member_idle(name)
                 } else {
@@ -353,9 +337,8 @@ impl AIPlayer {
             if any_idle {
                 // C++ uses team->m_team->getPrototype(); prefer handle name.
                 let proto_name = self.team_build_queue[i]
-                    .team
-                    .as_ref()
-                    .and_then(|arc| arc.read().ok().map(|tg| tg.get_name().to_string()))
+                    .team_id
+                    .and_then(|id| crate::team::with_team(id, |tg| tg.get_name().to_string()))
                     .or_else(|| self.team_build_queue[i].team_name.clone());
                 if let Some(ref name) = proto_name {
                     if let Ok(factory) = get_team_factory().lock() {

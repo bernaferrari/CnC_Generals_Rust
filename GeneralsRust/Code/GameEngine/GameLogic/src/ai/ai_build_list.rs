@@ -1284,41 +1284,39 @@ impl AIBuildList {
             return Ok(0.0);
         }
         for obj_id in OBJECT_REGISTRY.get_all_object_ids() {
-            let obj_arc = match OBJECT_REGISTRY.get_object(obj_id) {
-            Some(v) => v,
-            None => continue,
-        };
-            let Ok(obj_guard) = obj_arc.read() else {
-                continue;
-            };
-            let Some(owner_id) = obj_guard.get_controlling_player_id() else {
-                continue;
-            };
-            if owner_id as u32 == player_id {
-                continue;
-            }
-            if let Some(player) = player_list().read().ok().and_then(|list| list.get_player(owner_id as i32).cloned()) {
-                if let Ok(enemy_guard) = player.read() {
-                    if enemy_guard.get_player_type() == PlayerType::Neutral {
-                        continue;
+            let contrib = OBJECT_REGISTRY.with_object(obj_id, |obj_guard| {
+                let Some(owner_id) = obj_guard.get_controlling_player_id() else {
+                    return None;
+                };
+                if owner_id as u32 == player_id {
+                    return None;
+                }
+                if let Some(player) = player_list().read().ok().and_then(|list| list.get_player(owner_id as i32).cloned()) {
+                    if let Ok(enemy_guard) = player.read() {
+                        if enemy_guard.get_player_type() == PlayerType::Neutral {
+                            return None;
+                        }
                     }
                 }
-            }
-            if !(obj_guard.is_kind_of(KindOf::Vehicle)
-                || obj_guard.is_kind_of(KindOf::Infantry)
-                || obj_guard.is_kind_of(KindOf::Aircraft)
-                || obj_guard.is_kind_of(KindOf::Defense))
-            {
-                continue;
-            }
-            let pos = obj_guard.get_position();
-            let dx = pos.x - base_center.x;
-            let dy = pos.y - base_center.y;
-            let dist_sq = dx * dx + dy * dy;
-            let cost = obj_guard.get_template().calc_cost_to_build(None).max(1) as f32;
-            total += cost;
-            if dist_sq < (200.0 * 200.0) {
-                threat += cost;
+                if !(obj_guard.is_kind_of(KindOf::Vehicle)
+                    || obj_guard.is_kind_of(KindOf::Infantry)
+                    || obj_guard.is_kind_of(KindOf::Aircraft)
+                    || obj_guard.is_kind_of(KindOf::Defense))
+                {
+                    return None;
+                }
+                let pos = obj_guard.get_position();
+                let dx = pos.x - base_center.x;
+                let dy = pos.y - base_center.y;
+                let dist_sq = dx * dx + dy * dy;
+                let cost = obj_guard.get_template().calc_cost_to_build(None).max(1) as f32;
+                Some((cost, dist_sq < (200.0 * 200.0)))
+            });
+            if let Some(Some((cost, near))) = contrib {
+                total += cost;
+                if near {
+                    threat += cost;
+                }
             }
         }
         if total > 0.0 {
@@ -1336,26 +1334,24 @@ impl AIBuildList {
             return Ok(0.0);
         }
         for obj_id in OBJECT_REGISTRY.get_all_object_ids() {
-            let obj_arc = match OBJECT_REGISTRY.get_object(obj_id) {
-            Some(v) => v,
-            None => continue,
-        };
-            let Ok(obj_guard) = obj_arc.read() else {
-                continue;
-            };
-            let Some(owner_id) = obj_guard.get_controlling_player_id() else {
-                continue;
-            };
-            if let Some(player) = player_list().read().ok().and_then(|list| list.get_player(owner_id as i32).cloned()) {
-                if let Ok(owner_guard) = player.read() {
-                    if owner_guard.get_player_type() == PlayerType::Neutral {
-                        continue;
+            let mine_hit = OBJECT_REGISTRY.with_object(obj_id, |obj_guard| {
+                let Some(owner_id) = obj_guard.get_controlling_player_id() else {
+                    return None;
+                };
+                if let Some(player) = player_list().read().ok().and_then(|list| list.get_player(owner_id as i32).cloned()) {
+                    if let Ok(owner_guard) = player.read() {
+                        if owner_guard.get_player_type() == PlayerType::Neutral {
+                            return None;
+                        }
                     }
                 }
-            }
-            total += 1.0;
-            if owner_id as u32 == player_id {
-                mine += 1.0;
+                Some(owner_id as u32 == player_id)
+            });
+            if let Some(Some(is_mine)) = mine_hit {
+                total += 1.0;
+                if is_mine {
+                    mine += 1.0;
+                }
             }
         }
         if total > 0.0 {

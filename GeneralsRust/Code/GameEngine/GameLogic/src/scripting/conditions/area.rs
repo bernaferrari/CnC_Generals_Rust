@@ -59,39 +59,44 @@ impl ScriptCondition for AreaClearCondition {
         };
 
         for object_id in manager.find_objects_in_radius(center, radius) {
-            let Some(obj_arc) = manager.get_object(object_id) else {
-                continue;
-            };
-            let Ok(obj_guard) = obj_arc.read() else {
-                continue;
-            };
-            let __base_arc = obj_guard.base();
-            let Ok(base_guard) = __base_arc.read() else {
-                continue;
-            };
-            if base_guard.is_destroyed() {
-                continue;
-            }
-
-            // Restrict to "units" (excluding buildings/structures) to match typical mission scripting usage.
-            let Some(template) = obj_guard.template.as_ref() else {
-                continue;
-            };
-            if template.is_kind_of(KindOf::Structure) || template.is_kind_of(KindOf::Building) {
-                continue;
-            }
-
-            if let Some(player) = exclude_player {
-                if base_guard
-                    .get_controlling_player_id()
-                    .map(|id| id as i64 == player)
-                    .unwrap_or(false)
-                {
-                    continue;
+            {
+                enum _ObjFlow<T> { Cont, Ret(T), Fall }
+                let _flow = OBJECT_REGISTRY.with_object(object_id, |obj_guard| {
+                    let __base_arc = obj_guard.base();
+                    let Ok(base_guard) = __base_arc.read() else {
+                        return _ObjFlow::Cont;
+                    };
+                    if base_guard.is_destroyed() {
+                        return _ObjFlow::Cont;
+                    }
+                    
+                    // Restrict to "units" (excluding buildings/structures) to match typical mission scripting usage.
+                    let Some(template) = obj_guard.template.as_ref() else {
+                        return _ObjFlow::Cont;
+                    };
+                    if template.is_kind_of(KindOf::Structure) || template.is_kind_of(KindOf::Building) {
+                        return _ObjFlow::Cont;
+                    }
+                    
+                    if let Some(player) = exclude_player {
+                        if base_guard
+                            .get_controlling_player_id()
+                            .map(|id| id as i64 == player)
+                            .unwrap_or(false)
+                        {
+                            return _ObjFlow::Cont;
+                        }
+                    }
+                    
+                    return _ObjFlow::Ret(Ok(false));
+                    _ObjFlow::Fall
+                });
+                match _flow {
+                    None | Some(_ObjFlow::Cont) => continue,
+                    Some(_ObjFlow::Ret(v)) => return v,
+                    Some(_ObjFlow::Fall) => {}
                 }
             }
-
-            return Ok(false);
         }
 
         Ok(true)
@@ -160,36 +165,41 @@ impl ScriptCondition for AreaControlledByPlayerCondition {
 
         let mut saw_friendly = false;
         for object_id in manager.find_objects_in_radius(center, radius) {
-            let Some(obj_arc) = manager.get_object(object_id) else {
-                continue;
-            };
-            let Ok(obj_guard) = obj_arc.read() else {
-                continue;
-            };
-            let __base_arc = obj_guard.base();
-            let Ok(base_guard) = __base_arc.read() else {
-                continue;
-            };
-            if base_guard.is_destroyed() {
-                continue;
-            }
-
-            let Some(owner_team) = base_guard.get_team() else {
-                continue;
-            };
-            let Ok(owner_team_guard) = owner_team.read() else {
-                continue;
-            };
-            let rel = player_guard.get_relationship_with_team(&owner_team_guard);
-            match rel {
-                crate::common::Relationship::Enemies | crate::common::Relationship::Neutral => {
-                    return Ok(false);
+            {
+                enum _ObjFlow<T> { Cont, Ret(T), Fall }
+                let _flow = OBJECT_REGISTRY.with_object(object_id, |obj_guard| {
+                    let __base_arc = obj_guard.base();
+                    let Ok(base_guard) = __base_arc.read() else {
+                        return _ObjFlow::Cont;
+                    };
+                    if base_guard.is_destroyed() {
+                        return _ObjFlow::Cont;
+                    }
+                    
+                    let Some(owner_team) = base_guard.get_team() else {
+                        return _ObjFlow::Cont;
+                    };
+                    let Ok(owner_team_guard) = owner_team.read() else {
+                        return _ObjFlow::Cont;
+                    };
+                    let rel = player_guard.get_relationship_with_team(&owner_team_guard);
+                    match rel {
+                        crate::common::Relationship::Enemies | crate::common::Relationship::Neutral => {
+                            return _ObjFlow::Ret(Ok(false));
+                        }
+                        _ => {}
+                    }
+                    
+                    if base_guard.get_controlling_player_id() == Some(player_id) {
+                        saw_friendly = true;
+                    }
+                    _ObjFlow::Fall
+                });
+                match _flow {
+                    None | Some(_ObjFlow::Cont) => continue,
+                    Some(_ObjFlow::Ret(v)) => return v,
+                    Some(_ObjFlow::Fall) => {}
                 }
-                _ => {}
-            }
-
-            if base_guard.get_controlling_player_id() == Some(player_id) {
-                saw_friendly = true;
             }
         }
 
@@ -253,40 +263,45 @@ impl ScriptCondition for UnitsInAreaCondition {
         let object_ids = manager.find_objects_in_radius(center, radius);
         let mut actual_count = 0i64;
         for object_id in object_ids {
-            let Some(obj_arc) = manager.get_object(object_id) else {
-                continue;
-            };
-            let Ok(obj_guard) = obj_arc.read() else {
-                continue;
-            };
-            let __base_arc = obj_guard.base();
-            let Ok(base_guard) = __base_arc.read() else {
-                continue;
-            };
-            if base_guard.is_destroyed() {
-                continue;
-            }
-
-            if let Some(player) = _player {
-                if let Some(owner) = base_guard.get_controlling_player_id() {
-                    if owner as i64 != player {
-                        continue;
+            {
+                enum _ObjFlow<T> { Cont, Ret(T), Fall }
+                let _flow = OBJECT_REGISTRY.with_object(object_id, |obj_guard| {
+                    let __base_arc = obj_guard.base();
+                    let Ok(base_guard) = __base_arc.read() else {
+                        return _ObjFlow::Cont;
+                    };
+                    if base_guard.is_destroyed() {
+                        return _ObjFlow::Cont;
                     }
-                } else {
-                    continue;
+                    
+                    if let Some(player) = _player {
+                        if let Some(owner) = base_guard.get_controlling_player_id() {
+                            if owner as i64 != player {
+                                return _ObjFlow::Cont;
+                            }
+                        } else {
+                            return _ObjFlow::Cont;
+                        }
+                    }
+                    
+                    if let Some(ScriptValue::String(unit_type)) = _unit_type {
+                        let Some(template) = obj_guard.template.as_ref() else {
+                            return _ObjFlow::Cont;
+                        };
+                        if !template.get_name().as_str().eq_ignore_ascii_case(unit_type) {
+                            return _ObjFlow::Cont;
+                        }
+                    }
+                    
+                    actual_count += 1;
+                    _ObjFlow::Fall
+                });
+                match _flow {
+                    None | Some(_ObjFlow::Cont) => continue,
+                    Some(_ObjFlow::Ret(v)) => return v,
+                    Some(_ObjFlow::Fall) => {}
                 }
             }
-
-            if let Some(ScriptValue::String(unit_type)) = _unit_type {
-                let Some(template) = obj_guard.template.as_ref() else {
-                    continue;
-                };
-                if !template.get_name().as_str().eq_ignore_ascii_case(unit_type) {
-                    continue;
-                }
-            }
-
-            actual_count += 1;
         }
 
         compare_i64(actual_count, comparison.as_str(), count)

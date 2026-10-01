@@ -503,11 +503,8 @@ fn special_power_update_module_factory(
         .downcast_ref::<SpecialPowerUpdateModuleData>()
         .expect("SpecialPowerUpdateModuleData expected");
     let (owner_id, _) = resolve_owner_info(&thing);
-    let object = TheGameLogic::find_object_by_id(owner_id)
-        .map(Arc::downgrade)
-        .unwrap_or_else(std::sync::Weak::new);
-
-    let mut module = SpecialPowerUpdateModule::new(owner_id, object);
+    // SpecialPowerUpdateModule stores owner id; the weak handle is unused.
+    let mut module = SpecialPowerUpdateModule::new(owner_id, std::sync::Weak::new());
     module.set_module_data(typed_data.clone());
     Box::new(module)
 }

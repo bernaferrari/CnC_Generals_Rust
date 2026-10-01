@@ -1159,7 +1159,7 @@ mod tests {
         let id = logic
             .create_object("SelC", Team::USA, glam::Vec3::new(10.0, 0.0, 20.0))
             .expect("id");
-        let frame = PresentationFrame::build_from_logic(&logic, 0);
+        let frame = PresentationFrame::build_from_logic(&mut logic, 0);
         // Poison live pose — presentation must still win.
         if let Some(obj) = logic.host_object_mut(id) {
             obj.position = glam::Vec3::new(9999.0, 0.0, 9999.0);
@@ -1202,7 +1202,7 @@ mod tests {
         let b1 = logic
             .create_object("SimB", Team::USA, glam::Vec3::new(20.0, 0.0, 0.0))
             .expect("b1");
-        let frame = PresentationFrame::build_from_logic(&logic, 0);
+        let frame = PresentationFrame::build_from_logic(&mut logic, 0);
         // Live renames one SimA to poison live dual-read if used.
         if let Some(obj) = logic.host_object_mut(a2) {
             obj.template_name = "Poisoned".into();
@@ -1227,7 +1227,7 @@ mod tests {
 
     fn pick_prefers_presentation_identity_not_live_move() {
         let (mut logic, id) = logic_with_selectable_unit();
-        let frame = PresentationFrame::build_from_logic(&logic, 0);
+        let frame = PresentationFrame::build_from_logic(&mut logic, 0);
         // Move live object far away after snapshot.
         if let Some(o) = logic.host_object_mut(id) {
             o.set_position(glam::Vec3::new(5000.0, 0.0, 5000.0));
@@ -1283,7 +1283,7 @@ mod tests {
         let uid = logic
             .create_object("Ranger", Team::USA, glam::Vec3::new(5.0, 0.0, 5.0))
             .expect("u");
-        let frame = PresentationFrame::build_from_logic(&logic, 0);
+        let frame = PresentationFrame::build_from_logic(&mut logic, 0);
         let b = frame.objects.iter().find(|o| o.id == bid).unwrap();
         let r = frame.objects.iter().find(|o| o.id == uid).unwrap();
         assert!(PresentationFrame::object_has_kind(b, KindOf::Structure));
@@ -1328,7 +1328,7 @@ mod tests {
         if let Some(obj) = logic.host_object_mut(occupant) {
             obj.set_contained_by(Some(firebase_id));
         }
-        let frame = PresentationFrame::build_from_logic(&logic, 0);
+        let frame = PresentationFrame::build_from_logic(&mut logic, 0);
         assert_eq!(
             frame.box_select_unit_ids(Team::USA, -1.0, 1.0, -1.0, 1.0),
             vec![factory_id]
@@ -1340,8 +1340,8 @@ mod tests {
 
     #[test]
     fn presentation_attackable_residual() {
-        let (logic, id) = logic_with_selectable_unit();
-        let frame = PresentationFrame::build_from_logic(&logic, 0);
+        let (mut logic, id) = logic_with_selectable_unit();
+        let frame = PresentationFrame::build_from_logic(&mut logic, 0);
         let o = frame.objects.iter().find(|x| x.id == id).unwrap();
         assert!(UnitControlSystem::presentation_is_attackable(o));
     }
@@ -1355,7 +1355,7 @@ mod tests {
             .thing
             .template
             .add_kind_of(KindOf::Unattackable);
-        let frame = PresentationFrame::build_from_logic(&logic, 0);
+        let frame = PresentationFrame::build_from_logic(&mut logic, 0);
         let object = frame.objects.iter().find(|object| object.id == id).unwrap();
         assert!(object.unattackable);
         assert!(!UnitControlSystem::presentation_is_attackable(object));
@@ -1394,7 +1394,7 @@ mod tests {
         let mobile = logic
             .create_object("ChinaRanger", Team::China, glam::Vec3::new(50.0, 0.0, 0.0))
             .expect("m");
-        let frame = PresentationFrame::build_from_logic(&logic, 0);
+        let frame = PresentationFrame::build_from_logic(&mut logic, 0);
         let attackable = frame.first_enemy_attackable_id(Team::USA);
         let force = frame.first_enemy_force_attack_id(Team::USA);
         let cmd = frame.first_enemy_attack_command_id(Team::USA);
@@ -1410,7 +1410,7 @@ mod tests {
     #[test]
     fn world_pick_from_presentation_ignores_live_move() {
         let (mut logic, id) = logic_with_selectable_unit();
-        let frame = PresentationFrame::build_from_logic(&logic, 0);
+        let frame = PresentationFrame::build_from_logic(&mut logic, 0);
         if let Some(o) = logic.host_object_mut(id) {
             o.set_position(glam::Vec3::new(9000.0, 0.0, 9000.0));
         }
@@ -1430,7 +1430,7 @@ mod tests {
     #[test]
     fn control_group_assign_prefers_presentation_pose() {
         let (mut logic, id) = logic_with_selectable_unit();
-        let frame = PresentationFrame::build_from_logic(&logic, 0);
+        let frame = PresentationFrame::build_from_logic(&mut logic, 0);
         if let Some(o) = logic.host_object_mut(id) {
             o.set_position(glam::Vec3::new(8000.0, 0.0, 8000.0));
         }
@@ -1461,7 +1461,7 @@ mod tests {
         if let Some(o) = logic.host_object_mut(id2) {
             o.status.destroyed = true;
         }
-        let frame = PresentationFrame::build_from_logic(&logic, 0);
+        let frame = PresentationFrame::build_from_logic(&mut logic, 0);
         let mut ctl = UnitControlSystem::new((800.0, 600.0), Team::USA, 0);
         ctl.selected_objects = vec![id, id2];
         ctl.set_presentation_frame(Some(frame));
@@ -1525,7 +1525,7 @@ mod tests {
             .create_object("Civilian", Team::Neutral, glam::Vec3::new(120.0, 0.0, 0.0))
             .expect("civ");
 
-        let frame = PresentationFrame::build_from_logic(&logic, 0);
+        let frame = PresentationFrame::build_from_logic(&mut logic, 0);
         let pick = |pos: glam::Vec3| {
             UnitControlSystem::pick_object_id_at_world_from_presentation(
                 &frame,
@@ -1545,8 +1545,8 @@ mod tests {
     #[test]
     fn presentation_is_selectable_allows_disabled_emp_units() {
         // C++ Object.cpp:3001-3020 / SelectionXlat.cpp:104-189 — no disabled gate.
-        let (logic, id) = logic_with_selectable_unit();
-        let mut frame = PresentationFrame::build_from_logic(&logic, 0);
+        let (mut logic, id) = logic_with_selectable_unit();
+        let mut frame = PresentationFrame::build_from_logic(&mut logic, 0);
         let obj = frame.objects.iter_mut().find(|o| o.id == id).expect("unit");
         obj.disabled = true;
         obj.disabled_emp = true;
@@ -1578,7 +1578,7 @@ mod tests {
         let id = logic
             .create_object("UIBeacon", Team::USA, glam::Vec3::ZERO)
             .expect("beacon");
-        let mut frame = PresentationFrame::build_from_logic(&logic, 0);
+        let mut frame = PresentationFrame::build_from_logic(&mut logic, 0);
         {
             let obj = frame
                 .objects
@@ -1621,8 +1621,8 @@ mod tests {
 
     #[test]
     fn presentation_is_selectable_drops_ordinary_dead_objects() {
-        let (logic, id) = logic_with_selectable_unit();
-        let mut frame = PresentationFrame::build_from_logic(&logic, 0);
+        let (mut logic, id) = logic_with_selectable_unit();
+        let mut frame = PresentationFrame::build_from_logic(&mut logic, 0);
         {
             let obj = frame.objects.iter_mut().find(|o| o.id == id).expect("unit");
             obj.destroyed = true;
@@ -1685,7 +1685,7 @@ mod tests {
             o.status.detected = false;
         }
 
-        let frame = PresentationFrame::build_from_logic(&logic, 0);
+        let frame = PresentationFrame::build_from_logic(&mut logic, 0);
         let pick = |pos: glam::Vec3| {
             UnitControlSystem::pick_object_id_at_world_from_presentation(
                 &frame,
@@ -1721,7 +1721,7 @@ mod tests {
         if let Some(o) = logic.host_object_mut(enemy) {
             o.status.detected = true;
         }
-        let detected = PresentationFrame::build_from_logic(&logic, 0);
+        let detected = PresentationFrame::build_from_logic(&mut logic, 0);
         assert_eq!(
             UnitControlSystem::pick_object_id_at_world_from_presentation(
                 &detected,

@@ -542,7 +542,7 @@ impl BattleBusSlowDeathBehavior {
     fn construct_with_object(
         object_id: ObjectID,
         module_data: Arc<BattleBusSlowDeathBehaviorModuleData>,
-        object: Option<Arc<RwLock<GameObject>>>,
+        object_id: Option<ObjectID>,
     ) -> Self {
         Self {
             module_data,
@@ -557,7 +557,7 @@ impl BattleBusSlowDeathBehavior {
     }
 
     pub fn new_from_object(
-        object: Arc<RwLock<GameObject>>,
+        object_id: ObjectID,
         module_data: Arc<BattleBusSlowDeathBehaviorModuleData>,
     ) -> Self {
         let object_id = object
@@ -581,7 +581,7 @@ impl BattleBusSlowDeathBehavior {
 
     fn get_object(
         &self,
-    ) -> Result<Arc<RwLock<GameObject>>, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<ObjectID>, Box<dyn std::error::Error + Send + Sync>> {
         // Wave 414: empty dual-world → Err.
         if dual_world_registry_unavailable() {
             return Err("BattleBusSlowDeathBehavior missing owning object id".into());

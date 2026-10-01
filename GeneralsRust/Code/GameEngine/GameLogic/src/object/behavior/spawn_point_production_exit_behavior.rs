@@ -155,7 +155,7 @@ impl SpawnPointProductionExitBehavior {
 
     fn exit_object_via_door_internal(
         &mut self,
-        new_obj: &Arc<RwLock<Object>>,
+        new_obj: ObjectID,
         door: ModuleExitDoorType,
     ) -> Result<(), String> {
         // Wave 417: empty dual-world → Ok(()).

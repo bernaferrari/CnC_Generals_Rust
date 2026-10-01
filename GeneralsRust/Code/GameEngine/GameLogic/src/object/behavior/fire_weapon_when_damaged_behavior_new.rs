@@ -386,7 +386,7 @@ pub struct FireWeaponWhenDamagedBehavior {
 impl FireWeaponWhenDamagedBehavior {
     /// Creates new FireWeaponWhenDamagedBehavior. Matches C++ lines 35-119
     pub fn new(
-        object: Arc<RwLock<GameObject>>,
+        object_id: ObjectID,
         module_data: Arc<dyn ModuleData>,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let specific_data = module_data
@@ -462,11 +462,7 @@ impl FireWeaponWhenDamagedBehavior {
         }
 
         Ok(Self {
-            object_id: object
-                .read()
-                .ok()
-                .map(|g| g.get_id())
-                .unwrap_or(crate::common::INVALID_ID),
+            object_id: object_id,
             module_data: data,
             reaction_weapon_pristine,
             reaction_weapon_damaged,
@@ -959,7 +955,7 @@ pub struct FireWeaponWhenDamagedBehaviorFactory;
 
 impl FireWeaponWhenDamagedBehaviorFactory {
     pub fn create_behavior(
-        thing: Arc<RwLock<GameObject>>,
+        object_id: ObjectID,
         module_data: Arc<dyn ModuleData>,
     ) -> Result<Box<dyn BehaviorModuleInterface>, Box<dyn std::error::Error + Send + Sync>> {
         Ok(Box::new(FireWeaponWhenDamagedBehavior::new(

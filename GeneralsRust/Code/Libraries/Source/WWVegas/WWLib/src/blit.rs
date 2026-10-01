@@ -26,14 +26,9 @@ pub fn to_buffer(surface: &Surface, rect: Rect, buffer: &mut Buffer) -> bool {
 
     for y in rect.y..rect.y + rect.height {
         for x in rect.x..rect.x + rect.width {
-            // SAFETY: [Category 3 — dangling / Category 10 — OOB] pointer comes from the held SurfaceLock's bounds-checked get_pixel_ptr; exactly bytes_per_pixel are copied.
-            unsafe {
-                if let Some(ptr) = lock.get_pixel_ptr(Point2D::new(x, y)) {
-                    let dest = &mut buf[offset..offset + bytes_per_pixel];
-                    dest.copy_from_slice(std::slice::from_raw_parts(ptr, bytes_per_pixel));
-                } else {
-                    return false;
-                }
+            let dest = &mut buf[offset..offset + bytes_per_pixel];
+            if !lock.copy_pixel_to(Point2D::new(x, y), dest) {
+                return false;
             }
             offset += bytes_per_pixel;
         }

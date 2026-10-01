@@ -249,7 +249,7 @@ pub struct VeterancyBonus {
 }
 
 impl Structure {
-    pub fn base_object(&self) -> Option<Arc<RwLock<Object>>> {
+    pub fn base_object(&self) -> Option<ObjectID> {
         self.get_base_object()
     }
 
@@ -257,17 +257,16 @@ impl Structure {
         self.object_id
     }
 
-    fn get_base_object(&self) -> Option<Arc<RwLock<Object>>> {
+    fn get_base_object(&self) -> Option<ObjectID> {
         if self.object_id == crate::common::INVALID_ID {
             return None;
         }
-        crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        Some(self.object_id)
     }
 
     /// Create a new Structure
     pub fn new(
-        base_object: Arc<RwLock<Object>>,
+        object_id: ObjectID,
         thing_template: &dyn ThingTemplate,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let structure_type = Self::determine_structure_type(thing_template);
@@ -276,19 +275,7 @@ impl Structure {
             && !thing_template.is_kind_of(KindOf::ImmuneToCapture);
 
         Ok(Structure {
-            object_id: {
-                let id = base_object
-                    .read()
-                    .ok()
-                    .map(|g| g.get_id())
-                    .unwrap_or(crate::common::INVALID_ID);
-
-                if id != crate::common::INVALID_ID {
-                    crate::object::registry::OBJECT_REGISTRY.register_object(id, &base_object);
-                }
-
-                id
-            },
+            object_id,
             structure_type,
             is_faction_structure,
             is_key_structure: thing_template.is_kind_of(KindOf::KeyStructure),
@@ -1065,7 +1052,7 @@ mod tests {
             .unwrap()
     }
 
-    fn owned_test_object(object_id: ObjectID, player_index: PlayerIndex) -> Arc<RwLock<Object>> {
+    fn owned_test_object(object_id: ObjectID, player_index: PlayerIndex) -> ObjectID {
         let object = Arc::new(RwLock::new(Object::new_test(object_id, 100.0)));
         let team = Arc::new(RwLock::new(Team::new(
             format!("PowerTeam{player_index}").into(),
@@ -1074,8 +1061,8 @@ mod tests {
         team.write()
             .unwrap()
             .set_controlling_player_id(Some(player_index as UnsignedInt));
-        object.write().unwrap().set_team(Some(team)).unwrap();
-        object
+        crate::object::registry::OBJECT_REGISTRY.register_object(object_id, &object);
+        object_id
     }
 
     #[test]

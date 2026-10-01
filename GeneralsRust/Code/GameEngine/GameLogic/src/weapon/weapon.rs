@@ -13,6 +13,7 @@ use crate::damage::{
 };
 use crate::helpers::{TheGameLogic, TheTerrainLogic, TheThingFactory, get_game_logic_random_value};
 use crate::object::registry::OBJECT_REGISTRY;
+use crate::player::player_list;
 use crate::weapon::{
     DamageType, DeathType, NO_MAX_SHOTS_LIMIT, WeaponBonus, WeaponBonusConditionFlags,
     WeaponBonusField, WeaponReloadType, WeaponSlotType, WeaponStatus, WeaponTemplate,
@@ -419,9 +420,7 @@ impl Weapon {
         match LogicDamageType::from(self.template.get_damage_type()) {
             LogicDamageType::Deploy => {
                 // C++ Weapon.cpp:2495-2506 — beginAssault then continue to normal fire.
-                if let Some(source_obj) = crate::helpers::TheGameLogic::find_object_by_id(source_id)
-                {
-                    if let Ok(mut source_guard) = source_obj.write() {
+                let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(source_id, |source_guard| {
                         if let Some(ai_guard) = source_guard.get_ai_mut() {
                             if let Some(assault) =
                                 ai_guard.get_assault_transport_ai_update_interface()
@@ -429,8 +428,7 @@ impl Weapon {
                                 assault.begin_assault(target_id);
                             }
                         }
-                    }
-                }
+                    });
             }
             LogicDamageType::Disarm => {
                 if let Some(target_id) = target_id {
@@ -512,15 +510,9 @@ impl Weapon {
                 // Get position from target object (matches C++ Weapon.cpp line 2589)
                 // In C++: victimPos = victimObj->getPosition()
                 // Requires TheGameLogic::find_object_by_id integration
-                if let Some(obj_arc) = crate::helpers::TheGameLogic::find_object_by_id(tid) {
-                    if let Ok(obj) = obj_arc.read() {
-                        *obj.get_position()
-                    } else {
-                        target_pos.unwrap_or(Coord3D::new(0.0, 0.0, 0.0))
-                    }
-                } else {
-                    target_pos.unwrap_or(Coord3D::new(0.0, 0.0, 0.0))
-                }
+                OBJECT_REGISTRY
+                    .with_object(tid, |obj| *obj.get_position())
+                    .unwrap_or_else(|| target_pos.unwrap_or(Coord3D::new(0.0, 0.0, 0.0)))
             } else {
                 target_pos.unwrap_or(Coord3D::new(0.0, 0.0, 0.0))
             };
@@ -608,9 +600,7 @@ impl Weapon {
             // Some objects (like aircraft with multiple weapons) share reload time
             // across all weapon slots. When one weapon fires, all weapons get
             // the same cooldown to prevent all weapons from firing simultaneously.
-            if let Some(source_obj_arc) = crate::helpers::TheGameLogic::find_object_by_id(source_id)
-            {
-                if let Ok(mut source_obj) = source_obj_arc.write() {
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(source_id, |source_obj| {
                     if source_obj.is_reload_time_shared() {
                         let when_can_fire = self.when_we_can_fire_again;
                         for slot_idx in 0..crate::common::WEAPONSLOT_COUNT {
@@ -625,8 +615,7 @@ impl Weapon {
                             }
                         }
                     }
-                }
-            }
+                });
         }
 
         Ok((reloaded, projectile_id))
@@ -1335,33 +1324,25 @@ impl Weapon {
             return;
         }
 
-        let mut stream_arc = if self.projectile_stream_id != INVALID_ID {
-            TheGameLogic::find_object_by_id(self.projectile_stream_id)
-        } else {
-            None
-        };
+        let stream_exists = self.projectile_stream_id != INVALID_ID
+            && OBJECT_REGISTRY.contains(self.projectile_stream_id);
 
-        if stream_arc.is_none() {
+        if !stream_exists {
             self.projectile_stream_id = INVALID_ID;
-            let Some(source_arc) = TheGameLogic::find_object_by_id(source_id) else {
+            let Some(team_id) = OBJECT_REGISTRY.with_object(source_id, |source_guard| {
+                source_guard
+                    .get_controlling_player()
+                    .and_then(|player_index| {
+                        player_list().read().ok().and_then(|list| {
+                            list.get_player(player_index)
+                                .and_then(|guard| guard.get_default_team_id())
+                        })
+                    })
+                    .or_else(|| source_guard.get_team_id())
+            }) else {
                 return;
             };
-            let Ok(source_guard) = source_arc.try_read() else {
-                return;
-            };
-            let team_arc = source_guard
-                .get_controlling_player()
-                .and_then(|player| {
-                    player
-                        .read()
-                        .ok()
-                        .and_then(|guard| guard.get_default_team())
-                })
-                .or_else(|| source_guard.get_team());
-            let Some(team_arc) = team_arc else {
-                return;
-            };
-            let Ok(team_guard) = team_arc.read() else {
+            let Some(team_id) = team_id else {
                 return;
             };
             let Some(template) = TheThingFactory::find_template(stream_name) else {
@@ -1370,7 +1351,10 @@ impl Weapon {
             let Ok(factory) = TheThingFactory::get() else {
                 return;
             };
-            let Ok(stream_obj) = factory.new_object(template, &team_guard) else {
+            let Ok(stream_obj) = crate::team::with_team(team_id, |team_guard| {
+                factory.new_object(template, team_guard)
+            })
+            .unwrap_or(Err("missing team".into())) else {
                 return;
             };
             self.projectile_stream_id = stream_obj
@@ -1378,37 +1362,33 @@ impl Weapon {
                 .ok()
                 .map(|guard| guard.get_id())
                 .unwrap_or(INVALID_ID);
-            stream_arc = Some(stream_obj);
         }
 
-        let Some(stream_arc) = stream_arc else {
+        let stream_id = self.projectile_stream_id;
+        if stream_id == INVALID_ID {
             return;
-        };
-        let Ok(mut stream_guard) = stream_arc.write() else {
-            return;
-        };
-        if let Some(source_arc) = TheGameLogic::find_object_by_id(source_id) {
-            if let Ok(source_guard) = source_arc.try_read() {
-                let pos = *source_guard.get_position();
-                drop(source_guard);
+        }
+        let pos = OBJECT_REGISTRY.with_object(source_id, |source_guard| *source_guard.get_position());
+        let _ = OBJECT_REGISTRY.with_object_mut(stream_id, |stream_guard| {
+            if let Some(pos) = pos {
                 let _ = stream_guard.set_position(&pos);
             }
-        }
-        for behavior in stream_guard.get_behavior_modules() {
-            let Ok(mut behavior) = behavior.lock() else {
-                continue;
-            };
-            let Some(update) = behavior.get_projectile_stream_update_interface() else {
-                continue;
-            };
-            update.add_projectile(
-                source_id,
-                projectile_id,
-                victim_id.unwrap_or(INVALID_ID),
-                victim_pos,
-            );
-            break;
-        }
+            for behavior in stream_guard.get_behavior_modules() {
+                let Ok(mut behavior) = behavior.lock() else {
+                    continue;
+                };
+                let Some(update) = behavior.get_projectile_stream_update_interface() else {
+                    continue;
+                };
+                update.add_projectile(
+                    source_id,
+                    projectile_id,
+                    victim_id.unwrap_or(INVALID_ID),
+                    victim_pos,
+                );
+                break;
+            }
+        });
     }
 
     pub fn create_laser(
@@ -1421,25 +1401,21 @@ impl Weapon {
         if laser_name.is_empty() {
             return;
         }
-        let Some(source_arc) = TheGameLogic::find_object_by_id(source_id) else {
+        let Some((team_id, source_pos)) = OBJECT_REGISTRY.with_object(source_id, |source_guard| {
+            let team_id = source_guard
+                .get_controlling_player()
+                .and_then(|player_index| {
+                    player_list().read().ok().and_then(|list| {
+                        list.get_player(player_index)
+                            .and_then(|guard| guard.get_default_team_id())
+                    })
+                })
+                .or_else(|| source_guard.get_team_id());
+            (team_id, *source_guard.get_position())
+        }) else {
             return;
         };
-        let Ok(source_guard) = source_arc.try_read() else {
-            return;
-        };
-        let team_arc = source_guard
-            .get_controlling_player()
-            .and_then(|player| {
-                player
-                    .read()
-                    .ok()
-                    .and_then(|guard| guard.get_default_team())
-            })
-            .or_else(|| source_guard.get_team());
-        let Some(team_arc) = team_arc else {
-            return;
-        };
-        let Ok(team_guard) = team_arc.read() else {
+        let Some(team_id) = team_id else {
             return;
         };
         let Some(template) = TheThingFactory::find_template(laser_name) else {
@@ -1448,10 +1424,12 @@ impl Weapon {
         let Ok(factory) = TheThingFactory::get() else {
             return;
         };
-        let Ok(laser_arc) = factory.new_object(template, &team_guard) else {
+        let Ok(laser_arc) = crate::team::with_team(team_id, |team_guard| {
+            factory.new_object(template, team_guard)
+        })
+        .unwrap_or(Err("missing team".into())) else {
             return;
         };
-        let source_pos = *source_guard.get_position();
         let mut modules = Vec::new();
         {
             let Ok(mut laser_guard) = laser_arc.write() else {
@@ -1467,17 +1445,14 @@ impl Weapon {
                 modules = laser_guard.client_update_modules();
             }
         }
-        drop(source_guard);
 
         let mut end_pos = *victim_pos;
         if let Some(victim_id) = victim_id {
-            if let Some(victim) = TheGameLogic::find_object_by_id(victim_id) {
-                if let Ok(v) = victim.read() {
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object(victim_id, |v| {
                     if !v.is_kind_of(KindOf::Projectile) && !v.is_airborne_target() {
                         end_pos.z += 10.0;
                     }
-                }
-            }
+                });
         }
 
         for module in modules {
@@ -1506,19 +1481,18 @@ impl Weapon {
             return;
         }
 
-        let Some(requesting_arc) = TheGameLogic::find_object_by_id(requesting_object_id) else {
+        let Some((player_arc, template_name, request_dist_sqr, requesting_pos)) =
+            OBJECT_REGISTRY.with_object(requesting_object_id, |requesting_guard| {
+                let player_arc = requesting_guard.get_controlling_player()?;
+                let template_name = requesting_guard.get_template_name().to_string();
+                let request_dist_sqr = self.template.get_request_assist_range().powi(2);
+                let requesting_pos = *requesting_guard.get_position();
+                Some((player_arc, template_name, request_dist_sqr, requesting_pos))
+            })
+            .flatten()
+        else {
             return;
         };
-        let Ok(requesting_guard) = requesting_arc.read() else {
-            return;
-        };
-        let Some(player_arc) = requesting_guard.get_controlling_player() else {
-            return;
-        };
-        let template_name = requesting_guard.get_template_name().to_string();
-        let request_dist_sqr = self.template.get_request_assist_range().powi(2);
-        let requesting_pos = *requesting_guard.get_position();
-        drop(requesting_guard);
 
         let Ok(player_guard) = player_arc.read() else {
             return;
@@ -1865,8 +1839,7 @@ impl Snapshotable for Weapon {
         // C++ Weapon::loadPostProcess() from Weapon.cpp line 3447
         // Validates projectile stream ID after load
         if self.projectile_stream_id != INVALID_ID {
-            if crate::helpers::TheGameLogic::find_object_by_id(self.projectile_stream_id).is_none()
-            {
+            if !OBJECT_REGISTRY.contains(self.projectile_stream_id) {
                 self.projectile_stream_id = INVALID_ID;
             }
         }

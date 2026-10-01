@@ -168,7 +168,7 @@ impl GameLogic {
                         attacker.set_status_moving(false);
                     }
                 }
-                if let Some(attacker) = self.objects.get(&object_id) {
+                if let Some(attacker) = self.objects.get_mut(&object_id) {
                     let shooter_pos = attacker.get_position();
                     let slot = attacker.active_weapon_slot;
                     let weapon_damage = attacker
@@ -210,7 +210,8 @@ impl GameLogic {
                                 }
                             })
                             .unwrap_or(crate::game_logic::combat::DamageType::Bullet);
-                        super::super::combat::queue_projectile(super::super::combat::PendingProjectile {
+                        if let Some(pending) = super::super::combat::stage_projectile_for_object(
+                            super::super::combat::PendingProjectile {
                             shooter_id: object_id,
                             shooter_pos,
                             source_context: Some(super::super::combat::ProjectileLaunchContext {
@@ -298,7 +299,10 @@ impl GameLogic {
                 .map(crate::game_logic::weapon_bootstrap::host_die_on_detonate_for_weapon_name)
                 .unwrap_or(false),
 
-        });
+                            },
+                        ) {
+                            attacker.staged_projectiles.push(pending);
+                        }
                     }
                 }
                 let impact = self

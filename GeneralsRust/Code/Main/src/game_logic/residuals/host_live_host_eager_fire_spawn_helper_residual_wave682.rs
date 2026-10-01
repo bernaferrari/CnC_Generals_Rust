@@ -258,7 +258,6 @@ mod tests {
         let prev_s = std::env::var_os("GENERALS_GAMEWORLD_SHADOW");
         crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
         host_fire_spawn_log::clear();
-        combat::clear_pending_projectile_queue_for_test();
 
         let mut logic = GameLogic::new();
         logic.set_fire_spawn_authority(true);
@@ -273,7 +272,7 @@ mod tests {
 
         begin_shadow_coupled_tick();
         // Record deferred fire under authority (same as mid-frame combat).
-        combat::queue_projectile(sample_pending(shooter, target));
+        combat::queue_projectile(&mut logic.combat_system, sample_pending(shooter, target));
         assert_eq!(host_fire_spawn_log::len(), 1);
 
         let mut shadow = GameWorldShadow::new(64);
@@ -289,7 +288,6 @@ mod tests {
         assert_eq!(n2, 0);
         clear_active_shadow_for_coupled_tick();
         end_shadow_coupled_tick();
-        combat::clear_pending_projectile_queue_for_test();
 
         match prev_s {
             Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", v),

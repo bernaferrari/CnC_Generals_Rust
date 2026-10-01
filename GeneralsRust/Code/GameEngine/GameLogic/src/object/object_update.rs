@@ -380,16 +380,12 @@ impl Object {
     /// - Team and player must already be updated
     pub fn on_capture(
         &mut self,
-        old_owner: Option<Arc<RwLock<Player>>>,
-        new_owner: Option<Arc<RwLock<Player>>>,
+        old_owner: Option<PlayerIndex>,
+        new_owner: Option<PlayerIndex>,
     ) {
         // Everybody idles when captured so they don't keep doing something
         // the new player might not want them to be doing
-        let owners_differ = match (&old_owner, &new_owner) {
-            (Some(old), Some(new)) => !Arc::ptr_eq(old, new),
-            (None, None) => false,
-            _ => true,
-        };
+        let owners_differ = old_owner != new_owner;
 
         if owners_differ {
             if let Some(ai) = &self.ai {
@@ -398,14 +394,14 @@ impl Object {
             }
         }
 
-        self.on_capture_award_score(&new_owner);
+        self.on_capture_award_score(new_owner);
 
         // Rip through the behavior modules and call the onCapture for any modules that care
         log::debug!("Object {} notifying behavior modules of capture", self.id);
         for entry in &self.modules {
             entry.with_module(|module| {
                 if let Some(kind) = module_behavior_utility_kind(module) {
-                    kind.notify_capture(old_owner.as_ref(), new_owner.as_ref());
+                    kind.notify_capture(old_owner, new_owner);
                 }
             });
         }
@@ -415,7 +411,7 @@ impl Object {
         // owner (`&Object`); it is put straight back, preserving C++ order.
         let mut contain_module = self.contain.take();
         if let Some(contain) = contain_module.as_mut() {
-            if let Err(err) = contain.on_capture(self, old_owner.as_ref(), new_owner.as_ref()) {
+            if let Err(err) = contain.on_capture(self, old_owner, new_owner) {
                 log::warn!("Object {} contain on_capture failed: {}", self.id, err);
             }
             contain_notified = true;
@@ -427,11 +423,11 @@ impl Object {
         // preserving the notification order.
         let mut behaviors = std::mem::take(&mut self.behaviors);
         for behavior in behaviors.iter_mut() {
-            behavior.on_capture(old_owner.as_ref(), new_owner.as_ref());
+            behavior.on_capture(old_owner, new_owner);
             if !contain_notified {
                 if let Some(contain) = behavior.get_contain() {
                     if let Err(err) =
-                        contain.on_capture(self, old_owner.as_ref(), new_owner.as_ref())
+                        contain.on_capture(self, old_owner, new_owner)
                     {
                         log::warn!(
                             "Object {} behavior-backed contain on_capture failed: {}",
@@ -452,8 +448,8 @@ impl Object {
                     if let Some(upgrade) = super::module_upgrade_kind(module) {
                         upgrade.into_interface().on_capture(
                             self,
-                            old_owner.as_ref(),
-                            new_owner.as_ref(),
+                            old_owner,
+                            new_owner,
                         );
                     }
                 });
@@ -479,7 +475,7 @@ impl Object {
         log::debug!("Object {} marking UI dirty after capture", self.id);
         crate::control_bar::mark_ui_dirty();
 
-        self.on_capture_sell_ai_faction_building(owners_differ, &new_owner);
+        self.on_capture_sell_ai_faction_building(owners_differ, new_owner);
 
         log::debug!("Object {} on_capture processing complete", self.id);
     }

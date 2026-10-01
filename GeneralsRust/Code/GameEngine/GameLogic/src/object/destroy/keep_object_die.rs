@@ -89,13 +89,9 @@ pub struct KeepObjectDie {
 impl KeepObjectDie {
     /// Create a new KeepObjectDie module
     /// (matches C++ KeepObjectDie constructor)
-    pub fn new(object: Arc<RwLock<Object>>, module_data: Arc<KeepObjectDieModuleData>) -> Self {
+    pub fn new(object_id: ObjectID, module_data: Arc<KeepObjectDieModuleData>) -> Self {
         Self {
-            object_id: object
-                .read()
-                .ok()
-                .map(|g| g.get_id())
-                .unwrap_or(crate::common::INVALID_ID),
+            object_id,
             module_data,
         }
     }
@@ -110,13 +106,12 @@ impl KeepObjectDie {
         self.object_id
     }
 
-    fn get_object(&self) -> Option<Arc<RwLock<Object>>> {
+    fn get_object(&self) -> Option<ObjectID> {
         let id = self.get_object_id();
         if id == crate::common::INVALID_ID {
             return None;
         }
-        crate::helpers::TheGameLogic::find_object_by_id(id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(id))
+        Some(id)
     }
 }
 

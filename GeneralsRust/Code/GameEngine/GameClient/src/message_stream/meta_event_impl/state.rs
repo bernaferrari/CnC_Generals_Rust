@@ -232,24 +232,21 @@ fn format_extent_debug(geometry: &GeometryInfo) -> String {
 fn apply_extent_adjust_to_local_selection(spec: ExtentAdjustSpec) {
     // Wave 976: host empty dual-world still routes extent adjust through TheGameLogic IDs.
     for object_id in local_selection_object_ids() {
-        let Some(object_arc) = TheGameLogic::find_object_by_id(object_id) else {
-            continue;
-        };
-        let Ok(mut object) = object_arc.write() else {
-            continue;
-        };
-
-        let old_geometry = object.get_geometry_info().clone();
-        let mut new_geometry = old_geometry.clone();
-        apply_extent_adjust(&mut new_geometry, spec);
-        object.set_geometry_info(new_geometry.clone());
-
-        TheInGameUI::message(&format!(
-            "Extent {} --> {}   {} {}",
-            format_extent_debug(&old_geometry),
-            format_extent_debug(&new_geometry),
-            geometry_extent_mod_type_code(spec.axis),
-            spec.amount
-        ));
+        let message = OBJECT_REGISTRY.with_object_mut(object_id, |object| {
+            let old_geometry = object.get_geometry_info().clone();
+            let mut new_geometry = old_geometry.clone();
+            apply_extent_adjust(&mut new_geometry, spec);
+            object.set_geometry_info(new_geometry.clone());
+            format!(
+                "Extent {} --> {}   {} {}",
+                format_extent_debug(&old_geometry),
+                format_extent_debug(&new_geometry),
+                geometry_extent_mod_type_code(spec.axis),
+                spec.amount
+            )
+        });
+        if let Some(message) = message {
+            TheInGameUI::message(&message);
+        }
     }
 }

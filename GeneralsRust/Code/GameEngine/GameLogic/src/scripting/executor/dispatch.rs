@@ -4,6 +4,7 @@
 //! Observable script behavior is unchanged.
 
 use super::*;
+use crate::object::registry::OBJECT_REGISTRY;
 
 impl ScriptActionDispatcher {
     pub(crate) fn resolve_player_name_token(&self, raw: &str) -> String {
@@ -996,33 +997,27 @@ impl ScriptActionDispatcher {
     pub(crate) fn compute_team_center_and_first(
         &self,
         team_arc: &Arc<RwLock<crate::team::Team>>,
-    ) -> Option<(Coord3D, Arc<RwLock<crate::object::Object>>)> {
+    ) -> Option<(Coord3D, crate::object::ObjectID)> {
         let team_guard = team_arc.read().ok()?;
         let members = team_guard.get_members();
         let mut sum = Coord3D::new(0.0, 0.0, 0.0);
         let mut count = 0.0;
-        let mut first_unit: Option<Arc<RwLock<crate::object::Object>>> = None;
+        let mut first_unit: Option<crate::object::ObjectID> = None;
 
         for &member_id in members {
-            let Some(obj_arc) = TheGameLogic::find_object_by_id(member_id) else {
+            let Some(pos) = OBJECT_REGISTRY.with_object(member_id, |obj| *obj.get_position()) else {
                 continue;
             };
-            let Ok(obj_guard) = obj_arc.read() else {
-                continue;
-            };
-            let pos = obj_guard.get_position();
             sum.x += pos.x;
             sum.y += pos.y;
             sum.z += pos.z;
             count += 1.0;
             if first_unit.is_none() {
-                first_unit = Some(obj_arc.clone());
+                first_unit = Some(member_id);
             }
         }
 
-        let Some(first_unit) = first_unit else {
-            return None;
-        };
+        let first_unit = first_unit?;
         if count == 0.0 {
             return None;
         }
@@ -1047,12 +1042,16 @@ impl ScriptActionDispatcher {
     pub(crate) fn check_bridges_for_waypoint(
         &self,
         player_id: u32,
-        unit: &Arc<RwLock<crate::object::Object>>,
+        unit_id: crate::object::ObjectID,
         start_waypoint_id: crate::common::WaypointID,
     ) {
+        // AIPlayer::check_bridges still takes an object Arc (AI crate).
+        let Some(unit) = OBJECT_REGISTRY.get_object(unit_id) else {
+            return;
+        };
         let _ = with_ai_integration_mut(|manager| {
             manager.with_ai_player_mut(player_id, |ai_player| {
-                ai_player.check_bridges(unit, start_waypoint_id);
+                ai_player.check_bridges(&unit, start_waypoint_id);
             })
         });
     }
@@ -1418,11 +1417,9 @@ impl ScriptActionDispatcher {
                 let _ = tracker.unregister_object(old_object_id);
             }
 
-            if let Some(obj_arc) = TheGameLogic::find_object_by_id(object_id) {
-                if let Ok(mut obj) = obj_arc.write() {
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(object_id, |obj| {
                     obj.set_name(AsciiString::from(unit_name));
-                }
-            }
+                });
 
             if let Err(err) = tracker.register_named_object(unit_name.to_string(), object_id) {
                 log::warn!(
@@ -1459,7 +1456,7 @@ impl ScriptActionDispatcher {
 
         if let Ok(mut group_guard) = group.write() {
             for member_id in members {
-                if TheGameLogic::find_object_by_id(member_id).is_some() {
+                if OBJECT_REGISTRY.with_object(member_id, |_| ()).is_some() {
                     group_guard.add(member_id);
                 }
             }
@@ -1486,20 +1483,17 @@ impl ScriptActionDispatcher {
         if let Ok(mut factory) = get_team_factory().lock() {
             if let Some(team_arc) = factory.find_team(&team_name) {
                 if let Ok(team) = team_arc.read() {
-                    let object_manager = get_object_manager();
-                    if let Ok(obj_manager) = object_manager.read() {
-                        for obj_id in team.get_members() {
-                            if let Some(obj) = obj_manager.get_object(*obj_id) {
-                                if let Ok(obj_read) = obj.read() {
-                                    if let Some(ai) = obj_read.get_ai_update_interface() {
-                                        if let Ok(mut ai_write) = ai.lock() {
-                                            let _ = ai_write.execute_command(params);
-                                        }
-                                    }
+                    let members: Vec<_> = team.get_members().to_vec();
+                    drop(team);
+                    for obj_id in members {
+                        let _ = OBJECT_REGISTRY.with_object(obj_id, |obj| {
+                            if let Some(ai) = obj.get_ai_update_interface() {
+                                if let Ok(mut ai_write) = ai.lock() {
+                                    let _ = ai_write.execute_command(params);
                                 }
                             }
-                        }
-                    };
+                        });
+                    }
                 }
             } else {
                 return Err(ScriptError::TeamNotFound(team_name.to_string()));
@@ -1511,17 +1505,15 @@ impl ScriptActionDispatcher {
 
     /// Get object by ID from ObjectManager
     #[allow(dead_code)] // C++ parity: script engine helper, will be wired to script actions
-    pub(crate) fn get_object_by_id(
-        &self,
-        object_id: u32,
-    ) -> Result<Arc<RwLock<crate::object::Object>>, ScriptError> {
-        let obj_mgr = get_object_manager();
-        let obj_mgr_guard = obj_mgr.read().map_err(|_| {
-            ScriptError::ExecutionFailed("Failed to lock object manager".to_string())
-        })?;
-        obj_mgr_guard
-            .with_object(object_id, |instance| instance.base())
-            .ok_or_else(|| ScriptError::ObjectNotFound(format!("Object {} not found", object_id)))
+    pub(crate) fn get_object_by_id(&self, object_id: u32) -> Result<u32, ScriptError> {
+        if OBJECT_REGISTRY.with_object(object_id, |_| ()).is_some() {
+            Ok(object_id)
+        } else {
+            Err(ScriptError::ObjectNotFound(format!(
+                "Object {} not found",
+                object_id
+            )))
+        }
     }
 
     /// Get waypoint position from terrain logic
@@ -1614,26 +1606,31 @@ impl ScriptActionDispatcher {
             .map_err(|_| ScriptError::ExecutionFailed("Failed to read team".to_string()))?;
 
         for obj_id in members {
-            let Some(obj_arc) = TheGameLogic::find_object_by_id(obj_id) else {
-                continue;
-            };
-            let Ok(obj_guard) = obj_arc.read() else {
-                continue;
-            };
-
-            let Some(is_ready) = super::eval_skirmish::leftover_command_button_ready_for_object(
-                &obj_guard,
-                command_button,
-            ) else {
-                continue;
-            };
-
-            if is_ready {
-                if !all_ready {
-                    return Ok(true);
+            {
+                enum _ObjFlow<T> { Cont, Ret(T), Fall }
+                let _flow = OBJECT_REGISTRY.with_object(obj_id, |obj_guard| {
+                    
+                    let Some(is_ready) = super::eval_skirmish::leftover_command_button_ready_for_object(
+                        &obj_guard,
+                        command_button,
+                    ) else {
+                        return _ObjFlow::Cont;
+                    };
+                    
+                    if is_ready {
+                        if !all_ready {
+                            return _ObjFlow::Ret(Ok(true));
+                        }
+                    } else if all_ready {
+                        return _ObjFlow::Ret(Ok(false));
+                    }
+                    _ObjFlow::Fall
+                });
+                match _flow {
+                    None | Some(_ObjFlow::Cont) => continue,
+                    Some(_ObjFlow::Ret(v)) => return v,
+                    Some(_ObjFlow::Fall) => {}
                 }
-            } else if all_ready {
-                return Ok(false);
             }
         }
 

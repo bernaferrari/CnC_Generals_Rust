@@ -153,14 +153,14 @@ fn team_in_queue_drop_activates_like_cpp() {
     assert!(
         src.contains("impl Drop for TeamInQueue")
             && src.contains("tg.set_active()")
-            && src.contains("self.team = None"),
+            && src.contains("self.team_id = None"),
         "TeamInQueue Drop must setActive; disband must null m_team"
     );
     // disband path nulls team before Drop
     let i = src.find("pub fn disband(&mut self)").expect("disband");
     let w = &src[i..src.len().min(i + 3500)];
     assert!(
-        w.contains("self.team = None"),
+        w.contains("self.team_id = None"),
         "disband must clear team handle like C++ m_team = NULL"
     );
 }
@@ -169,13 +169,13 @@ fn team_in_queue_drop_activates_like_cpp() {
 fn team_in_queue_stores_team_handle_like_cpp() {
     let src = crate::ai::ai_player::AI_PLAYER_SRC;
     assert!(
-        src.contains("pub team: Option<Arc<RwLock<crate::team::Team>>>"),
+        src.contains("pub team_id: Option<crate::team::TeamID>"),
         "TeamInQueue must hold m_team handle"
     );
     let i = src.find("pub fn build_specific_ai_team").expect("bst");
     let w = &src[i..src.len().min(i + 9000)];
     assert!(
-        w.contains("team.team = Some(team_arc)"),
+        w.contains("team.team_id = Some("),
         "buildSpecificAITeam must stamp TeamInQueue.m_team"
     );
     let j = src.find("pub(crate) fn check_ready_teams").expect("ready");
@@ -189,7 +189,7 @@ fn team_in_queue_stores_team_handle_like_cpp() {
         .expect("queued");
     let qw = &src[k..src.len().min(k + 6500)];
     assert!(
-        qw.contains("tq.team.as_ref()")
+        qw.contains("tq.team_id")
             && qw.contains("tg.get_members()")
             && qw.contains("aig.is_idle()"),
         "checkQueuedTeams anyIdle must walk m_team members"
@@ -364,7 +364,7 @@ fn is_a_good_idea_checks_m_team_handle_like_cpp() {
         .expect("is_a_good_idea");
     let w = &src[i..src.len().min(i + 2200)];
     assert!(
-        w.contains("q.team.as_ref()")
+        w.contains("q.team_id")
             && w.contains("tg.get_name()")
             && w.contains("team_build_queue.iter()"),
         "isAGoodIdeaToBuildTeam must reject queue entries by m_team prototype, not only team_name"
@@ -759,9 +759,9 @@ fn queue_units_prefers_m_team_handle() {
         .expect("queue_units");
     let window = &src[i..src.len().min(i + 4500)];
     assert!(
-        window.contains("team_q.team.is_none()")
-            && window.contains("team_q.team.clone()")
-            && window.contains("queue_units_home_for_team(team_arc.as_ref()")
+        window.contains("team_q.team_id.is_none()")
+            && window.contains("team_q.team_id")
+            && window.contains("queue_units_home_for_team(team_id")
             && window.contains("start_training_internal(order, busy_ok, train_name.as_str())"),
         "queueUnits must recruit/train via TeamInQueue.m_team"
     );
@@ -1863,7 +1863,7 @@ fn select_team_to_reinforce_auto_cpp_surface() {
             && window.contains("self.team_delay = 0")
             && window.contains("find_factory_internal")
             && window.contains("order.num_required = 1")
-            && window.contains("q.team.as_ref()")
+            && window.contains("q.team_id")
             && window.contains("has_home_location")
             && window.contains("get_members().first()"),
         "select_team_to_reinforce must match C++ busy-by-handle + home/member origin"

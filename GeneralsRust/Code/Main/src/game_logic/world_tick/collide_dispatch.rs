@@ -123,6 +123,170 @@ pub fn host_geom_collides(a: &Object, b: &Object) -> Option<(glam::Vec3, glam::V
     ))
 }
 
+/// Registry-owned collide partner. The object stays in the map until a
+/// `with_object` call checks it out, so `handle_collision` can re-enter other ids.
+struct RegistryCollideObject {
+    id: u32,
+}
+
+impl gamelogic::object::collide::GameObject for RegistryCollideObject {
+    fn get_id(&self) -> u32 {
+        self.id
+    }
+
+    fn get_position(&self) -> gamelogic::common::Coord3D {
+        gamelogic::object::registry::OBJECT_REGISTRY
+            .with_object(self.id, |obj| *obj.get_position())
+            .unwrap_or(gamelogic::common::Coord3D::ZERO)
+    }
+
+    fn get_orientation(&self) -> f32 {
+        gamelogic::object::registry::OBJECT_REGISTRY
+            .with_object(self.id, |obj| obj.get_orientation())
+            .unwrap_or(0.0)
+    }
+
+    fn get_controlling_player(&self) -> gamelogic::common::PlayerId {
+        gamelogic::object::registry::OBJECT_REGISTRY
+            .with_object(self.id, |obj| obj.get_player_id())
+            .flatten()
+            .unwrap_or(gamelogic::common::PlayerId::NEUTRAL)
+    }
+
+    fn get_veterancy_level(&self) -> gamelogic::common::VeterancyLevel {
+        gamelogic::object::registry::OBJECT_REGISTRY
+            .with_object(self.id, |obj| obj.get_veterancy_level())
+            .unwrap_or(gamelogic::common::VeterancyLevel::Regular)
+    }
+
+    fn get_relationship(
+        &self,
+        other: &dyn gamelogic::object::collide::GameObject,
+    ) -> gamelogic::common::Relationship {
+        use gamelogic::common::Relationship;
+        if other.get_id() == self.id {
+            return Relationship::Allies;
+        }
+        if let Some(handle) = other.as_object_handle() {
+            return gamelogic::object::registry::OBJECT_REGISTRY
+                .with_object(self.id, |this| {
+                    handle
+                        .read()
+                        .ok()
+                        .map(|other_obj| this.relationship_to(&other_obj))
+                })
+                .flatten()
+                .unwrap_or(Relationship::Neutral);
+        }
+        let other_id = other.get_id();
+        gamelogic::object::registry::OBJECT_REGISTRY
+            .with_object(self.id, |this| {
+                gamelogic::object::registry::OBJECT_REGISTRY
+                    .with_object(other_id, |other_obj| this.relationship_to(other_obj))
+            })
+            .flatten()
+            .unwrap_or(Relationship::Neutral)
+    }
+
+    fn get_crusher_level(&self) -> u32 {
+        gamelogic::object::registry::OBJECT_REGISTRY
+            .with_object(self.id, |obj| obj.get_crusher_level())
+            .unwrap_or(0)
+    }
+
+    fn is_effectively_dead(&self) -> bool {
+        gamelogic::object::registry::OBJECT_REGISTRY
+            .with_object(self.id, |obj| obj.is_effectively_dead())
+            .unwrap_or(true)
+    }
+
+    fn is_significantly_above_terrain(&self) -> bool {
+        gamelogic::object::registry::OBJECT_REGISTRY
+            .with_object(self.id, |obj| obj.is_significantly_above_terrain())
+            .unwrap_or(false)
+    }
+
+    fn is_using_airborne_locomotor(&self) -> bool {
+        gamelogic::object::registry::OBJECT_REGISTRY
+            .with_object(self.id, |obj| obj.is_using_airborne_locomotor())
+            .unwrap_or(false)
+    }
+
+    fn get_status_bits(&self) -> gamelogic::object::collide::ObjectStatusMask {
+        gamelogic::object::registry::OBJECT_REGISTRY
+            .with_object(self.id, |obj| {
+                gamelogic::object::collide::ObjectStatusMask(obj.get_status_bits().bits() as u64)
+            })
+            .unwrap_or_else(gamelogic::object::collide::ObjectStatusMask::empty)
+    }
+
+    fn attempt_damage(
+        &mut self,
+        damage: &gamelogic::object::collide::DamageInfo,
+    ) -> Result<(), String> {
+        let applied = gamelogic::object::registry::OBJECT_REGISTRY.with_object_mut(self.id, |obj| {
+            let mut packet = gamelogic::damage::DamageInfo::with_simple(
+                damage.amount,
+                damage.source_id,
+                damage.damage_type.into(),
+                damage.death_type.into(),
+            );
+            obj.attempt_damage(&mut packet)
+                .map_err(|err| err.to_string())
+        });
+        applied.unwrap_or_else(|| Err("registry object unavailable for damage".to_string()))
+    }
+
+    fn set_undetected_defector(&mut self, value: bool) {
+        let _ = gamelogic::object::registry::OBJECT_REGISTRY.with_object_mut(self.id, |obj| {
+            obj.set_undetected_defector(value);
+        });
+    }
+
+    fn set_status(&self, mask: gamelogic::object::collide::ObjectStatusMask, set: bool) {
+        let _ = gamelogic::object::registry::OBJECT_REGISTRY.with_object_mut(self.id, |obj| {
+            let bitmask = gamelogic::common::ObjectStatusMaskType::from_bits_truncate(mask.0);
+            obj.set_status(bitmask, set);
+        });
+    }
+}
+
+fn object_is_dead(id: u32) -> bool {
+    use gamelogic::object::registry::OBJECT_REGISTRY;
+    if let Some(dead) = OBJECT_REGISTRY.with_object(id, |o| o.is_destroyed() || o.is_effectively_dead())
+    {
+        return dead;
+    }
+    gamelogic::helpers::TheGameLogic::find_object_by_id(id)
+        .and_then(|obj| obj.read().ok())
+        .is_some_and(|guard| guard.is_destroyed() || guard.is_effectively_dead())
+}
+
+fn dispatch_one_collide(
+    primary: u32,
+    other: u32,
+    loc: &gamelogic::object::collide::Coord3D,
+    normal: &gamelogic::object::collide::Coord3D,
+) {
+    use gamelogic::object::collide::{COLLISION_MANAGER, GameObject};
+    use gamelogic::object::registry::OBJECT_REGISTRY;
+
+    // `contains` is also true for the legacy GameLogic roster. Only an owned
+    // checkout can back `RegistryCollideObject`.
+    if OBJECT_REGISTRY.with_object(other, |_| ()).is_some() {
+        let handle = RegistryCollideObject { id: other };
+        let _ =
+            COLLISION_MANAGER.handle_collision(primary, Some(&handle as &dyn GameObject), loc, normal);
+        return;
+    }
+    if let Some(handle) = gamelogic::helpers::TheGameLogic::find_object_by_id(other) {
+        let _ =
+            COLLISION_MANAGER.handle_collision(primary, Some(&handle as &dyn GameObject), loc, normal);
+        return;
+    }
+    let _ = COLLISION_MANAGER.handle_collision(primary, None, loc, normal);
+}
+
 /// C++ `Object::onCollide` / `COLLISION_MANAGER.handle_collision` on both sides.
 ///
 /// `wouldLikeToCollideWith` is **not** a gate (C++ `processContactList`).
@@ -132,51 +296,18 @@ pub fn dispatch_collide_modules(
     loc: glam::Vec3,
     normal: glam::Vec3,
 ) {
-    use gamelogic::object::collide::{COLLISION_MANAGER, Coord3D, GameObject};
-    use gamelogic::object::registry::OBJECT_REGISTRY;
-
+    use gamelogic::object::collide::Coord3D;
     let collide_loc = Coord3D::new(loc.x, loc.z, loc.y);
     let collide_n = Coord3D::new(normal.x, normal.z, normal.y);
     let inv_n = Coord3D::new(-collide_n.x, -collide_n.y, -collide_n.z);
 
-    let other_b = OBJECT_REGISTRY
-        .get_object(b_id.0)
-        .or_else(|| gamelogic::helpers::TheGameLogic::find_object_by_id(b_id.0));
-    let other_a = OBJECT_REGISTRY
-        .get_object(a_id.0)
-        .or_else(|| gamelogic::helpers::TheGameLogic::find_object_by_id(a_id.0));
+    dispatch_one_collide(a_id.0, b_id.0, &collide_loc, &collide_n);
 
-    if let Some(handle) = &other_b {
-        let _ = COLLISION_MANAGER.handle_collision(
-            a_id.0,
-            Some(handle as &dyn GameObject),
-            &collide_loc,
-            &collide_n,
-        );
-    } else {
-        let _ = COLLISION_MANAGER.handle_collision(a_id.0, None, &collide_loc, &collide_n);
-    }
-
-    let a_dead = OBJECT_REGISTRY
-        .with_object(a_id.0, |o| o.is_destroyed() || o.is_effectively_dead())
-        .unwrap_or(false);
-    let b_dead = OBJECT_REGISTRY
-        .with_object(b_id.0, |o| o.is_destroyed() || o.is_effectively_dead())
-        .unwrap_or(false);
-    if a_dead || b_dead {
+    if object_is_dead(a_id.0) || object_is_dead(b_id.0) {
         return;
     }
 
-    if let Some(handle) = &other_a {
-        let _ = COLLISION_MANAGER.handle_collision(
-            b_id.0,
-            Some(handle as &dyn GameObject),
-            &collide_loc,
-            &inv_n,
-        );
-    } else {
-        let _ = COLLISION_MANAGER.handle_collision(b_id.0, None, &collide_loc, &inv_n);
-    }
+    dispatch_one_collide(b_id.0, a_id.0, &collide_loc, &inv_n);
 }
 
 /// C++ `FireWeaponCollideModuleData` residual on a live host object.

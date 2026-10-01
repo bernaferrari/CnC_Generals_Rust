@@ -162,9 +162,7 @@ impl A10StrikePower {
         let owner_id = self
             .resolve_owner_object_id()
             .ok_or_else(|| "A10 strike requires an owning object".to_string())?;
-        let owner = self
-            .resolve_owner_object()
-            .ok_or_else(|| "A10 strike requires an owning object".to_string())?;
+
 
         let mut target_coord = targeting.position;
         if self.data.adjust_position_to_passable {
@@ -187,55 +185,32 @@ impl A10StrikePower {
         let owner_pos = crate::object::registry::OBJECT_REGISTRY
             .with_object(owner_id, |guard| *guard.get_position())
             .unwrap_or(target_coord);
-        let owner_guard = owner
-            .read()
-            .map_err(|_| "A10 strike owner lock poisoned".to_string())?;
-
-        let creation_coord = match self.data.create_loc {
-            OclCreateLocType::CreateAtEdgeNearSource => TheTerrainLogic::get()
-                .map(|terrain| terrain.find_closest_edge_point(&owner_pos))
-                .unwrap_or(owner_pos),
-            OclCreateLocType::CreateAtEdgeNearTarget => TheTerrainLogic::get()
-                .map(|terrain| terrain.find_closest_edge_point(&target_coord))
-                .unwrap_or(target_coord),
-            OclCreateLocType::CreateAtEdgeFarthestFromTarget => {
-                let mut coord = TheTerrainLogic::get()
-                    .map(|terrain| terrain.find_farthest_edge_point(&target_coord))
-                    .unwrap_or(target_coord);
-                coord.z += CREATE_ABOVE_LOCATION_HEIGHT;
-                coord
-            }
-            OclCreateLocType::CreateAtLocation => target_coord,
-            OclCreateLocType::UseOwnerObject => target_coord,
-            OclCreateLocType::CreateAboveLocation => {
-                let mut coord = target_coord;
-                coord.z += CREATE_ABOVE_LOCATION_HEIGHT;
-                coord
-            }
-        };
-
-        let ctx = live_creation_context();
         let create_owner = self.data.create_loc != OclCreateLocType::UseOwnerObject;
-        let created = if create_owner {
-            ocl.create_with_angle(
-                &ctx,
-                Some(&*owner_guard),
-                &creation_coord,
-                &target_coord,
-                0.0,
-                0,
-            )
-        } else {
-            ocl.create_with_angle_and_owner_flag(
-                &ctx,
-                Some(&*owner_guard),
-                &creation_coord,
-                &target_coord,
-                0.0,
-                false,
-                0,
-            )
-        };
+        let ctx = live_creation_context();
+        let created = self
+            .with_owner(|owner_guard| {
+                if create_owner {
+                    ocl.create_with_angle(
+                        &ctx,
+                        Some(owner_guard),
+                        &creation_coord,
+                        &target_coord,
+                        0.0,
+                        0,
+                    )
+                } else {
+                    ocl.create_with_angle_and_owner_flag(
+                        &ctx,
+                        Some(owner_guard),
+                        &creation_coord,
+                        &target_coord,
+                        0.0,
+                        false,
+                        0,
+                    )
+                }
+            })
+            .ok_or_else(|| "A10 strike requires an owning object".to_string())?;
 
         if let Some(obj) = created {
             if let Ok(guard) = obj.read() {
@@ -346,10 +321,11 @@ impl A10StrikePower {
         &self.active_aircraft
     }
 
-    fn resolve_owner_object(&self) -> Option<Arc<RwLock<crate::object::Object>>> {
-        crate::special_power_module::resolve_special_power_owner(
+    fn with_owner<R>(&self, f: impl FnOnce(&crate::object::Object) -> R) -> Option<R> {
+        crate::special_power_module::with_special_power_owner(
             self.owner_object_id,
             self.owner_player_id,
+            f,
         )
     }
 
@@ -399,13 +375,12 @@ impl A10StrikePower {
         // When object system is integrated:
         // let mut all_complete = true;
         // for &aircraft_id in &self.active_aircraft {
-        //     if let Some(aircraft) = crate::helpers::TheGameLogic::find_object_by_id(aircraft_id) {
-        //         if let Ok(aircraft_read) = aircraft.read() {
-        //             if !aircraft_read.is_destroyed() && aircraft_read.has_pending_attacks() {
-        //                 all_complete = false;
-        //                 break;
-        //             }
-        //         }
+        //     let pending = OBJECT_REGISTRY.with_object(aircraft_id, |aircraft| {
+        //         !aircraft.is_destroyed() && aircraft.has_pending_attacks()
+        //     });
+        //     if pending.unwrap_or(false) {
+        //         all_complete = false;
+        //         break;
         //     }
         // }
         // if all_complete {
@@ -502,10 +477,9 @@ mod tests {
     use crate::object::registry::OBJECT_REGISTRY;
     use std::sync::{Arc, RwLock};
 
-    fn register_test_owner(owner_id: ObjectID) -> Arc<RwLock<Object>> {
+    fn register_test_owner(owner_id: ObjectID) {
         let owner = Arc::new(RwLock::new(Object::new_test(owner_id, 100.0)));
         OBJECT_REGISTRY.register_object(owner_id, &owner);
-        owner
     }
 
     #[test]

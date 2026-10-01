@@ -325,99 +325,99 @@ fn leftover_append_can_make_and_overcharge(
         );
         return;
     };
-    let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) else {
-        leftover_append_presentation_can_make(
-            description,
-            command_button,
-            presentation_can_make_status,
-        );
-        return;
-    };
-    let Ok(obj) = obj_arc.read() else {
-        return;
-    };
-    if command_button
-        .command
-        .eq_ignore_ascii_case("TOGGLE_OVERCHARGE")
-    {
-        let active = obj
-            .with_overcharge_behavior_interface(|overcharge| overcharge.is_overcharge_active())
-            .unwrap_or(false);
-        leftover_append_line(
-            description,
-            &GameText::fetch(if active {
-                "TOOLTIP:TooltipNukeReactorOverChargeIsOn"
-            } else {
-                "TOOLTIP:TooltipNukeReactorOverChargeIsOff"
-            }),
-        );
-        return;
-    }
-    if !command_button.object.is_empty() {
-        if let Some(template) = TheThingFactory::find_template(&command_button.object) {
-            match can_make_unit_for_place(&obj, template.as_ref(), None) {
-                BuildCanMakeType::NoMoney => leftover_append_line(
-                    description,
-                    &format!(
-                        "\n{}",
-                        GameText::fetch("TOOLTIP:TooltipNotEnoughMoneyToBuild")
+    if OBJECT_REGISTRY
+        .with_object(obj_id, |obj| {
+        if command_button
+            .command
+            .eq_ignore_ascii_case("TOGGLE_OVERCHARGE")
+        {
+            let active = obj
+                .with_overcharge_behavior_interface(|overcharge| overcharge.is_overcharge_active())
+                .unwrap_or(false);
+            leftover_append_line(
+                description,
+                &GameText::fetch(if active {
+                    "TOOLTIP:TooltipNukeReactorOverChargeIsOn"
+                } else {
+                    "TOOLTIP:TooltipNukeReactorOverChargeIsOff"
+                }),
+            );
+            return;
+        }
+        if !command_button.object.is_empty() {
+            if let Some(template) = TheThingFactory::find_template(&command_button.object) {
+                match can_make_unit_for_place(obj, template.as_ref(), None) {
+                    BuildCanMakeType::NoMoney => leftover_append_line(
+                        description,
+                        &format!(
+                            "\n{}",
+                            GameText::fetch("TOOLTIP:TooltipNotEnoughMoneyToBuild")
+                        ),
                     ),
-                ),
-                BuildCanMakeType::QueueFull => leftover_append_line(
+                    BuildCanMakeType::QueueFull => leftover_append_line(
+                        description,
+                        &format!(
+                            "\n{}",
+                            GameText::fetch("TOOLTIP:TooltipCannotPurchaseBecauseQueueFull")
+                        ),
+                    ),
+                    BuildCanMakeType::ParkingPlacesFull => leftover_append_line(
+                        description,
+                        &format!(
+                            "\n{}",
+                            GameText::fetch("TOOLTIP:TooltipCannotBuildUnitBecauseParkingFull")
+                        ),
+                    ),
+                    BuildCanMakeType::MaxedOutForPlayer => {
+                        let key = if template.is_kind_of(gamelogic::common::types::KindOf::Structure) {
+                            "TOOLTIP:TooltipCannotBuildBuildingBecauseMaximumNumber"
+                        } else {
+                            "TOOLTIP:TooltipCannotBuildUnitBecauseMaximumNumber"
+                        };
+                        leftover_append_line(description, &format!("\n{}", GameText::fetch(key)));
+                    }
+                    _ => {}
+                }
+            }
+        } else if !command_button.upgrade.is_empty()
+            && (command_button
+                .command
+                .eq_ignore_ascii_case("PLAYER_UPGRADE")
+                || command_button
+                    .command
+                    .eq_ignore_ascii_case("OBJECT_UPGRADE"))
+        {
+            let queue_full = leftover_production_count_for_obj(obj)
+                .is_some_and(|count| count == MAX_BUILD_QUEUE_BUTTONS);
+            if queue_full {
+                leftover_append_line(
                     description,
                     &format!(
                         "\n{}",
                         GameText::fetch("TOOLTIP:TooltipCannotPurchaseBecauseQueueFull")
                     ),
-                ),
-                BuildCanMakeType::ParkingPlacesFull => leftover_append_line(
+                );
+            } else if !player
+                .get_money()
+                .can_afford(leftover_upgrade_cost(&command_button.upgrade))
+            {
+                leftover_append_line(
                     description,
                     &format!(
                         "\n{}",
-                        GameText::fetch("TOOLTIP:TooltipCannotBuildUnitBecauseParkingFull")
+                        GameText::fetch("TOOLTIP:TooltipNotEnoughMoneyToBuild")
                     ),
-                ),
-                BuildCanMakeType::MaxedOutForPlayer => {
-                    let key = if template.is_kind_of(gamelogic::common::types::KindOf::Structure) {
-                        "TOOLTIP:TooltipCannotBuildBuildingBecauseMaximumNumber"
-                    } else {
-                        "TOOLTIP:TooltipCannotBuildUnitBecauseMaximumNumber"
-                    };
-                    leftover_append_line(description, &format!("\n{}", GameText::fetch(key)));
-                }
-                _ => {}
+                );
             }
         }
-    } else if !command_button.upgrade.is_empty()
-        && (command_button
-            .command
-            .eq_ignore_ascii_case("PLAYER_UPGRADE")
-            || command_button
-                .command
-                .eq_ignore_ascii_case("OBJECT_UPGRADE"))
+        })
+        .is_none()
     {
-        let queue_full = leftover_production_count_for_obj(&obj)
-            .is_some_and(|count| count == MAX_BUILD_QUEUE_BUTTONS);
-        if queue_full {
-            leftover_append_line(
-                description,
-                &format!(
-                    "\n{}",
-                    GameText::fetch("TOOLTIP:TooltipCannotPurchaseBecauseQueueFull")
-                ),
-            );
-        } else if !player
-            .get_money()
-            .can_afford(leftover_upgrade_cost(&command_button.upgrade))
-        {
-            leftover_append_line(
-                description,
-                &format!(
-                    "\n{}",
-                    GameText::fetch("TOOLTIP:TooltipNotEnoughMoneyToBuild")
-                ),
-            );
-        }
+        leftover_append_presentation_can_make(
+            description,
+            command_button,
+            presentation_can_make_status,
+        );
     }
 }
 

@@ -150,11 +150,9 @@ impl AIPlayer {
 
         // C++: team->m_team->getPrototype() == proto (busy building this prototype).
         if self.team_build_queue.iter().any(|q| {
-            if let Some(team_arc) = q.team.as_ref() {
-                if let Ok(tg) = team_arc.read() {
-                    if tg.get_name().as_str() == team_name {
-                        return true;
-                    }
+            if let Some(team_id) = q.team_id {
+                if crate::team::with_team(team_id, |tg| tg.get_name().as_str() == team_name).unwrap_or(false) {
+                    return true;
                 }
             }
             q.team_name
@@ -336,11 +334,8 @@ impl AIPlayer {
             if let Ok(list) = player_list().read() {
                 if let Some(player_arc) = list.get_player(self.player_id as i32) {
                     if let Ok(pg) = player_arc.read() {
-                        if let Some(dt) = pg.get_default_team() {
-                            if let Ok(tg) = dt.read() {
-                                team.team_name = Some(tg.get_name().to_string());
-                            }
-                            team.team = Some(dt);
+                        if let Some(dt) = pg.get_default_team_id() {
+                            team.team_id = Some(dt);
                         }
                     }
                 }
@@ -442,14 +437,12 @@ impl AIPlayer {
     ///
     /// Drop TeamInQueue entries whose `m_team` is the deleted instance (pointer
     /// identity). Name match is fallback for legacy/xfer entries without handle.
-    pub fn ai_pre_team_destroy(&mut self, deleted: &Arc<RwLock<crate::team::Team>>) {
-        let deleted_name = deleted.read().ok().map(|g| g.get_name().to_string());
+    pub fn ai_pre_team_destroy(&mut self, deleted: crate::team::TeamID) {
+        let deleted_name = crate::team::with_team(deleted, |g| g.get_name().to_string());
         let keep = |q: &TeamInQueue| -> bool {
-            if let Some(ref qt) = q.team {
-                // C++: team->m_team == deletedTeam
-                return !Arc::ptr_eq(qt, deleted);
+            if let Some(qt) = q.team_id {
+                return qt != deleted;
             }
-            // Fallback: name compare when m_team missing.
             if let (Some(ref dn), Some(ref qn)) = (deleted_name.as_ref(), q.team_name.as_ref()) {
                 return qn != dn;
             }
@@ -467,10 +460,9 @@ impl AIPlayer {
                 .map(|name| name != team_name)
                 .unwrap_or(true)
                 && team
-                    .team
-                    .as_ref()
-                    .and_then(|a| a.read().ok())
-                    .map(|g| g.get_name().as_str() != team_name)
+                    .team_id
+                    .and_then(|id| crate::team::with_team(id, |g| g.get_name()))
+                    .map(|name| name.as_str() != team_name)
                     .unwrap_or(true)
         });
         self.team_ready_queue.retain(|team| {
@@ -479,10 +471,9 @@ impl AIPlayer {
                 .map(|name| name != team_name)
                 .unwrap_or(true)
                 && team
-                    .team
-                    .as_ref()
-                    .and_then(|a| a.read().ok())
-                    .map(|g| g.get_name().as_str() != team_name)
+                    .team_id
+                    .and_then(|id| crate::team::with_team(id, |g| g.get_name()))
+                    .map(|name| name.as_str() != team_name)
                     .unwrap_or(true)
         });
     }
@@ -507,9 +498,7 @@ impl AIPlayer {
             warehouse_id = self.attacked_supply_center;
         }
         if warehouse_id.is_none() {
-            warehouse_id = self
-                .find_supply_center(min_supplies)
-                .and_then(|w| w.read().ok().map(|g| g.get_id()));
+            warehouse_id = self.find_supply_center(min_supplies);
         }
         let Some(warehouse_id) = warehouse_id else {
             return Ok(());
@@ -539,23 +528,21 @@ impl AIPlayer {
 
         // Resolve team members (named team or default).
         let members: Vec<ObjectID> = {
-            let mut team_arc = None;
+            let mut team_id = None;
             if !team_name.is_empty() {
                 if let Ok(mut factory) = get_team_factory().lock() {
-                    team_arc = factory.find_team(team_name);
+                    team_id = factory.find_team(team_name);
                 }
             }
-            if team_arc.is_none() {
+            if team_id.is_none() {
                 if let Ok(list) = player_list().read() {
-                    if let Some(player_arc) = list.get_player(self.player_id as i32) {
-                        if let Ok(pg) = player_arc.read() {
-                            team_arc = pg.get_default_team();
-                        }
+                    if let Some(pg) = list.get_player(self.player_id as i32) {
+                        team_id = pg.get_default_team_id();
                     }
                 }
             }
-            team_arc
-                .and_then(|t| t.read().ok().map(|g| g.get_members().to_vec()))
+            team_id
+                .and_then(|t| crate::team::with_team(t, |g| g.get_members().to_vec()))
                 .unwrap_or_default()
         };
 

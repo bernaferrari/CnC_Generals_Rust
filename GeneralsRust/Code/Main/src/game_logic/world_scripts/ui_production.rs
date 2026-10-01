@@ -234,7 +234,7 @@ impl GameLogic {
             }
         }
 
-        let radar_entries = self.radar_notifications.drain();
+        let radar_entries: Vec<_> = self.radar_notifications.drain(..).collect();
         const RADAR_PING_LIFETIME: f32 = 6.0;
         let mut latest_by_kind: [Option<RadarEntry>; 3] = [None, None, None];
         ui_state.radar_messages = radar_entries

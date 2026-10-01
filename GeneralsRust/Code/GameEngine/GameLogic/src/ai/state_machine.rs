@@ -2337,19 +2337,15 @@ impl AiStateMachine {
         }
 
         self.current_state.goal_squad = Some(squad);
-        let mut handle = None;
-        if let Some(obj) = get_legacy_object(self.owner_id) {
+        let handle = OBJECT_REGISTRY.with_object(self.owner_id, |obj_guard| {
             let mut squad_obj = Squad::new();
-            if let Ok(obj_guard) = obj.read() {
-                let team = obj_guard.get_team();
-                if let Some(team) = team.as_ref() {
-                    if let Ok(team_guard) = team.read() {
-                        squad_obj.squad_from_team(&team_guard, true);
-                    }
+            if let Some(team) = obj_guard.get_team().as_ref() {
+                if let Ok(team_guard) = team.read() {
+                    squad_obj.squad_from_team(&team_guard, true);
                 }
             }
-            handle = Some(squad_obj);
-        }
+            squad_obj
+        });
         self.current_state.goal_squad_handle = handle;
     }
 
@@ -2796,7 +2792,7 @@ mod tests {
         min_speed: Real,
         position: Coord3D,
         orientation: Real,
-    ) -> (Arc<RwLock<Object>>, Arc<Mutex<FaceAiCapture>>) {
+    ) -> (ObjectID, Arc<Mutex<FaceAiCapture>>) {
         // Wave 267: empty dual-world → no factory object walks.
         if dual_world_registry_unavailable() {
             panic!("dual-world registry unavailable in test helper");
@@ -2824,7 +2820,7 @@ mod tests {
         }
 
         OBJECT_REGISTRY.register_object(id, &object);
-        (object, capture)
+        (id, capture)
     }
 
     fn unregister_face_test_object(id: ObjectID) {

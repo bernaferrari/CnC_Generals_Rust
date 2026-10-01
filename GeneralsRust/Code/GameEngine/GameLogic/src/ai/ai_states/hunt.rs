@@ -28,11 +28,13 @@ impl AIState for AIGuardTunnelNetworkState {
             _ => GuardMode::Normal,
         };
 
-        if let Some(owner_arc) = get_legacy_object(context.owner_id) {
-            let mut guard_machine = AITNGuardMachine::new(Arc::downgrade(&owner_arc));
+        if get_legacy_object(context.owner_id).is_some() {
+            let mut guard_machine = AITNGuardMachine::new(context.owner_id);
             guard_machine.set_guard_mode(self.guard_mode);
-            if let Ok(owner_guard) = owner_arc.read() {
-                guard_machine.set_target_position_to_guard(owner_guard.get_position());
+            if let Some(pos) = OBJECT_REGISTRY
+                .with_object(context.owner_id, |owner_guard| *owner_guard.get_position())
+            {
+                guard_machine.set_target_position_to_guard(&pos);
             }
             if guard_machine.init_default_state().is_failure() {
                 return StateReturnType::Failure;
@@ -98,12 +100,14 @@ impl AIState for AIGuardRetaliateState {
             return StateReturnType::Failed;
         }
 
-        if let Some(owner_arc) = get_legacy_object(context.owner_id) {
-            let mut guard_machine = AIGuardRetaliateMachine::new(Arc::downgrade(&owner_arc));
+        if let Some(owner_id) = get_legacy_object(context.owner_id) {
+            let mut guard_machine = AIGuardRetaliateMachine::new(owner_id);
             if let Some(pos) = context.goal_position {
                 guard_machine.set_target_position_to_guard(&pos);
-            } else if let Ok(owner_guard) = owner_arc.read() {
-                guard_machine.set_target_position_to_guard(owner_guard.get_position());
+            } else if let Some(pos) = crate::object::registry::OBJECT_REGISTRY
+                .with_object(owner_id, |owner_guard| *owner_guard.get_position())
+            {
+                guard_machine.set_target_position_to_guard(&pos);
             }
             if let Some(target_id) = context.goal_object {
                 guard_machine.set_nemesis_id(target_id);
@@ -192,9 +196,9 @@ impl AIState for AIHuntState {
         let sleep_time = game_logic_random_value(0, LOGICFRAMES_PER_SECOND);
         self.next_enemy_scan_time = now.wrapping_add(sleep_time);
 
-        if let Some(owner_arc) = get_legacy_object(context.owner_id) {
+        if get_legacy_object(context.owner_id).is_some() {
             let mut hunt_machine = AIAttackThenIdleStateMachine::new(
-                Arc::downgrade(&owner_arc),
+                context.owner_id,
                 "AIAttackThenIdleStateMachine",
             );
             let result = hunt_machine.init_default_state();
@@ -217,19 +221,29 @@ impl AIState for AIHuntState {
 
         let current_frame = TheGameLogic::get_frame();
         if current_frame >= self.next_enemy_scan_time {
-            let Some(owner_arc) = get_legacy_object(context.owner_id) else {
-                return StateReturnType::Failed;
-            };
-            let Ok(owner) = owner_arc.read() else {
-                return StateReturnType::Failed;
-            };
-
-            if owner.is_out_of_ammo() && !owner.is_kind_of(KindOf::Projectile) {
-                return StateReturnType::Failed;
-            }
-
-            if owner.ai_fire_crate_id != crate::common::INVALID_ID {
+            let Some(scan) = OBJECT_REGISTRY.with_object(context.owner_id, |owner| {
+                if owner.is_out_of_ammo() && !owner.is_kind_of(KindOf::Projectile) {
+                    return None;
+                }
                 let crate_id = owner.ai_fire_crate_id;
+                let units_should_hunt = owner
+                    .get_controlling_player()
+                    .and_then(|player_arc| {
+                        player_arc
+                            .read()
+                            .ok()
+                            .map(|player| player.get_units_should_hunt())
+                    })
+                    .unwrap_or(true);
+                Some((crate_id, units_should_hunt))
+            }) else {
+                return StateReturnType::Failed;
+            };
+            let Some((crate_id, units_should_hunt)) = scan else {
+                return StateReturnType::Failed;
+            };
+
+            if crate_id != crate::common::INVALID_ID {
                 if let Some(hunt_machine) = self.hunt_machine.as_mut() {
                     hunt_machine.set_goal_object(Some(crate_id));
                     let _ = hunt_machine.set_state(LegacyAIStateType::PickUpCrate);
@@ -238,38 +252,24 @@ impl AIState for AIHuntState {
             }
 
             self.next_enemy_scan_time = current_frame + LOGICFRAMES_PER_SECOND;
-            let units_should_hunt = owner
-                .get_controlling_player()
-                .and_then(|player_arc| {
-                    player_arc
-                        .read()
-                        .ok()
-                        .map(|player| player.get_units_should_hunt())
-                })
-                .unwrap_or(true);
-            drop(owner);
 
             let victim = self.scan_for_enemies(context);
             self.current_target = victim;
-            let victim_arc = victim.and_then(get_legacy_object);
+            let victim_live = victim.filter(|id| get_legacy_object(*id).is_some());
             let Some(hunt_machine) = self.hunt_machine.as_mut() else {
                 return StateReturnType::Failed;
             };
-            hunt_machine.set_goal_object(
-                victim_arc
-                    .as_ref()
-                    .and_then(|a| a.read().ok().map(|g| g.get_id())),
-            );
+            hunt_machine.set_goal_object(victim_live);
 
             if hunt_machine.get_current_state_id() == Some(LegacyAIStateType::Idle as u32)
-                && victim_arc.is_some()
+                && victim_live.is_some()
             {
                 let _ = hunt_machine.set_state(LegacyAIStateType::AttackObject);
             }
 
             if !units_should_hunt
                 && hunt_machine.get_current_state_id() == Some(LegacyAIStateType::Idle as u32)
-                && victim_arc.is_none()
+                && victim_live.is_none()
             {
                 return StateReturnType::Complete;
             }
@@ -489,61 +489,51 @@ impl AIState for AIMoveAwayFromRepulsorsState {
             return StateReturnType::Failed;
         }
 
-        let Some(owner_arc) = OBJECT_REGISTRY.get_object(context.owner_id) else {
+        let vision = OBJECT_REGISTRY.with_object(context.owner_id, |owner| owner.get_vision_range());
+        let Some(vision) = vision else {
             return StateReturnType::Failed;
         };
-        let Ok(mut owner) = owner_arc.write() else {
-            return StateReturnType::Failed;
-        };
-
-        let ai_store = the_ai();let enemy_id = ai_store
+        let ai_store = the_ai();
+        let enemy_id = ai_store
             .read()
             .ok()
-            .and_then(|ai| {
-                ai.find_closest_repulsor(context.owner_id, owner.get_vision_range())
-                    .ok()
-            })
+            .and_then(|ai| ai.find_closest_repulsor(context.owner_id, vision).ok())
             .flatten();
         let Some(enemy_id) = enemy_id else {
             return StateReturnType::Failed;
         };
-        let Some(enemy_arc) = OBJECT_REGISTRY.get_object(enemy_id) else {
+        let planned = OBJECT_REGISTRY.with_object_mut(context.owner_id, |owner| {
+            let enemy_pos = OBJECT_REGISTRY.with_object(enemy_id, |enemy| *enemy.get_position())?;
+            if let Some(ai) = owner.get_ai_update_interface_mut() {
+                let _ = ai.choose_locomotor_set(LocomotorSetType::Panic);
+            }
+            let owner_pos = *owner.get_position();
+            let mut dx = owner_pos.x - enemy_pos.x;
+            let mut dy = owner_pos.y - enemy_pos.y;
+            let len = (dx * dx + dy * dy).sqrt();
+            if len < 0.001 {
+                dx = 1.0;
+                dy = 0.0;
+            } else {
+                dx /= len;
+                dy /= len;
+            }
+            let flee_dist = owner.get_vision_range();
+            Some(Coord3D::new(
+                owner_pos.x + dx * flee_dist,
+                owner_pos.y + dy * flee_dist,
+                owner_pos.z,
+            ))
+        });
+        let Some(Some(goal)) = planned else {
             return StateReturnType::Failed;
         };
-        let Ok(enemy) = enemy_arc.read() else {
-            return StateReturnType::Failed;
-        };
-
-        if let Some(ai) = owner.get_ai_update_interface_mut() {
-            let _ = ai.choose_locomotor_set(LocomotorSetType::Panic);
-        }
-
-        let owner_pos = *owner.get_position();
-        let enemy_pos = *enemy.get_position();
-        let mut dx = owner_pos.x - enemy_pos.x;
-        let mut dy = owner_pos.y - enemy_pos.y;
-        let len = (dx * dx + dy * dy).sqrt();
-        if len < 0.001 {
-            dx = 1.0;
-            dy = 0.0;
-        } else {
-            dx /= len;
-            dy /= len;
-        }
-
-        let flee_dist = owner.get_vision_range();
-        self.goal_position = Coord3D::new(
-            owner_pos.x + dx * flee_dist,
-            owner_pos.y + dy * flee_dist,
-            owner_pos.z,
-        );
+        self.goal_position = goal;
         context.goal_position = Some(self.goal_position);
-
         self.ok_to_repath_times = 1;
         self.check_for_path = true;
         self.waiting_for_path = false;
         self.compute_path(context);
-
         StateReturnType::Continue
     }
 

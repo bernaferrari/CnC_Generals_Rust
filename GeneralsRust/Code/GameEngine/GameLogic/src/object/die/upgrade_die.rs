@@ -97,9 +97,9 @@ pub struct UpgradeDie {
 
 impl UpgradeDie {
     /// Create a new UpgradeDie module
-    pub fn new(object: Arc<RwLock<Object>>, module_data: Arc<UpgradeDieModuleData>) -> Self {
+    pub fn new(object_id: ObjectID, module_data: Arc<UpgradeDieModuleData>) -> Self {
         Self {
-            base: DieModule::new(object, module_data),
+            base: DieModule::new(object_id, module_data),
         }
     }
 

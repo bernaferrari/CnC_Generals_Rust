@@ -32,32 +32,38 @@ impl ScriptEvaluator {
         let Some(object_id) = tracker.get_object_id(unit_name).ok().flatten() else {
             return Ok(false);
         };
-        let Some(obj_arc) = TheGameLogic::find_object_by_id(object_id) else {
-            return Ok(false);
-        };
-        let Ok(obj_guard) = obj_arc.read() else {
-            return Ok(false);
-        };
-
-        let max_health = obj_guard.get_max_health();
-        if max_health <= f32::EPSILON {
-            return Ok(false);
-        }
-        let cur_health = obj_guard.get_health();
-        let cur_percent = ((cur_health * 100.0) + (max_health / 2.0)) / max_health;
-        let cur_percent = cur_percent.round() as i64;
-
-        match comparison {
-            0 => Ok(cur_percent < target_percent),  // LessThan
-            1 => Ok(cur_percent <= target_percent), // LessEqual
-            2 => Ok(cur_percent == target_percent), // Equal
-            3 => Ok(cur_percent >= target_percent), // GreaterEqual
-            4 => Ok(cur_percent > target_percent),  // Greater
-            5 => Ok(cur_percent != target_percent), // NotEqual
-            _ => Err(GameLogicError::Configuration(format!(
-                "Invalid comparison type: {}",
-                comparison
-            ))),
+        {
+            enum _ObjFlow<T> { Cont, Ret(T), Fall }
+            let _flow = OBJECT_REGISTRY.with_object(object_id, |obj_guard| {
+                
+                let max_health = obj_guard.get_max_health();
+                if max_health <= f32::EPSILON {
+                    return _ObjFlow::Ret(Ok(false));
+                }
+                let cur_health = obj_guard.get_health();
+                let cur_percent = ((cur_health * 100.0) + (max_health / 2.0)) / max_health;
+                let cur_percent = cur_percent.round() as i64;
+                
+                match comparison {
+                    0 => Ok(cur_percent < target_percent),  // LessThan
+                    1 => Ok(cur_percent <= target_percent), // LessEqual
+                    2 => Ok(cur_percent == target_percent), // Equal
+                    3 => Ok(cur_percent >= target_percent), // GreaterEqual
+                    4 => Ok(cur_percent > target_percent),  // Greater
+                    5 => Ok(cur_percent != target_percent), // NotEqual
+                    _ => Err(GameLogicError::Configuration(format!(
+                        "Invalid comparison type: {}",
+                        comparison
+                    ))),
+                }
+                _ObjFlow::Fall
+            });
+            match _flow {
+                None => { return Ok(false); }
+                Some(_ObjFlow::Cont) => continue,
+                Some(_ObjFlow::Ret(v)) => return v,
+                Some(_ObjFlow::Fall) => {}
+            }
         }
     }
 
@@ -88,14 +94,20 @@ impl ScriptEvaluator {
         let Some(object_id) = tracker.get_object_id(unit_name).ok().flatten() else {
             return Ok(false);
         };
-        let Some(obj_arc) = TheGameLogic::find_object_by_id(object_id) else {
-            return Ok(false);
-        };
-        let Ok(obj_guard) = obj_arc.read() else {
-            return Ok(false);
-        };
-
-        Ok(obj_guard.get_status_bits().intersects(status_mask))
+        {
+            enum _ObjFlow<T> { Cont, Ret(T), Fall }
+            let _flow = OBJECT_REGISTRY.with_object(object_id, |obj_guard| {
+                
+                Ok(obj_guard.get_status_bits().intersects(status_mask))
+                _ObjFlow::Fall
+            });
+            match _flow {
+                None => { return Ok(false); }
+                Some(_ObjFlow::Cont) => continue,
+                Some(_ObjFlow::Ret(v)) => return v,
+                Some(_ObjFlow::Fall) => {}
+            }
+        }
     }
 
     fn evaluate_team_has_object_status_condition(
@@ -133,18 +145,24 @@ impl ScriptEvaluator {
             };
 
             for &member_id in team_guard.get_members() {
-                let Some(obj_arc) = TheGameLogic::find_object_by_id(member_id) else {
-                    return Ok(false);
-                };
-                let Ok(obj_guard) = obj_arc.read() else {
-                    return Ok(false);
-                };
-
-                let has_status = obj_guard.get_status_bits().intersects(status_mask);
-                if entire_team && !has_status {
-                    return Ok(false);
-                } else if !entire_team && has_status {
-                    return Ok(true);
+                {
+                    enum _ObjFlow<T> { Cont, Ret(T), Fall }
+                    let _flow = OBJECT_REGISTRY.with_object(member_id, |obj_guard| {
+                        
+                        let has_status = obj_guard.get_status_bits().intersects(status_mask);
+                        if entire_team && !has_status {
+                            return _ObjFlow::Ret(Ok(false));
+                        } else if !entire_team && has_status {
+                            return _ObjFlow::Ret(Ok(true));
+                        }
+                        _ObjFlow::Fall
+                    });
+                    match _flow {
+                        None => { return Ok(false); }
+                        Some(_ObjFlow::Cont) => continue,
+                        Some(_ObjFlow::Ret(v)) => return v,
+                        Some(_ObjFlow::Fall) => {}
+                    }
                 }
             }
         }
@@ -360,16 +378,22 @@ impl ScriptEvaluator {
             return Ok(false);
         };
 
-        let Some(obj_arc) = TheGameLogic::find_object_by_id(object_id) else {
-            return Ok(false);
-        };
-        let Ok(obj_guard) = obj_arc.read() else {
-            return Ok(false);
-        };
-        let Some(contain) = obj_guard.get_contain() else {
-            return Ok(false);
-        };
-        Ok(contain.get_contained_count() < contain.get_max_capacity())
+        {
+            enum _ObjFlow<T> { Cont, Ret(T), Fall }
+            let _flow = OBJECT_REGISTRY.with_object(object_id, |obj_guard| {
+                let Some(contain) = obj_guard.get_contain() else {
+                    return _ObjFlow::Ret(Ok(false));
+                };
+                Ok(contain.get_contained_count() < contain.get_max_capacity())
+                _ObjFlow::Fall
+            });
+            match _flow {
+                None => { return Ok(false); }
+                Some(_ObjFlow::Cont) => continue,
+                Some(_ObjFlow::Ret(v)) => return v,
+                Some(_ObjFlow::Fall) => {}
+            }
+        }
     }
 
     fn evaluate_unit_emptied_condition(&self, condition: &Condition) -> GameLogicResult<bool> {
@@ -390,17 +414,14 @@ impl ScriptEvaluator {
             return Ok(false);
         };
 
-        let Some(obj_arc) = TheGameLogic::find_object_by_id(object_id) else {
+        let Some(num_peeps) = crate::object::registry::OBJECT_REGISTRY.with_object(object_id, |obj_guard| {
+            obj_guard
+                .get_contain()
+                .map(|contain| contain.get_contained_count())
+                .unwrap_or(0)
+        }) else {
             return Ok(false);
         };
-        let Ok(obj_guard) = obj_arc.read() else {
-            return Ok(false);
-        };
-
-        let num_peeps = obj_guard
-            .get_contain()
-            .map(|contain| contain.get_contained_count())
-            .unwrap_or(0);
 
         let frame = TheGameLogic::get_frame();
         let mut statuses = TRANSPORT_STATUSES.write().map_err(|e| {

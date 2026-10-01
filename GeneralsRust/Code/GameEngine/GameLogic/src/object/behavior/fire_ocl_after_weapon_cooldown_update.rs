@@ -64,7 +64,7 @@ pub struct FireOCLAfterWeaponCooldownUpdate {
 
 impl FireOCLAfterWeaponCooldownUpdate {
     pub fn new(
-        object: Arc<RwLock<GameObject>>,
+        object_id: ObjectID,
         module_data: Arc<dyn ModuleData>,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let specific_data = module_data
@@ -75,11 +75,7 @@ impl FireOCLAfterWeaponCooldownUpdate {
         let upgrade_mux = UpgradeMux::new(specific_data.upgrade_mux_data.clone());
 
         Ok(Self {
-            object_id: object
-                .read()
-                .ok()
-                .map(|g| g.get_id())
-                .unwrap_or(crate::common::INVALID_ID),
+            object_id: object_id,
             module_data: Arc::new(specific_data.clone()),
             valid: false,
             consecutive_shots: 0,
@@ -94,7 +90,7 @@ impl FireOCLAfterWeaponCooldownUpdate {
         self.start_frame = 0;
     }
 
-    fn fire_ocl(&mut self, obj: &Arc<RwLock<GameObject>>, now: UnsignedInt) {
+    fn fire_ocl(&mut self, obj: ObjectID, now: UnsignedInt) {
         let Some(ocl) = self.module_data.ocl.as_ref() else {
             self.reset_stats();
             return;
@@ -294,7 +290,7 @@ impl Module for FireOCLAfterWeaponCooldownUpdateModule {
 pub struct FireOCLAfterWeaponCooldownUpdateFactory;
 impl FireOCLAfterWeaponCooldownUpdateFactory {
     pub fn create_behavior(
-        thing: Arc<RwLock<GameObject>>,
+        object_id: ObjectID,
         module_data: Arc<dyn ModuleData>,
     ) -> Result<Box<dyn BehaviorModuleInterface>, Box<dyn std::error::Error + Send + Sync>> {
         Ok(Box::new(FireOCLAfterWeaponCooldownUpdate::new(

@@ -72,26 +72,23 @@ impl std::fmt::Debug for GameObjectInstance {
 
 impl GameObjectInstance {
     /// Get the base object reference
-    pub fn get_base_object(&self) -> Option<Arc<RwLock<Object>>> {
-        match self {
-            GameObjectInstance::Unit(unit) => unit.base_object(),
-            GameObjectInstance::Structure(structure) => structure.base_object(),
-            GameObjectInstance::SimpleObject(simple_object) => simple_object.base_object(),
-            GameObjectInstance::BaseObject(id) => crate::object::registry::OBJECT_REGISTRY
-                .get_object(*id)
-                .or_else(|| crate::helpers::TheGameLogic::find_object_by_id(*id)),
+    pub fn get_base_object(&self) -> Option<ObjectID> {
+        let id = match self {
+            GameObjectInstance::Unit(unit) => unit.object_id(),
+            GameObjectInstance::Structure(structure) => structure.object_id(),
+            GameObjectInstance::SimpleObject(simple_object) => simple_object.object_id(),
+            GameObjectInstance::BaseObject(id) => *id,
+        };
+        if id == INVALID_ID {
+            None
+        } else {
+            Some(id)
         }
     }
 
     /// Get object ID
     pub fn get_id(&self) -> ObjectID {
-        match self {
-            GameObjectInstance::BaseObject(id) => *id,
-            _ => self
-                .get_base_object()
-                .and_then(|arc| arc.read().ok().map(|guard| guard.get_id()))
-                .unwrap_or(INVALID_ID),
-        }
+        self.get_base_object().unwrap_or(INVALID_ID)
     }
 
     /// Update the object for one frame
@@ -125,13 +122,11 @@ impl GameObjectInstance {
     pub fn is_structure(&self) -> bool {
         matches!(self, GameObjectInstance::Structure(_))
     }
-
     pub fn is_projectile(&self) -> bool {
         self.get_base_object()
-            .and_then(|arc| {
-                arc.read()
-                    .ok()
-                    .map(|object| object.is_kind_of(KindOf::Projectile))
+            .and_then(|id| {
+                crate::object::registry::OBJECT_REGISTRY
+                    .with_object(id, |object| object.is_kind_of(KindOf::Projectile))
             })
             .unwrap_or(false)
     }
@@ -970,7 +965,6 @@ impl ObjectFactory {
         &mut self,
         object_id: ObjectID,
         template: &dyn ThingTemplate,
-        base_object: &Arc<RwLock<Object>>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         // Create drawable based on template
         let model_name = template.get_model_name();
@@ -997,9 +991,8 @@ impl ObjectFactory {
         let drawable = Arc::new(RwLock::new(drawable));
 
         let _ = template.module_descriptors();
-
         let module_thing: Arc<dyn ModuleThing> =
-            object::make_drawable_module_thing_handle(base_object, &drawable);
+            object::make_drawable_module_thing_handle(object_id, &drawable);
         let mut drawable_modules: Vec<(
             ModuleInterfaceType,
             AsciiString,

@@ -478,13 +478,9 @@ impl DeliverPayloadAIUpdate {
             return;
         }
 
-        let Some(owner) = TheGameLogic::find_object_by_id(self.owner_id) else {
-            return;
-        };
-        let Ok(owner_guard) = owner.read() else {
-            return;
-        };
-        let Some(ai) = owner_guard.get_ai_update_interface() else {
+        let Some(ai) = crate::object::registry::OBJECT_REGISTRY.with_object(self.owner_id, |owner| {
+            owner.get_ai_update_interface()
+        }).flatten() else {
             return;
         };
         ai.ai_move_to_position(pos, false, CommandSourceType::FromAi);
@@ -496,23 +492,15 @@ impl DeliverPayloadAIUpdate {
             return;
         }
 
-        let Some(owner) = TheGameLogic::find_object_by_id(self.owner_id) else {
+        let Some(ai) = crate::object::registry::OBJECT_REGISTRY.with_object(self.owner_id, |owner| {
+            owner.get_ai_update_interface()
+        }).flatten() else {
             return;
         };
-        let ai = if let Ok(owner_guard) = owner.read() {
-            owner_guard.get_ai_update_interface()
-        } else {
-            None
-        };
-        let Some(ai) = ai else {
+        let Ok(mut ai_guard) = ai.lock() else {
             return;
         };
-        {
-            let Ok(mut ai_guard) = ai.lock() else {
-                return;
-            };
-            let _ = ai_guard.set_allow_invalid_position(allow);
-        }
+        let _ = ai_guard.set_allow_invalid_position(allow);
     }
 
     fn ai_set_ultra_accurate(&self, ultra: Bool) {
@@ -521,23 +509,15 @@ impl DeliverPayloadAIUpdate {
             return;
         }
 
-        let Some(owner) = TheGameLogic::find_object_by_id(self.owner_id) else {
+        let Some(ai) = crate::object::registry::OBJECT_REGISTRY.with_object(self.owner_id, |owner| {
+            owner.get_ai_update_interface()
+        }).flatten() else {
             return;
         };
-        let ai = if let Ok(owner_guard) = owner.read() {
-            owner_guard.get_ai_update_interface()
-        } else {
-            None
-        };
-        let Some(ai) = ai else {
+        let Ok(mut ai_guard) = ai.lock() else {
             return;
         };
-        {
-            let Ok(mut ai_guard) = ai.lock() else {
-                return;
-            };
-            let _ = ai_guard.set_ultra_accurate(ultra);
-        }
+        let _ = ai_guard.set_ultra_accurate(ultra);
     }
 
     fn ai_is_moving(&self) -> bool {
@@ -546,18 +526,13 @@ impl DeliverPayloadAIUpdate {
             return false;
         }
 
-        let Some(owner) = TheGameLogic::find_object_by_id(self.owner_id) else {
-            return false;
-        };
-        let Ok(owner_guard) = owner.read() else {
-            return false;
-        };
-        let Some(ai) = owner_guard.get_ai_update_interface() else {
-            return false;
-        };
-        ai.lock()
-            .ok()
-            .map(|guard| guard.is_moving())
+        crate::object::registry::OBJECT_REGISTRY
+            .with_object(self.owner_id, |owner| {
+                owner
+                    .get_ai_update_interface()
+                    .and_then(|ai| ai.lock().ok().map(|guard| guard.is_moving()))
+            })
+            .flatten()
             .unwrap_or(false)
     }
 
@@ -567,16 +542,14 @@ impl DeliverPayloadAIUpdate {
             return false;
         }
 
-        let Some(owner) = TheGameLogic::find_object_by_id(self.owner_id) else {
-            return false;
-        };
-        let Ok(owner_guard) = owner.read() else {
-            return false;
-        };
-        let Some(ai) = owner_guard.get_ai_update_interface() else {
-            return false;
-        };
-        ai.lock().ok().map(|guard| guard.is_idle()).unwrap_or(false)
+        crate::object::registry::OBJECT_REGISTRY
+            .with_object(self.owner_id, |owner| {
+                owner
+                    .get_ai_update_interface()
+                    .and_then(|ai| ai.lock().ok().map(|guard| guard.is_idle()))
+            })
+            .flatten()
+            .unwrap_or(false)
     }
 
     fn calc_min_turn_radius(&self, time_to_travel: Option<&mut Real>) -> Real {
@@ -585,15 +558,14 @@ impl DeliverPayloadAIUpdate {
             return 999999.0;
         }
 
-        let owner = TheGameLogic::find_object_by_id(self.owner_id);
         let (body, ai) = {
-            let Some(owner_guard) = owner.as_ref().and_then(|obj| obj.read().ok()) else {
+            let Some(pair) = crate::object::registry::OBJECT_REGISTRY.with_object(
+                self.owner_id,
+                |owner| (owner.get_body_module(), owner.get_ai_update_interface()),
+            ) else {
                 return 999999.0;
             };
-            (
-                owner_guard.get_body_module(),
-                owner_guard.get_ai_update_interface(),
-            )
+            pair
         };
         let (Some(body), Some(ai)) = (body, ai) else {
             return 999999.0;
@@ -634,20 +606,15 @@ impl DeliverPayloadAIUpdate {
         }
 
         let allowed_distance_sqr = self.data.dist_to_target * self.data.dist_to_target;
-        let current_distance_sqr = if let Some(obj) = TheGameLogic::find_object_by_id(self.owner_id)
-        {
-            if let Ok(guard) = obj.read() {
+        let current_distance_sqr = crate::object::registry::OBJECT_REGISTRY
+            .with_object(self.owner_id, |guard| {
                 ThePartitionManager::get_distance_squared_to_pos(
-                    &guard,
+                    guard,
                     &self.target_pos,
                     FROM_CENTER_2D,
                 )
-            } else {
-                0.0
-            }
-        } else {
-            0.0
-        };
+            })
+            .unwrap_or(0.0);
 
         let inbound = self.previous_distance_sqr > current_distance_sqr;
         self.previous_distance_sqr = current_distance_sqr;
@@ -671,12 +638,11 @@ impl DeliverPayloadAIUpdate {
             return false;
         };
         let map_region = terrain.get_extent_including_border();
-        let owner = TheGameLogic::find_object_by_id(self.owner_id);
-        let owner_guard = owner.as_ref().and_then(|obj| obj.read().ok());
-        let Some(owner_guard) = owner_guard else {
+        let Some(pos) = crate::object::registry::OBJECT_REGISTRY
+            .with_object(self.owner_id, |owner| *owner.get_position())
+        else {
             return true;
         };
-        let pos = owner_guard.get_position();
         pos.x < map_region.lo.x
             || pos.x > map_region.hi.x
             || pos.y < map_region.lo.y
@@ -796,21 +762,13 @@ impl DeliverPayloadAIUpdate {
             return;
         }
 
-        let owner = TheGameLogic::find_object_by_id(self.owner_id);
-        let owner_guard = owner.as_ref().and_then(|obj| obj.read().ok());
-        let Some(owner_guard) = owner_guard else {
-            return;
-        };
-        let mut flags_to_clear = ModelConditionFlags::empty();
-        flags_to_clear.insert(MODELCONDITION_DOOR_1_CLOSING);
-        let mut flags_to_set = ModelConditionFlags::empty();
-        flags_to_set.insert(MODELCONDITION_DOOR_1_OPENING);
-        drop(owner_guard);
-        if let Some(owner) = TheGameLogic::find_object_by_id(self.owner_id) {
-            if let Ok(mut guard) = owner.write() {
-                let _ = guard.clear_and_set_model_condition_flags(flags_to_clear, flags_to_set);
-            }
-        }
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(self.owner_id, |guard| {
+            let mut flags_to_clear = ModelConditionFlags::empty();
+            flags_to_clear.insert(MODELCONDITION_DOOR_1_CLOSING);
+            let mut flags_to_set = ModelConditionFlags::empty();
+            flags_to_set.insert(MODELCONDITION_DOOR_1_OPENING);
+            let _ = guard.clear_and_set_model_condition_flags(flags_to_clear, flags_to_set);
+        });
         self.drop_delay_left = self.module_data.door_delay;
         self.did_open = false;
     }
@@ -834,32 +792,35 @@ impl DeliverPayloadAIUpdate {
             return StateReturnType::Failure;
         }
 
-        let owner = TheGameLogic::find_object_by_id(self.owner_id);
-        let owner_guard = owner.as_ref().and_then(|obj| obj.read().ok());
-        let Some(owner_guard) = owner_guard else {
+        let Some(contained_ids) = crate::object::registry::OBJECT_REGISTRY.with_object(
+            self.owner_id,
+            |owner| {
+                owner
+                    .get_contain()
+                    .map(|contain| contain.get_contained_objects())
+                    .unwrap_or_default()
+            },
+        ) else {
             return StateReturnType::Failure;
         };
-
-        let contained_ids = owner_guard
-            .get_contain()
-            .map(|contain| contain.get_contained_objects())
-            .unwrap_or_default();
-        drop(owner_guard);
 
         if contained_ids.is_empty() && self.visible_items_delivered >= self.data.visible_num_bones {
             return StateReturnType::Success;
         }
 
         if let Some(item_id) = contained_ids.first().copied() {
-            if let Some(item) = TheGameLogic::find_object_by_id(item_id) {
+            if TheGameLogic::find_object_by_id(item_id) {
                 if self.data.fire_weapon {
-                    if let Ok(mut owner_guard) = owner.as_ref().unwrap().write() {
-                        let pos = self.data.drop_world_pos(self.target_pos, Coord3D::ZERO);
-                        let _ = owner_guard.fire_current_weapon_at_position(&pos);
-                    }
+                    let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(
+                        self.owner_id,
+                        |owner_guard| {
+                            let pos = self.data.drop_world_pos(self.target_pos, Coord3D::ZERO);
+                            let _ = owner_guard.fire_current_weapon_at_position(&pos);
+                        },
+                    );
                     let _ = TheGameLogic::destroy_object_by_id(item_id);
                 } else {
-                    if let Ok(item_guard) = item.read() {
+                    let _ = crate::object::registry::OBJECT_REGISTRY.with_object(item_id, |item_guard| {
                         if let Some(ai) = item_guard.get_ai_update_interface() {
                             let mut params = AiCommandParams::new(
                                 AiCommandType::Exit,
@@ -868,9 +829,9 @@ impl DeliverPayloadAIUpdate {
                             params.obj = Some(self.owner_id);
                             let _ = ai.execute_command(&params);
                         }
-                    }
+                    });
 
-                    if let Ok(mut item_guard) = item.write() {
+                    let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(item_id, |item_guard| {
                         let base = *item_guard.get_position();
                         let variance_sample = Coord3D::new(
                             if self.data.drop_variance.x > 0.0 {
@@ -912,9 +873,9 @@ impl DeliverPayloadAIUpdate {
                                 CommandSourceType::FromAi,
                             );
                         }
-                    }
+                    });
 
-                    if let Ok(item_guard) = item.read() {
+                    let _ = crate::object::registry::OBJECT_REGISTRY.with_object(item_id, |item_guard| {
                         if let Some(module) =
                             item_guard.find_update_module("GenerateMinefieldBehavior")
                         {
@@ -946,22 +907,27 @@ impl DeliverPayloadAIUpdate {
                                 }
                             });
                         }
-                    }
+                    });
 
                     if self.data.inherit_transport_velocity {
-                        let owner_velocity = owner
-                            .as_ref()
-                            .and_then(|obj| obj.read().ok())
-                            .and_then(|guard| guard.get_physics())
-                            .and_then(|physics| physics.lock().ok().map(|p| p.get_velocity()));
+                        let owner_velocity = crate::object::registry::OBJECT_REGISTRY
+                            .with_object(self.owner_id, |guard| {
+                                guard.get_physics().and_then(|physics| {
+                                    physics.lock().ok().map(|p| p.get_velocity())
+                                })
+                            })
+                            .flatten();
                         if let Some(owner_velocity) = owner_velocity {
-                            if let Ok(item_guard) = item.write() {
-                                if let Some(physics) = item_guard.get_physics() {
-                                    if let Ok(mut phys_guard) = physics.lock() {
-                                        phys_guard.apply_force(&owner_velocity);
+                            let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(
+                                item_id,
+                                |item_guard| {
+                                    if let Some(physics) = item_guard.get_physics() {
+                                        if let Ok(mut phys_guard) = physics.lock() {
+                                            phys_guard.apply_force(&owner_velocity);
+                                        }
                                     }
-                                }
-                            }
+                                },
+                            );
                         }
                     }
                 }
@@ -970,9 +936,7 @@ impl DeliverPayloadAIUpdate {
 
         if self.visible_items_delivered < self.data.visible_num_bones {
             let mut attempt_drops = self.data.visible_items_dropped_per_interval;
-            let owner = TheGameLogic::find_object_by_id(self.owner_id);
-            let owner_guard = owner.as_ref().and_then(|obj| obj.read().ok());
-            if let Some(owner_guard) = owner_guard {
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object(self.owner_id, |owner_guard| {
                 let draw = owner_guard.get_drawable();
                 let mut update_sub_objects = false;
                 while attempt_drops > 0
@@ -1007,12 +971,8 @@ impl DeliverPayloadAIUpdate {
                                     };
                                     if let Ok(payload) = factory.new_object(template, &*team_guard)
                                     {
-                                        if let Ok(mut payload_guard) = payload.write() {
-                                            if let Some(owner) = owner.as_ref() {
-                                                if let Ok(owner_guard) = owner.read() {
-                                                    payload_guard.set_producer(Some(&*owner_guard));
-                                                }
-                                            }
+                                        let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(payload, |payload_guard| {
+                                            payload_guard.set_producer(Some(owner_guard));
 
                                             if !self.data.visible_drop_bone_name.is_empty() {
                                                 if let Some(draw) = draw.as_ref() {
@@ -1113,7 +1073,7 @@ impl DeliverPayloadAIUpdate {
                                                     );
                                                 }
                                             }
-                                        }
+                                        });
                                     }
                                 }
                             }
@@ -1130,7 +1090,7 @@ impl DeliverPayloadAIUpdate {
                         }
                     }
                 }
-            }
+            });
         }
 
         StateReturnType::Continue
@@ -1146,15 +1106,13 @@ impl DeliverPayloadAIUpdate {
         if !self.did_open {
             log::warn!("DeliverPayloadAIUpdate: doors closed before opening.");
         }
-        if let Some(owner) = TheGameLogic::find_object_by_id(self.owner_id) {
-            if let Ok(mut guard) = owner.write() {
-                let mut flags_to_clear = ModelConditionFlags::empty();
-                flags_to_clear.insert(MODELCONDITION_DOOR_1_OPENING);
-                let mut flags_to_set = ModelConditionFlags::empty();
-                flags_to_set.insert(MODELCONDITION_DOOR_1_CLOSING);
-                let _ = guard.clear_and_set_model_condition_flags(flags_to_clear, flags_to_set);
-            }
-        }
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(self.owner_id, |guard| {
+            let mut flags_to_clear = ModelConditionFlags::empty();
+            flags_to_clear.insert(MODELCONDITION_DOOR_1_OPENING);
+            let mut flags_to_set = ModelConditionFlags::empty();
+            flags_to_set.insert(MODELCONDITION_DOOR_1_CLOSING);
+            let _ = guard.clear_and_set_model_condition_flags(flags_to_clear, flags_to_set);
+        });
     }
 
     fn enter_consider_new_approach(&mut self) -> StateReturnType {
@@ -1171,18 +1129,19 @@ impl DeliverPayloadAIUpdate {
         let min_turn_radius = self.calc_min_turn_radius(None);
         let min_reapproach_dist = min_turn_radius * 2.2;
 
-        let owner = TheGameLogic::find_object_by_id(self.owner_id);
-        let owner_guard = owner.as_ref().and_then(|obj| obj.read().ok());
-        let Some(owner_guard) = owner_guard else {
+        let Some(re_approach_point) = crate::object::registry::OBJECT_REGISTRY.with_object(
+            self.owner_id,
+            |owner_guard| {
+                let (dir_x, dir_y) = owner_guard.get_unit_direction_vector_2d();
+                Coord3D::new(
+                    owner_guard.get_position().x + dir_x * min_reapproach_dist,
+                    owner_guard.get_position().y + dir_y * min_reapproach_dist,
+                    0.0,
+                )
+            },
+        ) else {
             return StateReturnType::Failure;
         };
-        let (dir_x, dir_y) = owner_guard.get_unit_direction_vector_2d();
-
-        let re_approach_point = Coord3D::new(
-            owner_guard.get_position().x + dir_x * min_reapproach_dist,
-            owner_guard.get_position().y + dir_y * min_reapproach_dist,
-            0.0,
-        );
 
         self.ai_move_to_position(&re_approach_point);
         self.ai_set_allow_invalid_position(true);
@@ -1203,10 +1162,10 @@ impl DeliverPayloadAIUpdate {
             return StateReturnType::Continue;
         }
 
-        if let Some(owner) = TheGameLogic::find_object_by_id(self.owner_id) {
-            if let Ok(owner_guard) = owner.read() {
-                self.ai_move_to_position(owner_guard.get_position());
-            }
+        if let Some(pos) = crate::object::registry::OBJECT_REGISTRY
+            .with_object(self.owner_id, |owner_guard| *owner_guard.get_position())
+        {
+            self.ai_move_to_position(&pos);
         }
 
         let mut time_to_travel = 0.0;
@@ -1214,23 +1173,21 @@ impl DeliverPayloadAIUpdate {
         self.re_entry_frame =
             TheGameLogic::get_frame() + time_to_travel.ceil().max(0.0) as UnsignedInt;
 
-        if let Some(owner) = TheGameLogic::find_object_by_id(self.owner_id) {
-            if let Ok(owner_guard) = owner.write() {
-                if let Some(physics) = owner_guard.get_physics() {
-                    if let Ok(mut phys_guard) = physics.lock() {
-                        phys_guard.set_velocity(&Vec3D::ZERO);
-                        phys_guard.set_yaw_rate(0.0);
-                        phys_guard.set_pitch_rate(0.0);
-                        phys_guard.set_roll_rate(0.0);
-                    }
-                }
-                if let Some(drawable) = owner_guard.get_drawable() {
-                    if let Ok(mut draw_guard) = drawable.write() {
-                        let _ = draw_guard.set_drawable_hidden(true);
-                    }
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(self.owner_id, |owner_guard| {
+            if let Some(physics) = owner_guard.get_physics() {
+                if let Ok(mut phys_guard) = physics.lock() {
+                    phys_guard.set_velocity(&Vec3D::ZERO);
+                    phys_guard.set_yaw_rate(0.0);
+                    phys_guard.set_pitch_rate(0.0);
+                    phys_guard.set_roll_rate(0.0);
                 }
             }
-        }
+            if let Some(drawable) = owner_guard.get_drawable() {
+                if let Ok(mut draw_guard) = drawable.write() {
+                    let _ = draw_guard.set_drawable_hidden(true);
+                }
+            }
+        });
 
         StateReturnType::Continue
     }
@@ -1245,38 +1202,37 @@ impl DeliverPayloadAIUpdate {
             return StateReturnType::Continue;
         }
 
-        let Some(owner) = TheGameLogic::find_object_by_id(self.owner_id) else {
-            return StateReturnType::Failure;
-        };
-        let Ok(mut owner_guard) = owner.write() else {
-            return StateReturnType::Failure;
-        };
-
-        if let Some(drawable) = owner_guard.get_drawable() {
-            if let Ok(mut draw_guard) = drawable.write() {
-                let _ = draw_guard.set_drawable_hidden(false);
+        let recovered = crate::object::registry::OBJECT_REGISTRY.with_object_mut(self.owner_id, |owner_guard| {
+            if let Some(drawable) = owner_guard.get_drawable() {
+                if let Ok(mut draw_guard) = drawable.write() {
+                    let _ = draw_guard.set_drawable_hidden(false);
+                }
             }
-        }
 
-        let Some(terrain) = TheTerrainLogic::get() else {
-            return StateReturnType::Failure;
-        };
-        let mut enter_coord = terrain.find_closest_edge_point(owner_guard.get_position());
-        if owner_guard.is_above_terrain() {
-            enter_coord.z = owner_guard.get_position().z;
-        }
-        let _ = owner_guard.set_position(&enter_coord);
-
-        let angle = (self.move_to_pos.y - enter_coord.y).atan2(self.move_to_pos.x - enter_coord.x);
-        let _ = owner_guard.set_orientation(angle);
-
-        if let Some(physics) = owner_guard.get_physics() {
-            if let Ok(mut phys_guard) = physics.lock() {
-                phys_guard.set_velocity(&Vec3D::ZERO);
-                phys_guard.set_yaw_rate(0.0);
-                phys_guard.set_pitch_rate(0.0);
-                phys_guard.set_roll_rate(0.0);
+            let Some(terrain) = TheTerrainLogic::get() else {
+                return false;
+            };
+            let mut enter_coord = terrain.find_closest_edge_point(owner_guard.get_position());
+            if owner_guard.is_above_terrain() {
+                enter_coord.z = owner_guard.get_position().z;
             }
+            let _ = owner_guard.set_position(&enter_coord);
+
+            let angle = (self.move_to_pos.y - enter_coord.y).atan2(self.move_to_pos.x - enter_coord.x);
+            let _ = owner_guard.set_orientation(angle);
+
+            if let Some(physics) = owner_guard.get_physics() {
+                if let Ok(mut phys_guard) = physics.lock() {
+                    phys_guard.set_velocity(&Vec3D::ZERO);
+                    phys_guard.set_yaw_rate(0.0);
+                    phys_guard.set_pitch_rate(0.0);
+                    phys_guard.set_roll_rate(0.0);
+                }
+            }
+            true
+        });
+        if recovered != Some(true) {
+            return StateReturnType::Failure;
         }
 
         StateReturnType::Success
@@ -1291,34 +1247,29 @@ impl DeliverPayloadAIUpdate {
         self.kill_delivery_decal();
 
         if self.data.self_destruct_object {
-            if let Some(owner) = TheGameLogic::find_object_by_id(self.owner_id) {
-                if let Ok(owner_guard) = owner.read() {
-                    let _ = TheGameLogic::destroy_object(&owner_guard);
-                }
-            }
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object(self.owner_id, |owner_guard| {
+                let _ = TheGameLogic::destroy_object(owner_guard);
+            });
             return StateReturnType::Continue;
         }
 
-        let Some(owner) = TheGameLogic::find_object_by_id(self.owner_id) else {
-            return StateReturnType::Failure;
-        };
-        let Ok(owner_guard) = owner.read() else {
-            return StateReturnType::Failure;
-        };
-        let (dir_x, dir_y) = owner_guard.get_unit_direction_vector_2d();
-        self.facing_direction_upon_delivery = Coord3D::new(dir_x, dir_y, 0.0);
+        let Some(exit_coord) = crate::object::registry::OBJECT_REGISTRY.with_object(self.owner_id, |owner_guard| {
+            let (dir_x, dir_y) = owner_guard.get_unit_direction_vector_2d();
+            self.facing_direction_upon_delivery = Coord3D::new(dir_x, dir_y, 0.0);
 
-        let Some(terrain) = TheTerrainLogic::get() else {
+            let Some(terrain) = TheTerrainLogic::get() else {
+                return None;
+            };
+            let extent = terrain.get_maximum_pathfind_extent();
+            let huge_dist = 1.2
+                * ((extent.hi.x - extent.lo.x).powi(2) + (extent.hi.y - extent.lo.y).powi(2)).sqrt();
+            let mut exit_coord = *owner_guard.get_position();
+            exit_coord.x += dir_x * huge_dist;
+            exit_coord.y += dir_y * huge_dist;
+            Some(exit_coord)
+        }).flatten() else {
             return StateReturnType::Failure;
         };
-        let extent = terrain.get_maximum_pathfind_extent();
-        let huge_dist = 1.2
-            * ((extent.hi.x - extent.lo.x).powi(2) + (extent.hi.y - extent.lo.y).powi(2)).sqrt();
-        let mut exit_coord = *owner_guard.get_position();
-        exit_coord.x += dir_x * huge_dist;
-        exit_coord.y += dir_y * huge_dist;
-
-        drop(owner_guard);
         self.ai_set_allow_invalid_position(true);
         self.ai_set_ultra_accurate(true);
         self.ai_move_to_position(&exit_coord);
@@ -1338,25 +1289,24 @@ impl DeliverPayloadAIUpdate {
             return StateReturnType::Success;
         }
 
-        let Some(owner) = TheGameLogic::find_object_by_id(self.owner_id) else {
-            return StateReturnType::Failure;
-        };
-        let Ok(mut owner_guard) = owner.write() else {
-            return StateReturnType::Failure;
-        };
-        if let Some(physics) = owner_guard.get_physics() {
-            if let Ok(phys_guard) = physics.lock() {
-                if phys_guard.get_turning() != 0.0 {
-                    let (dir_x, dir_y) = owner_guard.get_unit_direction_vector_2d();
-                    let current_direction = Coord3D::new(dir_x, dir_y, 0.0);
-                    let dot = self.facing_direction_upon_delivery.x * current_direction.x
-                        + self.facing_direction_upon_delivery.y * current_direction.y
-                        + self.facing_direction_upon_delivery.z * current_direction.z;
-                    if dot < 0.3 {
-                        owner_guard.kill(None, None);
+        let turned = crate::object::registry::OBJECT_REGISTRY.with_object_mut(self.owner_id, |owner_guard| {
+            if let Some(physics) = owner_guard.get_physics() {
+                if let Ok(phys_guard) = physics.lock() {
+                    if phys_guard.get_turning() != 0.0 {
+                        let (dir_x, dir_y) = owner_guard.get_unit_direction_vector_2d();
+                        let current_direction = Coord3D::new(dir_x, dir_y, 0.0);
+                        let dot = self.facing_direction_upon_delivery.x * current_direction.x
+                            + self.facing_direction_upon_delivery.y * current_direction.y
+                            + self.facing_direction_upon_delivery.z * current_direction.z;
+                        if dot < 0.3 {
+                            owner_guard.kill(None, None);
+                        }
                     }
                 }
             }
+        });
+        if turned.is_none() {
+            return StateReturnType::Failure;
         }
 
         StateReturnType::Continue
@@ -1368,16 +1318,14 @@ impl DeliverPayloadAIUpdate {
             return StateReturnType::Continue;
         }
 
-        if let Some(owner) = TheGameLogic::find_object_by_id(self.owner_id) {
-            if let Ok(owner_guard) = owner.read() {
-                if let Some(contain) = owner_guard.get_contain() {
-                    if contain.get_contained_count() > 0 {
-                        log::warn!("DeliverPayloadAIUpdate: cleanup before all items dropped.");
-                    }
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object(self.owner_id, |owner_guard| {
+            if let Some(contain) = owner_guard.get_contain() {
+                if contain.get_contained_count() > 0 {
+                    log::warn!("DeliverPayloadAIUpdate: cleanup before all items dropped.");
                 }
-                let _ = TheGameLogic::destroy_object(&owner_guard);
             }
-        }
+            let _ = TheGameLogic::destroy_object(owner_guard);
+        });
 
         StateReturnType::Continue
     }
@@ -1392,12 +1340,7 @@ impl DeliverPayloadAIUpdate {
             return;
         }
 
-        let Some(owner) = TheGameLogic::find_object_by_id(self.owner_id) else {
-            return;
-        };
-        let Ok(owner_guard) = owner.read() else {
-            return;
-        };
+        let strafe = crate::object::registry::OBJECT_REGISTRY.with_object(self.owner_id, |owner_guard| {
 
         if self.dive_state == DiveState::PreDive {
             let start_dive_distance_sqr =
@@ -1420,6 +1363,7 @@ impl DeliverPayloadAIUpdate {
                     }
                 }
             }
+            None
         } else {
             let end_dive_distance_sqr = self.data.dive_end_distance * self.data.dive_end_distance;
             let current_distance_sqr = ThePartitionManager::get_distance_squared_to_pos(
@@ -1463,37 +1407,39 @@ impl DeliverPayloadAIUpdate {
                                     terrain.get_ground_height(strafe_point.x, strafe_point.y, None);
                             }
 
-                            drop(phys_guard);
-                            drop(owner_guard);
-
-                            if let Ok(mut owner_guard) = owner.write() {
-                                let weapon_slot = match slot {
-                                    crate::common::WeaponSlotType::Primary => {
-                                        crate::weapon::WeaponSlotType::Primary
-                                    }
-                                    crate::common::WeaponSlotType::Secondary => {
-                                        crate::weapon::WeaponSlotType::Secondary
-                                    }
-                                    crate::common::WeaponSlotType::Tertiary => {
-                                        crate::weapon::WeaponSlotType::Tertiary
-                                    }
-                                };
-                                owner_guard.set_weapon_lock(
-                                    weapon_slot,
-                                    WeaponLockType::LockedTemporarily,
-                                );
-                                let _ = owner_guard.fire_current_weapon_at_position(&strafe_point);
-                            }
-
-                            if let Some(fx) = self.data.strafe_fx.as_ref() {
-                                let _ = fx.do_fx_at_position_with_radius(
-                                    &strafe_point,
-                                    self.data.strafe_length,
-                                );
-                            }
+                            return Some(strafe_point);
                         }
                     }
                 }
+            }
+            None
+        });
+        let Some(strafe) = strafe else {
+            return;
+        };
+        if let Some(strafe_point) = strafe {
+            if let Some(slot) = self.data.strafing_weapon_slot {
+                let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(
+                    self.owner_id,
+                    |owner_guard| {
+                        let weapon_slot = match slot {
+                            crate::common::WeaponSlotType::Primary => {
+                                crate::weapon::WeaponSlotType::Primary
+                            }
+                            crate::common::WeaponSlotType::Secondary => {
+                                crate::weapon::WeaponSlotType::Secondary
+                            }
+                            crate::common::WeaponSlotType::Tertiary => {
+                                crate::weapon::WeaponSlotType::Tertiary
+                            }
+                        };
+                        owner_guard.set_weapon_lock(weapon_slot, WeaponLockType::LockedTemporarily);
+                        let _ = owner_guard.fire_current_weapon_at_position(&strafe_point);
+                    },
+                );
+            }
+            if let Some(fx) = self.data.strafe_fx.as_ref() {
+                let _ = fx.do_fx_at_position_with_radius(&strafe_point, self.data.strafe_length);
             }
         }
     }
@@ -1540,29 +1486,27 @@ impl DeliverPayloadAIUpdateInterface for DeliverPayloadAIUpdate {
         self.drop_delay_left = 0;
         self.did_open = false;
 
-        if let Some(owner) = TheGameLogic::find_object_by_id(self.owner_id) {
-            if let Ok(owner_guard) = owner.read() {
-                if let Some(drawable) = owner_guard.get_drawable() {
-                    if let Ok(mut draw_guard) = drawable.write() {
-                        let mut update_sub_objects = false;
-                        for i in 1..=self.data.visible_num_bones {
-                            if !self.data.visible_sub_object_name.is_empty() {
-                                let name = format!(
-                                    "{}{:02}",
-                                    self.data.visible_sub_object_name.as_str(),
-                                    i
-                                );
-                                draw_guard.show_sub_object(&name, true);
-                                update_sub_objects = true;
-                            }
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object(self.owner_id, |owner_guard| {
+            if let Some(drawable) = owner_guard.get_drawable() {
+                if let Ok(mut draw_guard) = drawable.write() {
+                    let mut update_sub_objects = false;
+                    for i in 1..=self.data.visible_num_bones {
+                        if !self.data.visible_sub_object_name.is_empty() {
+                            let name = format!(
+                                "{}{:02}",
+                                self.data.visible_sub_object_name.as_str(),
+                                i
+                            );
+                            draw_guard.show_sub_object(&name, true);
+                            update_sub_objects = true;
                         }
-                        if update_sub_objects {
-                            draw_guard.update_sub_objects();
-                        }
+                    }
+                    if update_sub_objects {
+                        draw_guard.update_sub_objects();
                     }
                 }
             }
-        }
+        });
 
         self.enter_state_impl(DeliverPayloadState::Approach);
     }

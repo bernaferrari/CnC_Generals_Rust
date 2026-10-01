@@ -7,7 +7,7 @@ use std::ffi::CString;
 #[cfg(target_os = "windows")]
 use std::io::{Read, Seek, SeekFrom};
 #[cfg(target_os = "windows")]
-use std::mem::{MaybeUninit, size_of};
+use std::mem::size_of;
 #[cfg(target_os = "windows")]
 use std::os::windows::io::AsRawHandle;
 #[cfg(target_os = "windows")]
@@ -112,32 +112,32 @@ pub fn get_image_file_header_from_file(
         Err(_) => return false,
     };
 
-    // SAFETY: [Category 5 — invalid values] IMAGE_DOS_HEADER / IMAGE_FILE_HEADER are all-zero-valid POD C structs.
-    let mut dos_header: IMAGE_DOS_HEADER = unsafe { MaybeUninit::zeroed().assume_init() };
-    // SAFETY: [Category 5 — invalid values] IMAGE_DOS_HEADER / IMAGE_FILE_HEADER are all-zero-valid POD C structs.
-    let dos_slice = unsafe {
-        std::slice::from_raw_parts_mut(
-            &mut dos_header as *mut IMAGE_DOS_HEADER as *mut u8,
-            size_of::<IMAGE_DOS_HEADER>(),
-        )
-    };
-    if file.read_exact(dos_slice).is_err() {
+    // `IMAGE_DOS_HEADER` is `repr(C, packed(2))` and `e_lfanew` is its last `i32`.
+    const DOS_LEN: usize = size_of::<IMAGE_DOS_HEADER>();
+    const _: () = assert!(DOS_LEN >= 4);
+    let mut dos_bytes = [0u8; DOS_LEN];
+    if file.read_exact(&mut dos_bytes).is_err() {
         return false;
     }
+    let lf_at = DOS_LEN - 4;
+    let e_lfanew = i32::from_ne_bytes([
+        dos_bytes[lf_at],
+        dos_bytes[lf_at + 1],
+        dos_bytes[lf_at + 2],
+        dos_bytes[lf_at + 3],
+    ]);
 
-    let file_header_offset = dos_header.e_lfanew as u64 + size_of::<u32>() as u64;
+    let file_header_offset = e_lfanew as u64 + size_of::<u32>() as u64;
     if file.seek(SeekFrom::Start(file_header_offset)).is_err() {
         return false;
     }
 
-    // SAFETY: [Category 10 — OOB] views exactly the caller's IMAGE_FILE_HEADER output slot for a direct file read.
-    let header_slice = unsafe {
-        std::slice::from_raw_parts_mut(
-            file_header as *mut IMAGE_FILE_HEADER as *mut u8,
-            size_of::<IMAGE_FILE_HEADER>(),
-        )
-    };
-    file.read_exact(header_slice).is_ok()
+    // Preserve a short `read_exact` prefix in the caller's header, same as the
+    // previous byte overlay of this slot.
+    let mut header_bytes = image_file_header_bytes(file_header);
+    let ok = file.read_exact(&mut header_bytes).is_ok();
+    *file_header = image_file_header_from_bytes(&header_bytes);
+    ok
 }
 
 /// Read the image header from a loaded module.
@@ -168,10 +168,8 @@ pub fn get_image_file_header_from_instance(
 /// Compare executable timestamp against a file on disk.
 #[cfg(target_os = "windows")]
 pub fn compare_exe_version(app_instance: isize, filename: &str) -> i32 {
-    // SAFETY: [Category 5 — invalid values] IMAGE_DOS_HEADER / IMAGE_FILE_HEADER are all-zero-valid POD C structs.
-    let mut header1: IMAGE_FILE_HEADER = unsafe { MaybeUninit::zeroed().assume_init() };
-    // SAFETY: [Category 5 — invalid values] IMAGE_DOS_HEADER / IMAGE_FILE_HEADER are all-zero-valid POD C structs.
-    let mut header2: IMAGE_FILE_HEADER = unsafe { MaybeUninit::zeroed().assume_init() };
+    let mut header1 = IMAGE_FILE_HEADER::default();
+    let mut header2 = IMAGE_FILE_HEADER::default();
     let got_headers = get_image_file_header_from_instance(HINSTANCE(app_instance), &mut header1)
         && get_image_file_header_from_file(filename, &mut header2);
     if !got_headers {
@@ -187,6 +185,42 @@ pub fn compare_exe_version(app_instance: isize, filename: &str) -> i32 {
         diff as i32
     }
 }
+#[cfg(target_os = "windows")]
+fn image_file_header_bytes(header: &IMAGE_FILE_HEADER) -> [u8; IMAGE_FILE_HEADER_LEN] {
+    let mut bytes = [0u8; IMAGE_FILE_HEADER_LEN];
+    bytes[0..2].copy_from_slice(&header.Machine.0.to_ne_bytes());
+    bytes[2..4].copy_from_slice(&header.NumberOfSections.to_ne_bytes());
+    bytes[4..8].copy_from_slice(&header.TimeDateStamp.to_ne_bytes());
+    bytes[8..12].copy_from_slice(&header.PointerToSymbolTable.to_ne_bytes());
+    bytes[12..16].copy_from_slice(&header.NumberOfSymbols.to_ne_bytes());
+    bytes[16..18].copy_from_slice(&header.SizeOfOptionalHeader.to_ne_bytes());
+    bytes[18..20].copy_from_slice(&header.Characteristics.0.to_ne_bytes());
+    bytes
+}
+
+#[cfg(target_os = "windows")]
+fn image_file_header_from_bytes(bytes: &[u8; IMAGE_FILE_HEADER_LEN]) -> IMAGE_FILE_HEADER {
+    IMAGE_FILE_HEADER {
+        Machine: windows::Win32::System::SystemInformation::IMAGE_FILE_MACHINE(
+            u16::from_ne_bytes([bytes[0], bytes[1]]),
+        ),
+        NumberOfSections: u16::from_ne_bytes([bytes[2], bytes[3]]),
+        TimeDateStamp: u32::from_ne_bytes([bytes[4], bytes[5], bytes[6], bytes[7]]),
+        PointerToSymbolTable: u32::from_ne_bytes([bytes[8], bytes[9], bytes[10], bytes[11]]),
+        NumberOfSymbols: u32::from_ne_bytes([bytes[12], bytes[13], bytes[14], bytes[15]]),
+        SizeOfOptionalHeader: u16::from_ne_bytes([bytes[16], bytes[17]]),
+        Characteristics: windows::Win32::System::Diagnostics::Debug::IMAGE_FILE_CHARACTERISTICS(
+            u16::from_ne_bytes([bytes[18], bytes[19]]),
+        ),
+    }
+}
+
+#[cfg(target_os = "windows")]
+const IMAGE_FILE_HEADER_LEN: usize = 20;
+
+#[cfg(target_os = "windows")]
+const _: () = assert!(size_of::<IMAGE_FILE_HEADER>() == IMAGE_FILE_HEADER_LEN);
+
 
 #[cfg(not(target_os = "windows"))]
 pub fn get_version_info(_filename: &str, _file_info: &mut ()) -> bool {

@@ -1766,7 +1766,7 @@ mod tests {
         fn get_apparent_controlling_player(
             &self,
             _observing_player: Option<&Player>,
-        ) -> Option<Arc<RwLock<Player>>> {
+        ) -> Option<PlayerIndex> {
             Some(Arc::clone(&self.apparent_player))
         }
     }

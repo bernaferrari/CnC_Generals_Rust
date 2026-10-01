@@ -481,7 +481,7 @@ impl BehaviorModuleRegistry {
         registry.register_factory(
             "SlowDeathBehavior",
             Box::new(|thing, data| {
-                SlowDeathBehavior::new(thing, data)
+                SlowDeathBehavior::new(object_id, data)
                     .map(|b| Box::new(b) as Box<dyn crate::modules::BehaviorModuleInterface>)
             }),
         );
@@ -509,7 +509,7 @@ impl BehaviorModuleRegistry {
         registry.register_factory(
             "SupplyWarehouseCripplingBehavior",
             Box::new(|thing, data| {
-                SupplyWarehouseCripplingBehavior::new(thing, data)
+                SupplyWarehouseCripplingBehavior::new(object_id, data)
                     .map(|b| Box::new(b) as Box<dyn crate::modules::BehaviorModuleInterface>)
             }),
         );
@@ -517,7 +517,7 @@ impl BehaviorModuleRegistry {
         registry.register_factory(
             "TechBuildingBehavior",
             Box::new(|thing, data| {
-                TechBuildingBehavior::new(thing, data)
+                TechBuildingBehavior::new(object_id, data)
                     .map(|b| Box::new(b) as Box<dyn crate::modules::BehaviorModuleInterface>)
             }),
         );
@@ -525,7 +525,7 @@ impl BehaviorModuleRegistry {
         registry.register_factory(
             "PropagandaTowerBehavior",
             Box::new(|thing, data| {
-                PropagandaTowerBehavior::new(thing, data)
+                PropagandaTowerBehavior::new(object_id, data)
                     .map(|b| Box::new(b) as Box<dyn crate::modules::BehaviorModuleInterface>)
             }),
         );
@@ -543,7 +543,7 @@ impl BehaviorModuleRegistry {
                         )
                     })?;
                 let module_data = Arc::new(typed.clone());
-                PropagandaCenterBehavior::new(thing, module_data)
+                PropagandaCenterBehavior::new(object_id, module_data)
                     .map(|b| Box::new(b) as Box<dyn crate::modules::BehaviorModuleInterface>)
             }),
         );

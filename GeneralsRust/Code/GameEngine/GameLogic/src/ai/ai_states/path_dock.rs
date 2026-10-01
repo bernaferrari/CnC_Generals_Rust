@@ -231,27 +231,23 @@ impl AIState for AIDockState {
             return StateReturnType::Failed;
         }
 
-        let Some(owner_arc) = get_legacy_object(context.owner_id) else {
+        if get_legacy_object(context.owner_id).is_none() || get_legacy_object(goal_id).is_none() {
             return StateReturnType::Failed;
-        };
-        let Some(goal_arc) = get_legacy_object(goal_id) else {
-            return StateReturnType::Failed;
-        };
+        }
 
         let _ = OBJECT_REGISTRY.with_object_mut(context.owner_id, |owner_guard| {
             if let Some(ai_guard) = owner_guard.get_ai_update_interface_mut() {
-                let _ = ai_guard
-                    .ignore_obstacle(goal_arc.read().ok().map(|g| g.get_id()));
+                let _ = ai_guard.ignore_obstacle(Some(goal_id));
                 let _ = ai_guard.set_can_path_through_units(true);
             }
         });
 
-        let mut dock_machine = match AIDockMachine::new(owner_arc.clone()) {
+        let mut dock_machine = match AIDockMachine::new(context.owner_id) {
             Ok(machine) => machine,
             Err(_) => return StateReturnType::Failed,
         };
         if let Ok(mut machine) = dock_machine.state_machine.lock() {
-            machine.set_goal_object(Some(Arc::downgrade(&goal_arc)));
+            machine.set_goal_object_by_id(Some(goal_id));
             let _ = machine.init_default_state();
         }
         self.dock_machine = Some(dock_machine);

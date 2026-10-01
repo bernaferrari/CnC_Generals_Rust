@@ -2551,7 +2551,7 @@ pub struct FlightDeckBehaviorFactory;
 
 impl FlightDeckBehaviorFactory {
     pub fn create_behavior(
-        thing: Arc<RwLock<crate::object::Object>>,
+        object_id: ObjectID,
         module_data: Arc<dyn crate::common::ModuleData>,
     ) -> Result<
         Box<dyn crate::modules::BehaviorModuleInterface>,
@@ -2664,13 +2664,13 @@ mod tests {
         FlightDeckBehavior::new(object_id, config)
     }
 
-    fn register_test_object(object_id: ObjectID) -> Arc<RwLock<Object>> {
+    fn register_test_object(object_id: ObjectID) -> ObjectID {
         let object = Arc::new(RwLock::new(Object::new_test(object_id, 100.0)));
         OBJECT_REGISTRY.register_object(object_id, &object);
         object
     }
 
-    fn create_test_flight_deck_with_owner() -> (FlightDeckBehavior, Arc<RwLock<Object>>) {
+    fn create_test_flight_deck_with_owner() -> (FlightDeckBehavior, ObjectID) {
         let owner_id = next_test_object_id();
         let owner = register_test_object(owner_id);
         let config = FlightDeckBehaviorModuleData {

@@ -244,7 +244,7 @@ pub trait PartitionManagerInterface: std::fmt::Debug {
         max_range: f32,
         distance_type: PartitionDistanceType,
         filters: &[PartitionFilter],
-    ) -> Option<Arc<RwLock<Object>>>;
+    ) -> Option<crate::common::ObjectID>;
 }
 
 /// Distance type for partition manager queries

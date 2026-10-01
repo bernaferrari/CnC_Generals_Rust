@@ -50,9 +50,9 @@ pub(super) fn relationship_to_target(
         });
     }
 
-    let target = OBJECT_REGISTRY.get_object(target_id)?;
-    let target_guard = target.read().ok()?;
-    let owner = target_guard.get_controlling_player_id()?;
+    let owner = OBJECT_REGISTRY
+        .with_object(target_id, |target_guard| target_guard.get_controlling_player_id())?
+        .flatten()?;
 
     let list = player_list().read().ok()?;
     let me = list.get_player(local_player_id)?;
@@ -88,15 +88,13 @@ pub(super) fn is_prisoner_target(target_id: ObjectID) -> bool {
             || translator_entry_has_kind(&e, "Prison")
             || translator_entry_has_kind(&e, "PowTruck");
     }
-    let Some(target) = OBJECT_REGISTRY.get_object(target_id) else {
-        return false;
-    };
-    let Ok(target_guard) = target.read() else {
-        return false;
-    };
-    target_guard.is_kind_of(KindOf::CanSurrender)
-        || target_guard.is_kind_of(KindOf::Prison)
-        || target_guard.is_kind_of(KindOf::PowTruck)
+    OBJECT_REGISTRY
+        .with_object(target_id, |target_guard| {
+            target_guard.is_kind_of(KindOf::CanSurrender)
+                || target_guard.is_kind_of(KindOf::Prison)
+                || target_guard.is_kind_of(KindOf::PowTruck)
+        })
+        .unwrap_or(false)
 }
 
 pub(super) fn pending_command_target_allowed(
@@ -162,46 +160,52 @@ pub(super) fn pending_fire_weapon_can_target_object(
     selection: &HashSet<ObjectID>,
     target_id: ObjectID,
 ) -> bool {
-    let Some(target) = OBJECT_REGISTRY.get_object(target_id) else {
-        return false;
-    };
-    let Ok(target_guard) = target.read() else {
-        return false;
-    };
     let slot = pending_weapon_slot(pending);
-    let mut saw_owned_source = false;
-
-    for &id in selection {
-        let Some(sel) = OBJECT_REGISTRY.get_object(id) else {
-            continue;
-        };
-        let Ok(sel_guard) = sel.read() else {
-            continue;
-        };
-
-        let is_mine = local_player
-            .and_then(|pid| {
-                sel_guard
-                    .get_controlling_player_id()
-                    .map(|owner| owner == pid)
-            })
-            .unwrap_or(false);
-        if !is_mine {
-            continue;
+    let outcome = OBJECT_REGISTRY.with_object(target_id, |target_guard| {
+        let mut saw_owned_source = false;
+        for &id in selection {
+            let can = if id == target_id {
+                fire_weapon_owned(local_player, target_guard, target_guard, slot, &mut saw_owned_source)
+            } else {
+                OBJECT_REGISTRY
+                    .with_object(id, |sel_guard| {
+                        fire_weapon_owned(local_player, sel_guard, target_guard, slot, &mut saw_owned_source)
+                    })
+                    .unwrap_or(false)
+            };
+            if can {
+                return true;
+            }
         }
-        saw_owned_source = true;
+        __omp_shell("saw_owned_source")
+    });
+    outcome.unwrap_or(false)
+}
 
-        if ActionManager::can_fire_weapon_at_object(
-            &sel_guard,
-            &target_guard,
-            CommandSourceType::FromPlayer,
-            slot,
-        ) {
-            return true;
-        }
+fn fire_weapon_owned(
+    local_player: Option<u32>,
+    sel_guard: &gamelogic::object::Object,
+    target_guard: &gamelogic::object::Object,
+    slot: WeaponSlotType,
+    saw_owned_source: &mut bool,
+) -> bool {
+    let is_mine = local_player
+        .and_then(|pid| {
+            sel_guard
+                .get_controlling_player_id()
+                .map(|owner| owner == pid)
+        })
+        .unwrap_or(false);
+    if !is_mine {
+        return false;
     }
-
-    !saw_owned_source
+    *saw_owned_source = true;
+    ActionManager::can_fire_weapon_at_object(
+        sel_guard,
+        target_guard,
+        CommandSourceType::FromPlayer,
+        slot,
+    )
 }
 
 pub(super) fn pending_fire_weapon_can_target_position(
@@ -213,42 +217,64 @@ pub(super) fn pending_fire_weapon_can_target_position(
 ) -> bool {
     let slot = pending_weapon_slot(pending);
     let logic_pos = LogicCoord3D::new(position.x, position.y, position.z);
-    let object_in_way_obj = object_in_way.and_then(|id| OBJECT_REGISTRY.get_object(id));
-    let mut saw_owned_source = false;
-
-    for &id in selection {
-        let Some(sel) = OBJECT_REGISTRY.get_object(id) else {
-            continue;
-        };
-        let Ok(sel_guard) = sel.read() else {
-            continue;
-        };
-
-        let is_mine = local_player
-            .and_then(|pid| {
-                sel_guard
-                    .get_controlling_player_id()
-                    .map(|owner| owner == pid)
+    match object_in_way {
+        Some(way_id) => OBJECT_REGISTRY
+            .with_object(way_id, |way| {
+                fire_weapon_position_selection(local_player, selection, &logic_pos, slot, Some(way), way_id)
             })
-            .unwrap_or(false);
-        if !is_mine {
-            continue;
-        }
-        saw_owned_source = true;
-        let object_in_way_guard = object_in_way_obj.as_ref().and_then(|obj| obj.read().ok());
+            .unwrap_or(false),
+        None => fire_weapon_position_selection(local_player, selection, &logic_pos, slot, None, 0),
+    }
+}
 
-        if ActionManager::can_fire_weapon_at_location(
-            &sel_guard,
-            &logic_pos,
-            CommandSourceType::FromPlayer,
-            slot,
-            object_in_way_guard.as_deref(),
-        ) {
+fn fire_weapon_position_selection(
+    local_player: Option<u32>,
+    selection: &HashSet<ObjectID>,
+    logic_pos: &LogicCoord3D,
+    slot: WeaponSlotType,
+    way: Option<&gamelogic::object::Object>,
+    way_id: ObjectID,
+) -> bool {
+    let mut saw_owned_source = false;
+    for &id in selection {
+        let can = if way.is_some() && id == way_id {
+            fire_at_loc(local_player, way.unwrap(), logic_pos, slot, way, &mut saw_owned_source)
+        } else {
+            OBJECT_REGISTRY
+                .with_object(id, |sel_guard| {
+                    fire_at_loc(local_player, sel_guard, logic_pos, slot, way, &mut saw_owned_source)
+                })
+                .unwrap_or(false)
+        };
+        if can {
             return true;
         }
     }
+    __omp_shell("saw_owned_source")
+}
 
-    !saw_owned_source
+fn fire_at_loc(
+    local_player: Option<u32>,
+    sel_guard: &gamelogic::object::Object,
+    logic_pos: &LogicCoord3D,
+    slot: WeaponSlotType,
+    way: Option<&gamelogic::object::Object>,
+    saw_owned_source: &mut bool,
+) -> bool {
+    let is_mine = local_player
+        .and_then(|pid| sel_guard.get_controlling_player_id().map(|owner| owner == pid))
+        .unwrap_or(false);
+    if !is_mine {
+        return false;
+    }
+    *saw_owned_source = true;
+    ActionManager::can_fire_weapon_at_location(
+        sel_guard,
+        logic_pos,
+        CommandSourceType::FromPlayer,
+        slot,
+        way,
+    )
 }
 
 pub(super) fn pending_special_power_can_target_object(
@@ -257,57 +283,59 @@ pub(super) fn pending_special_power_can_target_object(
     selection: &HashSet<ObjectID>,
     target_id: ObjectID,
 ) -> bool {
-    let Some(target) = OBJECT_REGISTRY.get_object(target_id) else {
-        return false;
-    };
-    let Ok(target_guard) = target.read() else {
-        return false;
-    };
     let Some((power, template)) = pending_special_power_payload() else {
         // Keep legacy permissive behavior when special-power metadata isn't available yet.
         return true;
     };
-    let mut saw_owned_source = false;
-
-    for &id in selection {
-        let Some(sel) = OBJECT_REGISTRY.get_object(id) else {
-            continue;
-        };
-        let Ok(sel_guard) = sel.read() else {
-            continue;
-        };
-
-        let is_mine = local_player
-            .and_then(|pid| {
-                sel_guard
-                    .get_controlling_player_id()
-                    .map(|owner| owner == pid)
-            })
-            .unwrap_or(false);
-        if !is_mine {
-            continue;
+    let outcome = OBJECT_REGISTRY.with_object(target_id, |target_guard| {
+        let mut saw_owned_source = false;
+        for &id in selection {
+            let can = if id == target_id {
+                special_at_object(local_player, target_guard, target_guard, &power, &template, &mut saw_owned_source)
+            } else {
+                OBJECT_REGISTRY
+                    .with_object(id, |sel_guard| {
+                        special_at_object(local_player, sel_guard, target_guard, &power, &template, &mut saw_owned_source)
+                    })
+                    .unwrap_or(false)
+            };
+            if can {
+                return true;
+            }
         }
+        __omp_shell("saw_owned_source")
+    });
+    outcome.unwrap_or(false)
+}
 
-        if power.source_object_id != gamelogic::common::INVALID_ID
-            && sel_guard.get_id() != power.source_object_id
-        {
-            continue;
-        }
-        saw_owned_source = true;
-
-        if ActionManager::can_do_special_power_at_object(
-            &sel_guard,
-            &target_guard,
-            CommandSourceType::FromPlayer,
-            &template,
-            power.options,
-            true,
-        ) {
-            return true;
-        }
+fn special_at_object(
+    local_player: Option<u32>,
+    sel_guard: &gamelogic::object::Object,
+    target_guard: &gamelogic::object::Object,
+    power: &crate::helpers::PendingSpecialPower,
+    template: &SpecialPowerTemplate,
+    saw_owned_source: &mut bool,
+) -> bool {
+    let is_mine = local_player
+        .and_then(|pid| sel_guard.get_controlling_player_id().map(|owner| owner == pid))
+        .unwrap_or(false);
+    if !is_mine {
+        return false;
     }
-
-    !saw_owned_source
+    if power.source_object_id != gamelogic::common::INVALID_ID
+        && sel_guard.get_id() != power.source_object_id
+    {
+        return false;
+    }
+    *saw_owned_source = true;
+    ActionManager::can_do_special_power_at_object(
+        sel_guard,
+        target_guard,
+        CommandSourceType::FromPlayer,
+        template,
+        power.options,
+        true,
+    )
 }
 
 pub(super) fn pending_special_power_can_target_position(
@@ -321,50 +349,73 @@ pub(super) fn pending_special_power_can_target_position(
         return true;
     };
     let logic_pos = LogicCoord3D::new(position.x, position.y, position.z);
-    let object_in_way_obj = object_in_way.and_then(|id| OBJECT_REGISTRY.get_object(id));
-    let mut saw_owned_source = false;
-
-    for &id in selection {
-        let Some(sel) = OBJECT_REGISTRY.get_object(id) else {
-            continue;
-        };
-        let Ok(sel_guard) = sel.read() else {
-            continue;
-        };
-
-        let is_mine = local_player
-            .and_then(|pid| {
-                sel_guard
-                    .get_controlling_player_id()
-                    .map(|owner| owner == pid)
+    match object_in_way {
+        Some(way_id) => OBJECT_REGISTRY
+            .with_object(way_id, |way| {
+                special_position_selection(local_player, selection, &logic_pos, &power, &template, Some(way), way_id)
             })
-            .unwrap_or(false);
-        if !is_mine {
-            continue;
-        }
+            .unwrap_or(false),
+        None => special_position_selection(local_player, selection, &logic_pos, &power, &template, None, 0),
+    }
+}
 
-        if power.source_object_id != gamelogic::common::INVALID_ID
-            && sel_guard.get_id() != power.source_object_id
-        {
-            continue;
-        }
-        saw_owned_source = true;
-        let object_in_way_guard = object_in_way_obj.as_ref().and_then(|obj| obj.read().ok());
-
-        if ActionManager::can_do_special_power_at_location(
-            &sel_guard,
-            &logic_pos,
-            CommandSourceType::FromPlayer,
-            &template,
-            object_in_way_guard.as_deref(),
-            power.options,
-            true,
-        ) {
+fn special_position_selection(
+    local_player: Option<u32>,
+    selection: &HashSet<ObjectID>,
+    logic_pos: &LogicCoord3D,
+    power: &crate::helpers::PendingSpecialPower,
+    template: &SpecialPowerTemplate,
+    way: Option<&gamelogic::object::Object>,
+    way_id: ObjectID,
+) -> bool {
+    let mut saw_owned_source = false;
+    for &id in selection {
+        let can = if way.is_some() && id == way_id {
+            special_at_loc(local_player, way.unwrap(), logic_pos, power, template, way, &mut saw_owned_source)
+        } else {
+            OBJECT_REGISTRY
+                .with_object(id, |sel_guard| {
+                    special_at_loc(local_player, sel_guard, logic_pos, power, template, way, &mut saw_owned_source)
+                })
+                .unwrap_or(false)
+        };
+        if can {
             return true;
         }
     }
+    __omp_shell("saw_owned_source")
+}
 
-    !saw_owned_source
+fn special_at_loc(
+    local_player: Option<u32>,
+    sel_guard: &gamelogic::object::Object,
+    logic_pos: &LogicCoord3D,
+    power: &crate::helpers::PendingSpecialPower,
+    template: &SpecialPowerTemplate,
+    way: Option<&gamelogic::object::Object>,
+    saw_owned_source: &mut bool,
+) -> bool {
+    let is_mine = local_player
+        .and_then(|pid| sel_guard.get_controlling_player_id().map(|owner| owner == pid))
+        .unwrap_or(false);
+    if !is_mine {
+        return false;
+    }
+    if power.source_object_id != gamelogic::common::INVALID_ID
+        && sel_guard.get_id() != power.source_object_id
+    {
+        return false;
+    }
+    *saw_owned_source = true;
+    ActionManager::can_do_special_power_at_location(
+        sel_guard,
+        logic_pos,
+        CommandSourceType::FromPlayer,
+        template,
+        way,
+        power.options,
+        true,
+    )
 }
 
 pub(super) fn pending_command_for_object(
@@ -608,18 +659,15 @@ pub(super) fn selection_source_object_id(
         return 0;
     }
     for &id in selection {
-        let Some(sel) = OBJECT_REGISTRY.get_object(id) else {
-            continue;
-        };
-        let Ok(sel_guard) = sel.read() else {
-            continue;
-        };
-
-        let is_mine = local_player_u32
-            .and_then(|pid| {
-                sel_guard
-                    .get_controlling_player_id()
-                    .map(|owner| owner == pid)
+        let is_mine = OBJECT_REGISTRY
+            .with_object(id, |sel_guard| {
+                local_player_u32
+                    .and_then(|pid| {
+                        sel_guard
+                            .get_controlling_player_id()
+                            .map(|owner| owner == pid)
+                    })
+                    .unwrap_or(false)
             })
             .unwrap_or(false);
         if is_mine {

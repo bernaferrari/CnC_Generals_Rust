@@ -683,7 +683,7 @@ impl GameLogic {
                 }
                 None => (999_000.0, 0.0, false, DamageType::Laser, 0.0, 0.0),
             };
-            combat::queue_projectile(PendingProjectile {
+            let pending = PendingProjectile {
                 shooter_id: attacker_id,
                 shooter_pos,
                 source_context: self.objects.get(&attacker_id).map(|attacker| {
@@ -736,7 +736,8 @@ impl GameLogic {
                     .and_then(|attacker| attacker.weapon_name_for_slot(slot))
                     .map(crate::game_logic::weapon_bootstrap::host_die_on_detonate_for_weapon_name)
                     .unwrap_or(false),
-            });
+            };
+            combat::queue_projectile(&mut self.combat_system, pending);
         }
 
         let mut destroyed = false;

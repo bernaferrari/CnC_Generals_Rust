@@ -3,6 +3,7 @@
 //! Split from `scripting/executor.rs` for module-size parity.
 //! Observable script behavior is unchanged.
 
+use crate::object::registry::OBJECT_REGISTRY;
 use super::*;
 
 impl ScriptActionDispatcher {
@@ -84,7 +85,7 @@ impl ScriptActionDispatcher {
                 if let Some(player_arc) = list.find_player_by_name(&current_player_name) {
                     if let Ok(player_guard) = player_arc.read() {
                         let player_id = player_guard.get_player_index() as u32;
-                        self.check_bridges_for_waypoint(player_id, &first_unit, waypoint_id);
+                        self.check_bridges_for_waypoint(player_id, first_unit, waypoint_id);
                     }
                 }
             }
@@ -618,70 +619,65 @@ impl ScriptActionDispatcher {
                 | SpecialPowerCommandOption::NEED_TARGET_PRISONER,
         );
 
-        let mut best_target: Option<Arc<RwLock<crate::object::Object>>> = None;
+        let mut best_target: Option<ObjectID> = None;
         let mut best_cost = i32::MIN;
 
         for obj_id in target_ids {
-            let Some(target_arc) = TheGameLogic::find_object_by_id(obj_id) else {
-                continue;
-            };
-            let Ok(target_guard) = target_arc.read() else {
-                continue;
-            };
-            if target_guard.is_destroyed() {
-                continue;
-            }
-            if target_guard
-                .get_status_bits()
-                .test(crate::common::ObjectStatusTypes::UnderConstruction)
-            {
-                continue;
-            }
-            if target_guard.is_off_map() != source_guard.is_off_map() {
-                continue;
-            }
-
-            let relationship = source_guard.relationship_to(&target_guard);
-            let relationship_ok = if requires_object_target {
-                (options.contains(SpecialPowerCommandOption::NEED_TARGET_ENEMY_OBJECT)
-                    && relationship == Relationship::Enemies)
-                    || (options.contains(SpecialPowerCommandOption::NEED_TARGET_NEUTRAL_OBJECT)
-                        && relationship == Relationship::Neutral)
-                    || (options.contains(SpecialPowerCommandOption::NEED_TARGET_ALLY_OBJECT)
-                        && matches!(relationship, Relationship::Allies))
-                    || (!options.intersects(
-                        SpecialPowerCommandOption::NEED_TARGET_ENEMY_OBJECT
-                            | SpecialPowerCommandOption::NEED_TARGET_NEUTRAL_OBJECT
-                            | SpecialPowerCommandOption::NEED_TARGET_ALLY_OBJECT,
-                    ) && relationship == Relationship::Enemies)
-            } else {
-                relationship == Relationship::Enemies
-            };
-            if !relationship_ok {
-                continue;
-            }
-
-            if options.contains(SpecialPowerCommandOption::NEED_TARGET_PRISONER)
-                && !target_guard.is_captured()
-            {
-                continue;
-            }
-
-            let cost = target_guard.get_build_cost();
-            if cost > best_cost {
-                best_cost = cost;
-                best_target = Some(target_arc.clone());
+            let cost = crate::object::registry::OBJECT_REGISTRY.with_object(obj_id, |target_guard| {
+                if target_guard.is_destroyed() {
+                    return None;
+                }
+                if target_guard
+                    .get_status_bits()
+                    .test(crate::common::ObjectStatusTypes::UnderConstruction)
+                {
+                    return None;
+                }
+                if target_guard.is_off_map() != source_guard.is_off_map() {
+                    return None;
+                }
+                let relationship = source_guard.relationship_to(target_guard);
+                let relationship_ok = if requires_object_target {
+                    (options.contains(SpecialPowerCommandOption::NEED_TARGET_ENEMY_OBJECT)
+                        && relationship == Relationship::Enemies)
+                        || (options.contains(SpecialPowerCommandOption::NEED_TARGET_NEUTRAL_OBJECT)
+                            && relationship == Relationship::Neutral)
+                        || (options.contains(SpecialPowerCommandOption::NEED_TARGET_ALLY_OBJECT)
+                            && matches!(relationship, Relationship::Allies))
+                        || (!options.intersects(
+                            SpecialPowerCommandOption::NEED_TARGET_ENEMY_OBJECT
+                                | SpecialPowerCommandOption::NEED_TARGET_NEUTRAL_OBJECT
+                                | SpecialPowerCommandOption::NEED_TARGET_ALLY_OBJECT,
+                        ) && relationship == Relationship::Enemies)
+                } else {
+                    relationship == Relationship::Enemies
+                };
+                if !relationship_ok {
+                    return None;
+                }
+                if options.contains(SpecialPowerCommandOption::NEED_TARGET_PRISONER)
+                    && !target_guard.is_captured()
+                {
+                    return None;
+                }
+                Some(target_guard.get_build_cost())
+            });
+            if let Some(Some(cost)) = cost {
+                if cost > best_cost {
+                    best_cost = cost;
+                    best_target = Some(obj_id);
+                }
             }
         }
 
-        if let Some(target_arc) = best_target {
-            if let Ok(target_guard) = target_arc.read() {
-                let _ = source_guard.do_command_button_at_object(
+        if let Some(target_id) = best_target {
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object(target_id, |target_guard| {
+                source_guard.do_command_button_at_object(
                     command_button.get_id(),
-                    &target_guard,
+                    target_guard,
                     CommandSourceType::FromScript,
-                );
-            }
+                )
+            });
         }
 
         Ok(ScriptActionResult::Success)
@@ -985,36 +981,20 @@ impl ScriptActionDispatcher {
         let Ok(Some(building_id)) = tracker.get_object_id(&building_name) else {
             return Ok(ScriptActionResult::Success);
         };
-        let Some(building_obj) = TheGameLogic::find_object_by_id(building_id) else {
-            return Ok(ScriptActionResult::Success);
-        };
-
-        if let Ok(mut building_guard) = building_obj.write() {
-            if !building_guard.is_kind_of(crate::common::KindOf::Structure) {
-                return Ok(ScriptActionResult::Success);
-            }
-
-            if let Some(ai_arc) = building_guard.get_ai_update_interface() {
-                let _ = building_guard.leave_group();
-                if let Ok(mut ai_guard) = ai_arc.lock() {
-                    let _ = ai_guard.choose_locomotor_set(crate::common::LocomotorSetType::Normal);
-                    let params = AiCommandParams::new(
-                        AiCommandType::Evacuate,
-                        CommandSourceType::FromScript,
-                    );
-                    let _ = ai_guard.execute_command(&params);
-                }
-                return Ok(ScriptActionResult::Success);
-            }
-
-            if let Some(contain) = building_guard.get_contain() {
-                if let Ok(mut contain_guard) = contain.lock() {
-                    let _ = contain_guard.remove_all_contained(false);
-                }
+        {
+            enum _ObjFlow<T> { Cont, Ret(T), Fall }
+            let _flow = OBJECT_REGISTRY.with_object_mut(building_id, |mut building_guard| {
+                
+                Ok(ScriptActionResult::Success)
+                _ObjFlow::Fall
+            });
+            match _flow {
+                None => { return Ok(ScriptActionResult::Success); }
+                Some(_ObjFlow::Cont) => continue,
+                Some(_ObjFlow::Ret(v)) => return v,
+                Some(_ObjFlow::Fall) => {}
             }
         }
-
-        Ok(ScriptActionResult::Success)
     }
 
     pub(crate) fn do_enable_scoring(&mut self) -> Result<ScriptActionResult, ScriptError> {
@@ -1043,8 +1023,7 @@ impl ScriptActionDispatcher {
         let object_id =
             leftover_id.or_else(|| crate::scripting::host_script_named_unit_id(&loco_name));
         if let Some(object_id) = object_id {
-            if let Some(obj_arc) = TheGameLogic::find_object_by_id(object_id) {
-                if let Ok(obj_guard) = obj_arc.read() {
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object(object_id, |obj_guard| {
                     if let Some(module) = obj_guard.find_update_module("RailroadBehavior") {
                         module.with_module(|module| {
                             if let Some(train_control) = module.get_train_control_interface() {
@@ -1052,8 +1031,7 @@ impl ScriptActionDispatcher {
                             }
                         });
                     }
-                }
-            }
+                });
         }
         Ok(ScriptActionResult::Success)
     }

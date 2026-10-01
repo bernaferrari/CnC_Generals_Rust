@@ -705,7 +705,7 @@ pub struct RailroadBehavior {
 
 impl RailroadBehavior {
     pub fn new(
-        object: Arc<RwLock<GameObject>>,
+        object: ObjectID,
         module_data: Arc<dyn ModuleData>,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let specific_data = module_data
@@ -717,8 +717,10 @@ impl RailroadBehavior {
         let mut clickety_clack_sound = specific_data.clickety_clack_sound.clone();
         let mut whistle_sound = specific_data.whistle_sound.clone();
 
-        if let Ok(obj_guard) = object.read() {
-            let obj_id = obj_guard.get_id();
+        let obj_id = OBJECT_REGISTRY
+            .with_object(object, |obj_guard| obj_guard.get_id())
+            .unwrap_or(crate::common::INVALID_ID);
+        if obj_id != crate::common::INVALID_ID {
             running_sound.set_object_id(obj_id);
             clickety_clack_sound.set_object_id(obj_id);
             whistle_sound.set_object_id(obj_id);
@@ -730,17 +732,13 @@ impl RailroadBehavior {
         )));
         // Publish before install takes the object write guard. on_object_created
         // runs under that guard, and std RwLock does not reenter.
-        if let Ok(mut obj_guard) = object.try_write() {
-            let physics: Arc<Mutex<dyn PhysicsBehavior>> = physics_handle.clone();
+        let physics: Arc<Mutex<dyn PhysicsBehavior>> = physics_handle.clone();
+        let _ = OBJECT_REGISTRY.with_object_mut(object, |obj_guard| {
             obj_guard.set_physics(Some(physics));
-        }
+        });
 
         Ok(Self {
-            object_id: object
-                .read()
-                .ok()
-                .map(|g| g.get_id())
-                .unwrap_or(crate::common::INVALID_ID),
+            object_id: obj_id,
             module_data: Arc::new(specific_data.clone()),
             next_station_task: StationTask::DoNothing,
             trailer_id: INVALID_ID,
@@ -773,7 +771,7 @@ impl RailroadBehavior {
         })
     }
 
-    fn get_object(&self) -> Option<Arc<RwLock<GameObject>>> {
+    fn get_object(&self) -> Option<ObjectID> {
         // Wave 357: empty dual-world → None.
         if dual_world_registry_unavailable() {
             return None;
@@ -782,8 +780,11 @@ impl RailroadBehavior {
         if self.object_id == crate::common::INVALID_ID {
             return None;
         }
-        crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        if crate::helpers::TheGameLogic::find_object_by_id(self.object_id) {
+            Some(self.object_id)
+        } else {
+            None
+        }
     }
 
     fn get_object_id(&self) -> ObjectID {
@@ -1019,17 +1020,17 @@ impl RailroadBehavior {
         }
 
         if self.trailer_id != INVALID_ID {
-            if let Some(trailer) = TheGameLogic::find_object_by_id(self.trailer_id) {
-                let module = trailer.read().ok().and_then(|trailer_guard| {
+            let module = OBJECT_REGISTRY
+                .with_object(self.trailer_id, |trailer_guard| {
                     trailer_guard.find_update_module("RailroadBehavior")
+                })
+                .flatten();
+            if let Some(module) = module {
+                module.with_module(|module| {
+                    if let Some(train) = module.get_train_control_interface() {
+                        train.set_train_wall(on);
+                    }
                 });
-                if let Some(module) = module {
-                    module.with_module(|module| {
-                        if let Some(train) = module.get_train_control_interface() {
-                            train.set_train_wall(on);
-                        }
-                    });
-                }
             }
         }
     }
@@ -1048,17 +1049,17 @@ impl RailroadBehavior {
         });
 
         if self.trailer_id != INVALID_ID {
-            if let Some(trailer) = TheGameLogic::find_object_by_id(self.trailer_id) {
-                let module = trailer.read().ok().and_then(|trailer_guard| {
+            let module = OBJECT_REGISTRY
+                .with_object(self.trailer_id, |trailer_guard| {
                     trailer_guard.find_update_module("RailroadBehavior")
+                })
+                .flatten();
+            if let Some(module) = module {
+                module.with_module(|module| {
+                    if let Some(train) = module.get_train_control_interface() {
+                        train.disembark_passengers();
+                    }
                 });
-                if let Some(module) = module {
-                    module.with_module(|module| {
-                        if let Some(train) = module.get_train_control_interface() {
-                            train.disembark_passengers();
-                        }
-                    });
-                }
             }
         }
     }
@@ -1129,8 +1130,12 @@ impl RailroadBehavior {
             return;
         }
 
-        let first_carriage = if let Some(close_id) = close_carriage {
-            TheGameLogic::find_object_by_id(close_id)
+        let first_carriage_id = if let Some(close_id) = close_carriage {
+            if TheGameLogic::find_object_by_id(close_id) {
+                Some(close_id)
+            } else {
+                None
+            }
         } else {
             TheThingFactory::find_template(first_template_name.as_str()).and_then(|template| {
                 team.and_then(|team| {
@@ -1143,15 +1148,21 @@ impl RailroadBehavior {
             })
         };
 
-        if let Some(first_carriage) = first_carriage {
-            if let Ok(mut carriage_guard) = first_carriage.write() {
-                carriage_guard.set_producer_id(owner_id);
-                self.trailer_id = carriage_guard.get_id();
+        if let Some(first_carriage_id) = first_carriage_id {
+            if let Some(carriage_id) =
+                OBJECT_REGISTRY.with_object_mut(first_carriage_id, |carriage_guard| {
+                    carriage_guard.set_producer_id(owner_id);
+                    carriage_guard.get_id()
+                })
+            {
+                self.trailer_id = carriage_id;
             }
 
-            let module = first_carriage.read().ok().and_then(|carriage_guard| {
-                carriage_guard.find_update_module("RailroadBehavior")
-            });
+            let module = OBJECT_REGISTRY
+                .with_object(first_carriage_id, |carriage_guard| {
+                    carriage_guard.find_update_module("RailroadBehavior")
+                })
+                .flatten();
             if let Some(module) = module {
                 let _ = module.with_module_downcast::<
                     crate::object::update::ai_update::railroad_guide_ai_update::RailroadBehaviorModule,
@@ -1192,10 +1203,10 @@ impl RailroadBehavior {
             return;
         }
 
-        let Some(locomotive) = TheGameLogic::find_object_by_id(loco_id) else {
-            return;
-        };
-        let Ok(locomotive_guard) = locomotive.read() else {
+        let Some(team) = OBJECT_REGISTRY
+            .with_object(loco_id, |locomotive_guard| locomotive_guard.get_team())
+            .flatten()
+        else {
             return;
         };
 
@@ -1216,9 +1227,6 @@ impl RailroadBehavior {
         let Some(template) = TheThingFactory::find_template(next_name.as_str()) else {
             return;
         };
-        let Some(team) = locomotive_guard.get_team() else {
-            return;
-        };
         let Some(new_carriage) = team.read().ok().and_then(|team_guard| {
             TheThingFactory::get()
                 .ok()
@@ -1227,19 +1235,19 @@ impl RailroadBehavior {
             return;
         };
 
-        if let Ok(mut guard) = new_carriage.write() {
-            guard.set_producer(Some(&*locomotive_guard));
-            self.trailer_id = guard.get_id();
+        if let Some(id) = OBJECT_REGISTRY.with_object_mut(new_carriage, |guard| {
+            guard.set_producer_id(loco_id);
+            guard.get_id()
+        }) {
+            self.trailer_id = id;
         }
-        drop(locomotive_guard);
         let remaining_templates: Vec<AsciiString> = iter.collect();
         let next_track = track.clone();
-        let module = {
-            let Ok(carriage_guard) = new_carriage.read() else {
-                return;
-            };
-            carriage_guard.find_update_module("RailroadBehavior")
-        };
+        let module = OBJECT_REGISTRY
+            .with_object(new_carriage, |carriage_guard| {
+                carriage_guard.find_update_module("RailroadBehavior")
+            })
+            .flatten();
         if let Some(module) = module {
             let _ = module.with_module_downcast::<
                 crate::object::update::ai_update::railroad_guide_ai_update::RailroadBehaviorModule,
@@ -1267,10 +1275,7 @@ impl RailroadBehavior {
             return;
         }
 
-        let Some(locomotive) = TheGameLogic::find_object_by_id(loco_id) else {
-            return;
-        };
-        if locomotive.read().is_err() {
+        if !TheGameLogic::find_object_by_id(loco_id) {
             return;
         }
 
@@ -1325,26 +1330,27 @@ impl RailroadBehavior {
         };
 
         if let Some(close_id) = close_carriage {
-            if let Some(close) = TheGameLogic::find_object_by_id(close_id) {
-                if let Ok(mut close_guard) = close.write() {
-                    close_guard.set_producer_id(owner_id);
-                    self.trailer_id = close_guard.get_id();
-                }
-                let module = close.read().ok().and_then(|close_guard| {
+            if let Some(id) = OBJECT_REGISTRY.with_object_mut(close_id, |close_guard| {
+                close_guard.set_producer_id(owner_id);
+                close_guard.get_id()
+            }) {
+                self.trailer_id = id;
+            }
+            let module = OBJECT_REGISTRY
+                .with_object(close_id, |close_guard| {
                     close_guard.find_update_module("RailroadBehavior")
+                })
+                .flatten();
+            if let Some(module) = module {
+                let _ = module.with_module_downcast::<
+                    crate::object::update::ai_update::railroad_guide_ai_update::RailroadBehaviorModule,
+                    _,
+                    _,
+                >(|module| {
+                    module
+                        .behavior_mut()
+                        .hitch_new_carriage_by_proximity(owner_id, track);
                 });
-                if let Some(module) = module {
-                    let _ = module.with_module_downcast::<
-                        crate::object::update::ai_update::railroad_guide_ai_update::RailroadBehaviorModule,
-                        _,
-                        _,
-                    >(|module| {
-                        module.behavior_mut().hitch_new_carriage_by_proximity(
-                            owner_id,
-                            track,
-                        );
-                    });
-                }
             }
         }
     }
@@ -1368,20 +1374,19 @@ impl RailroadBehavior {
         self.pull_info = local_pull_info;
 
         if self.trailer_id != INVALID_ID {
-            if let Some(trailer) = TheGameLogic::find_object_by_id(self.trailer_id) {
-                let module = trailer
-                    .read()
-                    .ok()
-                    .and_then(|trailer_guard| trailer_guard.find_update_module("RailroadBehavior"));
-                if let Some(module) = module {
-                    module.with_module(|module| {
-                        if let Some(train) = module.get_train_control_interface() {
-                            let mut pull_info = self.pull_info.to_train_pull_info();
-                            train.get_pulled(&mut pull_info);
-                            self.pull_info.copy_from_train_pull_info(pull_info);
-                        }
-                    });
-                }
+            let module = OBJECT_REGISTRY
+                .with_object(self.trailer_id, |trailer_guard| {
+                    trailer_guard.find_update_module("RailroadBehavior")
+                })
+                .flatten();
+            if let Some(module) = module {
+                module.with_module(|module| {
+                    if let Some(train) = module.get_train_control_interface() {
+                        let mut pull_info = self.pull_info.to_train_pull_info();
+                        train.get_pulled(&mut pull_info);
+                        self.pull_info.copy_from_train_pull_info(pull_info);
+                    }
+                });
             }
         } else {
             self.trailer_id = INVALID_ID;
@@ -1493,12 +1498,11 @@ impl RailroadBehavior {
         let mut next = self.trailer_id;
         while next != INVALID_ID {
             ids.push(next);
-            let Some(trailer) = TheGameLogic::find_object_by_id(next) else {
-                break;
-            };
-            let module = trailer.read().ok().and_then(|trailer_guard| {
-                trailer_guard.find_update_module("RailroadBehavior")
-            });
+            let module = OBJECT_REGISTRY
+                .with_object(next, |trailer_guard| {
+                    trailer_guard.find_update_module("RailroadBehavior")
+                })
+                .flatten();
             let Some(module) = module else {
                 break;
             };
@@ -1990,22 +1994,19 @@ impl UpdateModuleInterface for RailroadBehavior {
             }
 
             if self.trailer_id != INVALID_ID {
-                if let Some(trailer) = TheGameLogic::find_object_by_id(self.trailer_id) {
-                    let module = trailer
-                        .read()
-                        .ok()
-                        .and_then(|trailer_guard| {
-                            trailer_guard.find_update_module("RailroadBehavior")
-                        });
-                    if let Some(module) = module {
-                        module.with_module(|module| {
-                            if let Some(train) = module.get_train_control_interface() {
-                                let mut pull_info = self.pull_info.to_train_pull_info();
-                                train.get_pulled(&mut pull_info);
-                                self.pull_info.copy_from_train_pull_info(pull_info);
-                            }
-                        });
-                    }
+                let module = OBJECT_REGISTRY
+                    .with_object(self.trailer_id, |trailer_guard| {
+                        trailer_guard.find_update_module("RailroadBehavior")
+                    })
+                    .flatten();
+                if let Some(module) = module {
+                    module.with_module(|module| {
+                        if let Some(train) = module.get_train_control_interface() {
+                            let mut pull_info = self.pull_info.to_train_pull_info();
+                            train.get_pulled(&mut pull_info);
+                            self.pull_info.copy_from_train_pull_info(pull_info);
+                        }
+                    });
                 }
             } else {
                 self.trailer_id = INVALID_ID;
@@ -2066,11 +2067,9 @@ impl BehaviorModuleInterface for RailroadBehavior {
     fn on_object_created(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let physics: Arc<Mutex<dyn PhysicsBehavior>> = self.physics_handle.clone();
         // Already inside Object's write guard during install. Do not lock again.
-        if let Some(obj_arc) = self.get_object() {
-            if let Ok(mut obj_guard) = obj_arc.try_write() {
-                obj_guard.set_physics(Some(physics));
-            }
-        }
+        let _ = OBJECT_REGISTRY.with_object_mut(self.object_id, |obj_guard| {
+            obj_guard.set_physics(Some(physics));
+        });
         Ok(())
     }
 
@@ -2093,15 +2092,11 @@ impl CollideModuleInterface for RailroadBehavior {
             return;
         }
 
-        let Some(other) = TheGameLogic::find_object_by_id(other_id) else {
-            return;
-        };
-        let Ok(mut other_guard) = other.write() else {
-            return;
-        };
-        let loc = *other_guard.get_position();
         let normal = Coord3D::new(0.0, 0.0, 1.0);
-        self.on_collide(&mut other_guard, &loc, &normal);
+        let _ = OBJECT_REGISTRY.with_object_mut(other_id, |other_guard| {
+            let loc = *other_guard.get_position();
+            self.on_collide(other_guard, &loc, &normal);
+        });
     }
 
     fn is_railroad(&self) -> bool {
@@ -2203,7 +2198,7 @@ impl RailroadBehaviorModule {
     pub fn new(
         module_name_key: NameKeyType,
         data: Arc<RailroadBehaviorModuleData>,
-        object: Arc<RwLock<GameObject>>,
+        object: ObjectID,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let behavior = RailroadBehavior::new(object, data.clone())?;
         Ok(Self {

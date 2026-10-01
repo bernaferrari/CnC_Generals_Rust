@@ -142,21 +142,33 @@ fn host_fx_obj_is_visible(object_id: u32) -> bool {
 }
 
 fn do_named_fx_obj(name: &str, primary_id: Option<u32>, secondary_id: Option<u32>) -> bool {
+    use gamelogic::object::registry::OBJECT_REGISTRY;
+
     let store = get_fx_list_store();
     let Some(fx) = store.find_fx_list(name) else {
         return false;
     };
-    let leftover_primary = primary_id.and_then(gamelogic::helpers::TheGameLogic::find_object_by_id);
-    let leftover_secondary =
-        secondary_id.and_then(gamelogic::helpers::TheGameLogic::find_object_by_id);
-    if let Some(object) = leftover_primary {
-        if let Ok(guard) = object.read() {
-            let source_guard = leftover_secondary
-                .as_ref()
-                .and_then(|source| source.read().ok());
-            fx.do_fx_obj(Some(&*guard), source_guard.as_deref());
+    if let Some(primary_id) = primary_id {
+        let played = OBJECT_REGISTRY.with_object(primary_id, |guard| {
+            match secondary_id {
+                Some(secondary_id) if secondary_id != primary_id => {
+                    if OBJECT_REGISTRY
+                        .with_object(secondary_id, |source| {
+                            fx.do_fx_obj(Some(guard), Some(source));
+                        })
+                        .is_none()
+                    {
+                        fx.do_fx_obj(Some(guard), None);
+                    }
+                }
+                Some(_) => fx.do_fx_obj(Some(guard), Some(guard)),
+                None => fx.do_fx_obj(Some(guard), None),
+            }
+            true
+        });
+        if played.is_some() {
+            return true;
         }
-        return true;
     }
     if primary_id.is_none() {
         fx.do_fx_obj(None, None);
@@ -168,10 +180,8 @@ fn do_named_fx_obj(name: &str, primary_id: Option<u32>, secondary_id: Option<u32
     if !host_fx_obj_is_visible(primary.id) {
         return true;
     }
-    let secondary = leftover_secondary
-        .as_ref()
-        .and_then(|source| source.read().ok())
-        .map(|guard| leftover_object_fx_pose(&guard))
+    let secondary = secondary_id
+        .and_then(|id| OBJECT_REGISTRY.with_object(id, |guard| leftover_object_fx_pose(guard)))
         .or_else(|| secondary_id.and_then(resolve_host_fx_object));
     fx.do_fx_obj_host(&primary, secondary.as_ref());
     true
@@ -628,10 +638,7 @@ fn fx_obj_is_visible(primary: Option<&Object>) -> bool {
 }
 
 fn controlling_player_index(primary: &Object) -> i32 {
-    primary
-        .get_controlling_player()
-        .and_then(|player| player.read().ok().map(|guard| guard.get_player_index()))
-        .unwrap_or(-1)
+    primary.get_controlling_player().unwrap_or(-1)
 }
 
 /// C++ `SoundFXNugget::doFXObj` / `doFXPos` → `TheAudio->addAudioEvent`.

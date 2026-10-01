@@ -25,43 +25,26 @@ impl BuildAssistantBackend for GameLogicBuildAssistantBackend {
     ) -> Option<ObjectID> {
         let template = TheThingFactory::find_template(template_name)?;
 
-        let team = if let Some(builder_id) = builder_id {
-            if let Some(builder) = TheGameLogic::find_object_by_id(builder_id) {
-                if let Ok(guard) = builder.read() {
-                    guard.get_team()
-                } else {
-                    None
-                }
-            } else {
-                None
-            }
+        let team_id = if let Some(builder_id) = builder_id {
+            crate::object::registry::OBJECT_REGISTRY
+                .with_object(builder_id, |guard| guard.get_team_id())
+                .flatten()
         } else {
-            if let Ok(list) = player_list().read() {
-                if let Some(player) = list.get_player(owning_player as i32) {
-                    if let Ok(player_guard) = player.read() {
-                        player_guard.get_default_team()
-                    } else {
-                        None
-                    }
-                } else {
-                    None
-                }
-            } else {
-                None
-            }
+            player_list().read().ok().and_then(|list| {
+                list.get_player(owning_player as i32)
+                    .and_then(|player| player.get_default_team_id())
+            })
         }?;
 
-        let team_guard = team.read().ok()?;
         let factory = TheThingFactory::get().ok()?;
-        // C++ BuildAssistant.cpp:361-368 — structures spawn UNDER_CONSTRUCTION
-        // so onCreate does not fire finished-building hooks (GrantUpgrade, power).
         let mut starting_status = crate::common::ObjectStatusMaskType::NONE;
         if template.is_kind_of(crate::common::KindOf::Structure) {
             starting_status.set_status(crate::common::ObjectStatusTypes::UnderConstruction);
         }
-        let new_object = factory
-            .new_object_with_status(template.clone(), &*team_guard, starting_status)
-            .ok()?;
+        let new_object = crate::team::with_team(team_id, |team_guard| {
+            factory.new_object_with_status(template.clone(), team_guard, starting_status)
+        })
+        .and_then(|created| created.ok())?;
 
         let mut build_max_health = 0.0;
         if let Ok(guard) = new_object.read() {
@@ -76,12 +59,10 @@ impl BuildAssistantBackend for GameLogicBuildAssistantBackend {
             let _ = guard.set_position(&LogicCoord3D::new(pos.x, pos.y, pos.z));
             let _ = guard.set_orientation(angle as f32);
             if let Some(builder_id) = builder_id {
-                if let Some(builder) = TheGameLogic::find_object_by_id(builder_id) {
-                    if let Ok(builder_guard) = builder.read() {
+                let _ = crate::object::registry::OBJECT_REGISTRY.with_object(builder_id, |builder_guard| {
                         guard.set_producer(Some(&*builder_guard));
                         guard.set_builder(Some(&*builder_guard));
-                    }
-                }
+                    });
             }
             guard.set_construction_percent(0.0);
             if build_max_health > 0.0 {
@@ -100,8 +81,7 @@ impl BuildAssistantBackend for GameLogicBuildAssistantBackend {
         }
 
         if let Some(builder_id) = builder_id {
-            if let Some(builder) = TheGameLogic::find_object_by_id(builder_id) {
-                if let Ok(builder_guard) = builder.read() {
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object(builder_id, |builder_guard| {
                     let total_build_frames = {
                         let player_id_opt = builder_guard.get_controlling_player_id();
                         if let Some(id) = player_id_opt {
@@ -145,8 +125,7 @@ impl BuildAssistantBackend for GameLogicBuildAssistantBackend {
                             }
                         }
                     }
-                }
-            }
+                });
         }
 
         new_object.read().ok().map(|guard| guard.get_id())
@@ -196,17 +175,12 @@ impl BuildAssistantBackend for GameLogicBuildAssistantBackend {
     }
 
     fn on_selling(&self, id: ObjectID) {
-        let Some(obj) = TheGameLogic::find_object_by_id(id) else {
+        let contain = crate::object::registry::OBJECT_REGISTRY.with_object(id, |guard| guard.get_contain());
+        let Some(contain) = contain.flatten() else {
             return;
         };
-        let contain = match obj.read() {
-            Ok(guard) => guard.get_contain(),
-            Err(_) => return,
-        };
-        if let Some(contain) = contain {
-            use crate::modules::ContainModuleInterfaceExt;
-            let _ = contain.on_selling();
-        }
+        use crate::modules::ContainModuleInterfaceExt;
+        let _ = contain.on_selling();
     }
 }
 

@@ -150,13 +150,11 @@ impl GameLogic {
             .find(|p| p.team == team)
             .map(|p| p.id)
             .unwrap_or(0);
-        crate::game_logic::script_events::push_event(
-            crate::game_logic::script_events::ScriptEvent::CompletedSpecialPower {
-                player_id,
-                special_power_name: power.clone(),
-                creator_id: creator,
-            },
-        );
+        self.push_script_event(crate::game_logic::script_events::ScriptEvent::CompletedSpecialPower {
+            player_id,
+            special_power_name: power.clone(),
+            creator_id: creator,
+        });
         self.special_power_completion_log
             .record_notify(&power, creator);
     }

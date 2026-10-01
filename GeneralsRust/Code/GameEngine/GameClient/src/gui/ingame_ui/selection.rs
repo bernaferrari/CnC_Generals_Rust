@@ -88,23 +88,29 @@ impl InGameUI {
         }
 
         let mut best: Option<(ObjectID, f32)> = None;
-        for obj in OBJECT_REGISTRY.get_all_objects() {
-            let Ok(guard) = obj.read() else {
+        for id in OBJECT_REGISTRY.get_all_object_ids() {
+            let candidate = OBJECT_REGISTRY.with_object(id, |guard| {
+                if !guard.is_selectable() {
+                    return None;
+                }
+                let pos = guard.get_position();
+                let dx = pos.x - world.x;
+                let dy = pos.y - world.y;
+                let dist_sq = dx * dx + dy * dy;
+                if dist_sq <= PICK_RADIUS_WORLD * PICK_RADIUS_WORLD {
+                    Some((guard.get_id(), dist_sq))
+                } else {
+                    None
+                }
+            });
+            let Some(Some((cand_id, dist_sq))) = candidate else {
                 continue;
             };
-            if !guard.is_selectable() {
-                continue;
-            }
-            let pos = guard.get_position();
-            let dx = pos.x - world.x;
-            let dy = pos.y - world.y;
-            let dist_sq = dx * dx + dy * dy;
-            if dist_sq <= PICK_RADIUS_WORLD * PICK_RADIUS_WORLD
-                && best
-                    .map(|(_, best_dist)| dist_sq < best_dist)
-                    .unwrap_or(true)
+            if best
+                .map(|(_, best_dist)| dist_sq < best_dist)
+                .unwrap_or(true)
             {
-                best = Some((guard.get_id(), dist_sq));
+                best = Some((cand_id, dist_sq));
             }
         }
         best.map(|(id, _)| id)
@@ -236,34 +242,37 @@ impl InGameUI {
             return Ok(());
         }
 
-        let Some(reference) = OBJECT_REGISTRY.get_object(template_object_id) else {
+        let reference = OBJECT_REGISTRY.with_object(template_object_id, |reference_guard| {
+            (
+                reference_guard.get_template_name().to_string(),
+                reference_guard
+                    .get_controlling_player_id()
+                    .map(|id| id as i32),
+            )
+        });
+        let Some((template_name, owner_id)) = reference else {
             return Ok(());
         };
-        let Ok(reference_guard) = reference.read() else {
-            return Ok(());
-        };
-        let template_name = reference_guard.get_template_name().to_string();
-        let owner_id = reference_guard
-            .get_controlling_player_id()
-            .map(|id| id as i32);
 
         let mut matching: Vec<ObjectID> = Vec::new();
-        for obj in OBJECT_REGISTRY.get_all_objects() {
-            let Ok(guard) = obj.read() else {
-                continue;
-            };
-            if !guard.is_selectable() {
-                continue;
-            }
-            if guard.get_template_name() != template_name {
-                continue;
-            }
-            if let Some(owner) = owner_id {
-                if guard.get_controlling_player_id().map(|id| id as i32) != Some(owner) {
-                    continue;
+        for id in OBJECT_REGISTRY.get_all_object_ids() {
+            let accept = OBJECT_REGISTRY.with_object(id, |guard| {
+                if !guard.is_selectable() {
+                    return false;
                 }
+                if guard.get_template_name() != template_name {
+                    return false;
+                }
+                if let Some(owner) = owner_id {
+                    if guard.get_controlling_player_id().map(|id| id as i32) != Some(owner) {
+                        return false;
+                    }
+                }
+                true
+            });
+            if accept == Some(true) {
+                matching.push(id);
             }
-            matching.push(guard.get_id());
         }
 
         if matching.is_empty() {
@@ -310,12 +319,13 @@ impl InGameUI {
         };
 
         for object_id in &selected_ids {
-            if let Some(object_arc) = TheGameLogic::find_object_by_id(*object_id) {
-                if let Ok(object_guard) = object_arc.read() {
-                    if object_guard.is_kind_of(KindOf::Dozer) {
-                        return Some(*object_id);
-                    }
-                }
+            let is_dozer = OBJECT_REGISTRY
+                .with_object(*object_id, |object_guard| {
+                    object_guard.is_kind_of(KindOf::Dozer)
+                })
+                .unwrap_or(false);
+            if is_dozer {
+                return Some(*object_id);
             }
         }
 
@@ -550,11 +560,9 @@ impl InGameUI {
         }
         // C++: All selected objects have the same local controller, return first one
         if let Some(&first_id) = selected.first() {
-            if let Some(obj) = TheGameLogic::find_object_by_id(first_id) {
-                if let Ok(guard) = obj.read() {
-                    return guard.is_locally_controlled();
-                }
-            }
+            return OBJECT_REGISTRY
+                .with_object(first_id, |guard| guard.is_locally_controlled())
+                .unwrap_or(false);
         }
         false
     }
@@ -582,12 +590,11 @@ impl InGameUI {
             return false;
         };
         for object_id in selection.get_selected_objects() {
-            if let Some(obj) = OBJECT_REGISTRY.get_object(object_id) {
-                if let Ok(guard) = obj.read() {
-                    if guard.is_kind_of(kind_of) {
-                        return true;
-                    }
-                }
+            let matches = OBJECT_REGISTRY
+                .with_object(object_id, |guard| guard.is_kind_of(kind_of))
+                .unwrap_or(false);
+            if matches {
+                return true;
             }
         }
         false
@@ -621,12 +628,11 @@ impl InGameUI {
             return true;
         };
         for object_id in selection.get_selected_objects() {
-            if let Some(obj) = OBJECT_REGISTRY.get_object(object_id) {
-                if let Ok(guard) = obj.read() {
-                    if !guard.is_kind_of(kind_of) {
-                        return false;
-                    }
-                }
+            let not_kind = OBJECT_REGISTRY
+                .with_object(object_id, |guard| !guard.is_kind_of(kind_of))
+                .unwrap_or(false);
+            if not_kind {
+                return false;
             }
         }
         true
@@ -906,16 +912,21 @@ impl InGameUI {
         let mut templates: Vec<String> = Vec::new();
         let mut is_car_bomb = false;
         for &object_id in &selected_ids {
-            if let Some(obj) = OBJECT_REGISTRY.get_object(object_id) {
-                if let Ok(guard) = obj.read() {
-                    if guard.is_locally_controlled() {
-                        let name = guard.get_template_name().to_string();
-                        if !templates.contains(&name) {
-                            templates.push(name);
-                        }
-                        if Self::object_is_car_bomb(&guard) {
-                            is_car_bomb = true;
-                        }
+            if let Some(Some((name, bomb))) = OBJECT_REGISTRY.with_object(object_id, |guard| {
+                if !guard.is_locally_controlled() {
+                    return None;
+                }
+                Some((
+                    guard.get_template_name().to_string(),
+                    Self::object_is_car_bomb(guard),
+                ))
+            }) {
+                if let Some((name, bomb)) = name {
+                    if !templates.contains(&name) {
+                        templates.push(name);
+                    }
+                    if bomb {
+                        is_car_bomb = true;
                     }
                 }
             }
@@ -929,23 +940,23 @@ impl InGameUI {
         }
 
         let mut matching: Vec<ObjectID> = Vec::new();
-        for obj in OBJECT_REGISTRY.get_all_objects() {
-            let Ok(guard) = obj.read() else {
-                continue;
-            };
-            if !guard.is_selectable() {
-                continue;
-            }
-            let pos = guard.get_position();
-            if pos.x < region.lo.x as f32
-                || pos.x > region.hi.x as f32
-                || pos.y < region.lo.y as f32
-                || pos.y > region.hi.y as f32
-            {
-                continue;
-            }
-            if Self::similar_object_matches(&guard, &templates, is_car_bomb) {
-                matching.push(guard.get_id());
+        for id in OBJECT_REGISTRY.get_all_object_ids() {
+            let accept = OBJECT_REGISTRY.with_object(id, |guard| {
+                if !guard.is_selectable() {
+                    return false;
+                }
+                let pos = guard.get_position();
+                if pos.x < region.lo.x as f32
+                    || pos.x > region.hi.x as f32
+                    || pos.y < region.lo.y as f32
+                    || pos.y > region.hi.y as f32
+                {
+                    return false;
+                }
+                Self::similar_object_matches(guard, &templates, is_car_bomb)
+            });
+            if accept == Some(true) {
+                matching.push(id);
             }
         }
 
@@ -973,17 +984,20 @@ impl InGameUI {
         let mut templates: Vec<String> = Vec::new();
         let mut is_car_bomb = false;
         for &object_id in &selected_ids {
-            if let Some(obj) = OBJECT_REGISTRY.get_object(object_id) {
-                if let Ok(guard) = obj.read() {
-                    if guard.is_locally_controlled() {
-                        let name = guard.get_template_name().to_string();
-                        if !templates.contains(&name) {
-                            templates.push(name);
-                        }
-                        if Self::object_is_car_bomb(&guard) {
-                            is_car_bomb = true;
-                        }
-                    }
+            if let Some(Some((name, bomb))) = OBJECT_REGISTRY.with_object(object_id, |guard| {
+                if !guard.is_locally_controlled() {
+                    return None;
+                }
+                Some((
+                    guard.get_template_name().to_string(),
+                    Self::object_is_car_bomb(guard),
+                ))
+            }) {
+                if !templates.contains(&name) {
+                    templates.push(name);
+                }
+                if bomb {
+                    is_car_bomb = true;
                 }
             }
         }
@@ -996,15 +1010,12 @@ impl InGameUI {
         }
 
         let mut matching: Vec<ObjectID> = Vec::new();
-        for obj in OBJECT_REGISTRY.get_all_objects() {
-            let Ok(guard) = obj.read() else {
-                continue;
-            };
-            if !guard.is_selectable() {
-                continue;
-            }
-            if Self::similar_object_matches(&guard, &templates, is_car_bomb) {
-                matching.push(guard.get_id());
+        for id in OBJECT_REGISTRY.get_all_object_ids() {
+            let accept = OBJECT_REGISTRY.with_object(id, |guard| {
+                guard.is_selectable() && Self::similar_object_matches(guard, &templates, is_car_bomb)
+            });
+            if accept == Some(true) {
+                matching.push(id);
             }
         }
 

@@ -25,6 +25,7 @@ use crate::modules::{
     UpdateSleepTime,
 };
 use crate::object::Object;
+use crate::object::registry::OBJECT_REGISTRY;
 use crate::object::behavior::behavior_module::BehaviorModuleData;
 use crate::path::PATHFIND_CELL_SIZE_F;
 use crate::player::CMD_FROM_AI;
@@ -661,18 +662,12 @@ impl MissileAIUpdate {
             return false;
         }
 
-        let Some(other_arc) = TheGameLogic::find_object_by_id(other_id) else {
-            return false;
-        };
-        let contained_ids = {
-            let Ok(other_guard) = other_arc.read() else {
-                return false;
-            };
+        let Some(contained_ids) = OBJECT_REGISTRY.with_object(other_id, |other_guard| {
             let Some(contain_handle) = other_guard.get_contain() else {
-                return false;
+                return None;
             };
             let Ok(contain_guard) = contain_handle.lock() else {
-                return false;
+                return None;
             };
             let immune = other_guard
                 .get_garrison_contain_module_data()
@@ -683,9 +678,14 @@ impl MissileAIUpdate {
                 || !contain_guard.is_garrisonable()
                 || immune
             {
-                return false;
+                return None;
             }
-            contain_guard.get_contained_objects().into_owned()
+            Some(contain_guard.get_contained_objects().into_owned())
+        }) else {
+            return false;
+        };
+        let Some(contained_ids) = contained_ids else {
+            return false;
         };
 
         let mut num_killed = 0;
@@ -693,30 +693,26 @@ impl MissileAIUpdate {
             if num_killed >= self.data.garrison_hit_kill_count {
                 break;
             }
-            let Some(contained_arc) = TheGameLogic::find_object_by_id(contained_id) else {
-                continue;
-            };
-            let Ok(mut contained_guard) = contained_arc.write() else {
-                continue;
-            };
-            if contained_guard.is_effectively_dead()
-                || !contained_guard.is_kind_of_multi(
-                    self.data.garrison_hit_kill_kindof,
-                    self.data.garrison_hit_kill_kindof_not,
-                )
-            {
-                continue;
-            }
-
-            if self.launcher_id != INVALID_ID {
-                if let Some(launcher_arc) = TheGameLogic::find_object_by_id(self.launcher_id) {
-                    if let Ok(mut launcher_guard) = launcher_arc.write() {
-                        launcher_guard.score_the_kill(&contained_guard);
-                    }
+            let killed = OBJECT_REGISTRY.with_object_mut(contained_id, |contained_guard| {
+                if contained_guard.is_effectively_dead()
+                    || !contained_guard.is_kind_of_multi(
+                        self.data.garrison_hit_kill_kindof,
+                        self.data.garrison_hit_kill_kindof_not,
+                    )
+                {
+                    return false;
                 }
+                if self.launcher_id != INVALID_ID {
+                    let _ = OBJECT_REGISTRY.with_object_mut(self.launcher_id, |launcher_guard| {
+                        launcher_guard.score_the_kill(contained_guard);
+                    });
+                }
+                contained_guard.kill(None, None);
+                true
+            });
+            if killed == Some(true) {
+                num_killed += 1;
             }
-            contained_guard.kill(None, None);
-            num_killed += 1;
         }
 
         if num_killed == 0 {
@@ -740,33 +736,39 @@ impl MissileAIUpdate {
             return;
         }
 
-        let Some(obj_arc) = TheGameLogic::find_object_by_id(self.object_id) else {
-            self.switch_to_state(MissileState::KillSelf, TheGameLogic::get_frame());
-            return;
-        };
-        let Ok(mut obj_guard) = obj_arc.write() else {
-            self.switch_to_state(MissileState::KillSelf, TheGameLogic::get_frame());
-            return;
-        };
+        let armed = OBJECT_REGISTRY.with_object_mut(self.object_id, |obj_guard| {
+            let obj_pos = *obj_guard.get_position();
 
-        let obj_pos = *obj_guard.get_position();
+            if let Some(weapon) = self
+                .detonation_weapon_tmpl
+                .as_ref()
+                .and_then(|weak| weak.upgrade())
+            {
+                let _ = crate::weapon::with_weapon_store(|store| {
+                    let _ = store.handle_projectile_detonation(
+                        &weapon,
+                        self.object_id,
+                        &obj_pos,
+                        self.extra_bonus_flags,
+                        !self.no_damage,
+                    );
+                });
 
-        if let Some(weapon) = self
-            .detonation_weapon_tmpl
-            .as_ref()
-            .and_then(|weak| weak.upgrade())
-        {
-            let _ = crate::weapon::with_weapon_store(|store| {
-                let _ = store.handle_projectile_detonation(
-                    &weapon,
-                    self.object_id,
-                    &obj_pos,
-                    self.extra_bonus_flags,
-                    !self.no_damage,
-                );
-            });
-
-            if weapon.die_on_detonate {
+                if weapon.die_on_detonate {
+                    let max_health = obj_guard.get_max_health();
+                    let mut damage_info = DamageInfo {
+                        input: DamageInfoInput {
+                            damage_type: DamageType::Unresistable,
+                            death_type: DeathType::Detonated,
+                            source_id: INVALID_ID,
+                            amount: max_health,
+                            ..Default::default()
+                        },
+                        ..Default::default()
+                    };
+                    let _ = obj_guard.attempt_damage(&mut damage_info);
+                }
+            } else if !self.no_damage {
                 let max_health = obj_guard.get_max_health();
                 let mut damage_info = DamageInfo {
                     input: DamageInfoInput {
@@ -780,28 +782,20 @@ impl MissileAIUpdate {
                 };
                 let _ = obj_guard.attempt_damage(&mut damage_info);
             }
-        } else if !self.no_damage {
-            let max_health = obj_guard.get_max_health();
-            let mut damage_info = DamageInfo {
-                input: DamageInfoInput {
-                    damage_type: DamageType::Unresistable,
-                    death_type: DeathType::Detonated,
-                    source_id: INVALID_ID,
-                    amount: max_health,
-                    ..Default::default()
-                },
-                ..Default::default()
-            };
-            let _ = obj_guard.attempt_damage(&mut damage_info);
-        }
 
-        if let Some(drawable) = obj_guard.get_drawable() {
-            if let Ok(mut draw_guard) = drawable.write() {
-                let _ = draw_guard.set_drawable_hidden(true);
+            if let Some(drawable) = obj_guard.get_drawable() {
+                if let Ok(mut draw_guard) = drawable.write() {
+                    let _ = draw_guard.set_drawable_hidden(true);
+                }
             }
-        }
 
-        obj_guard.set_status(ObjectStatusMaskType::MISSILE_KILLING_SELF, true);
+            obj_guard.set_status(ObjectStatusMaskType::MISSILE_KILLING_SELF, true);
+            true
+        });
+        if armed.is_none() {
+            self.switch_to_state(MissileState::KillSelf, TheGameLogic::get_frame());
+            return;
+        }
 
         self.switch_to_state(MissileState::KillSelf, TheGameLogic::get_frame());
     }
@@ -870,42 +864,40 @@ impl MissileAIUpdate {
             return;
         }
 
-        let Some(object_arc) = TheGameLogic::find_object_by_id(self.object_id) else {
-            return;
-        };
-        let Ok(mut object_guard) = object_arc.write() else {
-            return;
-        };
-        let old_layer = object_guard.get_layer();
-        let Ok(terrain) = crate::terrain::THE_TERRAIN_LOGIC.read() else {
-            return;
-        };
+        let should_detonate = OBJECT_REGISTRY.with_object_mut(self.object_id, |object_guard| {
+            let old_layer = object_guard.get_layer();
+            let Ok(terrain) = crate::terrain::THE_TERRAIN_LOGIC.read() else {
+                return false;
+            };
 
-        let new_layer_path = terrain.get_highest_layer_for_destination(object_guard.get_position());
-        let new_layer = terrain_layer_to_logic_layer(new_layer_path);
-        object_guard.set_layer(new_layer);
+            let new_layer_path =
+                terrain.get_highest_layer_for_destination(object_guard.get_position());
+            let new_layer = terrain_layer_to_logic_layer(new_layer_path);
+            object_guard.set_layer(new_layer);
 
-        if !self.projectile_is_armed()
-            || old_layer == PathfindLayerEnum::Ground
-            || new_layer != PathfindLayerEnum::Ground
-        {
-            return;
+            if !self.projectile_is_armed()
+                || old_layer == PathfindLayerEnum::Ground
+                || new_layer != PathfindLayerEnum::Ground
+            {
+                return false;
+            }
+
+            let mut test_pos = *object_guard.get_position();
+            test_pos.z = 9999.0;
+            let test_layer = terrain.get_highest_layer_for_destination(&test_pos);
+            if terrain_layer_to_logic_layer(test_layer) != old_layer {
+                return false;
+            }
+
+            const FUDGE: Real = 2.0;
+            test_pos.z =
+                terrain.get_layer_height(test_pos.x, test_pos.y, test_layer, None, true) + FUDGE;
+            let _ = object_guard.set_position(&test_pos);
+            true
+        });
+        if should_detonate == Some(true) {
+            self.detonate();
         }
-
-        let mut test_pos = *object_guard.get_position();
-        test_pos.z = 9999.0;
-        let test_layer = terrain.get_highest_layer_for_destination(&test_pos);
-        if terrain_layer_to_logic_layer(test_layer) != old_layer {
-            return;
-        }
-
-        const FUDGE: Real = 2.0;
-        test_pos.z =
-            terrain.get_layer_height(test_pos.x, test_pos.y, test_layer, None, true) + FUDGE;
-        let _ = object_guard.set_position(&test_pos);
-        drop(object_guard);
-        drop(terrain);
-        self.detonate();
     }
 
     fn handle_countermeasure_diversion(&mut self) {
@@ -917,41 +909,32 @@ impl MissileAIUpdate {
         self.frames_till_decoyed = 0;
         self.no_damage = true;
 
-        let Some(victim_arc) = TheGameLogic::find_object_by_id(self.victim_id) else {
+        let Some(target_id) = OBJECT_REGISTRY.with_object(self.object_id, |missile_guard| {
+            OBJECT_REGISTRY.with_object(self.victim_id, |victim_guard| {
+                missile_guard.calculate_countermeasure_to_divert_to(victim_guard)
+            })
+        }) else {
             return;
         };
-        let Some(missile_arc) = TheGameLogic::find_object_by_id(self.object_id) else {
+        let Some(target_id) = target_id else {
             return;
-        };
-
-        let target_id = {
-            let Ok(missile_guard) = missile_arc.read() else {
-                return;
-            };
-            let Ok(victim_guard) = victim_arc.read() else {
-                return;
-            };
-            missile_guard.calculate_countermeasure_to_divert_to(&victim_guard)
         };
         if target_id == INVALID_ID {
             return;
         }
 
-        let Some(target_arc) = TheGameLogic::find_object_by_id(target_id) else {
+        let Some((target_pos, target_id)) =
+            OBJECT_REGISTRY.with_object(target_id, |target_guard| {
+                (*target_guard.get_position(), target_guard.get_id())
+            })
+        else {
             return;
         };
-        let Ok(target_guard) = target_arc.read() else {
-            return;
-        };
-        let target_pos = *target_guard.get_position();
-        let target_id = target_guard.get_id();
-        drop(target_guard);
 
-        let ai = missile_arc
-            .read()
-            .ok()
-            .and_then(|missile_guard| missile_guard.get_ai_update_interface());
-        if let Some(ai) = ai {
+        let ai = OBJECT_REGISTRY.with_object(self.object_id, |missile_guard| {
+            missile_guard.get_ai_update_interface()
+        });
+        if let Some(Some(ai)) = ai {
             ai.ai_move_to_object(target_id, CMD_FROM_AI);
         }
 
@@ -983,13 +966,7 @@ impl MissileAIUpdate {
         self.set_locomotor_acceleration_and_turn(self.max_accel, 0.0);
 
         if let Some(fx) = &self.data.ignition_fx {
-            if let Some(object_arc) = TheGameLogic::find_object_by_id(self.object_id) {
-                let _ = fx.do_fx_obj(&object_arc, None);
-            } else {
-                // Live host: leftover OBJECT_REGISTRY is empty. C++ doFXObj
-                // still runs on the missile via leftover manager + host pose.
-                let _ = fx.do_fx_obj_ids(self.object_id, None, None);
-            }
+            let _ = fx.do_fx_obj_ids(self.object_id, None, None);
         }
         self.create_exhaust();
 
@@ -1097,8 +1074,9 @@ impl MissileAIUpdate {
     fn distance_to_goal_2d_squared(&self) -> Option<Real> {
         let missile_pos = self.current_object_position()?;
         let goal_pos = if self.is_tracking_target {
-            self.current_goal_object()
-                .and_then(|goal| goal.read().ok().map(|guard| *guard.get_position()))
+            self.current_goal_object().and_then(|goal| {
+                OBJECT_REGISTRY.with_object(goal, |guard| *guard.get_position())
+            })
         } else {
             self.current_ai_interface()
                 .and_then(|ai| ai.get_path_destination())
@@ -1142,18 +1120,15 @@ impl MissileAIUpdate {
             return;
         }
 
-        let Some(obj_arc) = TheGameLogic::find_object_by_id(self.object_id) else {
-            return;
-        };
-        if let Ok(mut obj_guard) = obj_arc.write() {
+        let _ = OBJECT_REGISTRY.with_object_mut(self.object_id, |obj_guard| {
             obj_guard.set_status(ObjectStatusMaskType::NO_COLLISIONS, true);
-        };
+        });
     }
 
     fn current_object_position(&self) -> Option<Coord3D> {
         if !dual_world_registry_unavailable() {
-            if let Some(pos) = TheGameLogic::find_object_by_id(self.object_id)
-                .and_then(|object| object.read().ok().map(|guard| *guard.get_position()))
+            if let Some(pos) =
+                OBJECT_REGISTRY.with_object(self.object_id, |guard| *guard.get_position())
             {
                 return Some(pos);
             }
@@ -1169,15 +1144,11 @@ impl MissileAIUpdate {
             return None;
         }
 
-        TheGameLogic::find_object_by_id(self.object_id).and_then(|object| {
-            object
-                .read()
-                .ok()
-                .and_then(|guard| guard.get_ai_update_interface())
-        })
+        OBJECT_REGISTRY.with_object(self.object_id, |guard| guard.get_ai_update_interface())
+            .flatten()
     }
 
-    fn current_goal_object(&self) -> Option<Arc<std::sync::RwLock<Object>>> {
+    fn current_goal_object(&self) -> Option<ObjectID> {
         // Wave 350: empty dual-world → None.
         if dual_world_registry_unavailable() {
             return None;
@@ -1188,8 +1159,11 @@ impl MissileAIUpdate {
         if goal_id == crate::common::INVALID_ID {
             return None;
         }
-        crate::helpers::TheGameLogic::find_object_by_id(goal_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(goal_id))
+        if OBJECT_REGISTRY.with_object(goal_id, |_| ()).is_some() {
+            Some(goal_id)
+        } else {
+            None
+        }
     }
 
     fn set_locomotor_acceleration_and_turn(&self, acceleration: Real, turn_rate: Real) {
@@ -1231,11 +1205,9 @@ impl MissileAIUpdate {
             return;
         }
 
-        if let Some(object) = TheGameLogic::find_object_by_id(self.object_id) {
-            if let Ok(mut guard) = object.write() {
-                guard.set_status(ObjectStatusMaskType::BRAKING, true);
-            }
-        }
+        let _ = OBJECT_REGISTRY.with_object_mut(self.object_id, |guard| {
+            guard.set_status(ObjectStatusMaskType::BRAKING, true);
+        });
 
         self.set_locomotor_acceleration_and_turn(self.max_accel, BIGNUM);
 
@@ -1246,21 +1218,19 @@ impl MissileAIUpdate {
         {
             if let Some(goal) = self.current_goal_object() {
                 let close_enough = self.current_locomotor_pristine_speed().unwrap_or(1.0);
-                if self.distance_to_goal_bounding_sphere_3d_squared(&goal)
+                if self.distance_to_goal_bounding_sphere_3d_squared(goal)
                     < close_enough * close_enough
                 {
-                    if let Some(goal_pos) = goal.read().ok().map(|guard| *guard.get_position()) {
-                        if let Some(object) = TheGameLogic::find_object_by_id(self.object_id) {
-                            if let Ok(mut guard) = object.write() {
-                                let _ = guard.set_position(&goal_pos);
-                            }
-                        }
+                    if let Some(goal_pos) =
+                        OBJECT_REGISTRY.with_object(goal, |guard| *guard.get_position())
+                    {
+                        let _ = OBJECT_REGISTRY.with_object_mut(self.object_id, |guard| {
+                            let _ = guard.set_position(&goal_pos);
+                        });
                     }
                     self.detonate();
-                } else if let Some(goal_id) = goal.read().ok().map(|guard| guard.get_id()) {
-                    if let Some(ai) = self.current_ai_interface() {
-                        ai.ai_move_to_object(goal_id, CMD_FROM_AI);
-                    }
+                } else if let Some(ai) = self.current_ai_interface() {
+                    ai.ai_move_to_object(goal, CMD_FROM_AI);
                 }
             } else {
                 self.detonate();
@@ -1274,42 +1244,40 @@ impl MissileAIUpdate {
 
     fn distance_to_goal_bounding_sphere_3d_squared(
         &self,
-        goal: &Arc<std::sync::RwLock<Object>>,
+        goal: ObjectID,
     ) -> Real {
         // Wave 350: empty dual-world → Real::MAX.
         if dual_world_registry_unavailable() {
             return Real::MAX;
         }
 
-        let Some(missile) = TheGameLogic::find_object_by_id(self.object_id) else {
-            return Real::MAX;
-        };
-        let Ok(missile_guard) = missile.read() else {
-            return Real::MAX;
-        };
-        let Ok(goal_guard) = goal.read() else {
-            return Real::MAX;
-        };
-
-        let missile_pos = missile_guard.get_position();
-        let goal_pos = goal_guard.get_position();
-        let missile_geom = missile_guard.get_geometry_info();
-        let goal_geom = goal_guard.get_geometry_info();
-        let missile_center_z =
-            missile_pos.z + (missile_geom.bounds.min.z + missile_geom.bounds.max.z) * 0.5;
-        let goal_center_z = goal_pos.z + (goal_geom.bounds.min.z + goal_geom.bounds.max.z) * 0.5;
-        let dx = missile_pos.x - goal_pos.x;
-        let dy = missile_pos.y - goal_pos.y;
-        let dz = missile_center_z - goal_center_z;
-        let center_dist = (dx * dx + dy * dy + dz * dz).sqrt();
-        let radius_sum =
-            missile_geom.get_bounding_sphere_radius() + goal_geom.get_bounding_sphere_radius();
-        let boundary_dist = if center_dist <= radius_sum {
-            0.0
-        } else {
-            center_dist - radius_sum
-        };
-        boundary_dist * boundary_dist
+        OBJECT_REGISTRY
+            .with_object(self.object_id, |missile_guard| {
+                OBJECT_REGISTRY.with_object(goal, |goal_guard| {
+                    let missile_pos = missile_guard.get_position();
+                    let goal_pos = goal_guard.get_position();
+                    let missile_geom = missile_guard.get_geometry_info();
+                    let goal_geom = goal_guard.get_geometry_info();
+                    let missile_center_z = missile_pos.z
+                        + (missile_geom.bounds.min.z + missile_geom.bounds.max.z) * 0.5;
+                    let goal_center_z =
+                        goal_pos.z + (goal_geom.bounds.min.z + goal_geom.bounds.max.z) * 0.5;
+                    let dx = missile_pos.x - goal_pos.x;
+                    let dy = missile_pos.y - goal_pos.y;
+                    let dz = missile_center_z - goal_center_z;
+                    let center_dist = (dx * dx + dy * dy + dz * dz).sqrt();
+                    let radius_sum = missile_geom.get_bounding_sphere_radius()
+                        + goal_geom.get_bounding_sphere_radius();
+                    let boundary_dist = if center_dist <= radius_sum {
+                        0.0
+                    } else {
+                        center_dist - radius_sum
+                    };
+                    boundary_dist * boundary_dist
+                })
+            })
+            .flatten()
+            .unwrap_or(Real::MAX)
     }
 
     /// Kill self state: delay before final destruction
@@ -1327,11 +1295,9 @@ impl MissileAIUpdate {
 
         if self.detonation_weapon_tmpl.is_some() {
             if self.data.detonate_calls_kill {
-                if let Some(obj_arc) = TheGameLogic::find_object_by_id(self.object_id) {
-                    if let Ok(mut obj_guard) = obj_arc.write() {
-                        obj_guard.kill(None, None);
-                    }
-                }
+                let _ = OBJECT_REGISTRY.with_object_mut(self.object_id, |obj_guard| {
+                    obj_guard.kill(None, None);
+                });
             } else {
                 let _ = TheGameLogic::destroy_object_by_id(self.object_id);
             }
@@ -1377,16 +1343,14 @@ impl MissileAIUpdate {
             return; // Already jammed
         }
 
-        if let Some(object) = TheGameLogic::find_object_by_id(self.object_id) {
-            if let Ok(mut guard) = object.write() {
-                guard.set_model_condition_state(MODELCONDITION_JAMMED);
-            }
-        }
+        let _ = OBJECT_REGISTRY.with_object_mut(self.object_id, |guard| {
+            guard.set_model_condition_state(MODELCONDITION_JAMMED);
+        });
 
         let scatter = self.data.distance_scatter_when_jammed;
         let mut target_position = if self.is_tracking_target {
             self.current_goal_object()
-                .and_then(|goal| goal.read().ok().map(|guard| *guard.get_position()))
+                .and_then(|goal| OBJECT_REGISTRY.with_object(goal, |guard| *guard.get_position()))
                 .unwrap_or_else(|| self.current_goal_position())
         } else {
             self.current_goal_position()
@@ -1813,7 +1777,7 @@ mod tests {
         }
     }
 
-    fn register_test_object(object_id: ObjectID) -> Arc<RwLock<Object>> {
+    fn register_test_object(object_id: ObjectID) -> ObjectID {
         let object = Arc::new(RwLock::new(Object::new_test(object_id, 100.0)));
         crate::system::game_logic::get_game_logic()
             .lock()

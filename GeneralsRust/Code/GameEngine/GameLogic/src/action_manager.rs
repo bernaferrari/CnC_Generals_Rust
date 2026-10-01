@@ -339,14 +339,12 @@ fn has_special_object_on_target(target_id: ObjectID, special_object_update: &str
         .get_all_object_ids()
         .into_iter()
         .any(|obj_id| {
-            let Some(obj) = OBJECT_REGISTRY.get_object(obj_id) else {
-                return false;
-            };
-            let Ok(guard) = obj.read() else {
-                return false;
-            };
-            guard.get_producer_id() == target_id
-                && guard.find_update_module(special_object_update).is_some()
+            OBJECT_REGISTRY
+                .with_object(obj_id, |guard| {
+                    guard.get_producer_id() == target_id
+                        && guard.find_update_module(special_object_update).is_some()
+                })
+                .unwrap_or(false)
         })
 }
 
@@ -376,15 +374,9 @@ fn count_stealthed_contained(contain: &dyn crate::modules::ContainModuleInterfac
         .get_contained_objects()
         .iter()
         .filter(|id| {
-            if let Some(obj) = TheGameLogic::find_object_by_id(**id) {
-                if let Ok(guard) = obj.read() {
-                    guard.is_stealthed()
-                } else {
-                    false
-                }
-            } else {
-                false
-            }
+            OBJECT_REGISTRY
+                .with_object(**id, |guard| guard.is_stealthed())
+                .unwrap_or(false)
         })
         .count()
 }
@@ -1047,21 +1039,20 @@ impl TheActionManager {
         // C++ ActionManager.cpp:463-485 — DozerAI current BUILD task + BUILD target.
         let builder_id = object_being_constructed.get_builder_id();
         if builder_id != crate::common::INVALID_ID {
-            if let Some(builder) = TheGameLogic::find_object_by_id(builder_id) {
-                if let Ok(mut builder_guard) = builder.write() {
-                    if let Some(ai) = builder_guard.get_ai_update_interface_mut() {
-                        use crate::object::update::ai_update::dozer_ai_update::DozerTask;
-                        let build_pending = ai
-                            .get_dozer_ai_update_interface_mut()
-                            .is_some_and(|dozer| dozer.is_task_pending(DozerTask::Build));
-                        if build_pending
-                            && ai.get_goal_object_id()
-                                == object_being_constructed.get_id()
-                        {
-                            return false;
-                        }
-                    }
-                }
+            let build_pending = OBJECT_REGISTRY
+                .with_object_mut(builder_id, |builder_guard| {
+                    let Some(ai) = builder_guard.get_ai_update_interface_mut() else {
+                        return false;
+                    };
+                    use crate::object::update::ai_update::dozer_ai_update::DozerTask;
+                    let build_pending = ai
+                        .get_dozer_ai_update_interface_mut()
+                        .is_some_and(|dozer| dozer.is_task_pending(DozerTask::Build));
+                    build_pending && ai.get_goal_object_id() == object_being_constructed.get_id()
+                })
+                .unwrap_or(false);
+            if build_pending {
+                return false;
             }
         }
 
@@ -1154,13 +1145,17 @@ impl TheActionManager {
             return false;
         }
 
-        if let Some(other_handle) = TheGameLogic::find_object_by_id(object_to_enter.get_id()) {
-            if COLLISION_MANAGER
-                .would_like_to_collide_with(obj.get_id(), &other_handle)
+        let other_id = object_to_enter.get_id();
+        if TheGameLogic::find_object_by_id(other_id)
+            && OBJECT_REGISTRY
+                .with_object(other_id, |other| {
+                    COLLISION_MANAGER
+                        .would_like_to_collide_with(obj.get_id(), other)
+                        .unwrap_or(false)
+                })
                 .unwrap_or(false)
-            {
-                return true;
-            }
+        {
+            return true;
         }
 
         #[cfg(feature = "allow_surrender")]
@@ -1241,15 +1236,19 @@ impl TheActionManager {
             return false;
         }
 
-        let Some(other_handle) = TheGameLogic::find_object_by_id(object_to_convert.get_id()) else {
+        let other_id = object_to_convert.get_id();
+        if !TheGameLogic::find_object_by_id(other_id) {
             return false;
-        };
-
-        COLLISION_MANAGER
-            .would_like_to_collide_with_matching(obj.get_id(), &other_handle, |module| {
-                module.is_car_bomb_crate_collide()
+        }
+        return OBJECT_REGISTRY
+            .with_object(other_id, |other| {
+                COLLISION_MANAGER
+                    .would_like_to_collide_with_matching(obj.get_id(), other, |module| {
+                        module.is_car_bomb_crate_collide()
+                    })
+                    .unwrap_or(false)
             })
-            .unwrap_or(false)
+            .unwrap_or(false);
     }
 
     /// Can `obj` hijack `object_to_hijack` (C++ ActionManager::canHijackVehicle).
@@ -1287,15 +1286,19 @@ impl TheActionManager {
             return false;
         }
 
-        let Some(other_handle) = TheGameLogic::find_object_by_id(object_to_hijack.get_id()) else {
+        let other_id = object_to_hijack.get_id();
+        if !TheGameLogic::find_object_by_id(other_id) {
             return false;
-        };
-
-        COLLISION_MANAGER
-            .would_like_to_collide_with_matching(obj.get_id(), &other_handle, |module| {
-                module.is_hijacked_vehicle_crate_collide()
+        }
+        return OBJECT_REGISTRY
+            .with_object(other_id, |other| {
+                COLLISION_MANAGER
+                    .would_like_to_collide_with_matching(obj.get_id(), other, |module| {
+                        module.is_hijacked_vehicle_crate_collide()
+                    })
+                    .unwrap_or(false)
             })
-            .unwrap_or(false)
+            .unwrap_or(false);
     }
 
     /// Can `obj` sabotage `object_to_sabotage` (C++ ActionManager::canSabotageBuilding).
@@ -1321,16 +1324,19 @@ impl TheActionManager {
             return false;
         }
 
-        let Some(other_handle) = TheGameLogic::find_object_by_id(object_to_sabotage.get_id())
-        else {
+        let other_id = object_to_sabotage.get_id();
+        if !TheGameLogic::find_object_by_id(other_id) {
             return false;
-        };
-
-        COLLISION_MANAGER
-            .would_like_to_collide_with_matching(obj.get_id(), &other_handle, |module| {
-                module.is_sabotage_building_crate_collide()
+        }
+        return OBJECT_REGISTRY
+            .with_object(other_id, |other| {
+                COLLISION_MANAGER
+                    .would_like_to_collide_with_matching(obj.get_id(), other, |module| {
+                        module.is_sabotage_building_crate_collide()
+                    })
+                    .unwrap_or(false)
             })
-            .unwrap_or(false)
+            .unwrap_or(false);
     }
 
     /// Can `obj` make `object_to_make_defector` defect (C++ ActionManager::canMakeObjectDefector).
@@ -1918,21 +1924,19 @@ impl TheActionManager {
             return false;
         }
 
-        let Some(obj) = TheGameLogic::find_object_by_id(obj_id) else {
+        if !TheGameLogic::find_object_by_id(obj_id) || !TheGameLogic::find_object_by_id(prisoner_id)
+        {
             return false;
-        };
-        let Some(prisoner) = TheGameLogic::find_object_by_id(prisoner_id) else {
-            return false;
-        };
-
-        let Ok(obj_guard) = obj.read() else {
-            return false;
-        };
-        let Ok(prisoner_guard) = prisoner.read() else {
-            return false;
-        };
-
-        Self::can_pick_up_prisoner(&obj_guard, &prisoner_guard, command_source)
+        }
+        OBJECT_REGISTRY
+            .with_object(obj_id, |obj_guard| {
+                OBJECT_REGISTRY
+                    .with_object(prisoner_id, |prisoner_guard| {
+                        Self::can_pick_up_prisoner(obj_guard, prisoner_guard, command_source)
+                    })
+                    .unwrap_or(false)
+            })
+            .unwrap_or(false)
     }
 }
 

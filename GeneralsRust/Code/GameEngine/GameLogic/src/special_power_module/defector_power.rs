@@ -83,43 +83,39 @@ impl DefectorSpecialPower {
                 break;
             }
 
-            let Some(obj_arc) = crate::helpers::TheGameLogic::find_object_by_id(object_id) else {
-                continue;
-            };
-
-            let can_convert = {
-                let Ok(obj_guard) = obj_arc.read() else {
-                    continue;
-                };
-
-                if obj_guard.is_destroyed() || obj_guard.is_structure() {
-                    false
-                } else {
-                    obj_guard
-                        .get_controlling_player_id()
-                        .map(|id| id != player_id)
-                        .unwrap_or(false)
-                }
-            };
+            let can_convert = crate::object::registry::OBJECT_REGISTRY
+                .with_object(object_id, |obj_guard| {
+                    if obj_guard.is_destroyed() || obj_guard.is_structure() {
+                        false
+                    } else {
+                        obj_guard
+                            .get_controlling_player_id()
+                            .map(|id| id != player_id)
+                            .unwrap_or(false)
+                    }
+                })
+                .unwrap_or(false);
 
             if !can_convert {
                 continue;
             }
 
-            let old_owner = obj_arc.read().ok().and_then(|g| g.get_controlling_player());
+            let old_owner = crate::object::registry::OBJECT_REGISTRY
+                .with_object(object_id, |g| g.get_controlling_player())
+                .flatten();
             let new_owner = new_team.read().ok().and_then(|team_guard| {
                 let idx = team_guard.get_controlling_player_id().unwrap_or(player_id) as Int;
                 list.get_player(idx).cloned()
             });
 
-            if let Ok(mut obj_write) = obj_arc.write() {
+            crate::object::registry::OBJECT_REGISTRY.with_object_mut(object_id, |obj_write| {
                 if self.data.duration > 0.0 {
                     let _ = obj_write.set_temporary_team(Some(new_team.clone()));
                 } else {
                     let _ = obj_write.set_team(Some(new_team.clone()));
                 }
                 obj_write.on_capture(old_owner, new_owner);
-            }
+            });
 
             self.converted_units.push(object_id);
             converted += 1;
@@ -146,14 +142,9 @@ impl DefectorSpecialPower {
         }
 
         for object_id in std::mem::take(&mut self.converted_units) {
-            let Some(obj_arc) = crate::helpers::TheGameLogic::find_object_by_id(object_id) else {
-                continue;
-            };
-            let mut obj_write = match obj_arc.write() {
-                Ok(guard) => guard,
-                Err(_) => continue,
-            };
-            let _ = obj_write.restore_original_team();
+            crate::object::registry::OBJECT_REGISTRY.with_object_mut(object_id, |obj_write| {
+                let _ = obj_write.restore_original_team();
+            });
         }
 
         self.revert_frame = None;

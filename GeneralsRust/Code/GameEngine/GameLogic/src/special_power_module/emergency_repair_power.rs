@@ -170,20 +170,17 @@ impl EmergencyRepairPower {
 
         if let Some(ocl_name) = self.select_ocl_name(owner_player_id) {
             if let Some(ocl) = TheObjectCreationListStore::find_object_creation_list(&ocl_name) {
-                if let Some(owner) = self.resolve_owner_object(owner_player_id) {
-                    let owner_guard = owner
-                        .read()
-                        .map_err(|_| "EmergencyRepair owner lock poisoned".to_string())?;
-                    let ctx = crate::object_creation_list::live_creation_context();
-                    let _ = ocl.create_with_angle(
+                let ctx = crate::object_creation_list::live_creation_context();
+                let _ = self.with_owner(owner_player_id, |owner_guard| {
+                    ocl.create_with_angle(
                         &ctx,
-                        Some(&*owner_guard),
+                        Some(owner_guard),
                         &targeting.position,
                         &targeting.position,
                         INVALID_ANGLE,
                         0,
-                    );
-                }
+                    )
+                });
             }
         }
 
@@ -209,42 +206,31 @@ impl EmergencyRepairPower {
             .unwrap_or_default();
 
         for object_id in object_ids {
-            let Some(obj_arc) = crate::helpers::TheGameLogic::find_object_by_id(object_id) else {
+            let snapshot = crate::object::registry::OBJECT_REGISTRY
+                .with_object(object_id, |obj_guard| {
+                    if obj_guard.is_destroyed() {
+                        return None;
+                    }
+                    let rel = relationship_to_player(obj_guard, owner_player_id);
+                    if !self.should_repair_object(obj_guard, rel) {
+                        return None;
+                    }
+                    let current_health = obj_guard.get_health();
+                    let max_health = obj_guard.get_max_health();
+                    if current_health >= max_health {
+                        return None;
+                    }
+                    let heal_amount = max_health * self.data.repair_percentage;
+                    Some((obj_guard.is_structure(), heal_amount))
+                })
+                .flatten();
+            let Some((is_structure, heal_amount)) = snapshot else {
                 continue;
             };
 
-            let (should_repair, is_structure, heal_amount) = {
-                let Ok(obj_guard) = obj_arc.read() else {
-                    continue;
-                };
-
-                if obj_guard.is_destroyed() {
-                    continue;
-                }
-
-                let rel = relationship_to_player(&obj_guard, owner_player_id);
-                let should_repair = self.should_repair_object(&obj_guard, rel);
-                if !should_repair {
-                    continue;
-                }
-
-                let current_health = obj_guard.get_health();
-                let max_health = obj_guard.get_max_health();
-                if current_health >= max_health {
-                    continue;
-                }
-
-                let heal_amount = max_health * self.data.repair_percentage;
-                (true, obj_guard.is_structure(), heal_amount)
-            };
-
-            if !should_repair {
-                continue;
-            }
-
-            if let Ok(mut obj_write) = obj_arc.write() {
+            crate::object::registry::OBJECT_REGISTRY.with_object_mut(object_id, |obj_write| {
                 let _ = obj_write.heal(heal_amount);
-            }
+            });
 
             self.repaired_objects.push(object_id);
             if is_structure {
@@ -280,11 +266,8 @@ impl EmergencyRepairPower {
         }
     }
 
-    fn resolve_owner_object(
-        &self,
-        player_id: ObjectID,
-    ) -> Option<Arc<RwLock<crate::object::Object>>> {
-        crate::special_power_module::resolve_special_power_owner(INVALID_ID, Some(player_id))
+    fn with_owner<R>(&self, player_id: ObjectID, f: impl FnOnce(&crate::object::Object) -> R) -> Option<R> {
+        crate::special_power_module::with_special_power_owner(INVALID_ID, Some(player_id), f)
     }
 
     fn resolve_owner_object_id(&self, player_id: ObjectID) -> Option<ObjectID> {

@@ -2973,7 +2973,7 @@ mod tests {
         position: Coord3D,
         orientation: Real,
         ai: Option<CollisionAi>,
-    ) -> (Arc<RwLock<Object>>, RegisteredObjectCleanup) {
+    ) -> (ObjectID, RegisteredObjectCleanup) {
         let object = Arc::new(RwLock::new(Object::new_test(id, 100.0)));
         {
             let mut object_guard = object.write().unwrap();

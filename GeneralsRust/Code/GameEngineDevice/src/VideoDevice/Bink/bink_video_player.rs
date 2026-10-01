@@ -190,11 +190,6 @@ impl BinkVideoStream {
     }
 }
 
-// `BinkVideoStream` is `Send` because it only owns plain data.
-// SAFETY: BinkVideoStream owns only plain data (String, header struct, Vec<u8>,
-// SAFETY: decoder handle); no aliasing mutable state, so moving it across
-// SAFETY: threads cannot create data races.
-unsafe impl Send for BinkVideoStream {}
 
 impl VideoStreamInterface for BinkVideoStream {
     // -- linked list (not used by the provider/handle pattern) ---------------
@@ -294,23 +289,34 @@ impl VideoStreamInterface for BinkVideoStream {
             return;
         }
 
+        let alloc_rows = buffer.texture_height() as usize;
+        let byte_len = buf_pitch.saturating_mul(alloc_rows);
+        if byte_len == 0 {
+            buffer.unlock();
+            return;
+        }
+        {
+        // SAFETY: the only VideoBuffer::lock impl (SoftwareVideoBuffer) returns
+        // the base of a pitch * texture_height allocation. The slice covers that
+        // region; pixel stores below are bounds-checked indices into it.
+        let pixels = unsafe { std::slice::from_raw_parts_mut(mem, byte_len) };
+
         if !self.current_rgba.is_empty() && self.current_rgba.len() >= vid_w * vid_h * 4 {
             // Use decoded RGBA data from the BinkDecoder.
             for row in 0..copy_h {
                 let dst_row = y_offset + row;
-                // SAFETY: `mem` is the non-null locked buffer base (checked above);
-                // SAFETY: dst_row < buf_height and x_offset * bpp is within a row,
-                // SAFETY: so the byte offset stays inside the allocation.
-                let row_base = unsafe { mem.add(dst_row * buf_pitch + x_offset * bpp) };
+                let Some(row_bytes) = pixels.get_mut(dst_row * buf_pitch..(dst_row + 1) * buf_pitch)
+                else {
+                    break;
+                };
                 for col in 0..copy_w {
                     let src_index = (row * vid_w + col) * 4;
                     let rgba = &self.current_rgba[src_index..src_index + 4];
-                    // SAFETY: col < copy_w <= buf_width - x_offset, so col * bpp
-                    // SAFETY: stays within the pitch bytes of the current row.
-                    let dst = unsafe { row_base.add(col * bpp) };
-                    // SAFETY: dst targets writable in-bounds row memory sized for
-                    // SAFETY: buf_format (see write_pixel contract).
-                    unsafe { write_pixel(dst, buf_format, rgba[0], rgba[1], rgba[2], rgba[3]) };
+                    let start = (x_offset + col) * bpp;
+                    let Some(dst) = row_bytes.get_mut(start..start + bpp) else {
+                        break;
+                    };
+                    write_pixel(dst, buf_format, rgba[0], rgba[1], rgba[2], rgba[3]);
                 }
             }
         } else {
@@ -319,27 +325,27 @@ impl VideoStreamInterface for BinkVideoStream {
             let frame_idx = self.current_frame as usize;
             for row in 0..copy_h {
                 let dst_row = y_offset + row;
-                // SAFETY: `mem` is the non-null locked buffer base (checked above);
-                // SAFETY: dst_row < buf_height and x_offset * bpp is within a row,
-                // SAFETY: so the byte offset stays inside the allocation.
-                let row_base = unsafe { mem.add(dst_row * buf_pitch + x_offset * bpp) };
+                let Some(row_bytes) = pixels.get_mut(dst_row * buf_pitch..(dst_row + 1) * buf_pitch)
+                else {
+                    break;
+                };
                 for col in 0..copy_w {
                     let checker_x = (col + frame_idx * 2) / checker_size;
                     let checker_y = row / checker_size;
                     let is_light = (checker_x + checker_y) % 2 == 0;
-                    // SAFETY: col < copy_w <= buf_width - x_offset, so col * bpp
-                    // SAFETY: stays within the pitch bytes of the current row.
-                    let dst = unsafe { row_base.add(col * bpp) };
+                    let start = (x_offset + col) * bpp;
+                    let Some(dst) = row_bytes.get_mut(start..start + bpp) else {
+                        break;
+                    };
                     let (r, g, b) = if is_light {
                         (80u8, 100, 180)
                     } else {
                         (30u8, 40, 100)
                     };
-                    // SAFETY: dst targets writable in-bounds row memory sized for
-                    // SAFETY: buf_format (see write_pixel contract).
-                    unsafe { write_pixel(dst, buf_format, r, g, b, 0xFF) };
+                    write_pixel(dst, buf_format, r, g, b, 0xFF);
                 }
             }
+        }
         }
 
         buffer.unlock();
@@ -371,30 +377,26 @@ impl VideoStreamInterface for BinkVideoStream {
     }
 }
 
-// SAFETY: `dst` must point to writable memory of at least the format's byte
-// SAFETY: width (4 for X8R8G8B8, 3 for R8G8B8, 2 for R5G6B5/X1R5G5B5).
-// SAFETY: Callers pass row offsets into a locked video buffer, which the
-// SAFETY: frame_render loops keep inside pitch * buf_height bytes.
-unsafe fn write_pixel(dst: *mut u8, format: VideoBufferType, r: u8, g: u8, b: u8, a: u8) {
+fn write_pixel(dst: &mut [u8], format: VideoBufferType, r: u8, g: u8, b: u8, a: u8) {
     match format {
         VideoBufferType::X8R8G8B8 => {
-            *dst = b;
-            *dst.add(1) = g;
-            *dst.add(2) = r;
-            *dst.add(3) = a;
+            dst[0] = b;
+            dst[1] = g;
+            dst[2] = r;
+            dst[3] = a;
         }
         VideoBufferType::R8G8B8 => {
-            *dst = r;
-            *dst.add(1) = g;
-            *dst.add(2) = b;
+            dst[0] = r;
+            dst[1] = g;
+            dst[2] = b;
         }
         VideoBufferType::R5G6B5 => {
             let packed = (((r as u16 >> 3) & 0x1F) << 11)
                 | (((g as u16 >> 2) & 0x3F) << 5)
                 | ((b as u16 >> 3) & 0x1F);
             let bytes = packed.to_le_bytes();
-            *dst = bytes[0];
-            *dst.add(1) = bytes[1];
+            dst[0] = bytes[0];
+            dst[1] = bytes[1];
         }
         VideoBufferType::X1R5G5B5 => {
             let alpha_bit = if a >= 128 { 1u16 } else { 0u16 };
@@ -403,8 +405,8 @@ unsafe fn write_pixel(dst: *mut u8, format: VideoBufferType, r: u8, g: u8, b: u8
                 | (((g as u16 >> 3) & 0x1F) << 5)
                 | ((b as u16 >> 3) & 0x1F);
             let bytes = packed.to_le_bytes();
-            *dst = bytes[0];
-            *dst.add(1) = bytes[1];
+            dst[0] = bytes[0];
+            dst[1] = bytes[1];
         }
         _ => {}
     }

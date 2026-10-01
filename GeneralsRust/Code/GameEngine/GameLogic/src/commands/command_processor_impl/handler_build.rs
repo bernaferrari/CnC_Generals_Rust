@@ -57,13 +57,12 @@ impl DefaultCommandHandler {
 
                 let mut selected_builder = None;
                 for object_id in &selected_ids {
-                    if let Some(object_arc) = TheGameLogic::find_object_by_id(*object_id) {
-                        if let Ok(object_guard) = object_arc.read() {
-                            if object_guard.is_kind_of(KindOf::Dozer) {
-                                selected_builder = Some(*object_id);
-                                break;
-                            }
-                        }
+                    let is_dozer = crate::object::registry::OBJECT_REGISTRY
+                        .with_object(*object_id, |object| object.is_kind_of(KindOf::Dozer))
+                        .unwrap_or(false);
+                    if is_dozer {
+                        selected_builder = Some(*object_id);
+                        break;
                     }
                 }
 
@@ -110,23 +109,27 @@ impl DefaultCommandHandler {
         };
 
         // Validate builder exists and is controllable
-        let Some(builder_arc) = TheGameLogic::find_object_by_id(builder) else {
-            return CommandExecutionResult::Failed(AsciiString::from("Builder not found"));
-        };
-        let Ok(builder_guard) = builder_arc.read() else {
-            return CommandExecutionResult::Failed(AsciiString::from("Builder lock poisoned"));
-        };
-        if builder_guard.is_effectively_dead() {
-            return CommandExecutionResult::Failed(AsciiString::from("Builder is not alive"));
-        }
-        let builder_owner = builder_guard
-            .get_controlling_player_id()
-            .map(|id| id as Int)
-            .unwrap_or(-1);
-        if builder_owner != -1 && builder_owner != context.player_id {
-            return CommandExecutionResult::Failed(AsciiString::from(
-                "Player cannot control builder",
-            ));
+        let builder_ok = crate::object::registry::OBJECT_REGISTRY.with_object(builder, |builder_guard| {
+            if builder_guard.is_effectively_dead() {
+                return Err("Builder is not alive");
+            }
+            let builder_owner = builder_guard
+                .get_controlling_player_id()
+                .map(|id| id as Int)
+                .unwrap_or(-1);
+            if builder_owner != -1 && builder_owner != context.player_id {
+                return Err("Player cannot control builder");
+            }
+            Ok(())
+        });
+        match builder_ok {
+            None => {
+                return CommandExecutionResult::Failed(AsciiString::from("Builder not found"));
+            }
+            Some(Err(msg)) => {
+                return CommandExecutionResult::Failed(AsciiString::from(msg));
+            }
+            Some(Ok(())) => {}
         }
 
         // Check resources (matches C++ ThingTemplate::getBuildCost behavior).
@@ -277,30 +280,31 @@ impl DefaultCommandHandler {
         let current_frame = TheGameLogic::get_frame();
 
         for object_id in object_ids {
-            let Some(object_arc) = TheGameLogic::find_object_by_id(object_id) else {
+            let Some(sell_object) =
+                crate::object::registry::OBJECT_REGISTRY.with_object(object_id, |object_guard| {
+                    let owner = object_guard
+                        .get_controlling_player_id()
+                        .map(|id| id as Int)
+                        .unwrap_or(-1);
+                    if owner != -1 && owner != context.player_id {
+                        return None;
+                    }
+                    Some(build_assistant::Object {
+                        id: object_guard.get_id(),
+                        position: build_assistant::Coord3D {
+                            x: object_guard.get_position().x,
+                            y: object_guard.get_position().y,
+                            z: object_guard.get_position().z,
+                        },
+                        orientation: object_guard.get_orientation(),
+                        command_set: None,
+                    })
+                })
+            else {
                 continue;
             };
-            let Ok(object_guard) = object_arc.read() else {
-                return CommandExecutionResult::Failed(AsciiString::from("Object lock poisoned"));
-            };
-
-            let owner = object_guard
-                .get_controlling_player_id()
-                .map(|id| id as Int)
-                .unwrap_or(-1);
-            if owner != -1 && owner != context.player_id {
+            let Some(sell_object) = sell_object else {
                 continue;
-            }
-
-            let sell_object = build_assistant::Object {
-                id: object_guard.get_id(),
-                position: build_assistant::Coord3D {
-                    x: object_guard.get_position().x,
-                    y: object_guard.get_position().y,
-                    z: object_guard.get_position().z,
-                },
-                orientation: object_guard.get_orientation(),
-                command_set: None,
             };
             assistant.sell_object(&sell_object, current_frame);
         }
@@ -328,15 +332,16 @@ impl DefaultCommandHandler {
             ));
         };
 
-        let Some(object_arc) = TheGameLogic::find_object_by_id(object_id) else {
+        let Some((from, display_name)) =
+            crate::object::registry::OBJECT_REGISTRY.with_object(object_id, |object_guard| {
+                (
+                    *object_guard.get_position(),
+                    object_guard.get_template().get_name().as_str().to_string(),
+                )
+            })
+        else {
             return CommandExecutionResult::Success;
         };
-        let Ok(object_guard) = object_arc.read() else {
-            return CommandExecutionResult::Failed(AsciiString::from("Object lock poisoned"));
-        };
-        let from = *object_guard.get_position();
-        let display_name = object_guard.get_template().get_name().as_str().to_string();
-        drop(object_guard);
 
         // C++ doSetRallyPoint: BasicHumanLocomotor, not the building's own loco.
         let loco = basic_human_rally_locomotor_set();
@@ -362,10 +367,14 @@ impl DefaultCommandHandler {
             return CommandExecutionResult::Failed(AsciiString::from("GUI:RallyPointNoPath"));
         }
 
-        let Ok(mut object_guard) = object_arc.write() else {
+        if crate::object::registry::OBJECT_REGISTRY
+            .with_object_mut(object_id, |object_guard| {
+                let _ = object_guard.set_rally_point(&destination);
+            })
+            .is_none()
+        {
             return CommandExecutionResult::Failed(AsciiString::from("Object lock poisoned"));
-        };
-        let _ = object_guard.set_rally_point(&destination);
+        }
         let message = format_rally_point_set_message(
             &crate::helpers::TheGameText::fetch("GUI:RallyPointSet"),
             &display_name,
@@ -405,14 +414,15 @@ impl DefaultCommandHandler {
         }
 
         for object_id in object_ids {
-            let Some(object_arc) = TheGameLogic::find_object_by_id(object_id) else {
+            let updated = crate::object::registry::OBJECT_REGISTRY.with_object_mut(
+                object_id,
+                |object_guard| {
+                    object_guard.set_weapon_set_flag(WeaponSetType::MineClearingDetail);
+                },
+            );
+            if updated.is_none() {
                 continue;
-            };
-            let Ok(mut object_guard) = object_arc.write() else {
-                return CommandExecutionResult::Failed(AsciiString::from("Object lock poisoned"));
-            };
-
-            object_guard.set_weapon_set_flag(WeaponSetType::MineClearingDetail);
+            }
         }
 
         CommandExecutionResult::Success

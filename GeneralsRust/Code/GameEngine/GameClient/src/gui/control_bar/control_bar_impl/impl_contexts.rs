@@ -40,12 +40,11 @@ impl ControlBar {
 
         let mut objects_that_can: Vec<u32> = vec![0; buttons.len()];
         for obj_id in &selected {
-            if let Some(obj_arc) = OBJECT_REGISTRY.get_object(*obj_id) {
-                if let Ok(obj) = obj_arc.read() {
-                    if obj.is_kind_of(KindOf::IgnoredInGui) {
-                        continue;
-                    }
-                }
+            if OBJECT_REGISTRY
+                .with_object(*obj_id, |obj| obj.is_kind_of(KindOf::IgnoredInGui))
+                .unwrap_or(false)
+            {
+                continue;
             }
             for (i, button) in buttons.iter().enumerate() {
                 if button.button_hidden || button.command_name.is_empty() {
@@ -243,10 +242,18 @@ impl ControlBar {
             let _ = object_id;
             return Ok(());
         }
-        let Some(object_arc) = OBJECT_REGISTRY.get_object(object_id) else {
-            return Ok(());
-        };
-        let Ok(object) = object_arc.read() else {
+        let Some((obj_player_id, contain_count)) =
+            OBJECT_REGISTRY.with_object(object_id, |object| {
+                let obj_player_id =
+                    object.get_controlling_player_id().unwrap_or(0xFFFF) as PlayerIndex;
+                let contain_count = object
+                    .get_contain()
+                    .and_then(|contain| contain.lock().ok())
+                    .map(|c| c.get_contain_count())
+                    .unwrap_or(0);
+                (obj_player_id, contain_count)
+            })
+        else {
             return Ok(());
         };
 
@@ -257,7 +264,6 @@ impl ControlBar {
             .map(|list| list.get_local_player_index())
             .unwrap_or(gamelogic::player::PLAYER_INDEX_INVALID);
 
-        let obj_player_id = object.get_controlling_player_id().unwrap_or(0xFFFF) as PlayerIndex;
         if obj_player_id != local_player_index {
             let local_arc = player_list
                 .read()
@@ -278,11 +284,6 @@ impl ControlBar {
                 }
             }
         }
-
-        let Some(contain) = object.get_contain() else {
-            return Ok(());
-        };
-        let contain_count = contain.lock().map(|c| c.get_contain_count()).unwrap_or(0);
 
         if let Ok(mut ctx) = self.context.write() {
             if ctx.last_recorded_inventory_count != contain_count {
@@ -307,7 +308,14 @@ impl ControlBar {
             self.populate_beacon_windows(false, "")?;
             return Ok(());
         };
-        let Some(object_arc) = OBJECT_REGISTRY.get_object(object_id) else {
+        let beacon_live = OBJECT_REGISTRY.with_object(object_id, |object| {
+            (
+                *object.get_position(),
+                object.get_controlling_player_id().map(|id| id as i32),
+                object.is_locally_controlled(),
+            )
+        });
+        let Some(object_arc) = beacon_live else {
             // Host presentation residual: beacon UI when command-set freeze says BEACON.
             // Wave 1030: peel translator catalog template/command-set residual too.
             let catalog = crate::presentation_translator_residual::translator_catalog_entry(object_id);
@@ -339,17 +347,7 @@ impl ControlBar {
             self.populate_beacon_windows(local && is_beacon, caption)?;
             return Ok(());
         };
-        let Ok(object) = object_arc.read() else {
-            let is_beacon = self
-                .presentation_primary_command_set
-                .to_ascii_uppercase()
-                .contains("BEACON");
-            self.populate_beacon_windows(is_beacon, "")?;
-            return Ok(());
-        };
-
-        let position = *object.get_position();
-        let player_id = object.get_controlling_player_id().map(|id| id as i32);
+        let (position, player_id, locally_controlled) = object_arc;
         let caption = player_id
             .and_then(|player_id| {
                 snapshot_beacons()
@@ -361,7 +359,7 @@ impl ControlBar {
             })
             .unwrap_or_default();
 
-        self.populate_beacon_windows(object.is_locally_controlled(), &caption)?;
+        self.populate_beacon_windows(locally_controlled, &caption)?;
         Ok(())
     }
 
@@ -512,7 +510,7 @@ impl ControlBar {
         }
         if !(self.presentation_under_construction
             || self.portrait_state.is_visible
-            || OBJECT_REGISTRY.get_object(selected_id).is_some())
+            || OBJECT_REGISTRY.contains(selected_id))
         {
             return Ok(());
         }
@@ -564,17 +562,20 @@ impl ControlBar {
         // C++ ControlBarOCLTimer.cpp:116-130: remaining frames + countdown percent.
         let mut remaining_frames: Option<u32> = None;
         let mut countdown_percent: Option<f32> = None;
-        if let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) {
-            if let Ok(obj) = obj_arc.read() {
-                if let Some(handle) = obj.find_update_module("OCLUpdate") {
-                    handle.with_module(|module| {
-                        if let Some(ocl) = module.get_ocl_update_control_interface() {
-                            remaining_frames = Some(ocl.remaining_frames());
-                            countdown_percent = Some(ocl.countdown_percent());
-                        }
-                    });
+        if let Some((frames, percent)) = OBJECT_REGISTRY.with_object(obj_id, |obj| {
+            let handle = obj.find_update_module("OCLUpdate")?;
+            let mut frames = None;
+            let mut percent = None;
+            handle.with_module(|module| {
+                if let Some(ocl) = module.get_ocl_update_control_interface() {
+                    frames = Some(ocl.remaining_frames());
+                    percent = Some(ocl.countdown_percent());
                 }
-            }
+            });
+            frames.zip(percent)
+        }).flatten() {
+            remaining_frames = Some(frames);
+            countdown_percent = Some(percent);
         }
 
         let (seconds, percent) = if let (Some(frames), Some(pct)) =

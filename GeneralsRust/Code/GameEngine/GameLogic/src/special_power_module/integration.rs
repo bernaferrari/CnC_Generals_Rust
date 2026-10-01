@@ -26,8 +26,8 @@ pub type FrameCount = UnsignedInt;
 /// Object manager interface for special power integration
 /// Provides access to game objects needed by special powers
 pub trait ObjectManagerInterface: Send + Sync {
-    /// Get object by ID
-    fn get_object(&self, object_id: ObjectID) -> Option<Arc<RwLock<Object>>>;
+    /// Checkout an object by ID for the duration of `f`.
+    fn with_object<R>(&self, object_id: ObjectID, f: &mut dyn FnMut(&Object) -> R) -> Option<R>;
 
     /// Check if object is disabled
     fn is_object_disabled(&self, object_id: ObjectID) -> bool;

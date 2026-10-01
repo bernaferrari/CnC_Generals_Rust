@@ -71,8 +71,10 @@ fn horde_update_module_factory(
 
     let module_data_arc = Arc::new(typed_data.clone());
     let (owner_id, _) = resolve_owner_info(&thing);
-    let object =
-        TheGameLogic::find_object_by_id(owner_id).expect("HordeUpdate requires a valid object");
+    if !TheGameLogic::find_object_by_id(owner_id) {
+        panic!("HordeUpdate requires a valid object");
+    }
+    let object = owner_id;
     let behavior = HordeUpdate::new_from_object_handle(object, module_data_arc.clone());
 
     let module_name = AsciiString::from("HordeUpdate");
@@ -110,9 +112,10 @@ fn spawn_behavior_module_factory(
 
     let module_data_arc = Arc::new(typed_data.clone());
     let (owner_id, _) = resolve_owner_info(&thing);
-    let object =
-        TheGameLogic::find_object_by_id(owner_id).expect("SpawnBehavior requires a valid object");
-    let behavior = SpawnBehavior::new(object.read().ok().map(|g| g.get_id()).unwrap_or(crate::common::INVALID_ID), module_data_arc.clone())
+    if !TheGameLogic::find_object_by_id(owner_id) {
+        panic!("SpawnBehavior requires a valid object");
+    }
+    let behavior = SpawnBehavior::new(owner_id, module_data_arc.clone())
         .expect("SpawnBehavior failed to initialize");
 
     let module_name = AsciiString::from("SpawnBehavior");
@@ -232,8 +235,10 @@ fn slow_death_behavior_module_factory(
         .expect("SlowDeathBehaviorModuleData expected");
     let module_data_arc: Arc<dyn ModuleData> = Arc::new(typed_data.clone());
     let (owner_id, _) = resolve_owner_info(&thing);
-    let object = TheGameLogic::find_object_by_id(owner_id)
-        .expect("SlowDeathBehavior requires a valid object");
+    if !TheGameLogic::find_object_by_id(owner_id) {
+        panic!("SlowDeathBehavior requires a valid object");
+    }
+    let object = owner_id;
     let behavior = SlowDeathBehavior::new(object, module_data_arc.clone())
         .expect("SlowDeathBehavior failed to initialize");
     Box::new(GenericBehaviorModule::new(
@@ -271,8 +276,10 @@ fn minefield_behavior_module_factory(
         .expect("MinefieldBehaviorModuleData expected");
     let module_data_arc: Arc<dyn ModuleData> = Arc::new(typed_data.clone());
     let (owner_id, _) = resolve_owner_info(&thing);
-    let object = TheGameLogic::find_object_by_id(owner_id)
-        .expect("MinefieldBehavior requires a valid object");
+    if !TheGameLogic::find_object_by_id(owner_id) {
+        panic!("MinefieldBehavior requires a valid object");
+    }
+    let object = owner_id;
     let behavior = MinefieldBehaviorFactory::create_behavior(object, module_data_arc.clone())
         .expect("MinefieldBehavior failed to initialize");
     Box::new(GenericBehaviorModule::new(
@@ -310,8 +317,10 @@ fn grant_stealth_behavior_module_factory(
         .expect("GrantStealthBehaviorModuleData expected");
     let module_data_arc: Arc<dyn ModuleData> = Arc::new(typed_data.clone());
     let (owner_id, _) = resolve_owner_info(&thing);
-    let object = TheGameLogic::find_object_by_id(owner_id)
-        .expect("GrantStealthBehavior requires a valid object");
+    if !TheGameLogic::find_object_by_id(owner_id) {
+        panic!("GrantStealthBehavior requires a valid object");
+    }
+    let object = owner_id;
     let behavior = GrantStealthBehaviorFactory::create_behavior(object, module_data_arc.clone())
         .expect("GrantStealthBehavior failed to initialize");
     Box::new(GenericBehaviorModule::new(
@@ -349,8 +358,10 @@ fn physics_update_module_factory(
         .expect("PhysicsBehaviorModuleData expected");
     let module_data_arc: Arc<dyn ModuleData> = Arc::new(typed_data.clone());
     let (owner_id, _) = resolve_owner_info(&thing);
-    let object =
-        TheGameLogic::find_object_by_id(owner_id).expect("PhysicsUpdate requires a valid object");
+    if !TheGameLogic::find_object_by_id(owner_id) {
+        panic!("PhysicsUpdate requires a valid object");
+    }
+    let object = owner_id;
     let behavior = PhysicsBehaviorFactory::create_behavior(object, module_data_arc.clone())
         .expect("PhysicsUpdate failed to initialize");
     Box::new(GenericBehaviorModule::new(
@@ -396,8 +407,10 @@ fn height_die_update_module_factory(
         .expect("HeightDieUpdateModuleData expected");
     let module_data_arc: Arc<dyn ModuleData> = Arc::new(typed_data.clone());
     let (owner_id, _) = resolve_owner_info(&thing);
-    let object =
-        TheGameLogic::find_object_by_id(owner_id).expect("HeightDieUpdate requires a valid object");
+    if !TheGameLogic::find_object_by_id(owner_id) {
+        panic!("HeightDieUpdate requires a valid object");
+    }
+    let object = owner_id;
     let behavior = HeightDieUpdateFactory::create_behavior(object, module_data_arc.clone())
         .expect("HeightDieUpdate failed to initialize");
     Box::new(GenericBehaviorModule::new(
@@ -431,8 +444,10 @@ fn deletion_update_module_factory(
         .expect("DeletionUpdateModuleData expected");
     let module_data_arc: Arc<dyn ModuleData> = Arc::new(typed_data.clone());
     let (owner_id, _) = resolve_owner_info(&thing);
-    let object =
-        TheGameLogic::find_object_by_id(owner_id).expect("DeletionUpdate requires a valid object");
+    if !TheGameLogic::find_object_by_id(owner_id) {
+        panic!("DeletionUpdate requires a valid object");
+    }
+    let object = owner_id;
     let behavior = DeletionUpdateFactory::create_behavior(object, module_data_arc.clone())
         .expect("DeletionUpdate failed to initialize");
     Box::new(GenericBehaviorModule::new(
@@ -466,8 +481,10 @@ fn wave_guide_update_module_factory(
         .expect("WaveGuideUpdateModuleData expected");
     let module_data_arc: Arc<dyn ModuleData> = Arc::new(typed_data.clone());
     let (owner_id, _) = resolve_owner_info(&thing);
-    let object =
-        TheGameLogic::find_object_by_id(owner_id).expect("WaveGuideUpdate requires a valid object");
+    if !TheGameLogic::find_object_by_id(owner_id) {
+        panic!("WaveGuideUpdate requires a valid object");
+    }
+    let object = owner_id;
     let behavior = WaveGuideUpdateFactory::create_behavior(object, module_data_arc.clone())
         .expect("WaveGuideUpdate failed to initialize");
     Box::new(GenericBehaviorModule::new(
@@ -501,8 +518,10 @@ fn checkpoint_update_module_factory(
         .expect("CheckpointUpdateModuleData expected");
     let module_data_arc: Arc<dyn ModuleData> = Arc::new(typed_data.clone());
     let (owner_id, _) = resolve_owner_info(&thing);
-    let object = TheGameLogic::find_object_by_id(owner_id)
-        .expect("CheckpointUpdate requires a valid object");
+    if !TheGameLogic::find_object_by_id(owner_id) {
+        panic!("CheckpointUpdate requires a valid object");
+    }
+    let object = owner_id;
     let behavior = CheckpointUpdateFactory::create_behavior(object, module_data_arc.clone())
         .expect("CheckpointUpdate failed to initialize");
     Box::new(GenericBehaviorModule::new(
@@ -536,8 +555,10 @@ fn animation_steering_update_module_factory(
         .expect("AnimationSteeringUpdateModuleData expected");
     let module_data_arc: Arc<dyn ModuleData> = Arc::new(typed_data.clone());
     let (owner_id, _) = resolve_owner_info(&thing);
-    let object = TheGameLogic::find_object_by_id(owner_id)
-        .expect("AnimationSteeringUpdate requires a valid object");
+    if !TheGameLogic::find_object_by_id(owner_id) {
+        panic!("AnimationSteeringUpdate requires a valid object");
+    }
+    let object = owner_id;
     let behavior = AnimationSteeringUpdateFactory::create_behavior(object, module_data_arc.clone())
         .expect("AnimationSteeringUpdate failed to initialize");
     Box::new(GenericBehaviorModule::new(
@@ -571,8 +592,10 @@ fn pilot_find_vehicle_update_module_factory(
         .expect("PilotFindVehicleUpdateModuleData expected");
     let module_data_arc: Arc<dyn ModuleData> = Arc::new(typed_data.clone());
     let (owner_id, _) = resolve_owner_info(&thing);
-    let object = TheGameLogic::find_object_by_id(owner_id)
-        .expect("PilotFindVehicleUpdate requires a valid object");
+    if !TheGameLogic::find_object_by_id(owner_id) {
+        panic!("PilotFindVehicleUpdate requires a valid object");
+    }
+    let object = owner_id;
     let behavior = PilotFindVehicleUpdateFactory::create_behavior(object, module_data_arc.clone())
         .expect("PilotFindVehicleUpdate failed to initialize");
     Box::new(GenericBehaviorModule::new(
@@ -606,8 +629,10 @@ fn hijacker_update_module_factory(
         .expect("HijackerUpdateModuleData expected");
     let module_data_arc: Arc<dyn ModuleData> = Arc::new(typed_data.clone());
     let (owner_id, _) = resolve_owner_info(&thing);
-    let object =
-        TheGameLogic::find_object_by_id(owner_id).expect("HijackerUpdate requires a valid object");
+    if !TheGameLogic::find_object_by_id(owner_id) {
+        panic!("HijackerUpdate requires a valid object");
+    }
+    let object = owner_id;
     let behavior = HijackerUpdateFactory::create_behavior(object, module_data_arc.clone())
         .expect("HijackerUpdate failed to initialize");
     Box::new(GenericBehaviorModule::new(
@@ -643,8 +668,10 @@ fn helicopter_slow_death_behavior_module_factory(
         .expect("HelicopterSlowDeathBehaviorModuleData expected");
     let module_data_arc: Arc<dyn ModuleData> = Arc::new(typed_data.clone());
     let (owner_id, _) = resolve_owner_info(&thing);
-    let object = TheGameLogic::find_object_by_id(owner_id)
-        .expect("HelicopterSlowDeathBehavior requires a valid object");
+    if !TheGameLogic::find_object_by_id(owner_id) {
+        panic!("HelicopterSlowDeathBehavior requires a valid object");
+    }
+    let object = owner_id;
     let behavior =
         HelicopterSlowDeathBehaviorFactory::create_behavior(object, module_data_arc.clone())
             .expect("HelicopterSlowDeathBehavior failed to initialize");
@@ -681,8 +708,10 @@ fn neutron_missile_slow_death_update_module_factory(
         .expect("NeutronMissileSlowDeathUpdateModuleData expected");
     let module_data_arc: Arc<dyn ModuleData> = Arc::new(typed_data.clone());
     let (owner_id, _) = resolve_owner_info(&thing);
-    let object = TheGameLogic::find_object_by_id(owner_id)
-        .expect("NeutronMissileSlowDeathUpdate requires a valid object");
+    if !TheGameLogic::find_object_by_id(owner_id) {
+        panic!("NeutronMissileSlowDeathUpdate requires a valid object");
+    }
+    let object = owner_id;
     let behavior =
         NeutronMissileSlowDeathUpdateFactory::create_behavior(object, module_data_arc.clone())
             .expect("NeutronMissileSlowDeathUpdate failed to initialize");
@@ -749,8 +778,10 @@ fn firestorm_dynamic_geometry_info_update_module_factory(
         .expect("FirestormDynamicGeometryInfoUpdateModuleData expected");
     let module_data_arc: Arc<dyn ModuleData> = Arc::new(typed_data.clone());
     let (owner_id, _) = resolve_owner_info(&thing);
-    let object = TheGameLogic::find_object_by_id(owner_id)
-        .expect("FirestormDynamicGeometryInfoUpdate requires a valid object");
+    if !TheGameLogic::find_object_by_id(owner_id) {
+        panic!("FirestormDynamicGeometryInfoUpdate requires a valid object");
+    }
+    let object = owner_id;
     let behavior =
         FirestormDynamicGeometryInfoUpdateFactory::create_behavior(object, module_data_arc.clone())
             .expect("FirestormDynamicGeometryInfoUpdate failed to initialize");
@@ -785,8 +816,10 @@ fn dynamic_geometry_info_update_module_factory(
         .expect("DynamicGeometryInfoUpdateModuleData expected");
     let module_data_arc: Arc<dyn ModuleData> = Arc::new(typed_data.clone());
     let (owner_id, _) = resolve_owner_info(&thing);
-    let object = TheGameLogic::find_object_by_id(owner_id)
-        .expect("DynamicGeometryInfoUpdate requires a valid object");
+    if !TheGameLogic::find_object_by_id(owner_id) {
+        panic!("DynamicGeometryInfoUpdate requires a valid object");
+    }
+    let object = owner_id;
     let behavior =
         DynamicGeometryInfoUpdateFactory::create_behavior(object, module_data_arc.clone())
             .expect("DynamicGeometryInfoUpdate failed to initialize");

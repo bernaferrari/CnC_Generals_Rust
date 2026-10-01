@@ -691,18 +691,14 @@ impl AsyncAiPlayer {
         // Wave 290: dual-world factory empty — no enemy residual scan.
         if !dual_world_registry_unavailable() {
         for obj_id in OBJECT_REGISTRY.get_all_object_ids() {
-        let obj_arc = match OBJECT_REGISTRY.get_object(obj_id) {
-            Some(v) => v,
-            None => continue,
-        };
-            let Ok(obj_guard) = obj_arc.read() else { continue };
+            let _kept = OBJECT_REGISTRY.with_object(obj_id, |obj_guard| {
             if obj_guard.is_destroyed() {
-                continue;
+                return;
             }
 
             let Some(owner_id) = obj_guard.get_controlling_player_id() else { continue };
             if owner_id as u32 == self.player_id {
-                continue;
+                return;
             }
 
             let is_enemy = match player_arc.as_ref().and_then(|arc| arc.read().ok()) {
@@ -715,7 +711,7 @@ impl AsyncAiPlayer {
             };
 
             if !is_enemy {
-                continue;
+                return;
             }
 
             let movement_pattern = if obj_guard.is_moving() {
@@ -732,6 +728,7 @@ impl AsyncAiPlayer {
                 last_seen: now,
                 movement_pattern,
             });
+            });
         }
         }
 
@@ -741,15 +738,11 @@ impl AsyncAiPlayer {
         // Wave 290: dual-world factory empty — no resource residual.
         if !dual_world_registry_unavailable() {
         for obj_id in OBJECT_REGISTRY.get_all_object_ids() {
-        let obj_arc = match OBJECT_REGISTRY.get_object(obj_id) {
-            Some(v) => v,
-            None => continue,
-        };
-            let Ok(obj_guard) = obj_arc.read() else { continue };
+            let _kept = OBJECT_REGISTRY.with_object(obj_id, |obj_guard| {
             if !(obj_guard.is_kind_of(KindOf::ResourceNode)
                 || obj_guard.is_kind_of(KindOf::SupplySource)
                 || obj_guard.is_kind_of(KindOf::SupplySourceOnPreview)) {
-                continue;
+                return;
             }
 
             let pos = *obj_guard.get_position();
@@ -778,6 +771,7 @@ impl AsyncAiPlayer {
                 amount_remaining: obj_guard.get_health().max(0.0) as i32,
                 contested,
                 safety_level,
+            });
             });
         }
         }

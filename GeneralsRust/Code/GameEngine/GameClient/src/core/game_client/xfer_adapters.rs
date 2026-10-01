@@ -353,7 +353,7 @@ pub(crate) fn xfer_live_game_client_state(
 
                     if object_id != INVALID_ID {
                         // Dual-world residual bind only; host maps via drawable_object_map above.
-                        if OBJECT_REGISTRY.get_object(object_id).is_some() {
+                        if OBJECT_REGISTRY.contains(object_id) {
                             let _ = client.bind_drawable_to_object(id, object_id);
                         }
                     }

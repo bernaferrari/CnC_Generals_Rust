@@ -54,28 +54,33 @@ impl ScriptConditionEvaluator {
         let template_name = template.get_name().to_string();
 
         for object_id in player.get_all_objects() {
-            let Some(obj_arc) = TheGameLogic::find_object_by_id(object_id) else {
-                continue;
-            };
-            let Ok(obj) = obj_arc.read() else {
-                continue;
-            };
-            if obj.is_destroyed()
-                || obj.is_effectively_dead()
-                || obj.is_disabled()
-                || obj
-                    .get_status_bits()
-                    .contains(crate::common::ObjectStatusMaskType::UNDER_CONSTRUCTION)
             {
-                continue;
-            }
-            let ready = obj
-                .with_special_power_module_interface_by_name(&template_name, |module| {
-                    module.is_ready()
-                })
-                .unwrap_or(false);
-            if ready {
-                return Ok(ScriptConditionResult::True);
+                enum _ObjFlow<T> { Cont, Ret(T), Fall }
+                let _flow = OBJECT_REGISTRY.with_object(object_id, |obj| {
+                    if obj.is_destroyed()
+                        || obj.is_effectively_dead()
+                        || obj.is_disabled()
+                        || obj
+                            .get_status_bits()
+                            .contains(crate::common::ObjectStatusMaskType::UNDER_CONSTRUCTION)
+                    {
+                        return _ObjFlow::Cont;
+                    }
+                    let ready = obj
+                        .with_special_power_module_interface_by_name(&template_name, |module| {
+                            module.is_ready()
+                        })
+                        .unwrap_or(false);
+                    if ready {
+                        return _ObjFlow::Ret(Ok(ScriptConditionResult::True));
+                    }
+                    _ObjFlow::Fall
+                });
+                match _flow {
+                    None | Some(_ObjFlow::Cont) => continue,
+                    Some(_ObjFlow::Ret(v)) => return v,
+                    Some(_ObjFlow::Fall) => {}
+                }
             }
         }
 
@@ -132,29 +137,34 @@ impl ScriptConditionEvaluator {
 
         let mut total_cost: i32 = 0;
         for object_id in objects_in_area {
-            let Some(obj_arc) = TheGameLogic::find_object_by_id(object_id) else {
-                continue;
-            };
-            let Ok(obj) = obj_arc.read() else {
-                continue;
-            };
-
-            // C++ !KINDOF_INERT && isInside && !isEffectivelyDead
-            if obj.is_effectively_dead() || obj.is_destroyed() {
-                continue;
+            {
+                enum _ObjFlow<T> { Cont, Ret(T), Fall }
+                let _flow = OBJECT_REGISTRY.with_object(object_id, |obj| {
+                    
+                    // C++ !KINDOF_INERT && isInside && !isEffectivelyDead
+                    if obj.is_effectively_dead() || obj.is_destroyed() {
+                        return _ObjFlow::Cont;
+                    }
+                    if obj.is_kind_of(crate::common::KindOf::Inert) {
+                        return _ObjFlow::Cont;
+                    }
+                    let owner = obj
+                        .get_controlling_player_id()
+                        .map(|id| id as i32)
+                        .unwrap_or(-1);
+                    if owner != player_index {
+                        return _ObjFlow::Cont;
+                    }
+                    
+                    total_cost = total_cost.saturating_add(obj.get_template().get_build_cost());
+                    _ObjFlow::Fall
+                });
+                match _flow {
+                    None | Some(_ObjFlow::Cont) => continue,
+                    Some(_ObjFlow::Ret(v)) => return v,
+                    Some(_ObjFlow::Fall) => {}
+                }
             }
-            if obj.is_kind_of(crate::common::KindOf::Inert) {
-                continue;
-            }
-            let owner = obj
-                .get_controlling_player_id()
-                .map(|id| id as i32)
-                .unwrap_or(-1);
-            if owner != player_index {
-                continue;
-            }
-
-            total_cost = total_cost.saturating_add(obj.get_template().get_build_cost());
         }
 
         let result = match comparison {
@@ -478,24 +488,29 @@ impl ScriptConditionEvaluator {
             .map_err(|_| ScriptError::ExecutionFailed("Failed to read team".to_string()))?;
 
         for obj_id in members {
-            let Some(obj_arc) = TheGameLogic::find_object_by_id(obj_id) else {
-                continue;
-            };
-            let Ok(obj_guard) = obj_arc.read() else {
-                continue;
-            };
-
-            let Some(is_ready) = self.command_button_ready_for_object(&obj_guard, command_button)
-            else {
-                continue;
-            };
-
-            if is_ready {
-                if !all_ready {
-                    return Ok(true);
+            {
+                enum _ObjFlow<T> { Cont, Ret(T), Fall }
+                let _flow = OBJECT_REGISTRY.with_object(obj_id, |obj_guard| {
+                    
+                    let Some(is_ready) = self.command_button_ready_for_object(&obj_guard, command_button)
+                    else {
+                        return _ObjFlow::Cont;
+                    };
+                    
+                    if is_ready {
+                        if !all_ready {
+                            return _ObjFlow::Ret(Ok(true));
+                        }
+                    } else if all_ready {
+                        return _ObjFlow::Ret(Ok(false));
+                    }
+                    _ObjFlow::Fall
+                });
+                match _flow {
+                    None | Some(_ObjFlow::Cont) => continue,
+                    Some(_ObjFlow::Ret(v)) => return v,
+                    Some(_ObjFlow::Fall) => {}
                 }
-            } else if all_ready {
-                return Ok(false);
             }
         }
 
@@ -548,15 +563,20 @@ impl ScriptConditionEvaluator {
                     continue;
                 }
                 for obj_id in team_guard.get_members() {
-                    let Some(obj_arc) = TheGameLogic::find_object_by_id(*obj_id) else {
-                        continue;
-                    };
-                    let Ok(obj_guard) = obj_arc.read() else {
-                        continue;
-                    };
-                    if obj_guard.is_disabled_by_type(crate::common::DisabledType::DisabledUnmanned)
                     {
-                        count += 1;
+                        enum _ObjFlow<T> { Cont, Ret(T), Fall }
+                        let _flow = OBJECT_REGISTRY.with_object(*obj_id, |obj_guard| {
+                            if obj_guard.is_disabled_by_type(crate::common::DisabledType::DisabledUnmanned)
+                            {
+                                count += 1;
+                            }
+                            _ObjFlow::Fall
+                        });
+                        match _flow {
+                            None | Some(_ObjFlow::Cont) => continue,
+                            Some(_ObjFlow::Ret(v)) => return v,
+                            Some(_ObjFlow::Fall) => {}
+                        }
                     }
                 }
             }
@@ -668,20 +688,25 @@ impl ScriptConditionEvaluator {
                     continue;
                 }
                 for obj_id in team_guard.get_members() {
-                    let Some(obj_arc) = TheGameLogic::find_object_by_id(*obj_id) else {
-                        continue;
-                    };
-                    let Ok(obj_guard) = obj_arc.read() else {
-                        continue;
-                    };
-                    let Some(contain) = obj_guard.get_contain() else {
-                        continue;
-                    };
-                    let Ok(contain_guard) = contain.lock() else {
-                        continue;
-                    };
-                    if contain_guard.is_garrisonable() && contain_guard.get_contained_count() > 0 {
-                        count += 1;
+                    {
+                        enum _ObjFlow<T> { Cont, Ret(T), Fall }
+                        let _flow = OBJECT_REGISTRY.with_object(*obj_id, |obj_guard| {
+                            let Some(contain) = obj_guard.get_contain() else {
+                                return _ObjFlow::Cont;
+                            };
+                            let Ok(contain_guard) = contain.lock() else {
+                                return _ObjFlow::Cont;
+                            };
+                            if contain_guard.is_garrisonable() && contain_guard.get_contained_count() > 0 {
+                                count += 1;
+                            }
+                            _ObjFlow::Fall
+                        });
+                        match _flow {
+                            None | Some(_ObjFlow::Cont) => continue,
+                            Some(_ObjFlow::Ret(v)) => return v,
+                            Some(_ObjFlow::Fall) => {}
+                        }
                     }
                 }
             }
@@ -742,14 +767,19 @@ impl ScriptConditionEvaluator {
                     continue;
                 }
                 for obj_id in team_guard.get_members() {
-                    let Some(obj_arc) = TheGameLogic::find_object_by_id(*obj_id) else {
-                        continue;
-                    };
-                    let Ok(obj_guard) = obj_arc.read() else {
-                        continue;
-                    };
-                    if obj_guard.is_captured() {
-                        count += 1;
+                    {
+                        enum _ObjFlow<T> { Cont, Ret(T), Fall }
+                        let _flow = OBJECT_REGISTRY.with_object(*obj_id, |obj_guard| {
+                            if obj_guard.is_captured() {
+                                count += 1;
+                            }
+                            _ObjFlow::Fall
+                        });
+                        match _flow {
+                            None | Some(_ObjFlow::Cont) => continue,
+                            Some(_ObjFlow::Ret(v)) => return v,
+                            Some(_ObjFlow::Fall) => {}
+                        }
                     }
                 }
             }
@@ -881,21 +911,26 @@ impl ScriptConditionEvaluator {
                     continue;
                 }
                 for obj_id in team_guard.get_members() {
-                    let Some(obj_arc) = TheGameLogic::find_object_by_id(*obj_id) else {
-                        continue;
-                    };
-                    let Ok(obj_guard) = obj_arc.read() else {
-                        continue;
-                    };
-                    let pos = obj_guard.get_position();
-                    let point =
-                        crate::common::ICoord3D::new(pos.x as i32, pos.y as i32, pos.z as i32);
-                    if trigger.point_in_trigger_int(&point) {
-                        if !(obj_guard.is_effectively_dead()
-                            || obj_guard.is_kind_of(crate::common::KindOf::Inert)
-                            || obj_guard.is_kind_of(crate::common::KindOf::Projectile))
-                        {
-                            count += 1;
+                    {
+                        enum _ObjFlow<T> { Cont, Ret(T), Fall }
+                        let _flow = OBJECT_REGISTRY.with_object(*obj_id, |obj_guard| {
+                            let pos = obj_guard.get_position();
+                            let point =
+                                crate::common::ICoord3D::new(pos.x as i32, pos.y as i32, pos.z as i32);
+                            if trigger.point_in_trigger_int(&point) {
+                                if !(obj_guard.is_effectively_dead()
+                                    || obj_guard.is_kind_of(crate::common::KindOf::Inert)
+                                    || obj_guard.is_kind_of(crate::common::KindOf::Projectile))
+                                {
+                                    count += 1;
+                                }
+                            }
+                            _ObjFlow::Fall
+                        });
+                        match _flow {
+                            None | Some(_ObjFlow::Cont) => continue,
+                            Some(_ObjFlow::Ret(v)) => return v,
+                            Some(_ObjFlow::Fall) => {}
                         }
                     }
                 }
@@ -1040,19 +1075,24 @@ impl ScriptConditionEvaluator {
                 }
 
                 for obj_id in team_guard.get_members() {
-                    let Some(obj_arc) = TheGameLogic::find_object_by_id(*obj_id) else {
-                        continue;
-                    };
-                    let Ok(obj_guard) = obj_arc.read() else {
-                        continue;
-                    };
-                    let shroud_status = obj_guard.get_shrouded_status(discovered_by_index);
-                    if matches!(
-                        shroud_status,
-                        crate::common::ObjectShroudStatus::Clear
-                            | crate::common::ObjectShroudStatus::PartialClear
-                    ) {
-                        return Ok(ScriptConditionResult::True);
+                    {
+                        enum _ObjFlow<T> { Cont, Ret(T), Fall }
+                        let _flow = OBJECT_REGISTRY.with_object(*obj_id, |obj_guard| {
+                            let shroud_status = obj_guard.get_shrouded_status(discovered_by_index);
+                            if matches!(
+                                shroud_status,
+                                crate::common::ObjectShroudStatus::Clear
+                                    | crate::common::ObjectShroudStatus::PartialClear
+                            ) {
+                                return _ObjFlow::Ret(Ok(ScriptConditionResult::True));
+                            }
+                            _ObjFlow::Fall
+                        });
+                        match _flow {
+                            None | Some(_ObjFlow::Cont) => continue,
+                            Some(_ObjFlow::Ret(v)) => return v,
+                            Some(_ObjFlow::Fall) => {}
+                        }
                     }
                 }
             }
@@ -1170,27 +1210,32 @@ impl ScriptConditionEvaluator {
 
         let mut count = 0i32;
         for object_id in player_object_ids {
-            let Some(obj_arc) = TheGameLogic::find_object_by_id(object_id) else {
-                continue;
-            };
-            let Ok(obj_guard) = obj_arc.read() else {
-                continue;
-            };
-            if !types.contains_template(Some(obj_guard.get_template().as_ref())) {
-                continue;
-            }
-            let pos = obj_guard.get_position();
-            let point = crate::common::ICoord3D::new(pos.x as i32, pos.y as i32, pos.z as i32);
-            if !trigger.point_in_trigger_int(&point) {
-                continue;
-            }
-
-            // C++ includes crates even though they can be effectively dead/inert.
-            let include = !(obj_guard.is_effectively_dead()
-                || obj_guard.is_kind_of(crate::common::KindOf::Inert))
-                || obj_guard.is_kind_of(crate::common::KindOf::Crate);
-            if include {
-                count += 1;
+            {
+                enum _ObjFlow<T> { Cont, Ret(T), Fall }
+                let _flow = OBJECT_REGISTRY.with_object(object_id, |obj_guard| {
+                    if !types.contains_template(Some(obj_guard.get_template().as_ref())) {
+                        return _ObjFlow::Cont;
+                    }
+                    let pos = obj_guard.get_position();
+                    let point = crate::common::ICoord3D::new(pos.x as i32, pos.y as i32, pos.z as i32);
+                    if !trigger.point_in_trigger_int(&point) {
+                        return _ObjFlow::Cont;
+                    }
+                    
+                    // C++ includes crates even though they can be effectively dead/inert.
+                    let include = !(obj_guard.is_effectively_dead()
+                        || obj_guard.is_kind_of(crate::common::KindOf::Inert))
+                        || obj_guard.is_kind_of(crate::common::KindOf::Crate);
+                    if include {
+                        count += 1;
+                    }
+                    _ObjFlow::Fall
+                });
+                match _flow {
+                    None | Some(_ObjFlow::Cont) => continue,
+                    Some(_ObjFlow::Ret(v)) => return v,
+                    Some(_ObjFlow::Fall) => {}
+                }
             }
         }
 
@@ -1317,24 +1362,29 @@ impl ScriptConditionEvaluator {
 
         let mut count = 0i32;
         for object_id in player_object_ids {
-            let Some(obj_arc) = TheGameLogic::find_object_by_id(object_id) else {
-                continue;
-            };
-            let Ok(obj_guard) = obj_arc.read() else {
-                continue;
-            };
-            if !obj_guard.is_kind_of(kind) {
-                continue;
-            }
-            let pos = obj_guard.get_position();
-            let point = crate::common::ICoord3D::new(pos.x as i32, pos.y as i32, pos.z as i32);
-            if !trigger.point_in_trigger_int(&point) {
-                continue;
-            }
-            if !(obj_guard.is_effectively_dead()
-                || obj_guard.is_kind_of(crate::common::KindOf::Inert))
             {
-                count += 1;
+                enum _ObjFlow<T> { Cont, Ret(T), Fall }
+                let _flow = OBJECT_REGISTRY.with_object(object_id, |obj_guard| {
+                    if !obj_guard.is_kind_of(kind) {
+                        return _ObjFlow::Cont;
+                    }
+                    let pos = obj_guard.get_position();
+                    let point = crate::common::ICoord3D::new(pos.x as i32, pos.y as i32, pos.z as i32);
+                    if !trigger.point_in_trigger_int(&point) {
+                        return _ObjFlow::Cont;
+                    }
+                    if !(obj_guard.is_effectively_dead()
+                        || obj_guard.is_kind_of(crate::common::KindOf::Inert))
+                    {
+                        count += 1;
+                    }
+                    _ObjFlow::Fall
+                });
+                match _flow {
+                    None | Some(_ObjFlow::Cont) => continue,
+                    Some(_ObjFlow::Ret(v)) => return v,
+                    Some(_ObjFlow::Fall) => {}
+                }
             }
         }
 

@@ -40,15 +40,11 @@ impl InGameUI {
         // C++ InGameUI.cpp:2152-2160 — single IMMOBILE selection suppresses the hint.
         if self.get_select_count() == 1 {
             if let Some(object_id) = self.get_selection().into_iter().next() {
-                if let Some(obj) = OBJECT_REGISTRY.get_object(object_id) {
-                    if obj
-                        .read()
-                        .ok()
-                        .map(|guard| guard.is_kind_of(KindOf::Immobile))
-                        .unwrap_or(false)
-                    {
-                        return;
-                    }
+                let immobile = OBJECT_REGISTRY
+                    .with_object(object_id, |guard| guard.is_kind_of(KindOf::Immobile))
+                    .unwrap_or(false);
+                if immobile {
+                    return;
                 }
             }
         }

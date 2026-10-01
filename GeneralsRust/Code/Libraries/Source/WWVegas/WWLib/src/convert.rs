@@ -72,7 +72,7 @@ impl ConvertClass {
             let mut shadow = vec![0u8; 256];
             shadow[0] = 0;
             for idx in 1..256 {
-                let hsv: HSVClass = (*artpalette.get_color(idx)).into();
+                let hsv: HSVClass = artpalette.get_color(idx).into();
                 let mut hsv = hsv;
                 hsv.set_value(hsv.value() / 2);
                 let rgb: RGBClass = hsv.into();

@@ -139,30 +139,28 @@ impl StateImplementation for AIWanderState {
         let Some(owner) = self.base.get_machine_owner() else {
             return StateReturnType::Failure;
         };
-        {
-            let Ok(owner_guard) = owner.read() else {
-                return StateReturnType::Failure;
-            };
+        let Some(ok) = crate::object::registry::OBJECT_REGISTRY.with_object(owner, |owner_guard| {
             if self.core.current_waypoint.is_none() {
-                return StateReturnType::Failure;
+                return false;
             }
             self.update_group_offset(ai);
             self.timer = 0;
             self.wait_frames = 10 + ((owner_guard.get_id() & 0x7) as i32);
-            if self
-                .core
-                .compute_goal(&self.base, &owner_guard, ai, false)
-                .is_err()
-            {
-                return StateReturnType::Failure;
-            }
+            self.core
+                .compute_goal(&self.base, owner_guard, ai, false)
+                .is_ok()
+        }) else {
+            return StateReturnType::Failure;
+        };
+        if !ok {
+            return StateReturnType::Failure;
         }
         let ret = self
             .move_to
             .on_enter_with_ai(ai, goal_id, self.core.goal_position);
-        if let Ok(mut owner_guard) = owner.write() {
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner, |owner_guard| {
             owner_guard.ai_pending_path_extra = Some(self.core.calc_extra_path_distance());
-        }
+        });
         ret
     }
 
@@ -178,46 +176,47 @@ impl StateImplementation for AIWanderState {
         let Some(owner) = self.base.get_machine_owner() else {
             return StateReturnType::Failure;
         };
-        let Ok(owner_guard) = owner.read() else {
-            return StateReturnType::Failure;
-        };
-        if owner_guard.is_kind_of(KindOf::CanBeRepulsed) {
-            self.timer -= 1;
-            if self.timer < 0 {
-                self.timer = self.wait_frames;
-                let enemy_id = the_ai().read().ok().and_then(|store| {
-                    store
-                        .find_closest_repulsor(owner_guard.get_id(), owner_guard.get_vision_range())
-                        .ok()
-                        .flatten()
-                });
-                if enemy_id.is_some() {
-                    return StateReturnType::Failure;
+        let Some(result) = crate::object::registry::OBJECT_REGISTRY.with_object(owner, |owner_guard| {
+            if owner_guard.is_kind_of(KindOf::CanBeRepulsed) {
+                self.timer -= 1;
+                if self.timer < 0 {
+                    self.timer = self.wait_frames;
+                    let enemy_id = the_ai().read().ok().and_then(|store| {
+                        store
+                            .find_closest_repulsor(owner_guard.get_id(), owner_guard.get_vision_range())
+                            .ok()
+                            .flatten()
+                    });
+                    if enemy_id.is_some() {
+                        return StateReturnType::Failure;
+                    }
                 }
             }
-        }
-        if status != StateReturnType::Continue {
-            self.core.current_waypoint = self.core.get_next_waypoint(&self.base);
-            if self.core.current_waypoint.is_none() {
-                ai.set_completed_waypoint_id(
-                    self.core.prior_waypoint.as_ref().map(|waypoint| waypoint.id),
-                );
-                return StateReturnType::Success;
+            if status != StateReturnType::Continue {
+                self.core.current_waypoint = self.core.get_next_waypoint(&self.base);
+                if self.core.current_waypoint.is_none() {
+                    ai.set_completed_waypoint_id(
+                        self.core.prior_waypoint.as_ref().map(|waypoint| waypoint.id),
+                    );
+                    return StateReturnType::Success;
+                }
+                self.update_group_offset(ai);
+                if self
+                    .core
+                    .compute_goal(&self.base, owner_guard, ai, false)
+                    .is_err()
+                    || self.core.compute_path(ai).is_err()
+                {
+                    return StateReturnType::Failure;
+                }
+                self.move_to.goal_position = self.core.goal_position;
+                return StateReturnType::Continue;
             }
-            self.update_group_offset(ai);
-            if self
-                .core
-                .compute_goal(&self.base, &owner_guard, ai, false)
-                .is_err()
-            {
-                return StateReturnType::Failure;
-            }
-            self.move_to.goal_position = self.core.goal_position;
-            if self.core.compute_path(ai).is_err() {
-                return StateReturnType::Failure;
-            }
-            return StateReturnType::Continue;
-        }
+            StateReturnType::Continue
+        }) else {
+            return StateReturnType::Failure;
+        };
+        result
         StateReturnType::Continue
     }
 
@@ -285,10 +284,7 @@ impl AIWanderState {
             .get_machine_owner()
             .ok_or_else(|| "wander missing owner".to_string())?;
         let has_ai = borrowed.is_some();
-        {
-            let owner_guard = owner
-                .read()
-                .map_err(|_| "wander owner lock poisoned".to_string())?;
+        let entered = crate::object::registry::OBJECT_REGISTRY.with_object(owner, |owner_guard| -> Result<(), String> {
             let ai_arc;
             let mut locked_ai;
             let ai_guard: &mut dyn crate::modules::AIUpdateInterface =
@@ -310,7 +306,13 @@ impl AIWanderState {
             self.timer = 0;
             self.wait_frames = 10 + ((owner_guard.get_id() & 0x7) as i32);
             self.core
-                .compute_goal(&self.base, &owner_guard, &mut *ai_guard, false)?;
+                .compute_goal(&self.base, owner_guard, &mut *ai_guard, false)?;
+            Ok(())
+        });
+        match entered {
+            Some(Ok(())) => {}
+            Some(Err(e)) => return Err(e),
+            None => return Err("wander owner missing".to_string()),
         }
         let ret = if has_ai {
             self.move_to
@@ -318,9 +320,9 @@ impl AIWanderState {
         } else {
             self.move_to.classic_on_enter()?
         };
-        if let Ok(mut owner_guard) = owner.write() {
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner, |owner_guard| {
             owner_guard.ai_pending_path_extra = Some(self.core.calc_extra_path_distance());
-        }
+        });
         Ok(ret)
     }
 
@@ -338,9 +340,8 @@ impl AIWanderState {
             .base
             .get_machine_owner()
             .ok_or_else(|| "wander missing owner".to_string())?;
-        let owner_guard = owner
-            .read()
-            .map_err(|_| "wander owner lock poisoned".to_string())?;
+        let stepped = crate::object::registry::OBJECT_REGISTRY.with_object(owner, |owner_guard| -> Result<StateReturnType, String> {
+
         let ai_arc;
         let mut locked_ai;
         let ai_guard: &mut dyn crate::modules::AIUpdateInterface = if let Some(ai) = borrowed.as_mut()
@@ -380,11 +381,16 @@ impl AIWanderState {
             }
             self.update_group_offset(&*ai_guard);
             self.core
-                .compute_goal(&self.base, &owner_guard, &mut *ai_guard, false)?;
+                .compute_goal(&self.base, owner_guard, &mut *ai_guard, false)?;
             self.core.compute_path(&mut *ai_guard)?;
             return Ok(StateReturnType::Continue);
         }
         Ok(StateReturnType::Continue)
+        });
+        match stepped {
+            Some(v) => v,
+            None => Err("wander owner missing".to_string()),
+        }
     }
 }
 
@@ -455,31 +461,29 @@ impl StateImplementation for AIPanicState {
         let Some(owner) = self.base.get_machine_owner() else {
             return StateReturnType::Failure;
         };
-        {
-            let Ok(owner_guard) = owner.read() else {
-                return StateReturnType::Failure;
-            };
+        let Some(ok) = crate::object::registry::OBJECT_REGISTRY.with_object(owner, |owner_guard| {
             if self.core.current_waypoint.is_none() {
-                return StateReturnType::Failure;
+                return false;
             }
             self.update_group_offset(ai);
             self.timer = 0;
             self.wait_frames = 10 + ((owner_guard.get_id() & 0x7) as i32);
-            if self
-                .core
-                .compute_goal(&self.base, &owner_guard, ai, false)
-                .is_err()
-            {
-                return StateReturnType::Failure;
-            }
+            self.core
+                .compute_goal(&self.base, owner_guard, ai, false)
+                .is_ok()
+        }) else {
+            return StateReturnType::Failure;
+        };
+        if !ok {
+            return StateReturnType::Failure;
         }
         let ret = self
             .move_to
             .on_enter_with_ai(ai, goal_id, self.core.goal_position);
-        if let Ok(mut owner_guard) = owner.write() {
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner, |owner_guard| {
             owner_guard.ai_pending_path_extra = Some(self.core.calc_extra_path_distance());
             owner_guard.set_model_condition_state(ModelConditionFlags::PANICKING);
-        }
+        });
         ret
     }
 
@@ -495,31 +499,31 @@ impl StateImplementation for AIPanicState {
         let Some(owner) = self.base.get_machine_owner() else {
             return StateReturnType::Failure;
         };
-        let Ok(owner_guard) = owner.read() else {
+        let Some(result) = crate::object::registry::OBJECT_REGISTRY.with_object(owner, |owner_guard| {
+            if status != StateReturnType::Continue {
+                self.core.current_waypoint = self.core.get_next_waypoint(&self.base);
+                if self.core.current_waypoint.is_none() {
+                    ai.set_completed_waypoint_id(
+                        self.core.prior_waypoint.as_ref().map(|waypoint| waypoint.id),
+                    );
+                    return StateReturnType::Success;
+                }
+                self.update_group_offset(ai);
+                if self
+                    .core
+                    .compute_goal(&self.base, owner_guard, ai, false)
+                    .is_err()
+                    || self.core.compute_path(ai).is_err()
+                {
+                    return StateReturnType::Failure;
+                }
+                self.move_to.goal_position = self.core.goal_position;
+            }
+            StateReturnType::Continue
+        }) else {
             return StateReturnType::Failure;
         };
-        if status != StateReturnType::Continue {
-            self.core.current_waypoint = self.core.get_next_waypoint(&self.base);
-            if self.core.current_waypoint.is_none() {
-                ai.set_completed_waypoint_id(
-                    self.core.prior_waypoint.as_ref().map(|waypoint| waypoint.id),
-                );
-                return StateReturnType::Success;
-            }
-            self.update_group_offset(ai);
-            if self
-                .core
-                .compute_goal(&self.base, &owner_guard, ai, false)
-                .is_err()
-            {
-                return StateReturnType::Failure;
-            }
-            self.move_to.goal_position = self.core.goal_position;
-            if self.core.compute_path(ai).is_err()
-            {
-                return StateReturnType::Failure;
-            }
-        }
+        result
         StateReturnType::Continue
     }
 
@@ -569,9 +573,9 @@ impl ClassicState for AIPanicState {
 
     fn classic_on_exit(&mut self, exit: StateExitType) -> Result<(), String> {
         if let Some(owner) = self.base.get_machine_owner() {
-            if let Ok(mut owner_guard) = owner.write() {
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner, |owner_guard| {
                 owner_guard.clear_model_condition_state(ModelConditionFlags::PANICKING);
-            }
+            });
         }
         // C++ AIPanicState::onExit: clear PANICKING then AIInternalMoveToState::onExit
         self.move_to.classic_on_exit(exit)
@@ -592,10 +596,7 @@ impl AIPanicState {
             .get_machine_owner()
             .ok_or_else(|| "panic missing owner".to_string())?;
         let has_ai = borrowed.is_some();
-        {
-            let owner_guard = owner
-                .read()
-                .map_err(|_| "panic owner lock poisoned".to_string())?;
+        let entered = crate::object::registry::OBJECT_REGISTRY.with_object(owner, |owner_guard| -> Result<(), String> {
             let ai_arc;
             let mut locked_ai;
             let ai_guard: &mut dyn crate::modules::AIUpdateInterface =
@@ -615,7 +616,13 @@ impl AIPanicState {
             }
             self.update_group_offset(&*ai_guard);
             self.core
-                .compute_goal(&self.base, &owner_guard, &mut *ai_guard, false)?;
+                .compute_goal(&self.base, owner_guard, &mut *ai_guard, false)?;
+            Ok(())
+        });
+        match entered {
+            Some(Ok(())) => {}
+            Some(Err(e)) => return Err(e),
+            None => return Err("panic owner missing".to_string()),
         }
         let ret = if has_ai {
             self.move_to
@@ -624,15 +631,11 @@ impl AIPanicState {
             self.move_to.classic_on_enter()?
         };
         self.timer = 0;
-        self.wait_frames = 10 + ((self.base.get_machine_owner().and_then(|owner| {
-            owner.read().ok().map(|guard| guard.get_id())
-        }).unwrap_or(0) & 0x7) as i32);
-        if let Ok(mut owner_guard) = owner.write() {
+        self.wait_frames = 10 + ((owner & 0x7) as i32);
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner, |owner_guard| {
             owner_guard.ai_pending_path_extra = Some(self.core.calc_extra_path_distance());
-        }
-        if let Ok(mut owner_write) = owner.write() {
-            owner_write.set_model_condition_state(ModelConditionFlags::PANICKING);
-        }
+            owner_guard.set_model_condition_state(ModelConditionFlags::PANICKING);
+        });
         Ok(ret)
     }
 
@@ -649,9 +652,8 @@ impl AIPanicState {
             .base
             .get_machine_owner()
             .ok_or_else(|| "panic missing owner".to_string())?;
-        let owner_guard = owner
-            .read()
-            .map_err(|_| "panic owner lock poisoned".to_string())?;
+        let stepped = crate::object::registry::OBJECT_REGISTRY.with_object(owner, |owner_guard| -> Result<StateReturnType, String> {
+
         let ai_arc;
         let mut locked_ai;
         let ai_guard: &mut dyn crate::modules::AIUpdateInterface = if let Some(ai) = borrowed.as_mut()
@@ -690,11 +692,16 @@ impl AIPanicState {
             }
             self.update_group_offset(&*ai_guard);
             self.core
-                .compute_goal(&self.base, &owner_guard, &mut *ai_guard, false)?;
+                .compute_goal(&self.base, owner_guard, &mut *ai_guard, false)?;
             self.core.compute_path(&mut *ai_guard)?;
             return Ok(StateReturnType::Continue);
         }
         Ok(StateReturnType::Continue)
+        });
+        match stepped {
+            Some(v) => v,
+            None => Err("panic owner missing".to_string()),
+        }
     }
 }
 

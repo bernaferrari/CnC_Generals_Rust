@@ -1544,13 +1544,13 @@ mod tests {
     #[test]
     fn owned_tint_same_id_worlds_do_not_share_envelope() {
         let (mut first, id) = owned_tint_world(true);
-        let _ = PresentationFrame::build_from_logic(&first, 0).unit_render_inputs();
+        let _ = PresentationFrame::build_from_logic(&mut first, 0).unit_render_inputs();
         first.frame = 30;
-        let dark = PresentationFrame::build_from_logic(&first, 0).unit_render_inputs();
+        let dark = PresentationFrame::build_from_logic(&mut first, 0).unit_render_inputs();
         assert!(dark[0].status_tint[0] < -0.45);
-        let (second, second_id) = owned_tint_world(false);
+        let (mut second, second_id) = owned_tint_world(false);
         assert_eq!(id, second_id, "exercise identical world-scoped object IDs");
-        let clear = PresentationFrame::build_from_logic(&second, 0).unit_render_inputs();
+        let clear = PresentationFrame::build_from_logic(&mut second, 0).unit_render_inputs();
         assert_eq!(
             clear[0].status_tint, [0.0; 3],
             "a fresh world must not release another world's envelope"
@@ -1560,9 +1560,9 @@ mod tests {
     #[test]
     fn owned_tint_frozen_frame_conversion_does_not_advance_envelope() {
         let (mut logic, _) = owned_tint_world(true);
-        let _ = PresentationFrame::build_from_logic(&logic, 0).unit_render_inputs();
+        let _ = PresentationFrame::build_from_logic(&mut logic, 0).unit_render_inputs();
         logic.frame = 10;
-        let frame = PresentationFrame::build_from_logic(&logic, 0);
+        let frame = PresentationFrame::build_from_logic(&mut logic, 0);
         let first = frame.unit_render_inputs()[0].status_tint;
         let again = frame.unit_render_inputs()[0].status_tint;
         assert_eq!(
@@ -1574,10 +1574,10 @@ mod tests {
     #[test]
     fn owned_tint_removed_objects_and_reset_do_not_retain_envelopes() {
         let (mut logic, id) = owned_tint_world(true);
-        let _ = PresentationFrame::build_from_logic(&logic, 0);
+        let _ = PresentationFrame::build_from_logic(&mut logic, 0);
         assert!(logic.drawable_tint_envelopes.capture(id.0).is_some());
         logic.objects.remove(&id);
-        let _ = PresentationFrame::build_from_logic(&logic, 0);
+        let _ = PresentationFrame::build_from_logic(&mut logic, 0);
         assert!(logic.drawable_tint_envelopes.capture(id.0).is_none());
         logic
             .drawable_tint_envelopes
@@ -1588,7 +1588,7 @@ mod tests {
 
     #[test]
     fn owned_tint_hostless_shadow_preserves_and_isolates_samples() {
-        let (logic, id) = owned_tint_world(true);
+        let (mut logic, id) = owned_tint_world(true);
         let mut first = crate::gameworld_shadow::GameWorldShadow::new(64);
         first.sync_from_host(&logic);
         first
@@ -1893,7 +1893,7 @@ mod tests {
             .host_object_mut(id)
             .expect("chinook obj")
             .set_stored_supplies(300);
-        let frame = crate::presentation_frame::PresentationFrame::build_from_logic(&logic, 0);
+        let frame = crate::presentation_frame::PresentationFrame::build_from_logic(&mut logic, 0);
         let input = frame
             .unit_render_inputs()
             .into_iter()
@@ -1925,7 +1925,7 @@ mod tests {
             .host_object_mut(id)
             .expect("wh")
             .set_stored_supplies(5 * 75);
-        let frame = crate::presentation_frame::PresentationFrame::build_from_logic(&logic, 0);
+        let frame = crate::presentation_frame::PresentationFrame::build_from_logic(&mut logic, 0);
         let input = frame
             .unit_render_inputs()
             .into_iter()
@@ -1969,7 +1969,7 @@ mod tests {
             let o = logic.host_object_mut(id).expect("tank obj");
             o.status.disabled_unmanned = true;
         }
-        let unmanned = crate::presentation_frame::PresentationFrame::build_from_logic(&logic, 0)
+        let unmanned = crate::presentation_frame::PresentationFrame::build_from_logic(&mut logic, 0)
             .unit_render_inputs()
             .into_iter()
             .find(|u| u.id == id)
@@ -1983,7 +1983,7 @@ mod tests {
             o.status.disabled_underpowered = true;
         }
         let underpowered =
-            crate::presentation_frame::PresentationFrame::build_from_logic(&logic, 0)
+            crate::presentation_frame::PresentationFrame::build_from_logic(&mut logic, 0)
                 .unit_render_inputs()
                 .into_iter()
                 .find(|u| u.id == id)
@@ -1997,7 +1997,7 @@ mod tests {
             o.status.disabled_underpowered = false;
             o.status.disabled_subdued = true;
         }
-        let subdued = crate::presentation_frame::PresentationFrame::build_from_logic(&logic, 0)
+        let subdued = crate::presentation_frame::PresentationFrame::build_from_logic(&mut logic, 0)
             .unit_render_inputs()
             .into_iter()
             .find(|u| u.id == id)
@@ -2014,7 +2014,7 @@ mod tests {
             o.status.disabled_subdued = false;
             o.subdual_damage = 10.0;
         }
-        let subdual = crate::presentation_frame::PresentationFrame::build_from_logic(&logic, 0)
+        let subdual = crate::presentation_frame::PresentationFrame::build_from_logic(&mut logic, 0)
             .unit_render_inputs()
             .into_iter()
             .find(|u| u.id == id)
@@ -2028,7 +2028,7 @@ mod tests {
             o.subdual_damage = 0.0;
             o.weapon_bonus_frenzy = true;
         }
-        let frenzy = crate::presentation_frame::PresentationFrame::build_from_logic(&logic, 0)
+        let frenzy = crate::presentation_frame::PresentationFrame::build_from_logic(&mut logic, 0)
             .unit_render_inputs()
             .into_iter()
             .find(|u| u.id == id)
@@ -2061,7 +2061,7 @@ mod tests {
             o.camo_heat_vision_opacity = 1.0;
             o.camo_stealth_look = HostCamoStealthLook::VisibleDetected as u8;
         }
-        let input = crate::presentation_frame::PresentationFrame::build_from_logic(&logic, 0)
+        let input = crate::presentation_frame::PresentationFrame::build_from_logic(&mut logic, 0)
             .unit_render_inputs()
             .into_iter()
             .find(|u| u.id == id)
@@ -2094,7 +2094,7 @@ mod tests {
             o.mine_data = Some(crate::game_logic::host_mines::HostMineData::land_mine());
             o.apply_mine_innate_stealth();
         }
-        let frame = crate::presentation_frame::PresentationFrame::build_from_logic(&logic, 0);
+        let frame = crate::presentation_frame::PresentationFrame::build_from_logic(&mut logic, 0);
         let object = frame
             .objects
             .iter()
@@ -2159,7 +2159,7 @@ mod tests {
             o.mine_data = Some(HostMineData::remote_demo_charge().with_attach(target));
         }
 
-        let frame = crate::presentation_frame::PresentationFrame::build_from_logic(&logic, 0);
+        let frame = crate::presentation_frame::PresentationFrame::build_from_logic(&mut logic, 0);
         let local = frame.objects.iter().find(|o| o.id == local_car).unwrap();
         let enemy = frame.objects.iter().find(|o| o.id == enemy_car).unwrap();
         let timed_o = frame.objects.iter().find(|o| o.id == timed).unwrap();

@@ -6,13 +6,7 @@ pub(super) fn selection_can_override_special_power_destination(
     special_power_type: u32,
 ) -> bool {
     for &id in selection {
-        let Some(sel) = OBJECT_REGISTRY.get_object(id) else {
-            continue;
-        };
-        let Ok(sel_guard) = sel.read() else {
-            continue;
-        };
-
+        let can_override = OBJECT_REGISTRY.with_object(id, |sel_guard| {
         let is_mine = local_player
             .and_then(|pid| {
                 sel_guard
@@ -21,7 +15,7 @@ pub(super) fn selection_can_override_special_power_destination(
             })
             .unwrap_or(false);
         if !is_mine || sel_guard.is_effectively_dead() {
-            continue;
+            return false;
         }
 
         let mut matches_power = special_power_type == SPECIAL_POWER_INVALID;
@@ -46,7 +40,7 @@ pub(super) fn selection_can_override_special_power_destination(
             }
         }
         if !matches_power {
-            continue;
+            return false;
         }
 
         let mut can_override = false;
@@ -67,6 +61,8 @@ pub(super) fn selection_can_override_special_power_destination(
             }
         }
 
+        can_override
+        }).unwrap_or(false);
         if can_override {
             return true;
         }
@@ -131,44 +127,21 @@ pub(super) fn selection_attack_result(
         };
     }
 
-    let Some(target) = OBJECT_REGISTRY.get_object(target_id) else {
-        return CanAttackResult::NotPossible;
-    };
-    let Ok(target_guard) = target.read() else {
-        return CanAttackResult::NotPossible;
-    };
-
+    let outcome = OBJECT_REGISTRY.with_object(target_id, |target_guard| {
     let mut saw_invalid_shot = false;
     let mut saw_possible_after_moving = false;
 
     for &id in selection {
-        let Some(sel) = OBJECT_REGISTRY.get_object(id) else {
-            continue;
+        let step = if id == target_id {
+            attack_step_for_sel(local_player, target_guard, target_guard)
+        } else {
+            OBJECT_REGISTRY
+                .with_object(id, |sel_guard| {
+                    attack_step_for_sel(local_player, sel_guard, target_guard)
+                })
+                .unwrap_or(CanAttackResult::NotPossible)
         };
-        let Ok(sel_guard) = sel.read() else {
-            continue;
-        };
-
-        let is_mine = local_player
-            .and_then(|pid| {
-                sel_guard
-                    .get_controlling_player_id()
-                    .map(|owner| owner == pid)
-            })
-            .unwrap_or(false);
-        if !is_mine {
-            continue;
-        }
-
-        if !sel_guard.is_able_to_attack() {
-            continue;
-        }
-
-        match sel_guard.get_able_to_attack_specific_object(
-            AbleToAttackType::NewTarget,
-            &target_guard,
-            CommandSourceType::FromPlayer,
-        ) {
+        match step {
             CanAttackResult::Possible => return CanAttackResult::Possible,
             CanAttackResult::PossibleAfterMoving => saw_possible_after_moving = true,
             CanAttackResult::InvalidShot => saw_invalid_shot = true,
@@ -183,6 +156,30 @@ pub(super) fn selection_attack_result(
     } else {
         CanAttackResult::NotPossible
     }
+    });
+    return outcome.unwrap_or(CanAttackResult::NotPossible);
+}
+
+fn attack_step_for_sel(
+    local_player: Option<u32>,
+    sel_guard: &gamelogic::object::Object,
+    target_guard: &gamelogic::object::Object,
+) -> CanAttackResult {
+    let is_mine = local_player
+        .and_then(|pid| {
+            sel_guard
+                .get_controlling_player_id()
+                .map(|owner| owner == pid)
+        })
+        .unwrap_or(false);
+    if !is_mine || !sel_guard.is_able_to_attack() {
+        return CanAttackResult::NotPossible;
+    }
+    sel_guard.get_able_to_attack_specific_object(
+        AbleToAttackType::NewTarget,
+        target_guard,
+        CommandSourceType::FromPlayer,
+    )
 }
 
 pub(super) fn selection_force_attack_object_result(
@@ -190,36 +187,43 @@ pub(super) fn selection_force_attack_object_result(
     selection: &HashSet<ObjectID>,
     target_id: ObjectID,
 ) -> CanAttackResult {
-    let Some(target) = OBJECT_REGISTRY.get_object(target_id) else {
-        return CanAttackResult::NotPossible;
-    };
-    let Ok(target_guard) = target.read() else {
-        return CanAttackResult::NotPossible;
-    };
-
+    let outcome = OBJECT_REGISTRY.with_object(target_id, |target_guard| {
     let mut saw_invalid_shot = false;
     let mut saw_possible_after_moving = false;
 
     for &id in selection {
-        let Some(sel) = OBJECT_REGISTRY.get_object(id) else {
-            continue;
+        let step = if id == target_id {
+            let is_mine = local_player
+                .and_then(|pid| {
+                    target_guard
+                        .get_controlling_player_id()
+                        .map(|owner| owner == pid)
+                })
+                .unwrap_or(false);
+            if !is_mine || !target_guard.is_able_to_attack() {
+                CanAttackResult::NotPossible
+            } else {
+                force_attack_object_result_for_attacker(target_guard, target_guard)
+            }
+        } else {
+            OBJECT_REGISTRY
+                .with_object(id, |sel_guard| {
+                    let is_mine = local_player
+                        .and_then(|pid| {
+                            sel_guard
+                                .get_controlling_player_id()
+                                .map(|owner| owner == pid)
+                        })
+                        .unwrap_or(false);
+                    if !is_mine || !sel_guard.is_able_to_attack() {
+                        CanAttackResult::NotPossible
+                    } else {
+                        force_attack_object_result_for_attacker(sel_guard, target_guard)
+                    }
+                })
+                .unwrap_or(CanAttackResult::NotPossible)
         };
-        let Ok(sel_guard) = sel.read() else {
-            continue;
-        };
-
-        let is_mine = local_player
-            .and_then(|pid| {
-                sel_guard
-                    .get_controlling_player_id()
-                    .map(|owner| owner == pid)
-            })
-            .unwrap_or(false);
-        if !is_mine || !sel_guard.is_able_to_attack() {
-            continue;
-        }
-
-        match force_attack_object_result_for_attacker(&sel_guard, &target_guard) {
+        match step {
             CanAttackResult::Possible => return CanAttackResult::Possible,
             CanAttackResult::PossibleAfterMoving => saw_possible_after_moving = true,
             CanAttackResult::InvalidShot => saw_invalid_shot = true,
@@ -234,6 +238,8 @@ pub(super) fn selection_force_attack_object_result(
     } else {
         CanAttackResult::NotPossible
     }
+    });
+    outcome.unwrap_or(CanAttackResult::NotPossible)
 }
 
 pub(super) fn closest_spawn_slave_id_for_position(
@@ -259,26 +265,27 @@ pub(super) fn closest_contained_rider_id_for_position(
     pos: &LogicCoord3D,
 ) -> Option<ObjectID> {
     let contain = owner.get_contain()?;
-    let contain_guard = contain.lock().ok()?;
+    let rider_ids = {
+        let contain_guard = contain.lock().ok()?;
+        contain_guard.get_contained_objects().to_vec()
+    };
 
     let mut closest = None;
     let mut closest_dist_sq = f32::INFINITY;
 
-    for &rider_id in contain_guard.get_contained_objects().iter() {
-        let Some(rider) = OBJECT_REGISTRY.get_object(rider_id) else {
+    for rider_id in rider_ids {
+        let dist_sq = OBJECT_REGISTRY.with_object(rider_id, |rider_guard| {
+            if rider_guard.is_effectively_dead() {
+                return None;
+            }
+            let rider_pos = rider_guard.get_position();
+            let dx = rider_pos.x - pos.x;
+            let dy = rider_pos.y - pos.y;
+            Some(dx * dx + dy * dy)
+        });
+        let Some(Some(dist_sq)) = dist_sq else {
             continue;
         };
-        let Ok(rider_guard) = rider.read() else {
-            continue;
-        };
-        if rider_guard.is_effectively_dead() {
-            continue;
-        }
-
-        let rider_pos = rider_guard.get_position();
-        let dx = rider_pos.x - pos.x;
-        let dy = rider_pos.y - pos.y;
-        let dist_sq = dx * dx + dy * dy;
         if dist_sq < closest_dist_sq {
             closest_dist_sq = dist_sq;
             closest = Some(rider_id);
@@ -310,27 +317,28 @@ pub(super) fn force_attack_object_result_for_attacker(
         CanAttackResult::Possible | CanAttackResult::PossibleAfterMoving
     ) {
         if let Some(slave_id) = closest_spawn_slave_id_for_position(attacker, target_pos) {
-            if let Some(slave) = OBJECT_REGISTRY.get_object(slave_id) {
-                if let Ok(slave_guard) = slave.read() {
-                    result = slave_guard.get_able_to_attack_specific_object(
-                        AbleToAttackType::NewTargetForced,
-                        target,
-                        CommandSourceType::FromPlayer,
-                    );
-                }
-            }
-        }
-    } else if let Some(rider_id) = closest_contained_rider_id_for_position(attacker, target_pos) {
-        if let Some(rider) = OBJECT_REGISTRY.get_object(rider_id) {
-            if let Ok(rider_guard) = rider.read() {
-                let rider_result = rider_guard.get_able_to_attack_specific_object(
+            let slave_result = OBJECT_REGISTRY.with_object(slave_id, |slave_guard| {
+                slave_guard.get_able_to_attack_specific_object(
                     AbleToAttackType::NewTargetForced,
                     target,
                     CommandSourceType::FromPlayer,
-                );
-                if rider_result != CanAttackResult::NotPossible {
-                    return rider_result;
-                }
+                )
+            });
+            if let Some(slave_result) = slave_result {
+                result = slave_result;
+            }
+        }
+    } else if let Some(rider_id) = closest_contained_rider_id_for_position(attacker, target_pos) {
+        let rider_result = OBJECT_REGISTRY.with_object(rider_id, |rider_guard| {
+            rider_guard.get_able_to_attack_specific_object(
+                AbleToAttackType::NewTargetForced,
+                target,
+                CommandSourceType::FromPlayer,
+            )
+        });
+        if let Some(rider_result) = rider_result {
+            if rider_result != CanAttackResult::NotPossible {
+                return rider_result;
             }
         }
     }
@@ -369,18 +377,15 @@ pub(super) fn force_attack_position_result_for_attacker(
         );
     }
 
-    let Some(test_obj) = OBJECT_REGISTRY.get_object(test_attacker) else {
-        return CanAttackResult::NotPossible;
-    };
-    let Ok(test_guard) = test_obj.read() else {
-        return CanAttackResult::NotPossible;
-    };
-
-    test_guard.get_able_to_use_weapon_against_position(
-        AbleToAttackType::NewTarget,
-        pos,
-        CommandSourceType::FromPlayer,
-    )
+    OBJECT_REGISTRY
+        .with_object(test_attacker, |test_guard| {
+            test_guard.get_able_to_use_weapon_against_position(
+                AbleToAttackType::NewTarget,
+                pos,
+                CommandSourceType::FromPlayer,
+            )
+        })
+        .unwrap_or(CanAttackResult::NotPossible)
 }
 
 pub(super) fn selection_force_attack_position_result(
@@ -393,25 +398,22 @@ pub(super) fn selection_force_attack_position_result(
     let mut saw_possible_after_moving = false;
 
     for &id in selection {
-        let Some(sel) = OBJECT_REGISTRY.get_object(id) else {
-            continue;
-        };
-        let Ok(sel_guard) = sel.read() else {
-            continue;
-        };
-
-        let is_mine = local_player
-            .and_then(|pid| {
-                sel_guard
-                    .get_controlling_player_id()
-                    .map(|owner| owner == pid)
+        let step = OBJECT_REGISTRY
+            .with_object(id, |sel_guard| {
+                let is_mine = local_player
+                    .and_then(|pid| {
+                        sel_guard
+                            .get_controlling_player_id()
+                            .map(|owner| owner == pid)
+                    })
+                    .unwrap_or(false);
+                if !is_mine || !sel_guard.is_able_to_attack() {
+                    return CanAttackResult::NotPossible;
+                }
+                force_attack_position_result_for_attacker(sel_guard, &logic_pos)
             })
-            .unwrap_or(false);
-        if !is_mine || !sel_guard.is_able_to_attack() {
-            continue;
-        }
-
-        match force_attack_position_result_for_attacker(&sel_guard, &logic_pos) {
+            .unwrap_or(CanAttackResult::NotPossible);
+        match step {
             CanAttackResult::Possible => return CanAttackResult::Possible,
             CanAttackResult::PossibleAfterMoving => saw_possible_after_moving = true,
             CanAttackResult::InvalidShot => saw_invalid_shot = true,

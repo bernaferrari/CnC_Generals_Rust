@@ -33,7 +33,7 @@ impl crate::modules::AIUpdateInterface for CompletedWaypointAi {
 
 struct TeamWaypointConditionFixture {
     member_id: u32,
-    object: Option<Arc<RwLock<crate::object::Object>>>,
+    object: Option<Arc<dyn std::any::Any + Send + Sync>>,
 }
 
 impl Drop for TeamWaypointConditionFixture {
@@ -57,7 +57,7 @@ struct EnemySightedConditionFixture {
     // Retain the final handles until after registry removal.  Object::drop can
     // query the registry, so releasing its last Arc while that registry's write
     // lock is active would deadlock the test teardown.
-    objects: Option<Vec<Arc<RwLock<crate::object::Object>>>>,
+    objects: Option<Vec<Arc<dyn std::any::Any + Send + Sync>>>,
 }
 
 impl Drop for EnemySightedConditionFixture {
@@ -80,7 +80,7 @@ impl Drop for EnemySightedConditionFixture {
 
 struct PlayerScienceTokenConditionFixture {
     sentinel_id: u32,
-    object: Option<Arc<RwLock<crate::object::Object>>>,
+    object: Option<Arc<dyn std::any::Any + Send + Sync>>,
 }
 
 impl Drop for PlayerScienceTokenConditionFixture {
@@ -408,7 +408,7 @@ fn player_science_points_resolves_local_player_token_like_cpp() {
         1.0,
     )));
     crate::object::registry::OBJECT_REGISTRY.register_object(SENTINEL_ID, &sentinel);
-    fixture.object = Some(sentinel);
+    fixture.object = Some(sentinel as Arc<dyn std::any::Any + Send + Sync>);
 
     let evaluator = ScriptEvaluator::new(get_script_engine());
     let mut condition = Condition::new(ConditionType::PlayerHasSciencepurchasepoints);
@@ -452,7 +452,7 @@ fn player_all_destroyed_resolves_local_player_token_like_cpp() {
 
     let unit = Arc::new(RwLock::new(crate::object::Object::new_test(UNIT_ID, 100.0)));
     crate::object::registry::OBJECT_REGISTRY.register_object(UNIT_ID, &unit);
-    fixture.object = Some(unit);
+    fixture.object = Some(unit as Arc<dyn std::any::Any + Send + Sync>);
     player.write().unwrap().add_owned_object(UNIT_ID);
 
     let evaluator = ScriptEvaluator::new(get_script_engine());
@@ -498,7 +498,7 @@ fn player_credits_resolves_side_tokens_and_missing_players_fail_closed_like_cpp(
         1.0,
     )));
     crate::object::registry::OBJECT_REGISTRY.register_object(SENTINEL_ID, &sentinel);
-    fixture.object = Some(sentinel);
+    fixture.object = Some(sentinel as Arc<dyn std::any::Any + Send + Sync>);
 
     let evaluator = ScriptEvaluator::new(get_script_engine());
     let mut local_player_condition = Condition::new(ConditionType::PlayerHasCredits);
@@ -690,7 +690,7 @@ fn team_reached_waypoints_end_requires_the_requested_path_like_cpp() {
     let object = Arc::new(RwLock::new(crate::object::Object::new_test(
         MEMBER_ID, 100.0,
     )));
-    fixture.object = Some(Arc::clone(&object));
+    fixture.object = Some(Arc::clone(&object) as Arc<dyn std::any::Any + Send + Sync>);
     let ai: Box<dyn crate::modules::AIUpdateInterface> = Box::new(CompletedWaypointAi {
         completed_waypoint_id: Arc::clone(&completed_waypoint_id),
     });
@@ -811,7 +811,7 @@ fn enemy_and_type_sighted_honor_cxx_relation_and_stealth_filters() {
         .objects
         .as_mut()
         .unwrap()
-        .push(Arc::clone(&registry_sentinel));
+        .push(Arc::clone(&registry_sentinel) as Arc<dyn std::any::Any + Send + Sync>);
     crate::object::registry::OBJECT_REGISTRY
         .register_object(REGISTRY_SENTINEL_ID, &registry_sentinel);
 
@@ -826,7 +826,7 @@ fn enemy_and_type_sighted_honor_cxx_relation_and_stealth_filters() {
         .objects
         .as_mut()
         .unwrap()
-        .extend([Arc::clone(&source), Arc::clone(&candidate)]);
+        .extend([Arc::clone(&source) as Arc<dyn std::any::Any + Send + Sync>, Arc::clone(&candidate) as Arc<dyn std::any::Any + Send + Sync>]);
     {
         let mut source_guard = source.write().unwrap();
         source_guard

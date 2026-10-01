@@ -14,32 +14,32 @@ impl ControlBar {
             return Ok(());
         };
 
-        if let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) {
-            if let Ok(obj) = obj_arc.read() {
-                if let Some(contain) = obj.get_contain() {
-                    if let Ok(contain_guard) = contain.lock() {
-                        if contain_guard.get_max_capacity() > 0 {
-                            let count = contain_guard.get_contain_count();
-                            let last = self
-                                .context
-                                .read()
-                                .ok()
-                                .map(|ctx| ctx.last_recorded_inventory_count)
-                                .unwrap_or(0);
-                            if last != count {
-                                if let Ok(mut ctx) = self.context.write() {
-                                    ctx.last_recorded_inventory_count = count;
-                                }
-                                self.evaluate_context_ui()?;
-                            }
-                        }
-                    }
+        let contain_count = OBJECT_REGISTRY.with_object(obj_id, |obj| {
+            let contain = obj.get_contain()?;
+            let contain_guard = contain.lock().ok()?;
+            if contain_guard.get_max_capacity() > 0 {
+                Some(contain_guard.get_contain_count())
+            } else {
+                None
+            }
+        });
+        if let Some(Some(count)) = contain_count {
+            let last = self
+                .context
+                .read()
+                .ok()
+                .map(|ctx| ctx.last_recorded_inventory_count)
+                .unwrap_or(0);
+            if last != count {
+                if let Ok(mut ctx) = self.context.write() {
+                    ctx.last_recorded_inventory_count = count;
                 }
+                self.evaluate_context_ui()?;
             }
         }
 
         let has_production = self.get_object_has_production(obj_id);
-        let registry_producer = OBJECT_REGISTRY.get_object(obj_id).is_some();
+        let registry_producer = OBJECT_REGISTRY.contains(obj_id);
 
         if has_production {
             // Wave 1026: dual-world peels populate_build_queue from presentation/catalog
@@ -208,7 +208,192 @@ impl ControlBar {
         obj_id: u32,
         player_id: u32,
     ) -> Result<CommandAvailability, Box<dyn std::error::Error>> {
-        let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) else {
+        let live = OBJECT_REGISTRY.with_object(obj_id, |obj| {
+                || obj.test_script_status_bit(
+                    gamelogic::object::ObjectScriptStatusBit::ScriptUnderpowered,
+                )
+            {
+                return Ok(CommandAvailability::Hidden);
+            }
+            if obj.is_disabled_by_type(gamelogic::common::types::DisabledType::DisabledUnmanned) {
+                return Ok(CommandAvailability::Hidden);
+            }
+            if obj.has_single_use_command_been_used() {
+                return Ok(CommandAvailability::Restricted);
+            }
+            if (command.options & CommandOption::MustBeStopped as u32) != 0 && obj.is_moving() {
+                return Ok(CommandAvailability::Restricted);
+            }
+    
+            let mut disabled = obj.is_disabled();
+            if disabled
+                && leftover_ignores_underpowered_clears_disabled(
+                    command.options,
+                    obj.get_disabled_flags(),
+                )
+            {
+                disabled = false;
+            }
+            if disabled && !self.force_disabled_evaluation(command) {
+                if !command_evaluable_when_disabled(command.command_type) {
+                    if self.get_command_availability_forced(command, obj_id, player_id)
+                        == CommandAvailability::Hidden
+                    {
+                        return Ok(CommandAvailability::Hidden);
+                    }
+                    return Ok(CommandAvailability::Restricted);
+                }
+            }
+    
+            if (command.options & CommandOption::NeedUpgrade as u32) != 0 && !command.upgrade.is_empty()
+            {
+                let player_arc = logic_player_list()
+                    .read()
+                    .ok()
+                    .and_then(|list| list.get_player(player_id as PlayerIndex).cloned());
+                if let Some(player_arc) = player_arc {
+                    if let Ok(player) = player_arc.read() {
+                        let upgrade = with_upgrade_center(|c| c.find_upgrade(command.upgrade.as_str()));
+                        if let Some(template) = upgrade {
+                            if !player.has_upgrade_complete(&template) && !obj.has_upgrade(&template) {
+                                return Ok(CommandAvailability::Restricted);
+                            }
+                        }
+                    }
+                }
+            }
+    
+            let has_production = obj.has_production_in_queue();
+            if has_production && (command.options & CommandOption::NotQueueable as u32) != 0 {
+                return Ok(CommandAvailability::Restricted);
+            }
+    
+            let queue_count = leftover_production_count(&obj).unwrap_or(self.build_queue_data.len());
+            let queue_maxed = queue_count == MAX_BUILD_QUEUE_BUTTONS;
+    
+            match command.command_type {
+                CommandType::DozerConstruct => {
+                    if leftover_buildable_hidden(command, player_id)
+                        == Some(CommandAvailability::Hidden)
+                    {
+                        return Ok(CommandAvailability::Hidden);
+                    }
+                    if !obj.is_kind_of(KindOf::Dozer) {
+                        return Ok(CommandAvailability::Restricted);
+                    }
+                    if obj.is_dozer_task_pending() {
+                        return Ok(CommandAvailability::Restricted);
+                    }
+                    let player_arc = logic_player_list()
+                        .read()
+                        .ok()
+                        .and_then(|list| list.get_player(player_id as PlayerIndex).cloned());
+                    if let Some(player_arc) = player_arc {
+                        if let Ok(player) = player_arc.read() {
+                            if !command.purchase_cost.is_empty() {
+                                for (resource, cost) in &command.purchase_cost {
+                                    if *cost > 0
+                                        && (resource.eq_ignore_ascii_case("cash")
+                                            || resource.eq_ignore_ascii_case("money"))
+                                        && !player.get_money().can_afford(*cost)
+                                    {
+                                        return Ok(CommandAvailability::Restricted);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    Ok(CommandAvailability::Available)
+                }
+                CommandType::QueueUnitCreate => {
+                    if leftover_buildable_hidden(command, player_id)
+                        == Some(CommandAvailability::Hidden)
+                    {
+                        return Ok(CommandAvailability::Hidden);
+                    }
+                    if queue_maxed {
+                        return Ok(CommandAvailability::Restricted);
+                    }
+                    let player_arc = logic_player_list()
+                        .read()
+                        .ok()
+                        .and_then(|list| list.get_player(player_id as PlayerIndex).cloned());
+                    if let Some(player_arc) = player_arc {
+                        if let Ok(player) = player_arc.read() {
+                            if !command.purchase_cost.is_empty() {
+                                for (resource, cost) in &command.purchase_cost {
+                                    if *cost > 0
+                                        && (resource.eq_ignore_ascii_case("cash")
+                                            || resource.eq_ignore_ascii_case("money"))
+                                        && !player.get_money().can_afford(*cost)
+                                    {
+                                        return Ok(CommandAvailability::Restricted);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    Ok(CommandAvailability::Available)
+                }
+                CommandType::QueueUpgrade => {
+                    leftover_queue_upgrade_availability(command, &obj, player_id, queue_maxed)
+                }
+                CommandType::DoStop => Ok(CommandAvailability::Available),
+                CommandType::DoGuardPosition | CommandType::DoGuardObject => {
+                    Ok(CommandAvailability::Available)
+                }
+                CommandType::Sell => {
+                    if obj.is_script_unsellable() {
+                        return Ok(CommandAvailability::Hidden);
+                    }
+                    if obj.is_disabled_by_type(gamelogic::common::types::DisabledType::DisabledSubdued)
+                    {
+                        return Ok(CommandAvailability::Restricted);
+                    }
+                    Ok(CommandAvailability::Available)
+                }
+                CommandType::Evacuate => {
+                    if !obj.has_contained_objects() {
+                        return Ok(CommandAvailability::Restricted);
+                    }
+                    if obj.is_disabled_by_type(gamelogic::common::types::DisabledType::DisabledSubdued)
+                    {
+                        return Ok(CommandAvailability::Restricted);
+                    }
+                    Ok(CommandAvailability::Available)
+                }
+                CommandType::Exit => {
+                    if obj.is_disabled_by_type(gamelogic::common::types::DisabledType::DisabledSubdued)
+                    {
+                        return Ok(CommandAvailability::Restricted);
+                    }
+                    Ok(CommandAvailability::Available)
+                }
+                CommandType::FireWeapon => Ok(self.fire_weapon_availability(&obj, command).0),
+                CommandType::DoSpecialPower => Ok(self.special_power_availability(&obj, command).0),
+                CommandType::ToggleOvercharge => Ok(self.toggle_overcharge_availability(&obj)),
+                CommandType::SwitchWeapons => Ok(self.switch_weapon_availability(&obj, command)),
+                CommandType::InternetHack => {
+                    if leftover_is_hacking_packing_or_unpacking(&obj) {
+                        return Ok(CommandAvailability::Restricted);
+                    }
+                    Ok(CommandAvailability::Available)
+                }
+                CommandType::CombatDropAtLocation | CommandType::CombatDropAtObject => {
+                    if leftover_rappeller_count(&obj) == 0 {
+                        return Ok(CommandAvailability::Restricted);
+                    }
+                    Ok(CommandAvailability::Available)
+                }
+                CommandType::MetaSelectMatchingUnits => Ok(CommandAvailability::Available),
+                CommandType::PurchaseScience => Ok(CommandAvailability::Available),
+                CommandType::ExecuteRailedTransport => Ok(CommandAvailability::Available),
+                _ => Ok(CommandAvailability::Available),
+            }
+        });
+        if let Some(live) = live {
+            return live;
+        }
             // Host/presentation path: Main already filtered unit_command_buttons.
             // Wave 1025: dual-world peels catalog/command-set residual when portrait
             // freeze is not yet visible for this selection frame.
@@ -295,195 +480,6 @@ impl ControlBar {
                 return Ok(CommandAvailability::Available);
             }
             return Ok(CommandAvailability::Hidden);
-        };
-        let Ok(obj) = obj_arc.read() else {
-            if self.portrait_state.is_visible {
-                return Ok(CommandAvailability::Available);
-            }
-            return Ok(CommandAvailability::Hidden);
-        };
-        if obj.test_script_status_bit(gamelogic::object::ObjectScriptStatusBit::ScriptDisabled)
-            || obj.test_script_status_bit(
-                gamelogic::object::ObjectScriptStatusBit::ScriptUnderpowered,
-            )
-        {
-            return Ok(CommandAvailability::Hidden);
-        }
-        if obj.is_disabled_by_type(gamelogic::common::types::DisabledType::DisabledUnmanned) {
-            return Ok(CommandAvailability::Hidden);
-        }
-        if obj.has_single_use_command_been_used() {
-            return Ok(CommandAvailability::Restricted);
-        }
-        if (command.options & CommandOption::MustBeStopped as u32) != 0 && obj.is_moving() {
-            return Ok(CommandAvailability::Restricted);
-        }
-
-        let mut disabled = obj.is_disabled();
-        if disabled
-            && leftover_ignores_underpowered_clears_disabled(
-                command.options,
-                obj.get_disabled_flags(),
-            )
-        {
-            disabled = false;
-        }
-        if disabled && !self.force_disabled_evaluation(command) {
-            if !command_evaluable_when_disabled(command.command_type) {
-                if self.get_command_availability_forced(command, obj_id, player_id)
-                    == CommandAvailability::Hidden
-                {
-                    return Ok(CommandAvailability::Hidden);
-                }
-                return Ok(CommandAvailability::Restricted);
-            }
-        }
-
-        if (command.options & CommandOption::NeedUpgrade as u32) != 0 && !command.upgrade.is_empty()
-        {
-            let player_arc = logic_player_list()
-                .read()
-                .ok()
-                .and_then(|list| list.get_player(player_id as PlayerIndex).cloned());
-            if let Some(player_arc) = player_arc {
-                if let Ok(player) = player_arc.read() {
-                    let upgrade = with_upgrade_center(|c| c.find_upgrade(command.upgrade.as_str()));
-                    if let Some(template) = upgrade {
-                        if !player.has_upgrade_complete(&template) && !obj.has_upgrade(&template) {
-                            return Ok(CommandAvailability::Restricted);
-                        }
-                    }
-                }
-            }
-        }
-
-        let has_production = obj.has_production_in_queue();
-        if has_production && (command.options & CommandOption::NotQueueable as u32) != 0 {
-            return Ok(CommandAvailability::Restricted);
-        }
-
-        let queue_count = leftover_production_count(&obj).unwrap_or(self.build_queue_data.len());
-        let queue_maxed = queue_count == MAX_BUILD_QUEUE_BUTTONS;
-
-        match command.command_type {
-            CommandType::DozerConstruct => {
-                if leftover_buildable_hidden(command, player_id)
-                    == Some(CommandAvailability::Hidden)
-                {
-                    return Ok(CommandAvailability::Hidden);
-                }
-                if !obj.is_kind_of(KindOf::Dozer) {
-                    return Ok(CommandAvailability::Restricted);
-                }
-                if obj.is_dozer_task_pending() {
-                    return Ok(CommandAvailability::Restricted);
-                }
-                let player_arc = logic_player_list()
-                    .read()
-                    .ok()
-                    .and_then(|list| list.get_player(player_id as PlayerIndex).cloned());
-                if let Some(player_arc) = player_arc {
-                    if let Ok(player) = player_arc.read() {
-                        if !command.purchase_cost.is_empty() {
-                            for (resource, cost) in &command.purchase_cost {
-                                if *cost > 0
-                                    && (resource.eq_ignore_ascii_case("cash")
-                                        || resource.eq_ignore_ascii_case("money"))
-                                    && !player.get_money().can_afford(*cost)
-                                {
-                                    return Ok(CommandAvailability::Restricted);
-                                }
-                            }
-                        }
-                    }
-                }
-                Ok(CommandAvailability::Available)
-            }
-            CommandType::QueueUnitCreate => {
-                if leftover_buildable_hidden(command, player_id)
-                    == Some(CommandAvailability::Hidden)
-                {
-                    return Ok(CommandAvailability::Hidden);
-                }
-                if queue_maxed {
-                    return Ok(CommandAvailability::Restricted);
-                }
-                let player_arc = logic_player_list()
-                    .read()
-                    .ok()
-                    .and_then(|list| list.get_player(player_id as PlayerIndex).cloned());
-                if let Some(player_arc) = player_arc {
-                    if let Ok(player) = player_arc.read() {
-                        if !command.purchase_cost.is_empty() {
-                            for (resource, cost) in &command.purchase_cost {
-                                if *cost > 0
-                                    && (resource.eq_ignore_ascii_case("cash")
-                                        || resource.eq_ignore_ascii_case("money"))
-                                    && !player.get_money().can_afford(*cost)
-                                {
-                                    return Ok(CommandAvailability::Restricted);
-                                }
-                            }
-                        }
-                    }
-                }
-                Ok(CommandAvailability::Available)
-            }
-            CommandType::QueueUpgrade => {
-                leftover_queue_upgrade_availability(command, &obj, player_id, queue_maxed)
-            }
-            CommandType::DoStop => Ok(CommandAvailability::Available),
-            CommandType::DoGuardPosition | CommandType::DoGuardObject => {
-                Ok(CommandAvailability::Available)
-            }
-            CommandType::Sell => {
-                if obj.is_script_unsellable() {
-                    return Ok(CommandAvailability::Hidden);
-                }
-                if obj.is_disabled_by_type(gamelogic::common::types::DisabledType::DisabledSubdued)
-                {
-                    return Ok(CommandAvailability::Restricted);
-                }
-                Ok(CommandAvailability::Available)
-            }
-            CommandType::Evacuate => {
-                if !obj.has_contained_objects() {
-                    return Ok(CommandAvailability::Restricted);
-                }
-                if obj.is_disabled_by_type(gamelogic::common::types::DisabledType::DisabledSubdued)
-                {
-                    return Ok(CommandAvailability::Restricted);
-                }
-                Ok(CommandAvailability::Available)
-            }
-            CommandType::Exit => {
-                if obj.is_disabled_by_type(gamelogic::common::types::DisabledType::DisabledSubdued)
-                {
-                    return Ok(CommandAvailability::Restricted);
-                }
-                Ok(CommandAvailability::Available)
-            }
-            CommandType::FireWeapon => Ok(self.fire_weapon_availability(&obj, command).0),
-            CommandType::DoSpecialPower => Ok(self.special_power_availability(&obj, command).0),
-            CommandType::ToggleOvercharge => Ok(self.toggle_overcharge_availability(&obj)),
-            CommandType::SwitchWeapons => Ok(self.switch_weapon_availability(&obj, command)),
-            CommandType::InternetHack => {
-                if leftover_is_hacking_packing_or_unpacking(&obj) {
-                    return Ok(CommandAvailability::Restricted);
-                }
-                Ok(CommandAvailability::Available)
-            }
-            CommandType::CombatDropAtLocation | CommandType::CombatDropAtObject => {
-                if leftover_rappeller_count(&obj) == 0 {
-                    return Ok(CommandAvailability::Restricted);
-                }
-                Ok(CommandAvailability::Available)
-            }
-            CommandType::MetaSelectMatchingUnits => Ok(CommandAvailability::Available),
-            CommandType::PurchaseScience => Ok(CommandAvailability::Available),
-            CommandType::ExecuteRailedTransport => Ok(CommandAvailability::Available),
-            _ => Ok(CommandAvailability::Available),
-        }
     }
 
     /// Live GameHUD strip: leftover `getCommandAvailability` without WND.
@@ -642,33 +638,30 @@ impl ControlBar {
             context.selected_objects.clone()
         };
         for selected_id in selected {
-            let Some(selected_arc) = OBJECT_REGISTRY.get_object(selected_id) else {
-                continue;
-            };
-            let Ok(selected_obj) = selected_arc.read() else {
-                continue;
-            };
-            if !selected_obj.is_locally_controlled() {
-                continue;
-            }
-            if let Some((_, current_slot)) = selected_obj.get_current_weapon() {
-                if current_slot != slot {
-                    return CommandAvailability::Available;
+            let mismatch = OBJECT_REGISTRY.with_object(selected_id, |selected_obj| {
+                if !selected_obj.is_locally_controlled() {
+                    return false;
                 }
+                if let Some((_, current_slot)) = selected_obj.get_current_weapon() {
+                    current_slot != slot
+                } else {
+                    false
+                }
+            });
+            if mismatch == Some(true) {
+                return CommandAvailability::Available;
             }
         }
         CommandAvailability::Active
     }
 
     fn command_not_ready_clock(&self, command: &CommandButton, obj_id: u32) -> Option<u8> {
-        if let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) {
-            if let Ok(obj) = obj_arc.read() {
-                return match command.command_type {
-                    CommandType::FireWeapon => self.fire_weapon_availability(&obj, command).1,
-                    CommandType::DoSpecialPower => self.special_power_availability(&obj, command).1,
-                    _ => None,
-                };
-            }
+        if let Some(clock) = OBJECT_REGISTRY.with_object(obj_id, |obj| match command.command_type {
+            CommandType::FireWeapon => self.fire_weapon_availability(obj, command).1,
+            CommandType::DoSpecialPower => self.special_power_availability(obj, command).1,
+            _ => None,
+        }) {
+            return clock;
         }
         // Live host: OBJECT_REGISTRY is empty. C++ ControlBarCommand.cpp:1404-1407
         // GadgetButtonDrawInverseClock(applyToWin, getPercentReady()*100, color).
@@ -851,42 +844,67 @@ impl ControlBar {
         self.build_queue_data.clear();
         context.construction_queue.clear();
 
-        let Some(obj_arc) = OBJECT_REGISTRY.get_object(producer_id) else {
-            self.displayed_queue_count = 0;
-            self.leftover_bind_build_queue_windows(context);
-            return Ok(());
-        };
-        let Ok(obj) = obj_arc.read() else {
-            self.displayed_queue_count = 0;
-            self.leftover_bind_build_queue_windows(context);
-            return Ok(());
-        };
-
-        let mut found_pu = false;
-        for module in obj.get_behavior_modules() {
-            if let Ok(mut guard) = module.lock() {
-                if let Some(pu) = guard.get_production_update_interface() {
-                    found_pu = true;
-                    for entry in pu.get_queue_entries() {
-                        let mut cost = HashMap::new();
-                        cost.insert("Supplies".to_string(), entry.cost);
-                        let progress = entry.progress().clamp(0.0, 1.0);
-                        context.construction_queue.push(ProductionItem {
-                            template_name: entry.template_name.clone(),
-                            production_type: Self::map_logic_production_type(entry.production_type),
-                            progress,
-                            cost,
-                            build_time: entry.build_time as f32,
-                        });
-                        self.build_queue_data.push(BuildQueueEntry {
-                            production_type: Self::map_logic_queue_type(entry.production_type),
-                            production_id: entry.queue_index as u32,
-                            upgrade_name: entry.template_name,
-                        });
+        let queued = OBJECT_REGISTRY.with_object(producer_id, |obj| {
+            for module in obj.get_behavior_modules() {
+                if let Ok(mut guard) = module.lock() {
+                    if let Some(pu) = guard.get_production_update_interface() {
+                        return pu
+                            .get_queue_entries()
+                            .into_iter()
+                            .map(|entry| {
+                                (
+                                    entry.template_name,
+                                    entry.production_type,
+                                    entry.progress().clamp(0.0, 1.0),
+                                    entry.cost,
+                                    entry.build_time,
+                                    entry.queue_index,
+                                )
+                            })
+                            .collect::<Vec<_>>();
                     }
-                    break;
                 }
             }
+            Vec::new()
+        });
+        let Some(queued) = queued else {
+            self.displayed_queue_count = 0;
+            self.leftover_bind_build_queue_windows(context);
+            return Ok(());
+        };
+        let mut found_pu = __omp_shell("queued.is_empty();")
+        // Empty queue on a producer with a production module was found_pu true.
+        // Preserve empty-module as found by distinguishing via a sentinel: if the
+        // object exists we already returned Some. An empty vec means either no
+        // module or an empty queue. Re-check module presence.
+        let has_module = OBJECT_REGISTRY
+            .with_object(producer_id, |obj| {
+                obj.get_behavior_modules().iter().any(|module| {
+                    module
+                        .lock()
+                        .ok()
+                        .and_then(|mut guard| guard.get_production_update_interface())
+                        .is_some()
+                })
+            })
+            .unwrap_or(false);
+        found_pu = has_module;
+        for (template_name, production_type, progress, cost_value, build_time, queue_index) in queued
+        {
+            let mut cost = HashMap::new();
+            cost.insert("Supplies".to_string(), cost_value);
+            context.construction_queue.push(ProductionItem {
+                template_name: template_name.clone(),
+                production_type: Self::map_logic_production_type(production_type),
+                progress,
+                cost,
+                build_time: build_time as f32,
+            });
+            self.build_queue_data.push(BuildQueueEntry {
+                production_type: Self::map_logic_queue_type(production_type),
+                production_id: queue_index as u32,
+                upgrade_name: template_name,
+            });
         }
 
         if !found_pu {
@@ -1429,13 +1447,9 @@ fn leftover_rappeller_count(obj: &gamelogic::object::Object) -> usize {
     drop(guard);
     ids.into_iter()
         .filter(|&id| {
-            let Some(arc) = OBJECT_REGISTRY.get_object(id) else {
-                return false;
-            };
-            let Ok(inner) = arc.read() else {
-                return false;
-            };
-            inner.is_kind_of(KindOf::CanRappel)
+            OBJECT_REGISTRY
+                .with_object(id, |inner| inner.is_kind_of(KindOf::CanRappel))
+                .unwrap_or(false)
         })
         .count()
 }

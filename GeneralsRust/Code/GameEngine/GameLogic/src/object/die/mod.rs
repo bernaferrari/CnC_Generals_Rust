@@ -481,12 +481,7 @@ pub struct DieModule<T: EngineModuleData> {
 
 impl<T: EngineModuleData> DieModule<T> {
     /// Create a new die module
-    pub fn new(object: Arc<RwLock<Object>>, module_data: Arc<T>) -> Self {
-        let object_id = object
-            .read()
-            .ok()
-            .map(|g| g.get_id())
-            .unwrap_or(crate::common::INVALID_ID);
+    pub fn new(object_id: ObjectID, module_data: Arc<T>) -> Self {
         Self {
             module_data,
             object_id,
@@ -529,20 +524,7 @@ impl<T: EngineModuleData> DieModule<T> {
         crate::object::registry::OBJECT_REGISTRY.with_object_mut(id, f)
     }
 
-    /// Short-lived Arc resolve; prefer `with_object` / `get_object_id`.
-    pub fn get_object(&self) -> Option<Arc<RwLock<Object>>> {
-        // Wave 323: empty dual-world → None.
-        if dual_world_registry_unavailable() {
-            return None;
-        }
-
-        let id = self.get_object_id();
-        if id == crate::common::INVALID_ID {
-            return None;
-        }
-        crate::helpers::TheGameLogic::find_object_by_id(id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(id))
-    }
+    // Owner access is with_object / with_object_mut / get_object_id.
 }
 
 /// Module wrapper that exposes die modules through the shared Module system.
@@ -559,16 +541,11 @@ impl DieModuleWrapper {
     pub fn new(
         module_name: &AsciiString,
         module_data: Arc<dyn EngineModuleData>,
-        object: Arc<RwLock<Object>>,
+        object_id: ObjectID,
         die_module: Box<dyn DieModuleInterface>,
     ) -> Self {
         let module_name_key = NameKeyGenerator::name_to_key(module_name.as_str());
         let module_tag_name_key = module_data.get_module_tag_name_key();
-        let object_id = object
-            .read()
-            .ok()
-            .map(|g| g.get_id())
-            .unwrap_or(crate::common::INVALID_ID);
         Self {
             module_name_key,
             module_tag_name_key,
@@ -608,19 +585,7 @@ impl DieModuleWrapper {
         crate::object::registry::OBJECT_REGISTRY.with_object_mut(id, f)
     }
 
-    fn get_object(&self) -> Option<Arc<RwLock<Object>>> {
-        // Wave 323: empty dual-world → None.
-        if dual_world_registry_unavailable() {
-            return None;
-        }
-
-        let id = self.get_object_id();
-        if id == crate::common::INVALID_ID {
-            return None;
-        }
-        crate::helpers::TheGameLogic::find_object_by_id(id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(id))
-    }
+    // Owner access is with_object / with_object_mut.
 }
 
 impl Snapshotable for DieModuleWrapper {

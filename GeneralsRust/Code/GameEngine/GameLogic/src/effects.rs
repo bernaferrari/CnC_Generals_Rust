@@ -72,20 +72,12 @@ impl FXList {
     /// Execute a visual effect on an object with an optional source object.
     pub fn do_fx_obj_with_source(
         &self,
-        object: &Arc<RwLock<Object>>,
-        source: Option<&Arc<RwLock<Object>>>,
+        object: &Object,
+        source: Option<&Object>,
         optional: Option<&str>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let object_id = {
-            let guard = object
-                .read()
-                .map_err(|_| io::Error::new(io::ErrorKind::Other, "Object lock poisoned"))?;
-            guard.get_id()
-        };
-        let source_id = match source {
-            Some(source) => source.read().map(|guard| guard.get_id()).ok(),
-            None => None,
-        };
+        let object_id = object.get_id();
+        let source_id = source.map(|source| source.get_id());
 
         self.do_fx_obj_ids(object_id, source_id, optional)
     }
@@ -93,7 +85,7 @@ impl FXList {
     /// Execute a visual effect on an object
     pub fn do_fx_obj(
         &self,
-        object: &Arc<RwLock<Object>>,
+        object: &Object,
         optional: Option<&str>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         self.do_fx_obj_with_source(object, None, optional)
@@ -147,17 +139,14 @@ impl ObjectCreationList {
     /// Matches the common C++ call pattern `ObjectCreationList::create(ocl, owner, NULL)`.
     pub fn create(
         ocl: &ObjectCreationList,
-        owner: &Arc<RwLock<Object>>,
+        owner: &Object,
         _optional: Option<&str>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let owner_guard = owner
-            .read()
-            .map_err(|_| io::Error::new(io::ErrorKind::Other, "Owner lock poisoned"))?;
-        let _primary_pos = owner_guard.get_position();
+        let _primary_pos = owner.get_position();
 
         let ctx = crate::object_creation_list::live_creation_context();
 
-        let _ = ocl.create_with_objects(&ctx, &owner_guard, None, 0);
+        let _ = ocl.create_with_objects(&ctx, owner, None, 0);
         Ok(())
     }
 
@@ -168,15 +157,16 @@ impl ObjectCreationList {
         owner_id: ObjectID,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let ctx = crate::object_creation_list::live_creation_context();
-
-        let owner = crate::helpers::TheGameLogic::find_object_by_id(owner_id);
-        let owner_guard = owner.as_ref().and_then(|h| h.read().ok());
-        let primary_obj = owner_guard.as_deref();
-        // Live host IDs are not leftover-registry objects. C++ still creates
-        // at `position` when the owner pointer is only used for team context.
         let primary = *position;
         let secondary = *position;
-        let _ = self.create_with_owner_flag(&ctx, primary_obj, &primary, &secondary, true, 0);
+        let ran = crate::object::registry::OBJECT_REGISTRY.with_object(owner_id, |owner| {
+            let _ = self.create_with_owner_flag(&ctx, Some(owner), &primary, &secondary, true, 0);
+        });
+        if ran.is_none() {
+            // Live host IDs are not leftover-registry objects. C++ still creates
+            // at `position` when the owner pointer is only used for team context.
+            let _ = self.create_with_owner_flag(&ctx, None, &primary, &secondary, true, 0);
+        }
         Ok(())
     }
 
@@ -191,12 +181,22 @@ impl ObjectCreationList {
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let ctx = crate::object_creation_list::live_creation_context();
 
-        let owner = crate::helpers::TheGameLogic::find_object_by_id(owner_id);
-        let owner_guard = owner.as_ref().and_then(|h| h.read().ok());
-        let primary_obj = owner_guard.as_deref();
         let primary = *position;
         let secondary = *position;
-        let _ = self.create_with_angle(&ctx, primary_obj, &primary, &secondary, angle, 0);
+        if crate::helpers::TheGameLogic::find_object_by_id(owner_id) {
+            crate::object::registry::OBJECT_REGISTRY.with_object(owner_id, |owner_guard| {
+                let _ = self.create_with_angle(
+                    &ctx,
+                    Some(owner_guard),
+                    &primary,
+                    &secondary,
+                    angle,
+                    0,
+                );
+            });
+        } else {
+            let _ = self.create_with_angle(&ctx, None, &primary, &secondary, angle, 0);
+        }
         Ok(())
     }
 }

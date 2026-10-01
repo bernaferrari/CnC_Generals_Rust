@@ -458,17 +458,17 @@ impl AIUpdateInterfaceExt for dyn AIUpdateInterface {
         if !self.is_allowed_to_move_away_from_unit() {
             return;
         }
-        if let Some(other) = crate::helpers::TheGameLogic::find_object_by_id(obj_id) {
-            if let Ok(other_guard) = other.read() {
-                if other_guard.test_status(crate::common::ObjectStatusTypes::IsUsingAbility)
+        let busy = crate::object::registry::OBJECT_REGISTRY
+            .with_object(obj_id, |other_guard| {
+                other_guard.test_status(crate::common::ObjectStatusTypes::IsUsingAbility)
                     || other_guard
                         .get_ai()
                         .map(|ai| ai.is_busy())
                         .unwrap_or(false)
-                {
-                    return;
-                }
-            }
+            })
+            .unwrap_or(false);
+        if busy {
+            return;
         }
         let mut params = crate::ai::AiCommandParams::new(
             crate::ai::AiCommandType::MoveAwayFromUnit,

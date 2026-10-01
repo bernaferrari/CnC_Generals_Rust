@@ -3,6 +3,7 @@
 //! Split from `scripting/executor.rs` for module-size parity.
 //! Observable script behavior is unchanged.
 
+use crate::object::registry::OBJECT_REGISTRY;
 use super::*;
 
 impl ScriptActionDispatcher {
@@ -58,61 +59,66 @@ impl ScriptActionDispatcher {
         // C++: iterate TeamMemberList; skip units without AI; require the button in the unit's
         // command set; then CommandButtonHuntUpdate::setCommandButton(ability).
         for member_id in members {
-            let Some(obj_arc) = TheGameLogic::find_object_by_id(member_id) else {
-                continue;
-            };
-            let Ok(obj_guard) = obj_arc.read() else {
-                continue;
-            };
-
-            if obj_guard.is_effectively_dead() || obj_guard.is_destroyed() {
-                continue;
-            }
-            if obj_guard.get_ai_update_interface().is_none() {
-                continue;
-            }
-
-            let has_matching_command = control_bar
-                .find_command_set_by_name(obj_guard.get_command_set_string())
-                .map(|set| {
-                    set.buttons.iter().flatten().any(|button| {
-                        button.get_id() == command_button.get_id()
-                            || button
-                                .get_name()
-                                .eq_ignore_ascii_case(command_button.get_name())
-                    })
-                })
-                .unwrap_or(false);
-            if !has_matching_command {
-                log::warn!(
-                    "Error - Team hunt with command button - unit type '{}' is not valid for ability {}",
-                    obj_guard.get_template_name(),
-                    command_button_name
-                );
-                continue;
-            }
-
-            let Some(module) = obj_guard.find_update_module("CommandButtonHuntUpdate") else {
-                log::warn!(
-                    "Error - Team hunt with command button - unit type '{}' requires CommandButtonHuntUpdate in .ini definition to hunt with {}",
-                    obj_guard.get_template_name(),
-                    command_button_name
-                );
-                continue;
-            };
-
-            let set_ok = module.with_module(|module| {
-                module
-                    .get_command_button_hunt_control_interface()
-                    .map(|hunt| hunt.set_command_button(command_button_name.to_string()))
-                    .is_some()
-            });
-            if !set_ok {
-                log::warn!(
-                    "Error - Team hunt with command button - unit type '{}' requires CommandButtonHuntUpdate in .ini definition to hunt with {}",
-                    obj_guard.get_template_name(),
-                    command_button_name
-                );
+            {
+                enum _ObjFlow<T> { Cont, Ret(T), Fall }
+                let _flow = OBJECT_REGISTRY.with_object(member_id, |obj_guard| {
+                    
+                    if obj_guard.is_effectively_dead() || obj_guard.is_destroyed() {
+                        return _ObjFlow::Cont;
+                    }
+                    if obj_guard.get_ai_update_interface().is_none() {
+                        return _ObjFlow::Cont;
+                    }
+                    
+                    let has_matching_command = control_bar
+                        .find_command_set_by_name(obj_guard.get_command_set_string())
+                        .map(|set| {
+                            set.buttons.iter().flatten().any(|button| {
+                                button.get_id() == command_button.get_id()
+                                    || button
+                                        .get_name()
+                                        .eq_ignore_ascii_case(command_button.get_name())
+                            })
+                        })
+                        .unwrap_or(false);
+                    if !has_matching_command {
+                        log::warn!(
+                            "Error - Team hunt with command button - unit type '{}' is not valid for ability {}",
+                            obj_guard.get_template_name(),
+                            command_button_name
+                        );
+                        return _ObjFlow::Cont;
+                    }
+                    
+                    let Some(module) = obj_guard.find_update_module("CommandButtonHuntUpdate") else {
+                        log::warn!(
+                            "Error - Team hunt with command button - unit type '{}' requires CommandButtonHuntUpdate in .ini definition to hunt with {}",
+                            obj_guard.get_template_name(),
+                            command_button_name
+                        );
+                        return _ObjFlow::Cont;
+                    };
+                    
+                    let set_ok = module.with_module(|module| {
+                        module
+                            .get_command_button_hunt_control_interface()
+                            .map(|hunt| hunt.set_command_button(command_button_name.to_string()))
+                            .is_some()
+                    });
+                    if !set_ok {
+                        log::warn!(
+                            "Error - Team hunt with command button - unit type '{}' requires CommandButtonHuntUpdate in .ini definition to hunt with {}",
+                            obj_guard.get_template_name(),
+                            command_button_name
+                        );
+                    }
+                    _ObjFlow::Fall
+                });
+                match _flow {
+                    None | Some(_ObjFlow::Cont) => continue,
+                    Some(_ObjFlow::Ret(v)) => return v,
+                    Some(_ObjFlow::Fall) => {}
+                }
             }
         }
 
@@ -198,30 +204,22 @@ impl ScriptActionDispatcher {
         let Ok(Some(target_id)) = tracker.get_object_id(&target_name) else {
             return Ok(ScriptActionResult::Success);
         };
-        let Some(target_obj) = TheGameLogic::find_object_by_id(target_id) else {
-            return Ok(ScriptActionResult::Success);
-        };
-
-        let can_use = {
-            let Ok(src_guard) = source_obj.read() else {
-                return Ok(ScriptActionResult::Success);
-            };
-            let Ok(target_guard) = target_obj.read() else {
-                return Ok(ScriptActionResult::Success);
-            };
-            command_button.is_valid_to_use_on(
-                &src_guard,
-                Some(&target_guard),
-                None,
-                CommandSourceType::FromScript,
-            )
-        };
+        let can_use = crate::object::registry::OBJECT_REGISTRY.with_object(source_obj, |src_guard| {
+            crate::object::registry::OBJECT_REGISTRY.with_object(target_id, |target_guard| {
+                command_button.is_valid_to_use_on(
+                    src_guard,
+                    Some(target_guard),
+                    None,
+                    CommandSourceType::FromScript,
+                )
+            }).unwrap_or(false)
+        }).unwrap_or(false);
 
         if can_use {
             self.issue_group_command_button_at_object(
                 &group_arc,
                 command_button.get_id(),
-                &target_obj,
+                target_id,
             );
         }
 
@@ -348,19 +346,17 @@ impl ScriptActionDispatcher {
 
         let target_id = self.find_nearest_command_button_target(
             &group_arc,
-            &source_obj,
+            source_obj,
             &command_button,
             |source, candidate| source.relationship_to(candidate) == Relationship::Enemies,
         );
 
         if let Some(target_id) = target_id {
-            if let Some(target_obj) = TheGameLogic::find_object_by_id(target_id) {
-                self.issue_group_command_button_at_object(
+            self.issue_group_command_button_at_object(
                     &group_arc,
                     command_button.get_id(),
-                    &target_obj,
+                    target_id,
                 );
-            }
         }
 
         Ok(ScriptActionResult::Success)
@@ -395,7 +391,7 @@ impl ScriptActionDispatcher {
 
         let target_id = self.find_nearest_command_button_target(
             &group_arc,
-            &source_obj,
+            source_obj,
             &command_button,
             |_source, candidate| {
                 if !candidate.is_kind_of(crate::common::KindOf::Structure) {
@@ -409,13 +405,11 @@ impl ScriptActionDispatcher {
         );
 
         if let Some(target_id) = target_id {
-            if let Some(target_obj) = TheGameLogic::find_object_by_id(target_id) {
-                self.issue_group_command_button_at_object(
+            self.issue_group_command_button_at_object(
                     &group_arc,
                     command_button.get_id(),
-                    &target_obj,
+                    target_id,
                 );
-            }
         }
 
         Ok(ScriptActionResult::Success)
@@ -457,7 +451,7 @@ impl ScriptActionDispatcher {
 
         let target_id = self.find_nearest_command_button_target(
             &group_arc,
-            &source_obj,
+            source_obj,
             &command_button,
             |source, candidate| {
                 source.relationship_to(candidate) == Relationship::Enemies
@@ -466,13 +460,11 @@ impl ScriptActionDispatcher {
         );
 
         if let Some(target_id) = target_id {
-            if let Some(target_obj) = TheGameLogic::find_object_by_id(target_id) {
-                self.issue_group_command_button_at_object(
+            self.issue_group_command_button_at_object(
                     &group_arc,
                     command_button.get_id(),
-                    &target_obj,
+                    target_id,
                 );
-            }
         }
 
         Ok(ScriptActionResult::Success)
@@ -507,7 +499,7 @@ impl ScriptActionDispatcher {
 
         let target_id = self.find_nearest_command_button_target(
             &group_arc,
-            &source_obj,
+            source_obj,
             &command_button,
             |source, candidate| {
                 source.relationship_to(candidate) == Relationship::Enemies
@@ -516,13 +508,11 @@ impl ScriptActionDispatcher {
         );
 
         if let Some(target_id) = target_id {
-            if let Some(target_obj) = TheGameLogic::find_object_by_id(target_id) {
-                self.issue_group_command_button_at_object(
+            self.issue_group_command_button_at_object(
                     &group_arc,
                     command_button.get_id(),
-                    &target_obj,
+                    target_id,
                 );
-            }
         }
 
         Ok(ScriptActionResult::Success)
@@ -564,7 +554,7 @@ impl ScriptActionDispatcher {
 
         let target_id = self.find_nearest_command_button_target(
             &group_arc,
-            &source_obj,
+            source_obj,
             &command_button,
             |source, candidate| {
                 source.relationship_to(candidate) == Relationship::Enemies
@@ -574,13 +564,11 @@ impl ScriptActionDispatcher {
         );
 
         if let Some(target_id) = target_id {
-            if let Some(target_obj) = TheGameLogic::find_object_by_id(target_id) {
-                self.issue_group_command_button_at_object(
+            self.issue_group_command_button_at_object(
                     &group_arc,
                     command_button.get_id(),
-                    &target_obj,
+                    target_id,
                 );
-            }
         }
 
         Ok(ScriptActionResult::Success)
@@ -623,7 +611,7 @@ impl ScriptActionDispatcher {
 
         let target_id = self.find_nearest_command_button_target(
             &group_arc,
-            &source_obj,
+            source_obj,
             &command_button,
             |source, candidate| {
                 let rel = source.relationship_to(candidate);
@@ -637,13 +625,11 @@ impl ScriptActionDispatcher {
         );
 
         if let Some(target_id) = target_id {
-            if let Some(target_obj) = TheGameLogic::find_object_by_id(target_id) {
-                self.issue_group_command_button_at_object(
+            self.issue_group_command_button_at_object(
                     &group_arc,
                     command_button.get_id(),
-                    &target_obj,
+                    target_id,
                 );
-            }
         }
 
         Ok(ScriptActionResult::Success)
@@ -694,19 +680,24 @@ impl ScriptActionDispatcher {
 
         let mut valid_members = Vec::new();
         for member_id in members {
-            let Some(obj_arc) = TheGameLogic::find_object_by_id(member_id) else {
-                continue;
-            };
-            let Ok(obj_guard) = obj_arc.read() else {
-                continue;
-            };
-            if command_button.is_valid_to_use_on(
-                &obj_guard,
-                None,
-                None,
-                CommandSourceType::FromScript,
-            ) {
-                valid_members.push(member_id);
+            {
+                enum _ObjFlow<T> { Cont, Ret(T), Fall }
+                let _flow = OBJECT_REGISTRY.with_object(member_id, |obj_guard| {
+                    if command_button.is_valid_to_use_on(
+                        &obj_guard,
+                        None,
+                        None,
+                        CommandSourceType::FromScript,
+                    ) {
+                        valid_members.push(member_id);
+                    }
+                    _ObjFlow::Fall
+                });
+                match _flow {
+                    None | Some(_ObjFlow::Cont) => continue,
+                    Some(_ObjFlow::Ret(v)) => return v,
+                    Some(_ObjFlow::Fall) => {}
+                }
             }
         }
 
@@ -727,15 +718,20 @@ impl ScriptActionDispatcher {
             if count >= num_to_use {
                 break;
             }
-            let Some(obj_arc) = TheGameLogic::find_object_by_id(member_id) else {
-                continue;
-            };
-            let Ok(mut obj_guard) = obj_arc.write() else {
-                continue;
-            };
-            let _ =
-                obj_guard.do_command_button(command_button.get_id(), CommandSourceType::FromScript);
-            count += 1;
+            {
+                enum _ObjFlow<T> { Cont, Ret(T), Fall }
+                let _flow = OBJECT_REGISTRY.with_object_mut(member_id, |mut obj_guard| {
+                    let _ =
+                        obj_guard.do_command_button(command_button.get_id(), CommandSourceType::FromScript);
+                    count += 1;
+                    _ObjFlow::Fall
+                });
+                match _flow {
+                    None | Some(_ObjFlow::Cont) => continue,
+                    Some(_ObjFlow::Ret(v)) => return v,
+                    Some(_ObjFlow::Fall) => {}
+                }
+            }
         }
 
         Ok(ScriptActionResult::Success)
@@ -824,7 +820,7 @@ impl ScriptActionDispatcher {
         Option<(
             Arc<RwLock<AiGroup>>,
             crate::command_button::CommandButton,
-            Arc<RwLock<crate::object::Object>>,
+            ObjectID,
         )>,
         ScriptError,
     > {
@@ -871,13 +867,18 @@ impl ScriptActionDispatcher {
         button_id: u32,
     ) {
         for member_id in self.group_member_ids(group_arc) {
-            let Some(obj_arc) = TheGameLogic::find_object_by_id(member_id) else {
-                continue;
-            };
-            let Ok(mut obj_guard) = obj_arc.write() else {
-                continue;
-            };
-            let _ = obj_guard.do_command_button(button_id, CommandSourceType::FromScript);
+            {
+                enum _ObjFlow<T> { Cont, Ret(T), Fall }
+                let _flow = OBJECT_REGISTRY.with_object_mut(member_id, |mut obj_guard| {
+                    let _ = obj_guard.do_command_button(button_id, CommandSourceType::FromScript);
+                    _ObjFlow::Fall
+                });
+                match _flow {
+                    None | Some(_ObjFlow::Cont) => continue,
+                    Some(_ObjFlow::Ret(v)) => return v,
+                    Some(_ObjFlow::Fall) => {}
+                }
+            }
         }
     }
 
@@ -888,17 +889,22 @@ impl ScriptActionDispatcher {
         pos: &Coord3D,
     ) {
         for member_id in self.group_member_ids(group_arc) {
-            let Some(obj_arc) = TheGameLogic::find_object_by_id(member_id) else {
-                continue;
-            };
-            let Ok(mut obj_guard) = obj_arc.write() else {
-                continue;
-            };
-            let _ = obj_guard.do_command_button_at_position(
-                button_id,
-                pos,
-                CommandSourceType::FromScript,
-            );
+            {
+                enum _ObjFlow<T> { Cont, Ret(T), Fall }
+                let _flow = OBJECT_REGISTRY.with_object_mut(member_id, |mut obj_guard| {
+                    let _ = obj_guard.do_command_button_at_position(
+                        button_id,
+                        pos,
+                        CommandSourceType::FromScript,
+                    );
+                    _ObjFlow::Fall
+                });
+                match _flow {
+                    None | Some(_ObjFlow::Cont) => continue,
+                    Some(_ObjFlow::Ret(v)) => return v,
+                    Some(_ObjFlow::Fall) => {}
+                }
+            }
         }
     }
 
@@ -906,30 +912,28 @@ impl ScriptActionDispatcher {
         &self,
         group_arc: &Arc<RwLock<AiGroup>>,
         button_id: u32,
-        target: &Arc<RwLock<crate::object::Object>>,
+        target_id: ObjectID,
     ) {
-        let Ok(target_guard) = target.read() else {
-            return;
-        };
-        for member_id in self.group_member_ids(group_arc) {
-            let Some(obj_arc) = TheGameLogic::find_object_by_id(member_id) else {
-                continue;
-            };
-            let Ok(mut obj_guard) = obj_arc.write() else {
-                continue;
-            };
-            let _ = obj_guard.do_command_button_at_object(
-                button_id,
-                &target_guard,
-                CommandSourceType::FromScript,
-            );
-        }
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object(target_id, |target_guard| {
+            for member_id in self.group_member_ids(group_arc) {
+                if member_id == target_id {
+                    continue;
+                }
+                let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(member_id, |obj_guard| {
+                    let _ = obj_guard.do_command_button_at_object(
+                        button_id,
+                        target_guard,
+                        CommandSourceType::FromScript,
+                    );
+                });
+            }
+        });
     }
 
     pub(crate) fn find_nearest_command_button_target<F>(
         &self,
         group_arc: &Arc<RwLock<AiGroup>>,
-        source_obj: &Arc<RwLock<crate::object::Object>>,
+        source_id: ObjectID,
         command_button: &crate::command_button::CommandButton,
         mut extra_filter: F,
     ) -> Option<ObjectID>
@@ -937,9 +941,8 @@ impl ScriptActionDispatcher {
         F: FnMut(&crate::object::Object, &crate::object::Object) -> bool,
     {
         let group_center = group_arc.read().ok().and_then(|group| group.get_center())?;
-        let source_guard = source_obj.read().ok()?;
-        let source_id = source_guard.get_id();
-        let source_off_map = source_guard.is_off_map();
+        let source_off_map = crate::object::registry::OBJECT_REGISTRY
+            .with_object(source_id, |source| source.is_off_map())?;
 
         let partition = ThePartitionManager::get()?;
         partition.get_closest_object_2d(&group_center, 1_000_000.0, |candidate| {
@@ -952,15 +955,19 @@ impl ScriptActionDispatcher {
             if candidate.is_off_map() != source_off_map {
                 return false;
             }
-            if !extra_filter(&source_guard, candidate) {
-                return false;
-            }
-            command_button.is_valid_to_use_on(
-                &source_guard,
-                Some(candidate),
-                None,
-                CommandSourceType::FromScript,
-            )
+            crate::object::registry::OBJECT_REGISTRY
+                .with_object(source_id, |source_guard| {
+                    if !extra_filter(source_guard, candidate) {
+                        return false;
+                    }
+                    command_button.is_valid_to_use_on(
+                        source_guard,
+                        Some(candidate),
+                        None,
+                        CommandSourceType::FromScript,
+                    )
+                })
+                .unwrap_or(false)
         })
     }
 
@@ -989,13 +996,11 @@ impl ScriptActionDispatcher {
                     Vec::new()
                 };
                 for object_id in members {
-                    if let Some(obj_arc) = TheGameLogic::find_object_by_id(object_id) {
-                        if let Ok(mut obj) = obj_arc.write() {
+                    let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(object_id, |obj| {
                             self.apply_object_panel_flag_for_single_object(
                                 &mut obj, &flag_name, enable,
                             );
-                        }
-                    }
+                        });
                 }
             }
         }
@@ -1089,7 +1094,7 @@ impl ScriptActionDispatcher {
             log::warn!("Target '{}' not found for team face", target_name);
             return Ok(ScriptActionResult::Success);
         };
-        if TheGameLogic::find_object_by_id(target_id).is_none() {
+        if OBJECT_REGISTRY.with_object(target_id, |_| ()).is_none() {
             return Ok(ScriptActionResult::Success);
         }
 

@@ -63,7 +63,7 @@ pub struct AutoFindHealingUpdate {
 impl AutoFindHealingUpdate {
     /// Creates a new AutoFindHealingUpdate. Matches C++ lines 56-59
     pub fn new(
-        object: Arc<RwLock<GameObject>>,
+        object_id: ObjectID,
         module_data: Arc<dyn ModuleData>,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let specific_data = module_data
@@ -72,7 +72,7 @@ impl AutoFindHealingUpdate {
             .ok_or("Invalid module data for AutoFindHealingUpdate")?;
 
         Ok(Self {
-            object_id: object.read().ok().map(|g| g.get_id()).unwrap_or(crate::common::INVALID_ID),
+            object_id: object_id,
             module_data: Arc::new(specific_data.clone()),
             next_scan_frames: 0, // Matches C++ line 58
         })
@@ -224,10 +224,10 @@ pub struct AutoFindHealingUpdateFactory;
 
 impl AutoFindHealingUpdateFactory {
     pub fn create_behavior(
-        thing: Arc<RwLock<GameObject>>,
+        object_id: ObjectID,
         module_data: Arc<dyn ModuleData>,
     ) -> Result<Box<dyn BehaviorModuleInterface>, Box<dyn std::error::Error + Send + Sync>> {
-        Ok(Box::new(AutoFindHealingUpdate::new(thing, module_data)?))
+        Ok(Box::new(AutoFindHealingUpdate::new(object_id, module_data)?))
     }
 }
 

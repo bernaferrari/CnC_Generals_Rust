@@ -27,10 +27,8 @@ fn dual_world_registry_unavailable() -> bool {
 /// Close enough distance constant
 const CLOSE_ENOUGH: f32 = 25.0;
 
-fn clear_attack_state_on_exit(owner: &Arc<RwLock<Object>>) {
-    let Ok(mut owner_guard) = owner.write() else {
-        return;
-    };
+fn clear_attack_state_on_exit(owner_id: ObjectID) {
+    let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner_id, |owner_guard| {
     owner_guard.clear_status(
         ObjectStatusMaskType::IS_FIRING_WEAPON
             | ObjectStatusMaskType::IS_AIMING_WEAPON
@@ -48,6 +46,7 @@ fn clear_attack_state_on_exit(owner: &Arc<RwLock<Object>>) {
             ai_guard.set_goal_object(None);
         }
     }
+    });
 }
 
 fn get_guard_chase_unit_frames() -> u32 {
@@ -151,7 +150,7 @@ impl AttackExitConditionsInterface for TunnelNetworkExitConditionsHandle {
 
 #[derive(Debug)]
 pub struct TnGuardSharedState {
-    owner: Weak<RwLock<Object>>,
+    owner_id: ObjectID,
     fields: Mutex<TnGuardSharedFields>,
 }
 
@@ -164,9 +163,9 @@ struct TnGuardSharedFields {
 }
 
 impl TnGuardSharedState {
-    fn new(owner: Weak<RwLock<Object>>) -> Self {
+    fn new(owner_id: ObjectID) -> Self {
         Self {
-            owner,
+            owner_id,
             fields: Mutex::new(TnGuardSharedFields {
                 guard_mode: GuardMode::Normal,
                 position_to_guard: Coord3D::new(0.0, 0.0, 0.0),
@@ -176,8 +175,8 @@ impl TnGuardSharedState {
         }
     }
 
-    fn owner(&self) -> Option<Arc<RwLock<Object>>> {
-        self.owner.upgrade()
+    fn owner(&self) -> Option<ObjectID> {
+        Some(self.owner_id).filter(|id| *id != crate::common::INVALID_ID)
     }
 
     fn request_state(&self, state: u32) {
@@ -332,9 +331,9 @@ pub struct AITNGuardMachine {
 }
 
 impl AITNGuardMachine {
-    pub fn new(owner: Weak<RwLock<Object>>) -> Self {
-        let base = StateMachine::new(Some(owner.clone()), "AITNGuardMachine");
-        let shared = Arc::new(TnGuardSharedState::new(owner));
+    pub fn new(owner_id: ObjectID) -> Self {
+        let base = StateMachine::new_with_owner_id(owner_id, "AITNGuardMachine");
+        let shared = Arc::new(TnGuardSharedState::new(owner_id));
 
         let mut machine = Self {
             base,
@@ -485,19 +484,9 @@ impl AITNGuardMachine {
 
     /// Look for inner target within tunnel network
     pub fn look_for_inner_target(&mut self) -> bool {
-        let owner = self
-            .base
-            .lock()
-            .ok()
-            .and_then(|machine| machine.get_owner());
-        let Some(owner_arc) = owner else {
+        let Some(owner_id) = self.base.get_owner() else {
             return false;
         };
-        let owner_id = owner_arc
-            .read()
-            .ok()
-            .map(|g| g.get_id())
-            .unwrap_or(crate::common::INVALID_ID);
         let Some(target_id) = find_tunnel_network_inner_target(owner_id) else {
             return false;
         };
@@ -664,8 +653,8 @@ impl StateImplementation for AITNGuardInnerState {
             );
         }
 
-        let mut attack_machine = AttackStateMachine::new(
-            Arc::downgrade(&owner),
+        let mut attack_machine = AttackStateMachine::with_owner_id(
+            owner,
             "AITNGuardAttackMachine",
             false,
             true,
@@ -692,14 +681,11 @@ impl StateImplementation for AITNGuardInnerState {
             return StateReturnType::Failure;
         };
 
-        let team_target = owner.read().ok().and_then(|owner_guard| {
+        let team_target = crate::object::registry::OBJECT_REGISTRY.with_object(owner, |owner_guard| {
             owner_guard.get_team().and_then(|team_arc| {
-                team_arc
-                    .read()
-                    .ok()
-                    .map(|team_guard| team_guard.get_team_target_object())
+                team_arc.read().ok().map(|team_guard| team_guard.get_team_target_object())
             })
-        });
+        }).flatten();
         let team_target_obj = team_target
             .filter(|id| *id != crate::common::INVALID_ID)
             .and_then(get_legacy_object);
@@ -718,29 +704,19 @@ impl StateImplementation for AITNGuardInnerState {
                         TheGameLogic::get_frame().saturating_add(get_guard_chase_unit_frames()),
                     );
                 }
-                self.base.set_nemesis_to_attack(
-                    target
-                        .read()
-                        .map(|guard| guard.get_id())
-                        .unwrap_or(crate::common::INVALID_ID),
-                );
+                self.base.set_nemesis_to_attack(*target);
                 return StateReturnType::Continue;
             }
         }
 
         if goal_obj.is_none() {
-            let mut tunnel_nemesis: Option<Arc<RwLock<Object>>> = None;
-            if let Ok(owner_guard) = owner.read() {
-                if let Some(player_arc) = owner_guard.get_controlling_player() {
-                    if let Ok(mut player_guard) = player_arc.write() {
-                        if let Some(tunnels) = player_guard.get_tunnel_system_mut() {
-                            if let Ok(Some(nemesis_id)) = tunnels.get_cur_nemesis_id() {
-                                tunnel_nemesis = get_legacy_object(nemesis_id);
-                            }
-                        }
-                    }
-                }
-            }
+            let tunnel_nemesis = crate::object::registry::OBJECT_REGISTRY.with_object(owner, |owner_guard| {
+                let player_arc = owner_guard.get_controlling_player()?;
+                let mut player_guard = player_arc.write().ok()?;
+                let tunnels = player_guard.get_tunnel_system_mut()?;
+                let nemesis_id = tunnels.get_cur_nemesis_id().ok().flatten()?;
+                get_legacy_object(nemesis_id)
+            }).flatten();
 
             if let Some(target) = tunnel_nemesis {
                 if let Ok(mut exit_guard) = self.exit_conditions.lock() {
@@ -748,59 +724,27 @@ impl StateImplementation for AITNGuardInnerState {
                         TheGameLogic::get_frame().saturating_add(get_guard_chase_unit_frames()),
                     );
                 }
-                self.base.set_nemesis_to_attack(
-                    target
-                        .read()
-                        .map(|guard| guard.get_id())
-                        .unwrap_or(crate::common::INVALID_ID),
-                );
+                self.base.set_nemesis_to_attack(*target);
                 return StateReturnType::Continue;
             }
         }
 
         if goal_obj.is_none() && self.scan_for_enemy {
             self.scan_for_enemy = false;
-            let owner_id = owner
-                .read()
-                .ok()
-                .map(|g| g.get_id())
-                .unwrap_or(crate::common::INVALID_ID);
-            if let Some(target_id) = tunnel_network_scan(owner_id) {
-                if let Ok(owner_guard) = owner.read() {
-                    if let Some(player_arc) = owner_guard.get_controlling_player() {
-                        if let Ok(mut player_guard) = player_arc.write() {
-                            if let Some(tunnels) = player_guard.get_tunnel_system_mut() {
-                                if let Some(target) = get_legacy_object(target_id) {
-                                    if let Ok(target_guard) = target.read() {
-                                        let _ = tunnels.update_nemesis(Some(&target_guard));
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
+            if let Some(target_id) = tunnel_network_scan(owner) {
+                let _ = crate::object::registry::OBJECT_REGISTRY.with_object(owner, |owner_guard| {
+                    let player_arc = owner_guard.get_controlling_player()?;
+                    let mut player_guard = player_arc.write().ok()?;
+                    let tunnels = player_guard.get_tunnel_system_mut()?;
+                    crate::object::registry::OBJECT_REGISTRY.with_object(target_id, |target_guard| {
+                        let _ = tunnels.update_nemesis(Some(target_guard));
+                    });
+                    Some(())
+                });
                 self.attack_machine = None;
-                if let Ok(mut owner_guard) = owner.write() {
-                    owner_guard.clear_status(
-                        ObjectStatusMaskType::IS_FIRING_WEAPON
-                            | ObjectStatusMaskType::IS_AIMING_WEAPON
-                            | ObjectStatusMaskType::IS_ATTACKING
-                            | ObjectStatusMaskType::IGNORING_STEALTH,
-                    );
-                    owner_guard.clear_model_condition_state(ModelConditionFlags::ATTACKING);
-                    owner_guard.clear_leech_range_mode_for_all_weapons();
-                    if let Some(ai) = owner_guard.get_ai_update_interface() {
-                        if let Ok(mut ai_guard) = ai.lock() {
-                            ai_guard.set_current_victim(None);
-                            for turret in [TurretType::Primary, TurretType::Secondary] {
-                                ai_guard.set_turret_target_object(turret, None, false);
-                            }
-                            ai_guard.set_goal_object(None);
-                        }
-                    }
-                }
-                let mut attack_machine = AttackStateMachine::new(
-                    Arc::downgrade(&owner),
+                clear_attack_state_on_exit(owner);
+                let mut attack_machine = AttackStateMachine::with_owner_id(
+                    owner,
                     "AITNGuardAttackMachine",
                     false,
                     true,
@@ -815,26 +759,19 @@ impl StateImplementation for AITNGuardInnerState {
                 self.attack_machine = Some(attack_machine);
                 return return_val;
             }
-        } else if let (Some(goal), Some(team_target)) = (&goal_obj, &team_target_obj) {
-            if goal.read().ok().map(|g| g.get_id()) != team_target.read().ok().map(|t| t.get_id()) {
-                if let Ok(owner_guard) = owner.read() {
-                    if let Some(player_arc) = owner_guard.get_controlling_player() {
-                        if let Ok(mut player_guard) = player_arc.write() {
-                            if let Some(tunnels) = player_guard.get_tunnel_system_mut() {
-                                if let Ok(goal_guard) = goal.read() {
-                                    let _ = tunnels.update_nemesis(Some(&goal_guard));
-                                }
-                            }
-                        }
-                    }
-                }
-                self.base.set_nemesis_to_attack(
-                    team_target
-                        .read()
-                        .map(|guard| guard.get_id())
-                        .unwrap_or(crate::common::INVALID_ID),
-                );
-                goal_obj = Some(team_target.clone());
+        } else if let (Some(goal), Some(team_target)) = (goal_obj, team_target_obj) {
+            if goal != team_target {
+                let _ = crate::object::registry::OBJECT_REGISTRY.with_object(owner, |owner_guard| {
+                    let player_arc = owner_guard.get_controlling_player()?;
+                    let mut player_guard = player_arc.write().ok()?;
+                    let tunnels = player_guard.get_tunnel_system_mut()?;
+                    crate::object::registry::OBJECT_REGISTRY.with_object(goal, |goal_guard| {
+                        let _ = tunnels.update_nemesis(Some(goal_guard));
+                    });
+                    Some(())
+                });
+                self.base.set_nemesis_to_attack(team_target);
+                goal_obj = Some(team_target);
             }
         }
 
@@ -847,7 +784,7 @@ impl StateImplementation for AITNGuardInnerState {
 
     fn on_exit(&mut self, _status: StateExitType) {
         if let Some(owner) = self.base.shared.owner() {
-            clear_attack_state_on_exit(&owner);
+            clear_attack_state_on_exit(owner);
         }
         self.attack_machine = None;
         self.is_attacking = false;
@@ -895,13 +832,11 @@ impl StateImplementation for AITNGuardIdleState {
         let scan_rate = get_guard_enemy_scan_rate();
         self.next_enemy_scan_time = now.saturating_add(game_logic_random_value(0, scan_rate));
         if let Some(owner) = self.base.shared.owner() {
-            if let Ok(owner_guard) = owner.read() {
-                if let Some(ai) = owner_guard.get_ai_update_interface() {
-                    if let Ok(mut ai_guard) = ai.lock() {
-                        ai_guard.set_goal_object(None);
-                    }
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner, |owner_guard| {
+                if let Some(ai) = owner_guard.get_ai_update_interface_mut() {
+                    ai.set_goal_object(None);
                 }
-            }
+            });
         }
         StateReturnType::Continue
     }
@@ -918,54 +853,36 @@ impl StateImplementation for AITNGuardIdleState {
             return StateReturnType::Sleep(self.next_enemy_scan_time.saturating_sub(now));
         };
 
-        if let Ok(owner_guard) = owner.read() {
-            if let Some(ai) = owner_guard.get_ai_update_interface() {
-                if let Ok(mut ai_guard) = ai.lock() {
-                    ai_guard.set_goal_object(None);
-                    if ai_guard.get_crate_id() != crate::common::INVALID_ID {
-                        self.base
-                            .shared
-                            .request_state(TNGuardStateType::GetCrate as u32);
-                        return StateReturnType::Sleep(
-                            self.next_enemy_scan_time.saturating_sub(now),
-                        );
-                    }
-                }
-            }
+        let wants_crate = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner, |owner_guard| {
+            let ai = owner_guard.get_ai_update_interface_mut()?;
+            ai.set_goal_object(None);
+            Some(ai.get_crate_id() != crate::common::INVALID_ID)
+        }).flatten().unwrap_or(false);
+        if wants_crate {
+            self.base.shared.request_state(TNGuardStateType::GetCrate as u32);
+            return StateReturnType::Sleep(self.next_enemy_scan_time.saturating_sub(now));
         }
 
-        let owner_id = owner
-            .read()
-            .ok()
-            .map(|g| g.get_id())
-            .unwrap_or(crate::common::INVALID_ID);
-        if let Some(target_id) = find_tunnel_network_inner_target(owner_id) {
+        if let Some(target_id) = find_tunnel_network_inner_target(owner) {
             self.base.set_nemesis_to_attack(target_id);
 
-            let Some(target) = get_legacy_object(target_id) else {
+            if get_legacy_object(target_id).is_none() {
                 return StateReturnType::Sleep(0);
-            };
-            let hurry = (|| {
-                let owner_guard = owner.read().ok()?;
-                let target_guard = target.read().ok()?;
+            }
+            let hurry = crate::object::registry::OBJECT_REGISTRY.with_object(owner, |owner_guard| {
                 if owner_guard.get_contained_by().is_none() {
                     return None;
                 }
                 let player_arc = owner_guard.get_controlling_player()?;
                 let player_guard = player_arc.read().ok()?;
-                let best_tunnel_id = find_best_tunnel(&player_guard, target_guard.get_position())?;
-                let hurry_owner_id = owner_guard.get_id();
-                let Some(best_tunnel) = get_legacy_object(best_tunnel_id) else {
-                    return Some(Err(StateReturnType::Sleep(0)));
-                };
-                let Ok(tunnel_guard) = best_tunnel.read() else {
-                    return Some(Err(StateReturnType::Sleep(0)));
-                };
-                let Some(exit_interface) = tunnel_guard.get_object_exit_interface() else {
-                    return Some(Err(StateReturnType::Failure));
-                };
-                Some(Ok((exit_interface, hurry_owner_id)))
-            })();
+                let target_pos = crate::object::registry::OBJECT_REGISTRY
+                    .with_object(target_id, |target_guard| *target_guard.get_position())?;
+                let best_tunnel_id = find_best_tunnel(&player_guard, &target_pos)?;
+                crate::object::registry::OBJECT_REGISTRY.with_object(best_tunnel_id, |tunnel_guard| {
+                    let exit_interface = tunnel_guard.get_object_exit_interface()?;
+                    Some(Ok((exit_interface, owner)))
+                }).unwrap_or(Some(Err(StateReturnType::Sleep(0))))
+            }).flatten();
             // Owner read ends with the closure. Hurry queues on that object when its
             // AI mutex is already held, and try_write cannot run under the read guard.
             match hurry {
@@ -986,17 +903,17 @@ impl StateImplementation for AITNGuardIdleState {
             return StateReturnType::Success;
         }
 
-        if let Ok(owner_guard) = owner.read() {
-            if owner_guard.get_contained_by().is_none() {
-                if let Some(player_arc) = owner_guard.get_controlling_player() {
-                    if let Ok(player_guard) = player_arc.read() {
-                        let pos = *owner_guard.get_position();
-                        if find_best_tunnel(&player_guard, &pos).is_some() {
-                            return StateReturnType::Failure;
-                        }
-                    }
-                }
+        let should_fail = crate::object::registry::OBJECT_REGISTRY.with_object(owner, |owner_guard| {
+            if owner_guard.get_contained_by().is_some() {
+                return false;
             }
+            let player_arc = owner_guard.get_controlling_player()?;
+            let player_guard = player_arc.read().ok()?;
+            let pos = *owner_guard.get_position();
+            Some(find_best_tunnel(&player_guard, &pos).is_some())
+        }).flatten().unwrap_or(false);
+        if should_fail {
+            return StateReturnType::Failure;
         }
 
         StateReturnType::Sleep(self.next_enemy_scan_time.saturating_sub(now))
@@ -1075,8 +992,8 @@ impl StateImplementation for AITNGuardOuterState {
             );
         }
 
-        let mut attack_machine = AttackStateMachine::new(
-            Arc::downgrade(&owner),
+        let mut attack_machine = AttackStateMachine::with_owner_id(
+            owner,
             "AITNGuardAttackMachine",
             false,
             true,
@@ -1114,38 +1031,27 @@ impl StateImplementation for AITNGuardOuterState {
         };
         if goal_obj.is_none() {
             if let Some(owner) = self.base.shared.owner() {
-                if let Ok(owner_guard) = owner.read() {
-                    let mut team_target = None;
-                    let mut attack_common = false;
-                    if let Some(team_arc) = owner_guard.get_team() {
-                        if let Ok(team_guard) = team_arc.read() {
-                            attack_common = team_guard.attack_common_target();
-                            if attack_common {
-                                let target_id = team_guard.get_team_target_object();
-                                if target_id != crate::common::INVALID_ID {
-                                    team_target = get_legacy_object(target_id);
-                                }
-                            }
-                        }
+                let team_info = crate::object::registry::OBJECT_REGISTRY.with_object(owner, |owner_guard| {
+                    let team_arc = owner_guard.get_team()?;
+                    let team_guard = team_arc.read().ok()?;
+                    if !team_guard.attack_common_target() {
+                        return None;
                     }
-                    if attack_common {
-                        if let Some(target) = team_target {
-                            let id = target
-                                .read()
-                                .map(|guard| guard.get_id())
-                                .unwrap_or(crate::common::INVALID_ID);
-                            attack_machine.set_goal_object(Some(id));
-                        } else {
-                            attack_machine.set_goal_object(None);
-                        }
-                        return attack_machine.init_default_state();
+                    Some(team_guard.get_team_target_object())
+                }).flatten();
+                if let Some(target_id) = team_info {
+                    if target_id != crate::common::INVALID_ID && get_legacy_object(target_id).is_some() {
+                        attack_machine.set_goal_object(Some(target_id));
+                    } else {
+                        attack_machine.set_goal_object(None);
                     }
+                    return attack_machine.init_default_state();
                 }
             }
         }
 
-        if let Some(goal) = goal_obj.as_ref() {
-            attack_machine.set_goal_object(goal.read().ok().map(|g| g.get_id()));
+        if let Some(goal) = goal_obj {
+            attack_machine.set_goal_object(Some(goal));
         }
 
         attack_machine.update()
@@ -1153,7 +1059,7 @@ impl StateImplementation for AITNGuardOuterState {
 
     fn on_exit(&mut self, _status: StateExitType) {
         if let Some(owner) = self.base.shared.owner() {
-            clear_attack_state_on_exit(&owner);
+            clear_attack_state_on_exit(owner);
         }
         self.attack_machine = None;
         self.is_attacking = false;
@@ -1210,44 +1116,47 @@ impl StateImplementation for AITNGuardReturnState {
             return StateReturnType::Failure;
         };
 
-        let mut enter_tunnel = None;
-        if let Ok(owner_guard) = owner.read() {
+        enum EnterStep { Success, Failure(ObjectID), Tunnel(Option<ObjectID>) }
+        let step = crate::object::registry::OBJECT_REGISTRY.with_object(owner, |owner_guard| {
             if owner_guard.get_contained_by().is_some() {
-                return StateReturnType::Success;
+                return EnterStep::Success;
             }
-
             if let Some(team_arc) = owner_guard.get_team() {
                 if let Ok(team_guard) = team_arc.read() {
                     let target_id = team_guard.get_team_target_object();
                     if target_id != crate::common::INVALID_ID {
-                        self.base.set_nemesis_to_attack(target_id);
-                        return StateReturnType::Failure;
+                        return EnterStep::Failure(target_id);
                     }
                 }
             }
-
-            if let Some(player_arc) = owner_guard.get_controlling_player() {
-                if let Ok(player_guard) = player_arc.read() {
-                    let pos = *owner_guard.get_position();
-                    enter_tunnel = find_best_tunnel(&player_guard, &pos);
-                }
+            let tunnel = owner_guard.get_controlling_player().and_then(|player_arc| {
+                let player_guard = player_arc.read().ok()?;
+                let pos = *owner_guard.get_position();
+                find_best_tunnel(&player_guard, &pos)
+            });
+            EnterStep::Tunnel(tunnel)
+        }).unwrap_or(EnterStep::Tunnel(None));
+        let enter_tunnel = match step {
+            EnterStep::Success => return StateReturnType::Success,
+            EnterStep::Failure(target_id) => {
+                self.base.set_nemesis_to_attack(target_id);
+                return StateReturnType::Failure;
             }
-        }
+            EnterStep::Tunnel(id) => id,
+        };
         if let Some(best_tunnel_id) = enter_tunnel {
-            self.enter_state.preset_owner = Some(owner.clone());
+            self.enter_state.preset_owner = Some(owner);
             self.enter_state.preset_goal_id = best_tunnel_id;
-            if let Some(tunnel) = get_legacy_object(best_tunnel_id) {
-                if let Ok(tunnel_guard) = tunnel.read() {
-                    self.enter_state.goal_position = *tunnel_guard.get_position();
-                }
+            if let Some(pos) = crate::object::registry::OBJECT_REGISTRY
+                .with_object(best_tunnel_id, |tunnel_guard| *tunnel_guard.get_position())
+            {
+                self.enter_state.goal_position = pos;
             }
-            if let Ok(owner_guard) = owner.read() {
-                if let Some(ai) = owner_guard.get_ai_update_interface() {
-                    if let Ok(mut ai_guard) = ai.lock() {
-                        ai_guard.set_goal_object(Some(best_tunnel_id));
-                    }
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner, |owner_guard| {
+                if let Some(ai) = owner_guard.get_ai_update_interface_mut() {
+                    ai.set_goal_object(Some(best_tunnel_id));
                 }
-            }
+            });
 
             return self.enter_state.on_enter();
         }
@@ -1260,27 +1169,23 @@ impl StateImplementation for AITNGuardReturnState {
             return StateReturnType::Failure;
         };
 
-        if let Ok(owner_guard) = owner.read() {
+        let redirect = crate::object::registry::OBJECT_REGISTRY.with_object(owner, |owner_guard| {
             if let Some(team_arc) = owner_guard.get_team() {
                 if let Ok(team_guard) = team_arc.read() {
                     let target_id = team_guard.get_team_target_object();
                     if target_id != crate::common::INVALID_ID {
-                        self.base.set_nemesis_to_attack(target_id);
-                        return StateReturnType::Failure;
+                        return Some(target_id);
                     }
                 }
             }
-
-            if let Some(player_arc) = owner_guard.get_controlling_player() {
-                if let Ok(mut player_guard) = player_arc.write() {
-                    if let Some(tunnels) = player_guard.get_tunnel_system_mut() {
-                        if let Ok(Some(nemesis_id)) = tunnels.get_cur_nemesis_id() {
-                            self.base.set_nemesis_to_attack(nemesis_id);
-                            return StateReturnType::Failure;
-                        }
-                    }
-                }
-            }
+            let player_arc = owner_guard.get_controlling_player()?;
+            let mut player_guard = player_arc.write().ok()?;
+            let tunnels = player_guard.get_tunnel_system_mut()?;
+            tunnels.get_cur_nemesis_id().ok().flatten()
+        }).flatten();
+        if let Some(nemesis_id) = redirect {
+            self.base.set_nemesis_to_attack(nemesis_id);
+            return StateReturnType::Failure;
         }
 
         let ret = self.enter_state.update();
@@ -1318,16 +1223,16 @@ impl StateImplementation for AITNGuardPickUpCrateState {
             return StateReturnType::Failure;
         };
 
-        let Ok(owner_guard) = owner.read() else {
+        let Some(crate_id) = crate::object::registry::OBJECT_REGISTRY
+            .with_object(owner, |owner_guard| owner_guard.ai_fire_crate_id)
+        else {
             return StateReturnType::Failure;
         };
-        let crate_id = owner_guard.ai_fire_crate_id;
         if crate_id == crate::common::INVALID_ID {
             return StateReturnType::Success;
         }
-        let crate_pos = TheGameLogic::find_object_by_id(crate_id)
-            .and_then(|crate_obj| crate_obj.read().ok().map(|goal| *goal.get_position()));
-        drop(owner_guard);
+        let crate_pos = crate::object::registry::OBJECT_REGISTRY
+            .with_object(crate_id, |goal| *goal.get_position());
         self.pick_up_state.preset_goal_id = crate_id;
         self.pick_up_state.base.preset_owner = Some(owner);
         if let Some(pos) = crate_pos {
@@ -1397,17 +1302,14 @@ impl StateImplementation for AITNGuardAttackAggressorState {
         };
 
         let mut nemesis_id = self.base.get_nemesis_to_attack();
-        if let Ok(owner_guard) = owner.read() {
-            if let Some(body) = owner_guard.get_body_module() {
-                if let Ok(body_guard) = body.lock() {
-                    if let Some(info) = body_guard.get_last_damage_info() {
-                        if info.source_id != crate::common::INVALID_ID {
-                            nemesis_id = info.source_id;
-                            self.base.set_nemesis_to_attack(info.source_id);
-                        }
-                    }
-                }
-            }
+        if let Some(source_id) = crate::object::registry::OBJECT_REGISTRY.with_object(owner, |owner_guard| {
+            let body = owner_guard.get_body_module()?;
+            let body_guard = body.lock().ok()?;
+            let info = body_guard.get_last_damage_info()?;
+            if info.source_id != crate::common::INVALID_ID { Some(info.source_id) } else { None }
+        }).flatten() {
+            nemesis_id = source_id;
+            self.base.set_nemesis_to_attack(source_id);
         }
         let mut nemesis = if nemesis_id != crate::common::INVALID_ID {
             get_legacy_object(nemesis_id)
@@ -1418,24 +1320,16 @@ impl StateImplementation for AITNGuardAttackAggressorState {
         let Some(nemesis) = nemesis else {
             return StateReturnType::Success;
         };
-        self.base.set_nemesis_to_attack(
-            nemesis
-                .read()
-                .map(|guard| guard.get_id())
-                .unwrap_or(crate::common::INVALID_ID),
-        );
-
-        if let Ok(owner_guard) = owner.read() {
-            if let Some(player_arc) = owner_guard.get_controlling_player() {
-                if let Ok(mut player_guard) = player_arc.write() {
-                    if let Some(tunnels) = player_guard.get_tunnel_system_mut() {
-                        if let Ok(nemesis_guard) = nemesis.read() {
-                            let _ = tunnels.update_nemesis(Some(&nemesis_guard));
-                        }
-                    }
-                }
-            }
-        }
+        self.base.set_nemesis_to_attack(nemesis);
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object(owner, |owner_guard| {
+            let player_arc = owner_guard.get_controlling_player()?;
+            let mut player_guard = player_arc.write().ok()?;
+            let tunnels = player_guard.get_tunnel_system_mut()?;
+            crate::object::registry::OBJECT_REGISTRY.with_object(nemesis, |nemesis_guard| {
+                let _ = tunnels.update_nemesis(Some(nemesis_guard));
+            });
+            Some(())
+        });
 
         if let Ok(mut exit_guard) = self.exit_conditions.lock() {
             exit_guard.set_attack_give_up_frame(
@@ -1443,8 +1337,8 @@ impl StateImplementation for AITNGuardAttackAggressorState {
             );
         }
 
-        let mut attack_machine = AttackStateMachine::new(
-            Arc::downgrade(&owner),
+        let mut attack_machine = AttackStateMachine::with_owner_id(
+            owner,
             "AITNGuardAttackMachine",
             true,
             true,
@@ -1476,21 +1370,19 @@ impl StateImplementation for AITNGuardAttackAggressorState {
         {
             let nemesis_id = self.base.get_nemesis_to_attack();
             if let Some(owner) = self.base.shared.owner() {
-                if let Ok(owner_guard) = owner.read() {
-                    if let Some(player_arc) = owner_guard.get_controlling_player() {
-                        if let Ok(mut player_guard) = player_arc.write() {
-                            if let Some(tunnels) = player_guard.get_tunnel_system_mut() {
-                                if let Some(nemesis) = get_legacy_object(nemesis_id) {
-                                    if let Ok(nemesis_guard) = nemesis.read() {
-                                        let _ = tunnels.update_nemesis(Some(&nemesis_guard));
-                                    }
-                                } else {
-                                    let _ = tunnels.update_nemesis(None);
-                                }
-                            }
-                        }
+                let _ = crate::object::registry::OBJECT_REGISTRY.with_object(owner, |owner_guard| {
+                    let player_arc = owner_guard.get_controlling_player()?;
+                    let mut player_guard = player_arc.write().ok()?;
+                    let tunnels = player_guard.get_tunnel_system_mut()?;
+                    if get_legacy_object(nemesis_id).is_some() {
+                        crate::object::registry::OBJECT_REGISTRY.with_object(nemesis_id, |nemesis_guard| {
+                            let _ = tunnels.update_nemesis(Some(nemesis_guard));
+                        });
+                    } else {
+                        let _ = tunnels.update_nemesis(None);
                     }
-                }
+                    Some(())
+                });
             }
         }
 
@@ -1499,17 +1391,17 @@ impl StateImplementation for AITNGuardAttackAggressorState {
 
     fn on_exit(&mut self, _status: StateExitType) {
         if let Some(owner) = self.base.shared.owner() {
-            clear_attack_state_on_exit(&owner);
+            clear_attack_state_on_exit(owner);
         }
         self.attack_machine = None;
         if let Some(owner) = self.base.shared.owner() {
-            if let Ok(owner_guard) = owner.read() {
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object(owner, |owner_guard| {
                 if let Some(team_arc) = owner_guard.get_team() {
                     if let Ok(mut team_guard) = team_arc.write() {
                         team_guard.set_team_target_object(crate::common::INVALID_ID);
                     }
                 }
-            }
+            });
         }
         self.is_attacking = false;
     }
@@ -1520,108 +1412,88 @@ fn find_tunnel_network_inner_target(owner_id: ObjectID) -> Option<ObjectID> {
     if dual_world_registry_unavailable() {
         return None;
     }
-
-    let owner = TheGameLogic::find_object_by_id(owner_id)
-        .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(owner_id))?;
-    let owner_guard = owner.read().ok()?;
-
-    if let Some(team_arc) = owner_guard.get_team() {
-        if let Ok(team_guard) = team_arc.read() {
-            if team_guard.attack_common_target() {
-                let team_target = team_guard.get_team_target_object();
-                if team_target != crate::common::INVALID_ID
-                    && TheGameLogic::find_object_by_id(team_target).is_some()
-                {
-                    return Some(team_target);
-                }
-            }
+    let reg = &crate::object::registry::OBJECT_REGISTRY;
+    let team_target = reg.with_object(owner_id, |owner_guard| {
+        let team_arc = owner_guard.get_team()?;
+        let team_guard = team_arc.read().ok()?;
+        if !team_guard.attack_common_target() {
+            return None;
         }
+        let team_target = team_guard.get_team_target_object();
+        if team_target != crate::common::INVALID_ID && reg.with_object(team_target, |_| ()).is_some() {
+            Some(team_target)
+        } else {
+            None
+        }
+    }).flatten();
+    if let Some(team_target) = team_target {
+        return Some(team_target);
     }
 
-    let player_arc = owner_guard.get_controlling_player()?;
-    let mut player_guard = player_arc.write().ok()?;
-    let tunnels = player_guard.get_tunnel_system_mut()?;
-
-    if let Ok(Some(nemesis_id)) = tunnels.get_cur_nemesis_id() {
-        return Some(nemesis_id);
-    }
-
-    let container_list = tunnels.get_container_list().ok()?;
-    for tunnel_id in container_list {
-        let Some(tunnel_arc) = TheGameLogic::find_object_by_id(tunnel_id) else {
-            continue;
-        };
-        let Ok(tunnel_guard) = tunnel_arc.read() else {
-            continue;
-        };
-
-        if let Some(ai) = tunnel_guard.get_ai_update_interface() {
-            if let Ok(ai_guard) = ai.lock() {
-                let victim_id = ai_guard.get_goal_object_id();
-                if victim_id != crate::common::INVALID_ID {
-                    if let Some(is_enemy) = crate::object::registry::OBJECT_REGISTRY.with_object(
-                        victim_id,
-                        |victim_guard| {
-                            owner_guard.relationship_to(victim_guard) == Relationship::Enemies
-                        },
-                    ) {
-                        if is_enemy {
-                            return Some(victim_id);
+    reg.with_object(owner_id, |owner_guard| {
+        let player_arc = owner_guard.get_controlling_player()?;
+        let mut player_guard = player_arc.write().ok()?;
+        let tunnels = player_guard.get_tunnel_system_mut()?;
+        if let Ok(Some(nemesis_id)) = tunnels.get_cur_nemesis_id() {
+            return Some(nemesis_id);
+        }
+        let container_list = tunnels.get_container_list().ok()?;
+        for tunnel_id in container_list {
+            let found = reg.with_object(tunnel_id, |tunnel_guard| {
+                if let Some(ai) = tunnel_guard.get_ai_update_interface() {
+                    if let Ok(ai_guard) = ai.lock() {
+                        let victim_id = ai_guard.get_goal_object_id();
+                        if victim_id != crate::common::INVALID_ID {
+                            let is_enemy = reg.with_object(victim_id, |victim_guard| {
+                                owner_guard.relationship_to(victim_guard) == Relationship::Enemies
+                            }).unwrap_or(false);
+                            if is_enemy {
+                                return Some(victim_id);
+                            }
                         }
                     }
                 }
+                let body = tunnel_guard.get_body_module()?;
+                let body_guard = body.lock().ok()?;
+                let info = body_guard.get_last_damage_info()?;
+                if info.output.no_effect {
+                    return None;
+                }
+                let scan_rate = get_guard_enemy_scan_rate();
+                if body_guard.get_last_damage_timestamp() + scan_rate <= TheGameLogic::get_frame() {
+                    return None;
+                }
+                let attacker_id = info.source_id;
+                let can_attack = reg.with_object(attacker_id, |attacker_guard| {
+                    owner_guard.relationship_to(attacker_guard) == Relationship::Enemies
+                        && matches!(
+                            owner_guard.get_able_to_attack_specific_object(
+                                AbleToAttackType::TunnelNetworkGuard,
+                                attacker_guard,
+                                CommandSourceType::FromAi,
+                            ),
+                            CanAttackResult::Possible | CanAttackResult::PossibleAfterMoving
+                        )
+                }).unwrap_or(false);
+                if !can_attack {
+                    return None;
+                }
+                if let Some(team_arc) = owner_guard.get_team() {
+                    if let Ok(mut team_guard) = team_arc.write() {
+                        team_guard.set_team_target_object(attacker_id);
+                    }
+                }
+                let _ = reg.with_object(attacker_id, |attacker_guard| {
+                    let _ = tunnels.update_nemesis(Some(attacker_guard));
+                });
+                Some(attacker_id)
+            }).flatten();
+            if let Some(id) = found {
+                return Some(id);
             }
         }
-
-        let Some(body) = tunnel_guard.get_body_module() else {
-            continue;
-        };
-        let Ok(body_guard) = body.lock() else {
-            continue;
-        };
-        let Some(info) = body_guard.get_last_damage_info() else {
-            continue;
-        };
-        if info.output.no_effect {
-            continue;
-        }
-        let scan_rate = get_guard_enemy_scan_rate();
-        if body_guard.get_last_damage_timestamp() + scan_rate <= TheGameLogic::get_frame() {
-            continue;
-        }
-
-        let attacker_id = info.source_id;
-        let Some(attacker) = TheGameLogic::find_object_by_id(attacker_id) else {
-            continue;
-        };
-        let Ok(attacker_guard) = attacker.read() else {
-            continue;
-        };
-        if owner_guard.relationship_to(&attacker_guard) != Relationship::Enemies {
-            continue;
-        }
-        let can_attack = matches!(
-            owner_guard.get_able_to_attack_specific_object(
-                AbleToAttackType::TunnelNetworkGuard,
-                &attacker_guard,
-                CommandSourceType::FromAi,
-            ),
-            CanAttackResult::Possible | CanAttackResult::PossibleAfterMoving
-        );
-        if !can_attack {
-            continue;
-        }
-
-        if let Some(team_arc) = owner_guard.get_team() {
-            if let Ok(mut team_guard) = team_arc.write() {
-                team_guard.set_team_target_object(attacker_id);
-            }
-        }
-        let _ = tunnels.update_nemesis(Some(&attacker_guard));
-        return Some(attacker_id);
-    }
-
-    None
+        None
+    }).flatten()
 }
 
 fn tunnel_network_scan(owner_id: ObjectID) -> Option<ObjectID> {
@@ -1629,36 +1501,33 @@ fn tunnel_network_scan(owner_id: ObjectID) -> Option<ObjectID> {
     if dual_world_registry_unavailable() {
         return None;
     }
-
     let partition = ThePartitionManager::get()?;
-    let owner = TheGameLogic::find_object_by_id(owner_id)
-        .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(owner_id))?;
-    let owner_guard = owner.read().ok()?;
     let vision_range = AITNGuardMachine::get_std_guard_range(owner_id);
-    let owner_pos = *owner_guard.get_position();
-
-    partition.get_closest_object_2d(&owner_pos, vision_range, |candidate| {
-        if candidate.get_id() == owner_id {
-            return false;
-        }
-        if candidate.is_effectively_dead() {
-            return false;
-        }
-        if owner_guard.is_off_map() != candidate.is_off_map() {
-            return false;
-        }
-        if owner_guard.relationship_to(candidate) != Relationship::Enemies {
-            return false;
-        }
-        matches!(
-            owner_guard.get_able_to_attack_specific_object(
-                AbleToAttackType::NewTarget,
-                candidate,
-                CommandSourceType::FromAi,
-            ),
-            CanAttackResult::Possible | CanAttackResult::PossibleAfterMoving
-        )
-    })
+    crate::object::registry::OBJECT_REGISTRY.with_object(owner_id, |owner_guard| {
+        let owner_pos = *owner_guard.get_position();
+        partition.get_closest_object_2d(&owner_pos, vision_range, |candidate| {
+            if candidate.get_id() == owner_id {
+                return false;
+            }
+            if candidate.is_effectively_dead() {
+                return false;
+            }
+            if owner_guard.is_off_map() != candidate.is_off_map() {
+                return false;
+            }
+            if owner_guard.relationship_to(candidate) != Relationship::Enemies {
+                return false;
+            }
+            matches!(
+                owner_guard.get_able_to_attack_specific_object(
+                    AbleToAttackType::NewTarget,
+                    candidate,
+                    CommandSourceType::FromAi,
+                ),
+                CanAttackResult::Possible | CanAttackResult::PossibleAfterMoving
+            )
+        })
+    }).flatten()
 }
 
 /// Helper function to find best tunnel for a position
@@ -1667,32 +1536,23 @@ pub fn find_best_tunnel(owner_player: &Player, pos: &Coord3D) -> Option<ObjectID
     if dual_world_registry_unavailable() {
         return None;
     }
-
     let tunnels = owner_player.get_tunnel_system()?;
     let list = tunnels.get_container_list().ok()?;
-
     let mut best: Option<(ObjectID, Real)> = None;
     for tunnel_id in list {
-        let Some(tunnel_arc) = TheGameLogic::find_object_by_id(tunnel_id) else {
+        let Some(tunnel_pos) = crate::object::registry::OBJECT_REGISTRY
+            .with_object(tunnel_id, |tunnel_guard| *tunnel_guard.get_position())
+        else {
             continue;
         };
-        let Ok(tunnel_guard) = tunnel_arc.read() else {
-            continue;
-        };
-        let tunnel_pos = *tunnel_guard.get_position();
-
         let dx = tunnel_pos.x - pos.x;
         let dy = tunnel_pos.y - pos.y;
         let dist_sqr = dx * dx + dy * dy;
-        let better = best
-            .as_ref()
-            .map(|(_, best_dist)| dist_sqr < *best_dist)
-            .unwrap_or(true);
+        let better = best.as_ref().map(|(_, best_dist)| dist_sqr < *best_dist).unwrap_or(true);
         if better {
             best = Some((tunnel_id, dist_sqr));
         }
     }
-
     best.map(|(id, _)| id)
 }
 
@@ -1702,62 +1562,42 @@ pub fn has_attacked_me_and_i_can_return_fire_tn(machine: &StateMachine) -> bool 
     if dual_world_registry_unavailable() {
         return false;
     }
-    let Some(owner) = machine.get_machine_owner() else {
+    let owner_id = machine.get_owner_id();
+    if owner_id == crate::common::INVALID_ID {
         return false;
-    };
-    has_attacked_tn_owner(&owner)
+    }
+    has_attacked_tn_owner(owner_id)
 }
 
-fn has_attacked_tn_owner(owner: &Arc<RwLock<Object>>) -> bool {
+fn has_attacked_tn_owner(owner_id: ObjectID) -> bool {
     if dual_world_registry_unavailable() {
         return false;
     }
-    if let Ok(owner_ref) = owner.try_read() {
-        if let Some(body_module) = owner_ref.get_body_module() {
-            if let Ok(mut body_guard) = body_module.lock() {
-                let last_attacker = body_guard.get_clearable_last_attacker();
-                if last_attacker == crate::common::INVALID_ID {
-                    return false;
-                }
-
-                // Clear the attacker to prevent repeated checks
-                body_guard.clear_last_attacker();
-
-                let Some(target_arc) = TheGameLogic::find_object_by_id(last_attacker) else {
-                    return false;
-                };
-                let Ok(target_guard) = target_arc.read() else {
-                    return false;
-                };
-
-                if owner_ref.relationship_to(&target_guard) != Relationship::Enemies {
-                    return false;
-                }
-
-                if target_guard.is_effectively_dead() {
-                    return false;
-                }
-
-                matches!(
-                    owner_ref.get_able_to_attack_specific_object(
-                        AbleToAttackType::NewTarget,
-                        &target_guard,
-                        CommandSourceType::FromAi,
-                    ),
-                    CanAttackResult::Possible | CanAttackResult::PossibleAfterMoving
-                )
-            } else {
-                false
-            }
-        } else {
-            false
-        }
-    } else {
-        false
-    }
+    let Some(last_attacker) = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner_id, |owner_ref| {
+        let body_module = owner_ref.get_body_module()?;
+        let mut body_guard = body_module.lock().ok()?;
+        let last_attacker = body_guard.get_clearable_last_attacker();
+        if last_attacker == crate::common::INVALID_ID { return None; }
+        body_guard.clear_last_attacker();
+        Some(last_attacker)
+    }).flatten() else { return false; };
+    crate::object::registry::OBJECT_REGISTRY.with_object(owner_id, |owner_ref| {
+        crate::object::registry::OBJECT_REGISTRY.with_object(last_attacker, |target_guard| {
+            if owner_ref.relationship_to(target_guard) != Relationship::Enemies { return false; }
+            if target_guard.is_effectively_dead() { return false; }
+            matches!(
+                owner_ref.get_able_to_attack_specific_object(
+                    AbleToAttackType::NewTarget,
+                    target_guard,
+                    CommandSourceType::FromAi,
+                ),
+                CanAttackResult::Possible | CanAttackResult::PossibleAfterMoving
+            )
+        })
+    }).flatten().unwrap_or(false)
 }
 
-fn tn_guard_owner(state: &dyn StateImplementation) -> Option<Arc<RwLock<Object>>> {
+fn tn_guard_owner(state: &dyn StateImplementation) -> Option<ObjectID> {
     if let Some(ret) = state.as_any().downcast_ref::<AITNGuardReturnState>() {
         return ret.base.shared.owner();
     }
@@ -1774,7 +1614,7 @@ fn tn_guard_attack_aggressor_return(
     let Some(owner) = tn_guard_owner(state) else {
         return false;
     };
-    has_attacked_tn_owner(&owner)
+    has_attacked_tn_owner(owner)
 }
 
 fn tn_guard_attack_aggressor_inner(
@@ -1784,5 +1624,5 @@ fn tn_guard_attack_aggressor_inner(
     let Some(owner) = tn_guard_owner(state) else {
         return false;
     };
-    has_attacked_tn_owner(&owner)
+    has_attacked_tn_owner(owner)
 }

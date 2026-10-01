@@ -117,12 +117,12 @@ pub(super) fn minefield_behavior_module_factory(
     let data_arc =
         cloned_module_data::<MinefieldBehaviorModuleData>("MinefieldBehavior", &module_data);
     let object_id = resolve_owner_id(&thing);
-    let Some(object) = TheGameLogic::find_object_by_id(object_id) else {
+    if !TheGameLogic::find_object_by_id(object_id) { 
         // Wave 449: missing owner → no-op module.
         let data_for_missing: Arc<dyn ModuleData> = data_arc.clone();
         return missing_owner_module("MinefieldBehavior", data_for_missing);
     };
-    let behavior = MinefieldBehavior::new(object, Arc::clone(&data_arc))
+    let behavior = MinefieldBehavior::new(object_id, Arc::clone(&data_arc))
         .expect("MinefieldBehavior failed to initialize");
     let module_name = AsciiString::from("MinefieldBehavior");
     Box::new(MinefieldBehaviorModule::new(
@@ -194,11 +194,11 @@ pub(super) fn missile_launcher_building_update_module_factory(
     );
     let engine_data: Arc<dyn LegacyModuleData> = data_arc.clone();
     let owner_id = resolve_owner_id(&thing);
-    let Some(object) = TheGameLogic::find_object_by_id(owner_id) else {
+    if !TheGameLogic::find_object_by_id(owner_id) { 
         // Wave 449: missing owner → no-op module.
         return missing_owner_module_auto("MissileLauncherBuildingUpdate", &module_data);
     };
-    let behavior = MissileLauncherBuildingUpdate::new(object, engine_data)
+    let behavior = MissileLauncherBuildingUpdate::new(owner_id, engine_data)
         .expect("MissileLauncherBuildingUpdate failed to initialize");
     Box::new(MissileLauncherBuildingUpdateModule::new(
         behavior,
@@ -321,11 +321,12 @@ pub(super) fn special_ability_update_module_factory(
         cloned_module_data::<SpecialAbilityUpdateModuleData>("SpecialAbilityUpdate", &module_data);
     let engine_data: Arc<dyn LegacyModuleData> = data_arc.clone();
     let owner_id = resolve_owner_id(&thing);
-    let Some(object) = TheGameLogic::find_object_by_id(owner_id) else {
+    if !TheGameLogic::find_object_by_id(owner_id) { 
         // Wave 449: missing owner → no-op module.
         return missing_owner_module_auto("SpecialAbilityUpdate", &module_data);
     };
-    let behavior = SpecialAbilityUpdate::new(Arc::downgrade(&object), engine_data);
+    // Constructor still keys identity off a weak handle; no Arc remains to downgrade.
+    let behavior = SpecialAbilityUpdate::new(std::sync::Weak::new(), engine_data);
     let module_name = AsciiString::from("SpecialAbilityUpdate");
     Box::new(SpecialAbilityUpdateModule::new(
         behavior,
@@ -395,13 +396,13 @@ pub(super) fn railroad_behavior_module_factory(
     let data_arc =
         cloned_module_data::<RailroadBehaviorModuleData>("RailroadBehavior", &module_data);
     let owner_id = resolve_owner_id(&thing);
-    let Some(object) = TheGameLogic::find_object_by_id(owner_id) else {
+    if !TheGameLogic::find_object_by_id(owner_id) { 
         // Wave 449: missing owner → no-op module.
         return missing_owner_module_auto("RailroadBehavior", &module_data);
     };
     let module_name_key = NameKeyGenerator::name_to_key("RailroadBehavior");
     Box::new(
-        RailroadBehaviorModule::new(module_name_key, data_arc, object)
+        RailroadBehaviorModule::new(module_name_key, data_arc, owner_id)
             .expect("RailroadBehavior init failed"),
     )
 }

@@ -1019,15 +1019,11 @@ pub struct TransitionDamageFX {
 
 impl TransitionDamageFX {
     pub fn new(
-        object: Arc<RwLock<GameObject>>,
+        object_id: ObjectID,
         module_data: Arc<TransitionDamageFXModuleData>,
     ) -> Self {
         Self {
-            object_id: object
-                .read()
-                .ok()
-                .map(|g| g.get_id())
-                .unwrap_or(crate::common::INVALID_ID),
+            object_id,
             module_data,
             particle_system_ids: [[INVALID_PARTICLE_SYSTEM_ID; DAMAGE_MODULE_MAX_FX];
                 BODY_DAMAGE_TYPE_COUNT],
@@ -1042,10 +1038,7 @@ impl TransitionDamageFX {
             .as_object()
             .ok_or_else(|| "TransitionDamageFX requires an owning object".to_string())?;
         let object_id = module_object.get_object_id();
-        let object = OBJECT_REGISTRY
-            .get_object(object_id)
-            .ok_or_else(|| format!("TransitionDamageFX requires object {object_id}"))?;
-        Ok(Self::new(object, module_data))
+        Ok(Self::new(object_id, module_data))
     }
 
     fn get_local_effect_pos(loc_info: &FXLocInfo, drawable: Option<&Drawable>) -> Coord3D {

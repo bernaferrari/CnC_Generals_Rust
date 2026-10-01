@@ -187,14 +187,8 @@ impl AISkirmishPlayer {
     }
 
     /// Called when a unit is produced
-    pub fn on_unit_produced(&mut self, factory: &Arc<RwLock<Object>>, unit: &Arc<RwLock<Object>>) {
-        let (Ok(factory_guard), Ok(unit_guard)) = (factory.read(), unit.read()) else {
-            return;
-        };
-        // C++ AISkirmishPlayer::onUnitProduced → AIPlayer::onUnitProduced only.
-        let _ = self
-            .base
-            .on_unit_produced(factory_guard.get_id(), unit_guard.get_id());
+    pub fn on_unit_produced(&mut self, factory_id: ObjectID, unit_id: ObjectID) {
+        let _ = self.base.on_unit_produced(factory_id, unit_id);
     }
 
     /// Build a specific AI team immediately
@@ -496,19 +490,16 @@ impl AISkirmishPlayer {
     /// if path exists continue; else findBrokenBridge → repairStructure → true.
     pub fn check_bridges(
         &mut self,
-        unit: &Arc<RwLock<Object>>,
+        unit_id: ObjectID,
         start_waypoint_id: crate::common::WaypointID,
     ) -> bool {
-        let (unit_pos, loco_set) = {
-            let Ok(unit_guard) = unit.try_read() else {
-                return false;
-            };
-            // C++: if (!ai) return false;
-            let Some(ai) = unit_guard.get_ai_update_interface() else {
-                return false;
-            };
-            let loco = ai.get_locomotor_set_clone();
+        let Some((unit_pos, loco_set)) = OBJECT_REGISTRY.with_object(unit_id, |unit_guard| {
+            let loco = unit_guard
+                .get_ai_update_interface()
+                .and_then(|ai| ai.get_locomotor_set_clone());
             (*unit_guard.get_position(), loco)
+        }) else {
+            return false;
         };
         let Some(loco_set) = loco_set else {
             return false;
@@ -830,30 +821,21 @@ impl AISkirmishPlayer {
                 // Host path: empty dual-world registry → no rebuild-hole residual.
                 if !OBJECT_REGISTRY.is_empty() {
                     for obj_id in OBJECT_REGISTRY.get_all_object_ids() {
-                        let candidate_arc = match OBJECT_REGISTRY.get_object(obj_id) {
-                            Some(v) => v,
-                            None => continue,
-                        };
-                        let Ok(candidate_guard) = candidate_arc.read() else {
-                            continue;
-                        };
-                        if !candidate_guard.is_kind_of(KindOf::RebuildHole) {
-                            continue;
-                        }
-                        let candidate_id = candidate_guard.get_id();
-                        // Find RebuildHoleBehaviorInterface::getSpawnerID.
-                        let mut matched_hole = false;
-                        for behavior in candidate_guard.get_behavior_modules() {
-                            if let Ok(mut bg) = behavior.lock() {
-                                if let Some(rhbi) = bg.get_rebuild_hole_behavior_interface() {
-                                    if rhbi.get_spawner_id() == prior_id {
-                                        matched_hole = true;
-                                    }
-                                    break;
-                                }
+                        let matched = OBJECT_REGISTRY.with_object(obj_id, |candidate_guard| {
+                            if candidate_guard.is_kind_of(KindOf::RebuildHole) == false {
+                                return None;
                             }
-                        }
-                        if matched_hole {
+                            let candidate_id = candidate_guard.get_id();
+                            let matched_hole = candidate_guard.get_behavior_modules().iter().any(|behavior| {
+                                behavior.lock().ok().and_then(|mut bg| {
+                                    bg.get_rebuild_hole_behavior_interface().map(|rhbi| {
+                                        rhbi.get_spawner_id() == prior_id
+                                    })
+                                }).unwrap_or(false)
+                            });
+                            if matched_hole { Some(candidate_id) } else { None }
+                        }).flatten();
+                        if let Some(candidate_id) = matched {
                             info.set_object_id(candidate_id);
                             log::debug!(
                                 "AI Found hole to rebuild {}",
@@ -1547,15 +1529,16 @@ impl AISkirmishPlayer {
                 continue;
             };
 
-            let Some(team_arc) = player_guard.get_default_team() else {
+            let Some(team_id) = player_guard.get_default_team_id() else {
                 continue;
             };
-            let Ok(team_guard) = team_arc.read() else {
+            let enemy = crate::team::with_team(team_id, |team_guard| {
+                me_guard.get_relationship_with_team(team_guard) == Relationship::Enemies
+            })
+            .unwrap_or(false);
+            if !enemy {
                 continue;
             };
-            if me_guard.get_relationship_with_team(&team_guard) != Relationship::Enemies {
-                continue;
-            }
 
             // C++ curPlayer->hasAnyObjects()
             if !player_guard.has_any_objects() {
@@ -1891,8 +1874,8 @@ impl AISkirmishPlayer {
     }
 
     /// C++ AIPlayer::aiPreTeamDestroy inherited by AISkirmishPlayer.
-    pub fn ai_pre_team_destroy(&mut self, deleted: &Arc<RwLock<crate::team::Team>>) {
-        self.base.ai_pre_team_destroy(deleted);
+    pub fn ai_pre_team_destroy_by_name(&mut self, team_name: &str) {
+        self.base.ai_pre_team_destroy_by_name(team_name);
     }
 
     pub fn on_structure_produced(
@@ -2155,7 +2138,7 @@ mod tests {
             .unwrap_or(prod.len().min(i + 2500));
         let w = &prod[i..end];
         assert!(
-            w.contains("OBJECT_REGISTRY.get_object(obj_id)")
+            w.contains("OBJECT_REGISTRY.with_object(obj_id")
                 && w.contains("mark_priority_build")
                 && w.contains("set_build_delay_frames(0)")
                 && !w.contains("build_structure_now"),

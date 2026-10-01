@@ -13,7 +13,7 @@ use game_engine::common::rts::action_manager::{
     set_object_data_provider,
 };
 use game_engine::common::rts::handles::ObjectHandle;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 
 /// Maps a C++ `KindOfType` bit index (Common `kind_of_bit::*`) onto GameLogic `KindOf`.
 /// Unknown bits fail closed (`None` → `is_kind_of` false).
@@ -45,14 +45,13 @@ fn object_id(handle: ObjectHandle) -> Option<ObjectID> {
     if id == INVALID_ID { None } else { Some(id) }
 }
 
-fn object_arc(handle: ObjectHandle) -> Option<Arc<RwLock<Object>>> {
-    OBJECT_REGISTRY.get_object(object_id(handle)?)
+fn with_object<R>(handle: ObjectHandle, f: impl FnOnce(&Object) -> R) -> Option<R> {
+    let id = object_id(handle)?;
+    OBJECT_REGISTRY.with_object(id, f)
 }
 
-fn with_object<R>(handle: ObjectHandle, f: impl FnOnce(&Object) -> R) -> Option<R> {
-    let arc = object_arc(handle)?;
-    let guard = arc.read().ok()?;
-    Some(f(&guard))
+fn object_exists(handle: ObjectHandle) -> bool {
+    object_id(handle).is_some_and(|id| OBJECT_REGISTRY.contains(id))
 }
 
 fn convert_shroud(status: crate::common::ObjectShroudStatus) -> ObjectShroudStatus {
@@ -91,21 +90,35 @@ pub struct GameLogicObjectDataProvider;
 
 impl ObjectDataProvider for GameLogicObjectDataProvider {
     fn is_valid_object(&self, id: ObjectHandle) -> bool {
-        object_arc(id).is_some()
+        object_exists(id)
     }
 
     fn get_relationship(&self, source: ObjectHandle, target: ObjectHandle) -> Relationship {
-        let Some(source_arc) = object_arc(source) else {
+        // Snapshot outside the registry lock so the two lookups do not nest.
+        let source_snap = with_object(source, |obj| {
+            (obj.get_team(), obj.is_undetected_defector())
+        });
+        let target_snap = with_object(target, |obj| {
+            (obj.get_team(), obj.is_undetected_defector())
+        });
+        let (Some((my_team, i_defect)), Some((other_team, other_defect))) =
+            (source_snap, target_snap)
+        else {
             return Relationship::Neutral;
         };
-        let Some(target_arc) = object_arc(target) else {
+        let (Some(my_team), Some(other_team)) = (my_team, other_team) else {
             return Relationship::Neutral;
         };
-        let relationship = match (source_arc.read(), target_arc.read()) {
-            (Ok(source_obj), Ok(target_obj)) => source_obj.relationship_to(&target_obj),
-            _ => Relationship::Neutral,
+        let (Ok(my_guard), Ok(other_guard)) = (my_team.read(), other_team.read()) else {
+            return Relationship::Neutral;
         };
-        relationship
+        if i_defect {
+            return Relationship::Neutral;
+        }
+        if other_defect {
+            return Relationship::Allies;
+        }
+        my_guard.get_relationship(&other_guard)
     }
 
     fn get_team_relationship(&self, source: ObjectHandle, player_id: u32) -> Relationship {

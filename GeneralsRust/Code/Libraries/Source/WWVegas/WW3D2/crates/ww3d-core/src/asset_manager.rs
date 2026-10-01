@@ -8,7 +8,7 @@ use crate::texture::Texture;
 use crate::w3d_io::*;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::Mutex;
 
 /// Asset types that can be managed
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -214,12 +214,16 @@ struct AssetCaches {
     search_paths: Vec<PathBuf>,
 }
 
-/// Asset manager for centralized asset management
+/// Asset manager for centralized asset management.
+///
+/// `caches` stays locked: this type is also the `GLOBAL_ASSET_MANAGER`
+/// singleton, and every `&self` loader shares that one lock. The loaders
+/// themselves are stateless and never cloned, so they are owned directly.
 pub struct AssetManager {
     caches: Mutex<AssetCaches>,
-    mesh_loader: Arc<MeshLoader>,
-    hierarchy_loader: Arc<HierarchyLoader>,
-    animation_loader: Arc<AnimationLoader>,
+    mesh_loader: MeshLoader,
+    hierarchy_loader: HierarchyLoader,
+    animation_loader: AnimationLoader,
 }
 
 impl AssetManager {
@@ -232,9 +236,9 @@ impl AssetManager {
                 animation_cache: HashMap::new(),
                 search_paths: Vec::new(),
             }),
-            mesh_loader: Arc::new(MeshLoader),
-            hierarchy_loader: Arc::new(HierarchyLoader),
-            animation_loader: Arc::new(AnimationLoader),
+            mesh_loader: MeshLoader,
+            hierarchy_loader: HierarchyLoader,
+            animation_loader: AnimationLoader,
         }
     }
 

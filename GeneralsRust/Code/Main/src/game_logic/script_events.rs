@@ -1,6 +1,3 @@
-use parking_lot::Mutex;
-use std::sync::OnceLock;
-
 use super::victory_conditions::AllianceState;
 
 /// C++ ScriptActions NAMED_*_SPECIAL_POWER_COUNTDOWN residual.
@@ -17,6 +14,9 @@ pub enum NamedSpecialPowerCountdownOp {
 }
 
 /// Events emitted by gameplay systems that scripts/radar/UI can consume.
+///
+/// The queue is `GameLogic::pending_script_events`. Push and drain run on the
+/// same game thread; there is no process-global lock.
 #[derive(Debug, Clone)]
 pub enum ScriptEvent {
     PlayerDefeated {
@@ -36,25 +36,4 @@ pub enum ScriptEvent {
         special_power_name: String,
         creator_id: u32,
     },
-}
-
-static EVENT_QUEUE: OnceLock<Mutex<Vec<ScriptEvent>>> = OnceLock::new();
-
-fn queue() -> &'static Mutex<Vec<ScriptEvent>> {
-    EVENT_QUEUE.get_or_init(|| Mutex::new(Vec::new()))
-}
-
-/// Push a new script event into the global queue.
-pub fn push_event(event: ScriptEvent) {
-    queue().lock().push(event);
-}
-
-/// Drain all pending script events (typically once per frame).
-pub fn drain_events() -> Vec<ScriptEvent> {
-    let mut guard = queue().lock();
-    if guard.is_empty() {
-        Vec::new()
-    } else {
-        guard.drain(..).collect()
-    }
 }

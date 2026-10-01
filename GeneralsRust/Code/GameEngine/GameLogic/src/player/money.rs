@@ -7,6 +7,10 @@ pub struct PlayerMoney {
     pub(super) income_rate: Real,
     pub(super) last_update_frame: UnsignedInt,
     pub(super) player_index: PlayerIndex,
+    /// Academy income waiting for [`Player::flush_money_side_effects`].
+    pub(super) pending_income: Int,
+    /// Score-keeper earnings waiting for the same flush.
+    pub(super) pending_earned: u32,
 }
 
 impl PlayerMoney {
@@ -16,6 +20,8 @@ impl PlayerMoney {
             income_rate: 0.0,
             last_update_frame: 0,
             player_index,
+            pending_income: 0,
+            pending_earned: 0,
         }
     }
 
@@ -120,15 +126,10 @@ impl PlayerMoney {
         }
 
         self.amount = self.amount.saturating_add(amount as Int);
-        if let Ok(list) = player_list().read() {
-            if let Some(player) = list.get_player(self.player_index) {
-                if let Ok(mut player_guard) = player.write() {
-                    player_guard
-                        .get_academy_stats_mut()
-                        .record_income(amount as Int);
-                }
-            }
-        }
+        // Do not re-enter the player list. Deposit is usually called through
+        // `&mut Player`, which may already be checked out of that list.
+        self.pending_income = self.pending_income.saturating_add(amount as Int);
+        self.pending_earned = self.pending_earned.saturating_add(amount);
         Ok(())
     }
 
@@ -142,14 +143,15 @@ impl PlayerMoney {
         if amount <= 0 {
             return;
         }
+        self.pending_earned = self.pending_earned.saturating_add(amount as u32);
+    }
 
-        if let Ok(list) = player_list().read() {
-            if let Some(player) = list.get_player(self.player_index) {
-                if let Ok(mut player_guard) = player.write() {
-                    player_guard.score_keeper.add_money_earned(amount as u32);
-                }
-            }
-        }
+    pub(super) fn take_pending_income(&mut self) -> Int {
+        std::mem::take(&mut self.pending_income)
+    }
+
+    pub(super) fn take_pending_earned(&mut self) -> u32 {
+        std::mem::take(&mut self.pending_earned)
     }
 }
 

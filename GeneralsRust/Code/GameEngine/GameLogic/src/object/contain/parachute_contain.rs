@@ -219,14 +219,11 @@ pub struct ParachuteContain {
 impl ParachuteContain {
     /// Create a new ParachuteContain module
     pub fn new(
-        object: Weak<RwLock<Object>>,
+        object_id: ObjectID,
         module_data: &ParachuteContainModuleData,
     ) -> GameResult<Self> {
-        let base = OpenContain::new(object.clone(), &module_data.base)?;
-        let object_id = object
-            .upgrade()
-            .and_then(|arc| arc.read().ok().map(|g| g.get_id()))
-            .unwrap_or(crate::common::INVALID_ID);
+        let base = OpenContain::new(object_id, &module_data.base)?;
+        let object_id = object_id;
 
         if object_id != crate::common::INVALID_ID {
             let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(object_id, |owner| {
@@ -283,7 +280,7 @@ impl ParachuteContain {
         self.base.get_contained_object_ids().first().copied()
     }
 
-    fn resolve_rider(&self) -> Option<Arc<RwLock<Object>>> {
+    fn resolve_rider(&self) -> Option<ObjectID> {
         let id = self.first_rider_id()?;
         TheGameLogic::find_object_by_id(id)
             .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(id))
@@ -455,13 +452,9 @@ impl ParachuteContain {
     fn position_contained_objects(&mut self) {
         let ids = self.base.get_contained_object_ids().to_vec();
         for id in ids {
-            if let Some(obj) = TheGameLogic::find_object_by_id(id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(id))
-            {
-                if let Ok(mut rider) = obj.write() {
-                    self.position_rider(&mut rider);
-                }
-            }
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(id, |rider| {
+                self.position_rider(rider);
+            });
         }
     }
 
@@ -474,127 +467,119 @@ impl ParachuteContain {
     /// C++ ParachuteContain::onContaining
     pub fn on_containing(&mut self, obj_id: ObjectID, was_selected: bool) -> GameResult<()> {
         self.base.on_containing(obj_id, was_selected)?;
-        let Some(obj) = TheGameLogic::find_object_by_id(obj_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
-        else {
-            return Ok(());
-        };
-        let Ok(mut rider) = obj.try_write() else {
+        let Some(()) = crate::object::registry::OBJECT_REGISTRY.with_object_mut(obj_id, |rider| {
+            rider.set_disabled(DisabledType::Held);
+            rider.set_status(ObjectStatusMaskType::PARACHUTING, true);
+            let _ = rider.clear_and_set_model_condition_flags(
+                ModelConditionFlags::PARACHUTING,
+                ModelConditionFlags::FREEFALL,
+            );
+            self.need_to_update_rider_bones = true;
+            self.position_rider(rider);
+        }) else {
             self.base.unlink_contained_id(obj_id);
             return Err("Parachute passenger lock busy".into());
         };
-        rider.set_disabled(DisabledType::Held);
-        rider.set_status(ObjectStatusMaskType::PARACHUTING, true);
-        let _ = rider.clear_and_set_model_condition_flags(
-            ModelConditionFlags::PARACHUTING,
-            ModelConditionFlags::FREEFALL,
-        );
-        self.need_to_update_rider_bones = true;
-        self.position_rider(&mut rider);
-        drop(rider);
         Ok(())
     }
 
     /// C++ ParachuteContain::onRemoving
     pub fn on_removing(&mut self, obj_id: ObjectID) -> GameResult<()> {
         self.base.on_removing(obj_id)?;
-        let Some(obj) = TheGameLogic::find_object_by_id(obj_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
-        else {
-            return Ok(());
-        };
-
-        let Ok(mut rider) = obj.try_write() else {
+        let Some(prep) = crate::object::registry::OBJECT_REGISTRY.with_object_mut(obj_id, |rider| {
+            self.with_owner_mut(|owner| {
+                owner.set_status(ObjectStatusMaskType::NO_COLLISIONS, true);
+            });
+            rider.clear_disabled(DisabledType::Held);
+            rider.set_status(ObjectStatusMaskType::PARACHUTING, false);
+            self.position_rider(rider);
+            let _ = rider.clear_and_set_model_condition_flags(
+                ModelConditionFlags::FREEFALL | ModelConditionFlags::PARACHUTING,
+                ModelConditionFlags::empty(),
+            );
+            self.need_to_update_rider_bones = true;
+            (
+                rider.get_physics(),
+                rider
+                    .get_controlling_player()
+                    .and_then(|p| p.read().ok().map(|g| g.is_skirmish_ai_player()))
+                    .unwrap_or(false),
+                rider.get_ai().is_some(),
+                rider.get_producer_id(),
+            )
+        }) else {
             return Err("Parachute passenger lock busy".into());
         };
-        self.with_owner_mut(|owner| {
-            owner.set_status(ObjectStatusMaskType::NO_COLLISIONS, true);
-        });
-        rider.clear_disabled(DisabledType::Held);
-        rider.set_status(ObjectStatusMaskType::PARACHUTING, false);
-        self.position_rider(&mut rider);
-        let _ = rider.clear_and_set_model_condition_flags(
-            ModelConditionFlags::FREEFALL | ModelConditionFlags::PARACHUTING,
-            ModelConditionFlags::empty(),
-        );
-        self.need_to_update_rider_bones = true;
-
-        // apply_force read-locks this rider. std RwLock does not reenter.
-        let physics = rider.get_physics();
+        let (physics, is_skirmish, has_ai, producer_id) = prep;
         if let Some(physics) = physics {
-            drop(rider);
             physics.set_allow_to_fall(true);
             physics.apply_force(&crate::common::Coord3D::new(0.0, 0.0, 0.0));
-            let Ok(guard) = obj.write() else {
-                return Err("Parachute passenger lock poisoned".into());
-            };
-            rider = guard;
         }
-
-        if let Some(ai) = rider.get_ai() {
-            let is_skirmish = rider
-                .get_controlling_player()
-                .and_then(|p| p.read().ok().map(|g| g.is_skirmish_ai_player()))
-                .unwrap_or(false);
+        if has_ai {
             if is_skirmish {
-                ai.ai_hunt(CommandSourceType::FromAi);
+                let _ = crate::object::registry::OBJECT_REGISTRY.with_object(obj_id, |rider| {
+                    if let Some(ai) = rider.get_ai() {
+                        ai.ai_hunt(CommandSourceType::FromAi);
+                    }
+                });
             } else {
                 let mut has_rally = false;
-                let producer_id = rider.get_producer_id();
                 if producer_id != crate::common::INVALID_ID {
-                    if let Some(transport) = TheGameLogic::find_object_by_id(producer_id) {
-                        if let Ok(transport_guard) = transport.read() {
-                            let building_id = transport_guard.get_producer_id();
-                            if building_id != crate::common::INVALID_ID {
-                                if let Some(building) = TheGameLogic::find_object_by_id(building_id)
-                                {
-                                    if let Ok(building_guard) = building.read() {
-                                        if let Some(exit) =
-                                            building_guard.get_object_exit_interface()
-                                        {
-                                            if let Ok(mut exit_guard) = exit.lock() {
-                                                if exit_guard.use_spawn_rally_point() {
-                                                    let rider_id = rider.get_id();
-                                                    drop(rider);
-                                                    exit_guard.exit_object_via_door(
-                                                        rider_id,
-                                                        crate::modules::ExitDoorType::Primary,
-                                                    );
-                                                    let Ok(guard) = obj.write() else {
-                                                        return Err(
-                                                            "Parachute passenger lock poisoned"
-                                                                .into(),
-                                                        );
-                                                    };
-                                                    rider = guard;
-                                                    has_rally = true;
-                                                }
-                                            }
+                    let building_id = crate::object::registry::OBJECT_REGISTRY
+                        .with_object(producer_id, |transport_guard| {
+                            transport_guard.get_producer_id()
+                        })
+                        .unwrap_or(crate::common::INVALID_ID);
+                    if building_id != crate::common::INVALID_ID {
+                        let _ = crate::object::registry::OBJECT_REGISTRY.with_object(
+                            building_id,
+                            |building_guard| {
+                                if let Some(exit) = building_guard.get_object_exit_interface() {
+                                    if let Ok(mut exit_guard) = exit.lock() {
+                                        if exit_guard.use_spawn_rally_point() {
+                                            exit_guard.exit_object_via_door(
+                                                obj_id,
+                                                crate::modules::ExitDoorType::Primary,
+                                            );
+                                            has_rally = true;
                                         }
                                     }
                                 }
-                            }
-                        }
+                            },
+                        );
                     }
                 }
                 if !has_rally {
-                    ai.ai_idle(CommandSourceType::FromAi);
+                    let _ = crate::object::registry::OBJECT_REGISTRY.with_object(obj_id, |rider| {
+                        if let Some(ai) = rider.get_ai() {
+                            ai.ai_idle(CommandSourceType::FromAi);
+                        }
+                    });
                 }
             }
         }
-
-        let rider_pos = *rider.get_position();
+        let Some((rider_pos, layer, off_map)) =
+            crate::object::registry::OBJECT_REGISTRY.with_object(obj_id, |rider| {
+                (*rider.get_position(), rider.get_layer(), rider.is_off_map())
+            })
+        else {
+            return Err("Parachute passenger lock poisoned".into());
+        };
         let mut water_z = 0.0;
         let mut terrain_z = 0.0;
-        if let Some(terrain) = TheTerrainLogic::get() {
-            if terrain.is_underwater(
+        let drown = if let Some(terrain) = TheTerrainLogic::get() {
+            terrain.is_underwater(
                 rider_pos.x,
                 rider_pos.y,
                 Some(&mut water_z),
                 Some(&mut terrain_z),
             ) && rider_pos.z <= water_z + self.module_data.kill_when_landing_in_water_slop
-                && rider.get_layer() == PathfindLayerEnum::Ground
-            {
+                && layer == PathfindLayerEnum::Ground
+        } else {
+            false
+        };
+        if drown {
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(obj_id, |rider| {
                 let mut damage_info = DamageInfo::with_simple(
                     HUGE_DAMAGE_AMOUNT,
                     crate::common::INVALID_ID,
@@ -602,10 +587,8 @@ impl ParachuteContain {
                     DeathType::Flooded,
                 );
                 let _ = rider.attempt_damage(&mut damage_info);
-            }
+            });
         }
-
-        let layer = rider.get_layer();
         let ai_store = the_ai();
         let cell_type = ai_store.read().ok().and_then(|ai| {
             ai.pathfinder().and_then(|pf| {
@@ -614,12 +597,12 @@ impl ParachuteContain {
                         PathfindLayerEnum::Top => crate::ai::pathfind_astar::PathfindLayerEnum::Top,
                         _ => crate::ai::pathfind_astar::PathfindLayerEnum::Ground,
                     };
-                    let found = pf_guard.get_cell_type_at_layer(rider.get_position(), astar_layer);
+                    let found = pf_guard.get_cell_type_at_layer(&rider_pos, astar_layer);
                     if found.is_none()
                         && astar_layer == crate::ai::pathfind_astar::PathfindLayerEnum::Top
                     {
                         pf_guard.get_cell_type_at_layer(
-                            rider.get_position(),
+                            &rider_pos,
                             crate::ai::pathfind_astar::PathfindLayerEnum::Ground,
                         )
                     } else {
@@ -635,10 +618,11 @@ impl ParachuteContain {
                 | Some(PathfindCellType::Impassable)
                 | None
         );
-        if rider.is_off_map() || bad_cell {
-            rider.kill(None, None);
+        if off_map || bad_cell {
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(obj_id, |rider| {
+                rider.kill(None, None);
+            });
         }
-        drop(rider);
         Ok(())
     }
 
@@ -662,12 +646,10 @@ impl ParachuteContain {
             if let Some(rider_arc) = self.resolve_rider() {
                 let _ = self.base.remove_all_contained(false);
                 if self.module_data.free_fall_damage_percent > 0.0 {
-                    // Clone the body Arc and drop the rider guard before locking it.
-                    let body = rider_arc
-                        .read()
-                        .ok()
-                        .and_then(|rider| rider.get_body_module());
+                    let body = crate::object::registry::OBJECT_REGISTRY
+                        .with_object(rider_arc, |rider| rider.get_body_module());
                     let max_health = body
+                        .flatten()
                         .as_ref()
                         .and_then(|body| {
                             body.lock()
@@ -678,18 +660,22 @@ impl ParachuteContain {
                     let source = damage_info
                         .map(|info| info.input.source_id)
                         .unwrap_or(crate::common::INVALID_ID);
-                    if let Ok(mut rider) = rider_arc.write() {
-                        let mut extra = DamageInfo::with_simple(
-                            max_health * self.module_data.free_fall_damage_percent,
-                            source,
-                            DamageType::Falling,
-                            DeathType::Splatted,
-                        );
-                        let _ = rider.attempt_damage(&mut extra);
-                    }
+                    let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(
+                        rider_arc,
+                        |rider| {
+                            let mut extra = DamageInfo::with_simple(
+                                max_health * self.module_data.free_fall_damage_percent,
+                                source,
+                                DamageType::Falling,
+                                DeathType::Splatted,
+                            );
+                            let _ = rider.attempt_damage(&mut extra);
+                        },
+                    );
                 }
-                // apply_force read-locks this rider. Do not hold the rider write.
-                let physics = rider_arc.read().ok().and_then(|rider| rider.get_physics());
+                let physics = crate::object::registry::OBJECT_REGISTRY
+                    .with_object(rider_arc, |rider| rider.get_physics())
+                    .flatten();
                 if let Some(physics) = physics {
                     physics.set_allow_to_fall(true);
                     physics.set_is_in_freefall(true);
@@ -757,7 +743,7 @@ impl ParachuteContain {
                 });
                 self.need_to_update_para_bones = true;
                 if let Some(rider) = self.resolve_rider() {
-                    if let Ok(mut rider_guard) = rider.write() {
+                    let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(rider, |rider_guard| {
                         let _ = rider_guard.clear_and_set_model_condition_flags(
                             ModelConditionFlags::FREEFALL,
                             ModelConditionFlags::PARACHUTING,
@@ -770,7 +756,7 @@ impl ParachuteContain {
                                 audio.add_audio_event(&event);
                             }
                         }
-                    }
+                    });
                 }
 
                 if let Some(ai) = self
@@ -794,12 +780,12 @@ impl ParachuteContain {
                     }
                 }
             } else if let Some(rider) = self.resolve_rider() {
-                if let Ok(mut rider_guard) = rider.write() {
+                let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(rider, |rider_guard| {
                     let _ = rider_guard.clear_and_set_model_condition_flags(
                         ModelConditionFlags::PARACHUTING,
                         ModelConditionFlags::FREEFALL,
                     );
-                }
+                });
             }
         }
 
@@ -810,9 +796,9 @@ impl ParachuteContain {
             owner.set_status(ObjectStatusMaskType::NO_COLLISIONS, !nonempty_open);
         });
         if let Some(rider) = self.resolve_rider() {
-            if let Ok(mut rider_guard) = rider.write() {
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(rider, |rider_guard| {
                 rider_guard.set_status(ObjectStatusMaskType::NO_COLLISIONS, !nonempty_open);
-            }
+            });
         }
 
         let dead = self
@@ -835,11 +821,11 @@ impl ParachuteContain {
                 if self.opened {
                     let mut altitude_damping = 0.0;
                     if let Some(rider) = self.resolve_rider() {
-                        if let Ok(rider_guard) = rider.read() {
+                        let _ = crate::object::registry::OBJECT_REGISTRY.with_object(rider, |rider_guard| {
                             if rider_guard.get_height_above_terrain() <= ALTITUDE_DAMP_START {
                                 altitude_damping = self.module_data.low_altitude_damping;
                             }
-                        }
+                        });
                     }
                     // C++ ParachuteContain::update: locomotor pitch/roll spring+damper.
                     let mut pitch_stiffness = 0.1;
@@ -879,9 +865,9 @@ impl ParachuteContain {
                 let new_layer = terrain.get_highest_layer_for_destination(&para_pos);
                 self.with_owner_mut(|owner| owner.set_layer(new_layer));
                 if let Some(rider) = self.resolve_rider() {
-                    if let Ok(mut rider_guard) = rider.write() {
-                        self.position_rider(&mut rider_guard);
-                    }
+                    let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(rider, |rider_guard| {
+                        self.position_rider(rider_guard);
+                    });
                 }
 
                 if self.base.get_contain_count() == 0 {
@@ -909,20 +895,20 @@ impl ParachuteContain {
     }
 
     pub fn add_to_contain(&mut self, obj_id: ObjectID) -> GameResult<()> {
-        let obj = TheGameLogic::find_object_by_id(obj_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
-            .ok_or("Parachute contain object not found")?;
-        let Ok(obj_ref) = obj.try_read() else {
-            return Err("Parachute passenger lock busy".into());
+        let Some((was_selected, valid)) =
+            crate::object::registry::OBJECT_REGISTRY.with_object(obj_id, |obj_ref| {
+                let was_selected = obj_ref
+                    .get_drawable()
+                    .and_then(|drawable| drawable.try_read().ok().map(|draw| draw.is_selected()))
+                    .unwrap_or(false);
+                (was_selected, self.is_valid_container_for(obj_ref, true))
+            })
+        else {
+            return Err("Parachute contain object not found".into());
         };
-        let was_selected = obj_ref
-            .get_drawable()
-            .and_then(|drawable| drawable.try_read().ok().map(|draw| draw.is_selected()))
-            .unwrap_or(false);
-        if !self.is_valid_container_for(&*obj_ref, true) {
+        if !valid {
             return Err("Object not valid for this parachute".into());
         }
-        drop(obj_ref);
         self.base.add_to_contain_list(obj_id)?;
         if let Err(err) = self.on_containing(obj_id, was_selected) {
             self.base.unlink_contained_id(obj_id);
@@ -1022,12 +1008,11 @@ impl OpenContainXfer {
 
 impl ContainModuleInterface for ParachuteContain {
     fn can_contain(&self, object_id: ObjectID) -> bool {
-        if let Some(obj) = TheGameLogic::find_object_by_id(object_id) {
-            if let Ok(obj_guard) = obj.read() {
-                return self.is_valid_container_for(&*obj_guard, true);
-            }
-        }
-        false
+        crate::object::registry::OBJECT_REGISTRY
+            .with_object(object_id, |obj_guard| {
+                self.is_valid_container_for(obj_guard, true)
+            })
+            .unwrap_or(false)
     }
 
     fn contain_object(&mut self, object_id: ObjectID) -> Result<(), String> {

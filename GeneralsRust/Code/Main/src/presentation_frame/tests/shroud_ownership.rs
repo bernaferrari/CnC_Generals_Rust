@@ -18,7 +18,7 @@ fn world_with_enemy() -> (GameLogic, ObjectId) {
 
 #[test]
 fn shroud_presentation_uses_driving_world_with_reused_object_ids() {
-    let (left, left_id) = world_with_enemy();
+    let (mut left, left_id) = world_with_enemy();
     let (mut right, right_id) = world_with_enemy();
     assert_eq!(left_id, right_id);
     {
@@ -33,8 +33,8 @@ fn shroud_presentation_uses_driving_world_with_reused_object_ids() {
         shroud.mark_host_object_seen(0, right_id.0);
         shroud.set_host_object_shroud_status(0, right_id.0, ObjectShroudStatus::Clear);
     }
-    let left_frame = PresentationFrame::build_from_logic(&left, 0);
-    let right_frame = PresentationFrame::build_from_logic(&right, 0);
+    let left_frame = PresentationFrame::build_from_logic(&mut left, 0);
+    let right_frame = PresentationFrame::build_from_logic(&mut right, 0);
     assert_eq!(
         left_frame.fow_for_object(left_id),
         Some(crate::fow_rendering::ObjectVisibility::from_shroud_flags(
@@ -48,7 +48,7 @@ fn shroud_presentation_uses_driving_world_with_reused_object_ids() {
         ))
     );
     right.reset();
-    let after = PresentationFrame::build_from_logic(&left, 0);
+    let after = PresentationFrame::build_from_logic(&mut left, 0);
     assert_eq!(
         after.fow_for_object(left_id),
         left_frame.fow_for_object(left_id)
@@ -57,8 +57,8 @@ fn shroud_presentation_uses_driving_world_with_reused_object_ids() {
 
 #[test]
 fn shroud_snapshot_captures_driving_world_after_another_world_starts() {
-    let (left, _) = world_with_enemy();
-    let (right, _) = world_with_enemy();
+    let (mut left, _) = world_with_enemy();
+    let (mut right, _) = world_with_enemy();
     left.engine_stores
         .shroud()
         .lock()
@@ -87,7 +87,7 @@ fn shroud_snapshot_captures_driving_world_after_another_world_starts() {
 #[test]
 fn shroud_restore_replaces_only_the_driving_world_counters() {
     let (mut left, _) = world_with_enemy();
-    let (right, _) = world_with_enemy();
+    let (mut right, _) = world_with_enemy();
     {
         let mut manager = left.engine_stores.shroud().lock().unwrap();
         manager.init_shroud_grid(400.0, 400.0);

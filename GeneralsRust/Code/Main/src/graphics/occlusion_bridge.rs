@@ -628,7 +628,7 @@ mod tests {
         if let Some(p) = logic.host_object_mut(pax) {
             p.stamp_safe_occlusion_frame(safe_frame);
         }
-        let frame = crate::presentation_frame::PresentationFrame::build_from_logic(&logic, 0);
+        let frame = crate::presentation_frame::PresentationFrame::build_from_logic(&mut logic, 0);
         let camera = Vec3::new(0.0, 0.0, 100.0);
         let during = classify_from_presentation(camera, &frame);
         assert!(

@@ -151,11 +151,7 @@ impl ClassicState for AIDockState {
         if !has_dock {
             return Ok(StateReturnType::Failure);
         }
-        let Some(goal) = crate::helpers::TheGameLogic::find_object_by_id(goal_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(goal_id))
-        else {
-            return Ok(StateReturnType::Failure);
-        };
+        // Goal existence was already confirmed by with_object above.
 
         if let Ok(mut owner_guard) = owner.write() {
             owner_guard.ai_pending_ignore_id = Some(goal_id);
@@ -163,7 +159,7 @@ impl ClassicState for AIDockState {
 
         // The dock machine is owned by this state; the previous lock-failure
         // branch is unreachable now that the machine is a plain field.
-        let mut dock_machine = AIDockMachine::new(owner.clone())?;
+        let mut dock_machine = AIDockMachine::new(self.base.get_machine_owner_id().unwrap_or(crate::common::INVALID_ID))?;
         dock_machine.state_machine.set_goal_object_by_id(Some(goal_id));
         let init_result = dock_machine.state_machine.init_default_state();
         self.dock_machine = Some(dock_machine);
@@ -240,7 +236,7 @@ impl Snapshotable for AIDockState {
                 .base
                 .get_machine_owner()
                 .ok_or_else(|| "dock state missing machine owner".to_string())?;
-            self.dock_machine = Some(AIDockMachine::new(owner)?);
+            self.dock_machine = Some(AIDockMachine::new(self.base.get_machine_owner_id().unwrap_or(crate::common::INVALID_ID))?);
         }
 
         if let Some(machine) = self.dock_machine.as_mut() {

@@ -12,7 +12,7 @@ pub struct TeamInQueue {
     pub priority_build: bool,        // True if specifically requested
     pub team_name: Option<String>,   // Team that units go into
     /// C++ `TeamInQueue::m_team` — concrete team instance (not just name).
-    pub team: Option<Arc<RwLock<crate::team::Team>>>,
+    pub team_id: Option<crate::team::TeamID>,
     pub frame_started: u32,                 // Frame we started building
     pub sent_to_start_location: bool,       // Has team been sent to start location
     pub stop_queueing: bool,                // True to stop building new units
@@ -26,7 +26,7 @@ impl TeamInQueue {
             work_orders: Vec::new(),
             priority_build: false,
             team_name: None,
-            team: None,
+            team_id: None,
             frame_started: 0,
             sent_to_start_location: false,
             stop_queueing: false,
@@ -99,9 +99,8 @@ impl TeamInQueue {
     pub fn is_build_time_expired(&self) -> bool {
         // C++ uses m_team->getPrototype()->m_initialIdleFrames.
         let team_name = self
-            .team
-            .as_ref()
-            .and_then(|arc| arc.read().ok().map(|tg| tg.get_name().to_string()))
+            .team_id
+            .and_then(|id| crate::team::with_team(id, |tg| tg.get_name().to_string()))
             .or_else(|| self.team_name.clone());
         let Some(team_name) = team_name else {
             return false;
@@ -129,73 +128,61 @@ impl TeamInQueue {
         log::debug!("{} - team disbanded, build time expired.", team_name);
 
         // Prefer concrete m_team handle (C++); name lookup is fallback only.
-        let team_arc = if let Some(arc) = self.team.clone() {
-            arc
+        let team_id = if let Some(id) = self.team_id {
+            id
         } else if !team_name.is_empty() {
             let Ok(mut factory) = get_team_factory().lock() else {
                 self.work_orders.clear();
                 return Ok(());
             };
-            let Some(arc) = factory.find_team(&team_name) else {
+            let Some(id) = factory.find_team(&team_name) else {
                 self.work_orders.clear();
                 return Ok(());
             };
-            drop(factory);
-            arc
+            id
         } else {
             self.work_orders.clear();
             return Ok(());
         };
 
-        let Ok(mut team_guard) = team_arc.write() else {
+        let controlling_player_id = crate::team::with_team(team_id, |team| team.get_controlling_player_id());
+        let Some(Some(controlling_player_id)) = controlling_player_id else {
             self.work_orders.clear();
             return Ok(());
         };
 
-        let Some(controlling_player_id) = team_guard.get_controlling_player_id() else {
+        let default_team_id = player_list().read().ok().and_then(|list| {
+            list.get_player(controlling_player_id as i32)
+                .and_then(|p| p.get_default_team_id())
+        });
+
+        let Some(default_team_id) = default_team_id else {
             self.work_orders.clear();
             return Ok(());
         };
 
-        let default_team = player_list()
-            .read()
-            .ok()
-            .and_then(|list| list.get_player(controlling_player_id as i32).cloned())
-            .and_then(|player_arc| player_arc.read().ok().and_then(|p| p.get_default_team()));
-
-        let Some(default_team_arc) = default_team else {
-            self.work_orders.clear();
-            return Ok(());
-        };
-
-        if team_guard.get_id()
-            == default_team_arc
-                .read()
-                .ok()
-                .map(|g| g.get_id())
-                .unwrap_or(0)
-        {
+        if team_id == default_team_id {
             self.work_orders.clear();
             return Ok(());
         }
 
-        let Ok(mut default_team_guard) = default_team_arc.write() else {
-            self.work_orders.clear();
-            return Ok(());
-        };
+        let members = crate::team::with_team(team_id, |src| src.get_members().to_vec()).unwrap_or_default();
+        let singleton = crate::team::with_team(team_id, |src| src.is_singleton()).unwrap_or(true);
+        crate::team::with_team_mut(default_team_id, |dst| {
+            for id in &members {
+                dst.add_member(*id);
+            }
+        });
+        crate::team::with_team_mut(team_id, |src| {
+            for id in &members {
+                src.remove_member(*id);
+            }
+            if !singleton {
+                src.delete_team(false);
+            }
+        });
 
-        team_guard.transfer_units_to(&mut default_team_guard);
-
-        // PARITY_NOTE: C++ calls m_team->deleteInstance() if !getIsSingleton().
-        // In Rust, delete_team destroys all remaining members and marks the team for cleanup.
-        // Since units were already transferred, the team should have no remaining members.
-        if !(*team_guard).is_singleton() {
-            team_guard.delete_team(false);
-        }
-        drop(team_guard);
-
-        // C++ m_team = NULL after disband so ~TeamInQueue will not setActive.
-        self.team = None;
+        self.team_id = None;
         self.work_orders.clear();
         Ok(())
     }
@@ -232,22 +219,18 @@ impl TeamInQueue {
 
         // C++: TeamID teamID = m_team ? m_team->getID() : TEAM_ID_INVALID;
         //      xferUser(&teamID); load: m_team = TheTeamFactory->findTeamByID(teamID);
-        let mut team_id: u32 = self
-            .team
-            .as_ref()
-            .and_then(|arc| arc.read().ok().map(|g| g.get_id()))
-            .unwrap_or(crate::team::TEAM_ID_INVALID);
+        let mut team_id: u32 = self.team_id.unwrap_or(crate::team::TEAM_ID_INVALID);
         let _ = xfer.xfer_unsigned_int(&mut team_id);
         if xfer.is_loading() {
             if team_id == crate::team::TEAM_ID_INVALID {
-                self.team = None;
+                self.team_id = None;
                 self.team_name = None;
             } else if let Ok(factory) = get_team_factory().lock() {
-                if let Some(arc) = factory.find_team_by_id(team_id) {
-                    self.team_name = arc.read().ok().map(|g| g.get_name().to_string());
-                    self.team = Some(arc);
+                if let Some(team) = factory.find_team_by_id(team_id) {
+                    self.team_name = Some(team.get_name().to_string());
+                    self.team_id = Some(team_id);
                 } else {
-                    self.team = None;
+                    self.team_id = None;
                     self.team_name = None;
                 }
             }
@@ -297,10 +280,10 @@ impl TeamInQueue {
 /// cleaned up by Team). `disband` nulls the handle so Drop will not re-activate.
 impl Drop for TeamInQueue {
     fn drop(&mut self) {
-        if let Some(team_arc) = self.team.take() {
-            if let Ok(mut tg) = team_arc.write() {
+        if let Some(team_id) = self.team_id.take() {
+            crate::team::with_team_mut(team_id, |tg| {
                 tg.set_active();
-            }
+            });
         }
     }
 }

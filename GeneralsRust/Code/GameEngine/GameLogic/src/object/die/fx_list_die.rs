@@ -283,18 +283,18 @@ pub struct FXListDie {
 
 impl FXListDie {
     /// Create a new FXListDie module
-    pub fn new(object: Arc<RwLock<Object>>, module_data: Arc<FXListDieModuleData>) -> Self {
+    pub fn new(object_id: ObjectID, module_data: Arc<FXListDieModuleData>) -> Self {
         let initially_active = module_data.initially_active;
         let mut upgrade_mux = UpgradeMux::new(module_data.upgrade_mux_data.clone());
         if initially_active {
-            if let Ok(mut obj_guard) = object.write() {
-                upgrade_mux.data.perform_upgrade_fx(&mut obj_guard);
-                upgrade_mux.data.process_upgrade_removal(&mut obj_guard);
-            }
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(object_id, |obj| {
+                upgrade_mux.data.perform_upgrade_fx(obj);
+                upgrade_mux.data.process_upgrade_removal(obj);
+            });
             upgrade_mux.set_upgrade_executed(true);
         }
         Self {
-            base: DieModule::new(object, module_data),
+            base: DieModule::new(object_id, module_data),
             upgrade_mux,
         }
     }

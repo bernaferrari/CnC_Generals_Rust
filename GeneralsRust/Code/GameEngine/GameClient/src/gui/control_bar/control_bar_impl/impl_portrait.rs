@@ -263,7 +263,42 @@ impl ControlBar {
             }
             return;
         }
-        let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) else {
+        let context_commands = self
+            .context
+            .read()
+            .ok()
+            .map(|ctx| ctx.available_commands.clone());
+        let portrait = OBJECT_REGISTRY.with_object(obj_id, |obj| {
+            if obj.is_kind_of(KindOf::ShowPortraitWhenControlled) && !obj.is_locally_controlled() {
+                return None;
+            }
+            let template_name = obj.get_template_name().to_string();
+            let veterancy = obj.get_veterancy_level();
+            let veterancy_overlay = match veterancy {
+                gamelogic::common::types::VeterancyLevel::Veteran => Some("SSChevron1L".to_string()),
+                gamelogic::common::types::VeterancyLevel::Elite => Some("SSChevron2L".to_string()),
+                gamelogic::common::types::VeterancyLevel::Heroic => Some("SSChevron3L".to_string()),
+                _ => None,
+            };
+            let upgrade_cameos = leftover_authored_upgrade_cameo_names(&template_name)
+                .into_iter()
+                .filter(|name| !name.is_empty())
+                .map(|name| {
+                    let is_completed = leftover_object_or_player_has_upgrade(obj, &name);
+                    UpgradeCameoState {
+                        button_image: resolve_upgrade_cameo_button_image(
+                            &name,
+                            context_commands.as_deref(),
+                        ),
+                        upgrade_name: name,
+                        is_completed,
+                        is_visible: true,
+                    }
+                })
+                .collect();
+            Some((template_name, veterancy_overlay, upgrade_cameos))
+        });
+        let Some(portrait) = portrait else {
             // Presentation residual already owns portrait/health/queue via
             // sync_selection_display_from_presentation — do not wipe it.
             if !self.portrait_state.is_visible {
@@ -271,51 +306,13 @@ impl ControlBar {
             }
             return;
         };
-        let Ok(obj) = obj_arc.read() else {
-            if !self.portrait_state.is_visible {
-                self.portrait_state = PortraitDisplayState::default();
-            }
-            return;
-        };
-
-        if obj.is_kind_of(KindOf::ShowPortraitWhenControlled) && !obj.is_locally_controlled() {
+        let Some((template_name, veterancy_overlay, upgrade_cameos)) = portrait else {
             self.portrait_state = PortraitDisplayState::default();
             return;
-        }
-
-        let template_name = obj.get_template_name().to_string();
-
-        let veterancy = obj.get_veterancy_level();
-        let veterancy_overlay = match veterancy {
-            gamelogic::common::types::VeterancyLevel::Veteran => Some("SSChevron1L".to_string()),
-            gamelogic::common::types::VeterancyLevel::Elite => Some("SSChevron2L".to_string()),
-            gamelogic::common::types::VeterancyLevel::Heroic => Some("SSChevron3L".to_string()),
-            _ => None,
         };
 
         // Live-registry portrait path: health stays 0 here; presentation overlay
         // (`sync_selection_display_from_presentation`) supplies snapshot HP.
-        let context_commands = self
-            .context
-            .read()
-            .ok()
-            .map(|ctx| ctx.available_commands.clone());
-        let upgrade_cameos = leftover_authored_upgrade_cameo_names(&template_name)
-            .into_iter()
-            .filter(|name| !name.is_empty())
-            .map(|name| {
-                let is_completed = leftover_object_or_player_has_upgrade(&obj, &name);
-                UpgradeCameoState {
-                    button_image: resolve_upgrade_cameo_button_image(
-                        &name,
-                        context_commands.as_deref(),
-                    ),
-                    upgrade_name: name,
-                    is_completed,
-                    is_visible: true,
-                }
-            })
-            .collect();
         self.portrait_state = PortraitDisplayState {
             portrait_image: template_name,
             veterancy_overlay,

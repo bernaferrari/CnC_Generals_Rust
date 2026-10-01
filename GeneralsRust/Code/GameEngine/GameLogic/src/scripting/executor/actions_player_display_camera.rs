@@ -3,6 +3,7 @@
 //! Split from `scripting/executor.rs` for module-size parity.
 //! Observable script behavior is unchanged.
 
+use crate::object::registry::OBJECT_REGISTRY;
 use super::*;
 
 impl ScriptActionDispatcher {

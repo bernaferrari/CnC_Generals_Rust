@@ -181,7 +181,7 @@ pub struct FlammableUpdate {
 
 impl FlammableUpdate {
     pub fn new(
-        object: Arc<RwLock<GameObject>>,
+        object_id: ObjectID,
         module_data: Arc<dyn ModuleData>,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let specific_data = module_data
@@ -192,11 +192,7 @@ impl FlammableUpdate {
         let flame_limit = specific_data.flame_damage_limit;
 
         Ok(Self {
-            object_id: object
-                .read()
-                .ok()
-                .map(|g| g.get_id())
-                .unwrap_or(crate::common::INVALID_ID),
+            object_id: object_id,
             module_data: Arc::new(specific_data.clone()),
             next_call_frame_and_phase: 0,
             status: FlammabilityStatus::Normal,
@@ -671,10 +667,10 @@ impl Snapshotable for FlammableUpdate {
 pub struct FlammableUpdateFactory;
 impl FlammableUpdateFactory {
     pub fn create_behavior(
-        thing: Arc<RwLock<GameObject>>,
+        object_id: ObjectID,
         module_data: Arc<dyn ModuleData>,
     ) -> Result<Box<dyn BehaviorModuleInterface>, Box<dyn std::error::Error + Send + Sync>> {
-        Ok(Box::new(FlammableUpdate::new(thing, module_data)?))
+        Ok(Box::new(FlammableUpdate::new(object_id, module_data)?))
     }
 }
 

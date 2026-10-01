@@ -971,7 +971,7 @@ impl crate::common::types::PartitionManagerInterface for ThePartitionManagerBrid
         max_range: f32,
         distance_type: crate::common::types::PartitionDistanceType,
         filters: &[crate::common::types::PartitionFilter],
-    ) -> Option<std::sync::Arc<std::sync::RwLock<crate::object::Object>>> {
+    ) -> Option<crate::common::ObjectID> {
         // Wave 281: empty dual-world → None.
         if dual_world_registry_unavailable() {
             return None;
@@ -1011,8 +1011,7 @@ impl crate::common::types::PartitionManagerInterface for ThePartitionManagerBrid
             }
         }
 
-        // Closest-object API still returns Arc for callers that need a handle.
-        best.and_then(|(_, id)| crate::object::registry::OBJECT_REGISTRY.get_object(id))
+        best.map(|(_, id)| id)
     }
 }
 

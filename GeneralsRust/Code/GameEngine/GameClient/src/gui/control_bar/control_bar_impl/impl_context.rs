@@ -108,7 +108,7 @@ impl ControlBar {
             return (self.displayed_queue_count.max(1), true);
         }
         // Wave 1029: dual-world peels catalog production residual when registry empty.
-        if OBJECT_REGISTRY.get_object(obj_id).is_none() {
+        if !OBJECT_REGISTRY.contains(obj_id) {
             if let Some(entry) =
                 crate::presentation_translator_residual::translator_catalog_entry(obj_id)
             {
@@ -134,20 +134,18 @@ impl ControlBar {
             }
             return (0, false);
         }
-        let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) else {
-            return (0, false);
-        };
-        let Ok(obj) = obj_arc.read() else {
-            return (0, false);
-        };
-        for module in obj.get_behavior_modules() {
-            if let Ok(mut guard) = module.lock() {
-                if guard.get_production_update_interface().is_some() {
-                    return (0, true);
+        OBJECT_REGISTRY
+            .with_object(obj_id, |obj| {
+                for module in obj.get_behavior_modules() {
+                    if let Ok(mut guard) = module.lock() {
+                        if guard.get_production_update_interface().is_some() {
+                            return (0, true);
+                        }
+                    }
                 }
-            }
-        }
-        (0, false)
+                (0, false)
+            })
+            .unwrap_or((0, false))
     }
 
     fn get_first_production_progress(&self, obj_id: u32) -> Option<f32> {
@@ -165,7 +163,7 @@ impl ControlBar {
             }
         }
         // Wave 1029: dual-world peels catalog production_progress residual.
-        if OBJECT_REGISTRY.get_object(obj_id).is_none() {
+        if !OBJECT_REGISTRY.contains(obj_id) {
             if let Some(entry) =
                 crate::presentation_translator_residual::translator_catalog_entry(obj_id)
             {
@@ -177,23 +175,21 @@ impl ControlBar {
             }
             return None;
         }
-        let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) else {
-            return None;
-        };
-        let Ok(obj) = obj_arc.read() else {
-            return None;
-        };
-        for module in obj.get_behavior_modules() {
-            if let Ok(mut guard) = module.lock() {
-                if let Some(pu) = guard.get_production_update_interface() {
-                    let progress = pu.get_production_progress();
-                    if progress > 0.0 {
-                        return Some(progress);
+        OBJECT_REGISTRY
+            .with_object(obj_id, |obj| {
+                for module in obj.get_behavior_modules() {
+                    if let Ok(mut guard) = module.lock() {
+                        if let Some(pu) = guard.get_production_update_interface() {
+                            let progress = pu.get_production_progress();
+                            if progress > 0.0 {
+                                return Some(progress);
+                            }
+                        }
                     }
                 }
-            }
-        }
-        None
+                None
+            })
+            .flatten()
     }
 
     fn map_logic_production_type(
@@ -308,64 +304,52 @@ impl ControlBar {
             }
             return false;
         }
-        let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) else {
-            return false;
-        };
-        let Ok(obj) = obj_arc.read() else {
-            return false;
-        };
-        for module in obj.get_behavior_modules() {
-            if let Ok(mut guard) = module.lock() {
-                if guard.get_production_update_interface().is_some() {
-                    return true;
+        OBJECT_REGISTRY
+            .with_object(obj_id, |obj| {
+                for module in obj.get_behavior_modules() {
+                    if let Ok(mut guard) = module.lock() {
+                        if guard.get_production_update_interface().is_some() {
+                            return true;
+                        }
+                    }
                 }
-            }
-        }
-        false
+                false
+            })
+            .unwrap_or(false)
     }
 
     fn set_object_production_paused(obj_id: u32, paused: bool) {
-        let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) else {
-            return;
-        };
-        let Ok(obj) = obj_arc.read() else {
-            return;
-        };
-
-        for module in obj.get_behavior_modules() {
-            let Ok(mut guard) = module.lock() else {
-                continue;
-            };
-            let Some(production) = guard.get_production_update_interface() else {
-                continue;
-            };
-            if paused {
-                production.pause_production();
-            } else {
-                production.resume_production();
+        let _ = OBJECT_REGISTRY.with_object(obj_id, |obj| {
+            for module in obj.get_behavior_modules() {
+                let Ok(mut guard) = module.lock() else {
+                    continue;
+                };
+                let Some(production) = guard.get_production_update_interface() else {
+                    continue;
+                };
+                if paused {
+                    production.pause_production();
+                } else {
+                    production.resume_production();
+                }
+                break;
             }
-            break;
-        }
+        });
     }
 
     fn cancel_production_by_id(obj_id: u32, production_id: u32) {
-        let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) else {
-            return;
-        };
-        let Ok(obj) = obj_arc.read() else {
-            return;
-        };
         let queue_index = production_id as usize;
-
-        for module in obj.get_behavior_modules() {
-            let Ok(mut guard) = module.lock() else {
-                continue;
-            };
-            let Some(production) = guard.get_production_update_interface() else {
-                continue;
-            };
-            let _ = production.cancel_production(queue_index);
-            break;
-        }
+        let _ = OBJECT_REGISTRY.with_object(obj_id, |obj| {
+            for module in obj.get_behavior_modules() {
+                let Ok(mut guard) = module.lock() else {
+                    continue;
+                };
+                let Some(production) = guard.get_production_update_interface() else {
+                    continue;
+                };
+                let _ = production.cancel_production(queue_index);
+                break;
+            }
+        });
     }
 }

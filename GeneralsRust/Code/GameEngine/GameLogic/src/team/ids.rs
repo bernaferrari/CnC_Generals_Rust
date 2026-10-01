@@ -57,7 +57,7 @@ struct PendingTeamScriptEvent {
 
 #[derive(Debug, Clone)]
 struct PendingTeamGenericScriptEval {
-    team: Arc<RwLock<Team>>,
+    team_id: TeamID,
     prototype: Arc<TeamPrototype>,
     team_name: String,
     script_name: String,

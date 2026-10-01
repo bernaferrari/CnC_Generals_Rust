@@ -3,6 +3,7 @@
 //! Split from `scripting/executor.rs` for module-size parity.
 //! Observable script behavior is unchanged.
 
+use crate::object::registry::OBJECT_REGISTRY;
 use super::*;
 
 fn resolve_script_named_object_id(unit_name: &str) -> Option<u32> {
@@ -31,15 +32,13 @@ fn enable_or_disable_object_sound(object_name: &str, enable: bool) {
     let Some(object_id) = resolve_script_named_object_id(object_name) else {
         return;
     };
-    if let Some(obj_arc) = TheGameLogic::find_object_by_id(object_id) {
-        if let Ok(obj_guard) = obj_arc.read() {
+    let _ = crate::object::registry::OBJECT_REGISTRY.with_object(object_id, |obj_guard| {
             if let Some(drawable) = obj_guard.get_drawable() {
                 if let Ok(mut draw_guard) = drawable.write() {
                     draw_guard.enable_ambient_sound_from_script(enable);
                 }
             }
-        }
-    }
+        });
 }
 
 impl ScriptActionDispatcher {
@@ -918,20 +917,25 @@ impl ScriptActionDispatcher {
 
         let mut best_guess: Option<ObjectID> = None;
         for member_id in member_ids {
-            let Some(obj_arc) = TheGameLogic::find_object_by_id(member_id) else {
-                continue;
-            };
-            let Ok(obj_guard) = obj_arc.read() else {
-                continue;
-            };
-            if obj_guard.get_template_name() != object_type {
-                continue;
-            }
-            if obj_guard.get_drawable().is_none() {
-                continue;
-            }
-            if best_guess.is_none() || member_id < best_guess.unwrap_or(member_id) {
-                best_guess = Some(member_id);
+            {
+                enum _ObjFlow<T> { Cont, Ret(T), Fall }
+                let _flow = OBJECT_REGISTRY.with_object(member_id, |obj_guard| {
+                    if obj_guard.get_template_name() != object_type {
+                        return _ObjFlow::Cont;
+                    }
+                    if obj_guard.get_drawable().is_none() {
+                        return _ObjFlow::Cont;
+                    }
+                    if best_guess.is_none() || member_id < best_guess.unwrap_or(member_id) {
+                        best_guess = Some(member_id);
+                    }
+                    _ObjFlow::Fall
+                });
+                match _flow {
+                    None | Some(_ObjFlow::Cont) => continue,
+                    Some(_ObjFlow::Ret(v)) => return v,
+                    Some(_ObjFlow::Fall) => {}
+                }
             }
         }
 
@@ -1136,15 +1140,13 @@ impl ScriptActionDispatcher {
 
         let tracker = get_named_object_tracker();
         if let Ok(Some(object_id)) = tracker.get_object_id(&cave_name) {
-            if let Some(obj_arc) = TheGameLogic::find_object_by_id(object_id) {
-                if let Ok(obj_guard) = obj_arc.read() {
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object(object_id, |obj_guard| {
                     if let Some(contain) = obj_guard.get_contain() {
                         if let Ok(mut contain_guard) = contain.lock() {
                             contain_guard.try_to_set_cave_index(cave_index);
                         }
                     }
-                }
-            }
+                });
         }
 
         Ok(ScriptActionResult::Success)
@@ -1269,24 +1271,20 @@ impl ScriptActionDispatcher {
         let Some(warehouse_id) = tracker.get_object_id(&warehouse_name).ok().flatten() else {
             return Ok(ScriptActionResult::Success);
         };
-        let Some(warehouse_arc) = TheGameLogic::find_object_by_id(warehouse_id) else {
-            return Ok(ScriptActionResult::Success);
-        };
-
-        if let Ok(warehouse_guard) = warehouse_arc.read() {
-            let Some(module) = warehouse_guard.find_update_module("SupplyWarehouseDockUpdate")
-            else {
-                return Ok(ScriptActionResult::Success);
-            };
-
-            module.with_module(|module| {
-                if let Some(warehouse) = module.get_supply_warehouse_dock_interface() {
-                    warehouse.set_cash_value(value);
-                }
+        {
+            enum _ObjFlow<T> { Cont, Ret(T), Fall }
+            let _flow = OBJECT_REGISTRY.with_object(warehouse_id, |warehouse_guard| {
+                
+                Ok(ScriptActionResult::Success)
+                _ObjFlow::Fall
             });
+            match _flow {
+                None => { return Ok(ScriptActionResult::Success); }
+                Some(_ObjFlow::Cont) => continue,
+                Some(_ObjFlow::Ret(v)) => return v,
+                Some(_ObjFlow::Fall) => {}
+            }
         }
-
-        Ok(ScriptActionResult::Success)
     }
 
     pub(crate) fn do_command_bar_remove_button_object_type(

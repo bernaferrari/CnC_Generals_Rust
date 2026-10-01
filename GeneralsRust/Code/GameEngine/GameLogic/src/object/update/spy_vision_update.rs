@@ -227,22 +227,22 @@ impl SpyVisionController {
 
     pub fn on_capture(
         &mut self,
-        old_owner: Option<&Arc<RwLock<crate::player::Player>>>,
-        new_owner: Option<&Arc<RwLock<crate::player::Player>>>,
+        old_owner: Option<PlayerIndex>,
+        new_owner: Option<PlayerIndex>,
     ) {
         if !self.currently_active {
             return;
         }
 
         if let Some(old_owner) = old_owner {
-            if let Ok(old_guard) = old_owner.read() {
-                self.do_activation_work_for_owner(&old_guard, false);
-            }
+            let _ = crate::player::with_player(old_owner, |old_guard| {
+                self.do_activation_work_for_owner(old_guard, false);
+            });
         }
         if let Some(new_owner) = new_owner {
-            if let Ok(new_guard) = new_owner.read() {
-                self.do_activation_work_for_owner(&new_guard, true);
-            }
+            let _ = crate::player::with_player(new_owner, |new_guard| {
+                self.do_activation_work_for_owner(new_guard, true);
+            });
         }
     }
 
@@ -610,8 +610,8 @@ impl BehaviorModuleInterface for SpyVisionUpdate {
 
     fn on_capture(
         &mut self,
-        old_owner: Option<&Arc<RwLock<crate::player::Player>>>,
-        new_owner: Option<&Arc<RwLock<crate::player::Player>>>,
+        old_owner: Option<PlayerIndex>,
+        new_owner: Option<PlayerIndex>,
     ) {
         self.controller.on_capture(old_owner, new_owner);
     }

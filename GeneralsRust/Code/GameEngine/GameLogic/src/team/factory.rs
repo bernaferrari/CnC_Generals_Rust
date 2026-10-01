@@ -7,7 +7,7 @@
 #[derive(Debug)]
 pub struct TeamFactory {
     prototypes: HashMap<String, Arc<TeamPrototype>>,
-    teams: HashMap<TeamID, Arc<RwLock<Team>>>,
+    teams: HashMap<TeamID, Team>,
     unique_team_prototype_id: TeamPrototypeID,
     unique_team_id: TeamID,
     pending_create_action_scripts: Vec<String>,
@@ -57,61 +57,54 @@ impl TeamFactory {
 
     /// Update team factory (called each frame)
     pub fn update(&mut self) {
-        // Update all teams
-        for team_arc in self.teams.values() {
-            if let Ok(mut team) = team_arc.write() {
+        let team_ids: Vec<TeamID> = self.teams.keys().copied().collect();
+        for team_id in team_ids {
+            if let Some(team) = self.teams.get_mut(&team_id) {
                 team.update_state();
             }
         }
 
         // Queue generic script evaluations (executed after factory unlock in guard drop).
-        for team_arc in self.teams.values() {
-            let (team_name, controlling_player_id) = match team_arc.read() {
-                Ok(team_guard) => (
-                    team_guard.get_name().to_string(),
-                    team_guard.get_controlling_player_id(),
-                ),
-                Err(_) => continue,
+        let team_ids: Vec<TeamID> = self.teams.keys().copied().collect();
+        for team_id in team_ids {
+            let Some(team) = self.teams.get(&team_id) else {
+                continue;
             };
+            let team_name = team.get_name().to_string();
+            let controlling_player_id = team.get_controlling_player_id();
+            let attempt_slots: Vec<usize> = (0..MAX_GENERIC_SCRIPTS)
+                .filter(|idx| team.should_attempt_generic_script(*idx))
+                .collect();
+            if attempt_slots.is_empty() {
+                continue;
+            }
 
             let Some(prototype) = self.prototypes.get(&team_name).cloned() else {
                 continue;
             };
 
             let current_player_name = controlling_player_id.and_then(|player_id| {
-                player_list()
-                    .read()
-                    .ok()
-                    .and_then(|list| list.get_player(player_id as Int).cloned())
-                    .and_then(|player_arc| {
-                        player_arc
-                            .read()
-                            .ok()
-                            .map(|player| player.get_player_name_key())
-                    })
-                    .and_then(NameKeyGenerator::key_to_name)
+                player_list().read().ok().and_then(|list| {
+                    list.get_player(player_id as Int)
+                        .and_then(|player| NameKeyGenerator::key_to_name(player.get_player_name_key()))
+                })
             });
 
-            let Ok(mut team_guard) = team_arc.write() else {
-                continue;
-            };
-            for idx in 0..MAX_GENERIC_SCRIPTS {
-                if !team_guard.should_attempt_generic_script(idx) {
-                    continue;
-                }
-
+            for idx in attempt_slots {
                 let script_name = prototype
                     .get_generic_script(idx)
                     .map(|s| s.to_string())
                     .unwrap_or_default();
                 if script_name.is_empty() {
-                    team_guard.disable_generic_script_attempt(idx);
+                    if let Some(team) = self.teams.get_mut(&team_id) {
+                        team.disable_generic_script_attempt(idx);
+                    }
                     continue;
                 }
 
                 self.pending_generic_script_evals
                     .push(PendingTeamGenericScriptEval {
-                        team: team_arc.clone(),
+                        team_id,
                         prototype: prototype.clone(),
                         team_name: team_name.clone(),
                         script_name,
@@ -123,18 +116,15 @@ impl TeamFactory {
 
         // C++ parity: remove empty active non-singleton teams that are not default teams.
         let mut teams_to_remove = Vec::new();
-        for (team_id, team_arc) in &self.teams {
-            let Ok(team_guard) = team_arc.read() else {
-                continue;
-            };
-            if !team_guard.get_members().is_empty() {
+        for (team_id, team) in &self.teams {
+            if !team.get_members().is_empty() {
                 continue;
             }
-            if !team_guard.is_active() || team_guard.is_default_team_for_controller() {
+            if !team.is_active() || team.is_default_team_for_controller() {
                 continue;
             }
 
-            let team_name = team_guard.get_name().to_string();
+            let team_name = team.get_name().to_string();
             if self
                 .prototypes
                 .get(&team_name)
@@ -446,36 +436,24 @@ impl TeamFactory {
         &mut self,
         prototype: &TeamPrototype,
         team_id: TeamID,
-    ) -> Option<Arc<RwLock<Team>>> {
-        if let Some(existing) = self.find_team_by_id(team_id) {
-            return Some(existing);
+    ) -> Option<TeamID> {
+        if self.teams.contains_key(&team_id) {
+            return Some(team_id);
         }
 
         let name = prototype.get_name().to_string();
-        let team = Arc::new(RwLock::new(Team::new(name.clone().into(), team_id)));
-        if let Ok(mut team_guard) = team.write() {
-            team_guard.set_prototype_recruitable(prototype.is_ai_recruitable());
-            team_guard.apply_template_script_hooks(prototype);
-        }
+        let mut team = Team::new(name.into(), team_id);
+        team.set_prototype_recruitable(prototype.is_ai_recruitable());
+        team.apply_template_script_hooks(prototype);
         let owner_name = prototype.get_owner_name().to_string();
-        let owner_player = player_list().read().ok().and_then(|list| {
-            if owner_name.is_empty() {
-                None
-            } else {
-                list.find_player_by_name(&owner_name)
-            }
-            .or_else(|| list.get_neutral_player())
-        });
-        if let Some(owner_player) = owner_player {
-            if let (Ok(owner_guard), Ok(mut team_guard)) = (owner_player.read(), team.write()) {
-                team_guard.set_controlling_player_id(Some(owner_guard.get_player_index() as u32));
-            }
+        if let Some(owner_index) = controlling_player_index_for_owner(&owner_name) {
+            team.set_controlling_player_id(Some(owner_index));
         }
-        self.teams.insert(team_id, team.clone());
+        self.teams.insert(team_id, team);
         if team_id >= self.unique_team_id {
             self.unique_team_id = team_id.saturating_add(1);
         }
-        Some(team)
+        Some(team_id)
     }
 
     /// Replace a prototype after xfer mutates template fields stored by value.
@@ -500,20 +478,19 @@ impl TeamFactory {
         }
     }
 
-    /// Find team by ID
-    pub fn find_team_by_id(&self, team_id: TeamID) -> Option<Arc<RwLock<Team>>> {
-        self.teams.get(&team_id).cloned()
+    /// Borrow a resident team. The factory lock must already be held.
+    pub fn find_team_by_id(&self, team_id: TeamID) -> Option<&Team> {
+        self.teams.get(&team_id)
     }
 
-    fn find_existing_team_by_name(&self, name: &str) -> Option<Arc<RwLock<Team>>> {
-        for team in self.teams.values() {
-            if let Ok(team_ref) = team.read() {
-                if team_ref.get_name() == name {
-                    return Some(team.clone());
-                }
-            }
-        }
-        None
+    pub fn find_team_by_id_mut(&mut self, team_id: TeamID) -> Option<&mut Team> {
+        self.teams.get_mut(&team_id)
+    }
+
+    fn find_existing_team_by_name(&self, name: &str) -> Option<TeamID> {
+        self.teams.iter().find_map(|(id, team)| {
+            (team.get_name() == name).then_some(*id)
+        })
     }
 
     fn queue_create_actions_for_prototype(&mut self, prototype: &TeamPrototype) {
@@ -528,15 +505,15 @@ impl TeamFactory {
             .push(production_condition.to_string());
     }
 
-    /// Create team from prototype name
-    pub fn create_team(&mut self, name: &str) -> Option<Arc<RwLock<Team>>> {
-        let team = self.create_inactive_team(name)?;
-        team.write().ok()?.set_active();
-        Some(team)
+    /// Create team from prototype name. Returns the factory-owned team id.
+    pub fn create_team(&mut self, name: &str) -> Option<TeamID> {
+        let team_id = self.create_inactive_team(name)?;
+        self.teams.get_mut(&team_id)?.set_active();
+        Some(team_id)
     }
 
-    /// Create inactive team
-    pub fn create_inactive_team(&mut self, name: &str) -> Option<Arc<RwLock<Team>>> {
+    /// Create inactive team. Returns the factory-owned team id.
+    pub fn create_inactive_team(&mut self, name: &str) -> Option<TeamID> {
         let prototype = self.find_team_prototype(name);
         if prototype.is_none() {
             return None;
@@ -553,41 +530,28 @@ impl TeamFactory {
         let team_id = self.unique_team_id;
         self.unique_team_id += 1;
 
-        let team = Arc::new(RwLock::new(Team::new(name.to_string().into(), team_id)));
-        if let Some(ref prototype) = prototype {
-            if let Ok(mut team_guard) = team.write() {
-                team_guard.set_prototype_recruitable(prototype.is_ai_recruitable());
-                team_guard.apply_template_script_hooks(prototype);
-            }
+        let mut team = Team::new(name.to_string().into(), team_id);
+        if let Some(prototype) = prototype.as_ref() {
+            team.set_prototype_recruitable(prototype.is_ai_recruitable());
+            team.apply_template_script_hooks(prototype);
             let owner_name = prototype.get_owner_name().to_string();
-            let owner_player = player_list().read().ok().and_then(|list| {
-                if owner_name.is_empty() {
-                    None
-                } else {
-                    list.find_player_by_name(&owner_name)
-                }
-                .or_else(|| list.get_neutral_player())
-            });
-            if let Some(owner_player) = owner_player {
-                if let (Ok(owner_guard), Ok(mut team_guard)) = (owner_player.read(), team.write()) {
-                    team_guard
-                        .set_controlling_player_id(Some(owner_guard.get_player_index() as u32));
-                }
+            if let Some(owner_index) = controlling_player_index_for_owner(&owner_name) {
+                team.set_controlling_player_id(Some(owner_index));
             }
         }
 
-        self.teams.insert(team_id, team.clone());
+        self.teams.insert(team_id, team);
         if let Some(prototype) = prototype.as_deref() {
             self.queue_create_actions_for_prototype(prototype);
         }
-        Some(team)
+        Some(team_id)
     }
 
-    /// Find team by name
-    pub fn find_team(&mut self, name: &str) -> Option<Arc<RwLock<Team>>> {
+    /// Find team by name, creating a non-singleton instance when needed.
+    pub fn find_team(&mut self, name: &str) -> Option<TeamID> {
         let prototype = self.find_team_prototype(name)?;
-        if let Some(team) = self.find_existing_team_by_name(name) {
-            return Some(team);
+        if let Some(team_id) = self.find_existing_team_by_name(name) {
+            return Some(team_id);
         }
         if !prototype.is_singleton() {
             return self.create_inactive_team(name);
@@ -595,23 +559,19 @@ impl TeamFactory {
         None
     }
 
-    /// Find all team instances that were created from the same prototype name.
+    /// Find all team instances created from the same prototype name.
     ///
-    /// C++ Reference: `TeamPrototype::iterate_TeamInstanceList()` used by
-    /// `ScriptEngine::executeScript()` when `conditionTeamName` is set.
-    pub fn find_team_instances(&self, prototype_name: &str) -> Vec<Arc<RwLock<Team>>> {
+    /// C++ Reference: `TeamPrototype::iterate_TeamInstanceList()`.
+    pub fn find_team_instances(&self, prototype_name: &str) -> Vec<TeamID> {
         self.teams
-            .values()
-            .filter_map(|team| {
-                let guard = team.read().ok()?;
-                (guard.get_name() == prototype_name).then_some(team.clone())
-            })
+            .iter()
+            .filter_map(|(id, team)| (team.get_name() == prototype_name).then_some(*id))
             .collect()
     }
 
-    /// Return all live team instances.
-    pub fn get_all_teams(&self) -> Vec<Arc<RwLock<Team>>> {
-        self.teams.values().cloned().collect()
+    /// Return all live team instance ids.
+    pub fn get_all_teams(&self) -> Vec<TeamID> {
+        self.teams.keys().copied().collect()
     }
 
     /// Adjust production priority for a team prototype at runtime.
@@ -676,114 +636,80 @@ impl TeamFactory {
         true
     }
 
-    /// Notify that team is about to be deleted
+    /// Notify that team is about to be deleted.
     pub fn team_about_to_be_deleted(&mut self, team_id: TeamID) {
-        let team_arc = self.teams.get(&team_id).cloned();
-        let team_name = team_arc
-            .as_ref()
-            .and_then(|arc| arc.read().ok().map(|team| team.get_name().to_string()));
+        let Some(team) = self.teams.remove(&team_id) else {
+            return;
+        };
+        let team_name = team.get_name().to_string();
+        let members = team.get_members().to_vec();
 
-        // C++ TeamFactory::teamAboutToBeDeleted — drop override relationships.
-        for other in self.teams.values() {
-            if let Ok(mut other_guard) = other.try_write() {
-                let _ = other_guard.remove_override_team_relationship(team_id);
-            }
+        for other in self.teams.values_mut() {
+            let _ = other.remove_override_team_relationship(team_id);
         }
-        if let (Some(team_arc), Ok(list)) = (&team_arc, player_list().read()) {
-            if let Ok(team_guard) = team_arc.read() {
-                for player_arc in list.iter() {
-                    if let Ok(mut player) = player_arc.write() {
-                        let _ = player.remove_team_relationship(&team_guard);
-                    }
-                }
+        if let Ok(mut list) = player_list().write() {
+            for player in list.iter_mut() {
+                let _ = player.remove_team_relationship(&team);
             }
         }
 
-        // C++ Team::~Team — notify scripts, then every Player::preTeamDestroy.
-        if let Some(name) = &team_name {
-            if let Ok(mut engine) = get_script_engine().write() {
-                if let Some(engine) = engine.as_mut() {
-                    engine.notify_of_team_destruction(name);
-                }
+        if let Ok(mut engine) = get_script_engine().write() {
+            if let Some(engine) = engine.as_mut() {
+                engine.notify_of_team_destruction(&team_name);
             }
         }
-        // Live host AIPlayer queues are not leftover IntegratedAiPlayer.
-        // C++ Player::preTeamDestroy walks every player; drain on the host tick.
         self.host_pre_team_destroy
-            .push((team_id, team_name.as_deref().unwrap_or("").to_string()));
+            .push((team_id, team_name.clone()));
 
-        if let Some(team_arc) = &team_arc {
-            if let Ok(list) = player_list().read() {
-                for player_arc in list.iter() {
-                    let player_id = player_arc
-                        .read()
-                        .ok()
-                        .map(|player| player.get_player_index() as u32);
-                    let Some(player_id) = player_id else {
-                        continue;
-                    };
-                    let _ = crate::ai::integration::with_ai_integration_mut(|manager| {
-                        manager.with_ai_player_mut(player_id, |ai| match ai {
-                            crate::ai::integration::IntegratedAiPlayer::Standard(player) => {
-                                player.ai_pre_team_destroy(team_arc);
-                            }
-                            crate::ai::integration::IntegratedAiPlayer::Skirmish(player) => {
-                                player.ai_pre_team_destroy(team_arc);
-                            }
-                        })
-                    });
-                }
-            }
-
-            let members = team_arc
-                .read()
-                .ok()
-                .map(|team| team.get_members().to_vec())
-                .unwrap_or_default();
-            for object_id in members {
-                let _ = OBJECT_REGISTRY.with_object_mut(object_id, |object| {
-                    let _ = object.set_team(None);
+        if let Ok(list) = player_list().read() {
+            let player_ids: Vec<u32> = list
+                .iter()
+                .map(|player| player.get_player_index() as u32)
+                .collect();
+            drop(list);
+            for player_id in player_ids {
+                let _ = crate::ai::integration::with_ai_integration_mut(|manager| {
+                    manager.with_ai_player_mut(player_id, |ai| match ai {
+                        crate::ai::integration::IntegratedAiPlayer::Standard(player) => {
+                            player.ai_pre_team_destroy_by_name(&team_name);
+                        }
+                        crate::ai::integration::IntegratedAiPlayer::Skirmish(player) => {
+                            player.ai_pre_team_destroy_by_name(&team_name);
+                        }
+                    })
                 });
             }
         }
 
-        self.teams.remove(&team_id);
+        for object_id in members {
+            let _ = OBJECT_REGISTRY.with_object_mut(object_id, |object| {
+                let _ = object.set_team(None);
+            });
+        }
     }
 
     /// C++ TeamPrototype ctor/dtor + initTeam owner lookup (Team.cpp:216-223, 799-800).
     fn bind_prototype_to_owning_player(&self, prototype: &Arc<TeamPrototype>) {
-        let Some(player) = self.resolve_owning_player(prototype.get_owner_name().as_str()) else {
+        let Some(index) = owning_player_index(prototype.get_owner_name().as_str()) else {
             return;
         };
-        if let Ok(mut player_guard) = player.write() {
-            player_guard.add_team_to_list(Arc::clone(prototype));
-        }
+        let prototype = Arc::clone(prototype);
+        let _ = with_player_mut(index, |player| {
+            player.add_team_to_list(prototype);
+        });
     }
 
     fn unlink_prototypes_from_owning_players(&self) {
         for prototype in self.prototypes.values() {
-            let Some(player) = self.resolve_owning_player(prototype.get_owner_name().as_str())
-            else {
+            let Some(index) = owning_player_index(prototype.get_owner_name().as_str()) else {
                 continue;
             };
-            if let Ok(mut player_guard) = player.write() {
-                player_guard.remove_team_from_list(prototype);
-            }
+            let _ = with_player_mut(index, |player| {
+                player.remove_team_from_list(prototype);
+            });
         }
     }
 
-    fn resolve_owning_player(
-        &self,
-        owner_name: &str,
-    ) -> Option<Arc<RwLock<crate::player::Player>>> {
-        let list = player_list().read().ok()?;
-        if owner_name.is_empty() {
-            list.get_neutral_player()
-        } else {
-            list.find_player_by_name(owner_name)
-                .or_else(|| list.get_neutral_player())
-        }
-    }
 
     fn drain_pending_create_action_scripts(&mut self) -> Vec<String> {
         std::mem::take(&mut self.pending_create_action_scripts)
@@ -797,6 +723,21 @@ impl TeamFactory {
     pub fn take_host_pre_team_destroy_requests(&mut self) -> Vec<(TeamID, String)> {
         std::mem::take(&mut self.host_pre_team_destroy)
     }
+}
+
+fn owning_player_index(owner_name: &str) -> Option<crate::player::PlayerIndex> {
+    let list = player_list().read().ok()?;
+    let player = if owner_name.is_empty() {
+        list.get_neutral_player()
+    } else {
+        list.find_player_by_name(owner_name)
+            .or_else(|| list.get_neutral_player())
+    }?;
+    Some(player.get_player_index())
+}
+
+fn controlling_player_index_for_owner(owner_name: &str) -> Option<u32> {
+    owning_player_index(owner_name).map(|index| index as u32)
 }
 
 /// C++ TeamTemplateInfo (Team.cpp:669-679): walk `getFirstWaypoint` / `getNext`.
@@ -881,16 +822,10 @@ fn evaluate_generic_script_conditions(
 
     let difficulty = current_player_name
         .and_then(|player_name| {
-            player_list()
-                .read()
-                .ok()
-                .and_then(|list| list.find_player_by_name(player_name))
-                .and_then(|player| {
-                    player
-                        .read()
-                        .ok()
-                        .map(|player| player.get_player_difficulty())
-                })
+            player_list().read().ok().and_then(|list| {
+                list.find_player_by_name(player_name)
+                    .map(|player| player.get_player_difficulty())
+            })
         })
         .unwrap_or(crate::player::GameDifficulty::Normal);
 
@@ -937,9 +872,9 @@ fn execute_pending_team_generic_script_evals(script_evals: Vec<PendingTeamGeneri
             .prototype
             .take_or_load_generic_script_runtime(pending.script_index)
         else {
-            if let Ok(mut team_guard) = pending.team.write() {
-                team_guard.disable_generic_script_attempt(pending.script_index);
-            }
+            let _ = with_team_mut(pending.team_id, |team| {
+                team.disable_generic_script_attempt(pending.script_index);
+            });
             continue;
         };
 
@@ -996,9 +931,9 @@ fn execute_pending_team_generic_script_evals(script_evals: Vec<PendingTeamGeneri
                     }
 
                     if script.is_one_shot() {
-                        if let Ok(mut team_guard) = pending.team.write() {
-                            team_guard.disable_generic_script_attempt(pending.script_index);
-                        }
+                        let _ = with_team_mut(pending.team_id, |team| {
+                            team.disable_generic_script_attempt(pending.script_index);
+                        });
                     }
                 }
             }

@@ -2,15 +2,13 @@
 
 fn kill_local_player_selection() {
     // Wave 976: host empty dual-world still routes kills through TheGameLogic IDs
-    // (selection manager + TheGameLogic::find_object_by_id), not OBJECT_REGISTRY walks.
+    // (selection manager + OBJECT_REGISTRY.with_object_mut), not get_all_objects walks.
     let selected_ids = local_selection_object_ids();
 
     for object_id in selected_ids {
-        if let Some(object_arc) = TheGameLogic::find_object_by_id(object_id) {
-            if let Ok(mut object) = object_arc.write() {
-                object.kill(None, None);
-            }
-        }
+        OBJECT_REGISTRY.with_object_mut(object_id, |object| {
+            object.kill(None, None);
+        });
     }
 }
 
@@ -43,30 +41,27 @@ fn kill_all_enemy_objects_for_local_player() {
             }
         });
         for object_id in enemy_ids {
-            if let Some(object_arc) = TheGameLogic::find_object_by_id(object_id) {
-                if let Ok(mut object) = object_arc.write() {
-                    object.kill(None, None);
-                }
-            }
+            OBJECT_REGISTRY.with_object_mut(object_id, |object| {
+                object.kill(None, None);
+            });
         }
         return;
     }
-    for object in OBJECT_REGISTRY.get_all_objects() {
-        let Ok(mut object_guard) = object.write() else {
-            continue;
-        };
-        let is_enemy = object_guard
-            .get_controlling_player()
-            .and_then(|player| {
-                player
-                    .read()
-                    .ok()
-                    .map(|guard| guard.is_enemy_with_team(&local_team_guard))
-            })
-            .unwrap_or(false);
-        if is_enemy {
-            object_guard.kill(None, None);
-        }
+    for object_id in OBJECT_REGISTRY.get_all_object_ids() {
+        OBJECT_REGISTRY.with_object_mut(object_id, |object_guard| {
+            let is_enemy = object_guard
+                .get_controlling_player()
+                .and_then(|player| {
+                    player
+                        .read()
+                        .ok()
+                        .map(|guard| guard.is_enemy_with_team(&local_team_guard))
+                })
+                .unwrap_or(false);
+            if is_enemy {
+                object_guard.kill(None, None);
+            }
+        });
     }
 }
 
@@ -77,28 +72,24 @@ fn first_selected_object_id_for_local_player() -> Option<u32> {
 fn adjust_local_selection_veterancy(delta: i32) {
     // Wave 976: host empty dual-world still routes veterancy through TheGameLogic IDs.
     for object_id in local_selection_object_ids() {
-        let Some(object_arc) = TheGameLogic::find_object_by_id(object_id) else {
-            continue;
-        };
-        let Ok(mut object) = object_arc.write() else {
-            continue;
-        };
-        let Some(tracker_arc) = object.get_experience_tracker() else {
-            continue;
-        };
-        let Ok(mut tracker) = tracker_arc.lock() else {
-            continue;
-        };
-        if !tracker.is_trainable() {
-            continue;
-        }
+        OBJECT_REGISTRY.with_object_mut(object_id, |object| {
+            let Some(tracker_arc) = object.get_experience_tracker() else {
+                return;
+            };
+            let Ok(mut tracker) = tracker_arc.lock() else {
+                return;
+            };
+            if !tracker.is_trainable() {
+                return;
+            }
 
-        let old_level = tracker.get_veterancy_level();
-        let new_level = old_level.saturating_add_levels(delta);
-        if tracker.set_veterancy_level(new_level).is_some() {
-            drop(tracker);
-            object.on_veterancy_level_changed(old_level, new_level, true);
-        }
+            let old_level = tracker.get_veterancy_level();
+            let new_level = old_level.saturating_add_levels(delta);
+            if tracker.set_veterancy_level(new_level).is_some() {
+                drop(tracker);
+                object.on_veterancy_level_changed(old_level, new_level, true);
+            }
+        });
     }
 }
 
@@ -338,11 +329,15 @@ fn refresh_drawable_time_of_day(time_of_day: TimeOfDay) {
         let _ = (mapped, applied);
         return;
     }
-    for object in OBJECT_REGISTRY.get_all_objects() {
-        let drawable = object.read().ok().and_then(|guard| guard.get_drawable());
-        let Some(drawable) = drawable else {
-            continue;
-        };
+    let mut drawables = Vec::new();
+    for object_id in OBJECT_REGISTRY.get_all_object_ids() {
+        if let Some(drawable) = OBJECT_REGISTRY.with_object(object_id, |guard| guard.get_drawable()) {
+            if let Some(drawable) = drawable {
+                drawables.push(drawable);
+            }
+        }
+    }
+    for drawable in drawables {
         let mut drawable_guard = match drawable.write() {
             Ok(guard) => guard,
             Err(_) => continue,
@@ -372,9 +367,9 @@ fn refresh_drawable_model_conditions() {
         let _ = (clear, set);
         return;
     }
-    for object in OBJECT_REGISTRY.get_all_objects() {
-        if let Ok(mut object_guard) = object.write() {
+    for object_id in OBJECT_REGISTRY.get_all_object_ids() {
+        OBJECT_REGISTRY.with_object_mut(object_id, |object_guard| {
             let _ = object_guard.clear_and_set_model_condition_flags(clear, set);
-        }
+        });
     }
 }

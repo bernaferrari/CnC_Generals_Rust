@@ -722,10 +722,7 @@ impl TheThingFactory {
         &self,
         template: std::sync::Arc<dyn crate::common::ThingTemplate>,
         team: &crate::team::Team,
-    ) -> Result<
-        std::sync::Arc<std::sync::RwLock<crate::object::Object>>,
-        Box<dyn std::error::Error + Send + Sync>,
-    > {
+    ) -> Result<crate::common::ObjectID, Box<dyn std::error::Error + Send + Sync>> {
         self.new_object_with_status(template, team, crate::common::ObjectStatusMaskType::NONE)
     }
 
@@ -736,10 +733,7 @@ impl TheThingFactory {
         template: std::sync::Arc<dyn crate::common::ThingTemplate>,
         team: &crate::team::Team,
         status_bits: crate::common::ObjectStatusMaskType,
-    ) -> Result<
-        std::sync::Arc<std::sync::RwLock<crate::object::Object>>,
-        Box<dyn std::error::Error + Send + Sync>,
-    > {
+    ) -> Result<crate::common::ObjectID, Box<dyn std::error::Error + Send + Sync>> {
         use crate::object_manager::get_object_manager;
         use crate::object_manager::ObjectCreationFlags;
         use crate::team::get_team_factory;
@@ -765,14 +759,8 @@ impl TheThingFactory {
             )
             .map_err(|e| e.to_string())?;
 
-        let base = get_object_manager()
-            .read()
-            .map_err(|_| "ObjectManager lock poisoned")?
-            .with_object(object_id, |instance| instance.base())
-            .ok_or_else(|| "Created object not found in ObjectManager".to_string())?;
-
-        register_created_object_with_partition(&base);
-        Ok(base)
+        register_created_object_with_partition(object_id);
+        Ok(object_id)
     }
 
     /// Create new object while preserving the exact team handle supplied by the caller.
@@ -783,10 +771,7 @@ impl TheThingFactory {
         &self,
         template: std::sync::Arc<dyn crate::common::ThingTemplate>,
         team: std::sync::Arc<std::sync::RwLock<crate::team::Team>>,
-    ) -> Result<
-        std::sync::Arc<std::sync::RwLock<crate::object::Object>>,
-        Box<dyn std::error::Error + Send + Sync>,
-    > {
+    ) -> Result<crate::common::ObjectID, Box<dyn std::error::Error + Send + Sync>> {
         self.new_object_with_team_handle_and_status(
             template,
             team,
@@ -800,10 +785,7 @@ impl TheThingFactory {
         template: std::sync::Arc<dyn crate::common::ThingTemplate>,
         team: std::sync::Arc<std::sync::RwLock<crate::team::Team>>,
         status_bits: crate::common::ObjectStatusMaskType,
-    ) -> Result<
-        std::sync::Arc<std::sync::RwLock<crate::object::Object>>,
-        Box<dyn std::error::Error + Send + Sync>,
-    > {
+    ) -> Result<crate::common::ObjectID, Box<dyn std::error::Error + Send + Sync>> {
         use crate::object_manager::get_object_manager;
         use crate::object_manager::ObjectCreationFlags;
 
@@ -823,14 +805,8 @@ impl TheThingFactory {
             )
             .map_err(|e| e.to_string())?;
 
-        let base = get_object_manager()
-            .read()
-            .map_err(|_| "ObjectManager lock poisoned")?
-            .with_object(object_id, |instance| instance.base())
-            .ok_or_else(|| "Created object not found in ObjectManager".to_string())?;
-
-        register_created_object_with_partition(&base);
-        Ok(base)
+        register_created_object_with_partition(object_id);
+        Ok(object_id)
     }
 
     /// Create new object from template with an optional team (matches C++ NULL-team usage).
@@ -838,10 +814,7 @@ impl TheThingFactory {
         &self,
         template: std::sync::Arc<dyn crate::common::ThingTemplate>,
         team: Option<&crate::team::Team>,
-    ) -> Result<
-        std::sync::Arc<std::sync::RwLock<crate::object::Object>>,
-        Box<dyn std::error::Error + Send + Sync>,
-    > {
+    ) -> Result<crate::common::ObjectID, Box<dyn std::error::Error + Send + Sync>> {
         self.new_object_optional_team_with_status(
             template,
             team,
@@ -855,10 +828,7 @@ impl TheThingFactory {
         template: std::sync::Arc<dyn crate::common::ThingTemplate>,
         team: Option<&crate::team::Team>,
         status_bits: crate::common::ObjectStatusMaskType,
-    ) -> Result<
-        std::sync::Arc<std::sync::RwLock<crate::object::Object>>,
-        Box<dyn std::error::Error + Send + Sync>,
-    > {
+    ) -> Result<crate::common::ObjectID, Box<dyn std::error::Error + Send + Sync>> {
         use crate::object_manager::get_object_manager;
         use crate::object_manager::ObjectCreationFlags;
         use crate::team::get_team_factory;
@@ -886,28 +856,22 @@ impl TheThingFactory {
             )
             .map_err(|e| e.to_string())?;
 
-        let base = get_object_manager()
-            .read()
-            .map_err(|_| "ObjectManager lock poisoned")?
-            .with_object(object_id, |instance| instance.base())
-            .ok_or_else(|| "Created object not found in ObjectManager".to_string())?;
-
-        register_created_object_with_partition(&base);
-        Ok(base)
+        register_created_object_with_partition(object_id);
+        Ok(object_id)
     }
 }
 
 /// C++ `ThingFactory::newObject` — `ThePartitionManager->registerObject`.
-fn register_created_object_with_partition(
-    object: &std::sync::Arc<std::sync::RwLock<crate::object::Object>>,
-) {
-    let Ok(guard) = object.read() else {
-        return;
-    };
+fn register_created_object_with_partition(object_id: crate::common::ObjectID) {
     let Some(partition) = crate::helpers::ThePartitionManager::get() else {
         return;
     };
-    partition.register_object_at(guard.get_id(), *guard.get_position());
+    let Some(pos) = crate::object::registry::OBJECT_REGISTRY
+        .with_object(object_id, |obj| *obj.get_position())
+    else {
+        return;
+    };
+    partition.register_object_at(object_id, pos);
 }
 
 /// TheFXListStore singleton - FX list storage system (matching C++ TheFXListStore)

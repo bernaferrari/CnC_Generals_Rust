@@ -12,8 +12,8 @@ pub(super) fn resolve_owner_id(thing: &Arc<dyn ModuleThing>) -> ObjectID {
 
 pub(super) fn resolve_owner_info(thing: &Arc<dyn ModuleThing>) -> (ObjectID, Coord3D) {
     let owner_id = resolve_owner_id(thing);
-    let position = TheGameLogic::find_object_by_id(owner_id)
-        .and_then(|object| object.read().ok().map(|guard| *guard.get_position()))
+    let position = crate::object::registry::OBJECT_REGISTRY
+        .with_object(owner_id, |obj| *obj.get_position())
         .unwrap_or_default();
     (owner_id, position)
 }
@@ -83,26 +83,16 @@ pub(super) fn resolve_drawable_id(thing: &Arc<dyn ModuleThing>) -> u32 {
         .unwrap_or(INVALID_ID)
 }
 
-pub(super) fn owner_weak(owner_id: ObjectID) -> Weak<RwLock<crate::object::Object>> {
-    TheGameLogic::find_object_by_id(owner_id)
-        .map(|arc| Arc::downgrade(&arc))
-        .unwrap_or_else(Weak::new)
-}
-
 pub(super) fn attach_contain_to_object(object_id: ObjectID, contain: Box<dyn ContainModuleInterface>) {
-    if let Some(object) = TheGameLogic::find_object_by_id(object_id) {
-        if let Ok(mut guard) = object.write() {
-            guard.set_contain(Some(contain));
-        }
-    }
+    let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(object_id, |obj| {
+        obj.set_contain(Some(contain));
+    });
 }
 
 pub(super) fn attach_body_to_object(object_id: ObjectID, body: Box<dyn BodyModuleInterface>) {
-    if let Some(object) = TheGameLogic::find_object_by_id(object_id) {
-        if let Ok(mut guard) = object.write() {
-            guard.set_body_module(Some(body));
-        }
-    }
+    let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(object_id, |obj| {
+        obj.set_body_module(Some(body));
+    });
 }
 
 /// True when `module` is the contain binding module whose contain instance is
@@ -171,7 +161,7 @@ pub(super) fn active_behavior_module<TBehavior, TData>(
     module_data: Arc<dyn ModuleData>,
     module_name: &str,
     create: fn(
-        Arc<RwLock<crate::object::Object>>,
+        ObjectID,
         Arc<dyn LegacyModuleData>,
     ) -> Result<TBehavior, Box<dyn std::error::Error + Send + Sync>>,
 ) -> Box<dyn Module>
@@ -184,10 +174,10 @@ where
     let legacy_data: Arc<dyn LegacyModuleData> = data_arc;
     let owner_id = resolve_owner_id(&thing);
     // Wave 449: missing dual-world/host owner → no-op module (no panic).
-    let Some(object) = TheGameLogic::find_object_by_id(owner_id) else {
+    if !TheGameLogic::find_object_by_id(owner_id) {
         return missing_owner_module(module_name, engine_data);
-    };
-    let behavior = match create(object, legacy_data) {
+    }
+    let behavior = match create(owner_id, legacy_data) {
         Ok(behavior) => behavior,
         Err(err) => {
             warn!("{module_name} init failed: {err}; installing no-op module");

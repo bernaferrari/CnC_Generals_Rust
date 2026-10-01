@@ -2812,7 +2812,7 @@ fn physical_rmb_dock_uses_exact_controller_not_same_faction_friendliness() {
         .stored_resources
         .supplies = 1;
 
-    let frame = PresentationFrame::build_from_logic(&game_logic, 0);
+    let frame = PresentationFrame::build_from_logic(&mut game_logic, 0);
     let other_center = frame
         .objects
         .iter()

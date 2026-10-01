@@ -19,8 +19,6 @@ use generals_main::save_load::{
 #[cfg(feature = "dev-tools")]
 use glam::Vec3;
 #[cfg(feature = "dev-tools")]
-use std::sync::{Arc, Mutex};
-#[cfg(feature = "dev-tools")]
 use std::time::{Duration, SystemTime};
 
 #[cfg(feature = "dev-tools")]
@@ -32,11 +30,7 @@ fn build_demo_state() {
     let _ = logic.create_object("USA_Humvee", Team::USA, Vec3::new(-10.0, 0.0, -8.0));
     let _ = logic.create_object("GLA_Soldier", Team::GLA, Vec3::new(25.0, 0.0, 25.0));
 
-    let game_logic = Arc::new(Mutex::new(logic));
-    let command_system = Arc::new(Mutex::new(CommandSystem::new()));
-    let ai_system = Arc::new(Mutex::new(AIManager::new()));
-
-    register_game_systems(game_logic, command_system, ai_system, None);
+    register_game_systems(logic, CommandSystem::new(), AIManager::new(), None);
 }
 
 #[cfg(feature = "dev-tools")]

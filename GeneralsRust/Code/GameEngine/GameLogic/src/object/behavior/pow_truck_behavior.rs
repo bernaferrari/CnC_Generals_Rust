@@ -90,16 +90,12 @@ pub struct POWTruckBehavior {
 #[cfg(feature = "allow_surrender")]
 impl POWTruckBehavior {
     pub fn new(
-        object: Arc<RwLock<Object>>,
+        object_id: ObjectID,
         module_data: Arc<POWTruckBehaviorModuleData>,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let contain = OpenContain::new(Arc::downgrade(&object), &module_data.base)?;
         Ok(Self {
-            object_id: object
-                .read()
-                .ok()
-                .map(|g| g.get_id())
-                .unwrap_or(crate::common::INVALID_ID),
+            object_id: object_id,
             contain,
         })
     }
@@ -121,7 +117,7 @@ impl POWTruckBehavior {
         crate::object::registry::OBJECT_REGISTRY.with_object(id, f)
     }
 
-    fn get_object(&self) -> Option<Arc<RwLock<Object>>> {
+    fn get_object(&self) -> Option<ObjectID> {
         // Wave 366: empty dual-world → None.
         if dual_world_registry_unavailable() {
             return None;

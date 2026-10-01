@@ -1856,13 +1856,13 @@ mod tests {
             (logic, id)
         }
         let (mut playing, id) = world();
-        let _ = PresentationFrame::build_from_logic(&playing, 0).unit_render_inputs();
+        let _ = PresentationFrame::build_from_logic(&mut playing, 0).unit_render_inputs();
         let saved = capture_persist_v18(&playing);
         let bytes = serde_json::to_vec(&saved).unwrap();
         let decoded: WorldPersistV18 = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(serde_json::to_vec(&decoded).unwrap(), bytes);
         playing.frame = 30;
-        let _ = PresentationFrame::build_from_logic(&playing, 0).unit_render_inputs();
+        let _ = PresentationFrame::build_from_logic(&mut playing, 0).unit_render_inputs();
         let before = capture_persist_v18(&playing);
         let (mut candidate, candidate_id) = world();
         assert_eq!(id, candidate_id);

@@ -175,11 +175,11 @@ pub struct InstantDeathBehavior {
 
 impl InstantDeathBehavior {
     pub fn new(
-        object: Arc<RwLock<Object>>,
+        object_id: ObjectID,
         module_data: Arc<InstantDeathBehaviorModuleData>,
     ) -> Self {
         Self {
-            base: DieModule::new(object, module_data),
+            base: DieModule::new(object_id, module_data),
         }
     }
 

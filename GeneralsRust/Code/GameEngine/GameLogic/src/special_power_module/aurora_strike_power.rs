@@ -205,12 +205,6 @@ impl AuroraStrikePower {
         {
             return Ok(());
         }
-        let owner = self
-            .resolve_owner_object()
-            .ok_or_else(|| "Aurora Strike requires an owning object".to_string())?;
-        let owner_guard = owner
-            .read()
-            .map_err(|_| "owner lock poisoned".to_string())?;
 
         let mut target_coord = targeting.position;
         if let Some(target_id) = targeting.target_object {
@@ -237,10 +231,13 @@ impl AuroraStrikePower {
             }
         }
 
+        let owner_pos_fallback = crate::object::registry::OBJECT_REGISTRY
+            .with_object(owner_id, |g| *g.get_position())
+            .unwrap_or(target_coord);
         let creation_coord = match self.data.create_loc {
             OclCreateLocType::CreateAtEdgeNearSource => TheTerrainLogic::get()
-                .map(|terrain| terrain.find_closest_edge_point(owner_guard.get_position()))
-                .unwrap_or(*owner_guard.get_position()),
+                .map(|terrain| terrain.find_closest_edge_point(&owner_pos_fallback))
+                .unwrap_or(*&owner_pos_fallback),
             OclCreateLocType::CreateAtEdgeNearTarget => TheTerrainLogic::get()
                 .map(|terrain| terrain.find_closest_edge_point(&target_coord))
                 .unwrap_or(target_coord),
@@ -262,26 +259,13 @@ impl AuroraStrikePower {
 
         let ctx = live_creation_context();
         let create_owner = self.data.create_loc != OclCreateLocType::UseOwnerObject;
-        let created = if create_owner {
-            ocl.create_with_angle(
-                &ctx,
-                Some(&*owner_guard),
-                &creation_coord,
-                &target_coord,
-                0.0,
-                0,
-            )
-        } else {
-            ocl.create_with_angle_and_owner_flag(
-                &ctx,
-                Some(&*owner_guard),
-                &creation_coord,
-                &target_coord,
-                0.0,
-                false,
-                0,
-            )
-        };
+        let created = self.with_owner(|owner_guard| {
+            if create_owner {
+                ocl.create_with_angle(&ctx, Some(owner_guard), &creation_coord, &target_coord, 0.0, 0)
+            } else {
+                ocl.create_with_angle_and_owner_flag(&ctx, Some(owner_guard), &creation_coord, &target_coord, 0.0, false, 0)
+            }
+        }).ok_or_else(|| "owning object missing".to_string())?;
 
         if let Some(obj) = created {
             if let Ok(guard) = obj.read() {
@@ -317,10 +301,11 @@ impl AuroraStrikePower {
         positions
     }
 
-    fn resolve_owner_object(&self) -> Option<Arc<RwLock<crate::object::Object>>> {
-        crate::special_power_module::resolve_special_power_owner(
+    fn with_owner<R>(&self, f: impl FnOnce(&crate::object::Object) -> R) -> Option<R> {
+        crate::special_power_module::with_special_power_owner(
             self.owner_object_id,
             self.owner_player_id,
+            f,
         )
     }
 

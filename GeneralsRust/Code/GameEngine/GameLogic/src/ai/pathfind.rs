@@ -440,13 +440,8 @@ impl Path {
             optimizer.optimize(&raw_points, &opt_layers, passable);
 
         if (acceptable_surfaces & SURFACE_GROUND) != 0 {
-            let diameter = TheGameLogic::find_object_by_id(obj_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
-                .and_then(|obj| {
-                    obj.read()
-                        .ok()
-                        .map(|guard| guard.get_geometry_info().get_major_radius())
-                })
+            let diameter = crate::object::registry::OBJECT_REGISTRY
+                .with_object(obj_id, |guard| guard.get_geometry_info().get_major_radius())
                 .unwrap_or(PATHFIND_CELL_SIZE_F)
                 .max(PATHFIND_CELL_SIZE_F)
                 * 2.0;
@@ -967,22 +962,19 @@ impl PathfindCell {
     /// Prefer [`Self::set_type_as_obstacle`] with explicit flags.
     pub fn set_type_as_obstacle_from_object(
         &mut self,
-        obstacle: &Arc<RwLock<Object>>,
+        obstacle_id: ObjectID,
         is_fence: bool,
         pos: &ICoord2D,
     ) -> bool {
-        let Ok(obj_ref) = obstacle.try_read() else {
+        let Some(transparent) = crate::object::registry::OBJECT_REGISTRY
+            .with_object(obstacle_id, |obj| obj.is_any_kind_of(&[KindOf::CanSeeThrough]))
+        else {
             return false;
         };
-        self.set_type_as_obstacle(
-            obj_ref.get_id(),
-            is_fence,
-            obj_ref.is_any_kind_of(&[KindOf::CanSeeThrough]),
-            pos,
-        )
+        self.set_type_as_obstacle(obstacle_id, is_fence, transparent, pos)
     }
 
-    /// Set as obstacle using a direct object reference (no Arc<Mutex> available).
+    /// Set as obstacle using a direct object reference (no Arc).
     pub fn set_type_as_obstacle_for_object(
         &mut self,
         obstacle: &Object,
@@ -999,13 +991,9 @@ impl PathfindCell {
         true
     }
 
-    /// Remove obstacle
-    /// Prefer [`Self::remove_obstacle_by_id`].
-    pub fn remove_obstacle(&mut self, obstacle: &Arc<RwLock<Object>>) -> bool {
-        let Ok(obj_ref) = obstacle.try_read() else {
-            return false;
-        };
-        self.remove_obstacle_by_id(obj_ref.get_id())
+    /// Remove obstacle by id. Prefer [`Self::remove_obstacle_by_id`].
+    pub fn remove_obstacle(&mut self, obstacle_id: ObjectID) -> bool {
+        self.remove_obstacle_by_id(obstacle_id)
     }
 
     /// Remove obstacle by object id.
@@ -1675,26 +1663,10 @@ pub fn adjust_destination_for_object(
     goal: &mut Coord3D,
     group_dest: Option<&Coord3D>,
 ) -> Result<(), String> {
-    let obj = TheGameLogic::find_object_by_id(obj_id)
-        .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+    let has_ai = crate::object::registry::OBJECT_REGISTRY
+        .with_object(obj_id, |obj_guard| obj_guard.get_ai_update_interface().is_some())
         .ok_or_else(|| format!("Could not resolve object {obj_id} for destination adjustment"))?;
-    let obj_guard = obj
-        .try_read()
-        .map_err(|_| "Could not lock object for destination adjustment")?;
-
-    // Get AI update interface if available
-    if let Some(_ai) = obj_guard.get_ai_update_interface() {
-        // Use the AI's adjust_destination if it has one
-        drop(obj_guard);
-
-        // Try to get mutable access to call adjust_destination
-        if let Ok(mut obj_mut) = obj.try_write() {
-            if let Some(ai_mut) = obj_mut.get_ai_update_interface_mut() {
-                // Note: The actual adjustment is done via the trait method
-                // This is a simplified implementation
-                let _ = ai_mut;
-            }
-        }
+    if has_ai {
         return Ok(());
     }
 
@@ -1724,30 +1696,25 @@ pub fn update_goal_for_object(
     goal: &Coord3D,
     layer: PathfindLayerEnum,
 ) -> Result<(), String> {
-    let obj = TheGameLogic::find_object_by_id(obj_id)
-        .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
+    let (radius, interacts_with_bridge_end, dest_layer) = crate::object::registry::OBJECT_REGISTRY
+        .with_object(obj_id, |obj_guard| {
+            let geo = obj_guard.get_geometry_info();
+            let r = (geo.get_major_radius() / crate::ai::pathfind_astar::PATHFIND_CELL_SIZE_F)
+                .floor() as i32;
+            let dest_layer = get_terrain_logic()
+                .read()
+                .ok()
+                .map(|t| t.get_layer_for_destination(goal))
+                .unwrap_or(crate::path::PathfindLayerEnum::Ground);
+            let interacts = get_terrain_logic()
+                .read()
+                .ok()
+                .map(|t| t.object_interacts_with_bridge_end(obj_guard, dest_layer))
+                .unwrap_or(false);
+            (r.clamp(0, 2), interacts, dest_layer)
+        })
         .ok_or_else(|| format!("Could not resolve object {obj_id} for goal update"))?;
-    let obj_guard = obj
-        .try_read()
-        .map_err(|_| "Could not lock object for goal update")?;
-
     let cell = crate::ai::pathfind_astar::GridCoord::from_world(goal);
-    let radius = {
-        let geo = obj_guard.get_geometry_info();
-        let r = (geo.get_major_radius() / crate::ai::pathfind_astar::PATHFIND_CELL_SIZE_F).floor()
-            as i32;
-        r.clamp(0, 2)
-    };
-    let dest_layer = get_terrain_logic()
-        .read()
-        .ok()
-        .map(|t| t.get_layer_for_destination(goal))
-        .unwrap_or(crate::path::PathfindLayerEnum::Ground);
-    let interacts_with_bridge_end = get_terrain_logic()
-        .read()
-        .ok()
-        .map(|t| t.object_interacts_with_bridge_end(&*obj_guard, dest_layer))
-        .unwrap_or(false);
     let pf_layer = if dest_layer != crate::path::PathfindLayerEnum::Ground {
         crate::ai::pathfind_astar::PathfindLayerEnum::from_u32(dest_layer as u32)
     } else {
@@ -1756,8 +1723,8 @@ pub fn update_goal_for_object(
             other => crate::ai::pathfind_astar::PathfindLayerEnum::from_u32(other as u32),
         }
     };
-    drop(obj_guard);
-    let ai_store = the_ai(); if let Ok(ai) = ai_store.read() {
+    let ai_store = the_ai();
+    if let Ok(ai) = ai_store.read() {
         if let Some(pf) = ai.pathfinder() {
             if let Ok(pf) = pf.read() {
                 pf.update_goal_cells(

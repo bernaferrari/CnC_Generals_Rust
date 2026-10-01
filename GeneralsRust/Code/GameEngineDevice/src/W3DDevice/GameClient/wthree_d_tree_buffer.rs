@@ -1016,14 +1016,10 @@ impl W3DTreeBuffer {
     }
 }
 
-// Thread-safe implementation
-// SAFETY: W3DTreeBuffer owns only Send data (SlotMap/Vec/HashMap fields, plain
-// SAFETY: values, Arc'd wgpu Device/Queue, bumpalo Bump); it holds no raw
-// SAFETY: pointers, so moving it between threads cannot invalidate anything.
-unsafe impl Send for W3DTreeBuffer {}
-// SAFETY: every field is independently Sync (owned collections, Arc'd wgpu
-// SAFETY: resources, plain values); no interior mutability is exposed, so
-// SAFETY: shared references are thread-safe.
+// `bumpalo::Bump` is Send but not Sync (`Cell` allocation finger). Every other
+// field is Sync, and the bump is only reset through `&mut self` (`clear`), so
+// a shared reference never touches that Cell.
+// SAFETY: shared `&W3DTreeBuffer` does not reach the bump allocator's Cell.
 unsafe impl Sync for W3DTreeBuffer {}
 
 #[cfg(test)]

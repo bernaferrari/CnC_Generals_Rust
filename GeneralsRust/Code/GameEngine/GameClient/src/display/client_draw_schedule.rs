@@ -165,8 +165,12 @@ fn update_particles_after_transforms() {
 fn draw_logic_drawables_in_region(region: ViewAabb, #[cfg(test)] drawn: &mut Vec<u32>) {
     use gamelogic::drawable::Drawable as LogicDrawable;
 
-    for object in OBJECT_REGISTRY.get_all_objects() {
-        let Some(drawable) = object.read().ok().and_then(|obj| obj.get_drawable()) else {
+    let ids = OBJECT_REGISTRY.get_all_object_ids();
+    for id in ids {
+        let Some(drawable) = OBJECT_REGISTRY
+            .with_object(id, |obj| obj.get_drawable())
+            .flatten()
+        else {
             continue;
         };
         let Ok(mut guard) = drawable.write() else {

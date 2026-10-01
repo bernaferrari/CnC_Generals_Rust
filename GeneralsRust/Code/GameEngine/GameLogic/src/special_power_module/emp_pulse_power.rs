@@ -171,29 +171,26 @@ impl EmpPulsePower {
         let disable_until = current_frame.saturating_add(frames);
 
         for object_id in object_ids {
-            let Some(obj_arc) = crate::helpers::TheGameLogic::find_object_by_id(object_id) else {
+            let snapshot = crate::object::registry::OBJECT_REGISTRY
+                .with_object(object_id, |obj_guard| {
+                    if obj_guard.is_destroyed() {
+                        return None;
+                    }
+                    let rel = relationship_to_player(obj_guard, owner_player_id);
+                    let should_affect = self.should_affect_object(obj_guard, rel);
+                    Some((should_affect, obj_guard.is_structure()))
+                })
+                .flatten();
+            let Some((should_affect, is_structure)) = snapshot else {
                 continue;
             };
-
-            let (should_affect, is_structure) = {
-                let Ok(obj_guard) = obj_arc.read() else {
-                    continue;
-                };
-                if obj_guard.is_destroyed() {
-                    continue;
-                }
-                let rel = relationship_to_player(&obj_guard, owner_player_id);
-                let should_affect = self.should_affect_object(&obj_guard, rel);
-                (should_affect, obj_guard.is_structure())
-            };
-
             if !should_affect {
                 continue;
             }
 
-            if let Ok(mut obj_write) = obj_arc.write() {
+            crate::object::registry::OBJECT_REGISTRY.with_object_mut(object_id, |obj_write| {
                 obj_write.set_disabled_until(DisabledType::DisabledEmp, disable_until);
-            }
+            });
 
             self.affected_objects.push(object_id);
             if is_structure {

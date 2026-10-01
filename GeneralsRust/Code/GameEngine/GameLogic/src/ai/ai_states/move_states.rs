@@ -60,12 +60,7 @@ fn leftover_restake_idle_pathfinder(owner_id: ObjectID) {
     if dual_world_registry_unavailable() {
         return;
     }
-    let Some(owner_arc) = OBJECT_REGISTRY.get_object(owner_id) else {
-        return;
-    };
-    let Ok(mut owner) = owner_arc.write() else {
-        return;
-    };
+    let _ = OBJECT_REGISTRY.with_object_mut(owner_id, |owner| {
     let mut ultra_accurate = false;
     let (is_idle, doing_ground_movement) = {
         let Some(ai_guard) = owner.get_ai_update_interface_mut() else {
@@ -115,6 +110,7 @@ fn leftover_restake_idle_pathfinder(owner_id: ObjectID) {
         ai_guard.set_locomotor_goal_none();
         ai_guard.set_current_victim(None);
     }
+    });
 }
 
 /// AI Move To State

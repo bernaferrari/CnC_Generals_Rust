@@ -197,73 +197,70 @@ impl SupplyWarehouseDockUpdate {
             return;
         }
 
-        let Some(owner) = crate::helpers::TheGameLogic::find_object_by_id(self.base.owner_id())
-        else {
-            return;
-        };
-        let Ok(owner_guard) = owner.read() else {
-            return;
-        };
-        let Some(drawable) = owner_guard.get_drawable() else {
-            return;
-        };
-        let Ok(mut drawable_guard) = drawable.write() else {
-            return;
-        };
-        drawable_guard.update_supply_status(self.data.starting_boxes, self.boxes_stored);
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object(self.base.owner_id(), |owner_guard| {
+            let Some(drawable) = owner_guard.get_drawable() else {
+                return;
+            };
+            let Ok(mut drawable_guard) = drawable.write() else {
+                return;
+            };
+            drawable_guard.update_supply_status(self.data.starting_boxes, self.boxes_stored);
+        });
     }
 
-    fn perform_supply_transfer(&mut self, docker: &Arc<RwLock<Object>>) -> Result<bool, String> {
+    fn perform_supply_transfer(&mut self, docker: &ObjectID) -> Result<bool, String> {
         // Resolve owner/docker via TheGameLogic even when OBJECT_REGISTRY is empty.
 
         if self.boxes_stored == 0 {
             return Ok(false);
         }
 
-        let owner = crate::helpers::TheGameLogic::find_object_by_id(self.base.owner_id())
-            .ok_or_else(|| "SupplyWarehouseDock: missing owner".to_string())?;
-        let owner_guard = owner
-            .read()
-            .map_err(|_| "SupplyWarehouseDock: owner lock")?;
-        let docker_guard = docker
-            .read()
-            .map_err(|_| "SupplyWarehouseDock: docker lock")?;
-
-        let close_enough_sqr = (docker_guard
-            .get_geometry_info()
-            .get_bounding_circle_radius()
-            * 2.0)
-            .powi(2);
-        let cur_dist_sqr = crate::helpers::ThePartitionManager::get_distance_squared(
-            &docker_guard,
-            &owner_guard,
-            FROM_BOUNDING_SPHERE_2D,
-        );
-        if cur_dist_sqr > close_enough_sqr {
-            let mut new_pos = *docker_guard.get_position();
-            let range = 0.4 * crate::path::PATHFIND_CELL_SIZE_F;
-            new_pos.x += GameLogicRandomValueReal!(-range, range);
-            new_pos.y += GameLogicRandomValueReal!(-range, range);
-            drop(docker_guard);
-            if let Ok(mut docker_write) = docker.write() {
+        let close = crate::object::registry::OBJECT_REGISTRY.with_object(self.base.owner_id(), |owner_guard| {
+            crate::object::registry::OBJECT_REGISTRY.with_object(*docker, |docker_guard| {
+                let close_enough_sqr = (docker_guard
+                    .get_geometry_info()
+                    .get_bounding_circle_radius()
+                    * 2.0)
+                    .powi(2);
+                let cur_dist_sqr = crate::helpers::ThePartitionManager::get_distance_squared(
+                    docker_guard,
+                    owner_guard,
+                    FROM_BOUNDING_SPHERE_2D,
+                );
+                if cur_dist_sqr > close_enough_sqr {
+                    let mut new_pos = *docker_guard.get_position();
+                    let range = 0.4 * crate::path::PATHFIND_CELL_SIZE_F;
+                    new_pos.x += GameLogicRandomValueReal!(-range, range);
+                    new_pos.y += GameLogicRandomValueReal!(-range, range);
+                    Some(new_pos)
+                } else {
+                    None
+                }
+            })
+        });
+        let Some(close) = close else {
+            return Err("SupplyWarehouseDock: missing owner".into());
+        };
+        let Some(close) = close else {
+            return Err("SupplyWarehouseDock: docker lock".into());
+        };
+        if let Some(new_pos) = close {
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(*docker, |docker_write| {
                 let _ = docker_write.set_position(&new_pos);
-            }
+            });
             return Ok(false);
         }
-
-        drop(owner_guard);
-        drop(docker_guard);
 
         self.boxes_stored -= 1;
 
         let mut gained = false;
-        if let Ok(mut docker_write) = docker.write() {
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(*docker, |docker_write| {
             if let Some(ai) = docker_write.get_ai_update_interface_mut() {
                 if let Some(truck) = ai.get_supply_truck_ai_interface_mut() {
                     gained = truck.gain_one_box(self.boxes_stored);
                 }
             }
-        }
+        });
 
         if gained {
             if self.boxes_stored == 0 && self.data.delete_when_empty {
@@ -424,12 +421,10 @@ impl DockUpdateInterface for SupplyWarehouseDockUpdate {
     ) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
         // Perform supply transfer to truck
         {
-            let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
-            else {
+            if !crate::object::registry::OBJECT_REGISTRY.contains(obj_id) {
                 return Ok(false);
-            };
-            self.perform_supply_transfer(&obj)
+            }
+            self.perform_supply_transfer(&obj_id)
         }
         .map_err(|e| e.into())
     }
@@ -469,8 +464,7 @@ impl DockUpdateInterface for SupplyWarehouseDockUpdate {
         if crippled {
             let active_id = self.base.active_docker_id();
             if active_id != INVALID_ID {
-                if let Some(victim) = crate::helpers::TheGameLogic::find_object_by_id(active_id) {
-                    if let Ok(mut victim_guard) = victim.write() {
+                let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(active_id, |victim_guard| {
                         if self.base.docker_inside() {
                             if !victim_guard.is_using_airborne_locomotor() {
                                 victim_guard.kill(None, None);
@@ -490,8 +484,7 @@ impl DockUpdateInterface for SupplyWarehouseDockUpdate {
                                 }
                             }
                         }
-                    }
-                }
+                });
             }
         }
 

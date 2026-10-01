@@ -637,11 +637,9 @@ impl AIState for AIPanicState {
         self.timer = 0;
         self.wait_frames = 10 + ((context.owner_id & 0x7) as i32);
 
-        if let Some(owner_arc) = get_legacy_object(context.owner_id) {
-            if let Ok(mut owner) = owner_arc.write() {
-                owner.set_model_condition_state(ModelConditionFlags::PANICKING);
-            }
-        }
+        let _ = OBJECT_REGISTRY.with_object_mut(context.owner_id, |owner| {
+            owner.set_model_condition_state(ModelConditionFlags::PANICKING);
+        });
 
         StateReturnType::Continue
     }

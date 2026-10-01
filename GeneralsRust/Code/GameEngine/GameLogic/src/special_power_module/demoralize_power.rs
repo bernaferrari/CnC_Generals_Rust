@@ -153,10 +153,11 @@ impl DemoralizeSpecialPower {
         let mut duration = self.data.base_duration_frames;
 
         if self.owner_object_id != INVALID_ID {
-            if let Some(owner) =
-                crate::helpers::TheGameLogic::find_object_by_id(self.owner_object_id)
-            {
-                if let Ok(owner_guard) = owner.read() {
+            if let Some((range_v, duration_v)) = crate::object::registry::OBJECT_REGISTRY.with_object(
+                self.owner_object_id,
+                |owner_guard| {
+                    let mut range = range;
+                    let mut duration = duration;
                     if let Some(contain) = owner_guard.get_contain() {
                         if let Ok(contain_guard) = contain.lock() {
                             let captured_count = contain_guard.get_contained_count() as u32;
@@ -168,14 +169,17 @@ impl DemoralizeSpecialPower {
                             if duration > self.data.max_duration_frames {
                                 duration = self.data.max_duration_frames;
                             }
-
                             range += self.data.bonus_range_per_captured * captured_count as Real;
                             if range > self.data.max_range {
                                 range = self.data.max_range;
                             }
                         }
                     }
-                }
+                    (range, duration)
+                },
+            ) {
+                range = range_v;
+                duration = duration_v;
             }
         }
 
@@ -196,15 +200,13 @@ impl DemoralizeSpecialPower {
             return Err("Demoralize power requires an owning object".to_string());
         }
         let owner_id = self.owner_object_id;
-        let owner = crate::helpers::TheGameLogic::find_object_by_id(owner_id)
+        let owner_state = crate::object::registry::OBJECT_REGISTRY
+            .with_object(owner_id, |owner_guard| (owner_guard.is_disabled(), owner_guard.is_off_map()))
             .ok_or_else(|| "Demoralize power owning object not found".to_string())?;
-        let owner_guard = owner
-            .read()
-            .map_err(|_| "Demoralize owner lock poisoned".to_string())?;
-        if owner_guard.is_disabled() {
+        if owner_state.0 {
             return Ok(());
         }
-        let owner_off_map = owner_guard.is_off_map();
+        let owner_off_map = owner_state.1;
 
         let (radius, duration_frames) = self.compute_effect_parameters();
         let object_ids = crate::helpers::ThePartitionManager::get()
@@ -212,40 +214,35 @@ impl DemoralizeSpecialPower {
             .unwrap_or_default();
 
         for object_id in object_ids {
-            let Some(obj_arc) = crate::helpers::TheGameLogic::find_object_by_id(object_id) else {
-                continue;
-            };
-
-            let should_affect = {
-                let Ok(obj_guard) = obj_arc.read() else {
-                    continue;
-                };
-                if obj_guard.is_destroyed() {
-                    continue;
-                }
-                if !obj_guard.is_kind_of(KindOf::Infantry) {
-                    continue;
-                }
-                if obj_guard.is_off_map() != owner_off_map {
-                    continue;
-                }
-                matches!(
-                    owner_guard.relationship_to(&obj_guard),
-                    Relationship::Enemies | Relationship::Neutral
-                )
-            };
+            let should_affect = crate::object::registry::OBJECT_REGISTRY
+                .with_object(owner_id, |owner_guard| {
+                    crate::object::registry::OBJECT_REGISTRY.with_object(object_id, |obj_guard| {
+                        if obj_guard.is_destroyed() || !obj_guard.is_kind_of(KindOf::Infantry) {
+                            return false;
+                        }
+                        if obj_guard.is_off_map() != owner_off_map {
+                            return false;
+                        }
+                        matches!(
+                            owner_guard.relationship_to(obj_guard),
+                            Relationship::Enemies | Relationship::Neutral
+                        )
+                    })
+                })
+                .flatten()
+                .unwrap_or(false);
 
             if !should_affect {
                 continue;
             }
 
-            if let Ok(obj_guard) = obj_arc.read() {
+            crate::object::registry::OBJECT_REGISTRY.with_object(object_id, |obj_guard| {
                 if let Some(ai) = obj_guard.get_ai_update_interface() {
                     if let Ok(mut ai_guard) = ai.lock() {
                         ai_guard.set_demoralized(duration_frames);
                     }
                 }
-            }
+            });
 
             self.stats.record_unit_affected();
         }
@@ -329,12 +326,11 @@ impl SpecialPowerModuleInterface for DemoralizeSpecialPower {
                 reason: "Demoralize power requires an owning object".to_string(),
             };
         }
-        if let Some(owner) = crate::helpers::TheGameLogic::find_object_by_id(self.owner_object_id) {
-            if let Ok(owner_guard) = owner.read() {
-                if owner_guard.is_disabled() {
-                    return ActivationResult::Disabled;
-                }
-            }
+        if crate::object::registry::OBJECT_REGISTRY
+            .with_object(self.owner_object_id, |owner_guard| owner_guard.is_disabled())
+            .unwrap_or(false)
+        {
+            return ActivationResult::Disabled;
         }
 
         if let Err(reason) = self.execute_demoralize(player_id, targeting) {
@@ -370,14 +366,12 @@ impl SpecialPowerModuleInterface for DemoralizeSpecialPower {
 
         let mut effective_target = targeting.clone();
         if let Some(target_id) = targeting.target_object {
-            let Some(target_obj) = crate::helpers::TheGameLogic::find_object_by_id(target_id)
+            let Some(pos) = crate::object::registry::OBJECT_REGISTRY
+                .with_object(target_id, |target_guard| *target_guard.get_position())
             else {
                 return Ok(());
             };
-            let Ok(target_guard) = target_obj.read() else {
-                return Ok(());
-            };
-            effective_target.position = *target_guard.get_position();
+            effective_target.position = pos;
         }
         self.apply_fear(player_id, &effective_target)
     }

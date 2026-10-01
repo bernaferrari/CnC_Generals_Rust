@@ -162,9 +162,10 @@ impl ProfileMemoryBlock {
         self.size
     }
 
-    /// Convert to a slice (unsafe)
-    /// SAFETY: caller must guarantee `ptr`/`size` describe a live, initialized allocation.
-    pub unsafe fn as_slice(&self) -> &[u8] {
+    /// View the allocation as a byte slice.
+    ///
+    /// `ptr`/`size` come from `ProfileMemory::alloc` and stay live for `&self`.
+    pub fn as_slice(&self) -> &[u8] {
         if self.ptr.is_null() || self.size == 0 {
             &[]
         } else {
@@ -176,9 +177,10 @@ impl ProfileMemoryBlock {
         }
     }
 
-    /// Convert to a mutable slice (unsafe)
-    /// SAFETY: caller must guarantee `ptr`/`size` describe a live, initialized allocation.
-    pub unsafe fn as_mut_slice(&mut self) -> &mut [u8] {
+    /// View the allocation as a mutable byte slice.
+    ///
+    /// `ptr`/`size` come from `ProfileMemory::alloc` and stay live for `&mut self`.
+    pub fn as_mut_slice(&mut self) -> &mut [u8] {
         if self.ptr.is_null() || self.size == 0 {
             &mut []
         } else {
@@ -362,22 +364,12 @@ impl<T> ProfileArray<T> {
 
     /// Get element at index
     pub fn get(&self, index: usize) -> Option<&T> {
-        if index < self.len {
-            // SAFETY: [Category 10 — OOB] `index < self.len`, so it addresses an initialized element.
-            unsafe { Some(&*self.ptr.add(index)) }
-        } else {
-            None
-        }
+        self.as_slice().get(index)
     }
 
     /// Get mutable element at index
     pub fn get_mut(&mut self, index: usize) -> Option<&mut T> {
-        if index < self.len {
-            // SAFETY: [Category 1 — aliasing / Category 10 — OOB] `&mut self` excludes aliasing; `index < self.len` is an initialized element.
-            unsafe { Some(&mut *self.ptr.add(index)) }
-        } else {
-            None
-        }
+        self.as_mut_slice().get_mut(index)
     }
 
     /// Clear all elements
@@ -504,11 +496,9 @@ impl ProfileString {
         if self.array.is_empty() {
             ""
         } else {
-            // SAFETY: [Category 10 — OOB / Category 5 — invalid values] covers the payload bytes written by set_str (excludes NUL); UTF-8 validated below.
-            let slice = unsafe {
-                std::slice::from_raw_parts(self.array.ptr, self.array.len.saturating_sub(1))
-            };
-            std::str::from_utf8(slice).unwrap_or("")
+            let slice = self.array.as_slice();
+            let end = slice.len().saturating_sub(1);
+            std::str::from_utf8(&slice[..end]).unwrap_or("")
         }
     }
 

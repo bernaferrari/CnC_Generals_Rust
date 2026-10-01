@@ -9,6 +9,7 @@
 //! C++: `GeneralsMD/Code/GameEngine/Source/GameLogic/ScriptEngine/ScriptActions.cpp`
 
 /// Wave 295: host-only path has no dual-world factory objects.
+use crate::object::registry::OBJECT_REGISTRY;
 #[inline]
 fn dual_world_registry_unavailable() -> bool {
     OBJECT_REGISTRY.is_empty()

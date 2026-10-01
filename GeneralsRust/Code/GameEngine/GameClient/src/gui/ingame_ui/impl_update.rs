@@ -313,29 +313,32 @@ impl InGameUI {
         if TheGameLogic::get_frame() != 0 {
             return;
         }
-        let Some(obj) = OBJECT_REGISTRY.get_object(object_id) else {
-            return;
-        };
-        let Ok(guard) = obj.read() else {
-            return;
-        };
-        if guard.test_status(gamelogic::common::ObjectStatusTypes::UnderConstruction)
-            || guard.is_kind_of(KindOf::CommandCenter)
-        {
-            return;
-        }
-        for behavior in guard.get_behavior_modules() {
-            let Ok(module) = behavior.lock() else {
-                continue;
-            };
-            let Some(sp) = module.get_special_power_module_interface_const() else {
-                continue;
-            };
-            let power_name = sp.get_power_name().to_string();
-            if power_name.is_empty() {
-                continue;
+        let names = OBJECT_REGISTRY.with_object(object_id, |guard| {
+            if guard.test_status(gamelogic::common::ObjectStatusTypes::UnderConstruction)
+                || guard.is_kind_of(KindOf::CommandCenter)
+            {
+                return Vec::new();
             }
-            drop(module);
+            let mut names = Vec::new();
+            for behavior in guard.get_behavior_modules() {
+                let Ok(module) = behavior.lock() else {
+                    continue;
+                };
+                let Some(sp) = module.get_special_power_module_interface_const() else {
+                    continue;
+                };
+                let power_name = sp.get_power_name().to_string();
+                if power_name.is_empty() {
+                    continue;
+                }
+                names.push(power_name);
+            }
+            names
+        });
+        let Some(names) = names else {
+            return;
+        };
+        for power_name in names {
             self.add_superweapon(new_idx, object_id, power_name, None, 0);
         }
     }
@@ -379,26 +382,16 @@ impl InGameUI {
 
             let object_id = timers[i].object_id;
             let template_name = timers[i].template_name.clone();
-            let Some(obj) = OBJECT_REGISTRY.get_object(object_id) else {
-                i += 1;
-                continue;
-            };
-            let Ok(guard) = obj.read() else {
-                i += 1;
-                continue;
-            };
-            if guard.test_status(gamelogic::common::ObjectStatusTypes::UnderConstruction) {
-                i += 1;
-                continue;
-            }
-
             let lookup_name = if template_name.is_empty() {
                 power_name.as_str()
             } else {
                 template_name.as_str()
             };
-            let (is_ready, ready_frame, power_type, shared) = match guard
-                .with_special_power_module_interface_by_name(lookup_name, |sp| {
+            let polled = OBJECT_REGISTRY.with_object(object_id, |guard| {
+                if guard.test_status(gamelogic::common::ObjectStatusTypes::UnderConstruction) {
+                    return Err(());
+                }
+                Ok(guard.with_special_power_module_interface_by_name(lookup_name, |sp| {
                     let template = get_special_power_store().and_then(|store| {
                         store.find_special_power_template(lookup_name).cloned()
                     });
@@ -414,11 +407,15 @@ impl InGameUI {
                             .map(|t| t.is_shared_n_sync())
                             .unwrap_or(false),
                     )
-                }) {
-                Some(polled) => polled,
-                None => {
-                    // No live module (dual-world residual): the stored ready
-                    // frame owns the countdown, and passing it means READY.
+                }))
+            });
+            let (is_ready, ready_frame, power_type, shared) = match polled {
+                None | Some(Err(())) => {
+                    i += 1;
+                    continue;
+                }
+                Some(Ok(Some(polled))) => polled,
+                Some(Ok(None)) => {
                     let ready_frame = timers[i].ready_frame;
                     let template = get_special_power_store().and_then(|store| {
                         store.find_special_power_template(lookup_name).cloned()
@@ -437,7 +434,6 @@ impl InGameUI {
                     )
                 }
             };
-            drop(guard);
 
             if shared && shared_seen.iter().any(|(p, n)| *p == player_index && n == &power_name) {
                 i += 1;
@@ -502,12 +498,6 @@ impl InGameUI {
         power_type: gamelogic::object::special_power_types::SpecialPowerType,
     ) {
         use gamelogic::object::special_power_types::SpecialPowerType;
-        let Some(obj) = OBJECT_REGISTRY.get_object(object_id) else {
-            return;
-        };
-        let Ok(guard) = obj.read() else {
-            return;
-        };
         let local = player_list()
             .read()
             .ok()
@@ -518,18 +508,25 @@ impl InGameUI {
         let Ok(local_guard) = local.read() else {
             return;
         };
-        let own = guard
-            .get_controlling_player()
-            .and_then(|p| p.read().ok().map(|g| g.get_player_index() == local_guard.get_player_index()))
-            .unwrap_or(false);
-        let ally = guard
-            .get_team()
-            .and_then(|team| {
-                team.read()
-                    .ok()
-                    .map(|t| local_guard.get_relationship_with_team(&t) != Relationship::Enemies)
-            })
-            .unwrap_or(false);
+        let local_index = local_guard.get_player_index();
+        let relation = OBJECT_REGISTRY.with_object(object_id, |guard| {
+            let own = guard
+                .get_controlling_player()
+                .and_then(|p| p.read().ok().map(|g| g.get_player_index() == local_index))
+                .unwrap_or(false);
+            let ally = guard
+                .get_team()
+                .and_then(|team| {
+                    team.read().ok().map(|t| {
+                        local_guard.get_relationship_with_team(&t) != Relationship::Enemies
+                    })
+                })
+                .unwrap_or(false);
+            (own, ally)
+        });
+        let Some((own, ally)) = relation else {
+            return;
+        };
         let message = match power_type {
             SpecialPowerType::ParticleUplinkCannon
             | SpecialPowerType::SupwParticleUplinkCannon
@@ -718,22 +715,16 @@ impl InGameUI {
 
         let selected = self.get_selection();
         for &obj_id in &selected {
-            let obj = match OBJECT_REGISTRY.get_object(obj_id) {
-                Some(o) => o,
-                None => continue,
+            let snap = OBJECT_REGISTRY.with_object(obj_id, |guard| {
+                let pos = guard.get_position();
+                (Coord3D::new(pos.x, pos.y, pos.z), guard.get_health_percentage())
+            });
+            let Some((world, health_pct)) = snap else {
+                continue;
             };
-            let guard = match obj.read() {
-                Ok(g) => g,
-                Err(_) => continue,
-            };
-
-            let pos = guard.get_position();
-            let world = Coord3D::new(pos.x, pos.y, pos.z);
             let Some(screen) = self.world_to_screen(&world) else {
                 continue;
             };
-
-            let health_pct = guard.get_health_percentage();
             if health_pct > 0.0 {
                 let bar_width = 40.0;
                 let bar_height = 4.0;

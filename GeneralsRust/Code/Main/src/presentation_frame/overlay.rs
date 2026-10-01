@@ -2400,7 +2400,7 @@ impl PresentationFrame {
             Self::build_from_logic_with_tint_update(logic, local_player_id, None, false)
         } else {
             // Minimal shell — borrow-first empty presentation with local player id set.
-            let mut f = Self::build_from_logic(&GameLogic::new(), local_player_id);
+            let mut f = Self::build_from_logic(&mut GameLogic::new(), local_player_id);
             f.objects.clear();
             f.events.clear();
             f
@@ -2450,7 +2450,7 @@ impl PresentationFrame {
         } else {
             // A no-host shell frame cannot reuse a host terrain payload.
             let mut f = Self::build_from_logic_with_tint_update(
-                &GameLogic::new(),
+                &mut GameLogic::new(),
                 local_player_id,
                 None,
                 false,
@@ -2500,7 +2500,7 @@ impl PresentationFrame {
     /// Callers must `sync_from_host` before this when a shadow is provided.
     /// Fail-closed: not full GameWorld authority cutover / playable_claim.
     pub fn build_for_engine(
-        logic: &GameLogic,
+        logic: &mut GameLogic,
         local_player_id: u32,
         shadow: Option<&crate::gameworld_shadow::GameWorldShadow>,
     ) -> Self {
@@ -2523,7 +2523,7 @@ impl PresentationFrame {
     /// Engine-only presentation build retaining one cached full terrain payload
     /// for every frame in a terrain revision.
     pub(crate) fn build_for_engine_with_runtime_heightmap(
-        logic: &GameLogic,
+        logic: &mut GameLogic,
         local_player_id: u32,
         shadow: Option<&crate::gameworld_shadow::GameWorldShadow>,
         runtime_heightmap: Option<std::sync::Arc<PresentationRuntimeHeightmap>>,
@@ -2675,7 +2675,7 @@ mod overlay_sw_owner_tests {
             p.shared_special_power_cooldowns = vec![("ParticleCannon".into(), 77.0)];
         }
 
-        let mut frame = PresentationFrame::build_from_logic(&logic, 0);
+        let mut frame = PresentationFrame::build_from_logic(&mut logic, 0);
         frame.superweapon_timers.clear();
         frame.superweapon_timers.push(PresentationSuperweaponTimer {
             name: "PUC".into(),

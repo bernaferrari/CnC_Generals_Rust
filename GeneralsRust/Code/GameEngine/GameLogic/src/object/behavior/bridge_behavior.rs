@@ -446,7 +446,7 @@ impl BridgeBehavior {
     fn construct_with_object_id(
         object_id: ObjectID,
         module_data: Arc<BridgeBehaviorModuleData>,
-        _initial_object: Option<Arc<RwLock<GameObject>>>,
+        _initial_object: Option<ObjectID>,
     ) -> Self {
         let fx_count = module_data.fx.len();
         let ocl_count = module_data.ocl.len();
@@ -485,7 +485,7 @@ impl BridgeBehavior {
     }
 
     pub fn new_from_object_handle(
-        object: Arc<RwLock<GameObject>>,
+        object_id: ObjectID,
         module_data: Arc<BridgeBehaviorModuleData>,
     ) -> Self {
         let object_id = object
@@ -514,7 +514,7 @@ impl BridgeBehavior {
             format!("BridgeBehavior requires object {object_id} to be registered")
         })?;
 
-        Ok(Self::new_from_object_handle(object, module_data))
+        Ok(Self::new_from_object_handle(object_id, module_data))
     }
 
     /// Get interface mask for module registration
@@ -528,7 +528,7 @@ impl BridgeBehavior {
     pub fn set_tower(
         &mut self,
         tower_type: BridgeTowerType,
-        tower: Option<Arc<RwLock<GameObject>>>,
+        tower: Option<ObjectID>,
     ) {
         let index = tower_type as usize;
         if index >= BRIDGE_MAX_TOWERS {
@@ -559,7 +559,7 @@ impl BridgeBehavior {
 
     fn attach_tower(
         &self,
-        tower_object: &Arc<RwLock<GameObject>>,
+        tower_object: ObjectID,
         tower_type: BridgeTowerType,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let module_handles = {
@@ -730,7 +730,7 @@ impl BridgeBehavior {
 
     /// Get bridge behavior interface from object
     pub fn get_bridge_behavior_interface_from_object(
-        obj: Arc<RwLock<GameObject>>,
+        object_id: ObjectID,
     ) -> Option<Arc<Mutex<dyn BridgeBehaviorInterface>>> {
         let _ = obj;
         None
@@ -1129,7 +1129,7 @@ impl BridgeBehavior {
 
     fn with_scaffold_interface<R>(
         &self,
-        obj: &Arc<RwLock<GameObject>>,
+        obj: ObjectID,
         f: impl FnOnce(&mut dyn BridgeScaffoldBehaviorInterface) -> R,
     ) -> Option<R> {
         // Module entries are shared with the global update registries and their
@@ -1153,7 +1153,7 @@ impl BridgeBehavior {
     /// Set scaffold data for positioning
     fn set_scaffold_data(
         &self,
-        obj: Arc<RwLock<GameObject>>,
+        object_id: ObjectID,
         angle: Real,
         sunken_height: Real,
         rise_to_pos: &Coord3D,
@@ -1467,7 +1467,7 @@ impl BridgeBehavior {
     fn find_object_by_id(
         &self,
         id: ObjectID,
-    ) -> Result<Option<Arc<RwLock<GameObject>>>, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<Option<ObjectID>>, Box<dyn std::error::Error + Send + Sync>> {
         if id == OBJECT_INVALID_ID {
             return Ok(None);
         }
@@ -1511,7 +1511,7 @@ impl BridgeBehavior {
 
     fn get_object(
         &self,
-    ) -> Result<Arc<RwLock<GameObject>>, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<ObjectID>, Box<dyn std::error::Error + Send + Sync>> {
         // Wave 301: empty dual-world → missing object.
         if dual_world_registry_unavailable() {
             return Err("BridgeBehavior missing dual-world object".into());
@@ -1974,7 +1974,7 @@ impl UpdateModuleInterface for BridgeBehavior {
 
 // Implement BridgeBehaviorInterface
 impl BridgeBehaviorInterface for BridgeBehavior {
-    fn set_tower(&mut self, tower_type: BridgeTowerType, tower: Option<Arc<RwLock<GameObject>>>) {
+    fn set_tower(&mut self, tower_type: BridgeTowerType, tower: Option<ObjectID>) {
         BridgeBehavior::set_tower(self, tower_type, tower);
     }
 

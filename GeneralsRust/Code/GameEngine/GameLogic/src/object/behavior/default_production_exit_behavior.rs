@@ -125,7 +125,7 @@ impl DefaultProductionExitBehavior {
 
     fn exit_object_via_door_internal(
         &self,
-        new_obj: &Arc<RwLock<Object>>,
+        new_obj: ObjectID,
         door: ModuleExitDoorType,
     ) -> Result<(), String> {
         if matches!(

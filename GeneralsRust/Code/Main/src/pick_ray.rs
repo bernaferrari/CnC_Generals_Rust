@@ -344,7 +344,7 @@ mod tests {
         let id = logic
             .create_object("CapsuleRanger", Team::USA, Vec3::ZERO)
             .expect("unit");
-        let mut frame = PresentationFrame::build_from_logic(&logic, 0);
+        let mut frame = PresentationFrame::build_from_logic(&mut logic, 0);
         {
             let obj = frame.objects.iter().find(|o| o.id == id).expect("row");
             assert!((obj.max_height_above_position - 15.0).abs() < f32::EPSILON);
@@ -404,7 +404,7 @@ mod tests {
         let _id = logic
             .create_object("LongStruct", Team::USA, Vec3::ZERO)
             .expect("structure");
-        let frame = PresentationFrame::build_from_logic(&logic, 0);
+        let frame = PresentationFrame::build_from_logic(&mut logic, 0);
         let obj = frame
             .objects
             .iter()
@@ -450,7 +450,7 @@ mod tests {
         let id = logic
             .create_object("FastPlane", Team::USA, Vec3::ZERO)
             .expect("unit");
-        let mut frame = PresentationFrame::build_from_logic(&logic, 0);
+        let mut frame = PresentationFrame::build_from_logic(&mut logic, 0);
         assert_eq!(frame.frame.0, 100, "snapshot must carry the logic stamp");
         {
             let obj = frame.objects.iter_mut().find(|o| o.id == id).expect("row");

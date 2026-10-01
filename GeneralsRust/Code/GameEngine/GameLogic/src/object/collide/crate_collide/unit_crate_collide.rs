@@ -437,7 +437,7 @@ mod tests {
         template_name: &str,
         player_index: PlayerIndex,
         position: Coord3D,
-    ) -> Arc<RwLock<crate::object::Object>> {
+    ) -> ObjectID {
         ensure_template_exists(template_name);
         let team_arc = setup_player_with_team(player_index, "PlayerTeam");
         let team_guard = team_arc.read().expect("Team lock poisoned");

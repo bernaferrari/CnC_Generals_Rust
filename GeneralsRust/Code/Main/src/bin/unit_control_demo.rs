@@ -277,8 +277,8 @@ impl UnitControlDemo {
 
         // Presentation-only selection path: snapshot then draw (no live dual-read).
         let frame = {
-            let logic = self.game_logic.lock().unwrap_or_else(|e| e.into_inner());
-            generals_main::presentation_frame::PresentationFrame::build_from_logic(&logic, 0)
+            let mut logic = self.game_logic.lock().unwrap_or_else(|e| e.into_inner());
+            generals_main::presentation_frame::PresentationFrame::build_from_logic(&mut logic, 0)
         };
 
         let commands = self.selection_renderer.render_selection(

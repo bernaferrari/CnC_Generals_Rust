@@ -138,51 +138,47 @@ impl GameLogic {
         Ok(())
     }
 
-    pub fn register_object(
-        &mut self,
-        object: Arc<RwLock<Object>>,
-    ) -> Result<ObjectID, GameLogicError> {
-        let (object_id, object_name) = {
-            let guard = object
-                .read()
-                .map_err(|_| GameLogicError::Generic("Object lock poisoned".to_string()))?;
-            (guard.get_id(), guard.get_name().to_string())
-        };
-
+    pub fn register_object(&mut self, object_id: ObjectID) -> Result<ObjectID, GameLogicError> {
         if object_id == INVALID_ID {
             return Err(GameLogicError::InvalidState(
                 "Attempted to register object without valid ID".to_string(),
             ));
         }
+        let object_name = OBJECT_REGISTRY
+            .with_object(object_id, |obj| obj.get_name().to_string())
+            .unwrap_or_default();
+        self.objects.insert(object_id, ());
+        self.all_objects.insert(0, object_id);
 
-        // C++ GameLogic::registerObject prepends (GameLogic.cpp:3866).
-        self.objects.insert(object_id, Arc::clone(&object));
-        self.prepend_to_object_list(&object, object_id);
-
-        // Register in global registry
-        OBJECT_REGISTRY.register_object(object_id, &object);
-
-        // Register in the scripting named-object cache (C++ ScriptEngine::addObjectToCache).
         if !object_name.is_empty() {
             let tracker = crate::scripting::engine::get_named_object_tracker();
             let _ = tracker.register_named_object(object_name, object_id);
         }
 
-        // C++ Object::initObject → sendObjectCreated after the object exists.
-        // Dual-world: bind a client drawable when the logic object has none.
-        send_object_created(&object);
-
-        // Add to partition manager
-        if let Ok(obj) = object.read() {
-            let pos = obj.get_position();
-            self.partition_manager
-                .add_object(object_id, (pos.x, pos.y, pos.z));
+        let snapshot = OBJECT_REGISTRY.with_object(object_id, |obj| {
+            let pos = *obj.get_position();
             let ghost_eligible = obj.is_kind_of(KindOf::Immobile)
                 && !obj
                     .get_template()
                     .get_draw_module_info()
                     .iter()
                     .any(|module| module.name.as_str().eq_ignore_ascii_case("W3DDefaultDraw"));
+            let geom =
+                map_collision_geometry(&obj.get_geometry_info(), obj.get_template_geometry_type());
+            let is_projectile = obj.is_kind_of(KindOf::Projectile);
+            let is_blocking = obj.is_kind_of(KindOf::Structure)
+                || obj.is_kind_of(KindOf::Building)
+                || obj.is_kind_of(KindOf::Bridge)
+                || obj.is_kind_of(KindOf::Barrier);
+            let is_ai_controlled = obj.get_ai_update_interface().is_some();
+            (pos, ghost_eligible, geom, is_projectile, is_blocking, is_ai_controlled)
+        });
+
+        if let Some((pos, ghost_eligible, geom, is_projectile, is_blocking, is_ai_controlled)) =
+            snapshot
+        {
+            self.partition_manager
+                .add_object(object_id, (pos.x, pos.y, pos.z));
             if let Ok(mut ghost_manager) = crate::object::THE_W3D_GHOST_OBJECT_MANAGER.write() {
                 self.partition_manager.attach_object_ghost(
                     object_id,
@@ -190,9 +186,6 @@ impl GameLogic {
                     &mut ghost_manager,
                 );
             }
-
-            let geom =
-                map_collision_geometry(&obj.get_geometry_info(), obj.get_template_geometry_type());
             let _ = with_collision_system_mut(|system| {
                 let _ = system.register_object(
                     object_id,
@@ -200,16 +193,12 @@ impl GameLogic {
                     geom,
                     None,
                 );
-                let cfg = if obj.is_kind_of(KindOf::Projectile) {
+                let cfg = if is_projectile {
                     CollisionResponseConfig {
                         response_type: CollisionResponseType::None,
                         ..Default::default()
                     }
-                } else if obj.is_kind_of(KindOf::Structure)
-                    || obj.is_kind_of(KindOf::Building)
-                    || obj.is_kind_of(KindOf::Bridge)
-                    || obj.is_kind_of(KindOf::Barrier)
-                {
+                } else if is_blocking {
                     CollisionResponseConfig::blocking()
                 } else {
                     CollisionResponseConfig::default()
@@ -217,15 +206,13 @@ impl GameLogic {
                 system.set_collision_config(object_id, cfg);
                 Ok::<(), crate::object::collide::CollisionError>(())
             });
-
-            let is_ai_controlled = obj.get_ai_update_interface().is_some();
-            let is_obstacle = obj.is_kind_of(KindOf::Building)
-                || obj.is_kind_of(KindOf::Structure)
-                || obj.is_kind_of(KindOf::Bridge)
-                || obj.is_kind_of(KindOf::Barrier);
             let _ = with_ai_integration_mut(|manager| {
-                let _ =
-                    manager.notify_object_created(object_id, *pos, is_ai_controlled, is_obstacle);
+                let _ = manager.notify_object_created(
+                    object_id,
+                    pos,
+                    is_ai_controlled,
+                    is_blocking,
+                );
             });
         }
 
@@ -250,29 +237,18 @@ impl GameLogic {
     /// `process_object_updates()`.
     pub fn track_object_in_update_list(
         &mut self,
-        object: Arc<RwLock<Object>>,
+        object_id: ObjectID,
     ) -> Result<ObjectID, GameLogicError> {
-        let object_id = {
-            let guard = object
-                .read()
-                .map_err(|_| GameLogicError::Generic("Object lock poisoned".to_string()))?;
-            guard.get_id()
-        };
-
         if object_id == INVALID_ID {
             return Err(GameLogicError::InvalidState(
                 "Attempted to track object without valid ID".to_string(),
             ));
         }
-
         if self.objects.contains_key(&object_id) {
             return Ok(object_id);
         }
-
-        // C++ registerObject prepends (GameLogic.cpp:3866).
-        self.objects.insert(object_id, Arc::clone(&object));
-        self.prepend_to_object_list(&object, object_id);
-
+        self.objects.insert(object_id, ());
+        self.prepend_to_object_list(object_id);
         Ok(object_id)
     }
 
@@ -359,19 +335,17 @@ impl GameLogic {
     }
 
     /// C++ `Object::prependToList(&m_objList)` — newest object is list head.
-    fn prepend_to_object_list(&mut self, object: &Arc<RwLock<Object>>, object_id: ObjectID) {
+    fn prepend_to_object_list(&mut self, object_id: ObjectID) {
         let old_head = self.all_objects.first().copied();
         self.all_objects.insert(0, object_id);
-        if let Ok(mut object_guard) = object.write() {
-            object_guard.set_prev_object_id(None);
-            object_guard.set_next_object_id(old_head);
-        }
+        OBJECT_REGISTRY.with_object_mut(object_id, |object| {
+            object.set_prev_object_id(None);
+            object.set_next_object_id(old_head);
+        });
         if let Some(old_id) = old_head {
-            if let Some(old_object) = self.objects.get(&old_id) {
-                if let Ok(mut old_guard) = old_object.write() {
-                    old_guard.set_prev_object_id(Some(object_id));
-                }
-            }
+            OBJECT_REGISTRY.with_object_mut(old_id, |old| {
+                old.set_prev_object_id(Some(object_id));
+            });
         }
     }
 
@@ -383,8 +357,8 @@ impl GameLogic {
     /// Find an object by its ID
     ///
     /// ## C++ Reference: GameLogic::findObjectByID() (GameLogic.h inline)
-    pub fn find_object_by_id(&self, object_id: ObjectID) -> Option<Arc<RwLock<Object>>> {
-        self.objects.get(&object_id).cloned()
+    pub fn find_object_by_id(&self, object_id: ObjectID) -> bool {
+        OBJECT_REGISTRY.with_object(object_id, |_| ()).is_some()
     }
 
     /// Allocate a unique object ID
@@ -419,9 +393,8 @@ impl GameLogic {
         self.all_objects.first().copied()
     }
 
-    pub fn get_first_object(&self) -> Option<Arc<RwLock<Object>>> {
+    pub fn get_first_object(&self) -> Option<ObjectID> {
         self.get_first_object_id()
-            .and_then(|id| self.objects.get(&id).cloned())
     }
 
     /// Stable object IDs in list order (no Arc retention).
@@ -640,13 +613,12 @@ impl GameLogic {
     }
 
     /// Get object by ID (for command executor)
-    pub fn get_object(&self, object_id: ObjectID) -> Option<Arc<RwLock<Object>>> {
-        self.objects.get(&object_id).cloned()
+    pub fn get_object(&self, object_id: ObjectID) -> bool {
+        self.find_object_by_id(object_id)
     }
 
-    /// Get object handle by ID for mutation (callers must lock the returned handle)
-    pub fn get_object_mut(&mut self, object_id: ObjectID) -> Option<Arc<RwLock<Object>>> {
-        self.get_object(object_id)
+    pub fn get_object_mut(&mut self, object_id: ObjectID) -> bool {
+        self.find_object_by_id(object_id)
     }
 
     /// Get player by ID (for command executor)
@@ -706,13 +678,13 @@ impl GameLogic {
     }
 
     /// Iterate over all objects in the game
-    /// Returns iterator yielding Arc<RwLock<Object>> for each object
+    /// Returns object ids. Values live in OBJECT_REGISTRY.
     pub fn iter_all_object_ids(&self) -> impl Iterator<Item = ObjectID> + '_ {
         self.all_objects.iter().copied()
     }
 
-    pub fn iter_all_objects(&self) -> impl Iterator<Item = Arc<RwLock<Object>>> + '_ {
-        self.objects.values().cloned()
+    pub fn iter_all_objects(&self) -> impl Iterator<Item = ObjectID> + '_ {
+        self.all_objects.iter().copied()
     }
 
     /// Iterate over all players in the game
@@ -776,7 +748,7 @@ impl GameLogic {
         &mut self,
         template_name: &str,
         object_id: ObjectID,
-    ) -> Result<Arc<RwLock<Object>>, GameLogicError> {
+    ) -> Result<ObjectID, GameLogicError> {
         let template =
             crate::helpers::TheThingFactory::find_template(template_name).ok_or_else(|| {
                 GameLogicError::InvalidState(format!("Template not found: {}", template_name))
@@ -795,33 +767,27 @@ impl GameLogic {
         let object = Object::new_with_id(template, id, status_mask, None)
             .map_err(|err| GameLogicError::Generic(err.to_string()))?;
 
-        self.register_object(object.clone())?;
-
-        Ok(object)
+        OBJECT_REGISTRY.register_object(id, object);
+        self.objects.insert(id, ());
+        self.all_objects.insert(0, id);
+        Ok(id)
     }
 
     /// Add a restored object to the game world
     /// Used during save game loading
-    pub fn add_restored_object(&mut self, object_arc: Arc<RwLock<Object>>) {
-        let object_id = if let Ok(obj) = object_arc.read() {
-            obj.get_id()
-        } else {
+    pub fn add_restored_object(&mut self, object_id: ObjectID) {
+        if OBJECT_REGISTRY.with_object(object_id, |_| ()).is_none() {
             log::error!("Failed to read object for restoration");
             return;
-        };
-
-        // C++ restore lands on m_objList (prepend) and is findable.
-        self.objects.insert(object_id, Arc::clone(&object_arc));
-        self.prepend_to_object_list(&object_arc, object_id);
-        OBJECT_REGISTRY.register_object(object_id, &object_arc);
-
-        // Register with partition manager
-        if let Ok(obj) = object_arc.read() {
-            let pos = obj.get_position();
-            self.partition_manager
-                .register_object(object_id, pos.x, pos.y);
         }
-
+        self.objects.insert(object_id, ());
+        self.prepend_to_object_list(object_id);
+        if let Some((x, y)) = OBJECT_REGISTRY.with_object(object_id, |obj| {
+            let pos = obj.get_position();
+            (pos.x, pos.y)
+        }) {
+            self.partition_manager.register_object(object_id, x, y);
+        }
         log::debug!("Added restored object with ID {}", object_id);
     }
 

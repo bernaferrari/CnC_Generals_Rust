@@ -98,7 +98,7 @@ impl ObjectCreationList {
         angle: Real,
         lifetime_frames: UnsignedInt,
     ) -> CreationResult {
-        let mut first_object: Option<Arc<RwLock<Object>>> = None;
+        let mut first_object: Option<ObjectID> = None;
         for nugget in &self.nuggets {
             if let Some(obj) = nugget.create_without_secondary(
                 ctx,
@@ -191,7 +191,7 @@ impl ObjectCreationList {
             primary_obj.is_some(),
             "ObjectCreationList expects a non-null primary object for ownership context"
         );
-        let mut first_object: Option<Arc<RwLock<Object>>> = None;
+        let mut first_object: Option<ObjectID> = None;
 
         for nugget in &self.nuggets {
             if let Some(obj) = nugget.create_with_angle(
@@ -220,7 +220,7 @@ impl ObjectCreationList {
         secondary: Option<&Object>,
         lifetime_frames: UnsignedInt,
     ) -> CreationResult {
-        let mut first_object: Option<Arc<RwLock<Object>>> = None;
+        let mut first_object: Option<ObjectID> = None;
 
         for nugget in &self.nuggets {
             if let Some(obj) = nugget.create_with_objects(ctx, primary, secondary, lifetime_frames)
@@ -249,7 +249,7 @@ impl ObjectCreationList {
             primary_obj.is_some(),
             "ObjectCreationList expects a non-null primary object for ownership context"
         );
-        let mut first_object: Option<Arc<RwLock<Object>>> = None;
+        let mut first_object: Option<ObjectID> = None;
 
         for nugget in &self.nuggets {
             if let Some(obj) = nugget.create_with_owner_flag(
@@ -283,7 +283,7 @@ impl ObjectCreationList {
             primary_obj.is_some(),
             "ObjectCreationList expects a non-null primary object for ownership context"
         );
-        let mut first_object: Option<Arc<RwLock<Object>>> = None;
+        let mut first_object: Option<ObjectID> = None;
 
         for nugget in &self.nuggets {
             if let Some(obj) = nugget.create_with_angle_and_owner_flag(

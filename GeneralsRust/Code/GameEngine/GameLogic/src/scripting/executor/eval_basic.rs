@@ -1439,35 +1439,48 @@ impl ScriptConditionEvaluator {
         };
 
         for &member_id in team.get_members() {
-            let Some(obj_arc) = TheGameLogic::find_object_by_id(member_id) else {
-                continue;
-            };
-            let Ok(obj) = obj_arc.read() else {
-                continue;
-            };
-            let Some(body) = obj.get_body_module() else {
-                continue;
-            };
-            let Ok(body_guard) = body.lock() else {
-                continue;
-            };
-            let Some(last) = body_guard.get_last_damage_info() else {
-                continue;
-            };
-
-            let attacker_id = last.input.source_id;
-            let Some(attacker_arc) = TheGameLogic::find_object_by_id(attacker_id) else {
-                continue;
-            };
-            let Ok(attacker) = attacker_arc.read() else {
-                continue;
-            };
-            let Some(attacker_owner) = attacker.get_controlling_player_id() else {
-                continue;
-            };
-
-            if attacker_owner as i32 == victim_index {
-                return Ok(ScriptConditionResult::True);
+            {
+                enum _ObjFlow<T> { Cont, Ret(T), Fall }
+                let _flow = OBJECT_REGISTRY.with_object(member_id, |obj| {
+                    let Some(body) = obj.get_body_module() else {
+                        return _ObjFlow::Cont;
+                    };
+                    let Ok(body_guard) = body.lock() else {
+                        return _ObjFlow::Cont;
+                    };
+                    let Some(last) = body_guard.get_last_damage_info() else {
+                        return _ObjFlow::Cont;
+                    };
+                    
+                    let attacker_id = last.input.source_id;
+                    {
+                        enum _ObjFlow<T> { Cont, Ret(T), Fall }
+                        let _flow = OBJECT_REGISTRY.with_object(attacker_id, |attacker| {
+                            let Some(attacker_owner) = attacker.get_controlling_player_id() else {
+                                return _ObjFlow::Ret(_ObjFlow::Cont);
+                            };
+                            
+                            if attacker_owner as i32 == victim_index {
+                                return _ObjFlow::Ret(_ObjFlow::Ret(Ok(ScriptConditionResult::True)));
+                            }
+                            _ObjFlow::Fall
+                            _ObjFlow::Fall
+                        });
+                        match _flow {
+                            None => {
+                                return _ObjFlow::Cont;
+                            }
+                            Some(_ObjFlow::Cont) => continue,
+                            Some(_ObjFlow::Ret(v)) => return v,
+                            Some(_ObjFlow::Fall) => {}
+                        }
+                    }
+                });
+                match _flow {
+                    None | Some(_ObjFlow::Cont) => continue,
+                    Some(_ObjFlow::Ret(v)) => return v,
+                    Some(_ObjFlow::Fall) => {}
+                }
             }
         }
 
@@ -1536,14 +1549,19 @@ impl ScriptConditionEvaluator {
         };
 
         for &member_id in team.get_members() {
-            let Some(obj_arc) = TheGameLogic::find_object_by_id(member_id) else {
-                continue;
-            };
-            let Ok(obj) = obj_arc.read() else {
-                continue;
-            };
-            if object_is_discovered_by_player(&obj, player_index) {
-                return Ok(ScriptConditionResult::True);
+            {
+                enum _ObjFlow<T> { Cont, Ret(T), Fall }
+                let _flow = OBJECT_REGISTRY.with_object(member_id, |obj| {
+                    if object_is_discovered_by_player(&obj, player_index) {
+                        return _ObjFlow::Ret(Ok(ScriptConditionResult::True));
+                    }
+                    _ObjFlow::Fall
+                });
+                match _flow {
+                    None | Some(_ObjFlow::Cont) => continue,
+                    Some(_ObjFlow::Ret(v)) => return v,
+                    Some(_ObjFlow::Fall) => {}
+                }
             }
         }
 
@@ -1633,31 +1651,36 @@ impl ScriptConditionEvaluator {
 
         let mut any_at_end = false;
         for &member_id in team.get_members() {
-            let Some(obj_arc) = TheGameLogic::find_object_by_id(member_id) else {
-                continue;
-            };
-            let Ok(obj) = obj_arc.read() else {
-                continue;
-            };
-            let Some(ai_arc) = obj.get_ai_update_interface() else {
-                // C++: no AI -> continue (e.g. rocks/trees in team)
-                continue;
-            };
-            let Ok(ai) = ai_arc.lock() else {
-                continue;
-            };
-            let Some(completed_waypoint_id) = ai.get_completed_waypoint_id() else {
-                continue;
-            };
-            let Some(target_waypoint) = terrain.get_waypoint_by_id(completed_waypoint_id) else {
-                continue;
-            };
-
-            let found = target_waypoint.get_path_label1().as_str() == waypoint_path
-                || target_waypoint.get_path_label2().as_str() == waypoint_path
-                || target_waypoint.get_path_label3().as_str() == waypoint_path;
-            if found {
-                any_at_end = true;
+            {
+                enum _ObjFlow<T> { Cont, Ret(T), Fall }
+                let _flow = OBJECT_REGISTRY.with_object(member_id, |obj| {
+                    let Some(ai_arc) = obj.get_ai_update_interface() else {
+                        // C++: no AI -> continue (e.g. rocks/trees in team)
+                        return _ObjFlow::Cont;
+                    };
+                    let Ok(ai) = ai_arc.lock() else {
+                        return _ObjFlow::Cont;
+                    };
+                    let Some(completed_waypoint_id) = ai.get_completed_waypoint_id() else {
+                        return _ObjFlow::Cont;
+                    };
+                    let Some(target_waypoint) = terrain.get_waypoint_by_id(completed_waypoint_id) else {
+                        return _ObjFlow::Cont;
+                    };
+                    
+                    let found = target_waypoint.get_path_label1().as_str() == waypoint_path
+                        || target_waypoint.get_path_label2().as_str() == waypoint_path
+                        || target_waypoint.get_path_label3().as_str() == waypoint_path;
+                    if found {
+                        any_at_end = true;
+                    }
+                    _ObjFlow::Fall
+                });
+                match _flow {
+                    None | Some(_ObjFlow::Cont) => continue,
+                    Some(_ObjFlow::Ret(v)) => return v,
+                    Some(_ObjFlow::Fall) => {}
+                }
             }
         }
 
@@ -1856,14 +1879,20 @@ impl ScriptConditionEvaluator {
         };
 
         for &member_id in team.get_members() {
-            let Some(obj_arc) = TheGameLogic::find_object_by_id(member_id) else {
-                return Ok(ScriptConditionResult::False);
-            };
-            let Ok(obj) = obj_arc.read() else {
-                return Ok(ScriptConditionResult::False);
-            };
-            if !obj.get_status_bits().intersects(status_mask) {
-                return Ok(ScriptConditionResult::False);
+            {
+                enum _ObjFlow<T> { Cont, Ret(T), Fall }
+                let _flow = OBJECT_REGISTRY.with_object(member_id, |obj| {
+                    if !obj.get_status_bits().intersects(status_mask) {
+                        return _ObjFlow::Ret(Ok(ScriptConditionResult::False));
+                    }
+                    _ObjFlow::Fall
+                });
+                match _flow {
+                    None => { return Ok(ScriptConditionResult::False); }
+                    Some(_ObjFlow::Cont) => continue,
+                    Some(_ObjFlow::Ret(v)) => return v,
+                    Some(_ObjFlow::Fall) => {}
+                }
             }
         }
 
@@ -1906,14 +1935,20 @@ impl ScriptConditionEvaluator {
         };
 
         for &member_id in team.get_members() {
-            let Some(obj_arc) = TheGameLogic::find_object_by_id(member_id) else {
-                return Ok(ScriptConditionResult::False);
-            };
-            let Ok(obj) = obj_arc.read() else {
-                return Ok(ScriptConditionResult::False);
-            };
-            if obj.get_status_bits().intersects(status_mask) {
-                return Ok(ScriptConditionResult::True);
+            {
+                enum _ObjFlow<T> { Cont, Ret(T), Fall }
+                let _flow = OBJECT_REGISTRY.with_object(member_id, |obj| {
+                    if obj.get_status_bits().intersects(status_mask) {
+                        return _ObjFlow::Ret(Ok(ScriptConditionResult::True));
+                    }
+                    _ObjFlow::Fall
+                });
+                match _flow {
+                    None => { return Ok(ScriptConditionResult::False); }
+                    Some(_ObjFlow::Cont) => continue,
+                    Some(_ObjFlow::Ret(v)) => return v,
+                    Some(_ObjFlow::Fall) => {}
+                }
             }
         }
 
@@ -2108,20 +2143,25 @@ impl ScriptConditionEvaluator {
 
         let mut counts = TeamInsideCounts::default();
         for &member_id in team.get_members() {
-            let Some(obj_arc) = TheGameLogic::find_object_by_id(member_id) else {
-                continue;
-            };
-            let Ok(obj) = obj_arc.read() else {
-                continue;
-            };
-            if !member_counts_for_team_area(&obj, which_to_consider) {
-                continue;
-            }
-            counts.any_considered = true;
-            if objects_in_area.contains(&member_id) {
-                counts.any_inside = true;
-            } else {
-                counts.any_outside = true;
+            {
+                enum _ObjFlow<T> { Cont, Ret(T), Fall }
+                let _flow = OBJECT_REGISTRY.with_object(member_id, |obj| {
+                    if !member_counts_for_team_area(&obj, which_to_consider) {
+                        return _ObjFlow::Cont;
+                    }
+                    counts.any_considered = true;
+                    if objects_in_area.contains(&member_id) {
+                        counts.any_inside = true;
+                    } else {
+                        counts.any_outside = true;
+                    }
+                    _ObjFlow::Fall
+                });
+                match _flow {
+                    None | Some(_ObjFlow::Cont) => continue,
+                    Some(_ObjFlow::Ret(v)) => return v,
+                    Some(_ObjFlow::Fall) => {}
+                }
             }
         }
         Ok(counts)
@@ -2184,31 +2224,45 @@ fn last_damage_matches_object_types(
     member_id: crate::common::ObjectID,
     types: &crate::object::object_types::ObjectTypes,
 ) -> bool {
-    let Some(obj_arc) = TheGameLogic::find_object_by_id(member_id) else {
-        return false;
-    };
-    let Ok(obj) = obj_arc.read() else {
-        return false;
-    };
-    let Some(body) = obj.get_body_module() else {
-        return false;
-    };
-    let Ok(body_guard) = body.lock() else {
-        return false;
-    };
-    let Some(last) = body_guard.get_last_damage_info() else {
-        return false;
-    };
-    if let Some(template) = last.input.source_template.as_deref() {
-        return types.contains_template(Some(template));
+    {
+        enum _ObjFlow<T> { Cont, Ret(T), Fall }
+        let _flow = OBJECT_REGISTRY.with_object(member_id, |obj| {
+            let Some(body) = obj.get_body_module() else {
+                return _ObjFlow::Ret(false);
+            };
+            let Ok(body_guard) = body.lock() else {
+                return _ObjFlow::Ret(false);
+            };
+            let Some(last) = body_guard.get_last_damage_info() else {
+                return _ObjFlow::Ret(false);
+            };
+            if let Some(template) = last.input.source_template.as_deref() {
+                return _ObjFlow::Ret(types.contains_template(Some(template)));
+            }
+            {
+                enum _ObjFlow<T> { Cont, Ret(T), Fall }
+                let _flow = OBJECT_REGISTRY.with_object(last.input.source_id, |attacker| {
+                    types.contains_template(Some(attacker.get_template().as_ref()))
+                    _ObjFlow::Fall
+                    _ObjFlow::Fall
+                });
+                match _flow {
+                    None => {
+                        return _ObjFlow::Ret(false);
+                    }
+                    Some(_ObjFlow::Cont) => continue,
+                    Some(_ObjFlow::Ret(v)) => return v,
+                    Some(_ObjFlow::Fall) => {}
+                }
+            }
+        });
+        match _flow {
+            None => { return false; }
+            Some(_ObjFlow::Cont) => continue,
+            Some(_ObjFlow::Ret(v)) => return v,
+            Some(_ObjFlow::Fall) => {}
+        }
     }
-    let Some(attacker_arc) = TheGameLogic::find_object_by_id(last.input.source_id) else {
-        return false;
-    };
-    let Ok(attacker) = attacker_arc.read() else {
-        return false;
-    };
-    types.contains_template(Some(attacker.get_template().as_ref()))
 }
 
 fn object_is_discovered_by_player(obj: &crate::object::Object, player_index: i32) -> bool {

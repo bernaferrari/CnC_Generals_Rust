@@ -3,15 +3,15 @@
 //! Provides the W3D-backed font library used by the UI layer.
 
 use std::path::{Path, PathBuf};
-use std::ptr::NonNull;
 use std::sync::{Arc, Mutex, OnceLock};
 
 use ww3d_assets::AssetManager;
 use ww3d_render_2d::font_system::FontSystem;
 use ww3d_renderer_3d::rendering::render2d::font3d::Font3DData;
 
-/// Font handle for legacy-style iteration.
-pub type GameFontHandle = NonNull<GameFont>;
+/// Font handle for legacy-style iteration. Stable index into the library's font vec.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct GameFontHandle(usize);
 
 /// Legacy-style font representation.
 #[derive(Debug)]
@@ -116,12 +116,12 @@ impl W3DFontLibrary {
             return None;
         }
 
-        if let Some(existing) = self.fonts.iter_mut().find(|font| {
+        if let Some(index) = self.fonts.iter().position(|font| {
             font.point_size == point_size
                 && font.bold == bold
                 && font.name_string.eq_ignore_ascii_case(name)
         }) {
-            return Some(NonNull::from(existing.as_mut()));
+            return Some(GameFontHandle(index));
         }
 
         let mut font = Box::new(GameFont::new(name, point_size, bold));
@@ -129,9 +129,9 @@ impl W3DFontLibrary {
             return None;
         }
 
-        let handle = NonNull::from(font.as_mut());
-        self.link_font(handle);
         self.fonts.push(font);
+        let handle = GameFontHandle(self.fonts.len() - 1);
+        self.link_font(handle);
         self.count += 1;
 
         Some(handle)
@@ -192,10 +192,7 @@ impl W3DFontLibrary {
     }
 
     pub fn next_font(&self, font: GameFontHandle) -> Option<GameFontHandle> {
-        // SAFETY: the handle is a NonNull minted by this manager for a GameFont
-        // SAFETY: it owns in self.fonts (heap Box, stable address), so the
-        // SAFETY: pointer is valid and only the `next` link is read.
-        unsafe { font.as_ref().next }
+        self.fonts.get(font.0).and_then(|font| font.next)
     }
 
     pub fn get_count(&self) -> i32 {
@@ -228,12 +225,7 @@ impl W3DFontLibrary {
     }
 
     fn link_font(&mut self, handle: GameFontHandle) {
-        // SAFETY: handle was minted for a GameFont this manager owns (stable
-        // SAFETY: heap Box in self.fonts) and no other reference is live, so
-        // SAFETY: writing the `next` link through the unique pointer is sound.
-        unsafe {
-            handle.as_mut().next = self.font_list;
-        }
+        self.fonts[handle.0].next = self.font_list;
         self.font_list = Some(handle);
     }
 

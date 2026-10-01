@@ -17,8 +17,8 @@ use super::{
 };
 use crate::localization;
 use crate::save_load::{
-    get_save_load_manager, init_save_load_system, AvailableGameInfo, GameDifficulty, GameMode,
-    ReplayHeader, ReplayPlayerInfo, SaveLoadManager, REPLAY_EXTENSION,
+    with_save_load_manager, init_save_load_system, AvailableGameInfo, GameDifficulty, GameMode,
+    ReplayHeader, ReplayPlayerInfo, REPLAY_EXTENSION,
 };
 use log::info;
 use std::path::PathBuf;
@@ -237,28 +237,25 @@ impl ReplayMenu {
 
         let _ = init_save_load_system();
 
-        if let Some(manager_arc) = get_save_load_manager() {
-            if let Ok(manager) = manager_arc.lock() {
-                let save_dir = manager.save_directory.clone();
+        if let Some(save_dir) =
+            with_save_load_manager(|manager| manager.save_directory().to_path_buf())
+        {
+            if let Ok(entries) = std::fs::read_dir(&save_dir) {
+                for entry in entries {
+                    let entry = entry?;
+                    let path = entry.path();
 
-                if let Ok(entries) = std::fs::read_dir(&save_dir) {
-                    for entry in entries {
-                        let entry = entry?;
-                        let path = entry.path();
-
-                        if path.extension().is_some_and(|ext| ext == REPLAY_EXTENSION) {
-                            if let Some(filename) = path.file_stem().and_then(|s| s.to_str()) {
-                                if let Ok(file_size) = entry.metadata().map(|m| m.len()) {
-                                    // Try to read replay header
-                                    if let Ok(header) = self.read_replay_header(&path) {
-                                        let replay_entry = ReplayEntry::from_header(
-                                            filename.to_string(),
-                                            header,
-                                            file_size,
-                                        );
-                                        self.entry_clicks.push(ClickSpring::new());
-                                        self.replay_files.push(replay_entry);
-                                    }
+                    if path.extension().is_some_and(|ext| ext == REPLAY_EXTENSION) {
+                        if let Some(filename) = path.file_stem().and_then(|s| s.to_str()) {
+                            if let Ok(file_size) = entry.metadata().map(|m| m.len()) {
+                                if let Ok(header) = self.read_replay_header(&path) {
+                                    let replay_entry = ReplayEntry::from_header(
+                                        filename.to_string(),
+                                        header,
+                                        file_size,
+                                    );
+                                    self.entry_clicks.push(ClickSpring::new());
+                                    self.replay_files.push(replay_entry);
                                 }
                             }
                         }

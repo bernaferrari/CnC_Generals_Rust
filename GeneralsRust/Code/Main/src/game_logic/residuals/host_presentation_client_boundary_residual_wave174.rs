@@ -168,7 +168,7 @@ pub fn simulate_presentation_client_boundary_honesty() -> bool {
     }
 
     logic.update();
-    let pres = PresentationFrame::build_from_logic(&logic, 0);
+    let pres = PresentationFrame::build_from_logic(&mut logic, 0);
     // Presentation boundary: non-empty seed from host ObjectId store (no live GameLogic in execute).
     if pres.objects.is_empty() {
         return false;

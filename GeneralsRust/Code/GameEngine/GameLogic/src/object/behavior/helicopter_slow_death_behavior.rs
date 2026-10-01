@@ -605,7 +605,7 @@ impl HelicopterSlowDeathBehavior {
     /// Create new helicopter slow death behavior
     /// Matches C++ HelicopterSlowDeathBehavior constructor at line 136
     pub fn new(
-        object: Arc<RwLock<GameObject>>,
+        object_id: ObjectID,
         module_data: Arc<HelicopterSlowDeathBehaviorModuleData>,
     ) -> Self {
         // Get current frame from game logic (matches C++ line 145-146)
@@ -618,11 +618,7 @@ impl HelicopterSlowDeathBehavior {
         );
 
         Self {
-            object_id: object
-                .read()
-                .ok()
-                .map(|g| g.get_id())
-                .unwrap_or(crate::common::INVALID_ID),
+            object_id: object_id,
             module_data,
             orbit_direction: 1,             // C++ line 140: ORBIT_DIRECTION_LEFT
             forward_angle: 0.0,             // C++ line 141
@@ -740,7 +736,7 @@ impl HelicopterSlowDeathBehavior {
     }
 
     /// Resolve the owning object handle (same fallback chain as update).
-    fn owner(&self) -> Option<Arc<RwLock<GameObject>>> {
+    fn owner(&self) -> Option<ObjectID> {
         if self.object_id == crate::common::INVALID_ID {
             None
         } else {
@@ -1163,7 +1159,7 @@ mod tests {
 pub struct HelicopterSlowDeathBehaviorFactory;
 impl HelicopterSlowDeathBehaviorFactory {
     pub fn create_behavior(
-        thing: Arc<RwLock<GameObject>>,
+        object_id: ObjectID,
         module_data: Arc<dyn ModuleData>,
     ) -> Result<Box<dyn BehaviorModuleInterface>, Box<dyn std::error::Error + Send + Sync>> {
         let typed = module_data

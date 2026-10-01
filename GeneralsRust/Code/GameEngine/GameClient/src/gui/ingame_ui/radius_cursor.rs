@@ -45,8 +45,10 @@ impl InGameUI {
 
         let controller = self
             .first_selected_object_for_radius_cursor()
-            .and_then(|id| OBJECT_REGISTRY.get_object(id))
-            .and_then(|obj| obj.read().ok().and_then(|guard| guard.get_controlling_player()))
+            .and_then(|id| {
+                OBJECT_REGISTRY.with_object(id, |guard| guard.get_controlling_player())
+            })
+            .flatten()
             .or_else(|| {
                 player_list()
                     .read()
@@ -185,24 +187,24 @@ impl InGameUI {
                 .map(|t| t.get_name().to_string())
         })?;
         let mut best: Option<(u32, u32)> = None;
-        for obj in OBJECT_REGISTRY.get_all_objects() {
-            let Ok(guard) = obj.read() else {
-                continue;
-            };
-            if !guard.is_locally_controlled() {
-                continue;
-            }
-            let Some(ready_frame) =
-                guard.with_special_power_module_interface_by_name(&template_name, |sp| {
-                    sp.get_ready_frame()
-                })
-            else {
+        for id in OBJECT_REGISTRY.get_all_object_ids() {
+            let candidate = OBJECT_REGISTRY.with_object(id, |guard| {
+                if !guard.is_locally_controlled() {
+                    return None;
+                }
+                let ready_frame =
+                    guard.with_special_power_module_interface_by_name(&template_name, |sp| {
+                        sp.get_ready_frame()
+                    })?;
+                Some((guard.get_id(), ready_frame))
+            });
+            let Some(Some((cand_id, ready_frame))) = candidate else {
                 continue;
             };
             match best {
-                None => best = Some((guard.get_id(), ready_frame)),
+                None => best = Some((cand_id, ready_frame)),
                 Some((_, best_frame)) if ready_frame < best_frame => {
-                    best = Some((guard.get_id(), ready_frame));
+                    best = Some((cand_id, ready_frame));
                 }
                 _ => {}
             }
@@ -218,44 +220,37 @@ impl InGameUI {
         requested: f32,
     ) -> f32 {
         if let Some(obj_id) = obj_id {
-            if let Some(obj) = OBJECT_REGISTRY.get_object(obj_id) {
-                if let Ok(guard) = obj.read() {
-                    let slot = WeaponSlotType::Primary;
-                    match cursor_type {
-                        RadiusCursorType::AttackDamageArea => {
-                            if let Some(weapon) = guard.get_weapon_in_weapon_slot(slot) {
-                                let radius = weapon.get_primary_damage_radius(obj_id);
-                                if radius > 0.0 {
-                                    return radius;
-                                }
-                            }
-                        }
-                        RadiusCursorType::AttackScatterArea => {
-                            if let Some(weapon) = guard.get_weapon_in_weapon_slot(slot) {
-                                let radius = weapon.get_scatter_radius()
-                                    + weapon.get_scatter_target_scalar();
-                                if radius > 0.0 {
-                                    return radius;
-                                }
-                            }
-                        }
-                        RadiusCursorType::AttackContinueArea | RadiusCursorType::ClearMines => {
-                            if let Some(weapon) = guard.get_weapon_in_weapon_slot(slot) {
-                                let radius = weapon.get_continue_attack_range();
-                                if radius > 0.0 {
-                                    return radius;
-                                }
-                            }
-                        }
-                        RadiusCursorType::GuardArea => {
-                            let radius = AIGuardMachine::get_std_guard_range(obj_id);
-                            if radius > 0.0 {
-                                return radius;
-                            }
-                        }
-                        _ => {}
+            let from_object = OBJECT_REGISTRY.with_object(obj_id, |guard| {
+                let slot = WeaponSlotType::Primary;
+                match cursor_type {
+                    RadiusCursorType::AttackDamageArea => {
+                        guard.get_weapon_in_weapon_slot(slot).and_then(|weapon| {
+                            let radius = weapon.get_primary_damage_radius(obj_id);
+                            (radius > 0.0).then_some(radius)
+                        })
                     }
+                    RadiusCursorType::AttackScatterArea => {
+                        guard.get_weapon_in_weapon_slot(slot).and_then(|weapon| {
+                            let radius =
+                                weapon.get_scatter_radius() + weapon.get_scatter_target_scalar();
+                            (radius > 0.0).then_some(radius)
+                        })
+                    }
+                    RadiusCursorType::AttackContinueArea | RadiusCursorType::ClearMines => {
+                        guard.get_weapon_in_weapon_slot(slot).and_then(|weapon| {
+                            let radius = weapon.get_continue_attack_range();
+                            (radius > 0.0).then_some(radius)
+                        })
+                    }
+                    RadiusCursorType::GuardArea => {
+                        let radius = AIGuardMachine::get_std_guard_range(obj_id);
+                        (radius > 0.0).then_some(radius)
+                    }
+                    _ => None,
                 }
+            });
+            if let Some(Some(radius)) = from_object {
+                return radius;
             }
         }
 

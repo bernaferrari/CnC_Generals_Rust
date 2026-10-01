@@ -367,18 +367,15 @@ pub struct TransportContain {
 impl TransportContain {
     /// Create a new TransportContain module
     pub fn new(
-        object: Weak<RwLock<Object>>,
+        object_id: ObjectID,
         module_data: &TransportContainModuleData,
     ) -> GameResult<Self> {
-        let base = OpenContain::new(object.clone(), &module_data.base)?;
+        let base = OpenContain::new(object_id, &module_data.base)?;
 
         Ok(Self {
             base,
             module_data: module_data.clone(),
-            object_id: object
-                .upgrade()
-                .and_then(|arc| arc.read().ok().map(|g| g.get_id()))
-                .unwrap_or(crate::common::INVALID_ID),
+            object_id: object_id,
             payload_created: false,
             extra_slots_in_use: 0,
             last_extra_slots_delta: 0,
@@ -409,18 +406,13 @@ impl TransportContain {
     }
 
     /// Short-lived Arc resolve; prefer `with_owner_object` / `get_object_id`.
-    pub fn get_object(&self) -> Option<Arc<RwLock<Object>>> {
-        // Wave 272: empty dual-world → None.
-        if dual_world_registry_unavailable() {
-            return None;
-        }
-
-        let id = self.get_object_id();
+    pub fn get_object(&self) -> Option<ObjectID> {
+        let id = self.object_id;
         if id == crate::common::INVALID_ID {
-            return None;
+            None
+        } else {
+            Some(id)
         }
-        crate::helpers::TheGameLogic::find_object_by_id(id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(id))
     }
 
     /// Check if this container is valid for the given object
@@ -434,54 +426,45 @@ impl TransportContain {
         // zero-slot container (parachute), replace the check target with the
         // first contained infantry so a plane can accept a paratrooper.
         let unwrapped = super::unwrap_special_zero_slot_rider(obj);
-        let unwrapped_guard = if let Some(arc) = unwrapped.as_ref() {
-            let Ok(guard) = arc.try_read() else {
+        let check = |actual: &Object| -> bool {
+            if !self.base.is_valid_container_for(actual, check_capacity) {
+                return false;
+            }
+            let Some(owner_id) = self.get_object() else {
                 return false;
             };
-            Some(guard)
-        } else {
-            None
+            let Some(players_ok) = crate::object::registry::OBJECT_REGISTRY.with_object(owner_id, |owner| {
+                let owner_player = owner.get_controlling_player();
+                let actual_player = actual.get_controlling_player();
+                match (&owner_player, &actual_player) {
+                    (Some(p1), Some(p2)) if !Arc::ptr_eq(p1, p2) => false,
+                    (None, Some(_)) | (Some(_), None) => false,
+                    _ => true,
+                }
+            }) else {
+                return false;
+            };
+            if !players_ok {
+                return false;
+            }
+            let transport_slot_count = actual.get_transport_slot_count();
+            if transport_slot_count == 0 {
+                return false;
+            }
+            if check_capacity {
+                let contain_max = self.get_contain_max();
+                let contain_count = self.base.get_contain_count() as i32;
+                return self.extra_slots_in_use + contain_count + (transport_slot_count as i32)
+                    <= contain_max;
+            }
+            true
         };
-        let actual_obj = unwrapped_guard.as_deref().unwrap_or(obj);
-
-        // Call base validation
-        if !self.base.is_valid_container_for(actual_obj, check_capacity) {
-            return false;
+        if let Some(id) = unwrapped {
+            return crate::object::registry::OBJECT_REGISTRY
+                .with_object(id, |actual| check(actual))
+                .unwrap_or(false);
         }
-
-        let Some(owner_arc) = self.get_object() else {
-            return false;
-        };
-        let Ok(owner) = owner_arc.try_read() else {
-            return false;
-        };
-        let owner_player = owner.get_controlling_player();
-        drop(owner);
-        let actual_player = actual_obj.get_controlling_player();
-        match (owner_player, actual_player) {
-            (Some(ref p1), Some(ref p2)) if !Arc::ptr_eq(p1, p2) => return false,
-            (None, Some(_)) | (Some(_), None) => return false,
-            _ => {}
-        }
-
-        // Get transport slot count
-        let transport_slot_count = actual_obj.get_transport_slot_count();
-
-        // If 0, object isn't transportable
-        if transport_slot_count == 0 {
-            return false;
-        }
-
-        // Check capacity if requested
-        if check_capacity {
-            let contain_max = self.get_contain_max();
-            let contain_count = self.base.get_contain_count() as i32;
-
-            return self.extra_slots_in_use + contain_count + (transport_slot_count as i32)
-                <= contain_max;
-        }
-
-        true
+        check(obj)
     }
 
     /// C++ OpenContain::processDamageToContained — Battle Bus / contain death rules.
@@ -497,14 +480,10 @@ impl TransportContain {
     pub fn on_capture(
         &mut self,
         owner: &Object,
-        old_owner: Option<&Arc<RwLock<Player>>>,
-        new_owner: Option<&Arc<RwLock<Player>>>,
+        old_owner: Option<PlayerIndex>,
+        new_owner: Option<PlayerIndex>,
     ) -> GameResult<()> {
-        let owners_differ = match (old_owner, new_owner) {
-            (Some(old), Some(new)) => !Arc::ptr_eq(old, new),
-            (None, None) => false,
-            _ => true,
-        };
+        let owners_differ = old_owner != new_owner;
         if !owners_differ {
             return Ok(());
         }
@@ -606,33 +585,30 @@ impl TransportContain {
 
         self.base.on_containing(obj_id, was_selected)?;
 
-        // Set object as disabled (held)
-        let Ok(mut rider) = obj.try_write() else {
+        let held = crate::object::registry::OBJECT_REGISTRY.with_object_mut(obj, |rider| {
+            rider.set_disabled_held(true)?;
+            let transport_slot_count = rider.get_transport_slot_count();
+            debug_assert!(
+                transport_slot_count > 0,
+                "TransportContain contained a non-transportable rider"
+            );
+            Ok::<i32, Box<dyn std::error::Error + Send + Sync>>((transport_slot_count as i32 - 1).max(0))
+        });
+        let Some(held) = held else {
             self.base.unlink_contained_id(obj_id);
             return Err("Transport rider lock busy".into());
         };
-        rider.set_disabled_held(true)?;
-
-        // Track extra slots (units can take more than 1 slot)
-        let transport_slot_count = rider.get_transport_slot_count();
-        debug_assert!(
-            transport_slot_count > 0,
-            "TransportContain contained a non-transportable rider"
-        );
-        let extra = (transport_slot_count as i32 - 1).max(0);
+        let extra = held?;
         self.extra_slots_in_use += extra;
         self.last_extra_slots_delta = extra;
 
-        // Verify slot count is valid
         debug_assert!(
             self.extra_slots_in_use >= 0
                 && self.extra_slots_in_use + self.base.get_contain_count() as i32
                     <= self.get_contain_max(),
             "Bad slot count in TransportContain"
         );
-        drop(rider);
 
-        // Set model condition LOADED when first unit enters
         if self.base.get_contain_count() == 1 {
             if let Some(drawable) = self
                 .with_owner_object(|owner| owner.get_drawable())
@@ -644,45 +620,44 @@ impl TransportContain {
             }
         }
 
-        // Let riders upgrade weapon set if configured
         self.let_riders_upgrade_weapon_set()?;
 
-        // Track transport occupancy on the unit itself for quick validation elsewhere.
-        if let Some(owner_transport) = (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-        }) {
-            if let Ok(mut transport_guard) = owner_transport.try_write() {
-                transport_guard.set_is_transporting(true);
-            }
+        if self.object_id != crate::common::INVALID_ID {
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(self.object_id, |transport| {
+                transport.set_is_transporting(true);
+            });
         }
 
-        // Handle special case: Jarmen Kell + Combat Bike weapon timer transfer
-        if let Ok(rider) = obj.try_read() {
+        let timers = crate::object::registry::OBJECT_REGISTRY.with_object(obj, |rider| {
             if rider.is_kind_of(KindOf::Hero) && rider.is_kind_of(KindOf::Salvager) {
-                if let Some(rider_weapon) =
-                    rider.get_weapon_in_slot(WeaponSlotType::Secondary.into())
-                {
-                    let when_we_can_fire_again = rider_weapon.when_we_can_fire_again;
-                    let when_pre_attack_finished = rider_weapon.when_pre_attack_finished;
-                    let when_last_reload_started = rider_weapon.when_last_reload_started;
-                    drop(rider);
-                    if let Some(owner_arc) = self.get_object() {
-                        if let Ok(mut owner) = owner_arc.try_write() {
-                            if owner.is_kind_of(KindOf::CliffJumper) {
-                                if let Some(bike_weapon) =
-                                    owner.get_weapon_in_slot_mut(WeaponSlotType::Secondary.into())
-                                {
-                                    bike_weapon.when_we_can_fire_again = when_we_can_fire_again;
-                                    bike_weapon.when_pre_attack_finished = when_pre_attack_finished;
-                                    bike_weapon.when_last_reload_started = when_last_reload_started;
-                                }
-                            }
+                rider
+                    .get_weapon_in_slot(WeaponSlotType::Secondary.into())
+                    .map(|rider_weapon| {
+                        (
+                            rider_weapon.when_we_can_fire_again,
+                            rider_weapon.when_pre_attack_finished,
+                            rider_weapon.when_last_reload_started,
+                        )
+                    })
+            } else {
+                None
+            }
+        });
+        if let Some(Some((when_we_can_fire_again, when_pre_attack_finished, when_last_reload_started))) =
+            timers
+        {
+            if let Some(owner_id) = self.get_object() {
+                let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner_id, |owner| {
+                    if owner.is_kind_of(KindOf::CliffJumper) {
+                        if let Some(bike_weapon) =
+                            owner.get_weapon_in_slot_mut(WeaponSlotType::Secondary.into())
+                        {
+                            bike_weapon.when_we_can_fire_again = when_we_can_fire_again;
+                            bike_weapon.when_pre_attack_finished = when_pre_attack_finished;
+                            bike_weapon.when_last_reload_started = when_last_reload_started;
                         }
                     }
-                }
+                });
             }
         }
 
@@ -692,14 +667,13 @@ impl TransportContain {
     /// C++ `PhysicsBehavior::getVelocity` for KeepContainerVelocityOnExit.
     /// `PhysicsBehaviorExt::get_velocity` turns a failed `try_lock` into zero.
     fn owner_exit_velocity(&self) -> GameResult<Option<Coord3D>> {
-        let Some(owner_arc) = self.get_object() else {
+        let Some(owner_id) = self.get_object() else {
             return Ok(None);
         };
-        let physics = {
-            let Ok(owner) = owner_arc.try_read() else {
-                return Err("Transport owner lock busy during velocity inherit".into());
-            };
+        let Some(physics) = crate::object::registry::OBJECT_REGISTRY.with_object(owner_id, |owner| {
             owner.get_physics()
+        }) else {
+            return Err("Transport owner lock busy during velocity inherit".into());
         };
         let Some(physics) = physics else {
             return Ok(None);
@@ -716,14 +690,14 @@ impl TransportContain {
     /// read-locks the rider, and `std` locks do not reenter.
     fn inherit_container_velocity_on_exit(
         &self,
-        rider: &Arc<RwLock<Object>>,
+        rider: &ObjectID,
         parent_velocity: Coord3D,
     ) -> GameResult<()> {
-        let child_physics = {
-            let Ok(rider_guard) = rider.try_read() else {
-                return Err("Transport passenger lock busy during velocity inherit".into());
-            };
+        let child_physics = crate::object::registry::OBJECT_REGISTRY.with_object(*rider, |rider_guard| {
             rider_guard.get_physics()
+        });
+        let Some(child_physics) = child_physics else {
+            return Err("Transport passenger lock busy during velocity inherit".into());
         };
         let Some(child_physics) = child_physics else {
             return Ok(());
@@ -758,118 +732,108 @@ impl TransportContain {
 
         self.base.on_removing(obj_id)?;
 
-        // Clear disabled state
-        let Ok(mut rider) = obj.try_write() else {
+        let exit_bone = self.module_data.exit_bone.clone();
+        let orient_like = self.module_data.orient_like_container_on_exit;
+        let owner_id = self.get_object();
+        let bone_pos = if !exit_bone.is_empty() {
+            owner_id.and_then(|id| {
+                crate::object::registry::OBJECT_REGISTRY.with_object(id, |owner| {
+                    let (_, bone_pos, _) = owner.get_single_logical_bone_position(&exit_bone);
+                    bone_pos
+                })
+            })
+        } else {
+            None
+        };
+        let orient = if orient_like {
+            owner_id.and_then(|id| {
+                crate::object::registry::OBJECT_REGISTRY
+                    .with_object(id, |owner| owner.get_orientation())
+            })
+        } else {
+            None
+        };
+
+        let cleared = crate::object::registry::OBJECT_REGISTRY.with_object_mut(obj, |rider| {
+            rider.set_disabled_held(false)?;
+            let transport_slot_count = rider.get_transport_slot_count();
+            debug_assert!(
+                transport_slot_count > 0,
+                "TransportContain removed a non-transportable rider"
+            );
+            if let Some(bone_pos) = bone_pos {
+                let _ = rider.set_position(&bone_pos);
+            }
+            if let Some(orient) = orient {
+                let _ = rider.set_orientation(orient);
+            }
+            Ok::<i32, Box<dyn std::error::Error + Send + Sync>>(transport_slot_count as i32)
+        });
+        let Some(cleared) = cleared else {
             return Err("Transport passenger lock busy during held clear".into());
         };
-        rider.set_disabled_held(false)?;
+        let transport_slot_count = cleared?;
+        self.extra_slots_in_use -= transport_slot_count - 1;
 
-        // Reclaim extra slots
-        let transport_slot_count = rider.get_transport_slot_count();
-        debug_assert!(
-            transport_slot_count > 0,
-            "TransportContain removed a non-transportable rider"
-        );
-        self.extra_slots_in_use -= (transport_slot_count - 1) as i32;
-
-        if !self.module_data.exit_bone.is_empty() {
-            if let Some(owner_arc) = self.get_object() {
-                if let Ok(owner) = owner_arc.try_read() {
-                    let (_, bone_pos, _) =
-                        owner.get_single_logical_bone_position(&self.module_data.exit_bone);
-                    drop(owner);
-                    let _ = rider.set_position(&bone_pos);
-                }
-            }
-        }
-        if self.module_data.orient_like_container_on_exit {
-            if let Some(owner_arc) = self.get_object() {
-                if let Ok(owner) = owner_arc.try_read() {
-                    let orient = owner.get_orientation();
-                    drop(owner);
-                    let _ = rider.set_orientation(orient);
-                }
-            }
-        }
-        drop(rider);
-
-        // Clear model condition LOADED when last unit exits
         if self.base.get_contain_count() == 0 {
-            if let Some(owner_arc) = self.get_object() {
-                if let Ok(owner) = owner_arc.try_read() {
-                    let drawable = owner.get_drawable();
-                    drop(owner);
-                    if let Some(drawable) = drawable {
-                        if let Ok(mut draw) = drawable.write() {
-                            draw.clear_model_condition_state(ModelConditionState::Loaded);
-                        }
-                    }
+            if let Some(drawable) = self.with_owner_object(|owner| owner.get_drawable()).flatten() {
+                if let Ok(mut draw) = drawable.write() {
+                    draw.clear_model_condition_state(ModelConditionState::Loaded);
                 }
             }
         }
 
-        // Update transport tracking
-        if let Some(owner_transport) = (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-        }) {
-            if let Ok(mut transport_guard) = owner_transport.try_write() {
-                let still_contains = self.base.get_contain_count() > 0;
-                transport_guard.set_is_transporting(still_contains);
-            }
+        if self.object_id != crate::common::INVALID_ID {
+            let still_contains = self.base.get_contain_count() > 0;
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(self.object_id, |transport| {
+                transport.set_is_transporting(still_contains);
+            });
         }
 
-        // C++ TransportContain::onRemoving KeepContainerVelocityOnExit runs
-        // before the airborne fall flag. Apply it before the rider write:
-        // motive force read-locks the rider.
         if self.module_data.keep_container_velocity_on_exit {
             if let Some(parent_velocity) = self.owner_exit_velocity()? {
                 self.inherit_container_velocity_on_exit(&obj, parent_velocity)?;
             }
         }
 
-        let owner_state = self.get_object().and_then(|owner_arc| {
-            let Ok(owner) = owner_arc.try_read() else {
-                return None;
-            };
-            let bike_secondary = if owner.is_kind_of(KindOf::CliffJumper) {
-                owner
-                    .get_weapon_in_slot(WeaponSlotType::Secondary.into())
-                    .map(|w| {
-                        (
-                            w.when_we_can_fire_again,
-                            w.when_pre_attack_finished,
-                            w.when_last_reload_started,
-                        )
-                    })
-            } else {
-                None
-            };
-            Some((
-                owner.is_above_terrain(),
-                owner.is_effectively_dead(),
-                owner.is_kind_of(KindOf::CliffJumper),
-                bike_secondary,
-            ))
+        let owner_state = self.get_object().and_then(|owner_id| {
+            crate::object::registry::OBJECT_REGISTRY.with_object(owner_id, |owner| {
+                let bike_secondary = if owner.is_kind_of(KindOf::CliffJumper) {
+                    owner
+                        .get_weapon_in_slot(WeaponSlotType::Secondary.into())
+                        .map(|w| {
+                            (
+                                w.when_we_can_fire_again,
+                                w.when_pre_attack_finished,
+                                w.when_last_reload_started,
+                            )
+                        })
+                } else {
+                    None
+                };
+                (
+                    owner.is_above_terrain(),
+                    owner.is_effectively_dead(),
+                    owner.is_kind_of(KindOf::CliffJumper),
+                    bike_secondary,
+                )
+            })
         });
 
-        if let Ok(mut rider) = obj.write() {
-            if let Some((above_terrain, owner_dead, owner_is_bike, bike_secondary)) = owner_state {
+        if let Some((above_terrain, owner_dead, owner_is_bike, bike_secondary)) = owner_state {
+            let fall = crate::object::registry::OBJECT_REGISTRY.with_object_mut(obj, |rider| {
                 if above_terrain {
                     if let Some(physics) = rider.get_physics() {
-                        // Object write is already held. Lock physics only.
                         let Ok(mut physics) = physics.try_lock() else {
                             return Err(
-                                "Transport rider physics lock busy during allow to fall".into()
+                                "Transport rider physics lock busy during allow to fall".into(),
                             );
                         };
                         physics.set_allow_to_fall(true);
                     }
                 }
                 if owner_dead {
-                    let _ = self.base.scatter_to_nearby_position(&mut rider);
+                    let _ = self.base.scatter_to_nearby_position(rider);
                 }
                 if owner_is_bike
                     && rider.is_kind_of(KindOf::Hero)
@@ -884,25 +848,29 @@ impl TransportContain {
                         rider_weapon.when_last_reload_started = when_reload;
                     }
                 }
+                Ok::<(), Box<dyn std::error::Error + Send + Sync>>(())
+            });
+            if let Some(Err(err)) = fall {
+                return Err(err);
             }
         }
         if self.module_data.go_aggressive_on_exit {
-            if let Ok(rider) = obj.try_read() {
-                if let Some(ai) = rider.get_ai() {
-                    drop(rider);
-                    if let Ok(mut ai_guard) = ai.try_lock() {
-                        ai_guard.set_attitude(AIAttitudeType::Aggressive);
-                    }
+            if let Some(ai) = crate::object::registry::OBJECT_REGISTRY
+                .with_object(obj, |rider| rider.get_ai())
+                .flatten()
+            {
+                if let Ok(mut ai_guard) = ai.try_lock() {
+                    ai_guard.set_attitude(AIAttitudeType::Aggressive);
                 }
             }
         }
         if self.module_data.reset_mood_check_time_on_exit {
-            if let Ok(rider) = obj.try_read() {
-                if let Some(ai) = rider.get_ai() {
-                    drop(rider);
-                    if let Ok(mut ai_guard) = ai.try_lock() {
-                        ai_guard.wake_up_and_attempt_to_target();
-                    }
+            if let Some(ai) = crate::object::registry::OBJECT_REGISTRY
+                .with_object(obj, |rider| rider.get_ai())
+                .flatten()
+            {
+                if let Ok(mut ai_guard) = ai.try_lock() {
+                    ai_guard.wake_up_and_attempt_to_target();
                 }
             }
         }
@@ -936,12 +904,13 @@ impl TransportContain {
                 if let Some(object) = TheGameLogic::find_object_by_id(object_id)
                     .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(object_id))
                 {
-                    let Ok(guard) = object.try_read() else {
+                    let body_info = crate::object::registry::OBJECT_REGISTRY.with_object(object, |guard| {
+                        guard.get_body_module()
+                    });
+                    let Some(body) = body_info else {
                         log::warn!("TransportContain::update regen lock busy for {}", object_id);
                         continue;
                     };
-                    let body = guard.get_body_module();
-                    drop(guard);
                     let Some(body) = body else {
                         continue;
                     };
@@ -960,20 +929,18 @@ impl TransportContain {
                     }
                     let regen = max_health * self.module_data.health_regen / 100.0
                         * SECONDS_PER_LOGICFRAME_REAL;
-                    let Ok(mut object_guard) = object.try_write() else {
+                    let wrote = crate::object::registry::OBJECT_REGISTRY.with_object_mut(object, |object_guard| {
+                        if owner_id != crate::common::INVALID_ID {
+                            let _ = object_guard.attempt_healing_from_source_id(regen, owner_id);
+                        } else {
+                            let _ = object_guard.attempt_healing(regen, None);
+                        }
+                    });
+                    if wrote.is_none() {
                         log::warn!(
                             "TransportContain::update regen write busy for {}",
                             object_id
                         );
-                        continue;
-                    };
-                    if owner_id != crate::common::INVALID_ID {
-                        let _ = crate::object::registry::OBJECT_REGISTRY
-                            .with_object(owner_id, |source| {
-                                object_guard.attempt_healing(regen, Some(source))
-                            });
-                    } else {
-                        let _ = object_guard.attempt_healing(regen, None);
                     }
                 }
             }
@@ -1078,8 +1045,10 @@ impl TransportContain {
             if !self.is_rider_id_free_to_exit(obj_id) {
                 if self.module_data.destroy_riders_who_are_not_free_to_exit {
                     let _ = TheGameLogic::destroy_object_by_id(obj_id);
-                } else if let Ok(mut obj_write) = obj.try_write() {
-                    obj_write.kill(None, None);
+                } else {
+                    let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(obj, |obj_write| {
+                        obj_write.kill(None, None);
+                    });
                 }
             }
         }
@@ -1105,32 +1074,32 @@ impl TransportContain {
         else {
             return false;
         };
-        let Some((airborne, layer, pos, rider_ai)) = ({
-            let Ok(rider) = obj.try_read() else {
-                return false;
-            };
-            let owner_bits = self.with_owner_object(|owner| {
-                if let Some(ai) = owner.get_ai_update_interface() {
-                    if let Ok(ai_guard) = ai.try_lock() {
-                        if !matches!(
-                            ai_guard.get_ai_free_to_exit(&rider),
-                            crate::object::production::AIFreeToExitType::FreeToExit
-                        ) {
-                            return None;
+        let Some((airborne, layer, pos, rider_ai)) = crate::object::registry::OBJECT_REGISTRY
+            .with_object(obj, |rider| {
+                let owner_bits = self.with_owner_object(|owner| {
+                    if let Some(ai) = owner.get_ai_update_interface() {
+                        if let Ok(ai_guard) = ai.try_lock() {
+                            if !matches!(
+                                ai_guard.get_ai_free_to_exit(rider),
+                                crate::object::production::AIFreeToExitType::FreeToExit
+                            ) {
+                                return None;
+                            }
                         }
                     }
-                }
-                Some((
-                    owner.is_using_airborne_locomotor(),
-                    owner.get_layer(),
-                    *owner.get_position(),
-                ))
-            });
-            let rider_ai = rider.get_ai_update_interface();
-            owner_bits
-                .flatten()
-                .map(|(airborne, layer, pos)| (airborne, layer, pos, rider_ai))
-        }) else {
+                    Some((
+                        owner.is_using_airborne_locomotor(),
+                        owner.get_layer(),
+                        *owner.get_position(),
+                    ))
+                });
+                let rider_ai = rider.get_ai_update_interface();
+                owner_bits
+                    .flatten()
+                    .map(|(airborne, layer, pos)| (airborne, layer, pos, rider_ai))
+            })
+            .flatten()
+        else {
             return false;
         };
         if airborne {
@@ -1233,13 +1202,12 @@ impl TransportContain {
             if let Some(passenger) = TheGameLogic::find_object_by_id(obj_id)
                 .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
             {
-                if let Ok(passenger_guard) = passenger.try_read() {
-                    if !transport_contain_passenger_kind_allowed_to_fire(
+                let infantry = crate::object::registry::OBJECT_REGISTRY.with_object(passenger, |passenger_guard| {
+                    transport_contain_passenger_kind_allowed_to_fire(
                         passenger_guard.is_kind_of(KindOf::Infantry),
-                    ) {
-                        return false;
-                    }
-                } else {
+                    )
+                });
+                if infantry != Some(true) {
                     return false;
                 }
             }
@@ -1252,16 +1220,21 @@ impl TransportContain {
             if let Some(parent) = TheGameLogic::find_object_by_id(parent_id)
                 .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(parent_id))
             {
-                let Ok(parent_guard) = parent.try_read() else {
-                    return false;
-                };
-                if let Some(contain) = parent_guard.get_contain() {
-                    let Ok(contain_guard) = contain.try_lock() else {
-                        return false;
-                    };
-                    if contain_guard.is_special_overlord_style_container() {
-                        return contain_guard.is_passenger_allowed_to_fire(id);
+                let overlord = crate::object::registry::OBJECT_REGISTRY.with_object(parent, |parent_guard| {
+                    if let Some(contain) = parent_guard.get_contain() {
+                        let Ok(contain_guard) = contain.try_lock() else {
+                            return None;
+                        };
+                        if contain_guard.is_special_overlord_style_container() {
+                            return Some(contain_guard.is_passenger_allowed_to_fire(id));
+                        }
                     }
+                    Some(None)
+                });
+                match overlord {
+                    None => return false,
+                    Some(None) => {}
+                    Some(Some(allowed)) => return allowed,
                 }
             }
         }
@@ -1330,10 +1303,15 @@ impl TransportContain {
                 continue;
             };
 
-            let Ok(guard) = payload_obj.try_read() else {
-                if let Ok(guard) = payload_obj.try_write() {
-                    let payload_id = guard.get_id();
-                    drop(guard);
+            let checked = crate::object::registry::OBJECT_REGISTRY.with_object(payload_obj, |guard| {
+                let payload_id = guard.get_id();
+                let can_add = self.is_valid_container_for(guard, true);
+                (payload_id, can_add)
+            });
+            let Some((payload_id, can_add)) = checked else {
+                let payload_id = crate::object::registry::OBJECT_REGISTRY
+                    .with_object(payload_obj, |guard| guard.get_id());
+                if let Some(payload_id) = payload_id {
                     let _ = TheGameLogic::destroy_object_by_id(payload_id);
                 }
                 self.base.enable_load_sounds(true);
@@ -1342,9 +1320,6 @@ impl TransportContain {
                 }
                 return Err("Transport payload lock busy".into());
             };
-            let payload_id = guard.get_id();
-            let can_add = self.is_valid_container_for(&*guard, true);
-            drop(guard);
             if can_add {
                 if let Err(err) = self.add_to_contain(payload_id) {
                     let _ = TheGameLogic::destroy_object_by_id(payload_id);
@@ -1392,46 +1367,44 @@ impl TransportContain {
                 else {
                     continue;
                 };
-                let Ok(rider) = rider_obj.try_read() else {
+                let viable = crate::object::registry::OBJECT_REGISTRY.with_object(rider_obj, |rider| {
+                    if !transport_contain_passenger_kind_allowed_to_fire(
+                        rider.is_kind_of(KindOf::Infantry),
+                    ) {
+                        return false;
+                    }
+                    for weapon_slot in [
+                        WeaponSlotType::Primary,
+                        WeaponSlotType::Secondary,
+                        WeaponSlotType::Tertiary,
+                    ] {
+                        if let Some(weapon) = rider.get_weapon_in_slot(weapon_slot.into()) {
+                            if !weapon.is_contact_weapon() && weapon.is_damage_weapon() {
+                                return true;
+                            }
+                        }
+                    }
+                    false
+                });
+                let Some(viable) = viable else {
                     every_rider_read = false;
                     continue;
                 };
-                // C++ letRidersUpgradeWeaponSet: skip non-infantry.
-                if !transport_contain_passenger_kind_allowed_to_fire(
-                    rider.is_kind_of(KindOf::Infantry),
-                ) {
-                    continue;
-                }
-
-                // Check all weapon slots
-                for weapon_slot in [
-                    WeaponSlotType::Primary,
-                    WeaponSlotType::Secondary,
-                    WeaponSlotType::Tertiary,
-                ] {
-                    if let Some(weapon) = rider.get_weapon_in_slot(weapon_slot.into()) {
-                        // Weapon must be non-contact and damage-dealing
-                        if !weapon.is_contact_weapon() && weapon.is_damage_weapon() {
-                            any_rider_has_viable_weapon = true;
-                            break;
-                        }
-                    }
-                }
-
-                if any_rider_has_viable_weapon {
+                if viable {
+                    any_rider_has_viable_weapon = true;
                     break;
                 }
             }
 
             if every_rider_read {
-                if let Some(owner_arc) = self.get_object() {
-                    if let Ok(mut owner_mut) = owner_arc.try_write() {
+                if let Some(owner_id) = self.get_object() {
+                    let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner_id, |owner_mut| {
                         if any_rider_has_viable_weapon {
                             owner_mut.set_weapon_set_flag(WeaponSetType::PlayerUpgrade);
                         } else {
                             owner_mut.clear_weapon_set_flag(WeaponSetType::PlayerUpgrade);
                         }
-                    }
+                    });
                 }
             }
         }
@@ -1535,33 +1508,36 @@ impl TransportContain {
             .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
             .ok_or("Transport contain object not found")?;
 
-        let was_selected = obj
-            .try_read()
-            .ok()
-            .and_then(|guard| guard.get_drawable())
+        let was_selected = crate::object::registry::OBJECT_REGISTRY
+            .with_object(obj, |guard| guard.get_drawable())
+            .flatten()
             .and_then(|drawable| drawable.try_read().ok().map(|draw| draw.is_selected()))
             .unwrap_or(false);
 
         {
-            let Ok(obj_ref) = obj.try_read() else {
+            let Some(ok) = crate::object::registry::OBJECT_REGISTRY.with_object(obj, |obj_ref| {
+                if !self.is_valid_container_for(obj_ref, true) {
+                    return Err("Object not valid for this transport container".into());
+                }
+                let already_listed = self.base.get_contained_object_ids().contains(&obj_id);
+                let contained_by = obj_ref.get_contained_by();
+                if contained_by.is_some()
+                    && (already_listed || contained_by != Some(self.get_object_id()))
+                {
+                    return Ok(false);
+                }
+                Ok(true)
+            }) else {
                 return Err("Transport passenger lock busy".into());
             };
-            if !self.is_valid_container_for(&*obj_ref, true) {
-                return Err("Object not valid for this transport container".into());
-            }
-            let already_listed = self.base.get_contained_object_ids().contains(&obj_id);
-            let contained_by = obj_ref.get_contained_by();
-            if contained_by.is_some()
-                && (already_listed || contained_by != Some(self.get_object_id()))
-            {
+            if !ok? {
                 return Ok(());
             }
         }
 
         self.add_to_contain_list(obj_id)?;
-        let should_remove_from_world = obj
-            .try_read()
-            .map(|obj_guard| self.base.is_enclosing_container_for(&*obj_guard))
+        let should_remove_from_world = crate::object::registry::OBJECT_REGISTRY
+            .with_object(obj, |obj_guard| self.base.is_enclosing_container_for(obj_guard))
             .unwrap_or(false);
         if should_remove_from_world {
             let _ = self.base.add_or_remove_obj_from_world(obj_id, false);
@@ -1621,34 +1597,32 @@ impl TransportContain {
         // C++ OpenContain::removeFromContainViaIterator (`OpenContain.cpp:621-633`):
         // KINDOF_STEALTH_GARRISON + exposeStealthUnits → stealth->markAsDetected().
         if expose_stealth_units {
-            if let Ok(obj_guard) = obj.try_read() {
+            if let Some(stealth) = crate::object::registry::OBJECT_REGISTRY.with_object(obj, |obj_guard| {
                 if obj_guard.is_kind_of(KindOf::StealthGarrison) {
-                    if let Some(stealth) = obj_guard.get_stealth() {
-                        if let Ok(mut stealth_guard) = stealth.lock() {
-                            stealth_guard.mark_as_detected();
-                        }
-                    }
+                    obj_guard.get_stealth()
+                } else {
+                    None
+                }
+            }).flatten() {
+                if let Ok(mut stealth_guard) = stealth.lock() {
+                    stealth_guard.mark_as_detected();
                 }
             }
         }
-        let should_add_to_world = obj
-            .try_read()
-            .map(|obj_guard| self.base.is_enclosing_container_for(&*obj_guard))
+        let should_add_to_world = crate::object::registry::OBJECT_REGISTRY
+            .with_object(obj, |obj_guard| self.base.is_enclosing_container_for(obj_guard))
             .unwrap_or(false);
         if should_add_to_world {
             let _ = self.base.add_or_remove_obj_from_world(obj_id, true);
             let owner_id = self.get_object_id();
             if owner_id != crate::common::INVALID_ID {
-                if let Some(owner_arc) = self.get_object() {
-                    if let Ok(owner_guard) = owner_arc.try_read() {
-                        let pos = *owner_guard.get_position();
-                        let layer = owner_guard.get_layer();
-                        drop(owner_guard);
-                        if let Ok(mut obj_guard) = obj.try_write() {
-                            let _ = obj_guard.set_position(&pos);
-                            obj_guard.set_layer(layer);
-                        }
-                    }
+                if let Some((pos, layer)) = crate::object::registry::OBJECT_REGISTRY.with_object(owner_id, |owner_guard| {
+                    (*owner_guard.get_position(), owner_guard.get_layer())
+                }) {
+                    let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(obj, |obj_guard| {
+                        let _ = obj_guard.set_position(&pos);
+                        obj_guard.set_layer(layer);
+                    });
                 }
             }
         }
@@ -1721,8 +1695,10 @@ impl Snapshotable for TransportContain {
 impl ContainModuleInterface for TransportContain {
     fn can_contain(&self, object_id: ObjectID) -> bool {
         if let Some(obj) = TheGameLogic::find_object_by_id(object_id) {
-            if let Ok(obj_guard) = obj.read() {
-                return self.is_valid_container_for(&*obj_guard, true);
+            if let Some(valid) = crate::object::registry::OBJECT_REGISTRY
+                .with_object(obj, |obj_guard| self.is_valid_container_for(obj_guard, true))
+            {
+                return valid;
             }
         }
         false
@@ -1817,9 +1793,8 @@ impl ContainModuleInterface for TransportContain {
         else {
             return Ok(());
         };
-        let valid = other
-            .try_read()
-            .map(|guard| self.is_valid_container_for(&*guard, true))
+        let valid = crate::object::registry::OBJECT_REGISTRY
+            .with_object(other, |guard| self.is_valid_container_for(guard, true))
             .unwrap_or(false);
         if valid {
             self.add_to_contain(other_id)?;
@@ -1869,8 +1844,8 @@ impl ContainModuleInterface for TransportContain {
     fn on_capture(
         &mut self,
         owner: &Object,
-        old_owner: Option<&Arc<RwLock<Player>>>,
-        new_owner: Option<&Arc<RwLock<Player>>>,
+        old_owner: Option<PlayerIndex>,
+        new_owner: Option<PlayerIndex>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         TransportContain::on_capture(self, owner, old_owner, new_owner).map_err(|e| e.into())
     }
@@ -1987,9 +1962,9 @@ impl ContainModuleInterface for TransportContain {
             if let Some(obj) = TheGameLogic::find_object_by_id(obj_id)
                 .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
             {
-                if let Ok(mut guard) = obj.try_write() {
+                let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(obj, |guard| {
                     let _ = guard.attempt_damage(damage_info);
-                }
+                });
             }
         }
         Ok(())
@@ -2014,9 +1989,9 @@ impl ContainModuleInterface for TransportContain {
             if let Some(obj) = TheGameLogic::find_object_by_id(obj_id)
                 .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
             {
-                if let Ok(mut guard) = obj.try_write() {
+                let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(obj, |guard| {
                     guard.kill(None, None);
-                }
+                });
             }
         }
         Ok(())
@@ -2109,7 +2084,7 @@ mod tests {
         list.add_player(Arc::new(RwLock::new(Player::new(0))));
     }
 
-    fn owned_object(name: &str, id: ObjectID, player_index: u32) -> Arc<RwLock<Object>> {
+    fn owned_object(name: &str, id: ObjectID, player_index: u32) -> ObjectID {
         let team = Arc::new(RwLock::new(Team::new(
             format!("{name}Team").into(),
             id + 10_000,
@@ -2122,7 +2097,7 @@ mod tests {
             .expect("owned test object")
     }
 
-    fn slotted_passenger(name: &str, id: ObjectID, slots: i32) -> Arc<RwLock<Object>> {
+    fn slotted_passenger(name: &str, id: ObjectID, slots: i32) -> ObjectID {
         let team = Arc::new(RwLock::new(Team::new(
             format!("{name}Team").into(),
             id + 10_000,
@@ -2144,12 +2119,12 @@ mod tests {
         .expect("slotted passenger")
     }
 
-    fn transport_for(owner: &Arc<RwLock<Object>>, slots: i32) -> TransportContain {
+    fn transport_for(owner: &ObjectID, slots: i32) -> TransportContain {
         let data = TransportContainModuleData {
             slot_capacity: slots,
             ..Default::default()
         };
-        TransportContain::new(Arc::downgrade(owner), &data).expect("transport contain")
+        TransportContain::new(*owner, &data).expect("transport contain")
     }
 
     #[test]
@@ -2161,7 +2136,7 @@ mod tests {
         let mut contain = transport_for(&owner, 3);
 
         assert_eq!(contain.get_contain_max(), 3);
-        assert!(contain.is_valid_container_for(&passenger.read().expect("passenger read"), true));
+        assert!(OBJECT_REGISTRY.with_object(passenger, |p| contain.is_valid_container_for(p, true)).unwrap());
         ContainModuleInterface::contain_object(&mut contain, 95002).expect("contain passenger");
 
         assert_eq!(ContainModuleInterface::get_contained_count(&contain), 1);
@@ -2172,7 +2147,7 @@ mod tests {
             (3, 2, true)
         );
         assert_eq!(
-            passenger.read().expect("passenger read").get_contained_by(),
+            OBJECT_REGISTRY.with_object(passenger, |p| p.get_contained_by()).unwrap(),
             Some(95001)
         );
 
@@ -2195,7 +2170,7 @@ mod tests {
         assert_eq!(ContainModuleInterface::get_contained_count(&contain), 0);
         assert_eq!(contain.get_extra_slots_in_use(), 0);
         assert_eq!(
-            passenger.read().expect("passenger read").get_contained_by(),
+            OBJECT_REGISTRY.with_object(passenger, |p| p.get_contained_by()).unwrap(),
             None
         );
 
@@ -2214,10 +2189,9 @@ mod tests {
         // (Object.cpp:702), not a contain-module capacity.
         let passenger = slotted_passenger("SlotFieldPassenger", 95005, 2);
         assert_eq!(
-            passenger
-                .read()
-                .expect("passenger read")
-                .get_transport_slot_count(),
+            OBJECT_REGISTRY
+                .with_object(passenger, |p| p.get_transport_slot_count())
+                .unwrap(),
             2
         );
 
@@ -2228,16 +2202,14 @@ mod tests {
             contain_max: 20,
             ..Default::default()
         };
-        let contain = OpenContain::new(Arc::downgrade(&building), &data).expect("building contain");
-        building
-            .write()
-            .expect("building write")
-            .set_contain(Some(Arc::new(Mutex::new(contain))));
+        let contain = OpenContain::new(building, &data).expect("building contain");
+        OBJECT_REGISTRY.with_object_mut(building, |b| {
+            b.set_contain(Some(Arc::new(Mutex::new(contain))));
+        });
         assert_eq!(
-            building
-                .read()
-                .expect("building read")
-                .get_transport_slot_count(),
+            OBJECT_REGISTRY
+                .with_object(building, |b| b.get_transport_slot_count())
+                .unwrap(),
             0
         );
 
@@ -2253,36 +2225,30 @@ mod tests {
 
         let chute_owner = owned_object("ParachuteContainer", 95007, 0);
         let chute = super::super::ParachuteContain::new(
-            Arc::downgrade(&chute_owner),
+            chute_owner,
             &super::super::ParachuteContainModuleData::default(),
         )
         .expect("chute contain");
         let chute: Arc<Mutex<dyn ContainModuleInterface>> = Arc::new(Mutex::new(chute));
-        chute_owner
-            .write()
-            .expect("chute write")
-            .set_contain(Some(Arc::clone(&chute)));
+        OBJECT_REGISTRY.with_object_mut(chute_owner, |owner| {
+            owner.set_contain(Some(Arc::clone(&chute)));
+        });
 
-        // Empty parachute reports zero slots (C++ count starts at 0).
         assert_eq!(
-            chute_owner
-                .read()
-                .expect("chute read")
-                .get_transport_slot_count(),
+            OBJECT_REGISTRY
+                .with_object(chute_owner, |o| o.get_transport_slot_count())
+                .unwrap(),
             0
         );
 
         let rider = slotted_passenger("ChuteRider", 95008, 2);
-        // Full C++ attach path (onContaining incl. positionRider re-entry).
+        let _ = rider;
         ContainModuleInterface::contain_object(&mut *chute.lock().expect("chute lock"), 95008)
             .expect("attach rider");
-        // C++ sums the riders' slot counts for special zero-slot containers
-        // (Object.cpp:704-715).
         assert_eq!(
-            chute_owner
-                .read()
-                .expect("chute read")
-                .get_transport_slot_count(),
+            OBJECT_REGISTRY
+                .with_object(chute_owner, |o| o.get_transport_slot_count())
+                .unwrap(),
             2
         );
 
@@ -2333,7 +2299,7 @@ mod tests {
     }
 
     fn attach_exit_physics(
-        obj: &Arc<RwLock<Object>>,
+        obj: &ObjectID,
         vel: Coord3D,
         mass: f32,
         com: f32,
@@ -2345,13 +2311,13 @@ mod tests {
             com,
             record: Arc::clone(&record),
         }));
-        obj.write()
-            .expect("attach physics")
-            .set_physics(Some(Arc::clone(&physics)));
+        OBJECT_REGISTRY
+            .with_object_mut(*obj, |o| o.set_physics(Some(Arc::clone(&physics))))
+            .expect("attach physics");
         (physics, record)
     }
 
-    fn velocity_transport(owner: &Arc<RwLock<Object>>, pitch: f32) -> TransportContain {
+    fn velocity_transport(owner: &ObjectID, pitch: f32) -> TransportContain {
         let data = TransportContainModuleData {
             slot_capacity: 4,
             keep_container_velocity_on_exit: true,
@@ -2359,7 +2325,7 @@ mod tests {
             reset_mood_check_time_on_exit: false,
             ..Default::default()
         };
-        TransportContain::new(Arc::downgrade(owner), &data).expect("velocity transport")
+        TransportContain::new(*owner, &data).expect("velocity transport")
     }
 
     #[test]

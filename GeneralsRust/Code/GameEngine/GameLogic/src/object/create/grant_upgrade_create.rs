@@ -103,7 +103,7 @@ impl GrantUpgradeCreate {
         // onUpgradeCompleted fan-out write-locks every player object. This
         // object is already borrowed for the create hook, so the fan-out
         // skips it; the init tail re-checks its modules.
-        let mut granted_player: Option<Arc<RwLock<Player>>> = None;
+        let mut granted_player: Option<PlayerIndex> = None;
         if upgrade.get_upgrade_type() == UpgradeType::Player {
             granted_player = obj.get_controlling_player();
             if record_granted {

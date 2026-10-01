@@ -263,7 +263,7 @@ pub struct ToppleUpdate {
 
 impl ToppleUpdate {
     pub fn new(
-        object: Arc<RwLock<GameObject>>,
+        object_id: ObjectID,
         module_data: Arc<dyn ModuleData>,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let specific_data = module_data
@@ -272,11 +272,7 @@ impl ToppleUpdate {
             .ok_or("Invalid module data")?;
 
         Ok(Self {
-            object_id: object
-                .read()
-                .ok()
-                .map(|g| g.get_id())
-                .unwrap_or(crate::common::INVALID_ID),
+            object_id: object_id,
             module_data: Arc::new(specific_data.clone()),
             next_call_frame_and_phase: UpdateSleepTime::Forever.to_u32(),
             angular_velocity: 0.0,
@@ -293,15 +289,11 @@ impl ToppleUpdate {
     }
 
     pub fn new_from_object_handle(
-        object: Arc<RwLock<GameObject>>,
+        object_id: ObjectID,
         module_data: Arc<ToppleUpdateModuleData>,
     ) -> Self {
         Self {
-            object_id: object
-                .read()
-                .ok()
-                .map(|g| g.get_id())
-                .unwrap_or(crate::common::INVALID_ID),
+            object_id: object_id,
             module_data,
             next_call_frame_and_phase: 0,
             angular_velocity: 0.0,
@@ -414,7 +406,7 @@ impl ToppleUpdate {
     pub fn apply_toppling_force_with_object(
         &mut self,
         obj: &mut GameObject,
-        object_arc: &Arc<RwLock<GameObject>>,
+        object_arc: ObjectID,
         topple_direction: &Coord3D,
         topple_speed: Real,
         options: u32,
@@ -715,7 +707,7 @@ impl ToppleControlInterface for ToppleUpdate {
     fn apply_toppling_force_with_object(
         &mut self,
         obj: &mut GameObject,
-        object_arc: &Arc<RwLock<GameObject>>,
+        object_arc: ObjectID,
         topple_direction: &Coord3D,
         topple_speed: Real,
         options: u32,
@@ -843,7 +835,7 @@ pub fn topple_update_module_factory(
         .unwrap_or(INVALID_ID);
     let object =
         TheGameLogic::find_object_by_id(owner_id).expect("ToppleUpdate requires a valid object");
-    let behavior = ToppleUpdate::new_from_object_handle(object, Arc::clone(&module_data_arc));
+    let behavior = ToppleUpdate::new_from_object_handle(object_id, Arc::clone(&module_data_arc));
 
     let module_name = AsciiString::from("ToppleUpdate");
     Box::new(ToppleUpdateModule::new(
@@ -975,9 +967,9 @@ mod tests {
 pub struct ToppleUpdateFactory;
 impl ToppleUpdateFactory {
     pub fn create_behavior(
-        thing: Arc<RwLock<GameObject>>,
+        object_id: ObjectID,
         module_data: Arc<dyn ModuleData>,
     ) -> Result<Box<dyn BehaviorModuleInterface>, Box<dyn std::error::Error + Send + Sync>> {
-        Ok(Box::new(ToppleUpdate::new(thing, module_data)?))
+        Ok(Box::new(ToppleUpdate::new(object_id, module_data)?))
     }
 }

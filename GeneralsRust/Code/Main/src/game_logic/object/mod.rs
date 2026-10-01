@@ -375,6 +375,10 @@ fn default_adjust_destinations() -> bool {
 pub struct Object {
     /// Base Thing functionality
     pub thing: Thing,
+    /// Shots accepted by `fire_at` while the object map is borrowed.
+    /// Flushed onto `CombatSystem` before the projectile drain.
+    #[serde(skip)]
+    pub(crate) staged_projectiles: Vec<crate::game_logic::combat::PendingProjectile>,
 
     /// Unique identifier
     pub id: ObjectId,

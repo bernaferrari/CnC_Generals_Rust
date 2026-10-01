@@ -75,38 +75,47 @@ where
         }
         return false;
     }
-    let Some(target) = OBJECT_REGISTRY.get_object(target_id) else {
+    OBJECT_REGISTRY
+        .with_object(target_id, |target_guard| {
+            for &id in selection {
+                let ok = if id == target_id {
+                    local_can(local_player, target_guard, target_guard, &mut can_do)
+                } else {
+                    OBJECT_REGISTRY
+                        .with_object(id, |sel_guard| {
+                            local_can(local_player, sel_guard, target_guard, &mut can_do)
+                        })
+                        .unwrap_or(false)
+                };
+                if ok {
+                    return true;
+                }
+            }
+            false
+        })
+        .unwrap_or(false)
+}
+
+fn local_can<F>(
+    local_player: Option<u32>,
+    sel_guard: &gamelogic::object::Object,
+    target_guard: &gamelogic::object::Object,
+    can_do: &mut F,
+) -> bool
+where
+    F: FnMut(&gamelogic::object::Object, &gamelogic::object::Object) -> bool,
+{
+    let is_mine = local_player
+        .and_then(|pid| {
+            sel_guard
+                .get_controlling_player_id()
+                .map(|owner| owner == pid)
+        })
+        .unwrap_or(false);
+    if !is_mine {
         return false;
-    };
-    let Ok(target_guard) = target.read() else {
-        return false;
-    };
-
-    for &id in selection {
-        let Some(sel) = OBJECT_REGISTRY.get_object(id) else {
-            continue;
-        };
-        let Ok(sel_guard) = sel.read() else {
-            continue;
-        };
-
-        let is_mine = local_player
-            .and_then(|pid| {
-                sel_guard
-                    .get_controlling_player_id()
-                    .map(|owner| owner == pid)
-            })
-            .unwrap_or(false);
-        if !is_mine {
-            continue;
-        }
-
-        if can_do(&sel_guard, &target_guard) {
-            return true;
-        }
     }
-
-    false
+    can_do(sel_guard, target_guard)
 }
 
 pub(super) fn selection_can_enter_target(
@@ -168,43 +177,14 @@ pub(super) fn selection_can_enter_target(
         return false;
     }
 
-    let Some(target) = OBJECT_REGISTRY.get_object(target_id) else {
-        return false;
-    };
-    let Ok(target_guard) = target.read() else {
-        return false;
-    };
-
-    for &id in selection {
-        let Some(sel) = OBJECT_REGISTRY.get_object(id) else {
-            continue;
-        };
-        let Ok(sel_guard) = sel.read() else {
-            continue;
-        };
-
-        let is_mine = local_player
-            .and_then(|pid| {
-                sel_guard
-                    .get_controlling_player_id()
-                    .map(|owner| owner == pid)
-            })
-            .unwrap_or(false);
-        if !is_mine {
-            continue;
-        }
-
-        if ActionManager::can_enter_object(
-            &sel_guard,
-            &target_guard,
+    selection_any_local_object_can_target(local_player, selection, target_id, |sel_guard, target_guard| {
+        ActionManager::can_enter_object(
+            sel_guard,
+            target_guard,
             CommandSourceType::FromPlayer,
             CanEnterType::CheckCapacity,
-        ) {
-            return true;
-        }
-    }
-
-    false
+        )
+    })
 }
 
 pub(super) fn selection_can_repair_target(
@@ -260,44 +240,11 @@ pub(super) fn selection_can_repair_target(
         return false;
     }
 
-    let Some(target) = OBJECT_REGISTRY.get_object(target_id) else {
-        return false;
-    };
-    let Ok(target_guard) = target.read() else {
-        return false;
-    };
-    let current_repairer = target_guard.get_sole_healing_benefactor();
-
-    for &id in selection {
-        let Some(sel) = OBJECT_REGISTRY.get_object(id) else {
-            continue;
-        };
-        let Ok(sel_guard) = sel.read() else {
-            continue;
-        };
-
-        let is_mine = local_player
-            .and_then(|pid| {
-                sel_guard
-                    .get_controlling_player_id()
-                    .map(|owner| owner == pid)
-            })
-            .unwrap_or(false);
-        if !is_mine {
-            continue;
-        }
-
-        if ActionManager::can_repair_object(
-            &sel_guard,
-            &target_guard,
-            CommandSourceType::FromPlayer,
-        ) && (current_repairer == gamelogic::common::INVALID_ID || current_repairer == id)
-        {
-            return true;
-        }
-    }
-
-    false
+    selection_any_local_object_can_target(local_player, selection, target_id, |sel_guard, target_guard| {
+        let current_repairer = target_guard.get_sole_healing_benefactor();
+        ActionManager::can_repair_object(sel_guard, target_guard, CommandSourceType::FromPlayer)
+            && (current_repairer == gamelogic::common::INVALID_ID || current_repairer == sel_guard.get_id())
+    })
 }
 
 pub(super) fn selection_can_get_repaired_target(
@@ -447,41 +394,30 @@ pub(super) fn selection_can_pickup_crate_target(
         return None;
     }
 
-    let target = OBJECT_REGISTRY.get_object(target_id)?;
-    let target_guard = target.read().ok()?;
-    if !target_guard.is_kind_of(KindOf::Crate)
-        || target_guard.is_salvage_crate()
-        || target_guard.is_effectively_dead()
-    {
-        return None;
-    }
-
-    for &id in selection {
-        let Some(sel) = OBJECT_REGISTRY.get_object(id) else {
-            continue;
-        };
-        let Ok(sel_guard) = sel.read() else {
-            continue;
-        };
-
-        let is_mine = local_player
-            .and_then(|pid| {
-                sel_guard
-                    .get_controlling_player_id()
-                    .map(|owner| owner == pid)
-            })
-            .unwrap_or(false);
-        if !is_mine {
-            continue;
+    OBJECT_REGISTRY.with_object(target_id, |target_guard| {
+        if !target_guard.is_kind_of(KindOf::Crate)
+            || target_guard.is_salvage_crate()
+            || target_guard.is_effectively_dead()
+        {
+            return None;
         }
-
-        if sel_guard.is_mobile() {
-            let pos = target_guard.get_position();
-            return Some(Coord3D::new(pos.x, pos.y, pos.z));
+        let mut found = None;
+        for &id in selection {
+            let mobile = if id == target_id {
+                owned_mobile(local_player, target_guard)
+            } else {
+                OBJECT_REGISTRY
+                    .with_object(id, |sel_guard| owned_mobile(local_player, sel_guard))
+                    .unwrap_or(false)
+            };
+            if mobile {
+                let pos = target_guard.get_position();
+                found = Some(Coord3D::new(pos.x, pos.y, pos.z));
+                break;
+            }
         }
-    }
-
-    None
+        found
+    })?
 }
 
 pub(super) fn selection_can_salvage_target(
@@ -489,38 +425,41 @@ pub(super) fn selection_can_salvage_target(
     selection: &HashSet<ObjectID>,
     target_id: ObjectID,
 ) -> Option<Coord3D> {
-    let target = OBJECT_REGISTRY.get_object(target_id)?;
-    let target_guard = target.read().ok()?;
-    if !target_guard.is_salvage_crate() {
-        return None;
-    }
-
-    for &id in selection {
-        let Some(sel) = OBJECT_REGISTRY.get_object(id) else {
-            continue;
-        };
-        let Ok(sel_guard) = sel.read() else {
-            continue;
-        };
-
-        let is_mine = local_player
-            .and_then(|pid| {
-                sel_guard
-                    .get_controlling_player_id()
-                    .map(|owner| owner == pid)
-            })
-            .unwrap_or(false);
-        if !is_mine {
-            continue;
+    OBJECT_REGISTRY.with_object(target_id, |target_guard| {
+        if !target_guard.is_salvage_crate() {
+            return None;
         }
-
-        if sel_guard.is_kind_of(KindOf::Salvager) {
-            let pos = target_guard.get_position();
-            return Some(Coord3D::new(pos.x, pos.y, pos.z));
+        let mut found = None;
+        for &id in selection {
+            let salvager = if id == target_id {
+                owned_salvager(local_player, target_guard)
+            } else {
+                OBJECT_REGISTRY
+                    .with_object(id, |sel_guard| owned_salvager(local_player, sel_guard))
+                    .unwrap_or(false)
+            };
+            if salvager {
+                let pos = target_guard.get_position();
+                found = Some(Coord3D::new(pos.x, pos.y, pos.z));
+                break;
+            }
         }
-    }
+        found
+    })?
+}
 
-    None
+fn owned_mobile(local_player: Option<u32>, sel_guard: &gamelogic::object::Object) -> bool {
+    let is_mine = local_player
+        .and_then(|pid| sel_guard.get_controlling_player_id().map(|owner| owner == pid))
+        .unwrap_or(false);
+    is_mine && sel_guard.is_mobile()
+}
+
+fn owned_salvager(local_player: Option<u32>, sel_guard: &gamelogic::object::Object) -> bool {
+    let is_mine = local_player
+        .and_then(|pid| sel_guard.get_controlling_player_id().map(|owner| owner == pid))
+        .unwrap_or(false);
+    is_mine && sel_guard.is_kind_of(KindOf::Salvager)
 }
 
 pub(super) fn selection_can_resume_construction_target(
@@ -565,42 +504,13 @@ pub(super) fn selection_can_resume_construction_target(
         return false;
     }
 
-    let Some(target) = OBJECT_REGISTRY.get_object(target_id) else {
-        return false;
-    };
-    let Ok(target_guard) = target.read() else {
-        return false;
-    };
-
-    for &id in selection {
-        let Some(sel) = OBJECT_REGISTRY.get_object(id) else {
-            continue;
-        };
-        let Ok(sel_guard) = sel.read() else {
-            continue;
-        };
-
-        let is_mine = local_player
-            .and_then(|pid| {
-                sel_guard
-                    .get_controlling_player_id()
-                    .map(|owner| owner == pid)
-            })
-            .unwrap_or(false);
-        if !is_mine {
-            continue;
-        }
-
-        if ActionManager::can_resume_construction_of(
-            &sel_guard,
-            &target_guard,
+    selection_any_local_object_can_target(local_player, selection, target_id, |sel_guard, target_guard| {
+        ActionManager::can_resume_construction_of(
+            sel_guard,
+            target_guard,
             CommandSourceType::FromPlayer,
-        ) {
-            return true;
-        }
-    }
-
-    false
+        )
+    })
 }
 
 pub(super) fn selection_can_dock_at_target(

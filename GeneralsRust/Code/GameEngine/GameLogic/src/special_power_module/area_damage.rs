@@ -163,17 +163,24 @@ impl AreaDamageApplicator {
             let mut template = None;
             let mut mask = PlayerMaskType::none();
             let mut off_map = None;
-            if let Some(attacker_arc) = crate::helpers::TheGameLogic::find_object_by_id(attacker_id)
-            {
-                if let Ok(attacker_guard) = attacker_arc.read() {
-                    template = Some(attacker_guard.get_template().clone());
-                    off_map = Some(attacker_guard.is_off_map());
+            if let Some((template_v, off_map_v, mask_v)) =
+                crate::object::registry::OBJECT_REGISTRY.with_object(attacker_id, |attacker_guard| {
+                    let mut mask = PlayerMaskType::none();
                     if let Some(player_id) = attacker_guard.get_controlling_player_id() {
                         if (0..16).contains(&player_id) {
                             mask = PlayerMaskType::from_bits_truncate(1u32 << player_id);
                         }
                     }
-                }
+                    (
+                        Some(attacker_guard.get_template().clone()),
+                        Some(attacker_guard.is_off_map()),
+                        mask,
+                    )
+                })
+            {
+                template = template_v;
+                off_map = off_map_v;
+                mask = mask_v;
             }
             (template, mask, off_map)
         } else {
@@ -188,40 +195,35 @@ impl AreaDamageApplicator {
         let damage_type = Self::primary_damage_type(config.damage_type);
 
         for obj_id in object_ids {
-            let Some(obj_arc) = crate::helpers::TheGameLogic::find_object_by_id(obj_id) else {
-                continue;
-            };
-
-            let (should_damage, distance_2d, was_destroyed, was_structure) = {
-                let Ok(obj_guard) = obj_arc.read() else {
-                    continue;
-                };
-
-                if obj_guard.is_destroyed() {
-                    continue;
-                }
-                if let Some(off_map) = source_off_map {
-                    if obj_guard.is_off_map() != off_map {
-                        continue;
+            let snapshot = crate::object::registry::OBJECT_REGISTRY
+                .with_object(obj_id, |obj_guard| {
+                    if obj_guard.is_destroyed() {
+                        return None;
                     }
-                }
-
-                let obj_pos = obj_guard.get_position();
-                let dx = obj_pos.x - center.x;
-                let dy = obj_pos.y - center.y;
-                let dist_sqr = dx * dx + dy * dy;
-                if dist_sqr > radius_sqr {
-                    continue;
-                }
-
-                let dist = dist_sqr.sqrt();
-                let should = Self::should_damage_object(&obj_guard, config, attacker_id);
-                (
-                    should,
-                    dist,
-                    obj_guard.is_destroyed(),
-                    obj_guard.is_structure(),
-                )
+                    if let Some(off_map) = source_off_map {
+                        if obj_guard.is_off_map() != off_map {
+                            return None;
+                        }
+                    }
+                    let obj_pos = obj_guard.get_position();
+                    let dx = obj_pos.x - center.x;
+                    let dy = obj_pos.y - center.y;
+                    let dist_sqr = dx * dx + dy * dy;
+                    if dist_sqr > radius_sqr {
+                        return None;
+                    }
+                    let dist = dist_sqr.sqrt();
+                    let should = Self::should_damage_object(obj_guard, config, attacker_id);
+                    Some((
+                        should,
+                        dist,
+                        obj_guard.is_destroyed(),
+                        obj_guard.is_structure(),
+                    ))
+                })
+                .flatten();
+            let Some((should_damage, distance_2d, was_destroyed, was_structure)) = snapshot else {
+                continue;
             };
 
             if !should_damage {
@@ -239,16 +241,14 @@ impl AreaDamageApplicator {
             damage_info.input.source_player_mask = source_player_mask;
             damage_info.sync_from_input();
 
-            if let Ok(mut obj_write) = obj_arc.write() {
+            crate::object::registry::OBJECT_REGISTRY.with_object_mut(obj_id, |obj_write| {
                 let _ = obj_write.attempt_damage(&mut damage_info);
-            }
+            });
 
             result.add_damage(obj_id, damage);
 
-            let is_destroyed = obj_arc
-                .read()
-                .ok()
-                .map(|g| g.is_destroyed())
+            let is_destroyed = crate::object::registry::OBJECT_REGISTRY
+                .with_object(obj_id, |g| g.is_destroyed())
                 .unwrap_or(false);
             if !was_destroyed && is_destroyed {
                 if was_structure {
@@ -287,13 +287,13 @@ impl AreaDamageApplicator {
         }
 
         if !config.affects_friendlies {
-            if let Some(attacker_arc) = crate::helpers::TheGameLogic::find_object_by_id(attacker_id)
+            if crate::object::registry::OBJECT_REGISTRY
+                .with_object(attacker_id, |attacker_guard| {
+                    matches!(attacker_guard.relationship_to(object), Relationship::Allies)
+                })
+                .unwrap_or(false)
             {
-                if let Ok(attacker_guard) = attacker_arc.read() {
-                    if matches!(attacker_guard.relationship_to(object), Relationship::Allies) {
-                        return false;
-                    }
-                }
+                return false;
             }
         }
 

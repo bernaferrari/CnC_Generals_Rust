@@ -3,6 +3,7 @@
 //! Split from `scripting/executor.rs` for module-size parity.
 //! Observable script behavior is unchanged.
 
+use crate::object::registry::OBJECT_REGISTRY;
 use super::*;
 
 impl ScriptActionDispatcher {
@@ -345,8 +346,7 @@ impl ScriptActionDispatcher {
                 primary_transport_id = Some(transport_id);
                 created_any = true;
 
-                if let Some(transport_arc) = TheGameLogic::find_object_by_id(transport_id) {
-                    if let Ok(mut transport) = transport_arc.write() {
+                let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(transport_id, |transport| {
                         let _ = transport.set_position(&origin);
                         let _ = transport.set_orientation(0.0);
                         transport_template_for_equivalence = Some(transport.get_template().clone());
@@ -372,8 +372,7 @@ impl ScriptActionDispatcher {
                                     crate::helpers::TheThingFactory::find_template(&name);
                             }
                         }
-                    }
-                }
+                    });
             }
         }
 
@@ -423,8 +422,7 @@ impl ScriptActionDispatcher {
                 created_any = true;
                 row_spawned_any = true;
 
-                if let Some(obj_arc) = TheGameLogic::find_object_by_id(object_id) {
-                    if let Ok(mut obj) = obj_arc.write() {
+                let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(object_id, |obj| {
                         let radius = obj.get_geometry_info().get_major_radius();
                         let mut pos = row_origin;
                         pos.x = row_origin.x + 2.25 * (index as f32) * radius;
@@ -435,8 +433,7 @@ impl ScriptActionDispatcher {
                         let _ = obj.set_orientation(0.0);
                         row_last_pos = pos;
                         row_last_radius = radius;
-                    }
-                }
+                    });
             }
 
             if row_spawned_any {
@@ -456,48 +453,58 @@ impl ScriptActionDispatcher {
             let mut team_transports: Vec<ObjectID> = Vec::new();
             let mut loadable_units: Vec<ObjectID> = Vec::new();
             for member_id in member_ids {
-                let Some(member_arc) = TheGameLogic::find_object_by_id(member_id) else {
-                    continue;
-                };
-                let Ok(member) = member_arc.read() else {
-                    continue;
-                };
-
-                if Some(member_id) == primary_transport_id {
-                    continue;
-                }
-
-                if member.is_kind_of(crate::common::KindOf::Transport) {
-                    if member.get_contain().is_some() {
-                        team_transports.push(member_id);
+                {
+                    enum _ObjFlow<T> { Cont, Ret(T), Fall }
+                    let _flow = OBJECT_REGISTRY.with_object(member_id, |member| {
+                        
+                        if Some(member_id) == primary_transport_id {
+                            return _ObjFlow::Cont;
+                        }
+                        
+                        if member.is_kind_of(crate::common::KindOf::Transport) {
+                            if member.get_contain().is_some() {
+                                team_transports.push(member_id);
+                            }
+                        } else {
+                            loadable_units.push(member_id);
+                        }
+                        _ObjFlow::Fall
+                    });
+                    match _flow {
+                        None | Some(_ObjFlow::Cont) => continue,
+                        Some(_ObjFlow::Ret(v)) => return v,
+                        Some(_ObjFlow::Fall) => {}
                     }
-                } else {
-                    loadable_units.push(member_id);
                 }
             }
 
             for unit_id in loadable_units {
-                let Some(unit_arc) = TheGameLogic::find_object_by_id(unit_id) else {
-                    continue;
-                };
-                let Ok(unit_guard) = unit_arc.read() else {
-                    continue;
-                };
-
-                for transport_id in &team_transports {
-                    let Some(transport_arc) = TheGameLogic::find_object_by_id(*transport_id) else {
-                        continue;
-                    };
-                    let contain_arc = transport_arc.read().ok().and_then(|t| t.get_contain());
-                    let Some(contain_arc) = contain_arc else {
-                        continue;
-                    };
-                    let Ok(mut contain_guard) = contain_arc.lock() else {
-                        continue;
-                    };
-                    if contain_guard.is_valid_container_for(&unit_guard, true) {
-                        let _ = contain_guard.add_to_contain(&unit_guard);
-                        break;
+                {
+                    enum _ObjFlow<T> { Cont, Ret(T), Fall }
+                    let _flow = OBJECT_REGISTRY.with_object(unit_id, |unit_guard| {
+                        
+                        for transport_id in &team_transports {
+                            let Some(transport_arc) = TheGameLogic::find_object_by_id(*transport_id) else {
+                                return _ObjFlow::Cont;
+                            };
+                            let contain_arc = transport_arc.read().ok().and_then(|t| t.get_contain());
+                            let Some(contain_arc) = contain_arc else {
+                                return _ObjFlow::Cont;
+                            };
+                            let Ok(mut contain_guard) = contain_arc.lock() else {
+                                return _ObjFlow::Cont;
+                            };
+                            if contain_guard.is_valid_container_for(&unit_guard, true) {
+                                let _ = contain_guard.add_to_contain(&unit_guard);
+                                break;
+                            }
+                        }
+                        _ObjFlow::Fall
+                    });
+                    match _flow {
+                        None | Some(_ObjFlow::Cont) => continue,
+                        Some(_ObjFlow::Ret(v)) => return v,
+                        Some(_ObjFlow::Fall) => {}
                     }
                 }
             }
@@ -515,158 +522,159 @@ impl ScriptActionDispatcher {
             };
 
             for member_id in member_ids {
-                let Some(member_arc) = TheGameLogic::find_object_by_id(member_id) else {
-                    continue;
-                };
-                let Ok(member_guard) = member_arc.read() else {
-                    continue;
-                };
-
-                let is_transport_template = transport_template_for_equivalence
-                    .as_ref()
-                    .map(|template| {
-                        member_guard
-                            .get_template()
-                            .is_equivalent_to(template.as_ref())
-                    })
-                    .unwrap_or(false);
-                if is_transport_template || member_guard.get_contained_by().is_some() {
-                    continue;
-                }
-
-                let Some(current_transport_arc) =
-                    TheGameLogic::find_object_by_id(current_transport_id)
-                else {
-                    continue;
-                };
-                let (contains, full, transport_radius) = {
-                    let Ok(transport_guard) = current_transport_arc.read() else {
-                        continue;
-                    };
-                    let transport_radius = transport_guard.get_geometry_info().get_major_radius();
-                    let Some(contain_arc) = transport_guard.get_contain() else {
-                        continue;
-                    };
-                    let Ok(contain_guard) = contain_arc.lock() else {
-                        continue;
-                    };
-                    (
-                        contain_guard.is_valid_container_for(&member_guard, false),
-                        contain_guard.is_valid_container_for(&member_guard, true),
-                        transport_radius,
-                    )
-                };
-
-                if !contains {
-                    continue;
-                }
-
-                drop(member_guard);
-
-                if !full {
-                    let mut pos = load_origin;
-                    pos.x += (transport_count as f32) * transport_radius;
-                    if let Ok(terrain) = get_terrain_logic().read() {
-                        pos.z = terrain.get_ground_height(pos.x, pos.y, None);
-                    }
-                    let new_transport_id = {
-                        let manager_arc = get_object_manager();
-                        let Ok(mut manager) = manager_arc.write() else {
-                            log::warn!("CREATE_REINFORCEMENT_TEAM: failed to lock ObjectManager");
-                            continue;
+                {
+                    enum _ObjFlow<T> { Cont, Ret(T), Fall }
+                    let _flow = OBJECT_REGISTRY.with_object(member_id, |member_guard| {
+                        
+                        let is_transport_template = transport_template_for_equivalence
+                            .as_ref()
+                            .map(|template| {
+                                member_guard
+                                    .get_template()
+                                    .is_equivalent_to(template.as_ref())
+                            })
+                            .unwrap_or(false);
+                        if is_transport_template || member_guard.get_contained_by().is_some() {
+                            return _ObjFlow::Cont;
+                        }
+                        
+                        let Some(current_transport_arc) =
+                            TheGameLogic::find_object_by_id(current_transport_id)
+                        else {
+                            return _ObjFlow::Cont;
                         };
-                        match manager.create_object(
-                            &transport_template_name,
-                            pos,
-                            Some(team_arc.clone()),
-                            crate::object_manager::ObjectCreationFlags::from_template(),
-                        ) {
-                            Ok(id) => id,
-                            Err(err) => {
-                                log::warn!(
-                                    "CREATE_REINFORCEMENT_TEAM: failed to create overflow transport '{}': {}",
-                                    transport_template_name,
-                                    err
-                                );
-                                INVALID_ID
-                            }
-                        }
-                    };
-
-                    if new_transport_id != INVALID_ID {
-                        if let Some(new_transport_arc) =
-                            TheGameLogic::find_object_by_id(new_transport_id)
-                        {
-                            if let Ok(mut new_transport) = new_transport_arc.write() {
-                                let _ = new_transport.set_position(&pos);
-                                let _ = new_transport.set_orientation(0.0);
-                            }
-                        }
-                        if let Ok(mut team) = team_arc.write() {
-                            team.add_member(new_transport_id);
-                        }
-                        current_transport_id = new_transport_id;
-                        transport_count += 1;
-                        created_any = true;
-                    }
-                }
-
-                let mut payload_object_id = member_id;
-                if let Some(put_in_container_template) = put_in_container_template.as_ref() {
-                    let container_pos = load_origin;
-                    let container_id = {
-                        let manager_arc = get_object_manager();
-                        let Ok(mut manager) = manager_arc.write() else {
-                            log::warn!("CREATE_REINFORCEMENT_TEAM: failed to lock ObjectManager");
-                            continue;
+                        let (contains, full, transport_radius) = {
+                            let Ok(transport_guard) = current_transport_arc.read() else {
+                                return _ObjFlow::Cont;
+                            };
+                            let transport_radius = transport_guard.get_geometry_info().get_major_radius();
+                            let Some(contain_arc) = transport_guard.get_contain() else {
+                                return _ObjFlow::Cont;
+                            };
+                            let Ok(contain_guard) = contain_arc.lock() else {
+                                return _ObjFlow::Cont;
+                            };
+                            (
+                                contain_guard.is_valid_container_for(&member_guard, false),
+                                contain_guard.is_valid_container_for(&member_guard, true),
+                                transport_radius,
+                            )
                         };
-                        match manager.create_object(
-                            put_in_container_template.get_name().as_str(),
-                            container_pos,
-                            Some(team_arc.clone()),
-                            crate::object_manager::ObjectCreationFlags::from_template(),
-                        ) {
-                            Ok(id) => id,
-                            Err(err) => {
-                                log::warn!(
-                                    "CREATE_REINFORCEMENT_TEAM: failed to create payload container '{}': {}",
-                                    put_in_container_template.get_name().as_str(),
-                                    err
-                                );
-                                INVALID_ID
+                        
+                        if !contains {
+                            return _ObjFlow::Cont;
+                        }
+                        
+                        drop(member_guard);
+                        
+                        if !full {
+                            let mut pos = load_origin;
+                            pos.x += (transport_count as f32) * transport_radius;
+                            if let Ok(terrain) = get_terrain_logic().read() {
+                                pos.z = terrain.get_ground_height(pos.x, pos.y, None);
                             }
-                        }
-                    };
-
-                    if container_id != INVALID_ID {
-                        if let Some(container_arc) = TheGameLogic::find_object_by_id(container_id) {
-                            if let Ok(mut container) = container_arc.write() {
-                                let _ = container.set_position(&container_pos);
-                                let _ = container.set_orientation(0.0);
-                            }
-                        }
-                        if let Ok(mut team) = team_arc.write() {
-                            team.add_member(container_id);
-                        }
-                        created_any = true;
-
-                        let inserted = if let Some(container_arc) =
-                            TheGameLogic::find_object_by_id(container_id)
-                        {
-                            if let Some(payload_arc) = TheGameLogic::find_object_by_id(member_id) {
-                                if let (Ok(container_guard), Ok(payload_guard)) =
-                                    (container_arc.read(), payload_arc.read())
+                            let new_transport_id = {
+                                let manager_arc = get_object_manager();
+                                let Ok(mut manager) = manager_arc.write() else {
+                                    log::warn!("CREATE_REINFORCEMENT_TEAM: failed to lock ObjectManager");
+                                    return _ObjFlow::Cont;
+                                };
+                                match manager.create_object(
+                                    &transport_template_name,
+                                    pos,
+                                    Some(team_arc.clone()),
+                                    crate::object_manager::ObjectCreationFlags::from_template(),
+                                ) {
+                                    Ok(id) => id,
+                                    Err(err) => {
+                                        log::warn!(
+                                            "CREATE_REINFORCEMENT_TEAM: failed to create overflow transport '{}': {}",
+                                            transport_template_name,
+                                            err
+                                        );
+                                        INVALID_ID
+                                    }
+                                }
+                            };
+                        
+                            if new_transport_id != INVALID_ID {
+                                if let Some(new_transport_arc) =
+                                    TheGameLogic::find_object_by_id(new_transport_id)
                                 {
-                                    if let Some(container_contain) = container_guard.get_contain() {
-                                        if let Ok(mut container_contain_guard) =
-                                            container_contain.lock()
+                                    if let Ok(mut new_transport) = new_transport_arc.write() {
+                                        let _ = new_transport.set_position(&pos);
+                                        let _ = new_transport.set_orientation(0.0);
+                                    }
+                                }
+                                if let Ok(mut team) = team_arc.write() {
+                                    team.add_member(new_transport_id);
+                                }
+                                current_transport_id = new_transport_id;
+                                transport_count += 1;
+                                created_any = true;
+                            }
+                        }
+                        
+                        let mut payload_object_id = member_id;
+                        if let Some(put_in_container_template) = put_in_container_template.as_ref() {
+                            let container_pos = load_origin;
+                            let container_id = {
+                                let manager_arc = get_object_manager();
+                                let Ok(mut manager) = manager_arc.write() else {
+                                    log::warn!("CREATE_REINFORCEMENT_TEAM: failed to lock ObjectManager");
+                                    return _ObjFlow::Cont;
+                                };
+                                match manager.create_object(
+                                    put_in_container_template.get_name().as_str(),
+                                    container_pos,
+                                    Some(team_arc.clone()),
+                                    crate::object_manager::ObjectCreationFlags::from_template(),
+                                ) {
+                                    Ok(id) => id,
+                                    Err(err) => {
+                                        log::warn!(
+                                            "CREATE_REINFORCEMENT_TEAM: failed to create payload container '{}': {}",
+                                            put_in_container_template.get_name().as_str(),
+                                            err
+                                        );
+                                        INVALID_ID
+                                    }
+                                }
+                            };
+                        
+                            if container_id != INVALID_ID {
+                                let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(container_id, |container| {
+                                        let _ = container.set_position(&container_pos);
+                                        let _ = container.set_orientation(0.0);
+                                    });
+                                if let Ok(mut team) = team_arc.write() {
+                                    team.add_member(container_id);
+                                }
+                                created_any = true;
+                        
+                                let inserted = if let Some(container_arc) =
+                                    TheGameLogic::find_object_by_id(container_id)
+                                {
+                                    if let Some(payload_arc) = TheGameLogic::find_object_by_id(member_id) {
+                                        if let (Ok(container_guard), Ok(payload_guard)) =
+                                            (container_arc.read(), payload_arc.read())
                                         {
-                                            if container_contain_guard
-                                                .is_valid_container_for(&payload_guard, true)
-                                            {
-                                                let _ = container_contain_guard
-                                                    .add_to_contain(&payload_guard);
-                                                true
+                                            if let Some(container_contain) = container_guard.get_contain() {
+                                                if let Ok(mut container_contain_guard) =
+                                                    container_contain.lock()
+                                                {
+                                                    if container_contain_guard
+                                                        .is_valid_container_for(&payload_guard, true)
+                                                    {
+                                                        let _ = container_contain_guard
+                                                            .add_to_contain(&payload_guard);
+                                                        true
+                                                    } else {
+                                                        false
+                                                    }
+                                                } else {
+                                                    false
+                                                }
                                             } else {
                                                 false
                                             }
@@ -678,42 +686,52 @@ impl ScriptActionDispatcher {
                                     }
                                 } else {
                                     false
+                                };
+                        
+                                if inserted {
+                                    payload_object_id = container_id;
                                 }
-                            } else {
-                                false
                             }
-                        } else {
-                            false
-                        };
-
-                        if inserted {
-                            payload_object_id = container_id;
                         }
+                        
+                        {
+                            enum _ObjFlow<T> { Cont, Ret(T), Fall }
+                            let _flow = OBJECT_REGISTRY.with_object(payload_object_id, |payload_guard| {
+                                
+                                let Some(transport_arc) = TheGameLogic::find_object_by_id(current_transport_id)
+                                else {
+                                    return _ObjFlow::Ret(_ObjFlow::Cont);
+                                };
+                                let contain_arc = transport_arc
+                                    .read()
+                                    .ok()
+                                    .and_then(|transport| transport.get_contain());
+                                let Some(contain_arc) = contain_arc else {
+                                    return _ObjFlow::Ret(_ObjFlow::Cont);
+                                };
+                                let Ok(mut contain_guard) = contain_arc.lock() else {
+                                    return _ObjFlow::Ret(_ObjFlow::Cont);
+                                };
+                                let _ = contain_guard.add_to_contain(&payload_guard);
+                                _ObjFlow::Fall
+                                _ObjFlow::Fall
+                            });
+                            match _flow {
+                                None => {
+                                    return _ObjFlow::Cont;
+                                }
+                                Some(_ObjFlow::Cont) => continue,
+                                Some(_ObjFlow::Ret(v)) => return v,
+                                Some(_ObjFlow::Fall) => {}
+                            }
+                        }
+                    });
+                    match _flow {
+                        None | Some(_ObjFlow::Cont) => continue,
+                        Some(_ObjFlow::Ret(v)) => return v,
+                        Some(_ObjFlow::Fall) => {}
                     }
                 }
-
-                let Some(payload_arc) = TheGameLogic::find_object_by_id(payload_object_id) else {
-                    continue;
-                };
-                let Ok(payload_guard) = payload_arc.read() else {
-                    continue;
-                };
-
-                let Some(transport_arc) = TheGameLogic::find_object_by_id(current_transport_id)
-                else {
-                    continue;
-                };
-                let contain_arc = transport_arc
-                    .read()
-                    .ok()
-                    .and_then(|transport| transport.get_contain());
-                let Some(contain_arc) = contain_arc else {
-                    continue;
-                };
-                let Ok(mut contain_guard) = contain_arc.lock() else {
-                    continue;
-                };
-                let _ = contain_guard.add_to_contain(&payload_guard);
             }
         }
 
@@ -1159,12 +1177,17 @@ impl ScriptActionDispatcher {
             .unwrap_or_default();
 
         for object_id in &source_members {
-            let Some(object_arc) = TheGameLogic::find_object_by_id(*object_id) else {
-                continue;
-            };
-            if let Ok(mut object_guard) = object_arc.write() {
-                let _ = object_guard.set_team(Some(target_team_arc.clone()));
-            };
+            {
+                enum _ObjFlow<T> { Cont, Ret(T), Fall }
+                let _flow = OBJECT_REGISTRY.with_object_mut(*object_id, |mut object_guard| {
+                    _ObjFlow::Fall
+                });
+                match _flow {
+                    None | Some(_ObjFlow::Cont) => continue,
+                    Some(_ObjFlow::Ret(v)) => return v,
+                    Some(_ObjFlow::Fall) => {}
+                }
+            }
         }
 
         if let Ok(mut source_guard) = source_team_arc.write() {

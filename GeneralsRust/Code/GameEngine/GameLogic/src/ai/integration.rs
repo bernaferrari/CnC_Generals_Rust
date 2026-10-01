@@ -233,12 +233,12 @@ impl IntegratedAiPlayer {
     /// C++ Player::checkBridges → AISkirmishPlayer::checkBridges (solo AI returns false).
     pub fn check_bridges(
         &mut self,
-        unit: &Arc<RwLock<crate::object::Object>>,
+        unit_id: ObjectID,
         start_waypoint_id: crate::common::WaypointID,
     ) -> bool {
         match self {
             IntegratedAiPlayer::Standard(_) => false,
-            IntegratedAiPlayer::Skirmish(player) => player.check_bridges(unit, start_waypoint_id),
+            IntegratedAiPlayer::Skirmish(player) => player.check_bridges(unit_id, start_waypoint_id),
         }
     }
 
@@ -513,12 +513,12 @@ impl AiIntegrationManager {
             return Err(AiError::InvalidObject);
         }
 
-        let Some(obj_arc) = OBJECT_REGISTRY.get_object(object_id) else {
+        if OBJECT_REGISTRY.with_object(object_id, |_| ()).is_none() {
             return Err(AiError::InvalidObject);
-        };
+        }
         let state_machine = Arc::new(RwLock::new(AIStateMachine::new(
-            Arc::downgrade(&obj_arc),
-            name,
+            object_id,
+            name.to_string(),
         )));
         self.attach_waypoint_graph(&state_machine);
         Ok(state_machine)
@@ -682,20 +682,15 @@ impl AiIntegrationManager {
                         return Ok(());
                     }
                     for obj_id in OBJECT_REGISTRY.get_all_object_ids() {
-                        let obj_arc = match OBJECT_REGISTRY.get_object(obj_id) {
-                            Some(v) => v,
-                            None => continue,
-                        };
-                        let Ok(obj_guard) = obj_arc.read() else {
-                            continue;
-                        };
-                        if obj_guard.is_kind_of(KindOf::Structure)
-                            || obj_guard.is_kind_of(KindOf::Building)
-                            || obj_guard.is_kind_of(KindOf::Bridge)
-                            || obj_guard.is_kind_of(KindOf::Barrier)
-                        {
-                            pf.create_wall_from_object(&obj_guard);
-                        }
+                        let _ = OBJECT_REGISTRY.with_object(obj_id, |obj_guard| {
+                            if obj_guard.is_kind_of(KindOf::Structure)
+                                || obj_guard.is_kind_of(KindOf::Building)
+                                || obj_guard.is_kind_of(KindOf::Bridge)
+                                || obj_guard.is_kind_of(KindOf::Barrier)
+                            {
+                                pf.create_wall_from_object(obj_guard);
+                            }
+                        });
                     }
                 }
             }

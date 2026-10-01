@@ -213,33 +213,37 @@ impl SupplyTruckAIUpdate {
         if remaining_stock == 0 && !self.data.supplies_depleted_voice.is_empty() {
             let mut play_depleted = true;
             if let Some(best_warehouse) = resource::find_best_supply_warehouse(self.object_id) {
-                if let (Some(owner), Some(warehouse)) = (
-                    TheGameLogic::find_object_by_id(self.object_id).or_else(|| {
-                        crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id)
-                    }),
-                    TheGameLogic::find_object_by_id(best_warehouse),
-                ) {
-                    if let (Ok(owner_guard), Ok(warehouse_guard)) = (owner.read(), warehouse.read())
-                    {
-                        let delta = *owner_guard.get_position() - *warehouse_guard.get_position();
-                        let distance =
-                            (delta.x * delta.x + delta.y * delta.y + delta.z * delta.z).sqrt();
-                        let is_ai_player = owner_guard
-                            .get_controlling_player_id()
-                            .and_then(|player_id| {
-                                let Ok(list) = player_list().read() else {
-                                    return None;
-                                };
-                                list.get_player(player_id as i32).cloned()
-                            })
-                            .and_then(|player| {
-                                player.read().ok().map(|guard| guard.is_skirmish_ai())
-                            })
-                            .unwrap_or(false);
-                        if distance <= self.get_warehouse_scan_distance(is_ai_player) / 4.0 {
-                            play_depleted = false;
-                        }
-                    }
+                let close = crate::object::registry::OBJECT_REGISTRY.with_object(
+                    self.object_id,
+                    |owner_guard| {
+                        crate::object::registry::OBJECT_REGISTRY.with_object(
+                            best_warehouse,
+                            |warehouse_guard| {
+                                let delta =
+                                    *owner_guard.get_position() - *warehouse_guard.get_position();
+                                let distance = (delta.x * delta.x
+                                    + delta.y * delta.y
+                                    + delta.z * delta.z)
+                                    .sqrt();
+                                let is_ai_player = owner_guard
+                                    .get_controlling_player_id()
+                                    .and_then(|player_id| {
+                                        let Ok(list) = player_list().read() else {
+                                            return None;
+                                        };
+                                        list.get_player(player_id as i32).cloned()
+                                    })
+                                    .and_then(|player| {
+                                        player.read().ok().map(|guard| guard.is_skirmish_ai())
+                                    })
+                                    .unwrap_or(false);
+                                distance <= self.get_warehouse_scan_distance(is_ai_player) / 4.0
+                            },
+                        )
+                    },
+                );
+                if close.flatten().unwrap_or(false) {
+                    play_depleted = false;
                 }
             }
 
@@ -353,18 +357,15 @@ impl SupplyTruckAIInterface for SupplyTruckAIUpdate {
             return Ok(0);
         }
 
-        let Some(dock) = crate::helpers::TheGameLogic::find_object_by_id(dock_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(dock_id))
-        else {
-            return Ok(0);
-        };
-        let is_warehouse = dock.read().ok().map_or(false, |obj| {
-            obj.find_update_module("SupplyWarehouseDockUpdate")
-                .is_some()
-                || obj
-                    .module_by_name(&AsciiString::from("SupplyWarehouseDockUpdate"))
+        let is_warehouse = crate::object::registry::OBJECT_REGISTRY
+            .with_object(dock_id, |obj| {
+                obj.find_update_module("SupplyWarehouseDockUpdate")
                     .is_some()
-        });
+                    || obj
+                        .module_by_name(&AsciiString::from("SupplyWarehouseDockUpdate"))
+                        .is_some()
+            })
+            .unwrap_or(false);
         Ok(self.get_action_delay_for_dock(is_warehouse))
     }
 
@@ -431,18 +432,15 @@ impl SupplyTruckAIInterface for WorkerAIUpdate {
             return Ok(0);
         }
 
-        let Some(dock) = crate::helpers::TheGameLogic::find_object_by_id(dock_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(dock_id))
-        else {
-            return Ok(0);
-        };
-        let is_warehouse = dock.read().ok().map_or(false, |obj| {
-            obj.find_update_module("SupplyWarehouseDockUpdate")
-                .is_some()
-                || obj
-                    .module_by_name(&AsciiString::from("SupplyWarehouseDockUpdate"))
+        let is_warehouse = crate::object::registry::OBJECT_REGISTRY
+            .with_object(dock_id, |obj| {
+                obj.find_update_module("SupplyWarehouseDockUpdate")
                     .is_some()
-        });
+                    || obj
+                        .module_by_name(&AsciiString::from("SupplyWarehouseDockUpdate"))
+                        .is_some()
+            })
+            .unwrap_or(false);
         Ok(self.get_action_delay_for_dock(is_warehouse))
     }
 

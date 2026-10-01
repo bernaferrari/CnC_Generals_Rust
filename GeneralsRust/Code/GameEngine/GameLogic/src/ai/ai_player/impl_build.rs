@@ -174,9 +174,7 @@ impl AIPlayer {
         let is_cash_generator = template.is_kind_of(KindOf::CashGenerator);
 
         // C++: always findSupplyCenter first.
-        let mut best_supply_id: Option<ObjectID> = self
-            .find_supply_center(minimum_cash)
-            .and_then(|arc| arc.read().ok().map(|g| g.get_id()));
+        let mut best_supply_id: Option<ObjectID> = self.find_supply_center(minimum_cash);
 
         // Non-cash: live m_curWarehouseID overrides find result when present.
         if !is_cash_generator {
@@ -287,20 +285,18 @@ impl AIPlayer {
         let Some(template) = TheThingFactory::find_template(thing_name) else {
             return Ok(());
         };
-        let team_arc = get_team_factory()
+        let team_id = get_team_factory()
             .lock()
             .ok()
             .and_then(|mut factory| factory.find_team(team_name));
-        let Some(team_arc) = team_arc else {
+        let Some(team_id) = team_id else {
             return Ok(());
         };
-        let Ok(team_g) = team_arc.read() else {
+        let Some(location) = crate::team::with_team(team_id, |team_g| team_g.get_estimate_team_position())
+            .flatten()
+        else {
             return Ok(());
         };
-        let Some(location) = team_g.get_estimate_team_position() else {
-            return Ok(());
-        };
-        drop(team_g);
 
         // C++ does not recompute base center here (offset toward base is unused).
         let angle = template.get_placement_view_angle();
@@ -328,7 +324,7 @@ impl AIPlayer {
     ///
     /// Closest non-enemy warehouse with enough cash, no nearby owned cash
     /// generator, not closer to enemy than us (60/40). Halve cash floor to 100.
-    pub(super) fn find_supply_center(&self, minimum_cash: i32) -> Option<Arc<RwLock<Object>>> {
+    pub(super) fn find_supply_center(&self, minimum_cash: i32) -> Option<ObjectID> {
         // Wave 255: empty dual-world → None.
         if dual_world_registry_unavailable() {
             return None;
@@ -348,9 +344,7 @@ impl AIPlayer {
             let mut idx = None;
             if let Ok(list) = player_list().read() {
                 if let Some(me) = list.get_player(self.player_id as i32) {
-                    if let Ok(mg) = me.read() {
-                        idx = mg.get_current_enemy_player_index();
-                    }
+                    idx = me.get_current_enemy_player_index();
                 }
             }
             idx.or_else(|| {
@@ -375,55 +369,63 @@ impl AIPlayer {
             return None;
         }
         for obj_id in OBJECT_REGISTRY.get_all_object_ids() {
-            let obj = match OBJECT_REGISTRY.get_object(obj_id) {
-                Some(v) => v,
-                None => continue,
-            };
-            let Ok(obj_guard) = obj.read() else {
-                continue;
-            };
-            if obj_guard.is_kind_of(KindOf::CashGenerator) {
-                if obj_guard.get_controlling_player_id() == Some(self.player_id as _) {
+            let Some(snap) = OBJECT_REGISTRY.with_object(obj_id, |obj_guard| {
+                let cash = if obj_guard.is_kind_of(KindOf::CashGenerator)
+                    && obj_guard.get_controlling_player_id() == Some(self.player_id as _)
+                {
                     let p = obj_guard.get_position();
-                    own_cash_gens.push(LeftoverOwnedCashGenerator { x: p.x, y: p.y });
+                    Some((p.x, p.y))
+                } else {
+                    None
+                };
+                if !obj_guard.is_kind_of(KindOf::Structure)
+                    || !obj_guard.is_kind_of(KindOf::SupplySource)
+                {
+                    return (cash, None);
                 }
-            }
-            if !obj_guard.is_kind_of(KindOf::Structure)
-                || !obj_guard.is_kind_of(KindOf::SupplySource)
-            {
-                continue;
-            }
-            let is_enemy = obj_guard
-                .get_team()
-                .and_then(|team_arc| {
-                    team_arc.read().ok().map(|team| {
-                        player_guard.get_relationship_with_team(&team) == Relationship::Enemies
+                let is_enemy = obj_guard
+                    .get_team_id()
+                    .and_then(|team_id| {
+                        crate::team::with_team(team_id, |team| {
+                            player_guard.get_relationship_with_team(team) == Relationship::Enemies
+                        })
                     })
-                })
-                .unwrap_or(false);
-            let Some(module) = obj_guard.find_update_module("SupplyWarehouseDockUpdate") else {
+                    .unwrap_or(false);
+                let Some(module) = obj_guard.find_update_module("SupplyWarehouseDockUpdate") else {
+                    return (cash, None);
+                };
+                let boxes = module.with_module(|module| {
+                    module
+                        .get_supply_warehouse_dock_interface()
+                        .map(|warehouse| warehouse.boxes_stored())
+                });
+                let Some(boxes) = boxes else {
+                    return (cash, None);
+                };
+                let center = *obj_guard.get_position();
+                (
+                    cash,
+                    Some(LeftoverSupplyCenterCandidate {
+                        id: obj_id,
+                        x: center.x,
+                        y: center.y,
+                        bounding_circle: obj_guard.get_geometry_info().get_bounding_circle_radius(),
+                        available_cash: boxes * BASE_VALUE_PER_SUPPLY_BOX,
+                        is_structure: true,
+                        is_supply_source: true,
+                        has_warehouse_dock: true,
+                        is_enemy,
+                    }),
+                )
+            }) else {
                 continue;
             };
-            let boxes = module.with_module(|module| {
-                module
-                    .get_supply_warehouse_dock_interface()
-                    .map(|warehouse| warehouse.boxes_stored())
-            });
-            let Some(boxes) = boxes else {
-                continue;
-            };
-            let center = *obj_guard.get_position();
-            candidates.push(LeftoverSupplyCenterCandidate {
-                id: obj_id,
-                x: center.x,
-                y: center.y,
-                bounding_circle: obj_guard.get_geometry_info().get_bounding_circle_radius(),
-                available_cash: boxes * BASE_VALUE_PER_SUPPLY_BOX,
-                is_structure: true,
-                is_supply_source: true,
-                has_warehouse_dock: true,
-                is_enemy,
-            });
+            if let Some((x, y)) = snap.0 {
+                own_cash_gens.push(LeftoverOwnedCashGenerator { x, y });
+            }
+            if let Some(candidate) = snap.1 {
+                candidates.push(candidate);
+            }
         }
         // leftover_find_supply_center: SUPPLY_CENTER_CLOSE_DIST, dist_sqr * 0.4,
         // enemy_dist_sqr * 0.6, cash_floor /= 2, if cash_floor <= 100
@@ -436,7 +438,7 @@ impl AIPlayer {
             enemy,
             minimum_cash,
         )?;
-        OBJECT_REGISTRY.get_object(best_id)
+        Some(best_id)
     }
 
     /// Legalize helper for buildBySupplies / near-team placement.
@@ -718,7 +720,7 @@ impl AIPlayer {
         let mut found = false;
         let mut supply_truck = false;
         let mut matched_team_name: Option<String> = None;
-        let mut matched_team: Option<Arc<RwLock<crate::team::Team>>> = None;
+        let mut matched_team: Option<crate::team::TeamID> = None;
         let mut is_resource_gatherer_order = false;
 
         for team_q in &mut self.team_build_queue {
@@ -749,7 +751,7 @@ impl AIPlayer {
                 order.factory_id = None;
                 is_resource_gatherer_order = order.is_resource_gatherer;
                 matched_team_name = team_q.team_name.clone();
-                matched_team = team_q.team.clone();
+                matched_team = team_q.team_id;
 
                 if team_q.reinforcement {
                     team_q.reinforcement_id = Some(unit_id);
@@ -766,7 +768,7 @@ impl AIPlayer {
                 .clone()
                 .unwrap_or_else(|| "default".to_string());
             // Prefer TeamInQueue.m_team (C++); name lookup is fallback.
-            let team_arc = matched_team.or_else(|| {
+            let team_id = matched_team.or_else(|| {
                 get_team_factory().lock().ok().and_then(|mut factory| {
                     factory
                         .find_team_instances(&team_name)
@@ -775,16 +777,16 @@ impl AIPlayer {
                         .or_else(|| factory.find_team(&team_name))
                 })
             });
-            if let Some(ref team_arc) = team_arc {
+            if let Some(team_id) = team_id {
                 let _ = OBJECT_REGISTRY.with_object_mut(unit_id, |ug| {
-                    let _ = ug.set_team(Some(team_arc.clone()));
+                    let _ = ug.set_team_id(Some(team_id));
                 });
             }
 
             // C++: if team has homeLocation → aiFollowExitProductionPath(goal, home).
             // path[0] = *ai->getGoalPosition() (not path destination).
             let (home, has_home) =
-                self.queue_units_home_for_team(team_arc.as_ref(), team_name.as_str());
+                self.queue_units_home_for_team(team_id, team_name.as_str());
             // has_home is true only for prototype homeLocation (not base-center fallback).
             if has_home {
                 let _ = OBJECT_REGISTRY.with_object_mut(unit_id, |unit_g| {

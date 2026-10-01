@@ -143,7 +143,7 @@ pub struct RadarUpdate {
 
 impl RadarUpdate {
     pub fn new(
-        object: Arc<RwLock<GameObject>>,
+        object_id: ObjectID,
         module_data: Arc<dyn ModuleData>,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let config = module_data
@@ -154,15 +154,11 @@ impl RadarUpdate {
     }
 
     pub fn new_with_config(
-        object: Arc<RwLock<GameObject>>,
+        object_id: ObjectID,
         module_data: RadarUpdateConfig,
     ) -> Self {
         Self {
-            object_id: object
-                .read()
-                .ok()
-                .map(|g| g.get_id())
-                .unwrap_or(crate::common::INVALID_ID),
+            object_id: object_id,
             module_data,
             next_call_frame_and_phase: 0,
             extend_done_frame: 0,
@@ -295,7 +291,7 @@ impl RadarUpdateModule {
     }
 
     pub fn from_module_data(
-        object: Arc<RwLock<GameObject>>,
+        object_id: ObjectID,
         module_name: &AsciiString,
         module_data: Arc<dyn EngineModuleData>,
     ) -> Option<Self> {
@@ -355,10 +351,10 @@ impl Module for RadarUpdateModule {
 pub struct RadarUpdateFactory;
 impl RadarUpdateFactory {
     pub fn create_behavior(
-        thing: Arc<RwLock<GameObject>>,
+        object_id: ObjectID,
         module_data: Arc<dyn ModuleData>,
     ) -> Result<Box<dyn BehaviorModuleInterface>, Box<dyn std::error::Error + Send + Sync>> {
-        Ok(Box::new(RadarUpdate::new(thing, module_data)?))
+        Ok(Box::new(RadarUpdate::new(object_id, module_data)?))
     }
 }
 

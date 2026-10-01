@@ -234,7 +234,7 @@ impl BunkerBusterBehavior {
     /// Create new bunker buster behavior
     /// Matches C++ BunkerBusterBehavior::BunkerBusterBehavior
     pub fn new(
-        object: Arc<RwLock<GameObject>>,
+        object_id: ObjectID,
         module_data: Arc<dyn ModuleData>,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let specific_data = module_data
@@ -243,11 +243,7 @@ impl BunkerBusterBehavior {
             .ok_or("Invalid module data")?;
 
         Ok(Self {
-            object_id: object
-                .read()
-                .ok()
-                .map(|g| g.get_id())
-                .unwrap_or(crate::common::INVALID_ID),
+            object_id: object_id,
             module_data: Arc::new(specific_data.clone()),
             next_call_frame_and_phase: 0,
             victim_id: OBJECT_INVALID_ID,
@@ -272,11 +268,7 @@ impl BunkerBusterBehavior {
             .get_object(object_id)
             .ok_or_else(|| format!("BunkerBusterBehavior missing object {}", object_id))?;
         Ok(Self {
-            object_id: object
-                .read()
-                .ok()
-                .map(|g| g.get_id())
-                .unwrap_or(crate::common::INVALID_ID),
+            object_id: object_id,
             module_data,
             next_call_frame_and_phase: 0,
             victim_id: OBJECT_INVALID_ID,
@@ -598,10 +590,10 @@ pub struct BunkerBusterBehaviorFactory;
 
 impl BunkerBusterBehaviorFactory {
     pub fn create_behavior(
-        thing: Arc<RwLock<GameObject>>,
+        object_id: ObjectID,
         module_data: Arc<dyn ModuleData>,
     ) -> Result<Box<dyn BehaviorModuleInterface>, Box<dyn std::error::Error + Send + Sync>> {
-        Ok(Box::new(BunkerBusterBehavior::new(thing, module_data)?))
+        Ok(Box::new(BunkerBusterBehavior::new(object_id, module_data)?))
     }
 }
 

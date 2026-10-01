@@ -554,7 +554,7 @@ impl GenerateMinefieldBehavior {
 
     /// Create a new generate minefield behavior from module data.
     pub fn new(
-        object: Arc<RwLock<GameObject>>,
+        object_id: ObjectID,
         module_data: Arc<dyn ModuleData>,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let specific_data = module_data
@@ -1546,7 +1546,7 @@ pub struct GenerateMinefieldBehaviorFactory;
 
 impl GenerateMinefieldBehaviorFactory {
     pub fn create_behavior(
-        thing: Arc<RwLock<crate::object::Object>>,
+        object_id: ObjectID,
         module_data: Arc<dyn crate::common::ModuleData>,
     ) -> Result<
         Box<dyn crate::modules::BehaviorModuleInterface>,

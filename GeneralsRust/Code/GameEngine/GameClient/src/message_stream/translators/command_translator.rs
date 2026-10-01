@@ -80,32 +80,33 @@ impl CommandTranslator {
         let mut evaluate_as_position = false;
 
         if let Some(obj_id) = drawable.get_object_id() {
-            if let Some(obj) = OBJECT_REGISTRY.get_object(obj_id) {
-                if let Ok(guard) = obj.read() {
-                    let is_masked = guard
-                        .get_status_bits()
-                        .contains(LogicObjectStatusMaskType::MASKED);
-                    if is_masked
-                        && !guard.is_kind_of(KindOf::Shrubbery)
-                        && !guard.is_kind_of(KindOf::ForceAttackable)
-                    {
-                        evaluate_as_position = true;
-                    }
-
-                    if !evaluate_as_position
-                        && guard.is_kind_of(KindOf::Mine)
-                        && guard.is_locally_controlled()
-                    {
-                        evaluate_as_position = true;
-                    }
-
-                    if !evaluate_as_position
-                        && guard.is_locally_controlled()
-                        && TheInGameUI::is_in_prefer_selection_mode()
-                    {
-                        return Ok(GameMessageType::Invalid);
-                    }
+            let decision = OBJECT_REGISTRY.with_object(obj_id, |guard| {
+                let mut evaluate_as_position = false;
+                let is_masked = guard
+                    .get_status_bits()
+                    .contains(LogicObjectStatusMaskType::MASKED);
+                if is_masked
+                    && !guard.is_kind_of(KindOf::Shrubbery)
+                    && !guard.is_kind_of(KindOf::ForceAttackable)
+                {
+                    evaluate_as_position = true;
                 }
+                if !evaluate_as_position
+                    && guard.is_kind_of(KindOf::Mine)
+                    && guard.is_locally_controlled()
+                {
+                    evaluate_as_position = true;
+                }
+                let invalid = __omp_shell("evaluate_as_position")
+                    && guard.is_locally_controlled()
+                    && TheInGameUI::is_in_prefer_selection_mode();
+                (evaluate_as_position, invalid)
+            });
+            if let Some((as_position, invalid)) = decision {
+                if invalid {
+                    return Ok(GameMessageType::Invalid);
+                }
+                evaluate_as_position = as_position;
             }
         } else {
             evaluate_as_position = true;
@@ -261,30 +262,30 @@ impl CommandTranslator {
             }
 
             if pending_command_accepts_position(pending.options) {
-                if let Some(obj) = OBJECT_REGISTRY.get_object(object_id) {
-                    if let Ok(obj_guard) = obj.read() {
-                        let position = logic_to_message_coord(obj_guard.get_position());
-                        if pending_command_position_valid(
+                let position = OBJECT_REGISTRY.with_object(object_id, |obj_guard| {
+                    logic_to_message_coord(obj_guard.get_position())
+                });
+                if let Some(position) = position {
+                    if pending_command_position_valid(
+                        &pending,
+                        local_player_u32,
+                        &self.current_selection,
+                        &position,
+                        Some(object_id),
+                    ) {
+                        let messages = pending_command_messages_for_position(
                             &pending,
-                            local_player_u32,
+                            position,
                             &self.current_selection,
-                            &position,
                             Some(object_id),
-                        ) {
-                            let messages = pending_command_messages_for_position(
-                                &pending,
-                                position,
-                                &self.current_selection,
-                                Some(object_id),
+                        );
+                        if !messages.is_empty() {
+                            play_voice_for_command(
+                                self.current_selection.iter().copied(),
+                                &messages[0],
                             );
-                            if !messages.is_empty() {
-                                play_voice_for_command(
-                                    self.current_selection.iter().copied(),
-                                    &messages[0],
-                                );
-                                self.clear_targeting_modes();
-                                return messages;
-                            }
+                            self.clear_targeting_modes();
+                            return messages;
                         }
                     }
                 }
@@ -837,10 +838,10 @@ impl CommandTranslator {
                 target_id: target,
             };
             if let Some(target_id) = target {
-                if let Some(target_obj) = OBJECT_REGISTRY.get_object(target_id) {
-                    if let Ok(target_guard) = target_obj.read() {
-                        info.air = target_guard.is_using_airborne_locomotor();
-                    }
+                if let Some(air) = OBJECT_REGISTRY.with_object(target_id, |target_guard| {
+                    target_guard.is_using_airborne_locomotor()
+                }) {
+                    info.air = air;
                 }
             }
             pick_and_play_unit_voice_response(self.current_selection.iter().copied(), msg, &info);
@@ -923,12 +924,7 @@ impl CommandTranslator {
         };
         let target_id = drawable as ObjectID;
         let world = OBJECT_REGISTRY
-            .get_object(target_id)
-            .and_then(|obj| {
-                obj.read()
-                    .ok()
-                    .map(|guard| logic_to_message_coord(guard.get_position()))
-            })
+            .with_object(target_id, |guard| logic_to_message_coord(guard.get_position()))
             .unwrap_or_default();
 
         // C++ evaluateContextCommand treats locally controlled mines as position
@@ -1246,18 +1242,16 @@ impl CommandTranslator {
                 break;
             }
 
-            let Some(obj) = OBJECT_REGISTRY.get_object(id) else {
+            let is_building = OBJECT_REGISTRY.with_object(id, |guard| {
+                guard.is_kind_of(KindOf::Structure) || guard.is_kind_of(KindOf::Building)
+            });
+            let Some(is_building) = is_building else {
                 continue;
             };
-            let Ok(guard) = obj.read() else {
-                continue;
-            };
-
-            if guard.is_kind_of(KindOf::Structure) || guard.is_kind_of(KindOf::Building) {
+            if is_building {
                 building_ids.push(id);
                 continue;
             }
-
             selected_ids.push(id);
         }
 
@@ -1317,12 +1311,7 @@ impl CommandTranslator {
                     // Guard current position
                     let first = *self.current_selection.iter().next().unwrap();
                     let pos = OBJECT_REGISTRY
-                        .get_object(first)
-                        .and_then(|obj| {
-                            obj.read()
-                                .ok()
-                                .map(|guard| logic_to_message_coord(guard.get_position()))
-                        })
+                        .with_object(first, |guard| logic_to_message_coord(guard.get_position()))
                         .unwrap_or_default();
                     messages.push(GameMessageType::DoGuardPosition(pos, 0));
                 }

@@ -279,7 +279,7 @@ pub struct SabotageInternetCenterCrateCollide {
 impl SabotageInternetCenterCrateCollide {
     /// Create new sabotage internet center crate collide module
     pub fn new(
-        object: &Arc<RwLock<Object>>,
+        object: &ObjectID,
         module_data: SabotageInternetCenterCrateCollideModuleData,
     ) -> Self {
         Self {
@@ -475,7 +475,7 @@ impl CrateCollideModule for SabotageInternetCenterCrateCollide {
 }
 
 /// Disable hacker callback function
-fn disable_hacker(obj: Arc<RwLock<Object>>, frame: u32) -> Result<(), GameError> {
+fn disable_hacker(obj: ObjectID, frame: u32) -> Result<(), GameError> {
     let mut obj_lock = obj.write().map_err(|_| GameError::LockError)?;
     obj_lock.set_disabled_until(DisabledType::DisabledHacked, frame);
     Ok(())

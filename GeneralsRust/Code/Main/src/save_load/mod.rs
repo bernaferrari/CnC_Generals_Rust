@@ -387,6 +387,11 @@ impl SaveLoadManager {
         path
     }
 
+    /// Directory scanned for `.sav` / `.rep` files.
+    pub fn save_directory(&self) -> &std::path::Path {
+        &self.save_directory
+    }
+
     /// Get available save games
     pub fn get_available_saves(&self) -> &[AvailableGameInfo] {
         &self.available_saves
@@ -413,22 +418,31 @@ impl SaveLoadManager {
     }
 }
 
-/// Global save/load manager instance
-use std::sync::{Arc, Mutex, OnceLock};
+/// Global save/load manager. The `OnceLock` is the process boundary;
+/// the mutex is the only lock. Callers do not take an `Arc`.
+use std::sync::{Mutex, OnceLock};
 
-static SAVE_LOAD_MANAGER: OnceLock<Arc<Mutex<SaveLoadManager>>> = OnceLock::new();
+static SAVE_LOAD_MANAGER: OnceLock<Mutex<SaveLoadManager>> = OnceLock::new();
 
 /// Initialize the global save/load system
 pub fn init_save_load_system() -> SaveLoadResult<()> {
-    let manager_arc =
-        SAVE_LOAD_MANAGER.get_or_init(|| Arc::new(Mutex::new(SaveLoadManager::new())));
-    let mut manager = manager_arc.lock().unwrap_or_else(|e| e.into_inner());
+    let manager = SAVE_LOAD_MANAGER.get_or_init(|| Mutex::new(SaveLoadManager::new()));
+    let mut manager = manager.lock().unwrap_or_else(|e| e.into_inner());
     manager.init()
 }
 
-/// Get the global save/load manager
-pub fn get_save_load_manager() -> Option<Arc<Mutex<SaveLoadManager>>> {
-    SAVE_LOAD_MANAGER.get().cloned()
+/// Run `f` with the global manager. The lock is not held past `f`.
+pub fn with_save_load_manager<R>(f: impl FnOnce(&SaveLoadManager) -> R) -> Option<R> {
+    let manager = SAVE_LOAD_MANAGER.get()?;
+    let manager = manager.lock().unwrap_or_else(|e| e.into_inner());
+    Some(f(&manager))
+}
+
+/// Run `f` with mutable access to the global manager.
+pub fn with_save_load_manager_mut<R>(f: impl FnOnce(&mut SaveLoadManager) -> R) -> Option<R> {
+    let manager = SAVE_LOAD_MANAGER.get()?;
+    let mut manager = manager.lock().unwrap_or_else(|e| e.into_inner());
+    Some(f(&mut manager))
 }
 
 const CHUNK_GAME_STATE_TOKEN: &str = "CHUNK_GameState";

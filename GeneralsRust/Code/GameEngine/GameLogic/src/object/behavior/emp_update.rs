@@ -342,7 +342,7 @@ pub struct EMPUpdate {
 
 impl EMPUpdate {
     pub fn new(
-        object: Arc<RwLock<GameObject>>,
+        object_id: ObjectID,
         module_data: Arc<dyn ModuleData>,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let specific_data = module_data
@@ -354,7 +354,7 @@ impl EMPUpdate {
     }
 
     pub fn new_with_data(
-        object: Arc<RwLock<GameObject>>,
+        object_id: ObjectID,
         module_data: Arc<EMPUpdateModuleData>,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let now = TheGameLogic::get_frame();
@@ -370,11 +370,7 @@ impl EMPUpdate {
 
         let current_scale = module_data.start_scale;
         Ok(Self {
-            object_id: object
-                .read()
-                .ok()
-                .map(|g| g.get_id())
-                .unwrap_or(crate::common::INVALID_ID),
+            object_id: object_id,
             module_data,
             die_frame,
             tint_env_fade_frames,
@@ -384,7 +380,7 @@ impl EMPUpdate {
         })
     }
 
-    fn do_disable_attack(&self, source: &Arc<RwLock<GameObject>>) {
+    fn do_disable_attack(&self, source: ObjectID) {
         // Wave 333: empty dual-world → no-op.
         if dual_world_registry_unavailable() {
             return;
@@ -707,9 +703,9 @@ impl Module for EMPUpdateModule {
 pub struct EMPUpdateFactory;
 impl EMPUpdateFactory {
     pub fn create_behavior(
-        thing: Arc<RwLock<GameObject>>,
+        object_id: ObjectID,
         module_data: Arc<dyn ModuleData>,
     ) -> Result<Box<dyn BehaviorModuleInterface>, Box<dyn std::error::Error + Send + Sync>> {
-        Ok(Box::new(EMPUpdate::new(thing, module_data)?))
+        Ok(Box::new(EMPUpdate::new(object_id, module_data)?))
     }
 }

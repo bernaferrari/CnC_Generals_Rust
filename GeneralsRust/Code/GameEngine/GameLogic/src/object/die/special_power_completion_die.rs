@@ -236,11 +236,11 @@ pub struct SpecialPowerCompletionDie {
 impl SpecialPowerCompletionDie {
     /// Create a new SpecialPowerCompletionDie module
     pub fn new(
-        object: Arc<RwLock<Object>>,
+        object_id: ObjectID,
         module_data: Arc<SpecialPowerCompletionDieModuleData>,
     ) -> Self {
         Self {
-            base: DieModule::new(object, module_data),
+            base: DieModule::new(object_id, module_data),
             creator_id: crate::common::INVALID_ID,
             creator_set: false,
         }

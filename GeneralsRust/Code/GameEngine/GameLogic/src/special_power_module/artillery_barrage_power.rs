@@ -227,12 +227,6 @@ impl ArtilleryBarragePower {
         {
             return Ok(());
         }
-        let owner = self
-            .resolve_owner_object()
-            .ok_or_else(|| "Artillery Barrage requires an owning object".to_string())?;
-        let owner_guard = owner
-            .read()
-            .map_err(|_| "owner lock poisoned".to_string())?;
 
         if self.data.adjust_position_to_passable {
             if let Some(partition) = ThePartitionManager::get() {
@@ -251,10 +245,13 @@ impl ArtilleryBarragePower {
             }
         }
 
+        let owner_pos_fallback = crate::object::registry::OBJECT_REGISTRY
+            .with_object(owner_id, |g| *g.get_position())
+            .unwrap_or(target_coord);
         let creation_coord = match self.data.create_loc {
             OclCreateLocType::CreateAtEdgeNearSource => TheTerrainLogic::get()
-                .map(|terrain| terrain.find_closest_edge_point(owner_guard.get_position()))
-                .unwrap_or(*owner_guard.get_position()),
+                .map(|terrain| terrain.find_closest_edge_point(&owner_pos_fallback))
+                .unwrap_or(*&owner_pos_fallback),
             OclCreateLocType::CreateAtEdgeNearTarget => TheTerrainLogic::get()
                 .map(|terrain| terrain.find_closest_edge_point(&target_coord))
                 .unwrap_or(target_coord),
@@ -276,26 +273,13 @@ impl ArtilleryBarragePower {
 
         let ctx = live_creation_context();
         let create_owner = self.data.create_loc != OclCreateLocType::UseOwnerObject;
-        let _ = if create_owner {
-            ocl.create_with_angle(
-                &ctx,
-                Some(&*owner_guard),
-                &creation_coord,
-                &target_coord,
-                0.0,
-                0,
-            )
-        } else {
-            ocl.create_with_angle_and_owner_flag(
-                &ctx,
-                Some(&*owner_guard),
-                &creation_coord,
-                &target_coord,
-                0.0,
-                false,
-                0,
-            )
-        };
+        let _ = self.with_owner(|owner_guard| {
+            if create_owner {
+                ocl.create_with_angle(&ctx, Some(owner_guard), &creation_coord, &target_coord, 0.0, 0)
+            } else {
+                ocl.create_with_angle_and_owner_flag(&ctx, Some(owner_guard), &creation_coord, &target_coord, 0.0, false, 0)
+            }
+        }).ok_or_else(|| "owning object missing".to_string())?;
 
         Ok(())
     }
@@ -337,12 +321,6 @@ impl ArtilleryBarragePower {
             self.pending_shells = 0;
             return Ok(());
         }
-        let owner = self
-            .resolve_owner_object()
-            .ok_or_else(|| "Artillery Barrage requires an owning object".to_string())?;
-        let owner_guard = owner
-            .read()
-            .map_err(|_| "Artillery barrage owner lock poisoned".to_string())?;
 
         let ctx = live_creation_context();
         while self.pending_shells > 0
@@ -350,14 +328,12 @@ impl ArtilleryBarragePower {
         {
             let offset = self.random_offset_in_radius(self.data.barrage_radius);
             let creation_pos = self.target_position + offset;
-            let _ = ocl.create_with_angle(
-                &ctx,
-                Some(&*owner_guard),
-                &creation_pos,
-                &creation_pos,
-                0.0,
-                0,
-            );
+            let fired = self.with_owner(|owner_guard| {
+                ocl.create_with_angle(&ctx, Some(owner_guard), &creation_pos, &creation_pos, 0.0, 0)
+            });
+            if fired.is_none() {
+                return Err("Artillery Barrage requires an owning object".to_string());
+            }
             self.pending_shells -= 1;
             if self.fire_interval_frames > 0 {
                 self.next_fire_frame = self
@@ -369,10 +345,11 @@ impl ArtilleryBarragePower {
         Ok(())
     }
 
-    fn resolve_owner_object(&self) -> Option<Arc<RwLock<crate::object::Object>>> {
-        crate::special_power_module::resolve_special_power_owner(
+    fn with_owner<R>(&self, f: impl FnOnce(&crate::object::Object) -> R) -> Option<R> {
+        crate::special_power_module::with_special_power_owner(
             self.owner_object_id,
             self.owner_player_id,
+            f,
         )
     }
 

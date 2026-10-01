@@ -538,7 +538,7 @@ impl DumbProjectileBehavior {
     fn construct_with_object(
         object_id: ObjectID,
         module_data: Arc<DumbProjectileBehaviorModuleData>,
-        object: Option<Arc<RwLock<GameObject>>>,
+        object_id: Option<ObjectID>,
     ) -> Self {
         Self {
             module_data,
@@ -561,7 +561,7 @@ impl DumbProjectileBehavior {
     }
 
     pub fn new_from_object(
-        object: Arc<RwLock<GameObject>>,
+        object_id: ObjectID,
         module_data: Arc<DumbProjectileBehaviorModuleData>,
     ) -> Self {
         let object_id = object
@@ -589,7 +589,7 @@ impl DumbProjectileBehavior {
             .get_object(object_id)
             .ok_or_else(|| format!("DumbProjectileBehavior missing object {}", object_id))?;
 
-        Ok(Self::new_from_object(object, module_data))
+        Ok(Self::new_from_object(object_id, module_data))
     }
 
     fn owner_object_id(&self) -> ObjectID {
@@ -624,7 +624,7 @@ impl DumbProjectileBehavior {
 
     fn get_object(
         &self,
-    ) -> Result<Arc<RwLock<GameObject>>, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<ObjectID>, Box<dyn std::error::Error + Send + Sync>> {
         // Wave 286: empty dual-world → missing object.
         if dual_world_registry_unavailable() {
             return Err("dual-world registry unavailable".into());

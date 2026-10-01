@@ -34,7 +34,7 @@ fn runtime_host_presentation_query_helpers() {
         o.status.under_construction = false;
         o.construction_percent = 1.0;
     }
-    let frame = PresentationFrame::build_from_logic(&logic, 0);
+    let frame = PresentationFrame::build_from_logic(&mut logic, 0);
     assert_eq!(frame.first_mobile_friendly_id(Team::USA), Some(u));
     assert_eq!(frame.first_constructed_producer_id(Team::USA), Some(p));
     assert_eq!(frame.first_enemy_attackable_id(Team::USA), Some(e));
@@ -74,7 +74,7 @@ fn money_crate_identity_freezes_for_click_routing() {
         .register_salvage_crate(salvage_id, 40);
     logic.host_money_crates.register_heal_crate(heal_id);
 
-    let frame = PresentationFrame::build_from_logic(&logic, 0);
+    let frame = PresentationFrame::build_from_logic(&mut logic, 0);
     let salvage_obj = frame
         .objects
         .iter()
@@ -96,7 +96,7 @@ fn player_roster_frozen_from_host() {
     crate::skirmish_config::apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     let pid = logic.get_players().keys().copied().min().expect("player");
     let host = logic.get_player(pid).expect("p");
-    let frame = PresentationFrame::build_from_logic(&logic, pid);
+    let frame = PresentationFrame::build_from_logic(&mut logic, pid);
     assert!(
         !frame.players.is_empty(),
         "roster must include skirmish players"
@@ -116,7 +116,7 @@ fn local_team_frozen_from_host_player() {
     crate::skirmish_config::apply_skirmish_config(&mut logic, &cfg).expect("cfg");
     let pid = logic.get_players().keys().copied().min().expect("player");
     let host_team = logic.get_player(pid).expect("p").team;
-    let frame = PresentationFrame::build_from_logic(&logic, pid);
+    let frame = PresentationFrame::build_from_logic(&mut logic, pid);
     assert_eq!(frame.local_player_id, pid);
     assert_eq!(frame.local_team, host_team);
     assert_eq!(frame.local_team(), host_team);
@@ -137,7 +137,7 @@ fn centroid_of_ids_from_presentation() {
     let b = logic
         .create_object("Ranger", Team::USA, glam::Vec3::new(10.0, 0.0, 6.0))
         .unwrap();
-    let frame = PresentationFrame::build_from_logic(&logic, 0);
+    let frame = PresentationFrame::build_from_logic(&mut logic, 0);
     let c = frame.centroid_of_ids(&[a, b]).expect("c");
     assert!((c.x - 5.0).abs() < 0.01);
     assert!((c.z - 3.0).abs() < 0.01);
@@ -157,7 +157,7 @@ fn first_alive_position_for_template_from_presentation() {
     let id = logic
         .create_object("HeroJet", Team::USA, glam::Vec3::new(42.0, 5.0, -7.0))
         .unwrap();
-    let frame = PresentationFrame::build_from_logic(&logic, 0);
+    let frame = PresentationFrame::build_from_logic(&mut logic, 0);
     let pos = frame
         .first_alive_position_for_template("herojet")
         .expect("pos");
@@ -191,7 +191,7 @@ fn hotkey_selection_helpers_from_presentation() {
         .create_object("Ranger", Team::China, glam::Vec3::new(10.0, 0.0, 0.0))
         .unwrap();
     // Destroy b on host after snapshot? Filter uses snapshot destroyed flag.
-    let frame = PresentationFrame::build_from_logic(&logic, 0);
+    let frame = PresentationFrame::build_from_logic(&mut logic, 0);
     let all = frame.alive_selectable_friendly_ids(Team::USA);
     assert_eq!(all, {
         let mut v = vec![a, b];
@@ -205,7 +205,7 @@ fn hotkey_selection_helpers_from_presentation() {
     if let Some(o) = logic.host_object_mut(b) {
         o.status.destroyed = true;
     }
-    let frame2 = PresentationFrame::build_from_logic(&logic, 0);
+    let frame2 = PresentationFrame::build_from_logic(&mut logic, 0);
     let filtered2 = frame2.filter_alive_selectable_ids(&[a, b], Team::USA);
     assert_eq!(filtered2, vec![a]);
 }
@@ -244,7 +244,7 @@ fn control_group_recall_drops_enclosed_unselectable_and_keeps_live_non_local_lik
         o.owner_player_id = Some(7);
         o.team = Team::China;
     }
-    let frame = PresentationFrame::build_from_logic(&logic, 0);
+    let frame = PresentationFrame::build_from_logic(&mut logic, 0);
     let stored = [local, garrisoned, captured];
     let click = frame.filter_alive_selectable_ids(&stored, Team::USA);
     assert_eq!(click, vec![local], "click path still peels contained");
@@ -297,7 +297,7 @@ fn box_select_unit_ids_from_presentation() {
     let enemy = logic
         .create_object("Ranger", Team::China, glam::Vec3::new(1.0, 0.0, 1.0))
         .unwrap();
-    let frame = PresentationFrame::build_from_logic(&logic, 0);
+    let frame = PresentationFrame::build_from_logic(&mut logic, 0);
     let mut ids = frame.box_select_unit_ids(Team::USA, -1.0, 10.0, -1.0, 10.0);
     ids.sort_by_key(|id| id.0);
     let mut expect = vec![u1, u2];
@@ -333,7 +333,7 @@ fn screen_box_select_uses_the_camera_pixel_region_not_a_world_xz_aabb() {
     let outside_screen = logic
         .create_object("ScreenBoxUnit", Team::USA, Vec3::new(36.0, 0.0, 0.0))
         .expect("off-rectangle unit");
-    let mut frame = PresentationFrame::build_from_logic(&logic, 0);
+    let mut frame = PresentationFrame::build_from_logic(&mut logic, 0);
     // Retail W3DView drag selection projects drawable centers; unlike a
     // point-click ray cast, it does not inflate the screen region by geometry
     // or selection radius. Keep this intentionally huge value out of the
@@ -376,7 +376,7 @@ fn unit_render_inputs_keep_distinct_source_draw_modules() {
         .create_object("MultiDrawPresentationProbe", Team::USA, glam::Vec3::ZERO)
         .expect("probe object");
 
-    let mut frame = PresentationFrame::build_from_logic(&logic, 0);
+    let mut frame = PresentationFrame::build_from_logic(&mut logic, 0);
     let object = frame
         .objects
         .iter_mut()
@@ -453,7 +453,7 @@ fn alive_selectable_friendly_aircraft_ids_residual() {
             glam::Vec3::new(10.0, 0.0, 0.0),
         )
         .expect("raptor");
-    let frame = PresentationFrame::build_from_logic(&logic, 0);
+    let frame = PresentationFrame::build_from_logic(&mut logic, 0);
     let ids = frame.alive_selectable_friendly_aircraft_ids(Team::USA);
     assert_eq!(ids, vec![a], "only aircraft selectable: {:?}", ids);
 }
@@ -489,7 +489,7 @@ fn similar_unit_ids_from_presentation() {
     let d = logic
         .create_object("Ranger", Team::China, glam::Vec3::new(30.0, 0.0, 0.0))
         .unwrap();
-    let frame = PresentationFrame::build_from_logic(&logic, 0);
+    let frame = PresentationFrame::build_from_logic(&mut logic, 0);
     let mut ids = frame.similar_unit_ids(a, Team::USA);
     ids.sort_by_key(|id| id.0);
     let mut expect = vec![a, b];
@@ -551,7 +551,7 @@ fn similar_unit_ids_use_equivalent_to_and_skip_contained() {
     if let Some(obj) = logic.host_object_mut(contained) {
         obj.set_contained_by(Some(a));
     }
-    let frame = PresentationFrame::build_from_logic(&logic, 0);
+    let frame = PresentationFrame::build_from_logic(&mut logic, 0);
     let mut ids = frame.similar_unit_ids(a, Team::USA);
     ids.sort_by_key(|id| id.0);
     let mut expect = vec![a, same];
@@ -596,7 +596,7 @@ fn similar_unit_ids_skip_off_map() {
     let (wmin, wmax) = logic.world_bounds();
     let off_pos = glam::Vec3::new(wmax.x + 80.0, 40.0, wmax.z + 80.0);
     let off_map = logic.create_object("Ranger", Team::USA, off_pos).unwrap();
-    let frame = PresentationFrame::build_from_logic(&logic, 0);
+    let frame = PresentationFrame::build_from_logic(&mut logic, 0);
     assert!(
         crate::game_logic::host_deliver_payload::is_off_map_residual(
             off_pos, wmin.x, wmin.z, wmax.x, wmax.z
@@ -633,7 +633,7 @@ fn box_select_firebase_propagates_occupant_to_container() {
     if let Some(obj) = logic.host_object_mut(occupant) {
         obj.set_contained_by(Some(container));
     }
-    let frame = PresentationFrame::build_from_logic(&logic, 0);
+    let frame = PresentationFrame::build_from_logic(&mut logic, 0);
     let mut ids = frame.box_select_unit_ids(Team::USA, -1.0, 1.0, -1.0, 1.0);
     ids.sort_by_key(|id| id.0);
     assert_eq!(ids, vec![container]);
@@ -677,7 +677,7 @@ fn select_similar_is_structure_aware_and_alt_selects_across_map() {
         .create_object("AmericaBarracks", Team::USA, Vec3::new(4.0, 0.0, 4.0))
         .expect("barracks b");
 
-    let frame = PresentationFrame::build_from_logic(&logic, 0);
+    let frame = PresentationFrame::build_from_logic(&mut logic, 0);
     let view = Mat4::look_at_rh(Vec3::new(0.0, 0.0, 10.0), Vec3::ZERO, Vec3::Y);
     let projection = Mat4::perspective_rh(60.0_f32.to_radians(), 1.0, 1.0, 2_000.0);
     let viewport = Vec2::splat(1_000.0);
@@ -753,7 +753,7 @@ fn kind_of_freeze_from_host() {
     let rid = logic
         .create_object("SupplyDock", Team::Neutral, glam::Vec3::new(10.0, 0.0, 0.0))
         .expect("r");
-    let frame = PresentationFrame::build_from_logic(&logic, 0);
+    let frame = PresentationFrame::build_from_logic(&mut logic, 0);
     let d = frame.objects.iter().find(|o| o.id == did).expect("dozer");
     assert!(PresentationFrame::object_has_kind(d, KindOf::Worker));
     assert!(PresentationFrame::object_has_kind(d, KindOf::Vehicle));
@@ -812,7 +812,7 @@ fn upgrades_object_type_freeze_from_host() {
         });
         obj.mine_data = Some(HostMineData::new(HostMineKind::LandMine));
     }
-    let frame = PresentationFrame::build_from_logic(&logic, 0);
+    let frame = PresentationFrame::build_from_logic(&mut logic, 0);
     let o = frame.objects.iter().find(|r| r.id == id).expect("o");
     assert_eq!(o.object_type, PresentationObjectType::Vehicle);
     assert!(PresentationFrame::object_has_upgrade(
@@ -845,7 +845,7 @@ fn special_power_freeze_from_host() {
         obj.special_power_cooldown = 180.0;
         obj.special_power_cooldown_remaining = 45.0;
     }
-    let frame = PresentationFrame::build_from_logic(&logic, 0);
+    let frame = PresentationFrame::build_from_logic(&mut logic, 0);
     let o = frame.objects.iter().find(|r| r.id == id).expect("o");
     assert!(!o.special_power_ready);
     assert!((o.special_power_cooldown - 180.0).abs() < 0.01);
@@ -857,7 +857,7 @@ fn special_power_freeze_from_host() {
         obj.special_power_ready = true;
         obj.special_power_cooldown_remaining = 0.0;
     }
-    let frame2 = PresentationFrame::build_from_logic(&logic, 1);
+    let frame2 = PresentationFrame::build_from_logic(&mut logic, 1);
     let o2 = frame2.objects.iter().find(|r| r.id == id).expect("o2");
     assert!(o2.special_power_ready);
     assert_eq!(frame2.special_power_ready_objects().len(), 1);
@@ -893,7 +893,7 @@ fn local_player_freeze_from_host() {
             .insert("Upgrade_AmericaAdvancedTraining".into());
         p.color_rgb = (10, 20, 30);
     }
-    let frame = PresentationFrame::build_from_logic(&logic, pid);
+    let frame = PresentationFrame::build_from_logic(&mut logic, pid);
     assert_eq!(frame.local_player_id, pid);
     assert_eq!(frame.local_supplies, 12345);
     assert_eq!(frame.local_power, 40);
@@ -974,7 +974,7 @@ fn weapon_and_stealth_freeze_from_host() {
         obj.disguise_as_template = Some("ChinaTroopCrawler".into());
         obj.disguise_as_team = Some(Team::China);
     }
-    let frame = PresentationFrame::build_from_logic(&logic, 0);
+    let frame = PresentationFrame::build_from_logic(&mut logic, 0);
     let u = frame.objects.iter().find(|o| o.id == uid).expect("u");
     assert!(u.has_weapon);
     assert!((u.weapon_range - 150.0).abs() < 0.01);
@@ -1016,7 +1016,7 @@ fn weapon_and_stealth_freeze_from_host() {
         obj.disguise_as_template = None;
         obj.disguise_as_team = None;
     }
-    let frame2 = PresentationFrame::build_from_logic(&logic, 1);
+    let frame2 = PresentationFrame::build_from_logic(&mut logic, 1);
     let u2 = frame2.objects.iter().find(|o| o.id == uid).expect("u2");
     assert!(u2.effectively_stealthed);
     assert_eq!(frame2.effectively_stealthed_units().len(), 1);
@@ -1048,7 +1048,7 @@ fn construction_and_veterancy_freeze_from_host() {
         obj.status.under_construction = true;
         obj.construction_percent = 0.55;
     }
-    let frame = PresentationFrame::build_from_logic(&logic, 0);
+    let frame = PresentationFrame::build_from_logic(&mut logic, 0);
     let u = frame.objects.iter().find(|o| o.id == uid).expect("u");
     assert_eq!(u.veterancy, PresentationVeterancy::Elite);
     assert!((u.experience_points - 420.0).abs() < 0.01);
@@ -1079,7 +1079,7 @@ fn garrison_and_power_freeze_from_host() {
         obj.power_provided = 10;
         obj.power_consumed = 3;
     }
-    let frame = PresentationFrame::build_from_logic(&logic, 0);
+    let frame = PresentationFrame::build_from_logic(&mut logic, 0);
     let ro = frame.objects.iter().find(|o| o.id == id).expect("ro");
     assert_eq!(ro.garrisoned_units, vec![ObjectId(10), ObjectId(11)]);
     assert_eq!(ro.max_garrison, 5);
@@ -1131,7 +1131,7 @@ fn production_upgrade_queue_freezes_is_upgrade_and_ratio_residual() {
             }
         }
     }
-    let frame = PresentationFrame::build_from_logic(&logic, 0);
+    let frame = PresentationFrame::build_from_logic(&mut logic, 0);
     let ro = frame
         .objects
         .iter()
@@ -1188,7 +1188,7 @@ fn production_queue_freezes_from_building_data() {
         obj.building_data = Some(bd);
         obj.guard_position = Some(glam::Vec3::new(1.0, 0.0, 1.0));
     }
-    let frame = PresentationFrame::build_from_logic(&logic, 0);
+    let frame = PresentationFrame::build_from_logic(&mut logic, 0);
     let ro = frame.objects.iter().find(|o| o.id == id).expect("ro");
     assert_eq!(ro.production_queue.len(), 1);
     assert_eq!(ro.production_queue[0].template_name, "Ranger");
@@ -1247,7 +1247,7 @@ fn move_destination_freezes_from_host_movement() {
             glam::Vec3::new(9.0, 0.0, 4.0),
         ];
     }
-    let frame = PresentationFrame::build_from_logic(&logic, 0);
+    let frame = PresentationFrame::build_from_logic(&mut logic, 0);
     let ro = frame.objects.iter().find(|o| o.id == id).expect("ro");
     assert_eq!(ro.move_destination, Some(glam::Vec3::new(9.0, 0.0, 4.0)));
     assert_eq!(ro.attack_target, Some(crate::game_logic::ObjectId(99)));
@@ -1266,7 +1266,7 @@ fn projectiles_freeze_from_combat_system() {
         Some(crate::game_logic::ObjectId(2)),
         200.0,
     );
-    let frame = PresentationFrame::build_from_logic(&logic, 0);
+    let frame = PresentationFrame::build_from_logic(&mut logic, 0);
     assert!(
         frame.projectiles.iter().any(|p| p.id == pid),
         "expected projectile {pid:?} in {:?}",
@@ -1292,8 +1292,8 @@ fn combat_damage_does_not_spawn_floating_text() {
         false,
     );
     let _ = crate::game_logic::host_damage_log::drain();
-    let logic = crate::game_logic::GameLogic::new();
-    let frame = PresentationFrame::build_from_logic(&logic, 0);
+    let mut logic = crate::game_logic::GameLogic::new();
+    let frame = PresentationFrame::build_from_logic(&mut logic, 0);
     assert!(
         frame
             .floating_texts
@@ -1318,8 +1318,8 @@ fn damage_applied_freezes_from_last_drain() {
         false,
     );
     let _ = crate::game_logic::host_damage_log::drain();
-    let logic = crate::game_logic::GameLogic::new();
-    let frame = PresentationFrame::build_from_logic(&logic, 0);
+    let mut logic = crate::game_logic::GameLogic::new();
+    let frame = PresentationFrame::build_from_logic(&mut logic, 0);
     assert!(
         frame.events.iter().any(|e| {
             matches!(
@@ -1345,8 +1345,8 @@ fn move_ordered_freezes_from_last_drain() {
         Some([10.0, 0.0, 20.0]),
     );
     let _ = crate::game_logic::host_move_log::drain();
-    let logic = crate::game_logic::GameLogic::new();
-    let frame = PresentationFrame::build_from_logic(&logic, 0);
+    let mut logic = crate::game_logic::GameLogic::new();
+    let frame = PresentationFrame::build_from_logic(&mut logic, 0);
     assert!(
         frame.events.iter().any(|e| {
             matches!(
@@ -1370,8 +1370,8 @@ fn attack_targeted_freezes_from_last_drain() {
         Some(crate::game_logic::ObjectId(5)),
     );
     let _ = crate::game_logic::host_attack_log::drain();
-    let logic = crate::game_logic::GameLogic::new();
-    let frame = PresentationFrame::build_from_logic(&logic, 0);
+    let mut logic = crate::game_logic::GameLogic::new();
+    let frame = PresentationFrame::build_from_logic(&mut logic, 0);
     assert!(
         frame.events.iter().any(|e| {
             matches!(
@@ -1395,8 +1395,8 @@ fn owner_changed_freezes_from_last_drain() {
         crate::game_logic::Team::China,
     );
     let _ = crate::game_logic::host_owner_log::drain();
-    let logic = crate::game_logic::GameLogic::new();
-    let frame = PresentationFrame::build_from_logic(&logic, 0);
+    let mut logic = crate::game_logic::GameLogic::new();
+    let frame = PresentationFrame::build_from_logic(&mut logic, 0);
     assert!(
         frame.events.iter().any(|e| {
             matches!(
@@ -1421,8 +1421,8 @@ fn production_complete_freezes_from_last_drain() {
         crate::game_logic::ObjectId(9),
     );
     let _ = crate::game_logic::host_production_log::drain(); // simulate shadow session
-    let logic = crate::game_logic::GameLogic::new();
-    let frame = PresentationFrame::build_from_logic(&logic, 0);
+    let mut logic = crate::game_logic::GameLogic::new();
+    let frame = PresentationFrame::build_from_logic(&mut logic, 0);
     assert!(
         frame.events.iter().any(|e| {
             matches!(
@@ -1449,7 +1449,7 @@ fn presentation_feeds_shake_skybox_superweapon() {
     logic.set_script_named_timer_display_shown_for_test(true);
     logic.hide_script_superweapon_object_for_test(crate::game_logic::ObjectId(42));
 
-    let frame = PresentationFrame::build_from_logic(&logic, 0);
+    let frame = PresentationFrame::build_from_logic(&mut logic, 0);
     assert!(frame.screen_shakes.contains(&2));
     assert!(frame.screen_shakes.contains(&5));
     assert!(frame.script_skybox_enabled);
@@ -1480,7 +1480,7 @@ fn presentation_feeds_camera_controls() {
     logic.upsert_script_named_timer("TimerA", "00:30", true);
     logic.set_script_cameo_flash("Command_AmericaRanger", 3);
 
-    let frame = PresentationFrame::build_from_logic(&logic, 0);
+    let frame = PresentationFrame::build_from_logic(&mut logic, 0);
     assert_eq!(frame.camera_zoom, Some((0.55, 1.5)));
     assert!(frame.camera_zoom_reset);
     assert_eq!(frame.camera_pitch, Some((-0.2, 0.8)));
@@ -1530,7 +1530,7 @@ fn presentation_feeds_script_camera() {
     logic.queue_pending_camera_bw_mode(true, 30);
     logic.queue_pending_camera_shaker(glam::Vec3::new(40.0, 3.0, -80.0), 2.5, 0.4, 120.0);
 
-    let frame = PresentationFrame::build_from_logic(&logic, 0);
+    let frame = PresentationFrame::build_from_logic(&mut logic, 0);
     assert!(frame.script_time_frozen);
     assert!(frame.time_frozen_for_simulation);
     assert_eq!(frame.script_fps_limit, Some(15));
@@ -1568,7 +1568,7 @@ fn presentation_feeds_media_queue() {
     logic.queue_pending_music_stop();
     logic.queue_pending_popup_message("General, hold the line!");
 
-    let frame = PresentationFrame::build_from_logic(&logic, 0);
+    let frame = PresentationFrame::build_from_logic(&mut logic, 0);
     assert_eq!(frame.pending_movie.as_deref(), Some("EALogo.bik"));
     assert_eq!(frame.pending_radar_movie.as_deref(), Some("RadarIntro.bik"));
     assert!(frame.pending_music_stop);
@@ -1614,7 +1614,7 @@ fn presentation_feeds_mission_objectives() {
         category: ObjectiveCategory::Secondary,
     });
 
-    let frame = PresentationFrame::build_from_logic(&logic, 0);
+    let frame = PresentationFrame::build_from_logic(&mut logic, 0);
     assert!(
         frame
             .objectives
@@ -1659,7 +1659,7 @@ fn presentation_feeds_script_and_cinematic_ui() {
     logic.set_military_caption(Some("General: Hold the line!".into()));
     logic.set_radar_forced(true);
 
-    let frame = PresentationFrame::build_from_logic(&logic, 0);
+    let frame = PresentationFrame::build_from_logic(&mut logic, 0);
     assert!(
         frame
             .script_messages
@@ -1707,7 +1707,7 @@ fn presentation_feeds_radar_into_ui_state() {
         Vec3::new(100.0, 0.0, 200.0),
         crate::game_logic::radar_notifications::RadarKind::Attack,
     );
-    let frame = PresentationFrame::build_from_logic(&logic, 0);
+    let frame = PresentationFrame::build_from_logic(&mut logic, 0);
     assert!(frame.events.iter().any(|e| {
         matches!(
             e,
@@ -1767,7 +1767,7 @@ fn sold_status_freezes_into_presentation() {
         o.construction_percent = 1.0;
     }
     assert!(logic.start_sell_object(id));
-    let frame = PresentationFrame::build_from_logic(&logic, 0);
+    let frame = PresentationFrame::build_from_logic(&mut logic, 0);
     let ro = frame
         .objects
         .iter()
@@ -1799,7 +1799,7 @@ fn reconstructing_freezes_into_presentation() {
         o.status.reconstructing = true;
         o.is_rebuild_hole = false;
     }
-    let frame = PresentationFrame::build_from_logic(&logic, 0);
+    let frame = PresentationFrame::build_from_logic(&mut logic, 0);
     let ro = frame.objects.iter().find(|o| o.id == id).expect("ro");
     assert!(ro.reconstructing);
     assert!(ro.under_construction);
@@ -1824,7 +1824,7 @@ fn production_door_opening_freezes_into_presentation() {
     if let Some(o) = logic.host_object_mut(id) {
         o.start_production_door_cycle(0);
     }
-    let frame = PresentationFrame::build_from_logic(&logic, 0);
+    let frame = PresentationFrame::build_from_logic(&mut logic, 0);
     let ro = frame.objects.iter().find(|o| o.id == id).expect("ro");
     assert_eq!(ro.production_door_phase, 1);
     assert!(host_model_condition_has(
@@ -1849,8 +1849,8 @@ fn construction_complete_freezes_into_presentation_events() {
         crate::game_logic::ObjectId(42),
         "TestBarracks",
     );
-    let logic = crate::game_logic::GameLogic::new();
-    let frame = PresentationFrame::build_from_logic(&logic, 0);
+    let mut logic = crate::game_logic::GameLogic::new();
+    let frame = PresentationFrame::build_from_logic(&mut logic, 0);
     assert!(
         frame.events.iter().any(|e| {
             matches!(
@@ -1877,7 +1877,7 @@ fn radar_messages_freeze_into_presentation_events() {
         Vec3::ZERO,
         crate::game_logic::radar_notifications::RadarKind::Generic,
     );
-    let frame = PresentationFrame::build_from_logic(&logic, 0);
+    let frame = PresentationFrame::build_from_logic(&mut logic, 0);
     assert!(
         frame.events.iter().any(|e| {
             matches!(
@@ -1910,7 +1910,7 @@ fn select_all_uses_locally_controlled_not_faction_team() {
     let ally = logic
         .create_object_for_player("Ranger", 1, glam::Vec3::new(10.0, 0.0, 0.0))
         .expect("ally");
-    let frame = PresentationFrame::build_from_logic(&logic, 0);
+    let frame = PresentationFrame::build_from_logic(&mut logic, 0);
     let ids = frame.alive_select_all_unit_ids(Team::USA, false);
     assert_eq!(
         ids,
@@ -1940,7 +1940,7 @@ fn screen_box_select_rejects_drawable_centers_outside_camera_frustum_xy() {
     let offscreen = logic
         .create_object("NdcBoundaryBoxUnit", Team::USA, Vec3::new(11.0, 0.0, 0.0))
         .expect("offscreen unit");
-    let frame = PresentationFrame::build_from_logic(&logic, 0);
+    let frame = PresentationFrame::build_from_logic(&mut logic, 0);
 
     // A 90-degree perspective camera at (0,0,10) looking at the origin puts
     // world center (11,0,0) at NDC x=1.1 / screen x=1050 for a 1000px view.
@@ -1976,7 +1976,7 @@ fn screen_region_queries_keep_inclusive_frustum_edges_in_both_drag_directions() 
     let id = logic
         .create_object("FrustumEdgeGarrison", Team::USA, Vec3::ZERO)
         .unwrap();
-    let mut frame = PresentationFrame::build_from_logic(&logic, 0);
+    let mut frame = PresentationFrame::build_from_logic(&mut logic, 0);
     assert_eq!(frame.objects.len(), 1);
     assert_eq!(frame.objects[0].max_garrison, 4);
 

@@ -327,35 +327,41 @@ impl ScriptEvaluator {
                 let Some(object_id) = tracker.get_object_id(unit_name).ok().flatten() else {
                     return Ok(false);
                 };
-                let Some(obj_arc) = TheGameLogic::find_object_by_id(object_id) else {
-                    return Ok(false);
-                };
-                let Ok(obj_guard) = obj_arc.read() else {
-                    return Ok(false);
-                };
-                let Some(ai) = obj_guard.get_ai_update_interface() else {
-                    return Ok(false);
-                };
-                let Some(completed_id) = ai.get_completed_waypoint_id() else {
-                    return Ok(false);
-                };
-
-                // C++ uses AsciiString::operator== here, which is a case-sensitive
-                // strcmp.  `Waypoint::matches_path_label` intentionally serves other
-                // terrain lookups with case-insensitive matching, so this script path
-                // must compare the three labels directly.
-                let waypoint_path_name = waypoint_param.get_string();
-                let Ok(terrain) = get_terrain_logic().read() else {
-                    return Ok(false);
-                };
-                let matches = terrain
-                    .get_waypoint_by_id(completed_id)
-                    .is_some_and(|waypoint| {
-                        waypoint.get_path_label1().as_str() == waypoint_path_name
-                            || waypoint.get_path_label2().as_str() == waypoint_path_name
-                            || waypoint.get_path_label3().as_str() == waypoint_path_name
+                {
+                    enum _ObjFlow<T> { Cont, Ret(T), Fall }
+                    let _flow = OBJECT_REGISTRY.with_object(object_id, |obj_guard| {
+                        let Some(ai) = obj_guard.get_ai_update_interface() else {
+                            return _ObjFlow::Ret(Ok(false));
+                        };
+                        let Some(completed_id) = ai.get_completed_waypoint_id() else {
+                            return _ObjFlow::Ret(Ok(false));
+                        };
+                        
+                        // C++ uses AsciiString::operator== here, which is a case-sensitive
+                        // strcmp.  `Waypoint::matches_path_label` intentionally serves other
+                        // terrain lookups with case-insensitive matching, so this script path
+                        // must compare the three labels directly.
+                        let waypoint_path_name = waypoint_param.get_string();
+                        let Ok(terrain) = get_terrain_logic().read() else {
+                            return _ObjFlow::Ret(Ok(false));
+                        };
+                        let matches = terrain
+                            .get_waypoint_by_id(completed_id)
+                            .is_some_and(|waypoint| {
+                                waypoint.get_path_label1().as_str() == waypoint_path_name
+                                    || waypoint.get_path_label2().as_str() == waypoint_path_name
+                                    || waypoint.get_path_label3().as_str() == waypoint_path_name
+                            });
+                        Ok(matches)
+                        _ObjFlow::Fall
                     });
-                Ok(matches)
+                    match _flow {
+                        None => { return Ok(false); }
+                        Some(_ObjFlow::Cont) => continue,
+                        Some(_ObjFlow::Ret(v)) => return v,
+                        Some(_ObjFlow::Fall) => {}
+                    }
+                }
             }
 
             // Team reached end of waypoint path (any member)
@@ -385,30 +391,35 @@ impl ScriptEvaluator {
                         continue;
                     };
                     for &member_id in team_guard.get_members() {
-                        let Some(member_arc) = TheGameLogic::find_object_by_id(member_id) else {
-                            continue;
-                        };
-                        let Ok(member_guard) = member_arc.read() else {
-                            continue;
-                        };
-                        let Some(ai) = member_guard.get_ai_update_interface() else {
-                            continue;
-                        };
-                        let Some(completed_id) = ai.get_completed_waypoint_id() else {
-                            continue;
-                        };
-                        // C++ compares each of the completed waypoint's three path labels
-                        // with the requested path.  Reaching a different path must not fire
-                        // this campaign trigger.
-                        if terrain
-                            .get_waypoint_by_id(completed_id)
-                            .is_some_and(|waypoint| {
-                                waypoint.get_path_label1().as_str() == waypoint_path_name
-                                    || waypoint.get_path_label2().as_str() == waypoint_path_name
-                                    || waypoint.get_path_label3().as_str() == waypoint_path_name
-                            })
                         {
-                            return Ok(true);
+                            enum _ObjFlow<T> { Cont, Ret(T), Fall }
+                            let _flow = OBJECT_REGISTRY.with_object(member_id, |member_guard| {
+                                let Some(ai) = member_guard.get_ai_update_interface() else {
+                                    return _ObjFlow::Cont;
+                                };
+                                let Some(completed_id) = ai.get_completed_waypoint_id() else {
+                                    return _ObjFlow::Cont;
+                                };
+                                // C++ compares each of the completed waypoint's three path labels
+                                // with the requested path.  Reaching a different path must not fire
+                                // this campaign trigger.
+                                if terrain
+                                    .get_waypoint_by_id(completed_id)
+                                    .is_some_and(|waypoint| {
+                                        waypoint.get_path_label1().as_str() == waypoint_path_name
+                                            || waypoint.get_path_label2().as_str() == waypoint_path_name
+                                            || waypoint.get_path_label3().as_str() == waypoint_path_name
+                                    })
+                                {
+                                    return _ObjFlow::Ret(Ok(true));
+                                }
+                                _ObjFlow::Fall
+                            });
+                            match _flow {
+                                None | Some(_ObjFlow::Cont) => continue,
+                                Some(_ObjFlow::Ret(v)) => return v,
+                                Some(_ObjFlow::Fall) => {}
+                            }
                         }
                     }
                 }
@@ -886,23 +897,26 @@ impl ScriptEvaluator {
 
                 let mut count = 0;
                 for obj_id in player_guard.get_object_ids() {
-                    let Some(obj_arc) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
-                        .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
-                    else {
-                        continue;
-                    };
-                    let Ok(obj_guard) = obj_arc.read() else {
-                        continue;
-                    };
-                    if types.contains_template(Some(obj_guard.get_template())) {
-                        if obj_guard.is_inside_trigger(&trigger) {
-                            if Self::counts_for_unit_type_area_condition(
-                                obj_guard.is_effectively_dead(),
-                                obj_guard.is_kind_of(KindOf::Inert),
-                                obj_guard.is_kind_of(KindOf::Crate),
-                            ) {
-                                count += 1;
+                    {
+                        enum _ObjFlow<T> { Cont, Ret(T), Fall }
+                        let _flow = OBJECT_REGISTRY.with_object(obj_id, |obj_guard| {
+                            if types.contains_template(Some(obj_guard.get_template())) {
+                                if obj_guard.is_inside_trigger(&trigger) {
+                                    if Self::counts_for_unit_type_area_condition(
+                                        obj_guard.is_effectively_dead(),
+                                        obj_guard.is_kind_of(KindOf::Inert),
+                                        obj_guard.is_kind_of(KindOf::Crate),
+                                    ) {
+                                        count += 1;
+                                    }
+                                }
                             }
+                            _ObjFlow::Fall
+                        });
+                        match _flow {
+                            None | Some(_ObjFlow::Cont) => continue,
+                            Some(_ObjFlow::Ret(v)) => return v,
+                            Some(_ObjFlow::Fall) => {}
                         }
                     }
                 }
@@ -995,24 +1009,27 @@ impl ScriptEvaluator {
                 let kind_of_filter = Self::kind_of_type_to_mask(kind_of_type_int);
                 let mut count = 0;
                 for obj_id in player_guard.get_object_ids() {
-                    let Some(obj_arc) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
-                        .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
-                    else {
-                        continue;
-                    };
-                    let Ok(obj_guard) = obj_arc.read() else {
-                        continue;
-                    };
-                    if obj_guard.is_effectively_dead() || obj_guard.is_kind_of(KindOf::Inert) {
-                        continue;
-                    }
-                    if obj_guard.is_inside_trigger(&trigger) {
-                        if let Some(kind) = kind_of_filter {
-                            if !obj_guard.is_kind_of(kind) {
-                                continue;
+                    {
+                        enum _ObjFlow<T> { Cont, Ret(T), Fall }
+                        let _flow = OBJECT_REGISTRY.with_object(obj_id, |obj_guard| {
+                            if obj_guard.is_effectively_dead() || obj_guard.is_kind_of(KindOf::Inert) {
+                                return _ObjFlow::Cont;
                             }
+                            if obj_guard.is_inside_trigger(&trigger) {
+                                if let Some(kind) = kind_of_filter {
+                                    if !obj_guard.is_kind_of(kind) {
+                                        return _ObjFlow::Cont;
+                                    }
+                                }
+                                count += 1;
+                            }
+                            _ObjFlow::Fall
+                        });
+                        match _flow {
+                            None | Some(_ObjFlow::Cont) => continue,
+                            Some(_ObjFlow::Ret(v)) => return v,
+                            Some(_ObjFlow::Fall) => {}
                         }
-                        count += 1;
                     }
                 }
 
@@ -1097,33 +1114,38 @@ impl ScriptEvaluator {
                     if nearby_id == object_id {
                         continue;
                     }
-                    let Some(nearby_arc) = TheGameLogic::find_object_by_id(nearby_id) else {
-                        continue;
-                    };
-                    let Ok(nearby_guard) = nearby_arc.read() else {
-                        continue;
-                    };
-                    if nearby_guard.is_effectively_dead() {
-                        continue;
-                    }
-                    if nearby_guard.is_off_map() != source_off_map {
-                        continue;
-                    }
-
-                    let status = nearby_guard.get_status_bits();
-                    if status.contains(crate::common::ObjectStatusMaskType::STEALTHED)
-                        && !status.contains(crate::common::ObjectStatusMaskType::DETECTED)
-                        && !status.contains(crate::common::ObjectStatusMaskType::DISGUISED)
                     {
-                        continue;
-                    }
-
-                    if types.contains_template(Some(nearby_guard.get_template()))
-                        && nearby_guard
-                            .get_controlling_player()
-                            .is_some_and(|owner| Arc::ptr_eq(&owner, &target_player))
-                    {
-                        return Ok(true);
+                        enum _ObjFlow<T> { Cont, Ret(T), Fall }
+                        let _flow = OBJECT_REGISTRY.with_object(nearby_id, |nearby_guard| {
+                            if nearby_guard.is_effectively_dead() {
+                                return _ObjFlow::Cont;
+                            }
+                            if nearby_guard.is_off_map() != source_off_map {
+                                return _ObjFlow::Cont;
+                            }
+                            
+                            let status = nearby_guard.get_status_bits();
+                            if status.contains(crate::common::ObjectStatusMaskType::STEALTHED)
+                                && !status.contains(crate::common::ObjectStatusMaskType::DETECTED)
+                                && !status.contains(crate::common::ObjectStatusMaskType::DISGUISED)
+                            {
+                                return _ObjFlow::Cont;
+                            }
+                            
+                            if types.contains_template(Some(nearby_guard.get_template()))
+                                && nearby_guard
+                                    .get_controlling_player()
+                                    .is_some_and(|owner| Arc::ptr_eq(&owner, &target_player))
+                            {
+                                return _ObjFlow::Ret(Ok(true));
+                            }
+                            _ObjFlow::Fall
+                        });
+                        match _flow {
+                            None | Some(_ObjFlow::Cont) => continue,
+                            Some(_ObjFlow::Ret(v)) => return v,
+                            Some(_ObjFlow::Fall) => {}
+                        }
                     }
                 }
                 Ok(false)
@@ -1170,24 +1192,27 @@ impl ScriptEvaluator {
                 };
 
                 for obj_id in player_guard.get_object_ids() {
-                    let Some(obj_arc) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
-                        .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
-                    else {
-                        continue;
-                    };
-                    let Ok(obj_guard) = obj_arc.read() else {
-                        continue;
-                    };
-                    if obj_guard.is_destroyed() {
-                        continue;
-                    }
-                    if obj_guard
-                        .with_special_power_module_interface_by_name(&power_name, |module| {
-                            module.get_percent_ready() >= 1.0
-                        })
-                        .unwrap_or(false)
                     {
-                        return Ok(true);
+                        enum _ObjFlow<T> { Cont, Ret(T), Fall }
+                        let _flow = OBJECT_REGISTRY.with_object(obj_id, |obj_guard| {
+                            if obj_guard.is_destroyed() {
+                                return _ObjFlow::Cont;
+                            }
+                            if obj_guard
+                                .with_special_power_module_interface_by_name(&power_name, |module| {
+                                    module.get_percent_ready() >= 1.0
+                                })
+                                .unwrap_or(false)
+                            {
+                                return _ObjFlow::Ret(Ok(true));
+                            }
+                            _ObjFlow::Fall
+                        });
+                        match _flow {
+                            None | Some(_ObjFlow::Cont) => continue,
+                            Some(_ObjFlow::Ret(v)) => return v,
+                            Some(_ObjFlow::Fall) => {}
+                        }
                     }
                 }
                 Ok(false)
@@ -1251,19 +1276,22 @@ impl ScriptEvaluator {
 
                 let mut total_cost = 0i32;
                 for obj_id in player_guard.get_object_ids() {
-                    let Some(obj_arc) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
-                        .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
-                    else {
-                        continue;
-                    };
-                    let Ok(obj_guard) = obj_arc.read() else {
-                        continue;
-                    };
-                    if obj_guard.is_kind_of(KindOf::Inert) {
-                        continue;
-                    }
-                    if !obj_guard.is_effectively_dead() && obj_guard.is_inside_trigger(&trigger) {
-                        total_cost += obj_guard.get_template().get_build_cost();
+                    {
+                        enum _ObjFlow<T> { Cont, Ret(T), Fall }
+                        let _flow = OBJECT_REGISTRY.with_object(obj_id, |obj_guard| {
+                            if obj_guard.is_kind_of(KindOf::Inert) {
+                                return _ObjFlow::Cont;
+                            }
+                            if !obj_guard.is_effectively_dead() && obj_guard.is_inside_trigger(&trigger) {
+                                total_cost += obj_guard.get_template().get_build_cost();
+                            }
+                            _ObjFlow::Fall
+                        });
+                        match _flow {
+                            None | Some(_ObjFlow::Cont) => continue,
+                            Some(_ObjFlow::Ret(v)) => return v,
+                            Some(_ObjFlow::Fall) => {}
+                        }
                     }
                 }
 
@@ -1373,59 +1401,64 @@ impl ScriptEvaluator {
                 let mut max_value = 0.0f32;
 
                 for obj_id in partition.get_objects_in_range(&center, radius) {
-                    let Some(obj_arc) = TheGameLogic::find_object_by_id(obj_id) else {
-                        continue;
-                    };
-                    let Ok(obj_guard) = obj_arc.read() else {
-                        continue;
-                    };
-                    if obj_guard.is_destroyed() || obj_guard.is_off_map() {
-                        continue;
-                    }
-                    if !obj_guard.is_kind_of(KindOf::Structure) {
-                        continue;
-                    }
-
-                    let allow_affiliation =
-                        if let Some(owner_id) = obj_guard.get_controlling_player_id() {
-                            if owner_id == player_guard.get_player_index() as u32 {
-                                true
-                            } else if let Some(owner_arc) = player_list()
-                                .read()
-                                .ok()
-                                .and_then(|list| list.get_player(owner_id as i32).cloned())
-                            {
-                                if let Ok(owner_guard) = owner_arc.read() {
-                                    player_guard.get_relationship(&owner_guard)
-                                        == crate::common::Relationship::Neutral
+                    {
+                        enum _ObjFlow<T> { Cont, Ret(T), Fall }
+                        let _flow = OBJECT_REGISTRY.with_object(obj_id, |obj_guard| {
+                            if obj_guard.is_destroyed() || obj_guard.is_off_map() {
+                                return _ObjFlow::Cont;
+                            }
+                            if !obj_guard.is_kind_of(KindOf::Structure) {
+                                return _ObjFlow::Cont;
+                            }
+                            
+                            let allow_affiliation =
+                                if let Some(owner_id) = obj_guard.get_controlling_player_id() {
+                                    if owner_id == player_guard.get_player_index() as u32 {
+                                        true
+                                    } else if let Some(owner_arc) = player_list()
+                                        .read()
+                                        .ok()
+                                        .and_then(|list| list.get_player(owner_id as i32).cloned())
+                                    {
+                                        if let Ok(owner_guard) = owner_arc.read() {
+                                            player_guard.get_relationship(&owner_guard)
+                                                == crate::common::Relationship::Neutral
+                                        } else {
+                                            false
+                                        }
+                                    } else {
+                                        false
+                                    }
                                 } else {
                                     false
-                                }
-                            } else {
-                                false
+                                };
+                            if !allow_affiliation {
+                                return _ObjFlow::Cont;
                             }
-                        } else {
-                            false
-                        };
-                    if !allow_affiliation {
-                        continue;
-                    }
-
-                    let Some(module) = obj_guard.find_update_module("SupplyWarehouseDockUpdate")
-                    else {
-                        continue;
-                    };
-                    let mut boxes = None;
-                    module.with_module(|module| {
-                        if let Some(warehouse) = module.get_supply_warehouse_dock_interface() {
-                            boxes = Some(warehouse.boxes_stored());
+                            
+                            let Some(module) = obj_guard.find_update_module("SupplyWarehouseDockUpdate")
+                            else {
+                                return _ObjFlow::Cont;
+                            };
+                            let mut boxes = None;
+                            module.with_module(|module| {
+                                if let Some(warehouse) = module.get_supply_warehouse_dock_interface() {
+                                    boxes = Some(warehouse.boxes_stored());
+                                }
+                            });
+                            let Some(boxes) = boxes else {
+                                return _ObjFlow::Cont;
+                            };
+                            
+                            max_value = max_value.max(supply_box_value * boxes as f32);
+                            _ObjFlow::Fall
+                        });
+                        match _flow {
+                            None | Some(_ObjFlow::Cont) => continue,
+                            Some(_ObjFlow::Ret(v)) => return v,
+                            Some(_ObjFlow::Fall) => {}
                         }
-                    });
-                    let Some(boxes) = boxes else {
-                        continue;
-                    };
-
-                    max_value = max_value.max(supply_box_value * boxes as f32);
+                    }
                 }
 
                 Ok(max_value > threshold)
@@ -1508,40 +1541,45 @@ impl ScriptEvaluator {
                 };
 
                 for obj_id in partition.get_objects_in_range(&center, radius) {
-                    let Some(obj_arc) = TheGameLogic::find_object_by_id(obj_id) else {
-                        continue;
-                    };
-                    let Ok(obj_guard) = obj_arc.read() else {
-                        continue;
-                    };
-                    if obj_guard.is_destroyed() || obj_guard.is_off_map() {
-                        continue;
-                    }
-                    if !obj_guard.is_kind_of(KindOf::TechBuilding) {
-                        continue;
-                    }
-
-                    let Some(owner_id) = obj_guard.get_controlling_player_id() else {
-                        continue;
-                    };
-                    if owner_id == player_index as u32 {
-                        continue;
-                    }
-                    if let Some(owner_arc) = player_list()
-                        .read()
-                        .ok()
-                        .and_then(|list| list.get_player(owner_id as i32).cloned())
                     {
-                        if let Ok(owner_guard) = owner_arc.read() {
-                            // C++ PartitionFilterPlayerAffiliation(ALLOW_ALLIES, false).
-                            if player_guard.is_allied_with_player(&owner_guard) {
-                                continue;
+                        enum _ObjFlow<T> { Cont, Ret(T), Fall }
+                        let _flow = OBJECT_REGISTRY.with_object(obj_id, |obj_guard| {
+                            if obj_guard.is_destroyed() || obj_guard.is_off_map() {
+                                return _ObjFlow::Cont;
                             }
+                            if !obj_guard.is_kind_of(KindOf::TechBuilding) {
+                                return _ObjFlow::Cont;
+                            }
+                            
+                            let Some(owner_id) = obj_guard.get_controlling_player_id() else {
+                                return _ObjFlow::Cont;
+                            };
+                            if owner_id == player_index as u32 {
+                                return _ObjFlow::Cont;
+                            }
+                            if let Some(owner_arc) = player_list()
+                                .read()
+                                .ok()
+                                .and_then(|list| list.get_player(owner_id as i32).cloned())
+                            {
+                                if let Ok(owner_guard) = owner_arc.read() {
+                                    // C++ PartitionFilterPlayerAffiliation(ALLOW_ALLIES, false).
+                                    if player_guard.is_allied_with_player(&owner_guard) {
+                                        return _ObjFlow::Cont;
+                                    }
+                                }
+                            }
+                            
+                            condition.custom_data = 1;
+                            return _ObjFlow::Ret(Ok(true));
+                            _ObjFlow::Fall
+                        });
+                        match _flow {
+                            None | Some(_ObjFlow::Cont) => continue,
+                            Some(_ObjFlow::Ret(v)) => return v,
+                            Some(_ObjFlow::Fall) => {}
                         }
                     }
-
-                    condition.custom_data = 1;
-                    return Ok(true);
                 }
                 condition.custom_data = -1;
                 Ok(false)
@@ -1583,19 +1621,24 @@ impl ScriptEvaluator {
                         break;
                     };
                     for &member_id in team_guard.get_members() {
-                        let Some(obj_arc) = TheGameLogic::find_object_by_id(member_id) else {
-                            all_ready = false;
-                            break 'outer;
-                        };
-                        let Ok(obj_guard) = obj_arc.read() else {
-                            all_ready = false;
-                            break 'outer;
-                        };
-                        if !obj_guard.is_destroyed() && _button.is_ready(&obj_guard) {
-                            continue;
+                        {
+                            enum _ObjFlow<T> { Cont, Ret(T), Fall }
+                            let _flow = OBJECT_REGISTRY.with_object(member_id, |obj_guard| {
+                                if !obj_guard.is_destroyed() && _button.is_ready(&obj_guard) {
+                                    return _ObjFlow::Cont;
+                                }
+                                all_ready = false;
+                                break 'outer;
+                                _ObjFlow::Fall
+                            });
+                            match _flow {
+                                None => { all_ready = false;
+                            break 'outer; }
+                                Some(_ObjFlow::Cont) => continue,
+                                Some(_ObjFlow::Ret(v)) => return v,
+                                Some(_ObjFlow::Fall) => {}
+                            }
                         }
-                        all_ready = false;
-                        break 'outer;
                     }
                 }
                 Ok(all_ready)
@@ -1630,14 +1673,19 @@ impl ScriptEvaluator {
                         continue;
                     };
                     for &member_id in team_guard.get_members() {
-                        let Some(obj_arc) = TheGameLogic::find_object_by_id(member_id) else {
-                            continue;
-                        };
-                        let Ok(obj_guard) = obj_arc.read() else {
-                            continue;
-                        };
-                        if !obj_guard.is_destroyed() && _button.is_ready(&obj_guard) {
-                            return Ok(true);
+                        {
+                            enum _ObjFlow<T> { Cont, Ret(T), Fall }
+                            let _flow = OBJECT_REGISTRY.with_object(member_id, |obj_guard| {
+                                if !obj_guard.is_destroyed() && _button.is_ready(&obj_guard) {
+                                    return _ObjFlow::Ret(Ok(true));
+                                }
+                                _ObjFlow::Fall
+                            });
+                            match _flow {
+                                None | Some(_ObjFlow::Cont) => continue,
+                                Some(_ObjFlow::Ret(v)) => return v,
+                                Some(_ObjFlow::Fall) => {}
+                            }
                         }
                     }
                 }
@@ -1689,16 +1737,19 @@ impl ScriptEvaluator {
 
                 let mut num_faction_units = 0i32;
                 for obj_id in neutral_guard.get_object_ids() {
-                    let Some(obj_arc) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
-                        .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
-                    else {
-                        continue;
-                    };
-                    let Ok(obj_guard) = obj_arc.read() else {
-                        continue;
-                    };
-                    if obj_guard.is_disabled_by_type(DisabledType::Unmanned) {
-                        num_faction_units += 1;
+                    {
+                        enum _ObjFlow<T> { Cont, Ret(T), Fall }
+                        let _flow = OBJECT_REGISTRY.with_object(obj_id, |obj_guard| {
+                            if obj_guard.is_disabled_by_type(DisabledType::Unmanned) {
+                                num_faction_units += 1;
+                            }
+                            _ObjFlow::Fall
+                        });
+                        match _flow {
+                            None | Some(_ObjFlow::Cont) => continue,
+                            Some(_ObjFlow::Ret(v)) => return v,
+                            Some(_ObjFlow::Fall) => {}
+                        }
                     }
                 }
                 let comparison = comparison_param.get_int() as u32;
@@ -1798,19 +1849,22 @@ impl ScriptEvaluator {
                 // C++ counts buildings with ContainModuleInterface::isGarrisonable() && getContainCount() > 0
                 let mut num_garrisoned = 0i32;
                 for obj_id in player_guard.get_object_ids() {
-                    let Some(obj_arc) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
-                        .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
-                    else {
-                        continue;
-                    };
-                    let Ok(obj_guard) = obj_arc.read() else {
-                        continue;
-                    };
-                    let Some(contain) = obj_guard.get_contain() else {
-                        continue;
-                    };
-                    if contain.is_garrisonable() && contain.get_contained_count() > 0 {
-                        num_garrisoned += 1;
+                    {
+                        enum _ObjFlow<T> { Cont, Ret(T), Fall }
+                        let _flow = OBJECT_REGISTRY.with_object(obj_id, |obj_guard| {
+                            let Some(contain) = obj_guard.get_contain() else {
+                                return _ObjFlow::Cont;
+                            };
+                            if contain.is_garrisonable() && contain.get_contained_count() > 0 {
+                                num_garrisoned += 1;
+                            }
+                            _ObjFlow::Fall
+                        });
+                        match _flow {
+                            None | Some(_ObjFlow::Cont) => continue,
+                            Some(_ObjFlow::Ret(v)) => return v,
+                            Some(_ObjFlow::Fall) => {}
+                        }
                     }
                 }
 
@@ -1879,16 +1933,19 @@ impl ScriptEvaluator {
 
                 let mut num_captured = 0i32;
                 for obj_id in player_guard.get_object_ids() {
-                    let Some(obj_arc) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
-                        .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
-                    else {
-                        continue;
-                    };
-                    let Ok(obj_guard) = obj_arc.read() else {
-                        continue;
-                    };
-                    if obj_guard.is_captured() {
-                        num_captured += 1;
+                    {
+                        enum _ObjFlow<T> { Cont, Ret(T), Fall }
+                        let _flow = OBJECT_REGISTRY.with_object(obj_id, |obj_guard| {
+                            if obj_guard.is_captured() {
+                                num_captured += 1;
+                            }
+                            _ObjFlow::Fall
+                        });
+                        match _flow {
+                            None | Some(_ObjFlow::Cont) => continue,
+                            Some(_ObjFlow::Ret(v)) => return v,
+                            Some(_ObjFlow::Fall) => {}
+                        }
                     }
                 }
 
@@ -1963,20 +2020,23 @@ impl ScriptEvaluator {
 
                 let mut count = 0;
                 for obj_id in player_guard.get_object_ids() {
-                    let Some(obj_arc) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
-                        .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
-                    else {
-                        continue;
-                    };
-                    let Ok(obj_guard) = obj_arc.read() else {
-                        continue;
-                    };
-                    if obj_guard.is_inside_trigger(&trigger) {
-                        if !obj_guard.is_effectively_dead()
-                            && !obj_guard.is_kind_of(KindOf::Inert)
-                            && !obj_guard.is_kind_of(KindOf::Projectile)
-                        {
-                            count += 1;
+                    {
+                        enum _ObjFlow<T> { Cont, Ret(T), Fall }
+                        let _flow = OBJECT_REGISTRY.with_object(obj_id, |obj_guard| {
+                            if obj_guard.is_inside_trigger(&trigger) {
+                                if !obj_guard.is_effectively_dead()
+                                    && !obj_guard.is_kind_of(KindOf::Inert)
+                                    && !obj_guard.is_kind_of(KindOf::Projectile)
+                                {
+                                    count += 1;
+                                }
+                            }
+                            _ObjFlow::Fall
+                        });
+                        match _flow {
+                            None | Some(_ObjFlow::Cont) => continue,
+                            Some(_ObjFlow::Ret(v)) => return v,
+                            Some(_ObjFlow::Fall) => {}
                         }
                     }
                 }
@@ -2116,20 +2176,23 @@ impl ScriptEvaluator {
 
                 // C++: iterates player objects checking shroud status against discoveredByIndex
                 for obj_id in player_guard.get_object_ids() {
-                    let Some(obj_arc) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
-                        .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
-                    else {
-                        continue;
-                    };
-                    let Ok(obj_guard) = obj_arc.read() else {
-                        continue;
-                    };
-                    let shroud = obj_guard.get_shrouded_status(discovered_by_index);
-                    if matches!(
-                        shroud,
-                        ObjectShroudStatus::Clear | ObjectShroudStatus::PartialClear
-                    ) {
-                        return Ok(true);
+                    {
+                        enum _ObjFlow<T> { Cont, Ret(T), Fall }
+                        let _flow = OBJECT_REGISTRY.with_object(obj_id, |obj_guard| {
+                            let shroud = obj_guard.get_shrouded_status(discovered_by_index);
+                            if matches!(
+                                shroud,
+                                ObjectShroudStatus::Clear | ObjectShroudStatus::PartialClear
+                            ) {
+                                return _ObjFlow::Ret(Ok(true));
+                            }
+                            _ObjFlow::Fall
+                        });
+                        match _flow {
+                            None | Some(_ObjFlow::Cont) => continue,
+                            Some(_ObjFlow::Ret(v)) => return v,
+                            Some(_ObjFlow::Fall) => {}
+                        }
                     }
                 }
 

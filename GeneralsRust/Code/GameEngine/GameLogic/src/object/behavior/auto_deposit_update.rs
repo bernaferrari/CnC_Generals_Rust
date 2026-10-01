@@ -89,7 +89,7 @@ pub struct AutoDepositUpdate {
 impl AutoDepositUpdate {
     /// Creates a new AutoDepositUpdate. Matches C++ lines 81-86
     pub fn new(
-        object: Arc<RwLock<GameObject>>,
+        object_id: ObjectID,
         module_data: Arc<dyn ModuleData>,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let specific_data = module_data
@@ -102,11 +102,7 @@ impl AutoDepositUpdate {
         let current_frame = crate::helpers::TheGameLogic::get_frame();
 
         Ok(Self {
-            object_id: object
-                .read()
-                .ok()
-                .map(|g| g.get_id())
-                .unwrap_or(crate::common::INVALID_ID),
+            object_id: object_id,
             module_data: Arc::new(specific_data.clone()),
             next_call_frame_and_phase: 0,
             // Matches C++ line 83
@@ -119,10 +115,7 @@ impl AutoDepositUpdate {
     }
 
     /// Award the initial capture bonus. Matches C++ lines 96-118
-    pub fn award_initial_capture_bonus(
-        &mut self,
-        player: Option<Arc<RwLock<crate::common::Player>>>,
-    ) {
+    pub fn award_initial_capture_bonus(&mut self, player: Option<PlayerIndex>) {
         // Wave 394: empty dual-world → no-op.
         if dual_world_registry_unavailable() {
             return;
@@ -132,22 +125,26 @@ impl AutoDepositUpdate {
         let current_frame = crate::helpers::TheGameLogic::get_frame();
         self.deposit_on_frame = current_frame + self.module_data.deposit_frame;
 
-        let Some(player_arc) = player else {
+        let Some(index) = player else {
             return;
         };
         if !self.award_initial_capture_bonus || self.module_data.initial_capture_bonus <= 0 {
             return;
         }
 
-        let Ok(mut player_guard) = player_arc.write() else {
+        let Some(mut color) = crate::player::with_player_mut(index, |player_guard| {
+            let _ = player_guard
+                .get_money_mut()
+                .deposit(self.module_data.initial_capture_bonus as u32);
+            player_guard
+                .get_score_keeper_mut()
+                .add_money_earned(self.module_data.initial_capture_bonus as u32);
+            let mut color = player_guard.get_player_color();
+            color.a = 230;
+            color
+        }) else {
             return;
         };
-        let _ = player_guard
-            .get_money_mut()
-            .deposit(self.module_data.initial_capture_bonus as u32);
-        player_guard
-            .get_score_keeper_mut()
-            .add_money_earned(self.module_data.initial_capture_bonus as u32);
 
         let text = format_add_cash(self.module_data.initial_capture_bonus);
         let mut pos = (if self.object_id == crate::common::INVALID_ID {
@@ -161,9 +158,6 @@ impl AutoDepositUpdate {
         .unwrap_or_else(|| Coord3D::new(0.0, 0.0, 0.0));
         pos.z += 10.0;
 
-        let mut color = player_guard.get_player_color();
-        color.a = 230;
-        drop(player_guard);
         let _ = TheInGameUI::add_floating_text(&text, &pos, color);
 
         self.award_initial_capture_bonus = false;
@@ -343,10 +337,10 @@ pub struct AutoDepositUpdateFactory;
 
 impl AutoDepositUpdateFactory {
     pub fn create_behavior(
-        thing: Arc<RwLock<GameObject>>,
+        object_id: ObjectID,
         module_data: Arc<dyn ModuleData>,
     ) -> Result<Box<dyn BehaviorModuleInterface>, Box<dyn std::error::Error + Send + Sync>> {
-        Ok(Box::new(AutoDepositUpdate::new(thing, module_data)?))
+        Ok(Box::new(AutoDepositUpdate::new(object_id, module_data)?))
     }
 }
 

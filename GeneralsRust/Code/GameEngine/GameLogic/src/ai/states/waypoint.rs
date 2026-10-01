@@ -111,10 +111,7 @@ impl StateImplementation for AIFollowWaypointPathAsTeamState {
         let Some(owner) = self.base.get_machine_owner() else {
             return StateReturnType::Failure;
         };
-        let Ok(owner_guard) = owner.read() else {
-            return StateReturnType::Failure;
-        };
-        let mut speed = FAST_AS_POSSIBLE;
+        let Some(result) = crate::object::registry::OBJECT_REGISTRY.with_object(owner, |owner_guard| {
         if self.core.move_as_group {
             if self.core.current_waypoint.is_none() {
                 if let Some(team_arc) = owner_guard.get_team() {
@@ -149,7 +146,7 @@ impl StateImplementation for AIFollowWaypointPathAsTeamState {
         }
         if self
             .core
-            .compute_goal(&self.base, &owner_guard, ai, self.core.move_as_group)
+            .compute_goal(&self.base, owner_guard, ai, self.core.move_as_group)
             .is_err()
         {
             return StateReturnType::Failure;
@@ -174,6 +171,10 @@ impl StateImplementation for AIFollowWaypointPathAsTeamState {
             let _ = ai.update_goal_position(&self.core.goal_position, self.core.goal_layer);
         }
         StateReturnType::Continue
+        }) else {
+            return StateReturnType::Failure;
+        };
+        result
     }
 
     fn update(&mut self) -> StateReturnType {
@@ -197,19 +198,17 @@ impl StateImplementation for AIFollowWaypointPathAsTeamState {
                 != 0
         {
             if let Some(owner) = self.base.get_machine_owner() {
-                if let Ok(mut owner_guard) = owner.write() {
+                let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner, |owner_guard| {
                     owner_guard.ai_pending_attack_follow_waypoint =
                         self.core.current_waypoint.as_ref().map(|waypoint| waypoint.id);
                     owner_guard.ai_pending_attack_follow_as_team = true;
-                }
+                });
             }
         }
         let Some(owner) = self.base.get_machine_owner() else {
             return StateReturnType::Failure;
         };
-        let Ok(owner_guard) = owner.read() else {
-            return StateReturnType::Failure;
-        };
+        let stepped = crate::object::registry::OBJECT_REGISTRY.with_object(owner, |owner_guard| {
         if self.core.move_as_group {
             if let Some(team) = owner_guard.get_team() {
                 if let Ok(team_guard) = team.read() {
@@ -221,24 +220,24 @@ impl StateImplementation for AIFollowWaypointPathAsTeamState {
                             .get_current_waypoint_id()
                             .and_then(resolve_waypoint_by_id);
                         if self.core.current_waypoint.is_none() {
-                            return StateReturnType::Success;
+                            return Some(StateReturnType::Success);
                         }
                         if self
                             .core
-                            .compute_goal(&self.base, &owner_guard, ai, self.core.move_as_group)
+                            .compute_goal(&self.base, owner_guard, ai, self.core.move_as_group)
                             .is_err()
                         {
-                            return StateReturnType::Failure;
+                            return Some(StateReturnType::Failure);
                         }
                         if !self.core.has_next_waypoint()
                             && ai.is_doing_ground_movement()
                             && !ai.adjust_destination(&mut self.core.goal_position)
                         {
-                            return StateReturnType::Failure;
+                            return Some(StateReturnType::Failure);
                         }
                         ai.friend_starting_move();
                         if self.core.compute_path(ai).is_err() {
-                            return StateReturnType::Failure;
+                            return Some(StateReturnType::Failure);
                         }
                         if ai.is_doing_ground_movement() {
                             let _ = ai
@@ -266,8 +265,17 @@ impl StateImplementation for AIFollowWaypointPathAsTeamState {
         }
         let next = self.core.get_next_waypoint(&self.base);
         self.core.current_waypoint = next.clone();
-        let team = owner_guard.get_team();
-        drop(owner_guard);
+            None
+        });
+        let Some(stepped) = stepped else {
+            return StateReturnType::Failure;
+        };
+        if let Some(early) = stepped {
+            return early;
+        }
+        let team = crate::object::registry::OBJECT_REGISTRY
+            .with_object(owner, |owner_guard| owner_guard.get_team())
+            .flatten();
         if let Some(current) = next.as_ref() {
             ai.set_current_waypoint_id(current.id);
             if let Some(team) = team {
@@ -283,12 +291,10 @@ impl StateImplementation for AIFollowWaypointPathAsTeamState {
         let Some(owner) = self.base.get_machine_owner() else {
             return StateReturnType::Failure;
         };
-        let Ok(owner_guard) = owner.read() else {
-            return StateReturnType::Failure;
-        };
+        let Some(result) = crate::object::registry::OBJECT_REGISTRY.with_object(owner, |owner_guard| {
         if self
             .core
-            .compute_goal(&self.base, &owner_guard, ai, self.core.move_as_group)
+            .compute_goal(&self.base, owner_guard, ai, self.core.move_as_group)
             .is_err()
         {
             return StateReturnType::Failure;
@@ -306,8 +312,13 @@ impl StateImplementation for AIFollowWaypointPathAsTeamState {
         if ai.is_doing_ground_movement() {
             let _ = ai.update_goal_position(&self.core.goal_position, self.core.goal_layer);
         }
-        StateReturnType::Continue
+            StateReturnType::Continue
+        }) else {
+            return StateReturnType::Failure;
+        };
+        result
     }
+
 
     fn on_exit(&mut self, _status: StateExitType) {
         let _ = self.classic_on_exit(_status);
@@ -355,9 +366,9 @@ impl ClassicState for AIFollowWaypointPathAsTeamState {
 
     fn classic_on_exit(&mut self, _exit: StateExitType) -> Result<(), String> {
         if let Some(owner) = self.base.get_machine_owner() {
-            if let Ok(mut owner_guard) = owner.lock() {
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner, |owner_guard| {
                 owner_guard.ai_pending_precise_z = Some(false);
-            }
+            });
         }
         Ok(())
     }
@@ -391,9 +402,7 @@ impl AIFollowWaypointPathAsTeamState {
             .base
             .get_machine_owner()
             .ok_or_else(|| "follow waypoint path missing owner".to_string())?;
-        let owner_guard = owner
-            .lock()
-            .map_err(|_| "follow waypoint owner lock poisoned".to_string())?;
+        let stepped = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner, |owner_guard| -> Result<StateReturnType, String> {
         let ai_arc;
         let mut locked_ai;
         let ai_guard: &mut dyn crate::modules::AIUpdateInterface = if let Some(ai) = borrowed.as_mut()
@@ -444,7 +453,7 @@ impl AIFollowWaypointPathAsTeamState {
         }
         self.core.compute_goal(
             &self.base,
-            &owner_guard,
+            owner_guard,
             &mut *ai_guard,
             self.core.move_as_group,
         )?;
@@ -462,7 +471,12 @@ impl AIFollowWaypointPathAsTeamState {
             let _ = ai_guard.update_goal_position(&self.core.goal_position, self.core.goal_layer);
         }
         Ok(StateReturnType::Continue)
-    }
+        });
+    return match stepped {
+        Some(v) => v,
+        None => Err("owner missing".to_string()),
+    };
+}
 }
 
 impl AIFollowWaypointPathAsTeamState {
@@ -479,9 +493,7 @@ impl AIFollowWaypointPathAsTeamState {
             .base
             .get_machine_owner()
             .ok_or_else(|| "follow waypoint path missing owner".to_string())?;
-        let mut owner_guard = owner
-            .lock()
-            .map_err(|_| "follow waypoint owner lock poisoned".to_string())?;
+        let stepped = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner, |owner_guard| -> Result<StateReturnType, String> {
         let ai_arc;
         let mut locked_ai;
         let ai_guard: &mut dyn crate::modules::AIUpdateInterface = if let Some(ai) = borrowed.as_mut()
@@ -533,7 +545,7 @@ impl AIFollowWaypointPathAsTeamState {
                             return Ok(StateReturnType::Success);
                         }
                         self.core
-                            .compute_goal(&self.base, &owner_guard, &mut *ai_guard, false)?;
+                            .compute_goal(&self.base, owner_guard, &mut *ai_guard, false)?;
                         if !self.core.has_next_waypoint() && ai_guard.is_doing_ground_movement() {
                             if !ai_guard.adjust_destination(&mut self.core.goal_position) {
                                 return Ok(StateReturnType::Failure);
@@ -618,7 +630,7 @@ impl AIFollowWaypointPathAsTeamState {
             }
 
             self.core
-                .compute_goal(&self.base, &owner_guard, &mut *ai_guard, false)?;
+                .compute_goal(&self.base, owner_guard, &mut *ai_guard, false)?;
             if !self.core.has_next_waypoint() && ai_guard.is_doing_ground_movement() {
                 if !ai_guard.adjust_destination(&mut self.core.goal_position) {
                     return Ok(StateReturnType::Failure);
@@ -642,7 +654,12 @@ impl AIFollowWaypointPathAsTeamState {
         }
 
         Ok(status)
-    }
+        });
+    return match stepped {
+        Some(v) => v,
+        None => Err("owner missing".to_string()),
+    };
+}
 
 }
 
@@ -682,9 +699,7 @@ impl StateImplementation for AIFollowWaypointPathAsTeamExactState {
         let Some(owner) = self.base.get_machine_owner() else {
             return StateReturnType::Failure;
         };
-        let Ok(owner_guard) = owner.read() else {
-            return StateReturnType::Failure;
-        };
+        let Some(result) = crate::object::registry::OBJECT_REGISTRY.with_object(owner, |owner_guard| {
         let mut speed = FAST_AS_POSSIBLE;
         let mut group_offset = Coord2D::new(0.0, 0.0);
         if self.move_as_group {
@@ -713,7 +728,11 @@ impl StateImplementation for AIFollowWaypointPathAsTeamExactState {
         ai.set_desired_speed(speed);
         self.last_waypoint = Some(current);
         StateReturnType::Continue
-    }
+        }) else {
+        return StateReturnType::Failure;
+    };
+    result
+}
 
     fn update(&mut self) -> StateReturnType {
         self.classic_on_update().unwrap_or(StateReturnType::Failure)
@@ -726,15 +745,17 @@ impl StateImplementation for AIFollowWaypointPathAsTeamExactState {
         let Some(owner) = self.base.get_machine_owner() else {
             return StateReturnType::Failure;
         };
-        let Ok(mut owner_guard) = owner.write() else {
-            return StateReturnType::Failure;
-        };
+        let Some(result) = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner, |owner_guard| {
         owner_guard.ai_pending_path_through_units = Some(true);
         if !owner_guard.ai_fire_is_moving && owner_guard.ai_fire_waypoint_queue_empty {
             return StateReturnType::Success;
         }
         StateReturnType::Continue
-    }
+        }) else {
+        return StateReturnType::Failure;
+    };
+    result
+}
 
     fn on_exit(&mut self, status: StateExitType) {
         let _ = self.classic_on_exit(status);
@@ -774,26 +795,29 @@ impl ClassicState for AIFollowWaypointPathAsTeamExactState {
             .base
             .get_machine_owner()
             .ok_or_else(|| "follow waypoint exact missing owner".to_string())?;
-        let mut owner_guard = owner
-            .lock()
-            .map_err(|_| "follow waypoint exact owner lock poisoned".to_string())?;
+        let stepped = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner, |owner_guard| -> Result<StateReturnType, String> {
         owner_guard.ai_pending_path_through_units = Some(true);
         if !owner_guard.ai_fire_is_moving && owner_guard.ai_fire_waypoint_queue_empty {
             return Ok(StateReturnType::Success);
         }
 
         Ok(StateReturnType::Continue)
-    }
+        });
+    return match stepped {
+        Some(v) => v,
+        None => Err("owner missing".to_string()),
+    };
+}
 
     fn classic_on_exit(&mut self, _exit: StateExitType) -> Result<(), String> {
         if let Some(owner) = self.base.get_machine_owner() {
-            if let Ok(mut owner_guard) = owner.lock() {
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner, |owner_guard| {
                 if let Some(last) = self.last_waypoint.as_ref() {
                     owner_guard.ai_pending_completed_waypoint = Some(last.id);
                 }
                 owner_guard.ai_pending_path_through_units = Some(false);
                 owner_guard.ai_pending_allow_invalid_position = Some(false);
-            }
+            });
         }
         Ok(())
     }
@@ -816,9 +840,7 @@ impl AIFollowWaypointPathAsTeamExactState {
             .base
             .get_machine_owner()
             .ok_or_else(|| "follow waypoint exact missing owner".to_string())?;
-        let owner_guard = owner
-            .lock()
-            .map_err(|_| "follow waypoint exact owner lock poisoned".to_string())?;
+        let stepped = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner, |owner_guard| -> Result<StateReturnType, String> {
         let ai_arc;
         let mut locked_ai;
         let ai_guard: &mut dyn crate::modules::AIUpdateInterface = if let Some(ai) = borrowed.as_mut()
@@ -859,7 +881,12 @@ impl AIFollowWaypointPathAsTeamExactState {
         ai_guard.set_desired_speed(speed);
         self.last_waypoint = Some(current);
         Ok(StateReturnType::Continue)
-    }
+        });
+    return match stepped {
+        Some(v) => v,
+        None => Err("owner missing".to_string()),
+    };
+}
 }
 
 /// Follow waypoint path as individuals
@@ -902,12 +929,10 @@ impl StateImplementation for AIFollowWaypointPathAsIndividualsState {
         let Some(owner) = self.base.get_machine_owner() else {
             return StateReturnType::Failure;
         };
-        let Ok(owner_guard) = owner.read() else {
-            return StateReturnType::Failure;
-        };
+        let Some(result) = crate::object::registry::OBJECT_REGISTRY.with_object(owner, |owner_guard| {
         if self
             .core
-            .compute_goal(&self.base, &owner_guard, ai, false)
+            .compute_goal(&self.base, owner_guard, ai, false)
             .is_err()
         {
             return StateReturnType::Failure;
@@ -932,7 +957,11 @@ impl StateImplementation for AIFollowWaypointPathAsIndividualsState {
             let _ = ai.update_goal_position(&self.core.goal_position, self.core.goal_layer);
         }
         StateReturnType::Continue
-    }
+        }) else {
+        return StateReturnType::Failure;
+    };
+    result
+}
 
     fn update(&mut self) -> StateReturnType {
         self.classic_on_update().unwrap_or(StateReturnType::Failure)
@@ -955,19 +984,17 @@ impl StateImplementation for AIFollowWaypointPathAsIndividualsState {
                 != 0
         {
             if let Some(owner) = self.base.get_machine_owner() {
-                if let Ok(mut owner_guard) = owner.write() {
+                let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner, |owner_guard| {
                     owner_guard.ai_pending_attack_follow_waypoint =
                         self.core.current_waypoint.as_ref().map(|waypoint| waypoint.id);
                     owner_guard.ai_pending_attack_follow_as_team = self.core.move_as_group;
-                }
+                });
             }
         }
         let Some(owner) = self.base.get_machine_owner() else {
             return StateReturnType::Failure;
         };
-        let Ok(owner_guard) = owner.read() else {
-            return StateReturnType::Failure;
-        };
+        let Some(result) = crate::object::registry::OBJECT_REGISTRY.with_object(owner, |owner_guard| {
         if self.core.append_goal_position && !ai.is_waiting_for_path() && ai.get_path().is_some() {
             if ai
                 .append_goal_position_to_path(&self.core.goal_position)
@@ -1005,7 +1032,7 @@ impl StateImplementation for AIFollowWaypointPathAsIndividualsState {
         }
         if self
             .core
-            .compute_goal(&self.base, &owner_guard, ai, false)
+            .compute_goal(&self.base, owner_guard, ai, false)
             .is_err()
         {
             return StateReturnType::Failure;
@@ -1024,7 +1051,11 @@ impl StateImplementation for AIFollowWaypointPathAsIndividualsState {
             let _ = ai.update_goal_position(&self.core.goal_position, self.core.goal_layer);
         }
         StateReturnType::Continue
-    }
+        }) else {
+        return StateReturnType::Failure;
+    };
+    result
+}
 
     fn on_exit(&mut self, _status: StateExitType) {
         let _ = self.classic_on_exit(_status);
@@ -1072,9 +1103,9 @@ impl ClassicState for AIFollowWaypointPathAsIndividualsState {
 
     fn classic_on_exit(&mut self, _exit: StateExitType) -> Result<(), String> {
         if let Some(owner) = self.base.get_machine_owner() {
-            if let Ok(mut owner_guard) = owner.lock() {
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner, |owner_guard| {
                 owner_guard.ai_pending_precise_z = Some(false);
-            }
+            });
         }
         Ok(())
     }
@@ -1107,9 +1138,7 @@ impl AIFollowWaypointPathAsIndividualsState {
             .base
             .get_machine_owner()
             .ok_or_else(|| "follow waypoint path missing owner".to_string())?;
-        let owner_guard = owner
-            .lock()
-            .map_err(|_| "follow waypoint owner lock poisoned".to_string())?;
+        let stepped = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner, |owner_guard| -> Result<StateReturnType, String> {
         let ai_arc;
         let mut locked_ai;
         let ai_guard: &mut dyn crate::modules::AIUpdateInterface = if let Some(ai) = borrowed.as_mut()
@@ -1125,7 +1154,7 @@ impl AIFollowWaypointPathAsIndividualsState {
             &mut *locked_ai
         };
         self.core
-            .compute_goal(&self.base, &owner_guard, &mut *ai_guard, false)?;
+            .compute_goal(&self.base, owner_guard, &mut *ai_guard, false)?;
         if !self.core.has_next_waypoint() && ai_guard.is_doing_ground_movement() {
             if !ai_guard.adjust_destination(&mut self.core.goal_position) {
                 return Ok(StateReturnType::Failure);
@@ -1140,7 +1169,12 @@ impl AIFollowWaypointPathAsIndividualsState {
             let _ = ai_guard.update_goal_position(&self.core.goal_position, self.core.goal_layer);
         }
         Ok(StateReturnType::Continue)
-    }
+        });
+    return match stepped {
+        Some(v) => v,
+        None => Err("owner missing".to_string()),
+    };
+}
 
     fn individuals_update(
         &mut self,
@@ -1154,9 +1188,7 @@ impl AIFollowWaypointPathAsIndividualsState {
             .base
             .get_machine_owner()
             .ok_or_else(|| "follow waypoint path missing owner".to_string())?;
-        let mut owner_guard = owner
-            .lock()
-            .map_err(|_| "follow waypoint owner lock poisoned".to_string())?;
+        let stepped = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner, |owner_guard| -> Result<StateReturnType, String> {
         let ai_arc;
         let mut locked_ai;
         let ai_guard: &mut dyn crate::modules::AIUpdateInterface = if let Some(ai) = borrowed.as_mut()
@@ -1219,7 +1251,7 @@ impl AIFollowWaypointPathAsIndividualsState {
                 return Ok(StateReturnType::Success);
             }
             self.core
-                .compute_goal(&self.base, &owner_guard, &mut *ai_guard, false)?;
+                .compute_goal(&self.base, owner_guard, &mut *ai_guard, false)?;
             if !self.core.has_next_waypoint() && ai_guard.is_doing_ground_movement() {
                 if !ai_guard.adjust_destination(&mut self.core.goal_position) {
                     return Ok(StateReturnType::Failure);
@@ -1233,7 +1265,12 @@ impl AIFollowWaypointPathAsIndividualsState {
             }
         }
         Ok(status)
-    }
+        });
+    return match stepped {
+        Some(v) => v,
+        None => Err("owner missing".to_string()),
+    };
+}
 }
 
 /// Follow waypoint path exact as individuals (no pathfinding).
@@ -1294,15 +1331,17 @@ impl StateImplementation for AIFollowWaypointPathAsIndividualsExactState {
         let Some(owner) = self.base.get_machine_owner() else {
             return StateReturnType::Failure;
         };
-        let Ok(mut owner_guard) = owner.write() else {
-            return StateReturnType::Failure;
-        };
+        let Some(result) = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner, |owner_guard| {
         owner_guard.ai_pending_path_through_units = Some(true);
         if !owner_guard.ai_fire_is_moving && owner_guard.ai_fire_waypoint_queue_empty {
             return StateReturnType::Success;
         }
         StateReturnType::Continue
-    }
+        }) else {
+        return StateReturnType::Failure;
+    };
+    result
+}
 
     fn on_exit(&mut self, status: StateExitType) {
         let _ = self.classic_on_exit(status);
@@ -1342,26 +1381,29 @@ impl ClassicState for AIFollowWaypointPathAsIndividualsExactState {
             .base
             .get_machine_owner()
             .ok_or_else(|| "follow waypoint exact missing owner".to_string())?;
-        let mut owner_guard = owner
-            .lock()
-            .map_err(|_| "follow waypoint exact owner lock poisoned".to_string())?;
+        let stepped = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner, |owner_guard| -> Result<StateReturnType, String> {
         owner_guard.ai_pending_path_through_units = Some(true);
         if !owner_guard.ai_fire_is_moving && owner_guard.ai_fire_waypoint_queue_empty {
             return Ok(StateReturnType::Success);
         }
 
         Ok(StateReturnType::Continue)
-    }
+        });
+    return match stepped {
+        Some(v) => v,
+        None => Err("owner missing".to_string()),
+    };
+}
 
     fn classic_on_exit(&mut self, _exit: StateExitType) -> Result<(), String> {
         if let Some(owner) = self.base.get_machine_owner() {
-            if let Ok(mut owner_guard) = owner.lock() {
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner, |owner_guard| {
                 if let Some(last) = self.last_waypoint.as_ref() {
                     owner_guard.ai_pending_completed_waypoint = Some(last.id);
                 }
                 owner_guard.ai_pending_path_through_units = Some(false);
                 owner_guard.ai_pending_allow_invalid_position = Some(false);
-            }
+            });
         }
         Ok(())
     }
@@ -1384,9 +1426,7 @@ impl AIFollowWaypointPathAsIndividualsExactState {
             .base
             .get_machine_owner()
             .ok_or_else(|| "follow waypoint exact missing owner".to_string())?;
-        let owner_guard = owner
-            .lock()
-            .map_err(|_| "follow waypoint exact owner lock poisoned".to_string())?;
+        let stepped = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner, |owner_guard| -> Result<StateReturnType, String> {
         let ai_arc;
         let mut locked_ai;
         let ai_guard: &mut dyn crate::modules::AIUpdateInterface = if let Some(ai) = borrowed.as_mut()
@@ -1409,7 +1449,12 @@ impl AIFollowWaypointPathAsIndividualsExactState {
         ai_guard.set_desired_speed(FAST_AS_POSSIBLE);
         self.last_waypoint = Some(current);
         Ok(StateReturnType::Continue)
-    }
+        });
+    return match stepped {
+        Some(v) => v,
+        None => Err("owner missing".to_string()),
+    };
+}
 }
 
 impl Snapshotable for AIFollowWaypointPathAsTeamState {

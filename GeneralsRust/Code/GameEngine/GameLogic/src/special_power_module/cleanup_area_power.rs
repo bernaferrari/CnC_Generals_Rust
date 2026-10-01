@@ -51,37 +51,37 @@ impl CleanupAreaPower {
         let owner_id = self
             .owner_object_id
             .ok_or_else(|| "CleanupAreaPower requires an owning object".to_string())?;
-        let Some(obj_arc) = crate::helpers::TheGameLogic::find_object_by_id(owner_id) else {
-            return Err("CleanupAreaPower owner object not found".to_string());
-        };
-        let Ok(obj_guard) = obj_arc.read() else {
-            return Err("CleanupAreaPower owner lock poisoned".to_string());
-        };
-        if obj_guard.is_disabled() {
-            return Ok(());
-        }
+        let applied = crate::object::registry::OBJECT_REGISTRY
+            .with_object(owner_id, |obj_guard| {
+                if obj_guard.is_disabled() {
+                    return Ok(());
+                }
+                let Some(module) = obj_guard.find_update_module("CleanupHazardUpdate") else {
+                    return Err("CleanupAreaPower requires CleanupHazardUpdate module".to_string());
+                };
+                let move_range = self.data.cleanup_move_range;
+                let mut applied = false;
+                module.with_module(|module| {
+                    if let Some(cleanup_hazard) = module.get_cleanup_hazard_control_interface() {
+                        cleanup_hazard.set_cleanup_area_parameters(
+                            targeting.position.x,
+                            targeting.position.y,
+                            targeting.position.z,
+                            move_range,
+                        );
+                        applied = true;
+                    }
+                });
+                if !applied {
+                    Err("CleanupHazardUpdate module not available".to_string())
+                } else {
+                    Ok(())
+                }
+            })
+            .ok_or_else(|| "CleanupAreaPower owner object not found".to_string())?;
+        applied?;
 
-        let Some(module) = obj_guard.find_update_module("CleanupHazardUpdate") else {
-            return Err("CleanupAreaPower requires CleanupHazardUpdate module".to_string());
-        };
 
-        let move_range = self.data.cleanup_move_range;
-        let mut applied = false;
-        module.with_module(|module| {
-            if let Some(cleanup_hazard) = module.get_cleanup_hazard_control_interface() {
-                cleanup_hazard.set_cleanup_area_parameters(
-                    targeting.position.x,
-                    targeting.position.y,
-                    targeting.position.z,
-                    move_range,
-                );
-                applied = true;
-            }
-        });
-
-        if !applied {
-            return Err("CleanupHazardUpdate module not available".to_string());
-        }
 
         Ok(())
     }
@@ -118,12 +118,11 @@ impl SpecialPowerModuleInterface for CleanupAreaPower {
         current_frame: UnsignedInt,
     ) -> ActivationResult {
         if let Some(owner_id) = self.owner_object_id {
-            if let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(owner_id) {
-                if let Ok(guard) = obj.read() {
-                    if guard.is_disabled() {
-                        return ActivationResult::Disabled;
-                    }
-                }
+            if crate::object::registry::OBJECT_REGISTRY
+                .with_object(owner_id, |guard| guard.is_disabled())
+                .unwrap_or(false)
+            {
+                return ActivationResult::Disabled;
             }
         } else {
             return ActivationResult::Failed {

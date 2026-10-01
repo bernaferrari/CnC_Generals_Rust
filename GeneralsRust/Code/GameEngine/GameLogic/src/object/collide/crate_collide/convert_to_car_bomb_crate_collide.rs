@@ -270,7 +270,7 @@ pub struct ConvertToCarBombCrateCollide {
 impl ConvertToCarBombCrateCollide {
     /// Create new car bomb conversion crate collide module.
     pub fn new(
-        object: &Arc<RwLock<Object>>,
+        object: &ObjectID,
         module_data: ConvertToCarBombCrateCollideModuleData,
     ) -> Self {
         Self {

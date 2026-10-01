@@ -99,11 +99,17 @@ impl TeamFactoryMutex {
     /// Call only from the single host game thread while no regular team update
     /// is in progress.
     pub(crate) fn replace_for_world_boundary(&self, next: TeamFactory) -> TeamFactory {
-        let mut guard = match self.inner.lock() {
+        let mut guard = self.lock_raw();
+        std::mem::replace(&mut *guard, next)
+    }
+
+    /// Lock without [`TeamFactoryGuard`] flush. Checkout uses this so dropping
+    /// the mutex does not run create-actions while a team is out of the map.
+    pub(super) fn lock_raw(&self) -> MutexGuard<'_, TeamFactory> {
+        match self.inner.lock() {
             Ok(guard) => guard,
             Err(poisoned) => poisoned.into_inner(),
-        };
-        std::mem::replace(&mut *guard, next)
+        }
     }
 }
 
@@ -193,18 +199,39 @@ pub fn get_team_factory() -> &'static TeamFactoryMutex {
 /// Convenience alias for C++ compatibility
 pub use get_team_factory as TheTeamFactory;
 
-/// Extension trait for Arc<RwLock<Team>> to provide helper methods
-pub trait TeamArcExt {
-    fn get_relationship(&self, that_team: &Team) -> Relationship;
+/// Check `id` out of the global team factory, drop the factory mutex, then call `f`.
+///
+/// Same-id re-entry inside `f` returns `None`. Use the borrowed team.
+pub fn with_team<R>(id: TeamID, f: impl FnOnce(&Team) -> R) -> Option<R> {
+    let checkout = checkout_team(id)?;
+    Some(f(checkout.team.as_ref()?))
 }
 
-impl TeamArcExt for Arc<RwLock<Team>> {
-    /// Get relationship between this team and another team
-    fn get_relationship(&self, that_team: &Team) -> Relationship {
-        if let Ok(guard) = self.read() {
-            guard.get_relationship(that_team)
-        } else {
-            Relationship::Neutral
+/// Mutable checkout. See [`with_team`].
+pub fn with_team_mut<R>(id: TeamID, f: impl FnOnce(&mut Team) -> R) -> Option<R> {
+    let mut checkout = checkout_team(id)?;
+    Some(f(checkout.team.as_mut()?))
+}
+
+struct TeamCheckout {
+    id: TeamID,
+    team: Option<Team>,
+}
+
+impl Drop for TeamCheckout {
+    fn drop(&mut self) {
+        if let Some(team) = self.team.take() {
+            get_team_factory().lock_raw().teams.insert(self.id, team);
         }
     }
+}
+
+fn checkout_team(id: TeamID) -> Option<TeamCheckout> {
+    let mut factory = get_team_factory().lock_raw();
+    let team = factory.teams.remove(&id)?;
+    drop(factory);
+    Some(TeamCheckout {
+        id,
+        team: Some(team),
+    })
 }

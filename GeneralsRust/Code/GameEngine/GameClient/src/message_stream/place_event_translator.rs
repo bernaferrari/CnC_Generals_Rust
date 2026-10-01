@@ -9,6 +9,7 @@ use gamelogic::common::{Coord3D as LogicCoord3D, KindOf};
 use gamelogic::helpers::{TheGameLogic, TheThingFactory};
 use gamelogic::modules::{BehaviorModuleInterface, ProductionUpdateInterface};
 use gamelogic::object::Object;
+use gamelogic::object::registry::OBJECT_REGISTRY;
 use gamelogic::object::production::construction::FoundationValidator;
 
 const PLACEMENT_DRAG_THRESHOLD_DIST: f32 = 5.0;
@@ -66,12 +67,7 @@ impl PlaceEventTranslator {
         };
 
         let builder_id = TheInGameUI::get_pending_place_source_object_id();
-        let Some(builder_arc) = TheGameLogic::find_object_by_id(builder_id) else {
-            clear_completed_placement();
-            return GameMessageDisposition::KeepMessage;
-        };
-
-        if builder_arc.read().is_err() {
+        if OBJECT_REGISTRY.with_object(builder_id, |_| ()).is_none() {
             clear_completed_placement();
             return GameMessageDisposition::KeepMessage;
         }
@@ -131,21 +127,18 @@ impl PlaceEventTranslator {
         };
 
         let builder_id = TheInGameUI::get_pending_place_source_object_id();
-        let Some(builder_arc) = TheGameLogic::find_object_by_id(builder_id) else {
+        let checked = OBJECT_REGISTRY.with_object(builder_id, |builder| {
+            let special_power =
+                active_special_power_construction(builder.get_id(), template_name.as_str());
+            let can_make = can_make_unit(builder, template.as_ref(), special_power.as_ref());
+            let player_id = builder.get_controlling_player_id().unwrap_or(0);
+            (special_power, can_make, player_id)
+        });
+        let Some((special_power, can_make, player_id)) = checked else {
             clear_completed_placement();
             return GameMessageDisposition::KeepMessage;
         };
-        let builder_guard = match builder_arc.read() {
-            Ok(guard) => guard,
-            Err(_) => {
-                clear_completed_placement();
-                return GameMessageDisposition::KeepMessage;
-            }
-        };
-
-        let special_power =
-            active_special_power_construction(builder_guard.get_id(), template_name.as_str());
-        match can_make_unit(&builder_guard, template.as_ref(), special_power.as_ref()) {
+        match can_make {
             failure @ (BuildCanMakeType::NoMoney
             | BuildCanMakeType::QueueFull
             | BuildCanMakeType::ParkingPlacesFull
@@ -160,14 +153,13 @@ impl PlaceEventTranslator {
             BuildCanMakeType::Ok => {}
         }
 
-        let player_id = builder_guard.get_controlling_player_id().unwrap_or(0);
         let validator = FoundationValidator::new_strict();
         let logic_world = LogicCoord3D::new(world.x, world.y, world.z);
         if let Err(err) =
             validator.validate_placement(&logic_world, template_name.as_str(), angle, player_id)
         {
             TheInGameUI::display_cant_build_message(err.as_str());
-            super::place_event_confirm::play_illegal_place_feedback(&builder_guard);
+            super::place_event_confirm::play_illegal_place_feedback_for_id(builder_id);
             TheInGameUI::set_placement_start(None);
             return GameMessageDisposition::DestroyMessage;
         }

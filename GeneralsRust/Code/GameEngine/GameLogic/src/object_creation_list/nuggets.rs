@@ -27,6 +27,7 @@ use crate::modules::{
     BodyModuleInterfaceExt, ContainModuleInterfaceExt, PhysicsBehavior, PhysicsBehaviorExt,
 };
 use crate::object::Object;
+use crate::object::registry::OBJECT_REGISTRY;
 use crate::object::drawable::{DebrisDrawAnims, DrawableArcExt, DrawableExt, apply_debris_draw};
 use crate::weapon::WeaponTemplate;
 use std::any::Any;
@@ -356,41 +357,36 @@ impl GenericObjectCreationNugget {
         }
 
         // Create container if specified
-        let mut container: Option<Arc<RwLock<Object>>> = None;
+        let mut container: Option<ObjectID> = None;
         if !self.put_in_container.is_empty() {
             if let Some(container_tmpl) = ctx.thing_factory.find_template(&self.put_in_container) {
                 if let Some(ref team_arc) = debris_owner {
                     if let Ok(team_guard) = team_arc.read() {
                         if let Ok(obj) = ctx.thing_factory.new_object(container_tmpl, &*team_guard)
                         {
-                            // Set producer
                             if let Some(src) = source_obj {
-                                if let Ok(mut obj_guard) = obj.write() {
+                                let _ = OBJECT_REGISTRY.with_object_mut(obj, |obj_guard| {
                                     obj_guard.set_producer(Some(src));
-                                }
                             }
                             container = Some(obj);
                         }
                     }
                 }
             }
+                                });
         }
 
-        let mut first_object: Option<Arc<RwLock<Object>>> = None;
+        let mut first_object: Option<ObjectID> = None;
 
-        // Create each debris/object
         for _nn in 0..self.debris_to_generate {
-            // Pick random name
             let pick = ctx
                 .game_logic
                 .random_value(0, (self.names.len() - 1) as Int) as usize;
             let name = &self.names[pick];
 
-            // Find template
             let tmpl = if self.name_are_objects {
                 ctx.thing_factory.find_template(name)
             } else {
-                // C++ ObjectCreationList.cpp:1334-1339 — skip generic debris when LOD asks.
                 if crate::helpers::TheGameLODManager::is_debris_skipped() {
                     continue;
                 }
@@ -401,7 +397,6 @@ impl GenericObjectCreationNugget {
                 continue;
             };
 
-            // Create object
             let Some(ref team_arc) = debris_owner else {
                 continue;
             };
@@ -415,40 +410,35 @@ impl GenericObjectCreationNugget {
             };
 
             if first_object.is_none() {
-                first_object = Some(Arc::clone(&debris));
+                first_object = Some(debris);
             }
 
-            // Set producer
             if let Some(src) = source_obj {
-                if let Ok(mut debris_guard) = debris.write() {
+                let _ = OBJECT_REGISTRY.with_object_mut(debris, |debris_guard| {
                     debris_guard.set_producer(Some(src));
-                }
+                });
             }
 
-            // C++ ObjectCreationList.cpp:1356-1361
-            // preserveLayer copies the source pathfind layer when not stuffing into a container.
             if self.preserve_layer && source_obj.is_some() && container.is_none() {
                 if let Some(src) = source_obj {
                     let layer = src.get_layer();
                     if layer != PathfindLayerEnum::Ground {
-                        if let Ok(mut debris_guard) = debris.write() {
+                        let _ = OBJECT_REGISTRY.with_object_mut(debris, |debris_guard| {
                             debris_guard.set_layer(layer);
-                        }
                     }
                 }
             }
 
-            // C++ ObjectCreationList.cpp:1363-1364 — stuff into container *before* doStuffToObj.
-            if let Some(ref cont) = container {
-                if let Ok(cont_guard) = cont.read() {
+            if let Some(cont) = container {
+                let _ = OBJECT_REGISTRY.with_object(cont, |cont_guard| {
                     if let Some(contain_module) = cont_guard.get_contain() {
-                        if let Ok(debris_guard) = debris.read() {
-                            if contain_module.is_valid_container_for(&*debris_guard, true) {
-                                contain_module.add_to_contain(&*debris_guard);
+                        let _ = OBJECT_REGISTRY.with_object(debris, |debris_guard| {
+                            if contain_module.is_valid_container_for(debris_guard, true) {
+                                contain_module.add_to_contain(debris_guard);
                             }
-                        }
+                        });
                     }
-                }
+                });
             }
 
             let mut spawn_pos = *pos;
@@ -469,10 +459,9 @@ impl GenericObjectCreationNugget {
                 }
             }
 
-            // Apply all object properties (pass RwLock, will lock inside)
             self.apply_properties_to_object(
                 ctx,
-                &debris,
+                debris,
                 name,
                 &spawn_pos,
                 mtx,
@@ -481,12 +470,11 @@ impl GenericObjectCreationNugget {
                 lifetime_frames,
             );
 
-            // C++ ObjectCreationList.cpp:1387-1401 — fade after doStuffToObj.
-            self.apply_fade_to_object(&debris, source_obj);
+            self.apply_fade_to_object(debris, source_obj);
+                        });
         }
 
-        // C++ ObjectCreationList.cpp:1404-1405 — doStuffToObj on the container last.
-        if let Some(ref cont) = container {
+        if let Some(cont) = container {
             self.apply_properties_to_object(
                 ctx,
                 cont,
@@ -499,7 +487,6 @@ impl GenericObjectCreationNugget {
             );
         }
 
-        // Return container if created, otherwise first object
         container.or(first_object)
     }
 
@@ -508,7 +495,7 @@ impl GenericObjectCreationNugget {
     fn apply_properties_to_object(
         &self,
         ctx: &CreationContext<'_>,
-        obj: &Arc<RwLock<Object>>,
+        obj: ObjectID,
         model_name: &str,
         pos: &Coord3D,
         mtx: Option<&Matrix3D>,
@@ -516,411 +503,386 @@ impl GenericObjectCreationNugget {
         source_obj: Option<&Object>,
         lifetime_frames: UnsignedInt,
     ) {
-        // Lock the object for reading (most operations are reads)
-        let Ok(obj_read) = obj.read() else {
-            return; // Failed to lock, skip this object
-        };
+        let _ = OBJECT_REGISTRY.with_object_mut(obj, |obj_guard| {
 
-        // C++ ObjectCreationList.cpp:918-934 — LifetimeUpdate override when the module exists.
-        apply_lifetime_override(
-            &*obj_read,
-            lifetime_frames,
-            self.min_frames,
-            self.max_frames,
-        );
-
-        // C++ ObjectCreationList.cpp:936-951 — debris model/anim walk when !m_nameAreObjects.
-        if !self.name_are_objects {
-            apply_debris_model_and_anims(self, ctx, &*obj_read, model_name);
-        }
-
-        // Apply offset
-        let mut offset = self.offset;
-        if let Some(matrix) = mtx {
-            offset = adjust_vector(&offset, matrix);
-        }
-
-        let mut chunk_pos = Coord3D::new(pos.x + offset.x, pos.y + offset.y, pos.z + offset.z);
-
-        // C++ ObjectCreationList.cpp:962-970 — attach named particle system.
-        // Fail-closed via helpers::attach_particle_system_to_object (no panic).
-        if !self.particle_sys_name.is_empty() {
-            let _ = crate::helpers::attach_particle_system_to_object(
-                &self.particle_sys_name,
-                obj_read.get_id(),
-            );
-        }
-
-        // C++ ObjectCreationList.cpp:972-977
-        if self.ignore_primary_obstacle {
-            if let (Some(src), Some(physics)) = (source_obj, obj_read.get_physics()) {
-                physics.set_ignore_collisions_with(src.get_id());
-            }
-        }
-
-        // Set initial health
-        // Matches C++ lines 980-983
-        if let Some(body) = obj_read.get_body_module() {
-            let health_percent = ctx
-                .game_logic
-                .random_value_real(self.min_health, self.max_health);
-            body.set_initial_health(health_percent * 100.0);
-        }
-
-        // C++ ObjectCreationList.cpp:985-994 — first SlavedUpdateInterface::onEnslave.
-        if let Some(src) = source_obj {
-            notify_first_slaved_update(&*obj_read, src.get_id());
-        }
-
-        // Inherit veterancy
-        // Matches C++ lines 996-1006
-        if self.inherit_veterancy {
-            if let Some(src) = source_obj {
-                if let Some(exp_tracker) = obj_read.get_experience_tracker() {
-                    if let Ok(mut tracker_guard) = exp_tracker.lock() {
-                        if tracker_guard.is_trainable() {
-                            let level = src.get_veterancy_level();
-                            tracker_guard.set_veterancy_level(level);
-                            // C++ TheScriptEngine->transferObjectName(sourceObj->getName(), obj)
-                            let _ = crate::scripting::engine::transfer_object_name(
-                                src.get_name(),
-                                obj_read.get_id(),
-                            );
-                        }
-                    }
-                }
-            }
-        }
-
-        // Set invulnerable time
-        // Matches C++ lines 1008-1011
-        let obj_read = if self.invulnerable_time > 0 {
-            drop(obj_read);
-            if let Ok(mut obj_write) = obj.write() {
-                obj_write.go_invulnerable(self.invulnerable_time);
-            }
-            match obj.read() {
-                Ok(guard) => guard,
-                Err(_) => return,
-            }
-        } else {
-            obj_read
-        };
-
-        // Process disposition flags
-        // Matches C++ lines 1013-1220
-
-        // INHERIT_VELOCITY
-        if self.disposition.has(DebrisDisposition::INHERIT_VELOCITY) {
-            if let Some(src) = source_obj {
-                if let (Some(src_physics), Some(obj_physics)) =
-                    (src.get_physics(), obj_read.get_physics())
-                {
-                    let velocity = src_physics.get_velocity();
-                    obj_physics.apply_force(&velocity);
-                }
-            }
-        }
-
-        // Process disposition flags that require mutations
-        // We need to drop the read lock before each write operation
-        let needs_relock = self.disposition.has(DebrisDisposition::LIKE_EXISTING)
-            || self.disposition.has(DebrisDisposition::ON_GROUND_ALIGNED)
-            || self.disposition.has(DebrisDisposition::SEND_IT_OUT)
-            || self.disposition.has(
-                DebrisDisposition::SEND_IT_FLYING
-                    | DebrisDisposition::SEND_IT_UP
-                    | DebrisDisposition::RANDOM_FORCE,
+            // C++ ObjectCreationList.cpp:918-934 — LifetimeUpdate override when the module exists.
+            apply_lifetime_override(
+                obj_guard,
+                lifetime_frames,
+                self.min_frames,
+                self.max_frames,
             );
 
-        if needs_relock {
-            drop(obj_read);
-        }
-
-        // LIKE_EXISTING - set orientation and position to match source
-        // C++ ObjectCreationList.cpp:1023-1057
-        if self.disposition.has(DebrisDisposition::LIKE_EXISTING) {
-            if let Ok(mut obj_write) = obj.write() {
-                if let Some(matrix) = mtx {
-                    obj_write.set_transform_matrix(matrix);
-                } else {
-                    let _ = obj_write.set_orientation(orientation);
-                }
-                let _ = obj_write.set_position(&chunk_pos);
-                if let Some(src) = source_obj {
-                    if src.is_above_terrain() {
-                        if let Some(physics) = obj_write.get_physics() {
-                            physics.set_allow_to_fall(true);
-                        }
-                    }
-                }
-                if obj_write.is_kind_of(KindOf::Structure) {
-                    ctx.terrain_logic.flatten_terrain(&*obj_write);
-                    let mut adjusted_pos = *obj_write.get_position();
-                    // C++ uses the original `pos` xy for ground height, not chunkPos.
-                    adjusted_pos.z = ctx.terrain_logic.get_ground_height(pos.x, pos.y);
-                    let _ = obj_write.set_position(&adjusted_pos);
-                    add_object_to_pathfind_map(&*obj_write);
-                }
+            // C++ ObjectCreationList.cpp:936-951 — debris model/anim walk when !m_nameAreObjects.
+            if !self.name_are_objects {
+                apply_debris_model_and_anims(self, ctx, obj_guard, model_name);
             }
-        }
 
-        // ON_GROUND_ALIGNED - place on ground with random orientation
-        // C++ ObjectCreationList.cpp:1061-1072
-        if self.disposition.has(DebrisDisposition::ON_GROUND_ALIGNED) {
-            if let Ok(mut obj_write) = obj.write() {
-                chunk_pos.z = 99999.0;
-                let layer = ctx
-                    .terrain_logic
-                    .get_highest_layer_for_destination(&chunk_pos);
-                let random_orient = ctx.game_logic.random_value_real(0.0, 2.0 * PI);
-                let _ = obj_write.set_orientation(random_orient);
-                chunk_pos.z = ctx
-                    .terrain_logic
-                    .get_layer_height(chunk_pos.x, chunk_pos.y, layer);
-                // C++ 1068-1069: slightly above bridges / non-ground layers.
-                if layer != PathfindLayerEnum::Ground {
-                    chunk_pos.z += 1.0;
-                }
-                obj_write.set_layer(layer);
-                let _ = obj_write.set_position(&chunk_pos);
+            // Apply offset
+            let mut offset = self.offset;
+            if let Some(matrix) = mtx {
+                offset = adjust_vector(&offset, matrix);
             }
-        }
 
-        // SEND_IT_OUT - push debris outward horizontally
-        if self.disposition.has(DebrisDisposition::SEND_IT_OUT) {
-            if let Ok(mut obj_write) = obj.write() {
-                let random_orient = ctx.game_logic.random_value_real(0.0, 2.0 * PI);
-                let _ = obj_write.set_orientation(random_orient);
-                chunk_pos.z = ctx
-                    .terrain_logic
-                    .get_ground_height(chunk_pos.x, chunk_pos.y);
-                let _ = obj_write.set_position(&chunk_pos);
-            }
-        }
+            let mut chunk_pos = Coord3D::new(pos.x + offset.x, pos.y + offset.y, pos.z + offset.z);
 
-        // SEND_IT_FLYING | SEND_IT_UP | RANDOM_FORCE
-        if self.disposition.has(
-            DebrisDisposition::SEND_IT_FLYING
-                | DebrisDisposition::SEND_IT_UP
-                | DebrisDisposition::RANDOM_FORCE,
-        ) {
-            if let Ok(mut obj_write) = obj.write() {
-                if let Some(matrix) = mtx {
-                    obj_write.set_transform_matrix(matrix);
-                }
-                let _ = obj_write.set_position(&chunk_pos);
-            }
-        }
-
-        // Re-acquire read lock for physics operations
-        let obj_read = if needs_relock {
-            match obj.read() {
-                Ok(guard) => guard,
-                Err(_) => return,
-            }
-        } else {
-            // Already have obj_read from earlier
-            match obj.read() {
-                Ok(guard) => guard,
-                Err(_) => return,
-            }
-        };
-
-        // Apply physics forces
-        if self.disposition.has(DebrisDisposition::SEND_IT_OUT) {
-            if let Some(physics) = obj_read.get_physics() {
-                if !self.name_are_objects {
-                    physics.set_mass(self.mass);
-                }
-                physics.set_extra_friction(self.extra_friction);
-
-                let horiz_force = 4.0 * self.disposition_intensity;
-                let force = Coord3D::new(
-                    ctx.game_logic.random_value_real(-horiz_force, horiz_force),
-                    ctx.game_logic.random_value_real(-horiz_force, horiz_force),
-                    0.0,
+            // C++ ObjectCreationList.cpp:962-970 — attach named particle system.
+            // Fail-closed via helpers::attach_particle_system_to_object (no panic).
+            if !self.particle_sys_name.is_empty() {
+                let _ = crate::helpers::attach_particle_system_to_object(
+                    &self.particle_sys_name,
+                    obj_guard.get_id(),
                 );
-                physics.apply_force(&force);
+            }
 
-                if self.orient_in_force_direction {
-                    orientation = force.y.atan2(force.x);
+            // C++ ObjectCreationList.cpp:972-977
+            if self.ignore_primary_obstacle {
+                if let (Some(src), Some(physics)) = (source_obj, obj_guard.get_physics()) {
+                    physics.set_ignore_collisions_with(src.get_id());
                 }
             }
-        }
 
-        if self.disposition.has(
-            DebrisDisposition::SEND_IT_FLYING
-                | DebrisDisposition::SEND_IT_UP
-                | DebrisDisposition::RANDOM_FORCE,
-        ) {
-            if let Some(physics) = obj_read.get_physics() {
-                if !self.name_are_objects {
-                    physics.set_mass(self.mass);
-                }
-
-                physics.set_extra_bounciness(self.extra_bounciness);
-                physics.set_extra_friction(self.extra_friction);
-                physics.set_allow_bouncing(true);
-                physics.set_bounce_sound(Some(crate::common::audio::AudioEventRts::new(
-                    &self.bounce_sound,
-                )));
-
-                // Calculate spin rates
-                let spin_rate = if self.spin_rate >= 0.0 {
-                    self.spin_rate
-                } else {
-                    (PI / 32.0) * self.disposition_intensity
-                };
-
-                let yaw_rate = if self.yaw_rate >= 0.0 {
-                    self.yaw_rate
-                } else {
-                    spin_rate
-                };
-                let roll_rate = if self.roll_rate >= 0.0 {
-                    self.roll_rate
-                } else {
-                    spin_rate
-                };
-                let pitch_rate = if self.pitch_rate >= 0.0 {
-                    self.pitch_rate
-                } else {
-                    spin_rate
-                };
-
-                let yaw = ctx.game_logic.random_value_real(-yaw_rate, yaw_rate);
-                let roll = ctx.game_logic.random_value_real(-roll_rate, roll_rate);
-                let pitch = ctx.game_logic.random_value_real(-pitch_rate, pitch_rate);
-
-                // Calculate force based on disposition
-                let force = if self.disposition.has(DebrisDisposition::SEND_IT_FLYING) {
-                    let horiz_force = 4.0 * self.disposition_intensity;
-                    let vert_force = 3.0 * self.disposition_intensity;
-                    Coord3D::new(
-                        ctx.game_logic.random_value_real(-horiz_force, horiz_force),
-                        ctx.game_logic.random_value_real(-horiz_force, horiz_force),
-                        ctx.game_logic
-                            .random_value_real(vert_force * 0.33, vert_force),
-                    )
-                } else if self.disposition.has(DebrisDisposition::SEND_IT_UP) {
-                    let horiz_force = 2.0 * self.disposition_intensity;
-                    let vert_force = 4.0 * self.disposition_intensity;
-                    Coord3D::new(
-                        ctx.game_logic.random_value_real(-horiz_force, horiz_force),
-                        ctx.game_logic.random_value_real(-horiz_force, horiz_force),
-                        ctx.game_logic
-                            .random_value_real(vert_force * 0.75, vert_force),
-                    )
-                } else {
-                    calc_random_force(
-                        ctx,
-                        self.min_mag,
-                        self.max_mag,
-                        self.min_pitch,
-                        self.max_pitch,
-                    )
-                };
-
-                physics.apply_force(&force);
-
-                if self.orient_in_force_direction {
-                    orientation = force.y.atan2(force.x);
-                }
-
-                physics.set_angles(orientation, 0.0, 0.0);
-                physics.set_yaw_rate(yaw);
-                physics.set_roll_rate(roll);
-                physics.set_pitch_rate(pitch);
+            // Set initial health
+            // Matches C++ lines 980-983
+            if let Some(body) = obj_guard.get_body_module() {
+                let health_percent = ctx
+                    .game_logic
+                    .random_value_real(self.min_health, self.max_health);
+                body.set_initial_health(health_percent * 100.0);
             }
-        }
 
-        // WHIRLING
-        if self.disposition.has(DebrisDisposition::WHIRLING) {
-            if let Some(physics) = obj_read.get_physics() {
-                let yaw = ctx
-                    .game_logic
-                    .random_value_real(-self.disposition_intensity, self.disposition_intensity);
-                let roll = ctx
-                    .game_logic
-                    .random_value_real(-self.disposition_intensity, self.disposition_intensity);
-                let pitch = ctx
-                    .game_logic
-                    .random_value_real(-self.disposition_intensity, self.disposition_intensity);
-
-                physics.set_yaw_rate(yaw);
-                physics.set_roll_rate(roll);
-                physics.set_pitch_rate(pitch);
+            // C++ ObjectCreationList.cpp:985-994 — first SlavedUpdateInterface::onEnslave.
+            if let Some(src) = source_obj {
+                notify_first_slaved_update(obj_guard, src.get_id());
             }
-        }
 
-        // FLOATING — C++ ObjectCreationList.cpp:1212-1220
-        if self.disposition.has(DebrisDisposition::FLOATING) {
-            enable_float_update(&*obj_read);
-        }
-
-        // Contain inside source
-        // Matches C++ ObjectCreationList.cpp:1222-1238
-        // C++ stillborns the new object whenever contain fails (no module, invalid
-        // capacity, or null source). Fail-closed on try_lock / add_to_contain miss.
-        if self.contain_inside_source_object {
-            let contained_ok = source_obj
-                .and_then(|src| src.get_contain().map(|contain| (src, contain)))
-                .and_then(|(src, contain)| {
-                    let mut contain_guard = contain.try_lock().ok()?;
-                    if !contain_guard.is_valid_container_for(&*obj_read, true) {
-                        return None;
-                    }
-                    contain_guard.add_to_contain(&*obj_read).ok()?;
-                    // Need to hide if they are hidden.
-                    // Matches C++ ObjectCreationList.cpp:1230-1232
-                    if let Some(src_draw) = src.get_drawable() {
-                        if let Some(obj_draw) = obj_read.get_drawable() {
-                            if src_draw.is_drawable_effectively_hidden() {
-                                obj_draw.set_drawable_hidden(true);
+            // Inherit veterancy
+            // Matches C++ lines 996-1006
+            if self.inherit_veterancy {
+                if let Some(src) = source_obj {
+                    if let Some(exp_tracker) = obj_guard.get_experience_tracker() {
+                        if let Ok(mut tracker_guard) = exp_tracker.lock() {
+                            if tracker_guard.is_trainable() {
+                                let level = src.get_veterancy_level();
+                                tracker_guard.set_veterancy_level(level);
+                                // C++ TheScriptEngine->transferObjectName(sourceObj->getName(), obj)
+                                let _ = crate::scripting::engine::transfer_object_name(
+                                    src.get_name(),
+                                    obj_guard.get_id(),
+                                );
                             }
                         }
                     }
-                    Some(())
-                })
-                .is_some();
-            if !contained_ok {
-                // DEBUG_ASSERTCRASH + TheGameLogic->destroyObject(obj)
-                let object_id = obj_read.id();
-                drop(obj_read);
-                let _ = TheGameLogic::destroy_object_by_id(object_id);
+                }
+            }
+
+            // Set invulnerable time
+            // Matches C++ lines 1008-1011
+            if self.invulnerable_time > 0 {
+                obj_guard.go_invulnerable(self.invulnerable_time);
+            }
+
+            // Process disposition flags
+            // Matches C++ lines 1013-1220
+
+            // INHERIT_VELOCITY
+            if self.disposition.has(DebrisDisposition::INHERIT_VELOCITY) {
+                if let Some(src) = source_obj {
+                    if let (Some(src_physics), Some(obj_physics)) =
+                        (src.get_physics(), obj_guard.get_physics())
+                    {
+                        let velocity = src_physics.get_velocity();
+                        obj_physics.apply_force(&velocity);
+                    }
+                }
+            }
+
+            // Process disposition flags that require mutations
+            // We need to drop the read lock before each write operation
+            let needs_relock = self.disposition.has(DebrisDisposition::LIKE_EXISTING)
+                || self.disposition.has(DebrisDisposition::ON_GROUND_ALIGNED)
+                || self.disposition.has(DebrisDisposition::SEND_IT_OUT)
+                || self.disposition.has(
+                    DebrisDisposition::SEND_IT_FLYING
+                        | DebrisDisposition::SEND_IT_UP
+                        | DebrisDisposition::RANDOM_FORCE,
+                );
+
+            if needs_relock {
+            }
+
+            // LIKE_EXISTING - set orientation and position to match source
+            // C++ ObjectCreationList.cpp:1023-1057
+            if self.disposition.has(DebrisDisposition::LIKE_EXISTING) {
+                { let obj_write = &mut *obj_guard;
+                    if let Some(matrix) = mtx {
+                        obj_write.set_transform_matrix(matrix);
+                    } else {
+                        let _ = obj_write.set_orientation(orientation);
+                    }
+                    let _ = obj_write.set_position(&chunk_pos);
+                    if let Some(src) = source_obj {
+                        if src.is_above_terrain() {
+                            if let Some(physics) = obj_write.get_physics() {
+                                physics.set_allow_to_fall(true);
+                            }
+                        }
+                    }
+                    if obj_write.is_kind_of(KindOf::Structure) {
+                        ctx.terrain_logic.flatten_terrain(&*obj_write);
+                        let mut adjusted_pos = *obj_write.get_position();
+                        // C++ uses the original `pos` xy for ground height, not chunkPos.
+                        adjusted_pos.z = ctx.terrain_logic.get_ground_height(pos.x, pos.y);
+                        let _ = obj_write.set_position(&adjusted_pos);
+                        add_object_to_pathfind_map(&*obj_write);
+                    }
+                }
+            }
+
+            // ON_GROUND_ALIGNED - place on ground with random orientation
+            // C++ ObjectCreationList.cpp:1061-1072
+            if self.disposition.has(DebrisDisposition::ON_GROUND_ALIGNED) {
+                { let obj_write = &mut *obj_guard;
+                    chunk_pos.z = 99999.0;
+                    let layer = ctx
+                        .terrain_logic
+                        .get_highest_layer_for_destination(&chunk_pos);
+                    let random_orient = ctx.game_logic.random_value_real(0.0, 2.0 * PI);
+                    let _ = obj_write.set_orientation(random_orient);
+                    chunk_pos.z = ctx
+                        .terrain_logic
+                        .get_layer_height(chunk_pos.x, chunk_pos.y, layer);
+                    // C++ 1068-1069: slightly above bridges / non-ground layers.
+                    if layer != PathfindLayerEnum::Ground {
+                        chunk_pos.z += 1.0;
+                    }
+                    obj_write.set_layer(layer);
+                    let _ = obj_write.set_position(&chunk_pos);
+                }
+            }
+
+            // SEND_IT_OUT - push debris outward horizontally
+            if self.disposition.has(DebrisDisposition::SEND_IT_OUT) {
+                { let obj_write = &mut *obj_guard;
+                    let random_orient = ctx.game_logic.random_value_real(0.0, 2.0 * PI);
+                    let _ = obj_write.set_orientation(random_orient);
+                    chunk_pos.z = ctx
+                        .terrain_logic
+                        .get_ground_height(chunk_pos.x, chunk_pos.y);
+                    let _ = obj_write.set_position(&chunk_pos);
+                }
+            }
+
+            // SEND_IT_FLYING | SEND_IT_UP | RANDOM_FORCE
+            if self.disposition.has(
+                DebrisDisposition::SEND_IT_FLYING
+                    | DebrisDisposition::SEND_IT_UP
+                    | DebrisDisposition::RANDOM_FORCE,
+            ) {
+                { let obj_write = &mut *obj_guard;
+                    if let Some(matrix) = mtx {
+                        obj_write.set_transform_matrix(matrix);
+                    }
+                    let _ = obj_write.set_position(&chunk_pos);
+                }
+            }
+
+            // Re-acquire read lock for physics operations
+
+
+            // Apply physics forces
+            if self.disposition.has(DebrisDisposition::SEND_IT_OUT) {
+                if let Some(physics) = obj_guard.get_physics() {
+                    if !self.name_are_objects {
+                        physics.set_mass(self.mass);
+                    }
+                    physics.set_extra_friction(self.extra_friction);
+
+                    let horiz_force = 4.0 * self.disposition_intensity;
+                    let force = Coord3D::new(
+                        ctx.game_logic.random_value_real(-horiz_force, horiz_force),
+                        ctx.game_logic.random_value_real(-horiz_force, horiz_force),
+                        0.0,
+                    );
+                    physics.apply_force(&force);
+
+                    if self.orient_in_force_direction {
+                        orientation = force.y.atan2(force.x);
+                    }
+                }
+            }
+
+            if self.disposition.has(
+                DebrisDisposition::SEND_IT_FLYING
+                    | DebrisDisposition::SEND_IT_UP
+                    | DebrisDisposition::RANDOM_FORCE,
+            ) {
+                if let Some(physics) = obj_guard.get_physics() {
+                    if !self.name_are_objects {
+                        physics.set_mass(self.mass);
+                    }
+
+                    physics.set_extra_bounciness(self.extra_bounciness);
+                    physics.set_extra_friction(self.extra_friction);
+                    physics.set_allow_bouncing(true);
+                    physics.set_bounce_sound(Some(crate::common::audio::AudioEventRts::new(
+                        &self.bounce_sound,
+                    )));
+
+                    // Calculate spin rates
+                    let spin_rate = if self.spin_rate >= 0.0 {
+                        self.spin_rate
+                    } else {
+                        (PI / 32.0) * self.disposition_intensity
+                    };
+
+                    let yaw_rate = if self.yaw_rate >= 0.0 {
+                        self.yaw_rate
+                    } else {
+                        spin_rate
+                    };
+                    let roll_rate = if self.roll_rate >= 0.0 {
+                        self.roll_rate
+                    } else {
+                        spin_rate
+                    };
+                    let pitch_rate = if self.pitch_rate >= 0.0 {
+                        self.pitch_rate
+                    } else {
+                        spin_rate
+                    };
+
+                    let yaw = ctx.game_logic.random_value_real(-yaw_rate, yaw_rate);
+                    let roll = ctx.game_logic.random_value_real(-roll_rate, roll_rate);
+                    let pitch = ctx.game_logic.random_value_real(-pitch_rate, pitch_rate);
+
+                    // Calculate force based on disposition
+                    let force = if self.disposition.has(DebrisDisposition::SEND_IT_FLYING) {
+                        let horiz_force = 4.0 * self.disposition_intensity;
+                        let vert_force = 3.0 * self.disposition_intensity;
+                        Coord3D::new(
+                            ctx.game_logic.random_value_real(-horiz_force, horiz_force),
+                            ctx.game_logic.random_value_real(-horiz_force, horiz_force),
+                            ctx.game_logic
+                                .random_value_real(vert_force * 0.33, vert_force),
+                        )
+                    } else if self.disposition.has(DebrisDisposition::SEND_IT_UP) {
+                        let horiz_force = 2.0 * self.disposition_intensity;
+                        let vert_force = 4.0 * self.disposition_intensity;
+                        Coord3D::new(
+                            ctx.game_logic.random_value_real(-horiz_force, horiz_force),
+                            ctx.game_logic.random_value_real(-horiz_force, horiz_force),
+                            ctx.game_logic
+                                .random_value_real(vert_force * 0.75, vert_force),
+                        )
+                    } else {
+                        calc_random_force(
+                            ctx,
+                            self.min_mag,
+                            self.max_mag,
+                            self.min_pitch,
+                            self.max_pitch,
+                        )
+                    };
+
+                    physics.apply_force(&force);
+
+                    if self.orient_in_force_direction {
+                        orientation = force.y.atan2(force.x);
+                    }
+
+                    physics.set_angles(orientation, 0.0, 0.0);
+                    physics.set_yaw_rate(yaw);
+                    physics.set_roll_rate(roll);
+                    physics.set_pitch_rate(pitch);
+                }
+            }
+
+            // WHIRLING
+            if self.disposition.has(DebrisDisposition::WHIRLING) {
+                if let Some(physics) = obj_guard.get_physics() {
+                    let yaw = ctx
+                        .game_logic
+                        .random_value_real(-self.disposition_intensity, self.disposition_intensity);
+                    let roll = ctx
+                        .game_logic
+                        .random_value_real(-self.disposition_intensity, self.disposition_intensity);
+                    let pitch = ctx
+                        .game_logic
+                        .random_value_real(-self.disposition_intensity, self.disposition_intensity);
+
+                    physics.set_yaw_rate(yaw);
+                    physics.set_roll_rate(roll);
+                    physics.set_pitch_rate(pitch);
+                }
+            }
+
+            // FLOATING — C++ ObjectCreationList.cpp:1212-1220
+            if self.disposition.has(DebrisDisposition::FLOATING) {
+                enable_float_update(obj_guard);
+            }
+
+            // Contain inside source
+            // Matches C++ ObjectCreationList.cpp:1222-1238
+            // C++ stillborns the new object whenever contain fails (no module, invalid
+            // capacity, or null source). Fail-closed on try_lock / add_to_contain miss.
+            if self.contain_inside_source_object {
+                let contained_ok = source_obj
+                    .and_then(|src| src.get_contain().map(|contain| (src, contain)))
+                    .and_then(|(src, contain)| {
+                        let mut contain_guard = contain.try_lock().ok()?;
+                        if !contain_guard.is_valid_container_for(obj_guard, true) {
+                            return None;
+                        }
+                        contain_guard.add_to_contain(obj_guard).ok()?;
+                        // Need to hide if they are hidden.
+                        // Matches C++ ObjectCreationList.cpp:1230-1232
+                        if let Some(src_draw) = src.get_drawable() {
+                            if let Some(obj_draw) = obj_guard.get_drawable() {
+                                if src_draw.is_drawable_effectively_hidden() {
+                                    obj_draw.set_drawable_hidden(true);
+                                }
+                            }
+                        }
+                        Some(())
+                    })
+                    .is_some();
+                if !contained_ok {
+                    // DEBUG_ASSERTCRASH + TheGameLogic->destroyObject(obj)
+                    let object_id = obj_guard.id();
+                        let _ = TheGameLogic::destroy_object_by_id(object_id);
+                    return;
+                }
+            }
+
+            // Dies on bad land (water, cliffs, impassable)
+            // Matches C++ ObjectCreationList.cpp lines 1243-1284
+            if self.dies_on_bad_land {
+                apply_dies_on_bad_land(ctx, obj_guard);
                 return;
             }
-        }
 
-        // Dies on bad land (water, cliffs, impassable)
-        // Matches C++ ObjectCreationList.cpp lines 1243-1284
-        if self.dies_on_bad_land {
-            apply_dies_on_bad_land(ctx, obj, obj_read);
-            return;
-        }
-
-        // Drop the read lock at the end
-        drop(obj_read);
+            // Drop the read lock at the end
+            });
     }
 
     /// C++ ObjectCreationList.cpp:1387-1401
-    fn apply_fade_to_object(&self, debris: &Arc<RwLock<Object>>, source_obj: Option<&Object>) {
+    fn apply_fade_to_object(&self, debris: ObjectID, source_obj: Option<&Object>) {
         if self.fade_in {
             play_ocl_fade_sound(&self.fade_sound_name, source_obj);
-            if let Ok(debris_guard) = debris.read() {
+            let _ = OBJECT_REGISTRY.with_object(debris, |debris_guard| {
                 if let Some(drawable) = debris_guard.get_drawable() {
                     drawable.fade_in(self.fade_frames);
                 }
-            }
+            });
         }
         if self.fade_out {
             play_ocl_fade_sound(&self.fade_sound_name, source_obj);
-            if let Ok(debris_guard) = debris.read() {
+            let _ = OBJECT_REGISTRY.with_object(debris, |debris_guard| {
                 if let Some(drawable) = debris_guard.get_drawable() {
                     drawable.fade_out(self.fade_frames);
                 }
-            }
+            });
         }
     }
 }
@@ -1130,13 +1092,9 @@ fn add_object_to_pathfind_map(obj: &Object) {
 }
 
 /// C++ ObjectCreationList.cpp:1243-1284
-fn apply_dies_on_bad_land(
-    ctx: &CreationContext<'_>,
-    obj: &Arc<RwLock<Object>>,
-    obj_read: std::sync::RwLockReadGuard<'_, Object>,
-) {
-    let rider_pos = *obj_read.get_position();
-    let layer = obj_read.get_layer();
+fn apply_dies_on_bad_land(ctx: &CreationContext<'_>, obj: &mut Object) {
+    let rider_pos = *obj.get_position();
+    let layer = obj.get_layer();
     let mut water_z = 0.0;
     let mut terrain_z = 0.0;
 
@@ -1147,25 +1105,21 @@ fn apply_dies_on_bad_land(
             && layer == PathfindLayerEnum::Ground;
 
     let cell_type = pathfind_cell_type_at(&rider_pos, layer);
-    let off_map = obj_read.is_off_map();
-    drop(obj_read);
+    let off_map = obj.is_off_map();
 
     if flooded {
-        // C++: don't call kill(); specify DAMAGE_WATER + DEATH_FLOODED.
-        if let Ok(mut obj_write) = obj.write() {
-            let mut damage_info = crate::damage::DamageInfo {
-                input: crate::damage::DamageInfoInput {
-                    damage_type: crate::damage::DamageType::Water,
-                    death_type: crate::damage::DeathType::Flooded,
-                    source_id: INVALID_ID,
-                    amount: crate::damage::HUGE_DAMAGE_AMOUNT,
-                    ..Default::default()
-                },
+        let mut damage_info = crate::damage::DamageInfo {
+            input: crate::damage::DamageInfoInput {
+                damage_type: crate::damage::DamageType::Water,
+                death_type: crate::damage::DeathType::Flooded,
+                source_id: INVALID_ID,
+                amount: crate::damage::HUGE_DAMAGE_AMOUNT,
                 ..Default::default()
-            };
-            damage_info.sync_from_input();
-            let _ = obj_write.attempt_damage(&mut damage_info);
-        }
+            },
+            ..Default::default()
+        };
+        damage_info.sync_from_input();
+        let _ = obj.attempt_damage(&mut damage_info);
     }
 
     use crate::ai::pathfind_astar::PathfindCellType;
@@ -1174,9 +1128,7 @@ fn apply_dies_on_bad_land(
         || cell_type == PathfindCellType::Water
         || cell_type == PathfindCellType::Impassable
     {
-        if let Ok(mut obj_write) = obj.write() {
-            obj_write.kill(None, None);
-        }
+        obj.kill(None, None);
     }
 }
 
@@ -1400,7 +1352,7 @@ mod tests {
         extra_friction: Arc<Mutex<Real>>,
         ignore_id: Arc<Mutex<ObjectID>>,
         allow_to_fall: Arc<Mutex<bool>>,
-        created: Mutex<Vec<Arc<RwLock<Object>>>>,
+        created: Mutex<Vec<ObjectID>>,
     }
 
     impl TestFactory {
@@ -1417,14 +1369,11 @@ mod tests {
 
     impl Drop for TestFactory {
         fn drop(&mut self) {
-            let ids: Vec<ObjectID> = if let Ok(created) = self.created.lock() {
-                created
-                    .iter()
-                    .filter_map(|obj| obj.read().ok().map(|guard| guard.get_id()))
-                    .collect()
-            } else {
-                Vec::new()
-            };
+            let ids: Vec<ObjectID> = self
+                .created
+                .lock()
+                .map(|created| created.clone())
+                .unwrap_or_default();
             for id in &ids {
                 crate::object::registry::OBJECT_REGISTRY.unregister_object(*id);
                 if self.options.register_logic {
@@ -1448,7 +1397,7 @@ mod tests {
             &self,
             template: Arc<dyn crate::common::ThingTemplate>,
             _team: &Team,
-        ) -> Result<Arc<RwLock<Object>>, GameError> {
+        ) -> Result<ObjectID, GameError> {
             let id = NEXT_OBJECT_ID.fetch_add(1, Ordering::SeqCst);
             let mut obj = Object::new_test(id, 100.0);
             if self.options.kind_of_structure {
@@ -1476,9 +1425,8 @@ mod tests {
                 obj.attach_experience_tracker_for_test(self.options.trainable);
             }
             let arc = Arc::new(RwLock::new(obj));
-            if self.options.register {
-                crate::object::registry::OBJECT_REGISTRY.register_object(id, &arc);
-            }
+            crate::object::registry::OBJECT_REGISTRY.register_object(id, &arc);
+            let _ = self.options.register;
             if self.options.register_logic {
                 let _ = TheGameLogic::register_object(Arc::clone(&arc));
             }
@@ -1500,9 +1448,16 @@ mod tests {
                     .unwrap()
                     .push_behavior_module_for_test(Arc::new(Mutex::new(lifetime)));
             }
-            self.created.lock().unwrap().push(Arc::clone(&arc));
-            Ok(arc)
+            self.created.lock().unwrap().push(id);
+            Ok(id)
         }
+    }
+
+
+    fn with_created<R>(id: ObjectID, f: impl FnOnce(&Object) -> R) -> R {
+        crate::object::registry::OBJECT_REGISTRY
+            .with_object(id, f)
+            .expect("created object")
     }
 
     fn test_ctx<'a>(factory: &'a TestFactory) -> CreationContext<'a> {
@@ -1886,11 +1841,12 @@ mod tests {
         let created = nugget
             .create_with_angle(&ctx, None, &pos, &pos, 0.0, 0)
             .expect("created floating object");
-        let obj = created.read().unwrap();
+        with_created(created, |obj| {
         let enabled = obj
             .with_update_behavior_downcast::<FloatUpdate, _, _>("FloatUpdate", |fu| fu.is_enabled())
             .expect("FloatUpdate attached");
         assert!(enabled);
+        });
     }
 
     #[test]
@@ -1910,11 +1866,12 @@ mod tests {
         let created = nugget
             .create_with_angle(&ctx, None, &pos, &pos, 0.0, 0)
             .expect("created fade object");
-        let obj = created.read().unwrap();
+        with_created(created, |obj| {
         let drawable = obj.get_drawable().expect("drawable attached");
         let draw = drawable.read().unwrap();
         assert_eq!(draw.fading_mode(), Drawable::FADING_IN);
         assert_eq!(draw.time_to_fade(), 15);
+        });
     }
 
     #[test]
@@ -1968,7 +1925,7 @@ mod tests {
         let created = nugget
             .create_with_angle(&ctx, None, &pos, &pos, 0.0, 45)
             .expect("created lifetime object");
-        let obj = created.read().unwrap();
+        with_created(created, |obj| {
         let die_frame = obj
             .with_update_behavior_downcast::<LifetimeUpdate, _, _>("LifetimeUpdate", |lup| {
                 lup.get_die_frame()
@@ -1976,6 +1933,7 @@ mod tests {
             .expect("LifetimeUpdate attached");
         let current = crate::helpers::TheGameLogic::get_frame();
         assert_eq!(die_frame, current + 45);
+        });
     }
 
     #[test]
@@ -1996,7 +1954,7 @@ mod tests {
             .create_with_angle(&ctx, Some(&source), &pos, &pos, 0.0, 0)
             .expect("created layered object");
         assert_eq!(
-            created.read().unwrap().get_layer(),
+            with_created(created, |o| o.get_layer()),
             PathfindLayerEnum::Bridge1
         );
     }
@@ -2033,7 +1991,7 @@ mod tests {
         let created = nugget
             .create_with_angle(&ctx, None, &pos, &pos, 0.0, 0)
             .expect("created object");
-        let object_id = created.read().unwrap().get_id();
+        let object_id = with_created(created, |o| o.get_id());
         assert_eq!(crate::helpers::test_particle_attach_count(), before + 1);
         assert_eq!(
             crate::helpers::test_last_attached_object_id(),
@@ -2084,7 +2042,7 @@ End
         let created = nugget
             .create_with_angle(&ctx, None, &pos, &pos, 0.0, 0)
             .expect("INI-driven create");
-        let obj = created.read().unwrap();
+        with_created(created, |obj| {
         assert!(
             obj.with_update_behavior_downcast::<FloatUpdate, _, _>("FloatUpdate", |fu| fu
                 .is_enabled())
@@ -2093,6 +2051,7 @@ End
         assert!((*factory.extra_friction.lock().unwrap() + 0.01).abs() < 1e-5);
         let drawable = obj.get_drawable().unwrap();
         assert_eq!(drawable.read().unwrap().fading_mode(), Drawable::FADING_IN);
+        });
     }
 
     #[test]
@@ -2111,13 +2070,13 @@ End
         let created = nugget
             .create_with_angle(&ctx, None, &pos, &pos, 0.0, 0)
             .expect("created layered object");
-        let z = created.read().unwrap().get_position().z;
+        let z = with_created(created, |o| o.get_position().z);
         assert!(
             (z - 41.0).abs() < 1e-4,
             "C++ ON_GROUND_ALIGNED adds +1.0 on non-ground layers, got {z}"
         );
         assert_eq!(
-            created.read().unwrap().get_layer(),
+            with_created(created, |o| o.get_layer()),
             PathfindLayerEnum::Bridge1
         );
     }
@@ -2139,7 +2098,7 @@ End
         let created = nugget
             .create_with_angle(&ctx, None, &pos, &pos, 0.0, 0)
             .expect("created drowning object");
-        let obj = created.read().unwrap();
+        with_created(created, |obj| {
         let last = obj
             .get_last_damage_info()
             .expect("water path must attempt_damage, not skip");
@@ -2149,6 +2108,7 @@ End
             obj.get_last_death_type(),
             Some(crate::damage::DeathType::Flooded)
         );
+        });
     }
 
     #[test]
@@ -2169,7 +2129,7 @@ End
             .create_with_angle(&ctx, Some(&source), &pos, &pos, 0.0, 0)
             .expect("C++ still returns the object after destroyObject");
         assert!(
-            created.read().unwrap().is_destroyed(),
+            with_created(created, |o| o.is_destroyed()),
             "no contain module must stillborn the created object"
         );
     }
@@ -2192,7 +2152,7 @@ End
         let created = nugget
             .create_with_angle(&ctx, Some(&source), &pos, &pos, 0.0, 0)
             .expect("created contained object");
-        let obj = created.read().unwrap();
+        with_created(created, |obj| {
         assert!(
             !obj.is_destroyed(),
             "valid container must not destroy the created object"
@@ -2205,6 +2165,7 @@ End
             drawable.is_drawable_effectively_hidden(),
             "C++ hides the new drawable when the source drawable is effectively hidden"
         );
+        });
     }
 
     #[test]
@@ -2225,7 +2186,7 @@ End
             .create_with_angle(&ctx, Some(&source), &pos, &pos, 0.0, 0)
             .expect("C++ still returns the object after destroyObject");
         assert!(
-            created.read().unwrap().is_destroyed(),
+            with_created(created, |o| o.is_destroyed()),
             "invalid isValidContainerFor must stillborn the created object"
         );
         let contain = source.get_contain().expect("test contain attached");
@@ -2255,11 +2216,12 @@ End
         let created = nugget
             .create_with_angle(&ctx, None, &pos, &pos, 0.0, 0)
             .expect("created object on missing pathfind cell");
-        let obj = created.read().unwrap();
+        with_created(created, |obj| {
         assert!(
             obj.is_effectively_dead() || obj.is_destroyed(),
             "C++ missing PathfindCell is CELL_IMPASSABLE and kill()s the object"
         );
+        });
     }
 
     #[test]
@@ -2287,12 +2249,12 @@ End
             1,
             "LIKE_EXISTING KINDOF_STRUCTURE must flatten terrain"
         );
-        let z = created.read().unwrap().get_position().z;
+        let z = with_created(created, |o| o.get_position().z);
         assert!(
             (z - 12.0).abs() < 1e-4,
             "flatten path restamps z to ground height, got {z}"
         );
-        assert!(created.read().unwrap().is_kind_of(KindOf::Structure));
+        assert!(with_created(created, |o| o.is_kind_of(KindOf::Structure)));
     }
 
     #[test]
@@ -2333,7 +2295,7 @@ End
         let created = nugget
             .create_with_angle(&ctx, None, &pos, &pos, 0.0, 0)
             .expect("created debris");
-        let obj = created.read().unwrap();
+        with_created(created, |obj| {
         let drawable = obj.get_drawable().expect("drawable");
         let draw = drawable.read().unwrap();
         draw.module_by_name(&AsciiString::from("W3DDebrisDraw"))
@@ -2345,6 +2307,7 @@ End
                 assert_eq!(module.anim_final().as_str(), "AnimLand");
             })
             .expect("downcast W3DDebrisDraw");
+        });
     }
 
     #[test]
@@ -2374,7 +2337,7 @@ End
         let created = nugget
             .create_with_angle(&ctx, Some(&source), &pos, &pos, 0.0, 0)
             .expect("created");
-        let obj = created.read().unwrap();
+        with_created(created, |obj| {
         let level = obj
             .get_experience_tracker()
             .unwrap()
@@ -2383,6 +2346,7 @@ End
             .get_veterancy_level();
         assert_eq!(level, VeterancyLevel::Regular);
         assert!(obj.get_name().is_empty());
+        });
     }
 
     #[test]
@@ -2412,7 +2376,7 @@ End
         let created = nugget
             .create_with_angle(&ctx, Some(&source), &pos, &pos, 0.0, 0)
             .expect("created");
-        let obj = created.read().unwrap();
+        with_created(created, |obj| {
         let level = obj
             .get_experience_tracker()
             .unwrap()
@@ -2421,5 +2385,6 @@ End
             .get_veterancy_level();
         assert_eq!(level, VeterancyLevel::Elite);
         assert_eq!(obj.get_name().as_str(), "NamedPilot");
+        });
     }
 }

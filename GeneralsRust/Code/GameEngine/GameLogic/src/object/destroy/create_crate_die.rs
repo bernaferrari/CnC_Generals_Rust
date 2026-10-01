@@ -123,8 +123,8 @@ impl CreateCrateDie {
     pub fn on_die(
         &self,
         damage_info: &DamageInfo,
-        object: &Arc<RwLock<Object>>,
-        killer: Option<&Arc<RwLock<Object>>>,
+        object: &ObjectID,
+        killer: Option<&ObjectID>,
     ) -> Result<Option<ObjectId>, String> {
         // Check if die is applicable (would call isDieApplicable in C++)
         if !self.is_die_applicable(damage_info) {
@@ -133,15 +133,16 @@ impl CreateCrateDie {
 
         // Get relationship to killer
         if let Some(killer_obj) = killer {
-            let obj_lock = object.read().map_err(|_| "Failed to lock object")?;
-            let killer_lock = killer_obj.read().map_err(|_| "Failed to lock killer")?;
-
-            // No crate for killing an ally
-            if matches!(
-                obj_lock.relationship_to(&*killer_lock),
-                Relationship::Allies
-            ) {
+            let allied = crate::object::registry::OBJECT_REGISTRY.with_object(*object, |obj_lock| {
+                crate::object::registry::OBJECT_REGISTRY.with_object(*killer_obj, |killer_lock| {
+                    matches!(obj_lock.relationship_to(killer_lock), Relationship::Allies)
+                })
+            });
+            if allied == Some(Some(true)) {
                 return Ok(None);
+            }
+            if allied.is_none() {
+                return Err("Failed to lock object".into());
             }
         }
 
@@ -149,11 +150,8 @@ impl CreateCrateDie {
         let crate_system = get_crate_system();
         let system_lock = crate_system.read().map_err(|_| "Failed to lock crate system")?;
 
-        let object_id = object
-            .read()
-            .map(|g| g.get_id())
-            .unwrap_or(crate::common::INVALID_ID);
-        let killer_id = killer.and_then(|k| k.read().ok().map(|g| g.get_id()));
+        let object_id = *object;
+        let killer_id = killer.copied();
 
         // Try each crate template in the list
         for crate_name in &self.module_data.crate_name_list {
@@ -219,9 +217,9 @@ impl CreateCrateDie {
         template: &CrateTemplate,
         object_id: ObjectID,
     ) -> Result<bool, String> {
-        let object = resolve_die_object(object_id).ok_or("object unavailable")?;
-        let obj_lock = object.read().map_err(|_| "Failed to lock object")?;
-        let object_level = obj_lock.get_veterancy_level();
+        let object_level = crate::object::registry::OBJECT_REGISTRY
+            .with_object(object_id, |obj_lock| obj_lock.get_veterancy_level())
+            .ok_or("Failed to lock object")?;
         Ok(template.veterancy_level == object_level)
     }
 
@@ -235,11 +233,11 @@ impl CreateCrateDie {
         let Some(kid) = killer_id else {
             return Ok(false);
         };
-        let killer_obj = resolve_die_object(kid).ok_or("killer unavailable")?;
-        let killer_lock = killer_obj.read().map_err(|_| "Failed to lock killer")?;
-
-        // Must match the whole group of bits set in the KilledBy description
-        if !killer_lock.is_kind_of_multi(template.killed_by_type_kindof, 0) {
+        let kindof = template.killed_by_type_kindof;
+        let matches_kind = crate::object::registry::OBJECT_REGISTRY
+            .with_object(kid, |killer_lock| killer_lock.is_kind_of_multi(kindof, 0))
+            .ok_or("Failed to lock killer")?;
+        if !matches_kind {
             return Ok(false);
         }
 
@@ -256,11 +254,10 @@ impl CreateCrateDie {
         let Some(kid) = killer_id else {
             return Ok(false);
         };
-        let killer_obj = resolve_die_object(kid).ok_or("killer unavailable")?;
-        let killer_lock = killer_obj.read().map_err(|_| "Failed to lock killer")?;
-
-        // Get killer's player
-        let killer_player = match killer_lock.get_controlling_player_ref() {
+        let killer_player = crate::object::registry::OBJECT_REGISTRY
+            .with_object(kid, |killer_lock| killer_lock.get_controlling_player_ref().cloned())
+            .ok_or("Failed to lock killer")?;
+        let killer_player = match killer_player {
             Some(p) => p,
             None => return Ok(false),
         };
@@ -279,11 +276,9 @@ impl CreateCrateDie {
         owner_object_id: ObjectID,
         _killer_id: Option<ObjectID>,
     ) -> Result<Option<ObjectId>, String> {
-        let owner_object = resolve_die_object(owner_object_id).ok_or("owner unavailable")?;
-        let obj_lock = owner_object.read().map_err(|_| "Failed to lock object")?;
-        let center_point = obj_lock.get_position();
-        let layer = obj_lock.get_layer();
-        drop(obj_lock);
+        let (center_point, layer) = crate::object::registry::OBJECT_REGISTRY
+            .with_object(owner_object_id, |obj_lock| (*obj_lock.get_position(), obj_lock.get_layer()))
+            .ok_or("Failed to lock object")?;
 
         // Select which crate to create from the weighted list
         // Matches C++ lines 156-173
@@ -307,7 +302,7 @@ impl CreateCrateDie {
             let mut fp_options = FindPositionOptions {
                 min_radius: 0.0,
                 max_radius: 5.0,
-                relationship_object_id: Some(owner_object.read().map_err(|_| "Owner lock poisoned")?.get_id()),
+                relationship_object_id: Some(owner_object_id),
                 flags: FPF_IGNORE_ALLY_OR_NEUTRAL_UNITS,
                 ..Default::default()
             };
@@ -382,12 +377,15 @@ impl CreateCrateDie {
             .map_err(|e| e.to_string())?;
 
         let mut id = INVALID_ID;
-        if let Ok(mut crate_obj) = crate_arc.write() {
-            id = crate_obj.get_id();
+        if let Some(got) = crate::object::registry::OBJECT_REGISTRY.with_object_mut(crate_arc, |crate_obj| {
+            let id = crate_obj.get_id();
             let _ = crate_obj.set_position(position);
             let orient = GameLogicRandomValueReal(0.0, 2.0 * PI);
             let _ = crate_obj.set_orientation(orient);
             crate_obj.set_layer(layer);
+            id
+        }) {
+            id = got;
         }
 
         if id == INVALID_ID {
@@ -408,12 +406,12 @@ impl CreateCrateDie {
             return Ok(());
         }
 
-        let owner_object = resolve_die_object(owner_object_id).ok_or("owner unavailable")?;
-        let obj_lock = owner_object.read().map_err(|_| "Failed to lock object")?;
-        let Some(player_arc) = obj_lock.get_controlling_player() else {
+        let Some(player_arc) = crate::object::registry::OBJECT_REGISTRY
+            .with_object(owner_object_id, |obj_lock| obj_lock.get_controlling_player())
+            .ok_or("Failed to lock object")?
+        else {
             return Ok(());
         };
-        drop(obj_lock);
 
         let player_lock = player_arc.read().map_err(|_| "Failed to lock player")?;
         let Some(team_arc) = player_lock.get_default_team() else {
@@ -436,17 +434,21 @@ impl CreateCrateDie {
         let Some(kid) = killer_id else {
             return Ok(());
         };
-        let killer_obj = resolve_die_object(kid).ok_or("killer unavailable")?;
-        let mut killer_lock = killer_obj.write().map_err(|_| "Failed to lock killer")?;
-
-        if let Some(player) = killer_lock.get_controlling_player() {
-            let player_lock = player.read().map_err(|_| "Failed to lock player")?;
-
-            if player_lock.get_player_type() == PlayerType::Computer {
-                if let Some(ai) = killer_lock.get_ai_update_interface_mut() {
-                    ai.notify_crate(crate_id);
+        let notified = crate::object::registry::OBJECT_REGISTRY.with_object_mut(kid, |killer_lock| {
+            if let Some(player) = killer_lock.get_controlling_player() {
+                let player_lock = player.read().map_err(|_| "Failed to lock player".to_string())?;
+                if player_lock.get_player_type() == PlayerType::Computer {
+                    if let Some(ai) = killer_lock.get_ai_update_interface_mut() {
+                        ai.notify_crate(crate_id);
+                    }
                 }
             }
+            Ok(())
+        });
+        match notified {
+            Some(Ok(())) => {}
+            Some(Err(e)) => return Err(e),
+            None => return Err("Failed to lock killer".into()),
         }
 
         Ok(())

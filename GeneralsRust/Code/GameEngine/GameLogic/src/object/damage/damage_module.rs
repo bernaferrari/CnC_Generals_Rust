@@ -67,11 +67,7 @@ pub struct DamageModule<T: ModuleData> {
 }
 
 impl<T: ModuleData> DamageModule<T> {
-    pub fn new(object: Arc<RwLock<Object>>, module_data: Arc<T>) -> Self {
-        let object_id = object.read().ok().map(|g| g.get_id()).unwrap_or(INVALID_ID);
-        if object_id != INVALID_ID {
-            crate::object::registry::OBJECT_REGISTRY.register_object(object_id, &object);
-        }
+    pub fn new(object_id: ObjectID, module_data: Arc<T>) -> Self {
         Self {
             module_data,
             object_id,
@@ -119,8 +115,8 @@ impl<T: ModuleData> DamageModule<T> {
         crate::object::registry::OBJECT_REGISTRY.with_object_mut(id, f)
     }
 
-    /// Short-lived Arc resolve; prefer `with_object` / `get_object_id`.
-    pub fn get_object(&self) -> Option<Arc<RwLock<Object>>> {
+    /// Prefer `with_object` / `get_object_id`.
+    pub fn get_object(&self) -> Option<ObjectID> {
         // Wave 415: empty dual-world → None.
         if dual_world_registry_unavailable() {
             return None;
@@ -130,7 +126,6 @@ impl<T: ModuleData> DamageModule<T> {
         if id == INVALID_ID {
             return None;
         }
-        crate::helpers::TheGameLogic::find_object_by_id(id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(id))
+        Some(id)
     }
 }

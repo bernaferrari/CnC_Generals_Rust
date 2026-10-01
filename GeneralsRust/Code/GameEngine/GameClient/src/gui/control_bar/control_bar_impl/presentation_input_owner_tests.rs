@@ -209,7 +209,7 @@ fn presentation_input_owner_science_preserves_cpp_exceptions_and_player_preceden
     // when the actual player has no science and the frozen bar does have it.
     {
         let mut players = logic_player_list().write().unwrap();
-        players.add_player(Arc::new(RwLock::new(Player::new(0))));
+        players.add_player(Player::new(0));
         players.set_local_player_index(0);
     }
     assert!(

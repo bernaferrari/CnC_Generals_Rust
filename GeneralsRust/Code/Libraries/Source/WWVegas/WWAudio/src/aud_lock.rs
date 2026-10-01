@@ -1,8 +1,8 @@
 //! Audio Locking System
 //! 
 //! Provides thread-safe locking mechanisms for the audio system.
-//! This is a direct conversion of the C++ AUD_Lock.cpp file to 
-//! idiomatic Rust using Arc/Mutex patterns.
+//! This is a direct conversion of the C++ AUD_Lock.cpp file to
+//! idiomatic Rust. The mutex is owned by this lock; clones are independent.
 
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -16,15 +16,17 @@ use crate::error::{AudioResult, AudioError};
 /// but using Rust's safe concurrency primitives.
 #[derive(Debug)]
 pub struct AudioLock {
-    /// Internal mutex for thread synchronization
-    mutex: Arc<Mutex<()>>,
-    
+    /// Internal mutex for thread synchronization.
+    /// Not wrapped in `Arc`: `Clone` builds a fresh lock, and no caller
+    /// clones this mutex out to a second owner.
+    mutex: Mutex<()>,
+
     /// Lock count for debugging and reference tracking
     count: AtomicUsize,
-    
+
     /// Thread ID that currently holds the lock (for debugging)
     #[cfg(debug_assertions)]
-    owner_thread: Arc<Mutex<Option<thread::ThreadId>>>,
+    owner_thread: Mutex<Option<thread::ThreadId>>,
 }
 
 /// RAII guard for audio lock
@@ -43,10 +45,10 @@ impl AudioLock {
     /// A new AudioLock instance
     pub fn new() -> Self {
         AudioLock {
-            mutex: Arc::new(Mutex::new(())),
+            mutex: Mutex::new(()),
             count: AtomicUsize::new(0),
             #[cfg(debug_assertions)]
-            owner_thread: Arc::new(Mutex::new(None)),
+            owner_thread: Mutex::new(None),
         }
     }
 

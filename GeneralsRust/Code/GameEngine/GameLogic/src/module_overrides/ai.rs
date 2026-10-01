@@ -105,8 +105,10 @@ fn railroad_behavior_module_factory(
         .as_object()
         .map(|obj| obj.get_object_id())
         .unwrap_or(INVALID_ID);
-    let object = TheGameLogic::find_object_by_id(object_id)
-        .expect("RailroadBehavior requires valid object handle");
+    if !TheGameLogic::find_object_by_id(object_id) {
+        panic!("RailroadBehavior requires valid object handle");
+    }
+    let object = object_id;
     Box::new(
         RailroadBehaviorModule::new(module_name_key, module_data_arc, object)
             .expect("Failed to create RailroadBehaviorModule"),

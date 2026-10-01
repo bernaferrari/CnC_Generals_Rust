@@ -27,45 +27,39 @@ impl AIAttackState {
     }
 
     fn choose_weapon(&self, context: &AIStateMachineContext) -> bool {
-        let Some(owner_arc) = OBJECT_REGISTRY.get_object(context.owner_id) else {
-            return false;
-        };
+        OBJECT_REGISTRY
+            .with_object_mut(context.owner_id, |owner| {
+                let cmd_source = owner
+                    .get_ai()
+                    .map(|ai| ai.get_last_command_source())
+                    .unwrap_or(CommandSourceType::FromAi);
 
-        let mut owner = match owner_arc.write() {
-            Ok(guard) => guard,
-            Err(_) => return false,
-        };
+                let found = if self.attacking_object {
+                    let Some(target_id) = context.goal_object else {
+                        return false;
+                    };
+                    let Some(hit) = OBJECT_REGISTRY.with_object(target_id, |target| {
+                        owner.choose_best_weapon_for_target(
+                            target,
+                            WeaponChoiceCriteria::PreferMostDamage,
+                            cmd_source,
+                        )
+                    }) else {
+                        return false;
+                    };
+                    hit
+                } else {
+                    owner.choose_best_weapon_for_target_id(
+                        INVALID_ID,
+                        WeaponChoiceCriteria::PreferMostDamage,
+                        cmd_source,
+                    )
+                };
 
-        let cmd_source = owner
-            .get_ai()
-            .map(|ai| ai.get_last_command_source())
-            .unwrap_or(CommandSourceType::FromAi);
-
-        let found = if self.attacking_object {
-            let Some(target_id) = context.goal_object else {
-                return false;
-            };
-            let Some(target_arc) = OBJECT_REGISTRY.get_object(target_id) else {
-                return false;
-            };
-            let Ok(target) = target_arc.read() else {
-                return false;
-            };
-            owner.choose_best_weapon_for_target(
-                &target,
-                WeaponChoiceCriteria::PreferMostDamage,
-                cmd_source,
-            )
-        } else {
-            owner.choose_best_weapon_for_target_id(
-                INVALID_ID,
-                WeaponChoiceCriteria::PreferMostDamage,
-                cmd_source,
-            )
-        };
-
-        owner.adjust_model_condition_for_weapon_status();
-        found
+                owner.adjust_model_condition_for_weapon_status();
+                found
+            })
+            .unwrap_or(false)
     }
 }
 
@@ -85,39 +79,34 @@ impl AIState for AIAttackState {
             return StateReturnType::Failed;
         }
 
-        let Some(owner_arc) = OBJECT_REGISTRY.get_object(context.owner_id) else {
-            return StateReturnType::Failed;
-        };
-        {
-            let Ok(owner) = owner_arc.read() else {
-                return StateReturnType::Failed;
-            };
+        let owner_ok = OBJECT_REGISTRY.with_object(context.owner_id, |owner| {
             if owner.test_status(ObjectStatusTypes::UnderConstruction) {
-                return StateReturnType::Failed;
+                return false;
             }
-            if owner.is_out_of_ammo() && !owner.is_kind_of(KindOf::Projectile) {
-                return StateReturnType::Failed;
-            }
+            !(owner.is_out_of_ammo() && !owner.is_kind_of(KindOf::Projectile))
+        });
+        if owner_ok != Some(true) {
+            return StateReturnType::Failed;
         }
 
         if self.attacking_object {
             let Some(target_id) = context.goal_object else {
                 return StateReturnType::Failed;
             };
-            let Some(target_arc) = OBJECT_REGISTRY.get_object(target_id) else {
+            let victim = OBJECT_REGISTRY.with_object(target_id, |target| {
+                if target.is_effectively_dead() {
+                    return None;
+                }
+                Some((*target.get_position(), target.get_team_id()))
+            });
+            let Some(Some((pos, team))) = victim else {
                 return StateReturnType::Failed;
             };
-            let Ok(target) = target_arc.read() else {
-                return StateReturnType::Failed;
-            };
-            if target.is_effectively_dead() {
-                return StateReturnType::Failed;
-            }
-            self.original_victim_pos = *target.get_position();
-            self.victim_team = target.get_team_id();
-            drop(target);
+            self.original_victim_pos = pos;
+            self.victim_team = team;
             // C++ AIAttackFireWeaponState::onEnter seeds AttackCommonTarget (AIStates.cpp:5153-5156).
-            if let Some(team_arc) = owner_arc.read().ok().and_then(|owner| owner.get_team()) {
+            let team_arc = OBJECT_REGISTRY.with_object(context.owner_id, |owner| owner.get_team());
+            if let Some(Some(team_arc)) = team_arc {
                 if let Ok(mut team_guard) = team_arc.write() {
                     crate::ai::states::seed_team_target_if_attack_common(&mut team_guard, target_id);
                 }
@@ -133,7 +122,7 @@ impl AIState for AIAttackState {
             return StateReturnType::Failed;
         }
 
-        if let Ok(mut owner) = owner_arc.write() {
+        let _ = OBJECT_REGISTRY.with_object_mut(context.owner_id, |owner| {
             if let Some((weapon, _slot)) = owner.get_current_weapon() {
                 if weapon.get_lock_on_range() > 0.0 {
                     owner.set_status(
@@ -146,7 +135,7 @@ impl AIState for AIAttackState {
                 ObjectStatusMaskType::from(ObjectStatusTypes::IsAttacking),
                 true,
             );
-        }
+        });
 
         StateReturnType::Continue
     }
@@ -157,14 +146,10 @@ impl AIState for AIAttackState {
             return StateReturnType::Failed;
         }
 
-        // Attack state update logic
-        let Some(owner_arc) = OBJECT_REGISTRY.get_object(context.owner_id) else {
-            return StateReturnType::Failed;
-        };
-        let Ok(owner) = owner_arc.read() else {
-            return StateReturnType::Failed;
-        };
-        if owner.is_out_of_ammo() && !owner.is_kind_of(KindOf::Projectile) {
+        let pre = OBJECT_REGISTRY.with_object(context.owner_id, |owner| {
+            owner.is_out_of_ammo() && !owner.is_kind_of(KindOf::Projectile)
+        });
+        if pre != Some(false) {
             return StateReturnType::Failed;
         }
 
@@ -173,34 +158,40 @@ impl AIState for AIAttackState {
                 return StateReturnType::Complete;
             };
 
-            let Some(target_arc) = OBJECT_REGISTRY.get_object(target_id) else {
-                return StateReturnType::Complete;
-            };
-            let Ok(target) = target_arc.read() else {
-                return StateReturnType::Failed;
-            };
-            if target.is_effectively_dead() {
-                return StateReturnType::Complete;
-            }
-
-            let relationship = owner.relationship_to(&target);
-            if !target.test_status(ObjectStatusTypes::CanAttack) {
-                if let Some(contain) = target.get_contain() {
-                    if contain.is_garrisonable()
-                        && contain.get_contained_count() == 0
-                        && relationship == Relationship::Neutral
-                    {
-                        context.goal_object = None;
-                        clear_team_target_if_victim(&owner, target_id);
+            let verdict = OBJECT_REGISTRY.with_object(context.owner_id, |owner| {
+                OBJECT_REGISTRY.with_object(target_id, |target| {
+                    if target.is_effectively_dead() {
+                        return StateReturnType::Complete;
+                    }
+                    let relationship = owner.relationship_to(target);
+                    if !target.test_status(ObjectStatusTypes::CanAttack) {
+                        if let Some(contain) = target.get_contain() {
+                            if contain.is_garrisonable()
+                                && contain.get_contained_count() == 0
+                                && relationship == Relationship::Neutral
+                            {
+                                return StateReturnType::Failed;
+                            }
+                        }
+                    }
+                    if relationship != Relationship::Enemies {
                         return StateReturnType::Failed;
                     }
+                    StateReturnType::Continue
+                })
+            });
+            match verdict {
+                None | Some(None) => return StateReturnType::Complete,
+                Some(Some(StateReturnType::Failed)) => {
+                    context.goal_object = None;
+                    let _ = OBJECT_REGISTRY.with_object(context.owner_id, |owner| {
+                        clear_team_target_if_victim(owner, target_id);
+                    });
+                    return StateReturnType::Failed;
                 }
-            }
-
-            if relationship != Relationship::Enemies {
-                context.goal_object = None;
-                clear_team_target_if_victim(&owner, target_id);
-                return StateReturnType::Failed;
+                Some(Some(StateReturnType::Complete)) => return StateReturnType::Complete,
+                Some(Some(StateReturnType::Continue)) => {}
+                Some(Some(other)) => return other,
             }
 
             if out_of_weapon_range_object(context) {
@@ -223,10 +214,13 @@ impl AIState for AIAttackState {
         if !self.choose_weapon(context) {
             return StateReturnType::Failed;
         }
-        let Some((weapon, _slot)) = owner.get_current_weapon() else {
-            return StateReturnType::Failed;
-        };
-        if weapon.get_max_shot_count() <= 0 {
+        let shots_ok = OBJECT_REGISTRY.with_object(context.owner_id, |owner| {
+            match owner.get_current_weapon() {
+                Some((weapon, _slot)) => weapon.get_max_shot_count() > 0,
+                None => false,
+            }
+        });
+        if shots_ok != Some(true) {
             return StateReturnType::Failed;
         }
 
@@ -317,17 +311,19 @@ impl AIState for AIGuardState {
             _ => GuardMode::Normal,
         };
 
-        if let Some(owner_arc) = get_legacy_object(context.owner_id) {
-            let mut guard_machine = AIGuardMachine::new(Arc::downgrade(&owner_arc));
+        if let Some(owner_id) = get_legacy_object(context.owner_id) {
+            let mut guard_machine = AIGuardMachine::new(owner_id);
 
             if let Some(target_id) = context.goal_object {
-                if let Some(target_arc) = get_legacy_object(target_id) {
-                    guard_machine.set_target_to_guard(Some(&target_arc));
+                if let Some(target_id) = get_legacy_object(target_id) {
+                    guard_machine.set_target_to_guard(Some(target_id));
                 }
             } else if let Some(pos) = context.goal_position {
                 guard_machine.set_target_position_to_guard(&pos);
-            } else if let Ok(owner_guard) = owner_arc.read() {
-                guard_machine.set_target_position_to_guard(owner_guard.get_position());
+            } else if let Some(pos) = crate::object::registry::OBJECT_REGISTRY
+                .with_object(owner_id, |owner_guard| *owner_guard.get_position())
+            {
+                guard_machine.set_target_position_to_guard(&pos);
             }
 
             guard_machine.set_guard_mode(self.guard_mode);

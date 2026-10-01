@@ -9,30 +9,44 @@ impl Team {
         if self.id == new_team.id {
             return;
         }
-
-        let new_team_arc = get_team_factory()
-            .lock()
-            .ok()
-            .and_then(|factory| factory.find_team_by_id(new_team.id));
-
         let members = self.members.clone();
+        let new_id = new_team.id;
         for object_id in members {
-            // C++ obj->setTeam(newTeam) updates team pointer, player membership,
-            // and becomingTeamMember. Member lists are still patched here because
-            // set_or_restore_team uses try_write and this caller already holds
-            // both team write locks.
-            if let Some(team_arc) = &new_team_arc {
-                let _ = OBJECT_REGISTRY.with_object_mut(object_id, |object| {
-                    let _ = object.set_team(Some(Arc::clone(team_arc)));
-                });
-            }
+            // Member lists are patched here. set_team_id also tries to patch
+            // them, but same-id checkout returns None while this team is out.
+            let _ = OBJECT_REGISTRY.with_object_mut(object_id, |object| {
+                let _ = object.set_team_id(Some(new_id));
+            });
             new_team.add_member(object_id);
             self.remove_member(object_id);
         }
     }
 
-    /// Kill all team members
+    /// Kill all team members.
     pub fn kill_team(&mut self) {
+        let neutral_default_team_id = player_list().try_read().ok().and_then(|list| {
+            list.get_neutral_player()
+                .and_then(|player| player.get_default_team_id())
+        });
+        let beacon_name = self.controlling_player_id.and_then(|player_id| {
+            player_list().try_read().ok().and_then(|list| {
+                list.get_player(player_id as Int).and_then(|player| {
+                    player
+                        .get_player_template()
+                        .map(|template| template.beacon_name.clone())
+                })
+            })
+        });
+        self.kill_team_prepared(neutral_default_team_id, beacon_name.as_deref());
+    }
+
+    /// [`Self::kill_team`] with beacon and neutral-team data already snapshotted.
+    /// `Player::kill_player` uses this while that player is checked out of the list.
+    pub fn kill_team_prepared(
+        &mut self,
+        neutral_default_team_id: Option<TeamID>,
+        beacon_name: Option<&str>,
+    ) {
         // Wave 256: empty dual-world → no factory member walks.
         if dual_world_registry_unavailable() {
             return;
@@ -40,40 +54,13 @@ impl Team {
 
         self.evacuate_team_containers();
 
-        let neutral_default_team = player_list()
-            .read()
-            .ok()
-            .and_then(|list| list.get_neutral_player())
-            .and_then(|player_arc| {
-                player_arc
-                    .read()
-                    .ok()
-                    .and_then(|player| player.get_default_team())
-            });
-
-        // C++ parity (Team::killTeam): effectively-dead beacon objects are still processed.
-        let beacon_template = self
-            .controlling_player_id
-            .and_then(|player_id| {
-                player_list()
-                    .read()
-                    .ok()
-                    .and_then(|list| list.get_player(player_id as Int).cloned())
-            })
-            .and_then(|player_arc| {
-                player_arc.read().ok().and_then(|player| {
-                    player
-                        .get_player_template()
-                        .map(|template| template.beacon_name.clone())
-                })
-            })
-            .and_then(|beacon_name| {
-                if beacon_name.is_empty() {
-                    None
-                } else {
-                    TheThingFactory::find_template(beacon_name.as_str())
-                }
-            });
+        let beacon_template = beacon_name.and_then(|name| {
+            if name.is_empty() {
+                None
+            } else {
+                TheThingFactory::find_template(name)
+            }
+        });
 
         let members = self.members.clone();
         let mut moved_to_neutral = Vec::new();
@@ -99,10 +86,10 @@ impl Team {
             };
 
             if is_tech_building {
-                if let Some(neutral_team) = neutral_default_team.clone() {
+                if let Some(neutral_id) = neutral_default_team_id {
                     let moved = OBJECT_REGISTRY
                         .with_object_mut(object_id, |object_guard| {
-                            let _ = object_guard.set_team(Some(neutral_team));
+                            let _ = object_guard.set_team_id(Some(neutral_id));
                         })
                         .is_some();
                     if moved {
@@ -125,11 +112,17 @@ impl Team {
             self.members.retain(|id| !moved_set.contains(id));
             self.cur_units = self.members.len() as Int;
 
-            if let Some(neutral_team) = neutral_default_team {
-                if let Ok(mut neutral_guard) = neutral_team.write() {
+            if let Some(neutral_id) = neutral_default_team_id {
+                if neutral_id == self.id {
                     for object_id in moved_to_neutral {
-                        neutral_guard.add_member(object_id);
+                        self.add_member(object_id);
                     }
+                } else {
+                    let _ = with_team_mut(neutral_id, |neutral| {
+                        for object_id in &moved_to_neutral {
+                            neutral.add_member(*object_id);
+                        }
+                    });
                 }
             }
         }
@@ -142,19 +135,10 @@ impl Team {
         let Ok(players) = player_list().read() else {
             return false;
         };
-        let Some(player_arc) = players.get_player(controller_id as Int).cloned() else {
+        let Some(player) = players.get_player(controller_id as Int) else {
             return false;
         };
-        let Ok(player) = player_arc.read() else {
-            return false;
-        };
-        let Some(default_team) = player.get_default_team() else {
-            return false;
-        };
-        let Ok(default_team_guard) = default_team.read() else {
-            return false;
-        };
-        default_team_guard.get_id() == self.id
+        player.get_default_team_id() == Some(self.id)
     }
 
     fn evacuate_team_containers(&self) {
@@ -243,17 +227,13 @@ impl Team {
         let Ok(factory) = get_team_factory().lock() else {
             return Vec::new();
         };
-
         let mut shared = Vec::new();
-        for team_arc in factory.get_all_teams() {
-            let Ok(team_guard) = team_arc.read() else {
-                continue;
-            };
-            if team_guard.get_id() == self.id {
+        for (id, team) in &factory.teams {
+            if *id == self.id {
                 continue;
             }
-            if self.is_allied_with(&team_guard) {
-                shared.push(team_guard.get_id());
+            if self.is_allied_with(team) {
+                shared.push(*id);
             }
         }
         shared

@@ -128,13 +128,15 @@ pub fn ocl_timer_button_kind(
 }
 
 pub fn ocl_timer_kind_for_object(obj_id: u32) -> OclTimerButtonKind {
-    if let Some(obj_arc) = gamelogic::object::registry::OBJECT_REGISTRY.get_object(obj_id) {
-        if let Ok(obj) = obj_arc.read() {
-            return ocl_timer_button_kind(
+    if let Some(kind) =
+        gamelogic::object::registry::OBJECT_REGISTRY.with_object(obj_id, |obj| {
+            ocl_timer_button_kind(
                 obj.is_kind_of(gamelogic::common::types::KindOf::TechBuilding),
                 obj.is_kind_of(gamelogic::common::types::KindOf::AutoRallypoint),
-            );
-        }
+            )
+        })
+    {
+        return kind;
     }
     if let Some(entry) = crate::presentation_translator_residual::translator_catalog_entry(obj_id) {
         let is_tech = crate::presentation_translator_residual::translator_entry_has_kind(

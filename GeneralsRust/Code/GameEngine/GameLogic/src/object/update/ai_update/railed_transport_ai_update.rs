@@ -355,10 +355,9 @@ impl RailedTransportAIUpdate {
                 return Ok(());
             }
 
-            let Some(us) = TheGameLogic::find_object_by_id(self.owner_id) else {
-                return Ok(());
-            };
-            let Ok(us_guard) = us.read() else {
+            let Some(start_pos) = crate::object::registry::OBJECT_REGISTRY
+                .with_object(self.owner_id, |us_guard| *us_guard.get_position())
+            else {
                 return Ok(());
             };
 
@@ -377,8 +376,7 @@ impl RailedTransportAIUpdate {
                 return Ok(());
             };
 
-            let start = *us_guard.get_position();
-            drop(us_guard);
+            let start = start_pos;
             let end = waypoint.get_location();
             let v = Coord3D::new(end.x - start.x, end.y - start.y, end.z - start.z);
             let dist = v.length();
@@ -415,13 +413,11 @@ impl RailedTransportAIUpdate {
             return;
         }
 
-        if let Some(owner) = TheGameLogic::find_object_by_id(self.owner_id) {
-            if let Ok(owner_guard) = owner.read() {
-                let _ = owner_guard.with_dock_update_interface(|dock| {
-                    dock.set_dock_open(!in_transit);
-                });
-            }
-        }
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object(self.owner_id, |owner_guard| {
+            let _ = owner_guard.with_dock_update_interface(|dock| {
+                dock.set_dock_open(!in_transit);
+            });
+        });
 
         self.in_transit = in_transit;
     }
@@ -467,14 +463,11 @@ impl RailedTransportAIUpdate {
             return Ok(());
         }
 
-        let Some(us) = TheGameLogic::find_object_by_id(self.owner_id) else {
+        let Some(our_pos) = crate::object::registry::OBJECT_REGISTRY
+            .with_object(self.owner_id, |us_guard| *us_guard.get_position())
+        else {
             return Ok(());
         };
-        let Ok(us_guard) = us.read() else {
-            return Ok(());
-        };
-        let our_pos = *us_guard.get_position();
-        drop(us_guard);
 
         let terrain = get_terrain_logic();
         let Ok(terrain_guard) = terrain.read() else {
@@ -532,16 +525,10 @@ impl RailedTransportAIUpdate {
             return;
         }
 
-        let Some(owner) = TheGameLogic::find_object_by_id(self.owner_id) else {
-            return;
-        };
-        let is_loading = {
-            let Ok(owner_guard) = owner.read() else {
-                return;
-            };
+        let is_loading = crate::object::registry::OBJECT_REGISTRY.with_object(self.owner_id, |owner_guard| {
             owner_guard
                 .with_railed_transport_dock_update_interface(|dock| dock.is_loading_or_unloading())
-        };
+        });
         let Some(is_loading) = is_loading else {
             return;
         };
@@ -588,28 +575,23 @@ impl RailedTransportAIUpdate {
             return;
         }
 
-        let Some(owner) = TheGameLogic::find_object_by_id(self.owner_id) else {
-            return;
-        };
-        let Ok(owner_guard) = owner.read() else {
-            return;
-        };
-
         if self.in_transit {
             return;
         }
 
-        let Some(is_loading) = owner_guard
-            .with_railed_transport_dock_update_interface(|dock| dock.is_loading_or_unloading())
-        else {
+        let Some(is_loading) = crate::object::registry::OBJECT_REGISTRY.with_object(self.owner_id, |owner_guard| {
+            owner_guard.with_railed_transport_dock_update_interface(|dock| dock.is_loading_or_unloading())
+        }).flatten() else {
             return;
         };
         if is_loading {
             return;
         }
 
-        let _ = owner_guard.with_railed_transport_dock_update_interface(|dock| {
-            dock.unload_all();
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object(self.owner_id, |owner_guard| {
+            let _ = owner_guard.with_railed_transport_dock_update_interface(|dock| {
+                dock.unload_all();
+            });
         });
     }
 

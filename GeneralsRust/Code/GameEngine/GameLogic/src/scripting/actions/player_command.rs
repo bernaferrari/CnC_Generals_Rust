@@ -624,23 +624,26 @@ impl ScriptAction for PlayerEvacuateBuildingAction {
             };
 
             for obj_id in player_guard.get_object_ids() {
-                let Some(obj_arc) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
-                    .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
-                else {
-                    continue;
-                };
-                let Ok(mut obj_guard) = obj_arc.write() else {
-                    continue;
-                };
-                let Some(contain) = obj_guard.get_contain_mut() else {
-                    continue;
-                };
-                if !contain.is_garrisonable() {
-                    continue;
-                }
-                let contained = contain.get_contained_objects().into_owned();
-                for occupant in contained {
-                    let _ = contain.release_object(occupant);
+                {
+                    enum _ObjFlow<T> { Cont, Ret(T), Fall }
+                    let _flow = OBJECT_REGISTRY.with_object_mut(obj_id, |mut obj_guard| {
+                        let Some(contain) = obj_guard.get_contain_mut() else {
+                            return _ObjFlow::Cont;
+                        };
+                        if !contain.is_garrisonable() {
+                            return _ObjFlow::Cont;
+                        }
+                        let contained = contain.get_contained_objects().into_owned();
+                        for occupant in contained {
+                            let _ = contain.release_object(occupant);
+                        }
+                        _ObjFlow::Fall
+                    });
+                    match _flow {
+                        None | Some(_ObjFlow::Cont) => continue,
+                        Some(_ObjFlow::Ret(v)) => return v,
+                        Some(_ObjFlow::Fall) => {}
+                    }
                 }
             }
         }

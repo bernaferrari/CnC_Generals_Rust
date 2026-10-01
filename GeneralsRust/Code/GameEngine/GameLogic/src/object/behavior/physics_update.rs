@@ -47,7 +47,7 @@ const FLAG_IS_IN_FREEFALL: i32 = 0x0200;
 const FLAG_IS_IN_UPDATE: i32 = 0x0400;
 const FLAG_IS_STUNNED: i32 = 0x0800;
 
-pub(super) fn find_object(id: ObjectID) -> Option<Arc<RwLock<GameObject>>> {
+pub(super) fn find_object(id: ObjectID) -> Option<ObjectID> {
     if id == crate::common::INVALID_ID {
         return None;
     }
@@ -271,7 +271,7 @@ impl PhysicsBehaviorHandle {
         }
     }
 
-    fn object_arc(&self) -> Option<Arc<RwLock<GameObject>>> {
+    fn object_arc(&self) -> Option<ObjectID> {
         find_object(self.object_id)
     }
 
@@ -711,7 +711,7 @@ pub struct PhysicsBehaviorUpdate {
 
 impl PhysicsBehaviorUpdate {
     pub fn new(
-        object: Arc<RwLock<GameObject>>,
+        object_id: ObjectID,
         module_data: Arc<dyn ModuleData>,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let data = module_data
@@ -720,11 +720,7 @@ impl PhysicsBehaviorUpdate {
             .ok_or("Invalid module data for PhysicsBehavior")?;
 
         let module_data = Arc::new(data.clone());
-        let object_id = object
-            .read()
-            .ok()
-            .map(|g| g.get_id())
-            .unwrap_or(crate::common::INVALID_ID);
+        let object_id = object_id;
         Ok(Self {
             object_id,
             module_data: module_data.clone(),
@@ -1487,10 +1483,10 @@ pub struct PhysicsBehaviorFactory;
 
 impl PhysicsBehaviorFactory {
     pub fn create_behavior(
-        thing: Arc<RwLock<GameObject>>,
+        object_id: ObjectID,
         module_data: Arc<dyn ModuleData>,
     ) -> Result<Box<dyn BehaviorModuleInterface>, Box<dyn std::error::Error + Send + Sync>> {
-        Ok(Box::new(PhysicsBehaviorUpdate::new(thing, module_data)?))
+        Ok(Box::new(PhysicsBehaviorUpdate::new(object_id, module_data)?))
     }
 }
 

@@ -47,22 +47,20 @@ pub const INVALID_OBJECT_ID: ObjectId = 0;
 
 #[allow(dead_code)]
 pub(crate) fn get_player_index_for_object(object_id: ObjectId) -> Option<usize> {
-    let source_arc = TheGameLogic::find_object_by_id(object_id)?;
-    let source_guard = source_arc.read().ok()?;
-    let player_arc = source_guard.get_controlling_player()?;
-    let player_guard = player_arc.read().ok()?;
-    Some(player_guard.get_player_index() as usize)
+    crate::object::registry::OBJECT_REGISTRY.with_object(object_id, |source_guard| {
+        let player_arc = source_guard.get_controlling_player()?;
+        let player_guard = player_arc.read().ok()?;
+        Some(player_guard.get_player_index() as usize)
+    })?
 }
 
 #[allow(dead_code)]
 pub(crate) fn notify_special_power_completion_on_source(object_id: ObjectId) -> bool {
-    let Some(source_arc) = TheGameLogic::find_object_by_id(object_id) else {
-        return false;
-    };
-    let Ok(source_guard) = source_arc.read() else {
-        return false;
-    };
-    source_guard.notify_special_power_completion_die()
+    crate::object::registry::OBJECT_REGISTRY
+        .with_object(object_id, |source_guard| {
+            source_guard.notify_special_power_completion_die()
+        })
+        .unwrap_or(false)
 }
 
 pub(crate) fn ammo_count_for_clip_size(clip_size: i32) -> u32 {

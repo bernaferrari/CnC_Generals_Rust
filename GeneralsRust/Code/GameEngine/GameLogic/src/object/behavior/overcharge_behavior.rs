@@ -204,7 +204,7 @@ impl OverchargeBehavior {
         crate::object::registry::OBJECT_REGISTRY.with_object_mut(id, f)
     }
 
-    fn get_object(&self) -> Option<Arc<RwLock<Object>>> {
+    fn get_object(&self) -> Option<ObjectID> {
         let id = self.get_object_id();
         if id == crate::common::INVALID_ID {
             return None;
@@ -268,8 +268,8 @@ impl OverchargeBehavior {
 
     pub fn on_capture(
         &mut self,
-        old_owner: Option<&Arc<RwLock<Player>>>,
-        new_owner: Option<&Arc<RwLock<Player>>>,
+        old_owner: Option<PlayerIndex>,
+        new_owner: Option<PlayerIndex>,
     ) {
         if !self.overcharge_active {
             return;
@@ -437,8 +437,8 @@ impl BehaviorModuleInterface for OverchargeBehavior {
 
     fn on_capture(
         &mut self,
-        old_owner: Option<&Arc<RwLock<Player>>>,
-        new_owner: Option<&Arc<RwLock<Player>>>,
+        old_owner: Option<PlayerIndex>,
+        new_owner: Option<PlayerIndex>,
     ) {
         self.on_capture(old_owner, new_owner);
     }

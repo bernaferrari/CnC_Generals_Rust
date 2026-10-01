@@ -128,12 +128,11 @@ impl RailedTransportContain {
 
 impl ContainModuleInterface for RailedTransportContain {
     fn can_contain(&self, object_id: ObjectID) -> bool {
-        if let Some(obj) = TheGameLogic::find_object_by_id(object_id) {
-            if let Ok(obj_guard) = obj.try_read() {
-                return self.base.is_valid_container_for(&*obj_guard, true);
-            }
-        }
-        false
+        crate::object::registry::OBJECT_REGISTRY
+            .with_object(object_id, |obj_guard| {
+                self.base.is_valid_container_for(obj_guard, true)
+            })
+            .unwrap_or(false)
     }
 
     fn contain_object(&mut self, object_id: ObjectID) -> Result<(), String> {
@@ -210,14 +209,10 @@ impl ContainModuleInterface for RailedTransportContain {
         if !self.base.base.collide_enter_eject_foreign(other_id)? {
             return Ok(());
         }
-        let Some(other) = TheGameLogic::find_object_by_id(other_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(other_id))
-        else {
-            return Ok(());
-        };
-        let valid = other
-            .try_read()
-            .map(|guard| ContainModuleInterface::is_valid_container_for(self, &*guard, true))
+        let valid = crate::object::registry::OBJECT_REGISTRY
+            .with_object(other_id, |guard| {
+                ContainModuleInterface::is_valid_container_for(self, guard, true)
+            })
             .unwrap_or(false);
         if valid {
             self.contain_object(other_id)?;
@@ -257,8 +252,8 @@ impl ContainModuleInterface for RailedTransportContain {
     fn on_capture(
         &mut self,
         owner: &Object,
-        old_owner: Option<&Arc<RwLock<Player>>>,
-        new_owner: Option<&Arc<RwLock<Player>>>,
+        old_owner: Option<PlayerIndex>,
+        new_owner: Option<PlayerIndex>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         self.base
             .on_capture(owner, old_owner, new_owner)
@@ -269,19 +264,14 @@ impl ContainModuleInterface for RailedTransportContain {
         if !self.get_contained_objects().contains(&object_id) {
             return false;
         }
-        let Some(obj) = TheGameLogic::find_object_by_id(object_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(object_id))
-        else {
-            return false;
-        };
-        obj.try_read()
-            .ok()
-            .and_then(|guard| {
+        crate::object::registry::OBJECT_REGISTRY
+            .with_object(object_id, |guard| {
                 self.base
-                    .reserve_door_for_exit(&ObjectTemplate {}, &*guard)
+                    .reserve_door_for_exit(&ObjectTemplate {}, guard)
                     .ok()
+                    .map(|door| !matches!(door, ExitDoorType::None | ExitDoorType::NoneAvailable))
+                    .unwrap_or(false)
             })
-            .map(|door| !matches!(door, ExitDoorType::None | ExitDoorType::NoneAvailable))
             .unwrap_or(false)
     }
 

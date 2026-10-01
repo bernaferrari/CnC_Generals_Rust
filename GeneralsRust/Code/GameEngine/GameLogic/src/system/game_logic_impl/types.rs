@@ -41,29 +41,27 @@ pub enum CrcMode {
 /// C++ `XferCRC` used by `GameLogic::getCRC`. Implements both Xfer stacks so
 
 /// C++ `GameLogic::sendObjectCreated` — create a drawable and bind both worlds.
-pub fn send_object_created(object: &Arc<RwLock<Object>>) {
-    let Ok(guard) = object.read() else {
-        return;
-    };
-    if guard.get_drawable().is_some() {
+pub fn send_object_created(object_id: ObjectID) {
+    let already = OBJECT_REGISTRY
+        .with_object(object_id, |obj| obj.get_drawable().is_some())
+        .unwrap_or(true);
+    if already {
         return;
     }
-    let object_id = guard.get_id();
     let Some(client) = TheGameClient::get() else {
         return;
     };
-    let draw_id = client.create_drawable(guard.get_template().as_ref());
-    drop(guard);
+    let draw_id = OBJECT_REGISTRY.with_object(object_id, |obj| {
+        client.create_drawable(obj.get_template().as_ref())
+    });
+    let Some(draw_id) = draw_id else {
+        return;
+    };
     bind_object_and_drawable(object_id, draw_id);
 }
 
 /// C++ `GameLogic::sendObjectCreated(this)` from inside Object::initObject.
-/// The factory holds the Object write lock throughout init, so this variant
-/// uses the already-borrowed identity and installs the binding directly.
-pub(crate) fn send_object_created_borrowed(
-    object: &mut Object,
-    object_arc: &Arc<RwLock<Object>>,
-) {
+pub(crate) fn send_object_created_borrowed(object: &mut Object) {
     if object.get_drawable().is_some() {
         return;
     }
@@ -75,9 +73,6 @@ pub(crate) fn send_object_created_borrowed(
     let Some(drawable) = client.get_drawable_arc(draw_id) else {
         return;
     };
-    if let Ok(mut draw) = drawable.write() {
-        draw.friend_bind_to_object_with_id(object_id, object_arc);
-    }
     object.set_drawable(Some(drawable));
 }
 
@@ -89,23 +84,9 @@ pub fn bind_object_and_drawable(object_id: ObjectID, drawable_id: ObjectID) {
     let Some(drawable) = client.get_drawable_arc(drawable_id) else {
         return;
     };
-    let Some(object) = OBJECT_REGISTRY.get_object(object_id).or_else(|| {
-        get_game_logic()
-            .try_lock()
-            .ok()
-            .and_then(|logic| logic.find_object_by_id(object_id))
-    }) else {
-        return;
-    };
-    if let Ok(mut draw) = drawable.write() {
-        draw.friend_bind_to_object(&object);
-    }
-    {
-        let mut obj = object.write().ok();
-        if let Some(obj) = obj.as_mut() {
-            obj.set_drawable(Some(drawable));
-        }
-    }
+    OBJECT_REGISTRY.with_object_mut(object_id, |obj| {
+        obj.set_drawable(Some(drawable));
+    });
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -133,7 +114,7 @@ impl TheObjectFactory {
     pub fn new_object(
         template: Arc<dyn crate::common::ThingTemplate>,
         team: Option<Arc<RwLock<Team>>>,
-    ) -> Result<Arc<RwLock<Object>>, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<ObjectID, Box<dyn std::error::Error + Send + Sync>> {
         Self::new_object_with_status(template, team, crate::common::ObjectStatusMaskType::NONE)
     }
 
@@ -142,7 +123,7 @@ impl TheObjectFactory {
         template: Arc<dyn crate::common::ThingTemplate>,
         team: Option<Arc<RwLock<Team>>>,
         status_bits: crate::common::ObjectStatusMaskType,
-    ) -> Result<Arc<RwLock<Object>>, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<ObjectID, Box<dyn std::error::Error + Send + Sync>> {
         let object_id = {
             let mutex = get_game_logic();
             let mut logic = mutex
@@ -153,28 +134,18 @@ impl TheObjectFactory {
 
         let mut status_mask = template.get_initial_object_status();
         status_mask |= status_bits;
-        let object = Object::new_with_id(template.clone(), object_id, status_mask, team)?;
-
+        let mut object = Object::new_with_id(template.clone(), object_id, status_mask, team)?;
+        object.init_object()?;
+        OBJECT_REGISTRY.register_object(object_id, object);
         {
             let mutex = get_game_logic();
             let mut logic = mutex
                 .lock()
                 .map_err(|_| "GameLogic mutex poisoned when registering object")?;
-            logic
-                .register_object(object.clone())
-                .map_err(|err| format!("Failed to register object: {:?}", err))?;
+            logic.objects.insert(object_id, ());
+            logic.all_objects.insert(0, object_id);
         }
-
-
-
-        {
-            let mut obj_guard = object
-                .write()
-                .map_err(|e| format!("object write lock poisoned: {}", e))?;
-            obj_guard.init_object()?;
-        }
-
-        Ok(object)
+        Ok(object_id)
     }
 }
 
@@ -277,7 +248,7 @@ pub struct GameLogic {
     next_object_id: ObjectID,
     all_objects: Vec<ObjectID>,
     dead_objects: Vec<ObjectID>,
-    objects: HashMap<ObjectID, Arc<RwLock<Object>>>,
+    objects: HashMap<ObjectID, ()>,
 
     // Player/Team management (references only)
     // Actual player list is managed by player_list() singleton

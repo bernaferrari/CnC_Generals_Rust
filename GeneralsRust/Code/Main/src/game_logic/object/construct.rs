@@ -509,6 +509,7 @@ impl Object {
 
         Self {
             thing: Thing::new(template),
+            staged_projectiles: Vec::new(),
             id,
             host_trigger_world: std::sync::Weak::new(),
             team,
@@ -1438,6 +1439,7 @@ impl Object {
 
         Self {
             thing: Thing::new(template),
+            staged_projectiles: Vec::new(),
             id,
             host_trigger_world: std::sync::Weak::new(),
             team,

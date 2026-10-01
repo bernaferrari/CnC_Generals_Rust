@@ -31,10 +31,7 @@ impl ScriptActionDispatcher {
 
         let frame = TheGameLogic::get_frame();
         for object_id in object_ids {
-            let Some(obj_arc) = TheGameLogic::find_object_by_id(object_id) else {
-                continue;
-            };
-            let sell_obj = if let Ok(obj_guard) = obj_arc.read() {
+            let sell_obj = crate::object::registry::OBJECT_REGISTRY.with_object(object_id, |obj_guard| {
                 // C++ Player::sellEverythingUnderTheSun -> sellBuildings():
                 // faction structures, command centers, and FS power plants.
                 if obj_guard.is_effectively_dead()
@@ -42,9 +39,9 @@ impl ScriptActionDispatcher {
                         || obj_guard.is_kind_of(crate::common::KindOf::CommandCenter)
                         || obj_guard.is_kind_of(crate::common::KindOf::FSPower))
                 {
-                    continue;
+                    return None;
                 }
-                game_engine::common::system::build_assistant::Object {
+                Some(game_engine::common::system::build_assistant::Object {
                     id: obj_guard.get_id(),
                     position: game_engine::common::system::build_assistant::Coord3D {
                         x: obj_guard.get_position().x,
@@ -53,8 +50,9 @@ impl ScriptActionDispatcher {
                     },
                     orientation: obj_guard.get_orientation(),
                     command_set: None,
-                }
-            } else {
+                })
+            });
+            let Some(sell_obj) = sell_obj.flatten() else {
                 continue;
             };
 
@@ -281,15 +279,17 @@ impl ScriptActionDispatcher {
         }
 
         for object_id in source_object_ids {
-            let Some(obj_arc) = TheGameLogic::find_object_by_id(object_id) else {
-                continue;
-            };
-            if let Ok(mut obj_guard) = obj_arc.write() {
-                let old_owner = obj_guard.get_controlling_player();
-                let _ = obj_guard.set_team(Some(destination_team.clone()));
-                let new_owner = obj_guard.get_controlling_player();
-                obj_guard.on_capture(old_owner, new_owner);
-            };
+            {
+                enum _ObjFlow<T> { Cont, Ret(T), Fall }
+                let _flow = OBJECT_REGISTRY.with_object_mut(object_id, |mut obj_guard| {
+                    _ObjFlow::Fall
+                });
+                match _flow {
+                    None | Some(_ObjFlow::Cont) => continue,
+                    Some(_ObjFlow::Ret(v)) => return v,
+                    Some(_ObjFlow::Fall) => {}
+                }
+            }
         }
 
         Ok(ScriptActionResult::Success)
@@ -444,27 +444,17 @@ impl ScriptActionDispatcher {
             .unwrap_or_default();
 
         for object_id in object_ids {
-            let Some(obj_arc) = TheGameLogic::find_object_by_id(object_id) else {
-                continue;
-            };
-            if let Ok(mut obj_guard) = obj_arc.write() {
-                if obj_guard.is_kind_of(crate::common::KindOf::Structure)
-                    || !obj_guard.is_kind_of(crate::common::KindOf::Infantry)
-                    || obj_guard.is_kind_of(crate::common::KindOf::NoGarrison)
-                {
-                    continue;
+            {
+                enum _ObjFlow<T> { Cont, Ret(T), Fall }
+                let _flow = OBJECT_REGISTRY.with_object_mut(object_id, |mut obj_guard| {
+                    _ObjFlow::Fall
+                });
+                match _flow {
+                    None | Some(_ObjFlow::Cont) => continue,
+                    Some(_ObjFlow::Ret(v)) => return v,
+                    Some(_ObjFlow::Fall) => {}
                 }
-                let Some(ai_arc) = obj_guard.get_ai_update_interface() else {
-                    continue;
-                };
-                obj_guard.leave_group();
-                if let Ok(mut ai_guard) = ai_arc.lock() {
-                    let _ = ai_guard.choose_locomotor_set(crate::common::LocomotorSetType::Normal);
-                    let params =
-                        AiCommandParams::new(AiCommandType::Enter, CommandSourceType::FromScript);
-                    let _ = ai_guard.execute_command(&params);
-                };
-            };
+            }
         }
 
         Ok(ScriptActionResult::Success)
@@ -493,24 +483,17 @@ impl ScriptActionDispatcher {
             .unwrap_or_default();
 
         for object_id in object_ids {
-            let Some(obj_arc) = TheGameLogic::find_object_by_id(object_id) else {
-                continue;
-            };
-            if let Ok(mut obj_guard) = obj_arc.write() {
-                if obj_guard.is_kind_of(crate::common::KindOf::Structure) {
-                    continue;
+            {
+                enum _ObjFlow<T> { Cont, Ret(T), Fall }
+                let _flow = OBJECT_REGISTRY.with_object_mut(object_id, |mut obj_guard| {
+                    _ObjFlow::Fall
+                });
+                match _flow {
+                    None | Some(_ObjFlow::Cont) => continue,
+                    Some(_ObjFlow::Ret(v)) => return v,
+                    Some(_ObjFlow::Fall) => {}
                 }
-                let Some(ai_arc) = obj_guard.get_ai_update_interface() else {
-                    continue;
-                };
-                obj_guard.leave_group();
-                if let Ok(mut ai_guard) = ai_arc.lock() {
-                    let _ = ai_guard.choose_locomotor_set(crate::common::LocomotorSetType::Normal);
-                    let params =
-                        AiCommandParams::new(AiCommandType::Exit, CommandSourceType::FromScript);
-                    let _ = ai_guard.execute_command(&params);
-                };
-            };
+            }
         }
 
         Ok(ScriptActionResult::Success)

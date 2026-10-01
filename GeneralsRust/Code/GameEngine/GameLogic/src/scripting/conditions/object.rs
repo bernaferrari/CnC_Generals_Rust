@@ -175,24 +175,30 @@ impl ScriptCondition for ObjectInAreaCondition {
         let Ok(manager) = obj_manager.read() else {
             return Ok(false);
         };
-        let Some(obj_arc) = manager.get_object(object_id as u32) else {
-            return Ok(false);
-        };
-        let Ok(obj_guard) = obj_arc.read() else {
-            return Ok(false);
-        };
-        let __base_arc = obj_guard.base();
-        let Ok(base_guard) = __base_arc.read() else {
-            return Ok(false);
-        };
-        if base_guard.is_destroyed() {
-            return Ok(false);
+        {
+            enum _ObjFlow<T> { Cont, Ret(T), Fall }
+            let _flow = OBJECT_REGISTRY.with_object(object_id as u32, |obj_guard| {
+                let __base_arc = obj_guard.base();
+                let Ok(base_guard) = __base_arc.read() else {
+                    return _ObjFlow::Ret(Ok(false));
+                };
+                if base_guard.is_destroyed() {
+                    return _ObjFlow::Ret(Ok(false));
+                }
+                
+                let pos = *base_guard.get_position();
+                let dx = pos.x as f64 - x;
+                let dy = pos.y as f64 - y;
+                Ok(dx * dx + dy * dy <= radius * radius)
+                _ObjFlow::Fall
+            });
+            match _flow {
+                None => { return Ok(false); }
+                Some(_ObjFlow::Cont) => continue,
+                Some(_ObjFlow::Ret(v)) => return v,
+                Some(_ObjFlow::Fall) => {}
+            }
         }
-
-        let pos = *base_guard.get_position();
-        let dx = pos.x as f64 - x;
-        let dy = pos.y as f64 - y;
-        Ok(dx * dx + dy * dy <= radius * radius)
     }
 
     fn name(&self) -> &str {

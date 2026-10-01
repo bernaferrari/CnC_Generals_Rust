@@ -333,15 +333,11 @@ pub struct JetSlowDeathBehavior {
 
 impl JetSlowDeathBehavior {
     pub fn new(
-        object: Arc<RwLock<GameObject>>,
+        object_id: ObjectID,
         module_data: Arc<JetSlowDeathBehaviorModuleData>,
     ) -> Self {
         Self {
-            object_id: object
-                .read()
-                .ok()
-                .map(|g| g.get_id())
-                .unwrap_or(crate::common::INVALID_ID),
+            object_id: object_id,
             module_data,
             next_call_frame_and_phase: 0,
             timer_death_frame: 0,
@@ -352,7 +348,7 @@ impl JetSlowDeathBehavior {
         }
     }
 
-    fn owner(&self) -> Option<Arc<RwLock<GameObject>>> {
+    fn owner(&self) -> Option<ObjectID> {
         (if self.object_id == crate::common::INVALID_ID {
             None
         } else {
@@ -361,13 +357,13 @@ impl JetSlowDeathBehavior {
         })
     }
 
-    fn do_fx(&self, fx: &Option<Arc<FXList>>, object: &Arc<RwLock<GameObject>>) {
+    fn do_fx(&self, fx: &Option<Arc<FXList>>, object: ObjectID) {
         if let Some(fx) = fx {
             let _ = fx.do_fx_obj(object, None);
         }
     }
 
-    fn do_ocl(&self, ocl: &Option<Arc<ObjectCreationList>>, object: &Arc<RwLock<GameObject>>) {
+    fn do_ocl(&self, ocl: &Option<Arc<ObjectCreationList>>, object: ObjectID) {
         if let Some(ocl) = ocl {
             let _ = ObjectCreationList::create(ocl, object, None);
         }

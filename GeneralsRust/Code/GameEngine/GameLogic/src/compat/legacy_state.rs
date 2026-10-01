@@ -49,11 +49,11 @@ pub trait LegacyState: Send + Sync + Any + std::fmt::Debug {
     fn set_state_id(&mut self, id: StateId);
 
     /// Optional goal object pointer recorded by the state machine.
-    fn machine_goal_object(&self) -> Result<Option<Arc<RwLock<Object>>>, String> {
+    fn machine_goal_object(&self) -> Result<Option<crate::common::ObjectID>, String> {
         Ok(None)
     }
     /// Owning object for the state machine.
-    fn machine_owner(&self) -> Result<Arc<RwLock<Object>>, String> {
+    fn machine_owner(&self) -> Result<crate::common::ObjectID, String> {
         Err("machine owner not attached".to_string())
     }
     /// Owning state machine reference is no longer exposed: states receive
@@ -92,7 +92,7 @@ pub trait LegacyState: Send + Sync + Any + std::fmt::Debug {
     }
 
 
-    fn note_step_owner(&mut self, _owner: Arc<RwLock<Object>>) {}
+    fn note_step_owner(&mut self, _owner: crate::common::ObjectID) {}
 
     fn note_guard_enter(
         &mut self,
@@ -219,11 +219,11 @@ impl<S: LegacyState + 'static> core::StateImplementation for LegacyStateAdapter<
         self.inner.set_state_id(id);
     }
 
-    fn get_machine_goal_object(&self) -> Result<Option<Arc<RwLock<Object>>>, String> {
+    fn get_machine_goal_object(&self) -> Result<Option<crate::common::ObjectID>, String> {
         self.inner.machine_goal_object()
     }
 
-    fn get_machine_owner(&self) -> Result<Arc<RwLock<Object>>, String> {
+    fn get_machine_owner(&self) -> Result<crate::common::ObjectID, String> {
         self.inner.machine_owner()
     }
 
@@ -243,7 +243,7 @@ impl<S: LegacyState + 'static> core::StateImplementation for LegacyStateAdapter<
         self.inner.bind_goal_waypoint(waypoint);
     }
 
-    fn note_step_owner(&mut self, owner: Arc<RwLock<Object>>) {
+    fn note_step_owner(&mut self, owner: crate::common::ObjectID) {
         self.inner.note_step_owner(owner);
     }
 
@@ -467,11 +467,11 @@ where
         self.base_state_mut().set_id(id);
     }
 
-    fn machine_goal_object(&self) -> Result<Option<Arc<RwLock<Object>>>, String> {
+    fn machine_goal_object(&self) -> Result<Option<crate::common::ObjectID>, String> {
         Ok(self.base_state().get_machine_goal_object())
     }
 
-    fn machine_owner(&self) -> Result<Arc<RwLock<Object>>, String> {
+    fn machine_owner(&self) -> Result<crate::common::ObjectID, String> {
         self.base_state()
             .get_machine_owner()
             .ok_or_else(|| "state machine owner not attached".to_string())
@@ -509,10 +509,8 @@ where
         self.base_state_mut().goal_waypoint_copied = waypoint;
     }
 
-    fn note_step_owner(&mut self, owner: Arc<RwLock<Object>>) {
-        if let Ok(guard) = owner.read() {
-            self.base_state_mut().owner_id = guard.get_id();
-        }
+    fn note_step_owner(&mut self, owner: crate::common::ObjectID) {
+        self.base_state_mut().owner_id = owner;
     }
 
     fn note_guard_enter(

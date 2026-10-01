@@ -368,14 +368,14 @@ impl PresentationFrame {
     /// pass can apply alpha / never-explored skip without mid-render shroud locks.
     /// Cell-grid FOW is also frozen into `fow_grid` for terrain overlay / minimap.
     /// Fail-closed claim: unit FOW + compact local grid; not full SAGE shroud parity.
-    pub fn build_from_logic(logic: &GameLogic, local_player_id: u32) -> Self {
+    pub fn build_from_logic(logic: &mut GameLogic, local_player_id: u32) -> Self {
         Self::build_from_logic_with_runtime_heightmap(logic, local_player_id, None)
     }
 
     /// Engine-only variant which carries the map-lifetime full terrain payload
     /// instead of cloning it again while freezing a presentation frame.
     pub(crate) fn build_from_logic_with_runtime_heightmap(
-        logic: &GameLogic,
+        logic: &mut GameLogic,
         local_player_id: u32,
         runtime_heightmap: Option<std::sync::Arc<PresentationRuntimeHeightmap>>,
     ) -> Self {
@@ -383,7 +383,7 @@ impl PresentationFrame {
     }
 
     pub(super) fn build_from_logic_with_tint_update(
-        logic: &GameLogic,
+        logic: &mut GameLogic,
         local_player_id: u32,
         runtime_heightmap: Option<std::sync::Arc<PresentationRuntimeHeightmap>>,
         freeze_tints: bool,
@@ -2656,7 +2656,7 @@ mod sw_hud_tests {
             90.0,
         );
 
-        let frame = PresentationFrame::build_from_logic(&logic, 0);
+        let frame = PresentationFrame::build_from_logic(&mut logic, 0);
         let local_row = frame
             .superweapon_timers
             .iter()
@@ -2722,7 +2722,7 @@ mod sw_hud_tests {
             90.0,
         );
 
-        let frame = PresentationFrame::build_from_logic(&logic, 0);
+        let frame = PresentationFrame::build_from_logic(&mut logic, 0);
         let rows: Vec<_> = frame
             .superweapon_timers
             .iter()
@@ -2764,7 +2764,7 @@ mod sw_hud_tests {
             false,
             90.0,
         );
-        let frame = PresentationFrame::build_from_logic(&logic, 0);
+        let frame = PresentationFrame::build_from_logic(&mut logic, 0);
         let mut rem: Vec<f32> = frame
             .superweapon_timers
             .iter()
@@ -2818,7 +2818,7 @@ mod sw_hud_tests {
         }
         logic.hide_script_superweapon_object_for_test(hidden);
 
-        let frame = PresentationFrame::build_from_logic(&logic, 0);
+        let frame = PresentationFrame::build_from_logic(&mut logic, 0);
         let rows: Vec<_> = frame
             .superweapon_timers
             .iter()
@@ -2840,7 +2840,7 @@ mod sw_hud_tests {
         );
 
         logic.set_script_superweapon_display_enabled_for_test(false);
-        let hidden_frame = PresentationFrame::build_from_logic(&logic, 0);
+        let hidden_frame = PresentationFrame::build_from_logic(&mut logic, 0);
         assert!(
             hidden_frame.superweapon_timers.is_empty(),
             "HideSuperweaponDisplay emits no strip"
@@ -2864,7 +2864,7 @@ mod sw_hud_tests {
         if let Some(o) = logic.host_object_mut(id) {
             o.status.disabled_underpowered = true;
         }
-        let frame = PresentationFrame::build_from_logic(&logic, 0);
+        let frame = PresentationFrame::build_from_logic(&mut logic, 0);
         let row = frame
             .superweapon_timers
             .iter()

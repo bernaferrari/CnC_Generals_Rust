@@ -1057,7 +1057,7 @@ fn fire_spawn_authority_defers_queue_until_shadow() {
     host_fire_spawn_log::clear();
     // Fire-spawn defers only while a coupled shadow tick is live (Wave 682).
     begin_shadow_coupled_tick();
-    combat::queue_projectile(PendingProjectile {
+    combat::queue_projectile(&mut logic.combat_system, PendingProjectile {
         shooter_id: ObjectId(1),
         shooter_pos: glam::Vec3::ZERO,
         source_context: None,
@@ -1133,8 +1133,7 @@ fn fire_spawn_authority_enqueues_host_when_shadow_disabled() {
     assert!(gameworld_fire_spawn_authority_enabled());
     assert!(!gameworld_shadow_enabled());
     host_fire_spawn_log::clear();
-    combat::clear_pending_projectile_queue_for_test();
-    combat::queue_projectile(PendingProjectile {
+    combat::queue_projectile(&mut logic.combat_system, PendingProjectile {
         shooter_id: ObjectId(9),
         shooter_pos: glam::Vec3::ZERO,
         source_context: None,
@@ -1179,10 +1178,9 @@ fn fire_spawn_authority_enqueues_host_when_shadow_disabled() {
         "host-only must not defer into fire_spawn_log"
     );
     assert!(
-        combat::pending_projectile_queue_len_for_test() >= 1,
-        "shadow-off + fire_spawn auth must enqueue PENDING_PROJECTILES immediately"
+        combat::pending_projectile_queue_len_for_test(&logic.combat_system) >= 1,
+        "shadow-off + fire_spawn auth must enqueue the host combat queue immediately"
     );
-    combat::clear_pending_projectile_queue_for_test();
     match prev_shadow {
         Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", v),
         None => crate::env_compat::remove_var("GENERALS_GAMEWORLD_SHADOW"),

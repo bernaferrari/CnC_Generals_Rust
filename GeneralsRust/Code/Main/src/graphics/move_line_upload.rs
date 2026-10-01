@@ -114,8 +114,8 @@ mod tests {
 
     #[test]
     fn empty_pack_is_honest() {
-        let logic = GameLogic::new();
-        let frame = PresentationFrame::build_from_logic(&logic, 0);
+        let mut logic = GameLogic::new();
+        let frame = PresentationFrame::build_from_logic(&mut logic, 0);
         let pack = MoveLineUpload::pack_from_presentation(&frame);
         assert!(pack.honesty.cpu_pack_ok);
         assert!(!pack.honesty.has_geometry);
@@ -140,7 +140,7 @@ mod tests {
                 Vec3::new(30.0, 0.0, 10.0),
             ];
         }
-        let frame = PresentationFrame::build_from_logic(&logic, 0);
+        let frame = PresentationFrame::build_from_logic(&mut logic, 0);
         let ro = frame.objects.iter().find(|o| o.id == id).expect("ro");
         assert_eq!(ro.move_destination, Some(Vec3::new(30.0, 0.0, 10.0)));
         assert_eq!(ro.path_waypoints.len(), 3);

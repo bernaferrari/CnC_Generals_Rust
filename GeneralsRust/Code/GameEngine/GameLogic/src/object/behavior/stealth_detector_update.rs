@@ -547,7 +547,7 @@ pub struct StealthDetectorUpdate {
 impl StealthDetectorUpdate {
     /// Create a new StealthDetectorUpdate instance
     pub fn new(
-        object: Arc<RwLock<GameObject>>,
+        object_id: ObjectID,
         module_data: Arc<dyn ModuleData>,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let specific_data = module_data
@@ -555,11 +555,7 @@ impl StealthDetectorUpdate {
             .downcast_ref::<StealthDetectorUpdateModuleData>()
             .ok_or("Invalid module data type for StealthDetectorUpdate")?;
 
-        let object_id = object
-            .read()
-            .ok()
-            .map(|g| g.get_id())
-            .unwrap_or(crate::common::INVALID_ID);
+        let object_id = object_id;
         let enabled = !specific_data.initially_disabled;
         // C++ StealthDetectorUpdate.cpp:67-70 — random first wake so detectors
         // do not all scan on the same frame.
@@ -1122,10 +1118,10 @@ pub struct StealthDetectorUpdateFactory;
 
 impl StealthDetectorUpdateFactory {
     pub fn create_behavior(
-        thing: Arc<RwLock<GameObject>>,
+        object_id: ObjectID,
         module_data: Arc<dyn ModuleData>,
     ) -> Result<Box<dyn BehaviorModuleInterface>, Box<dyn std::error::Error + Send + Sync>> {
-        let behavior = StealthDetectorUpdate::new(thing, module_data)?;
+        let behavior = StealthDetectorUpdate::new(object_id, module_data)?;
         Ok(Box::new(behavior))
     }
 }

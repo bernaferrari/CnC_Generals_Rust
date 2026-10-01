@@ -205,14 +205,12 @@ impl TheInGameUI {
         // from the owning module's ready frame. A live module wins; a fresh
         // attach without one starts a full recharge (frame + ReloadTime).
         let ready_frame = crate::object::registry::OBJECT_REGISTRY
-            .get_object(object_id)
-            .and_then(|obj| {
-                obj.read().ok().and_then(|guard| {
-                    guard.with_special_power_module_interface_by_name(&power_name, |sp| {
-                        sp.get_ready_frame()
-                    })
+            .with_object(object_id, |guard| {
+                guard.with_special_power_module_interface_by_name(&power_name, |sp| {
+                    sp.get_ready_frame()
                 })
             })
+            .flatten()
             .unwrap_or_else(|| TheGameLogic::get_frame() + template.get_reload_time());
         if let Ok(mut state) = IN_GAME_UI_STATE.write() {
             state.superweapons.retain(|entry| {
@@ -390,11 +388,8 @@ impl TheRadar {
         false
     }
 
-    pub fn try_infiltration_event(target: Arc<RwLock<Object>>) -> Result<(), GameError> {
-        let Ok(target_guard) = target.read() else {
-            return Err(GameError::LockError);
-        };
-        Self::try_infiltration_event_for_object(&target_guard)
+    pub fn try_infiltration_event(target: &Object) -> Result<(), GameError> {
+        Self::try_infiltration_event_for_object(target)
     }
 
     /// Borrow-first infiltration radar event (no Arc at the call site).
@@ -445,11 +440,8 @@ impl TheRadar {
     }
 
     /// C++ `Radar::tryUnderAttackEvent` — ping + glow + per-kind UI/audio/EVA.
-    pub fn try_under_attack_event(target: Arc<RwLock<Object>>) -> Result<bool, GameError> {
-        let Ok(target_guard) = target.read() else {
-            return Err(GameError::LockError);
-        };
-        Self::try_under_attack_event_for_object(&target_guard)
+    pub fn try_under_attack_event(target: &Object) -> Result<bool, GameError> {
+        Self::try_under_attack_event_for_object(target)
     }
 
     pub fn try_under_attack_event_for_object(target: &Object) -> Result<bool, GameError> {

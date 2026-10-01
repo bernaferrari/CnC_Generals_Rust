@@ -121,11 +121,9 @@ impl TerrainLogic {
         }
 
         for object_id in &object_ids {
-            if let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(*object_id) {
-                if let Ok(mut guard) = obj.write() {
-                    guard.friend_prepare_for_map_boundary_adjust();
-                }
-            }
+            crate::object::registry::OBJECT_REGISTRY.with_object_mut(*object_id, |guard| {
+                guard.friend_prepare_for_map_boundary_adjust();
+            });
         }
 
         // C++ storeFoggedCells(partitionStore, FALSE) — permanently revealed.
@@ -166,11 +164,9 @@ impl TerrainLogic {
         }
 
         for object_id in &object_ids {
-            if let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(*object_id) {
-                if let Ok(mut guard) = obj.write() {
-                    guard.friend_notify_of_new_map_boundary();
-                }
-            }
+            crate::object::registry::OBJECT_REGISTRY.with_object_mut(*object_id, |guard| {
+                guard.friend_notify_of_new_map_boundary();
+            });
         }
 
         // Restore fogged cells (C++ restoreFoggedCells(..., TRUE)).
@@ -234,21 +230,20 @@ impl TerrainLogic {
     /// Computes the average height under the object's footprint, then lowers
     /// all terrain cells within the footprint to that average. Only lowers,
     /// never raises — matching C++ setRawMapHeight behavior.
-    pub fn flatten_terrain(&mut self, obj: &Arc<RwLock<Object>>) {
-        let obj_guard = obj.read().unwrap();
-        if obj_guard.get_geometry_info().get_is_small() {
+    pub fn flatten_terrain(&mut self, obj: &Object) {
+        if obj.get_geometry_info().get_is_small() {
             return;
         }
 
-        let pos = obj_guard.get_position();
-        let geom = obj_guard.get_geometry_info();
+        let pos = obj.get_position();
+        let geom = obj.get_geometry_info();
 
         match geom.get_geometry_type() {
             EngineGeometryType::Box => {
                 self.flatten_terrain_box_at(
                     pos.x,
                     pos.y,
-                    obj_guard.get_orientation(),
+                    obj.get_orientation(),
                     geom.get_major_radius(),
                     geom.get_minor_radius(),
                 );
@@ -489,14 +484,13 @@ impl TerrainLogic {
     ///
     /// Creates a crater with radial displacement — deepest at center,
     /// tapering to zero at the edge of the object's radius.
-    pub fn create_crater_in_terrain(&mut self, obj: &Arc<RwLock<Object>>) {
-        let obj_guard = obj.read().unwrap();
-        if obj_guard.get_geometry_info().get_is_small() {
+    pub fn create_crater_in_terrain(&mut self, obj: &Object) {
+        if obj.get_geometry_info().get_is_small() {
             return;
         }
 
-        let pos = obj_guard.get_position();
-        let radius = obj_guard.get_geometry_info().get_major_radius();
+        let pos = obj.get_position();
+        let radius = obj.get_geometry_info().get_major_radius();
         if radius <= 0.0 {
             return;
         }

@@ -197,13 +197,14 @@ fn named_object_transform(object_name: &str, bone_name: &str) -> Option<(Vec3, V
     }
     let tracker = get_named_object_tracker();
     let object_id = tracker.get_object_id(object_name).ok().flatten()?;
-    let object = TheGameLogic::find_object_by_id(object_id)?;
-    let object = object.read().ok()?;
-    let pos = object.get_position();
+    let (pos, drawable) =
+        gamelogic::object::registry::OBJECT_REGISTRY.with_object(object_id, |object| {
+            (*object.get_position(), object.get_drawable())
+        })?;
     let mut eye = Vec3::new(pos.x, pos.y, pos.z);
     let mut target = eye + Vec3::Y;
     if !bone_name.is_empty() {
-        if let Some(drawable) = object.get_drawable() {
+        if let Some(drawable) = drawable {
             if let Ok(drawable) = drawable.read() {
                 if let Some(transform) = drawable.get_bone_transform(bone_name) {
                     eye = transform.w_axis.truncate();
@@ -1238,13 +1239,21 @@ impl View {
             self.follow_factor = -1.0;
             return;
         };
-        let Some(object) = TheGameLogic::find_object_by_id(object_id) else {
+        let Some((obj_x, obj_y, obj_z, follow_airborne, orientation)) =
+            gamelogic::object::registry::OBJECT_REGISTRY.with_object(object_id, |object_guard| {
+                let objpos = object_guard.get_position();
+                (
+                    objpos.x,
+                    objpos.y,
+                    objpos.z,
+                    object_guard.is_using_airborne_locomotor() && object_guard.is_above_terrain(),
+                    object_guard.get_orientation(),
+                )
+            })
+        else {
             self.camera_lock_id = None;
             self.camera_lock_drawable_id = None;
             self.follow_factor = -1.0;
-            return;
-        };
-        let Ok(object_guard) = object.read() else {
             return;
         };
 
@@ -1254,11 +1263,10 @@ impl View {
             self.follow_factor = (self.follow_factor + 0.05).min(1.0);
         }
 
-        let objpos = object_guard.get_position();
         let mut cur_x = self.position.x;
         let mut cur_y = self.position.y;
-        let dx = objpos.x - cur_x;
-        let dy = objpos.y - cur_y;
+        let dx = obj_x - cur_x;
+        let dy = obj_y - cur_y;
         let cell = get_global_data()
             .map(|g| g.read().partition_cell_size)
             .unwrap_or(0.0);
@@ -1266,8 +1274,8 @@ impl View {
         let cur_dist_sqr = dx * dx + dy * dy;
 
         if self.snap_immediate {
-            cur_x = objpos.x;
-            cur_y = objpos.y;
+            cur_x = obj_x;
+            cur_y = obj_y;
         } else if self.camera_lock_type == CameraLockType::Tether {
             if cur_dist_sqr >= snap_thresh_sqr && cur_dist_sqr > 0.0 {
                 let ratio = 1.0 - snap_thresh_sqr / cur_dist_sqr;
@@ -1287,11 +1295,8 @@ impl View {
         self.position.y = cur_y;
         self.position.z = 0.0;
 
-        if self.camera_lock_type == CameraLockType::Follow
-            && object_guard.is_using_airborne_locomotor()
-            && object_guard.is_above_terrain()
-        {
-            let ideal = normalize_angle(object_guard.get_orientation() - PI * 0.5);
+        if self.camera_lock_type == CameraLockType::Follow && follow_airborne {
+            let ideal = normalize_angle(orientation - PI * 0.5);
             if self.snap_immediate {
                 self.angle = ideal;
             } else {
@@ -1303,7 +1308,7 @@ impl View {
         if self.snap_immediate {
             self.snap_immediate = false;
         }
-        self.ground_level = objpos.z;
+        self.ground_level = obj_z;
         self.camera_has_moved_since_request = true;
     }
 
@@ -2586,11 +2591,13 @@ impl View {
             } else if info.track_object {
                 if info.cur_frame <= info.total_frames() {
                     if let Some(obj_id) = info.target_object_id {
-                        if let Some(object) = TheGameLogic::find_object_by_id(obj_id) {
-                            if let Ok(guard) = object.read() {
+                        if let Some(pos) = gamelogic::object::registry::OBJECT_REGISTRY
+                            .with_object(obj_id, |guard| {
                                 let pos = guard.get_position();
-                                info.target_position = Point3::new(pos.x, pos.y, pos.z);
-                            }
+                                Point3::new(pos.x, pos.y, pos.z)
+                            })
+                        {
+                            info.target_position = pos;
                         }
                     }
 

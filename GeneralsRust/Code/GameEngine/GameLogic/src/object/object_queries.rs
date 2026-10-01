@@ -38,16 +38,21 @@ impl Object {
     }
 
     pub fn get_controlling_player_id(&self) -> Option<UnsignedInt> {
+        if let Some(team_id) = self.get_team_id() {
+            if let Some(controller) =
+                crate::team::with_team(team_id, |team| team.get_controlling_player_id())
+            {
+                return controller;
+            }
+        }
         self.get_team()
             .as_ref()
             .and_then(|team| team.read().ok()?.get_controlling_player_id())
     }
 
-    pub fn get_controlling_player(&self) -> Option<Arc<RwLock<Player>>> {
-        let team = self.get_team()?;
-        let player_index = team.read().ok()?.get_controlling_player_id()? as Int;
-        let list = player_list().read().ok()?;
-        list.get_player(player_index).cloned()
+    pub fn get_controlling_player(&self) -> Option<crate::player::PlayerIndex> {
+        self.get_controlling_player_id()
+            .map(|id| id as crate::player::PlayerIndex)
     }
 
     pub fn get_player_id(&self) -> Option<PlayerId> {
@@ -56,28 +61,33 @@ impl Object {
     }
 
     pub fn is_neutral_controlled(&self) -> bool {
-        if let Some(player) = self.get_controlling_player() {
-            if let Ok(guard) = player.read() {
-                return guard.get_player_type() == PlayerType::Neutral;
-            }
-        }
-        false
+        let Some(index) = self.get_controlling_player() else {
+            return false;
+        };
+        crate::player::with_player(index, |player| {
+            player.get_player_type() == PlayerType::Neutral
+        })
+        .unwrap_or(false)
     }
 
     pub fn relationship_to(&self, other: &Object) -> Relationship {
-        if let (Some(my_team), Some(other_team)) = (self.get_team(), other.get_team()) {
-            if let (Ok(my_guard), Ok(other_guard)) = (my_team.read(), other_team.read()) {
-                if self.is_undetected_defector() {
-                    return Relationship::Neutral;
-                }
-                if other.is_undetected_defector() {
-                    return Relationship::Allies;
-                }
-                return my_guard.get_relationship(&other_guard);
-            }
+        let (Some(my_id), Some(other_id)) = (self.get_team_id(), other.get_team_id()) else {
+            return Relationship::Neutral;
+        };
+        if self.is_undetected_defector() {
+            return Relationship::Neutral;
         }
-
-        Relationship::Neutral
+        if other.is_undetected_defector() {
+            return Relationship::Allies;
+        }
+        if my_id == other_id {
+            return Relationship::Allies;
+        }
+        crate::team::with_team(my_id, |my_team| {
+            crate::team::with_team(other_id, |other_team| my_team.get_relationship(other_team))
+        })
+        .flatten()
+        .unwrap_or(Relationship::Neutral)
     }
 
     pub fn get_formation_id(&self) -> FormationID {
@@ -453,7 +463,7 @@ impl Object {
     /// Get the owning player (the player who originally built/owns this object).
     /// C++ Reference: Object.h line 229 (getOwningPlayer)
     /// In C++, this is the team the object belongs to. Returns controlling player as fallback.
-    pub fn get_owning_player(&self) -> Option<Arc<RwLock<Player>>> {
+    pub fn get_owning_player(&self) -> Option<PlayerIndex> {
         self.get_controlling_player()
     }
 
@@ -500,15 +510,16 @@ impl Object {
         if id != INVALID_ID { Some(id) } else { None }
     }
 
-    pub fn get_goal_object(&self) -> Option<Arc<RwLock<Object>>> {
+    pub fn get_goal_object(&self) -> Option<ObjectID> {
         // Wave 264: empty dual-world → None.
         if dual_world_registry_unavailable() {
             return None;
         }
 
         let goal_id = self.get_goal_object_id()?;
-        crate::helpers::TheGameLogic::find_object_by_id(goal_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(goal_id))
+        registry::OBJECT_REGISTRY
+            .with_object(goal_id, |_| ())
+            .map(|_| goal_id)
     }
 
     /// Get the thing template for this object
@@ -621,7 +632,7 @@ impl Object {
     }
 
     /// Compatibility wrapper: resolves enemy IDs to handles at the call boundary.
-    pub fn find_enemies_in_radius(&self, radius: f32) -> Result<Vec<Arc<RwLock<Object>>>, String> {
+    pub fn find_enemies_in_radius(&self, radius: f32) -> Result<Vec<ObjectID>, String> {
         // Wave 264: empty dual-world → Ok(empty).
         if dual_world_registry_unavailable() {
             return Ok(Vec::new());
@@ -629,8 +640,11 @@ impl Object {
 
         let mut enemies = Vec::new();
         for object_id in self.find_enemy_ids_in_radius(radius)? {
-            if let Some(object) = registry::OBJECT_REGISTRY.get_object(object_id) {
-                enemies.push(object);
+            if registry::OBJECT_REGISTRY
+                .with_object(object_id, |_| ())
+                .is_some()
+            {
+                enemies.push(object_id);
             }
         }
         Ok(enemies)
@@ -996,15 +1010,16 @@ impl Object {
         }
     }
 
-    pub fn get_container(&self) -> Option<Arc<RwLock<Object>>> {
+    pub fn get_container(&self) -> Option<ObjectID> {
         // Wave 264: empty dual-world → None.
         if dual_world_registry_unavailable() {
             return None;
         }
 
         let container_id = self.get_container_id()?;
-        crate::helpers::TheGameLogic::find_object_by_id(container_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(container_id))
+        registry::OBJECT_REGISTRY
+            .with_object(container_id, |_| ())
+            .map(|_| container_id)
     }
 
     pub fn get_indicator_color(&self) -> Color {
@@ -1136,7 +1151,7 @@ impl Object {
         }
     }
 
-    /// Try to get a read reference to this object (for compatibility with Arc<RwLock<Object>>).
+    /// Try to get a read reference to this object.
     pub fn try_read(&self) -> Result<&Self, String> {
         Ok(self)
     }

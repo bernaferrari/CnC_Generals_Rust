@@ -269,7 +269,7 @@ pub struct SabotageSupplyCenterCrateCollide {
 impl SabotageSupplyCenterCrateCollide {
     /// Create new sabotage supply center crate collide module
     pub fn new(
-        object: &Arc<RwLock<Object>>,
+        object: &ObjectID,
         module_data: SabotageSupplyCenterCrateCollideModuleData,
     ) -> Self {
         Self {
@@ -446,7 +446,7 @@ impl SabotageSupplyCenterCrateCollide {
     /// Display floating text for cash gain/loss
     fn display_cash_floating_text(
         &self,
-        other: Arc<RwLock<Object>>,
+        other: ObjectID,
         cash_amount: u32,
     ) -> Result<(), GameError> {
         let object = self.base.get_object().map_err(GameError::from)?;

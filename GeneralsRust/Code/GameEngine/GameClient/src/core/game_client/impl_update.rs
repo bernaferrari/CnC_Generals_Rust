@@ -1624,13 +1624,19 @@ impl GameClient {
             return Ok(());
         }
         let mut expired_logic_drawables = Vec::new();
-        self.iterate_objects_with_drawables(|obj_ref| {
-            let Ok(mut obj) = obj_ref.write() else {
+        self.iterate_objects_with_drawables(|object_id| {
+            let Some((drawable_arc, shroud, _is_effectively_dead)) = OBJECT_REGISTRY.with_object(
+                object_id,
+                |obj| {
+                    (
+                        obj.get_drawable(),
+                        obj.get_shrouded_status(local_player_index),
+                        obj.is_effectively_dead(),
+                    )
+                },
+            ) else {
                 return;
             };
-            let object_id = obj.get_id();
-            let shroud = obj.get_shrouded_status(local_player_index);
-            let is_effectively_dead = obj.is_effectively_dead();
             let fully_obscured = matches!(
                 shroud,
                 gamelogic::common::types::ObjectShroudStatus::Fogged
@@ -1638,7 +1644,7 @@ impl GameClient {
                     | gamelogic::common::types::ObjectShroudStatus::InvalidButPreviousValid
             );
 
-            if let Some(drawable_arc) = obj.get_drawable() {
+            if let Some(drawable_arc) = drawable_arc {
                 if let Ok(mut drawable_guard) = drawable_arc.write() {
                     drawable_guard.set_fully_obscured_by_shroud(fully_obscured);
                     let _ = drawable_guard.update(delta_time, frame);
@@ -1648,8 +1654,6 @@ impl GameClient {
                     }
                 }
             }
-
-            let _ = (object_id, is_effectively_dead);
         })?;
         if let Some(client) = TheGameClient::get() {
             for id in expired_logic_drawables {

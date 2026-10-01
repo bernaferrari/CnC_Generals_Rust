@@ -3,6 +3,7 @@
 //! Split from `scripting/executor.rs` for module-size parity.
 //! Observable script behavior is unchanged.
 
+use crate::object::registry::OBJECT_REGISTRY;
 use super::*;
 
 impl ScriptActionDispatcher {
@@ -239,28 +240,33 @@ impl ScriptActionDispatcher {
             .to_vec();
 
         for object_id in members {
-            let Some(obj_arc) = TheGameLogic::find_object_by_id(object_id) else {
-                continue;
-            };
-            let Ok(obj) = obj_arc.read() else {
-                continue;
-            };
-
-            let position = *obj.get_position();
-            let Some(ai_arc) = obj.get_ai_update_interface() else {
-                continue;
-            };
-            drop(obj);
-
-            if let Ok(mut ai) = ai_arc.lock() {
-                let mut params = AiCommandParams::new(
-                    AiCommandType::GuardPosition,
-                    CommandSourceType::FromScript,
-                );
-                params.pos = position;
-                params.int_value = GuardMode::Normal.as_i32();
-                let _ = ai.execute_command(&params);
-            };
+            {
+                enum _ObjFlow<T> { Cont, Ret(T), Fall }
+                let _flow = OBJECT_REGISTRY.with_object(object_id, |obj| {
+                    
+                    let position = *obj.get_position();
+                    let Some(ai_arc) = obj.get_ai_update_interface() else {
+                        return _ObjFlow::Cont;
+                    };
+                    drop(obj);
+                    
+                    if let Ok(mut ai) = ai_arc.lock() {
+                        let mut params = AiCommandParams::new(
+                            AiCommandType::GuardPosition,
+                            CommandSourceType::FromScript,
+                        );
+                        params.pos = position;
+                        params.int_value = GuardMode::Normal.as_i32();
+                        let _ = ai.execute_command(&params);
+                    };
+                    _ObjFlow::Fall
+                });
+                match _flow {
+                    None | Some(_ObjFlow::Cont) => continue,
+                    Some(_ObjFlow::Ret(v)) => return v,
+                    Some(_ObjFlow::Fall) => {}
+                }
+            }
         }
 
         Ok(ScriptActionResult::Success)
@@ -363,25 +369,30 @@ impl ScriptActionDispatcher {
         }
 
         for object_id in members {
-            let Some(obj_arc) = TheGameLogic::find_object_by_id(object_id) else {
-                continue;
-            };
-            let Ok(mut obj_guard) = obj_arc.write() else {
-                continue;
-            };
-            if obj_guard.is_effectively_dead() || obj_guard.is_destroyed() {
-                continue;
-            }
-            if damage_amount < 0.0 {
-                obj_guard.kill(Some(DamageType::Unresistable), Some(DeathType::Normal));
-            } else {
-                let mut damage_info = DamageInfo::with_simple(
-                    damage_amount,
-                    INVALID_ID,
-                    DamageType::Unresistable,
-                    DeathType::Normal,
-                );
-                let _ = obj_guard.attempt_damage(&mut damage_info);
+            {
+                enum _ObjFlow<T> { Cont, Ret(T), Fall }
+                let _flow = OBJECT_REGISTRY.with_object_mut(object_id, |mut obj_guard| {
+                    if obj_guard.is_effectively_dead() || obj_guard.is_destroyed() {
+                        return _ObjFlow::Cont;
+                    }
+                    if damage_amount < 0.0 {
+                        obj_guard.kill(Some(DamageType::Unresistable), Some(DeathType::Normal));
+                    } else {
+                        let mut damage_info = DamageInfo::with_simple(
+                            damage_amount,
+                            INVALID_ID,
+                            DamageType::Unresistable,
+                            DeathType::Normal,
+                        );
+                        let _ = obj_guard.attempt_damage(&mut damage_info);
+                    }
+                    _ObjFlow::Fall
+                });
+                match _flow {
+                    None | Some(_ObjFlow::Cont) => continue,
+                    Some(_ObjFlow::Ret(v)) => return v,
+                    Some(_ObjFlow::Fall) => {}
+                }
             }
         }
 
@@ -554,11 +565,9 @@ impl ScriptActionDispatcher {
             }
         }
 
-        if let Some(obj_arc) = TheGameLogic::find_object_by_id(object_id) {
-            if let Ok(mut obj) = obj_arc.write() {
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(object_id, |obj| {
                 let _ = obj.set_orientation(angle);
-            }
-        }
+            });
 
         Ok(ScriptActionResult::Success)
     }
@@ -827,41 +836,24 @@ impl ScriptActionDispatcher {
 
         match (attacker_id, victim_id) {
             (Some(attacker), Some(target)) => {
-                if TheGameLogic::find_object_by_id(target).is_none() {
+                if OBJECT_REGISTRY.with_object(target, |_| ()).is_none() {
                     log::warn!("Victim '{}' not found in object registry", victim_name);
                     return Ok(ScriptActionResult::Success);
                 }
 
-                let Some(obj_arc) = TheGameLogic::find_object_by_id(attacker) else {
-                    log::warn!("Attacker '{}' not found in object registry", attacker_name);
-                    return Ok(ScriptActionResult::Success);
-                };
-
-                if let Ok(mut obj_guard) = obj_arc.write() {
-                    let Some(ai_arc) = obj_guard.get_ai_update_interface() else {
-                        log::warn!("Attacker '{}' has no AI update interface", attacker_name);
-                        return Ok(ScriptActionResult::Success);
-                    };
-                    obj_guard.leave_group();
-                    if let Ok(mut ai_guard) = ai_arc.lock() {
-                        let _ =
-                            ai_guard.choose_locomotor_set(crate::common::LocomotorSetType::Normal);
-                        let mut params = AiCommandParams::new(
-                            AiCommandType::ForceAttackObject,
-                            CommandSourceType::FromScript,
-                        );
-                        params.obj = Some(target);
-                        params.int_value = -1; // NO_MAX_SHOTS_LIMIT
-                        let _ = ai_guard.execute_command(&params);
-                        log::info!(
-                            "Named unit '{}' (ID: {}) force attacking '{}' (ID: {})",
-                            attacker_name,
-                            attacker,
-                            victim_name,
-                            target
-                        );
-                    };
-                };
+                {
+                    enum _ObjFlow<T> { Cont, Ret(T), Fall }
+                    let _flow = OBJECT_REGISTRY.with_object_mut(attacker, |mut obj_guard| {
+                        _ObjFlow::Fall
+                    });
+                    match _flow {
+                        None => { log::warn!("Attacker '{}' not found in object registry", attacker_name);
+                    return Ok(ScriptActionResult::Success); }
+                        Some(_ObjFlow::Cont) => continue,
+                        Some(_ObjFlow::Ret(v)) => return v,
+                        Some(_ObjFlow::Fall) => {}
+                    }
+                }
             }
             (None, _) => {
                 log::warn!("Attacker '{}' not found for attack", attacker_name);

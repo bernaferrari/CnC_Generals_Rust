@@ -106,12 +106,7 @@ pub struct PlayerManagerBridge;
 
 impl PlayerManager for PlayerManagerBridge {
     fn get_player_resources(&self, player_id: Int) -> Option<PlayerResources> {
-        let player_arc = {
-            let list = player_list().read().ok()?;
-            list.get_player(player_id).cloned()
-        }?;
-        let player = player_arc.read().ok()?;
-        Some(PlayerResources {
+        with_player(player_id, |player| PlayerResources {
             supplies: player.get_money().get_money(),
             power_available: player.get_energy().production(),
             power_used: player.get_energy().consumption(),
@@ -119,33 +114,18 @@ impl PlayerManager for PlayerManagerBridge {
     }
 
     fn modify_player_resources(&mut self, player_id: Int, supplies: Int, power: Int) {
-        let player_arc = match player_list().read() {
-            Ok(list) => list.get_player(player_id).cloned(),
-            Err(_) => None,
-        };
-        if let Some(player_arc) = player_arc {
-            if let Ok(mut player) = player_arc.write() {
-                player.get_money_mut().add_money(supplies);
-                if power > 0 {
-                    player.add_power_production(power);
-                } else if power < 0 {
-                    player.add_power_consumption(-power);
-                }
+        let _ = with_player_mut(player_id, |player| {
+            player.get_money_mut().add_money(supplies);
+            if power > 0 {
+                player.add_power_production(power);
+            } else if power < 0 {
+                player.add_power_consumption(-power);
             }
-        }
+        });
     }
 
     fn can_player_afford(&self, player_id: Int, cost: &ResourceCost) -> bool {
-        let player_arc = match player_list().read() {
-            Ok(list) => list.get_player(player_id).cloned(),
-            Err(_) => None,
-        };
-        if let Some(player_arc) = player_arc {
-            if let Ok(player) = player_arc.read() {
-                return player.get_money().can_afford(cost.supplies);
-            }
-        }
-        false
+        with_player(player_id, |player| player.get_money().can_afford(cost.supplies)).unwrap_or(false)
     }
 }
 
@@ -437,7 +417,7 @@ impl AIManager for AIManagerBridge {
             return false;
         };
 
-        let (builder_snapshot, owning_player, owning_player_arc) = {
+        let (builder_snapshot, owning_player, owning_player_index) = {
             let Ok(builder_guard) = builder_base.read() else {
                 warn!(
                     "AIManagerBridge::issue_build_order: builder {} lock poisoned",
@@ -454,15 +434,7 @@ impl AIManager for AIManagerBridge {
                 return false;
             }
 
-            let player_index = builder_guard
-                .get_controlling_player()
-                .and_then(|player| {
-                    player
-                        .read()
-                        .ok()
-                        .map(|player_guard| player_guard.get_player_index() as u32)
-                })
-                .unwrap_or(0);
+            let player_index = builder_guard.get_controlling_player_id().unwrap_or(0);
 
             (
                 build_assistant::Object {
@@ -476,7 +448,7 @@ impl AIManager for AIManagerBridge {
                     command_set: None,
                 },
                 build_assistant::Player { player_index },
-                builder_guard.get_controlling_player(),
+                player_index,
             )
         };
 
@@ -511,13 +483,11 @@ impl AIManager for AIManagerBridge {
             return false;
         }
 
-        if let Some(player_arc) = owning_player_arc {
-            if let Ok(mut player_guard) = player_arc.write() {
-                player_guard
-                    .get_money_mut()
-                    .add_money(-thing_template.get_build_cost());
-            }
-        }
+        let _ = with_player_mut(owning_player_index as Int, |player| {
+            player
+                .get_money_mut()
+                .add_money(-thing_template.get_build_cost());
+        });
 
         true
     }

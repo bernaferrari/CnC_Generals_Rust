@@ -299,7 +299,7 @@ impl CollisionSystem {
     }
 
     fn should_ignore_physics_collision(
-        obj: &Arc<RwLock<crate::object::Object>>,
+        obj: ObjectID,
         other_id: ObjectId,
     ) -> bool {
         let Ok(guard) = obj.read() else {
@@ -343,7 +343,7 @@ impl CollisionSystem {
             .unwrap_or(false)
     }
 
-    fn should_ignore_ai_collision(obj: &Arc<RwLock<crate::object::Object>>) -> bool {
+    fn should_ignore_ai_collision(obj: ObjectID) -> bool {
         let Ok(guard) = obj.read() else {
             return false;
         };
@@ -356,12 +356,12 @@ impl CollisionSystem {
     /// Apply move-away hints for unit collisions (matches C++ AIUpdateInterface::processCollision).
     fn handle_ai_collision(
         &self,
-        obj_a: &Arc<RwLock<crate::object::Object>>,
-        obj_b: &Arc<RwLock<crate::object::Object>>,
+        obj_a: ObjectID,
+        obj_b: ObjectID,
     ) {
         // C++ reference: GameLogic/Object/Update/AIUpdate.cpp AIUpdateInterface::processCollision.
 
-        fn gather_info(obj: &Arc<RwLock<crate::object::Object>>) -> Option<AiCollisionInfo> {
+        fn gather_info(obj: ObjectID) -> Option<AiCollisionInfo> {
             let guard = obj.read().ok()?;
             let ai = guard.get_ai_update_interface()?;
             let velocity = guard

@@ -486,39 +486,62 @@ impl SlavedUpdate {
         })
     }
 
-    fn object_arc(&self) -> Option<Arc<RwLock<GameObject>>> {
+    fn with_self_object_mut<R>(&self, f: impl FnOnce(&mut GameObject) -> R) -> Option<R> {
         // Wave 402: empty dual-world → None.
         if dual_world_registry_unavailable() {
             return None;
         }
-
-        TheGameLogic::find_object_by_id(self.object_id)
+        crate::object::registry::OBJECT_REGISTRY.with_object_mut(self.object_id, f)
     }
 
-    fn master_arc(&self) -> Option<Arc<RwLock<GameObject>>> {
+    fn with_master_mut<R>(&self, f: impl FnOnce(&mut GameObject) -> R) -> Option<R> {
         // Wave 402: empty dual-world → None.
         if dual_world_registry_unavailable() {
             return None;
         }
-
         if self.slaver == INVALID_ID {
             return None;
         }
-        TheGameLogic::find_object_by_id(self.slaver)
+        crate::object::registry::OBJECT_REGISTRY.with_object_mut(self.slaver, f)
+    }
+
+    fn object_arc(&self) -> Option<ObjectID> {
+        // Wave 402: empty dual-world → None.
+        if dual_world_registry_unavailable() {
+            return None;
+        }
+        if self.object_id == INVALID_ID {
+            return None;
+        }
+        Some(self.object_id)
+    }
+
+    fn master_arc(&self) -> Option<ObjectID> {
+        // Wave 402: empty dual-world → None.
+        if dual_world_registry_unavailable() {
+            return None;
+        }
+        if self.slaver == INVALID_ID {
+            return None;
+        }
+        Some(self.slaver)
     }
 
     fn on_object_created_internal(&mut self) {
         if self.module_data.repair_rate_per_second > 0.0 {
-            if let Some(object_arc) = self.object_arc() {
-                if let Ok(mut object) = object_arc.write() {
+            if let Some(id) = self.object_arc() {
+                crate::object::registry::OBJECT_REGISTRY.with_object_mut(id, |object| {
                     object.set_model_condition_state(ModelConditionFlag::Packing);
-                }
+                });
             }
         }
     }
 
-    fn start_slaved_effects(&mut self, slaver: &GameObject) {
-        self.slaver = slaver.get_id();
+    fn start_slaved_effects(&mut self, slaver_id: ObjectID) {
+        let stealthed = crate::object::registry::OBJECT_REGISTRY
+            .with_object(slaver_id, |slaver| slaver.test_status(ObjectStatus::Stealthed))
+            .unwrap_or(false);
+        self.slaver = slaver_id;
 
         let random_direction = crate::GameLogicRandomValue!(0, 6) as Real;
         self.guard_point_offset = Coord3D::ZERO;
@@ -527,20 +550,19 @@ impl SlavedUpdate {
         self.guard_point_offset.y +=
             self.module_data.guard_max_range as Real * random_direction.sin();
 
-        let stealth = if let Some(object_arc) = self.object_arc() {
-            if let Ok(mut object) = object_arc.write() {
+        let stealth = if let Some(id) = self.object_arc() {
+            crate::object::registry::OBJECT_REGISTRY.with_object_mut(id, |object| {
                 object.set_status(ObjectStatusMaskType::UNSELECTABLE, true);
-                if slaver.test_status(ObjectStatus::Stealthed) {
+                if stealthed {
                     object.get_stealth()
                 } else {
                     None
                 }
-            } else {
-                None
-            }
+            })
         } else {
             None
         };
+        let stealth = stealth.flatten();
         if let Some(stealth) = stealth {
             stealth.receive_grant(true, 0, TheGameLogic::get_frame());
         }
@@ -550,11 +572,11 @@ impl SlavedUpdate {
         self.slaver = INVALID_ID;
         self.guard_point_offset = Coord3D::ZERO;
 
-        if let Some(object_arc) = self.object_arc() {
-            if let Ok(mut object) = object_arc.write() {
+        if let Some(id) = self.object_arc() {
+            crate::object::registry::OBJECT_REGISTRY.with_object_mut(id, |object| {
                 object.set_status(ObjectStatusMaskType::UNSELECTABLE, false);
                 object.clear_disabled(DisabledType::Held);
-            }
+            });
         }
     }
 
@@ -564,38 +586,29 @@ impl SlavedUpdate {
             return;
         }
 
-        let Some(me_arc) = self.object_arc() else {
+        let Some(me_id) = self.object_arc() else {
             return;
         };
-        let Some(master_arc) = self.master_arc() else {
-            return;
-        };
-        let Some(target_arc) = TheGameLogic::find_object_by_id(target_id) else {
+        let Some(master_id) = self.master_arc() else {
             return;
         };
 
-        let (_me_pos, master_pos, target_pos) = {
-            let Ok(me) = me_arc.read() else { return };
-            let Ok(master) = master_arc.read() else {
-                return;
-            };
-            let Ok(target) = target_arc.read() else {
-                return;
-            };
-            (
-                *me.get_position(),
-                *master.get_position(),
-                *target.get_position(),
-            )
+        let reg = &crate::object::registry::OBJECT_REGISTRY;
+        let Some(master_pos) = reg.with_object(master_id, |master| *master.get_position()) else {
+            return;
+        };
+        let Some(target_pos) = reg.with_object(target_id, |target| *target.get_position()) else {
+            return;
         };
 
-        let dist_sqr = {
-            let Ok(me) = me_arc.read() else { return };
+        let Some(dist_sqr) = reg.with_object(me_id, |me| {
             ThePartitionManager::get_distance_squared_to_pos(
-                &*me,
+                me,
                 &target_pos,
                 FROM_BOUNDING_SPHERE_2D,
             )
+        }) else {
+            return;
         };
 
         let attack_range = self.module_data.attack_range as Real;
@@ -626,40 +639,39 @@ impl SlavedUpdate {
             }
         }
 
-        let ai = {
-            let Ok(me) = me_arc.read() else { return };
-            me.get_ai_update_interface()
-        };
-        if let Some(ai) = ai {
+        let ai = reg.with_object(me_id, |me| me.get_ai_update_interface());
+        if let Some(Some(ai)) = ai {
             ai.ai_move_to_position(&attack_position, false, CommandSourceType::FromAi);
         }
 
         if dist_sqr < (self.module_data.dist_to_target_to_grant_range_bonus as Real).powi(2) {
-            if let Ok(mut master) = master_arc.write() {
+            reg.with_object_mut(master_id, |master| {
                 master.set_weapon_bonus_condition(WeaponBonusConditionType::DroneSpotting);
-            }
+            });
         }
     }
 
     fn do_scout_logic(&mut self, masters_destination: &Coord3D) {
-        let Some(me_arc) = self.object_arc() else {
+        let Some(me_id) = self.object_arc() else {
             return;
         };
-        let Some(master_arc) = self.master_arc() else {
+        let Some(master_id) = self.master_arc() else {
             return;
         };
+        let reg = &crate::object::registry::OBJECT_REGISTRY;
 
-        let (master_pos, dist_sqr) = {
-            let Ok(master) = master_arc.read() else {
-                return;
-            };
-            let Ok(me) = me_arc.read() else { return };
-            let dist_sqr = ThePartitionManager::get_distance_squared_to_pos(
-                &*me,
-                masters_destination,
-                FROM_BOUNDING_SPHERE_2D,
-            );
-            (*master.get_position(), dist_sqr)
+        let Some((master_pos, dist_sqr)) = reg.with_object(master_id, |master| {
+            let master_pos = *master.get_position();
+            let dist_sqr = reg.with_object(me_id, |me| {
+                ThePartitionManager::get_distance_squared_to_pos(
+                    me,
+                    masters_destination,
+                    FROM_BOUNDING_SPHERE_2D,
+                )
+            });
+            dist_sqr.map(|d| (master_pos, d))
+        }).flatten() else {
+            return;
         };
 
         let scout_range = self.module_data.scout_range as Real;
@@ -690,11 +702,7 @@ impl SlavedUpdate {
             }
         }
 
-        let ai = {
-            let Ok(me) = me_arc.read() else { return };
-            me.get_ai_update_interface()
-        };
-        if let Some(ai) = ai {
+        if let Some(Some(ai)) = reg.with_object(me_id, |me| me.get_ai_update_interface()) {
             ai.ai_move_to_position(&scout_position, false, CommandSourceType::FromAi);
         }
     }
@@ -722,11 +730,8 @@ impl SlavedUpdate {
             }
         }
 
-        let ai = {
-            let Ok(me) = me_arc.read() else { return };
-            me.get_ai_update_interface()
-        };
-        if let Some(ai) = ai {
+        let reg = &crate::object::registry::OBJECT_REGISTRY;
+        if let Some(Some(ai)) = reg.with_object(me_arc, |me| me.get_ai_update_interface()) {
             ai.ai_move_to_position(&target_position, false, CommandSourceType::FromAi);
         }
     }
@@ -738,24 +743,22 @@ impl SlavedUpdate {
         let Some(master_arc) = self.master_arc() else {
             return;
         };
-        let Some(_ai) = me_arc
-            .read()
-            .ok()
-            .and_then(|me| me.get_ai_update_interface())
-        else {
+        let reg = &crate::object::registry::OBJECT_REGISTRY;
+        let Some(Some(_ai)) = reg.with_object(me_arc, |me| me.get_ai_update_interface()) else {
             return;
         };
-        let (dist_sqr, master_pos, master_body, master_radius) = {
-            let Ok(me) = me_arc.read() else { return };
-            let Ok(master) = master_arc.read() else {
-                return;
-            };
-            let dist_sqr =
-                ThePartitionManager::get_distance_squared(&*me, &*master, FROM_BOUNDING_SPHERE_2D);
-            let master_pos = *master.get_position();
-            let master_body = master.get_body_module();
-            let master_radius = master.get_geometry_info().get_bounding_sphere_radius();
-            (dist_sqr, master_pos, master_body, master_radius)
+        let Some((dist_sqr, master_pos, master_body, master_radius)) = reg.with_object(master_arc, |master| {
+            let dist_sqr = reg.with_object(me_arc, |me| {
+                ThePartitionManager::get_distance_squared(me, master, FROM_BOUNDING_SPHERE_2D)
+            })?;
+            Some((
+                dist_sqr,
+                *master.get_position(),
+                master.get_body_module(),
+                master.get_geometry_info().get_bounding_sphere_radius(),
+            ))
+        }).flatten() else {
+            return;
         };
 
         let close_enough = dist_sqr < 12.0 * 12.0;
@@ -779,10 +782,9 @@ impl SlavedUpdate {
 
             let close_enough_for_z_precision =
                 dist_sqr < (master_radius * 2.0) * (master_radius * 2.0);
-            let ai = me_arc
-                .read()
-                .ok()
-                .and_then(|me| me.get_ai_update_interface());
+            let ai = reg
+                .with_object(me_arc, |me| me.get_ai_update_interface())
+                .flatten();
             if let Some(ai) = ai {
                 ai.with_cur_locomotor(&mut |loco| {
                     loco.set_precise_z_pos(close_enough_for_z_precision);
@@ -824,11 +826,10 @@ impl SlavedUpdate {
             self.set_repair_model_condition_states(ModelConditionFlag::Packing);
         }
 
-        let ai = self.object_arc().and_then(|object_arc| {
-            object_arc
-                .read()
-                .ok()
-                .and_then(|object| object.get_ai_update_interface())
+        let ai = self.object_arc().and_then(|object_id| {
+            crate::object::registry::OBJECT_REGISTRY
+                .with_object(object_id, |object| object.get_ai_update_interface())
+                .flatten()
         });
         if let Some(ai) = ai {
             ai.choose_locomotor_set(crate::common::LocomotorSetType::Normal);
@@ -840,8 +841,8 @@ impl SlavedUpdate {
     }
 
     fn set_repair_model_condition_states(&self, flag: ModelConditionFlag) {
-        if let Some(object_arc) = self.object_arc() {
-            if let Ok(mut object) = object_arc.write() {
+        if let Some(object_id) = self.object_arc() {
+            crate::object::registry::OBJECT_REGISTRY.with_object_mut(object_id, |object| {
                 object.clear_model_condition_state(ModelConditionFlag::Packing);
                 object.clear_model_condition_state(ModelConditionFlag::Unpacking);
                 object.clear_model_condition_state(ModelConditionFlag::FiringB);
@@ -851,7 +852,7 @@ impl SlavedUpdate {
                 object.clear_model_condition_state(ModelConditionFlag::ReloadingB);
                 object.clear_model_condition_state(ModelConditionFlag::ReloadingC);
                 object.set_model_condition_state(flag);
-            }
+            });
         }
     }
 
@@ -866,11 +867,9 @@ impl SlavedUpdate {
             return;
         }
 
-        let master_pos = {
-            let Ok(master) = master_arc.read() else {
-                return;
-            };
-            *master.get_position()
+        let reg = &crate::object::registry::OBJECT_REGISTRY;
+        let Some(master_pos) = reg.with_object(master_arc, |master| *master.get_position()) else {
+            return;
         };
 
         let random_direction = crate::GameLogicRandomValue!(0, 6) as Real;
@@ -890,11 +889,7 @@ impl SlavedUpdate {
         );
         self.guard_point_offset.z += altitude;
 
-        let ai = {
-            let Ok(me) = me_arc.read() else { return };
-            me.get_ai_update_interface()
-        };
-        if let Some(ai) = ai {
+        if let Some(Some(ai)) = reg.with_object(me_arc, |me| me.get_ai_update_interface()) {
             ai.choose_locomotor_set(crate::common::LocomotorSetType::Panic);
             ai.with_cur_locomotor(&mut |loco| {
                 loco.set_ultra_accurate(true);
@@ -978,10 +973,12 @@ impl SlavedUpdate {
         let Some(object_arc) = self.object_arc() else {
             return;
         };
-        let Ok(object) = object_arc.read() else {
+        let Some((object_pos, drawable)) = crate::object::registry::OBJECT_REGISTRY.with_object(object_arc, |object| {
+            (*object.get_position(), object.get_drawable())
+        }) else {
             return;
         };
-        let Some(drawable) = object.get_drawable() else {
+        let Some(drawable) = drawable else {
             return;
         };
         let Ok(drawable) = drawable.read() else {
@@ -998,11 +995,11 @@ impl SlavedUpdate {
             return;
         };
 
-        let mut pos = *object.get_position();
+        let mut pos = object_pos;
         let positions =
             drawable.get_pristine_bone_positions(self.module_data.welding_fx_bone.as_str(), 0, 1);
         if let Some(local_pos) = positions.first() {
-            pos = *local_pos + *object.get_position();
+            pos = *local_pos + object_pos;
         }
 
         manager.set_particle_system_position(particle_id, &pos);
@@ -1346,13 +1343,10 @@ impl SlavedUpdateInterface for SlavedUpdate {
             return Ok(());
         }
 
-        let Some(master) = crate::helpers::TheGameLogic::find_object_by_id(master_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(master_id))
-        else {
+        if crate::object::registry::OBJECT_REGISTRY.with_object(master_id, |_| ()).is_none() {
             return Ok(());
-        };
-        let master_guard = master.read().map_err(|_| "slaver lock poisoned")?;
-        self.start_slaved_effects(&*master_guard);
+        }
+        self.start_slaved_effects(master_id);
         Ok(())
     }
 
@@ -1372,11 +1366,10 @@ impl SlavedUpdateInterface for SlavedUpdate {
         &mut self,
         damage_info: &mut DamageInfo,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let ai = self.object_arc().and_then(|object_arc| {
-            object_arc
-                .read()
-                .ok()
-                .and_then(|object| object.get_ai_update_interface())
+        let ai = self.object_arc().and_then(|object_id| {
+            crate::object::registry::OBJECT_REGISTRY
+                .with_object(object_id, |object| object.get_ai_update_interface())
+                .flatten()
         });
         if let Some(ai) = ai {
             ai.ai_go_prone(damage_info, CommandSourceType::FromAi);

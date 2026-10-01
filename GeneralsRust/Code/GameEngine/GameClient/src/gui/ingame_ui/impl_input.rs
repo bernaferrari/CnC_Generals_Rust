@@ -301,32 +301,29 @@ impl InGameUI {
         if source_object_id == 0 {
             return false;
         }
-        let Some(source_obj) = OBJECT_REGISTRY.get_object(source_object_id) else {
-            return false;
-        };
-        let Ok(source_guard) = source_obj.read() else {
-            return false;
-        };
-        if source_guard.is_effectively_dead() {
-            return false;
-        }
+        OBJECT_REGISTRY
+            .with_object(source_object_id, |source_guard| {
+                if source_guard.is_effectively_dead() {
+                    return false;
+                }
 
-        for behavior_arc in source_guard.get_behavior_modules() {
-            let Ok(mut behavior_lock) = behavior_arc.lock() else {
-                continue;
-            };
-            let Some(update) = behavior_lock.get_special_power_update_interface() else {
-                continue;
-            };
-            if update.does_special_power_have_overridable_destination_active()
-                || update.does_special_power_have_overridable_destination()
-            {
-                return true;
-            }
-        }
+                for behavior_arc in source_guard.get_behavior_modules() {
+                    let Ok(mut behavior_lock) = behavior_arc.lock() else {
+                        continue;
+                    };
+                    let Some(update) = behavior_lock.get_special_power_update_interface() else {
+                        continue;
+                    };
+                    if update.does_special_power_have_overridable_destination_active()
+                        || update.does_special_power_have_overridable_destination()
+                    {
+                        return true;
+                    }
+                }
 
-        false
-    }
+                false
+            })
+            .unwrap_or(false)
 
     fn is_valid_special_power_target(
         &self,
@@ -453,42 +450,39 @@ impl InGameUI {
             return true;
         }
 
-        let target = OBJECT_REGISTRY.get_object(target_id);
-        let Some(target) = target else {
-            return false;
+        let evaluate = |source_guard: &gamelogic::object::Object, target_guard: &gamelogic::object::Object| {
+            if target_guard.is_effectively_dead() || source_guard.is_effectively_dead() {
+                return false;
+            }
+            let Some(store) = get_special_power_store() else {
+                return false;
+            };
+            let Some(template) = store.find_special_power_template_by_id(power_id) else {
+                return false;
+            };
+            ActionManager::can_do_special_power_at_object(
+                source_guard,
+                target_guard,
+                CommandSourceType::FromPlayer,
+                template,
+                options_bits,
+                false,
+            )
         };
-        let Ok(target_guard) = target.read() else {
-            return false;
-        };
-        if target_guard.is_effectively_dead() {
-            return false;
+        if source_object_id == target_id {
+            return OBJECT_REGISTRY
+                .with_object(target_id, |guard| evaluate(guard, guard))
+                .unwrap_or(false);
         }
-
-        let Some(source_obj) = OBJECT_REGISTRY.get_object(source_object_id) else {
-            return false;
-        };
-        let Ok(source_guard) = source_obj.read() else {
-            return false;
-        };
-        if source_guard.is_effectively_dead() {
-            return false;
-        }
-
-        let Some(store) = get_special_power_store() else {
-            return false;
-        };
-        let Some(template) = store.find_special_power_template_by_id(power_id) else {
-            return false;
-        };
-
-        ActionManager::can_do_special_power_at_object(
-            &source_guard,
-            &target_guard,
-            CommandSourceType::FromPlayer,
-            template,
-            options_bits,
-            false,
-        )
+        OBJECT_REGISTRY
+            .with_object(target_id, |target_guard| {
+                OBJECT_REGISTRY
+                    .with_object(source_object_id, |source_guard| {
+                        evaluate(source_guard, target_guard)
+                    })
+                    .unwrap_or(false)
+            })
+            .unwrap_or(false)
     }
 
     /// Perform box selection
@@ -715,7 +709,7 @@ impl InGameUI {
             let Some(slaver_id) = slaved.slaver_id() else {
                 continue;
             };
-            if OBJECT_REGISTRY.get_object(slaver_id).is_some() {
+            if OBJECT_REGISTRY.contains(slaver_id) {
                 return Some(slaver_id);
             }
         }
@@ -910,13 +904,11 @@ impl InGameUI {
             return Some((local, is_structure));
         }
 
-        OBJECT_REGISTRY.get_object(object_id).and_then(|obj| {
-            obj.read().ok().map(|guard| {
-                (
-                    guard.is_locally_controlled(),
-                    guard.is_kind_of(KindOf::Structure),
-                )
-            })
+        OBJECT_REGISTRY.with_object(object_id, |guard| {
+            (
+                guard.is_locally_controlled(),
+                guard.is_kind_of(KindOf::Structure),
+            )
         })
     }
 
@@ -1021,16 +1013,15 @@ impl InGameUI {
                 .any(|k| k == "Mine" || k.eq_ignore_ascii_case("mine"));
             return (entry.selectable, local, is_mine);
         }
-        if let Some(obj) = OBJECT_REGISTRY.get_object(id) {
-            if let Ok(guard) = obj.read() {
-                return (
+        OBJECT_REGISTRY
+            .with_object(id, |guard| {
+                (
                     guard.is_selectable(),
                     guard.is_locally_controlled(),
                     guard.is_kind_of(KindOf::Mine),
-                );
-            }
-        }
-        (false, false, false)
+                )
+            })
+            .unwrap_or((false, false, false))
     }
 
     /// Wave 969: attack-hint shroud residual (None when host dual-world empty).
@@ -1052,11 +1043,7 @@ impl InGameUI {
             }
             return Some(entry.shroud_status);
         }
-        OBJECT_REGISTRY.get_object(id).and_then(|obj| {
-            obj.read()
-                .ok()
-                .map(|guard| guard.get_shrouded_status(self.player_id as i32))
-        })
+        OBJECT_REGISTRY.with_object(id, |guard| guard.get_shrouded_status(self.player_id as i32))
     }
 
     pub fn create_command_hint(&mut self, hint_type: CommandHintType) {
@@ -1524,56 +1511,67 @@ impl InGameUI {
                 self.moused_over_drawable_id = Self::INVALID_DRAWABLE_ID;
             } else {
                 self.moused_over_drawable_id = Self::INVALID_DRAWABLE_ID;
-                if let Some(obj) = OBJECT_REGISTRY.get_object(draw_id) {
-                    if let Ok(guard) = obj.read() {
-                        self.moused_over_drawable_id =
-                            self.mouseover_drawable_id_for_lookup(draw_id, Some(&guard));
-
-                        // C++: TheMouse->setCursorTooltip(displayName, -1, playerColor, widthMult)
-                        // Deferred C++ behavior: multiplayer player suffix.
-                        let visible = Self::mouseover_tooltip_visible_for_shroud(
-                            guard.get_shrouded_status(self.player_id as i32),
-                        );
-                        if visible {
-                            let template_name = Self::mouseover_tooltip_template_for_object(&guard);
-                            let real_template = guard.get_template_name().to_string();
-                            if let Some(player) = Self::mouseover_tooltip_player_for_object(&guard)
+                let player_id = self.player_id as i32;
+                let snap = OBJECT_REGISTRY.with_object(draw_id, |guard| {
+                    let moused = self.mouseover_drawable_id_for_lookup(draw_id, Some(guard));
+                    let visible = Self::mouseover_tooltip_visible_for_shroud(
+                        guard.get_shrouded_status(player_id),
+                    );
+                    let template_name = Self::mouseover_tooltip_template_for_object(guard);
+                    let real_template = guard.get_template_name().to_string();
+                    let player = Self::mouseover_tooltip_player_for_object(guard);
+                    let boxes = Self::supply_warehouse_boxes_for_object(guard);
+                    let indicator = Self::mouseover_tooltip_color_for_object(guard);
+                    (
+                        moused,
+                        visible,
+                        template_name,
+                        real_template,
+                        player,
+                        boxes,
+                        indicator,
+                    )
+                });
+                if let Some((
+                    moused,
+                    visible,
+                    template_name,
+                    real_template,
+                    player,
+                    boxes,
+                    indicator,
+                )) = snap
+                {
+                    self.moused_over_drawable_id = moused;
+                    // C++: TheMouse->setCursorTooltip(displayName, -1, playerColor, widthMult)
+                    // Deferred C++ behavior: multiplayer player suffix.
+                    if visible {
+                        if let Some(player) = player {
+                            if let Some(mut display_name) =
+                                Self::mouseover_tooltip_for_templates(&template_name, &real_template)
                             {
-                                if let Some(mut display_name) =
-                                    Self::mouseover_tooltip_for_templates(
-                                        &template_name,
-                                        &real_template,
-                                    )
-                                {
-                                    if let Some(boxes) =
-                                        Self::supply_warehouse_boxes_for_object(&guard)
-                                    {
-                                        let base_value = global_data::read_safe()
-                                            .map(|data| data.base_value_per_supply_box)
-                                            .unwrap_or(100);
-                                        display_name.push_str(
-                                            &Self::supply_warehouse_tooltip_feedback(
-                                                boxes, base_value,
-                                            ),
+                                if let Some(boxes) = boxes {
+                                    let base_value = global_data::read_safe()
+                                        .map(|data| data.base_value_per_supply_box)
+                                        .unwrap_or(100);
+                                    display_name.push_str(&Self::supply_warehouse_tooltip_feedback(
+                                        boxes, base_value,
+                                    ));
+                                }
+                                if let Ok(player_guard) = player.read() {
+                                    display_name = Self::mouseover_tooltip_with_player_suffix(
+                                        &display_name,
+                                        &player_guard,
+                                        Self::mouseover_tooltip_is_multiplayer(),
+                                    );
+                                    with_mouse(|m| {
+                                        m.set_cursor_tooltip(
+                                            display_name,
+                                            Some(-1),
+                                            Some(indicator),
+                                            None,
                                         );
-                                    }
-                                    if let Ok(player_guard) = player.read() {
-                                        display_name = Self::mouseover_tooltip_with_player_suffix(
-                                            &display_name,
-                                            &player_guard,
-                                            Self::mouseover_tooltip_is_multiplayer(),
-                                        );
-                                        let indicator =
-                                            Self::mouseover_tooltip_color_for_object(&guard);
-                                        with_mouse(|m| {
-                                            m.set_cursor_tooltip(
-                                                display_name,
-                                                Some(-1),
-                                                Some(indicator),
-                                                None,
-                                            );
-                                        });
-                                    }
+                                    });
                                 }
                             }
                         }
@@ -1602,13 +1600,11 @@ impl InGameUI {
         {
             if self.moused_over_drawable_id != Self::INVALID_DRAWABLE_ID {
                 // C++: CanSelectDrawable(draw, FALSE) and obj->isLocallyControlled()
-                let can_select = match OBJECT_REGISTRY.get_object(self.moused_over_drawable_id) {
-                    Some(obj_ref) => obj_ref
-                        .read()
-                        .map(|g| g.is_selectable() && g.is_locally_controlled())
-                        .unwrap_or(false),
-                    None => false,
-                };
+                let can_select = OBJECT_REGISTRY
+                    .with_object(self.moused_over_drawable_id, |g| {
+                        g.is_selectable() && g.is_locally_controlled()
+                    })
+                    .unwrap_or(false);
                 if can_select {
                     self.set_mouse_cursor(MouseCursor::Selecting);
                 } else {

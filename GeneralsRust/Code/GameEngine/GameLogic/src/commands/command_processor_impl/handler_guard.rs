@@ -267,14 +267,16 @@ impl DefaultCommandHandler {
             ));
         }
 
-        let Some(target_arc) = TheGameLogic::find_object_by_id(target) else {
-            return CommandExecutionResult::Failed(AsciiString::from("Target not found"));
-        };
-        let Ok(target_guard) = target_arc.read() else {
-            return CommandExecutionResult::Failed(AsciiString::from("Target lock failed"));
-        };
-        if target_guard.is_effectively_dead() {
-            return CommandExecutionResult::Failed(AsciiString::from("Target is not alive"));
+        let target_alive = crate::object::registry::OBJECT_REGISTRY
+            .with_object(target, |target_guard| !target_guard.is_effectively_dead());
+        match target_alive {
+            None => {
+                return CommandExecutionResult::Failed(AsciiString::from("Target not found"));
+            }
+            Some(false) => {
+                return CommandExecutionResult::Failed(AsciiString::from("Target is not alive"));
+            }
+            Some(true) => {}
         }
 
         if let Some(object_manager) = &context.object_manager {
@@ -318,11 +320,16 @@ impl DefaultCommandHandler {
                     continue;
                 };
 
-                if !TheActionManager::can_capture_building(
-                    &unit_guard,
-                    &*target_guard,
-                    CommandSourceType::FromPlayer,
-                ) {
+                let can_capture = crate::object::registry::OBJECT_REGISTRY
+                    .with_object(target, |target_guard| {
+                        TheActionManager::can_capture_building(
+                            &unit_guard,
+                            target_guard,
+                            CommandSourceType::FromPlayer,
+                        )
+                    })
+                    .unwrap_or(false);
+                if !can_capture {
                     continue;
                 }
 
@@ -382,78 +389,66 @@ impl DefaultCommandHandler {
             )));
         }
 
-        let Some(target_arc) = TheGameLogic::find_object_by_id(target_id) else {
-            return CommandExecutionResult::Failed(AsciiString::from("Target not found"));
-        };
-        let Ok(target_guard) = target_arc.read() else {
-            return CommandExecutionResult::Failed(AsciiString::from("Target lock failed"));
-        };
-        if target_guard.is_effectively_dead() {
-            return CommandExecutionResult::Failed(AsciiString::from("Target is not alive"));
+        let target_alive = crate::object::registry::OBJECT_REGISTRY
+            .with_object(target_id, |target_guard| !target_guard.is_effectively_dead());
+        match target_alive {
+            None => {
+                return CommandExecutionResult::Failed(AsciiString::from("Target not found"));
+            }
+            Some(false) => {
+                return CommandExecutionResult::Failed(AsciiString::from("Target is not alive"));
+            }
+            Some(true) => {}
         }
 
         let mut any_executed = false;
         for source_id in &source_ids {
-            let Some(source_arc) = TheGameLogic::find_object_by_id(*source_id) else {
-                continue;
-            };
-            let Ok(source_guard) = source_arc.read() else {
-                continue;
-            };
-            if source_guard.is_effectively_dead() {
-                continue;
-            }
-            let source_owner = source_guard
-                .get_controlling_player_id()
-                .map(|id| id as Int)
-                .unwrap_or(-1);
-            if source_owner != -1 && source_owner != context.player_id {
-                continue;
-            }
-
-            if !can_execute(&source_guard, &target_guard, CommandSourceType::FromPlayer) {
-                continue;
-            }
-
-            let mut executed_here = false;
-            for module_handle in source_guard.behavior_modules() {
-                module_handle.with_module(|module| {
-                    let Some(sp_module) = module_special_power_interface(module) else {
-                        return;
-                    };
-                    if sp_module.get_power_type() != power_type as u32 {
-                        return;
+            let executed_here = crate::object::registry::OBJECT_REGISTRY
+                .with_object(*source_id, |source_guard| {
+                    if source_guard.is_effectively_dead() {
+                        return false;
                     }
-                    sp_module
-                        .do_special_power_at_object(target_id, SpecialPowerCommandOptions::NONE);
-                    executed_here = true;
-                });
-                if executed_here {
-                    break;
-                }
-            }
-
-            if !executed_here {
-                for behavior_arc in source_guard.get_behavior_modules() {
-                    let Ok(mut behavior_guard) = behavior_arc.lock() else {
-                        continue;
-                    };
-                    let Some(sp_module) = behavior_guard.get_special_power() else {
-                        continue;
-                    };
-                    if sp_module.get_power_type() != power_type as u32 {
-                        continue;
+                    let source_owner = source_guard
+                        .get_controlling_player_id()
+                        .map(|id| id as Int)
+                        .unwrap_or(-1);
+                    if source_owner != -1 && source_owner != context.player_id {
+                        return false;
                     }
-                    sp_module
-                        .do_special_power_at_object(target_id, SpecialPowerCommandOptions::NONE);
-                    executed_here = true;
-                    break;
-                }
-            }
-
+                    let allowed = crate::object::registry::OBJECT_REGISTRY
+                        .with_object(target_id, |target_guard| {
+                            can_execute(source_guard, target_guard, CommandSourceType::FromPlayer)
+                        })
+                        .unwrap_or(false);
+                    if !allowed {
+                        return false;
+                    }
+                    let mut executed_here = false;
+                    for module_handle in source_guard.behavior_modules() {
+                        module_handle.with_module(|module| {
+                            let Some(sp_module) = module_special_power_interface(module) else {
+                                return;
+                            };
+                            if sp_module.get_power_type() != power_type as u32 {
+                                return;
+                            }
+                            sp_module.do_special_power_at_object(
+                                target_id,
+                                SpecialPowerCommandOptions::NONE,
+                            );
+                            executed_here = true;
+                        });
+                        if executed_here {
+                            break;
+                        }
+                    }
+                    executed_here
+                })
+                .unwrap_or(false);
             if executed_here {
                 any_executed = true;
             }
+
         }
 
         if any_executed {
@@ -502,42 +497,46 @@ impl DefaultCommandHandler {
             ));
         }
 
-        let Some(target_arc) = TheGameLogic::find_object_by_id(target_id) else {
-            return CommandExecutionResult::Failed(AsciiString::from("Target not found"));
-        };
-        let Ok(target_guard) = target_arc.read() else {
-            return CommandExecutionResult::Failed(AsciiString::from("Target lock failed"));
-        };
-        if target_guard.is_effectively_dead() {
-            return CommandExecutionResult::Failed(AsciiString::from("Target is not alive"));
+        let target_alive = crate::object::registry::OBJECT_REGISTRY
+            .with_object(target_id, |target_guard| !target_guard.is_effectively_dead());
+        match target_alive {
+            None => {
+                return CommandExecutionResult::Failed(AsciiString::from("Target not found"));
+            }
+            Some(false) => {
+                return CommandExecutionResult::Failed(AsciiString::from("Target is not alive"));
+            }
+            Some(true) => {}
         }
 
         let mut eligible_attackers = Vec::new();
         for attacker_id in attacker_ids {
-            let Some(attacker_arc) = TheGameLogic::find_object_by_id(attacker_id) else {
-                continue;
-            };
-            let Ok(attacker_guard) = attacker_arc.read() else {
-                continue;
-            };
-            if attacker_guard.is_effectively_dead() {
-                continue;
+            let eligible = crate::object::registry::OBJECT_REGISTRY
+                .with_object(attacker_id, |attacker_guard| {
+                    if attacker_guard.is_effectively_dead() {
+                        return false;
+                    }
+                    let attacker_owner = attacker_guard
+                        .get_controlling_player_id()
+                        .map(|id| id as Int)
+                        .unwrap_or(-1);
+                    if attacker_owner != -1 && attacker_owner != context.player_id {
+                        return false;
+                    }
+                    crate::object::registry::OBJECT_REGISTRY
+                        .with_object(target_id, |target_guard| {
+                            TheActionManager::can_snipe_vehicle(
+                                attacker_guard,
+                                target_guard,
+                                CommandSourceType::FromPlayer,
+                            )
+                        })
+                        .unwrap_or(false)
+                })
+                .unwrap_or(false);
+            if eligible {
+                eligible_attackers.push(attacker_id);
             }
-            let attacker_owner = attacker_guard
-                .get_controlling_player_id()
-                .map(|id| id as Int)
-                .unwrap_or(-1);
-            if attacker_owner != -1 && attacker_owner != context.player_id {
-                continue;
-            }
-            if !TheActionManager::can_snipe_vehicle(
-                &attacker_guard,
-                &target_guard,
-                CommandSourceType::FromPlayer,
-            ) {
-                continue;
-            }
-            eligible_attackers.push(attacker_id);
         }
 
         if eligible_attackers.is_empty() {

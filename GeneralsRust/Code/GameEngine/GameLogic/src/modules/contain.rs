@@ -341,18 +341,13 @@ pub trait ContainModuleInterface: Send + Sync + std::fmt::Debug {
             return;
         }
         for object_id in self.get_contained_objects().iter() {
-            let Some(obj) = TheGameLogic::find_object_by_id(*object_id) else {
-                continue;
-            };
-            let Ok(obj_guard) = obj.try_read() else {
-                continue;
-            };
-            if !obj_guard.is_kind_of(KindOf::StealthGarrison) {
-                continue;
-            }
-            let stealth = obj_guard.get_stealth();
-            drop(obj_guard);
-            if let Some(stealth) = stealth {
+            let stealth = crate::object::registry::OBJECT_REGISTRY.with_object(*object_id, |obj_guard| {
+                if !obj_guard.is_kind_of(KindOf::StealthGarrison) {
+                    return None;
+                }
+                obj_guard.get_stealth()
+            });
+            if let Some(Some(stealth)) = stealth {
                 if let Ok(mut stealth_guard) = stealth.try_lock() {
                     stealth_guard.mark_as_detected();
                 }
@@ -372,17 +367,14 @@ pub trait ContainModuleInterface: Send + Sync + std::fmt::Debug {
         }
 
         for object_id in self.get_contained_objects().iter() {
-            if let Some(obj) = TheGameLogic::find_object_by_id(*object_id) {
-                let Ok(mut obj_guard) = obj.try_write() else {
-                    continue;
-                };
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(*object_id, |obj_guard| {
                 if obj_guard.get_ai().is_none() {
-                    continue;
+                    return;
                 }
                 obj_guard.ai_pending_exit = Some(instantly);
                 obj_guard.ai_pending_exit_source = command_source;
                 obj_guard.ai_pending_exit_obj = obj_guard.get_contained_by();
-            }
+            });
         }
 
         Ok(())
@@ -399,16 +391,13 @@ pub trait ContainModuleInterface: Send + Sync + std::fmt::Debug {
         }
 
         for object_id in self.get_contained_objects().iter() {
-            if let Some(obj) = TheGameLogic::find_object_by_id(*object_id) {
-                let Ok(mut obj_guard) = obj.try_write() else {
-                    continue;
-                };
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(*object_id, |obj_guard| {
                 if obj_guard.get_ai().is_none() {
-                    continue;
+                    return;
                 }
                 obj_guard.ai_pending_idle = true;
                 obj_guard.ai_pending_idle_source = command_source;
-            }
+            });
         }
 
         Ok(())
@@ -425,19 +414,16 @@ pub trait ContainModuleInterface: Send + Sync + std::fmt::Debug {
         }
 
         for object_id in self.get_contained_objects().iter() {
-            if let Some(obj) = TheGameLogic::find_object_by_id(*object_id) {
-                let Ok(mut obj_guard) = obj.try_write() else {
-                    continue;
-                };
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(*object_id, |obj_guard| {
                 if !obj_guard.is_kind_of(KindOf::MoneyHacker) {
-                    continue;
+                    return;
                 }
                 if obj_guard.get_ai().is_none() {
-                    continue;
+                    return;
                 }
                 obj_guard.ai_pending_hack = true;
                 obj_guard.ai_pending_hack_source = command_source;
-            }
+            });
         }
 
         Ok(())
@@ -525,11 +511,9 @@ pub trait ContainModuleInterface: Send + Sync + std::fmt::Debug {
 
         self.get_contained_objects()
             .iter()
-            .filter_map(|id| TheGameLogic::find_object_by_id(*id))
-            .filter(|obj| {
-                obj.read()
-                    .ok()
-                    .map(|guard| guard.test_status(ObjectStatusTypes::Stealthed))
+            .filter(|id| {
+                crate::object::registry::OBJECT_REGISTRY
+                    .with_object(**id, |guard| guard.test_status(ObjectStatusTypes::Stealthed))
                     .unwrap_or(false)
             })
             .count() as UnsignedInt

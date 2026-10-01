@@ -66,7 +66,7 @@ impl ScriptAction for NamedAttackAction {
         // 3. AIUpdateInterface *ai = attacker->getAIUpdateInterface()
         // 4. ai->aiAttackObject(target, CMD_FROM_SCRIPT)
         // Named objects stored in ScriptEngine's named object map
-        // Rust: object_manager.get_named(name) -> Option<Arc<RwLock<Object>>>
+        // Rust: resolve_named_object_id(name) -> Option<ObjectID>
 
         let Some(attacker_id) = resolve_named_object_id(&attacker_name) else {
             log::warn!("NamedAttackAction: attacker '{}' not found", attacker_name);
@@ -77,38 +77,27 @@ impl ScriptAction for NamedAttackAction {
             return Ok(ScriptResult::Success(None));
         };
 
-        let Some(attacker_arc) = TheGameLogic::find_object_by_id(attacker_id) else {
-            log::warn!(
-                "NamedAttackAction: attacker '{}' (ID {}) not found in registry",
-                attacker_name,
-                attacker_id
-            );
-            return Ok(ScriptResult::Success(None));
-        };
-
-        // The write guard is held across the AI dispatch (C++ call-stack
-        // ownership: leave_group/get_ai_update_interface/execute_command only
-        // touch this object and the team list, so no re-entry occurs).
-        if let Ok(mut obj_guard) = attacker_arc.write() {
-            obj_guard.leave_group();
-            if let Some(ai) = obj_guard.get_ai_update_interface_mut() {
-                let _ = ai.choose_locomotor_set(LocomotorSetType::Normal);
-                let mut params = AiCommandParams::new(
-                    AiCommandType::ForceAttackObject,
-                    CommandSourceType::FromScript,
-                );
-                params.obj = Some(target_id);
-                params.int_value = -1; // NO_MAX_SHOTS_LIMIT
-                let _ = ai.execute_command(&params);
-            } else {
-                log::warn!(
-                    "NamedAttackAction: attacker '{}' has no AI update interface",
-                    attacker_name
-                );
+        {
+            enum _ObjFlow<T> { Cont, Ret(T), Fall }
+            let _flow = OBJECT_REGISTRY.with_object_mut(attacker_id, |mut obj_guard| {
+                
+                Ok(ScriptResult::Success(None))
+                _ObjFlow::Fall
+            });
+            match _flow {
+                None => {
+                    log::warn!(
+                    "NamedAttackAction: attacker '{}' (ID {}) not found in registry",
+                    attacker_name,
+                    attacker_id
+                    );
+                    return Ok(ScriptResult::Success(None));
+                }
+                Some(_ObjFlow::Cont) => continue,
+                Some(_ObjFlow::Ret(v)) => return v,
+                Some(_ObjFlow::Fall) => {}
             }
         }
-
-        Ok(ScriptResult::Success(None))
     }
 
     fn name(&self) -> &str {
@@ -159,36 +148,27 @@ impl ScriptAction for NamedAttackTeamAction {
             return Ok(ScriptResult::Success(None));
         }
 
-        let Some(object_arc) = TheGameLogic::find_object_by_id(object_id) else {
-            log::warn!(
-                "NamedAttackTeamAction: unit '{}' (ID {}) not found in registry",
-                unit_name,
-                object_id
-            );
-            return Ok(ScriptResult::Success(None));
-        };
-
-        // The write guard is held across the AI dispatch: the AI module is
-        // owned by the Object now, so the dispatch borrows it (C++ call-stack
-        // ownership).
-        if let Ok(mut obj_guard) = object_arc.write() {
-            obj_guard.leave_group();
-            if let Some(ai) = obj_guard.get_ai_update_interface_mut() {
-                let _ = ai.choose_locomotor_set(LocomotorSetType::Normal);
-                let mut params =
-                    AiCommandParams::new(AiCommandType::AttackTeam, CommandSourceType::FromScript);
-                params.team = Some(resolved_team);
-                params.int_value = -1; // NO_MAX_SHOTS_LIMIT
-                let _ = ai.execute_command(&params);
-            } else {
-                log::warn!(
-                    "NamedAttackTeamAction: unit '{}' has no AI update interface",
-                    unit_name
-                );
+        {
+            enum _ObjFlow<T> { Cont, Ret(T), Fall }
+            let _flow = OBJECT_REGISTRY.with_object_mut(object_id, |mut obj_guard| {
+                
+                Ok(ScriptResult::Success(None))
+                _ObjFlow::Fall
+            });
+            match _flow {
+                None => {
+                    log::warn!(
+                    "NamedAttackTeamAction: unit '{}' (ID {}) not found in registry",
+                    unit_name,
+                    object_id
+                    );
+                    return Ok(ScriptResult::Success(None));
+                }
+                Some(_ObjFlow::Cont) => continue,
+                Some(_ObjFlow::Ret(v)) => return v,
+                Some(_ObjFlow::Fall) => {}
             }
         }
-
-        Ok(ScriptResult::Success(None))
     }
 
     fn name(&self) -> &str {
@@ -240,36 +220,27 @@ impl ScriptAction for NamedAttackAreaAction {
             return Ok(ScriptResult::Success(None));
         };
 
-        let Some(object_arc) = TheGameLogic::find_object_by_id(object_id) else {
-            log::warn!(
-                "NamedAttackAreaAction: unit '{}' (ID {}) not found in registry",
-                unit_name,
-                object_id
-            );
-            return Ok(ScriptResult::Success(None));
-        };
-
-        // The write guard is held across the AI dispatch: the AI module is
-        // owned by the Object now, so the dispatch borrows it (C++ call-stack
-        // ownership).
-        if let Ok(mut obj_guard) = object_arc.write() {
-            obj_guard.leave_group();
-            if let Some(ai) = obj_guard.get_ai_update_interface_mut() {
-                let _ = ai.choose_locomotor_set(LocomotorSetType::Normal);
-                let mut params =
-                    AiCommandParams::new(AiCommandType::AttackArea, CommandSourceType::FromScript);
-                params.pos = center;
-                params.polygon = Some(trigger_id);
-                let _ = ai.execute_command(&params);
-            } else {
-                log::warn!(
-                    "NamedAttackAreaAction: unit '{}' has no AI update interface",
-                    unit_name
-                );
+        {
+            enum _ObjFlow<T> { Cont, Ret(T), Fall }
+            let _flow = OBJECT_REGISTRY.with_object_mut(object_id, |mut obj_guard| {
+                
+                Ok(ScriptResult::Success(None))
+                _ObjFlow::Fall
+            });
+            match _flow {
+                None => {
+                    log::warn!(
+                    "NamedAttackAreaAction: unit '{}' (ID {}) not found in registry",
+                    unit_name,
+                    object_id
+                    );
+                    return Ok(ScriptResult::Success(None));
+                }
+                Some(_ObjFlow::Cont) => continue,
+                Some(_ObjFlow::Ret(v)) => return v,
+                Some(_ObjFlow::Fall) => {}
             }
         }
-
-        Ok(ScriptResult::Success(None))
     }
 
     fn name(&self) -> &str {
@@ -538,28 +509,25 @@ impl ScriptAction for NamedGuardAction {
             return Ok(ScriptResult::Success(None));
         };
 
-        let Some(object_arc) = TheGameLogic::find_object_by_id(object_id) else {
-            log::warn!(
+        {
+            enum _ObjFlow<T> { Cont, Ret(T), Fall }
+            let _flow = OBJECT_REGISTRY.with_object_mut(object_id, |mut obj_guard| {
+                
+                Ok(ScriptResult::Success(None))
+                _ObjFlow::Fall
+            });
+            match _flow {
+                None => { log::warn!(
                 "NamedGuardAction: unit '{}' (ID {}) not found in registry",
                 unit_name,
                 object_id
             );
-            return Ok(ScriptResult::Success(None));
-        };
-
-        if let Ok(mut obj_guard) = object_arc.write() {
-            let pos = *obj_guard.get_position();
-            if let Some(ai) = obj_guard.get_ai_update_interface_mut() {
-                ai.ai_guard_position(&pos, GuardMode::Normal, CommandSourceType::FromScript);
-            } else {
-                log::warn!(
-                    "NamedGuardAction: unit '{}' has no AI update interface",
-                    unit_name
-                );
+            return Ok(ScriptResult::Success(None)); }
+                Some(_ObjFlow::Cont) => continue,
+                Some(_ObjFlow::Ret(v)) => return v,
+                Some(_ObjFlow::Fall) => {}
             }
         }
-
-        Ok(ScriptResult::Success(None))
     }
 
     fn name(&self) -> &str {
@@ -605,28 +573,25 @@ impl ScriptAction for NamedHuntAction {
             return Ok(ScriptResult::Success(None));
         };
 
-        let Some(object_arc) = TheGameLogic::find_object_by_id(object_id) else {
-            log::warn!(
+        {
+            enum _ObjFlow<T> { Cont, Ret(T), Fall }
+            let _flow = OBJECT_REGISTRY.with_object_mut(object_id, |mut obj_guard| {
+                
+                Ok(ScriptResult::Success(None))
+                _ObjFlow::Fall
+            });
+            match _flow {
+                None => { log::warn!(
                 "NamedHuntAction: unit '{}' (ID {}) not found in registry",
                 unit_name,
                 object_id
             );
-            return Ok(ScriptResult::Success(None));
-        };
-
-        if let Ok(mut obj_guard) = object_arc.write() {
-            if let Some(ai) = obj_guard.get_ai_update_interface_mut() {
-                let _ = ai.choose_locomotor_set(LocomotorSetType::Normal);
-                ai.ai_hunt(CommandSourceType::FromScript);
-            } else {
-                log::warn!(
-                    "NamedHuntAction: unit '{}' has no AI update interface",
-                    unit_name
-                );
+            return Ok(ScriptResult::Success(None)); }
+                Some(_ObjFlow::Cont) => continue,
+                Some(_ObjFlow::Ret(v)) => return v,
+                Some(_ObjFlow::Fall) => {}
             }
         }
-
-        Ok(ScriptResult::Success(None))
     }
 
     fn name(&self) -> &str {
@@ -672,30 +637,35 @@ impl ScriptAction for NamedDeleteAction {
             return Ok(ScriptResult::Success(None));
         };
 
-        let Some(object_arc) = TheGameLogic::find_object_by_id(object_id) else {
-            log::warn!(
+        {
+            enum _ObjFlow<T> { Cont, Ret(T), Fall }
+            let _flow = OBJECT_REGISTRY.with_object_mut(object_id, |mut obj_guard| {
+                
+                let tracker = get_named_object_tracker();
+                if let Err(err) = tracker.unregister_object(object_id) {
+                    log::warn!(
+                        "NamedDeleteAction: failed to unregister '{}' (ID {}): {}",
+                        unit_name,
+                        object_id,
+                        err
+                    );
+                }
+                
+                Ok(ScriptResult::Success(None))
+                _ObjFlow::Fall
+            });
+            match _flow {
+                None => { log::warn!(
                 "NamedDeleteAction: unit '{}' (ID {}) not found in registry",
                 unit_name,
                 object_id
             );
-            return Ok(ScriptResult::Success(None));
-        };
-
-        if let Ok(mut obj_guard) = object_arc.write() {
-            obj_guard.kill(Some(DamageType::Unresistable), Some(DeathType::Normal));
+            return Ok(ScriptResult::Success(None)); }
+                Some(_ObjFlow::Cont) => continue,
+                Some(_ObjFlow::Ret(v)) => return v,
+                Some(_ObjFlow::Fall) => {}
+            }
         }
-
-        let tracker = get_named_object_tracker();
-        if let Err(err) = tracker.unregister_object(object_id) {
-            log::warn!(
-                "NamedDeleteAction: failed to unregister '{}' (ID {}): {}",
-                unit_name,
-                object_id,
-                err
-            );
-        }
-
-        Ok(ScriptResult::Success(None))
     }
 
     fn name(&self) -> &str {

@@ -29,12 +29,12 @@ fn boat_input(frame: &PresentationFrame) -> UnitRenderInput {
 
 #[test]
 fn frozen_sway_survives_same_id_other_world_freeze_and_reset() {
-    let first = boat_world(0.3, -0.1);
-    let frame = PresentationFrame::build_from_logic(&first, 1);
+    let mut first = boat_world(0.3, -0.1);
+    let frame = PresentationFrame::build_from_logic(&mut first, 1);
     let input = boat_input(&frame);
     let expected = input.world_matrix();
     let mut second = boat_world(-0.8, 0.2);
-    let other_frame = PresentationFrame::build_from_logic(&second, 1);
+    let other_frame = PresentationFrame::build_from_logic(&mut second, 1);
     let other_input = boat_input(&other_frame);
     assert_ne!(other_input.world_matrix(), expected);
     assert_eq!(
@@ -52,8 +52,8 @@ fn frozen_sway_survives_same_id_other_world_freeze_and_reset() {
 
 #[test]
 fn frozen_sway_uses_cpp_heading_yaw_pitch_order() {
-    let world = boat_world(0.3, -0.1);
-    let frame = PresentationFrame::build_from_logic(&world, 1);
+    let mut world = boat_world(0.3, -0.1);
+    let frame = PresentationFrame::build_from_logic(&mut world, 1);
     let input = boat_input(&frame);
     let matrix = input.world_matrix();
     let (sh, ch) = 0.6f32.sin_cos();
@@ -71,8 +71,8 @@ fn frozen_sway_uses_cpp_heading_yaw_pitch_order() {
 
 #[test]
 fn zero_sway_and_serialized_frozen_pose_keep_defaults() {
-    let world = boat_world(0.0, 0.0);
-    let frame = PresentationFrame::build_from_logic(&world, 1);
+    let mut world = boat_world(0.0, 0.0);
+    let frame = PresentationFrame::build_from_logic(&mut world, 1);
     let input = boat_input(&frame);
     let expected = glam::Mat4::from_translation(input.position)
         * glam::Mat4::from_rotation_y(input.orientation);
@@ -83,8 +83,8 @@ fn zero_sway_and_serialized_frozen_pose_keep_defaults() {
         "C++ FloatUpdateModuleData ctor defaults disabled"
     );
     assert_eq!((default_data.yaw, default_data.pitch), (0.0, 0.0));
-    let nonzero = boat_world(0.25, -0.15);
-    let frame = PresentationFrame::build_from_logic(&nonzero, 1);
+    let mut nonzero = boat_world(0.25, -0.15);
+    let frame = PresentationFrame::build_from_logic(&mut nonzero, 1);
     let input = boat_input(&frame);
     let object = frame
         .objects

@@ -37,15 +37,21 @@ impl ScriptEvaluator {
             return Ok(false);
         };
 
-        let Some(obj_arc) = TheGameLogic::find_object_by_id(object_id) else {
-            return Ok(false);
-        };
-        let Ok(obj_guard) = obj_arc.read() else {
-            return Ok(false);
-        };
-
-        // C++ ScriptConditions.cpp:397-415 has no dead/inert filter.
-        Ok(Self::is_object_inside_trigger(&obj_guard, &trigger))
+        {
+            enum _ObjFlow<T> { Cont, Ret(T), Fall }
+            let _flow = OBJECT_REGISTRY.with_object(object_id, |obj_guard| {
+                
+                // C++ ScriptConditions.cpp:397-415 has no dead/inert filter.
+                Ok(Self::is_object_inside_trigger(&obj_guard, &trigger))
+                _ObjFlow::Fall
+            });
+            match _flow {
+                None => { return Ok(false); }
+                Some(_ObjFlow::Cont) => continue,
+                Some(_ObjFlow::Ret(v)) => return v,
+                Some(_ObjFlow::Fall) => {}
+            }
+        }
     }
 
     fn evaluate_named_outside_area_condition(

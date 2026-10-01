@@ -868,33 +868,22 @@ mod tests {
     #[test]
     fn host_ok_requires_shell_wnd_when_wnd_enabled() {
         let _guard = std::env::var("GENERALS_RUNTIME_HOST_WND");
-        // Safety: process-local env for this test only.
-        // SAFETY: serialized by the repo --test-threads=1 convention plus
-        // env_compat module contract (GENERALS_* toggle read at defined
-        // boundaries); no other thread reads env mid-test.
-        unsafe {
-            crate::env_compat::set_var("GENERALS_RUNTIME_HOST_WND", "1");
-        }
+        crate::env_compat::set_var("GENERALS_RUNTIME_HOST_WND", "1");
         assert!(
             !executable_host_ok_from_residuals(true, false),
             "WND path must not claim host_ok without shell_wnd residual"
         );
         assert!(executable_host_ok_from_residuals(true, true));
         assert!(!executable_host_ok_from_residuals(false, true));
-        // SAFETY: same serialized-env contract as above.
-        unsafe {
-            crate::env_compat::set_var("GENERALS_RUNTIME_HOST_WND", "0");
-        }
+        crate::env_compat::set_var("GENERALS_RUNTIME_HOST_WND", "0");
         assert!(
             executable_host_ok_from_residuals(true, false),
             "WND-off path allows host_ok without shell residual"
         );
         // restore
         match _guard {
-            // SAFETY: restore path under the same serialization contract.
-            Ok(v) => unsafe { crate::env_compat::set_var("GENERALS_RUNTIME_HOST_WND", v) },
-            // SAFETY: removal path under the same serialization contract.
-            Err(_) => unsafe { crate::env_compat::remove_var("GENERALS_RUNTIME_HOST_WND") },
+            Ok(v) => crate::env_compat::set_var("GENERALS_RUNTIME_HOST_WND", v),
+            Err(_) => crate::env_compat::remove_var("GENERALS_RUNTIME_HOST_WND"),
         }
     }
 

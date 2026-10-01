@@ -172,23 +172,18 @@ impl Weapon {
         if dual_world_registry_unavailable() {
             return;
         }
-        let Some(requesting_arc) = TheGameLogic::find_object_by_id(source_obj_id) else {
+        let Some((player_arc, requesting_template, range, requesting_pos)) =
+            crate::object::registry::OBJECT_REGISTRY.with_object(source_obj_id, |requesting_guard| {
+                let player_arc = requesting_guard.get_controlling_player()?;
+                let requesting_template = requesting_guard.get_template().clone();
+                let range = self.template.get_request_assist_range();
+                let requesting_pos = *requesting_guard.get_position();
+                Some((player_arc, requesting_template, range, requesting_pos))
+            })
+            .flatten()
+        else {
             return;
         };
-        let Ok(requesting_guard) = requesting_arc.read() else {
-            return;
-        };
-        let Some(player_arc) = requesting_guard.get_controlling_player() else {
-            return;
-        };
-        let requesting_template = requesting_guard.get_template().clone();
-        let range = self.template.get_request_assist_range();
-        if range <= 0.0 {
-            return;
-        }
-        let request_dist_sqr = range * range;
-        let requesting_pos = *requesting_guard.get_position();
-        drop(requesting_guard);
 
         let Ok(player_guard) = player_arc.read() else {
             return;
@@ -287,12 +282,10 @@ impl Weapon {
             .apply_historic_bonus(source_obj_id, &impact_pos);
         let mut primary_victim_id = None;
         if let Some(target_id) = target_obj_id {
-            if let Some(target_arc) = TheGameLogic::find_object_by_id(target_id) {
-                if let Ok(target_guard) = target_arc.try_read() {
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object(target_id, |target_guard| {
                     impact_pos = *target_guard.get_position();
                     primary_victim_id = Some(target_id);
-                }
-            }
+                });
         }
 
         // Create base damage info
@@ -751,53 +744,42 @@ impl Weapon {
                 return Ok(pos);
             }
         }
-        let Some(obj_arc) = TheGameLogic::find_object_by_id(_obj_id) else {
-            return Err(WeaponError::InvalidTarget);
-        };
-        let obj_guard = obj_arc
-            .try_read()
-            .map_err(|_| WeaponError::SystemError("Failed to lock object position".to_string()))?;
-        Ok(*obj_guard.get_position())
+        crate::object::registry::OBJECT_REGISTRY
+            .with_object(_obj_id, |obj_guard| *obj_guard.get_position())
+            .ok_or(WeaponError::InvalidTarget)
     }
 
     /// Get object type (interfaces with object manager)
     ///
     /// Used for scatter calculation - infantry get more inaccuracy
     pub(crate) fn get_object_type(&self, _obj_id: ObjectId) -> ObjectType {
-        let Some(obj_arc) = TheGameLogic::find_object_by_id(_obj_id) else {
-            return ObjectType::Unknown;
-        };
-        let Ok(obj_guard) = obj_arc.try_read() else {
-            return ObjectType::Unknown;
-        };
-
-        if obj_guard.is_kind_of(KindOf::Projectile) {
-            return ObjectType::Projectile;
-        }
-        if obj_guard.is_kind_of(KindOf::Structure) || obj_guard.is_kind_of(KindOf::Building) {
-            return ObjectType::Structure;
-        }
-        if obj_guard.is_kind_of(KindOf::Infantry) {
-            return ObjectType::Infantry;
-        }
-        if obj_guard.is_kind_of(KindOf::Vehicle) || obj_guard.is_kind_of(KindOf::Aircraft) {
-            return ObjectType::Vehicle;
-        }
-
-        ObjectType::Unknown
+        crate::object::registry::OBJECT_REGISTRY
+            .with_object(_obj_id, |obj_guard| {
+                if obj_guard.is_kind_of(KindOf::Projectile) {
+                    return ObjectType::Projectile;
+                }
+                if obj_guard.is_kind_of(KindOf::Structure) || obj_guard.is_kind_of(KindOf::Building)
+                {
+                    return ObjectType::Structure;
+                }
+                if obj_guard.is_kind_of(KindOf::Infantry) {
+                    return ObjectType::Infantry;
+                }
+                if obj_guard.is_kind_of(KindOf::Vehicle) || obj_guard.is_kind_of(KindOf::Aircraft) {
+                    return ObjectType::Vehicle;
+                }
+                ObjectType::Unknown
+            })
+            .unwrap_or(ObjectType::Unknown)
     }
 
     /// Check if target is valid and alive
     ///
     /// Validates target still exists and hasn't been destroyed
     pub(crate) fn is_target_valid(&self, _obj_id: ObjectId) -> bool {
-        let Some(obj_arc) = TheGameLogic::find_object_by_id(_obj_id) else {
-            return false;
-        };
-        let Ok(obj_guard) = obj_arc.read() else {
-            return false;
-        };
-        !obj_guard.is_destroyed()
+        crate::object::registry::OBJECT_REGISTRY
+            .with_object(_obj_id, |obj_guard| !obj_guard.is_destroyed())
+            .unwrap_or(false)
     }
 
     /// Check if source can see target within vision range
@@ -972,64 +954,57 @@ impl Weapon {
             TheObjectFactory::find_template(&self.template.projectile_name)
         {
             let mut owning_player = self.caller_player();
-            let mut projectile_team = self.caller_team.clone();
+            let mut projectile_team: Option<crate::team::TeamID> = self.caller_team.as_ref().and_then(|team| {
+                team.read().ok().map(|guard| guard.get_id())
+            });
             let mut source_veterancy = self
                 .caller_veterancy
                 .unwrap_or(crate::common::VeterancyLevel::Regular);
 
             if projectile_team.is_none() {
-                if let Some(source_arc) = TheGameLogic::find_object_by_id(source_obj_id) {
-                    if let Ok(source_guard) = source_arc.try_read() {
+                let _ = crate::object::registry::OBJECT_REGISTRY.with_object(source_obj_id, |source_guard| {
                         owning_player = source_guard.get_controlling_player();
                         source_veterancy = source_guard.get_veterancy_level();
-                        if let Some(player_arc) = &owning_player {
-                            if let Ok(player_guard) = player_arc.read() {
-                                projectile_team = player_guard.get_default_team();
-                            }
-                        }
-                        if projectile_team.is_none() {
-                            projectile_team = source_guard.get_team();
-                        }
-                    }
-                }
+                        projectile_team = owning_player.and_then(|player_index| {
+                            crate::player::player_list().read().ok().and_then(|list| {
+                                list.get_player(player_index)
+                                    .and_then(|player| player.get_default_team_id())
+                            })
+                        }).or_else(|| source_guard.get_team_id());
+                    });
             }
 
-            let projectile_arc = TheObjectFactory::new_object(
-                projectile_template,
-                projectile_team.as_ref().map(Arc::clone),
-            )
-            .map_err(|e| WeaponError::SystemError(format!("Projectile create failed: {}", e)))?;
-
-            let projectile_id = projectile_arc
-                .read()
-                .map_err(|_| WeaponError::SystemError("Projectile lock failed".to_string()))?
-                .get_id();
-
-            {
-                let mut proj_guard = projectile_arc
-                    .write()
-                    .map_err(|_| WeaponError::SystemError("Projectile lock failed".to_string()))?;
-                let _ = proj_guard.set_position(source_pos);
-
-                if let Some(source_arc) = TheGameLogic::find_object_by_id(source_obj_id) {
-                    if let Ok(source_guard) = source_arc.try_read() {
+            let projectile_id = TheObjectFactory::new_object(projectile_template, None)
+                .map_err(|e| WeaponError::SystemError(format!("Projectile create failed: {}", e)))?;
+            crate::object::registry::OBJECT_REGISTRY.with_object_mut(projectile_id, |proj| {
+                let _ = proj.set_team_id(projectile_team);
+                let _ = proj.set_position(source_pos);
+            });
+            let Some(projectile_arc) = TheGameLogic::find_object_by_id(projectile_id) else {
+                return Err(WeaponError::SystemError("Projectile missing after create".into()));
+            };
+            if let Some(source_arc) = TheGameLogic::find_object_by_id(source_obj_id) {
+                if let Ok(source_guard) = source_arc.try_read() {
+                    if let Ok(mut proj_guard) = projectile_arc.write() {
                         proj_guard.set_producer(Some(&source_guard));
                         if source_guard.notify_special_power_completion_die() {
                             proj_guard.set_special_power_completion_creator(INVALID_OBJECT_ID);
                         } else {
                             proj_guard.set_special_power_completion_creator(source_obj_id);
                         }
-                    } else {
-                        proj_guard.set_special_power_completion_creator(source_obj_id);
                     }
+                } else if let Ok(mut proj_guard) = projectile_arc.write() {
+                    proj_guard.set_special_power_completion_creator(source_obj_id);
                 }
             }
 
-            if let Some(player_arc) = owning_player {
-                if let Ok(player_guard) = player_arc.read() {
-                    if player_guard.get_num_battle_plans_active() > 0 {
-                        if let Ok(mut proj_guard) = projectile_arc.write() {
-                            player_guard.apply_battle_plan_bonuses_for_object(&mut proj_guard);
+            if let Some(player_index) = owning_player {
+                if let Ok(list) = crate::player::player_list().read() {
+                    if let Some(player_guard) = list.get_player(player_index) {
+                        if player_guard.get_num_battle_plans_active() > 0 {
+                            if let Ok(mut proj_guard) = projectile_arc.write() {
+                                player_guard.apply_battle_plan_bonuses_for_object(&mut proj_guard);
+                            }
                         }
                     }
                 }
@@ -1151,31 +1126,26 @@ impl Weapon {
         let Some(source_arc) = TheGameLogic::find_object_by_id(source_obj_id) else {
             return Err(WeaponError::InvalidTarget);
         };
-        let (team_arc, source_pos) = {
+        let (team_id, source_pos) = {
             let source_guard = source_arc
                 .read()
                 .map_err(|_| WeaponError::SystemError("Source object lock failed".to_string()))?;
-            let team_arc = source_guard
+            let team_id = source_guard
                 .get_controlling_player()
-                .and_then(|player| {
-                    player
-                        .read()
-                        .ok()
-                        .and_then(|guard| guard.get_default_team())
+                .and_then(|player_index| {
+                    crate::player::player_list().read().ok().and_then(|list| {
+                        list.get_player(player_index)
+                            .and_then(|guard| guard.get_default_team_id())
+                    })
                 })
-                .or_else(|| source_guard.get_team());
-            let Some(team_arc) = team_arc else {
+                .or_else(|| source_guard.get_team_id());
+            let Some(team_id) = team_id else {
                 return Err(WeaponError::SystemError(
                     "Laser creation requires source player default team".to_string(),
                 ));
             };
-            (team_arc, *source_guard.get_position())
+            (team_id, *source_guard.get_position())
         };
-
-        let team_guard = team_arc
-            .read()
-            .map_err(|_| WeaponError::SystemError("Source team lock failed".to_string()))?;
-
         let Some(template) =
             crate::helpers::TheThingFactory::find_template(&self.template.laser_name)
         else {
@@ -1187,9 +1157,11 @@ impl Weapon {
 
         let factory = crate::helpers::TheThingFactory::get()
             .map_err(|e| WeaponError::SystemError(e.to_string()))?;
-        let laser_obj = factory
-            .new_object(template, &team_guard)
-            .map_err(|e| WeaponError::SystemError(e.to_string()))?;
+        let laser_obj = crate::team::with_team(team_id, |team_guard| {
+            factory.new_object(template, team_guard)
+        })
+        .ok_or_else(|| WeaponError::SystemError("Source team lock failed".to_string()))?
+        .map_err(|e| WeaponError::SystemError(e.to_string()))?;
 
         let mut laser_guard = laser_obj
             .write()

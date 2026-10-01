@@ -60,7 +60,7 @@ impl DefaultCommandHandler {
         };
 
         if let Some(id) = target_object {
-            if TheGameLogic::find_object_by_id(id).is_none() {
+            if !TheGameLogic::find_object_by_id(id) {
                 return CommandExecutionResult::Success;
             }
         }

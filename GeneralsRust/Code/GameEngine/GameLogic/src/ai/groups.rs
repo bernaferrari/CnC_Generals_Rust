@@ -374,14 +374,10 @@ impl AiUnitGroup {
         }
 
         for unit_id in self.units.keys().copied() {
-            let Some(obj_arc) = TheGameLogic::find_object_by_id(unit_id) else {
-                continue;
-            };
-            let Ok(obj_guard) = obj_arc.read() else {
-                continue;
-            };
-            let _ = obj_guard.with_overcharge_behavior_interface(|overcharge| {
-                let _ = overcharge.toggle();
+            let _ = OBJECT_REGISTRY.with_object(unit_id, |obj_guard| {
+                let _ = obj_guard.with_overcharge_behavior_interface(|overcharge| {
+                    let _ = overcharge.toggle();
+                });
             });
         }
     }
@@ -459,24 +455,24 @@ impl AiUnitGroup {
         let mut min_speed = Real::INFINITY;
 
         for unit in self.units.values_mut() {
-            if let Some(object_arc) = TheGameLogic::find_object_by_id(unit.object_id) {
-                if let Ok(object) = object_arc.read() {
-                    let position = *object.get_position();
-                    unit.last_position = Some(position);
-                    sum_x += position.x;
-                    sum_y += position.y;
-                    sum_z += position.z;
-                    count += 1;
-
-                    let health = object.get_health();
-                    let max_health = object.get_max_health().max(1.0);
-                    unit.health_ratio = (health / max_health).clamp(0.0, 1.0);
-
-                    if let Some(ai) = object.get_ai_update_interface() {
-                        if let Ok(ai_guard) = ai.lock() {
-                            unit.speed = ai_guard.get_speed().max(0.0);
-                        }
-                    }
+            if let Some((position, health_ratio, speed)) = OBJECT_REGISTRY.with_object(unit.object_id, |object| {
+                let position = *object.get_position();
+                let health = object.get_health();
+                let max_health = object.get_max_health().max(1.0);
+                let health_ratio = (health / max_health).clamp(0.0, 1.0);
+                let speed = object.get_ai_update_interface().and_then(|ai| {
+                    ai.lock().ok().map(|ai_guard| ai_guard.get_speed().max(0.0))
+                });
+                (position, health_ratio, speed)
+            }) {
+                unit.last_position = Some(position);
+                sum_x += position.x;
+                sum_y += position.y;
+                sum_z += position.z;
+                count += 1;
+                unit.health_ratio = health_ratio;
+                if let Some(speed) = speed {
+                    unit.speed = speed;
                 }
             }
 

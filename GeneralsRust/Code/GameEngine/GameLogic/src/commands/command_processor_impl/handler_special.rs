@@ -135,7 +135,7 @@ impl DefaultCommandHandler {
                     }
                 }
             }
-            TheGameLogic::find_object_by_id(object_id).is_some()
+            TheGameLogic::find_object_by_id(object_id)
         };
 
         let object_position = |object_id: ObjectID| -> Option<Coord3D> {
@@ -146,8 +146,8 @@ impl DefaultCommandHandler {
                     }
                 }
             }
-            TheGameLogic::find_object_by_id(object_id)
-                .and_then(|obj| obj.read().ok().map(|guard| *guard.get_position()))
+            crate::object::registry::OBJECT_REGISTRY
+                .with_object(object_id, |guard| *guard.get_position())
         };
 
         let object_is_alive = |object_id: ObjectID| -> bool {
@@ -158,8 +158,8 @@ impl DefaultCommandHandler {
                     }
                 }
             }
-            TheGameLogic::find_object_by_id(object_id)
-                .and_then(|obj| obj.read().ok().map(|guard| !guard.is_destroyed()))
+            crate::object::registry::OBJECT_REGISTRY
+                .with_object(object_id, |guard| !guard.is_destroyed())
                 .unwrap_or(false)
         };
 
@@ -171,12 +171,12 @@ impl DefaultCommandHandler {
                     }
                 }
             }
-            let owner = TheGameLogic::find_object_by_id(object_id)
-                .and_then(|obj| {
-                    obj.read()
-                        .ok()
-                        .and_then(|guard| guard.get_controlling_player_id())
+            let owner = crate::object::registry::OBJECT_REGISTRY
+                .with_object(object_id, |guard| {
+                    guard
+                        .get_controlling_player_id()
                         .map(|id| id as Int)
+                        .unwrap_or(-1)
                 })
                 .unwrap_or(-1);
             owner == -1 || owner == player_id
@@ -213,84 +213,97 @@ impl DefaultCommandHandler {
                     {
                         continue;
                     }
-                    let Some(obj) = TheGameLogic::find_object_by_id(*id) else {
-                        continue;
-                    };
-                    let Ok(obj_guard) = obj.read() else {
-                        continue;
-                    };
-                    if let Some(power_type) = override_power_type {
-                        let mut matches_power = false;
-                        for module_handle in obj_guard.behavior_modules() {
-                            module_handle.with_module(|module| {
-                                let Some(sp_module) = module_special_power_interface(module) else {
-                                    return;
-                                };
-                                let Some(template) = sp_module.get_special_power_template_full()
-                                else {
-                                    return;
-                                };
-                                if template.get_special_power_type() as u32 == power_type {
-                                    matches_power = true;
+                    let overridden_here = crate::object::registry::OBJECT_REGISTRY
+                        .with_object(*id, |obj_guard| {
+                            if let Some(power_type) = override_power_type {
+                                let mut matches_power = false;
+                                for module_handle in obj_guard.behavior_modules() {
+                                    module_handle.with_module(|module| {
+                                        let Some(sp_module) =
+                                            module_special_power_interface(module)
+                                        else {
+                                            return;
+                                        };
+                                        let Some(template) =
+                                            sp_module.get_special_power_template_full()
+                                        else {
+                                            return;
+                                        };
+                                        if template.get_special_power_type() as u32 == power_type {
+                                            matches_power = true;
+                                        }
+                                    });
+                                    if matches_power {
+                                        break;
+                                    }
                                 }
-                            });
-                            if matches_power {
-                                break;
-                            }
-                        }
-                        if !matches_power {
-                            for behavior_arc in obj_guard.get_behavior_modules() {
-                                let Ok(mut behavior_guard) = behavior_arc.lock() else {
-                                    continue;
-                                };
-                                let Some(sp_module) = behavior_guard.get_special_power() else {
-                                    continue;
-                                };
-                                let Some(template) = sp_module.get_special_power_template_full()
-                                else {
-                                    continue;
-                                };
-                                if template.get_special_power_type() as u32 == power_type {
-                                    matches_power = true;
-                                    break;
+                                if !matches_power {
+                                    for behavior_arc in obj_guard.get_behavior_modules() {
+                                        let Ok(mut behavior_guard) = behavior_arc.lock() else {
+                                            continue;
+                                        };
+                                        let Some(sp_module) = behavior_guard.get_special_power()
+                                        else {
+                                            continue;
+                                        };
+                                        let Some(template) =
+                                            sp_module.get_special_power_template_full()
+                                        else {
+                                            continue;
+                                        };
+                                        if template.get_special_power_type() as u32 == power_type {
+                                            matches_power = true;
+                                            break;
+                                        }
+                                    }
                                 }
-                            }
-                        }
-                        if !matches_power {
-                            continue;
-                        }
-                    }
-                    let mut overridden_here = false;
-                    for module_handle in obj_guard.behavior_modules() {
-                        module_handle.with_module(|module| {
-                            let Some(update) = module_special_power_update_interface(module) else {
-                                return;
-                            };
-                            if update.does_special_power_have_overridable_destination_active()
-                                || update.does_special_power_have_overridable_destination()
-                            {
-                                update.set_special_power_overridable_destination(&location);
-                                overridden_here = true;
-                            }
-                        });
-                    }
-                    if !overridden_here {
-                        for behavior_arc in obj_guard.get_behavior_modules() {
-                            let Ok(mut behavior_guard) = behavior_arc.lock() else {
-                                continue;
-                            };
-                            if let Some(update) =
-                                behavior_guard.get_special_power_update_interface()
-                            {
-                                if update.does_special_power_have_overridable_destination_active()
-                                    || update.does_special_power_have_overridable_destination()
-                                {
-                                    update.set_special_power_overridable_destination(&location);
-                                    overridden_here = true;
+                                if !matches_power {
+                                    return false;
                                 }
                             }
-                        }
-                    }
+                            let mut overridden_here = false;
+                            for module_handle in obj_guard.behavior_modules() {
+                                module_handle.with_module(|module| {
+                                    let Some(update) =
+                                        module_special_power_update_interface(module)
+                                    else {
+                                        return;
+                                    };
+                                    if update
+                                        .does_special_power_have_overridable_destination_active()
+                                        || update.does_special_power_have_overridable_destination()
+                                    {
+                                        update
+                                            .set_special_power_overridable_destination(&location);
+                                        overridden_here = true;
+                                    }
+                                });
+                            }
+                            if !overridden_here {
+                                for behavior_arc in obj_guard.get_behavior_modules() {
+                                    let Ok(mut behavior_guard) = behavior_arc.lock() else {
+                                        continue;
+                                    };
+                                    if let Some(update) =
+                                        behavior_guard.get_special_power_update_interface()
+                                    {
+                                        if update
+                                            .does_special_power_have_overridable_destination_active(
+                                            )
+                                            || update
+                                                .does_special_power_have_overridable_destination()
+                                        {
+                                            update.set_special_power_overridable_destination(
+                                                &location,
+                                            );
+                                            overridden_here = true;
+                                        }
+                                    }
+                                }
+                            }
+                            overridden_here
+                        })
+                        .unwrap_or(false);
                     if overridden_here {
                         any_overridden = true;
                     }
@@ -371,12 +384,7 @@ impl DefaultCommandHandler {
                 continue;
             }
 
-            let Some(obj) = TheGameLogic::find_object_by_id(*id) else {
-                continue;
-            };
-            let Ok(obj_guard) = obj.read() else {
-                continue;
-            };
+            let ran = crate::object::registry::OBJECT_REGISTRY.with_object(*id, |obj_guard| {
 
             for module_handle in obj_guard.behavior_modules() {
                 let mut executed_here = false;
@@ -401,44 +409,41 @@ impl DefaultCommandHandler {
                         ),
                         CommandType::DoSpecialPowerAtObject => {
                             if let Some(target_id) = target_object {
-                                if let Some(target_obj) = TheGameLogic::find_object_by_id(target_id)
-                                {
-                                    if let Ok(target_guard) = target_obj.read() {
+                                crate::object::registry::OBJECT_REGISTRY
+                                    .with_object(target_id, |target_guard| {
                                         TheActionManager::can_do_special_power_at_object(
                                             &obj_guard,
-                                            &target_guard,
+                                            target_guard,
                                             CommandSourceType::FromPlayer,
                                             template.as_ref(),
                                             command_options.bits(),
                                             true,
                                         )
-                                    } else {
-                                        false
-                                    }
-                                } else {
-                                    false
-                                }
+                                    })
+                                    .unwrap_or(false)
                             } else {
                                 false
                             }
                         }
                         CommandType::DoSpecialPowerAtLocation => {
                             if let Some(pos) = target_location {
-                                let object_in_way_arc = object_in_way
-                                    .and_then(|id| TheGameLogic::find_object_by_id(id));
-                                let object_in_way_ref = match object_in_way_arc.as_ref() {
-                                    Some(obj_arc) => obj_arc.read().ok(),
-                                    None => None,
+                                let allowed_at = |way: Option<&crate::object::Object>| {
+                                    TheActionManager::can_do_special_power_at_location(
+                                        &obj_guard,
+                                        &pos,
+                                        CommandSourceType::FromPlayer,
+                                        template.as_ref(),
+                                        way,
+                                        command_options.bits(),
+                                        true,
+                                    )
                                 };
-                                TheActionManager::can_do_special_power_at_location(
-                                    &obj_guard,
-                                    &pos,
-                                    CommandSourceType::FromPlayer,
-                                    template.as_ref(),
-                                    object_in_way_ref.as_deref(),
-                                    command_options.bits(),
-                                    true,
-                                )
+                                match object_in_way {
+                                    Some(way_id) => crate::object::registry::OBJECT_REGISTRY
+                                        .with_object(way_id, |way| allowed_at(Some(way)))
+                                        .unwrap_or_else(|| allowed_at(None)),
+                                    None => allowed_at(None),
+                                }
                             } else {
                                 false
                             }
@@ -478,15 +483,10 @@ impl DefaultCommandHandler {
 
                 if executed_here {
                     any_executed = true;
-                    if let Ok(mut write_guard) = obj.write() {
-                        write_guard.friend_set_undetected_defector(false);
-                    }
                     break;
                 }
             }
-            if any_executed {
-                continue;
-            }
+            if !any_executed {
             for behavior_arc in obj_guard.get_behavior_modules() {
                 let Ok(mut behavior_guard) = behavior_arc.lock() else {
                     continue;
@@ -511,43 +511,41 @@ impl DefaultCommandHandler {
                     ),
                     CommandType::DoSpecialPowerAtObject => {
                         if let Some(target_id) = target_object {
-                            if let Some(target_obj) = TheGameLogic::find_object_by_id(target_id) {
-                                if let Ok(target_guard) = target_obj.read() {
+                            crate::object::registry::OBJECT_REGISTRY
+                                .with_object(target_id, |target_guard| {
                                     TheActionManager::can_do_special_power_at_object(
                                         &obj_guard,
-                                        &target_guard,
+                                        target_guard,
                                         CommandSourceType::FromPlayer,
                                         template.as_ref(),
                                         command_options.bits(),
                                         true,
                                     )
-                                } else {
-                                    false
-                                }
-                            } else {
-                                false
-                            }
+                                })
+                                .unwrap_or(false)
                         } else {
                             false
                         }
                     }
                     CommandType::DoSpecialPowerAtLocation => {
                         if let Some(pos) = target_location {
-                            let object_in_way_arc =
-                                object_in_way.and_then(|id| TheGameLogic::find_object_by_id(id));
-                            let object_in_way_ref = match object_in_way_arc.as_ref() {
-                                Some(obj_arc) => obj_arc.read().ok(),
-                                None => None,
+                            let allowed_at = |way: Option<&crate::object::Object>| {
+                                TheActionManager::can_do_special_power_at_location(
+                                    &obj_guard,
+                                    &pos,
+                                    CommandSourceType::FromPlayer,
+                                    template.as_ref(),
+                                    way,
+                                    command_options.bits(),
+                                    true,
+                                )
                             };
-                            TheActionManager::can_do_special_power_at_location(
-                                &obj_guard,
-                                &pos,
-                                CommandSourceType::FromPlayer,
-                                template.as_ref(),
-                                object_in_way_ref.as_deref(),
-                                command_options.bits(),
-                                true,
-                            )
+                            match object_in_way {
+                                Some(way_id) => crate::object::registry::OBJECT_REGISTRY
+                                    .with_object(way_id, |way| allowed_at(Some(way)))
+                                    .unwrap_or_else(|| allowed_at(None)),
+                                None => allowed_at(None),
+                            }
                         } else {
                             false
                         }
@@ -581,11 +579,18 @@ impl DefaultCommandHandler {
                 }
 
                 if any_executed {
-                    if let Ok(mut write_guard) = obj.write() {
-                        write_guard.friend_set_undetected_defector(false);
-                    }
                     break;
                 }
+            }
+            }
+            any_executed
+            })
+            .unwrap_or(false);
+            if ran {
+                let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(*id, |object| {
+                    object.friend_set_undetected_defector(false);
+                });
+                any_executed = true;
             }
         }
 
@@ -601,7 +606,7 @@ impl DefaultCommandHandler {
             return;
         };
 
-        if TheGameLogic::find_object_by_id(target_id).is_none() {
+        if !TheGameLogic::find_object_by_id(target_id) {
             return;
         }
 
@@ -675,7 +680,7 @@ impl DefaultCommandHandler {
                 template_name,
                 guard.get_player_display_name().clone(),
                 defeated,
-                guard.get_default_team(),
+                guard.get_default_team_id(),
             )
         };
 
@@ -711,13 +716,11 @@ impl DefaultCommandHandler {
         }
 
         let new_object = match TheThingFactory::get() {
-            Ok(factory) => match player_team.as_ref() {
-                // Create via the team handle without holding a team read
-                // guard: object creation runs create-hook dispatch that can
-                // re-enter the team lock and deadlock against it.
-                Some(team_arc) => factory
-                    .new_object_with_team_handle(template.clone(), team_arc.clone())
-                    .ok(),
+            Ok(factory) => match player_team {
+                Some(team_id) => crate::team::with_team(team_id, |team| {
+                    factory.new_object_optional_team(template.clone(), Some(team))
+                })
+                .and_then(|created| created.ok()),
                 None => factory
                     .new_object_optional_team(template.clone(), None)
                     .ok(),
@@ -730,10 +733,10 @@ impl DefaultCommandHandler {
             return CommandExecutionResult::Failed(AsciiString::from("Beacon creation failed"));
         };
 
-        if let Ok(mut obj_guard) = beacon_object.write() {
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(beacon_object, |obj_guard| {
             let _ = obj_guard.set_position(&position);
-            obj_guard.set_producer(None);
-        }
+            obj_guard.set_producer_id(crate::common::INVALID_ID);
+        });
 
         let (local_visibility, local_allies) =
             self.beacon_visibility_and_allies(&player_arc, local_player_arc.as_ref());
@@ -1027,19 +1030,19 @@ impl DefaultCommandHandler {
         if local_guard.is_player_observer() {
             return true;
         }
-        let Some(local_team) = local_guard.get_default_team() else {
-            return false;
-        };
-        let Ok(local_team_guard) = local_team.read() else {
+        let Some(local_team_id) = local_guard.get_default_team_id() else {
             return false;
         };
         let Ok(player_guard) = player_arc.read() else {
             return false;
         };
-        matches!(
-            player_guard.get_relationship_with_team(&local_team_guard),
-            Relationship::Allies
-        )
+        return crate::team::with_team(local_team_id, |local_team| {
+            matches!(
+                player_guard.get_relationship_with_team(local_team),
+                Relationship::Allies
+            )
+        })
+        .unwrap_or(false);
     }
 
     fn beacon_visibility_and_allies(
@@ -1056,19 +1059,18 @@ impl DefaultCommandHandler {
         if local_guard.is_player_observer() {
             return (true, false);
         }
-        let Some(local_team) = local_guard.get_default_team() else {
-            return (false, false);
-        };
-        let Ok(local_team_guard) = local_team.read() else {
+        let Some(local_team_id) = local_guard.get_default_team_id() else {
             return (false, false);
         };
         let Ok(player_guard) = player_arc.read() else {
             return (false, false);
         };
-        let relation = player_guard.get_relationship_with_team(&local_team_guard);
-        let visible = matches!(relation, Relationship::Allies);
-        let allies = matches!(relation, Relationship::Allies);
-        (visible, allies)
+        return crate::team::with_team(local_team_id, |local_team| {
+            let relation = player_guard.get_relationship_with_team(local_team);
+            let allies = matches!(relation, Relationship::Allies);
+            (allies, allies)
+        })
+        .unwrap_or((false, false));
     }
 
     fn notify_beacon_placed(

@@ -563,10 +563,10 @@ mod sleepy_parity_tests {
         (module, count)
     }
 
-    fn insert_test_object(logic: &mut GameLogic, id: ObjectID) -> Arc<RwLock<Object>> {
-        let object = Arc::new(RwLock::new(Object::new_test(id, 100.0)));
-        logic.objects.insert(id, Arc::clone(&object));
-        object
+    fn insert_test_object(logic: &mut GameLogic, id: ObjectID) -> ObjectID {
+        OBJECT_REGISTRY.register_object(id, Object::new_test(id, 100.0));
+        logic.objects.insert(id, ());
+        id
     }
 
     #[test]

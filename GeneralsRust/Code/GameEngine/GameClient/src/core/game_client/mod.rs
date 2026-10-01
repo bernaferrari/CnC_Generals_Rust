@@ -132,7 +132,7 @@ use gamelogic::helpers::{
     register_animation_metadata_hook, register_scorch_hook, register_terrain_tree_hook,
     register_terrain_unit_moved_hook,
 };
-use gamelogic::object::Object as GameLogicObject;
+
 use gamelogic::object::draw::{
     TruckDrawLivePhysics, W3DDebrisDraw, W3DDebrisDrawModuleData, W3DLaserDraw,
     W3DLaserDrawModuleData, W3DModelDraw, W3DModelDrawModuleData, W3DOverlordAircraftDraw,

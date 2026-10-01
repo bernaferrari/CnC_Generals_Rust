@@ -3,6 +3,7 @@
 //! Split from `scripting/executor.rs` for module-size parity.
 //! Observable script behavior is unchanged.
 
+use crate::object::registry::OBJECT_REGISTRY;
 use super::*;
 
 impl ScriptActionDispatcher {
@@ -33,8 +34,7 @@ impl ScriptActionDispatcher {
         let target_id = tracker.get_object_id(&target_name).ok().flatten();
 
         if let (Some(uid), Some(tid)) = (unit_id, target_id) {
-            if let Some(obj_arc) = TheGameLogic::find_object_by_id(uid) {
-                if let Ok(mut obj) = obj_arc.write() {
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(uid, |obj| {
                     if let Some(ai) = obj.get_ai_update_interface_mut() {
                         let mut params = AiCommandParams::new(
                             AiCommandType::Enter,
@@ -48,8 +48,7 @@ impl ScriptActionDispatcher {
                             target_name
                         );
                     }
-                }
-            }
+                });
         } else {
             log::warn!(
                 "Unit '{}' or target '{}' not found for enter command",
@@ -81,8 +80,7 @@ impl ScriptActionDispatcher {
         let object_id = tracker.get_object_id(&unit_name).ok().flatten();
 
         if let Some(oid) = object_id {
-            if let Some(obj_arc) = TheGameLogic::find_object_by_id(oid) {
-                if let Ok(mut obj) = obj_arc.write() {
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(oid, |obj| {
                     if let Some(ai) = obj.get_ai_update_interface_mut() {
                         let params = AiCommandParams::new(
                             AiCommandType::Evacuate,
@@ -91,8 +89,7 @@ impl ScriptActionDispatcher {
                         let _ = ai.execute_command(&params);
                         log::info!("Unit '{}' evacuate command issued", unit_name);
                     }
-                }
-            }
+                });
         } else {
             log::warn!("Unit '{}' not found for exit command", unit_name);
         }
@@ -366,7 +363,7 @@ impl ScriptActionDispatcher {
             return Ok(ScriptActionResult::Success);
         };
 
-        if TheGameLogic::find_object_by_id(object_id).is_none() {
+        if OBJECT_REGISTRY.with_object(object_id, |_| ()).is_none() {
             log::warn!(
                 "Named unit '{}' object {} no longer exists for attack priority set '{}'",
                 unit_name,
@@ -689,24 +686,20 @@ impl ScriptActionDispatcher {
         let Ok(Some(unit_id)) = tracker.get_object_id(&unit_name) else {
             return Ok(ScriptActionResult::Success);
         };
-        let Some(unit_obj) = TheGameLogic::find_object_by_id(unit_id) else {
-            return Ok(ScriptActionResult::Success);
-        };
-
-        if let Ok(mut unit_guard) = unit_obj.write() {
-            let Some(ai_arc) = unit_guard.get_ai_update_interface() else {
-                return Ok(ScriptActionResult::Success);
-            };
-            unit_guard.leave_group();
-            if let Ok(mut ai_guard) = ai_arc.lock() {
-                let _ = ai_guard.choose_locomotor_set(crate::common::LocomotorSetType::Normal);
-                let params =
-                    AiCommandParams::new(AiCommandType::Exit, CommandSourceType::FromScript);
-                let _ = ai_guard.execute_command(&params);
-            };
-        };
-
-        Ok(ScriptActionResult::Success)
+        {
+            enum _ObjFlow<T> { Cont, Ret(T), Fall }
+            let _flow = OBJECT_REGISTRY.with_object_mut(unit_id, |mut unit_guard| {
+                
+                Ok(ScriptActionResult::Success)
+                _ObjFlow::Fall
+            });
+            match _flow {
+                None => { return Ok(ScriptActionResult::Success); }
+                Some(_ObjFlow::Cont) => continue,
+                Some(_ObjFlow::Ret(v)) => return v,
+                Some(_ObjFlow::Fall) => {}
+            }
+        }
     }
 
     pub(crate) fn do_named_set_stopping_distance(
@@ -1062,7 +1055,7 @@ impl ScriptActionDispatcher {
         let Some(source_obj) = TheGameLogic::find_object_by_id(source_id) else {
             return Ok(ScriptActionResult::Success);
         };
-        if TheGameLogic::find_object_by_id(target_id).is_none() {
+        if OBJECT_REGISTRY.with_object(target_id, |_| ()).is_none() {
             return Ok(ScriptActionResult::Success);
         }
 
@@ -1170,31 +1163,20 @@ impl ScriptActionDispatcher {
         else {
             return Ok(ScriptActionResult::Success);
         };
-        let Some(projectile_obj) = TheGameLogic::find_object_by_id(projectile_id) else {
-            return Ok(ScriptActionResult::Success);
-        };
-
-        if let Ok(mut projectile_guard) = projectile_obj.write() {
-            let ai = projectile_guard.get_ai_update_interface();
-            projectile_guard.leave_group();
-            // Release the projectile guard before the AI dispatch:
-            // execute_command re-reads the projectile from the object
-            // registry, which would deadlock against a live write guard.
-            drop(projectile_guard);
-            if let Some(ai_arc) = ai {
-                if let Ok(mut ai_guard) = ai_arc.lock() {
-                    let _ = ai_guard.choose_locomotor_set(crate::common::LocomotorSetType::Normal);
-                    let mut params = AiCommandParams::new(
-                        AiCommandType::FollowWaypointPath,
-                        CommandSourceType::FromScript,
-                    );
-                    params.waypoint = Some(waypoint.id);
-                    let _ = ai_guard.execute_command(&params);
-                }
+        {
+            enum _ObjFlow<T> { Cont, Ret(T), Fall }
+            let _flow = OBJECT_REGISTRY.with_object_mut(projectile_id, |mut projectile_guard| {
+                
+                Ok(ScriptActionResult::Success)
+                _ObjFlow::Fall
+            });
+            match _flow {
+                None => { return Ok(ScriptActionResult::Success); }
+                Some(_ObjFlow::Cont) => continue,
+                Some(_ObjFlow::Ret(v)) => return v,
+                Some(_ObjFlow::Fall) => {}
             }
         }
-
-        Ok(ScriptActionResult::Success)
     }
 
     pub(crate) fn do_named_use_command_button_on_named(
@@ -1517,11 +1499,9 @@ impl ScriptActionDispatcher {
 
         let tracker = get_named_object_tracker();
         if let Ok(Some(object_id)) = tracker.get_object_id(&unit_name) {
-            if let Some(obj_arc) = TheGameLogic::find_object_by_id(object_id) {
-                if let Ok(mut obj_guard) = obj_arc.write() {
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(object_id, |obj_guard| {
                     let _ = obj_guard.set_disabled_held(held);
-                }
-            }
+                });
         }
         Ok(ScriptActionResult::Success)
     }
@@ -1558,11 +1538,9 @@ impl ScriptActionDispatcher {
 
         let tracker = get_named_object_tracker();
         if let Ok(Some(object_id)) = tracker.get_object_id(&unit_name) {
-            if let Some(obj_arc) = TheGameLogic::find_object_by_id(object_id) {
-                if let Ok(mut obj_guard) = obj_arc.write() {
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(object_id, |obj_guard| {
                     obj_guard.set_status(crate::common::ObjectStatusMaskType::REPULSOR, enabled);
-                }
-            }
+                });
         }
 
         Ok(ScriptActionResult::Success)
@@ -1596,11 +1574,9 @@ impl ScriptActionDispatcher {
 
         let tracker = get_named_object_tracker();
         if let Ok(Some(object_id)) = tracker.get_object_id(&unit_name) {
-            if let Some(obj_arc) = TheGameLogic::find_object_by_id(object_id) {
-                if let Ok(mut obj_guard) = obj_arc.write() {
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(object_id, |obj_guard| {
                     obj_guard.set_custom_indicator_color(color);
-                }
-            }
+                });
         }
 
         Ok(ScriptActionResult::Success)
@@ -1625,14 +1601,12 @@ impl ScriptActionDispatcher {
 
         let tracker = get_named_object_tracker();
         if let Ok(Some(object_id)) = tracker.get_object_id(&unit_name) {
-            if let Some(obj_arc) = TheGameLogic::find_object_by_id(object_id) {
-                if let Ok(mut obj_guard) = obj_arc.write() {
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(object_id, |obj_guard| {
                     obj_guard.set_script_status(
                         crate::object::ObjectScriptStatusBit::ScriptUnstealthed,
                         !enabled,
                     );
-                }
-            }
+                });
         }
 
         Ok(ScriptActionResult::Success)
@@ -1695,7 +1669,7 @@ impl ScriptActionDispatcher {
         let Some(obj_arc) = TheGameLogic::find_object_by_id(object_id) else {
             return Ok(ScriptActionResult::Success);
         };
-        if TheGameLogic::find_object_by_id(target_id).is_none() {
+        if OBJECT_REGISTRY.with_object(target_id, |_| ()).is_none() {
             return Ok(ScriptActionResult::Success);
         }
 
@@ -1792,15 +1766,13 @@ impl ScriptActionDispatcher {
 
         let tracker = get_named_object_tracker();
         if let Ok(Some(object_id)) = tracker.get_object_id(&unit_name) {
-            if let Some(obj_arc) = TheGameLogic::find_object_by_id(object_id) {
-                if let Ok(obj_guard) = obj_arc.read() {
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object(object_id, |obj_guard| {
                     if let Some(contain) = obj_guard.get_contain() {
                         if let Ok(mut contain_guard) = contain.lock() {
                             contain_guard.set_evac_disposition(disposition.max(0) as u32);
                         }
                     }
-                }
-            }
+                });
         }
 
         Ok(ScriptActionResult::Success)
@@ -1855,14 +1827,18 @@ impl ScriptActionDispatcher {
     }
 
     pub(crate) fn mark_object_unmanned(&self, object_id: ObjectID) {
-        let Some(obj_arc) = TheGameLogic::find_object_by_id(object_id) else {
-            return;
-        };
-        if let Ok(mut obj_guard) = obj_arc.write() {
-            obj_guard.set_disabled_unmanned();
-            let _ = TheGameLogic::deselect_object(&*obj_guard, crate::common::PLAYERMASK_ALL, true);
-            obj_guard.set_team_to_neutral();
-        };
+        {
+            enum _ObjFlow<T> { Cont, Ret(T), Fall }
+            let _flow = OBJECT_REGISTRY.with_object_mut(object_id, |mut obj_guard| {
+                _ObjFlow::Fall
+            });
+            match _flow {
+                None => { return; }
+                Some(_ObjFlow::Cont) => continue,
+                Some(_ObjFlow::Ret(v)) => return v,
+                Some(_ObjFlow::Fall) => {}
+            }
+        }
     }
 
     pub(crate) fn attach_boobytrap_to_object(
@@ -1957,20 +1933,25 @@ impl ScriptActionDispatcher {
             if object_id <= minimum_new_object_id {
                 continue;
             }
-            let Some(obj_arc) = TheGameLogic::find_object_by_id(object_id) else {
-                continue;
-            };
-            let Ok(obj_guard) = obj_arc.read() else {
-                continue;
-            };
-            if obj_guard.get_producer_id() != source_object_id {
-                continue;
-            }
-            if !obj_guard.is_kind_of(crate::common::KindOf::Projectile) {
-                continue;
-            }
-            if latest.is_none_or(|current| object_id > current) {
-                latest = Some(object_id);
+            {
+                enum _ObjFlow<T> { Cont, Ret(T), Fall }
+                let _flow = OBJECT_REGISTRY.with_object(object_id, |obj_guard| {
+                    if obj_guard.get_producer_id() != source_object_id {
+                        return _ObjFlow::Cont;
+                    }
+                    if !obj_guard.is_kind_of(crate::common::KindOf::Projectile) {
+                        return _ObjFlow::Cont;
+                    }
+                    if latest.is_none_or(|current| object_id > current) {
+                        latest = Some(object_id);
+                    }
+                    _ObjFlow::Fall
+                });
+                match _flow {
+                    None | Some(_ObjFlow::Cont) => continue,
+                    Some(_ObjFlow::Ret(v)) => return v,
+                    Some(_ObjFlow::Fall) => {}
+                }
             }
         }
 
@@ -2262,38 +2243,44 @@ impl ScriptActionDispatcher {
         let Ok(Some(object_id)) = tracker.get_object_id(&unit_name) else {
             return Ok(ScriptActionResult::Success);
         };
-        let Some(obj_arc) = TheGameLogic::find_object_by_id(object_id) else {
-            return Ok(ScriptActionResult::Success);
-        };
-        let Ok(obj) = obj_arc.read() else {
-            return Ok(ScriptActionResult::Success);
-        };
-        let Some(ai_arc) = obj.get_ai_update_interface() else {
-            return Ok(ScriptActionResult::Success);
-        };
-        let source_pos = *obj.get_position();
-        let source_off_map = obj.is_off_map();
-        drop(obj);
-
-        let Some(target_id) = self.find_closest_object_of_type_in_trigger(
-            object_id,
-            &source_pos,
-            source_off_map,
-            &object_type,
-            &trigger_name,
-        ) else {
-            return Ok(ScriptActionResult::Success);
-        };
-
-        if let Ok(mut ai) = ai_arc.lock() {
-            let _ = ai.choose_locomotor_set(crate::common::LocomotorSetType::Normal);
-            let mut params =
-                AiCommandParams::new(AiCommandType::MoveToObject, CommandSourceType::FromScript);
-            params.obj = Some(target_id);
-            let _ = ai.execute_command(&params);
+        {
+            enum _ObjFlow<T> { Cont, Ret(T), Fall }
+            let _flow = OBJECT_REGISTRY.with_object(object_id, |obj| {
+                let Some(ai_arc) = obj.get_ai_update_interface() else {
+                    return _ObjFlow::Ret(Ok(ScriptActionResult::Success));
+                };
+                let source_pos = *obj.get_position();
+                let source_off_map = obj.is_off_map();
+                drop(obj);
+                
+                let Some(target_id) = self.find_closest_object_of_type_in_trigger(
+                    object_id,
+                    &source_pos,
+                    source_off_map,
+                    &object_type,
+                    &trigger_name,
+                ) else {
+                    return _ObjFlow::Ret(Ok(ScriptActionResult::Success));
+                };
+                
+                if let Ok(mut ai) = ai_arc.lock() {
+                    let _ = ai.choose_locomotor_set(crate::common::LocomotorSetType::Normal);
+                    let mut params =
+                        AiCommandParams::new(AiCommandType::MoveToObject, CommandSourceType::FromScript);
+                    params.obj = Some(target_id);
+                    let _ = ai.execute_command(&params);
+                }
+                
+                Ok(ScriptActionResult::Success)
+                _ObjFlow::Fall
+            });
+            match _flow {
+                None => { return Ok(ScriptActionResult::Success); }
+                Some(_ObjFlow::Cont) => continue,
+                Some(_ObjFlow::Ret(v)) => return v,
+                Some(_ObjFlow::Fall) => {}
+            }
         }
-
-        Ok(ScriptActionResult::Success)
     }
 
     pub(crate) fn do_unit_affect_object_panel_flags(
@@ -2316,14 +2303,20 @@ impl ScriptActionDispatcher {
         let Ok(Some(object_id)) = tracker.get_object_id(&unit_name) else {
             return Ok(ScriptActionResult::Success);
         };
-        let Some(obj_arc) = TheGameLogic::find_object_by_id(object_id) else {
-            return Ok(ScriptActionResult::Success);
-        };
-        if let Ok(mut obj) = obj_arc.write() {
-            self.apply_object_panel_flag_for_single_object(&mut obj, &flag_name, enable);
+        {
+            enum _ObjFlow<T> { Cont, Ret(T), Fall }
+            let _flow = OBJECT_REGISTRY.with_object_mut(object_id, |mut obj| {
+                
+                Ok(ScriptActionResult::Success)
+                _ObjFlow::Fall
+            });
+            match _flow {
+                None => { return Ok(ScriptActionResult::Success); }
+                Some(_ObjFlow::Cont) => continue,
+                Some(_ObjFlow::Ret(v)) => return v,
+                Some(_ObjFlow::Fall) => {}
+            }
         }
-
-        Ok(ScriptActionResult::Success)
     }
 
     pub(crate) fn do_unit_spawn_named_location_orientation(
@@ -2418,14 +2411,12 @@ impl ScriptActionDispatcher {
             team.add_member(object_id);
         }
 
-        if let Some(obj_arc) = TheGameLogic::find_object_by_id(object_id) {
-            if let Ok(mut obj) = obj_arc.write() {
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(object_id, |obj| {
                 let _ = obj.set_orientation(angle);
                 if let Some(name) = unit_name_opt {
                     obj.set_name(AsciiString::from(name));
                 }
-            }
-        }
+            });
 
         if let Some(name) = unit_name_opt {
             let tracker = get_named_object_tracker();

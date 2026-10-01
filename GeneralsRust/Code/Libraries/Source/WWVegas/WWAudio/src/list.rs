@@ -3,11 +3,13 @@
 use crate::error::Result;
 use parking_lot::RwLock;
 use std::collections::{HashMap, VecDeque};
-use std::sync::Arc;
 
-/// Thread-safe audio list with priority ordering
+/// Thread-safe audio list with priority ordering.
+///
+/// The `RwLock` is the lock: nothing clones the list, so the collection is
+/// not wrapped in `Arc`.
 pub struct AudioList<T> {
-    items: Arc<RwLock<Vec<AudioListItem<T>>>>,
+    items: RwLock<Vec<AudioListItem<T>>>,
     capacity: usize,
     auto_sort: bool,
 }
@@ -22,13 +24,13 @@ pub struct AudioListItem<T> {
 
 /// Audio queue for FIFO operations
 pub struct AudioQueue<T> {
-    queue: Arc<RwLock<VecDeque<T>>>,
+    queue: RwLock<VecDeque<T>>,
     max_size: usize,
 }
 
 /// Audio hash map with priority-based eviction
 pub struct AudioHashMap<K, V> {
-    map: Arc<RwLock<HashMap<K, AudioMapEntry<V>>>>,
+    map: RwLock<HashMap<K, AudioMapEntry<V>>>,
     max_entries: usize,
 }
 
@@ -45,7 +47,7 @@ impl<T> AudioList<T> {
     /// Create new audio list
     pub fn new(capacity: usize, auto_sort: bool) -> Self {
         Self {
-            items: Arc::new(RwLock::new(Vec::with_capacity(capacity))),
+            items: RwLock::new(Vec::with_capacity(capacity)),
             capacity,
             auto_sort,
         }
@@ -152,7 +154,7 @@ impl<T> AudioQueue<T> {
     /// Create new audio queue
     pub fn new(max_size: usize) -> Self {
         Self {
-            queue: Arc::new(RwLock::new(VecDeque::with_capacity(max_size))),
+            queue: RwLock::new(VecDeque::with_capacity(max_size)),
             max_size,
         }
     }
@@ -209,7 +211,7 @@ where
     /// Create new audio hash map
     pub fn new(max_entries: usize) -> Self {
         Self {
-            map: Arc::new(RwLock::new(HashMap::with_capacity(max_entries))),
+            map: RwLock::new(HashMap::with_capacity(max_entries)),
             max_entries,
         }
     }
@@ -306,37 +308,5 @@ where
 {
     fn default() -> Self {
         Self::new(1000)
-    }
-}
-
-impl<T> Clone for AudioList<T> {
-    fn clone(&self) -> Self {
-        Self {
-            items: self.items.clone(),
-            capacity: self.capacity,
-            auto_sort: self.auto_sort,
-        }
-    }
-}
-
-impl<T> Clone for AudioQueue<T> {
-    fn clone(&self) -> Self {
-        Self {
-            queue: self.queue.clone(),
-            max_size: self.max_size,
-        }
-    }
-}
-
-impl<K, V> Clone for AudioHashMap<K, V>
-where
-    K: Eq + std::hash::Hash + Clone,
-    V: Clone,
-{
-    fn clone(&self) -> Self {
-        Self {
-            map: self.map.clone(),
-            max_entries: self.max_entries,
-        }
     }
 }

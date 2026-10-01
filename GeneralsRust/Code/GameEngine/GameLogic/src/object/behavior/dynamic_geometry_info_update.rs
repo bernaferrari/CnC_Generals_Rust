@@ -324,7 +324,7 @@ pub struct DynamicGeometryInfoUpdate {
 
 impl DynamicGeometryInfoUpdate {
     pub fn new(
-        object: Arc<RwLock<GameObject>>,
+        object_id: ObjectID,
         module_data: Arc<dyn ModuleData>,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let data = module_data
@@ -333,11 +333,7 @@ impl DynamicGeometryInfoUpdate {
             .ok_or("Invalid module data")?;
 
         Ok(Self {
-            object_id: object
-                .read()
-                .ok()
-                .map(|g| g.get_id())
-                .unwrap_or(crate::common::INVALID_ID),
+            object_id: object_id,
             logic: DynamicGeometryInfoUpdateLogic::new(data),
         })
     }
@@ -387,7 +383,7 @@ impl Snapshotable for DynamicGeometryInfoUpdate {
 pub struct DynamicGeometryInfoUpdateFactory;
 impl DynamicGeometryInfoUpdateFactory {
     pub fn create_behavior(
-        thing: Arc<RwLock<GameObject>>,
+        object_id: ObjectID,
         module_data: Arc<dyn ModuleData>,
     ) -> Result<Box<dyn BehaviorModuleInterface>, Box<dyn std::error::Error + Send + Sync>> {
         Ok(Box::new(DynamicGeometryInfoUpdate::new(

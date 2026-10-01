@@ -59,10 +59,8 @@ fn superweapon_object_produces_counting_down_strip_entry_that_hits_ready() {
     // A superweapon structure object in the dual-world registry (no live
     // module: the stored ready frame owns the countdown, C++ parity for the
     // residual path).
-    let object = std::sync::Arc::new(std::sync::RwLock::new(
-        gamelogic::object::Object::new_for_xfer_load(SW_OBJECT_ID, 100.0),
-    ));
-    gamelogic::object::registry::OBJECT_REGISTRY.register_object(SW_OBJECT_ID, &object);
+    let object = gamelogic::object::Object::new_for_xfer_load(SW_OBJECT_ID, 100.0);
+    gamelogic::object::registry::OBJECT_REGISTRY.register_object(SW_OBJECT_ID, object);
 
     // Public-timer shared-n-sync template with a 5s (150-frame) recharge.
     let base =

@@ -464,7 +464,7 @@ mod tests {
             let mut player = gamelogic::player::Player::new(0);
             player.get_money_mut().set_money(1250);
             let mut list = gamelogic::player::player_list().write().unwrap();
-            list.add_player(Arc::new(RwLock::new(player)));
+            list.add_player(player);
             list.set_local_player_index(0);
         }
 

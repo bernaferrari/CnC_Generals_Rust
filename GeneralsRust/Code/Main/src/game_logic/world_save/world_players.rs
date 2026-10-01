@@ -461,7 +461,7 @@ impl GameLogic {
                     .get_money_mut()
                     .deposit_money(dict.get_int(key_player_start_money()));
             }
-            logic_list.add_player(Arc::new(RwLock::new(player)));
+            logic_list.add_player(player);
 
             if is_human && logic_list.get_local_player_index() < 0 {
                 logic_list.set_local_player_index(index as i32);

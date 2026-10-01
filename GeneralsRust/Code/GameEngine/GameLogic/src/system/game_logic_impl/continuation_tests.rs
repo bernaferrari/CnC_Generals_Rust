@@ -338,27 +338,14 @@ mod continuation_tests {
         // carries the template NAME; load rebuilds through the factory
         // template, and branch-B stepping exercises the same update paths.
         ensure_test_object_template();
-        let mut objects_to_register = Vec::new();
+        let mut a = GameLogic::new();
         for &(id, x, y) in TEST_OBJECTS {
-            let arc = std::sync::Arc::new(std::sync::RwLock::new(Object::new_test(id, 100.0)));
-            // DEADLOCK NOTE: set_position drives the area tracker
-            // synchronously (object_triggers.rs:255-268) which can re-enter
-            // TheGameLogic — never while holding the GAME_LOGIC mutex.
-            arc.write()
-                .expect("object write lock")
+            let mut object = Object::new_test(id, 100.0);
+            object
                 .set_position(&Coord3D::new(x, y, 0.0))
                 .expect("set initial position");
-            objects_to_register.push(arc);
-        }
-
-        // Branch A runs on a LOCAL instance; the singleton is only a
-        // save/load container (transplant helpers). Registration happens on
-        // the local instance, which also mirrors the objects into the shared
-        // OBJECT_REGISTRY both branches' partition updates sync from.
-        let mut a = GameLogic::new();
-        for (idx, arc) in objects_to_register.into_iter().enumerate() {
-            let id = TEST_OBJECTS[idx].0;
-            a.objects.insert(id, arc);
+            OBJECT_REGISTRY.register_object(id, object);
+            a.objects.insert(id, ());
             a.all_objects.push(id);
         }
         // NOTE: no GameCommands are queued in either branch. Phase-4 command
@@ -619,9 +606,10 @@ mod continuation_tests {
         let template = crate::helpers::TheThingFactory::find_template("TestObject").unwrap();
         let mut logic = GameLogic::new();
         for &(id, _x, _y) in TEST_OBJECTS {
-            let arc = Object::new_with_id(template.clone(), id, ObjectStatusMaskType::none(), None)
+            let object = Object::new_with_id(template.clone(), id, ObjectStatusMaskType::none(), None)
                 .expect("create");
-            logic.objects.insert(id, arc.clone());
+            OBJECT_REGISTRY.register_object(id, object);
+            logic.objects.insert(id, ());
             logic.all_objects.push(id);
         }
         for f in 0..3 {

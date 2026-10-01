@@ -139,17 +139,13 @@ pub struct PropagandaCenterBehavior {
 #[cfg(feature = "allow_surrender")]
 impl PropagandaCenterBehavior {
     pub fn new(
-        object: Arc<RwLock<Object>>,
+        object_id: ObjectID,
         module_data: Arc<PropagandaCenterBehaviorModuleData>,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let prison_behavior =
             PrisonBehavior::new(Arc::clone(&object), Arc::new(module_data.base.clone()))?;
         Ok(Self {
-            object_id: object
-                .read()
-                .ok()
-                .map(|g| g.get_id())
-                .unwrap_or(crate::common::INVALID_ID),
+            object_id: object_id,
             module_data,
             prison_behavior,
             brainwashing_subject_id: INVALID_ID,
@@ -175,7 +171,7 @@ impl PropagandaCenterBehavior {
         crate::object::registry::OBJECT_REGISTRY.with_object(id, f)
     }
 
-    fn get_object(&self) -> Option<Arc<RwLock<Object>>> {
+    fn get_object(&self) -> Option<ObjectID> {
         // Wave 364: empty dual-world → None.
         if dual_world_registry_unavailable() {
             return None;

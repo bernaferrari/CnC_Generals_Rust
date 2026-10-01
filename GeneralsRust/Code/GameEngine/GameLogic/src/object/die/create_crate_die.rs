@@ -164,9 +164,9 @@ use crate::helpers::{FPF_IGNORE_ALLY_OR_NEUTRAL_UNITS, FPF_NONE, FindPositionOpt
 
 impl CreateCrateDie {
     /// Create a new CreateCrateDie module
-    pub fn new(object: Arc<RwLock<Object>>, module_data: Arc<CreateCrateDieModuleData>) -> Self {
+    pub fn new(object_id: ObjectID, module_data: Arc<CreateCrateDieModuleData>) -> Self {
         Self {
-            base: DieModule::new(object, module_data),
+            base: DieModule::new(object_id, module_data),
         }
     }
 

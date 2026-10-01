@@ -355,21 +355,20 @@ impl FormationGroup {
                 self.combat.set_tactics(tactics);
             }
             FormationCommand::AddUnit(_unit_id) => {
-                let Some(obj_arc) = crate::helpers::TheGameLogic::find_object_by_id(_unit_id)
+                let Some((position, speed, health, rank)) =
+                    crate::object::registry::OBJECT_REGISTRY.with_object(_unit_id, |obj_guard| {
+                        let position = *obj_guard.get_position();
+                        let speed = obj_guard
+                            .get_physics()
+                            .and_then(|phys| phys.lock().ok().map(|p| p.get_velocity().length()))
+                            .unwrap_or(0.0);
+                        let health = obj_guard.get_health_percentage();
+                        let rank = obj_guard.get_veterancy_level() as u32;
+                        (position, speed, health, rank)
+                    })
                 else {
                     return Err(FormationError::InvalidFormationType);
                 };
-                let obj_guard = obj_arc
-                    .read()
-                    .map_err(|_| FormationError::InvalidFormationType)?;
-
-                let position = *obj_guard.get_position();
-                let speed = obj_guard
-                    .get_physics()
-                    .and_then(|phys| phys.lock().ok().map(|p| p.get_velocity().length()))
-                    .unwrap_or(0.0);
-                let health = obj_guard.get_health_percentage();
-                let rank = obj_guard.get_veterancy_level() as u32;
 
                 self.add_unit(_unit_id, position, speed, health, rank)?;
             }

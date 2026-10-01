@@ -255,7 +255,7 @@ pub struct ConvertToHijackedVehicleCrateCollide {
 impl ConvertToHijackedVehicleCrateCollide {
     /// Create new hijacker conversion crate collide module.
     pub fn new(
-        object: &Arc<RwLock<Object>>,
+        object: &ObjectID,
         module_data: ConvertToHijackedVehicleCrateCollideModuleData,
     ) -> Self {
         Self {

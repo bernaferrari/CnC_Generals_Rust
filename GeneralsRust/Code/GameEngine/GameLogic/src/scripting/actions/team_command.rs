@@ -260,8 +260,7 @@ impl ScriptAction for TeamGuardAction {
 
             let mut guarded_count = 0usize;
             for member_id in members {
-                if let Some(obj_arc) = TheGameLogic::find_object_by_id(member_id) {
-                    if let Ok(mut obj_guard) = obj_arc.write() {
+                let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(member_id, |obj_guard| {
                         let pos = *obj_guard.get_position();
                         if let Some(ai) = obj_guard.get_ai_update_interface_mut() {
                             ai.ai_guard_position(
@@ -271,8 +270,7 @@ impl ScriptAction for TeamGuardAction {
                             );
                             guarded_count += 1;
                         }
-                    }
-                }
+                    });
             }
 
             if guarded_count == 0 {
@@ -532,22 +530,27 @@ impl ScriptAction for TeamGarrisonBuildingAction {
         let mut building_guard = building_arc.write().ok();
 
         for member_id in members {
-            let Some(unit_arc) = TheGameLogic::find_object_by_id(member_id) else {
-                continue;
-            };
-            let Ok(mut unit_guard) = unit_arc.write() else {
-                continue;
-            };
-            if let Some(ai) = unit_guard.get_ai_update_interface_mut() {
-                ai.ai_enter(building_id, CommandSourceType::FromScript);
-                continue;
-            }
-
-            if let Some(building_guard) = building_guard.as_mut() {
-                if let Some(contain) = building_guard.get_contain_mut() {
-                    if contain.is_valid_container_for(&unit_guard, true) {
-                        let _ = contain.add_to_contain(&unit_guard);
+            {
+                enum _ObjFlow<T> { Cont, Ret(T), Fall }
+                let _flow = OBJECT_REGISTRY.with_object_mut(member_id, |mut unit_guard| {
+                    if let Some(ai) = unit_guard.get_ai_update_interface_mut() {
+                        ai.ai_enter(building_id, CommandSourceType::FromScript);
+                        return _ObjFlow::Cont;
                     }
+                    
+                    if let Some(building_guard) = building_guard.as_mut() {
+                        if let Some(contain) = building_guard.get_contain_mut() {
+                            if contain.is_valid_container_for(&unit_guard, true) {
+                                let _ = contain.add_to_contain(&unit_guard);
+                            }
+                        }
+                    }
+                    _ObjFlow::Fall
+                });
+                match _flow {
+                    None | Some(_ObjFlow::Cont) => continue,
+                    Some(_ObjFlow::Ret(v)) => return v,
+                    Some(_ObjFlow::Fall) => {}
                 }
             }
         }
@@ -711,29 +714,34 @@ impl ScriptAction for TeamCaptureBuildingAction {
         let mut issued = 0;
         if let Ok(mut factory) = get_object_factory().write() {
             for member_id in members {
-                let Some(unit_arc) = TheGameLogic::find_object_by_id(member_id) else {
-                    continue;
-                };
-                let Ok(unit_guard) = unit_arc.read() else {
-                    continue;
-                };
-                let Ok(building_guard) = building_arc.read() else {
-                    continue;
-                };
-                if !TheActionManager::can_capture_building(
-                    &unit_guard,
-                    &building_guard,
-                    CommandSourceType::FromScript,
-                ) {
-                    continue;
+                {
+                    enum _ObjFlow<T> { Cont, Ret(T), Fall }
+                    let _flow = OBJECT_REGISTRY.with_object(member_id, |unit_guard| {
+                        let Ok(building_guard) = building_arc.read() else {
+                            return _ObjFlow::Cont;
+                        };
+                        if !TheActionManager::can_capture_building(
+                            &unit_guard,
+                            &building_guard,
+                            CommandSourceType::FromScript,
+                        ) {
+                            return _ObjFlow::Cont;
+                        }
+                        
+                        let Some(GameObjectInstance::Unit(unit)) = factory.get_object_mut(member_id) else {
+                            return _ObjFlow::Cont;
+                        };
+                        
+                        let _ = unit.give_capture_order(building_id, false);
+                        issued += 1;
+                        _ObjFlow::Fall
+                    });
+                    match _flow {
+                        None | Some(_ObjFlow::Cont) => continue,
+                        Some(_ObjFlow::Ret(v)) => return v,
+                        Some(_ObjFlow::Fall) => {}
+                    }
                 }
-
-                let Some(GameObjectInstance::Unit(unit)) = factory.get_object_mut(member_id) else {
-                    continue;
-                };
-
-                let _ = unit.give_capture_order(building_id, false);
-                issued += 1;
             }
         }
 
@@ -808,22 +816,27 @@ impl ScriptAction for TeamRepairAction {
         }
 
         for member_id in members {
-            let Some(unit_arc) = TheGameLogic::find_object_by_id(member_id) else {
-                continue;
-            };
-            let Ok(mut unit_guard) = unit_arc.write() else {
-                continue;
-            };
-            if !unit_guard.is_kind_of(crate::common::KindOf::CanRepair) {
-                continue;
+            {
+                enum _ObjFlow<T> { Cont, Ret(T), Fall }
+                let _flow = OBJECT_REGISTRY.with_object_mut(member_id, |mut unit_guard| {
+                    if !unit_guard.is_kind_of(crate::common::KindOf::CanRepair) {
+                        return _ObjFlow::Cont;
+                    }
+                    let Some(ai) = unit_guard.get_ai_update_interface_mut() else {
+                        return _ObjFlow::Cont;
+                    };
+                    let mut params =
+                        AiCommandParams::new(AiCommandType::Repair, CommandSourceType::FromScript);
+                    params.obj = Some(target_id);
+                    let _ = ai.execute_command(&params);
+                    _ObjFlow::Fall
+                });
+                match _flow {
+                    None | Some(_ObjFlow::Cont) => continue,
+                    Some(_ObjFlow::Ret(v)) => return v,
+                    Some(_ObjFlow::Fall) => {}
+                }
             }
-            let Some(ai) = unit_guard.get_ai_update_interface_mut() else {
-                continue;
-            };
-            let mut params =
-                AiCommandParams::new(AiCommandType::Repair, CommandSourceType::FromScript);
-            params.obj = Some(target_id);
-            let _ = ai.execute_command(&params);
         }
 
         Ok(ScriptResult::Success(None))
@@ -1077,11 +1090,9 @@ impl ScriptAction for TeamDeleteAction {
         };
 
         for member_id in members {
-            if let Some(obj_arc) = TheGameLogic::find_object_by_id(member_id) {
-                if let Ok(mut obj_guard) = obj_arc.write() {
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(member_id, |obj_guard| {
                     obj_guard.kill(Some(DamageType::Unresistable), Some(DeathType::Normal));
-                }
-            }
+                });
         }
 
         if let Ok(mut factory_guard) = factory.lock() {
@@ -1286,13 +1297,18 @@ impl ScriptAction for TeamGuardInTunnelAction {
 
         let mut tunnel_entries = Vec::new();
         for tunnel_id in tunnel_ids {
-            let Some(tunnel_arc) = TheGameLogic::find_object_by_id(tunnel_id) else {
-                continue;
-            };
-            let Ok(tunnel_guard) = tunnel_arc.read() else {
-                continue;
-            };
-            tunnel_entries.push((tunnel_id, *tunnel_guard.get_position()));
+            {
+                enum _ObjFlow<T> { Cont, Ret(T), Fall }
+                let _flow = OBJECT_REGISTRY.with_object(tunnel_id, |tunnel_guard| {
+                    tunnel_entries.push((tunnel_id, *tunnel_guard.get_position()));
+                    _ObjFlow::Fall
+                });
+                match _flow {
+                    None | Some(_ObjFlow::Cont) => continue,
+                    Some(_ObjFlow::Ret(v)) => return v,
+                    Some(_ObjFlow::Fall) => {}
+                }
+            }
         }
 
         if tunnel_entries.is_empty() {
@@ -1304,38 +1320,41 @@ impl ScriptAction for TeamGuardInTunnelAction {
         }
 
         for member_id in members {
-            let Some(unit_arc) = TheGameLogic::find_object_by_id(member_id) else {
-                continue;
-            };
-            let Ok(mut unit_guard) = unit_arc.write() else {
-                continue;
-            };
-            let unit_pos = *unit_guard.get_position();
-            let mut best_tunnel = tunnel_entries[0].0;
-            let mut best_dist_sq = Real::MAX;
-            for (tunnel_id, tunnel_pos) in &tunnel_entries {
-                let dx = unit_pos.x - tunnel_pos.x;
-                let dy = unit_pos.y - tunnel_pos.y;
-                let dz = unit_pos.z - tunnel_pos.z;
-                let dist_sq = dx * dx + dy * dy + dz * dz;
-                if dist_sq < best_dist_sq {
-                    best_dist_sq = dist_sq;
-                    best_tunnel = *tunnel_id;
-                }
-            }
-
-            if let Some(ai) = unit_guard.get_ai_update_interface_mut() {
-                ai.ai_enter(best_tunnel, CommandSourceType::FromScript);
-                continue;
-            }
-
-            if let Some(tunnel_arc) = TheGameLogic::find_object_by_id(best_tunnel) {
-                if let Ok(mut tunnel_guard) = tunnel_arc.write() {
-                    if let Some(contain) = tunnel_guard.get_contain_mut() {
-                        if contain.is_valid_container_for(&unit_guard, true) {
-                            let _ = contain.add_to_contain(&unit_guard);
+            {
+                enum _ObjFlow<T> { Cont, Ret(T), Fall }
+                let _flow = OBJECT_REGISTRY.with_object_mut(member_id, |mut unit_guard| {
+                    let unit_pos = *unit_guard.get_position();
+                    let mut best_tunnel = tunnel_entries[0].0;
+                    let mut best_dist_sq = Real::MAX;
+                    for (tunnel_id, tunnel_pos) in &tunnel_entries {
+                        let dx = unit_pos.x - tunnel_pos.x;
+                        let dy = unit_pos.y - tunnel_pos.y;
+                        let dz = unit_pos.z - tunnel_pos.z;
+                        let dist_sq = dx * dx + dy * dy + dz * dz;
+                        if dist_sq < best_dist_sq {
+                            best_dist_sq = dist_sq;
+                            best_tunnel = *tunnel_id;
                         }
                     }
+                    
+                    if let Some(ai) = unit_guard.get_ai_update_interface_mut() {
+                        ai.ai_enter(best_tunnel, CommandSourceType::FromScript);
+                        return _ObjFlow::Cont;
+                    }
+                    
+                    let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(best_tunnel, |tunnel_guard| {
+                            if let Some(contain) = tunnel_guard.get_contain_mut() {
+                                if contain.is_valid_container_for(&unit_guard, true) {
+                                    let _ = contain.add_to_contain(&unit_guard);
+                                }
+                            }
+                        });
+                    _ObjFlow::Fall
+                });
+                match _flow {
+                    None | Some(_ObjFlow::Cont) => continue,
+                    Some(_ObjFlow::Ret(v)) => return v,
+                    Some(_ObjFlow::Fall) => {}
                 }
             }
         }

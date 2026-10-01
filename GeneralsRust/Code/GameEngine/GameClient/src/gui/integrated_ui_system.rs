@@ -190,16 +190,17 @@ impl IntegratedUISystem {
             CommandPanelContext::MultiSelect
         } else {
             let object_id = selected_objects[0] as gamelogic::common::ObjectID;
-            let mut context = CommandPanelContext::Unit;
-            if let Some(obj) = gamelogic::object::registry::OBJECT_REGISTRY.get_object(object_id) {
-                if let Ok(guard) = obj.read() {
+            let context = gamelogic::object::registry::OBJECT_REGISTRY
+                .with_object(object_id, |guard| {
                     if guard.is_kind_of(gamelogic::common::KindOf::Structure)
                         || guard.is_kind_of(gamelogic::common::KindOf::Building)
                     {
-                        context = CommandPanelContext::Structure;
+                        CommandPanelContext::Structure
+                    } else {
+                        CommandPanelContext::Unit
                     }
-                }
-            }
+                })
+                .unwrap_or(CommandPanelContext::Unit);
             context
         };
 

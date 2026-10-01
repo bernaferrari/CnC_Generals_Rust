@@ -168,7 +168,7 @@ pub fn simulate_live_presentation_seed_honesty() -> bool {
     }
 
     let local_id = 0u32;
-    let pres = PresentationFrame::build_from_logic(&logic, local_id);
+    let pres = PresentationFrame::build_from_logic(&mut logic, local_id);
     if pres.objects.is_empty() {
         return false;
     }

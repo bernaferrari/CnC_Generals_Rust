@@ -32,7 +32,7 @@ use crate::object::Object;
 use std::sync::{Arc, RwLock};
 
 /// Result of creating objects from a nugget
-pub type CreationResult = Option<Arc<RwLock<Object>>>;
+pub type CreationResult = Option<ObjectID>;
 
 /// Context for object creation - provides access to game systems
 pub struct CreationContext<'a> {
@@ -55,7 +55,7 @@ pub trait ThingFactoryContext {
         &self,
         template: Arc<dyn ThingTemplate>,
         team: &Team,
-    ) -> Result<Arc<RwLock<Object>>, GameError>;
+    ) -> Result<ObjectID, GameError>;
 }
 
 /// Abstraction over terrain logic for testing
@@ -97,12 +97,17 @@ impl ThingFactoryContext for LiveThingFactoryContext {
         &self,
         template: Arc<dyn ThingTemplate>,
         team: &Team,
-    ) -> Result<Arc<RwLock<Object>>, GameError> {
+    ) -> Result<ObjectID, GameError> {
         let factory = crate::helpers::TheThingFactory::get()
             .map_err(|e| GameError::SystemError(e.to_string()))?;
-        factory
+        let arc = factory
             .new_object(template, team)
-            .map_err(|e| GameError::SystemError(e.to_string()))
+            .map_err(|e| GameError::SystemError(e.to_string()))?;
+        let id = arc
+            .read()
+            .map_err(|e| GameError::SystemError(e.to_string()))?
+            .get_id();
+        Ok(id)
     }
 }
 
@@ -162,13 +167,26 @@ impl TerrainLogicContext for LiveTerrainLogicContext {
     }
 
     fn flatten_terrain(&self, object: &Object) {
-        // C++ TheTerrainLogic->flattenTerrain(obj). Live TerrainLogic takes an Arc.
-        let id = object.get_id();
-        let Some(arc) = crate::object::registry::OBJECT_REGISTRY.get_object(id) else {
+        if object.get_geometry_info().get_is_small() {
             return;
-        };
+        }
+        let pos = object.get_position();
+        let geom = object.get_geometry_info();
         if let Ok(mut terrain) = crate::terrain::get_terrain_logic().write() {
-            terrain.flatten_terrain(&arc);
+            match geom.get_geometry_type() {
+                crate::object::EngineGeometryType::Box => {
+                    terrain.flatten_terrain_box_at(
+                        pos.x,
+                        pos.y,
+                        object.get_orientation(),
+                        geom.get_major_radius(),
+                        geom.get_minor_radius(),
+                    );
+                }
+                _ => {
+                    terrain.flatten_terrain_at(pos.x, pos.y, geom.get_major_radius());
+                }
+            }
         }
     }
 

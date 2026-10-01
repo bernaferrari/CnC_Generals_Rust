@@ -241,7 +241,7 @@ impl GameLogic {
     }
 
     pub fn take_weapon_discharges_for_presentation(
-        &self,
+        &mut self,
     ) -> Vec<crate::game_logic::host_weapon_discharge_log::HostWeaponDischargeEvent> {
         self.weapon_discharge_log.take_for_presentation()
     }
@@ -282,17 +282,14 @@ fn leftover_handle_weapon_fire_fx_at_fx_bone(
     source: ObjectId,
     capture: &super::weapon_visual_capture::PendingWeaponVisualDispatchCapture,
 ) -> bool {
-    let leftover_obj = gamelogic::helpers::TheGameLogic::find_object_by_id(source.0)
-        .or_else(|| gamelogic::object::registry::OBJECT_REGISTRY.get_object(source.0));
-    let Some(leftover_obj) = leftover_obj else {
-        return false;
-    };
-    let drawable = {
-        let Ok(guard) = leftover_obj.read() else {
-            return false;
-        };
-        guard.get_drawable()
-    };
+    let drawable = gamelogic::object::registry::OBJECT_REGISTRY
+        .with_object(source.0, |obj| obj.get_drawable())
+        .flatten()
+        .or_else(|| {
+            gamelogic::helpers::TheGameLogic::find_object_by_id(source.0)
+                .and_then(|obj| obj.read().ok())
+                .and_then(|guard| guard.get_drawable())
+        });
     let Some(drawable) = drawable else {
         return false;
     };
@@ -379,7 +376,7 @@ mod tests {
 
         // A presentation frame can trail multiple fixed logic steps. It must
         // receive both accepted events, rather than only the last drain batch.
-        let frame = crate::presentation_frame::PresentationFrame::build_from_logic(&logic, 0);
+        let frame = crate::presentation_frame::PresentationFrame::build_from_logic(&mut logic, 0);
         let frozen: Vec<_> = frame
             .events
             .iter()
@@ -399,7 +396,7 @@ mod tests {
             .collect();
         assert_eq!(frozen, vec![(1, 0, 2, 77), (2, 0, 0, 77)]);
         assert!(
-            crate::presentation_frame::PresentationFrame::build_from_logic(&logic, 0)
+            crate::presentation_frame::PresentationFrame::build_from_logic(&mut logic, 0)
                 .events
                 .iter()
                 .all(|event| !matches!(

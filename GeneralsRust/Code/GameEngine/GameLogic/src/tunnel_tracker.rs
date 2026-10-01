@@ -131,41 +131,29 @@ impl TunnelTracker {
             return Ok(None);
         }
 
-        // Find the target object
-        let target = match find_object_by_id(self.cur_nemesis_id) {
-            Ok(target) => target,
+        let nemesis_id = self.cur_nemesis_id;
+        let alive = match find_object_by_id(nemesis_id) {
+            Ok(true) => crate::object::registry::OBJECT_REGISTRY.with_object(nemesis_id, |target| {
+                if target.test_status(ObjectStatusTypes::Stealthed)
+                    && !target.test_status(ObjectStatusTypes::Detected)
+                    && !target.test_status(ObjectStatusTypes::Disguised)
+                {
+                    return false;
+                }
+                !target.is_effectively_dead()
+            }),
+            Ok(false) => Some(false),
             Err(err) => {
                 log::warn!("TunnelTracker::getCurNemesis lookup failed: {}", err);
                 return Ok(Some(self.cur_nemesis_id));
             }
         };
-        if let Some(target) = target {
-            let Ok(target_read) = target.try_read() else {
-                return Ok(Some(self.cur_nemesis_id));
-            };
-
-            // If the enemy unit is stealthed and not detected, can't attack it
-            if target_read.test_status(ObjectStatusTypes::Stealthed)
-                && !target_read.test_status(ObjectStatusTypes::Detected)
-                && !target_read.test_status(ObjectStatusTypes::Disguised)
-            {
-                drop(target_read);
+        match alive {
+            Some(true) => Ok(Some(self.cur_nemesis_id)),
+            _ => {
                 self.cur_nemesis_id = INVALID_ID;
-                return Ok(None);
+                Ok(None)
             }
-
-            // If target is effectively dead, clear it
-            if target_read.is_effectively_dead() {
-                drop(target_read);
-                self.cur_nemesis_id = INVALID_ID;
-                return Ok(None);
-            }
-
-            drop(target_read);
-            Ok(Some(self.cur_nemesis_id))
-        } else {
-            self.cur_nemesis_id = INVALID_ID;
-            Ok(None)
         }
     }
 
@@ -253,50 +241,39 @@ impl TunnelTracker {
             let objects_to_destroy: Vec<ObjectID> = self.contained_ids.clone();
 
             for object_id in objects_to_destroy {
-                // C++ lines 217-220: Notify object before destruction
-                // obj->onRemovedFrom(obj->getContainedBy())
-                if let Some(obj) = find_object_by_id(object_id)? {
-                    if let Ok(mut obj_guard) = obj.write() {
-                        if let Some(container_id) = obj_guard.get_contained_by() {
-                            if let Some(container) = find_object_by_id(container_id)? {
-                                let _ = obj_guard.on_removed_from(
-                                    container
-                                        .read()
-                                        .ok()
-                                        .map(|g| g.get_id())
-                                        .unwrap_or(crate::common::INVALID_ID),
-                                );
-                            }
+                if find_object_by_id(object_id)? {
+                    let container_id = crate::object::registry::OBJECT_REGISTRY
+                        .with_object(object_id, |obj_guard| obj_guard.get_contained_by())
+                        .flatten();
+                    if let Some(container_id) = container_id {
+                        if find_object_by_id(container_id)? {
+                            crate::object::registry::OBJECT_REGISTRY.with_object_mut(
+                                object_id,
+                                |obj_guard| {
+                                    let _ = obj_guard.on_removed_from(container_id);
+                                },
+                            );
                         }
                     }
-                    destroy_object(obj)?;
+                    destroy_object(object_id)?;
                 }
             }
 
             self.contained_ids.clear();
             self.contain_list_size = 0;
         } else {
-            // C++ lines 200-211: Make sure nobody inside remembers the dead tunnel as the one they entered
-            // (scripts need to use so there must be something valid here)
             if let Some(&valid_tunnel_id) = self.tunnel_ids.first() {
-                if let Some(valid_tunnel) = find_object_by_id(valid_tunnel_id)? {
-                    // C++ lines 204-210: Update contained objects to point to valid tunnel
+                if find_object_by_id(valid_tunnel_id)? {
                     for &object_id in &self.contained_ids {
-                        if let Some(obj) = find_object_by_id(object_id)? {
-                            if let Ok(mut obj_guard) = obj.write() {
-                                // C++ line 208-209: if(obj->getContainedBy() == deadTunnel) obj->onContainedBy(validTunnel)
-                                if let Some(container_id) = obj_guard.get_contained_by() {
-                                    if container_id == dead_tunnel_id {
-                                        let _ = obj_guard.on_contained_by(
-                                            valid_tunnel
-                                                .read()
-                                                .ok()
-                                                .map(|g| g.get_id())
-                                                .unwrap_or(crate::common::INVALID_ID),
-                                        );
+                        if find_object_by_id(object_id)? {
+                            crate::object::registry::OBJECT_REGISTRY.with_object_mut(
+                                object_id,
+                                |obj_guard| {
+                                    if obj_guard.get_contained_by() == Some(dead_tunnel_id) {
+                                        let _ = obj_guard.on_contained_by(valid_tunnel_id);
                                     }
-                                }
-                            }
+                                },
+                            );
                         }
                     }
                 }
@@ -321,31 +298,27 @@ impl TunnelTracker {
     /// Heal one object within the tunnel network.
     /// Matches C++ TunnelTracker::healObject (TunnelTracker.cpp:231-271)
     fn heal_object(&self, object_id: ObjectID, frames_for_full_heal: f32) -> GameResult<()> {
-        let Some(obj) = (match find_object_by_id(object_id) {
-            Ok(obj) => obj,
+        let exists = match find_object_by_id(object_id) {
+            Ok(exists) => exists,
             Err(err) => {
                 log::warn!("TunnelTracker::healObject lookup {}: {}", object_id, err);
                 return Ok(());
             }
-        }) else {
-            return Ok(());
         };
+        if !exists {
+            return Ok(());
+        }
 
-        let (max_health, frames_contained) = {
-            let Ok(obj_read) = obj.try_read() else {
-                return Ok(());
-            };
-            let Some(body_module) = obj_read.get_body_module() else {
-                return Ok(());
-            };
+        let snapshot = crate::object::registry::OBJECT_REGISTRY.with_object(object_id, |obj_read| {
+            let body_module = obj_read.get_body_module()?;
             let max_health = body_module.get_max_health();
-            let Ok(current_frame) = get_current_frame() else {
-                log::warn!("TunnelTracker::healObject frame unavailable for {}", object_id);
-                return Ok(());
-            };
+            let current_frame = get_current_frame().ok()?;
             let contained_by_frame = obj_read.get_contained_by_frame();
             let frames_contained = current_frame.saturating_sub(contained_by_frame);
-            (max_health, frames_contained)
+            Some((max_health, frames_contained))
+        });
+        let Some(Some((max_health, frames_contained))) = snapshot else {
+            return Ok(());
         };
 
         let mut heal_info = DamageInfo::new();
@@ -358,15 +331,14 @@ impl TunnelTracker {
         }
         heal_info.sync_from_input();
 
-        let Ok(mut obj_write) = obj.try_write() else {
-            return Ok(());
-        };
-        let Some(body_module) = obj_write.get_body_module_mut() else {
-            return Ok(());
-        };
-        if let Err(err) = body_module.attempt_healing(&mut heal_info) {
-            log::warn!("TunnelTracker::healObject heal {}: {}", object_id, err);
-        }
+        crate::object::registry::OBJECT_REGISTRY.with_object_mut(object_id, |obj_write| {
+            let Some(body_module) = obj_write.get_body_module_mut() else {
+                return;
+            };
+            if let Err(err) = body_module.attempt_healing(&mut heal_info) {
+                log::warn!("TunnelTracker::healObject heal {}: {}", object_id, err);
+            }
+        });
 
         Ok(())
     }
@@ -375,7 +347,7 @@ impl TunnelTracker {
     /// Matches C++ TunnelTracker::iterateContained (TunnelTracker.cpp:42-78)
     pub fn iterate_contained<F>(&self, mut func: F, reverse: bool) -> GameResult<()>
     where
-        F: FnMut(Arc<RwLock<Object>>) -> GameResult<()>,
+        F: FnMut(ObjectID) -> GameResult<()>,
     {
         // Snapshot IDs to handle iterator invalidation during callback
         // (matches C++ note about handling deletion via callback, lines 46-47)
@@ -385,8 +357,8 @@ impl TunnelTracker {
         }
 
         for object_id in ids {
-            if let Some(object) = find_object_by_id(object_id)? {
-                func(object)?;
+            if find_object_by_id(object_id)? {
+                func(object_id)?;
             }
         }
 
@@ -566,40 +538,33 @@ impl Snapshotable for TunnelTracker {
         }
 
         for object_id in self.xfer_contain_list.drain(..) {
-            let object = find_object_by_id(object_id)
-                .map_err(|err| err.to_string())?
-                .ok_or_else(|| {
-                    format!(
-                        "TunnelTracker::loadPostProcess - unable to find object ID '{}'",
-                        object_id
-                    )
-                })?;
+            if !find_object_by_id(object_id).map_err(|err| err.to_string())? {
+                return Err(format!(
+                    "TunnelTracker::loadPostProcess - unable to find object ID '{}'",
+                    object_id
+                ));
+            }
 
-            let pos = {
-                let mut guard = object
-                    .write()
-                    .map_err(|_| "TunnelTracker::loadPostProcess object lock poisoned")?;
-                guard.leave_group();
-                *guard.get_position()
-            };
+            let pos = crate::object::registry::OBJECT_REGISTRY
+                .with_object_mut(object_id, |guard| {
+                    guard.leave_group();
+                    *guard.get_position()
+                })
+                .ok_or_else(|| "TunnelTracker::loadPostProcess object missing".to_string())?;
 
-            // C++ TunnelTracker.cpp:371 — ThePartitionManager->unRegisterObject(obj)
             if let Some(partition) = crate::helpers::ThePartitionManager::get() {
                 partition.unregister_object(object_id);
             }
 
-            // The pathfinder derives the object's footprint through
-            // OBJECT_REGISTRY.  It must run after the object write guard is
-            // released or that read re-entry deadlocks during save restore.
             let _ = crate::ai::integration::with_ai_integration_mut(|manager| {
                 manager.remove_pathfinding_obstacle(object_id, &[pos])
             });
 
-            if let Ok(guard) = object.read() {
+            crate::object::registry::OBJECT_REGISTRY.with_object(object_id, |guard| {
                 if let Some(drawable) = guard.get_drawable() {
                     drawable.set_drawable_hidden(true);
                 }
-            }
+            });
 
             self.contained_ids.push(object_id);
         }
@@ -619,16 +584,13 @@ fn get_current_frame() -> GameResult<u32> {
 }
 
 /// Helper function to find object by ID
-fn find_object_by_id(id: ObjectID) -> GameResult<Option<Arc<RwLock<Object>>>> {
+fn find_object_by_id(id: ObjectID) -> GameResult<bool> {
     if id == INVALID_ID {
-        return Ok(None);
+        return Ok(false);
     }
-
-    if let Ok(logic) = get_game_logic().lock() {
-        Ok(logic.find_object_by_id(id))
-    } else {
-        Err("Failed to lock game logic".into())
-    }
+    Ok(crate::object::registry::OBJECT_REGISTRY
+        .with_object(id, |_| ())
+        .is_some())
 }
 
 /// Helper function to destroy an object
@@ -643,8 +605,7 @@ fn destroy_object_by_id(object_id: ObjectID) -> GameResult<()> {
     Ok(())
 }
 
-fn destroy_object(obj: Arc<RwLock<Object>>) -> GameResult<()> {
-    let object_id = obj.read().map_err(|_| "Object lock poisoned")?.get_id();
+fn destroy_object(object_id: ObjectID) -> GameResult<()> {
     destroy_object_by_id(object_id)
 }
 

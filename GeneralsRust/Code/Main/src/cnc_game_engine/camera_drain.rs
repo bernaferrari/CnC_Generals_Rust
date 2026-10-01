@@ -2206,8 +2206,10 @@ impl CnCGameEngine {
                     .unwrap_or_else(|e| e.into_inner()),
                 player_id,
             );
-            script_events::push_event(ScriptEvent::PlayerDefeated { player_id });
-            script_events::push_event(ScriptEvent::RevealMapForPlayer { player_id });
+            self.game_logic
+                .push_script_event(ScriptEvent::PlayerDefeated { player_id });
+            self.game_logic
+                .push_script_event(ScriptEvent::RevealMapForPlayer { player_id });
             // C++ VictoryConditions.cpp:201-214 — first local defeat
             // TheRadar->forceOn + SetInGameChatType(EVERYONE).
             if self.presentation_or_boot_local_player_id() == Some(player_id) {
@@ -2284,14 +2286,16 @@ impl CnCGameEngine {
                         .unwrap_or_else(|e| e.into_inner()),
                     event.player_id,
                 );
-                script_events::push_event(ScriptEvent::RevealMapForPlayer {
-                    player_id: event.player_id,
-                });
+                self.game_logic
+                    .push_script_event(ScriptEvent::RevealMapForPlayer {
+                        player_id: event.player_id,
+                    });
             }
-            script_events::push_event(ScriptEvent::AllianceStateChanged {
-                player_id: event.player_id,
-                state: event.state,
-            });
+            self.game_logic
+                .push_script_event(ScriptEvent::AllianceStateChanged {
+                    player_id: event.player_id,
+                    state: event.state,
+                });
         }
 
         // C++ VictoryConditions.cpp:128-160 only sets m_endFrame +

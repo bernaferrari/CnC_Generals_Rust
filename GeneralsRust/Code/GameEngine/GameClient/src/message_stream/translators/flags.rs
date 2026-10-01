@@ -39,19 +39,15 @@ impl Default for ContextPickProfile {
 
 pub(super) fn selection_has_flame_weapon(selection: &HashSet<ObjectID>) -> bool {
     for &id in selection {
-        let Some(obj) = OBJECT_REGISTRY.get_object(id) else {
-            continue;
-        };
-        let Ok(guard) = obj.read() else {
-            continue;
-        };
-        if guard.is_destroyed() {
-            continue;
-        }
-        if guard
-            .weapon_set
-            .has_weapon_to_deal_damage_type(DamageType::Flame)
-        {
+        let has_flame = OBJECT_REGISTRY
+            .with_object(id, |guard| {
+                !guard.is_destroyed()
+                    && guard
+                        .weapon_set
+                        .has_weapon_to_deal_damage_type(DamageType::Flame)
+            })
+            .unwrap_or(false);
+        if has_flame {
             return true;
         }
     }

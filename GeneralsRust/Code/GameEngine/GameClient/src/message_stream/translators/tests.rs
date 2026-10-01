@@ -79,7 +79,7 @@ fn setup_local_player_team() -> Arc<RwLock<Team>> {
         let list = player_list();
         let mut guard = list.write().unwrap();
         guard.clear();
-        guard.add_player(Arc::new(RwLock::new(Player::new(0))));
+        guard.add_player(Player::new(0));
         guard.set_local_player_index(0);
     }
 
@@ -92,7 +92,7 @@ fn register_test_object(
     id: ObjectID,
     kinds: Vec<KindOf>,
     team: Arc<RwLock<Team>>,
-) -> Arc<RwLock<gamelogic::object::Object>> {
+) -> ObjectID {
     register_test_object_with_cost(id, kinds, team, 0)
 }
 
@@ -101,7 +101,7 @@ fn register_test_object_with_cost(
     kinds: Vec<KindOf>,
     team: Arc<RwLock<Team>>,
     build_cost: i32,
-) -> Arc<RwLock<gamelogic::object::Object>> {
+) -> ObjectID {
     register_test_object_with_name_and_cost(id, &format!("Object{id}"), kinds, team, build_cost)
 }
 
@@ -110,7 +110,7 @@ fn register_test_object_with_name(
     name: &str,
     kinds: Vec<KindOf>,
     team: Arc<RwLock<Team>>,
-) -> Arc<RwLock<gamelogic::object::Object>> {
+) -> ObjectID {
     register_test_object_with_name_and_cost(id, name, kinds, team, 0)
 }
 
@@ -120,32 +120,29 @@ fn register_test_object_with_name_and_cost(
     kinds: Vec<KindOf>,
     team: Arc<RwLock<Team>>,
     build_cost: i32,
-) -> Arc<RwLock<gamelogic::object::Object>> {
+) -> ObjectID {
     let template: Arc<dyn ThingTemplate> =
         Arc::new(TestThingTemplate::new_with_cost(name, kinds, build_cost));
-    let object = Arc::new(RwLock::new(gamelogic::object::Object::new_raw(
+    let mut object = gamelogic::object::Object::new_raw(
         template,
         id,
         LogicObjectStatusMaskType::none(),
         Some(team),
-    )));
-    object.write().unwrap().set_selectable(true);
-    OBJECT_REGISTRY.register_object(id, &object);
-    object
+    );
+    object.set_selectable(true);
+    OBJECT_REGISTRY.register_object(id, object);
+    id
 }
 
-fn set_test_object_position(
-    object: &Arc<RwLock<gamelogic::object::Object>>,
-    x: Real,
-    y: Real,
-    z: Real,
-) {
-    let mut geometry = object.read().unwrap().get_geometry_info().clone();
-    geometry.position = LogicCoord3D::new(x, y, z);
-    object.write().unwrap().set_geometry_info(geometry);
+fn set_test_object_position(id: ObjectID, x: Real, y: Real, z: Real) {
+    OBJECT_REGISTRY.with_object_mut(id, |object| {
+        let mut geometry = object.get_geometry_info().clone();
+        geometry.position = LogicCoord3D::new(x, y, z);
+        object.set_geometry_info(geometry);
+    });
 }
 
-fn give_test_damage_weapon(object: &Arc<RwLock<gamelogic::object::Object>>, range: Real) {
+fn give_test_damage_weapon(id: ObjectID, range: Real) {
     let mut template = WeaponTemplate::new("ContextAttackTestWeapon".to_string());
     template.primary_damage = 10.0;
     template.attack_range = range;
@@ -156,14 +153,15 @@ fn give_test_damage_weapon(object: &Arc<RwLock<gamelogic::object::Object>>, rang
     set.conditions.set(LogicWeaponSetType::PlayerUpgrade);
     set.set_weapon_template(WeaponSlotType::Primary, Arc::new(template));
 
-    let mut guard = object.write().unwrap();
-    guard.weapon_set.add_weapon_template_set(set);
-    guard.set_weapon_set_flag(LogicWeaponSetType::PlayerUpgrade);
-    let object_id = guard.get_id();
-    guard
-        .weapon_set
-        .update_weapon_set(object_id, &LogicWeaponSetFlags::new())
-        .unwrap();
+    OBJECT_REGISTRY.with_object_mut(id, |guard| {
+        guard.weapon_set.add_weapon_template_set(set);
+        guard.set_weapon_set_flag(LogicWeaponSetType::PlayerUpgrade);
+        let object_id = guard.get_id();
+        guard
+            .weapon_set
+            .update_weapon_set(object_id, &LogicWeaponSetFlags::new())
+            .unwrap();
+    });
 }
 
 #[test]
@@ -213,12 +211,12 @@ fn command_pick_profile_accepts_registered_selectable_objects_like_cpp() {
     let team = setup_local_player_team();
     let object = register_test_object(78_001, vec![KindOf::Selectable, KindOf::Infantry], team);
 
-    let guard = object.read().unwrap();
-    assert!(object_matches_context_pick_profile(
-        &guard,
-        ContextPickProfile::default()
-    ));
-    drop(guard);
+    OBJECT_REGISTRY.with_object(object, |guard| {
+        assert!(object_matches_context_pick_profile(
+            guard,
+            ContextPickProfile::default()
+        ));
+    });
 
     OBJECT_REGISTRY.unregister_object(78_001);
 }
@@ -229,21 +227,21 @@ fn command_pick_profile_respects_force_attackable_option_like_cpp() {
     let team = setup_local_player_team();
     let object = register_test_object(78_002, vec![KindOf::ForceAttackable], team);
 
-    let guard = object.read().unwrap();
-    assert!(!object_matches_context_pick_profile(
-        &guard,
-        ContextPickProfile::default()
-    ));
-    assert!(object_matches_context_pick_profile(
-        &guard,
-        ContextPickProfile {
-            include_selectable: false,
-            include_force_attackable: true,
-            include_mines: false,
-            include_shrubbery: false,
-        }
-    ));
-    drop(guard);
+    OBJECT_REGISTRY.with_object(object, |guard| {
+        assert!(!object_matches_context_pick_profile(
+            guard,
+            ContextPickProfile::default()
+        ));
+        assert!(object_matches_context_pick_profile(
+            guard,
+            ContextPickProfile {
+                include_selectable: false,
+                include_force_attackable: true,
+                include_mines: false,
+                include_shrubbery: false,
+            }
+        ));
+    });
 
     OBJECT_REGISTRY.unregister_object(78_002);
 }
@@ -281,9 +279,9 @@ fn command_context_attack_accepts_after_moving_like_cpp() {
     );
     let far_target = register_test_object(78_012, vec![KindOf::Selectable], team);
 
-    give_test_damage_weapon(&attacker, 25.0);
-    set_test_object_position(&attacker, 0.0, 0.0, 0.0);
-    set_test_object_position(&far_target, 100.0, 0.0, 0.0);
+    give_test_damage_weapon(attacker, 25.0);
+    set_test_object_position(attacker, 0.0, 0.0, 0.0);
+    set_test_object_position(far_target, 100.0, 0.0, 0.0);
 
     let selection = HashSet::from([78_010]);
 
@@ -326,10 +324,9 @@ fn command_context_attack_rejects_not_possible_like_cpp() {
     );
     assert!(!selection_can_attack_target(Some(0), &selection, 78_021));
 
-    give_test_damage_weapon(&unarmed, 25.0);
+    give_test_damage_weapon(unarmed, 25.0);
     assert!(!selection_can_attack_target(Some(1), &selection, 78_021));
 
-    drop(target);
     drop(unarmed);
     OBJECT_REGISTRY.unregister_object(78_020);
     OBJECT_REGISTRY.unregister_object(78_021);
@@ -357,14 +354,13 @@ fn command_context_enter_accepts_local_infantry_into_unmanned_vehicle_like_cpp()
         team.clone(),
     );
     let vehicle = register_test_object(78_031, vec![KindOf::Selectable, KindOf::Vehicle], team);
-    vehicle.write().unwrap().set_disabled_unmanned();
+    OBJECT_REGISTRY.with_object_mut(vehicle, |obj| obj.set_disabled_unmanned());
 
     let selection = HashSet::from([78_030]);
 
     assert!(selection_can_enter_target(Some(0), &selection, 78_031));
     assert!(!selection_can_enter_target(Some(1), &selection, 78_031));
 
-    drop(vehicle);
     drop(infantry);
     OBJECT_REGISTRY.unregister_object(78_030);
     OBJECT_REGISTRY.unregister_object(78_031);
@@ -386,7 +382,6 @@ fn command_context_repair_rejects_unrepairable_targets_like_cpp() {
     assert!(!selection_can_repair_target(Some(0), &selection, 78_041));
     assert!(!selection_can_repair_target(Some(1), &selection, 78_041));
 
-    drop(target);
     drop(dozer);
     OBJECT_REGISTRY.unregister_object(78_040);
     OBJECT_REGISTRY.unregister_object(78_041);
@@ -415,10 +410,12 @@ fn command_context_resume_construction_accepts_local_dozer_like_cpp() {
         team.clone(),
     );
     let target = register_test_object(78_051, vec![KindOf::Selectable, KindOf::Structure], team);
-    target.write().unwrap().set_status(
-        LogicObjectStatusMaskType::from_status(ObjectStatusTypes::UnderConstruction),
-        true,
-    );
+    OBJECT_REGISTRY.with_object_mut(target, |obj| {
+        obj.set_status(
+            LogicObjectStatusMaskType::from_status(ObjectStatusTypes::UnderConstruction),
+            true,
+        );
+    });
 
     let selection = HashSet::from([78_050]);
 
@@ -433,7 +430,6 @@ fn command_context_resume_construction_accepts_local_dozer_like_cpp() {
         78_051
     ));
 
-    drop(target);
     drop(dozer);
     OBJECT_REGISTRY.unregister_object(78_050);
     OBJECT_REGISTRY.unregister_object(78_051);
@@ -449,7 +445,7 @@ fn command_context_pickup_crate_returns_target_position_for_local_mobile_selecti
         team.clone(),
     );
     let crate_obj = register_test_object(78_061, vec![KindOf::Crate], team);
-    set_test_object_position(&crate_obj, 11.0, 22.0, 3.0);
+    set_test_object_position(crate_obj, 11.0, 22.0, 3.0);
 
     let selection = HashSet::from([78_060]);
     let dest = selection_can_pickup_crate_target(Some(0), &selection, 78_061)
@@ -458,7 +454,6 @@ fn command_context_pickup_crate_returns_target_position_for_local_mobile_selecti
     assert_eq!(dest, Coord3D::new(11.0, 22.0, 3.0));
     assert!(selection_can_pickup_crate_target(Some(1), &selection, 78_061).is_none());
 
-    drop(crate_obj);
     drop(unit);
     OBJECT_REGISTRY.unregister_object(78_060);
     OBJECT_REGISTRY.unregister_object(78_061);
@@ -479,7 +474,6 @@ fn command_context_salvage_rejects_non_salvage_crates_like_cpp() {
 
     assert!(selection_can_salvage_target(Some(0), &selection, 78_071).is_none());
 
-    drop(ordinary_crate);
     drop(salvager);
     OBJECT_REGISTRY.unregister_object(78_070);
     OBJECT_REGISTRY.unregister_object(78_071);
@@ -1247,7 +1241,7 @@ fn select_next_worker_is_dozer_only_and_looks_at() {
     );
     let _harvester =
         register_test_object(78_081, vec![KindOf::Selectable, KindOf::Harvester], team);
-    set_test_object_position(&dozer, 40.0, 10.0, 0.0);
+    set_test_object_position(dozer, 40.0, 10.0, 0.0);
 
     let messages = handle_select_next_or_prev_worker(true);
     assert_eq!(messages.len(), 1);

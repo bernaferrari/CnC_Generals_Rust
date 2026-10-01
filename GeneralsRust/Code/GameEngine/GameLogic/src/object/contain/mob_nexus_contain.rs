@@ -246,17 +246,14 @@ fn apply_exit_pitch_and_force(
 impl MobNexusContain {
     /// Create a new MobNexusContain module
     pub fn new(
-        object: Weak<RwLock<Object>>,
+        object_id: ObjectID,
         module_data: &MobNexusContainModuleData,
     ) -> GameResult<Self> {
-        let base = OpenContain::new(object.clone(), &module_data.base)?;
+        let base = OpenContain::new(object_id, &module_data.base)?;
 
         Ok(Self {
             base,
-            object_id: object
-                .upgrade()
-                .and_then(|arc| arc.read().ok().map(|g| g.get_id()))
-                .unwrap_or(crate::common::INVALID_ID),
+            object_id: object_id,
             module_data: module_data.clone(),
             extra_slots_in_use: 0,
             payload_created: false,
@@ -285,54 +282,63 @@ impl MobNexusContain {
     /// C++ MobNexusContain::isValidContainerFor
     pub fn is_valid_container_for(&self, obj: &Object, check_capacity: bool) -> bool {
         let unwrapped = unwrap_special_zero_slot_rider(obj);
-        let unwrapped_guard = unwrapped.as_ref().and_then(|arc| arc.read().ok());
-        let rider = unwrapped_guard.as_deref().unwrap_or(obj);
-
-        if !self.base.is_valid_container_for(rider, check_capacity) {
-            return false;
-        }
-
-        // C++: rider->getRelationship(getObject()) != ALLIES
-        let is_ally = self
-            .with_owner_object(|owner| rider.get_relationship_to(owner) == ObjectRelationship::Ally)
-            .unwrap_or(false);
-        if !is_ally {
-            return false;
-        }
-
-        let slot_count = rider.get_transport_slot_count();
-        if slot_count == 0 {
-            return false;
-        }
-
-        if check_capacity {
-            self.extra_slots_in_use + self.base.get_contain_count() as i32 + slot_count as i32
-                <= self.get_contain_max()
+        let decide = |rider: &Object| -> bool {
+            if !self.base.is_valid_container_for(rider, check_capacity) {
+                false
+            } else {
+                let is_ally = self
+                    .with_owner_object(|owner| {
+                        rider.get_relationship_to(owner) == ObjectRelationship::Ally
+                    })
+                    .unwrap_or(false);
+                if !is_ally {
+                    false
+                } else {
+                    let slot_count = rider.get_transport_slot_count();
+                    if slot_count == 0 {
+                        false
+                    } else if check_capacity {
+                        self.extra_slots_in_use
+                            + self.base.get_contain_count() as i32
+                            + slot_count as i32
+                            <= self.get_contain_max()
+                    } else {
+                        true
+                    }
+                }
+            }
+        };
+        if let Some(id) = unwrapped {
+            crate::object::registry::OBJECT_REGISTRY
+                .with_object(id, decide)
+                .unwrap_or(false)
         } else {
-            true
+            decide(obj)
         }
     }
 
     /// C++ MobNexusContain::onContaining
     pub fn on_containing(&mut self, obj_id: ObjectID, was_selected: bool) -> GameResult<()> {
-        let Some(obj) = TheGameLogic::find_object_by_id(obj_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
-        else {
+        if !TheGameLogic::find_object_by_id(obj_id) {
             return Ok(());
-        };
-
-        if obj.try_write().is_err() {
+        }
+        if crate::object::registry::OBJECT_REGISTRY
+            .with_object_mut(obj_id, |_| ())
+            .is_none()
+        {
             return Err("Mob nexus rider lock busy".into());
         }
         self.base.on_containing(obj_id, was_selected)?;
-        let Ok(mut rider) = obj.try_write() else {
+        let Some(slot_count) =
+            crate::object::registry::OBJECT_REGISTRY.with_object_mut(obj_id, |rider| {
+                rider.set_disabled(DisabledType::Held);
+                rider.get_transport_slot_count()
+            })
+        else {
             self.base.unlink_contained_id(obj_id);
             return Err("Mob nexus rider lock busy".into());
         };
-        rider.set_disabled(DisabledType::Held);
-        let slot_count = rider.get_transport_slot_count();
         self.extra_slots_in_use += (slot_count as i32) - 1;
-        drop(rider);
 
         if self.base.get_contain_count() == 1 {
             if let Some(drawable) = self
@@ -349,63 +355,70 @@ impl MobNexusContain {
 
     /// C++ MobNexusContain::onRemoving
     pub fn on_removing(&mut self, obj_id: ObjectID) -> GameResult<()> {
-        let Some(obj) = TheGameLogic::find_object_by_id(obj_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
-        else {
+        if !TheGameLogic::find_object_by_id(obj_id) {
             return Ok(());
-        };
-
-        if obj.try_write().is_err() {
+        }
+        if crate::object::registry::OBJECT_REGISTRY
+            .with_object_mut(obj_id, |_| ())
+            .is_none()
+        {
             return Err("Mob nexus rider lock busy".into());
         }
         self.base.on_removing(obj_id)?;
-        let Ok(mut rider) = obj.try_write() else {
-            let _ = self.base.add_to_contain_list_id(obj_id, false);
-            return Err("Mob nexus rider lock busy".into());
-        };
-        rider.clear_disabled(DisabledType::Held);
 
-        if !self.module_data.exit_bone.is_empty() {
-            if let Some(bone_pos) = self.with_owner_object(|owner| {
+        let bone_pos = if self.module_data.exit_bone.is_empty() {
+            None
+        } else {
+            self.with_owner_object(|owner| {
                 let (_, bone_pos, _) =
                     owner.get_single_logical_bone_position(&self.module_data.exit_bone);
                 bone_pos
-            }) {
-                let _ = rider.set_position(&bone_pos);
-            }
-        }
-
-        if self.module_data.orient_like_container_on_exit {
-            if let Some(orient) = self.with_owner_object(|owner| owner.get_orientation()) {
-                let _ = rider.set_orientation(orient);
-            }
-        }
-
-        let slot_count = rider.get_transport_slot_count();
-
-        if self.module_data.keep_container_velocity_on_exit && rider.get_physics_mut().is_some() {
-            // C++: never hold parent and child physics at once — read the
-            // container velocity first, then apply to the rider physics.
-            let parent_velocity = self
-                .with_owner_object(|owner| owner.get_physics().map(|body| body.get_velocity()))
-                .flatten();
-            if let Some(vel) = parent_velocity {
-                if let Some(child) = rider.get_physics_mut() {
-                    apply_exit_pitch_and_force(child, vel, self.module_data.exit_pitch_rate);
-                }
-            }
-        }
-        drop(rider);
-
-        let mut rider = match obj.write() {
-            Ok(guard) => guard,
-            Err(poisoned) => poisoned.into_inner(),
+            })
         };
-        if self.module_data.scatter_nearby_on_exit {
-            let _ = self.base.scatter_to_nearby_position(&mut rider);
-        }
+        let orient = if self.module_data.orient_like_container_on_exit {
+            self.with_owner_object(|owner| owner.get_orientation())
+        } else {
+            None
+        };
+        // C++: never hold parent and child physics at once — read the
+        // container velocity first, then apply to the rider physics.
+        let parent_velocity = if self.module_data.keep_container_velocity_on_exit {
+            self.with_owner_object(|owner| owner.get_physics().map(|body| body.get_velocity()))
+                .flatten()
+        } else {
+            None
+        };
+        let exit_pitch_rate = self.module_data.exit_pitch_rate;
+        let scatter = self.module_data.scatter_nearby_on_exit;
+        let above_terrain = self
+            .with_owner_object(|owner| owner.is_above_terrain())
+            .unwrap_or(false);
+
+        let slot_count =
+            crate::object::registry::OBJECT_REGISTRY.with_object_mut(obj_id, |rider| {
+                rider.clear_disabled(DisabledType::Held);
+                if let Some(bone_pos) = bone_pos.as_ref() {
+                    let _ = rider.set_position(bone_pos);
+                }
+                if let Some(orient) = orient {
+                    let _ = rider.set_orientation(orient);
+                }
+                let slot_count = rider.get_transport_slot_count();
+                if let Some(vel) = parent_velocity {
+                    if let Some(child) = rider.get_physics_mut() {
+                        apply_exit_pitch_and_force(child, vel, exit_pitch_rate);
+                    }
+                }
+                if scatter {
+                    let _ = self.base.scatter_to_nearby_position(rider);
+                }
+                slot_count
+            });
+        let Some(slot_count) = slot_count else {
+            let _ = self.base.add_to_contain_list_id(obj_id, false);
+            return Err("Mob nexus rider lock busy".into());
+        };
         self.extra_slots_in_use -= (slot_count as i32) - 1;
-        drop(rider);
 
         if self.base.get_contain_count() == 0 {
             if let Some(drawable) = self
@@ -418,17 +431,12 @@ impl MobNexusContain {
             }
         }
 
-        if self
-            .with_owner_object(|owner| owner.is_above_terrain())
-            .unwrap_or(false)
-        {
-            let mut rider = match obj.write() {
-                Ok(guard) => guard,
-                Err(poisoned) => poisoned.into_inner(),
-            };
-            if let Some(physics) = rider.get_physics_mut() {
-                physics.set_allow_to_fall(true);
-            }
+        if above_terrain {
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(obj_id, |rider| {
+                if let Some(physics) = rider.get_physics_mut() {
+                    physics.set_allow_to_fall(true);
+                }
+            });
         }
         Ok(())
     }
@@ -483,24 +491,21 @@ impl MobNexusContain {
             } else {
                 factory.new_object_optional_team(template.clone(), None)
             };
-            let Ok(payload_obj) = payload else {
+            let Ok(payload_id) = payload else {
                 continue;
             };
-            let Ok(guard) = payload_obj.try_read() else {
-                if let Ok(guard) = payload_obj.try_write() {
-                    let payload_id = guard.get_id();
-                    drop(guard);
-                    let _ = TheGameLogic::destroy_object_by_id(payload_id);
-                }
+            let can_add =
+                crate::object::registry::OBJECT_REGISTRY.with_object(payload_id, |guard| {
+                    self.is_valid_container_for(guard, true)
+                });
+            let Some(can_add) = can_add else {
+                let _ = TheGameLogic::destroy_object_by_id(payload_id);
                 self.base.enable_load_sounds(true);
                 if added_any {
                     self.payload_created = true;
                 }
                 return Err("Mob nexus payload lock busy".into());
             };
-            let payload_id = guard.get_id();
-            let can_add = self.is_valid_container_for(&*guard, true);
-            drop(guard);
             if can_add {
                 if let Err(err) = self.add_to_contain(payload_id) {
                     let _ = TheGameLogic::destroy_object_by_id(payload_id);
@@ -526,26 +531,34 @@ impl MobNexusContain {
     }
 
     pub fn add_to_contain(&mut self, obj_id: ObjectID) -> GameResult<()> {
-        let obj = TheGameLogic::find_object_by_id(obj_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
-            .ok_or("MobNexus contain object not found")?;
-        let was_selected = obj
-            .read()
-            .ok()
-            .and_then(|guard| guard.get_drawable())
-            .and_then(|drawable| drawable.read().ok().map(|draw| draw.is_selected()))
-            .unwrap_or(false);
-        {
-            let obj_ref = obj.read().map_err(|_| "Object lock poisoned")?;
-            if !self.is_valid_container_for(&*obj_ref, true) {
-                return Err("Object not valid for this mob nexus".into());
-            }
-            let already_listed = self.base.get_contained_object_ids().contains(&obj_id);
-            let contained_by = obj_ref.get_contained_by();
-            if contained_by.is_some() && (already_listed || contained_by != Some(self.object_id)) {
-                return Ok(());
-            }
+        if !TheGameLogic::find_object_by_id(obj_id) {
+            return Err("MobNexus contain object not found".into());
         }
+        let decision = crate::object::registry::OBJECT_REGISTRY.with_object(
+            obj_id,
+            |obj_ref| -> Result<Option<bool>, &'static str> {
+                let was_selected = obj_ref
+                    .get_drawable()
+                    .and_then(|drawable| drawable.read().ok().map(|draw| draw.is_selected()))
+                    .unwrap_or(false);
+                if !self.is_valid_container_for(obj_ref, true) {
+                    return Err("Object not valid for this mob nexus");
+                }
+                let already_listed = self.base.get_contained_object_ids().contains(&obj_id);
+                let contained_by = obj_ref.get_contained_by();
+                if contained_by.is_some() && (already_listed || contained_by != Some(self.object_id))
+                {
+                    return Ok(None);
+                }
+                Ok(Some(was_selected))
+            },
+        );
+        let was_selected = match decision {
+            None => return Err("Object lock poisoned".into()),
+            Some(Err(msg)) => return Err(msg.into()),
+            Some(Ok(None)) => return Ok(()),
+            Some(Ok(Some(was_selected))) => was_selected,
+        };
         self.base.add_to_contain_list(obj_id)?;
         self.on_containing(obj_id, was_selected)?;
         self.base.do_load_sound();
@@ -564,15 +577,13 @@ impl MobNexusContain {
             return Err("Mob passenger lock busy".into());
         };
         if expose_stealth_units {
-            if let Some(obj) = TheGameLogic::find_object_by_id(obj_id) {
-                if let Ok(obj_guard) = obj.try_read() {
-                    if let Some(stealth) = obj_guard.get_stealth() {
-                        if let Ok(mut stealth_guard) = stealth.try_lock() {
-                            stealth_guard.mark_as_detected();
-                        }
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object(obj_id, |obj_guard| {
+                if let Some(stealth) = obj_guard.get_stealth() {
+                    if let Ok(mut stealth_guard) = stealth.try_lock() {
+                        stealth_guard.mark_as_detected();
                     }
                 }
-            }
+            });
         }
         self.base.do_unload_sound();
         if let Err(err) = self.on_removing(obj_id) {
@@ -597,36 +608,42 @@ impl MobNexusContain {
         if self.module_data.health_regen != 0.0 {
             let owner_id = self.object_id;
             for object_id in self.base.get_contained_object_ids().to_vec() {
-                if let Some(object) = TheGameLogic::find_object_by_id(object_id)
-                    .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(object_id))
-                {
-                    let Ok(guard) = object.try_read() else {
-                        log::warn!("MobNexusContain::update regen lock busy for {}", object_id);
-                        continue;
-                    };
-                    let Some(body) = guard.get_body_module() else {
-                        continue;
-                    };
-                    let max_health = body.get_max_health();
-                    let needs_healing = body.get_health() < max_health && max_health > 0.0;
-                    drop(guard);
-                    if !needs_healing {
-                        continue;
-                    }
-                    let regen = max_health * self.module_data.health_regen / 100.0
-                        * SECONDS_PER_LOGICFRAME_REAL;
-                    let Ok(mut object_guard) = object.try_write() else {
-                        log::warn!("MobNexusContain::update regen write busy for {}", object_id);
-                        continue;
-                    };
-                    if owner_id != crate::common::INVALID_ID {
-                        let _ = crate::object::registry::OBJECT_REGISTRY
-                            .with_object(owner_id, |source| {
-                                object_guard.attempt_healing(regen, Some(source))
-                            });
-                    } else {
-                        let _ = object_guard.attempt_healing(regen, None);
-                    }
+                if !TheGameLogic::find_object_by_id(object_id) {
+                    continue;
+                }
+                let health_read = crate::object::registry::OBJECT_REGISTRY.with_object(
+                    object_id,
+                    |guard| {
+                        let Some(body) = guard.get_body_module() else {
+                            return None;
+                        };
+                        let max_health = body.get_max_health();
+                        if body.get_health() < max_health && max_health > 0.0 {
+                            Some(max_health)
+                        } else {
+                            None
+                        }
+                    },
+                );
+                let Some(max_health) = health_read else {
+                    log::warn!("MobNexusContain::update regen lock busy for {}", object_id);
+                    continue;
+                };
+                let Some(max_health) = max_health else {
+                    continue;
+                };
+                let regen = max_health * self.module_data.health_regen / 100.0
+                    * SECONDS_PER_LOGICFRAME_REAL;
+                let healed =
+                    crate::object::registry::OBJECT_REGISTRY.with_object_mut(object_id, |object_guard| {
+                        if owner_id != crate::common::INVALID_ID {
+                            let _ = object_guard.attempt_healing_from_source_id(regen, owner_id);
+                        } else {
+                            let _ = object_guard.attempt_healing(regen, None);
+                        }
+                    });
+                if healed.is_none() {
+                    log::warn!("MobNexusContain::update regen write busy for {}", object_id);
                 }
             }
         }
@@ -725,15 +742,10 @@ impl MobNexusContain {
         let mut exited_anyone = false;
         let ids = self.base.get_contained_object_ids().to_vec();
         for obj_id in ids {
-            let Some(obj) = TheGameLogic::find_object_by_id(obj_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
-            else {
-                continue;
-            };
-            let door = obj
-                .read()
-                .ok()
-                .map(|guard| self.reserve_door_for_exit(None, Some(&*guard)))
+            let door = crate::object::registry::OBJECT_REGISTRY
+                .with_object(obj_id, |guard| {
+                    self.reserve_door_for_exit(&ObjectTemplate {}, Some(guard))
+                })
                 .unwrap_or(ExitDoorType::NoneAvailable);
             if matches!(door, ExitDoorType::None | ExitDoorType::NoneAvailable) {
                 continue;
@@ -741,7 +753,7 @@ impl MobNexusContain {
             if self.base.exit_object_via_door(obj_id, door).is_ok() {
                 exited_anyone = true;
                 if expose_stealthed_units {
-                    if let Ok(obj_guard) = obj.read() {
+                    let _ = crate::object::registry::OBJECT_REGISTRY.with_object(obj_id, |obj_guard| {
                         if obj_guard.is_kind_of(KindOf::StealthGarrison) {
                             if let Some(stealth) = obj_guard.get_stealth() {
                                 if let Ok(mut stealth_guard) = stealth.lock() {
@@ -749,7 +761,7 @@ impl MobNexusContain {
                                 }
                             }
                         }
-                    }
+                    });
                 }
             }
         }
@@ -789,12 +801,11 @@ impl Snapshotable for MobNexusContain {
 
 impl ContainModuleInterface for MobNexusContain {
     fn can_contain(&self, object_id: ObjectID) -> bool {
-        if let Some(obj) = TheGameLogic::find_object_by_id(object_id) {
-            if let Ok(obj_guard) = obj.read() {
-                return self.is_valid_container_for(&*obj_guard, true);
-            }
-        }
-        false
+        crate::object::registry::OBJECT_REGISTRY
+            .with_object(object_id, |obj_guard| {
+                self.is_valid_container_for(obj_guard, true)
+            })
+            .unwrap_or(false)
     }
 
     fn contain_object(&mut self, object_id: ObjectID) -> Result<(), String> {
@@ -870,14 +881,8 @@ impl ContainModuleInterface for MobNexusContain {
         if !self.base.collide_enter_eject_foreign(other_id)? {
             return Ok(());
         }
-        let Some(other) = TheGameLogic::find_object_by_id(other_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(other_id))
-        else {
-            return Ok(());
-        };
-        let valid = other
-            .try_read()
-            .map(|guard| self.is_valid_container_for(&*guard, true))
+        let valid = crate::object::registry::OBJECT_REGISTRY
+            .with_object(other_id, |guard| self.is_valid_container_for(guard, true))
             .unwrap_or(false);
         if valid {
             self.add_to_contain(other_id)?;
@@ -1006,7 +1011,7 @@ mod tests {
     use crate::common::{Coord3D, DefaultThingTemplate, ObjectID, ObjectStatusMaskType};
     use crate::helpers::TheGameLogic;
     use crate::object::Object;
-    use std::sync::{Arc, Mutex, RwLock};
+    use std::sync::{Arc, Mutex};
 
     #[derive(Debug)]
     struct ExitRecord {
@@ -1068,25 +1073,22 @@ mod tests {
         }
     }
 
-    fn test_object(name: &str, id: ObjectID) -> Arc<RwLock<Object>> {
-        Object::new_with_id(
-            Arc::new(DefaultThingTemplate::new(name.to_string())),
-            id,
-            ObjectStatusMaskType::none(),
-            None,
-        )
-        .expect("test object")
+    fn test_object(name: &str, id: ObjectID) -> ObjectID {
+        let template = Arc::new(DefaultThingTemplate::new(name.to_string()));
+        let object = Object::new_raw(template, id, ObjectStatusMaskType::none(), None);
+        crate::object::registry::OBJECT_REGISTRY.register_object(id, object);
+        id
     }
 
-    fn nexus_for(owner: &Arc<RwLock<Object>>, pitch: f32) -> MobNexusContain {
+    fn nexus_for(owner: &ObjectID, pitch: f32) -> MobNexusContain {
         let mut data = MobNexusContainModuleData::default();
         data.exit_pitch_rate = pitch;
         data.keep_container_velocity_on_exit = true;
-        MobNexusContain::new(Arc::downgrade(owner), &data).expect("nexus")
+        MobNexusContain::new(*owner, &data).expect("nexus")
     }
 
     fn attach_physics(
-        object: &Arc<RwLock<Object>>,
+        object: &ObjectID,
         vel: Coord3D,
         mass: f32,
         com: f32,
@@ -1106,10 +1108,11 @@ mod tests {
             com,
             record: record.clone(),
         };
-        object
-            .write()
-            .expect("object")
-            .set_physics(Some(Box::new(physics)));
+        crate::object::registry::OBJECT_REGISTRY
+            .with_object_mut(*object, |obj| {
+                obj.set_physics(Some(Box::new(physics)));
+            })
+            .expect("object");
         record
     }
 

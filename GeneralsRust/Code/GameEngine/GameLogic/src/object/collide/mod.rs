@@ -210,10 +210,8 @@ fn resolve_object_id(other: &dyn GameObject) -> Result<ObjectId, CollisionError>
     Ok(id)
 }
 
-fn resolve_object_handle(other: &dyn GameObject) -> Result<Arc<RwLock<Object>>, CollisionError> {
-    other.as_object_handle().ok_or_else(|| {
-        CollisionError::InvalidObject("GameObject did not expose an Object handle".into())
-    })
+fn resolve_object_handle(other: &dyn GameObject) -> Result<ObjectId, CollisionError> {
+    resolve_object_id(other)
 }
 
 impl<T: LegacyCollideAdapter> CollideModule for T {
@@ -282,115 +280,12 @@ pub trait GameObject: Send + Sync {
     fn set_status(&self, _mask: ObjectStatusMask, _set: bool) {}
 
     /// Try to expose the backing `Object` handle when available.
-    fn as_object_handle(&self) -> Option<Arc<RwLock<Object>>> {
-        None
+    fn as_object_handle(&self) -> Option<ObjectId> {
+        let id = self.get_id();
+        if id == INVALID_ID { None } else { Some(id) }
     }
 }
 
-impl GameObject for Arc<RwLock<Object>> {
-    fn get_id(&self) -> ObjectId {
-        self.read().map(|obj| obj.get_id()).unwrap_or(INVALID_ID)
-    }
-
-    fn get_position(&self) -> Coord3D {
-        self.read()
-            .map(|obj| {
-                let pos = obj.get_position();
-                Coord3D::new(pos.x, pos.y, pos.z)
-            })
-            .unwrap_or(Coord3D::ZERO)
-    }
-
-    fn get_orientation(&self) -> f32 {
-        self.read().map(|obj| obj.get_orientation()).unwrap_or(0.0)
-    }
-
-    fn get_controlling_player(&self) -> PlayerId {
-        self.read()
-            .ok()
-            .and_then(|obj| obj.get_player_id())
-            .unwrap_or(PlayerId::NEUTRAL)
-    }
-
-    fn get_veterancy_level(&self) -> VeterancyLevel {
-        self.read()
-            .map(|obj| obj.get_veterancy_level())
-            .unwrap_or(VeterancyLevel::Regular)
-    }
-
-    fn get_relationship(&self, other: &dyn GameObject) -> Relationship {
-        if let Some(other_handle) = other.as_object_handle() {
-            if Arc::ptr_eq(&other_handle, self) {
-                return Relationship::Allies;
-            }
-            if let (Ok(this_guard), Ok(other_guard)) = (self.read(), other_handle.read()) {
-                return this_guard.relationship_to(&other_guard);
-            }
-        }
-        Relationship::Neutral
-    }
-
-    fn get_crusher_level(&self) -> u32 {
-        self.read().map(|obj| obj.get_crusher_level()).unwrap_or(0)
-    }
-
-    fn is_effectively_dead(&self) -> bool {
-        self.read()
-            .map(|obj| obj.is_effectively_dead())
-            .unwrap_or(true)
-    }
-
-    fn is_significantly_above_terrain(&self) -> bool {
-        self.read()
-            .map(|obj| obj.is_significantly_above_terrain())
-            .unwrap_or(false)
-    }
-
-    fn is_using_airborne_locomotor(&self) -> bool {
-        self.read()
-            .map(|obj| obj.is_using_airborne_locomotor())
-            .unwrap_or(false)
-    }
-
-    fn get_status_bits(&self) -> ObjectStatusMask {
-        self.read()
-            .map(|obj| ObjectStatusMask(obj.get_status_bits().bits() as u64))
-            .unwrap_or_else(|_| ObjectStatusMask::empty())
-    }
-
-    fn attempt_damage(&mut self, damage: &DamageInfo) -> Result<(), String> {
-        match self.write() {
-            Ok(mut obj) => {
-                let mut packet = EngineDamageInfo::with_simple(
-                    damage.amount,
-                    damage.source_id,
-                    EngineDamageType::from(damage.damage_type),
-                    EngineDeathType::from(damage.death_type),
-                );
-                obj.attempt_damage(&mut packet)
-                    .map_err(|err| err.to_string())
-            }
-            Err(_) => Err("Failed to lock object for damage processing".to_string()),
-        }
-    }
-
-    fn set_undetected_defector(&mut self, value: bool) {
-        if let Ok(mut obj) = self.write() {
-            obj.set_undetected_defector(value);
-        }
-    }
-
-    fn set_status(&self, mask: ObjectStatusMask, set: bool) {
-        if let Ok(mut obj) = self.write() {
-            let bitmask = ObjectStatusMaskType::from_bits_truncate(mask.0);
-            obj.set_status(bitmask, set);
-        }
-    }
-
-    fn as_object_handle(&self) -> Option<Arc<RwLock<Object>>> {
-        Some(self.clone())
-    }
-}
 
 impl<T: GameObject + ?Sized> GameObject for Box<T> {
     fn get_id(&self) -> ObjectId {
@@ -449,7 +344,7 @@ impl<T: GameObject + ?Sized> GameObject for Box<T> {
         (**self).set_status(mask, set)
     }
 
-    fn as_object_handle(&self) -> Option<Arc<RwLock<Object>>> {
+    fn as_object_handle(&self) -> Option<ObjectId> {
         (**self).as_object_handle()
     }
 }

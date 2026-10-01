@@ -708,51 +708,50 @@ impl EnhancedAiPlayer {
             return 0.0;
         }
         for obj_id in OBJECT_REGISTRY.get_all_object_ids() {
-            let obj_arc = match OBJECT_REGISTRY.get_object(obj_id) {
-                Some(v) => v,
-                None => continue,
-            };
-            let Ok(obj_guard) = obj_arc.read() else {
-                continue;
-            };
-            if obj_guard.get_controlling_player_id() != Some(self.player_id)
-                || obj_guard.is_effectively_dead()
-            {
-                continue;
-            }
-
-            owned_count += 1.0;
-            let health = obj_guard.get_health_percentage().clamp(0.0, 1.0);
-            if health < 0.7 {
-                damaged_penalty += (0.7 - health) * 0.5;
-            }
-
-            if obj_guard.is_kind_of(KindOf::Defense) {
-                defense_score += 1.5;
-            } else if obj_guard.is_kind_of(KindOf::Structure)
-                || obj_guard.is_kind_of(KindOf::Building)
-            {
-                defense_score += 0.5;
-            }
-
-            if obj_guard.has_any_weapon() {
-                armed_score += if obj_guard.is_kind_of(KindOf::Vehicle)
-                    || obj_guard.is_kind_of(KindOf::Aircraft)
+            let contrib = OBJECT_REGISTRY.with_object(obj_id, |obj_guard| {
+                if obj_guard.get_controlling_player_id() != Some(self.player_id)
+                    || obj_guard.is_effectively_dead()
                 {
-                    1.0
-                } else {
-                    0.6
-                };
-            }
-
-            if let Some(base_center) = self.base_center {
-                let pos = obj_guard.get_position();
-                let dx = pos.x - base_center.x;
-                let dy = pos.y - base_center.y;
-                let dist = (dx * dx + dy * dy).sqrt();
-                if dist > 120.0 {
-                    perimeter_score += 0.5;
+                    return None;
                 }
+                let health = obj_guard.get_health_percentage().clamp(0.0, 1.0);
+                let defense = if obj_guard.is_kind_of(KindOf::Defense) {
+                    1.5
+                } else if obj_guard.is_kind_of(KindOf::Structure)
+                    || obj_guard.is_kind_of(KindOf::Building)
+                {
+                    0.5
+                } else {
+                    0.0
+                };
+                let armed = if obj_guard.has_any_weapon() {
+                    if obj_guard.is_kind_of(KindOf::Vehicle) || obj_guard.is_kind_of(KindOf::Aircraft) {
+                        1.0
+                    } else {
+                        0.6
+                    }
+                } else {
+                    0.0
+                };
+                let perimeter = if let Some(base_center) = self.base_center {
+                    let pos = obj_guard.get_position();
+                    let dx = pos.x - base_center.x;
+                    let dy = pos.y - base_center.y;
+                    let dist = (dx * dx + dy * dy).sqrt();
+                    if dist > 120.0 { 0.5 } else { 0.0 }
+                } else {
+                    0.0
+                };
+                Some((health, defense, armed, perimeter))
+            });
+            if let Some(Some((health, defense, armed, perimeter))) = contrib {
+                owned_count += 1.0;
+                if health < 0.7 {
+                    damaged_penalty += (0.7 - health) * 0.5;
+                }
+                defense_score += defense;
+                armed_score += armed;
+                perimeter_score += perimeter;
             }
         }
 
@@ -915,34 +914,29 @@ impl EnhancedAiPlayer {
             return 0.0;
         }
         for obj_id in OBJECT_REGISTRY.get_all_object_ids() {
-            let obj_arc = match OBJECT_REGISTRY.get_object(obj_id) {
-                Some(v) => v,
-                None => continue,
-            };
-            let Ok(obj_guard) = obj_arc.read() else {
-                continue;
-            };
-            if obj_guard.get_controlling_player_id() != Some(self.player_id)
-                || obj_guard.is_effectively_dead()
-            {
-                continue;
-            }
-
-            owned_count += 1.0;
-            health_factor += obj_guard.get_health_percentage().clamp(0.0, 1.0);
-
-            if obj_guard.is_kind_of(KindOf::Defense) {
-                defense_structures += 1.0;
-            }
-
-            if obj_guard.has_any_weapon() {
-                combat_units += if obj_guard.is_kind_of(KindOf::Vehicle)
-                    || obj_guard.is_kind_of(KindOf::Aircraft)
+            let contrib = OBJECT_REGISTRY.with_object(obj_id, |obj_guard| {
+                if obj_guard.get_controlling_player_id() != Some(self.player_id)
+                    || obj_guard.is_effectively_dead()
                 {
-                    1.0
+                    return None;
+                }
+                let defense = if obj_guard.is_kind_of(KindOf::Defense) { 1.0 } else { 0.0 };
+                let combat = if obj_guard.has_any_weapon() {
+                    if obj_guard.is_kind_of(KindOf::Vehicle) || obj_guard.is_kind_of(KindOf::Aircraft) {
+                        1.0
+                    } else {
+                        0.5
+                    }
                 } else {
-                    0.5
+                    0.0
                 };
+                Some((obj_guard.get_health_percentage().clamp(0.0, 1.0), defense, combat))
+            });
+            if let Some(Some((health, defense, combat))) = contrib {
+                owned_count += 1.0;
+                health_factor += health;
+                defense_structures += defense;
+                combat_units += combat;
             }
         }
 
@@ -976,22 +970,19 @@ impl EnhancedAiPlayer {
 
         let mut owned_templates = HashSet::new();
         for obj_id in OBJECT_REGISTRY.get_all_object_ids() {
-            let obj_arc = match OBJECT_REGISTRY.get_object(obj_id) {
-                Some(v) => v,
-                None => continue,
-            };
-            let Ok(obj_guard) = obj_arc.read() else {
-                continue;
-            };
-            if obj_guard.get_controlling_player_id() != Some(self.player_id)
-                || obj_guard.is_effectively_dead()
-            {
-                continue;
+            if let Some(Some(name)) = OBJECT_REGISTRY.with_object(obj_id, |obj_guard| {
+                if obj_guard.get_controlling_player_id() != Some(self.player_id)
+                    || obj_guard.is_effectively_dead()
+                {
+                    return None;
+                }
+                if !obj_guard.is_kind_of(KindOf::Structure) && !obj_guard.is_kind_of(KindOf::Building) {
+                    return None;
+                }
+                Some(obj_guard.get_template_name().to_ascii_lowercase())
+            }) {
+                owned_templates.insert(name);
             }
-            if !obj_guard.is_kind_of(KindOf::Structure) && !obj_guard.is_kind_of(KindOf::Building) {
-                continue;
-            }
-            owned_templates.insert(obj_guard.get_template_name().to_ascii_lowercase());
         }
 
         for req in &build_order.prerequisites {
@@ -1086,28 +1077,24 @@ impl EnhancedAiPlayer {
             return Ok(());
         }
         for obj_id in OBJECT_REGISTRY.get_all_object_ids() {
-            let obj_arc = match OBJECT_REGISTRY.get_object(obj_id) {
-                Some(v) => v,
-                None => continue,
-            };
-            let Ok(obj_guard) = obj_arc.read() else {
-                continue;
-            };
-            if !obj_guard.is_kind_of(KindOf::ResourceNode)
-                && !obj_guard.is_kind_of(KindOf::SupplySource)
-                && !obj_guard.is_kind_of(KindOf::FSSupplyCenter)
-                && !obj_guard.is_kind_of(KindOf::FSSupplyDropzone)
-            {
-                continue;
+            if let Some(Some(pos)) = OBJECT_REGISTRY.with_object(obj_id, |obj_guard| {
+                if !obj_guard.is_kind_of(KindOf::ResourceNode)
+                    && !obj_guard.is_kind_of(KindOf::SupplySource)
+                    && !obj_guard.is_kind_of(KindOf::FSSupplyCenter)
+                    && !obj_guard.is_kind_of(KindOf::FSSupplyDropzone)
+                {
+                    return None;
+                }
+                let pos = obj_guard.get_position();
+                let dx = pos.x - base_center.x;
+                let dy = pos.y - base_center.y;
+                if dx * dx + dy * dy < min_dist_sq {
+                    return None;
+                }
+                Some(*pos)
+            }) {
+                candidates.push(pos);
             }
-            let pos = obj_guard.get_position();
-            let dx = pos.x - base_center.x;
-            let dy = pos.y - base_center.y;
-            let dist_sq = dx * dx + dy * dy;
-            if dist_sq < min_dist_sq {
-                continue;
-            }
-            candidates.push(*pos);
         }
 
         for pos in candidates {

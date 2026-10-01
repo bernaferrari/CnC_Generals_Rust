@@ -670,7 +670,7 @@ pub struct ParticleUplinkCannonUpdate {
 
 impl ParticleUplinkCannonUpdate {
     pub fn new(
-        object: Arc<RwLock<GameObject>>,
+        object_id: ObjectID,
         module_data: Arc<dyn ModuleData>,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let specific_data = module_data
@@ -683,17 +683,13 @@ impl ParticleUplinkCannonUpdate {
     }
 
     pub fn new_with_data(
-        object: Arc<RwLock<GameObject>>,
+        object_id: ObjectID,
         specific_data: Arc<ParticleUplinkCannonUpdateModuleData>,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let outer_count = specific_data.outer_effect_num_bones as usize;
 
         Ok(Self {
-            object_id: object
-                .read()
-                .ok()
-                .map(|g| g.get_id())
-                .unwrap_or(crate::common::INVALID_ID),
+            object_id: object_id,
             module_data: specific_data.clone(),
             next_call_frame_and_phase: 0,
             status: PUCStatus::Idle,
@@ -2034,7 +2030,7 @@ mod tests {
     use crate::object::Object;
     use crate::object::special_power_types::SpecialPowerType;
 
-    fn test_object_at(position: Coord3D) -> Arc<RwLock<GameObject>> {
+    fn test_object_at(position: Coord3D) -> ObjectID {
         let object = Arc::new(RwLock::new(Object::new_test(98_001, 100.0)));
         object
             .write()
@@ -2135,7 +2131,7 @@ mod tests {
 pub struct ParticleUplinkCannonUpdateFactory;
 impl ParticleUplinkCannonUpdateFactory {
     pub fn create_behavior(
-        thing: Arc<RwLock<GameObject>>,
+        object_id: ObjectID,
         module_data: Arc<dyn ModuleData>,
     ) -> Result<Box<dyn BehaviorModuleInterface>, Box<dyn std::error::Error + Send + Sync>> {
         Ok(Box::new(ParticleUplinkCannonUpdate::new(

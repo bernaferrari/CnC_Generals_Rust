@@ -102,15 +102,11 @@ pub struct PoisonedBehavior {
 
 impl PoisonedBehavior {
     pub fn new(
-        object: Arc<RwLock<GameObject>>,
+        object_id: ObjectID,
         module_data: Arc<PoisonedBehaviorModuleData>,
     ) -> Self {
         let behavior = Self {
-            object_id: object
-                .read()
-                .ok()
-                .map(|g| g.get_id())
-                .unwrap_or(crate::common::INVALID_ID),
+            object_id: object_id,
             module_data,
             next_call_frame_and_phase: UpdateSleepTime::Forever.to_u32(),
             poison_damage_frame: 0,
@@ -443,7 +439,7 @@ mod tests {
             poison_duration: 20,
             ..PoisonedBehaviorModuleData::default()
         });
-        PoisonedBehavior::new(object, data)
+        PoisonedBehavior::new(object_id, data)
     }
 
     #[test]

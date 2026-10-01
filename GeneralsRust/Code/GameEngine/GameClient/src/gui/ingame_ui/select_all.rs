@@ -24,37 +24,38 @@ fn collect_select_all_unit_ids(aircraft_only: bool) -> Vec<ObjectID> {
     let max_select = TheInGameUI::get_max_select_count();
     let mut selected = Vec::new();
 
-    for obj_ref in OBJECT_REGISTRY.get_all_objects() {
-        let Ok(obj) = obj_ref.read() else {
-            continue;
-        };
-        if !obj.is_locally_controlled() || obj.is_contained() || obj.is_effectively_dead() {
-            continue;
+    for id in OBJECT_REGISTRY.get_all_object_ids() {
+        let accept = OBJECT_REGISTRY.with_object(id, |obj| {
+            if !obj.is_locally_controlled() || obj.is_contained() || obj.is_effectively_dead() {
+                return false;
+            }
+            if obj
+                .get_drawable()
+                .and_then(|draw| draw.read().ok().map(|guard| guard.is_selected()))
+                .unwrap_or(false)
+            {
+                return false;
+            }
+            if !obj.is_mass_selectable() {
+                return false;
+            }
+            if obj.is_kind_of(KindOf::Dozer)
+                || obj.is_kind_of(KindOf::Harvester)
+                || obj.is_kind_of(KindOf::IgnoresSelectAll)
+            {
+                return false;
+            }
+            if aircraft_only && !obj.is_kind_of(KindOf::Aircraft) {
+                return false;
+            }
+            if !aircraft_only && obj.is_kind_of(KindOf::Structure) {
+                return false;
+            }
+            true
+        });
+        if accept == Some(true) {
+            selected.push(id);
         }
-        // C++ kindOfUnitSelection: skip already-selected so SELECT_ALL adds.
-        if obj
-            .get_drawable()
-            .and_then(|draw| draw.read().ok().map(|guard| guard.is_selected()))
-            .unwrap_or(false)
-        {
-            continue;
-        }
-        if !obj.is_mass_selectable() {
-            continue;
-        }
-        if obj.is_kind_of(KindOf::Dozer)
-            || obj.is_kind_of(KindOf::Harvester)
-            || obj.is_kind_of(KindOf::IgnoresSelectAll)
-        {
-            continue;
-        }
-        if aircraft_only && !obj.is_kind_of(KindOf::Aircraft) {
-            continue;
-        }
-        if !aircraft_only && obj.is_kind_of(KindOf::Structure) {
-            continue;
-        }
-        selected.push(obj.get_id());
     }
 
     // C++ selectAllUnitsByType: screen region first, then whole map (InGameUI.cpp:4877).

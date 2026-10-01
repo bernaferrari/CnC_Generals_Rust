@@ -576,21 +576,22 @@ impl AIStateMachine {
         let Some(owner) = self.base.get_owner() else {
             return;
         };
-        let ai = {
-            let Ok(owner_guard) = owner.read() else {
-                return;
-            };
-            owner_guard.get_ai_update_interface()
+        let Some(ai) = crate::object::registry::OBJECT_REGISTRY
+            .with_object(owner, |owner_guard| owner_guard.get_ai_update_interface())
+            .flatten()
+        else {
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner, |owner_guard| {
+                owner_guard.ai_pending_wake_path = true;
+            });
+            return;
         };
-        if let Some(ai) = ai {
-            if let Ok(mut ai_guard) = ai.try_lock() {
-                ai_guard.set_queue_for_path_time(0);
-                return;
-            }
+        if let Ok(mut ai_guard) = ai.try_lock() {
+            ai_guard.set_queue_for_path_time(0);
+            return;
         }
-        if let Ok(mut owner_guard) = owner.write() {
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner, |owner_guard| {
             owner_guard.ai_pending_wake_path = true;
-        }
+        });
     }
 
     /// Clear the state machine
@@ -656,7 +657,7 @@ impl AIStateMachine {
         self.base.set_goal_position(pos);
     }
 
-    pub fn get_goal_object(&self) -> Option<Arc<RwLock<Object>>> {
+    pub fn get_goal_object(&self) -> Option<crate::common::ObjectID> {
         // Wave 257: empty dual-world → None.
         if dual_world_registry_unavailable() {
             return None;
@@ -666,8 +667,9 @@ impl AIStateMachine {
         if id == crate::common::INVALID_ID {
             return None;
         }
-        crate::helpers::TheGameLogic::find_object_by_id(id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(id))
+        let present = OBJECT_REGISTRY.with_object(id, |_| ()).is_some()
+            || crate::helpers::TheGameLogic::find_object_by_id(id);
+        present.then_some(id)
     }
 
     pub fn get_goal_object_id(&self) -> crate::common::ObjectID {

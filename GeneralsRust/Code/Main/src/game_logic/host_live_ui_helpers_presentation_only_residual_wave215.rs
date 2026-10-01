@@ -220,7 +220,7 @@ mod tests {
             .create_object("UiSelRanger215", Team::USA, Vec3::new(3.0, 0.0, 4.0))
             .expect("create");
 
-        let mut frame = PresentationFrame::build_from_logic(&logic, 0);
+        let mut frame = PresentationFrame::build_from_logic(&mut logic, 0);
         frame.selected = vec![id];
         if let Some(o) = frame.objects.iter_mut().find(|o| o.id == id) {
             o.selected = true;

@@ -32,17 +32,16 @@ impl ControlBar {
             return Ok(());
         };
         // Prefer dual-world registry command set when bound; otherwise presentation freeze.
-        let command_set_name = if let Some(obj_arc) = OBJECT_REGISTRY.get_object(first_id) {
-            let Ok(obj_guard) = obj_arc.read() else {
-                return Ok(());
-            };
+        let command_set_name = match OBJECT_REGISTRY.with_object(first_id, |obj_guard| {
             let name = obj_guard.get_command_set_string().to_string();
             if name.is_empty() {
                 self.presentation_primary_command_set.clone()
             } else {
                 name
             }
-        } else {
+        }) {
+            Some(name) => name,
+            None => {
             // Host/presentation residual — no OBJECT_REGISTRY modules.
             // C++ ControlBar.cpp:3594 binds slots from Object::getCommandSetString
             // (Object.cpp:6084 → template friend_getCommandSetString). Host map
@@ -55,6 +54,7 @@ impl ControlBar {
                 .filter(|name| !name.is_empty())
                 .unwrap_or_else(|| self.presentation_primary_command_set.clone());
             catalog_cs
+            }
         };
         if command_set_name.is_empty() {
             return Ok(());

@@ -994,18 +994,12 @@ impl AudioSourceLoader {
                         SampleBuffer::<i16>::new(decoded.capacity() as u64, spec);
                     sample_buffer.copy_interleaved_ref(decoded);
 
-                    // SAFETY: Reinterprets the live SampleBuffer<i16>
-                    // contents as bytes: pointer and exact len*size_of::<i16>()
-                    // byte length are in bounds and fully initialized, the data
-                    // is only read, and [u8] has no alignment/bit-pattern
-                    // requirements.
-                    let slice = unsafe {
-                        std::slice::from_raw_parts(
-                            sample_buffer.samples().as_ptr() as *const u8,
-                            sample_buffer.samples().len() * std::mem::size_of::<i16>(),
-                        )
-                    };
-                    audio_data.extend_from_slice(slice);
+                    // Native-endian bytes, same layout as the old i16 slice cast.
+                    let samples = sample_buffer.samples();
+                    audio_data.reserve(samples.len() * std::mem::size_of::<i16>());
+                    for sample in samples {
+                        audio_data.extend_from_slice(&sample.to_ne_bytes());
+                    }
                 }
                 Err(symphonia::core::errors::Error::DecodeError(_)) => continue,
                 Err(e) => {

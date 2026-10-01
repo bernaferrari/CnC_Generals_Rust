@@ -125,13 +125,12 @@ impl FiringTracker {
     }
 
     pub fn shot_fired(&mut self, weapon: &crate::weapon::Weapon, victim_id: ObjectID) {
-        let Some(owner_arc) = TheGameLogic::find_object_by_id(self.object_id) else {
+        let fired = crate::object::registry::OBJECT_REGISTRY.with_object_mut(self.object_id, |owner_guard| {
+            self.shot_fired_with_owner(owner_guard, weapon, victim_id);
+        });
+        if fired.is_none() {
             return;
-        };
-        let Ok(mut owner_guard) = owner_arc.write() else {
-            return;
-        };
-        self.shot_fired_with_owner(&mut owner_guard, weapon, victim_id);
+        }
     }
 
     pub fn shot_fired_with_owner(
@@ -143,15 +142,9 @@ impl FiringTracker {
         let now = TheGameLogic::get_frame();
         self.last_shot_frame = now;
 
-        let victim_has_faerie_fire = TheGameLogic::find_object_by_id(victim_id)
-            .map(|victim| {
-                victim
-                    .read()
-                    .ok()
-                    .map(|victim_guard| {
-                        victim_guard.test_status(crate::common::ObjectStatusTypes::FaerieFire)
-                    })
-                    .unwrap_or(false)
+        let victim_has_faerie_fire = crate::object::registry::OBJECT_REGISTRY
+            .with_object(victim_id, |victim_guard| {
+                victim_guard.test_status(crate::common::ObjectStatusTypes::FaerieFire)
             })
             .unwrap_or(false);
 
@@ -269,10 +262,12 @@ impl FiringTracker {
     }
 
     pub fn update(&mut self) -> crate::modules::UpdateSleepTime {
-        if let Some(owner) = TheGameLogic::find_object_by_id(self.object_id) {
-            if let Ok(mut guard) = owner.write() {
-                return self.update_for_owner(&mut guard);
-            }
+        if let Some(sleep) =
+            crate::object::registry::OBJECT_REGISTRY.with_object_mut(self.object_id, |guard| {
+                self.update_for_owner(guard)
+            })
+        {
+            return sleep;
         }
         self.calc_time_to_sleep(TheGameLogic::get_frame())
     }

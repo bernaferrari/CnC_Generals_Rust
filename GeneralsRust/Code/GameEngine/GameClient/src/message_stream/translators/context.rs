@@ -52,11 +52,8 @@ pub(super) fn is_locally_controlled_mine_target(object_id: ObjectID) -> bool {
             .unwrap_or(false);
     }
     OBJECT_REGISTRY
-        .get_object(object_id)
-        .and_then(|obj| {
-            obj.read()
-                .ok()
-                .map(|guard| guard.is_kind_of(KindOf::Mine) && guard.is_locally_controlled())
+        .with_object(object_id, |guard| {
+            guard.is_kind_of(KindOf::Mine) && guard.is_locally_controlled()
         })
         .unwrap_or(false)
 }

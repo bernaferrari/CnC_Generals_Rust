@@ -211,10 +211,12 @@ impl ControlBar {
         };
 
         let mut matches: Vec<u32> = Vec::new();
-        let _ = player.iterate_objects(|obj| {
-            let guard = obj.read().map_err(|_| GameError::LockError)?;
-            if guard.get_template().get_id() == template_id {
-                matches.push(guard.get_id());
+        let _ = player.iterate_object_ids(|id| {
+            let matches_template = OBJECT_REGISTRY
+                .with_object(id, |guard| guard.get_template().get_id() == template_id)
+                .unwrap_or(false);
+            if matches_template {
+                matches.push(id);
             }
             Ok(())
         });
@@ -265,14 +267,14 @@ impl ControlBar {
         if let Ok(button_id) = self.resolve_command_button_id(button) {
             let cmd_source = Self::map_command_source(source);
             for object_id in &context.selected_objects {
-                let Some(obj_arc) = OBJECT_REGISTRY.get_object(*object_id) else {
-                    continue;
-                };
-                let Ok(mut obj_guard) = obj_arc.write() else {
-                    continue;
-                };
-                let _ = obj_guard.do_command_button(button_id, cmd_source);
-                applied += 1;
+                if OBJECT_REGISTRY
+                    .with_object_mut(*object_id, |obj_guard| {
+                        let _ = obj_guard.do_command_button(button_id, cmd_source);
+                    })
+                    .is_some()
+                {
+                    applied += 1;
+                }
             }
         }
         if applied > 0 {
@@ -303,14 +305,14 @@ impl ControlBar {
         if let Ok(button_id) = self.resolve_command_button_id(button) {
             let cmd_source = Self::map_command_source(source);
             for object_id in &context.selected_objects {
-                let Some(obj_arc) = OBJECT_REGISTRY.get_object(*object_id) else {
-                    continue;
-                };
-                let Ok(mut obj_guard) = obj_arc.write() else {
-                    continue;
-                };
-                let _ = obj_guard.do_command_button(button_id, cmd_source);
-                applied += 1;
+                if OBJECT_REGISTRY
+                    .with_object_mut(*object_id, |obj_guard| {
+                        let _ = obj_guard.do_command_button(button_id, cmd_source);
+                    })
+                    .is_some()
+                {
+                    applied += 1;
+                }
             }
         }
         if applied > 0 {
@@ -366,14 +368,14 @@ impl ControlBar {
         if let Ok(button_id) = self.resolve_command_button_id(button) {
             let cmd_source = Self::map_command_source(source);
             for object_id in &context.selected_objects {
-                let Some(obj_arc) = OBJECT_REGISTRY.get_object(*object_id) else {
-                    continue;
-                };
-                let Ok(mut obj_guard) = obj_arc.write() else {
-                    continue;
-                };
-                let _ = obj_guard.do_command_button(button_id, cmd_source);
-                applied += 1;
+                if OBJECT_REGISTRY
+                    .with_object_mut(*object_id, |obj_guard| {
+                        let _ = obj_guard.do_command_button(button_id, cmd_source);
+                    })
+                    .is_some()
+                {
+                    applied += 1;
+                }
             }
         }
         if applied > 0 {
@@ -426,7 +428,7 @@ impl ControlBar {
         }
 
         // Dual-world residual when producer modules are bound.
-        if OBJECT_REGISTRY.get_object(producer_id).is_some() {
+        if OBJECT_REGISTRY.contains(producer_id) {
             Self::cancel_production_by_id(producer_id, entry.production_id);
             return Ok(true);
         }
@@ -462,7 +464,7 @@ impl ControlBar {
         }
 
         // Dual-world residual: live production modules when registry is bound.
-        if OBJECT_REGISTRY.get_object(producer_id).is_some() {
+        if OBJECT_REGISTRY.contains(producer_id) {
             Self::set_object_production_paused(producer_id, paused);
         } else {
             // Wave 985: host empty dual-world → queue residual for Main BuildingData.

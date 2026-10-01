@@ -35,14 +35,10 @@ impl GameClient {
         }
 
         let object_id = drawable.get_object_id()?;
-        let object_arc = OBJECT_REGISTRY.get_object(object_id)?;
-        let object_guard = object_arc.read().ok()?;
-        let name = object_guard.get_template().get_name().to_string();
-        if name.is_empty() {
-            None
-        } else {
-            Some(name)
-        }
+        let name = OBJECT_REGISTRY.with_object(object_id, |object_guard| {
+            object_guard.get_template().get_name().to_string()
+        })?;
+        if name.is_empty() { None } else { Some(name) }
     }
 
     fn collect_saveable_drawables_sorted(&self) -> Result<Vec<(DrawableId, String)>, String> {
@@ -193,12 +189,13 @@ impl GameClient {
                             drawable.set_template_name(Some(apparent.to_string()));
                         }
                     }
-                } else if let Some(object_arc) = OBJECT_REGISTRY.get_object(object_id) {
-                    if let Ok(object_guard) = object_arc.read() {
-                        let fallback_name = object_guard.get_template().get_name().to_string();
-                        if !fallback_name.is_empty() {
-                            drawable.set_template_name(Some(fallback_name));
-                        }
+                } else if let Some(fallback_name) =
+                    OBJECT_REGISTRY.with_object(object_id, |object_guard| {
+                        object_guard.get_template().get_name().to_string()
+                    })
+                {
+                    if !fallback_name.is_empty() {
+                        drawable.set_template_name(Some(fallback_name));
                     }
                 }
             }
@@ -1036,18 +1033,17 @@ impl GameClient {
     /// ```no_run
     /// # use game_client_rust::core::GameClient;
     /// # let mut client = GameClient::new().unwrap();
-    /// client.iterate_objects_with_drawables(|obj_ref| {
-    ///     // Process each object that has a drawable
-    ///     if let Ok(obj) = obj_ref.read() {
+    /// client.iterate_objects_with_drawables(|object_id| {
+    ///     let _ = gamelogic::object::registry::OBJECT_REGISTRY.with_object(object_id, |obj| {
     ///         let pos = obj.get_position();
     ///         println!("Object at ({}, {}, {})", pos.x, pos.y, pos.z);
-    ///     }
+    ///     });
     /// })?;
     /// # Ok::<(), game_client_rust::core::GameClientError>(())
     /// ```
     pub fn iterate_objects_with_drawables<F>(&self, mut callback: F) -> GameClientResult<()>
     where
-        F: FnMut(&Arc<RwLock<GameLogicObject>>),
+        F: FnMut(ObjectID),
     {
         // Dual-world residual: GameLogic objects registered in OBJECT_REGISTRY.
         // Host/presentation path keeps drawables only in `drawable_map` and does not
@@ -1055,28 +1051,26 @@ impl GameClient {
         if OBJECT_REGISTRY.is_empty() {
             return Ok(());
         }
-        let all_objects = OBJECT_REGISTRY.get_all_objects();
+        let ids = OBJECT_REGISTRY.get_all_object_ids();
 
-        // Iterate through objects and invoke callback for those with drawables
-        for object_ref in all_objects {
-            let has_drawable = object_ref
-                .read()
-                .ok()
-                .and_then(|obj| obj.get_drawable())
-                .is_some();
+        // Invoke the callback only for objects that currently have a drawable.
+        // The object is checked back in before the callback so callers can re-enter.
+        for id in ids {
+            let has_drawable = OBJECT_REGISTRY
+                .with_object(id, |obj| obj.get_drawable().is_some())
+                .unwrap_or(false);
             if has_drawable {
-                callback(&object_ref);
+                callback(id);
             }
         }
 
         Ok(())
     }
 
-    /// Find a specific GameLogic object by its ID
+    /// Find a specific GameLogic object id.
     ///
-    /// Retrieves a strong reference to a GameLogic object given its ObjectID.
-    /// This is useful for looking up specific objects during rendering or
-    /// command processing.
+    /// Does not return an object handle. Borrow the object with
+    /// `OBJECT_REGISTRY.with_object` / `with_object_mut`.
     ///
     /// # Arguments
     ///
@@ -1084,7 +1078,7 @@ impl GameClient {
     ///
     /// # Returns
     ///
-    /// * `Ok(Some(object))` - Object found
+    /// * `Ok(Some(object_id))` - Object found
     /// * `Ok(None)` - Object not found
     /// * `Err(GameClientError)` - Registry access error
     ///
@@ -1095,26 +1089,27 @@ impl GameClient {
     /// # use game_engine::common::ObjectID;
     /// # let client = GameClient::new().unwrap();
     /// let object_id = 42; // Example ID
-    /// if let Some(obj_ref) = client.find_game_object(object_id)? {
-    ///     if let Ok(obj) = obj_ref.read() {
+    /// if let Some(object_id) = client.find_game_object(object_id)? {
+    ///     let _ = gamelogic::object::registry::OBJECT_REGISTRY.with_object(object_id, |obj| {
     ///         println!("Found object: {:?}", obj.get_id());
-    ///     }
+    ///     });
     /// }
     /// # Ok::<(), game_client_rust::core::GameClientError>(())
     /// ```
-    pub fn find_game_object(
-        &self,
-        object_id: ObjectID,
-    ) -> GameClientResult<Option<Arc<RwLock<GameLogicObject>>>> {
-        // Wave 269/1002: empty dual-world cannot return Object Arc.
+    pub fn find_game_object(&self, object_id: ObjectID) -> GameClientResult<Option<ObjectID>> {
+        // Wave 269/1002: empty dual-world cannot return an Object handle.
         // Presentation catalog may still know the id — use presentation_object_known.
         if dual_world_registry_unavailable() {
-            // Catalog residual consulted for honesty; Arc path stays fail-closed.
+            // Catalog residual consulted for honesty; handle path stays fail-closed.
             let _ = self.presentation_object_known(object_id);
             return Ok(None);
         }
 
-        Ok(OBJECT_REGISTRY.get_object(object_id))
+        if OBJECT_REGISTRY.contains(object_id) {
+            Ok(Some(object_id))
+        } else {
+            Ok(None)
+        }
     }
 
     /// Wave 1002: dual-world residual — object id present in presentation translator catalog.
@@ -1192,34 +1187,35 @@ impl GameClient {
             return Ok(());
         }
 
-        self.iterate_objects_with_drawables(|obj_ref| {
-            let Ok(mut obj) = obj_ref.write() else {
+        let frame = self.frame;
+        self.iterate_objects_with_drawables(|object_id| {
+            let step = OBJECT_REGISTRY.with_object_mut(object_id, |obj| {
+                if obj.is_destroyed() {
+                    return (obj.get_drawable(), true, false);
+                }
+
+                // Keep object-level visibility bookkeeping up to date.
+                let _ = obj.update_visibility_for_all_players(frame);
+
+                let shroud = obj.get_shrouded_status(local_player_index);
+                let fully_obscured = matches!(
+                    shroud,
+                    ObjectShroudStatus::Fogged
+                        | ObjectShroudStatus::Shrouded
+                        | ObjectShroudStatus::InvalidButPreviousValid
+                );
+                (obj.get_drawable(), false, fully_obscured)
+            });
+            let Some((drawable, destroyed, fully_obscured)) = step else {
                 return;
             };
-
-            if obj.is_destroyed() {
-                if let Some(drawable) = obj.get_drawable() {
-                    if let Ok(mut drawable_guard) = drawable.write() {
-                        drawable_guard.set_visible(false);
-                    }
-                }
-                return;
-            }
-
-            // Keep object-level visibility bookkeeping up to date.
-            let _ = obj.update_visibility_for_all_players(self.frame);
-
-            let shroud = obj.get_shrouded_status(local_player_index);
-            let fully_obscured = matches!(
-                shroud,
-                ObjectShroudStatus::Fogged
-                    | ObjectShroudStatus::Shrouded
-                    | ObjectShroudStatus::InvalidButPreviousValid
-            );
-
-            if let Some(drawable) = obj.get_drawable() {
+            if let Some(drawable) = drawable {
                 if let Ok(mut drawable_guard) = drawable.write() {
-                    drawable_guard.set_visible(!fully_obscured);
+                    if destroyed {
+                        drawable_guard.set_visible(false);
+                    } else {
+                        drawable_guard.set_visible(!fully_obscured);
+                    }
                 }
             }
         })?;
@@ -1282,13 +1278,13 @@ impl GameClient {
             return Ok(());
         }
 
-        self.iterate_objects_with_drawables(|obj_ref| {
-            let Ok(obj) = obj_ref.read() else {
+        self.iterate_objects_with_drawables(|object_id| {
+            let Some((pos, angle, drawable)) = OBJECT_REGISTRY.with_object(object_id, |obj| {
+                (*obj.get_position(), obj.get_orientation(), obj.get_drawable())
+            }) else {
                 return;
             };
-            let pos = *obj.get_position();
-            let angle = obj.get_orientation();
-            if let Some(drawable) = obj.get_drawable() {
+            if let Some(drawable) = drawable {
                 if let Ok(mut drawable_guard) = drawable.write() {
                     let mut transform =
                         glam::Mat4::from_translation(glam::vec3(pos.x, pos.y, pos.z));
@@ -1378,17 +1374,18 @@ impl GameClient {
 
         // Dual-world residual only — host drawables live solely in drawable_map above.
         let mut expired_logic_drawables = Vec::new();
-        self.iterate_objects_with_drawables(|obj_ref| {
-            let Ok(mut obj) = obj_ref.write() else {
+        self.iterate_objects_with_drawables(|object_id| {
+            let Some(drawable) = OBJECT_REGISTRY
+                .with_object(object_id, |obj| obj.get_drawable())
+                .flatten()
+            else {
                 return;
             };
-            if let Some(drawable) = obj.get_drawable() {
-                if let Ok(mut drawable_guard) = drawable.write() {
-                    let _ = drawable_guard.update(delta_time, frame);
-                    let expiration = drawable_guard.expiration_date();
-                    if expiration != 0 && frame >= expiration {
-                        expired_logic_drawables.push(drawable_guard.get_drawable_id());
-                    }
+            if let Ok(mut drawable_guard) = drawable.write() {
+                let _ = drawable_guard.update(delta_time, frame);
+                let expiration = drawable_guard.expiration_date();
+                if expiration != 0 && frame >= expiration {
+                    expired_logic_drawables.push(drawable_guard.get_drawable_id());
                 }
             }
         })?;
@@ -1800,7 +1797,7 @@ impl Snapshotable for GameClient {
 
                 if object_id != INVALID_ID {
                     // Dual-world residual bind only; host uses drawable_object_map.
-                    if OBJECT_REGISTRY.get_object(object_id).is_some() {
+                    if OBJECT_REGISTRY.contains(object_id) {
                         let _ = self.bind_drawable_to_object(id, object_id);
                     }
                 }
@@ -1843,11 +1840,11 @@ impl Snapshotable for GameClient {
             self.set_drawable_id_counter(self.next_drawable_id.0);
             return Ok(());
         }
-        for obj_ref in OBJECT_REGISTRY.get_all_objects() {
-            let Ok(obj_guard) = obj_ref.read() else {
-                continue;
-            };
-            let Some(drawable_ref) = obj_guard.get_drawable() else {
+        for id in OBJECT_REGISTRY.get_all_object_ids() {
+            let Some(drawable_ref) = OBJECT_REGISTRY
+                .with_object(id, |obj| obj.get_drawable())
+                .flatten()
+            else {
                 continue;
             };
             let Ok(drawable_guard) = drawable_ref.read() else {

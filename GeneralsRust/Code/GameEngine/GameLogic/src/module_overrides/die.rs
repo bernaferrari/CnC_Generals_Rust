@@ -38,10 +38,12 @@ fn upgrade_die_module_factory(
         .as_object()
         .map(|object| object.get_object_id())
         .unwrap_or(INVALID_ID);
-    let object =
-        TheGameLogic::find_object_by_id(object_id).expect("UpgradeDie requires owning object");
+    if !TheGameLogic::find_object_by_id(object_id) {
+        panic!("UpgradeDie requires owning object");
+    }
+    let object = object_id;
 
-    let die_module = UpgradeDie::new(Arc::clone(&object), die_data_arc);
+    let die_module = UpgradeDie::new(object, die_data_arc);
     let module_name = AsciiString::from("UpgradeDie");
     let module_data_trait: Arc<dyn ModuleData> = module_data_arc;
 
@@ -82,10 +84,12 @@ fn destroy_die_module_factory(
         .as_object()
         .map(|object| object.get_object_id())
         .unwrap_or(INVALID_ID);
-    let object =
-        TheGameLogic::find_object_by_id(object_id).expect("DestroyDie requires owning object");
+    if !TheGameLogic::find_object_by_id(object_id) {
+        panic!("DestroyDie requires owning object");
+    }
+    let object = object_id;
 
-    let die_module = DestroyDie::new(Arc::clone(&object), die_data_arc);
+    let die_module = DestroyDie::new(object, die_data_arc);
     let module_name = AsciiString::from("DestroyDie");
     let module_data_trait: Arc<dyn ModuleData> = module_data_arc;
 
@@ -112,10 +116,12 @@ fn keep_object_die_module_factory(
         .as_object()
         .map(|object| object.get_object_id())
         .unwrap_or(INVALID_ID);
-    let object =
-        TheGameLogic::find_object_by_id(object_id).expect("KeepObjectDie requires owning object");
+    if !TheGameLogic::find_object_by_id(object_id) {
+        panic!("KeepObjectDie requires owning object");
+    }
+    let object = object_id;
 
-    let die_module = KeepObjectDie::new(Arc::clone(&object), die_data_arc);
+    let die_module = KeepObjectDie::new(object, die_data_arc);
     let module_name = AsciiString::from("KeepObjectDie");
     let module_data_trait: Arc<dyn ModuleData> = module_data_arc;
 
@@ -156,10 +162,12 @@ fn create_object_die_module_factory(
         .as_object()
         .map(|object| object.get_object_id())
         .unwrap_or(INVALID_ID);
-    let object =
-        TheGameLogic::find_object_by_id(object_id).expect("CreateObjectDie requires owning object");
+    if !TheGameLogic::find_object_by_id(object_id) {
+        panic!("CreateObjectDie requires owning object");
+    }
+    let object = object_id;
 
-    let die_module = CreateObjectDie::new(Arc::clone(&object), die_data_arc);
+    let die_module = CreateObjectDie::new(object, die_data_arc);
     let module_name = AsciiString::from("CreateObjectDie");
     let module_data_trait: Arc<dyn ModuleData> = module_data_arc;
 
@@ -200,10 +208,12 @@ fn create_crate_die_module_factory(
         .as_object()
         .map(|object| object.get_object_id())
         .unwrap_or(INVALID_ID);
-    let object =
-        TheGameLogic::find_object_by_id(object_id).expect("CreateCrateDie requires owning object");
+    if !TheGameLogic::find_object_by_id(object_id) {
+        panic!("CreateCrateDie requires owning object");
+    }
+    let object = object_id;
 
-    let die_module = CreateCrateDie::new(Arc::clone(&object), die_data_arc);
+    let die_module = CreateCrateDie::new(object, die_data_arc);
     let module_name = AsciiString::from("CreateCrateDie");
     let module_data_trait: Arc<dyn ModuleData> = module_data_arc;
 
@@ -244,10 +254,12 @@ fn fx_list_die_module_factory(
         .as_object()
         .map(|object| object.get_object_id())
         .unwrap_or(INVALID_ID);
-    let object =
-        TheGameLogic::find_object_by_id(object_id).expect("FXListDie requires owning object");
+    if !TheGameLogic::find_object_by_id(object_id) {
+        panic!("FXListDie requires owning object");
+    }
+    let object = object_id;
 
-    let die_module = FXListDie::new(Arc::clone(&object), die_data_arc);
+    let die_module = FXListDie::new(object, die_data_arc);
     let module_name = AsciiString::from("FXListDie");
     let module_data_trait: Arc<dyn ModuleData> = module_data_arc;
 
@@ -288,10 +300,12 @@ fn crush_die_module_factory(
         .as_object()
         .map(|object| object.get_object_id())
         .unwrap_or(INVALID_ID);
-    let object =
-        TheGameLogic::find_object_by_id(object_id).expect("CrushDie requires owning object");
+    if !TheGameLogic::find_object_by_id(object_id) {
+        panic!("CrushDie requires owning object");
+    }
+    let object = object_id;
 
-    let die_module = CrushDie::new(Arc::clone(&object), die_data_arc);
+    let die_module = CrushDie::new(object, die_data_arc);
     let module_name = AsciiString::from("CrushDie");
     let module_data_trait: Arc<dyn ModuleData> = module_data_arc;
 
@@ -332,10 +346,12 @@ fn eject_pilot_die_module_factory(
         .as_object()
         .map(|object| object.get_object_id())
         .unwrap_or(INVALID_ID);
-    let object =
-        TheGameLogic::find_object_by_id(object_id).expect("EjectPilotDie requires owning object");
+    if !TheGameLogic::find_object_by_id(object_id) {
+        panic!("EjectPilotDie requires owning object");
+    }
+    let object = object_id;
 
-    let die_module = EjectPilotDie::new(Arc::clone(&object), die_data_arc);
+    let die_module = EjectPilotDie::new(object, die_data_arc);
     let module_name = AsciiString::from("EjectPilotDie");
     let module_data_trait: Arc<dyn ModuleData> = module_data_arc;
 
@@ -376,10 +392,12 @@ fn rebuild_hole_expose_die_module_factory(
         .as_object()
         .map(|object| object.get_object_id())
         .unwrap_or(INVALID_ID);
-    let object = TheGameLogic::find_object_by_id(object_id)
-        .expect("RebuildHoleExposeDie requires owning object");
+    if !TheGameLogic::find_object_by_id(object_id) {
+        panic!("RebuildHoleExposeDie requires owning object");
+    }
+    let object = object_id;
 
-    let die_module = RebuildHoleExposeDie::new(Arc::clone(&object), die_data_arc);
+    let die_module = RebuildHoleExposeDie::new(object, die_data_arc);
     let module_name = AsciiString::from("RebuildHoleExposeDie");
     let module_data_trait: Arc<dyn ModuleData> = module_data_arc;
 
@@ -420,10 +438,12 @@ fn special_power_completion_die_module_factory(
         .as_object()
         .map(|object| object.get_object_id())
         .unwrap_or(INVALID_ID);
-    let object = TheGameLogic::find_object_by_id(object_id)
-        .expect("SpecialPowerCompletionDie requires owning object");
+    if !TheGameLogic::find_object_by_id(object_id) {
+        panic!("SpecialPowerCompletionDie requires owning object");
+    }
+    let object = object_id;
 
-    let die_module = SpecialPowerCompletionDie::new(Arc::clone(&object), die_data_arc);
+    let die_module = SpecialPowerCompletionDie::new(object, die_data_arc);
     let module_name = AsciiString::from("SpecialPowerCompletionDie");
     let module_data_trait: Arc<dyn ModuleData> = module_data_arc;
 
@@ -464,9 +484,12 @@ fn dam_die_module_factory(
         .as_object()
         .map(|object| object.get_object_id())
         .unwrap_or(INVALID_ID);
-    let object = TheGameLogic::find_object_by_id(object_id).expect("DamDie requires owning object");
+    if !TheGameLogic::find_object_by_id(object_id) {
+        panic!("DamDie requires owning object");
+    }
+    let object = object_id;
 
-    let die_module = DamDie::new(Arc::clone(&object), die_data_arc);
+    let die_module = DamDie::new(object, die_data_arc);
     let module_name = AsciiString::from("DamDie");
     let module_data_trait: Arc<dyn ModuleData> = module_data_arc;
 

@@ -237,8 +237,8 @@ fn hsv_to_rgb(mut h: f32, s: f32, v: f32) -> (f32, f32, f32) {
 
 fn pack_player_color(obj: &gamelogic::object::Object) -> u32 {
     obj.get_controlling_player()
-        .and_then(|player| {
-            player.read().ok().map(|guard| {
+        .and_then(|index| {
+            gamelogic::player::with_player(index, |guard| {
                 let color = guard.get_player_color();
                 ((color.r as u32) << 16) | ((color.g as u32) << 8) | (color.b as u32)
             })

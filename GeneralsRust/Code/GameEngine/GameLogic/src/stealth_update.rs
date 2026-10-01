@@ -851,13 +851,9 @@ impl StealthController {
             self.disguise_transition_frames = self.data.disguise_transition_frames;
             self.disguise_halfpoint_reached = false;
             let now = TheGameLogic::get_frame();
-            if let Some(object) = TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| OBJECT_REGISTRY.get_object(self.object_id))
-            {
-                if let Ok(guard) = object.read() {
-                    guard.reschedule_named_update("StealthUpdate", now.saturating_add(1));
-                }
-            }
+            OBJECT_REGISTRY.with_object(self.object_id, |guard| {
+                guard.reschedule_named_update("StealthUpdate", now.saturating_add(1));
+            });
         } else if self.disguised || self.disguise_as_template_name.is_some() {
             self.disguise_as_template_name = None;
             self.disguise_as_player_index = 0;
@@ -1071,13 +1067,9 @@ impl StealthController {
             self.is_stealthed = true;
             self.frames_granted = frames;
             self.stealth_allowed_frame = current_frame;
-            if let Some(object) = TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| OBJECT_REGISTRY.get_object(self.object_id))
-            {
-                if let Ok(guard) = object.read() {
-                    guard.reschedule_named_update("StealthUpdate", current_frame.saturating_add(1));
-                }
-            }
+            OBJECT_REGISTRY.with_object(self.object_id, |guard| {
+                guard.reschedule_named_update("StealthUpdate", current_frame.saturating_add(1));
+            });
             self.set_status_flag(ObjectStatusMaskType::CAN_STEALTH, true)?;
             self.set_status_flag(ObjectStatusMaskType::STEALTHED, true)?;
         } else {
@@ -1359,32 +1351,24 @@ impl StealthController {
                     return Ok(());
                 }
 
-                let object_arc = match crate::helpers::TheGameLogic::find_object_by_id(object_id)
-                    .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(object_id))
-                {
-                    Some(a) => a,
-                    None => return Ok(()),
-                };
-                let Ok(object_guard) = object_arc.read() else {
-                    return Ok(());
-                };
-
-                if object_guard.is_effectively_dead() {
-                    return Ok(());
-                }
-                let status = object_guard.get_status_bits();
-                if status.contains(ObjectStatusMaskType::UNDER_CONSTRUCTION)
-                    || status.contains(ObjectStatusMaskType::SOLD)
-                {
-                    return Ok(());
-                }
-
-                // C++ StealthUpdate.cpp:157-175 isBlackMarket — KindOf, not name.
-                if object_guard.is_kind_of(KindOf::FsBlackMarket) {
+                let is_market = OBJECT_REGISTRY
+                    .with_object(object_id, |object_guard| {
+                        if object_guard.is_effectively_dead() {
+                            return false;
+                        }
+                        let status = object_guard.get_status_bits();
+                        if status.contains(ObjectStatusMaskType::UNDER_CONSTRUCTION)
+                            || status.contains(ObjectStatusMaskType::SOLD)
+                        {
+                            return false;
+                        }
+                        object_guard.is_kind_of(KindOf::FsBlackMarket)
+                    })
+                    .unwrap_or(false);
+                if is_market {
                     has_black_market = true;
                 }
-
-                Ok(())
+                return Ok(());
             });
         }
 

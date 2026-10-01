@@ -381,17 +381,15 @@ impl Snapshotable for Player {
 
         // Default team ID
         {
-            let mut team_id: UnsignedInt = self
-                .default_team
-                .as_ref()
-                .and_then(|t| t.read().ok().map(|g| g.get_id()))
-                .unwrap_or(crate::team::TEAM_ID_INVALID);
+            let mut team_id: UnsignedInt = self.default_team.unwrap_or(crate::team::TEAM_ID_INVALID);
             xfer.xfer_u32(&mut team_id).map_err(|e| e.to_string())?;
             if xfer.get_xfer_mode() == XferMode::Load {
                 let factory = crate::team::get_team_factory();
-                if let Ok(mut factory_guard) = factory.lock() {
-                    self.default_team = factory_guard.find_team_by_id(team_id);
-                }
+                self.default_team = factory.lock().ok().and_then(|factory_guard| {
+                    factory_guard
+                        .find_team_by_id(team_id)
+                        .map(|team| team.get_id())
+                });
             }
         }
 

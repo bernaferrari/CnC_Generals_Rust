@@ -14,8 +14,8 @@ fn resolve_owner_info(thing: &Arc<dyn ModuleThing>) -> (ObjectID, Coord3D) {
         .map(ModuleObjectTrait::get_object_id)
         .unwrap_or(INVALID_ID);
 
-    let owner_pos = TheGameLogic::find_object_by_id(owner_id)
-        .and_then(|obj| obj.read().ok().map(|guard| *guard.get_position()))
+    let owner_pos = crate::object::registry::OBJECT_REGISTRY
+        .with_object(owner_id, |obj| *obj.get_position())
         .unwrap_or_else(|| Coord3D::new(0.0, 0.0, 0.0));
 
     (owner_id, owner_pos)
@@ -58,19 +58,15 @@ fn module_data_proc_or(
 }
 
 fn attach_body_to_object(object_id: ObjectID, body: Arc<Mutex<dyn BodyModuleInterface>>) {
-    if let Some(object) = TheGameLogic::find_object_by_id(object_id) {
-        if let Ok(mut guard) = object.write() {
-            guard.set_body_module(Some(body));
-        }
-    }
+    let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(object_id, |guard| {
+        guard.set_body_module(Some(body));
+    });
 }
 
 fn attach_contain_to_object(object_id: ObjectID, contain: Arc<Mutex<dyn ContainModuleInterface>>) {
-    if let Some(object) = TheGameLogic::find_object_by_id(object_id) {
-        if let Ok(mut guard) = object.write() {
-            guard.set_contain(Some(contain));
-        }
-    }
+    let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(object_id, |guard| {
+        guard.set_contain(Some(contain));
+    });
 }
 
 #[derive(Debug, Clone)]
@@ -346,8 +342,3 @@ fn make_contain_binding_module(
     ))
 }
 
-fn make_owner_weak(owner_id: ObjectID) -> Weak<RwLock<crate::object::Object>> {
-    TheGameLogic::find_object_by_id(owner_id)
-        .map(|arc| Arc::downgrade(&arc))
-        .unwrap_or_else(Weak::new)
-}

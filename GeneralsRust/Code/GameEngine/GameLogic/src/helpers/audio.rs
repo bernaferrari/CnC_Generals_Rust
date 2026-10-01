@@ -54,15 +54,17 @@ struct GameLogicAudioEventOwnerResolver;
 
 impl AudioEventOwnerResolver for GameLogicAudioEventOwnerResolver {
     fn resolve_object_position(&self, object_id: ObjectID) -> Option<EngineCoord3D> {
-        if let Some(object) = TheGameLogic::find_object_by_id(object_id) {
-            if let Ok(guard) = object.read() {
+        if let Some(pos) =
+            crate::object::registry::OBJECT_REGISTRY.with_object(object_id, |guard| {
                 let position = *guard.get_position();
-                return Some(EngineCoord3D {
+                EngineCoord3D {
                     x: position.x,
                     y: position.y,
                     z: position.z,
-                });
-            }
+                }
+            })
+        {
+            return Some(pos);
         }
         // Live host objects are not in leftover TheGameLogic. Host snapshot is
         // Y-up (x, y_height, z_ground); C++ AudioEventRTS is Z-up (x, y_ground, z_height).
@@ -85,11 +87,11 @@ impl AudioEventOwnerResolver for GameLogicAudioEventOwnerResolver {
     }
 
     fn resolve_object_player_index(&self, object_id: ObjectID) -> Option<Int> {
-        let object = TheGameLogic::find_object_by_id(object_id)?;
-        let guard = object.read().ok()?;
-        let player = guard.get_controlling_player()?;
-        let player_guard = player.read().ok()?;
-        Some(player_guard.get_player_index())
+        crate::object::registry::OBJECT_REGISTRY.with_object(object_id, |guard| {
+            let player = guard.get_controlling_player()?;
+            let player_guard = player.read().ok()?;
+            Some(player_guard.get_player_index())
+        }).flatten()
     }
 
     fn resolve_drawable_player_index(&self, drawable_id: u32) -> Option<Int> {

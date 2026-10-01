@@ -347,20 +347,16 @@ impl AssaultTransportAIUpdate {
             return Ok(());
         }
 
-        let Some(transport) = TheGameLogic::find_object_by_id(self.owner_id) else {
+        let Some(dead) = crate::object::registry::OBJECT_REGISTRY
+            .with_object(self.owner_id, |transport_guard| transport_guard.is_effectively_dead())
+        else {
             return Ok(());
         };
-        let Ok(transport_guard) = transport.read() else {
-            return Ok(());
-        };
-
-        if transport_guard.is_effectively_dead() {
-            drop(transport_guard);
+        if dead {
             self.give_final_orders();
             return Ok(());
         }
 
-        drop(transport_guard);
         self.prune_missing_members();
         self.add_new_members();
 
@@ -375,41 +371,38 @@ impl AssaultTransportAIUpdate {
         let mut fighting_members = 0;
         let mut fighter_centroid_pos = Coord3D::new(0.0, 0.0, 0.0);
 
-        let designated_target =
-            TheGameLogic::find_object_by_id(self.designated_target).and_then(|target| {
-                let is_dead = {
-                    let Ok(guard) = target.read() else {
-                        return None;
-                    };
-                    guard.is_effectively_dead()
-                };
-                if is_dead { None } else { Some(target) }
-            });
+        let designated_target_alive = crate::object::registry::OBJECT_REGISTRY
+            .with_object(self.designated_target, |guard| !guard.is_effectively_dead())
+            .unwrap_or(false);
 
-        if let Some(_target) = designated_target.as_ref() {
+        if designated_target_alive {
             let legacy_target = get_legacy_object(self.designated_target);
             for i in 0..self.current_members {
-                let Some(member) = TheGameLogic::find_object_by_id(self.member_ids[i]) else {
+                let Some((contained, wounded, healthy, member_ai)) =
+                    crate::object::registry::OBJECT_REGISTRY.with_object(self.member_ids[i], |member_guard| {
+                        (
+                            member_guard.get_contained_by().is_some(),
+                            self.is_member_wounded(member_guard),
+                            self.is_member_healthy(member_guard),
+                            member_guard.get_ai(),
+                        )
+                    })
+                else {
                     continue;
                 };
-                let Ok(member_guard) = member.read() else {
-                    continue;
-                };
-                let contained = member_guard.get_contained_by().is_some();
-                let wounded = self.is_member_wounded(&member_guard);
-                let healthy = self.is_member_healthy(&member_guard);
-
-                drop(member_guard);
-                let Some(member_ai) = member.read().ok().and_then(|guard| guard.get_ai()) else {
+                let Some(member_ai) = member_ai else {
                     continue;
                 };
 
                 if contained && healthy && !self.new_member[i] {
-                    if let Ok(mut member_guard) = member.write() {
-                        member_guard.ai_pending_exit = Some(false);
-                        member_guard.ai_pending_exit_source = CommandSourceType::FromAi;
-                        member_guard.ai_pending_exit_obj = Some(self.owner_id);
-                    }
+                    let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(
+                        self.member_ids[i],
+                        |member_guard| {
+                            member_guard.ai_pending_exit = Some(false);
+                            member_guard.ai_pending_exit_source = CommandSourceType::FromAi;
+                            member_guard.ai_pending_exit_obj = Some(self.owner_id);
+                        },
+                    );
                 }
 
                 if !contained {
@@ -423,8 +416,10 @@ impl AssaultTransportAIUpdate {
                             member_ai.ai_enter(self.owner_id, CommandSourceType::FromAi);
                         }
                     } else {
-                        if let Ok(member_guard) = member.read() {
-                            fighter_centroid_pos += *member_guard.get_position();
+                        if let Some(pos) = crate::object::registry::OBJECT_REGISTRY
+                            .with_object(self.member_ids[i], |member_guard| *member_guard.get_position())
+                        {
+                            fighter_centroid_pos += pos;
                             fighting_members += 1;
 
                             if let Ok(ai_guard) = member_ai.lock() {
@@ -433,7 +428,7 @@ impl AssaultTransportAIUpdate {
                                         drop(ai_guard);
                                         if let Some(target) = legacy_target.as_ref() {
                                             member_ai.ai_attack_object(
-                                                target.read().ok().map(|g| g.get_id()).unwrap_or(0),
+                                                self.designated_target,
                                                 NO_MAX_SHOTS_LIMIT,
                                                 CommandSourceType::FromAi,
                                             );
@@ -499,14 +494,11 @@ impl AssaultTransportAIUpdate {
         let mut i = 0;
         while i < self.current_members {
             let member_id = self.member_ids[i];
-            let member = TheGameLogic::find_object_by_id(member_id);
-            let member_guard = member.as_ref().and_then(|obj| obj.read().ok());
-            let member_ai = member_guard.as_ref().and_then(|guard| guard.get_ai());
+            let (dead, member_ai) = crate::object::registry::OBJECT_REGISTRY
+                .with_object(member_id, |guard| (guard.is_effectively_dead(), guard.get_ai()))
+                .unwrap_or((true, None));
 
-            let should_remove = member_guard
-                .as_ref()
-                .map(|guard| guard.is_effectively_dead())
-                .unwrap_or(true)
+            let should_remove = dead
                 || member_ai
                     .as_ref()
                     .map(|ai| ai.get_last_command_source() != CommandSourceType::FromAi)
@@ -542,13 +534,10 @@ impl AssaultTransportAIUpdate {
             return;
         }
 
-        let Some(transport) = TheGameLogic::find_object_by_id(self.owner_id) else {
-            return;
-        };
-        let Ok(transport_guard) = transport.read() else {
-            return;
-        };
-        let Some(contain) = transport_guard.get_contain() else {
+        let Some(contain) = crate::object::registry::OBJECT_REGISTRY
+            .with_object(self.owner_id, |transport_guard| transport_guard.get_contain())
+            .flatten()
+        else {
             return;
         };
         let Ok(contain_guard) = contain.lock() else {
@@ -568,16 +557,22 @@ impl AssaultTransportAIUpdate {
             }
 
             self.member_ids[self.current_members] = passenger_id;
-            if let Some(passenger) = TheGameLogic::find_object_by_id(passenger_id) {
-                if let Ok(passenger_guard) = passenger.read() {
-                    if let Some(ai) = passenger_guard.get_ai() {
-                        if let Ok(mut ai_guard) = ai.lock() {
-                            ai_guard.set_allow_chase(true);
-                        }
+            if let Some((ai, wounded)) = crate::object::registry::OBJECT_REGISTRY.with_object(
+                passenger_id,
+                |passenger_guard| {
+                    (
+                        passenger_guard.get_ai(),
+                        self.is_member_wounded(passenger_guard),
+                    )
+                },
+            ) {
+                if let Some(ai) = ai {
+                    if let Ok(mut ai_guard) = ai.lock() {
+                        ai_guard.set_allow_chase(true);
                     }
-                    if self.is_member_wounded(&passenger_guard) {
-                        self.member_healing[self.current_members] = true;
-                    }
+                }
+                if wounded {
+                    self.member_healing[self.current_members] = true;
                 }
             }
 
@@ -596,14 +591,13 @@ impl AssaultTransportAIUpdate {
             return false;
         }
 
-        let Some(transport) = TheGameLogic::find_object_by_id(self.owner_id) else {
-            return false;
-        };
-        let Ok(transport_guard) = transport.read() else {
+        let Some(attacking) = crate::object::registry::OBJECT_REGISTRY
+            .with_object(self.owner_id, |transport_guard| transport_guard.is_attacking())
+        else {
             return false;
         };
 
-        if transport_guard.is_attacking() {
+        if attacking {
             for i in 0..self.current_members {
                 if !self.new_member[i] {
                     return false;
@@ -642,16 +636,19 @@ impl AssaultTransportAIUpdate {
         }
 
         for i in 0..self.current_members {
-            let Some(member) = TheGameLogic::find_object_by_id(self.member_ids[i]) else {
+            let Some((contained, ai)) = crate::object::registry::OBJECT_REGISTRY.with_object(
+                self.member_ids[i],
+                |member_guard| {
+                    (
+                        member_guard.get_contained_by().is_some(),
+                        member_guard.get_ai(),
+                    )
+                },
+            ) else {
                 continue;
             };
-            let Ok(member_guard) = member.read() else {
-                continue;
-            };
-            let contained = member_guard.get_contained_by().is_some();
-            drop(member_guard);
             if !contained {
-                if let Some(ai) = member.read().ok().and_then(|guard| guard.get_ai()) {
+                if let Some(ai) = ai {
                     let should_enter = ai.lock().ok().and_then(|guard| guard.get_current_command())
                         != Some(AiCommandType::Enter);
                     if should_enter {
@@ -669,20 +666,17 @@ impl AssaultTransportAIUpdate {
         }
 
         for i in 0..self.current_members {
-            let Some(member) = TheGameLogic::find_object_by_id(self.member_ids[i]) else {
-                continue;
-            };
-            let Ok(member_guard) = member.read() else {
-                continue;
-            };
-            let Some(ai) = member_guard.get_ai() else {
+            let Some(ai) = crate::object::registry::OBJECT_REGISTRY
+                .with_object(self.member_ids[i], |member_guard| member_guard.get_ai())
+                .flatten()
+            else {
                 continue;
             };
 
             if self.is_attack_object {
-                if let Some(target) = get_legacy_object(self.designated_target) {
+                if self.designated_target != crate::common::INVALID_ID {
                     ai.ai_attack_object(
-                        target.read().ok().map(|g| g.get_id()).unwrap_or(0),
+                        self.designated_target,
                         NO_MAX_SHOTS_LIMIT,
                         CommandSourceType::FromPlayer,
                     );

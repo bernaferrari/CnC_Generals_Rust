@@ -2320,6 +2320,7 @@ impl GameLogic {
 
     /// Drain global fire-spawn queue into host CombatSystem (fire-spawn authority apply).
     pub(crate) fn drain_pending_projectiles_into_combat(&mut self) {
+        self.flush_staged_projectiles();
         crate::game_logic::host_historic_bonus::set_logic_frame(self.frame);
         crate::game_logic::combat::drain_pending_projectiles(
             &mut self.combat_system,
@@ -2332,6 +2333,13 @@ impl GameLogic {
             Some(&self.players),
         );
         self.execute_pending_weapon_fire_ocls();
+    }
+    pub(crate) fn flush_staged_projectiles(&mut self) {
+        let mut staged = Vec::new();
+        for obj in self.objects.values_mut() {
+            staged.append(&mut obj.staged_projectiles);
+        }
+        self.combat_system.append_pending_projectiles(&mut staged);
     }
 
     /// Hit-only projectile pass after GameWorld flight integrate writeback.

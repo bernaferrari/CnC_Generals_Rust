@@ -127,10 +127,11 @@ impl FuelAirBombPower {
         self.owner_object_id = owner_id;
     }
 
-    fn resolve_owner_object(&self) -> Option<Arc<RwLock<crate::object::Object>>> {
-        crate::special_power_module::resolve_special_power_owner(
+    fn with_owner<R>(&self, f: impl FnOnce(&crate::object::Object) -> R) -> Option<R> {
+        crate::special_power_module::with_special_power_owner(
             self.owner_object_id,
             self.owner_player_id,
+            f,
         )
     }
 
@@ -222,15 +223,12 @@ impl FuelAirBombPower {
         {
             return Ok(());
         }
-        let owner = self
-            .resolve_owner_object()
-            .ok_or_else(|| "Fuel Air Bomb requires an owning object".to_string())?;
-        let owner_guard = owner
-            .read()
-            .map_err(|_| "Fuel Air Bomb owner lock poisoned".to_string())?;
 
         let target_coord = self.resolve_target_position(targeting);
-        let owner_pos = *owner_guard.get_position();
+        let owner_pos = self
+            .resolve_owner_object_id()
+            .and_then(|id| crate::object::registry::OBJECT_REGISTRY.with_object(id, |g| *g.get_position()))
+            .unwrap_or(target_coord);
         let creation_coord = self.resolve_creation_position(owner_pos, target_coord);
 
         log::info!(
@@ -240,7 +238,7 @@ impl FuelAirBombPower {
         );
 
         self.target_position = target_coord;
-        self.spawn_bomber(&owner_guard, &creation_coord, &target_coord)?;
+        self.spawn_bomber(&creation_coord, &target_coord)?;
 
         // C++ logic timing is frame-based (30 FPS logic).
         const GAME_FPS: Real = 30.0;
@@ -255,7 +253,6 @@ impl FuelAirBombPower {
 
     fn spawn_bomber(
         &mut self,
-        owner_guard: &crate::object::Object,
         creation_pos: &Coord3D,
         target_pos: &Coord3D,
     ) -> Result<(), String> {
@@ -267,19 +264,23 @@ impl FuelAirBombPower {
 
         let ctx = live_creation_context();
         let create_owner = self.data.create_loc != OclCreateLocType::UseOwnerObject;
-        let created = if create_owner {
-            ocl.create_with_angle(&ctx, Some(owner_guard), creation_pos, target_pos, 0.0, 0)
-        } else {
-            ocl.create_with_angle_and_owner_flag(
-                &ctx,
-                Some(owner_guard),
-                creation_pos,
-                target_pos,
-                0.0,
-                false,
-                0,
-            )
-        };
+        let created = self
+            .with_owner(|owner_guard| {
+                if create_owner {
+                    ocl.create_with_angle(&ctx, Some(owner_guard), creation_pos, target_pos, 0.0, 0)
+                } else {
+                    ocl.create_with_angle_and_owner_flag(
+                        &ctx,
+                        Some(owner_guard),
+                        creation_pos,
+                        target_pos,
+                        0.0,
+                        false,
+                        0,
+                    )
+                }
+            })
+            .ok_or_else(|| "Fuel Air Bomb requires an owning object".to_string())?;
 
         self.bomber_aircraft_id = created
             .as_ref()
@@ -328,14 +329,16 @@ impl FuelAirBombPower {
 
         self.stats.record_damage(result.total_damage);
         for object_id in result.objects_damaged {
-            if let Some(object) = TheGameLogic::find_object_by_id(object_id) {
-                if let Ok(object_guard) = object.read() {
-                    if object_guard.is_structure() {
-                        self.stats.record_building_affected();
-                    } else {
-                        self.stats.record_unit_affected();
-                    }
-                }
+            if crate::object::registry::OBJECT_REGISTRY
+                .with_object(object_id, |object_guard| object_guard.is_structure())
+                .unwrap_or(false)
+            {
+                self.stats.record_building_affected();
+            } else if crate::object::registry::OBJECT_REGISTRY
+                .with_object(object_id, |_| ())
+                .is_some()
+            {
+                self.stats.record_unit_affected();
             }
         }
         Ok(())
@@ -533,10 +536,9 @@ mod tests {
     use crate::object::registry::OBJECT_REGISTRY;
     use std::sync::{Arc, RwLock};
 
-    fn register_test_owner(owner_id: ObjectID) -> Arc<RwLock<Object>> {
+    fn register_test_owner(owner_id: ObjectID) {
         let owner = Arc::new(RwLock::new(Object::new_test(owner_id, 100.0)));
         OBJECT_REGISTRY.register_object(owner_id, &owner);
-        owner
     }
 
     #[test]

@@ -464,38 +464,35 @@ impl HackInternetAIUpdate {
             return;
         }
 
-        let Some(owner) = TheGameLogic::find_object_by_id(self.owner_id) else {
-            return;
-        };
-        let Ok(mut owner_guard) = owner.write() else {
-            return;
-        };
-
-        if let Err(err) = owner_guard.clear_model_condition_flags(
-            crate::common::ModelConditionFlags::Packing
-                | crate::common::ModelConditionFlags::FiringA
-                | crate::common::ModelConditionFlags::Unpacking,
-        ) {
-            log::debug!(
-                "HackInternetAIUpdate::enter_unpacking clear_model_condition_flags failed: {}",
-                err
-            );
-        }
-        owner_guard.set_model_condition_state(crate::common::ModelConditionFlags::Unpacking);
-
-        if let Some(mut sound) = owner_guard.get_template().get_per_unit_sound("UnitUnpack") {
-            sound.set_object_id(owner_guard.get_id());
-            if let Some(audio) = TheAudio::get() {
-                let _ = audio.add_audio_event(&sound);
+        let Some(()) = crate::object::registry::OBJECT_REGISTRY.with_object_mut(self.owner_id, |owner_guard| {
+            if let Err(err) = owner_guard.clear_model_condition_flags(
+                crate::common::ModelConditionFlags::Packing
+                    | crate::common::ModelConditionFlags::FiringA
+                    | crate::common::ModelConditionFlags::Unpacking,
+            ) {
+                log::debug!(
+                    "HackInternetAIUpdate::enter_unpacking clear_model_condition_flags failed: {}",
+                    err
+                );
             }
-        }
+            owner_guard.set_model_condition_state(crate::common::ModelConditionFlags::Unpacking);
 
-        let variation = self.random_pack_unpack_variation();
-        let frames = (self.data.unpack_time as Real * variation) as UnsignedInt;
-        owner_guard.set_animation_loop_duration(frames);
+            if let Some(mut sound) = owner_guard.get_template().get_per_unit_sound("UnitUnpack") {
+                sound.set_object_id(owner_guard.get_id());
+                if let Some(audio) = TheAudio::get() {
+                    let _ = audio.add_audio_event(&sound);
+                }
+            }
 
-        self.state = HackInternetState::Unpacking {
-            frames_remaining: frames,
+            let variation = self.random_pack_unpack_variation();
+            let frames = (self.data.unpack_time as Real * variation) as UnsignedInt;
+            owner_guard.set_animation_loop_duration(frames);
+
+            self.state = HackInternetState::Unpacking {
+                frames_remaining: frames,
+            };
+        }) else {
+            return;
         };
     }
 
@@ -505,35 +502,32 @@ impl HackInternetAIUpdate {
             return;
         }
 
-        let Some(owner) = TheGameLogic::find_object_by_id(self.owner_id) else {
-            return;
-        };
-        let Ok(mut owner_guard) = owner.write() else {
-            return;
-        };
-
-        let clear = crate::common::ModelConditionFlags::FiringA;
-        let set = crate::common::ModelConditionFlags::Packing;
-        if let Err(err) = owner_guard.clear_and_set_model_condition_flags(clear, set) {
-            log::debug!(
-                "HackInternetAIUpdate::enter_packing clear_and_set_model_condition_flags failed: {}",
-                err
-            );
-        }
-
-        if let Some(mut sound) = owner_guard.get_template().get_per_unit_sound("UnitPack") {
-            sound.set_object_id(owner_guard.get_id());
-            if let Some(audio) = TheAudio::get() {
-                let _ = audio.add_audio_event(&sound);
+        let Some(()) = crate::object::registry::OBJECT_REGISTRY.with_object_mut(self.owner_id, |owner_guard| {
+            let clear = crate::common::ModelConditionFlags::FiringA;
+            let set = crate::common::ModelConditionFlags::Packing;
+            if let Err(err) = owner_guard.clear_and_set_model_condition_flags(clear, set) {
+                log::debug!(
+                    "HackInternetAIUpdate::enter_packing clear_and_set_model_condition_flags failed: {}",
+                    err
+                );
             }
-        }
 
-        let variation = self.random_pack_unpack_variation();
-        let frames = (self.get_pack_time() as Real * variation) as UnsignedInt;
-        owner_guard.set_animation_loop_duration(frames);
+            if let Some(mut sound) = owner_guard.get_template().get_per_unit_sound("UnitPack") {
+                sound.set_object_id(owner_guard.get_id());
+                if let Some(audio) = TheAudio::get() {
+                    let _ = audio.add_audio_event(&sound);
+                }
+            }
 
-        self.state = HackInternetState::Packing {
-            frames_remaining: frames,
+            let variation = self.random_pack_unpack_variation();
+            let frames = (self.get_pack_time() as Real * variation) as UnsignedInt;
+            owner_guard.set_animation_loop_duration(frames);
+
+            self.state = HackInternetState::Packing {
+                frames_remaining: frames,
+            };
+        }) else {
+            return;
         };
     }
 
@@ -543,24 +537,21 @@ impl HackInternetAIUpdate {
             return;
         }
 
-        let Some(owner) = TheGameLogic::find_object_by_id(self.owner_id) else {
-            return;
-        };
-        let Ok(mut owner_guard) = owner.write() else {
-            return;
-        };
+        let Some(()) = crate::object::registry::OBJECT_REGISTRY.with_object_mut(self.owner_id, |owner_guard| {
+            let clear = crate::common::ModelConditionFlags::Unpacking;
+            let set = crate::common::ModelConditionFlags::FiringA;
+            if let Err(err) = owner_guard.clear_and_set_model_condition_flags(clear, set) {
+                log::debug!(
+                    "HackInternetAIUpdate::enter_hacking clear_and_set_model_condition_flags failed: {}",
+                    err
+                );
+            }
 
-        let clear = crate::common::ModelConditionFlags::Unpacking;
-        let set = crate::common::ModelConditionFlags::FiringA;
-        if let Err(err) = owner_guard.clear_and_set_model_condition_flags(clear, set) {
-            log::debug!(
-                "HackInternetAIUpdate::enter_hacking clear_and_set_model_condition_flags failed: {}",
-                err
-            );
-        }
-
-        self.state = HackInternetState::Hacking {
-            frames_remaining: self.get_cash_update_delay(),
+            self.state = HackInternetState::Hacking {
+                frames_remaining: self.get_cash_update_delay(),
+            };
+        }) else {
+            return;
         };
     }
 
@@ -570,21 +561,17 @@ impl HackInternetAIUpdate {
             return;
         }
 
-        let Some(owner) = TheGameLogic::find_object_by_id(self.owner_id) else {
-            return;
-        };
-        let Ok(mut owner_guard) = owner.write() else {
-            return;
-        };
-
-        owner_guard.set_model_condition_state(crate::common::ModelConditionFlags::Unpacking);
-
         if frames_remaining > 0 {
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(self.owner_id, |owner_guard| {
+                owner_guard.set_model_condition_state(crate::common::ModelConditionFlags::Unpacking);
+            });
             self.state = HackInternetState::Unpacking {
                 frames_remaining: frames_remaining.saturating_sub(1),
             };
         } else {
-            owner_guard.clear_model_condition_state(crate::common::ModelConditionFlags::Unpacking);
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(self.owner_id, |owner_guard| {
+                owner_guard.clear_model_condition_state(crate::common::ModelConditionFlags::Unpacking);
+            });
             self.enter_hacking();
         }
     }
@@ -600,12 +587,9 @@ impl HackInternetAIUpdate {
                 frames_remaining: frames_remaining.saturating_sub(1),
             };
         } else {
-            if let Some(owner) = TheGameLogic::find_object_by_id(self.owner_id) {
-                if let Ok(mut owner_guard) = owner.write() {
-                    owner_guard
-                        .clear_model_condition_state(crate::common::ModelConditionFlags::Packing);
-                }
-            }
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(self.owner_id, |owner_guard| {
+                owner_guard.clear_model_condition_state(crate::common::ModelConditionFlags::Packing);
+            });
             self.state = HackInternetState::Idle;
         }
     }
@@ -619,14 +603,12 @@ impl HackInternetAIUpdate {
             return Ok(());
         }
 
-        let Some(owner) = TheGameLogic::find_object_by_id(self.owner_id) else {
+        let Some(hacked) = crate::object::registry::OBJECT_REGISTRY.with_object(self.owner_id, |owner_guard| {
+            owner_guard.is_disabled_by_type(crate::common::DisabledType::DisabledHacked)
+        }) else {
             return Ok(());
         };
-        let Ok(owner_guard) = owner.read() else {
-            return Ok(());
-        };
-
-        if owner_guard.is_disabled_by_type(crate::common::DisabledType::DisabledHacked) {
+        if hacked {
             return Ok(());
         }
 
@@ -637,7 +619,6 @@ impl HackInternetAIUpdate {
             return Ok(());
         }
 
-        drop(owner_guard);
         self.do_cash_update()?;
         self.state = HackInternetState::Hacking {
             frames_remaining: self.get_cash_update_delay(),
@@ -651,88 +632,83 @@ impl HackInternetAIUpdate {
             return Ok(());
         }
 
-        let Some(owner) = TheGameLogic::find_object_by_id(self.owner_id) else {
+        let Some((player, level)) = crate::object::registry::OBJECT_REGISTRY.with_object(self.owner_id, |owner_guard| {
+            (owner_guard.get_controlling_player(), owner_guard.get_veterancy_level())
+        }) else {
             return Ok(());
         };
-        let Ok(owner_guard) = owner.read() else {
-            return Ok(());
-        };
-
-        let Some(player) = owner_guard.get_controlling_player() else {
+        let Some(player) = player else {
             return Ok(());
         };
         let mut player_guard = player.write().map_err(|_| "player lock poisoned")?;
 
-        let amount = self.cash_amount_for_level(owner_guard.get_veterancy_level());
+        let amount = self.cash_amount_for_level(level);
         player_guard.get_money_mut().add_money(amount as Int);
         player_guard
             .get_score_keeper_mut()
             .add_money_earned(amount as u32);
+        drop(player_guard);
 
-        // C++ HackInternetAIUpdate.cpp:515 calls
-        // `xp->addExperiencePoints(ai->getXpPerCashUpdate())` with the
-        // ExperienceTracker.h:32 default `canScaleForBonus = TRUE`, and the C++
-        // tracker fires Object::onVeterancyLevelChanged itself on promotion
-        // (ExperienceTracker.cpp:158-164).
-        drop(owner_guard);
-        let mut owner_guard = match owner.write() {
-            Ok(guard) => guard,
-            Err(_) => return Ok(()),
+        let Some(()) = crate::object::registry::OBJECT_REGISTRY.with_object_mut(self.owner_id, |owner_guard| {
+            owner_guard.add_experience_points_with_side_effects(
+                self.data.xp_per_cash_update as i32,
+                true,
+            );
+        }) else {
+            return Ok(());
         };
-        owner_guard.add_experience_points_with_side_effects(
-            self.data.xp_per_cash_update as i32,
-            true,
-        );
 
-        let mut display_money = true;
-        if owner_guard.test_status(crate::common::ObjectStatusTypes::Stealthed) {
-            if !owner_guard.is_locally_controlled()
-                && !owner_guard.test_status(crate::common::ObjectStatusTypes::Detected)
-            {
-                display_money = false;
+        let Some((display_money, pos, sound_id, contained)) = crate::object::registry::OBJECT_REGISTRY.with_object(self.owner_id, |owner_guard| {
+            let mut display_money = true;
+            if owner_guard.test_status(crate::common::ObjectStatusTypes::Stealthed) {
+                if !owner_guard.is_locally_controlled()
+                    && !owner_guard.test_status(crate::common::ObjectStatusTypes::Detected)
+                {
+                    display_money = false;
+                }
             }
-        }
+            let contained = owner_guard.get_contained_by();
+            let mut pos = *owner_guard.get_position();
+            (display_money, pos, owner_guard.get_id(), contained)
+        }) else {
+            return Ok(());
+        };
 
-        if let Some(container_id) = owner_guard.get_contained_by() {
-            if let Some(container) = TheGameLogic::find_object_by_id(container_id) {
-                if let Ok(container_guard) = container.read() {
-                    if container_guard.test_status(crate::common::ObjectStatusTypes::Stealthed) {
-                        if !container_guard.is_locally_controlled()
-                            && !container_guard
-                                .test_status(crate::common::ObjectStatusTypes::Detected)
-                        {
-                            display_money = false;
-                        }
-                    }
+        let mut display_money = display_money;
+        let mut pos = pos;
+        if let Some(container_id) = contained {
+            if let Some(stealthed) = crate::object::registry::OBJECT_REGISTRY.with_object(container_id, |container_guard| {
+                container_guard.test_status(crate::common::ObjectStatusTypes::Stealthed)
+                    && !container_guard.is_locally_controlled()
+                    && !container_guard.test_status(crate::common::ObjectStatusTypes::Detected)
+            }) {
+                if stealthed {
+                    display_money = false;
                 }
             }
         }
 
         if display_money {
             let caption = format_add_cash(amount as Int);
-            let mut pos = *owner_guard.get_position();
             pos.z += 20.0;
 
-            if let Some(container_id) = owner_guard.get_contained_by() {
-                if let Some(container) = TheGameLogic::find_object_by_id(container_id) {
-                    if let Ok(container_guard) = container.read() {
-                        let geom = container_guard.get_geometry_info();
-                        let width = geom.get_major_radius() * 0.3;
-                        let depth = geom.get_minor_radius() * 0.3;
-                        pos.x += game_client_random_value_real(-width, width);
-                        pos.y += game_client_random_value_real(-depth, depth);
-                    }
+            if let Some(container_id) = contained {
+                if let Some((width, depth)) = crate::object::registry::OBJECT_REGISTRY.with_object(container_id, |container_guard| {
+                    let geom = container_guard.get_geometry_info();
+                    (geom.get_major_radius() * 0.3, geom.get_minor_radius() * 0.3)
+                }) {
+                    pos.x += game_client_random_value_real(-width, width);
+                    pos.y += game_client_random_value_real(-depth, depth);
                 }
             }
 
             let _ = TheInGameUI::add_floating_text(&caption, &pos, Color::new(0, 255, 0, 255));
         }
 
-        if let Some(mut sound) = owner_guard
-            .get_template()
-            .get_per_unit_sound("UnitCashPing")
-        {
-            sound.set_object_id(owner_guard.get_id());
+        if let Some(mut sound) = crate::object::registry::OBJECT_REGISTRY.with_object(self.owner_id, |owner_guard| {
+            owner_guard.get_template().get_per_unit_sound("UnitCashPing")
+        }).flatten() {
+            sound.set_object_id(sound_id);
             if let Some(audio) = TheAudio::get() {
                 let _ = audio.add_audio_event(&sound);
             }
@@ -747,13 +723,10 @@ impl HackInternetAIUpdate {
             return self.data.pack_time;
         }
 
-        let Some(owner) = TheGameLogic::find_object_by_id(self.owner_id) else {
-            return self.data.pack_time;
-        };
-        let Ok(owner_guard) = owner.read() else {
-            return self.data.pack_time;
-        };
-        if owner_guard.get_contained_by().is_some() {
+        let contained = crate::object::registry::OBJECT_REGISTRY
+            .with_object(self.owner_id, |owner_guard| owner_guard.get_contained_by().is_some())
+            .unwrap_or(false);
+        if contained {
             return 0;
         }
         self.data.pack_time
@@ -765,13 +738,10 @@ impl HackInternetAIUpdate {
             return self.data.cash_update_delay;
         }
 
-        let Some(owner) = TheGameLogic::find_object_by_id(self.owner_id) else {
-            return self.data.cash_update_delay;
-        };
-        let Ok(owner_guard) = owner.read() else {
-            return self.data.cash_update_delay;
-        };
-        if owner_guard.get_contained_by().is_some() {
+        let contained = crate::object::registry::OBJECT_REGISTRY
+            .with_object(self.owner_id, |owner_guard| owner_guard.get_contained_by().is_some())
+            .unwrap_or(false);
+        if contained {
             return self.data.cash_update_delay_fast;
         }
         self.data.cash_update_delay

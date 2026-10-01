@@ -170,17 +170,8 @@ impl TargetValidator {
     /// Check if an object is a valid target based on power flags
     /// Matches C++ PartitionFilter logic in PartitionManager.h lines 603-857
     pub fn is_valid_object_target(object_id: ObjectID, flags: SpecialPowerFlags) -> Bool {
-        // Find the object using TheGameLogic
-        // Matches C++ TheGameLogic->findObjectByID pattern
-        let object = match crate::helpers::TheGameLogic::find_object_by_id(object_id) {
-            Some(obj) => obj,
-            None => return false,
-        };
-
-        let obj_guard = match object.read() {
-            Ok(guard) => guard,
-            Err(_) => return false,
-        };
+        // Matches C++ TheGameLogic->findObjectByID pattern via the object registry.
+        let Some(valid) = crate::object::registry::OBJECT_REGISTRY.with_object(object_id, |obj_guard| {
 
         // Check object state - must be alive and not under construction
         // Matches C++ Object status checking pattern (Object.h)
@@ -248,6 +239,10 @@ impl TargetValidator {
         // This would use obj_guard.is_kind_of(KINDOF_STRUCTURE) etc.
 
         true
+        }) else {
+            return false;
+        };
+        valid
     }
 
     /// Get all objects within the effect radius

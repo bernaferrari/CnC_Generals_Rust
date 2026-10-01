@@ -30,7 +30,12 @@ impl CombatSystem {
             pending_under_attack: Vec::new(),
             pending_on_die: Vec::new(),
             fire_ocl: Vec::new(),
+            pending_projectiles: Vec::new(),
+            projectileless_delayed: Vec::new(),
         }
+    }
+    pub fn append_pending_projectiles(&mut self, more: &mut Vec<PendingProjectile>) {
+        self.pending_projectiles.append(more);
     }
 
     /// Snapshot active projectiles for PresentationFrame freeze (read-only).

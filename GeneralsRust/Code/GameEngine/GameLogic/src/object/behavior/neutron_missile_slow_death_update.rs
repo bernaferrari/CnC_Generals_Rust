@@ -355,7 +355,7 @@ pub struct NeutronMissileSlowDeathUpdate {
 
 impl NeutronMissileSlowDeathUpdate {
     pub fn new(
-        object: Arc<RwLock<GameObject>>,
+        object_id: ObjectID,
         module_data: Arc<dyn ModuleData>,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let specific_data = module_data
@@ -364,11 +364,7 @@ impl NeutronMissileSlowDeathUpdate {
             .ok_or("Invalid module data")?;
 
         Ok(Self {
-            object_id: object
-                .read()
-                .ok()
-                .map(|g| g.get_id())
-                .unwrap_or(crate::common::INVALID_ID),
+            object_id: object_id,
             module_data: Arc::new(specific_data.clone()),
             activated: false,
             next_call_frame_and_phase: 0,
@@ -718,7 +714,7 @@ impl Snapshotable for NeutronMissileSlowDeathUpdate {
 pub struct NeutronMissileSlowDeathUpdateFactory;
 impl NeutronMissileSlowDeathUpdateFactory {
     pub fn create_behavior(
-        thing: Arc<RwLock<GameObject>>,
+        object_id: ObjectID,
         module_data: Arc<dyn ModuleData>,
     ) -> Result<Box<dyn BehaviorModuleInterface>, Box<dyn std::error::Error + Send + Sync>> {
         Ok(Box::new(NeutronMissileSlowDeathUpdate::new(
@@ -807,7 +803,7 @@ pub fn neutron_missile_slow_death_module_factory(
         .expect("NeutronMissileSlowDeathBehavior requires an owning object");
     let shared_data = Arc::new(typed.clone());
     let behavior =
-        NeutronMissileSlowDeathUpdate::new(object, Arc::clone(&shared_data) as Arc<dyn ModuleData>)
+        NeutronMissileSlowDeathUpdate::new(object_id, Arc::clone(&shared_data) as Arc<dyn ModuleData>)
             .expect("NeutronMissileSlowDeathBehavior failed to initialize");
 
     Box::new(NeutronMissileSlowDeathUpdateModule::new(

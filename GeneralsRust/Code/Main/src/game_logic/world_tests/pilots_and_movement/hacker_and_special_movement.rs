@@ -2294,9 +2294,8 @@ fn ecm_jam_residual_out_of_range_then_in_range() {
 
 #[test]
 fn special_power_completion_die_notifies_script() {
-    use crate::game_logic::script_events::{self, ScriptEvent};
+    use crate::game_logic::script_events::ScriptEvent;
     use crate::game_logic::{KindOf, Team, ThingTemplate};
-    let _ = script_events::drain_events(); // clear
     let mut logic = GameLogic::new();
     logic.add_player(Player::new(1, Team::USA, "USA", true));
     let mut t = ThingTemplate::new("ScudStormMissile");
@@ -2313,7 +2312,7 @@ fn special_power_completion_die_notifies_script() {
         logic.special_power_completion_log.notifications >= 1,
         "SpecialPowerCompletionDie must notify on destroy"
     );
-    let evs = script_events::drain_events();
+    let evs = logic.drain_script_events();
     assert!(
         evs.iter().any(|e| matches!(
             e,

@@ -12,6 +12,7 @@
 use crate::common::types::{ObjectID, VeterancyLevel};
 use crate::common::{Xfer, XferMode, XferVersion};
 use crate::helpers::TheGameLogic;
+use crate::object::registry::OBJECT_REGISTRY;
 
 /// Wave 420: host-only path has no dual-world factory objects.
 #[inline]
@@ -146,13 +147,11 @@ impl ExperienceTracker {
             return None;
         }
 
-        let owner = TheGameLogic::find_object_by_id(self.owner_id)?;
-        let owner_guard = owner.read().ok()?;
-        Some(
+        OBJECT_REGISTRY.with_object(self.owner_id, |owner_guard| {
             owner_guard
                 .get_template()
-                .get_experience_required(level_index),
-        )
+                .get_experience_required(level_index)
+        })
     }
 
     fn get_owner_template_experience_value(&self, level_index: usize) -> Option<i32> {
@@ -161,9 +160,9 @@ impl ExperienceTracker {
             return None;
         }
 
-        let owner = TheGameLogic::find_object_by_id(self.owner_id)?;
-        let owner_guard = owner.read().ok()?;
-        Some(owner_guard.get_template().get_experience_value(level_index))
+        OBJECT_REGISTRY.with_object(self.owner_id, |owner_guard| {
+            owner_guard.get_template().get_experience_value(level_index)
+        })
     }
 
     fn owner_is_trainable(&self) -> Option<bool> {
@@ -172,12 +171,9 @@ impl ExperienceTracker {
             return None;
         }
 
-        let owner = TheGameLogic::find_object_by_id(self.owner_id)?;
-        match owner.try_read() {
-            Ok(owner_guard) => Some(owner_guard.get_template().is_trainable()),
-            Err(std::sync::TryLockError::WouldBlock) => None,
-            Err(_) => None,
-        }
+        OBJECT_REGISTRY.with_object(self.owner_id, |owner_guard| {
+            owner_guard.get_template().is_trainable()
+        })
     }
 
     /// Fail-closed degraded threshold lookup: prefer the caller-supplied
@@ -281,28 +277,25 @@ impl ExperienceTracker {
         experience_required: &[i32],
     ) -> Option<VeterancyLevel> {
         if self.experience_sink != Self::INVALID_ID {
-            if let Some(sink) = TheGameLogic::find_object_by_id(self.experience_sink) {
-                if let Ok(sink_guard) = sink.read() {
-                    if let Some(tracker) = sink_guard.get_experience_tracker() {
-                        if let Ok(mut tracker_guard) = tracker.lock() {
-                            let forwarded_experience_gain =
-                                (experience_gain as f32 * self.experience_scalar) as i32;
-                            let promoted = tracker_guard.add_experience_points(
-                                forwarded_experience_gain,
-                                can_scale_for_bonus,
-                                experience_required,
-                            );
-                            let new_level = tracker_guard.get_veterancy_level();
-                            drop(tracker_guard);
-                            drop(sink_guard);
-                            if let Some(old_level) = promoted {
-                                if let Ok(mut sink_mut) = sink.write() {
-                                    sink_mut.on_veterancy_level_changed(old_level, new_level, true);
-                                }
-                            }
-                            return None;
-                        }
-                    }
+            if TheGameLogic::find_object_by_id(self.experience_sink) {
+                let sink_id = self.experience_sink;
+                let forwarded_experience_gain =
+                    (experience_gain as f32 * self.experience_scalar) as i32;
+                let promoted = OBJECT_REGISTRY.with_object(sink_id, |sink_guard| {
+                    let tracker = sink_guard.get_experience_tracker()?;
+                    let mut tracker_guard = tracker.lock().ok()?;
+                    let promoted = tracker_guard.add_experience_points(
+                        forwarded_experience_gain,
+                        can_scale_for_bonus,
+                        experience_required,
+                    );
+                    let new_level = tracker_guard.get_veterancy_level();
+                    Some((promoted, new_level))
+                });
+                if let Some(Some((Some(old_level), new_level))) = promoted {
+                    OBJECT_REGISTRY.with_object_mut(sink_id, |sink_mut| {
+                        sink_mut.on_veterancy_level_changed(old_level, new_level, true);
+                    });
                 }
                 return None;
             }
@@ -327,28 +320,24 @@ impl ExperienceTracker {
         experience_required: &[i32],
     ) -> Option<VeterancyLevel> {
         if self.experience_sink != Self::INVALID_ID {
-            if let Some(sink) = TheGameLogic::find_object_by_id(self.experience_sink) {
-                if let Ok(sink_guard) = sink.read() {
-                    if let Some(tracker) = sink_guard.get_experience_tracker() {
-                        if let Ok(mut tracker_guard) = tracker.lock() {
-                            let forwarded =
-                                (experience_gain as f32 * self.experience_scalar) as i32;
-                            let promoted = tracker_guard.add_experience_points(
-                                forwarded,
-                                can_scale_for_bonus,
-                                experience_required,
-                            );
-                            let new_level = tracker_guard.get_veterancy_level();
-                            drop(tracker_guard);
-                            drop(sink_guard);
-                            if let Some(old_level) = promoted {
-                                if let Ok(mut sink_mut) = sink.write() {
-                                    sink_mut.on_veterancy_level_changed(old_level, new_level, true);
-                                }
-                            }
-                            return None;
-                        }
-                    }
+            if TheGameLogic::find_object_by_id(self.experience_sink) {
+                let sink_id = self.experience_sink;
+                let forwarded = (experience_gain as f32 * self.experience_scalar) as i32;
+                let promoted = OBJECT_REGISTRY.with_object(sink_id, |sink_guard| {
+                    let tracker = sink_guard.get_experience_tracker()?;
+                    let mut tracker_guard = tracker.lock().ok()?;
+                    let promoted = tracker_guard.add_experience_points(
+                        forwarded,
+                        can_scale_for_bonus,
+                        experience_required,
+                    );
+                    let new_level = tracker_guard.get_veterancy_level();
+                    Some((promoted, new_level))
+                });
+                if let Some(Some((Some(old_level), new_level))) = promoted {
+                    OBJECT_REGISTRY.with_object_mut(sink_id, |sink_mut| {
+                        sink_mut.on_veterancy_level_changed(old_level, new_level, true);
+                    });
                 }
                 return None;
             }
@@ -450,16 +439,15 @@ impl ExperienceTracker {
         experience_required: &[i32],
     ) -> Option<VeterancyLevel> {
         if self.experience_sink != Self::INVALID_ID {
-            if let Some(sink) = TheGameLogic::find_object_by_id(self.experience_sink) {
-                if let Ok(sink_guard) = sink.read() {
-                    if let Some(tracker) = sink_guard.get_experience_tracker() {
-                        if let Ok(mut tracker_guard) = tracker.lock() {
-                            return tracker_guard
-                                .set_experience_and_level(experience, experience_required);
-                        }
-                    }
-                }
-                return None;
+            if TheGameLogic::find_object_by_id(self.experience_sink) {
+                let sink_id = self.experience_sink;
+                return OBJECT_REGISTRY
+                    .with_object(sink_id, |sink_guard| {
+                        let tracker = sink_guard.get_experience_tracker()?;
+                        let mut tracker_guard = tracker.lock().ok()?;
+                        tracker_guard.set_experience_and_level(experience, experience_required)
+                    })
+                    .flatten();
             }
         }
         if !self.is_trainable() {

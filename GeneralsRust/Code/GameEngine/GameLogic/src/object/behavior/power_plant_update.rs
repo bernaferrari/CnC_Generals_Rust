@@ -99,7 +99,7 @@ pub struct PowerPlantUpdate {
 impl PowerPlantUpdate {
     /// Create a new PowerPlantUpdate instance
     pub fn new(
-        object: Arc<RwLock<GameObject>>,
+        object_id: ObjectID,
         module_data: Arc<dyn ModuleData>,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let specific_data = module_data
@@ -108,11 +108,7 @@ impl PowerPlantUpdate {
             .ok_or("Invalid module data type for PowerPlantUpdate")?;
 
         Ok(Self {
-            object_id: object
-                .read()
-                .ok()
-                .map(|g| g.get_id())
-                .unwrap_or(crate::common::INVALID_ID),
+            object_id: object_id,
             module_data: Arc::new(specific_data.clone()),
             next_call_frame_and_phase: 0,
             extended: false,
@@ -312,10 +308,10 @@ pub struct PowerPlantUpdateFactory;
 
 impl PowerPlantUpdateFactory {
     pub fn create_behavior(
-        thing: Arc<RwLock<GameObject>>,
+        object_id: ObjectID,
         module_data: Arc<dyn ModuleData>,
     ) -> Result<Box<dyn BehaviorModuleInterface>, Box<dyn std::error::Error + Send + Sync>> {
-        let behavior = PowerPlantUpdate::new(thing, module_data)?;
+        let behavior = PowerPlantUpdate::new(object_id, module_data)?;
         Ok(Box::new(behavior))
     }
 }

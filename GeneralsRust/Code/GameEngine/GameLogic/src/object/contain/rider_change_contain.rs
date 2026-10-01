@@ -330,22 +330,20 @@ fn rider_info_matches_template(
 /// skips only the promotion anim + UnitPromoted sound — the C++ tracker still
 /// fires `Object::onVeterancyLevelChanged` internally (ExperienceTracker.cpp:82-95),
 /// so weapon-set flags, veterancy upgrade, body healthBonus/armor rescale run.
-fn transfer_veterancy(from: &Arc<RwLock<Object>>, to: &Arc<RwLock<Object>>) {
-    let Some(level) = from
-        .read()
-        .ok()
-        .map(|from_guard| from_guard.get_veterancy_level())
+fn transfer_veterancy(from: ObjectID, to: ObjectID) {
+    let Some(level) = crate::object::registry::OBJECT_REGISTRY
+        .with_object(from, |from_obj| from_obj.get_veterancy_level())
     else {
         return;
     };
 
-    if let Ok(mut to_guard) = to.write() {
-        to_guard.set_veterancy_level_with_side_effects(level, false);
-    }
+    let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(to, |to_obj| {
+        to_obj.set_veterancy_level_with_side_effects(level, false);
+    });
 
-    if let Ok(mut from_guard) = from.write() {
-        from_guard.set_experience_and_level_with_side_effects(0, false);
-    }
+    let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(from, |from_obj| {
+        from_obj.set_experience_and_level_with_side_effects(0, false);
+    });
 }
 
 #[cfg(test)]
@@ -503,7 +501,7 @@ mod tests {
         assert_eq!(default_view.get_experience_required(2), 0);
     }
 
-    fn owned_object(name: &str, id: ObjectID, player_index: u32) -> Arc<RwLock<Object>> {
+    fn owned_object(name: &str, id: ObjectID, player_index: u32) -> ObjectID {
         let team = Arc::new(RwLock::new(Team::new(
             format!("{name}Team").into(),
             id + 10_000,
@@ -522,7 +520,7 @@ mod tests {
             .expect("owned test object")
     }
 
-    fn owned_trainable_object(name: &str, id: ObjectID, player_index: u32) -> Arc<RwLock<Object>> {
+    fn owned_trainable_object(name: &str, id: ObjectID, player_index: u32) -> ObjectID {
         let team = Arc::new(RwLock::new(Team::new(
             format!("{name}Team").into(),
             id + 10_000,
@@ -548,7 +546,7 @@ mod tests {
         .expect("owned trainable test object")
     }
 
-    fn rider(name: &str, id: ObjectID, player_index: u32) -> Arc<RwLock<Object>> {
+    fn rider(name: &str, id: ObjectID, player_index: u32) -> ObjectID {
         let team = Arc::new(RwLock::new(Team::new(
             format!("{name}Team").into(),
             id + 10_000,
@@ -570,17 +568,19 @@ mod tests {
         .expect("test rider")
     }
 
-    fn attach_drawable(obj: &Arc<RwLock<Object>>, drawable_id: ObjectID) -> Arc<RwLock<Drawable>> {
-        let object_id = obj.read().expect("object read").get_id();
+    fn attach_drawable(obj: &ObjectID, drawable_id: ObjectID) -> Arc<RwLock<Drawable>> {
+        let object_id = *obj;
         let drawable = Arc::new(RwLock::new(Drawable::new(
             drawable_id,
             object_id,
             format!("Drawable{object_id}"),
             DrawableType::Animated,
         )));
-        obj.write()
-            .expect("object write")
-            .set_drawable(Some(drawable.clone()));
+        OBJECT_REGISTRY
+            .with_object_mut(object_id, |object| {
+                object.set_drawable(Some(drawable.clone()));
+            })
+            .expect("object write");
         drawable
     }
 
@@ -620,7 +620,7 @@ mod tests {
     }
 
     fn rider_change_for_with_config(
-        owner: &Arc<RwLock<Object>>,
+        owner: &ObjectID,
         configure: impl FnOnce(&mut RiderChangeContainModuleData),
     ) -> RiderChangeContain {
         let mut data = RiderChangeContainModuleData {
@@ -647,10 +647,10 @@ mod tests {
             locomotor_set: LocomotorSetType::Normal,
         };
         configure(&mut data);
-        RiderChangeContain::new(Arc::downgrade(owner), &data).expect("rider change contain")
+        RiderChangeContain::new(*owner, &data).expect("rider change contain")
     }
 
-    fn rider_change_for(owner: &Arc<RwLock<Object>>) -> RiderChangeContain {
+    fn rider_change_for(owner: &ObjectID) -> RiderChangeContain {
         rider_change_for_with_config(owner, |_| {})
     }
 
@@ -665,12 +665,7 @@ mod tests {
 
         contain
             .add_to_contain(
-                first
-                    .clone()
-                    .read()
-                    .ok()
-                    .map(|g| g.get_id())
-                    .unwrap_or(crate::common::INVALID_ID),
+                first,
                 false,
             )
             .expect("first rider enters");
@@ -682,7 +677,9 @@ mod tests {
         );
         assert_eq!(ContainerInterface::get_usage(&contain), (0, 0));
         assert!(
-            contain.is_valid_container_for(&second.read().expect("second rider read"), true),
+            OBJECT_REGISTRY
+                .with_object(second, |g| contain.is_valid_container_for(g, true))
+                .expect("second rider read"),
             "C++ RiderChangeContain ignores capacity because the new rider replaces the old one"
         );
 
@@ -700,34 +697,24 @@ mod tests {
 
         contain
             .add_to_contain(
-                first
-                    .clone()
-                    .read()
-                    .ok()
-                    .map(|g| g.get_id())
-                    .unwrap_or(crate::common::INVALID_ID),
+                first,
                 false,
             )
             .expect("first rider enters");
         contain
             .add_to_contain(
-                second
-                    .clone()
-                    .read()
-                    .ok()
-                    .map(|g| g.get_id())
-                    .unwrap_or(crate::common::INVALID_ID),
+                second,
                 false,
             )
             .expect("second rider replaces first");
 
         assert_eq!(ContainModuleInterface::get_contained_count(&contain), 1);
         assert_eq!(
-            first.read().expect("first rider read").get_contained_by(),
+            OBJECT_REGISTRY.with_object(first, |g| g.get_contained_by()).expect("first rider read"),
             None
         );
         assert_eq!(
-            second.read().expect("second rider read").get_contained_by(),
+            OBJECT_REGISTRY.with_object(second, |g| g.get_contained_by()).expect("second rider read"),
             Some(97004)
         );
         assert_eq!(
@@ -735,12 +722,13 @@ mod tests {
             Some(97006)
         );
 
-        let owner_guard = owner.read().expect("owner read");
-        assert!(!owner_guard.test_status(ObjectStatusTypes::Rider1));
-        assert!(owner_guard.test_status(ObjectStatusTypes::Rider2));
-        assert!(!owner_guard.test_weapon_set_flag(WeaponSetType::WeaponRider1));
-        assert!(owner_guard.test_weapon_set_flag(WeaponSetType::WeaponRider2));
-        assert_eq!(owner_guard.get_command_set_string(), "RiderTwoCommandSet");
+        OBJECT_REGISTRY.with_object(owner, |owner_guard| {
+            assert!(!owner_guard.test_status(ObjectStatusTypes::Rider1));
+            assert!(owner_guard.test_status(ObjectStatusTypes::Rider2));
+            assert!(!owner_guard.test_weapon_set_flag(WeaponSetType::WeaponRider1));
+            assert!(owner_guard.test_weapon_set_flag(WeaponSetType::WeaponRider2));
+            assert_eq!(owner_guard.get_command_set_string(), "RiderTwoCommandSet");
+        }).expect("owner read");
 
         cleanup_objects(&[97004, 97005, 97006]);
     }
@@ -756,42 +744,29 @@ mod tests {
 
         contain
             .add_to_contain(
-                first
-                    .clone()
-                    .read()
-                    .ok()
-                    .map(|g| g.get_id())
-                    .unwrap_or(crate::common::INVALID_ID),
+                first,
                 false,
             )
             .expect("first rider enters");
         contain.base.set_payload_created(true);
         contain
             .add_to_contain(
-                second
-                    .clone()
-                    .read()
-                    .ok()
-                    .map(|g| g.get_id())
-                    .unwrap_or(crate::common::INVALID_ID),
+                second,
                 false,
             )
             .expect("second rider replaces first through payload branch");
 
         assert_eq!(ContainModuleInterface::get_contained_count(&contain), 1);
         assert_eq!(
-            first.read().expect("first rider read").get_contained_by(),
+            OBJECT_REGISTRY.with_object(first, |g| g.get_contained_by()).expect("first rider read"),
             None
         );
         assert_eq!(
-            second.read().expect("second rider read").get_contained_by(),
+            OBJECT_REGISTRY.with_object(second, |g| g.get_contained_by()).expect("second rider read"),
             Some(97009)
         );
         assert!(
-            !owner
-                .read()
-                .expect("owner read")
-                .test_status(ObjectStatusTypes::Unselectable),
+            !OBJECT_REGISTRY.with_object(owner, |g| g.test_status(ObjectStatusTypes::Unselectable),
             "replacement should not scuttle the bike"
         );
 
@@ -815,21 +790,13 @@ mod tests {
 
         contain
             .add_to_contain(
-                rider
-                    .clone()
-                    .read()
-                    .ok()
-                    .map(|g| g.get_id())
-                    .unwrap_or(crate::common::INVALID_ID),
+                rider,
                 false,
             )
             .expect("selected rider enters");
 
         assert!(
-            owner_drawable
-                .read()
-                .expect("owner drawable read")
-                .is_selected(),
+            owner_drawable.read().expect("owner drawable read").is_selected(),
             "C++ selects the bike when the entering rider was selected"
         );
         let messages = drain_messages();
@@ -855,12 +822,7 @@ mod tests {
 
         contain
             .add_to_contain(
-                rider
-                    .clone()
-                    .read()
-                    .ok()
-                    .map(|g| g.get_id())
-                    .unwrap_or(crate::common::INVALID_ID),
+                rider,
                 false,
             )
             .expect("rider enters");
@@ -872,28 +834,17 @@ mod tests {
 
         contain
             .remove_from_contain(
-                rider
-                    .clone()
-                    .read()
-                    .ok()
-                    .map(|g| g.get_id())
-                    .unwrap_or(crate::common::INVALID_ID),
+                rider,
                 false,
             )
             .expect("rider exits");
 
         assert!(
-            rider_drawable
-                .read()
-                .expect("rider drawable read")
-                .is_selected(),
+            rider_drawable.read().expect("rider drawable read").is_selected(),
             "C++ selects the exiting rider when the bike was selected"
         );
         assert!(
-            !owner_drawable
-                .read()
-                .expect("owner drawable read")
-                .is_selected(),
+            !owner_drawable.read().expect("owner drawable read").is_selected(),
             "C++ removes the bike from the selected group"
         );
         let messages = drain_messages();
@@ -923,33 +874,24 @@ mod tests {
 
         contain
             .add_to_contain(
-                rider
-                    .clone()
-                    .read()
-                    .ok()
-                    .map(|g| g.get_id())
-                    .unwrap_or(crate::common::INVALID_ID),
+                rider,
                 false,
             )
             .expect("rider enters");
         contain
             .remove_from_contain(
-                rider
-                    .clone()
-                    .read()
-                    .ok()
-                    .map(|g| g.get_id())
-                    .unwrap_or(crate::common::INVALID_ID),
+                rider,
                 false,
             )
             .expect("rider exits");
 
-        let owner_guard = owner.read().expect("owner read");
+        let unselectable = OBJECT_REGISTRY
+            .with_object(owner, |g| g.test_status(ObjectStatusTypes::Unselectable))
+            .expect("owner read");
         assert!(
-            !owner_guard.test_status(ObjectStatusTypes::Unselectable),
+            !unselectable,
             "C++ skips bike scuttle when either drawable is missing"
         );
-        drop(owner_guard);
         assert_eq!(
             contain.scuttled_on_frame, 0,
             "C++ leaves m_scuttledOnFrame untouched without drawables"
@@ -972,23 +914,13 @@ mod tests {
 
         contain
             .add_to_contain(
-                rider
-                    .clone()
-                    .read()
-                    .ok()
-                    .map(|g| g.get_id())
-                    .unwrap_or(crate::common::INVALID_ID),
+                rider,
                 false,
             )
             .expect("rider enters");
         contain
             .remove_from_contain(
-                rider
-                    .clone()
-                    .read()
-                    .ok()
-                    .map(|g| g.get_id())
-                    .unwrap_or(crate::common::INVALID_ID),
+                rider,
                 false,
             )
             .expect("rider exits");
@@ -1053,11 +985,9 @@ mod tests {
         let rider = owned_trainable_object("BikeRiderVet", 97021, 0);
         let bike = owned_object("CombatBikeVet", 97022, 0);
         assert!(
-            rider
-                .read()
-                .expect("rider read")
-                .get_template()
-                .is_trainable(),
+            OBJECT_REGISTRY
+                .with_object(rider, |g| g.get_template().is_trainable())
+                .expect("rider read"),
             "the reset regression uses an authored IsTrainable template"
         );
         let rider_tracker = Arc::new(std::sync::Mutex::new(
@@ -1070,16 +1000,16 @@ mod tests {
             .lock()
             .expect("rider tracker")
             .set_veterancy_level(crate::common::VeterancyLevel::Veteran);
-        rider.write().expect("rider write").experience_tracker = Some(Arc::clone(&rider_tracker));
-        bike.write().expect("bike write").experience_tracker = Some(Arc::clone(&bike_tracker));
+        OBJECT_REGISTRY.with_object_mut(rider, |o| o.experience_tracker = Some(Arc::clone(&rider_tracker))).expect("rider write");
+        OBJECT_REGISTRY.with_object_mut(bike, |o| o.experience_tracker = Some(Arc::clone(&bike_tracker))).expect("bike write");
 
-        transfer_veterancy(&rider, &bike);
+        transfer_veterancy(rider, bike);
 
         // Bike took the rider's level — weapon-set flag follows (side effect).
         assert!(
-            bike.read()
-                .expect("bike read")
-                .test_weapon_set_flag(WeaponSetType::Veteran),
+            OBJECT_REGISTRY
+                .with_object(bike, |g| g.test_weapon_set_flag(WeaponSetType::Veteran))
+                .expect("bike read"),
             "C++ fires onVeterancyLevelChanged on mount: bike weapon set becomes Veteran"
         );
         assert_eq!(
@@ -1099,10 +1029,7 @@ mod tests {
             crate::common::VeterancyLevel::Regular
         );
         assert!(
-            !rider
-                .read()
-                .expect("rider read")
-                .test_weapon_set_flag(WeaponSetType::Veteran),
+            !OBJECT_REGISTRY.with_object(rider, |g| g.test_weapon_set_flag(WeaponSetType::Veteran)).unwrap_or(false),
             "C++ setExperienceAndLevel fires onVeterancyLevelChanged on demotion"
         );
 
@@ -1121,13 +1048,12 @@ mod tests {
             .lock()
             .expect("tracker")
             .set_veterancy_level(crate::common::VeterancyLevel::Veteran);
-        object.write().expect("object write").experience_tracker = Some(Arc::clone(&tracker));
+        OBJECT_REGISTRY.with_object_mut(object, |o| o.experience_tracker = Some(Arc::clone(&tracker))).expect("object write");
 
         assert!(
-            !object
-                .write()
+            !OBJECT_REGISTRY
+                .with_object_mut(object, |o| o.set_experience_and_level_with_side_effects(0, false))
                 .expect("object write")
-                .set_experience_and_level_with_side_effects(0, false)
         );
         assert_eq!(
             tracker.lock().expect("tracker").get_veterancy_level(),
@@ -1154,25 +1080,23 @@ mod tests {
             .lock()
             .expect("source tracker")
             .set_experience_sink(97025);
-        source.write().expect("source write").experience_tracker =
-            Some(Arc::clone(&source_tracker));
-        target.write().expect("target write").experience_tracker =
-            Some(Arc::clone(&target_tracker));
+        OBJECT_REGISTRY.with_object_mut(source, |o| o.experience_tracker = Some(Arc::clone(&source_tracker))).expect("source write");
+        OBJECT_REGISTRY.with_object_mut(target, |o| o.experience_tracker = Some(Arc::clone(&target_tracker))).expect("target write");
         assert!(
-            target
-                .write()
+            OBJECT_REGISTRY
+                .with_object_mut(target, |o| {
+                    o.set_veterancy_level_with_side_effects(
+                        crate::common::VeterancyLevel::Veteran,
+                        false,
+                    )
+                })
                 .expect("target write")
-                .set_veterancy_level_with_side_effects(
-                    crate::common::VeterancyLevel::Veteran,
-                    false,
-                )
         );
 
         assert!(
-            source
-                .write()
+            OBJECT_REGISTRY
+                .with_object_mut(source, |o| o.set_experience_and_level_with_side_effects(0, false))
                 .expect("source write")
-                .set_experience_and_level_with_side_effects(0, false)
         );
         assert_eq!(
             target_tracker
@@ -1183,10 +1107,7 @@ mod tests {
             "CPP forwards the reset to the sink Object and applies its level change"
         );
         assert!(
-            !target
-                .read()
-                .expect("target read")
-                .test_weapon_set_flag(WeaponSetType::Veteran),
+            !OBJECT_REGISTRY.with_object(target, |g| g.test_weapon_set_flag(WeaponSetType::Veteran)).unwrap_or(false),
             "sink Object receives onVeterancyLevelChanged on demotion"
         );
         assert_eq!(
@@ -1213,23 +1134,22 @@ mod tests {
             .lock()
             .expect("source tracker")
             .set_experience_sink(97999);
-        source.write().expect("source write").experience_tracker =
-            Some(Arc::clone(&source_tracker));
+        OBJECT_REGISTRY.with_object_mut(source, |o| o.experience_tracker = Some(Arc::clone(&source_tracker))).expect("source write");
         assert!(
-            source
-                .write()
+            OBJECT_REGISTRY
+                .with_object_mut(source, |o| {
+                    o.set_veterancy_level_with_side_effects(
+                        crate::common::VeterancyLevel::Veteran,
+                        false,
+                    )
+                })
                 .expect("source write")
-                .set_veterancy_level_with_side_effects(
-                    crate::common::VeterancyLevel::Veteran,
-                    false,
-                )
         );
 
         assert!(
-            source
-                .write()
+            OBJECT_REGISTRY
+                .with_object_mut(source, |o| o.set_experience_and_level_with_side_effects(0, false))
                 .expect("source write")
-                .set_experience_and_level_with_side_effects(0, false)
         );
         assert_eq!(
             source_tracker
@@ -1240,10 +1160,7 @@ mod tests {
             "CPP falls through to local reset when the sink object no longer exists"
         );
         assert!(
-            !source
-                .read()
-                .expect("source read")
-                .test_weapon_set_flag(WeaponSetType::Veteran),
+            !OBJECT_REGISTRY.with_object(source, |g| g.test_weapon_set_flag(WeaponSetType::Veteran)).unwrap_or(false),
             "local fallback fires the source Object level-change callback"
         );
 
@@ -1273,17 +1190,14 @@ pub struct RiderChangeContain {
 impl RiderChangeContain {
     /// Create a new RiderChangeContain module
     pub fn new(
-        object: Weak<RwLock<Object>>,
+        object_id: ObjectID,
         module_data: &RiderChangeContainModuleData,
     ) -> GameResult<Self> {
-        let base = TransportContain::new(object.clone(), &module_data.base)?;
+        let base = TransportContain::new(object_id, &module_data.base)?;
 
         Ok(Self {
             base,
-            object_id: object
-                .upgrade()
-                .and_then(|arc| arc.read().ok().map(|g| g.get_id()))
-                .unwrap_or(crate::common::INVALID_ID),
+            object_id: object_id,
             module_data: module_data.clone(),
             scuttled_on_frame: 0,
             extra_slots_in_use: 0,
@@ -1340,32 +1254,33 @@ impl RiderChangeContain {
             return Ok(());
         }
 
-        let rider = crate::helpers::TheGameLogic::find_object_by_id(rider_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(rider_id))
-            .ok_or("Rider object not found")?;
-
-        let Ok(rider_guard) = rider.try_read() else {
-            return Err("Rider-change passenger lock busy".into());
+        let Some(prep) = crate::object::registry::OBJECT_REGISTRY.with_object(rider_id, |rider| {
+            let was_selected = was_selected
+                || rider
+                    .get_drawable()
+                    .and_then(|drawable| drawable.try_read().ok().map(|draw| draw.is_selected()))
+                    .unwrap_or(false);
+            if !self.is_valid_container_for(rider, true) {
+                return Err("Object not valid for this rider change container".into());
+            }
+            let already_listed = self
+                .base
+                .base
+                .get_contained_object_ids()
+                .contains(&rider_id);
+            let contained_by = rider.get_contained_by();
+            if contained_by.is_some() && (already_listed || contained_by != Some(self.object_id)) {
+                return Ok(None);
+            }
+            let should_remove_from_world = self.base.base.is_enclosing_container_for(rider);
+            Ok(Some((was_selected, should_remove_from_world)))
+        }) else {
+            return Err("Rider object not found".into());
         };
-        let was_selected = was_selected
-            || rider_guard
-                .get_drawable()
-                .and_then(|drawable| drawable.try_read().ok().map(|draw| draw.is_selected()))
-                .unwrap_or(false);
-        if !self.is_valid_container_for(&*rider_guard, true) {
-            return Err("Object not valid for this rider change container".into());
-        }
-        let already_listed = self
-            .base
-            .base
-            .get_contained_object_ids()
-            .contains(&rider_id);
-        let contained_by = rider_guard.get_contained_by();
-        if contained_by.is_some() && (already_listed || contained_by != Some(self.object_id)) {
-            return Ok(());
-        }
-        let should_remove_from_world = self.base.base.is_enclosing_container_for(&*rider_guard);
-        drop(rider_guard);
+        let (was_selected, should_remove_from_world) = match prep? {
+            None => return Ok(()),
+            Some(pair) => pair,
+        };
         self.base.add_to_contain_list(rider_id)?;
         if should_remove_from_world {
             let _ = self.base.base.add_or_remove_obj_from_world(rider_id, false);
@@ -1393,11 +1308,9 @@ impl RiderChangeContain {
             return Ok(());
         }
 
-        let Some(rider) = crate::helpers::TheGameLogic::find_object_by_id(rider_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(rider_id))
-        else {
+        if !crate::object::registry::OBJECT_REGISTRY.contains(rider_id) {
             return Ok(());
-        };
+        }
 
         if !self
             .base
@@ -1411,34 +1324,30 @@ impl RiderChangeContain {
         let Some(stealth_garrison) = self.base.base.remove_from_contain_list(rider_id) else {
             return Err("Rider-change passenger lock busy".into());
         };
-        let should_add_to_world = rider
-            .try_read()
-            .map(|rider_guard| self.base.base.is_enclosing_container_for(&*rider_guard))
+        let should_add_to_world = crate::object::registry::OBJECT_REGISTRY
+            .with_object(rider_id, |rider| self.base.base.is_enclosing_container_for(rider))
             .unwrap_or(false);
         if should_add_to_world {
             let _ = self.base.base.add_or_remove_obj_from_world(rider_id, true);
-            if let Some(owner) = (if self.object_id == crate::common::INVALID_ID {
-                None
-            } else {
-                crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                    .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-            }) {
-                if let (Ok(owner_guard), Ok(mut rider_guard)) =
-                    (owner.try_read(), rider.try_write())
+            if self.object_id != crate::common::INVALID_ID {
+                if let Some((pos, layer)) = crate::object::registry::OBJECT_REGISTRY
+                    .with_object(self.object_id, |owner| (*owner.get_position(), owner.get_layer()))
                 {
-                    let _ = rider_guard.set_position(owner_guard.get_position());
-                    rider_guard.set_layer(owner_guard.get_layer());
+                    let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(rider_id, |rider| {
+                        let _ = rider.set_position(&pos);
+                        rider.set_layer(layer);
+                    });
                 }
             }
         }
         if expose_stealth_units {
-            if let Ok(rider_guard) = rider.try_read() {
-                if let Some(stealth) = rider_guard.get_stealth() {
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object(rider_id, |rider| {
+                if let Some(stealth) = rider.get_stealth() {
                     if let Ok(mut stealth_guard) = stealth.try_lock() {
                         stealth_guard.mark_as_detected();
                     }
                 }
-            }
+            });
         }
         self.base.base.do_unload_sound();
         if let Err(err) = self.on_removing(rider_id) {
@@ -1471,11 +1380,9 @@ impl RiderChangeContain {
             return Ok(());
         }
 
-        let Some(rider) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
-        else {
+        if !crate::object::registry::OBJECT_REGISTRY.contains(obj_id) {
             return Ok(());
-        };
+        }
 
         self.containing = true;
 
@@ -1493,21 +1400,15 @@ impl RiderChangeContain {
 
         self.transfer_selection_to_owner_on_entry(was_selected);
 
-        let rider_template = rider
-            .read()
-            .map_err(|_| "Rider lock poisoned")?
-            .get_template()
-            .clone();
+        let Some(rider_template) =
+            crate::object::registry::OBJECT_REGISTRY.with_object(obj_id, |rider| rider.get_template().clone())
+        else {
+            self.containing = false;
+            return Err("Rider lock poisoned".into());
+        };
 
-        let owner_arc = (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-        });
-
-        if let Some(owner) = owner_arc.as_ref() {
-            if let Ok(mut owner_guard) = owner.write() {
+        if self.object_id != crate::common::INVALID_ID {
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(self.object_id, |owner_guard| {
                 for rider_info in &self.module_data.riders {
                     if rider_info_matches_template(rider_info, rider_template.as_ref()) {
                         owner_guard.set_model_condition_state(rider_info.model_condition_flag);
@@ -1516,10 +1417,9 @@ impl RiderChangeContain {
                         owner_guard.set_command_set_string_override(&rider_info.command_set);
 
                         if let Some(ai) = owner_guard.get_ai() {
-                            let _ = ai
-                                .lock()
-                                .map_err(|_| "AI lock poisoned")?
-                                .choose_locomotor_set(rider_info.locomotor_set);
+                            if let Ok(mut ai_guard) = ai.lock() {
+                                let _ = ai_guard.choose_locomotor_set(rider_info.locomotor_set);
+                            }
                         }
 
                         if owner_guard.test_status(ObjectStatusTypes::Stealthed) {
@@ -1533,42 +1433,37 @@ impl RiderChangeContain {
                         break;
                     }
                 }
-            }
+            });
         }
 
         // C++ RiderChangeContain.cpp:228-230 — rider mounts: bike takes the
         // rider's veterancy (feedback off), rider resets to Regular.
-        if let Some(owner_arc) = owner_arc.as_ref() {
-            transfer_veterancy(&rider, owner_arc);
+        if self.object_id != crate::common::INVALID_ID {
+            transfer_veterancy(obj_id, self.object_id);
         }
-        self.base
-            .on_containing(rider.read().map(|g| g.get_id()).unwrap_or(0), was_selected)?;
+        self.base.on_containing(obj_id, was_selected)?;
         self.containing = false;
         Ok(())
     }
+
     fn evacuate_existing_payload_via_owner_ai(&self) {
         // Wave 277: empty dual-world → no factory object walks.
         if dual_world_registry_unavailable() {
             return;
         }
 
-        let Some(owner) = (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        if self.object_id == crate::common::INVALID_ID {
+            return;
+        }
+        let Some(ai) = crate::object::registry::OBJECT_REGISTRY.with_object(self.object_id, |owner| {
+            owner.get_ai_update_interface()
         }) else {
             return;
         };
-        let ai = owner
-            .read()
-            .ok()
-            .and_then(|owner_guard| owner_guard.get_ai_update_interface());
         let Some(ai) = ai else {
             return;
         };
-        let lock_result = ai.lock();
-        if let Ok(mut ai_guard) = lock_result {
+        if let Ok(mut ai_guard) = ai.lock() {
             let mut params =
                 AiCommandParams::new(AiCommandType::EvacuateInstantly, CommandSourceType::FromAi);
             params.int_value = 1;
@@ -1586,21 +1481,13 @@ impl RiderChangeContain {
             return;
         }
 
-        let Some(owner) = (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-        }) else {
+        if self.object_id == crate::common::INVALID_ID {
             return;
-        };
+        }
 
-        let (owner_id, owner_drawable) = {
-            let Ok(owner_guard) = owner.read() else {
-                return;
-            };
+        let Some(packed) = crate::object::registry::OBJECT_REGISTRY.with_object(self.object_id, |owner_guard| {
             let Some(drawable) = owner_guard.get_drawable() else {
-                return;
+                return None;
             };
             let already_selected = drawable
                 .read()
@@ -1608,9 +1495,14 @@ impl RiderChangeContain {
                 .map(|drawable_guard| drawable_guard.is_selected())
                 .unwrap_or(false);
             if already_selected {
-                return;
+                return None;
             }
-            (owner_guard.get_id(), drawable)
+            Some((owner_guard.get_id(), drawable))
+        }) else {
+            return;
+        };
+        let Some((owner_id, owner_drawable)) = packed else {
+            return;
         };
 
         let mut team_msg = TheMessageStream::append_message(MSG_CREATE_SELECTED_GROUP);
@@ -1628,19 +1520,11 @@ impl RiderChangeContain {
             return;
         }
 
-        let Some(rider) = crate::helpers::TheGameLogic::find_object_by_id(rider_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(rider_id))
-        else {
+        if self.object_id == crate::common::INVALID_ID
+            || !crate::object::registry::OBJECT_REGISTRY.contains(rider_id)
+        {
             return;
-        };
-        let Some(owner) = (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-        }) else {
-            return;
-        };
+        }
 
         let local_player_index = crate::player::ThePlayerList()
             .read()
@@ -1651,15 +1535,12 @@ impl RiderChangeContain {
             return;
         }
 
-        let (owner_id, owner_drawable) = {
-            let Ok(owner_guard) = owner.read() else {
-                return;
-            };
+        let Some(owner_pack) = crate::object::registry::OBJECT_REGISTRY.with_object(self.object_id, |owner_guard| {
             if owner_guard.get_controlling_player_id() != Some(local_player_index as u32) {
-                return;
+                return None;
             }
             let Some(drawable) = owner_guard.get_drawable() else {
-                return;
+                return None;
             };
             let selected = drawable
                 .read()
@@ -1667,24 +1548,30 @@ impl RiderChangeContain {
                 .map(|drawable_guard| drawable_guard.is_selected())
                 .unwrap_or(false);
             if !selected {
-                return;
+                return None;
             }
-            (owner_guard.get_id(), drawable)
+            Some((owner_guard.get_id(), drawable))
+        }) else {
+            return;
+        };
+        let Some((owner_id, owner_drawable)) = owner_pack else {
+            return;
         };
 
-        let (rider_id, rider_drawable) = {
-            let Ok(rider_guard) = rider.read() else {
-                return;
-            };
-            let Some(drawable) = rider_guard.get_drawable() else {
-                return;
-            };
-            (rider_guard.get_id(), drawable)
+        let Some(rider_pack) = crate::object::registry::OBJECT_REGISTRY.with_object(rider_id, |rider_guard| {
+            rider_guard
+                .get_drawable()
+                .map(|drawable| (rider_guard.get_id(), drawable))
+        }) else {
+            return;
+        };
+        let Some((selected_rider_id, rider_drawable)) = rider_pack else {
+            return;
         };
 
         let mut team_msg = TheMessageStream::append_message(MSG_CREATE_SELECTED_GROUP);
         team_msg.append_boolean_argument(false);
-        team_msg.append_object_id_argument(rider_id);
+        team_msg.append_object_id_argument(selected_rider_id);
         drop(team_msg);
 
         TheInGameUI::select_drawable(&rider_drawable);
@@ -1703,24 +1590,13 @@ impl RiderChangeContain {
             return false;
         }
 
-        let Some(rider) = crate::helpers::TheGameLogic::find_object_by_id(rider_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(rider_id))
-        else {
-            return false;
-        };
-        let owner_has_drawable = (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-        })
-        .and_then(|owner| owner.read().ok()?.get_drawable())
-        .is_some();
-        let rider_has_drawable = rider
-            .read()
-            .ok()
-            .and_then(|rider_guard| rider_guard.get_drawable())
-            .is_some();
+        let owner_has_drawable = self.object_id != crate::common::INVALID_ID
+            && crate::object::registry::OBJECT_REGISTRY
+                .with_object(self.object_id, |owner| owner.get_drawable().is_some())
+                .unwrap_or(false);
+        let rider_has_drawable = crate::object::registry::OBJECT_REGISTRY
+            .with_object(rider_id, |rider| rider.get_drawable().is_some())
+            .unwrap_or(false);
         owner_has_drawable && rider_has_drawable
     }
 
@@ -1730,112 +1606,98 @@ impl RiderChangeContain {
             return Ok(());
         }
 
-        let Some(rider) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
-        else {
+        if !crate::object::registry::OBJECT_REGISTRY.contains(obj_id) {
             return Ok(());
-        };
+        }
 
-        if let Some(owner) = (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-        }) {
-            if let Ok(owner_guard) = owner.read() {
-                if owner_guard.is_effectively_dead() {
-                    let rider_guard = rider.read().map_err(|_| "Rider lock poisoned")?;
-                    let _ = TheGameLogic::destroy_object(&*rider_guard);
-                    return Ok(());
-                }
+        if self.object_id != crate::common::INVALID_ID {
+            let dead = crate::object::registry::OBJECT_REGISTRY
+                .with_object(self.object_id, |owner| owner.is_effectively_dead())
+                .unwrap_or(false);
+            if dead {
+                let _ = crate::object::registry::OBJECT_REGISTRY.with_object(obj_id, |rider| {
+                    let _ = TheGameLogic::destroy_object(rider);
+                });
+                return Ok(());
             }
         }
 
         if self.base.is_payload_created() {
-            self.base
-                .on_removing(rider.read().map(|g| g.get_id()).unwrap_or(0))?;
+            self.base.on_removing(obj_id)?;
         } else {
-            self.base
-                .base
-                .on_removing(rider.read().map(|g| g.get_id()).unwrap_or(0))?;
+            self.base.base.on_removing(obj_id)?;
         }
 
-        let rider_template = rider
-            .read()
-            .map_err(|_| "Rider lock poisoned")?
-            .get_template()
-            .clone();
-        let owner_arc = (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-        });
+        let Some(rider_template) = crate::object::registry::OBJECT_REGISTRY
+            .with_object(obj_id, |rider| rider.get_template().clone())
+        else {
+            return Err("Rider lock poisoned".into());
+        };
         let mut transfer_to_rider = false;
 
-        if let Some(owner) = (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-        }) {
-            if let Ok(mut owner_guard) = owner.write() {
-                for rider_info in &self.module_data.riders {
-                    if rider_info_matches_template(rider_info, rider_template.as_ref()) {
-                        let _ = owner_guard.clear_model_condition_flags(
-                            rider_info.model_condition_flag | ModelConditionFlags::DOOR_1_CLOSING,
-                        );
-                        owner_guard.clear_weapon_set_flag(rider_info.weapon_set_flag);
-                        owner_guard.set_status(rider_info.object_status, false);
-                        transfer_to_rider = true;
-
-                        break;
+        if self.object_id != crate::common::INVALID_ID {
+            if let Some(matched) = crate::object::registry::OBJECT_REGISTRY.with_object_mut(
+                self.object_id,
+                |owner_guard| {
+                    let mut matched = false;
+                    for rider_info in &self.module_data.riders {
+                        if rider_info_matches_template(rider_info, rider_template.as_ref()) {
+                            let _ = owner_guard.clear_model_condition_flags(
+                                rider_info.model_condition_flag
+                                    | ModelConditionFlags::DOOR_1_CLOSING,
+                            );
+                            owner_guard.clear_weapon_set_flag(rider_info.weapon_set_flag);
+                            owner_guard.set_status(rider_info.object_status, false);
+                            matched = true;
+                            break;
+                        }
                     }
-                }
+                    matched
+                },
+            ) {
+                transfer_to_rider = matched;
             }
         }
 
         if !self.containing && self.has_exit_scuttle_drawables(obj_id) {
             self.transfer_selection_to_rider_on_exit(obj_id);
-            if let Some(owner) = (if self.object_id == crate::common::INVALID_ID {
-                None
-            } else {
-                crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                    .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-            }) {
-                if let Ok(mut owner_guard) = owner.write() {
-                    self.scuttled_on_frame = TheGameLogic::get_frame();
-                    owner_guard.set_status(
-                        ObjectStatusMaskType::from_status(ObjectStatusTypes::Unselectable),
-                        true,
-                    );
-                    owner_guard.set_model_condition_state(self.module_data.scuttle_state);
+            if self.object_id != crate::common::INVALID_ID {
+                let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(
+                    self.object_id,
+                    |owner_guard| {
+                        self.scuttled_on_frame = TheGameLogic::get_frame();
+                        owner_guard.set_status(
+                            ObjectStatusMaskType::from_status(ObjectStatusTypes::Unselectable),
+                            true,
+                        );
+                        owner_guard.set_model_condition_state(self.module_data.scuttle_state);
 
-                    if let Some(ai) = owner_guard.get_ai() {
-                        if let Ok(ai_guard) = ai.lock() {
-                            if !ai_guard.is_moving() {
-                                owner_guard.set_status(
-                                    ObjectStatusMaskType::from_status(ObjectStatusTypes::Immobile),
-                                    true,
-                                );
+                        if let Some(ai) = owner_guard.get_ai() {
+                            if let Ok(ai_guard) = ai.lock() {
+                                if !ai_guard.is_moving() {
+                                    owner_guard.set_status(
+                                        ObjectStatusMaskType::from_status(ObjectStatusTypes::Immobile),
+                                        true,
+                                    );
+                                }
                             }
                         }
-                    }
-                }
+                    },
+                );
             }
         }
 
-        let rider_has_controlling_player = rider
-            .read()
-            .map(|rider_guard| rider_guard.get_controlling_player().is_some())
+        let rider_has_controlling_player = crate::object::registry::OBJECT_REGISTRY
+            .with_object(obj_id, |rider| rider.get_controlling_player().is_some())
             .unwrap_or(false);
 
-        if transfer_to_rider && rider_has_controlling_player {
-            if let Some(owner_arc) = owner_arc.as_ref() {
-                // C++ RiderChangeContain.cpp:283-286 — rider dismounts: the rider
-                // takes the bike's veterancy (feedback off), bike resets to Regular.
-                transfer_veterancy(owner_arc, &rider);
-            }
+        if transfer_to_rider
+            && rider_has_controlling_player
+            && self.object_id != crate::common::INVALID_ID
+        {
+            // C++ RiderChangeContain.cpp:283-286 — rider dismounts: the rider
+            // takes the bike's veterancy (feedback off), bike resets to Regular.
+            transfer_veterancy(self.object_id, obj_id);
         }
 
         Ok(())
@@ -1850,16 +1712,14 @@ impl RiderChangeContain {
         if self.scuttled_on_frame != 0 {
             let now = TheGameLogic::get_frame();
             if self.scuttled_on_frame + self.module_data.scuttle_frames <= now {
-                if let Some(owner) = (if self.object_id == crate::common::INVALID_ID {
-                    None
-                } else {
-                    crate::helpers::TheGameLogic::find_object_by_id(self.object_id).or_else(|| {
-                        crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id)
-                    })
-                }) {
-                    if let Ok(mut owner_guard) = owner.try_write() {
-                        owner_guard.kill(Some(DamageType::Unresistable), Some(DeathType::Toppled));
-                    } else {
+                if self.object_id != crate::common::INVALID_ID {
+                    let killed = crate::object::registry::OBJECT_REGISTRY.with_object_mut(
+                        self.object_id,
+                        |owner| {
+                            owner.kill(Some(DamageType::Unresistable), Some(DeathType::Toppled));
+                        },
+                    );
+                    if killed.is_none() {
                         log::warn!("RiderChangeContain::update scuttle lock busy");
                     }
                 }
@@ -1880,8 +1740,8 @@ impl RiderChangeContain {
     pub fn on_capture(
         &mut self,
         owner: &Object,
-        old_owner: Option<&Arc<RwLock<crate::player::Player>>>,
-        new_owner: Option<&Arc<RwLock<crate::player::Player>>>,
+        old_owner: Option<PlayerIndex>,
+        new_owner: Option<PlayerIndex>,
     ) -> GameResult<()> {
         self.base.on_capture(owner, old_owner, new_owner)
     }
@@ -1928,12 +1788,9 @@ impl Snapshotable for RiderChangeContain {
 
 impl ContainModuleInterface for RiderChangeContain {
     fn can_contain(&self, object_id: ObjectID) -> bool {
-        if let Some(obj) = TheGameLogic::find_object_by_id(object_id) {
-            if let Ok(obj_guard) = obj.read() {
-                return self.is_valid_container_for(&*obj_guard, true);
-            }
-        }
-        false
+        crate::object::registry::OBJECT_REGISTRY
+            .with_object(object_id, |obj| self.is_valid_container_for(obj, true))
+            .unwrap_or(false)
     }
 
     fn contain_object(&mut self, object_id: ObjectID) -> Result<(), String> {
@@ -2023,15 +1880,11 @@ impl ContainModuleInterface for RiderChangeContain {
         if !self.base.base.collide_enter_eject_foreign(other_id)? {
             return Ok(());
         }
-        let Some(other) = TheGameLogic::find_object_by_id(other_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(other_id))
-        else {
+        let Some(valid) = crate::object::registry::OBJECT_REGISTRY.with_object(other_id, |other| {
+            ContainModuleInterface::is_valid_container_for(self, other, true)
+        }) else {
             return Ok(());
         };
-        let valid = other
-            .try_read()
-            .map(|guard| ContainModuleInterface::is_valid_container_for(self, &*guard, true))
-            .unwrap_or(false);
         if valid {
             self.add_to_contain(other_id, false)?;
         }
@@ -2070,8 +1923,8 @@ impl ContainModuleInterface for RiderChangeContain {
     fn on_capture(
         &mut self,
         owner: &Object,
-        old_owner: Option<&Arc<RwLock<crate::player::Player>>>,
-        new_owner: Option<&Arc<RwLock<crate::player::Player>>>,
+        old_owner: Option<PlayerIndex>,
+        new_owner: Option<PlayerIndex>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         RiderChangeContain::on_capture(self, owner, old_owner, new_owner).map_err(|e| e.into())
     }

@@ -1012,8 +1012,8 @@ impl<'a> BehaviorUtilityModuleKindMut<'a> {
 
     fn notify_capture(
         self,
-        old_owner: Option<&Arc<RwLock<Player>>>,
-        new_owner: Option<&Arc<RwLock<Player>>>,
+        old_owner: Option<PlayerIndex>,
+        new_owner: Option<PlayerIndex>,
     ) {
         match self {
             Self::Overcharge(module) => module.behavior_mut().on_capture(old_owner, new_owner),
@@ -1707,15 +1707,6 @@ impl ExitInterface for ModuleExitInterfaceProxy {
     }
 }
 
-impl ObjectLockExt for Arc<RwLock<Object>> {
-    fn lock(&self) -> std::sync::LockResult<std::sync::RwLockWriteGuard<'_, Object>> {
-        self.write()
-    }
-
-    fn try_lock(&self) -> std::sync::TryLockResult<std::sync::RwLockWriteGuard<'_, Object>> {
-        self.try_write()
-    }
-}
 
 #[cfg(test)]
 use crate::object::body::active_body::{ActiveBody, ActiveBodyModuleData};

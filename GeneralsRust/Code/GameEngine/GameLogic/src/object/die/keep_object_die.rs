@@ -23,9 +23,9 @@ pub struct KeepObjectDie {
 
 impl KeepObjectDie {
     /// Create a new KeepObjectDie module
-    pub fn new(object: Arc<RwLock<Object>>, module_data: Arc<DieModuleData>) -> Self {
+    pub fn new(object_id: ObjectID, module_data: Arc<DieModuleData>) -> Self {
         Self {
-            base: DieModule::new(object, module_data),
+            base: DieModule::new(object_id, module_data),
         }
     }
 

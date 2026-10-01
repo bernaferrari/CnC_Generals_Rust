@@ -424,12 +424,26 @@ impl Player {
         self.list_in_score_screen = value;
     }
 
+    /// Apply deposit/earn side effects that could not touch academy or score
+    /// while only `&mut PlayerMoney` was borrowed.
+    pub fn flush_money_side_effects(&mut self) {
+        let income = self.money.take_pending_income();
+        if income > 0 {
+            self.academy_stats.record_income(income);
+        }
+        let earned = self.money.take_pending_earned();
+        if earned > 0 {
+            self.score_keeper.add_money_earned(earned);
+        }
+    }
+
     /// Score keeping
     pub fn get_score_keeper(&self) -> &ScoreKeeper {
         &self.score_keeper
     }
 
     pub fn get_score_keeper_mut(&mut self) -> &mut ScoreKeeper {
+        self.flush_money_side_effects();
         &mut self.score_keeper
     }
 
@@ -484,6 +498,7 @@ impl Player {
     }
 
     pub fn get_academy_stats_mut(&mut self) -> &mut AcademyStats {
+        self.flush_money_side_effects();
         &mut self.academy_stats
     }
 

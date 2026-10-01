@@ -1,12 +1,11 @@
 //! ID-first special-power owner resolution.
 //!
-//! Prefer `resolve_special_power_owner_id` and only materialize an Arc for the
-//! duration of a call site that still needs a handle.
+//! Call sites use `with_special_power_owner` so the registry checkout
+//! never escapes as an `Arc`.
 
 use crate::common::types::{INVALID_ID, Int, ObjectID};
 use crate::object::registry::OBJECT_REGISTRY;
 use crate::player::player_list;
-use std::sync::{Arc, RwLock};
 
 /// Wave 433: host-only path has no dual-world factory objects.
 #[inline]
@@ -25,7 +24,7 @@ pub fn resolve_special_power_owner_id(
     }
 
     if owner_object_id != INVALID_ID {
-        if OBJECT_REGISTRY.get_object(owner_object_id).is_some() {
+        if OBJECT_REGISTRY.with_object(owner_object_id, |_| ()).is_some() {
             return Some(owner_object_id);
         }
     }
@@ -38,23 +37,35 @@ pub fn resolve_special_power_owner_id(
     drop(player_guard);
 
     for object_id in owned {
-        if OBJECT_REGISTRY.get_object(object_id).is_some() {
+        if OBJECT_REGISTRY.with_object(object_id, |_| ()).is_some() {
             return Some(object_id);
         }
     }
     None
 }
 
-/// Legacy Arc handle helper. Prefer `resolve_special_power_owner_id` + `with_object`.
-pub fn resolve_special_power_owner(
+/// Run `f` against the resolved owning object. Wave 433: empty dual-world → None.
+pub fn with_special_power_owner<R>(
     owner_object_id: ObjectID,
     owner_player_id: Option<ObjectID>,
-) -> Option<Arc<RwLock<crate::object::Object>>> {
-    // Wave 433: empty dual-world → None.
+    f: impl FnOnce(&crate::object::Object) -> R,
+) -> Option<R> {
     if dual_world_registry_unavailable() {
         return None;
     }
+    let id = resolve_special_power_owner_id(owner_object_id, owner_player_id)?;
+    OBJECT_REGISTRY.with_object(id, f)
+}
 
-    resolve_special_power_owner_id(owner_object_id, owner_player_id)
-        .and_then(|id| OBJECT_REGISTRY.get_object(id))
+/// Mutable checkout of the resolved owning object.
+pub fn with_special_power_owner_mut<R>(
+    owner_object_id: ObjectID,
+    owner_player_id: Option<ObjectID>,
+    f: impl FnOnce(&mut crate::object::Object) -> R,
+) -> Option<R> {
+    if dual_world_registry_unavailable() {
+        return None;
+    }
+    let id = resolve_special_power_owner_id(owner_object_id, owner_player_id)?;
+    OBJECT_REGISTRY.with_object_mut(id, f)
 }

@@ -270,14 +270,9 @@ impl WorkerAIUpdate {
         if self.object_id == INVALID_ID {
             return;
         }
-        let Some(owner) = TheGameLogic::find_object_by_id(self.object_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-        else {
-            return;
-        };
-        if let Ok(mut owner_guard) = owner.write() {
+        crate::object::registry::OBJECT_REGISTRY.with_object_mut(self.object_id, |owner_guard| {
             owner_guard.set_weapon_set_flag(crate::weapon::WeaponSetType::MineClearingDetail);
-        }
+        });
     }
 
     /// Update the worker: dozer machine or supply-truck harvest machine.
@@ -414,78 +409,67 @@ impl WorkerAIUpdate {
     }
 
     fn bridge_scaffold_blocks_heal(tower_id: ObjectID) -> bool {
-        let Some(tower_obj) = TheGameLogic::find_object_by_id(tower_id) else {
-            return false;
-        };
-        let bridge_id = {
-            let Ok(mut tower_guard) = tower_obj.write() else {
-                return false;
-            };
-            let mut id = INVALID_ID;
-            for behavior in tower_guard.get_behavior_modules_mut() {
-                if let Some(tower) = behavior.get_bridge_tower_behavior_interface() {
-                    id = tower.get_bridge_id();
-                    break;
+        let bridge_id = crate::object::registry::OBJECT_REGISTRY
+            .with_object_mut(tower_id, |tower_guard| {
+                let mut id = INVALID_ID;
+                for behavior in tower_guard.get_behavior_modules_mut() {
+                    if let Some(tower) = behavior.get_bridge_tower_behavior_interface() {
+                        id = tower.get_bridge_id();
+                        break;
+                    }
                 }
-            }
-            id
-        };
+                id
+            })
+            .unwrap_or(INVALID_ID);
         if bridge_id == INVALID_ID {
             return false;
         }
-        let Some(bridge_obj) = TheGameLogic::find_object_by_id(bridge_id) else {
-            return false;
-        };
-        let Ok(mut bridge_guard) = bridge_obj.write() else {
-            return false;
-        };
-        for behavior in bridge_guard.get_behavior_modules_mut() {
-            if let Some(bridge) = behavior.get_bridge_behavior_interface() {
-                bridge.create_scaffolding();
-                return bridge.is_scaffold_in_motion();
-            }
-        }
-        false
+        crate::object::registry::OBJECT_REGISTRY
+            .with_object_mut(bridge_id, |bridge_guard| {
+                for behavior in bridge_guard.get_behavior_modules_mut() {
+                    if let Some(bridge) = behavior.get_bridge_behavior_interface() {
+                        bridge.create_scaffolding();
+                        return bridge.is_scaffold_in_motion();
+                    }
+                }
+                false
+            })
+            .unwrap_or(false)
     }
 
     fn remove_bridge_scaffolding(bridge_tower_id: ObjectID) {
-        let Some(tower_obj) = TheGameLogic::find_object_by_id(bridge_tower_id) else {
+        let bridge_id = crate::object::registry::OBJECT_REGISTRY.with_object_mut(
+            bridge_tower_id,
+            |tower_guard| {
+                for behavior in tower_guard.get_behavior_modules_mut() {
+                    let Some(tower) = behavior.get_bridge_tower_behavior_interface() else {
+                        continue;
+                    };
+                    let id = tower.get_bridge_id();
+                    if id != INVALID_ID {
+                        return Some(id);
+                    }
+                }
+                None
+            },
+        );
+        let Some(bridge_id) = bridge_id.flatten().filter(|id| *id != INVALID_ID) else {
             return;
         };
-        let Ok(mut tower_guard) = tower_obj.write() else {
-            return;
-        };
-        let mut bridge_id: Option<ObjectID> = None;
-        for behavior in tower_guard.get_behavior_modules_mut() {
-            let Some(tower) = behavior.get_bridge_tower_behavior_interface() else {
-                continue;
-            };
-            bridge_id = Some(tower.get_bridge_id());
-            if bridge_id.is_some() {
+        crate::object::registry::OBJECT_REGISTRY.with_object_mut(bridge_id, |bridge_guard| {
+            for behavior in bridge_guard.get_behavior_modules_mut() {
+                let Some(bridge) = behavior.get_bridge_behavior_interface() else {
+                    continue;
+                };
+                if let Err(err) = bridge.try_remove_scaffolding() {
+                    log::debug!(
+                        "WorkerAIUpdate::remove_bridge_scaffolding failed for bridge {}: {}",
+                        bridge_id, err
+                    );
+                }
                 break;
             }
-        }
-        let Some(bridge_id) = bridge_id else {
-            return;
-        };
-        let Some(bridge_obj) = TheGameLogic::find_object_by_id(bridge_id) else {
-            return;
-        };
-        let Ok(mut bridge_guard) = bridge_obj.write() else {
-            return;
-        };
-        for behavior in bridge_guard.get_behavior_modules_mut() {
-            let Some(bridge) = behavior.get_bridge_behavior_interface() else {
-                continue;
-            };
-            if let Err(err) = bridge.try_remove_scaffolding() {
-                log::debug!(
-                    "WorkerAIUpdate::remove_bridge_scaffolding failed for bridge {}: {}",
-                    bridge_id, err
-                );
-            }
-            break;
-        }
+        });
     }
 
 
@@ -498,28 +482,30 @@ impl WorkerAIUpdate {
         if self.object_id == INVALID_ID {
             return;
         }
-        let Some(owner) = TheGameLogic::find_object_by_id(self.object_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-        else {
-            return;
-        };
-        let Some(target) = TheGameLogic::find_object_by_id(target_id) else {
-            return;
-        };
-        let (Ok(owner_guard), Ok(target_guard)) = (owner.read(), target.read()) else {
+        let ready = crate::object::registry::OBJECT_REGISTRY.with_object(self.object_id, |owner_guard| {
+            crate::object::registry::OBJECT_REGISTRY.with_object(target_id, |target_guard| {
+                if task == WorkerDozerTaskSlot::Build || task == WorkerDozerTaskSlot::Repair {
+                    Some(self.find_action_position_for_target(owner_guard, target_guard))
+                } else {
+                    None
+                }
+            })
+        });
+        let Some(ready) = ready.flatten() else {
             return;
         };
 
         self.preferred_dock = None;
 
-        if task == WorkerDozerTaskSlot::Build || task == WorkerDozerTaskSlot::Repair {
-            let pos = self.find_action_position_for_target(&owner_guard, &target_guard);
+        if let Some(pos) = ready {
             self.set_dock_points_for_task(task, pos);
         }
         if task == WorkerDozerTaskSlot::Build {
-            if let Ok(mut target_write) = target.write() {
-                target_write.set_builder(Some(&owner_guard));
-            }
+            crate::object::registry::OBJECT_REGISTRY.with_object(self.object_id, |owner_guard| {
+                crate::object::registry::OBJECT_REGISTRY.with_object_mut(target_id, |target_write| {
+                    target_write.set_builder(Some(owner_guard));
+                });
+            });
         }
 
         self.dozer_tasks[task.as_index()].target_id = target_id;
@@ -584,23 +570,16 @@ impl WorkerAIUpdate {
         if self.object_id == INVALID_ID {
             return;
         }
-        let Some(owner) = TheGameLogic::find_object_by_id(self.object_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-        else {
-            return;
-        };
-        let Some(target) = TheGameLogic::find_object_by_id(target_id) else {
-            return;
-        };
-        let (Ok(owner_guard), Ok(target_guard)) = (owner.read(), target.read()) else {
-            return;
-        };
-        if !ActionManager::can_repair_object(&*owner_guard, &*target_guard, cmd_source) {
-            return;
-        }
-        // C++ WorkerAIUpdate::privateRepair — sole healer, not builder_id.
-        let sole = target_guard.get_sole_healing_benefactor();
-        if sole != INVALID_ID && sole != self.object_id {
+        let allowed = crate::object::registry::OBJECT_REGISTRY.with_object(self.object_id, |owner_guard| {
+            crate::object::registry::OBJECT_REGISTRY.with_object(target_id, |target_guard| {
+                if !ActionManager::can_repair_object(owner_guard, target_guard, cmd_source) {
+                    return false;
+                }
+                let sole = target_guard.get_sole_healing_benefactor();
+                sole == INVALID_ID || sole == self.object_id
+            })
+        });
+        if allowed.flatten() != Some(true) {
             return;
         }
 
@@ -632,26 +611,23 @@ impl WorkerAIUpdate {
         if self.object_id == INVALID_ID {
             return;
         }
-        let Some(owner) = TheGameLogic::find_object_by_id(self.object_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-        else {
+        let stats = crate::object::registry::OBJECT_REGISTRY.with_object(self.object_id, |owner_guard| {
+            crate::object::registry::OBJECT_REGISTRY.with_object(target_id, |target_guard| {
+                if !ActionManager::can_resume_construction_of(owner_guard, target_guard, cmd_source)
+                {
+                    return None;
+                }
+                let frames = target_guard.get_template().calc_time_to_build(None).max(1) as u32;
+                let max_health = target_guard
+                    .get_body_module()
+                    .map(|b| b.get_max_health())
+                    .unwrap_or(0.0);
+                Some((frames, max_health))
+            })
+        });
+        let Some(Some((frames, max_health))) = stats else {
             return;
         };
-        let Some(target) = TheGameLogic::find_object_by_id(target_id) else {
-            return;
-        };
-        let (Ok(owner_guard), Ok(target_guard)) = (owner.read(), target.read()) else {
-            return;
-        };
-        if !ActionManager::can_resume_construction_of(&*owner_guard, &*target_guard, cmd_source) {
-            return;
-        }
-        // C++ resume is DOZER_TASK_BUILD: percent += 100/frames, heal max/frames.
-        let frames = target_guard.get_template().calc_time_to_build(None).max(1) as u32;
-        let max_health = target_guard
-            .get_body_module()
-            .map(|b| b.get_max_health())
-            .unwrap_or(0.0);
 
         self.new_task(WorkerDozerTaskSlot::Build, target_id);
         self.dozer_task = Some(WorkerDozerTask {
@@ -707,41 +683,50 @@ impl WorkerAIUpdate {
             clear_current(self);
             return;
         }
-        let Some(owner) = TheGameLogic::find_object_by_id(self.object_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+        let owner_id = self.object_id;
+        if crate::object::registry::OBJECT_REGISTRY
+            .with_object(owner_id, |_| ())
+            .is_none()
+        {
+            self.dozer_task = None;
+            clear_current(self);
+            return;
+        }
+        let Some(task) = self.dozer_task.as_mut() else {
+            return;
+        };
+        let target_id = task.target_id;
+        let snapshot = crate::object::registry::OBJECT_REGISTRY.with_object(owner_id, |owner_guard| {
+            crate::object::registry::OBJECT_REGISTRY.with_object(target_id, |target_guard| {
+                let owner_pos = *owner_guard.get_position();
+                let target_pos = *target_guard.get_position();
+                Some((
+                    Coord3D::new(owner_pos.x, owner_pos.y, owner_pos.z),
+                    owner_guard.is_using_airborne_locomotor(),
+                    owner_guard.get_ai_update_interface().is_some(),
+                    Coord3D::new(target_pos.x, target_pos.y, target_pos.z),
+                    target_guard.get_geometry_info().get_bounding_sphere_radius(),
+                    target_guard.get_builder_id(),
+                    target_guard.get_sole_healing_benefactor(),
+                    target_guard.is_kind_of(KindOf::BridgeTower),
+                ))
+            })
+        });
+        let Some(Some((
+            owner_pos_local,
+            owner_airborne,
+            owner_has_ai,
+            target_pos_local,
+            target_radius,
+            target_builder_id,
+            target_sole,
+            target_is_bridge_tower,
+        ))) = snapshot
         else {
             self.dozer_task = None;
             clear_current(self);
             return;
         };
-        let Some(task) = self.dozer_task.as_mut() else {
-            return;
-        };
-        let Some(target) = TheGameLogic::find_object_by_id(task.target_id) else {
-            self.dozer_task = None;
-            clear_current(self);
-            return;
-        };
-        let (Ok(owner_guard), Ok(target_guard)) = (owner.read(), target.read()) else {
-            return;
-        };
-        let owner_pos = *owner_guard.get_position();
-        let owner_pos_local = Coord3D::new(owner_pos.x, owner_pos.y, owner_pos.z);
-        let owner_airborne = owner_guard.is_using_airborne_locomotor();
-        let owner_has_ai = owner_guard.get_ai_update_interface().is_some();
-        // Drop the read guard: the MoveToActionPos branch below needs the
-        // write lock to steer the owner's AI module.
-        drop(owner_guard);
-
-        let target_pos = *target_guard.get_position();
-        let target_pos_local = Coord3D::new(target_pos.x, target_pos.y, target_pos.z);
-        let target_radius = target_guard
-            .get_geometry_info()
-            .get_bounding_sphere_radius();
-        let target_builder_id = target_guard.get_builder_id();
-        let target_sole = target_guard.get_sole_healing_benefactor();
-        let target_is_bridge_tower = target_guard.is_kind_of(KindOf::BridgeTower);
-        drop(target_guard);
 
         // Determine action position if needed.
         if task.dock_point.is_none()
@@ -798,18 +783,23 @@ impl WorkerAIUpdate {
                 if dist_sq <= MIN_ACTION_TOLERANCE * MIN_ACTION_TOLERANCE {
                     self.dozer_action_state = WorkerDozerActionState::DoAction;
                 } else if owner_has_ai {
-                    let Ok(mut owner_write) = owner.write() else {
+                    let moved = crate::object::registry::OBJECT_REGISTRY.with_object_mut(
+                        owner_id,
+                        |owner_write| {
+                            let ai = owner_write.get_ai_update_interface_mut()?;
+                            let dock_pos_logic =
+                                LogicCoord3D::new(dock_pos.x, dock_pos.y, dock_pos.z);
+                            if let Err(err) = ai.set_movement_target(&dock_pos_logic) {
+                                log::debug!(
+                                    "WorkerAIUpdate::update_dozer_task set_movement_target failed: {}",
+                                    err
+                                );
+                            }
+                            Some(())
+                        },
+                    );
+                    if moved.flatten().is_none() {
                         return;
-                    };
-                    let Some(ai) = owner_write.get_ai_update_interface_mut() else {
-                        return;
-                    };
-                    let dock_pos_logic = LogicCoord3D::new(dock_pos.x, dock_pos.y, dock_pos.z);
-                    if let Err(err) = ai.set_movement_target(&dock_pos_logic) {
-                        log::debug!(
-                            "WorkerAIUpdate::update_dozer_task set_movement_target failed: {}",
-                            err
-                        );
                     }
                 }
             }
@@ -820,25 +810,32 @@ impl WorkerAIUpdate {
                         clear_current(self);
                         return;
                     }
-                    let (Ok(owner_guard), Ok(target_guard)) = (owner.read(), target.read()) else {
-                        self.dozer_task = None;
-                        return;
-                    };
-                    if !ActionManager::can_repair_object(
-                        &*owner_guard,
-                        &*target_guard,
-                        CommandSourceType::FromAi,
-                    ) {
+                    let can_repair = crate::object::registry::OBJECT_REGISTRY
+                        .with_object(owner_id, |owner_guard| {
+                            crate::object::registry::OBJECT_REGISTRY.with_object(
+                                target_id,
+                                |target_guard| {
+                                    ActionManager::can_repair_object(
+                                        owner_guard,
+                                        target_guard,
+                                        CommandSourceType::FromAi,
+                                    )
+                                },
+                            )
+                        })
+                        .flatten();
+                    if can_repair != Some(true) {
                         self.dozer_task = None;
                         clear_current(self);
                         return;
                     }
-                    drop(target_guard);
-                    let already_full = target
-                        .read()
-                        .ok()
-                        .and_then(|guard| guard.get_body_module())
-                        .map(|body| body.get_health() == body.get_max_health())
+                    let already_full = crate::object::registry::OBJECT_REGISTRY
+                        .with_object(target_id, |guard| {
+                            guard
+                                .get_body_module()
+                                .map(|body| body.get_health() == body.get_max_health())
+                        })
+                        .flatten()
                         .unwrap_or(false);
                     if already_full {
                         let message = crate::helpers::TheGameText::fetch("DOZER:RepairComplete");
@@ -854,27 +851,21 @@ impl WorkerAIUpdate {
                         || !Self::bridge_scaffold_blocks_heal(task.target_id);
                     if can_heal {
                     let health = {
-                        let max_health = if let Ok(tg) = target.read() {
-                            tg.get_body_module()
-                                .map(|b| b.get_max_health())
-                                .unwrap_or(0.0)
-                        } else {
-                            0.0
-                        };
+                        let max_health = crate::object::registry::OBJECT_REGISTRY
+                            .with_object(target_id, |tg| {
+                                tg.get_body_module()
+                                    .map(|b| b.get_max_health())
+                                    .unwrap_or(0.0)
+                            })
+                            .unwrap_or(0.0);
                         max_health * repair_rate * SECONDS_PER_LOGICFRAME_REAL
                     };
-                    let healed = if let Ok(mut tw) = target.write() {
-                        match tw.attempt_healing_from_sole_benefactor_id(
-                            health,
-                            self.object_id,
-                            2,
-                        ) {
-                            Ok(ok) => ok,
-                            Err(_) => false,
-                        }
-                    } else {
-                        false
-                    };
+                    let healed = crate::object::registry::OBJECT_REGISTRY
+                        .with_object_mut(target_id, |tw| {
+                            tw.attempt_healing_from_sole_benefactor_id(health, self.object_id, 2)
+                                .unwrap_or(false)
+                        })
+                        .unwrap_or(false);
                     if !healed {
                         self.dozer_task = None;
                         clear_current(self);
@@ -888,37 +879,47 @@ impl WorkerAIUpdate {
                         clear_current(self);
                         return;
                     }
-                    let (Ok(owner_guard), Ok(target_guard)) = (owner.read(), target.read()) else {
-                        self.dozer_task = None;
-                        return;
-                    };
-                    if !ActionManager::can_resume_construction_of(
-                        &*owner_guard,
-                        &*target_guard,
-                        CommandSourceType::FromAi,
-                    ) {
+                    let resume = crate::object::registry::OBJECT_REGISTRY
+                        .with_object(owner_id, |owner_guard| {
+                            crate::object::registry::OBJECT_REGISTRY.with_object(
+                                target_id,
+                                |target_guard| {
+                                    if !ActionManager::can_resume_construction_of(
+                                        owner_guard,
+                                        target_guard,
+                                        CommandSourceType::FromAi,
+                                    ) {
+                                        return None;
+                                    }
+                                    Some(target_guard.get_construction_percent())
+                                },
+                            )
+                        })
+                        .flatten()
+                        .flatten();
+                    let Some(current_percent) = resume else {
                         self.dozer_task = None;
                         clear_current(self);
                         return;
-                    }
-                    let current_percent = target_guard.get_construction_percent();
+                    };
                     // Completed/selling is pct < 0 (`CONSTRUCTION_COMPLETE = -1`).
                     if current_percent < 0.0 || current_percent >= 100.0 {
                         self.dozer_task = None;
                         self.clear_task(WorkerDozerTaskSlot::Build);
                         return;
                     }
-                    drop(target_guard);
                     let frames = if task.build_total_frames > 0 {
                         task.build_total_frames
-                    } else if let Ok(tg) = target.read() {
-                        tg.get_template().calc_time_to_build(None).max(1) as u32
                     } else {
-                        1
+                        crate::object::registry::OBJECT_REGISTRY
+                            .with_object(target_id, |tg| {
+                                tg.get_template().calc_time_to_build(None).max(1) as u32
+                            })
+                            .unwrap_or(1)
                     } as f32;
                     // C++ DozerAIUpdate.cpp:515-526: +100/frames percent and +max/frames HP.
                     let new_percent = (current_percent + 100.0 / frames).min(100.0);
-                    if let Ok(mut target_write) = target.write() {
+                    crate::object::registry::OBJECT_REGISTRY.with_object_mut(target_id, |target_write| {
                         target_write.set_construction_percent(new_percent);
                         let max_health = if task.build_max_health > 0.0 {
                             task.build_max_health
@@ -935,7 +936,7 @@ impl WorkerAIUpdate {
                                 let _ = body.set_health(new_health);
                             }
                         }
-                    }
+                    });
                     if new_percent >= 100.0 {
                         build_complete_rebuild = Some(task.is_rebuild);
                     }
@@ -959,13 +960,13 @@ impl WorkerAIUpdate {
                         let max_health = if task.build_max_health > 0.0 {
                             task.build_max_health
                         } else {
-                            let Ok(target_guard) = target.read() else {
-                                self.dozer_task = None;
-                                return;
-                            };
-                            target_guard
-                                .get_body_module()
-                                .map(|body| body.get_max_health())
+                            crate::object::registry::OBJECT_REGISTRY
+                                .with_object(target_id, |target_guard| {
+                                    target_guard
+                                        .get_body_module()
+                                        .map(|body| body.get_max_health())
+                                        .unwrap_or(0.0)
+                                })
                                 .unwrap_or(0.0)
                         };
                         if let Err(err) = manager.start_construction(
@@ -994,17 +995,20 @@ impl WorkerAIUpdate {
                         drop(manager);
                         (completed, progress, current_health)
                     };
-                    if let Ok(mut target_write) = target.write() {
-                        target_write.set_construction_percent(progress);
-                        if let Some(health) = current_health {
-                            if let Err(err) = target_write.set_health(health) {
-                                log::debug!(
-                                    "WorkerAIUpdate::update_dozer_task set_health failed: {}",
-                                    err
-                                );
+                    crate::object::registry::OBJECT_REGISTRY.with_object_mut(
+                        target_id,
+                        |target_write| {
+                            target_write.set_construction_percent(progress);
+                            if let Some(health) = current_health {
+                                if let Err(err) = target_write.set_health(health) {
+                                    log::debug!(
+                                        "WorkerAIUpdate::update_dozer_task set_health failed: {}",
+                                        err
+                                    );
+                                }
                             }
-                        }
-                    }
+                        },
+                    );
                     if completed.contains(&task.target_id) {
                         build_complete_rebuild = Some(task.is_rebuild);
                     }
@@ -1019,7 +1023,7 @@ impl WorkerAIUpdate {
         }
 
         if let Some(is_rebuild) = build_complete_rebuild {
-            self.handle_build_completion(&owner, &target, is_rebuild);
+            self.handle_build_completion(owner_id, target_id, is_rebuild);
             self.dozer_task = None;
             self.clear_task(WorkerDozerTaskSlot::Build);
         }
@@ -1027,15 +1031,15 @@ impl WorkerAIUpdate {
 
     fn handle_build_completion(
         &mut self,
-        owner: &Arc<RwLock<Object>>,
-        target: &Arc<RwLock<Object>>,
+        owner_id: ObjectID,
+        target_id: ObjectID,
         is_rebuild: bool,
     ) {
         let mut target_display_name: Option<String> = None;
         let mut target_pos: Option<LogicCoord3D> = None;
         let mut controlling_player: Option<Arc<RwLock<crate::player::Player>>> = None;
 
-        if let Ok(mut target_guard) = target.write() {
+        crate::object::registry::OBJECT_REGISTRY.with_object_mut(target_id, |target_guard| {
             target_guard.clear_status(
                 crate::common::ObjectStatusMaskType::from_status(
                     crate::common::ObjectStatusTypes::UnderConstruction,
@@ -1077,18 +1081,17 @@ impl WorkerAIUpdate {
             target_display_name = Some(template.get_name().as_str().to_string());
             target_pos = Some(*target_guard.get_position());
             controlling_player = target_guard.get_controlling_player();
-        }
+        });
 
         if let Some(player) = controlling_player {
             // The player guard is held across this call, but the handler
             // works on object/script-engine state via IDs and never
             // re-resolves this player, so it cannot re-enter the lock.
             if let Ok(mut player_guard) = player.write() {
-                let builder_id = owner.read().ok().map(|g| g.get_id());
-                let structure_id = target
-                    .read()
-                    .ok()
-                    .map(|g| g.get_id())
+                let builder_id = crate::object::registry::OBJECT_REGISTRY
+                    .with_object(owner_id, |g| g.get_id());
+                let structure_id = crate::object::registry::OBJECT_REGISTRY
+                    .with_object(target_id, |g| g.get_id())
                     .unwrap_or(crate::common::INVALID_ID);
                 player_guard.on_structure_construction_complete_id(
                     builder_id,
@@ -1098,7 +1101,7 @@ impl WorkerAIUpdate {
             }
         }
 
-        if let Ok(owner_guard) = owner.read() {
+        crate::object::registry::OBJECT_REGISTRY.with_object(owner_id, |owner_guard| {
             if owner_guard.is_locally_controlled() {
                 if let Some(display_name) = target_display_name.as_ref() {
                     let format = crate::helpers::TheGameText::fetch("DOZER:ConstructionComplete");
@@ -1129,7 +1132,7 @@ impl WorkerAIUpdate {
                     );
                 }
             }
-        }
+        });
     }
 
     /// Same interface as SupplyTruckAIUpdate for consistency
@@ -1166,33 +1169,37 @@ impl WorkerAIUpdate {
         if remaining_stock == 0 && !self.data.supplies_depleted_voice.is_empty() {
             let mut play_depleted = true;
             if let Some(best_warehouse) = resource::find_best_supply_warehouse(self.object_id) {
-                if let (Some(owner), Some(warehouse)) = (
-                    TheGameLogic::find_object_by_id(self.object_id).or_else(|| {
-                        crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id)
-                    }),
-                    TheGameLogic::find_object_by_id(best_warehouse),
-                ) {
-                    if let (Ok(owner_guard), Ok(warehouse_guard)) = (owner.read(), warehouse.read())
-                    {
-                        let delta = *owner_guard.get_position() - *warehouse_guard.get_position();
-                        let distance =
-                            (delta.x * delta.x + delta.y * delta.y + delta.z * delta.z).sqrt();
-                        let is_ai_player = owner_guard
-                            .get_controlling_player_id()
-                            .and_then(|player_id| {
-                                let Ok(list) = player_list().read() else {
-                                    return None;
-                                };
-                                list.get_player(player_id as i32).cloned()
-                            })
-                            .and_then(|player| {
-                                player.read().ok().map(|guard| guard.is_skirmish_ai())
-                            })
-                            .unwrap_or(false);
-                        if distance <= self.get_warehouse_scan_distance(is_ai_player) / 4.0 {
-                            play_depleted = false;
-                        }
-                    }
+                let close = crate::object::registry::OBJECT_REGISTRY.with_object(
+                    self.object_id,
+                    |owner_guard| {
+                        crate::object::registry::OBJECT_REGISTRY.with_object(
+                            best_warehouse,
+                            |warehouse_guard| {
+                                let delta =
+                                    *owner_guard.get_position() - *warehouse_guard.get_position();
+                                let distance = (delta.x * delta.x
+                                    + delta.y * delta.y
+                                    + delta.z * delta.z)
+                                    .sqrt();
+                                let is_ai_player = owner_guard
+                                    .get_controlling_player_id()
+                                    .and_then(|player_id| {
+                                        let Ok(list) = player_list().read() else {
+                                            return None;
+                                        };
+                                        list.get_player(player_id as i32).cloned()
+                                    })
+                                    .and_then(|player| {
+                                        player.read().ok().map(|guard| guard.is_skirmish_ai())
+                                    })
+                                    .unwrap_or(false);
+                                distance <= self.get_warehouse_scan_distance(is_ai_player) / 4.0
+                            },
+                        )
+                    },
+                );
+                if close.flatten().unwrap_or(false) {
+                    play_depleted = false;
                 }
             }
 

@@ -23,7 +23,7 @@ mod select_object_tests {
             let players = player_list();
             let mut players = players.write().expect("player list lock");
             players.clear();
-            players.add_player(Arc::new(RwLock::new(player)));
+            players.add_player(player);
         }
 
         let mut template = crate::common::DefaultThingTemplate::new("SelectObjectTest".to_string());
@@ -35,12 +35,11 @@ mod select_object_tests {
             Arc::new(template),
         );
         object.set_selectable(true);
-        let object = Arc::new(RwLock::new(object));
-        register_legacy_object(&object);
+        OBJECT_REGISTRY.register_object(SELECT_OBJECT_TEST_ID, object);
 
         let mut logic = GameLogic::new();
         logic
-            .register_object(Arc::clone(&object))
+            .register_object(SELECT_OBJECT_TEST_ID)
             .expect("register object");
 
         // When: GameLogic::select_object (C++ GameLogic.cpp:2595)
@@ -53,8 +52,6 @@ mod select_object_tests {
         let selected = players
             .get_player(0)
             .expect("player 0")
-            .read()
-            .expect("player lock")
             .get_current_selection_ids();
         assert!(
             selected.contains(&SELECT_OBJECT_TEST_ID),
@@ -71,10 +68,10 @@ mod select_object_tests {
         player.init_from_dict_defaults();
         let players = player_list();
         let mut players = players.write().expect("player list lock");
-        players.add_player(Arc::new(RwLock::new(player)));
+        players.add_player(player);
     }
 
-    fn make_object(id: ObjectID, kinds: &[KindOf]) -> Arc<RwLock<Object>> {
+    fn make_object(id: ObjectID, kinds: &[KindOf]) -> ObjectID {
         let mut template =
             crate::common::DefaultThingTemplate::new(format!("SelectObjectTest{id}"));
         for kind in kinds {
@@ -82,9 +79,8 @@ mod select_object_tests {
         }
         let mut object = Object::new_test_from_template(id, 100.0, Arc::new(template));
         object.set_selectable(true);
-        let object = Arc::new(RwLock::new(object));
-        register_legacy_object(&object);
-        object
+        OBJECT_REGISTRY.register_object(id, object);
+        id
     }
 
     fn player_selection(index: i32) -> Vec<ObjectID> {
@@ -93,8 +89,6 @@ mod select_object_tests {
         players
             .get_player(index)
             .expect("player")
-            .read()
-            .expect("player lock")
             .get_current_selection_ids()
     }
 
@@ -119,7 +113,7 @@ mod select_object_tests {
         const ID: ObjectID = 9_013_881;
         let object = make_object(ID, &[KindOf::Selectable, KindOf::AlwaysSelectable]);
         let mut logic = GameLogic::new();
-        logic.register_object(Arc::clone(&object)).expect("register");
+        logic.register_object(object).expect("register");
 
         let mask = PlayerMaskType::from_bits_truncate(0b11);
         logic.select_object(ID, true, mask, false);
@@ -153,9 +147,9 @@ mod select_object_tests {
         let unit = make_object(UNIT, &[KindOf::Selectable, KindOf::AlwaysSelectable]);
         let building = make_object(BUILDING, &[KindOf::Selectable, KindOf::Structure]);
         let mut logic = GameLogic::new();
-        logic.register_object(Arc::clone(&unit)).expect("register unit");
+        logic.register_object(unit).expect("register unit");
         logic
-            .register_object(Arc::clone(&building))
+            .register_object(building)
             .expect("register building");
 
         let mask = PlayerMaskType::from_bits_truncate(1);
@@ -189,7 +183,7 @@ mod select_object_tests {
         let building = make_object(BUILDING, &[KindOf::Selectable, KindOf::Structure]);
         let mut logic = GameLogic::new();
         logic
-            .register_object(Arc::clone(&building))
+            .register_object(building)
             .expect("register building");
 
         let mask = PlayerMaskType::from_bits_truncate(1);

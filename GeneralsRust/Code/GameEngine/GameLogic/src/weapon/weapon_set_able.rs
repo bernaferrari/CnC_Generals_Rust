@@ -370,28 +370,25 @@ fn disguised_as_non_enemy(source: &crate::object::Object, victim: &crate::object
     let Some(idx) = disguised_index else {
         return false;
     };
-    let Some(our_player) = source.get_controlling_player() else {
-        return false;
-    };
-    let Ok(our_guard) = our_player.read() else {
+    let Some(our_index) = source.get_controlling_player() else {
         return false;
     };
     let Ok(list) = player_list().read() else {
         return false;
     };
-    let Some(other_arc) = list.get_player(idx) else {
+    let Some(our_guard) = list.get_player(our_index) else {
         return false;
     };
-    let Ok(other_guard) = other_arc.read() else {
+    let Some(other_guard) = list.get_player(idx) else {
         return false;
     };
-    let Some(other_team) = other_guard.get_default_team() else {
+    let Some(other_team_id) = other_guard.get_default_team_id() else {
         return false;
     };
-    let Ok(team_guard) = other_team.read() else {
-        return false;
-    };
-    our_guard.get_relationship_with_team(&team_guard) != Relationship::Enemies
+    crate::team::with_team(other_team_id, |team| {
+        our_guard.get_relationship_with_team(team) != Relationship::Enemies
+    })
+    .unwrap_or(false)
 }
 
 fn container_encloses(container_id: ObjectID, victim: &crate::object::Object) -> bool {
@@ -440,34 +437,41 @@ fn object_apparent_controller_blocks_player(
     let Ok(contain_guard) = contain.try_lock() else {
         return false;
     };
-    let Some(source_player) = source.get_controlling_player() else {
+    let Some(source_index) = source.get_controlling_player() else {
         return false;
     };
-    let Ok(source_player_guard) = source_player.read() else {
+    let Ok(list) = player_list().read() else {
         return false;
     };
-    let Some(apparent) = contain_guard.get_apparent_controlling_player(Some(&source_player_guard))
+    let Some(source_player_guard) = list.get_player(source_index) else {
+        return false;
+    };
+    let Some(apparent_index) =
+        contain_guard.get_apparent_controlling_player(Some(source_player_guard))
     else {
         return false;
     };
-    let Ok(apparent_guard) = apparent.read() else {
+    let Some(apparent_guard) = list.get_player(apparent_index) else {
         return false;
     };
-    let Some(apparent_team) = apparent_guard.get_default_team() else {
+    let Some(apparent_team_id) = apparent_guard.get_default_team_id() else {
         return false;
     };
-    let Ok(apparent_team_guard) = apparent_team.read() else {
+    let Some(source_team_id) = source.get_team_id() else {
         return false;
     };
-    let Some(source_team) = source.get_team() else {
-        return false;
-    };
-    let Ok(source_team_guard) = source_team.read() else {
+    let Some(relation) = crate::team::with_team(source_team_id, |source_team| {
+        crate::team::with_team(apparent_team_id, |apparent_team| {
+            source_team.get_relationship(apparent_team)
+        })
+    })
+    .flatten()
+    else {
         return false;
     };
     apparent_controller_blocks_player(
         true,
-        source_team_guard.get_relationship(&apparent_team_guard),
+        relation,
         command_source == CommandSourceType::FromPlayer,
         victim.test_script_status_bit(ObjectScriptStatusBit::ScriptTargetable),
         r,

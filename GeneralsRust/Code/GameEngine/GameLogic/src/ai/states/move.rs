@@ -173,25 +173,26 @@ impl StateImplementation for AIWanderInPlaceState {
             Some(owner) => owner,
             None => return StateReturnType::Failure,
         };
-        let Ok(owner_guard) = owner.read() else {
+        let Some(()) = crate::object::registry::OBJECT_REGISTRY.with_object(owner, |owner_guard| {
+            self.origin = *owner_guard.get_position();
+            let _ = ai.choose_locomotor_set(LocomotorSetType::Wander);
+            self.choose_new_goal(ai);
+            self.timer = 0;
+            self.wait_frames = 10 + ((owner_guard.get_id() & 0x7) as i32);
+            self.base.goal_position = self.goal_position;
+        }) else {
             return StateReturnType::Failure;
         };
-        self.origin = *owner_guard.get_position();
-        let _ = ai.choose_locomotor_set(LocomotorSetType::Wander);
-        self.choose_new_goal(ai);
-        self.timer = 0;
-        self.wait_frames = 10 + ((owner_guard.get_id() & 0x7) as i32);
-        self.base.goal_position = self.goal_position;
-        drop(owner_guard);
-        if let Ok(mut owner_guard) = owner.write() {
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner, |owner_guard| {
             owner_guard.set_model_condition_state(ModelConditionFlags::MOVING);
-        }
-        let Ok(owner_guard) = owner.read() else {
-            return StateReturnType::Failure;
-        };
-        self.base
-            .start_from_borrowed_ai(ai, &owner_guard)
-            .map(|_| StateReturnType::Continue)
+        });
+        crate::object::registry::OBJECT_REGISTRY
+            .with_object(owner, |owner_guard| {
+                self.base
+                    .start_from_borrowed_ai(ai, owner_guard)
+                    .map(|_| StateReturnType::Continue)
+                    .unwrap_or(StateReturnType::Failure)
+            })
             .unwrap_or(StateReturnType::Failure)
     }
 
@@ -206,28 +207,27 @@ impl StateImplementation for AIWanderInPlaceState {
         let Some(owner) = self.base.base.get_machine_owner() else {
             return StateReturnType::Failure;
         };
-        let Ok(owner_guard) = owner.read() else {
-            return StateReturnType::Failure;
-        };
+        let repulsed = crate::object::registry::OBJECT_REGISTRY
+            .with_object(owner, |owner_guard| {
+                owner_guard.is_kind_of(KindOf::CanBeRepulsed).then(|| {
+                    (owner_guard.get_id(), owner_guard.get_vision_range())
+                })
+            })
+            .flatten();
         let close_enough = {
             let mut __close = 5.0;
             ai.with_cur_locomotor(&mut |loco| __close = loco.get_close_enough_dist());
             __close
         };
-        let arrived = !ai.is_waiting_for_path()
+        let arrived = __omp_shell("ai.is_waiting_for_path()")
             && ai.get_locomotor_distance_to_goal() <= close_enough;
-        if owner_guard.is_kind_of(KindOf::CanBeRepulsed) {
+        if let Some((id, vision)) = repulsed {
             self.timer -= 1;
             if self.timer < 0 {
                 self.timer = self.wait_frames;
                 let ai_store = the_ai();
                 let enemy_id = ai_store.read().ok().and_then(|store| {
-                    store
-                        .find_closest_repulsor(
-                            owner_guard.get_id(),
-                            owner_guard.get_vision_range(),
-                        )
-                        .ok()
+                    store.find_closest_repulsor(id, vision).ok()
                 })
                 .flatten();
                 if enemy_id.is_some() {
@@ -236,22 +236,22 @@ impl StateImplementation for AIWanderInPlaceState {
             }
         }
         if arrived {
-            drop(owner_guard);
-            if let Ok(mut owner_guard) = owner.write() {
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner, |owner_guard| {
                 owner_guard.clear_model_condition_state(ModelConditionFlags::MOVING);
                 owner_guard.set_model_condition_state(ModelConditionFlags::MOVING);
-            }
+            });
             self.choose_new_goal(ai);
             self.base.goal_position = self.goal_position;
-            let Ok(owner_guard) = owner.read() else {
-                return StateReturnType::Failure;
-            };
-            return self
-                .base
-                .start_from_borrowed_ai(ai, &owner_guard)
-                .map(|_| StateReturnType::Continue)
+            return crate::object::registry::OBJECT_REGISTRY
+                .with_object(owner, |owner_guard| {
+                    self.base
+                        .start_from_borrowed_ai(ai, owner_guard)
+                        .map(|_| StateReturnType::Continue)
+                        .unwrap_or(StateReturnType::Failure)
+                })
                 .unwrap_or(StateReturnType::Failure);
         }
+        StateReturnType::Continue
         StateReturnType::Continue
     }
 
@@ -315,25 +315,28 @@ impl AIWanderInPlaceState {
             .get_machine_owner()
             .ok_or_else(|| "wander in place missing owner".to_string())?;
         let has_ai = borrowed.is_some();
-        {
-            let owner_guard = owner
-                .read()
-                .map_err(|_| "wander in place owner lock poisoned".to_string())?;
-            self.origin = *owner_guard.get_position();
-            self.timer = 0;
-            self.wait_frames = 10 + ((owner_guard.get_id() & 0x7) as i32);
-            if let Some(ai) = borrowed.as_mut() {
-                let _ = ai.choose_locomotor_set(LocomotorSetType::Wander);
-                self.choose_new_goal(*ai);
-            } else {
-                let held_ai = owner_guard
-                    .get_ai_update_interface()
-                    .ok_or_else(|| "wander in place missing AIUpdateInterface".to_string())?;
-                if let Ok(mut ai_guard) = held_ai.lock() {
-                    let _ = ai_guard.choose_locomotor_set(LocomotorSetType::Wander);
-                    self.choose_new_goal(&*ai_guard);
+        let ai_arc = crate::object::registry::OBJECT_REGISTRY
+            .with_object(owner, |owner_guard| {
+                self.origin = *owner_guard.get_position();
+                self.timer = 0;
+                self.wait_frames = 10 + ((owner_guard.get_id() & 0x7) as i32);
+                if borrowed.is_none() {
+                    owner_guard.get_ai_update_interface()
+                } else {
+                    None
                 }
+            })
+            .ok_or_else(|| "wander in place owner missing".to_string())?;
+        if let Some(ai) = borrowed.as_mut() {
+            let _ = ai.choose_locomotor_set(LocomotorSetType::Wander);
+            self.choose_new_goal(*ai);
+        } else if let Some(held_ai) = ai_arc {
+            if let Ok(mut ai_guard) = held_ai.lock() {
+                let _ = ai_guard.choose_locomotor_set(LocomotorSetType::Wander);
+                self.choose_new_goal(&*ai_guard);
             }
+        } else {
+            return Err("wander in place missing AIUpdateInterface".to_string());
         }
         if has_ai {
             self.base
@@ -358,36 +361,39 @@ impl AIWanderInPlaceState {
             .base
             .get_machine_owner()
             .ok_or_else(|| "wander in place missing owner".to_string())?;
-        let repulsed = {
-            let owner_guard = owner
-                .read()
-                .map_err(|_| "wander in place owner lock poisoned".to_string())?;
-            if owner_guard.is_kind_of(KindOf::CanBeRepulsed) {
-                self.timer -= 1;
-                if self.timer < 0 {
-                    self.timer = self.wait_frames;
-                    let ai_store = the_ai();
-                    let enemy_id = ai_store.read().ok().and_then(|ai| {
-                        ai.find_closest_repulsor(
-                            owner_guard.get_id(),
-                            owner_guard.get_vision_range(),
-                        )
-                        .ok()
-                    }).flatten();
-                    if enemy_id.is_some() {
-                        return Ok(StateReturnType::Failure);
-                    }
+        let snap = crate::object::registry::OBJECT_REGISTRY
+            .with_object(owner, |owner_guard| {
+                let repulse = if owner_guard.is_kind_of(KindOf::CanBeRepulsed) {
+                    Some((owner_guard.get_id(), owner_guard.get_vision_range()))
+                } else {
+                    None
+                };
+                let ai = if !has_ai {
+                    Some(owner_guard.get_ai_update_interface())
+                } else {
+                    None
+                };
+                (repulse, ai)
+            })
+            .ok_or_else(|| "wander in place owner missing".to_string())?;
+        let (repulse, ai_opt) = snap;
+        if let Some((id, vision)) = repulse {
+            self.timer -= 1;
+            if self.timer < 0 {
+                self.timer = self.wait_frames;
+                let ai_store = the_ai();
+                let enemy_id = ai_store.read().ok().and_then(|ai| {
+                    ai.find_closest_repulsor(id, vision).ok()
+                }).flatten();
+                if enemy_id.is_some() {
+                    return Ok(StateReturnType::Failure);
                 }
             }
-            if !has_ai {
-                Some(
-                    owner_guard
-                        .get_ai_update_interface()
-                        .ok_or_else(|| "wander in place missing AIUpdateInterface".to_string())?,
-                )
-            } else {
-                None
-            }
+        }
+        let repulsed = if !has_ai {
+            Some(ai_opt.flatten().ok_or_else(|| "wander in place missing AIUpdateInterface".to_string())?)
+        } else {
+            None
         };
         if status != StateReturnType::Continue {
             if let Some(ai) = borrowed.as_mut() {
@@ -462,16 +468,16 @@ impl StateImplementation for AIMoveOutOfTheWayState {
         self.base.goal_position = goal;
         self.goal_dirty = true;
         if let Some(owner) = self.base.base.get_machine_owner() {
-            if let Ok(mut owner_guard) = owner.write() {
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner, |owner_guard| {
                 owner_guard.set_model_condition_state(ModelConditionFlags::MOVING);
-            }
-            if let Ok(owner_guard) = owner.read() {
+            });
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object(owner, |owner_guard| {
                 return self
                     .base
                     .start_from_borrowed_ai(ai, &owner_guard)
                     .map(|_| StateReturnType::Continue)
                     .unwrap_or(StateReturnType::Failure);
-            }
+            });
         }
         StateReturnType::Failure
     }
@@ -486,14 +492,14 @@ impl StateImplementation for AIMoveOutOfTheWayState {
     ) -> StateReturnType {
         let stuck = ai.is_blocked_and_stuck();
         if let Some(owner) = self.base.base.get_machine_owner() {
-            if let Ok(mut owner_guard) = owner.write() {
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner, |owner_guard| {
                 if owner_guard.is_effectively_dead() {
                     return StateReturnType::Success;
                 }
                 if stuck {
                     owner_guard.ai_pending_path_through_units = Some(true);
                 }
-            }
+            });
         }
         self.base.update_with_ai(ai)
     }
@@ -537,11 +543,11 @@ impl ClassicState for AIMoveOutOfTheWayState {
     fn classic_on_exit(&mut self, _exit: StateExitType) -> Result<(), String> {
         self.base.classic_on_exit(_exit)?;
         if let Some(owner) = self.base.base.get_machine_owner() {
-            if let Ok(mut owner_guard) = owner.write() {
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner, |owner_guard| {
                 owner_guard.ai_pending_destroy_path = true;
                 owner_guard.ai_pending_path_through_units = Some(false);
                 owner_guard.ai_pending_clear_move_out = true;
-            }
+            });
         }
         Ok(())
     }
@@ -563,11 +569,9 @@ impl AIMoveOutOfTheWayState {
                 .base
                 .get_machine_owner()
                 .ok_or_else(|| "move out of the way missing owner".to_string())?;
-            let owner_guard = owner
-                .read()
-                .map_err(|_| "move out of the way owner lock poisoned".to_string())?;
-            let ai = owner_guard
-                .get_ai_update_interface()
+            let ai = crate::object::registry::OBJECT_REGISTRY
+                .with_object(owner, |owner_guard| owner_guard.get_ai_update_interface())
+                .ok_or_else(|| "move out of the way owner missing".to_string())?
                 .ok_or_else(|| "move out of the way missing AIUpdateInterface".to_string())?;
             let ai_guard = ai
                 .lock()
@@ -604,14 +608,14 @@ impl AIMoveOutOfTheWayState {
             .base
             .get_machine_owner()
             .ok_or_else(|| "move out of the way missing owner".to_string())?;
-        if let Ok(mut owner_guard) = owner.write() {
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner, |owner_guard| {
             if owner_guard.is_effectively_dead() {
                 return Ok(StateReturnType::Success);
             }
             if live_stuck.unwrap_or(owner_guard.ai_fire_blocked_and_stuck) {
                 owner_guard.ai_pending_path_through_units = Some(true);
             }
-        }
+        });
         if let Some(ai) = borrowed {
             self.base.classic_on_update_with_ai(ai)
         } else {
@@ -665,35 +669,28 @@ impl StateImplementation for AIMoveAndTightenState {
         self.check_for_path = true;
         self.base.set_repath_limit(1, true);
         if goal_id != crate::common::INVALID_ID {
-            if let Some(goal_obj) = crate::helpers::TheGameLogic::find_object_by_id(goal_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(goal_id))
-            {
-                if let Ok(goal_guard) = goal_obj.read() {
-                    self.base.goal_position = *goal_guard.get_position();
-                } else {
-                    self.base.goal_position = goal_pos;
-                }
-            } else {
-                self.base.goal_position = goal_pos;
-            }
+            self.base.goal_position = crate::object::registry::OBJECT_REGISTRY
+                .with_object(goal_id, |goal_guard| *goal_guard.get_position())
+                .unwrap_or(goal_pos);
         } else {
             self.base.goal_position = goal_pos;
         }
         let Some(owner) = self.base.base.get_machine_owner() else {
             return StateReturnType::Failure;
         };
-        if let Ok(mut owner_guard) = owner.write() {
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner, |owner_guard| {
             if owner_guard.test_status(ObjectStatusTypes::Immobile) {
                 return StateReturnType::Failure;
             }
             owner_guard.set_model_condition_state(ModelConditionFlags::MOVING);
-        }
-        let Ok(owner_guard) = owner.read() else {
-            return StateReturnType::Failure;
-        };
-        self.base
-            .start_from_borrowed_ai(ai, &owner_guard)
-            .map(|_| StateReturnType::Continue)
+        });
+        crate::object::registry::OBJECT_REGISTRY
+            .with_object(owner, |owner_guard| {
+                self.base
+                    .start_from_borrowed_ai(ai, owner_guard)
+                    .map(|_| StateReturnType::Continue)
+                    .unwrap_or(StateReturnType::Failure)
+            })
             .unwrap_or(StateReturnType::Failure)
     }
 
@@ -710,9 +707,9 @@ impl StateImplementation for AIMoveAndTightenState {
             self.base.set_adjusts_destination(true);
             self.check_for_path = false;
             if let Some(owner) = self.base.base.get_machine_owner() {
-                if let Ok(owner_guard) = owner.read() {
+                let _ = crate::object::registry::OBJECT_REGISTRY.with_object(owner, |owner_guard| {
                     let _ = self.base.start_from_borrowed_ai(ai, &owner_guard);
-                }
+                });
             }
         }
         let close_enough = {
@@ -722,9 +719,9 @@ impl StateImplementation for AIMoveAndTightenState {
         };
         if !ai.is_waiting_for_path() && ai.get_locomotor_distance_to_goal() <= close_enough {
             if let Some(owner) = self.base.base.get_machine_owner() {
-                if let Ok(mut owner_guard) = owner.write() {
+                let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner, |owner_guard| {
                     owner_guard.clear_model_condition_state(ModelConditionFlags::MOVING);
-                }
+                });
             }
             return StateReturnType::Success;
         }
@@ -764,14 +761,14 @@ impl ClassicState for AIMoveAndTightenState {
     fn classic_on_update(&mut self) -> Result<StateReturnType, String> {
         if self.check_for_path {
             if let Some(owner) = self.base.base.get_machine_owner() {
-                if let Ok(owner_guard) = owner.read() {
+                let _ = crate::object::registry::OBJECT_REGISTRY.with_object(owner, |owner_guard| {
                     if owner_guard.ai_fire_has_path_destination
                         && !owner_guard.ai_fire_waiting_for_path
                     {
                         self.base.set_adjusts_destination(true);
                         self.check_for_path = false;
                     }
-                }
+                });
             }
         }
 
@@ -818,35 +815,28 @@ impl StateImplementation for AIMoveAndDeleteState {
     ) -> StateReturnType {
         self.base.set_adjusts_destination(true);
         if goal_id != crate::common::INVALID_ID {
-            if let Some(goal_obj) = crate::helpers::TheGameLogic::find_object_by_id(goal_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(goal_id))
-            {
-                if let Ok(goal_guard) = goal_obj.read() {
-                    self.base.goal_position = *goal_guard.get_position();
-                } else {
-                    self.base.goal_position = goal_pos;
-                }
-            } else {
-                self.base.goal_position = goal_pos;
-            }
+            self.base.goal_position = crate::object::registry::OBJECT_REGISTRY
+                .with_object(goal_id, |goal_guard| *goal_guard.get_position())
+                .unwrap_or(goal_pos);
         } else {
             self.base.goal_position = goal_pos;
         }
         let Some(owner) = self.base.base.get_machine_owner() else {
             return StateReturnType::Failure;
         };
-        if let Ok(mut owner_guard) = owner.write() {
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner, |owner_guard| {
             if owner_guard.test_status(ObjectStatusTypes::Immobile) {
                 return StateReturnType::Failure;
             }
             owner_guard.set_model_condition_state(ModelConditionFlags::MOVING);
-        }
-        let Ok(owner_guard) = owner.read() else {
-            return StateReturnType::Failure;
-        };
-        self.base
-            .start_from_borrowed_ai(ai, &owner_guard)
-            .map(|_| StateReturnType::Continue)
+        });
+        crate::object::registry::OBJECT_REGISTRY
+            .with_object(owner, |owner_guard| {
+                self.base
+                    .start_from_borrowed_ai(ai, owner_guard)
+                    .map(|_| StateReturnType::Continue)
+                    .unwrap_or(StateReturnType::Failure)
+            })
             .unwrap_or(StateReturnType::Failure)
     }
 
@@ -861,12 +851,18 @@ impl StateImplementation for AIMoveAndDeleteState {
         let Some(owner) = self.base.base.get_machine_owner() else {
             return StateReturnType::Failure;
         };
-        let Ok(owner_guard) = owner.read() else {
+        let Some(dead_or_id) = crate::object::registry::OBJECT_REGISTRY.with_object(owner, |owner_guard| {
+            if owner_guard.is_effectively_dead() {
+                None
+            } else {
+                Some(owner_guard.get_id())
+            }
+        }) else {
             return StateReturnType::Failure;
         };
-        if owner_guard.is_effectively_dead() {
+        let Some(owner_id) = dead_or_id else {
             return StateReturnType::Failure;
-        }
+        };
         let close_enough = {
             let mut __close = 5.0;
             ai.with_cur_locomotor(&mut |loco| __close = loco.get_close_enough_dist());
@@ -875,8 +871,6 @@ impl StateImplementation for AIMoveAndDeleteState {
         if ai.is_waiting_for_path() || ai.get_locomotor_distance_to_goal() > close_enough {
             return StateReturnType::Continue;
         }
-        let owner_id = owner_guard.get_id();
-        drop(owner_guard);
         let _ = TheGameLogic::destroy_object_by_id(owner_id);
         StateReturnType::Success
     }
@@ -916,14 +910,18 @@ impl ClassicState for AIMoveAndDeleteState {
                 .base
                 .get_machine_owner()
                 .ok_or_else(|| "move+delete missing owner".to_string())?;
-            let owner_guard = owner
-                .read()
-                .map_err(|_| "move+delete owner lock poisoned".to_string())?;
-            if owner_guard.is_effectively_dead() {
+            let owner_id = crate::object::registry::OBJECT_REGISTRY
+                .with_object(owner, |owner_guard| {
+                    if owner_guard.is_effectively_dead() {
+                        None
+                    } else {
+                        Some(owner_guard.get_id())
+                    }
+                })
+                .ok_or_else(|| "move+delete owner missing".to_string())?;
+            let Some(owner_id) = owner_id else {
                 return Ok(StateReturnType::Failure);
-            }
-            let owner_id = owner_guard.get_id();
-            drop(owner_guard);
+            };
             let _ = TheGameLogic::destroy_object_by_id(owner_id);
         }
         Ok(status)
@@ -959,11 +957,9 @@ impl StateImplementation for AIMoveAwayFromRepulsorsState {
 
     fn note_step_owner(
         &mut self,
-        owner: std::sync::Arc<std::sync::RwLock<crate::object::Object>>,
+        owner: crate::common::ObjectID,
     ) {
-        if let Ok(guard) = owner.read() {
-            self.base.base.owner_id = guard.get_id();
-        }
+        self.base.base.owner_id = owner;
     }
 
     fn on_enter_with_ai(
@@ -979,33 +975,27 @@ impl StateImplementation for AIMoveAwayFromRepulsorsState {
         let Some(owner) = self.base.base.get_machine_owner() else {
             return StateReturnType::Failure;
         };
-        let Ok(owner_guard) = owner.read() else {
+        let Some((enemy_id, owner_pos, vision)) = crate::object::registry::OBJECT_REGISTRY.with_object(owner, |owner_guard| {
+            let ai_store = the_ai();
+            let enemy_id = ai_store.read().ok().and_then(|store| {
+                store
+                    .find_closest_repulsor(owner_guard.get_id(), owner_guard.get_vision_range())
+                    .ok()
+            }).flatten()?;
+            Some((enemy_id, *owner_guard.get_position(), owner_guard.get_vision_range()))
+        }).flatten() else {
             return StateReturnType::Failure;
         };
-        let ai_store = the_ai();
-        let Some(enemy_id) = ai_store.read().ok().and_then(|store| {
-            store
-                .find_closest_repulsor(owner_guard.get_id(), owner_guard.get_vision_range())
-                .ok()
-        })
-        .flatten() else {
-            return StateReturnType::Failure;
-        };
-        let Some(enemy) = get_legacy_object(enemy_id) else {
-            return StateReturnType::Failure;
-        };
-        let Ok(enemy_guard) = enemy.read() else {
+        let Some(enemy_pos) = crate::object::registry::OBJECT_REGISTRY
+            .with_object(enemy_id, |enemy_guard| *enemy_guard.get_position())
+        else {
             return StateReturnType::Failure;
         };
         let _ = ai.choose_locomotor_set(LocomotorSetType::Panic);
         let has_safe_path = ai.request_safe_path(enemy_id).unwrap_or(false);
-        let owner_pos = *owner_guard.get_position();
-        let enemy_pos = *enemy_guard.get_position();
-        drop(enemy_guard);
-        drop(owner_guard);
-        if let Ok(mut owner_mut) = owner.write() {
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner, |owner_mut| {
             owner_mut.set_model_condition_state(ModelConditionFlags::PANICKING);
-        }
+        });
         self.goal_position = if has_safe_path {
             owner_pos
         } else {
@@ -1019,12 +1009,7 @@ impl StateImplementation for AIMoveAwayFromRepulsorsState {
                 dx /= len;
                 dy /= len;
             }
-            let flee_dist = {
-                let Ok(owner_guard) = owner.read() else {
-                    return StateReturnType::Failure;
-                };
-                owner_guard.get_vision_range()
-            };
+            let flee_dist = vision;
             Coord3D::new(
                 owner_pos.x + dx * flee_dist,
                 owner_pos.y + dy * flee_dist,
@@ -1037,12 +1022,13 @@ impl StateImplementation for AIMoveAwayFromRepulsorsState {
         self.ok_to_repath_times = 1;
         self.check_for_path = true;
         self.base.set_repath_limit(1, false);
-        let Ok(owner_guard) = owner.read() else {
-            return StateReturnType::Failure;
-        };
-        self.base
-            .start_from_borrowed_ai(ai, &owner_guard)
-            .map(|_| StateReturnType::Continue)
+        crate::object::registry::OBJECT_REGISTRY
+            .with_object(owner, |owner_guard| {
+                self.base
+                    .start_from_borrowed_ai(ai, owner_guard)
+                    .map(|_| StateReturnType::Continue)
+                    .unwrap_or(StateReturnType::Failure)
+            })
             .unwrap_or(StateReturnType::Failure)
     }
 
@@ -1064,9 +1050,9 @@ impl StateImplementation for AIMoveAwayFromRepulsorsState {
                 self.base.set_adjusts_destination(false);
                 self.check_for_path = false;
                 if let Some(owner) = self.base.base.get_machine_owner() {
-                    if let Ok(owner_guard) = owner.read() {
+                    let _ = crate::object::registry::OBJECT_REGISTRY.with_object(owner, |owner_guard| {
                         let _ = self.base.start_from_borrowed_ai(ai, &owner_guard);
-                    }
+                    });
                 }
             }
         }
@@ -1077,9 +1063,9 @@ impl StateImplementation for AIMoveAwayFromRepulsorsState {
         };
         if !waiting && ai.get_locomotor_distance_to_goal() <= close_enough {
             if let Some(owner) = self.base.base.get_machine_owner() {
-                if let Ok(mut owner_guard) = owner.write() {
+                let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner, |owner_guard| {
                     owner_guard.clear_model_condition_state(ModelConditionFlags::MOVING);
-                }
+                });
             }
             return StateReturnType::Success;
         }
@@ -1113,40 +1099,38 @@ impl ClassicState for AIMoveAwayFromRepulsorsState {
             .base
             .get_machine_owner()
             .ok_or_else(|| "move away from repulsors missing owner".to_string())?;
-        let owner_guard = owner
-            .read()
-            .map_err(|_| "move away from repulsors owner lock poisoned".to_string())?;
-
-        let ai_store = the_ai();let enemy_id = ai_store
+        let snap = crate::object::registry::OBJECT_REGISTRY
+            .with_object(owner, |owner_guard| {
+                (
+                    owner_guard.get_id(),
+                    owner_guard.get_vision_range(),
+                    *owner_guard.get_position(),
+                    owner_guard.get_ai_update_interface(),
+                )
+            })
+            .ok_or_else(|| "move away from repulsors owner missing".to_string())?;
+        let (owner_id, flee_vision, owner_pos, ai_iface) = snap;
+        let ai_store = the_ai();
+        let enemy_id = ai_store
             .read()
             .ok()
-            .and_then(|ai| {
-                ai.find_closest_repulsor(owner_guard.get_id(), owner_guard.get_vision_range())
-                    .ok()
-            })
+            .and_then(|ai| ai.find_closest_repulsor(owner_id, flee_vision).ok())
             .flatten()
             .ok_or_else(|| "move away from repulsors missing enemy".to_string())?;
-        let enemy = get_legacy_object(enemy_id)
+        let enemy_pos = crate::object::registry::OBJECT_REGISTRY
+            .with_object(enemy_id, |enemy_guard| *enemy_guard.get_position())
             .ok_or_else(|| "move away from repulsors missing enemy object".to_string())?;
-        let enemy_guard = enemy
-            .read()
-            .map_err(|_| "move away from repulsors enemy lock poisoned".to_string())?;
 
         let mut has_safe_path = false;
-        if let Some(ai) = owner_guard.get_ai_update_interface() {
+        if let Some(ai) = ai_iface {
             if let Ok(mut ai_guard) = ai.lock() {
                 let _ = ai_guard.choose_locomotor_set(LocomotorSetType::Panic);
                 has_safe_path = ai_guard.request_safe_path(enemy_id).unwrap_or(false);
             }
         }
-
-        if let Ok(mut owner_mut) = owner.write() {
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner, |owner_mut| {
             owner_mut.set_model_condition_state(ModelConditionFlags::PANICKING);
-        }
-
-        let owner_pos = *owner_guard.get_position();
-        let enemy_pos = *enemy_guard.get_position();
-        drop(enemy_guard);
+        });
 
         if has_safe_path {
             self.goal_position = owner_pos;
@@ -1162,7 +1146,7 @@ impl ClassicState for AIMoveAwayFromRepulsorsState {
                 dy /= len;
             }
 
-            let flee_dist = owner_guard.get_vision_range();
+            let flee_dist = flee_vision;
             self.goal_position = Coord3D::new(
                 owner_pos.x + dx * flee_dist,
                 owner_pos.y + dy * flee_dist,
@@ -1189,7 +1173,7 @@ impl ClassicState for AIMoveAwayFromRepulsorsState {
 
     fn classic_on_update(&mut self) -> Result<StateReturnType, String> {
         if let Some(owner) = self.base.base.get_machine_owner() {
-            if let Ok(owner_guard) = owner.read() {
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object(owner, |owner_guard| {
                 if self.check_for_path
                     && !owner_guard.ai_fire_waiting_for_path
                     && let Some(dest) = owner_guard.ai_fire_path_destination
@@ -1201,7 +1185,7 @@ impl ClassicState for AIMoveAwayFromRepulsorsState {
                     self.base.set_adjusts_destination(false);
                     self.check_for_path = false;
                 }
-            }
+            });
         }
 
         self.base.classic_on_update()
@@ -1210,9 +1194,9 @@ impl ClassicState for AIMoveAwayFromRepulsorsState {
     fn classic_on_exit(&mut self, _exit: StateExitType) -> Result<(), String> {
         self.base.classic_on_exit(_exit)?;
         if let Some(owner) = self.base.base.get_machine_owner() {
-            if let Ok(mut owner_guard) = owner.write() {
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner, |owner_guard| {
                 owner_guard.clear_model_condition_state(ModelConditionFlags::PANICKING);
-            }
+            });
         }
         Ok(())
     }
@@ -1248,7 +1232,7 @@ pub struct AIMoveToState {
     /// Optional repath limiter for derived states.
     pub(crate) repath_limit: Option<RepathLimit>,
     /// Owner when the caller already holds the state-machine mutex.
-    pub(crate) preset_owner: Option<Arc<RwLock<crate::object::Object>>>,
+    pub(crate) preset_owner: Option<crate::common::ObjectID>,
     /// True only for the enter that runs while this unit's AI mutex is already held.
     pub(crate) owner_ai_mutex_held: bool,
 }
@@ -1410,55 +1394,56 @@ impl AIMoveToState {
             owner_guard.ai_pending_attack_move = Some(self.goal_position);
         }
         let mut goal_moved = false;
-        if let Some(goal_obj) = self.base.get_machine_goal_object_id().and_then(|id| {
-            crate::helpers::TheGameLogic::find_object_by_id(id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(id))
-        }) {
-            let goal_guard = goal_obj
-                .read()
-                .map_err(|_| "goal object lock poisoned".to_string())?;
-            let mut new_goal = *goal_guard.get_position();
-            if owner_guard.is_kind_of(KindOf::Projectile) {
-                let half_height = goal_guard
-                    .get_geometry_info()
-                    .get_max_height_above_position()
-                    * 0.5;
-                new_goal.z += half_height;
-                if goal_guard.get_position().z < new_goal.z {
-                    new_goal.z += half_height;
-                }
-            }
-            if owner_guard.is_kind_of(KindOf::Projectile)
-                && goal_guard.get_physics().is_some()
-                && !goal_guard.is_kind_of(KindOf::Immobile)
-            {
-                let our_pos = owner_guard.get_position();
-                let delta = new_goal - *our_pos;
-                let my_speed = owner_guard
-                    .get_physics()
-                    .map(|p| p.get_velocity().length())
-                    .unwrap_or(5.0)
-                    .max(5.0);
-                let goal_speed = goal_guard
-                    .get_physics()
-                    .map(|p| p.get_velocity().length())
-                    .unwrap_or(0.0);
-                let lead_distance = 0.5 * delta.length() * goal_speed / my_speed;
-                if let Some(physics) = goal_guard.get_physics() {
-                    let vel = physics.get_velocity();
-                    let vel_len = vel.length();
-                    if vel_len > 0.001 {
-                        let dir = vel / vel_len;
-                        new_goal.x += dir.x * lead_distance;
-                        new_goal.y += dir.y * lead_distance;
-                        new_goal.z += dir.z * lead_distance;
+        if let Some(goal_id) = self.base.get_machine_goal_object_id() {
+            let projectile = owner_guard.is_kind_of(KindOf::Projectile);
+            let our_pos = *owner_guard.get_position();
+            let my_speed = owner_guard
+                .get_physics()
+                .map(|p| p.get_velocity().length())
+                .unwrap_or(5.0)
+                .max(5.0);
+            if let Some(new_goal) =
+                crate::object::registry::OBJECT_REGISTRY.with_object(goal_id, |goal_guard| {
+                    let mut new_goal = *goal_guard.get_position();
+                    if projectile {
+                        let half_height = goal_guard
+                            .get_geometry_info()
+                            .get_max_height_above_position()
+                            * 0.5;
+                        new_goal.z += half_height;
+                        if goal_guard.get_position().z < new_goal.z {
+                            new_goal.z += half_height;
+                        }
                     }
-                }
-            }
-            self.goal_position = new_goal;
-            if !self.is_same_position(owner_guard.get_position(), &self.path_goal_position, &new_goal)
+                    if projectile
+                        && goal_guard.get_physics().is_some()
+                        && !goal_guard.is_kind_of(KindOf::Immobile)
+                    {
+                        let delta = new_goal - our_pos;
+                        let goal_speed = goal_guard
+                            .get_physics()
+                            .map(|p| p.get_velocity().length())
+                            .unwrap_or(0.0);
+                        let lead_distance = 0.5 * delta.length() * goal_speed / my_speed;
+                        if let Some(physics) = goal_guard.get_physics() {
+                            let vel = physics.get_velocity();
+                            let vel_len = vel.length();
+                            if vel_len > 0.001 {
+                                let dir = vel / vel_len;
+                                new_goal.x += dir.x * lead_distance;
+                                new_goal.y += dir.y * lead_distance;
+                                new_goal.z += dir.z * lead_distance;
+                            }
+                        }
+                    }
+                    new_goal
+                })
             {
-                goal_moved = true;
+                self.goal_position = new_goal;
+                if !self.is_same_position(owner_guard.get_position(), &self.path_goal_position, &new_goal)
+                {
+                    goal_moved = true;
+                }
             }
         }
         let frames_blocked = ai.get_num_frames_blocked();
@@ -1571,34 +1556,27 @@ impl StateImplementation for AIMoveToState {
             return StateReturnType::Failure;
         }
         if goal_id != crate::common::INVALID_ID {
-            if let Some(goal_obj) = crate::helpers::TheGameLogic::find_object_by_id(goal_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(goal_id))
-            {
-                if let Ok(goal_guard) = goal_obj.read() {
-                    self.goal_position = *goal_guard.get_position();
-                } else {
-                    self.goal_position = goal_pos;
-                }
-            } else {
-                self.goal_position = goal_pos;
-            }
+            self.goal_position = crate::object::registry::OBJECT_REGISTRY
+                .with_object(goal_id, |goal_guard| *goal_guard.get_position())
+                .unwrap_or(goal_pos);
         } else {
             self.goal_position = goal_pos;
         }
         let Some(owner) = self.base.get_machine_owner() else {
             return StateReturnType::Failure;
         };
-        if let Ok(mut owner_guard) = owner.write() {
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner, |owner_guard| {
             if owner_guard.test_status(ObjectStatusTypes::Immobile) {
                 return StateReturnType::Failure;
             }
             owner_guard.set_model_condition_state(ModelConditionFlags::MOVING);
-        }
-        let Ok(owner_guard) = owner.read() else {
-            return StateReturnType::Failure;
-        };
-        self.start_from_borrowed_ai(ai, &owner_guard)
-            .map(|_| StateReturnType::Continue)
+        });
+        crate::object::registry::OBJECT_REGISTRY
+            .with_object(owner, |owner_guard| {
+                self.start_from_borrowed_ai(ai, owner_guard)
+                    .map(|_| StateReturnType::Continue)
+                    .unwrap_or(StateReturnType::Failure)
+            })
             .unwrap_or(StateReturnType::Failure)
     }
 
@@ -1610,19 +1588,20 @@ impl StateImplementation for AIMoveToState {
         &mut self,
         ai: &mut dyn crate::modules::AIUpdateInterface,
     ) -> StateReturnType {
-        let owner = if let Some(owner) = self.preset_owner.clone() {
-            owner
+        let id = if let Some(id) = self.preset_owner {
+            id
         } else {
             let Some(owner) = self.base.get_machine_owner() else {
                 return StateReturnType::Failure;
             };
             owner
         };
-        let Ok(mut owner_guard) = owner.lock() else {
-            return StateReturnType::Failure;
-        };
-        self.finish_move_update(&mut owner_guard, ai)
-            .unwrap_or(StateReturnType::Failure)
+        return crate::object::registry::OBJECT_REGISTRY
+            .with_object_mut(id, |owner_guard| {
+                self.finish_move_update(owner_guard, ai)
+                    .unwrap_or(StateReturnType::Failure)
+            })
+            .unwrap_or(StateReturnType::Failure);
     }
 
     fn on_exit(&mut self, _status: StateExitType) {
@@ -1662,23 +1641,26 @@ impl ClassicState for AIMoveToState {
         if dual_world_registry_unavailable() {
             return Ok(StateReturnType::Failure);
         }
-        let owner = if let Some(owner) = self.preset_owner.clone() {
-            owner
+        let id = if let Some(id) = self.preset_owner {
+            id
         } else {
-            self.base
+            let owner = self
+                .base
                 .get_machine_owner()
-                .ok_or_else(|| "AIMoveToState missing owner".to_string())?
+                .ok_or_else(|| "AIMoveToState missing owner".to_string())?;
+            owner
         };
-        let mut owner_guard = owner
-            .lock()
-            .map_err(|_| "AIMoveToState owner lock poisoned".to_string())?;
-        let ai_arc = owner_guard
-            .get_ai_update_interface()
-            .ok_or_else(|| "AIMoveToState missing AIUpdateInterface".to_string())?;
-        let mut ai_guard = ai_arc
-            .lock()
-            .map_err(|_| "AIMoveToState AI lock poisoned".to_string())?;
-        return self.finish_move_update(&mut owner_guard, &mut *ai_guard);
+        return crate::object::registry::OBJECT_REGISTRY
+            .with_object_mut(id, |owner_guard| {
+                let ai_arc = owner_guard
+                    .get_ai_update_interface()
+                    .ok_or_else(|| "AIMoveToState missing AIUpdateInterface".to_string())?;
+                let mut ai_guard = ai_arc
+                    .lock()
+                    .map_err(|_| "AIMoveToState AI lock poisoned".to_string())?;
+                self.finish_move_update(owner_guard, &mut *ai_guard)
+            })
+            .unwrap_or(Err("AIMoveToState owner unavailable".to_string()));
     }
 
     fn classic_on_update_with_ai(
@@ -1688,17 +1670,18 @@ impl ClassicState for AIMoveToState {
         if dual_world_registry_unavailable() {
             return Ok(StateReturnType::Failure);
         }
-        let owner = if let Some(owner) = self.preset_owner.clone() {
-            owner
+        let id = if let Some(id) = self.preset_owner {
+            id
         } else {
-            self.base
+            let owner = self
+                .base
                 .get_machine_owner()
-                .ok_or_else(|| "AIMoveToState missing owner".to_string())?
+                .ok_or_else(|| "AIMoveToState missing owner".to_string())?;
+            owner
         };
-        let mut owner_guard = owner
-            .lock()
-            .map_err(|_| "AIMoveToState owner lock poisoned".to_string())?;
-        self.finish_move_update(&mut owner_guard, ai)
+        return crate::object::registry::OBJECT_REGISTRY
+            .with_object_mut(id, |owner_guard| self.finish_move_update(owner_guard, ai))
+            .unwrap_or(Err("AIMoveToState owner unavailable".to_string()));
     }
 
     fn start_move_sound(&mut self, owner_guard: &Object) {
@@ -1746,7 +1729,7 @@ impl ClassicState for AIMoveToState {
             self.ambient_playing_handle = 0;
         }
         if let Some(owner) = self.base.get_machine_owner() {
-            if let Ok(mut owner_guard) = owner.write() {
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner, |owner_guard| {
                 let airborne = matches!(
                     owner_guard.ai_fire_loco_appearance,
                     Some(
@@ -1765,7 +1748,7 @@ impl ClassicState for AIMoveToState {
                 owner_guard.ai_pending_ending_move = true;
                 owner_guard.ai_pending_destroy_path = true;
                 owner_guard.clear_model_condition_state(ModelConditionFlags::MOVING);
-            }
+            });
         }
         Ok(())
     }
@@ -1786,35 +1769,31 @@ impl AIMoveToState {
         }
 
         if let Some(owner) = self.base.get_machine_owner() {
-            if let Ok(owner_guard) = owner.read() {
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object(owner, |owner_guard| {
                 if owner_guard.test_status(ObjectStatusTypes::Immobile) {
                     return Ok(StateReturnType::Failure);
                 }
-            }
+            });
         }
 
         self.adjust_destinations = self.adjust_destinations_override.unwrap_or(true);
         self.ambient_playing_handle = 0;
 
-        if let Some(goal_obj) = self.base.get_machine_goal_object_id().and_then(|id| {
-            crate::helpers::TheGameLogic::find_object_by_id(id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(id))
-        }) {
-            let goal_guard = goal_obj
-                .read()
-                .map_err(|_| "goal object lock poisoned".to_string())?;
-            self.goal_position = *goal_guard.get_position();
-            if let Some(owner) = self.base.get_machine_owner() {
-                if let Ok(owner_guard) = owner.read() {
-                    if owner_guard.is_kind_of(KindOf::Projectile) {
-                        let half_height = goal_guard
-                            .get_geometry_info()
-                            .get_max_height_above_position()
-                            * 0.5;
-                        self.goal_position.z += half_height;
-                        if goal_guard.get_position().z < self.goal_position.z {
-                            self.goal_position.z += half_height;
-                        }
+        if let Some(goal_id) = self.base.get_machine_goal_object_id() {
+            let projectile = self.base.get_machine_owner().and_then(|owner| {
+                crate::object::registry::OBJECT_REGISTRY
+                    .with_object(owner, |guard| guard.is_kind_of(KindOf::Projectile))
+            }).unwrap_or(false);
+            if let Some((pos, half, base_z)) = crate::object::registry::OBJECT_REGISTRY.with_object(goal_id, |goal_guard| {
+                let pos = *goal_guard.get_position();
+                let half = goal_guard.get_geometry_info().get_max_height_above_position() * 0.5;
+                (pos, half, goal_guard.get_position().z)
+            }) {
+                self.goal_position = pos;
+                if projectile {
+                    self.goal_position.z += half;
+                    if base_z < self.goal_position.z {
+                        self.goal_position.z += half;
                     }
                 }
             }
@@ -1822,69 +1801,80 @@ impl AIMoveToState {
             self.goal_position = goal_pos;
         }
 
-        let owner = if let Some(owner) = self.preset_owner.clone() {
-            owner
-        } else {
-            self.base
-                .get_machine_owner()
-                .ok_or_else(|| "AIMoveToState missing owner".to_string())?
-        };
-        let mut owner_guard = owner
-            .lock()
-            .map_err(|_| "AIMoveToState owner lock poisoned".to_string())?;
-        owner_guard.set_model_condition_state(ModelConditionFlags::MOVING);
-        if is_cliff_at(owner_guard.get_position()) {
-            owner_guard.set_model_condition_state(ModelConditionFlags::CLIMBING);
-            owner_guard.clear_model_condition_state(ModelConditionFlags::RAPPELLING);
+        let _preset_owner = self.preset_owner;
+        let owner = self
+            .base
+            .get_machine_owner()
+            .ok_or_else(|| "AIMoveToState missing owner".to_string())?;
+        let flags_ai = crate::object::registry::OBJECT_REGISTRY
+            .with_object_mut(owner, |owner_guard| {
+                owner_guard.set_model_condition_state(ModelConditionFlags::MOVING);
+                if is_cliff_at(owner_guard.get_position()) {
+                    owner_guard.set_model_condition_state(ModelConditionFlags::CLIMBING);
+                    owner_guard.clear_model_condition_state(ModelConditionFlags::RAPPELLING);
+                }
+                let parachuting = owner_guard.test_status(ObjectStatusTypes::Parachuting);
+                let ai = if borrowed.is_none() {
+                    owner_guard.get_ai_update_interface()
+                } else {
+                    None
+                };
+                (parachuting, ai)
+            })
+            .ok_or_else(|| "AIMoveToState owner missing".to_string())?;
+        let (parachuting, ai_opt) = flags_ai;
+        if borrowed.is_none() && owner_ai_mutex_held {
+            self.adjust_destinations = false;
+            return Ok(StateReturnType::Continue);
         }
-        let ai_arc;
-        let mut locked_ai;
+        let ai_arc = if borrowed.is_none() {
+            Some(ai_opt.ok_or_else(|| "AIMoveToState missing AIUpdateInterface".to_string())?)
+        } else {
+            None
+        };
+        let mut locked_ai = if let Some(ai_arc) = ai_arc.as_ref() {
+            Some(ai_arc.lock().map_err(|_| "AIMoveToState AI lock poisoned".to_string())?)
+        } else {
+            None
+        };
         let ai_guard: &mut dyn crate::modules::AIUpdateInterface = if let Some(ai_ref) = borrowed.as_mut() {
             *ai_ref
         } else {
-            if owner_ai_mutex_held {
-                self.adjust_destinations = false;
-                return Ok(StateReturnType::Continue);
-            }
-            ai_arc = owner_guard
-                .get_ai_update_interface()
-                .ok_or_else(|| "AIMoveToState missing AIUpdateInterface".to_string())?;
-            locked_ai = ai_arc
-                .lock()
-                .map_err(|_| "AIMoveToState AI lock poisoned".to_string())?;
-            &mut *locked_ai
+            locked_ai.as_mut().unwrap()
         };
-
-        if owner_guard.test_status(ObjectStatusTypes::Parachuting) {
-            self.adjust_destinations = false;
-        } else if !ai_guard.is_allowed_to_adjust_destination() {
-            self.adjust_destinations = false;
-        }
-
-        ai_guard.set_adjusts_destination(self.adjust_destinations);
-        self.compute_path(&mut *ai_guard)?;
-        let _ = ai_guard.set_path_extra_distance(0.0);
-        ai_guard.set_desired_speed(FAST_AS_POSSIBLE);
-
-        // C++ AIInternalMoveToState::onEnter (AIStates.cpp:1604-1605): startMove.
-        ai_guard.friend_starting_move();
-        ai_guard.with_cur_locomotor(&mut |loco| loco.start_move());
-
-        self.start_move_sound(&owner_guard);
-
-        if owner_guard.get_formation_id() != FormationID::NONE {
-            if let Some(group_id) = owner_guard.get_group_id() {
-                let ai_store = the_ai(); if let Ok(ai_lock) = ai_store.read() {
-                    if let Some(group) = ai_lock.find_group(group_id) {
-                        if let Ok(mut group_guard) = group.write() {
-                            let speed = group_guard.get_speed();
-                            ai_guard.set_desired_speed(speed);
+        let finished = crate::object::registry::OBJECT_REGISTRY.with_object(owner, |owner_guard| -> Result<(), String> {
+            if parachuting {
+                self.adjust_destinations = false;
+            } else if !ai_guard.is_allowed_to_adjust_destination() {
+                self.adjust_destinations = false;
+            }
+            ai_guard.set_adjusts_destination(self.adjust_destinations);
+            self.compute_path(&mut *ai_guard)?;
+            let _ = ai_guard.set_path_extra_distance(0.0);
+            ai_guard.set_desired_speed(FAST_AS_POSSIBLE);
+            ai_guard.friend_starting_move();
+            ai_guard.with_cur_locomotor(&mut |loco| loco.start_move());
+            self.start_move_sound(owner_guard);
+            if owner_guard.get_formation_id() != FormationID::NONE {
+                if let Some(group_id) = owner_guard.get_group_id() {
+                    let ai_store = the_ai();
+                    if let Ok(ai_lock) = ai_store.read() {
+                        if let Some(group) = ai_lock.find_group(group_id) {
+                            if let Ok(mut group_guard) = group.write() {
+                                let speed = group_guard.get_speed();
+                                ai_guard.set_desired_speed(speed);
+                            }
                         }
                     }
                 }
             }
+            Ok(())
+        });
+        match finished {
+            Some(Ok(())) => {}
+            Some(Err(e)) => return Err(e),
+            None => return Err("AIMoveToState owner missing".to_string()),
         }
-
         Ok(StateReturnType::Continue)
     }
 }
@@ -1928,41 +1918,34 @@ impl StateImplementation for AIMoveAndEvacuateState {
         goal_pos: Coord3D,
     ) -> StateReturnType {
         if let Some(owner) = self.base.base.get_machine_owner() {
-            if let Ok(owner_guard) = owner.read() {
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object(owner, |owner_guard| {
                 self.origin = *owner_guard.get_position();
-            }
+            });
         }
         self.base.set_adjusts_destination(true);
         if goal_id != crate::common::INVALID_ID {
-            if let Some(goal_obj) = crate::helpers::TheGameLogic::find_object_by_id(goal_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(goal_id))
-            {
-                if let Ok(goal_guard) = goal_obj.read() {
-                    self.base.goal_position = *goal_guard.get_position();
-                } else {
-                    self.base.goal_position = goal_pos;
-                }
-            } else {
-                self.base.goal_position = goal_pos;
-            }
+            self.base.goal_position = crate::object::registry::OBJECT_REGISTRY
+                .with_object(goal_id, |goal_guard| *goal_guard.get_position())
+                .unwrap_or(goal_pos);
         } else {
             self.base.goal_position = goal_pos;
         }
         let Some(owner) = self.base.base.get_machine_owner() else {
             return StateReturnType::Failure;
         };
-        if let Ok(mut owner_guard) = owner.write() {
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner, |owner_guard| {
             if owner_guard.test_status(ObjectStatusTypes::Immobile) {
                 return StateReturnType::Failure;
             }
             owner_guard.set_model_condition_state(ModelConditionFlags::MOVING);
-        }
-        let Ok(owner_guard) = owner.read() else {
-            return StateReturnType::Failure;
-        };
-        self.base
-            .start_from_borrowed_ai(ai, &owner_guard)
-            .map(|_| StateReturnType::Continue)
+        });
+        crate::object::registry::OBJECT_REGISTRY
+            .with_object(owner, |owner_guard| {
+                self.base
+                    .start_from_borrowed_ai(ai, owner_guard)
+                    .map(|_| StateReturnType::Continue)
+                    .unwrap_or(StateReturnType::Failure)
+            })
             .unwrap_or(StateReturnType::Failure)
     }
 
@@ -1977,10 +1960,12 @@ impl StateImplementation for AIMoveAndEvacuateState {
         let Some(owner) = self.base.base.get_machine_owner() else {
             return StateReturnType::Failure;
         };
-        let Ok(owner_guard) = owner.read() else {
+        let Some(alive) = crate::object::registry::OBJECT_REGISTRY
+            .with_object(owner, |owner_guard| !owner_guard.is_effectively_dead())
+        else {
             return StateReturnType::Failure;
         };
-        if owner_guard.is_effectively_dead() {
+        if !alive {
             return StateReturnType::Failure;
         }
         let close_enough = {
@@ -1991,15 +1976,14 @@ impl StateImplementation for AIMoveAndEvacuateState {
         if ai.is_waiting_for_path() || ai.get_locomotor_distance_to_goal() > close_enough {
             return StateReturnType::Continue;
         }
-        drop(owner_guard);
-        if let Ok(mut owner_guard) = owner.write() {
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner, |owner_guard| {
             owner_guard.ai_pending_evacuate = true;
             if let Some(team) = owner_guard.get_team() {
                 if let Ok(mut team_guard) = team.write() {
                     team_guard.set_active();
                 }
             }
-        }
+        });
         StateReturnType::Success
     }
 
@@ -2055,9 +2039,9 @@ impl ClassicState for AIMoveAndEvacuateState {
             .base
             .get_machine_owner()
             .ok_or_else(|| "move+evacuate missing machine owner".to_string())?;
-        if let Ok(owner_guard) = owner.read() {
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object(owner, |owner_guard| {
             self.origin = *owner_guard.get_position();
-        }
+        });
 
 
         self.base.set_adjusts_destination(true);
@@ -2072,7 +2056,7 @@ impl ClassicState for AIMoveAndEvacuateState {
                 .base
                 .get_machine_owner()
                 .ok_or_else(|| "move+evacuate missing machine owner".to_string())?;
-            if let Ok(mut owner_guard) = owner.write() {
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner, |owner_guard| {
                 if owner_guard.is_effectively_dead() {
                     return Ok(StateReturnType::Failure);
                 }
@@ -2082,7 +2066,7 @@ impl ClassicState for AIMoveAndEvacuateState {
                         team_guard.set_active();
                     }
                 }
-            };
+            });;
         }
         Ok(status)
     }
@@ -2179,9 +2163,9 @@ impl Snapshotable for AIMoveToState {
 
     fn load_post_process(&mut self) -> Result<(), String> {
         if let Some(owner) = self.base.get_machine_owner() {
-            if let Ok(owner_guard) = owner.read() {
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object(owner, |owner_guard| {
                 self.start_move_sound(&owner_guard);
-            }
+            });
         }
         Ok(())
     }

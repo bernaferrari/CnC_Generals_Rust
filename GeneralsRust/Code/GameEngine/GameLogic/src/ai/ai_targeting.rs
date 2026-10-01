@@ -892,49 +892,21 @@ impl AITargeting {
     /// - Exploiting incomplete map knowledge
     fn is_target_visible(&self, attacker_id: ObjectID, target_id: ObjectID) -> bool {
         use crate::system::shroud_manager::get_shroud_manager;
-        use crate::object_manager::get_object_manager;
 
-        // Get attacker's player
-        let object_manager = match get_object_manager().read() {
-            Ok(mgr) => mgr,
-            Err(_) => {
-                // If we can't access ObjectManager, be conservative and allow targeting
-                // (might be during initialization or error state)
-                return true;
-            }
+        // Snapshot the attacker's controlling player. Missing object cannot target.
+        // No team / unreadable team stays permissive (legacy).
+        let attacker_player_id = match OBJECT_REGISTRY.with_object(attacker_id, |attacker_guard| {
+            attacker_guard.get_team().and_then(|team_arc| {
+                team_arc
+                    .read()
+                    .ok()
+                    .and_then(|team_guard| team_guard.get_controlling_player_id())
+            })
+        }) {
+            None => return false,
+            Some(None) => return true,
+            Some(Some(player_id)) => player_id,
         };
-
-        // Get attacker object to find its player
-        let attacker_arc = match object_manager.get_object(attacker_id) {
-            Some(obj) => obj,
-            None => return false, // Attacker not found, can't target
-        };
-
-        let attacker_player_id = match attacker_arc.read() {
-            Ok(attacker_guard) => {
-                // Get player from attacker's team
-                if let Some(team_arc) = attacker_guard.get_team() {
-                    if let Ok(team_guard) = team_arc.read() {
-                        match team_guard.get_controlling_player_id() {
-                            Some(player_id) => player_id,
-                            None => {
-                                // Team has no controlling player, assume neutral (can see all)
-                                return true;
-                            }
-                        }
-                    } else {
-                        return true; // Can't read team, be permissive
-                    }
-                } else {
-                    return true; // No team, assume can see
-                }
-            }
-            Err(_) => return true, // Can't read attacker, be permissive
-        };
-
-        // Drop locks before querying ShroudManager
-        drop(attacker_arc);
-        drop(object_manager);
 
         // Query ShroudManager for visibility, considering stealth
         let shroud = get_shroud_manager();

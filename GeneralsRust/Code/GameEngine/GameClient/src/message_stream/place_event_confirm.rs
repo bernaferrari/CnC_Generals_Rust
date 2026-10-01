@@ -8,9 +8,10 @@ use crate::helpers::{PendingSpecialPower, TheInGameUI};
 use game_engine::common::system::build_assistant::CanMakeType as BuildCanMakeType;
 use gamelogic::common::audio::AudioEventRts;
 use gamelogic::common::{Coord3D as LogicCoord3D, KindOf};
-use gamelogic::helpers::{TheAudio, TheGameLogic, TheThingFactory};
+use gamelogic::helpers::{TheAudio, TheThingFactory};
 use gamelogic::modules::BehaviorModuleInterface;
 use gamelogic::object::Object;
+use gamelogic::object::registry::OBJECT_REGISTRY;
 
 /// World-space facing from a click-drag placement anchor.
 /// C++ `InGameUI::handleBuildPlacements` (`v.toAngle()` of worldEnd-worldStart).
@@ -145,15 +146,13 @@ pub fn play_illegal_place_feedback(builder: &Object) {
 }
 
 pub fn play_illegal_place_feedback_for_id(builder_id: u32) {
-    let Some(builder_arc) = TheGameLogic::find_object_by_id(builder_id) else {
+    let played = OBJECT_REGISTRY.with_object(builder_id, |builder| {
+        play_illegal_place_feedback(builder);
+        true
+    });
+    if played != Some(true) {
         play_no_can_do_beep();
-        return;
-    };
-    let Ok(builder) = builder_arc.read() else {
-        play_no_can_do_beep();
-        return;
-    };
-    play_illegal_place_feedback(&builder);
+    }
 }
 
 fn play_no_can_do_beep() {

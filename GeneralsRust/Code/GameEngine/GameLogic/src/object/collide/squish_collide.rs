@@ -137,7 +137,7 @@ impl SquishCollide {
         &self.module_data
     }
 
-    fn owner_handle(&self) -> Result<Arc<RwLock<Object>>, CollisionError> {
+    fn owner_handle(&self) -> Result<ObjectId, CollisionError> {
         // Wave 408: empty dual-world → InvalidObject.
         if dual_world_registry_unavailable() {
             return Err(CollisionError::InvalidObject(format!(
@@ -146,7 +146,7 @@ impl SquishCollide {
             )));
         }
 
-        OBJECT_REGISTRY.get_object(self.owner_id).ok_or_else(|| {
+        Ok(self.owner_id).filter(|id| *id != crate::common::INVALID_ID && OBJECT_REGISTRY.contains(*id)).ok_or_else(|| {
             CollisionError::InvalidObject(format!(
                 "SquishCollide owner {} missing from registry",
                 self.owner_id
@@ -156,7 +156,7 @@ impl SquishCollide {
 
     fn owner_snapshot(
         &self,
-        object: &Arc<RwLock<Object>>,
+        object: &ObjectID,
     ) -> Result<OwnerSnapshot, CollisionError> {
         OwnerSnapshot::from_arc(object)
     }
@@ -309,21 +309,20 @@ struct OwnerSnapshot {
 }
 
 impl OwnerSnapshot {
-    fn from_arc(object: &Arc<RwLock<Object>>) -> Result<Self, CollisionError> {
-        let guard = object
-            .read()
-            .map_err(|_| CollisionError::InvalidObject("failed to read owner object".into()))?;
-
-        let pos = guard.get_position();
-        let position = Coord3D::new(pos.x, pos.y, pos.z);
-        let squish_geometry = squish_victim_geometry(guard.get_geometry_info());
-
-        Ok(Self {
-            id: guard.get_id(),
-            position,
-            orientation: guard.get_orientation(),
-            squish_geometry,
-        })
+    fn from_arc(object: &ObjectID) -> Result<Self, CollisionError> {
+        OBJECT_REGISTRY
+            .with_object(*object, |guard| {
+                let pos = guard.get_position();
+                let position = Coord3D::new(pos.x, pos.y, pos.z);
+                let squish_geometry = squish_victim_geometry(guard.get_geometry_info());
+                Self {
+                    id: guard.get_id(),
+                    position,
+                    orientation: guard.get_orientation(),
+                    squish_geometry,
+                }
+            })
+            .ok_or_else(|| CollisionError::InvalidObject("failed to read owner object".into()))
     }
 }
 

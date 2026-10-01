@@ -380,8 +380,8 @@ impl Object {
         // flying CombatSystem dummy that can collide mid-flight.
         if leftover_projectile_object_is_empty(&projectile_object_name) && name.is_some() {
             self.queue_leftover_projectileless_flight_damage(name, target_id);
-        }
-        super::combat::queue_projectile(super::combat::PendingProjectile {
+        } else if let Some(pending) =
+            super::combat::stage_projectile_for_object(super::combat::PendingProjectile {
             shooter_id,
             shooter_pos,
             source_context: Some(super::combat::ProjectileLaunchContext {
@@ -441,7 +441,9 @@ impl Object {
             die_on_detonate: name
                 .map(crate::game_logic::weapon_bootstrap::host_die_on_detonate_for_weapon_name)
                 .unwrap_or(false),
-        });
+        }) {
+            self.staged_projectiles.push(pending);
+        }
 
         // C++ fireWeaponTemplate LeechRange activate residual.
         self.activate_leech_range_for_slot(slot);
@@ -964,7 +966,6 @@ mod tests {
     fn fire_at_keeps_gattling_store_type() {
         // GattlingTankGun is projectileless (empty ProjectileObject).
         // C++/leftover hitscan: leftover handle_projectileless, no dummy projectile.
-        crate::game_logic::combat::clear_pending_projectile_queue_for_test();
         let _ = crate::game_logic::weapon_bootstrap::ensure_host_weapon_store();
         let mut tmpl = ThingTemplate::new("ChinaTankGattling");
         tmpl.set_primary_weapon_name("GattlingTankGun");
@@ -980,18 +981,16 @@ mod tests {
         });
         assert!(atk.fire_at(ObjectId(2), 1.0));
         assert_eq!(
-            crate::game_logic::combat::last_pending_projectile_damage_type_for_test(),
+            atk.staged_projectiles.last().map(|p| p.damage_type),
             None,
             "projectileless Gattling must not spawn a dummy CombatSystem projectile"
         );
-        crate::game_logic::combat::clear_pending_projectile_queue_for_test();
     }
 
     #[test]
     fn fire_at_projectileless_queues_leftover_delayed_damage() {
         // C++ Weapon.cpp:1055-1063 / leftover handle_projectileless_flight_damage:
         // travel frames >= 1 queues WeaponStore::set_delayed_damage.
-        crate::game_logic::combat::clear_pending_projectile_queue_for_test();
         let _ = crate::game_logic::weapon_bootstrap::ensure_host_weapon_store();
         const NAME: &str = "__RustLiveProjectilelessDelay";
         let _ = gamelogic::weapon::with_weapon_store_mut(|store| {
@@ -1019,7 +1018,7 @@ mod tests {
         });
         assert!(atk.fire_at(ObjectId(2), 1.0));
         assert_eq!(
-            crate::game_logic::combat::last_pending_projectile_damage_type_for_test(),
+            atk.staged_projectiles.last().map(|p| p.damage_type),
             None,
             "projectileless fire must not queue a dummy CombatSystem projectile"
         );
@@ -1034,7 +1033,6 @@ mod tests {
             }),
             "leftover WeaponStore must queue delayed damage: {snaps:?}"
         );
-        crate::game_logic::combat::clear_pending_projectile_queue_for_test();
     }
 
     #[test]

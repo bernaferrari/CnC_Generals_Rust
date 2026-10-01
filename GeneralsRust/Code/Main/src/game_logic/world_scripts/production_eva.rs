@@ -496,7 +496,7 @@ impl GameLogic {
     pub fn radar_notification_snapshot(
         &self,
     ) -> Vec<crate::game_logic::radar_notifications::RadarEntry> {
-        self.radar_notifications.snapshot()
+        self.radar_notifications.iter().cloned().collect()
     }
 
     pub fn queue_radar_message<S: Into<String>>(&mut self, message: S) {
@@ -535,7 +535,7 @@ impl GameLogic {
             timestamp: self.sim_time_seconds,
             kind,
         };
-        self.radar_notifications.push(entry.clone());
+        self.radar_notifications.push_back(entry.clone());
         self.last_radar_event = Some(entry);
         self.last_radar_kind_time[kind_index] = self.sim_time_seconds;
 

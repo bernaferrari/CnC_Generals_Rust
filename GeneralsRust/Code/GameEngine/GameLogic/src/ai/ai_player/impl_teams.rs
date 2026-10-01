@@ -30,8 +30,8 @@ impl AIPlayer {
                 .unwrap_or_else(|| "default".to_string());
 
             // C++ team->m_team: prefer concrete handle; name lookup is fallback only.
-            if team_q.team.is_none() {
-                team_q.team = get_team_factory().lock().ok().and_then(|mut factory| {
+            if team_q.team_id.is_none() {
+                team_q.team_id = get_team_factory().lock().ok().and_then(|mut factory| {
                     factory
                         .find_team_instances(&team_name)
                         .into_iter()
@@ -39,32 +39,27 @@ impl AIPlayer {
                         .or_else(|| factory.find_team(&team_name))
                 });
             }
-            let team_arc = team_q.team.clone();
+            let team_id = team_q.team_id;
 
-            // Home for recruit search: C++ m_team prototype homeLocation else base center.
-            let (home, has_home) = self.queue_units_home_for_team(team_arc.as_ref(), &team_name);
+            let (home, has_home) = self.queue_units_home_for_team(team_id, &team_name);
 
             for order in &mut team_q.work_orders {
-                // C++: while waiting, tryToRecruit repeatedly.
-                if let Some(ref team_arc) = team_arc {
+                if let Some(team_id) = team_id {
                     while order.is_waiting_to_build() {
                         let Some(thing) = TheThingFactory::find_template(&order.thing_template)
                         else {
                             break;
                         };
-                        let Ok(team_g) = team_arc.read() else {
+                        let Some(unit_arc) = crate::team::with_team(team_id, |team_g| {
+                            team_g.try_to_recruit(&thing, &home, max_recruit)
+                        }).flatten() else {
                             break;
                         };
-                        let Some(unit_arc) = team_g.try_to_recruit(&thing, &home, max_recruit)
-                        else {
-                            break; // no more recruitable units
-                        };
-                        drop(team_g);
 
                         order.num_completed = order.num_completed.saturating_add(1);
 
                         if let Ok(mut unit_g) = unit_arc.write() {
-                            let _ = unit_g.set_team(Some(team_arc.clone()));
+                            let _ = unit_g.set_team_id(Some(team_id));
                             if let Some(ai) = unit_g.get_ai_update_interface() {
                                 if has_home {
                                     // C++ aiMoveToPosition(&home, CMD_FROM_AI)
@@ -87,9 +82,8 @@ impl AIPlayer {
                 if order.is_waiting_to_build() {
                     // start the creation of a new unit
                     // C++ startTraining(..., team->m_team->getName())
-                    let train_name = team_arc
-                        .as_ref()
-                        .and_then(|a| a.read().ok().map(|g| g.get_name().to_string()))
+                    let train_name = team_id
+                        .and_then(|id| crate::team::with_team(id, |g| g.get_name().to_string()))
                         .unwrap_or_else(|| team_name.clone());
                     let _ = self.start_training_internal(order, busy_ok, train_name.as_str());
                 } else {
@@ -107,12 +101,11 @@ impl AIPlayer {
     /// C++ queueUnits home: m_team prototype homeLocation if set, else getBaseCenter.
     pub(super) fn queue_units_home_for_team(
         &self,
-        team: Option<&Arc<RwLock<crate::team::Team>>>,
+        team: Option<crate::team::TeamID>,
         team_name: &str,
     ) -> (Coord3D, bool) {
-        // Resolve prototype name from concrete m_team when present (C++ getPrototype()).
         let proto_name = team
-            .and_then(|a| a.read().ok().map(|g| g.get_name().to_string()))
+            .and_then(|id| crate::team::with_team(id, |g| g.get_name().to_string()))
             .filter(|n| !n.is_empty())
             .unwrap_or_else(|| team_name.to_string());
         if let Ok(factory) = get_team_factory().lock() {
@@ -274,14 +267,15 @@ impl AIPlayer {
 
     /// C++ `AIPlayer::isSupplySourceSafe` (AIPlayer.cpp).
     pub fn is_supply_source_safe(&self, min_supplies: i32) -> bool {
-        let Some(warehouse) = self.find_supply_center(min_supplies) else {
+        let Some(warehouse_id) = self.find_supply_center(min_supplies) else {
             return true; // safe because it doesn't exist
         };
-        let Ok(guard) = warehouse.read() else {
-            return true;
-        };
-        let template = guard.get_template();
-        self.is_location_safe(guard.get_position(), template.as_ref())
+        OBJECT_REGISTRY
+            .with_object(warehouse_id, |guard| {
+                let template = guard.get_template();
+                self.is_location_safe(guard.get_position(), template.as_ref())
+            })
+            .unwrap_or(true)
     }
 
     /// C++ `AIPlayer::isSupplySourceAttacked` (AIPlayer.cpp).
@@ -390,7 +384,7 @@ impl AIPlayer {
 
         if priority_build && proto.is_singleton() {
             if let Some(existing) = factory.find_team(team_name) {
-                if let Ok(eg) = existing.read() {
+                if let Some(eg) = factory.find_team_by_id(existing) {
                     if eg.has_any_objects() {
                         log::debug!(
                             "Unable to build singleton team '{}' because team already exists.",
@@ -467,14 +461,14 @@ impl AIPlayer {
         let Ok(mut factory) = get_team_factory().lock() else {
             return Ok(());
         };
-        let Some(team_arc) = factory.create_inactive_team(team_name) else {
+        let Some(team_id) = factory.create_inactive_team(team_name) else {
             return Ok(());
         };
         drop(factory);
 
-        if let Ok(mut tg) = team_arc.write() {
+        crate::team::with_team_mut(team_id, |tg| {
             tg.set_controlling_player_id(Some(self.player_id as UnsignedInt));
-        }
+        });
 
         // C++: if executeActions, friend_executeAction(productionCondition action, team).
         if proto.get_execute_actions_on_create() {
@@ -503,7 +497,7 @@ impl AIPlayer {
 
         let mut team = TeamInQueue::new();
         team.team_name = Some(team_name.to_string());
-        team.team = Some(team_arc);
+        team.team_id = Some(team_id);
         team.priority_build = priority_build;
         team.frame_started = TheGameLogic::get_frame();
         team.work_orders = orders;
@@ -569,7 +563,7 @@ impl AIPlayer {
 
         if proto.is_singleton() {
             if let Some(existing) = factory.find_team(team_name) {
-                if let Ok(eg) = existing.read() {
+                if let Some(eg) = factory.find_team_by_id(existing) {
                     if eg.has_any_objects() {
                         log::debug!(
                             "Unable to recruit singleton team '{}' because team already exists.",
@@ -590,14 +584,14 @@ impl AIPlayer {
             );
         }
 
-        let Some(team_arc) = factory.create_inactive_team(team_name) else {
+        let Some(team_id) = factory.create_inactive_team(team_name) else {
             return Ok(());
         };
         drop(factory);
 
-        if let Ok(mut tg) = team_arc.write() {
+        crate::team::with_team_mut(team_id, |tg| {
             tg.set_controlling_player_id(Some(self.player_id as UnsignedInt));
-        }
+        });
 
         // C++ tryToRecruit / aiMoveToPosition use teamProto homeLocation.
         let home = proto.home_location();
@@ -612,13 +606,9 @@ impl AIPlayer {
             };
             let mut count = unit_info.max_units.max(0);
             while count > 0 {
-                let recruited = {
-                    let Ok(tg) = team_arc.read() else {
-                        break;
-                    };
+                let Some(unit_arc) = crate::team::with_team(team_id, |tg| {
                     tg.try_to_recruit(&thing, &home, radius)
-                };
-                let Some(unit_arc) = recruited else {
+                }).flatten() else {
                     break;
                 };
                 let unit_id = unit_arc
@@ -627,11 +617,11 @@ impl AIPlayer {
                     .map(|g| g.get_id())
                     .unwrap_or(INVALID_ID);
                 if let Ok(mut ug) = unit_arc.write() {
-                    let _ = ug.set_team(Some(team_arc.clone()));
+                    let _ = ug.set_team_id(Some(team_id));
                 }
-                if let Ok(mut tg) = team_arc.write() {
+                crate::team::with_team_mut(team_id, |tg| {
                     tg.add_member(unit_id);
-                }
+                });
                 // Move to home (CMD_FROM_AI).
                 if let Ok(ug) = unit_arc.read() {
                     if let Some(ai) = ug.get_ai_update_interface() {
@@ -653,7 +643,7 @@ impl AIPlayer {
         if units_recruited > 0 {
             let mut team = TeamInQueue::new();
             team.team_name = Some(team_name.to_string());
-            team.team = Some(team_arc);
+            team.team_id = Some(team_id);
             team.priority_build = false;
             team.frame_started = TheGameLogic::get_frame();
             // Ready queue — C++ prependTo_TeamReadyQueue (activate later).
@@ -661,8 +651,7 @@ impl AIPlayer {
             log::debug!("{} - Finished recruiting.", team_name);
         } else {
             if !proto.is_singleton() {
-                let team_id = team_arc.read().ok().map(|t| t.get_id());
-                if let (Some(team_id), Ok(mut factory)) = (team_id, get_team_factory().lock()) {
+                if let Ok(mut factory) = get_team_factory().lock() {
                     factory.team_about_to_be_deleted(team_id);
                 }
             }

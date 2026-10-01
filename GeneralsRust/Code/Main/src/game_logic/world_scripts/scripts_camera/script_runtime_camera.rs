@@ -3,6 +3,16 @@
 use super::*;
 
 impl GameLogic {
+    pub fn push_script_event(&mut self, event: ScriptEvent) {
+        self.pending_script_events.push(event);
+    }
+
+    /// Take pending events before script callbacks. `mem::take` leaves the
+    /// vec empty so a callback that pushes does not see the events being matched.
+    pub fn drain_script_events(&mut self) -> Vec<ScriptEvent> {
+        std::mem::take(&mut self.pending_script_events)
+    }
+
     pub(in crate::game_logic) fn evaluate_and_execute_scripts(&mut self, dt: f32) {
         if !self.scripts_loaded {
             return;
@@ -18,7 +28,7 @@ impl GameLogic {
         // Increment script frame counter
         self.mission_script_counter += 1;
 
-        for event in script_events::drain_events() {
+        for event in self.drain_script_events() {
             match event {
                 ScriptEvent::PlayerDefeated { player_id } => {
                     log::debug!(

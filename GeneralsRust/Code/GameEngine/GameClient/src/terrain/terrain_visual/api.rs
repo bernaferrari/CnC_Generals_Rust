@@ -240,15 +240,16 @@ pub fn leftover_radar_bridge_at(
     if info.bridge_object_id == gamelogic::common::INVALID_ID {
         return None;
     }
-    let obj = gamelogic::helpers::TheGameLogic::find_object_by_id(info.bridge_object_id)?;
-    let obj_g = obj.try_read().ok()?;
-    let body = obj_g.get_body_module()?;
-    let body_g = body.try_lock().ok()?;
-    if body_g.get_damage_state() == gamelogic::object::body::BodyDamageType::Rubble {
+    let is_rubble = gamelogic::object::registry::OBJECT_REGISTRY
+        .with_object(info.bridge_object_id, |obj| {
+            obj.get_body_module().map(|body| {
+                body.get_damage_state() == gamelogic::object::body::BodyDamageType::Rubble
+            })
+        })
+        .flatten()?;
+    if is_rubble {
         return None;
     }
-    drop(body_g);
-    drop(obj_g);
 
     let color = game_engine::common::ini::try_get_terrain_roads()
         .and_then(|roads| {

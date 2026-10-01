@@ -245,29 +245,34 @@ impl Player {
 
         crate::control_bar::mark_ui_dirty();
 
-        let local_player = crate::player::player_list()
-            .read()
-            .ok()
-            .and_then(|list| list.get_local_player().cloned());
+        let local_index = crate::player::player_list().read().ok().and_then(|list| {
+            let index = list.get_local_player_index();
+            (index != PLAYER_INDEX_INVALID).then_some(index)
+        });
         let Ok(structure_guard) = structure.read() else {
             return;
         };
-        if let Some(local_player) = local_player {
-            let relation = structure_guard
-                .get_team()
-                .and_then(|team| {
-                    team.read().ok().map(|team_guard| {
-                        local_player
-                            .read()
-                            .ok()
-                            .map(|p| p.get_relationship_with_team(&team_guard))
+        let structure_team_id = structure_guard.get_team_id();
+        drop(structure_guard);
+        if let Some(local_index) = local_index {
+            let is_own = local_index == self.player_index;
+            let relation = structure_team_id
+                .and_then(|team_id| {
+                    crate::team::with_team(team_id, |team| {
+                        if is_own {
+                            self.get_relationship_with_team(team)
+                        } else {
+                            with_player(local_index, |player| {
+                                player.get_relationship_with_team(team)
+                            })
+                            .unwrap_or(Relationship::Neutral)
+                        }
                     })
                 })
-                .flatten()
                 .unwrap_or(Relationship::Neutral);
 
             if is_superweapon_particle {
-                if local_player.read().ok().map(|p| p.get_player_index()) == Some(self.player_index)
+                if is_own
                 {
                     let _ = crate::helpers::TheEva::set_should_play(
                         crate::helpers::EvaEvent::SuperweaponDetectedOwnParticleCannon,
@@ -284,7 +289,7 @@ impl Player {
             }
 
             if is_superweapon_nuke {
-                if local_player.read().ok().map(|p| p.get_player_index()) == Some(self.player_index)
+                if is_own
                 {
                     let _ = crate::helpers::TheEva::set_should_play(
                         crate::helpers::EvaEvent::SuperweaponDetectedOwnNuke,
@@ -301,7 +306,7 @@ impl Player {
             }
 
             if is_superweapon_scud {
-                if local_player.read().ok().map(|p| p.get_player_index()) == Some(self.player_index)
+                if is_own
                 {
                     let _ = crate::helpers::TheEva::set_should_play(
                         crate::helpers::EvaEvent::SuperweaponDetectedOwnScudStorm,
@@ -463,28 +468,27 @@ pub fn notify_skirmish_starting_object(player_id: u32, template_name: &str, is_s
     if template_name.is_empty() {
         return;
     }
-    let Some(player) = leftover_player_for_host_id(player_id) else {
-        return;
-    };
-    let Ok(mut guard) = player.write() else {
-        return;
-    };
-    if is_structure {
-        guard.score_starting_structure_complete(template_name);
-    } else {
-        guard.score_starting_unit_created(template_name);
-    }
-}
-
-fn leftover_player_for_host_id(
-    player_id: u32,
-) -> Option<std::sync::Arc<std::sync::RwLock<Player>>> {
-    let Ok(list) = ThePlayerList().read() else {
-        return None;
-    };
     let named = format!("player{player_id}");
-    list.find_player_by_name(&named)
-        .or_else(|| list.get_player(player_id as PlayerIndex).cloned())
+    let index = {
+        let Ok(list) = ThePlayerList().read() else {
+            return;
+        };
+        list.find_player_index_by_name(&named)
+            .or_else(|| {
+                list.get_player(player_id as PlayerIndex)
+                    .map(|player| player.get_player_index())
+            })
+    };
+    let Some(index) = index else {
+        return;
+    };
+    let _ = with_player_mut(index, |player| {
+        if is_structure {
+            player.score_starting_structure_complete(template_name);
+        } else {
+            player.score_starting_unit_created(template_name);
+        }
+    });
 }
 
 /// Live mid-game create → leftover `ScoreKeeper::addObjectBuilt` (KindOf filter).
@@ -492,22 +496,17 @@ pub fn notify_live_object_built(player_id: u32, template_name: &str) {
     if template_name.is_empty() {
         return;
     }
-    let Some(player) = leftover_player_for_host_id(player_id) else {
-        return;
-    };
-    let Ok(mut guard) = player.write() else {
-        return;
-    };
-    let bits = retail_kindof_bits_for_template(template_name);
-    guard
-        .score_keeper
-        .add_object_built_template(template_name, bits);
-    // Live notify previously wrote ScoreKeeper only; leftover academy stayed empty.
-    if bits & (1u64 << 7) != 0 {
-        guard.academy_stats.record_building_built(template_name);
-    } else {
-        guard.academy_stats.record_unit_built(template_name);
-    }
+    let _ = with_player_mut(player_id as PlayerIndex, |player| {
+        let bits = retail_kindof_bits_for_template(template_name);
+        player
+            .score_keeper
+            .add_object_built_template(template_name, bits);
+        if bits & (1u64 << 7) != 0 {
+            player.academy_stats.record_building_built(template_name);
+        } else {
+            player.academy_stats.record_unit_built(template_name);
+        }
+    });
 }
 
 /// Live mid-game kill → leftover `ScoreKeeper::addObjectDestroyed`.
@@ -520,26 +519,22 @@ pub fn notify_live_object_destroyed(
     if template_name.is_empty() {
         return;
     }
-    let Some(player) = leftover_player_for_host_id(killer_player_id) else {
-        return;
-    };
-    let Ok(mut guard) = player.write() else {
-        return;
-    };
-    let bits = retail_kindof_bits_for_template(template_name);
-    guard.score_keeper.add_object_destroyed_template(
-        template_name,
-        bits,
-        victim_player_id as Int,
-        under_construction,
-    );
-    if !under_construction {
-        if bits & (1u64 << 7) != 0 {
-            guard.academy_stats.record_building_destroyed(template_name);
-        } else {
-            guard.academy_stats.record_unit_killed(template_name);
+    let _ = with_player_mut(killer_player_id as PlayerIndex, |player| {
+        let bits = retail_kindof_bits_for_template(template_name);
+        player.score_keeper.add_object_destroyed_template(
+            template_name,
+            bits,
+            victim_player_id as Int,
+            under_construction,
+        );
+        if !under_construction {
+            if bits & (1u64 << 7) != 0 {
+                player.academy_stats.record_building_destroyed(template_name);
+            } else {
+                player.academy_stats.record_unit_killed(template_name);
+            }
         }
-    }
+    });
 }
 
 /// Live mid-game loss → leftover `ScoreKeeper::addObjectLost`.
@@ -547,24 +542,17 @@ pub fn notify_live_object_lost(player_id: u32, template_name: &str, under_constr
     if template_name.is_empty() {
         return;
     }
-    let Some(player) = leftover_player_for_host_id(player_id) else {
-        return;
-    };
-    let Ok(mut guard) = player.write() else {
-        return;
-    };
-    let bits = retail_kindof_bits_for_template(template_name);
-    guard
-        .score_keeper
-        .add_object_lost_template(template_name, bits, under_construction);
+    let _ = with_player_mut(player_id as PlayerIndex, |player| {
+        let bits = retail_kindof_bits_for_template(template_name);
+        player
+            .score_keeper
+            .add_object_lost_template(template_name, bits, under_construction);
+    });
 }
 
 /// C++ GameLogic.cpp:1720-1723 occupied observer slot.
 pub fn notify_live_observer_slot(player_id: u32) {
-    let Some(player) = leftover_player_for_host_id(player_id) else {
-        return;
-    };
-    if let Ok(mut guard) = player.write() {
-        guard.set_observer(true);
-    }
+    let _ = with_player_mut(player_id as PlayerIndex, |player| {
+        player.set_observer(true);
+    });
 }

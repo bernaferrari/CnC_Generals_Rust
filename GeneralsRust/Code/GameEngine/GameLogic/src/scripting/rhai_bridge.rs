@@ -83,28 +83,21 @@ impl RhaiScriptExecutor {
     /// This matches the C++ ScriptEngine function exposure pattern, providing
     /// access to counters, flags, objects, players, and game state.
     pub(crate) fn register_game_functions(engine: &mut Engine) -> GameLogicResult<()> {
-        fn find_object_by_name(name: &str) -> Option<std::sync::Arc<std::sync::RwLock<Object>>> {
-            // Prefer the ScriptEngine named-object cache (C++ getUnitNamed behavior).
+        fn find_object_by_name(name: &str) -> Option<crate::common::ObjectID> {
             let tracker = get_named_object_tracker();
             if let Ok(Some(object_id)) = tracker.get_object_id(name) {
-                if let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(object_id) {
-                    return Some(obj);
+                if crate::helpers::TheGameLogic::find_object_by_id(object_id) {
+                    return Some(object_id);
                 }
             }
-
-            // Fall back to a case-insensitive scan for objects that were not registered with the
-            // named-object tracker (e.g. dynamically spawned without a name).
             let lower = name.to_ascii_lowercase();
-            OBJECT_REGISTRY
-                .get_all_objects()
-                .into_iter()
-                .find(|obj_ref| {
-                    obj_ref
-                        .read()
-                        .ok()
-                        .map(|o| o.get_name().to_ascii_lowercase() == lower)
-                        .unwrap_or(false)
-                })
+            let mut found = None;
+            OBJECT_REGISTRY.with_each(|id, obj| {
+                if found.is_none() && obj.get_name().to_ascii_lowercase() == lower {
+                    found = Some(id);
+                }
+            });
+            found
         }
 
         // ============================================================================
@@ -195,42 +188,42 @@ impl RhaiScriptExecutor {
         engine.register_fn("object_health", |name: &str| -> f32 {
             log::debug!("Rhai: object_health({})", name);
             find_object_by_name(name)
-                .and_then(|obj| obj.read().ok().map(|o| o.get_health()))
+                .and_then(|id| OBJECT_REGISTRY.with_object(id, |o| o.get_health()))
                 .unwrap_or(0.0)
         });
 
         engine.register_fn("object_position_x", |name: &str| -> f32 {
             log::debug!("Rhai: object_position_x({})", name);
             find_object_by_name(name)
-                .and_then(|obj| obj.read().ok().map(|o| o.get_position().x))
+                .and_then(|id| OBJECT_REGISTRY.with_object(id, |o| o.get_position().x))
                 .unwrap_or(0.0)
         });
 
         engine.register_fn("object_position_y", |name: &str| -> f32 {
             log::debug!("Rhai: object_position_y({})", name);
             find_object_by_name(name)
-                .and_then(|obj| obj.read().ok().map(|o| o.get_position().y))
+                .and_then(|id| OBJECT_REGISTRY.with_object(id, |o| o.get_position().y))
                 .unwrap_or(0.0)
         });
 
         engine.register_fn("object_position_z", |name: &str| -> f32 {
             log::debug!("Rhai: object_position_z({})", name);
             find_object_by_name(name)
-                .and_then(|obj| obj.read().ok().map(|o| o.get_position().z))
+                .and_then(|id| OBJECT_REGISTRY.with_object(id, |o| o.get_position().z))
                 .unwrap_or(0.0)
         });
 
         engine.register_fn("object_is_destroyed", |name: &str| -> bool {
             log::debug!("Rhai: object_is_destroyed({})", name);
             find_object_by_name(name)
-                .and_then(|obj| obj.read().ok().map(|o| o.is_effectively_dead()))
+                .and_then(|id| OBJECT_REGISTRY.with_object(id, |o| o.is_effectively_dead()))
                 .unwrap_or(false)
         });
 
         engine.register_fn("object_is_alive", |name: &str| -> bool {
             log::debug!("Rhai: object_is_alive({})", name);
             find_object_by_name(name)
-                .and_then(|obj| obj.read().ok().map(|o| !o.is_effectively_dead()))
+                .and_then(|id| OBJECT_REGISTRY.with_object(id, |o| !o.is_effectively_dead()))
                 .unwrap_or(false)
         });
 
@@ -662,7 +655,7 @@ impl RhaiScriptExecutor {
                     })
                     .or_else(|| {
                         find_object_by_name(waypoint)
-                            .and_then(|obj| obj.read().ok().map(|o| *o.get_position()))
+                            .and_then(|id| OBJECT_REGISTRY.with_object(id, |o| *o.get_position()))
                     })
                     .unwrap_or(crate::common::Coord3D::ZERO);
 

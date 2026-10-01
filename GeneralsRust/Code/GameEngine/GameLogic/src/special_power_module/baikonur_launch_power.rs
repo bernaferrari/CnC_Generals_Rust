@@ -68,13 +68,9 @@ impl BaikonurLaunchPower {
         let Some(owner_id) = self.owner_id else {
             return;
         };
-        let Some(owner) = TheGameLogic::find_object_by_id(owner_id) else {
-            return;
-        };
-        let Ok(mut owner_guard) = owner.write() else {
-            return;
-        };
-        owner_guard.set_model_condition_state(ModelConditionFlags::DOOR_1_OPENING);
+        crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner_id, |owner_guard| {
+            owner_guard.set_model_condition_state(ModelConditionFlags::DOOR_1_OPENING);
+        });
     }
 
     fn owner_is_disabled(&self) -> bool {
@@ -86,12 +82,8 @@ impl BaikonurLaunchPower {
         let Some(owner_id) = self.owner_id else {
             return false;
         };
-        let Some(owner) = TheGameLogic::find_object_by_id(owner_id) else {
-            return false;
-        };
-        owner
-            .read()
-            .map(|guard| guard.is_disabled())
+        crate::object::registry::OBJECT_REGISTRY
+            .with_object(owner_id, |guard| guard.is_disabled())
             .unwrap_or(false)
     }
 
@@ -104,14 +96,10 @@ impl BaikonurLaunchPower {
         let owner_id = self
             .owner_id
             .ok_or_else(|| "Baikonur launch requires owning object".to_string())?;
-        let owner = TheGameLogic::find_object_by_id(owner_id)
-            .ok_or_else(|| "Baikonur launch owner object not found".to_string())?;
-        let owner_guard = owner
-            .read()
-            .map_err(|_| "Baikonur launch owner lock poisoned".to_string())?;
-        owner_guard
-            .get_team()
-            .ok_or_else(|| "Baikonur launch owner has no team".to_string())
+        crate::object::registry::OBJECT_REGISTRY
+            .with_object(owner_id, |owner_guard| owner_guard.get_team())
+            .flatten()
+            .ok_or_else(|| "Baikonur launch owner object not found".to_string())
     }
 
     fn spawn_detonation(&mut self) -> Result<(), String> {
@@ -286,12 +274,11 @@ impl SpecialPowerModuleInterface for BaikonurLaunchPower {
             }
 
             if let Some(owner_id) = self.owner_id {
-                if let Some(owner) = TheGameLogic::find_object_by_id(owner_id) {
-                    if let Ok(owner_guard) = owner.read() {
-                        if owner_guard.is_disabled() {
-                            return ActivationResult::Disabled;
-                        }
-                    }
+                if crate::object::registry::OBJECT_REGISTRY
+                    .with_object(owner_id, |owner_guard| owner_guard.is_disabled())
+                    .unwrap_or(false)
+                {
+                    return ActivationResult::Disabled;
                 }
             }
 
@@ -344,12 +331,11 @@ impl SpecialPowerModuleInterface for BaikonurLaunchPower {
         }
 
         if let Some(owner_id) = self.owner_id {
-            if let Some(owner) = TheGameLogic::find_object_by_id(owner_id) {
-                if let Ok(owner_guard) = owner.read() {
-                    if owner_guard.is_disabled() {
-                        return ActivationResult::Disabled;
-                    }
-                }
+            if crate::object::registry::OBJECT_REGISTRY
+                .with_object(owner_id, |owner_guard| owner_guard.is_disabled())
+                .unwrap_or(false)
+            {
+                return ActivationResult::Disabled;
             }
         }
 

@@ -176,7 +176,7 @@ pub fn simulate_live_presentation_build_from_gameworld_honesty() -> bool {
         e.selected = true;
     }
 
-    let mut host_frame = PresentationFrame::build_from_logic(&logic, 0);
+    let mut host_frame = PresentationFrame::build_from_logic(&mut logic, 0);
     let host_count = host_frame.objects.len();
     let rebuilt = host_frame.rebuild_objects_from_gameworld(&shadow);
     if rebuilt < 2 {

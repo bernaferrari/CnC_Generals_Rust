@@ -70,17 +70,16 @@ impl BasicDrawable {
         }
 
         let obj_id = self.object_id?;
-        let obj_arc = OBJECT_REGISTRY.get_object(obj_id)?;
-        let obj_guard = obj_arc.read().ok()?;
-
-        let (health_box_height, mut health_box_width) = obj_guard.get_health_box_dimensions();
-        // C++: if (!obj->getHealthBoxDimensions(...)) return FALSE;
-        if health_box_width <= 0.0 || health_box_height <= 0.0 {
-            return None;
-        }
-
-        let world = obj_guard.get_health_box_position();
-        let world_pt = Point3::new(world.x, world.y, world.z);
+        let region = OBJECT_REGISTRY.with_object(obj_id, |obj| {
+            let (health_box_height, health_box_width) = obj.get_health_box_dimensions();
+            if health_box_width <= 0.0 || health_box_height <= 0.0 {
+                return None;
+            }
+            let world = obj.get_health_box_position();
+            Some(Point3::new(world.x, world.y, world.z))
+                .map(|world_pt| (world_pt, health_box_width))
+        })??;
+        let (world_pt, health_box_width) = region;
         Self::health_region_from_world_point(world_pt, health_box_width)
     }
 
@@ -156,26 +155,26 @@ impl BasicDrawable {
             let Some(obj_id) = self.object_id else {
                 return;
             };
-            let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) else {
+            let Some(stats) = OBJECT_REGISTRY.with_object(obj_id, |obj| {
+                let health = obj.get_health();
+                let max_health = obj.get_max_health();
+                use gamelogic::common::types::DisabledType;
+                let disabled_not_held =
+                    obj.is_disabled() && !obj.is_disabled_by_type(DisabledType::Held);
+                (
+                    health,
+                    max_health,
+                    obj.is_under_construction(),
+                    disabled_not_held,
+                )
+            }) else {
                 return;
             };
-            let Ok(obj_guard) = obj_arc.read() else {
-                return;
-            };
-            let health = obj_guard.get_health();
-            let max_health = obj_guard.get_max_health();
+            let (health, max_health, under_construction, disabled_not_held) = stats;
             if max_health == 0.0 || health == 0.0 {
                 return;
             }
-            use gamelogic::common::types::DisabledType;
-            let disabled_not_held =
-                obj_guard.is_disabled() && !obj_guard.is_disabled_by_type(DisabledType::Held);
-            (
-                health,
-                max_health,
-                obj_guard.is_under_construction(),
-                disabled_not_held,
-            )
+            (health, max_health, under_construction, disabled_not_held)
         };
 
         let ratio = (health / max_health).clamp(0.0, 1.0);
@@ -222,14 +221,18 @@ impl BasicDrawable {
         }
 
         if let Some(obj_id) = self.object_id {
-            let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) else {
+            let level = OBJECT_REGISTRY.with_object(obj_id, |obj| {
+                if obj.get_experience_tracker().is_some() {
+                    Some(obj.get_veterancy_level() as u8)
+                } else {
+                    None
+                }
+            });
+            if level.is_none() {
                 return;
-            };
-            let Ok(obj_guard) = obj_arc.read() else {
-                return;
-            };
-            if obj_guard.get_experience_tracker().is_some() {
-                self.overlay_data.veterancy_level = obj_guard.get_veterancy_level() as u8;
+            }
+            if let Some(level) = level.flatten() {
+                self.overlay_data.veterancy_level = level;
             }
         }
     }
@@ -258,29 +261,34 @@ impl BasicDrawable {
         }
 
         if let Some(obj_id) = self.object_id {
-            let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) else {
+            let state = OBJECT_REGISTRY.with_object(obj_id, |obj| {
+                if obj.test_status(gamelogic::common::ObjectStatusTypes::Sold)
+                    || !obj.is_under_construction()
+                {
+                    None
+                } else {
+                    Some((obj.get_construction_percent() as f32) / 100.0)
+                }
+            });
+            let Some(state) = state else {
                 self.overlay_data.is_under_construction = false;
                 self.overlay_data.construction_percent = 0.0;
                 self.overlay_data.construct_text = None;
                 return;
             };
-            let Ok(obj_guard) = obj_arc.read() else {
-                return;
-            };
-            if obj_guard.test_status(gamelogic::common::ObjectStatusTypes::Sold)
-                || !obj_guard.is_under_construction()
-            {
-                self.overlay_data.is_under_construction = false;
-                self.overlay_data.construction_percent = 0.0;
-                self.overlay_data.construct_text = None;
-            } else {
-                self.overlay_data.is_under_construction = true;
-                self.overlay_data.construction_percent =
-                    (obj_guard.get_construction_percent() as f32) / 100.0;
-                self.overlay_data.construct_text = Some(format_under_construction_desc(
-                    self.overlay_data.construction_percent,
-                ));
-                self.overlay_data.visible = true;
+            match state {
+                None => {
+                    self.overlay_data.is_under_construction = false;
+                    self.overlay_data.construction_percent = 0.0;
+                    self.overlay_data.construct_text = None;
+                }
+                Some(percent) => {
+                    self.overlay_data.is_under_construction = true;
+                    self.overlay_data.construction_percent = percent;
+                    self.overlay_data.construct_text =
+                        Some(format_under_construction_desc(percent));
+                    self.overlay_data.visible = true;
+                }
             }
         }
     }
@@ -349,13 +357,9 @@ impl BasicDrawable {
         let Some(obj_id) = self.object_id else {
             return false;
         };
-        let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) else {
-            return false;
-        };
-        let Ok(obj_guard) = obj_arc.read() else {
-            return false;
-        };
-        obj_guard.is_locally_controlled()
+        OBJECT_REGISTRY
+            .with_object(obj_id, |obj| obj.is_locally_controlled())
+            .unwrap_or(false)
     }
 
     fn pip_icon_gates_pass(&self) -> bool {
@@ -380,27 +384,29 @@ impl BasicDrawable {
         let Some(obj_id) = self.object_id else {
             return false;
         };
-        let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) else {
+        let ui = OBJECT_REGISTRY.with_object(obj_id, |obj| {
+            let local = obj.is_locally_controlled();
+            let player = obj.get_controlling_player();
+            let id = obj.get_id();
+            let formation = obj.get_formation_id();
+            (local, player, id, formation)
+        });
+        let Some((local, player, id, formation)) = ui else {
             return false;
         };
-        let Ok(obj_guard) = obj_arc.read() else {
-            return false;
-        };
-        if !obj_guard.is_locally_controlled() {
+        if !local {
             return false;
         }
-        if let Some(player_arc) = obj_guard.get_controlling_player() {
+        if let Some(player_arc) = player {
             if let Ok(mut player_guard) = player_arc.write() {
-                if let Some(group_number) =
-                    Self::find_hotkey_squad_number(&mut player_guard, obj_guard.get_id())
-                {
+                if let Some(group_number) = Self::find_hotkey_squad_number(&mut player_guard, id) {
                     if group_number > NO_HOTKEY_SQUAD && group_number < NUM_HOTKEY_SQUADS as i32 {
                         return true;
                     }
                 }
             }
         }
-        obj_guard.get_formation_id() != FormationID::NONE
+        formation != FormationID::NONE
     }
 
     fn queue_ui_text_overlay(&mut self) {
@@ -424,24 +430,25 @@ impl BasicDrawable {
         let Some(obj_id) = self.object_id else {
             return;
         };
-        let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) else {
+        let ui = OBJECT_REGISTRY.with_object(obj_id, |obj| {
+            let player = obj.get_controlling_player();
+            let id = obj.get_id();
+            let formation = obj.get_formation_id();
+            (player, id, formation)
+        });
+        let Some((player, id, formation)) = ui else {
             return;
         };
-        let Ok(obj_guard) = obj_arc.read() else {
-            return;
-        };
-        if let Some(player_arc) = obj_guard.get_controlling_player() {
+        if let Some(player_arc) = player {
             if let Ok(mut player_guard) = player_arc.write() {
-                if let Some(group_number) =
-                    Self::find_hotkey_squad_number(&mut player_guard, obj_guard.get_id())
-                {
+                if let Some(group_number) = Self::find_hotkey_squad_number(&mut player_guard, id) {
                     if group_number > NO_HOTKEY_SQUAD && group_number < NUM_HOTKEY_SQUADS as i32 {
                         self.overlay_data.group_numeral = Some(format!("{group_number}"));
                     }
                 }
             }
         }
-        if obj_guard.get_formation_id() != FormationID::NONE {
+        if formation != FormationID::NONE {
             self.overlay_data.formation_letter = Some("F".to_string());
         }
     }
@@ -514,17 +521,13 @@ impl BasicDrawable {
         let Some(obj_id) = self.object_id else {
             return;
         };
-        let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) else {
+        let Some((total, full)) =
+            OBJECT_REGISTRY.with_object(obj_id, |obj| obj.get_ammo_pip_info())
+        else {
             return;
         };
-        let Ok(obj_guard) = obj_arc.read() else {
-            return;
-        };
-
         // C++ calls obj->getAmmoPipShowingInfo(numTotal, numFull).
-        // The Rust Object doesn't have this method yet, so we query via weapon set.
         // For parity, we store the ammo state for the render pipeline.
-        let (total, full) = obj_guard.get_ammo_pip_info();
         if total == 0 {
             self.overlay_data.show_ammo = false;
             return;
@@ -562,14 +565,10 @@ impl BasicDrawable {
         let Some(obj_id) = self.object_id else {
             return;
         };
-        let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) else {
+        let Some(contain_arc) = OBJECT_REGISTRY.with_object(obj_id, |obj| obj.get_contain()) else {
             return;
         };
-        let Ok(obj_guard) = obj_arc.read() else {
-            return;
-        };
-
-        let Some(contain_arc) = obj_guard.get_contain() else {
+        let Some(contain_arc) = contain_arc else {
             self.overlay_data.show_contained = false;
             return;
         };
@@ -587,16 +586,15 @@ impl BasicDrawable {
         self.overlay_data.contained_total = num_total.max(0).min(u8::MAX as i32) as u8;
         self.overlay_data.show_contained = true;
 
-        // C++ counts infantry among contained items for green/blue color coding
         let contained_objects = contain_guard.get_contained_objects();
+        drop(contain_guard);
         let mut infantry_count: u8 = 0;
-        for &cid in contained_objects.iter() {
-            if let Some(c_arc) = OBJECT_REGISTRY.get_object(cid) {
-                if let Ok(c_guard) = c_arc.read() {
-                    if c_guard.is_kind_of(gamelogic::common::types::KindOf::Infantry) {
-                        infantry_count = infantry_count.saturating_add(1);
-                    }
-                }
+        for cid in contained_objects {
+            if OBJECT_REGISTRY
+                .with_object(cid, |c| c.is_kind_of(gamelogic::common::types::KindOf::Infantry))
+                .unwrap_or(false)
+            {
+                infantry_count = infantry_count.saturating_add(1);
             }
         }
         self.overlay_data.contained_infantry_count = infantry_count;
@@ -623,27 +621,30 @@ impl BasicDrawable {
         let Some(obj_id) = self.object_id else {
             return;
         };
-        let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) else {
+        let now = self.current_frame;
+        let Some(snap) = OBJECT_REGISTRY.with_object(obj_id, |obj| {
+            (
+                obj.is_kind_of(gamelogic::common::types::KindOf::NoHealIcon),
+                obj.get_body_module(),
+                obj.is_kind_of(gamelogic::common::types::KindOf::Structure),
+                obj.is_kind_of(gamelogic::common::types::KindOf::Vehicle),
+            )
+        }) else {
             return;
         };
-        let Ok(obj_guard) = obj_arc.read() else {
-            return;
-        };
-
-        if obj_guard.is_kind_of(gamelogic::common::types::KindOf::NoHealIcon) {
+        let (no_heal, body, is_structure, is_vehicle) = snap;
+        if no_heal {
             self.overlay_data.show_healing = false;
             return;
         }
 
         let mut show_healing = false;
-        if let Some(body_arc) = obj_guard.get_body_module() {
+        if let Some(body_arc) = body {
             if let Ok(body_guard) = body_arc.lock() {
                 let health = body_guard.get_health();
                 let max_health = body_guard.get_max_health();
                 if health != max_health {
                     let last_heal = body_guard.get_last_healing_timestamp();
-                    let now = self.current_frame;
-                    // C++ guards against early-game false positives
                     if now > HEALING_ICON_DISPLAY_TIME
                         && now.saturating_sub(last_heal) <= HEALING_ICON_DISPLAY_TIME
                     {
@@ -656,21 +657,17 @@ impl BasicDrawable {
         self.overlay_data.show_healing = show_healing;
 
         if show_healing {
-            // C++ picks icon type based on KindOf
-            if obj_guard.is_kind_of(gamelogic::common::types::KindOf::Structure) {
-                self.overlay_data.healing_icon_type = 1; // ICON_STRUCTURE_HEAL
-            } else if obj_guard.is_kind_of(gamelogic::common::types::KindOf::Vehicle) {
-                self.overlay_data.healing_icon_type = 2; // ICON_VEHICLE_HEAL
+            if is_structure {
+                self.overlay_data.healing_icon_type = 1;
+            } else if is_vehicle {
+                self.overlay_data.healing_icon_type = 2;
             } else {
-                self.overlay_data.healing_icon_type = 0; // ICON_DEFAULT_HEAL
+                self.overlay_data.healing_icon_type = 0;
             }
-        } else {
-            // Kill any existing healing icon (matches C++ else branch)
-            if let Some(ref mut icon_info) = self.icon_info {
-                icon_info.clear_icon(IconType::DefaultHeal);
-                icon_info.clear_icon(IconType::StructureHeal);
-                icon_info.clear_icon(IconType::VehicleHeal);
-            }
+        } else if let Some(icon_info) = &mut self.icon_info {
+            icon_info.clear_icon(IconType::DefaultHeal);
+            icon_info.clear_icon(IconType::StructureHeal);
+            icon_info.clear_icon(IconType::VehicleHeal);
         }
     }
 
@@ -690,17 +687,18 @@ impl BasicDrawable {
         let Some(obj_id) = self.object_id else {
             return;
         };
-        let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) else {
+        let Some((has_enthusiastic, has_subliminal)) =
+            OBJECT_REGISTRY.with_object(obj_id, |obj| {
+                use gamelogic::common::types::WeaponBonusConditionFlags;
+                let bonus = obj.get_weapon_bonus_condition();
+                (
+                    bonus.contains(WeaponBonusConditionFlags::ENTHUSIASTIC),
+                    bonus.contains(WeaponBonusConditionFlags::SUBLIMINAL),
+                )
+            })
+        else {
             return;
         };
-        let Ok(obj_guard) = obj_arc.read() else {
-            return;
-        };
-
-        use gamelogic::common::types::WeaponBonusConditionFlags;
-        let bonus = obj_guard.get_weapon_bonus_condition();
-        let has_enthusiastic = bonus.contains(WeaponBonusConditionFlags::ENTHUSIASTIC);
-        let has_subliminal = bonus.contains(WeaponBonusConditionFlags::SUBLIMINAL);
 
         if has_enthusiastic {
             self.overlay_data.show_enthusiastic = true;
@@ -758,26 +756,10 @@ impl BasicDrawable {
         let Some(obj_id) = self.object_id else {
             return;
         };
-        let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) else {
-            return;
-        };
-        let Ok(obj_guard) = obj_arc.read() else {
-            return;
-        };
-
-        // C++ WEAPONSET_CARBOMB && controllingPlayer == localPlayer.
-        if obj_guard.test_weapon_set_flag(gamelogic::weapon::WeaponSetType::CarBomb)
-            && obj_guard.is_locally_controlled()
-        {
-            self.overlay_data.show_bombed = true;
-            self.overlay_data.bomb_type = 3; // car bomb
-            self.overlay_data.bomb_timer_seconds = 0;
-            return;
-        }
-
-        let sticky = obj_guard
-            .find_update_module("StickyBombUpdate")
-            .and_then(|handle| {
+        let Some((carbomb, sticky)) = OBJECT_REGISTRY.with_object(obj_id, |obj| {
+            let carbomb = obj.test_weapon_set_flag(gamelogic::weapon::WeaponSetType::CarBomb)
+                && obj.is_locally_controlled();
+            let sticky = obj.find_update_module("StickyBombUpdate").and_then(|handle| {
                 handle.with_module(|module| {
                     module
                         .get_sticky_bomb_control_interface()
@@ -789,6 +771,17 @@ impl BasicDrawable {
                         })
                 })
             });
+            (carbomb, sticky)
+        }) else {
+            return;
+        };
+        // C++ WEAPONSET_CARBOMB && controllingPlayer == localPlayer.
+        if carbomb {
+            self.overlay_data.show_bombed = true;
+            self.overlay_data.bomb_type = 3; // car bomb
+            self.overlay_data.bomb_timer_seconds = 0;
+            return;
+        }
         if let Some((timed, die_frame)) = sticky {
             self.overlay_data.show_bombed = true;
             if timed {
@@ -842,19 +835,16 @@ impl BasicDrawable {
         let Some(obj_id) = self.object_id else {
             return;
         };
-        let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) else {
+        let Some(is_disabled) = OBJECT_REGISTRY.with_object(obj_id, |obj| {
+            use gamelogic::common::types::DisabledType;
+            obj.is_disabled_by_type(DisabledType::DisabledHacked)
+                || obj.is_disabled_by_type(DisabledType::Paralyzed)
+                || obj.is_disabled_by_type(DisabledType::DisabledEmp)
+                || obj.is_disabled_by_type(DisabledType::DisabledSubdued)
+                || obj.is_disabled_by_type(DisabledType::DisabledUnderpowered)
+        }) else {
             return;
         };
-        let Ok(obj_guard) = obj_arc.read() else {
-            return;
-        };
-
-        use gamelogic::common::types::DisabledType;
-        let is_disabled = obj_guard.is_disabled_by_type(DisabledType::DisabledHacked)
-            || obj_guard.is_disabled_by_type(DisabledType::Paralyzed)
-            || obj_guard.is_disabled_by_type(DisabledType::DisabledEmp)
-            || obj_guard.is_disabled_by_type(DisabledType::DisabledSubdued)
-            || obj_guard.is_disabled_by_type(DisabledType::DisabledUnderpowered);
 
         self.overlay_data.show_disabled = is_disabled;
 
@@ -917,15 +907,14 @@ impl BasicDrawable {
                 self.mark_overlay_visible_if_any_chrome();
                 return;
             };
-            let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) else {
+            let Some(dead) = OBJECT_REGISTRY.with_object(obj_id, |obj| {
+                obj.is_effectively_dead()
+                    || obj.is_kind_of(gamelogic::common::types::KindOf::IgnoredInGui)
+            }) else {
                 self.mark_overlay_visible_if_any_chrome();
                 return;
             };
-            let Ok(obj_guard) = obj_arc.read() else {
-                return;
-            };
-            obj_guard.is_effectively_dead()
-                || obj_guard.is_kind_of(gamelogic::common::types::KindOf::IgnoredInGui)
+            dead
         };
 
         if is_dead {

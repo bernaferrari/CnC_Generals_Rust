@@ -1385,14 +1385,17 @@ impl ControlBar {
             return false;
         }
         let mut found = false;
-        let _ = player.iterate_objects(|obj_arc| {
+        let _ = player.iterate_object_ids(|id| {
             if found {
                 return Ok(());
             }
-            if let Ok(obj) = obj_arc.read() {
-                if obj.get_template_name().eq_ignore_ascii_case(template_name) {
-                    found = true;
-                }
+            if OBJECT_REGISTRY
+                .with_object(id, |obj| {
+                    obj.get_template_name().eq_ignore_ascii_case(template_name)
+                })
+                .unwrap_or(false)
+            {
+                found = true;
             }
             Ok(())
         });
@@ -1401,17 +1404,18 @@ impl ControlBar {
 
     fn leftover_has_any_shortcut_special_power(player: &gamelogic::player::Player) -> bool {
         let mut found = false;
-        let _ = player.iterate_objects(|obj_arc| {
+        let _ = player.iterate_object_ids(|id| {
             if found {
                 return Ok(());
             }
-            if let Ok(obj) = obj_arc.read() {
-                if obj
-                    .find_any_shortcut_special_power_module_interface()
-                    .is_some()
-                {
-                    found = true;
-                }
+            if OBJECT_REGISTRY
+                .with_object(id, |obj| {
+                    obj.find_any_shortcut_special_power_module_interface()
+                        .is_some()
+                })
+                .unwrap_or(false)
+            {
+                found = true;
             }
             Ok(())
         });
@@ -1443,14 +1447,16 @@ impl ControlBar {
             return 0;
         }
         let mut count = 0;
-        let _ = player.iterate_objects(|obj_arc| {
-            let Ok(obj) = obj_arc.read() else {
-                return Ok(());
-            };
-            if let Some((name, ready, _)) = Self::leftover_shortcut_module_name_and_ready(&obj) {
-                if name.eq_ignore_ascii_case(special_power_name) && ready {
-                    count += 1;
-                }
+        let _ = player.iterate_object_ids(|id| {
+            let ready = OBJECT_REGISTRY
+                .with_object(id, |obj| {
+                    Self::leftover_shortcut_module_name_and_ready(obj).is_some_and(
+                        |(name, ready, _)| name.eq_ignore_ascii_case(special_power_name) && ready,
+                    )
+                })
+                .unwrap_or(false);
+            if ready {
+                count += 1;
             }
             Ok(())
         });
@@ -1466,14 +1472,17 @@ impl ControlBar {
         }
         let mut best_id = None;
         let mut best_ready = -1.0f32;
-        let _ = player.iterate_objects(|obj_arc| {
-            let Ok(obj) = obj_arc.read() else {
-                return Ok(());
-            };
-            if let Some((name, _, ready)) = Self::leftover_shortcut_module_name_and_ready(&obj) {
-                if name.eq_ignore_ascii_case(special_power_name) && ready > best_ready {
+        let _ = player.iterate_object_ids(|id| {
+            let ready = OBJECT_REGISTRY.with_object(id, |obj| {
+                Self::leftover_shortcut_module_name_and_ready(obj).and_then(|(name, _, ready)| {
+                    name.eq_ignore_ascii_case(special_power_name)
+                        .then_some(ready)
+                })
+            });
+            if let Some(Some(ready)) = ready {
+                if ready > best_ready {
                     best_ready = ready;
-                    best_id = Some(obj.get_id());
+                    best_id = Some(id);
                 }
             }
             Ok(())

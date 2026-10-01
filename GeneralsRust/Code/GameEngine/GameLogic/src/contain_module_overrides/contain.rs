@@ -153,22 +153,21 @@ impl Module for ContainBindingModule {
         if let Some(contain) = self.contain.take() {
             attach_contain_to_object(self.owner_id, contain);
         }
-        if let Some(object) = TheGameLogic::find_object_by_id(self.owner_id) {
-            if let Ok(mut guard) = object.write() {
-                // Take/restore so the hook runs without holding a borrow
-                // across the callback.
-                let mut contain = guard.contain.take();
-                if let Some(contain) = contain.as_mut() {
-                    if let Err(err) = contain.on_owner_created() {
-                        warn!(
-                            "Contain module on_owner_created failed for object {}: {}",
-                            self.owner_id, err
-                        );
-                    }
+        let owner_id = self.owner_id;
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner_id, |guard| {
+            // Take/restore so the hook runs without holding a borrow
+            // across the callback.
+            let mut contain = guard.contain.take();
+            if let Some(contain) = contain.as_mut() {
+                if let Err(err) = contain.on_owner_created() {
+                    warn!(
+                        "Contain module on_owner_created failed for object {}: {}",
+                        owner_id, err
+                    );
                 }
-                guard.contain = contain;
             }
-        }
+            guard.contain = contain;
+        });
     }
 
     fn get_create_interface(&self) -> Option<&dyn CreateInterface> {
@@ -262,8 +261,8 @@ pub(super) fn open_contain_module_factory(
 ) -> Box<dyn Module> {
     let contain_data = contain_adapter_data::<OpenContainModuleData>("OpenContain", &module_data);
     let owner_id = resolve_owner_id(&thing);
-    let contain = OpenContain::new(owner_weak(owner_id), contain_data).unwrap_or_else(|_| {
-        OpenContain::new(Weak::new(), &OpenContainModuleData::default())
+    let contain = OpenContain::new(owner_id, contain_data).unwrap_or_else(|_| {
+        OpenContain::new(crate::common::INVALID_ID, &OpenContainModuleData::default())
             .expect("OpenContain default construction failed")
     });
     let contain: Box<dyn ContainModuleInterface> = Box::new(contain);
@@ -291,8 +290,8 @@ pub(super) fn transport_contain_module_factory(
     let contain_data =
         contain_adapter_data::<TransportContainModuleData>("TransportContain", &module_data);
     let owner_id = resolve_owner_id(&thing);
-    let contain = TransportContain::new(owner_weak(owner_id), contain_data).unwrap_or_else(|_| {
-        TransportContain::new(Weak::new(), &TransportContainModuleData::default())
+    let contain = TransportContain::new(owner_id, contain_data).unwrap_or_else(|_| {
+        TransportContain::new(crate::common::INVALID_ID, &TransportContainModuleData::default())
             .expect("TransportContain default construction failed")
     });
     let contain: Box<dyn ContainModuleInterface> = Box::new(contain);
@@ -320,8 +319,8 @@ pub(super) fn garrison_contain_module_factory(
     let contain_data =
         contain_adapter_data::<GarrisonContainModuleData>("GarrisonContain", &module_data);
     let owner_id = resolve_owner_id(&thing);
-    let contain = GarrisonContain::new(owner_weak(owner_id), contain_data).unwrap_or_else(|_| {
-        GarrisonContain::new(Weak::new(), &GarrisonContainModuleData::default())
+    let contain = GarrisonContain::new(owner_id, contain_data).unwrap_or_else(|_| {
+        GarrisonContain::new(crate::common::INVALID_ID, &GarrisonContainModuleData::default())
             .expect("GarrisonContain default construction failed")
     });
     let contain: Box<dyn ContainModuleInterface> = Box::new(contain);
@@ -349,8 +348,8 @@ pub(super) fn tunnel_contain_module_factory(
     let contain_data =
         contain_adapter_data::<TunnelContainModuleData>("TunnelContain", &module_data);
     let owner_id = resolve_owner_id(&thing);
-    let contain = TunnelContain::new(owner_weak(owner_id), contain_data).unwrap_or_else(|_| {
-        TunnelContain::new(Weak::new(), &TunnelContainModuleData::default())
+    let contain = TunnelContain::new(owner_id, contain_data).unwrap_or_else(|_| {
+        TunnelContain::new(crate::common::INVALID_ID, &TunnelContainModuleData::default())
             .expect("TunnelContain default construction failed")
     });
     let contain: Box<dyn ContainModuleInterface> = Box::new(contain);
@@ -378,8 +377,8 @@ pub(super) fn overlord_contain_module_factory(
     let contain_data =
         contain_adapter_data::<OverlordContainModuleData>("OverlordContain", &module_data);
     let owner_id = resolve_owner_id(&thing);
-    let contain = OverlordContain::new(owner_weak(owner_id), contain_data).unwrap_or_else(|_| {
-        OverlordContain::new(Weak::new(), &OverlordContainModuleData::default())
+    let contain = OverlordContain::new(owner_id, contain_data).unwrap_or_else(|_| {
+        OverlordContain::new(crate::common::INVALID_ID, &OverlordContainModuleData::default())
             .expect("OverlordContain default construction failed")
     });
     let contain: Box<dyn ContainModuleInterface> = Box::new(contain);
@@ -406,8 +405,8 @@ pub(super) fn helix_contain_module_factory(
 ) -> Box<dyn Module> {
     let contain_data = contain_adapter_data::<HelixContainModuleData>("HelixContain", &module_data);
     let owner_id = resolve_owner_id(&thing);
-    let contain = HelixContain::new(owner_weak(owner_id), contain_data).unwrap_or_else(|_| {
-        HelixContain::new(Weak::new(), &HelixContainModuleData::default())
+    let contain = HelixContain::new(owner_id, contain_data).unwrap_or_else(|_| {
+        HelixContain::new(crate::common::INVALID_ID, &HelixContainModuleData::default())
             .expect("HelixContain default construction failed")
     });
     let contain: Box<dyn ContainModuleInterface> = Box::new(contain);
@@ -440,8 +439,8 @@ pub(super) fn railed_transport_contain_module_factory(
     );
     let owner_id = resolve_owner_id(&thing);
     let contain =
-        RailedTransportContain::new(owner_weak(owner_id), contain_data).unwrap_or_else(|_| {
-            RailedTransportContain::new(Weak::new(), &RailedTransportContainModuleData::default())
+        RailedTransportContain::new(owner_id, contain_data).unwrap_or_else(|_| {
+            RailedTransportContain::new(crate::common::INVALID_ID, &RailedTransportContainModuleData::default())
                 .expect("RailedTransportContain default construction failed")
         });
     let contain: Box<dyn ContainModuleInterface> = Box::new(contain);
@@ -472,8 +471,8 @@ pub(super) fn rider_change_contain_module_factory(
         contain_adapter_data::<RiderChangeContainModuleData>("RiderChangeContain", &module_data);
     let owner_id = resolve_owner_id(&thing);
     let contain =
-        RiderChangeContain::new(owner_weak(owner_id), contain_data).unwrap_or_else(|_| {
-            RiderChangeContain::new(Weak::new(), &RiderChangeContainModuleData::default())
+        RiderChangeContain::new(owner_id, contain_data).unwrap_or_else(|_| {
+            RiderChangeContain::new(crate::common::INVALID_ID, &RiderChangeContainModuleData::default())
                 .expect("RiderChangeContain default construction failed")
         });
     let contain: Box<dyn ContainModuleInterface> = Box::new(contain);
@@ -504,8 +503,8 @@ pub(super) fn internet_hack_contain_module_factory(
         contain_adapter_data::<InternetHackContainModuleData>("InternetHackContain", &module_data);
     let owner_id = resolve_owner_id(&thing);
     let contain =
-        InternetHackContain::new(owner_weak(owner_id), contain_data).unwrap_or_else(|_| {
-            InternetHackContain::new(Weak::new(), &InternetHackContainModuleData::default())
+        InternetHackContain::new(owner_id, contain_data).unwrap_or_else(|_| {
+            InternetHackContain::new(crate::common::INVALID_ID, &InternetHackContainModuleData::default())
                 .expect("InternetHackContain default construction failed")
         });
     let contain: Box<dyn ContainModuleInterface> = Box::new(contain);
@@ -532,8 +531,8 @@ pub(super) fn heal_contain_module_factory(
 ) -> Box<dyn Module> {
     let contain_data = contain_adapter_data::<HealContainModuleData>("HealContain", &module_data);
     let owner_id = resolve_owner_id(&thing);
-    let contain = HealContain::new(owner_weak(owner_id), contain_data).unwrap_or_else(|_| {
-        HealContain::new(Weak::new(), &HealContainModuleData::default())
+    let contain = HealContain::new(owner_id, contain_data).unwrap_or_else(|_| {
+        HealContain::new(crate::common::INVALID_ID, &HealContainModuleData::default())
             .expect("HealContain default construction failed")
     });
     let contain: Box<dyn ContainModuleInterface> = Box::new(contain);
@@ -562,13 +561,13 @@ pub(super) fn cave_contain_module_factory(
     let owner_id = resolve_owner_id(&thing);
     let cave_system = crate::system::cave_system::TheCaveSystem();
     let contain = CaveContain::new(
-        owner_weak(owner_id),
+        owner_id,
         contain_data,
         Some(cave_system.clone()),
     )
     .unwrap_or_else(|_| {
         CaveContain::new(
-            Weak::new(),
+            crate::common::INVALID_ID,
             &CaveContainModuleData::default(),
             Some(cave_system),
         )
@@ -599,8 +598,8 @@ pub(super) fn parachute_contain_module_factory(
     let contain_data =
         contain_adapter_data::<ParachuteContainModuleData>("ParachuteContain", &module_data);
     let owner_id = resolve_owner_id(&thing);
-    let contain = ParachuteContain::new(owner_weak(owner_id), contain_data).unwrap_or_else(|_| {
-        ParachuteContain::new(Weak::new(), &ParachuteContainModuleData::default())
+    let contain = ParachuteContain::new(owner_id, contain_data).unwrap_or_else(|_| {
+        ParachuteContain::new(crate::common::INVALID_ID, &ParachuteContainModuleData::default())
             .expect("ParachuteContain default construction failed")
     });
     let contain: Box<dyn ContainModuleInterface> = Box::new(contain);
@@ -628,8 +627,8 @@ pub(super) fn mob_nexus_contain_module_factory(
     let contain_data =
         contain_adapter_data::<MobNexusContainModuleData>("MobNexusContain", &module_data);
     let owner_id = resolve_owner_id(&thing);
-    let contain = MobNexusContain::new(owner_weak(owner_id), contain_data).unwrap_or_else(|_| {
-        MobNexusContain::new(Weak::new(), &MobNexusContainModuleData::default())
+    let contain = MobNexusContain::new(owner_id, contain_data).unwrap_or_else(|_| {
+        MobNexusContain::new(crate::common::INVALID_ID, &MobNexusContainModuleData::default())
             .expect("MobNexusContain default construction failed")
     });
     let contain: Box<dyn ContainModuleInterface> = Box::new(contain);

@@ -200,29 +200,35 @@ impl UpgradeModuleInterface for CostModifierUpgrade {
     fn on_capture(
         &mut self,
         _object: &mut crate::object::Object,
-        old_owner: Option<&Arc<std::sync::RwLock<crate::player::Player>>>,
-        new_owner: Option<&Arc<std::sync::RwLock<crate::player::Player>>>,
+        old_owner: Option<PlayerIndex>,
+        new_owner: Option<PlayerIndex>,
     ) {
         if !self.applied {
             return;
         }
 
         if let Some(old_owner) = old_owner {
-            if let Ok(mut player_guard) = old_owner.write() {
-                player_guard.remove_kind_of_production_cost_change(
+            if crate::player::with_player_mut(old_owner, |player| {
+                player.remove_kind_of_production_cost_change(
                     self.data.kind_of(),
                     self.data.percentage(),
                 );
+            })
+            .is_some()
+            {
                 self.applied = false;
             }
         }
 
         if let Some(new_owner) = new_owner {
-            if let Ok(mut player_guard) = new_owner.write() {
-                player_guard.add_kind_of_production_cost_change(
+            if crate::player::with_player_mut(new_owner, |player| {
+                player.add_kind_of_production_cost_change(
                     self.data.kind_of(),
                     self.data.percentage(),
                 );
+            })
+            .is_some()
+            {
                 self.applied = true;
             }
         }

@@ -3,6 +3,7 @@
 //! Split from `scripting/executor.rs` for module-size parity.
 //! Observable script behavior is unchanged.
 
+use crate::object::registry::OBJECT_REGISTRY;
 use super::*;
 
 impl ScriptActionDispatcher {
@@ -101,13 +102,13 @@ impl ScriptActionDispatcher {
             .unwrap_or_default();
 
         for member_id in members {
-            let Some(member_obj) = TheGameLogic::find_object_by_id(member_id) else {
+            let ai_arc = OBJECT_REGISTRY.with_object(member_id, |obj| obj.get_ai_update_interface());
+            let Some(ai_arc) = ai_arc else {
                 continue;
             };
-            let ai_arc = member_obj
-                .read()
-                .ok()
-                .and_then(|obj| obj.get_ai_update_interface());
+            let Some(ai_arc) = ai_arc else {
+                return Ok(ScriptActionResult::Success);
+            };
             let Some(ai_arc) = ai_arc else {
                 return Ok(ScriptActionResult::Success);
             };

@@ -959,7 +959,7 @@ pub struct AIAttackObjectState {
     pub(crate) victim_team: Option<TeamID>,
     /// Weapon slot that was locked when entering attack state (C++ m_lockedWeaponOnEnter)
     pub(crate) locked_weapon_on_enter: Option<WeaponSlotType>,
-    pub(crate) preset_owner: Option<Arc<RwLock<crate::object::Object>>>,
+    pub(crate) preset_owner: Option<ObjectID>,
     pub(crate) preset_goal_id: ObjectID,
 }
 
@@ -1080,13 +1080,10 @@ impl ClassicState for AIAttackObjectState {
             return Ok(StateReturnType::Failure);
         }
 
-        let owner = if let Some(owner) = self.preset_owner.clone() {
-            owner
-        } else {
-            self.base
-                .get_machine_owner()
-                .ok_or_else(|| "attack object state missing machine owner".to_string())?
-        };
+        let owner = self
+            .base
+            .get_machine_owner()
+            .ok_or_else(|| "attack object state missing machine owner".to_string())?;
 
         // C++ lines 5474-5478: Mood matrix sleep mode check
         {
@@ -1114,26 +1111,29 @@ impl ClassicState for AIAttackObjectState {
                 .get_machine_goal_object_id()
                 .ok_or_else(|| "attack object state missing goal object".to_string())?
         };
-        let target = crate::helpers::TheGameLogic::find_object_by_id(target_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(target_id))
-            .ok_or_else(|| "attack object state missing goal object".to_string())?;
-        self.target_id = target.read().map(|g| g.get_id()).unwrap_or(INVALID_ID);
+        let Some((id, pos, dead, team)) =
+            crate::object::registry::OBJECT_REGISTRY.with_object(target_id, |target| {
+                (
+                    target.get_id(),
+                    *target.get_position(),
+                    target.is_effectively_dead(),
+                    target.get_team_id(),
+                )
+            })
+        else {
+            return Err("attack object state missing goal object".to_string());
+        };
+        self.target_id = id;
+        self.original_victim_pos = pos;
 
-        {
-            let target_guard = target.read().map_err(|_| "lock poisoned".to_string())?;
-            self.original_victim_pos = *target_guard.get_position();
-
-            // C++ lines 5508-5512: Check if victim is dead
-            if target_guard.is_effectively_dead() {
-                if let Ok(mut owner_guard) = owner.write() {
-                    owner_guard.ai_pending_victim_dead = true;
-                }
-                return Ok(StateReturnType::Failure);
+        if dead {
+            if let Ok(mut owner_guard) = owner.write() {
+                owner_guard.ai_pending_victim_dead = true;
             }
-
-            // C++ line 5513: m_victimTeam = victim->getTeam()
-            self.victim_team = target_guard.get_team_id();
+            return Ok(StateReturnType::Failure);
         }
+
+        self.victim_team = team;
 
         // Set original victim pos on AI
         if let Ok(mut owner_guard) = owner.write() {
@@ -1293,33 +1293,23 @@ impl AIAttackObjectState {
         if self.target_id == INVALID_ID {
             return Ok(StateReturnType::Failure);
         }
-        let Some(target) = crate::helpers::TheGameLogic::find_object_by_id(self.target_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.target_id))
-        else {
-            return Ok(StateReturnType::Failure);
-        };
-
-        // C++ lines 5576-5579: Check if victim is dead
-        {
-            let target_guard = target.read().map_err(|_| "lock poisoned".to_string())?;
+        let mut victim_dead = false;
+        let mut should_stop = false;
+        let found = crate::object::registry::OBJECT_REGISTRY.with_object(self.target_id, |target_guard| {
             if target_guard.is_effectively_dead() {
-                if let Ok(mut owner_guard) = owner.write() {
-                    owner_guard.ai_pending_victim_dead = true;
-                }
-                return Ok(StateReturnType::Success);
+                victim_dead = true;
+                return;
             }
 
-            // C++ line 5584: setCurrentVictim every frame
             let victim_id = target_guard.get_id();
             if let Ok(mut owner_guard) = owner.write() {
                 owner_guard.ai_pending_set_victim = Some(victim_id);
             }
 
-            // C++ lines 5587-5627: Team change detection
             let target_team = target_guard.get_team_id();
             if self.victim_team != target_team {
-                let should_stop = if let Ok(owner_guard) = owner.read() {
-                    let relationship = owner_guard.relationship_to(&*target_guard);
+                let stop = if let Ok(owner_guard) = owner.read() {
+                    let relationship = owner_guard.relationship_to(target_guard);
                     let empty_garrison = !target_guard.test_status(ObjectStatusTypes::CanAttack)
                         && target_guard.get_contain().is_some_and(|contain| {
                             contain.lock().ok().is_some_and(|contain_guard| {
@@ -1328,23 +1318,36 @@ impl AIAttackObjectState {
                             })
                         })
                         && relationship == Relationship::Neutral;
-                    let should_stop = empty_garrison || relationship != Relationship::Enemies;
-                    if should_stop {
+                    let stop = empty_garrison || relationship != Relationship::Enemies;
+                    if stop {
                         clear_team_target_if_victim(&*owner_guard, victim_id);
                     }
-                    should_stop
+                    stop
                 } else {
                     false
                 };
-                if should_stop {
-                    if let Ok(mut owner_guard) = owner.write() {
-                        owner_guard.ai_pending_clear_goal = true;
-                        owner_guard.ai_pending_victim_dead = true;
-                    }
-                    return Ok(StateReturnType::Failure);
+                if stop {
+                    should_stop = true;
+                } else {
+                    self.victim_team = target_team;
                 }
-                self.victim_team = target_team;
             }
+        });
+        if found.is_none() {
+            return Ok(StateReturnType::Failure);
+        }
+        if victim_dead {
+            if let Ok(mut owner_guard) = owner.write() {
+                owner_guard.ai_pending_victim_dead = true;
+            }
+            return Ok(StateReturnType::Success);
+        }
+        if should_stop {
+            if let Ok(mut owner_guard) = owner.write() {
+                owner_guard.ai_pending_clear_goal = true;
+                owner_guard.ai_pending_victim_dead = true;
+            }
+            return Ok(StateReturnType::Failure);
         }
 
         // C++ lines 5629-5633: parent goal change is forwarded into AttackStateMachine.
@@ -1361,18 +1364,20 @@ impl AIAttackObjectState {
                 owner_guard.ai_fire_last_command_source
             };
 
-            let target_guard = target.read().map_err(|_| "lock poisoned".to_string())?;
             let mut owner_guard = owner.write().map_err(|_| "lock poisoned".to_string())?;
-            let weapon_found = owner_guard.choose_best_weapon_for_target(
-                &*target_guard,
-                WeaponChoiceCriteria::PreferMostDamage,
-                cmd_source,
-            );
+            let weapon_found = crate::object::registry::OBJECT_REGISTRY
+                .with_object(self.target_id, |target_guard| {
+                    owner_guard.choose_best_weapon_for_target(
+                        target_guard,
+                        WeaponChoiceCriteria::PreferMostDamage,
+                        cmd_source,
+                    )
+                })
+                .unwrap_or(false);
             if !weapon_found {
                 return Ok(StateReturnType::Failure);
             }
 
-            // C++ lines 5649-5650: Locked weapon check
             if let Some(locked_slot) = self.locked_weapon_on_enter {
                 if let Some((_weapon, cur_slot)) = owner_guard.get_current_weapon() {
                     if cur_slot != locked_slot {
@@ -1381,7 +1386,6 @@ impl AIAttackObjectState {
                 }
             }
 
-            // C++ lines 5653-5654: Shot count check
             if let Some((weapon, _slot)) = owner_guard.get_current_weapon() {
                 if weapon.get_max_shot_count() <= 0 {
                     return Ok(StateReturnType::Failure);
@@ -1691,8 +1695,8 @@ pub struct AIAttackThenIdleStateMachine {
 }
 
 impl AIAttackThenIdleStateMachine {
-    pub fn new(owner: Weak<RwLock<Object>>, name: &str) -> Self {
-        let mut base = StateMachine::new(Some(owner), name);
+    pub fn new(owner: ObjectID, name: &str) -> Self {
+        let mut base = StateMachine::new_with_owner_id(owner, name);
         let attack_state = AIAttackObjectState::new(&base, false, false);
         let pickup_state = AIPickUpCrateState::new(&base);
         let idle_state = AIIdleState::new(&base, false);
@@ -1822,14 +1826,13 @@ impl ClassicState for AIPickUpCrateState {
                 .get_machine_goal_object_id()
                 .ok_or_else(|| "pick up crate missing goal object".to_string())?
         };
-        let goal = crate::helpers::TheGameLogic::find_object_by_id(goal_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(goal_id))
-            .ok_or_else(|| "pick up crate missing goal object".to_string())?;
-
-        if let Ok(goal_guard) = goal.read() {
-            self.goal_position = *goal_guard.get_position();
-            self.base.goal_position = self.goal_position;
-        }
+        let Some(pos) = crate::object::registry::OBJECT_REGISTRY
+            .with_object(goal_id, |goal| *goal.get_position())
+        else {
+            return Err("pick up crate missing goal object".to_string());
+        };
+        self.goal_position = pos;
+        self.base.goal_position = self.goal_position;
         self.delay_counter = 3;
         self.base.set_adjusts_destination(true);
 
@@ -1868,7 +1871,7 @@ impl AIAttackSquadState {
         }
     }
 
-    pub(crate) fn choose_victim(&mut self) -> Option<Arc<RwLock<Object>>> {
+    pub(crate) fn choose_victim(&mut self) -> Option<ObjectID> {
         // Wave 257: empty dual-world → None.
         if dual_world_registry_unavailable() {
             return None;
@@ -1897,7 +1900,7 @@ impl AIAttackSquadState {
                 if victim_id == INVALID_ID {
                     return None;
                 }
-                return TheGameLogic::find_object_by_id(victim_id);
+                return Some(victim_id);
             }
         }
 
@@ -1935,7 +1938,7 @@ impl AIAttackSquadState {
                 let idx =
                     GameLogicRandomValue(0, object_ids.len().saturating_sub(1) as i32) as usize;
                 let id = *object_ids.get(idx)?;
-                OBJECT_REGISTRY.get_object(id)
+                Some(id)
             }
             crate::player::GameDifficulty::Normal => {
                 let mut best_id: Option<ObjectID> = None;
@@ -1960,12 +1963,10 @@ impl AIAttackSquadState {
                         best_id = Some(*id);
                     }
                 }
-                best_id.and_then(|id| OBJECT_REGISTRY.get_object(id))
+                best_id
             }
             crate::player::GameDifficulty::Hard | crate::player::GameDifficulty::Brutal => {
-                object_ids
-                    .first()
-                    .and_then(|id| OBJECT_REGISTRY.get_object(*id))
+                object_ids.first().copied()
             }
         }
     }
@@ -2019,11 +2020,11 @@ impl ClassicState for AIAttackSquadState {
             .get_machine_owner()
             .ok_or_else(|| "attack squad missing owner".to_string())?;
         let mut attack_machine =
-            AIAttackThenIdleStateMachine::new(Arc::downgrade(&owner), "AIAttackMachine");
+            AIAttackThenIdleStateMachine::new(owner.read().map(|g| g.get_id()).unwrap_or(INVALID_ID), "AIAttackMachine");
 
-        let victim = self.choose_victim();
-        if let Some(victim) = victim.as_ref() {
-            attack_machine.set_goal_object(victim.read().ok().map(|g| g.get_id()));
+
+        if let Some(victim_id) = self.choose_victim() {
+            attack_machine.set_goal_object(Some(victim_id));
         }
 
         let result = attack_machine.init_default_state();
@@ -2063,13 +2064,12 @@ impl ClassicState for AIAttackSquadState {
             }
         }
 
-        let victim = self.choose_victim();
-        let Some(victim) = victim else {
+        let Some(victim_id) = self.choose_victim() else {
             return Ok(StateReturnType::Success);
         };
 
         if let Some(attack_machine) = self.attack_squad_machine.as_mut() {
-            attack_machine.set_goal_object(victim.read().ok().map(|g| g.get_id()));
+            attack_machine.set_goal_object(Some(victim_id));
             attack_machine.set_state(AIStateType::AttackObject);
         }
         Ok(StateReturnType::Continue)
@@ -2103,7 +2103,7 @@ impl AIAttackAreaState {
         }
     }
 
-    pub(crate) fn find_area_victim(&self, owner: &Object) -> Option<Arc<RwLock<Object>>> {
+    pub(crate) fn find_area_victim(&self, owner: &Object) -> Option<ObjectID> {
         let polygon = self.base.get_machine_goal_polygon()?;
         let owner_id = owner.get_id();
         let attack_priority = resolve_attack_priority_info_for_object(owner_id);
@@ -2114,14 +2114,12 @@ impl AIAttackAreaState {
 
         impl PartitionFilter for PolygonFilter {
             fn allow(&self, object: ObjectID) -> bool {
-                let Some(target_arc) = TheGameLogic::find_object_by_id(object) else {
-                    return false;
-                };
-                let Ok(target_guard) = target_arc.read() else {
-                    return false;
-                };
-                let pos = target_guard.get_position();
-                self.polygon.point_in_trigger(&Coord2D::new(pos.x, pos.y))
+                OBJECT_REGISTRY
+                    .with_object(object, |target_guard| {
+                        let pos = target_guard.get_position();
+                        self.polygon.point_in_trigger(&Coord2D::new(pos.x, pos.y))
+                    })
+                    .unwrap_or(false)
             }
 
             fn debug_get_name(&self) -> &str {
@@ -2144,7 +2142,7 @@ impl AIAttackAreaState {
                 Some(&filter),
             )
             .ok()??;
-        TheGameLogic::find_object_by_id(victim_id)
+        Some(victim_id)
     }
 }
 
@@ -2196,7 +2194,7 @@ impl ClassicState for AIAttackAreaState {
             .get_machine_owner()
             .ok_or_else(|| "attack area missing owner".to_string())?;
         let mut attack_machine = AIAttackThenIdleStateMachine::new(
-            Arc::downgrade(&owner),
+            owner.read().map(|g| g.get_id()).unwrap_or(INVALID_ID),
             "AIAttackThenIdleStateMachine",
         );
 
@@ -2233,11 +2231,8 @@ impl ClassicState for AIAttackAreaState {
                 .and_then(|owner_guard| self.find_area_victim(&owner_guard));
 
             if let Some(attack_machine) = self.attack_machine.as_mut() {
-                attack_machine.set_goal_object(
-                    victim
-                        .as_ref()
-                        .and_then(|a| a.read().ok().map(|g| g.get_id())),
-                );
+                attack_machine.set_goal_object(victim);
+
 
                 if attack_machine.get_current_state_id() == Some(AIStateType::Idle as u32)
                     && victim.is_some()
@@ -2317,10 +2312,9 @@ impl Snapshotable for AIAttackObjectState {
                 self.force_attack,
             );
             if self.target_id != INVALID_ID {
-                if let Some(target) = TheGameLogic::find_object_by_id(self.target_id)
-                    .or_else(|| OBJECT_REGISTRY.get_object(self.target_id))
+                if let Some(id) = OBJECT_REGISTRY.with_object(self.target_id, |target| target.get_id())
                 {
-                    machine.set_goal_object(target.read().ok().map(|g| g.get_id()));
+                    machine.set_goal_object(Some(id));
                 }
             }
             self.attack_machine = Some(machine);
@@ -2654,7 +2648,7 @@ impl Snapshotable for AIAttackSquadState {
                 .get_machine_owner()
                 .ok_or_else(|| "attack squad missing owner".to_string())?;
             self.attack_squad_machine = Some(AIAttackThenIdleStateMachine::new(
-                Arc::downgrade(&owner),
+                owner.read().map(|g| g.get_id()).unwrap_or(INVALID_ID),
                 "AIAttackMachine",
             ));
         }
@@ -2710,7 +2704,7 @@ impl Snapshotable for AIAttackAreaState {
                 .get_machine_owner()
                 .ok_or_else(|| "attack area missing owner".to_string())?;
             self.attack_machine = Some(AIAttackThenIdleStateMachine::new(
-                Arc::downgrade(&owner),
+                owner.read().map(|g| g.get_id()).unwrap_or(INVALID_ID),
                 "AIAttackThenIdleStateMachine",
             ));
         }

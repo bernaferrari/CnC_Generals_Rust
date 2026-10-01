@@ -595,7 +595,7 @@ impl SlowDeathBehavior {
     const BOUNCED: u32 = 3;
 
     pub fn new(
-        thing: Arc<RwLock<Object>>,
+        object_id: ObjectID,
         module_data: Arc<dyn ModuleData>,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let object_id = thing.read().ok().map(|g| g.get_id()).unwrap_or(INVALID_ID);
@@ -631,8 +631,8 @@ impl SlowDeathBehavior {
         })
     }
 
-    pub fn set_object(&mut self, object: Arc<RwLock<Object>>) {
-        self.object_id = object.read().ok().map(|g| g.get_id()).unwrap_or(INVALID_ID);
+    pub fn set_object(&mut self, object_id: ObjectID) {
+        self.object_id = object_id;
     }
 
     pub fn set_object_id(&mut self, object_id: ObjectID) {
@@ -705,7 +705,7 @@ impl SlowDeathBehavior {
             .ok_or_else(|| "Object not found".into())
     }
 
-    fn get_object(&self) -> Result<Arc<RwLock<Object>>, Box<dyn std::error::Error + Send + Sync>> {
+    fn get_object(&self) -> Result<ObjectID>, Box<dyn std::error::Error + Send + Sync>> {
         // Wave 413: empty dual-world → Err.
         if dual_world_registry_unavailable() {
             return Err("Object not found".into());

@@ -175,10 +175,10 @@ impl BasicDrawable {
         if dual_world_registry_unavailable() {
             adjusted_angle -= self.presentation_orientation;
         } else if let Some(obj_id) = self.object_id {
-            if let Some(obj_arc) = OBJECT_REGISTRY.get_object(obj_id) {
-                if let Ok(obj_guard) = obj_arc.read() {
-                    adjusted_angle -= obj_guard.get_orientation();
-                }
+            if let Some(orientation) =
+                OBJECT_REGISTRY.with_object(obj_id, |obj| obj.get_orientation())
+            {
+                adjusted_angle -= orientation;
             }
         }
         adjusted_angle += std::f32::consts::PI;

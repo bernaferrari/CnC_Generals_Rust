@@ -276,11 +276,7 @@ pub trait StateImplementation: Any + AsAny + std::fmt::Debug + Send + Sync {
     }
 
     /// Owner already known because this step holds the machine.
-    fn note_step_owner(
-        &mut self,
-        _owner: std::sync::Arc<std::sync::RwLock<crate::object::Object>>,
-    ) {
-    }
+    fn note_step_owner(&mut self, _owner: crate::common::ObjectID) {}
 
     fn note_guard_enter(&mut self, _mode: i32, _polygon: Option<Arc<PolygonTrigger>>) {}
 
@@ -341,19 +337,19 @@ pub trait StateImplementation: Any + AsAny + std::fmt::Debug + Send + Sync {
     /// Get the goal object for this state machine (default implementation returns None)
     fn get_machine_goal_object(
         &self,
-    ) -> Result<Option<Arc<RwLock<crate::object::Object>>>, String> {
+    ) -> Result<Option<crate::common::ObjectID>, String> {
         if let Some(base_state) = self.as_any().downcast_ref::<State>() {
-            return Ok(base_state.get_machine_goal_object());
+            return Ok(base_state.get_machine_goal_object_id());
         }
 
         Ok(None)
     }
 
-    /// Get the owner object for this state machine (default implementation returns error)
-    fn get_machine_owner(&self) -> Result<Arc<RwLock<crate::object::Object>>, String> {
+    /// Get the owner id for this state machine (default implementation returns error)
+    fn get_machine_owner(&self) -> Result<crate::common::ObjectID, String> {
         if let Some(base_state) = self.as_any().downcast_ref::<State>() {
             return base_state
-                .get_machine_owner()
+                .get_machine_owner_id()
                 .ok_or_else(|| "state machine owner not attached".to_string());
         }
 
@@ -447,20 +443,14 @@ impl State {
         self.id = id;
     }
 
-    /// Get the machine owner object
-    pub fn get_machine_owner(&self) -> Option<Arc<RwLock<Object>>> {
-        if self.owner_id == crate::common::INVALID_ID {
-            return None;
-        }
-        crate::helpers::TheGameLogic::find_object_by_id(self.owner_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.owner_id))
+    /// Get the machine owner id
+    pub fn get_machine_owner(&self) -> Option<crate::common::ObjectID> {
+        self.get_machine_owner_id()
     }
 
-    /// Get the machine goal object
-    pub fn get_machine_goal_object(&self) -> Option<Arc<RwLock<Object>>> {
-        let id = self.get_machine_goal_object_id()?;
-        crate::helpers::TheGameLogic::find_object_by_id(id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(id))
+    /// Get the machine goal object id
+    pub fn get_machine_goal_object(&self) -> Option<crate::common::ObjectID> {
+        self.get_machine_goal_object_id()
     }
 
     /// Machine goal object id, bound by the machine before each step.
@@ -836,26 +826,24 @@ impl StateMachine {
     }
 
     fn apply_pending_victim_goal(&mut self) {
-        let Some(owner) = self.get_owner() else {
+        let Some(owner_id) = self.get_owner() else {
             return;
         };
-        let Ok(owner_guard) = owner.read() else {
+        let Some(id) = crate::object::registry::OBJECT_REGISTRY.with_object(owner_id, |owner| {
+            owner.ai_fire_pending_victim
+        }) else {
             return;
         };
-        let Some(id) = owner_guard.ai_fire_pending_victim else {
+        let Some(id) = id else {
             return;
         };
         if id == crate::common::INVALID_ID {
             return;
         }
         self.goal_object_id = id;
-        if let Some(arc) = crate::helpers::TheGameLogic::find_object_by_id(id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(id))
-        {
-            if let Ok(guard) = arc.read() {
-                self.internal_set_goal_position(*guard.get_position());
-            }
-        }
+        crate::object::registry::OBJECT_REGISTRY.with_object(id, |guard| {
+            self.internal_set_goal_position(*guard.get_position());
+        });
     }
 
     /// Clear the machine's internals to a known, initialized state
@@ -1278,13 +1266,13 @@ impl StateMachine {
         self.locked
     }
 
-    /// Get the owner object
-    pub fn get_owner(&self) -> Option<Arc<RwLock<Object>>> {
+    /// Get the owner id
+    pub fn get_owner(&self) -> Option<crate::common::ObjectID> {
         if self.owner_id == crate::common::INVALID_ID {
-            return None;
+            None
+        } else {
+            Some(self.owner_id)
         }
-        crate::helpers::TheGameLogic::find_object_by_id(self.owner_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.owner_id))
     }
 
     pub fn get_owner_id(&self) -> crate::common::ObjectID {
@@ -1312,13 +1300,9 @@ impl StateMachine {
         match object_id {
             Some(id) if id != crate::common::INVALID_ID => {
                 self.goal_object_id = id;
-                if let Some(arc) = crate::helpers::TheGameLogic::find_object_by_id(id)
-                    .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(id))
-                {
-                    if let Ok(guard) = arc.read() {
-                        self.internal_set_goal_position(guard.get_position().clone());
-                    }
-                }
+                crate::object::registry::OBJECT_REGISTRY.with_object(id, |obj| {
+                    self.internal_set_goal_position(obj.get_position().clone());
+                });
             }
             _ => {
                 self.goal_object_id = crate::common::INVALID_ID;
@@ -1326,13 +1310,13 @@ impl StateMachine {
         }
     }
 
-    /// Get goal object
-    pub fn get_goal_object(&self) -> Option<Arc<RwLock<Object>>> {
+    /// Get goal object id
+    pub fn get_goal_object(&self) -> Option<crate::common::ObjectID> {
         if self.goal_object_id == crate::common::INVALID_ID {
-            return None;
+            None
+        } else {
+            Some(self.goal_object_id)
         }
-        crate::helpers::TheGameLogic::find_object_by_id(self.goal_object_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.goal_object_id))
     }
 
     pub fn get_goal_object_id(&self) -> crate::common::ObjectID {

@@ -29,8 +29,10 @@ fn radar_update_module_factory(
     module_data: Arc<dyn ModuleData>,
 ) -> Box<dyn Module> {
     let (owner_id, _) = resolve_owner_info(&thing);
-    let object =
-        TheGameLogic::find_object_by_id(owner_id).expect("RadarUpdate requires a valid object");
+    if !TheGameLogic::find_object_by_id(owner_id) {
+        panic!("RadarUpdate requires a valid object");
+    }
+    let object = owner_id;
 
     let module_name = AsciiString::from("RadarUpdate");
     Box::new(
@@ -66,8 +68,10 @@ fn stealth_detector_update_module_factory(
 
     let module_data_arc = Arc::new(typed_data.clone());
     let (owner_id, _) = resolve_owner_info(&thing);
-    let object = TheGameLogic::find_object_by_id(owner_id)
-        .expect("StealthDetectorUpdate requires a valid object");
+    if !TheGameLogic::find_object_by_id(owner_id) {
+        panic!("StealthDetectorUpdate requires a valid object");
+    }
+    let object = owner_id;
     let behavior = StealthDetectorUpdate::new(object, module_data_arc.clone())
         .expect("StealthDetectorUpdate failed to initialize");
 
@@ -94,8 +98,10 @@ fn radius_decal_update_module_factory(
 
     let module_data_arc = Arc::new(typed_data.clone());
     let (owner_id, _) = resolve_owner_info(&thing);
-    let object = TheGameLogic::find_object_by_id(owner_id)
-        .expect("RadiusDecalUpdate requires a valid object");
+    if !TheGameLogic::find_object_by_id(owner_id) {
+        panic!("RadiusDecalUpdate requires a valid object");
+    }
+    let object = owner_id;
     let behavior = RadiusDecalUpdate::new(object, module_data_arc.clone())
         .expect("RadiusDecalUpdate failed to initialize");
 
@@ -134,8 +140,10 @@ fn sticky_bomb_update_module_factory(
 
     let module_data_arc = Arc::new(typed_data.clone());
     let (owner_id, _) = resolve_owner_info(&thing);
-    let object = TheGameLogic::find_object_by_id(owner_id)
-        .expect("StickyBombUpdate requires a valid object");
+    if !TheGameLogic::find_object_by_id(owner_id) {
+        panic!("StickyBombUpdate requires a valid object");
+    }
+    let object = owner_id;
     let behavior = StickyBombUpdate::new(object, module_data_arc.clone())
         .expect("StickyBombUpdate failed to initialize");
 
@@ -174,8 +182,10 @@ fn prone_update_module_factory(
 
     let module_data_arc = Arc::new(typed_data.clone());
     let (owner_id, _) = resolve_owner_info(&thing);
-    let object =
-        TheGameLogic::find_object_by_id(owner_id).expect("ProneUpdate requires a valid object");
+    if !TheGameLogic::find_object_by_id(owner_id) {
+        panic!("ProneUpdate requires a valid object");
+    }
+    let object = owner_id;
     let behavior = ProneUpdate::new(object, module_data_arc.clone())
         .expect("ProneUpdate failed to initialize");
 
@@ -214,8 +224,10 @@ fn projectile_stream_update_module_factory(
 
     let module_data_arc = Arc::new(typed_data.clone());
     let (owner_id, _) = resolve_owner_info(&thing);
-    let object = TheGameLogic::find_object_by_id(owner_id)
-        .expect("ProjectileStreamUpdate requires a valid object");
+    if !TheGameLogic::find_object_by_id(owner_id) {
+        panic!("ProjectileStreamUpdate requires a valid object");
+    }
+    let object = owner_id;
     let behavior = ProjectileStreamUpdate::new(object, module_data_arc.clone())
         .expect("ProjectileStreamUpdate failed to initialize");
 
@@ -254,8 +266,10 @@ fn point_defense_laser_update_module_factory(
 
     let module_data_arc = Arc::new(typed_data.clone());
     let (owner_id, _) = resolve_owner_info(&thing);
-    let object = TheGameLogic::find_object_by_id(owner_id)
-        .expect("PointDefenseLaserUpdate requires a valid object");
+    if !TheGameLogic::find_object_by_id(owner_id) {
+        panic!("PointDefenseLaserUpdate requires a valid object");
+    }
+    let object = owner_id;
     let behavior = PointDefenseLaserUpdate::new(object, module_data_arc.clone())
         .expect("PointDefenseLaserUpdate failed to initialize");
 
@@ -332,8 +346,10 @@ fn demo_trap_update_module_factory(
 
     let module_data_arc = Arc::new(typed_data.clone());
     let (owner_id, _) = resolve_owner_info(&thing);
-    let object =
-        TheGameLogic::find_object_by_id(owner_id).expect("DemoTrapUpdate requires a valid object");
+    if !TheGameLogic::find_object_by_id(owner_id) {
+        panic!("DemoTrapUpdate requires a valid object");
+    }
+    let object = owner_id;
     let behavior = DemoTrapUpdate::new(object, module_data_arc.clone())
         .expect("DemoTrapUpdate failed to initialize");
 
@@ -374,8 +390,10 @@ fn smart_bomb_target_homing_update_module_factory(
 
     let module_data_arc = Arc::new(typed_data.clone());
     let (owner_id, _) = resolve_owner_info(&thing);
-    let object = TheGameLogic::find_object_by_id(owner_id)
-        .expect("SmartBombTargetHomingUpdate requires a valid object");
+    if !TheGameLogic::find_object_by_id(owner_id) {
+        panic!("SmartBombTargetHomingUpdate requires a valid object");
+    }
+    let object = owner_id;
     let behavior = SmartBombTargetHomingUpdate::new(object, module_data_arc.clone())
         .expect("SmartBombTargetHomingUpdate failed to initialize");
 
@@ -414,8 +432,10 @@ fn tensile_formation_update_module_factory(
 
     let module_data_arc = Arc::new(typed_data.clone());
     let (owner_id, _) = resolve_owner_info(&thing);
-    let object = TheGameLogic::find_object_by_id(owner_id)
-        .expect("TensileFormationUpdate requires a valid object");
+    if !TheGameLogic::find_object_by_id(owner_id) {
+        panic!("TensileFormationUpdate requires a valid object");
+    }
+    let object = owner_id;
     let behavior = TensileFormationUpdate::new(object, module_data_arc.clone())
         .expect("TensileFormationUpdate failed to initialize");
 
@@ -454,8 +474,10 @@ fn generate_minefield_behavior_module_factory(
 
     let module_data_arc = Arc::new(typed_data.clone());
     let (owner_id, _) = resolve_owner_info(&thing);
-    let object = TheGameLogic::find_object_by_id(owner_id)
-        .expect("GenerateMinefieldBehavior requires a valid object");
+    if !TheGameLogic::find_object_by_id(owner_id) {
+        panic!("GenerateMinefieldBehavior requires a valid object");
+    }
+    let object = owner_id;
     let behavior = GenerateMinefieldBehavior::new(object, module_data_arc.clone())
         .expect("GenerateMinefieldBehavior failed to initialize");
 
@@ -490,12 +512,10 @@ fn special_ability_update_module_factory(
         .downcast_ref::<SpecialAbilityUpdateModuleData>()
         .expect("SpecialAbilityUpdateModuleData expected");
     let module_data_arc = Arc::new(typed_data.clone());
-    let object = thing
-        .as_object()
-        .cloned()
-        .expect("SpecialAbilityUpdate requires object");
-    let object_ptr = Arc::downgrade(&object);
-    let behavior = SpecialAbilityUpdate::new(object_ptr, module_data_arc.clone());
+    let (owner_id, _) = resolve_owner_info(&thing);
+    // SpecialAbilityUpdate still takes an unused weak handle; identity is the id.
+    let behavior = SpecialAbilityUpdate::new(std::sync::Weak::new(), module_data_arc.clone());
+    let _ = owner_id;
     let module_name = AsciiString::from("SpecialAbilityUpdate");
     Box::new(SpecialAbilityUpdateModule::new(
         behavior,
@@ -527,10 +547,10 @@ fn spectre_gunship_update_module_factory(
         .downcast_ref::<SpectreGunshipUpdateModuleData>()
         .expect("SpectreGunshipUpdateModuleData expected");
     let module_data_arc = Arc::new(typed_data.clone());
-    let object = thing
-        .as_object()
-        .cloned()
-        .expect("SpectreGunshipUpdate requires object");
+    let (object, _) = resolve_owner_info(&thing);
+    if object == crate::common::INVALID_ID {
+        panic!("SpectreGunshipUpdate requires object");
+    }
     let behavior = SpectreGunshipUpdate::new(object, module_data_arc.clone())
         .expect("Failed to create SpectreGunshipUpdate");
     let module_name = AsciiString::from("SpectreGunshipUpdate");
@@ -566,10 +586,10 @@ fn spectre_gunship_deployment_update_module_factory(
         .downcast_ref::<SpectreGunshipDeploymentUpdateModuleData>()
         .expect("SpectreGunshipDeploymentUpdateModuleData expected");
     let module_data_arc = Arc::new(typed_data.clone());
-    let object = thing
-        .as_object()
-        .cloned()
-        .expect("SpectreGunshipDeploymentUpdate requires object");
+    let (object, _) = resolve_owner_info(&thing);
+    if object == crate::common::INVALID_ID {
+        panic!("SpectreGunshipDeploymentUpdate requires object");
+    }
     let behavior = SpectreGunshipDeploymentUpdate::new(object, module_data_arc.clone())
         .expect("Failed to create SpectreGunshipDeploymentUpdate");
     let module_name = AsciiString::from("SpectreGunshipDeploymentUpdate");
@@ -595,10 +615,10 @@ fn particle_uplink_cannon_update_module_factory(
         .downcast_ref::<ParticleUplinkCannonUpdateModuleData>()
         .expect("ParticleUplinkCannonUpdateModuleData expected");
     let module_data_arc = Arc::new(typed_data.clone());
-    let object = thing
-        .as_object()
-        .cloned()
-        .expect("ParticleUplinkCannonUpdate requires object");
+    let (object, _) = resolve_owner_info(&thing);
+    if object == crate::common::INVALID_ID {
+        panic!("ParticleUplinkCannonUpdate requires object");
+    }
     let behavior = ParticleUplinkCannonUpdate::new(object, module_data_arc.clone())
         .expect("Failed to create ParticleUplinkCannonUpdate");
     let module_name = AsciiString::from("ParticleUplinkCannonUpdate");
@@ -622,10 +642,10 @@ fn battle_plan_update_module_factory(
         .downcast_ref::<BattlePlanUpdateModuleData>()
         .expect("BattlePlanUpdateModuleData expected");
     let module_data_arc = Arc::new(typed_data.clone());
-    let object = thing
-        .as_object()
-        .cloned()
-        .expect("BattlePlanUpdate requires object");
+    let (object, _) = resolve_owner_info(&thing);
+    if object == crate::common::INVALID_ID {
+        panic!("BattlePlanUpdate requires object");
+    }
     let behavior = BattlePlanUpdate::new(object, module_data_arc.clone())
         .expect("Failed to create BattlePlanUpdate");
     let module_name = AsciiString::from("BattlePlanUpdate");
@@ -659,10 +679,10 @@ fn lifetime_update_module_factory(
         .downcast_ref::<LifetimeUpdateModuleData>()
         .expect("LifetimeUpdateModuleData expected");
     let module_data_arc = Arc::new(typed_data.clone());
-    let object = thing
-        .as_object()
-        .cloned()
-        .expect("LifetimeUpdate requires object");
+    let (object, _) = resolve_owner_info(&thing);
+    if object == crate::common::INVALID_ID {
+        panic!("LifetimeUpdate requires object");
+    }
     let behavior = LifetimeUpdate::new(object, module_data_arc.clone())
         .expect("Failed to create LifetimeUpdate");
     let module_name = AsciiString::from("LifetimeUpdate");
@@ -688,10 +708,10 @@ fn missile_launcher_building_update_module_factory(
         .downcast_ref::<MissileLauncherBuildingUpdateModuleData>()
         .expect("MissileLauncherBuildingUpdateModuleData expected");
     let module_data_arc = Arc::new(typed_data.clone());
-    let object = thing
-        .as_object()
-        .cloned()
-        .expect("MissileLauncherBuildingUpdate requires object");
+    let (object, _) = resolve_owner_info(&thing);
+    if object == crate::common::INVALID_ID {
+        panic!("MissileLauncherBuildingUpdate requires object");
+    }
     let behavior = MissileLauncherBuildingUpdate::new(object, module_data_arc.clone())
         .expect("Failed to create MissileLauncherBuildingUpdate");
     let module_name = AsciiString::from("MissileLauncherBuildingUpdate");
@@ -769,8 +789,10 @@ fn fire_weapon_when_dead_behavior_module_factory(
 
     let module_data_arc = Arc::new(typed_data.clone());
     let (owner_id, _) = resolve_owner_info(&thing);
-    let object = TheGameLogic::find_object_by_id(owner_id)
-        .expect("FireWeaponWhenDeadBehavior requires a valid object");
+    if !TheGameLogic::find_object_by_id(owner_id) {
+        panic!("FireWeaponWhenDeadBehavior requires a valid object");
+    }
+    let object = owner_id;
     let behavior = FireWeaponWhenDeadBehavior::new(object, module_data_arc.clone())
         .expect("FireWeaponWhenDeadBehavior failed to initialize");
 
@@ -811,8 +833,10 @@ fn fire_weapon_when_damaged_behavior_module_factory(
 
     let module_data_arc = Arc::new(typed_data.clone());
     let (owner_id, _) = resolve_owner_info(&thing);
-    let object = TheGameLogic::find_object_by_id(owner_id)
-        .expect("FireWeaponWhenDamagedBehavior requires a valid object");
+    if !TheGameLogic::find_object_by_id(owner_id) {
+        panic!("FireWeaponWhenDamagedBehavior requires a valid object");
+    }
+    let object = owner_id;
     let behavior = FireWeaponWhenDamagedBehavior::new(object, module_data_arc.clone())
         .expect("FireWeaponWhenDamagedBehavior failed to initialize");
 
@@ -851,8 +875,10 @@ fn fire_weapon_update_module_factory(
 
     let module_data_arc = Arc::new(typed_data.clone());
     let (owner_id, _) = resolve_owner_info(&thing);
-    let object = TheGameLogic::find_object_by_id(owner_id)
-        .expect("FireWeaponUpdate requires a valid object");
+    if !TheGameLogic::find_object_by_id(owner_id) {
+        panic!("FireWeaponUpdate requires a valid object");
+    }
+    let object = owner_id;
     let behavior = FireWeaponUpdate::new(object, module_data_arc.clone())
         .expect("FireWeaponUpdate failed to initialize");
 
@@ -893,8 +919,10 @@ fn fire_ocl_after_weapon_cooldown_update_module_factory(
 
     let module_data_arc = Arc::new(typed_data.clone());
     let (owner_id, _) = resolve_owner_info(&thing);
-    let object = TheGameLogic::find_object_by_id(owner_id)
-        .expect("FireOCLAfterWeaponCooldownUpdate requires a valid object");
+    if !TheGameLogic::find_object_by_id(owner_id) {
+        panic!("FireOCLAfterWeaponCooldownUpdate requires a valid object");
+    }
+    let object = owner_id;
     let behavior = FireOCLAfterWeaponCooldownUpdate::new(object, module_data_arc.clone())
         .expect("FireOCLAfterWeaponCooldownUpdate failed to initialize");
 
@@ -933,8 +961,10 @@ fn weapon_bonus_update_module_factory(
 
     let module_data_arc = Arc::new(typed_data.clone());
     let (owner_id, _) = resolve_owner_info(&thing);
-    let object = TheGameLogic::find_object_by_id(owner_id)
-        .expect("WeaponBonusUpdate requires a valid object");
+    if !TheGameLogic::find_object_by_id(owner_id) {
+        panic!("WeaponBonusUpdate requires a valid object");
+    }
+    let object = owner_id;
     let behavior = WeaponBonusUpdate::new(object, module_data_arc.clone())
         .expect("WeaponBonusUpdate failed to initialize");
 
@@ -973,8 +1003,10 @@ fn emp_update_module_factory(
 
     let module_data_arc = Arc::new(typed_data.clone());
     let (owner_id, _) = resolve_owner_info(&thing);
-    let object =
-        TheGameLogic::find_object_by_id(owner_id).expect("EMPUpdate requires a valid object");
+    if !TheGameLogic::find_object_by_id(owner_id) {
+        panic!("EMPUpdate requires a valid object");
+    }
+    let object = owner_id;
     let behavior =
         EMPUpdate::new(object, module_data_arc.clone()).expect("EMPUpdate failed to initialize");
 
@@ -1013,8 +1045,10 @@ fn structure_collapse_update_module_factory(
 
     let module_data_arc = Arc::new(typed_data.clone());
     let (owner_id, _) = resolve_owner_info(&thing);
-    let object = TheGameLogic::find_object_by_id(owner_id)
-        .expect("StructureCollapseUpdate requires a valid object");
+    if !TheGameLogic::find_object_by_id(owner_id) {
+        panic!("StructureCollapseUpdate requires a valid object");
+    }
+    let object = owner_id;
     let behavior = StructureCollapseUpdate::new(object, module_data_arc.clone())
         .expect("StructureCollapseUpdate failed to initialize");
 
@@ -1053,8 +1087,10 @@ fn float_update_module_factory(
 
     let module_data_arc = Arc::new(typed_data.clone());
     let (owner_id, _) = resolve_owner_info(&thing);
-    let object =
-        TheGameLogic::find_object_by_id(owner_id).expect("FloatUpdate requires a valid object");
+    if !TheGameLogic::find_object_by_id(owner_id) {
+        panic!("FloatUpdate requires a valid object");
+    }
+    let object = owner_id;
     let behavior = FloatUpdate::new(object, module_data_arc.clone())
         .expect("FloatUpdate failed to initialize");
 
@@ -1093,8 +1129,10 @@ fn enemy_near_update_module_factory(
 
     let module_data_arc = Arc::new(typed_data.clone());
     let (owner_id, _) = resolve_owner_info(&thing);
-    let object =
-        TheGameLogic::find_object_by_id(owner_id).expect("EnemyNearUpdate requires a valid object");
+    if !TheGameLogic::find_object_by_id(owner_id) {
+        panic!("EnemyNearUpdate requires a valid object");
+    }
+    let object = owner_id;
     let behavior = EnemyNearUpdate::new(object, module_data_arc.clone())
         .expect("EnemyNearUpdate failed to initialize");
 
@@ -1133,8 +1171,10 @@ fn auto_find_healing_update_module_factory(
 
     let module_data_arc = Arc::new(typed_data.clone());
     let (owner_id, _) = resolve_owner_info(&thing);
-    let object = TheGameLogic::find_object_by_id(owner_id)
-        .expect("AutoFindHealingUpdate requires a valid object");
+    if !TheGameLogic::find_object_by_id(owner_id) {
+        panic!("AutoFindHealingUpdate requires a valid object");
+    }
+    let object = owner_id;
     let behavior = AutoFindHealingUpdate::new_typed(object, module_data_arc.clone());
 
     let module_name = AsciiString::from("AutoFindHealingUpdate");
@@ -1174,8 +1214,10 @@ fn supply_warehouse_crippling_behavior_module_factory(
 
     let module_data_arc = Arc::new(typed_data.clone());
     let (owner_id, _) = resolve_owner_info(&thing);
-    let object = TheGameLogic::find_object_by_id(owner_id)
-        .expect("SupplyWarehouseCripplingBehavior requires a valid object");
+    if !TheGameLogic::find_object_by_id(owner_id) {
+        panic!("SupplyWarehouseCripplingBehavior requires a valid object");
+    }
+    let object = owner_id;
     let behavior = SupplyWarehouseCripplingBehavior::new(object, module_data_arc.clone())
         .expect("SupplyWarehouseCripplingBehavior failed to initialize");
 
@@ -1214,8 +1256,10 @@ fn base_regenerate_update_module_factory(
 
     let module_data_arc = Arc::new(typed_data.clone());
     let (owner_id, _) = resolve_owner_info(&thing);
-    let object = TheGameLogic::find_object_by_id(owner_id)
-        .expect("BaseRegenerateUpdate requires a valid object");
+    if !TheGameLogic::find_object_by_id(owner_id) {
+        panic!("BaseRegenerateUpdate requires a valid object");
+    }
+    let object = owner_id;
     let behavior = BaseRegenerateUpdate::new(object, module_data_arc.clone())
         .expect("BaseRegenerateUpdate failed to initialize");
 
@@ -1254,8 +1298,10 @@ fn auto_deposit_update_module_factory(
 
     let module_data_arc = Arc::new(typed_data.clone());
     let (owner_id, _) = resolve_owner_info(&thing);
-    let object = TheGameLogic::find_object_by_id(owner_id)
-        .expect("AutoDepositUpdate requires a valid object");
+    if !TheGameLogic::find_object_by_id(owner_id) {
+        panic!("AutoDepositUpdate requires a valid object");
+    }
+    let object = owner_id;
     let behavior = AutoDepositUpdate::new(object, module_data_arc.clone())
         .expect("AutoDepositUpdate failed to initialize");
 
@@ -1294,8 +1340,10 @@ fn power_plant_update_module_factory(
 
     let module_data_arc = Arc::new(typed_data.clone());
     let (owner_id, _) = resolve_owner_info(&thing);
-    let object = TheGameLogic::find_object_by_id(owner_id)
-        .expect("PowerPlantUpdate requires a valid object");
+    if !TheGameLogic::find_object_by_id(owner_id) {
+        panic!("PowerPlantUpdate requires a valid object");
+    }
+    let object = owner_id;
     let behavior = PowerPlantUpdate::new(object, module_data_arc.clone())
         .expect("PowerPlantUpdate failed to initialize");
 
@@ -1334,8 +1382,10 @@ fn tech_building_behavior_module_factory(
 
     let module_data_arc = Arc::new(typed_data.clone());
     let (owner_id, _) = resolve_owner_info(&thing);
-    let object = TheGameLogic::find_object_by_id(owner_id)
-        .expect("TechBuildingBehavior requires a valid object");
+    if !TheGameLogic::find_object_by_id(owner_id) {
+        panic!("TechBuildingBehavior requires a valid object");
+    }
+    let object = owner_id;
     let behavior = TechBuildingBehavior::new(object, module_data_arc.clone())
         .expect("TechBuildingBehavior failed to initialize");
 
@@ -1374,8 +1424,10 @@ fn propaganda_tower_behavior_module_factory(
 
     let module_data_arc = Arc::new(typed_data.clone());
     let (owner_id, _) = resolve_owner_info(&thing);
-    let object = TheGameLogic::find_object_by_id(owner_id)
-        .expect("PropagandaTowerBehavior requires a valid object");
+    if !TheGameLogic::find_object_by_id(owner_id) {
+        panic!("PropagandaTowerBehavior requires a valid object");
+    }
+    let object = owner_id;
     let behavior = PropagandaTowerBehavior::new(object, module_data_arc.clone())
         .expect("PropagandaTowerBehavior failed to initialize");
 
@@ -1414,8 +1466,10 @@ fn assisted_targeting_update_module_factory(
 
     let module_data_arc = Arc::new(typed_data.clone());
     let (owner_id, _) = resolve_owner_info(&thing);
-    let object = TheGameLogic::find_object_by_id(owner_id)
-        .expect("AssistedTargetingUpdate requires a valid object");
+    if !TheGameLogic::find_object_by_id(owner_id) {
+        panic!("AssistedTargetingUpdate requires a valid object");
+    }
+    let object = owner_id;
     let behavior = AssistedTargetingUpdate::new(object, module_data_arc.clone())
         .expect("AssistedTargetingUpdate failed to initialize");
 
@@ -1457,8 +1511,10 @@ fn dynamic_shroud_clearing_range_update_module_factory(
         module_data.get_module_tag_name_key(),
     ));
     let (owner_id, _) = resolve_owner_info(&thing);
-    let object = TheGameLogic::find_object_by_id(owner_id)
-        .expect("DynamicShroudClearingRangeUpdate requires a valid object");
+    if !TheGameLogic::find_object_by_id(owner_id) {
+        panic!("DynamicShroudClearingRangeUpdate requires a valid object");
+    }
+    let object = owner_id;
     let behavior = DynamicShroudClearingRangeUpdate::new_with_data(object, module_data_arc.clone())
         .expect("DynamicShroudClearingRangeUpdate failed to initialize");
 
@@ -1497,8 +1553,10 @@ fn cleanup_hazard_update_module_factory(
 
     let module_data_arc = Arc::new(typed_data.clone());
     let (owner_id, _) = resolve_owner_info(&thing);
-    let object = TheGameLogic::find_object_by_id(owner_id)
-        .expect("CleanupHazardUpdate requires a valid object");
+    if !TheGameLogic::find_object_by_id(owner_id) {
+        panic!("CleanupHazardUpdate requires a valid object");
+    }
+    let object = owner_id;
     let behavior = CleanupHazardUpdate::new(object, module_data_arc.clone())
         .expect("CleanupHazardUpdate failed to initialize");
 
@@ -1537,8 +1595,10 @@ fn fire_spread_update_module_factory(
 
     let module_data_arc = Arc::new(typed_data.clone());
     let (owner_id, _) = resolve_owner_info(&thing);
-    let object = TheGameLogic::find_object_by_id(owner_id)
-        .expect("FireSpreadUpdate requires a valid object");
+    if !TheGameLogic::find_object_by_id(owner_id) {
+        panic!("FireSpreadUpdate requires a valid object");
+    }
+    let object = owner_id;
     let behavior = FireSpreadUpdate::new(owner_id, (*module_data_arc).clone());
 
     let module_name = AsciiString::from("FireSpreadUpdate");
@@ -1614,8 +1674,10 @@ fn mob_member_slaved_update_module_factory(
 
     let module_data_arc = Arc::new(typed_data.clone());
     let (owner_id, _) = resolve_owner_info(&thing);
-    let object = TheGameLogic::find_object_by_id(owner_id)
-        .expect("MobMemberSlavedUpdate requires a valid object");
+    if !TheGameLogic::find_object_by_id(owner_id) {
+        panic!("MobMemberSlavedUpdate requires a valid object");
+    }
+    let object = owner_id;
     let behavior = MobMemberSlavedUpdate::new(object, module_data_arc.clone())
         .expect("MobMemberSlavedUpdate failed to initialize");
 
@@ -1691,8 +1753,10 @@ fn topple_update_module_factory(
 
     let module_data_arc = Arc::new(typed_data.clone());
     let (owner_id, _) = resolve_owner_info(&thing);
-    let object =
-        TheGameLogic::find_object_by_id(owner_id).expect("ToppleUpdate requires a valid object");
+    if !TheGameLogic::find_object_by_id(owner_id) {
+        panic!("ToppleUpdate requires a valid object");
+    }
+    let object = owner_id;
     let behavior = ToppleUpdate::new_from_object_handle(object, module_data_arc.clone());
 
     let module_name = AsciiString::from("ToppleUpdate");
@@ -1730,8 +1794,10 @@ fn structure_topple_update_module_factory(
 
     let module_data_arc = Arc::new(typed_data.clone());
     let (owner_id, _) = resolve_owner_info(&thing);
-    let object = TheGameLogic::find_object_by_id(owner_id)
-        .expect("StructureToppleUpdate requires a valid object");
+    if !TheGameLogic::find_object_by_id(owner_id) {
+        panic!("StructureToppleUpdate requires a valid object");
+    }
+    let object = owner_id;
     let behavior = StructureToppleUpdate::new(object, module_data_arc.clone())
         .expect("StructureToppleUpdate failed to initialize");
 
@@ -1986,8 +2052,10 @@ fn pow_truck_behavior_module_factory(
         .as_object()
         .map(|object| object.get_object_id())
         .unwrap_or(INVALID_ID);
-    let object = TheGameLogic::find_object_by_id(object_id)
-        .expect("POWTruckBehavior requires owning object");
+    if !TheGameLogic::find_object_by_id(object_id) {
+        panic!("POWTruckBehavior requires owning object");
+    }
+    let object = object_id;
     let behavior = POWTruckBehavior::new(object, module_data_arc.clone())
         .expect("POWTruckBehavior::new failed");
 
@@ -2031,8 +2099,10 @@ fn prison_behavior_module_factory(
         .as_object()
         .map(|object| object.get_object_id())
         .unwrap_or(INVALID_ID);
-    let object =
-        TheGameLogic::find_object_by_id(object_id).expect("PrisonBehavior requires owning object");
+    if !TheGameLogic::find_object_by_id(object_id) {
+        panic!("PrisonBehavior requires owning object");
+    }
+    let object = object_id;
     let behavior =
         PrisonBehavior::new(object, module_data_arc.clone()).expect("PrisonBehavior::new failed");
 
@@ -2076,8 +2146,10 @@ fn propaganda_center_behavior_module_factory(
         .as_object()
         .map(|object| object.get_object_id())
         .unwrap_or(INVALID_ID);
-    let object = TheGameLogic::find_object_by_id(object_id)
-        .expect("PropagandaCenterBehavior requires owning object");
+    if !TheGameLogic::find_object_by_id(object_id) {
+        panic!("PropagandaCenterBehavior requires owning object");
+    }
+    let object = object_id;
     let behavior = PropagandaCenterBehavior::new(object, module_data_arc.clone())
         .expect("PropagandaCenterBehavior::new failed");
 

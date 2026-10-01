@@ -897,7 +897,7 @@ fn retail_harvesters_parse_and_accept_gather_through_live_command_authority() {
         // The visible game path freezes capability into the presentation frame
         // before classifying the right click.  Prove the parsed capability
         // survives that boundary rather than injecting a Gather command.
-        let frame = PresentationFrame::build_from_logic(&game_logic, player_id);
+        let frame = PresentationFrame::build_from_logic(&mut game_logic, player_id);
         let collector = frame
             .objects
             .iter()

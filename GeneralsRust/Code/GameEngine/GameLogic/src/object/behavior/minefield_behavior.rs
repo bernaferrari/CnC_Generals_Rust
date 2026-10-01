@@ -310,7 +310,7 @@ pub struct MinefieldBehavior {
 
 impl MinefieldBehavior {
     pub fn new(
-        object: Arc<RwLock<GameObject>>,
+        object_id: ObjectID,
         module_data: Arc<MinefieldBehaviorModuleData>,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let object_id = object.read().map_err(|_| "object lock poisoned")?.get_id();
@@ -319,11 +319,7 @@ impl MinefieldBehavior {
         }
 
         Ok(Self {
-            object_id: object
-                .read()
-                .ok()
-                .map(|g| g.get_id())
-                .unwrap_or(crate::common::INVALID_ID),
+            object_id: object_id,
             next_call_frame_and_phase: crate::helpers::TheGameLogic::get_frame().saturating_add(1),
             next_death_check_frame: 0,
             scoot_frames_left: 0,
@@ -339,7 +335,7 @@ impl MinefieldBehavior {
         })
     }
 
-    fn owner(&self) -> Option<Arc<RwLock<GameObject>>> {
+    fn owner(&self) -> Option<ObjectID> {
         // Wave 410: empty dual-world → None.
         if dual_world_registry_unavailable() {
             return None;
@@ -1115,7 +1111,7 @@ pub struct MinefieldBehaviorFactory;
 
 impl MinefieldBehaviorFactory {
     pub fn create_behavior(
-        thing: Arc<RwLock<GameObject>>,
+        object_id: ObjectID,
         module_data: Arc<dyn ModuleData>,
     ) -> Result<Box<dyn BehaviorModuleInterface>, Box<dyn std::error::Error + Send + Sync>> {
         let _ = module_data;

@@ -267,38 +267,38 @@ impl HiveStructureBody {
         };
 
         if had_spawn {
-            if let Some(slave) = closest_slave {
-                if let Ok(mut slave_guard) = slave.write() {
-                    let _ = slave_guard.attempt_damage(damage_info);
-                }
+            if let Some(slave_id) = closest_slave {
+                let _ = OBJECT_REGISTRY.with_object_mut(slave_id, |slave| {
+                    let _ = slave.attempt_damage(damage_info);
+                });
                 return HiveRedirect::Propagated;
             }
             return HiveRedirect::NoTarget;
         }
 
         if let Some(contained_ids) = contained_ids {
-            let mut closest: Option<Arc<RwLock<Object>>> = None;
+            let mut closest: Option<ObjectID> = None;
             let mut closest_dist_sq = f32::INFINITY;
 
             for rider_id in contained_ids {
-                if let Some(rider) = TheGameLogic::find_object_by_id(rider_id) {
-                    if let Ok(rider_guard) = rider.read() {
-                        let rider_pos = *rider_guard.get_position();
-                        let dx = rider_pos.x - shooter_pos.x;
-                        let dy = rider_pos.y - shooter_pos.y;
-                        let dist_sq = dx * dx + dy * dy;
-                        if dist_sq < closest_dist_sq {
-                            closest_dist_sq = dist_sq;
-                            closest = Some(Arc::clone(&rider));
-                        }
+                let dist_sq = OBJECT_REGISTRY.with_object(rider_id, |rider| {
+                    let rider_pos = *rider.get_position();
+                    let dx = rider_pos.x - shooter_pos.x;
+                    let dy = rider_pos.y - shooter_pos.y;
+                    dx * dx + dy * dy
+                });
+                if let Some(dist_sq) = dist_sq {
+                    if dist_sq < closest_dist_sq {
+                        closest_dist_sq = dist_sq;
+                        closest = Some(rider_id);
                     }
                 }
             }
 
-            if let Some(rider) = closest {
-                if let Ok(mut rider_guard) = rider.write() {
-                    let _ = rider_guard.attempt_damage(damage_info);
-                }
+            if let Some(rider_id) = closest {
+                let _ = OBJECT_REGISTRY.with_object_mut(rider_id, |rider| {
+                    let _ = rider.attempt_damage(damage_info);
+                });
                 return HiveRedirect::Propagated;
             }
             return HiveRedirect::NoTarget;
@@ -535,10 +535,10 @@ mod tests {
         info
     }
 
-    fn register_source_object() -> Arc<RwLock<Object>> {
+    fn register_source_object() -> ObjectID {
         let source = Arc::new(RwLock::new(Object::new_test(9000, 100.0)));
         OBJECT_REGISTRY.register_object(9000, &source);
-        source
+        9000
     }
 
     fn create_test_hive_body() -> HiveStructureBody {

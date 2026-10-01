@@ -15,10 +15,10 @@ use crate::helpers::{TheGameLogic, TheGlobalData};
 use crate::modules::{ContainModuleInterface, ContainWant, UpdateSleepTime};
 use crate::object::drawable::Drawable;
 use crate::object::{Object, ObjectId};
-use crate::player::{Player, ThePlayerList};
+use crate::player::{Player, PlayerIndex, ThePlayerList};
 use crate::system::cave_system::CaveSystem;
 use crate::system::game_logic::GameLogic;
-use crate::team::{TEAM_ID_INVALID, Team, TeamID, TheTeamFactory};
+use crate::team::{TEAM_ID_INVALID, Team, TeamID};
 use crate::tunnel_tracker::TunnelTracker;
 use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer, XferMode, XferVersion};
@@ -29,6 +29,22 @@ use game_engine::common::system::{Snapshotable, Xfer, XferMode, XferVersion};
 fn dual_world_registry_unavailable() -> bool {
     let _host_empty = crate::object::registry::OBJECT_REGISTRY.is_empty();
     false
+}
+
+/// Factory teams are owned values. Callers that still pass `Weak<RwLock<Team>>`
+/// (defect, original-team restore) get a snapshot arc with the factory id.
+fn arc_team_for_factory_id(team_id: TeamID) -> Option<Arc<RwLock<Team>>> {
+    if team_id == TEAM_ID_INVALID {
+        return None;
+    }
+    let (name, controller) = crate::team::with_team(team_id, |team| {
+        (team.get_name().clone(), team.get_controlling_player_id())
+    })?;
+    let team = Arc::new(RwLock::new(Team::new(name, team_id)));
+    if let Ok(mut guard) = team.write() {
+        guard.set_controlling_player_id(controller);
+    }
+    Some(team)
 }
 
 /// Configuration data for CaveContain module
@@ -95,6 +111,9 @@ pub struct CaveContain {
     cave_index: i32,
     /// Original team before garrison
     original_team: Option<Weak<RwLock<Team>>>,
+    /// Keeps the xfer snapshot behind `original_team` alive. External weaks
+    /// stay anchored by their owner and leave this empty.
+    original_team_anchor: Option<Arc<RwLock<Team>>>,
     /// Cached tracker object IDs for trait APIs that return borrowed slices.
     contained_object_ids: Vec<ObjectID>,
     /// Reference to the owning object
@@ -106,11 +125,11 @@ pub struct CaveContain {
 impl CaveContain {
     /// Create a new CaveContain module
     pub fn new(
-        object: Weak<RwLock<Object>>,
+        object_id: ObjectID,
         module_data: &CaveContainModuleData,
         cave_system: Option<Arc<Mutex<CaveSystem>>>,
     ) -> GameResult<Self> {
-        let base = OpenContain::new(object.clone(), &module_data.base)?;
+        let base = OpenContain::new(object_id, &module_data.base)?;
 
         Ok(Self {
             base,
@@ -118,11 +137,9 @@ impl CaveContain {
             need_to_run_on_build_complete: true,
             cave_index: module_data.cave_index_data,
             original_team: None,
+            original_team_anchor: None,
             contained_object_ids: Vec::new(),
-            object_id: object
-                .upgrade()
-                .and_then(|arc| arc.read().ok().map(|g| g.get_id()))
-                .unwrap_or(crate::common::INVALID_ID),
+            object_id: object_id,
             cave_system,
         })
     }
@@ -150,18 +167,13 @@ impl CaveContain {
     }
 
     /// Short-lived Arc resolve; prefer `with_owner_object` / `get_object_id`.
-    pub fn get_object(&self) -> Option<Arc<RwLock<Object>>> {
-        // Wave 279: empty dual-world → None.
-        if dual_world_registry_unavailable() {
-            return None;
-        }
-
-        let id = self.get_object_id();
+    pub fn get_object(&self) -> Option<ObjectID> {
+        let id = self.object_id;
         if id == crate::common::INVALID_ID {
-            return None;
+            None
+        } else {
+            Some(id)
         }
-        crate::helpers::TheGameLogic::find_object_by_id(id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(id))
     }
 
     /// Check if this is a garrisonable unit
@@ -186,17 +198,9 @@ impl CaveContain {
             return Ok(());
         }
 
-        let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
-        else {
-            return Ok(());
-        };
-
-        let Ok(mut object) = obj.try_write() else {
-            return Err("Cave passenger lock busy".into());
-        };
-        object.set_disabled_held(true)?;
-        drop(object);
+        crate::object::registry::OBJECT_REGISTRY
+            .with_object_mut(obj_id, |object| object.set_disabled_held(true))
+            .ok_or("Cave passenger lock busy")??;
         self.base.on_containing(obj_id, was_selected)?;
 
         // Recalculate apparent controlling player
@@ -212,41 +216,39 @@ impl CaveContain {
             return Ok(());
         }
 
-        let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
-        else {
+        if !crate::helpers::TheGameLogic::find_object_by_id(obj_id) {
             return Ok(());
-        };
+        }
 
         self.base.on_removing(obj_id)?;
 
-        // Object is no longer held inside a garrisoned building
-        if let Ok(mut object) = obj.try_write() {
-            object.set_disabled_held(false)?;
-        }
+        let _ = crate::object::registry::OBJECT_REGISTRY
+            .with_object_mut(obj_id, |object| object.set_disabled_held(false))?;
 
         // Register object in partition manager and set position
         let owner_pos = self.with_owner_object(|owner| *owner.get_position());
-        let Ok(mut contained) = obj.try_write() else {
+        let placed = crate::object::registry::OBJECT_REGISTRY.with_object_mut(obj_id, |contained| {
+            contained.register_in_partition_manager()?;
+            if let Some(pos) = owner_pos {
+                if let Err(err) = contained.set_position(&pos) {
+                    log::warn!(
+                        "CaveContain::on_removing failed to place contained object {}: {}",
+                        contained.get_id(),
+                        err
+                    );
+                }
+            }
+            let drawable = contained.get_drawable();
+            Ok(drawable)
+        });
+        let Some(placed) = placed else {
             return Err("Cave passenger lock busy".into());
         };
-        contained.register_in_partition_manager()?;
-        if let Some(pos) = owner_pos {
-            if let Err(err) = contained.set_position(&pos) {
-                log::warn!(
-                    "CaveContain::on_removing failed to place contained object {}: {}",
-                    contained.get_id(),
-                    err
-                );
-            }
-        }
-
-        if let Some(drawable) = contained.get_drawable() {
+        if let Some(drawable) = placed? {
             if let Ok(mut draw) = drawable.write() {
                 draw.set_drawable_hidden(false)?;
             }
         }
-        drop(contained);
 
         self.do_unload_sound()?;
 
@@ -257,6 +259,7 @@ impl CaveContain {
                 .unwrap_or(false)
             {
                 self.change_team_on_all_connected_caves(self.original_team.clone(), false)?;
+                self.original_team_anchor = None;
                 self.original_team = None;
             }
 
@@ -296,9 +299,9 @@ impl CaveContain {
             return Ok(());
         }
 
-        let obj = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
-            .ok_or("Contain object not found")?;
+        if !crate::helpers::TheGameLogic::find_object_by_id(obj_id) {
+            return Err("Contain object not found".into());
+        }
         let tracker = if let Some(cave_system) = &self.cave_system {
             let system = cave_system.lock().map_err(|_| GameError::LockError)?;
             system.get_tunnel_tracker_for_cave_index(self.cave_index)?
@@ -322,9 +325,9 @@ impl CaveContain {
             return Ok(());
         }
 
-        let obj = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
-            .ok_or("Contain object not found")?;
+        if !crate::helpers::TheGameLogic::find_object_by_id(obj_id) {
+            return Err("Contain object not found".into());
+        }
         if super::should_cancel_containment_after_booby_trap(
             {
                 let id = self.get_object_id();
@@ -339,40 +342,45 @@ impl CaveContain {
             return Ok(());
         }
 
-        let was_selected = obj
-            .try_read()
-            .ok()
-            .and_then(|guard| guard.get_drawable())
-            .and_then(|drawable| drawable.try_read().ok().map(|draw| draw.is_selected()))
+        let was_selected = crate::object::registry::OBJECT_REGISTRY
+            .with_object(obj_id, |guard| {
+                guard
+                    .get_drawable()
+                    .and_then(|drawable| drawable.try_read().ok().map(|draw| draw.is_selected()))
+                    .unwrap_or(false)
+            })
             .unwrap_or(false);
 
         {
-            let Ok(obj_guard) = obj.try_read() else {
+            let checked = crate::object::registry::OBJECT_REGISTRY.with_object(obj_id, |obj_guard| {
+                if !self.is_valid_container_for(obj_guard, false)? {
+                    return Ok(1u8);
+                }
+                let tracker_ids = self.get_contained_item_ids().unwrap_or_default();
+                let already_listed = self.base.get_contained_object_ids().contains(&obj_id)
+                    || tracker_ids.contains(&obj_id);
+                let contained_by = obj_guard.get_contained_by();
+                if contained_by.is_some()
+                    && (already_listed || contained_by != Some(self.get_object_id()))
+                {
+                    return Ok(2);
+                }
+                Ok(0)
+            });
+            let Some(checked) = checked else {
                 return Err(GameError::LockError.into());
             };
-            // C++ OpenContain::addToContain validates with checkCapacity=false;
-            // admission callers perform the capacity check before this method.
-            if !self.is_valid_container_for(&obj_guard, false)? {
-                return Err("Object not valid for this cave container".into());
-            }
-            // The C++ getter reads the canonical cave tracker without
-            // mutating module state. Consult that tracker here as well so a
-            // previous list query is not required to refresh a local mirror.
-            let tracker_ids = self.get_contained_item_ids().unwrap_or_default();
-            let already_listed = self.base.get_contained_object_ids().contains(&obj_id)
-                || tracker_ids.contains(&obj_id);
-            let contained_by = obj_guard.get_contained_by();
-            if contained_by.is_some()
-                && (already_listed || contained_by != Some(self.get_object_id()))
-            {
-                return Ok(());
+            match checked? {
+                1 => return Err("Object not valid for this cave container".into()),
+                2 => return Ok(()),
+                _ => {}
             }
         }
 
-        self.add_to_contain_list(obj_id)?;
-        let is_enclosing = obj
-            .try_read()
-            .map(|obj_guard| self.base.is_enclosing_container_for(&obj_guard))
+        let is_enclosing = crate::object::registry::OBJECT_REGISTRY
+            .with_object(obj_id, |obj_guard| {
+                self.base.is_enclosing_container_for(obj_guard)
+            })
             .unwrap_or(false);
         if is_enclosing {
             let _ = self.base.add_or_remove_obj_from_world(obj_id, false);
@@ -400,10 +408,10 @@ impl CaveContain {
             if !tracker_removed {
                 return Err(err);
             }
-            if let Ok(mut rider) = obj.try_write() {
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(obj_id, |rider| {
                 let _ = rider.set_contained_by(None);
                 let _ = rider.set_disabled_held(false);
-            }
+            });
             self.base.unlink_contained_id(obj_id);
             self.contained_object_ids.retain(|id| *id != obj_id);
             if is_enclosing {
@@ -426,9 +434,9 @@ impl CaveContain {
             return Ok(());
         }
 
-        let obj = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
-            .ok_or("Contain object not found")?;
+        if !crate::helpers::TheGameLogic::find_object_by_id(obj_id) {
+            return Err("Contain object not found".into());
+        }
         let tracker = if let Some(cave_system) = &self.cave_system {
             let system = cave_system.lock().map_err(|_| GameError::LockError)?;
             system.get_tunnel_tracker_for_cave_index(self.cave_index)?
@@ -443,14 +451,14 @@ impl CaveContain {
 
             tunnel.remove_from_contain(obj_id, expose_stealth_units)?;
         }
-        let Ok(guard) = obj.try_read() else {
+        let present = crate::object::registry::OBJECT_REGISTRY.with_object(obj_id, |guard| guard.get_id());
+        let Some(guard_id) = present else {
             if let Ok(mut tunnel) = tracker.write() {
                 let _ = tunnel.add_to_contain_list(obj_id);
             }
             return Err("Cave passenger lock busy".into());
         };
-        self.contained_object_ids.retain(|id| *id != guard.get_id());
-        drop(guard);
+        self.contained_object_ids.retain(|id| *id != guard_id);
 
         if let Err(err) = self.on_removing(obj_id) {
             if let Ok(mut tunnel) = tracker.write() {
@@ -459,9 +467,9 @@ impl CaveContain {
             if !self.contained_object_ids.contains(&obj_id) {
                 self.contained_object_ids.push(obj_id);
             }
-            if let Ok(mut rider) = obj.try_write() {
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(obj_id, |rider| {
                 let _ = rider.set_disabled_held(true);
-            }
+            });
             return Err(err);
         }
 
@@ -503,7 +511,7 @@ impl CaveContain {
     /// Iterate contained objects with callback
     pub fn iterate_contained<F>(&self, func: F, reverse: bool) -> GameResult<()>
     where
-        F: FnMut(Arc<RwLock<Object>>) -> GameResult<()>,
+        F: FnMut(ObjectID) -> GameResult<()>,
     {
         let tracker = if let Some(cave_system) = &self.cave_system {
             let system = cave_system.lock().map_err(|_| GameError::LockError)?;
@@ -724,10 +732,16 @@ impl CaveContain {
 
     /// Set the original team (used for distributed garrison)
     pub fn set_original_team(&mut self, old_team: Option<Weak<RwLock<Team>>>) {
+        self.original_team_anchor = None;
         self.original_team = old_team;
     }
 
     fn original_team_id(&self) -> TeamID {
+        if let Some(team) = &self.original_team_anchor {
+            if let Ok(guard) = team.read() {
+                return guard.get_id();
+            }
+        }
         self.original_team
             .as_ref()
             .and_then(|team| team.upgrade())
@@ -737,15 +751,16 @@ impl CaveContain {
 
     fn restore_original_team_by_id(&mut self, team_id: TeamID) -> Result<(), String> {
         if team_id == TEAM_ID_INVALID {
+            self.original_team_anchor = None;
             self.original_team = None;
             return Ok(());
         }
 
-        let factory = TheTeamFactory().lock().map_err(|e| e.to_string())?;
-        let team = factory
-            .find_team_by_id(team_id)
-            .ok_or_else(|| format!("CaveContain::xfer could not find original team {team_id}"))?;
+        let team = arc_team_for_factory_id(team_id).ok_or_else(|| {
+            format!("CaveContain::xfer could not find original team {team_id}")
+        })?;
         self.original_team = Some(Arc::downgrade(&team));
+        self.original_team_anchor = Some(team);
         Ok(())
     }
 
@@ -757,7 +772,7 @@ impl CaveContain {
     pub fn get_apparent_controlling_player(
         &self,
         _observing_player: Option<&Player>,
-    ) -> Option<Arc<RwLock<Player>>> {
+    ) -> Option<PlayerIndex> {
         self.with_owner_object(|owner| owner.get_controlling_player())
             .flatten()
     }
@@ -778,6 +793,7 @@ impl CaveContain {
 
         // Check if team is null (game teardown)
         if let Some(true) = self.with_owner_object(|owner| owner.get_team().is_none()) {
+            self.original_team_anchor = None;
             self.original_team = None;
         }
 
@@ -785,20 +801,19 @@ impl CaveContain {
         if self.get_contain_count()? == 1 {
             if let Ok(ids) = self.get_contained_item_ids() {
                 if let Some(&rider_id) = ids.first() {
-                    if let Some(rider) = TheGameLogic::find_object_by_id(rider_id)
-                        .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(rider_id))
-                    {
-                        if let Ok(rider_obj) = rider.read() {
-                            if let Some(controlling_player) = rider_obj.get_controlling_player() {
-                                if let Ok(player) = controlling_player.read() {
-                                    let default_team = player.get_default_team();
-                                    self.change_team_on_all_connected_caves(
-                                        default_team.map(|t| Arc::downgrade(&t)),
-                                        true,
-                                    )?;
-                                }
-                            }
-                        }
+                    let capture_team = crate::object::registry::OBJECT_REGISTRY
+                        .with_object(rider_id, |rider_obj| {
+                            rider_obj.get_controlling_player().and_then(|player_index| {
+                                crate::player::with_player(player_index, |player| {
+                                    player.get_default_team_id()
+                                })
+                                .flatten()
+                            })
+                        })
+                        .flatten()
+                        .and_then(arc_team_for_factory_id);
+                    if let Some(team) = capture_team {
+                        self.change_team_on_all_connected_caves(Some(Arc::downgrade(&team)), true)?;
                     }
                 }
             }
@@ -808,25 +823,24 @@ impl CaveContain {
         }
 
         // Handle the team color that is rendered.
-        let has_local_player = {
-            ThePlayerList()
-                .read()
-                .ok()
-                .and_then(|list| list.get_local_player().cloned())
-                .is_some()
-        };
+        let has_local_player = ThePlayerList()
+            .read()
+            .ok()
+            .map(|list| list.get_local_player().is_some())
+            .unwrap_or(false);
         if has_local_player {
             if let Some(controller) = self.get_apparent_controlling_player(None) {
-                if let Ok(controller_guard) = controller.read() {
+                if let Some(color) = crate::player::with_player(controller, |controller_guard| {
                     let time_of_day = TheGlobalData::get()
                         .map(|global| global.get_time_of_day())
                         .unwrap_or(crate::common::audio::TimeOfDay::Day);
-                    let color = match time_of_day {
+                    match time_of_day {
                         crate::common::audio::TimeOfDay::Night => {
                             controller_guard.get_player_night_color()
                         }
                         _ => controller_guard.get_player_color(),
-                    };
+                    }
+                }) {
                     if let Some(drawable) = self
                         .with_owner_object(|owner| owner.get_drawable())
                         .flatten()
@@ -860,29 +874,22 @@ impl CaveContain {
             let team_arc = new_team.as_ref().and_then(|weak| weak.upgrade());
 
             for cave_id in all_caves {
-                let Some(obj_arc) = TheGameLogic::find_object_by_id(cave_id) else {
+                let current_team = crate::object::registry::OBJECT_REGISTRY
+                    .with_object(cave_id, |obj_guard| obj_guard.get_team());
+                let Some(current_team) = current_team else {
                     continue;
                 };
-
-                let current_team = {
-                    let Ok(obj_guard) = obj_arc.read() else {
-                        continue;
-                    };
-                    obj_guard.get_team()
-                };
-
-                let Ok(mut obj_guard) = obj_arc.write() else {
-                    continue;
-                };
-                if let Some(contain) = obj_guard.get_contain_mut() {
-                    let original_team = if set_original_teams {
-                        current_team.as_ref().map(Arc::downgrade)
-                    } else {
-                        None
-                    };
-                    contain.set_original_team(original_team);
-                }
-                obj_guard.defect(team_arc.clone(), 0);
+                let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(cave_id, |obj_guard| {
+                    if let Some(contain) = obj_guard.get_contain_mut() {
+                        let original_team = if set_original_teams {
+                            current_team.as_ref().map(Arc::downgrade)
+                        } else {
+                            None
+                        };
+                        contain.set_original_team(original_team);
+                    }
+                    obj_guard.defect(team_arc.clone(), 0);
+                });
             }
         }
         Ok(())
@@ -990,14 +997,11 @@ impl Snapshotable for CaveContain {
 
 impl ContainModuleInterface for CaveContain {
     fn can_contain(&self, object_id: ObjectID) -> bool {
-        if let Some(obj) = TheGameLogic::find_object_by_id(object_id) {
-            if let Ok(obj_guard) = obj.read() {
-                return self
-                    .is_valid_container_for(&*obj_guard, true)
-                    .unwrap_or(false);
-            }
-        }
-        false
+        crate::object::registry::OBJECT_REGISTRY
+            .with_object(object_id, |obj_guard| {
+                self.is_valid_container_for(obj_guard, true).unwrap_or(false)
+            })
+            .unwrap_or(false)
     }
 
     fn contain_object(&mut self, object_id: ObjectID) -> Result<(), String> {
@@ -1102,15 +1106,11 @@ impl ContainModuleInterface for CaveContain {
         if !self.base.collide_enter_eject_foreign(other_id)? {
             return Ok(());
         }
-        let Some(other) = TheGameLogic::find_object_by_id(other_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(other_id))
-        else {
+        let Some(valid) = crate::object::registry::OBJECT_REGISTRY.with_object(other_id, |other| {
+            ContainModuleInterface::is_valid_container_for(self, other, true)
+        }) else {
             return Ok(());
         };
-        let valid = other
-            .try_read()
-            .map(|guard| ContainModuleInterface::is_valid_container_for(self, &*guard, true))
-            .unwrap_or(false);
         if valid {
             self.add_to_contain(other_id)?;
         }
@@ -1283,32 +1283,49 @@ mod tests {
         }
     }
 
-    fn test_object(name: &str, id: ObjectID) -> Arc<RwLock<Object>> {
-        let template = Arc::new(DefaultThingTemplate::new(name.to_string()));
-        Object::new_with_id(template, id, ObjectStatusMaskType::none(), None).expect("test object")
+    fn test_object(name: &str, id: ObjectID) -> ObjectID {
+        register_test_object(name, id, None)
     }
 
-    fn test_object_with_team(
+    fn test_object_with_team(name: &str, id: ObjectID, team: Arc<RwLock<Team>>) -> ObjectID {
+        register_test_object(name, id, Some(team))
+    }
+
+    fn register_test_object(
         name: &str,
         id: ObjectID,
-        team: Arc<RwLock<Team>>,
-    ) -> Arc<RwLock<Object>> {
+        team: Option<Arc<RwLock<Team>>>,
+    ) -> ObjectID {
         let template = Arc::new(DefaultThingTemplate::new(name.to_string()));
-        Object::new_with_id(template, id, ObjectStatusMaskType::none(), Some(team))
-            .expect("test object")
+        let object = Object::new_raw(template, id, ObjectStatusMaskType::none(), None);
+        OBJECT_REGISTRY.register_object(id, object);
+        if let Some(team) = team {
+            OBJECT_REGISTRY
+                .with_object_mut(id, |object| object.set_team(Some(team)).expect("set team"))
+                .expect("object write");
+        }
+        id
     }
 
-    fn attach_drawable(obj: &Arc<RwLock<Object>>, drawable_id: ObjectID) -> Arc<RwLock<Drawable>> {
-        let object_id = obj.read().expect("object read").get_id();
+    fn contained_by(id: ObjectID) -> Option<ObjectID> {
+        OBJECT_REGISTRY
+            .with_object(id, |object| object.get_contained_by())
+            .flatten()
+    }
+
+    fn attach_drawable(obj: &ObjectID, drawable_id: ObjectID) -> Arc<RwLock<Drawable>> {
+        let object_id = *obj;
         let drawable = Arc::new(RwLock::new(Drawable::new(
             drawable_id,
             object_id,
             format!("Drawable{object_id}"),
             DrawableType::Animated,
         )));
-        obj.write()
-            .expect("object write")
-            .set_drawable(Some(drawable.clone()));
+        crate::object::registry::OBJECT_REGISTRY
+            .with_object_mut(object_id, |object| {
+                object.set_drawable(Some(drawable.clone()));
+            })
+            .expect("object write");
         drawable
     }
 
@@ -1317,7 +1334,7 @@ mod tests {
     }
 
     fn cave_with_registered_tracker(
-        owner: &Arc<RwLock<Object>>,
+        owner: &ObjectID,
         cave_index: i32,
     ) -> (CaveContain, Arc<Mutex<CaveSystem>>) {
         let mut data = CaveContainModuleData::default();
@@ -1326,7 +1343,7 @@ mod tests {
     }
 
     fn cave_with_data_registered_tracker(
-        owner: &Arc<RwLock<Object>>,
+        owner: &ObjectID,
         cave_index: i32,
         mut data: CaveContainModuleData,
     ) -> (CaveContain, Arc<Mutex<CaveSystem>>) {
@@ -1340,8 +1357,7 @@ mod tests {
         data.cave_index_data = cave_index;
 
         let mut cave =
-            CaveContain::new(Arc::downgrade(owner), &data, Some(Arc::clone(&cave_system)))
-                .expect("cave contain");
+            CaveContain::new(*owner, &data, Some(Arc::clone(&cave_system))).expect("cave contain");
         cave.on_create(&data).expect("on create");
         (cave, cave_system)
     }
@@ -1372,10 +1388,7 @@ mod tests {
         let retained_view = ContainModuleInterface::get_contained_objects(&cave);
         assert_eq!(ContainModuleInterface::get_contained_count(&cave), 1);
         assert_eq!(retained_view.as_ref(), &[93002]);
-        assert_eq!(
-            passenger.read().expect("passenger read").get_contained_by(),
-            Some(93001)
-        );
+        assert_eq!(contained_by(passenger), Some(93001));
         assert!(ContainModuleInterface::is_bustable(&cave));
 
         tracker
@@ -1402,35 +1415,16 @@ mod tests {
         let passenger = test_object("CaveUsagePassenger", 93004);
         let (mut cave, _cave_system) = cave_with_registered_tracker(&owner, 0);
 
-        ContainerInterface::add_object(
-            &mut cave,
-            passenger
-                .read()
-                .ok()
-                .map(|g| g.get_id())
-                .unwrap_or(crate::common::INVALID_ID),
-        )
-        .expect("add object");
+        ContainerInterface::add_object(&mut cave, passenger).expect("add object");
 
         assert_eq!(
             ContainerInterface::get_usage(&cave),
             (1, 0),
             "C++ MaxTunnelCapacity default 0 is not unlimited"
         );
-        ContainerInterface::remove_object(
-            &mut cave,
-            passenger
-                .read()
-                .ok()
-                .map(|g| g.get_id())
-                .unwrap_or(crate::common::INVALID_ID),
-        )
-        .expect("remove object");
+        ContainerInterface::remove_object(&mut cave, passenger).expect("remove object");
         assert_eq!(ContainerInterface::get_usage(&cave), (0, 0));
-        assert_eq!(
-            passenger.read().expect("passenger read").get_contained_by(),
-            None
-        );
+        assert_eq!(contained_by(passenger), None);
 
         OBJECT_REGISTRY.unregister_object(93003);
         OBJECT_REGISTRY.unregister_object(93004);
@@ -1444,31 +1438,29 @@ mod tests {
         let (mut controller, cave_system) = cave_with_registered_tracker(&cave_a, 0);
         let team = Arc::new(RwLock::new(Team::new("TunnelTeam".into(), 930)));
 
-        cave_a
-            .write()
-            .expect("cave a write")
-            .set_team(Some(Arc::clone(&team)))
-            .expect("set cave a team");
-        cave_b
-            .write()
-            .expect("cave b write")
-            .set_team(Some(Arc::clone(&team)))
-            .expect("set cave b team");
-
         let calls_a = Arc::new(Mutex::new(Vec::new()));
         let calls_b = Arc::new(Mutex::new(Vec::new()));
-        cave_a
-            .write()
-            .expect("cave a write")
-            .set_contain(Some(Arc::new(Mutex::new(RecordingContain {
-                original_team_calls: Arc::clone(&calls_a),
-            }))));
-        cave_b
-            .write()
-            .expect("cave b write")
-            .set_contain(Some(Arc::new(Mutex::new(RecordingContain {
-                original_team_calls: Arc::clone(&calls_b),
-            }))));
+
+        OBJECT_REGISTRY
+            .with_object_mut(cave_a, |object| {
+                object
+                    .set_team(Some(Arc::clone(&team)))
+                    .expect("set cave a team");
+                object.set_contain(Some(Box::new(RecordingContain {
+                    original_team_calls: Arc::clone(&calls_a),
+                })));
+            })
+            .expect("cave a write");
+        OBJECT_REGISTRY
+            .with_object_mut(cave_b, |object| {
+                object
+                    .set_team(Some(Arc::clone(&team)))
+                    .expect("set cave b team");
+                object.set_contain(Some(Box::new(RecordingContain {
+                    original_team_calls: Arc::clone(&calls_b),
+                })));
+            })
+            .expect("cave b write");
 
         let tracker = cave_system
             .lock()
@@ -1478,10 +1470,10 @@ mod tests {
         {
             let mut tracker = tracker.write().expect("tracker write");
             tracker
-                .on_tunnel_created(&*cave_a.read().expect("cave a read"))
+                .on_tunnel_created_id(cave_a)
                 .expect("register cave a");
             tracker
-                .on_tunnel_created(&*cave_b.read().expect("cave b read"))
+                .on_tunnel_created_id(cave_b)
                 .expect("register cave b");
         }
 
@@ -1517,16 +1509,10 @@ mod tests {
         tracker
             .write()
             .expect("tracker write")
-            .on_tunnel_created(&*owner.read().expect("owner read"))
+            .on_tunnel_created_id(owner)
             .expect("register owner tunnel");
-        cave.add_to_contain_list(
-            passenger
-                .read()
-                .ok()
-                .map(|g| g.get_id())
-                .unwrap_or(crate::common::INVALID_ID),
-        )
-        .expect("add passenger to tracker");
+        cave.add_to_contain_list(passenger)
+            .expect("add passenger to tracker");
         assert_eq!(
             ContainModuleInterface::get_contained_objects(&cave).as_ref(),
             &[93010]
@@ -1584,19 +1570,16 @@ mod tests {
         let owner = test_object_with_team("CaveColorOwner", 93008, Arc::clone(&team));
         let owner_drawable = attach_drawable(&owner, 930080);
         let data = CaveContainModuleData::default();
-        let mut cave = CaveContain::new(Arc::downgrade(&owner), &data, None).expect("cave contain");
+        let mut cave = CaveContain::new(owner, &data, None).expect("cave contain");
         cave.on_create(&data).expect("on create");
 
-        let player = Arc::new(RwLock::new(Player::new(0)));
-        {
-            let mut player_guard = player.write().expect("player write");
-            player_guard.set_default_team(Some(Arc::clone(&team)));
-            player_guard.set_colors(player_color, night_color);
-        }
+        let mut player = Player::new(0);
+        player.set_default_team(Some(team.read().expect("team read").get_id()));
+        player.set_colors(player_color, night_color);
         {
             let mut list = ThePlayerList().write().expect("player list write");
             list.clear();
-            list.add_player(Arc::clone(&player));
+            list.add_player(player);
             list.set_local_player_index(0);
         }
 
@@ -1622,7 +1605,7 @@ mod tests {
         let owner = test_object("CaveIndexOwner", 93101);
         let mut data = CaveContainModuleData::default();
         data.cave_index_data = 7;
-        let cave = CaveContain::new(Arc::downgrade(&owner), &data, None).expect("cave");
+        let cave = CaveContain::new(owner, &data, None).expect("cave");
         assert_eq!(
             cave.cave_index, 7,
             "C++ onCreate copies INI CaveIndex; ctor must not hardcode 0"
@@ -1637,12 +1620,8 @@ mod tests {
         let cave_system = Arc::new(Mutex::new(CaveSystem::new()));
         let mut data = CaveContainModuleData::default();
         data.cave_index_data = 3;
-        let mut cave = CaveContain::new(
-            Arc::downgrade(&owner),
-            &data,
-            Some(Arc::clone(&cave_system)),
-        )
-        .expect("cave");
+        let mut cave =
+            CaveContain::new(owner, &data, Some(Arc::clone(&cave_system))).expect("cave");
         ContainModuleInterface::on_owner_created(&mut cave).expect("owner created");
         assert!(!cave.should_do_on_build_complete());
         let tracker = cave_system
@@ -1671,12 +1650,8 @@ mod tests {
         let mut data = CaveContainModuleData::default();
         data.base.allow_neutral_inside = true;
         data.cave_index_data = 2;
-        let mut cave_b = CaveContain::new(
-            Arc::downgrade(&owner_b),
-            &data,
-            Some(Arc::clone(&cave_system)),
-        )
-        .expect("cave b");
+        let mut cave_b =
+            CaveContain::new(owner_b, &data, Some(Arc::clone(&cave_system))).expect("cave b");
         cave_b.on_create(&data).expect("on create");
         cave_system
             .lock()
@@ -1685,7 +1660,7 @@ mod tests {
             .expect("tracker")
             .write()
             .expect("write")
-            .on_tunnel_created(&*owner_b.read().expect("b"))
+            .on_tunnel_created_id(owner_b)
             .expect("register b");
 
         ContainModuleInterface::contain_object(&mut cave_a, 93112).expect("enter a");

@@ -1,3 +1,4 @@
+use crate::object::registry::OBJECT_REGISTRY;
 // Evaluator action execution paths and leftover special/upgrade eval
 //
 // Split from `scripting/evaluator.rs` for module-size parity.
@@ -104,7 +105,7 @@ impl ScriptEvaluator {
             let named_name = named_param.get_string();
             let tracker = get_named_object_tracker();
             if let Some(object_id) = tracker.get_object_id(named_name).ok().flatten() {
-                if TheGameLogic::find_object_by_id(object_id).is_none() {
+                if OBJECT_REGISTRY.with_object(object_id, |_| ()).is_none() {
                     return Ok(false);
                 }
                 source_id = object_id;
@@ -171,7 +172,7 @@ impl ScriptEvaluator {
             let named_name = named_param.get_string();
             let tracker = get_named_object_tracker();
             if let Some(object_id) = tracker.get_object_id(named_name).ok().flatten() {
-                if TheGameLogic::find_object_by_id(object_id).is_none() {
+                if OBJECT_REGISTRY.with_object(object_id, |_| ()).is_none() {
                     return Ok(false);
                 }
                 source_id = object_id;

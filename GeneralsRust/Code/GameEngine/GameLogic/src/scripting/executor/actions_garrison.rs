@@ -64,46 +64,51 @@ impl ScriptActionDispatcher {
             if id == leader_id {
                 continue;
             }
-            let Some(building) = TheGameLogic::find_object_by_id(id) else {
-                continue;
-            };
-            let Ok(obj) = building.read() else {
-                continue;
-            };
-            if obj.is_effectively_dead() || obj.is_off_map() != leader_off_map {
-                continue;
-            }
-            let is_internet_center = obj.is_kind_of(KindOf::FSInternetCenter);
-            if leader_is_hacker {
-                if !is_internet_center {
-                    continue;
+            {
+                enum _ObjFlow<T> { Cont, Ret(T), Fall }
+                let _flow = OBJECT_REGISTRY.with_object(id, |obj| {
+                    if obj.is_effectively_dead() || obj.is_off_map() != leader_off_map {
+                        return _ObjFlow::Cont;
+                    }
+                    let is_internet_center = obj.is_kind_of(KindOf::FSInternetCenter);
+                    if leader_is_hacker {
+                        if !is_internet_center {
+                            return _ObjFlow::Cont;
+                        }
+                    } else if is_internet_center || !obj.is_kind_of(KindOf::Structure) {
+                        return _ObjFlow::Cont;
+                    }
+                    let Some(contain) = obj.get_contain() else {
+                        return _ObjFlow::Cont;
+                    };
+                    let Ok(contain_guard) = contain.lock() else {
+                        return _ObjFlow::Cont;
+                    };
+                    if !leader_is_hacker {
+                        let entered_mask = contain_guard.get_player_who_entered();
+                        if entered_mask != crate::common::PlayerMaskType::none()
+                            && entered_mask != leader_player_mask
+                        {
+                            return _ObjFlow::Cont;
+                        }
+                    }
+                    let slots = contain_guard.get_contain_max() - contain_guard.get_contain_count() as i32;
+                    if slots <= 0 {
+                        return _ObjFlow::Cont;
+                    }
+                    let pos = obj.get_position();
+                    let dx = pos.x - leader_pos.x;
+                    let dy = pos.y - leader_pos.y;
+                    let dz = pos.z - leader_pos.z;
+                    buildings.push((dx * dx + dy * dy + dz * dz, id));
+                    _ObjFlow::Fall
+                });
+                match _flow {
+                    None | Some(_ObjFlow::Cont) => continue,
+                    Some(_ObjFlow::Ret(v)) => return v,
+                    Some(_ObjFlow::Fall) => {}
                 }
-            } else if is_internet_center || !obj.is_kind_of(KindOf::Structure) {
-                continue;
             }
-            let Some(contain) = obj.get_contain() else {
-                continue;
-            };
-            let Ok(contain_guard) = contain.lock() else {
-                continue;
-            };
-            if !leader_is_hacker {
-                let entered_mask = contain_guard.get_player_who_entered();
-                if entered_mask != crate::common::PlayerMaskType::none()
-                    && entered_mask != leader_player_mask
-                {
-                    continue;
-                }
-            }
-            let slots = contain_guard.get_contain_max() - contain_guard.get_contain_count() as i32;
-            if slots <= 0 {
-                continue;
-            }
-            let pos = obj.get_position();
-            let dx = pos.x - leader_pos.x;
-            let dy = pos.y - leader_pos.y;
-            let dz = pos.z - leader_pos.z;
-            buildings.push((dx * dx + dy * dy + dz * dz, id));
         }
         buildings.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
 
@@ -132,26 +137,31 @@ impl ScriptActionDispatcher {
             while filled < slots_available && member_idx < members.len() {
                 let member_id = members[member_idx];
                 member_idx += 1;
-                let Some(member_obj) = TheGameLogic::find_object_by_id(member_id) else {
-                    continue;
-                };
-                let Ok(mut member) = member_obj.write() else {
-                    continue;
-                };
-                if !member.is_kind_of(KindOf::Infantry) || member.is_kind_of(KindOf::NoGarrison) {
-                    continue;
-                }
-                let Some(ai_arc) = member.get_ai_update_interface() else {
-                    continue;
-                };
-                member.leave_group();
-                if let Ok(mut ai_guard) = ai_arc.lock() {
-                    let _ = ai_guard.choose_locomotor_set(crate::common::LocomotorSetType::Normal);
-                    let mut params =
-                        AiCommandParams::new(AiCommandType::Enter, CommandSourceType::FromScript);
-                    params.obj = Some(building_id);
-                    let _ = ai_guard.execute_command(&params);
-                    filled += 1;
+                {
+                    enum _ObjFlow<T> { Cont, Ret(T), Fall }
+                    let _flow = OBJECT_REGISTRY.with_object_mut(member_id, |mut member| {
+                        if !member.is_kind_of(KindOf::Infantry) || member.is_kind_of(KindOf::NoGarrison) {
+                            return _ObjFlow::Cont;
+                        }
+                        let Some(ai_arc) = member.get_ai_update_interface() else {
+                            return _ObjFlow::Cont;
+                        };
+                        member.leave_group();
+                        if let Ok(mut ai_guard) = ai_arc.lock() {
+                            let _ = ai_guard.choose_locomotor_set(crate::common::LocomotorSetType::Normal);
+                            let mut params =
+                                AiCommandParams::new(AiCommandType::Enter, CommandSourceType::FromScript);
+                            params.obj = Some(building_id);
+                            let _ = ai_guard.execute_command(&params);
+                            filled += 1;
+                        }
+                        _ObjFlow::Fall
+                    });
+                    match _flow {
+                        None | Some(_ObjFlow::Cont) => continue,
+                        Some(_ObjFlow::Ret(v)) => return v,
+                        Some(_ObjFlow::Fall) => {}
+                    }
                 }
             }
             if member_idx >= members.len() {

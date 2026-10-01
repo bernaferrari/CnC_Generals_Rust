@@ -24,7 +24,9 @@ pub fn update_damage_state(bridge: &mut Bridge) {
     }
 
     let object_id = bridge.get_bridge_info().bridge_object_id;
-    let Some(obj_arc) = TheGameLogic::find_object_by_id(object_id) else {
+    let Some(damage_state) = OBJECT_REGISTRY.with_object(object_id, |obj_guard| {
+        obj_guard.get_body_module().map(|body| body.get_damage_state())
+    }) else {
         // Wave 341 host path: empty factory store and no GameLogic object.
         // C++ clears the id when the object is actually gone.
         if OBJECT_REGISTRY.store_is_empty() {
@@ -34,15 +36,8 @@ pub fn update_damage_state(bridge: &mut Bridge) {
         log::error!("Bridge object disappeared - unexpected. jba.");
         return;
     };
-
-    let damage_state = {
-        let Ok(obj_guard) = obj_arc.read() else {
-            return;
-        };
-        let Some(body) = obj_guard.get_body_module() else {
-            return;
-        };
-        body.get_damage_state()
+    let Some(damage_state) = damage_state else {
+        return;
     };
 
     let cur_state = bridge.get_bridge_info().cur_damage_state;
@@ -56,14 +51,17 @@ pub fn update_damage_state(bridge: &mut Bridge) {
     if damage_state == BodyDamageType::Rubble {
         change_bridge_state(layer, false);
         bridge.bridge_info_mut().damage_state_changed = true;
-        if let Ok(obj_guard) = obj_arc.read() {
-            splat_units_on_bridge(bridge, &obj_guard);
-        }
+        OBJECT_REGISTRY.with_object(object_id, |obj_guard| {
+            splat_units_on_bridge(bridge, obj_guard);
+        });
     }
 
     if cur_state == BodyDamageType::Rubble {
         // C++: do not re-enable the layer while scaffolding is up.
-        if !bridge_has_scaffold(&obj_arc) {
+        let scaffold = OBJECT_REGISTRY
+            .with_object_mut(object_id, |obj| bridge_has_scaffold(obj))
+            .unwrap_or(false);
+        if !scaffold {
             change_bridge_state(layer, true);
         }
         bridge.bridge_info_mut().damage_state_changed = true;
@@ -76,10 +74,8 @@ fn change_bridge_state(layer: PathfindLayerEnum, repaired: bool) {
     }
 }
 
-fn bridge_has_scaffold(bridge_obj: &Arc<RwLock<Object>>) -> bool {
-    let Ok(mut obj_guard) = bridge_obj.write() else {
-        return false;
-    };
+fn bridge_has_scaffold(bridge_obj: &mut Object) -> bool {
+    let obj_guard = bridge_obj;
     for module in obj_guard.get_behavior_modules_mut() {
         if let Some(bbi) = module.get_bridge_behavior_interface() {
             return bbi.is_scaffold_present();
@@ -92,12 +88,7 @@ fn splat_units_on_bridge(bridge: &Bridge, _bridge_obj: &Object) {
     let layer = bridge.get_layer();
     let ids = OBJECT_REGISTRY.get_all_object_ids();
     for id in ids {
-        let Some(obj_arc) = TheGameLogic::find_object_by_id(id) else {
-            continue;
-        };
-        let Ok(mut obj) = obj_arc.write() else {
-            continue;
-        };
+        let _ = OBJECT_REGISTRY.with_object_mut(id, |obj| {
         if !layers_match(obj.get_layer(), layer) {
             continue;
         }
@@ -112,6 +103,7 @@ fn splat_units_on_bridge(bridge: &Bridge, _bridge_obj: &Object) {
             DeathType::Splatted,
         );
         let _ = obj.attempt_damage(&mut extra);
+        });
     }
 }
 

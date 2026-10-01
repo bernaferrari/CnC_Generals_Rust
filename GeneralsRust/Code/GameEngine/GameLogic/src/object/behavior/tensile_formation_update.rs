@@ -136,7 +136,7 @@ pub struct TensileFormationUpdate {
 
 impl TensileFormationUpdate {
     pub fn new(
-        object: Arc<RwLock<GameObject>>,
+        object_id: ObjectID,
         module_data: Arc<dyn ModuleData>,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let specific_data = module_data
@@ -149,11 +149,7 @@ impl TensileFormationUpdate {
         crack_sound.set_object_id(owner_id);
 
         let instance = Self {
-            object_id: object
-                .read()
-                .ok()
-                .map(|g| g.get_id())
-                .unwrap_or(crate::common::INVALID_ID),
+            object_id: object_id,
             module_data: Arc::new(specific_data.clone()),
             next_call_frame_and_phase: 0,
             enabled: specific_data.enabled,
@@ -645,10 +641,10 @@ impl Module for TensileFormationUpdateModule {
 pub struct TensileFormationUpdateFactory;
 impl TensileFormationUpdateFactory {
     pub fn create_behavior(
-        thing: Arc<RwLock<GameObject>>,
+        object_id: ObjectID,
         module_data: Arc<dyn ModuleData>,
     ) -> Result<Box<dyn BehaviorModuleInterface>, Box<dyn std::error::Error + Send + Sync>> {
-        Ok(Box::new(TensileFormationUpdate::new(thing, module_data)?))
+        Ok(Box::new(TensileFormationUpdate::new(object_id, module_data)?))
     }
 }
 
@@ -681,7 +677,7 @@ pub fn tensile_formation_update_module_factory(
         .unwrap_or(INVALID_ID);
     let object =
         TheGameLogic::find_object_by_id(owner_id).expect("TensileFormationUpdate requires object");
-    let behavior = TensileFormationUpdate::new(object, module_data_arc.clone())
+    let behavior = TensileFormationUpdate::new(object_id, module_data_arc.clone())
         .expect("TensileFormationUpdate failed to initialize");
     let module_name = AsciiString::from("TensileFormationUpdate");
     Box::new(TensileFormationUpdateModule::new(

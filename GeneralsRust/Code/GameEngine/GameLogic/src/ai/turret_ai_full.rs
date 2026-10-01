@@ -821,17 +821,9 @@ pub fn turret_ai_update(turret: &mut TurretAI, obj: &Object, frame: u32) -> Upda
         return turret.update_turret_ai();
     }
 
-    let Some(owner_arc) = OBJECT_REGISTRY.get_object(turret.get_owner()) else {
-        return UpdateSleepTime::Sleep30;
-    };
-    let Ok(owner_guard) = owner_arc.read() else {
-        return UpdateSleepTime::Sleep30;
-    };
-
-    let my_pos = owner_guard.get_position();
-    let scan_range = owner_guard.get_vision_range();
-
-    let candidate = OBJECT_REGISTRY.find_closest_enemy(&owner_guard, my_pos, scan_range);
+    let my_pos = *obj.get_position();
+    let scan_range = obj.get_vision_range();
+    let candidate = OBJECT_REGISTRY.find_closest_enemy(obj, &my_pos, scan_range);
 
     if let Some((enemy_id, enemy_pos)) = candidate {
         turret.set_turret_target_object(Some(enemy_id), false);

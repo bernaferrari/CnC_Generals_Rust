@@ -80,7 +80,7 @@ pub struct SmartBombTargetHomingUpdate {
 
 impl SmartBombTargetHomingUpdate {
     pub fn new(
-        object: Arc<RwLock<GameObject>>,
+        object_id: ObjectID,
         module_data: Arc<dyn ModuleData>,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let data = module_data
@@ -89,11 +89,7 @@ impl SmartBombTargetHomingUpdate {
             .ok_or("Invalid module data")?;
 
         Ok(Self {
-            object_id: object
-                .read()
-                .ok()
-                .map(|g| g.get_id())
-                .unwrap_or(crate::common::INVALID_ID),
+            object_id: object_id,
             module_data: Arc::new(data.clone()),
             next_call_frame_and_phase: 0,
             target_received: false,
@@ -227,7 +223,7 @@ impl PayloadTargetControlInterface for SmartBombTargetHomingUpdate {
 pub struct SmartBombTargetHomingUpdateFactory;
 impl SmartBombTargetHomingUpdateFactory {
     pub fn create_behavior(
-        thing: Arc<RwLock<GameObject>>,
+        object_id: ObjectID,
         module_data: Arc<dyn ModuleData>,
     ) -> Result<Box<dyn BehaviorModuleInterface>, Box<dyn std::error::Error + Send + Sync>> {
         Ok(Box::new(SmartBombTargetHomingUpdate::new(
@@ -336,7 +332,7 @@ pub fn smart_bomb_target_homing_update_module_factory(
         .unwrap_or(INVALID_ID);
     let object = TheGameLogic::find_object_by_id(owner_id)
         .expect("SmartBombTargetHomingUpdate requires object");
-    let behavior = SmartBombTargetHomingUpdate::new(object, module_data_arc.clone())
+    let behavior = SmartBombTargetHomingUpdate::new(object_id, module_data_arc.clone())
         .expect("SmartBombTargetHomingUpdate failed to initialize");
     let module_name = AsciiString::from("SmartBombTargetHomingUpdate");
     Box::new(SmartBombTargetHomingUpdateModule::new(

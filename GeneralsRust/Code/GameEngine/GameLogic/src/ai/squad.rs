@@ -1,14 +1,12 @@
 use crate::ai::group::AIGroup;
-use crate::ai::object_registry::{
-    get_legacy_object, register_legacy_object, unregister_legacy_object,
-};
+use crate::ai::object_registry::{unregister_legacy_object, with_legacy_object};
 use crate::common::xfer::XferExt;
 use crate::common::*;
 use crate::object::*;
 use crate::team::Team;
 use game_engine::common::system::{Snapshotable, Xfer};
 
-use std::sync::{Arc, RwLock};
+
 
 /// Vector of object IDs
 pub type VecObjectID = Vec<ObjectID>;
@@ -69,17 +67,13 @@ impl Squad {
         let mut live = Vec::new();
         let mut valid_ids = Vec::new();
         for &obj_id in &self.object_ids {
-            let Some(obj) = self.find_object_by_id(obj_id) else {
+            let Some(selectable) = with_legacy_object(obj_id, |obj| obj.is_selectable()) else {
                 valid_ids.push(obj_id);
                 live.push(obj_id);
                 continue;
             };
             valid_ids.push(obj_id);
-            if obj
-                .try_read()
-                .map(|obj_ref| obj_ref.is_selectable())
-                .unwrap_or(false)
-            {
+            if selectable {
                 live.push(obj_id);
             }
         }
@@ -150,14 +144,11 @@ impl Squad {
         let mut count = 0;
 
         for object_id in ids {
-            if let Some(obj) = self.find_object_by_id(object_id) {
-                if let Ok(obj_ref) = obj.try_read() {
-                    let pos = obj_ref.get_position();
-                    center.x += pos.x;
-                    center.y += pos.y;
-                    center.z += pos.z;
-                    count += 1;
-                }
+            if let Some(pos) = with_legacy_object(object_id, |obj| *obj.get_position()) {
+                center.x += pos.x;
+                center.y += pos.y;
+                center.z += pos.z;
+                count += 1;
             }
         }
 
@@ -183,17 +174,14 @@ impl Squad {
         let mut found_any = false;
 
         for object_id in ids {
-            if let Some(obj) = self.find_object_by_id(object_id) {
-                if let Ok(obj_ref) = obj.try_read() {
-                    let pos = obj_ref.get_position();
-                    min_pos.x = min_pos.x.min(pos.x);
-                    min_pos.y = min_pos.y.min(pos.y);
-                    min_pos.z = min_pos.z.min(pos.z);
-                    max_pos.x = max_pos.x.max(pos.x);
-                    max_pos.y = max_pos.y.max(pos.y);
-                    max_pos.z = max_pos.z.max(pos.z);
-                    found_any = true;
-                }
+            if let Some(pos) = with_legacy_object(object_id, |obj| *obj.get_position()) {
+                min_pos.x = min_pos.x.min(pos.x);
+                min_pos.y = min_pos.y.min(pos.y);
+                min_pos.z = min_pos.z.min(pos.z);
+                max_pos.x = max_pos.x.max(pos.x);
+                max_pos.y = max_pos.y.max(pos.y);
+                max_pos.z = max_pos.z.max(pos.z);
+                found_any = true;
             }
         }
 
@@ -214,12 +202,10 @@ impl Squad {
         let mut matching = Vec::new();
         let ids = self.get_live_object_ids();
         for object_id in ids {
-            if let Some(obj) = self.find_object_by_id(object_id) {
-                if let Ok(obj_ref) = obj.read() {
-                    if obj_ref.get_template_name() == object_type {
-                        matching.push(object_id);
-                    }
-                }
+            if with_legacy_object(object_id, |obj| obj.get_template_name() == object_type)
+                .unwrap_or(false)
+            {
+                matching.push(object_id);
             }
         }
         matching
@@ -236,15 +222,12 @@ impl Squad {
         let mut best_score = 0.0f32;
         let ids = self.get_live_object_ids();
         for object_id in ids {
-            if let Some(obj) = self.find_object_by_id(object_id) {
-                if let Ok(obj_ref) = obj.read() {
-                    let health = obj_ref.get_health_percentage();
-                    let damage = obj_ref.get_max_damage_potential();
-                    let score = health * 0.5 + damage * 0.5;
-                    if best_id.is_none() || score > best_score {
-                        best_score = score;
-                        best_id = Some(object_id);
-                    }
+            if let Some(score) = with_legacy_object(object_id, |obj| {
+                obj.get_health_percentage() * 0.5 + obj.get_max_damage_potential() * 0.5
+            }) {
+                if best_id.is_none() || score > best_score {
+                    best_score = score;
+                    best_id = Some(object_id);
                 }
             }
         }
@@ -257,21 +240,19 @@ impl Squad {
         let mut lowest_health = f32::MAX;
         let ids = self.get_live_object_ids();
         for object_id in ids {
-            if let Some(obj) = self.find_object_by_id(object_id) {
-                if let Ok(obj_ref) = obj.read() {
-                    let health = obj_ref.get_health_percentage();
-                    if best_id.is_none() || health < lowest_health {
-                        lowest_health = health;
-                        best_id = Some(object_id);
-                    }
+            if let Some(health) = with_legacy_object(object_id, |obj| obj.get_health_percentage())
+            {
+                if best_id.is_none() || health < lowest_health {
+                    lowest_health = health;
+                    best_id = Some(object_id);
                 }
             }
         }
         best_id
     }
 
-    fn find_object_by_id(&self, obj_id: ObjectID) -> Option<Arc<RwLock<Object>>> {
-        get_legacy_object(obj_id)
+    fn find_object_by_id(&self, obj_id: ObjectID) -> Option<ObjectID> {
+        with_legacy_object(obj_id, |_| obj_id)
     }
 }
 

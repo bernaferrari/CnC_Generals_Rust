@@ -562,35 +562,18 @@ impl AdaptiveDeltaMotionChannelClass {
         }
 
         if frame_idx < self.cache_frame {
-            // Decompress from beginning (motchan.cpp:1167-1178)
-            // Use unsafe to work around borrow checker limitations - this is safe because
-            // decompress/decompress_continuation only read from self.data and other immutable fields,
-            // and we're only mutating cache_data
-            // SAFETY: split borrow: decompress/decompress_continuation take
-            // only &self and read self.data (separate allocation from
-            // cache_data); the cache_ptr writes cover exactly
-            // cache_data[0..vector_len] and [vector_len..2*vector_len],
-            // matching cache_data's vector_len*2 length and disjoint.
-            unsafe {
-                let self_ptr = self as *const Self;
-                let cache_ptr = self.cache_data.as_mut_ptr();
-                let vector_len = self.vector_len;
-
-                (*self_ptr).decompress(
-                    frame_idx,
-                    std::slice::from_raw_parts_mut(cache_ptr, vector_len),
-                );
-
-                if frame_idx != self.num_frames - 1 {
-                    (*self_ptr).decompress_continuation(
-                        frame_idx,
-                        std::slice::from_raw_parts(cache_ptr, vector_len),
-                        frame_idx + 1,
-                        std::slice::from_raw_parts_mut(cache_ptr.add(vector_len), vector_len),
-                    );
-                }
+            // Take the cache out so decompress (&self) can write it without
+            // aliasing self.cache_data. Success-path bytes match the old
+            // split-borrow unsafe.
+            let vector_len = self.vector_len;
+            let num_frames = self.num_frames;
+            let mut cache = std::mem::take(&mut self.cache_data);
+            self.decompress(frame_idx, &mut cache[..vector_len]);
+            if frame_idx != num_frames - 1 {
+                let (current, next) = cache.split_at_mut(vector_len);
+                self.decompress_continuation(frame_idx, current, frame_idx + 1, next);
             }
-
+            self.cache_data = cache;
             self.cache_frame = frame_idx;
             return self.cache_data[vector_idx];
         }
@@ -600,70 +583,39 @@ impl AdaptiveDeltaMotionChannelClass {
             self.cache_data.copy_within(self.vector_len.., 0);
             self.cache_frame += 1;
 
-            // SAFETY: split borrow: decompress_continuation reads only
-            // self.data through &self; the source cache_data[0..vector_len]
-            // and destination [vector_len..] halves of the vector_len*2
-            // allocation are disjoint, so no aliased references exist.
-            unsafe {
-                let self_ptr = self as *const Self;
-                let cache_ptr = self.cache_data.as_mut_ptr();
-                let vector_len = self.vector_len;
-                let cache_frame = self.cache_frame;
-
-                (*self_ptr).decompress_continuation(
-                    cache_frame,
-                    std::slice::from_raw_parts(cache_ptr, vector_len),
-                    frame_idx,
-                    std::slice::from_raw_parts_mut(cache_ptr.add(vector_len), vector_len),
-                );
+            let vector_len = self.vector_len;
+            let cache_frame = self.cache_frame;
+            let mut cache = std::mem::take(&mut self.cache_data);
+            {
+                let (current, next) = cache.split_at_mut(vector_len);
+                self.decompress_continuation(cache_frame, current, frame_idx, next);
             }
-
+            self.cache_data = cache;
             return self.cache_data[self.vector_len + vector_idx];
         }
 
         // Use last known frame to decompress forwards (motchan.cpp:1195-1208)
         debug_assert!(self.vector_len <= 4);
+        let vector_len = self.vector_len;
         let mut temp = [0.0f32; 4];
-        temp[..self.vector_len]
-            .copy_from_slice(&self.cache_data[self.vector_len..self.vector_len * 2]);
+        temp[..vector_len].copy_from_slice(&self.cache_data[vector_len..vector_len * 2]);
 
-        // SAFETY: destination cache_data[0..vector_len] is written via
-        // cache_ptr while the only other source reference is the stack-local
-        // `temp`, disjoint from cache_data; decompress_continuation reads
-        // immutable fields through &self.
-        unsafe {
-            let self_ptr = self as *const Self;
-            let cache_ptr = self.cache_data.as_mut_ptr();
-            let vector_len = self.vector_len;
-            let cache_frame_plus_one = self.cache_frame + 1;
-
-            (*self_ptr).decompress_continuation(
-                cache_frame_plus_one,
-                &temp[..vector_len],
-                frame_idx,
-                std::slice::from_raw_parts_mut(cache_ptr, vector_len),
-            );
-        }
+        let cache_frame_plus_one = self.cache_frame + 1;
+        let mut cache = std::mem::take(&mut self.cache_data);
+        self.decompress_continuation(
+            cache_frame_plus_one,
+            &temp[..vector_len],
+            frame_idx,
+            &mut cache[..vector_len],
+        );
         self.cache_frame = frame_idx;
 
         if frame_idx != self.num_frames - 1 {
-            // SAFETY: source and destination are the two disjoint halves of
-            // cache_data's vector_len*2 allocation; self.data is only read
-            // through &self, so no aliasing mutable access occurs.
-            unsafe {
-                let self_ptr = self as *const Self;
-                let cache_ptr = self.cache_data.as_mut_ptr();
-                let vector_len = self.vector_len;
-                let cache_frame = self.cache_frame;
-
-                (*self_ptr).decompress_continuation(
-                    cache_frame,
-                    std::slice::from_raw_parts(cache_ptr, vector_len),
-                    frame_idx + 1,
-                    std::slice::from_raw_parts_mut(cache_ptr.add(vector_len), vector_len),
-                );
-            }
+            let cache_frame = self.cache_frame;
+            let (current, next) = cache.split_at_mut(vector_len);
+            self.decompress_continuation(cache_frame, current, frame_idx + 1, next);
         }
+        self.cache_data = cache;
 
         self.cache_data[vector_idx]
     }

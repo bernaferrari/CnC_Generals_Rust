@@ -338,7 +338,7 @@ impl TerrainLogic {
         let mut current = self.bridge_list_head.as_deref();
         while let Some(bridge) = current {
             let id = bridge.get_bridge_info().bridge_object_id;
-            if crate::helpers::TheGameLogic::find_object_by_id(id).is_none() {
+            if !crate::helpers::TheGameLogic::find_object_by_id(id) {
                 orphan_ids.push(id);
             }
             current = bridge.next.as_deref();
@@ -493,13 +493,12 @@ impl TerrainLogic {
 
         // Fallback: C++ TerrainLogic.cpp:1936-1937 uses the bridge OBJECT position,
         // not the map origin, when no Bridge list entry matches the object ID.
-        if let Some(bridge_obj) = crate::helpers::TheGameLogic::find_object_by_id(bridge_id) {
-            if let Ok(guard) = bridge_obj.read() {
-                let pos = *guard.get_position();
-                attack_info.attack_point1 = pos;
-                attack_info.attack_point2 = pos;
-                return;
-            }
+        if let Some(pos) = crate::object::registry::OBJECT_REGISTRY
+            .with_object(bridge_id, |guard| *guard.get_position())
+        {
+            attack_info.attack_point1 = pos;
+            attack_info.attack_point2 = pos;
+            return;
         }
         attack_info.attack_point1 = Coord3D::origin();
         attack_info.attack_point2 = Coord3D::origin();

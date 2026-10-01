@@ -550,7 +550,7 @@ impl SpecialAbilityUpdate {
     }
 
     /// Short-lived Arc resolve; prefer `with_object` / `get_object_id`.
-    fn get_object(&self) -> Option<Arc<RwLock<Object>>> {
+    fn get_object(&self) -> Option<ObjectID> {
         // Wave 296: empty dual-world → None.
         if dual_world_registry_unavailable() {
             return None;
@@ -2525,7 +2525,7 @@ pub struct SpecialAbilityUpdateFactory;
 
 impl SpecialAbilityUpdateFactory {
     pub fn create_behavior(
-        thing: Arc<RwLock<Object>>,
+        object_id: ObjectID,
         module_data: Arc<dyn ModuleData>,
     ) -> Result<Box<dyn BehaviorModuleInterface>, Box<dyn std::error::Error + Send + Sync>> {
         let object_ptr = Arc::downgrade(&thing);

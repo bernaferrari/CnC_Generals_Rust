@@ -216,7 +216,7 @@ pub struct GrantStealthBehavior {
 impl GrantStealthBehavior {
     /// Create a new GrantStealthBehavior instance
     pub fn new(
-        object: Arc<RwLock<GameObject>>,
+        object_id: ObjectID,
         module_data: Arc<dyn ModuleData>,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let specific_data = {
@@ -230,15 +230,11 @@ impl GrantStealthBehavior {
     }
 
     pub fn new_with_data(
-        object: Arc<RwLock<GameObject>>,
+        object_id: ObjectID,
         module_data: Arc<GrantStealthBehaviorModuleData>,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let mut behavior = Self {
-            object_id: object
-                .read()
-                .ok()
-                .map(|g| g.get_id())
-                .unwrap_or(crate::common::INVALID_ID),
+            object_id: object_id,
             module_data,
             next_call_frame_and_phase: 0,
             radius_particle_system_id: INVALID_PARTICLE_SYSTEM_ID,
@@ -437,7 +433,7 @@ impl GrantStealthBehavior {
         }
     }
 
-    fn is_allied_or_self(self_obj: &Arc<RwLock<GameObject>>, other: &GameObject) -> bool {
+    fn is_allied_or_self(self_obj: ObjectID, other: &GameObject) -> bool {
         let Ok(self_guard) = self_obj.read() else {
             return false;
         };
@@ -610,10 +606,10 @@ pub struct GrantStealthBehaviorFactory;
 
 impl GrantStealthBehaviorFactory {
     pub fn create_behavior(
-        thing: Arc<RwLock<GameObject>>,
+        object_id: ObjectID,
         module_data: Arc<dyn ModuleData>,
     ) -> Result<Box<dyn BehaviorModuleInterface>, Box<dyn std::error::Error + Send + Sync>> {
-        let behavior = GrantStealthBehavior::new(thing, module_data)?;
+        let behavior = GrantStealthBehavior::new(object_id, module_data)?;
         Ok(Box::new(behavior))
     }
 }

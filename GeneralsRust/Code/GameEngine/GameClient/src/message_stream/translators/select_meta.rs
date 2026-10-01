@@ -12,15 +12,16 @@ fn is_select_next_candidate(obj: &gamelogic::object::Object) -> bool {
 
 fn collect_select_next_candidates() -> Vec<(ObjectID, Coord3D)> {
     let mut out = Vec::new();
-    for obj_ref in OBJECT_REGISTRY.get_all_objects() {
-        let Ok(obj) = obj_ref.read() else {
-            continue;
-        };
-        if !is_select_next_candidate(&obj) {
-            continue;
+    for object_id in OBJECT_REGISTRY.get_all_object_ids() {
+        if let Some(Some(pos)) = OBJECT_REGISTRY.with_object(object_id, |obj| {
+            if !is_select_next_candidate(obj) {
+                return None;
+            }
+            let pos = obj.get_position();
+            Some(Coord3D::new(pos.x, pos.y, pos.z))
+        }) {
+            out.push((object_id, pos));
         }
-        let pos = obj.get_position();
-        out.push((obj.get_id(), Coord3D::new(pos.x, pos.y, pos.z)));
     }
     out
 }
@@ -103,15 +104,16 @@ fn is_select_worker_candidate(obj: &gamelogic::object::Object, require_mobile: b
 
 fn collect_select_worker_candidates(require_mobile: bool) -> Vec<(ObjectID, Coord3D)> {
     let mut out = Vec::new();
-    for obj_ref in OBJECT_REGISTRY.get_all_objects() {
-        let Ok(obj) = obj_ref.read() else {
-            continue;
-        };
-        if !is_select_worker_candidate(&obj, require_mobile) {
-            continue;
+    for object_id in OBJECT_REGISTRY.get_all_object_ids() {
+        if let Some(Some(pos)) = OBJECT_REGISTRY.with_object(object_id, |obj| {
+            if !is_select_worker_candidate(obj, require_mobile) {
+                return None;
+            }
+            let pos = obj.get_position();
+            Some(Coord3D::new(pos.x, pos.y, pos.z))
+        }) {
+            out.push((object_id, pos));
         }
-        let pos = obj.get_position();
-        out.push((obj.get_id(), Coord3D::new(pos.x, pos.y, pos.z)));
     }
     out
 }
@@ -167,20 +169,19 @@ fn object_disqualifies_select_all(obj: &gamelogic::object::Object, aircraft_only
 /// C++ CommandXlat.cpp:2864-2902 + InGameUI::selectAllUnitsByType.
 pub(super) fn handle_select_all(aircraft_only: bool) -> Vec<GameMessageType> {
     for id in current_selected_ids() {
-        if let Some(obj_ref) = OBJECT_REGISTRY.get_object(id) {
-            if let Ok(obj) = obj_ref.read() {
-                if object_disqualifies_select_all(&obj, aircraft_only) {
-                    let local_player = get_local_player_id();
-                    if local_player >= 0 {
-                        if let Ok(mut manager) = get_selection_manager().write() {
-                            if let Some(selection) = manager.get_player_selection(local_player) {
-                                selection.clear_selection();
-                            }
-                        }
+        let disqualified = OBJECT_REGISTRY
+            .with_object(id, |obj| object_disqualifies_select_all(obj, aircraft_only))
+            .unwrap_or(false);
+        if disqualified {
+            let local_player = get_local_player_id();
+            if local_player >= 0 {
+                if let Ok(mut manager) = get_selection_manager().write() {
+                    if let Some(selection) = manager.get_player_selection(local_player) {
+                        selection.clear_selection();
                     }
-                    break;
                 }
             }
+            break;
         }
     }
     crate::gui::ingame_ui::select_all_units_by_type(aircraft_only)

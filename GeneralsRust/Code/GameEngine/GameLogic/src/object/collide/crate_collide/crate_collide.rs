@@ -175,40 +175,19 @@ impl CrateCollide {
     /// Legacy helper that constructs the crate from an object handle. Matches the C++ pattern
     /// where crate modules were handed the Thing pointer directly.
     pub fn from_object_handle(
-        thing: &Arc<RwLock<Object>>,
+        thing: &ObjectID,
         module_data: CrateCollideModuleData,
     ) -> Self {
-        let object_id = thing
-            .read()
-            .map(|obj| obj.get_id())
-            .unwrap_or(crate::common::INVALID_ID);
-        if object_id != crate::common::INVALID_ID {
-            OBJECT_REGISTRY.register_object(object_id, thing);
-        }
-        Self {
-            base_module: CollideModule::new(object_id, module_data.base.clone()),
-            module_data,
-            state: CrateCollideState {
-                is_collected: false,
-                creation_time: TheGameLogic::get_frame() as u64,
-            },
-        }
+        Self::new(*thing, module_data)
     }
 
     pub fn get_module_data(&self) -> &CrateCollideModuleData {
         &self.module_data
     }
 
-    pub fn get_object(&self) -> Result<Arc<RwLock<Object>>, CollisionError> {
+    pub fn get_object(&self) -> Result<ObjectID, CollisionError> {
         let object_id = self.base_module.get_object_id();
-        TheGameLogic::find_object_by_id(object_id)
-            .or_else(|| OBJECT_REGISTRY.get_object(object_id))
-            .ok_or_else(|| {
-                CollisionError::InvalidObject(format!(
-                    "crate collide object {} unavailable",
-                    object_id
-                ))
-            })
+        self.with_object(|_| object_id)
     }
 
     fn with_object<R>(&self, f: impl FnOnce(&Object) -> R) -> Result<R, CollisionError> {

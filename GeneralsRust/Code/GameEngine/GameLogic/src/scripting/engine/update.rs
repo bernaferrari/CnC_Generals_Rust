@@ -1,3 +1,4 @@
+use crate::object::registry::OBJECT_REGISTRY;
 // ScriptEngine update, side-script execution, and sequential progress
 //
 // Split from `scripting/engine.rs` for module-size parity.
@@ -156,16 +157,16 @@ impl ScriptEngine {
         }
         let tracker = get_named_object_tracker();
         for obj_id in OBJECT_REGISTRY.get_all_object_ids() {
-            let obj_arc = match OBJECT_REGISTRY.get_object(obj_id) {
-                Some(v) => v,
-                None => continue,
+            let Some((name, id)) = OBJECT_REGISTRY.with_object(obj_id, |obj| {
+                let name = obj.get_name().to_string();
+                (name, obj.get_id())
+            }) else {
+                continue;
             };
-            let Ok(obj) = obj_arc.read() else { continue };
-            let name = obj.get_name();
             if name.is_empty() {
                 continue;
             }
-            let _ = tracker.register_named_object(name.to_string(), obj.get_id());
+            let _ = tracker.register_named_object(name, id);
         }
     }
 
@@ -670,16 +671,15 @@ impl ScriptEngine {
                     .ok()
                     .and_then(|mut factory| factory.find_team(name))
             });
-            let object_arc = (object_id != INVALID_ID)
-                .then(|| TheGameLogic::find_object_by_id(object_id))
-                .flatten();
-            let host_obj = if object_arc.is_none() && object_id != INVALID_ID {
+            let object_present = object_id != INVALID_ID
+                && OBJECT_REGISTRY.with_object(object_id, |_| ()).is_some();
+            let host_obj = if !object_present && object_id != INVALID_ID {
                 crate::scripting::host_script_query_object_by_id(object_id)
             } else {
                 None
             };
 
-            if object_arc.is_none() && team_arc.is_none() && host_obj.is_none() {
+            if !object_present && team_arc.is_none() && host_obj.is_none() {
                 if self
                     .cleanup_sequential_script_by_token(token, false)
                     .is_none()
@@ -692,11 +692,11 @@ impl ScriptEngine {
             {
                 let mut inner = self.lock_inner_mut();
                 inner.current_player =
-                    self.resolve_sequential_current_player(object_arc.as_ref(), team_arc.as_ref());
+                    self.resolve_sequential_current_player(object_present.then_some(object_id), team_arc.as_ref());
             }
 
-            let (obj_has_ai, obj_idle, _) = if let Some(arc) = &object_arc {
-                Self::object_ai_status(arc)
+            let (obj_has_ai, obj_idle, _) = if object_present {
+                Self::object_ai_status(object_id)
             } else if let Some(host) = &host_obj {
                 // C++ getAIUpdateInterface on a live sequential unit. Host
                 // snapshot has no leftover AI pointer; treat as having AI so
@@ -799,10 +799,11 @@ impl ScriptEngine {
                         // Host snapshot is frozen until the next inject. Do not
                         // treat stale idle as C++ ai->isIdle() after executeActions
                         // (a MOVE would still look idle and blast the chain).
-                        let obj_idle_now = object_arc
-                            .as_ref()
-                            .map(|object| Self::object_ai_status(object).1)
-                            .unwrap_or(false);
+                        let obj_idle_now = if object_present {
+                            Self::object_ai_status(object_id).1
+                        } else {
+                            false
+                        };
                         let team_idle_now = if dual_world_registry_unavailable() {
                             false
                         } else {
@@ -824,10 +825,11 @@ impl ScriptEngine {
                         }
 
                         if it_advanced {
-                            let obj_dead_now = object_arc
-                                .as_ref()
-                                .map(|object| Self::object_ai_status(object).2)
-                                .unwrap_or(false);
+                            let obj_dead_now = if object_present {
+                                Self::object_ai_status(object_id).2
+                            } else {
+                                false
+                            };
                             let team_dead_now = team_arc
                                 .as_ref()
                                 .map(|team| Self::team_ai_status(team).1)
@@ -883,14 +885,15 @@ impl ScriptEngine {
         action.cloned()
     }
 
-    fn object_ai_status(object_arc: &Arc<RwLock<crate::object::Object>>) -> (bool, bool, bool) {
-        let Ok(object) = object_arc.read() else {
-            return (false, false, true);
-        };
-        let has_ai = object.get_ai_update_interface().is_some();
-        let idle = object.is_idle();
-        let dead = object.is_effectively_dead();
-        (has_ai, idle, dead)
+    fn object_ai_status(object_id: u32) -> (bool, bool, bool) {
+        OBJECT_REGISTRY
+            .with_object(object_id, |object| {
+                let has_ai = object.get_ai_update_interface().is_some();
+                let idle = object.is_idle();
+                let dead = object.is_effectively_dead();
+                (has_ai, idle, dead)
+            })
+            .unwrap_or((false, false, true))
     }
 
     fn team_ai_status(team_arc: &Arc<RwLock<crate::team::Team>>) -> (bool, bool) {
@@ -910,13 +913,10 @@ impl ScriptEngine {
         let idle = team.is_idle();
         let mut all_dead = true;
         for &member_id in team.get_members() {
-            let Some(object_arc) = TheGameLogic::find_object_by_id(member_id) else {
-                continue;
-            };
-            let Ok(object) = object_arc.read() else {
-                continue;
-            };
-            if !object.is_effectively_dead() {
+            let dead = OBJECT_REGISTRY
+                .with_object(member_id, |object| object.is_effectively_dead())
+                .unwrap_or(true);
+            if !dead {
                 all_dead = false;
                 break;
             }
@@ -927,14 +927,11 @@ impl ScriptEngine {
 
     fn resolve_sequential_current_player(
         &self,
-        object_arc: Option<&Arc<RwLock<crate::object::Object>>>,
+        object_id: Option<u32>,
         team_arc: Option<&Arc<RwLock<crate::team::Team>>>,
     ) -> Option<String> {
-        let player_id = if let Some(object_arc) = object_arc {
-            object_arc
-                .read()
-                .ok()
-                .and_then(|object| object.get_controlling_player_id())
+        let player_id = if let Some(object_id) = object_id {
+            OBJECT_REGISTRY.with_object(object_id, |object| object.get_controlling_player_id())?
         } else if let Some(team_arc) = team_arc {
             team_arc
                 .read()

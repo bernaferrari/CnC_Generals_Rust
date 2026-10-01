@@ -26,22 +26,26 @@ pub(super) fn append_beacon_commands_with_presentation(
         return Ok(());
     }
 
-    let is_beacon =
-        if let Some(object_arc) = OBJECT_REGISTRY.get_object(context.selected_objects[0]) {
-            let Ok(object) = object_arc.read() else {
-                return Ok(());
-            };
-            if !object.is_locally_controlled() {
-                return Ok(());
-            }
-            let command_set_name = object.get_command_set_string();
-            command_set_name.to_ascii_uppercase().contains("BEACON")
-        } else {
+    let is_beacon = match OBJECT_REGISTRY.with_object(context.selected_objects[0], |object| {
+        if !object.is_locally_controlled() {
+            return None;
+        }
+        Some(
+            object
+                .get_command_set_string()
+                .to_ascii_uppercase()
+                .contains("BEACON"),
+        )
+    }) {
+        Some(Some(flag)) => flag,
+        Some(None) => return Ok(()),
+        None => {
             // Host presentation residual — no dual-world registry modules.
             presentation_command_set
                 .to_ascii_uppercase()
                 .contains("BEACON")
-        };
+        }
+    };
 
     if !is_beacon {
         return Ok(());

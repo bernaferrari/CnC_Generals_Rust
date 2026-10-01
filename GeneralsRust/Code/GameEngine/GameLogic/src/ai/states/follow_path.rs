@@ -275,26 +275,27 @@ impl StateImplementation for AIFollowPathState {
         let Some(owner) = self.base.base.get_machine_owner() else {
             return StateReturnType::Failure;
         };
-        let Ok(owner_guard) = owner.read() else {
-            return StateReturnType::Failure;
-        };
-        if owner_guard.get_formation_id() != FormationID::NONE {
-            if let Some(group_id) = owner_guard.get_group_id() {
-                if let Ok(store) = the_ai().read() {
-                    if let Some(group) = store.find_group(group_id) {
-                        if let Ok(mut group_guard) = group.write() {
-                            ai.set_desired_speed(group_guard.get_speed());
+        let Some(started) = crate::object::registry::OBJECT_REGISTRY.with_object(owner, |owner_guard| {
+            if owner_guard.get_formation_id() != FormationID::NONE {
+                if let Some(group_id) = owner_guard.get_group_id() {
+                    if let Ok(store) = the_ai().read() {
+                        if let Some(group) = store.find_group(group_id) {
+                            if let Ok(mut group_guard) = group.write() {
+                                ai.set_desired_speed(group_guard.get_speed());
+                            }
                         }
                     }
                 }
             }
-        }
-        if self.configure_segment(&owner_guard, ai, false).is_err() {
+            self.configure_segment(owner_guard, ai, false).is_ok()
+        }) else {
+            return StateReturnType::Failure;
+        };
+        if !started {
             return StateReturnType::Failure;
         }
         StateReturnType::Continue
     }
-
     fn update(&mut self) -> StateReturnType {
         self.classic_on_update().unwrap_or(StateReturnType::Failure)
     }
@@ -310,36 +311,38 @@ impl StateImplementation for AIFollowPathState {
         let Some(owner) = self.base.base.get_machine_owner() else {
             return StateReturnType::Failure;
         };
-        let Ok(owner_guard) = owner.read() else {
-            return StateReturnType::Failure;
-        };
-        if status == StateReturnType::Failure && self.retry_count > 0 {
-            self.retry_count -= 1;
-        } else {
-            self.index = self.index.saturating_add(1);
-        }
-        while self.index < self.path.len() {
-            let pos = self.path[self.index];
-            let dx = pos.x - owner_guard.get_position().x;
-            let dy = pos.y - owner_guard.get_position().y;
-            if dx * dx + dy * dy >= PATHFIND_CELL_SIZE_F * PATHFIND_CELL_SIZE_F {
-                break;
+        let Some(result) = crate::object::registry::OBJECT_REGISTRY.with_object(owner, |owner_guard| {
+            if status == StateReturnType::Failure && self.retry_count > 0 {
+                self.retry_count -= 1;
+            } else {
+                self.index = self.index.saturating_add(1);
             }
-            self.index = self.index.saturating_add(1);
-        }
-        let Some(pos) = self.path.get(self.index).copied() else {
-            return StateReturnType::Success;
-        };
-        let _ = ai.set_current_goal_path_index(self.index as i32);
-        let _ = ai.ignore_obstacle(None);
-        ai.friend_starting_move();
-        self.set_goal_position(pos);
-        if self.configure_segment(&owner_guard, ai, true).is_err()
-            || self.base.compute_path(ai).is_err()
-        {
+            while self.index < self.path.len() {
+                let pos = self.path[self.index];
+                let dx = pos.x - owner_guard.get_position().x;
+                let dy = pos.y - owner_guard.get_position().y;
+                if dx * dx + dy * dy >= PATHFIND_CELL_SIZE_F * PATHFIND_CELL_SIZE_F {
+                    break;
+                }
+                self.index = self.index.saturating_add(1);
+            }
+            let Some(pos) = self.path.get(self.index).copied() else {
+                return StateReturnType::Success;
+            };
+            let _ = ai.set_current_goal_path_index(self.index as i32);
+            let _ = ai.ignore_obstacle(None);
+            ai.friend_starting_move();
+            self.set_goal_position(pos);
+            if self.configure_segment(owner_guard, ai, true).is_err()
+                || self.base.compute_path(ai).is_err()
+            {
+                return StateReturnType::Failure;
+            }
+            StateReturnType::Continue
+        }) else {
             return StateReturnType::Failure;
-        }
-        StateReturnType::Continue
+        };
+        result
     }
 
     fn on_exit(&mut self, _status: StateExitType) {
@@ -378,36 +381,32 @@ impl ClassicState for AIFollowPathState {
             .base
             .get_machine_owner()
             .ok_or_else(|| "follow path missing owner".to_string())?;
-        {
-            let owner_guard = owner
-                .read()
-                .map_err(|_| "follow path owner lock poisoned".to_string())?;
-            let ai = owner_guard
-                .get_ai_update_interface()
-                .ok_or_else(|| "follow path missing AIUpdateInterface".to_string())?;
-            self.set_goal_position(self.path[0]);
-            if owner_ai_mutex_held {
-                if self.follow_exit_production {
-                    self.base.set_adjusts_destination(false);
-                }
-            } else {
-                let mut ai_guard = ai
-                    .lock()
-                    .map_err(|_| "follow path AI lock poisoned".to_string())?;
-                if let Some(ignore_id) = self.ignore_object_id {
-                    let _ = ai_guard.ignore_obstacle_id(ignore_id);
-                }
-                let _ = ai_guard.set_current_goal_path_index(self.index as i32);
-                if self.follow_exit_production {
-                    let _ = ai_guard.set_can_path_through_units(true);
-                    self.base.set_adjusts_destination(false);
-                }
+        let ai = crate::object::registry::OBJECT_REGISTRY
+            .with_object(owner, |owner_guard| owner_guard.get_ai_update_interface())
+            .ok_or_else(|| "follow path owner missing".to_string())?
+            .ok_or_else(|| "follow path missing AIUpdateInterface".to_string())?;
+        self.set_goal_position(self.path[0]);
+        if owner_ai_mutex_held {
+            if self.follow_exit_production {
+                self.base.set_adjusts_destination(false);
+            }
+        } else {
+            let mut ai_guard = ai
+                .lock()
+                .map_err(|_| "follow path AI lock poisoned".to_string())?;
+            if let Some(ignore_id) = self.ignore_object_id {
+                let _ = ai_guard.ignore_obstacle_id(ignore_id);
+            }
+            let _ = ai_guard.set_current_goal_path_index(self.index as i32);
+            if self.follow_exit_production {
+                let _ = ai_guard.set_can_path_through_units(true);
+                self.base.set_adjusts_destination(false);
             }
         }
 
         let status = self.base.classic_on_enter()?;
         if !owner_ai_mutex_held {
-            if let Ok(owner_guard) = owner.read() {
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object(owner, |owner_guard| {
                 if owner_guard.get_formation_id() != FormationID::NONE {
                     if let Some(group_id) = owner_guard.get_group_id() {
                         let ai_store = the_ai();
@@ -424,13 +423,19 @@ impl ClassicState for AIFollowPathState {
                         }
                     }
                 }
-            }
-            if let Ok(owner_guard) = owner.read() {
+            });
+            let configured = crate::object::registry::OBJECT_REGISTRY.with_object(owner, |owner_guard| {
                 if let Some(ai) = owner_guard.get_ai_update_interface() {
                     if let Ok(mut ai_guard) = ai.lock() {
-                        self.configure_segment(&owner_guard, &mut *ai_guard, false)?;
+                        return self.configure_segment(owner_guard, &mut *ai_guard, false);
                     }
                 }
+                Ok(())
+            });
+            match configured {
+                Some(Ok(())) => {}
+                Some(Err(e)) => return Err(e),
+                None => return Err("follow path owner missing".to_string()),
             }
         }
         Ok(status)
@@ -461,7 +466,7 @@ impl ClassicState for AIFollowPathState {
             .base
             .get_machine_owner()
             .ok_or_else(|| "follow path missing owner".to_string())?;
-        if let Ok(owner_guard) = owner.read() {
+        let configured = crate::object::registry::OBJECT_REGISTRY.with_object(owner, |owner_guard| {
             if owner_guard.get_formation_id() != FormationID::NONE {
                 if let Some(group_id) = owner_guard.get_group_id() {
                     let ai_store = the_ai();
@@ -474,7 +479,12 @@ impl ClassicState for AIFollowPathState {
                     }
                 }
             }
-            self.configure_segment(&owner_guard, ai, false)?;
+            self.configure_segment(owner_guard, ai, false)
+        });
+        match configured {
+            Some(Ok(())) => {}
+            Some(Err(e)) => return Err(e),
+            None => return Err("follow path owner missing".to_string()),
         }
         Ok(status)
     }
@@ -493,12 +503,12 @@ impl ClassicState for AIFollowPathState {
     fn classic_on_exit(&mut self, _exit: StateExitType) -> Result<(), String> {
         self.base.classic_on_exit(_exit)?;
         if let Some(owner) = self.base.base.get_machine_owner() {
-            if let Ok(mut owner_guard) = owner.write() {
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner, |owner_guard| {
                 owner_guard.ai_pending_path_through_units = Some(false);
                 owner_guard.ai_pending_precise_z = Some(false);
                 owner_guard.ai_pending_path_extra = Some(0.0);
                 owner_guard.ai_pending_goal_path_index = Some(-1);
-            }
+            });
         }
         Ok(())
     }
@@ -524,22 +534,33 @@ impl AIFollowPathState {
             .base
             .get_machine_owner()
             .ok_or_else(|| "follow path missing owner".to_string())?;
-        let owner_guard = owner
-            .read()
-            .map_err(|_| "follow path owner lock poisoned".to_string())?;
-        let ai_arc;
-        let mut locked_ai;
+        let owner_pos = crate::object::registry::OBJECT_REGISTRY
+            .with_object(owner, |owner_guard| *owner_guard.get_position())
+            .ok_or_else(|| "follow path owner missing".to_string())?;
+        let ai_arc = if borrowed.is_none() {
+            Some(
+                crate::object::registry::OBJECT_REGISTRY
+                    .with_object(owner, |owner_guard| owner_guard.get_ai_update_interface())
+                    .ok_or_else(|| "follow path owner missing".to_string())?
+                    .ok_or_else(|| "follow path missing AIUpdateInterface".to_string())?,
+            )
+        } else {
+            None
+        };
+        let mut locked_ai = if let Some(ai_arc) = ai_arc.as_ref() {
+            Some(
+                ai_arc
+                    .lock()
+                    .map_err(|_| "follow path AI lock poisoned".to_string())?,
+            )
+        } else {
+            None
+        };
         let ai_guard: &mut dyn crate::modules::AIUpdateInterface = if let Some(ai) = borrowed.as_mut()
         {
             *ai
         } else {
-            ai_arc = owner_guard
-                .get_ai_update_interface()
-                .ok_or_else(|| "follow path missing AIUpdateInterface".to_string())?;
-            locked_ai = ai_arc
-                .lock()
-                .map_err(|_| "follow path AI lock poisoned".to_string())?;
-            &mut *locked_ai
+            locked_ai.as_mut().unwrap()
         };
 
         if status == StateReturnType::Failure && self.retry_count > 0 {
@@ -550,8 +571,8 @@ impl AIFollowPathState {
 
         while self.index < self.path.len() {
             let pos = self.path[self.index];
-            let dx = pos.x - owner_guard.get_position().x;
-            let dy = pos.y - owner_guard.get_position().y;
+            let dx = pos.x - owner_pos.x;
+            let dy = pos.y - owner_pos.y;
             if dx * dx + dy * dy >= PATHFIND_CELL_SIZE_F * PATHFIND_CELL_SIZE_F {
                 break;
             }
@@ -567,8 +588,16 @@ impl AIFollowPathState {
         ai_guard.friend_starting_move();
 
         self.set_goal_position(pos);
-        self.configure_segment(&owner_guard, &mut *ai_guard, true)?;
-        self.base.compute_path(&mut *ai_guard)?;
+        let stepped = crate::object::registry::OBJECT_REGISTRY.with_object(owner, |owner_guard| {
+            self.configure_segment(owner_guard, &mut *ai_guard, true)?;
+            self.base.compute_path(&mut *ai_guard)?;
+            Ok::<_, String>(())
+        });
+        match stepped {
+            Some(Ok(())) => {}
+            Some(Err(e)) => return Err(e),
+            None => return Err("follow path owner missing".to_string()),
+        }
         Ok(StateReturnType::Continue)
     }
 
@@ -792,20 +821,16 @@ impl ClassicState for AIFollowState {
         if self.target_id == INVALID_ID {
             return Ok(StateReturnType::Failure);
         }
-        let Some(target) = TheGameLogic::find_object_by_id(self.target_id)
-            .or_else(|| OBJECT_REGISTRY.get_object(self.target_id))
+        let Some(target_pos) = OBJECT_REGISTRY.with_object(self.target_id, |target_guard| {
+            if target_guard.is_effectively_dead() {
+                None
+            } else {
+                Some(*target_guard.get_position())
+            }
+        })
+        .flatten()
         else {
             return Ok(StateReturnType::Failure);
-        };
-
-        let target_pos = {
-            let Ok(target_guard) = target.read() else {
-                return Ok(StateReturnType::Failure);
-            };
-            if target_guard.is_effectively_dead() {
-                return Ok(StateReturnType::Failure);
-            }
-            *target_guard.get_position()
         };
 
         let owner = self
@@ -813,11 +838,8 @@ impl ClassicState for AIFollowState {
             .get_machine_owner()
             .ok_or_else(|| "AIFollow state missing machine owner".to_string())?;
 
-        let owner_pos = {
-            let Ok(owner_guard) = owner.read() else {
-                return Ok(StateReturnType::Failure);
-            };
-            *owner_guard.get_position()
+        let Some(owner_pos) = OBJECT_REGISTRY.with_object(owner, |owner_guard| *owner_guard.get_position()) else {
+            return Ok(StateReturnType::Failure);
         };
 
         let dx = target_pos.x - owner_pos.x;
@@ -836,8 +858,12 @@ impl ClassicState for AIFollowState {
         self.last_target_pos = target_pos;
 
         if !self.issued_move || target_moved {
-            if let Ok(mut owner_guard) = owner.write() {
-                owner_guard.ai_pending_follow_pos = Some(target_pos);
+            if OBJECT_REGISTRY
+                .with_object_mut(owner, |owner_guard| {
+                    owner_guard.ai_pending_follow_pos = Some(target_pos);
+                })
+                .is_some()
+            {
                 self.issued_move = true;
             }
         }

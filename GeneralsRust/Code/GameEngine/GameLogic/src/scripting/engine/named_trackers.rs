@@ -1,3 +1,4 @@
+use crate::object::registry::OBJECT_REGISTRY;
 // Counters, flags, timers, named reveals, and named object trackers
 //
 // Split from `scripting/engine.rs` for module-size parity.

@@ -1137,14 +1137,16 @@ impl ActiveBody {
         Ok(())
     }
 
-    /// Resolve an owning object handle if still alive.
-    fn get_owner(&self) -> Option<Arc<RwLock<Object>>> {
+    /// Resolve an owning object id if still alive.
+    fn get_owner(&self) -> Option<ObjectID> {
         // Wave 291: empty dual-world → None.
         if dual_world_registry_unavailable() {
             return None;
         }
-
-        OBJECT_REGISTRY.get_object(self.owner_id)
+        if self.owner_id == INVALID_ID {
+            return None;
+        }
+        Some(self.owner_id)
     }
 
     /// C++ ActiveBody::setIndestructible mirrors the flag onto KINDOF_BRIDGE towers.
@@ -1259,14 +1261,16 @@ impl ActiveBody {
         });
     }
 
-    /// Resolve an owning object handle for external callers.
-    pub fn owner_handle(&self) -> Option<Arc<RwLock<Object>>> {
+    /// Resolve an owning object id for external callers.
+    pub fn owner_handle(&self) -> Option<ObjectID> {
         // Wave 291: empty dual-world → None.
         if dual_world_registry_unavailable() {
             return None;
         }
-
-        OBJECT_REGISTRY.get_object(self.owner_id)
+        if self.owner_id == INVALID_ID {
+            return None;
+        }
+        Some(self.owner_id)
     }
 
     /// Internal method to add subdual damage

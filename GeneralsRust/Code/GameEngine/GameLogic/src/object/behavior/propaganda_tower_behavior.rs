@@ -208,7 +208,7 @@ pub struct PropagandaTowerBehavior {
 
 impl PropagandaTowerBehavior {
     pub fn new(
-        object: Arc<RwLock<Object>>,
+        object_id: ObjectID,
         module_data: Arc<dyn ModuleData>,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let specific_data = module_data
@@ -220,11 +220,7 @@ impl PropagandaTowerBehavior {
         let wake_frame = now.saturating_add(1);
 
         Ok(Self {
-            object_id: object
-                .read()
-                .ok()
-                .map(|g| g.get_id())
-                .unwrap_or(crate::common::INVALID_ID),
+            object_id: object_id,
             module_data: Arc::new(specific_data.clone()),
             next_call_frame_and_phase: wake_frame,
             last_scan_frame: 0,
@@ -249,7 +245,7 @@ impl PropagandaTowerBehavior {
 
     fn resolve_object(
         &self,
-    ) -> Result<Arc<RwLock<Object>>, Box<dyn std::error::Error + Send + Sync>> {
+    ) -> Result<ObjectID>, Box<dyn std::error::Error + Send + Sync>> {
         // Wave 363: empty dual-world → Err.
         if dual_world_registry_unavailable() {
             return Err("PropagandaTowerBehavior dual-world registry empty".into());
@@ -601,18 +597,14 @@ impl BehaviorModuleInterface for PropagandaTowerBehavior {
 
     fn on_capture(
         &mut self,
-        _old_owner: Option<&Arc<RwLock<Player>>>,
-        new_owner: Option<&Arc<RwLock<Player>>>,
+        _old_owner: Option<PlayerIndex>,
+        new_owner: Option<PlayerIndex>,
     ) {
-        let neutral_player = player_list()
+        let neutral_index = player_list()
             .read()
             .ok()
-            .and_then(|list| list.get_neutral_player());
-        let is_neutral = match (&new_owner, &neutral_player) {
-            (Some(new_owner), Some(neutral)) => Arc::ptr_eq(new_owner, &neutral),
-            (None, _) => true,
-            _ => false,
-        };
+            .and_then(|list| list.neutral_player_index());
+        let is_neutral = new_owner.is_none() || new_owner == neutral_index;
 
         if is_neutral {
             if let Ok(tower_arc) = self.resolve_object() {

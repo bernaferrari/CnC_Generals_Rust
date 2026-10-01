@@ -181,7 +181,7 @@ impl RebuildHoleBehavior {
         crate::object::registry::OBJECT_REGISTRY.with_object_mut(id, f)
     }
 
-    fn get_object(&self) -> Option<Arc<RwLock<Object>>> {
+    fn get_object(&self) -> Option<ObjectID> {
         // Wave 331: empty dual-world → None.
         if dual_world_registry_unavailable() {
             return None;
@@ -266,7 +266,7 @@ impl RebuildHoleBehavior {
         }
     }
 
-    fn spawn_worker_and_construct(&mut self, reconstructing: Option<Arc<RwLock<Object>>>) {
+    fn spawn_worker_and_construct(&mut self, reconstructing: Option<ObjectID>) {
         let Some(worker_template) = self.resolve_worker_template() else {
             return;
         };

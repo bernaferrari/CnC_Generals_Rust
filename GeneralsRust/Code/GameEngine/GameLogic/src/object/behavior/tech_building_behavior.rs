@@ -114,7 +114,7 @@ pub struct TechBuildingBehavior {
 
 impl TechBuildingBehavior {
     pub fn new(
-        thing: Arc<RwLock<Object>>,
+        object_id: ObjectID,
         module_data: Arc<dyn ModuleData>,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let data = {
@@ -178,7 +178,7 @@ impl TechBuildingBehavior {
             .ok_or_else(|| "Object not found".into())
     }
 
-    fn get_object(&self) -> Result<Arc<RwLock<Object>>, Box<dyn std::error::Error + Send + Sync>> {
+    fn get_object(&self) -> Result<ObjectID>, Box<dyn std::error::Error + Send + Sync>> {
         let id = self.get_object_id();
         if id == crate::common::INVALID_ID {
             return Err("Object not set".into());
@@ -279,8 +279,8 @@ impl BehaviorModuleInterface for TechBuildingBehavior {
 
     fn on_capture(
         &mut self,
-        _old_owner: Option<&Arc<RwLock<Player>>>,
-        _new_owner: Option<&Arc<RwLock<Player>>>,
+        _old_owner: Option<PlayerIndex>,
+        _new_owner: Option<PlayerIndex>,
     ) {
         let _ = self.on_capture(None, None);
     }

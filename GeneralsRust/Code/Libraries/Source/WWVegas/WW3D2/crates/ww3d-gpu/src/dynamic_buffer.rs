@@ -282,20 +282,29 @@ impl DynamicIndexBufferRing {
     }
 }
 
-/// Global dynamic buffer manager
+/// Vertex and index rings of the process-wide dynamic buffer manager.
+struct DynamicBufferRings {
+    vertex_ring: Option<DynamicVertexBufferRing>,
+    index_ring: Option<DynamicIndexBufferRing>,
+}
+
+/// Global dynamic buffer manager.
+///
+/// One lock: `DYNAMIC_BUFFERS` is the shared owner, and vertex and index
+/// updates are not nested. Closures passed to `with_*_ring` must not call
+/// back into this manager.
 pub struct DynamicBufferManager {
-    /// Vertex buffer ring
-    vertex_ring: Mutex<Option<DynamicVertexBufferRing>>,
-    /// Index buffer ring
-    index_ring: Mutex<Option<DynamicIndexBufferRing>>,
+    rings: Mutex<DynamicBufferRings>,
 }
 
 impl DynamicBufferManager {
     /// Create a new dynamic buffer manager
     pub fn new() -> Self {
         Self {
-            vertex_ring: Mutex::new(None),
-            index_ring: Mutex::new(None),
+            rings: Mutex::new(DynamicBufferRings {
+                vertex_ring: None,
+                index_ring: None,
+            }),
         }
     }
 
@@ -307,7 +316,7 @@ impl DynamicBufferManager {
         fvf_format: crate::fvf::FvfFormat,
     ) -> Result<(), GpuError> {
         let ring = DynamicVertexBufferRing::new(device, vertex_capacity, fvf_format)?;
-        *self.vertex_ring.lock() = Some(ring);
+        self.rings.lock().vertex_ring = Some(ring);
         Ok(())
     }
 
@@ -319,7 +328,7 @@ impl DynamicBufferManager {
         use_u32: bool,
     ) -> Result<(), GpuError> {
         let ring = DynamicIndexBufferRing::new(device, index_capacity, use_u32)?;
-        *self.index_ring.lock() = Some(ring);
+        self.rings.lock().index_ring = Some(ring);
         Ok(())
     }
 
@@ -328,7 +337,7 @@ impl DynamicBufferManager {
     where
         F: FnOnce(&mut DynamicVertexBufferRing) -> R,
     {
-        self.vertex_ring.lock().as_mut().map(f)
+        self.rings.lock().vertex_ring.as_mut().map(f)
     }
 
     /// Access index ring
@@ -336,33 +345,36 @@ impl DynamicBufferManager {
     where
         F: FnOnce(&mut DynamicIndexBufferRing) -> R,
     {
-        self.index_ring.lock().as_mut().map(f)
+        self.rings.lock().index_ring.as_mut().map(f)
     }
 
     /// Advance both rings to next frame
     pub fn next_frame(&self) {
-        if let Some(ref mut ring) = *self.vertex_ring.lock() {
+        let mut rings = self.rings.lock();
+        if let Some(ring) = rings.vertex_ring.as_mut() {
             ring.next_frame();
         }
-        if let Some(ref mut ring) = *self.index_ring.lock() {
+        if let Some(ring) = rings.index_ring.as_mut() {
             ring.next_frame();
         }
     }
 
     /// Reset both rings for current frame
     pub fn reset(&self) {
-        if let Some(ref mut ring) = *self.vertex_ring.lock() {
+        let mut rings = self.rings.lock();
+        if let Some(ring) = rings.vertex_ring.as_mut() {
             ring.reset();
         }
-        if let Some(ref mut ring) = *self.index_ring.lock() {
+        if let Some(ring) = rings.index_ring.as_mut() {
             ring.reset();
         }
     }
 
     /// Shutdown and release all resources
     pub fn shutdown(&self) {
-        *self.vertex_ring.lock() = None;
-        *self.index_ring.lock() = None;
+        let mut rings = self.rings.lock();
+        rings.vertex_ring = None;
+        rings.index_ring = None;
     }
 }
 

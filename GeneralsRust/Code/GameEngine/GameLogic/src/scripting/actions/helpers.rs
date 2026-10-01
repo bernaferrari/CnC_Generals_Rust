@@ -364,7 +364,7 @@ pub(super) fn create_ai_group_from_team(team_name: &str) -> GameLogicResult<Arc<
 
     if let Ok(mut group_guard) = group.write() {
         for member_id in members {
-            if let Some(_obj_arc) = TheGameLogic::find_object_by_id(member_id) {
+            if OBJECT_REGISTRY.with_object(member_id, |_| ()).is_some() {
                 group_guard.add(member_id);
             }
         }

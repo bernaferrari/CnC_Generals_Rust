@@ -231,16 +231,15 @@ impl Drawable for BasicDrawable {
         // C++ Drawable::updateDrawable runs client updates before fade, decal,
         // flash, and tint so modules observe the pre-fade drawable.
         if let Some(object_id) = self.object_id {
-            if let Some(obj_arc) = OBJECT_REGISTRY.get_object(object_id) {
-                if let Ok(obj_guard) = obj_arc.read() {
-                    for module_handle in obj_guard.client_update_modules() {
-                        module_handle.with_module(|module| {
-                            if let Some(client_update) = module.get_client_update_interface() {
-                                let _ = client_update.client_update();
-                            }
-                        });
+            let modules = OBJECT_REGISTRY
+                .with_object(object_id, |obj| obj.client_update_modules())
+                .unwrap_or_default();
+            for module_handle in modules {
+                module_handle.with_module(|module| {
+                    if let Some(client_update) = module.get_client_update_interface() {
+                        let _ = client_update.client_update();
                     }
-                }
+                });
             }
         }
 
@@ -285,10 +284,7 @@ impl Drawable for BasicDrawable {
         if !self.test_tint_status(TintStatus::FRENZY) {
             let effectively_dead = self.object_id.is_some_and(|obj_id| {
                 OBJECT_REGISTRY
-                    .get_object(obj_id)
-                    .and_then(|obj_arc| {
-                        obj_arc.read().ok().map(|guard| guard.is_effectively_dead())
-                    })
+                    .with_object(obj_id, |guard| guard.is_effectively_dead())
                     .unwrap_or(false)
             });
             if effectively_dead {
@@ -343,8 +339,7 @@ impl Drawable for BasicDrawable {
         // Without a bound object we keep the create-time enable (seeded SHADOWS).
         if let Some(obj_id) = self.object_id {
             let effectively_dead = OBJECT_REGISTRY
-                .get_object(obj_id)
-                .and_then(|obj_arc| obj_arc.read().ok().map(|guard| guard.is_effectively_dead()))
+                .with_object(obj_id, |guard| guard.is_effectively_dead())
                 .unwrap_or(false);
             if !effectively_dead {
                 self.set_shadows_enabled(self.stealth_look != StealthLook::VisibleDetected);
@@ -589,19 +584,19 @@ impl Drawable for BasicDrawable {
             return Ok(());
         };
 
-        let Some(object_arc) = OBJECT_REGISTRY.get_object(object_id) else {
-            return Ok(());
-        };
-        let Ok(object_guard) = object_arc.read() else {
+        let ui = OBJECT_REGISTRY.with_object(object_id, |object_guard| {
+            let pos = object_guard.get_position();
+            let player = object_guard.get_controlling_player();
+            let formation = object_guard.get_formation_id();
+            let id = object_guard.get_id();
+            (pos, player, formation, id)
+        });
+        let Some((pos, player, formation, id)) = ui else {
             return Ok(());
         };
 
         let Some(screen_pos) = with_tactical_view_ref(|view| {
-            view.world_to_screen(&Point3::new(
-                object_guard.get_position().x,
-                object_guard.get_position().y,
-                object_guard.get_position().z,
-            ))
+            view.world_to_screen(&Point3::new(pos.x, pos.y, pos.z))
         }) else {
             return Ok(());
         };
@@ -613,9 +608,11 @@ impl Drawable for BasicDrawable {
 
         let mut text_color = draw_group_info.color_for_text;
         if draw_group_info.use_player_color {
-            if let Some(player_arc) = object_guard.get_controlling_player() {
-                if let Ok(player_guard) = player_arc.read() {
-                    text_color = player_guard.get_player_color().to_argb_u32();
+            if let Some(player_index) = player {
+                if let Some(color) = gamelogic::player::with_player(player_index, |player_guard| {
+                    player_guard.get_player_color().to_argb_u32()
+                }) {
+                    text_color = color;
                 }
             }
         }
@@ -635,11 +632,9 @@ impl Drawable for BasicDrawable {
 
         let mut drew_anything = false;
 
-        if let Some(player_arc) = object_guard.get_controlling_player() {
+        if let Some(player_arc) = player {
             if let Ok(mut player_guard) = player_arc.write() {
-                if let Some(group_number) =
-                    Self::find_hotkey_squad_number(&mut player_guard, object_guard.get_id())
-                {
+                if let Some(group_number) = Self::find_hotkey_squad_number(&mut player_guard, id) {
                     if group_number > NO_HOTKEY_SQUAD && group_number < NUM_HOTKEY_SQUADS as i32 {
                         let mut manager = get_display_string_manager();
                         if let Some(group_text) = manager.get_group_numeral_string(group_number) {
@@ -662,7 +657,7 @@ impl Drawable for BasicDrawable {
             }
         }
 
-        if object_guard.get_formation_id() != FormationID::NONE {
+        if formation != FormationID::NONE {
             let mut manager = get_display_string_manager();
             if let Some(formation_text) = manager.get_formation_letter_string() {
                 Self::draw_caption_string(

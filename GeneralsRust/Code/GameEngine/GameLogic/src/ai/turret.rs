@@ -1,4 +1,3 @@
-use crate::ai::object_registry::get_legacy_object;
 use crate::attack::{AbleToAttackType, CanAttackResult};
 use crate::common::audio::AudioEventRts;
 use crate::common::coord::*;
@@ -281,15 +280,12 @@ impl TurretAI {
         self.current_target
     }
 
-    /// Resolve the current target handle for call sites that still need an Arc.
-    pub fn get_current_target(&self) -> Option<Arc<RwLock<Object>>> {
-        // Wave 276: empty dual-world → None.
+    /// Current target id. Wave 276: empty dual-world → None.
+    pub fn get_current_target(&self) -> Option<ObjectID> {
         if dual_world_registry_unavailable() {
             return None;
         }
-
         self.current_target
-            .and_then(|id| OBJECT_REGISTRY.get_object(id))
     }
 
     /// Set current target by stable object ID.
@@ -709,15 +705,13 @@ impl TurretAI {
         if dual_world_registry_unavailable() || self.owner_id == crate::common::INVALID_ID {
             return;
         }
-        if let Some(owner) = OBJECT_REGISTRY.get_object(self.owner_id) {
-            if let Ok(mut guard) = owner.write() {
-                if rotating {
-                    guard.set_model_condition_state(ModelConditionFlags::TURRET_ROTATE);
-                } else {
-                    guard.clear_model_condition_state(ModelConditionFlags::TURRET_ROTATE);
-                }
+        let _ = OBJECT_REGISTRY.with_object_mut(self.owner_id, |guard| {
+            if rotating {
+                guard.set_model_condition_state(ModelConditionFlags::TURRET_ROTATE);
+            } else {
+                guard.clear_model_condition_state(ModelConditionFlags::TURRET_ROTATE);
             }
-        }
+        });
     }
 
     fn react_to_turret_change(&self, old_angle: f32) {
@@ -727,17 +721,13 @@ impl TurretAI {
         if dual_world_registry_unavailable() || self.owner_id == crate::common::INVALID_ID {
             return;
         }
-        let Some(owner) = OBJECT_REGISTRY.get_object(self.owner_id) else {
-            return;
-        };
-        let Ok(mut owner_guard) = owner.try_write() else {
-            return;
-        };
-        if self.friend_get_which_turret() == TurretType::Primary {
-            owner_guard.note_main_turret_yaw_and_redeploy(self.current_angle);
-        } else {
-            owner_guard.react_to_non_main_turret_turn();
-        }
+        let _ = OBJECT_REGISTRY.with_object_mut(self.owner_id, |owner_guard| {
+            if self.friend_get_which_turret() == TurretType::Primary {
+                owner_guard.note_main_turret_yaw_and_redeploy(self.current_angle);
+            } else {
+                owner_guard.react_to_non_main_turret_turn();
+            }
+        });
     }
 
     fn ensure_turret_move_loop_sound(&mut self) {
@@ -1033,7 +1023,7 @@ impl TurretAI {
     }
 
     /// Scan for targets within turret's range and arc
-    pub fn scan_for_targets(&self) -> Vec<Arc<RwLock<Object>>> {
+    pub fn scan_for_targets(&self) -> Vec<ObjectID> {
         // Wave 276: empty dual-world → no targets.
         if dual_world_registry_unavailable() {
             return Vec::new();
@@ -1068,24 +1058,28 @@ impl TurretAI {
             if candidate_id == owner_id {
                 continue;
             }
-            let Some(candidate_arc) = get_legacy_object(candidate_id) else {
+            let keep = OBJECT_REGISTRY
+                .with_object(candidate_id, |candidate_guard| {
+                    if candidate_guard.is_destroyed() {
+                        return false;
+                    }
+                    true
+                })
+                .unwrap_or(false);
+            if !keep {
                 continue;
-            };
-            {
-                let Ok(candidate_guard) = candidate_arc.read() else {
-                    continue;
-                };
-                if candidate_guard.is_destroyed() {
-                    continue;
-                }
-                let is_enemy = crate::object::registry::OBJECT_REGISTRY
-                    .with_object(owner_id, |owner_guard| {
-                        owner_guard.relationship_to(&candidate_guard) == Relationship::Enemies
-                    })
-                    .unwrap_or(false);
-                if !is_enemy {
-                    continue;
-                }
+            }
+            let is_enemy = crate::object::registry::OBJECT_REGISTRY
+                .with_object(owner_id, |owner_guard| {
+                    OBJECT_REGISTRY
+                        .with_object(candidate_id, |candidate_guard| {
+                            owner_guard.relationship_to(candidate_guard) == Relationship::Enemies
+                        })
+                        .unwrap_or(false)
+                })
+                .unwrap_or(false);
+            if !is_enemy {
+                continue;
             }
             if let Some(angle_to_target) = self.calculate_angle_to_target(candidate_id) {
                 let angle_diff = Self::normalize_angle(angle_to_target - self.natural_angle).abs();
@@ -1094,7 +1088,7 @@ impl TurretAI {
                 }
             }
             if self.is_target_in_weapon_range(candidate_id) {
-                targets.push(candidate_arc);
+                targets.push(candidate_id);
             }
         }
 
@@ -1102,7 +1096,7 @@ impl TurretAI {
     }
 
     /// Find best target from available targets
-    pub fn find_best_target(&self, targets: &[Arc<RwLock<Object>>]) -> Option<Arc<RwLock<Object>>> {
+    pub fn find_best_target(&self, targets: &[ObjectID]) -> Option<ObjectID> {
         // Wave 276: empty dual-world → None.
         if dual_world_registry_unavailable() {
             return None;
@@ -1112,8 +1106,7 @@ impl TurretAI {
             return None;
         }
 
-        // Simple targeting: closest enemy
-        let mut best_target: Option<Arc<RwLock<Object>>> = None;
+        let mut best_target: Option<ObjectID> = None;
         let mut best_distance_sqr = f32::MAX;
 
         if self.owner_id != crate::common::INVALID_ID {
@@ -1121,14 +1114,14 @@ impl TurretAI {
                 .with_object(self.owner_id, |owner_ref| *owner_ref.get_position())
             {
                 for target in targets {
-                    if let Ok(target_ref) = target.try_read() {
-                        let target_pos = target_ref.get_position();
-                        let dist_sqr = owner_pos.distance_sqr(target_pos);
-
-                        if dist_sqr < best_distance_sqr {
-                            best_distance_sqr = dist_sqr;
-                            best_target = Some(target.clone());
-                        }
+                    let Some(dist_sqr) = OBJECT_REGISTRY.with_object(*target, |target_ref| {
+                        owner_pos.distance_sqr(target_ref.get_position())
+                    }) else {
+                        continue;
+                    };
+                    if dist_sqr < best_distance_sqr {
+                        best_distance_sqr = dist_sqr;
+                        best_target = Some(*target);
                     }
                 }
             }
@@ -1593,18 +1586,18 @@ impl TurretAI {
         }
         if let Some(enemy) = ai_guard.get_next_mood_target(true, true) {
             drop(ai_guard);
-            if let Some(owner_arc) = crate::helpers::TheGameLogic::find_object_by_id(self.owner_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.owner_id))
-            {
-                if let (Ok(mut owner_write), Ok(target_guard)) = (owner_arc.write(), enemy.read()) {
-                    let _ = owner_write.choose_best_weapon_for_target(
-                        &target_guard,
-                        WeaponChoiceCriteria::PreferMostDamage,
-                        crate::common::CommandSourceType::FromAi,
-                    );
-                }
-            }
             let enemy_id = enemy.read().ok().map(|g| g.get_id());
+            if let Some(eid) = enemy_id {
+                let _ = OBJECT_REGISTRY.with_object_mut(self.owner_id, |owner_write| {
+                    let _ = OBJECT_REGISTRY.with_object(eid, |target_guard| {
+                        let _ = owner_write.choose_best_weapon_for_target(
+                            target_guard,
+                            WeaponChoiceCriteria::PreferMostDamage,
+                            crate::common::CommandSourceType::FromAi,
+                        );
+                    });
+                });
+            }
             self.set_current_target_from_idle_mood(enemy_id);
         }
     }
@@ -1620,24 +1613,29 @@ impl TurretAI {
             _ => false,
         };
 
-        let Some(owner_arc) = crate::helpers::TheGameLogic::find_object_by_id(self.owner_id)
-            .or_else(|| OBJECT_REGISTRY.get_object(self.owner_id))
-        else {
+        let Some(has_ai) = OBJECT_REGISTRY.with_object(self.owner_id, |owner| {
+            owner.get_ai_update_interface().is_some()
+        }) else {
             return StateReturnType::Failure;
         };
-        let Ok(owner) = owner_arc.read() else {
-            return StateReturnType::Failure;
-        };
-        if owner.get_ai_update_interface().is_none() {
+        if !has_ai {
             return StateReturnType::Failure;
         }
 
         let mut preventing = false;
         let mut nothing_in_range = false;
         let mut enemy_for_range: Option<ObjectID> = None;
-        let owner_pos = *owner.get_position();
-        let owner_orient = owner.get_orientation();
-        let owner_height = owner.get_geometry_info().get_max_height_above_position();
+        let Some((owner_pos, owner_orient, owner_height)) =
+            OBJECT_REGISTRY.with_object(self.owner_id, |owner| {
+                (
+                    *owner.get_position(),
+                    owner.get_orientation(),
+                    owner.get_geometry_info().get_max_height_above_position(),
+                )
+            })
+        else {
+            return StateReturnType::Failure;
+        };
 
         if kind == TurretTargetKind::Object {
             let Some(tid) = target_id else {
@@ -1650,37 +1648,46 @@ impl TurretAI {
                 }
                 return StateReturnType::Failure;
             };
-            let Some(target_arc) = OBJECT_REGISTRY.get_object(tid) else {
-                if self.target_was_set_by_idle_mood {
-                    self.remove_self_as_targeter();
-                    self.current_target = None;
-                    self.target_kind = TurretTargetKind::None;
-                    self.target_was_set_by_idle_mood = false;
-                    self.goal_sync_pending = true;
-                }
-                return StateReturnType::Failure;
-            };
-            let Ok(target) = target_arc.read() else {
-                return StateReturnType::Failure;
-            };
             let is_primary = self.goal_object_id_cached != crate::common::INVALID_ID
                 && self.goal_object_id_cached == tid;
-            let mut able = owner.is_able_to_attack();
-            if able {
-                let attack_type = if self.is_force_attacking {
-                    AbleToAttackType::ContinuedTargetForced
-                } else {
-                    AbleToAttackType::ContinuedTarget
-                };
-                let cmd = self.last_command_source_cached;
-                able = matches!(
-                    owner.get_able_to_attack_specific_object(attack_type, &target, cmd),
-                    CanAttackResult::Possible | CanAttackResult::PossibleAfterMoving
-                );
-            }
-            nothing_in_range = prechecked_out_of_range;
-            let team_changed = self.victim_initial_team != target.get_team_id();
-            if !able || (!is_primary && nothing_in_range) || team_changed {
+            let attack_type = if self.is_force_attacking {
+                AbleToAttackType::ContinuedTargetForced
+            } else {
+                AbleToAttackType::ContinuedTarget
+            };
+            let cmd = self.last_command_source_cached;
+            let owner_id = self.owner_id;
+            let verdict = OBJECT_REGISTRY.with_object(owner_id, |owner| {
+                OBJECT_REGISTRY.with_object(tid, |target| {
+                    let mut able = owner.is_able_to_attack();
+                    if able {
+                        able = matches!(
+                            owner.get_able_to_attack_specific_object(attack_type, target, cmd),
+                            CanAttackResult::Possible | CanAttackResult::PossibleAfterMoving
+                        );
+                    }
+                    let team_changed = self.victim_initial_team != target.get_team_id();
+                    if !able || (!is_primary && prechecked_out_of_range) || team_changed {
+                        return None;
+                    }
+                    let aim = if target.is_kind_of(KindOf::Bridge) {
+                        let z_center = owner.get_geometry_info().get_z_delta_to_center_position();
+                        Self::nearer_bridge_attack_point(&owner_pos, z_center, tid)
+                            .unwrap_or(*target.get_position())
+                    } else {
+                        *target.get_position()
+                    };
+                    let mut preventing_now = false;
+                    if let Some(enemy_ai) = target.get_ai_update_interface() {
+                        if let Ok(mut enemy_ai) = enemy_ai.lock() {
+                            enemy_ai.add_targeter(owner_id, true);
+                            preventing_now = enemy_ai.is_temporarily_preventing_aim_success();
+                        }
+                    }
+                    Some((aim, preventing_now))
+                })
+            });
+            let Some(Some(Some((aim, preventing_now)))) = verdict else {
                 if self.target_was_set_by_idle_mood {
                     self.remove_self_as_targeter();
                     self.current_target = None;
@@ -1689,53 +1696,51 @@ impl TurretAI {
                     self.goal_sync_pending = true;
                 }
                 return StateReturnType::Failure;
-            }
-            if target.is_kind_of(KindOf::Bridge) {
-                let z_center = owner.get_geometry_info().get_z_delta_to_center_position();
-                if let Some(pt) = Self::nearer_bridge_attack_point(&owner_pos, z_center, tid) {
-                    aim_pos = pt;
-                }
-            } else {
-                aim_pos = *target.get_position();
-            }
-            if let Some(enemy_ai) = target.get_ai_update_interface() {
-                if let Ok(mut enemy_ai) = enemy_ai.lock() {
-                    enemy_ai.add_targeter(self.owner_id, true);
-                    preventing = enemy_ai.is_temporarily_preventing_aim_success();
-                }
-            }
+            };
+            aim_pos = aim;
+            preventing = preventing_now;
+            nothing_in_range = prechecked_out_of_range;
             enemy_for_range = Some(tid);
         }
 
-        let source_id = owner.get_id();
-        let source_radius = owner.get_geometry_info().get_bounding_circle_radius();
-        let source_geom = *owner.get_geometry_info();
-        let mut flags = crate::weapon::helpers::map_common_bonus_flags(owner.get_weapon_bonus_condition());
-        let container = crate::weapon::weapon_bonus::container_passenger_bonus_flags(owner.get_contained_by());
-        flags.union(crate::weapon::helpers::map_common_bonus_flags(container));
-        let Some((weapon, slot)) = owner.get_current_weapon() else {
+        let Some((slot, attack_range, in_range)) =
+            OBJECT_REGISTRY.with_object(self.owner_id, |owner| {
+                let source_radius = owner.get_geometry_info().get_bounding_circle_radius();
+                let source_geom = *owner.get_geometry_info();
+                let mut flags = crate::weapon::helpers::map_common_bonus_flags(
+                    owner.get_weapon_bonus_condition(),
+                );
+                let container = crate::weapon::weapon_bonus::container_passenger_bonus_flags(
+                    owner.get_contained_by(),
+                );
+                flags.union(crate::weapon::helpers::map_common_bonus_flags(container));
+                let (weapon, slot) = owner.get_current_weapon()?;
+                let bonus = weapon.bonus_from_flags(flags);
+                let attack_range = weapon.template.get_attack_range(&bonus);
+                let in_range = if let Some(tid) = enemy_for_range {
+                    weapon.is_within_attack_range_from_source(
+                        &owner_pos,
+                        source_radius,
+                        &source_geom,
+                        &bonus,
+                        Some(tid),
+                        None,
+                    )
+                } else {
+                    weapon.is_within_attack_range_from_source(
+                        &owner_pos,
+                        source_radius,
+                        &source_geom,
+                        &bonus,
+                        None,
+                        Some(&aim_pos),
+                    )
+                };
+                Some((slot, attack_range, in_range))
+            })
+            .flatten()
+        else {
             return StateReturnType::Failure;
-        };
-        let bonus = weapon.bonus_from_flags(flags);
-        let attack_range = weapon.template.get_attack_range(&bonus);
-        let in_range = if let Some(tid) = enemy_for_range {
-            weapon.is_within_attack_range_from_source(
-                &owner_pos,
-                source_radius,
-                &source_geom,
-                &bonus,
-                Some(tid),
-                None,
-            )
-        } else {
-            weapon.is_within_attack_range_from_source(
-                &owner_pos,
-                source_radius,
-                &source_geom,
-                &bonus,
-                None,
-                Some(&aim_pos),
-            )
         };
 
         let rel_angle = Self::relative_angle_2d_to(&owner_pos, owner_orient, &aim_pos);
@@ -1797,36 +1802,36 @@ fn turret_out_of_weapon_range_object(
     let Some(target_id) = target_id else {
         return Ok(false);
     };
-    let owner = crate::helpers::TheGameLogic::find_object_by_id(owner_id)
-        .or_else(|| OBJECT_REGISTRY.get_object(owner_id))
+    let out = OBJECT_REGISTRY
+        .with_object(owner_id, |owner_guard| {
+            let source_pos = *owner_guard.get_position();
+            let source_radius = owner_guard.get_geometry_info().get_bounding_circle_radius();
+            let source_geom = *owner_guard.get_geometry_info();
+            let mut flags = crate::weapon::helpers::map_common_bonus_flags(
+                owner_guard.get_weapon_bonus_condition(),
+            );
+            let container = crate::weapon::weapon_bonus::container_passenger_bonus_flags(
+                owner_guard.get_contained_by(),
+            );
+            flags.union(crate::weapon::helpers::map_common_bonus_flags(container));
+            let Some((weapon, _slot)) = owner_guard.get_current_weapon() else {
+                return Ok(false);
+            };
+            if weapon.has_leech_range() {
+                return Ok(false);
+            }
+            let bonus = weapon.bonus_from_flags(flags);
+            Ok(!weapon.is_within_attack_range_from_source(
+                &source_pos,
+                source_radius,
+                &source_geom,
+                &bonus,
+                Some(target_id),
+                None,
+            ))
+        })
         .ok_or_else(|| "turret fire missing owner".to_string())?;
-    let owner_guard = owner
-        .read()
-        .map_err(|_| "turret fire owner lock poisoned".to_string())?;
-    let source_pos = *owner_guard.get_position();
-    let source_radius = owner_guard.get_geometry_info().get_bounding_circle_radius();
-    let source_geom = *owner_guard.get_geometry_info();
-    let mut flags =
-        crate::weapon::helpers::map_common_bonus_flags(owner_guard.get_weapon_bonus_condition());
-    let container = crate::weapon::weapon_bonus::container_passenger_bonus_flags(
-        owner_guard.get_contained_by(),
-    );
-    flags.union(crate::weapon::helpers::map_common_bonus_flags(container));
-    let Some((weapon, _slot)) = owner_guard.get_current_weapon() else {
-        return Ok(false);
-    };
-    if weapon.has_leech_range() {
-        return Ok(false);
-    }
-    let bonus = weapon.bonus_from_flags(flags);
-    Ok(!weapon.is_within_attack_range_from_source(
-        &source_pos,
-        source_radius,
-        &source_geom,
-        &bonus,
-        Some(target_id),
-        None,
-    ))
+    out
 }
 
 // PROOF-KEPT SITE (ownership migration): `base: Arc<Mutex<StateMachine>>`,
@@ -2051,11 +2056,13 @@ impl TurretState {
         Ok(self.shared.turret_ai())
     }
 
-    fn owner_arc(&self) -> Option<Arc<RwLock<Object>>> {
+    fn owner_arc(&self) -> Option<ObjectID> {
         let turret = self.turret_ai_lock().ok().flatten()?;
         let owner_id = turret.lock().ok()?.owner_id;
-        crate::helpers::TheGameLogic::find_object_by_id(owner_id)
-            .or_else(|| OBJECT_REGISTRY.get_object(owner_id))
+        if owner_id == crate::common::INVALID_ID {
+            return None;
+        }
+        Some(owner_id)
     }
 
     fn state(&self) -> &State {
@@ -2284,14 +2291,16 @@ impl ClassicState for TurretAIIdleScanState {
     }
 
     fn classic_on_update(&mut self) -> Result<StateReturnType, String> {
-        if let Some(owner) = self.base.owner_arc() {
-            if let Ok(owner) = owner.read() {
-                if owner
-                    .get_status_bits()
-                    .test(ObjectStatusTypes::UnderConstruction)
-                {
-                    return Ok(StateReturnType::Continue);
-                }
+        if let Some(owner_id) = self.base.owner_arc() {
+            let under = OBJECT_REGISTRY
+                .with_object(owner_id, |owner| {
+                    owner
+                        .get_status_bits()
+                        .test(ObjectStatusTypes::UnderConstruction)
+                })
+                .unwrap_or(false);
+            if under {
+                return Ok(StateReturnType::Continue);
             }
         }
         if let Some(turret_ai) = self.base.turret_ai_lock()? {
@@ -2445,8 +2454,8 @@ impl ClassicState for TurretAIFireWeaponState {
         if !attack_ok {
             return Ok(StateReturnType::Failure);
         }
-        if let Some(owner) = self.base.owner_arc() {
-            if let Ok(mut owner_guard) = owner.try_write() {
+        if let Some(owner_id) = self.base.owner_arc() {
+            let _ = OBJECT_REGISTRY.with_object_mut(owner_id, |owner_guard| {
                 if let Some(victim_id) = victim {
                     if let Some(team_arc) = owner_guard.get_team() {
                         if let Ok(mut team) = team_arc.write() {
@@ -2459,7 +2468,7 @@ impl ClassicState for TurretAIFireWeaponState {
                 }
                 owner_guard.set_firing_condition_for_current_weapon();
                 owner_guard.pre_fire_current_weapon(victim);
-            }
+            });
         }
         Ok(StateReturnType::Continue)
     }
@@ -2489,9 +2498,8 @@ impl ClassicState for TurretAIFireWeaponState {
 
             if let Some(target) = target_opt {
                 // Check if target is still valid
-                let target_dead = target
-                    .try_read()
-                    .map(|guard| guard.is_effectively_dead())
+                let target_dead = OBJECT_REGISTRY
+                    .with_object(target, |guard| guard.is_effectively_dead())
                     .unwrap_or(false);
 
                 if target_dead {
@@ -2506,14 +2514,14 @@ impl ClassicState for TurretAIFireWeaponState {
                             .lock()
                             .map(|t| {
                                 t.can_fire_at_target(
-                                    target.read().ok().map(|g| g.get_id()).unwrap_or(0),
+                                    target,
                                 )
                             })
                             .unwrap_or(false);
 
                         if can_fire {
                             // Fire weapon - matches C++ AIAttackFireWeaponState::update() from AIStates.cpp:5169
-                            if let Ok(mut owner_guard) = owner_arc.try_write() {
+                            if let Some(res) = OBJECT_REGISTRY.with_object_mut(owner_arc, |owner_guard| {
                                 // Temporarily take weapon_set to avoid aliasing issues
                                 let mut weapon_set = std::mem::take(&mut owner_guard.weapon_set);
 
@@ -2550,7 +2558,7 @@ impl ClassicState for TurretAIFireWeaponState {
                                         owner_guard.set_firing_condition_for_current_weapon();
                                         weapon_set.apply_pending_shared_fire();
                                         owner_guard.weapon_set = weapon_set;
-                                        let target_id = target.try_read().ok().map(|guard| guard.get_id());
+                                        let target_id = Some(target);
                                         let owner_id = owner_guard.get_id();
                                         if let Some(target_id) = target_id {
                                             let _ = owner_guard.fire_current_weapon_at_target_id(target_id);
@@ -2563,7 +2571,7 @@ impl ClassicState for TurretAIFireWeaponState {
                                         if let Ok(mut turret_guard) = turret_ai_arc.lock() {
                                             turret_guard.set_did_fire(true);
                                         }
-                                        drop(owner_guard);
+
                                         if let Some(target_id) = target_id {
                                             if let Some(current) =
                                                 crate::object::unit::unit_attack_target(owner_id)
@@ -2589,8 +2597,8 @@ impl ClassicState for TurretAIFireWeaponState {
                                     owner_guard.weapon_set = weapon_set;
                                     return Ok(StateReturnType::Failure);
                                 }
-                            } else {
-                                return Ok(StateReturnType::Continue);
+                            }) {
+                                return res;
                             }
                         } else {
                             // Can't fire (out of range, not aimed, etc.), transition to Aim
@@ -2606,7 +2614,7 @@ impl ClassicState for TurretAIFireWeaponState {
                     .filter(|_| t.target_kind == TurretTargetKind::Position)
             }) {
                 if let Some(owner_arc) = self.base.owner_arc() {
-                    if let Ok(mut owner_guard) = owner_arc.try_write() {
+                    if let Some(res) = OBJECT_REGISTRY.with_object_mut(owner_arc, |owner_guard| {
                         let mut weapon_set = std::mem::take(&mut owner_guard.weapon_set);
                         let Some(current_slot) =
                             weapon_set.get_current_weapon().map(|(_, slot)| slot)
@@ -2663,8 +2671,8 @@ impl ClassicState for TurretAIFireWeaponState {
                             owner_guard.weapon_set = weapon_set;
                             return Ok(StateReturnType::Failure);
                         }
-                    } else {
-                        return Ok(StateReturnType::Continue);
+                    }) {
+                        return res;
                     }
                 }
                 return Ok(StateReturnType::Failure);
@@ -2680,8 +2688,8 @@ impl ClassicState for TurretAIFireWeaponState {
     }
 
     fn classic_on_exit(&mut self, _exit: StateExitType) -> Result<(), String> {
-        if let Some(owner) = self.base.owner_arc() {
-            if let Ok(mut owner_guard) = owner.write() {
+        if let Some(owner_id) = self.base.owner_arc() {
+            let _ = OBJECT_REGISTRY.with_object_mut(owner_id, |owner_guard| {
                 owner_guard.clear_status(
                     crate::common::ObjectStatusMaskType::from_status(
                         crate::object::ObjectStatusTypes::IsFiringWeapon,
@@ -2700,7 +2708,7 @@ impl ClassicState for TurretAIFireWeaponState {
                 {
                     owner_guard.cancel_pre_attack_for_current_weapon();
                 }
-            }
+            });
         }
         Ok(())
     }
@@ -2756,14 +2764,16 @@ impl ClassicState for TurretAIRecenterTurretState {
     }
 
     fn classic_on_update(&mut self) -> Result<StateReturnType, String> {
-        if let Some(owner) = self.base.owner_arc() {
-            if let Ok(owner) = owner.read() {
-                if owner
-                    .get_status_bits()
-                    .test(ObjectStatusTypes::UnderConstruction)
-                {
-                    return Ok(StateReturnType::Continue);
-                }
+        if let Some(owner_id) = self.base.owner_arc() {
+            let under = OBJECT_REGISTRY
+                .with_object(owner_id, |owner| {
+                    owner
+                        .get_status_bits()
+                        .test(ObjectStatusTypes::UnderConstruction)
+                })
+                .unwrap_or(false);
+            if under {
+                return Ok(StateReturnType::Continue);
             }
         }
         if let Some(turret_ai) = self.base.turret_ai_lock()? {

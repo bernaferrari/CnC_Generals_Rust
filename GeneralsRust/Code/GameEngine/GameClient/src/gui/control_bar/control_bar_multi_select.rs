@@ -78,19 +78,19 @@ pub(super) fn populate_multi_select_commands(
     let mut saw_first_drawable = false;
 
     for object_id in &context.selected_objects {
-        let Some(object_arc) = OBJECT_REGISTRY.get_object(*object_id) else {
+        let command_set_name = OBJECT_REGISTRY.with_object(*object_id, |object| {
+            if object.is_kind_of(KindOf::IgnoredInGui) || object.test_status(OBJECT_STATUS_SOLD) {
+                return None;
+            }
+            Some(object.get_command_set_string().to_string())
+        });
+        let Some(command_set_name) = command_set_name else {
+            continue;
+        };
+        let Some(command_set_name) = command_set_name else {
             continue;
         };
 
-        let Ok(object) = object_arc.read() else {
-            continue;
-        };
-
-        if object.is_kind_of(KindOf::IgnoredInGui) || object.test_status(OBJECT_STATUS_SOLD) {
-            continue;
-        }
-
-        let command_set_name = object.get_command_set_string().to_string();
         let command_set = control_bar
             .find_command_set_by_name(&command_set_name)
             .or_else(|| {
