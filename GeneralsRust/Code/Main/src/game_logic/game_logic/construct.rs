@@ -668,7 +668,6 @@ impl GameLogic {
             pending_radar_movie: None,
             mission_objectives: Self::seed_sample_objectives(),
             objective_lookup: HashMap::new(),
-            campaign_manager: global_campaign_manager().ok(),
             last_map_settings: None,
             spawned_map_object_ids: Vec::new(),
             terrain: None,

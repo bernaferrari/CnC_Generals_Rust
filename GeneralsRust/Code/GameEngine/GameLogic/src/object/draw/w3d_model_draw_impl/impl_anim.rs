@@ -264,18 +264,15 @@ impl W3DModelDraw {
                 if let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(owner_id) {
                     if let Ok(obj_guard) = obj.read() {
                         if let Some(ai) = obj_guard.get_ai_update_interface() {
-                            if let Ok(ai_guard) = ai.lock() {
-                                let turret_type = if index == 0 {
-                                    TurretType::Primary
-                                } else {
-                                    TurretType::Secondary
-                                };
-                                if let Some((angle, pitch)) =
-                                    ai_guard.get_turret_rot_and_pitch(turret_type)
-                                {
-                                    turret_angle = angle;
-                                    turret_pitch = pitch;
-                                }
+                            let turret_type = if index == 0 {
+                                TurretType::Primary
+                            } else {
+                                TurretType::Secondary
+                            };
+                            if let Some((angle, pitch)) = ai.get_turret_rot_and_pitch(turret_type)
+                            {
+                                turret_angle = angle;
+                                turret_pitch = pitch;
                             }
                         }
                     }
@@ -745,15 +742,12 @@ impl W3DModelDraw {
         let Some(ai) = obj_guard.get_ai_update_interface() else {
             return (angle, pitch);
         };
-        let Ok(ai_guard) = ai.lock() else {
-            return (angle, pitch);
-        };
         let turret_type = if turret_index == 0 {
             TurretType::Primary
         } else {
             TurretType::Secondary
         };
-        if let Some((a, p)) = ai_guard.get_turret_rot_and_pitch(turret_type) {
+        if let Some((a, p)) = ai.get_turret_rot_and_pitch(turret_type) {
             angle = a;
             pitch = p;
         }

@@ -412,7 +412,7 @@ mod template_locomotor;
 mod update_modules;
 
 pub use contain::{ContainModuleDataAdapter, ContainModuleDataKind};
-pub(crate) use helpers::ActiveBehaviorModule;
+pub(crate) use helpers::{ActiveBehaviorModule, is_contain_binding};
 pub use install::ensure_module_overrides_installed;
 
 /// Concatenated live sources for residual `include_str!` scans.

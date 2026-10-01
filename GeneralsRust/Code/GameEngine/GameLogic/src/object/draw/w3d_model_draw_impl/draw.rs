@@ -791,10 +791,7 @@ impl W3DModelDraw {
         let Some(physics) = obj_guard.get_physics() else {
             return;
         };
-        let Ok(physics_guard) = physics.lock() else {
-            return;
-        };
-        let speed = physics_guard.get_velocity().length();
+        let speed = physics.get_velocity().length();
         if speed <= 0.0 {
             return;
         }

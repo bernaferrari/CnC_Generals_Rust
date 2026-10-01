@@ -191,7 +191,7 @@ pub(crate) fn retaliate_nearby_friends(victim: &Object, damager: &Object) {
         if friend_id == victim.get_id() || friend_id == damager_id {
             continue;
         }
-        let _ = OBJECT_REGISTRY.with_object(friend_id, |them| {
+        let _ = OBJECT_REGISTRY.with_object_mut(friend_id, |them| {
             if them.is_off_map() {
                 return;
             }
@@ -204,9 +204,9 @@ pub(crate) fn retaliate_nearby_friends(victim: &Object, damager: &Object) {
             if them.is_kind_of(KindOf::Immobile) {
                 return;
             }
-            let Some(ai) = them.get_ai() else {
+            if them.get_ai().is_none() {
                 return;
-            };
+            }
             let can_attack = matches!(
                 them.get_able_to_attack_specific_object(
                     AbleToAttackType::NewTarget,
@@ -216,12 +216,15 @@ pub(crate) fn retaliate_nearby_friends(victim: &Object, damager: &Object) {
                 CanAttackResult::Possible | CanAttackResult::PossibleAfterMoving
             );
             if can_attack {
-                ai.ai_guard_retaliate(
-                    damager_id,
-                    them.get_position(),
-                    i32::MAX,
-                    CommandSourceType::FromAi,
-                );
+                let pos = *them.get_position();
+                if let Some(ai) = them.get_ai_mut() {
+                    ai.ai_guard_retaliate(
+                        damager_id,
+                        &pos,
+                        i32::MAX,
+                        CommandSourceType::FromAi,
+                    );
+                }
             }
         });
     }
@@ -1150,18 +1153,17 @@ impl ActiveBody {
         let Some(owner) = self.get_owner() else {
             return;
         };
-        let Ok(owner_guard) = owner.read() else {
+        // try_write: the body runs under the owner's write guard, so a
+        // blocking acquisition here would self-deadlock.
+        let Ok(mut owner_guard) = owner.try_write() else {
             return;
         };
         if !owner_guard.is_kind_of(KindOf::Bridge) {
             return;
         }
         let mut tower_ids = Vec::new();
-        for behavior in owner_guard.get_behavior_modules() {
-            let Ok(mut guard) = behavior.lock() else {
-                continue;
-            };
-            if let Some(interface) = guard.get_bridge_behavior_interface() {
+        for behavior in owner_guard.get_behavior_modules_mut() {
+            if let Some(interface) = behavior.get_bridge_behavior_interface() {
                 for tower_type in [
                     BridgeTowerType::North,
                     BridgeTowerType::South,
@@ -1178,11 +1180,9 @@ impl ActiveBody {
         }
         drop(owner_guard);
         for id in tower_ids {
-            let _ = OBJECT_REGISTRY.with_object(id, |tower| {
-                if let Some(body) = tower.get_body() {
-                    if let Ok(mut body_guard) = body.lock() {
-                        let _ = body_guard.set_indestructible(indestructible);
-                    }
+            let _ = OBJECT_REGISTRY.with_object_mut(id, |tower| {
+                if let Some(body) = tower.get_body_mut() {
+                    let _ = body.set_indestructible(indestructible);
                 }
             });
         }
@@ -1195,16 +1195,13 @@ impl ActiveBody {
         let Some(owner) = self.get_owner() else {
             return;
         };
-        let behaviors = match owner.try_read() {
-            Ok(owner_guard) => owner_guard.get_behavior_modules(),
-            Err(_) => return,
+        let Ok(mut owner_guard) = owner.try_write() else {
+            return;
         };
 
-        for behavior in behaviors {
-            if let Ok(mut behavior_guard) = behavior.lock() {
-                if let Some(damage_module) = behavior_guard.get_damage() {
-                    f(damage_module);
-                }
+        for behavior in owner_guard.get_behavior_modules_mut() {
+            if let Some(damage_module) = behavior.get_damage() {
+                f(damage_module);
             }
         }
     }
@@ -1216,14 +1213,11 @@ impl ActiveBody {
         let Some(owner) = self.get_owner() else {
             return;
         };
-        let contain = match owner.try_read() {
-            Ok(owner_guard) => owner_guard.get_contain(),
-            Err(_) => return,
+        let Ok(mut owner_guard) = owner.try_write() else {
+            return;
         };
-        if let Some(contain) = contain {
-            if let Ok(mut contain_guard) = contain.lock() {
-                f(&mut *contain_guard);
-            }
+        if let Some(contain) = owner_guard.get_contain_mut() {
+            f(contain);
         }
     }
 
@@ -1404,33 +1398,25 @@ impl ActiveBody {
                 if !obj.is_kind_of(crate::common::KindOf::Projectile) {
                     if is_now_subdued {
                         obj.set_disabled(crate::common::DisabledType::DisabledSubdued);
-                        if let Some(contain) = obj.get_contain() {
-                            if let Ok(mut contain_guard) = contain.lock() {
-                                let _ = contain_guard
-                                    .order_all_passengers_to_idle(CommandSourceType::FromAi);
-                            }
+                        if let Some(contain) = obj.get_contain_mut() {
+                            let _ =
+                                contain.order_all_passengers_to_idle(CommandSourceType::FromAi);
                         }
                     } else {
                         obj.clear_disabled(crate::common::DisabledType::DisabledSubdued);
                         if obj.is_kind_of(crate::common::KindOf::FSInternetCenter) {
-                            if let Some(contain) = obj.get_contain() {
-                                if let Ok(mut contain_guard) = contain.lock() {
-                                    let _ = contain_guard.order_all_passengers_to_hack_internet(
-                                        CommandSourceType::FromAi,
-                                    );
-                                }
+                            if let Some(contain) = obj.get_contain_mut() {
+                                let _ = contain.order_all_passengers_to_hack_internet(
+                                    CommandSourceType::FromAi,
+                                );
                             }
                         }
                     }
                 } else if is_now_subdued {
-                    for behavior in obj.get_behavior_modules() {
-                        if let Ok(mut behavior_guard) = behavior.lock() {
-                            if let Some(projectile) =
-                                behavior_guard.get_projectile_update_interface()
-                            {
-                                projectile.projectile_now_jammed();
-                                break;
-                            }
+                    for behavior in obj.get_behavior_modules_mut() {
+                        if let Some(projectile) = behavior.get_projectile_update_interface() {
+                            projectile.projectile_now_jammed();
+                            break;
                         }
                     }
                 }
@@ -1548,18 +1534,17 @@ impl ActiveBody {
                         if obj.is_kind_of(crate::common::KindOf::Vehicle) {
                             let rider_change = obj
                                 .get_contain()
-                                .and_then(|contain| {
-                                    contain.lock().ok().map(|g| g.is_rider_change_contain())
-                                })
+                                .map(|contain| contain.is_rider_change_contain())
                                 .unwrap_or(false);
                             if rider_change {
                                 if obj.is_moving() {
                                     kill_vehicle = true;
                                 } else {
                                     kill_rider = obj.get_contain().and_then(|contain| {
-                                        contain.lock().ok().and_then(|g| {
-                                            g.get_contained_objects().first().copied()
-                                        })
+                                        contain
+                                            .get_contained_objects()
+                                            .first()
+                                            .copied()
                                     });
                                     evacuate = true;
                                 }
@@ -1585,16 +1570,14 @@ impl ActiveBody {
                         });
                     } else {
                         if evacuate {
-                            if let Ok(obj) = owner.read() {
-                                if let Some(ai) = obj.get_ai() {
-                                    if let Ok(mut ai_guard) = ai.lock() {
-                                        let mut params = crate::ai::AiCommandParams::new(
-                                            crate::ai::AiCommandType::EvacuateInstantly,
-                                            CommandSourceType::FromAi,
-                                        );
-                                        params.int_value = 1;
-                                        let _ = ai_guard.execute_command(&params);
-                                    }
+                            if let Ok(mut obj) = owner.write() {
+                                if let Some(ai) = obj.get_ai_mut() {
+                                    let mut params = crate::ai::AiCommandParams::new(
+                                        crate::ai::AiCommandType::EvacuateInstantly,
+                                        CommandSourceType::FromAi,
+                                    );
+                                    params.int_value = 1;
+                                    let _ = ai.execute_command(&params);
                                 }
                             }
                         }
@@ -1619,41 +1602,39 @@ impl ActiveBody {
             DamageType::KillGarrisoned => {
                 // C++ parity: only garrisonable, non-immune containers are affected.
                 if let Some(owner) = self.get_owner() {
-                    if let Ok(obj) = owner.write() {
-                        if let Some(contain) = obj.get_contain() {
-                            if let Ok(mut cont) = contain.lock() {
-                                if cont.get_contained_count() > 0
-                                    && cont.is_garrisonable()
-                                    && !cont.is_immune_to_clear_building_attacks()
-                                {
-                                    let kills_to_make = damage_info.input.amount.floor() as i32;
-                                    let ids: Vec<ObjectId> =
-                                        cont.get_contained_objects().into_owned();
-                                    let mut kills_made = 0;
-                                    for id in ids {
-                                        if kills_made >= kills_to_make {
-                                            break;
-                                        }
-                                        let source_id = damage_info.input.source_id;
-                                        if OBJECT_REGISTRY
-                                            .with_object_mut(id, |victim| {
-                                                if victim.is_effectively_dead() {
-                                                    return false;
-                                                }
-                                                let _ = OBJECT_REGISTRY.with_object_mut(
-                                                    source_id,
-                                                    |dam| {
-                                                        dam.score_the_kill(victim);
-                                                    },
-                                                );
-                                                record_cleared_garrison_for_object(victim);
-                                                victim.kill(None, None);
-                                                true
-                                            })
-                                            .unwrap_or(false)
-                                        {
-                                            kills_made += 1;
-                                        }
+                    if let Ok(mut obj) = owner.write() {
+                        if let Some(cont) = obj.get_contain_mut() {
+                            if cont.get_contained_count() > 0
+                                && cont.is_garrisonable()
+                                && !cont.is_immune_to_clear_building_attacks()
+                            {
+                                let kills_to_make = damage_info.input.amount.floor() as i32;
+                                let ids: Vec<ObjectId> =
+                                    cont.get_contained_objects().into_owned();
+                                let mut kills_made = 0;
+                                for id in ids {
+                                    if kills_made >= kills_to_make {
+                                        break;
+                                    }
+                                    let source_id = damage_info.input.source_id;
+                                    if OBJECT_REGISTRY
+                                        .with_object_mut(id, |victim| {
+                                            if victim.is_effectively_dead() {
+                                                return false;
+                                            }
+                                            let _ = OBJECT_REGISTRY.with_object_mut(
+                                                source_id,
+                                                |dam| {
+                                                    dam.score_the_kill(victim);
+                                                },
+                                            );
+                                            record_cleared_garrison_for_object(victim);
+                                            victim.kill(None, None);
+                                            true
+                                        })
+                                        .unwrap_or(false)
+                                    {
+                                        kills_made += 1;
                                     }
                                 }
                             }
@@ -2010,13 +1991,11 @@ impl BodyModuleInterface for ActiveBody {
                 if let Some(owner) = self.get_owner() {
                     if let Ok(owner_guard) = owner.read() {
                         if let Some(contain) = owner_guard.get_contain() {
-                            if let Ok(contain_guard) = contain.lock() {
-                                if contain_guard.get_contained_count() > 0
-                                    && contain_guard.is_garrisonable()
-                                    && !contain_guard.is_immune_to_clear_building_attacks()
-                                {
-                                    return Ok(1.0);
-                                }
+                            if contain.get_contained_count() > 0
+                                && contain.is_garrisonable()
+                                && !contain.is_immune_to_clear_building_attacks()
+                            {
+                                return Ok(1.0);
                             }
                         }
                     }
@@ -3185,15 +3164,11 @@ mod death_flooded_tests {
         let mut template = crate::common::DefaultThingTemplate::new(format!("Veh{id}"));
         template.add_kind_of(crate::common::KindOf::Vehicle);
         let mut obj = Object::new_test_from_template(id, 100.0, std::sync::Arc::new(template));
-        obj.set_contain(Some(std::sync::Arc::new(std::sync::Mutex::new(
-            TestContain {
-                ids: occupants,
-                rider_change,
-            },
-        ))));
-        obj.set_ai_update_interface(Some(std::sync::Arc::new(std::sync::Mutex::new(TestAi {
-            moving,
-        }))));
+        obj.set_contain(Some(Box::new(TestContain {
+            ids: occupants,
+            rider_change,
+        })));
+        obj.set_ai_update_interface(Some(Box::new(TestAi { moving })));
         let arc = std::sync::Arc::new(std::sync::RwLock::new(obj));
         OBJECT_REGISTRY.register_object(id, &arc);
         arc

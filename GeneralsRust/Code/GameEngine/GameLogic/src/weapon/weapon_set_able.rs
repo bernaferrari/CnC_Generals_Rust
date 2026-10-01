@@ -574,14 +574,40 @@ fn spawn_slave_result(
     };
 
     let victim_arc = crate::helpers::TheGameLogic::find_object_by_id(target_id)?;
-    let spawn = spawn_guard.get_spawn_behavior_full_interface()?;
+    // Snapshot the slave ids and release the spawn-module guard before the
+    // per-slave weapon checks (drop-first discipline, matching the ground
+    // branch above): the checks re-enter object/spawn-behavior state and must
+    // not run under a live module guard. Mirrors the spawn-behavior
+    // implementation's loop (spawn_behavior.rs get_can_any_slaves_...).
+    let spawn = spawn_guard.get_spawn_behavior_interface()?;
+    let ids: Vec<ObjectID> = (0..spawn.get_spawn_count())
+        .filter_map(|i| spawn.get_spawn_object(i))
+        .collect();
+    drop(spawn_guard);
     let victim_guard = victim_arc.read().ok()?;
-    Some(spawn.get_can_any_slaves_use_weapon_against_target(
-        attack_type,
-        &victim_guard,
-        pos,
-        command_source,
-    ))
+    let mut invalid_shot = false;
+    for spawn_id in ids {
+        let result = crate::object::registry::OBJECT_REGISTRY.with_object(spawn_id, |slave| {
+            slave.get_able_to_use_weapon_against_target(
+                attack_type,
+                &victim_guard,
+                pos,
+                command_source,
+            )
+        });
+        match result {
+            Some(CanAttackResult::Possible) | Some(CanAttackResult::PossibleAfterMoving) => {
+                return result;
+            }
+            Some(CanAttackResult::InvalidShot) => invalid_shot = true,
+            _ => {}
+        }
+    }
+    Some(if invalid_shot {
+        CanAttackResult::InvalidShot
+    } else {
+        CanAttackResult::NotPossible
+    })
 }
 
 fn spawn_slave_ground_result(

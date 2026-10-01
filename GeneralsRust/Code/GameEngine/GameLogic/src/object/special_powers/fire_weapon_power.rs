@@ -25,35 +25,25 @@ use crate::helpers::TheGameLogic;
 use crate::modules::{AIUpdateInterfaceExt, BehaviorModuleInterface};
 use crate::object::special_power_module::SpecialPowerModuleData;
 
-fn aim_turrets_at_position(
-    ai: &std::sync::Arc<std::sync::Mutex<dyn crate::modules::AIUpdateInterface>>,
-    loc: &Coord3D,
-) {
-    if let Ok(mut guard) = ai.lock() {
-        for i in 0..MAX_TURRETS {
-            let turret = match i {
-                0 => crate::common::TurretType::Primary,
-                1 => crate::common::TurretType::Secondary,
-                _ => continue,
-            };
-            guard.set_turret_target_position(turret, loc);
-        }
+fn aim_turrets_at_position(ai: &mut dyn crate::modules::AIUpdateInterface, loc: &Coord3D) {
+    for i in 0..MAX_TURRETS {
+        let turret = match i {
+            0 => crate::common::TurretType::Primary,
+            1 => crate::common::TurretType::Secondary,
+            _ => continue,
+        };
+        ai.set_turret_target_position(turret, loc);
     }
 }
 
-fn aim_turrets_at_object(
-    ai: &std::sync::Arc<std::sync::Mutex<dyn crate::modules::AIUpdateInterface>>,
-    obj_id: ObjectID,
-) {
-    if let Ok(mut guard) = ai.lock() {
-        for i in 0..MAX_TURRETS {
-            let turret = match i {
-                0 => crate::common::TurretType::Primary,
-                1 => crate::common::TurretType::Secondary,
-                _ => continue,
-            };
-            guard.set_turret_target_object(turret, Some(obj_id), false);
-        }
+fn aim_turrets_at_object(ai: &mut dyn crate::modules::AIUpdateInterface, obj_id: ObjectID) {
+    for i in 0..MAX_TURRETS {
+        let turret = match i {
+            0 => crate::common::TurretType::Primary,
+            1 => crate::common::TurretType::Secondary,
+            _ => continue,
+        };
+        ai.set_turret_target_object(turret, Some(obj_id), false);
     }
 }
 
@@ -146,14 +136,14 @@ impl FireWeaponPower {
             let _ = owner_guard.reload_all_ammo(true);
         }
 
-        if let Ok(owner_guard) = owner.read() {
-            if let Some(ai) = owner_guard.get_ai_update_interface() {
+        if let Ok(mut owner_guard) = owner.write() {
+            if let Some(ai) = owner_guard.get_ai_update_interface_mut() {
                 ai.ai_attack_position(
                     loc,
                     self.data.max_shots_to_fire as i32,
                     CommandSourceType::FromAi,
                 );
-                aim_turrets_at_position(&ai, loc);
+                aim_turrets_at_position(ai, loc);
             }
         }
     }
@@ -195,14 +185,14 @@ impl FireWeaponPower {
 
         // Get AI and issue attack object command via AIUpdateInterfaceExt
         // C++: ai->aiAttackObject(obj, maxShotsToFire, CMD_FROM_AI)
-        if let Ok(owner_guard) = owner.read() {
-            if let Some(ai) = owner_guard.get_ai_update_interface() {
+        if let Ok(mut owner_guard) = owner.write() {
+            if let Some(ai) = owner_guard.get_ai_update_interface_mut() {
                 ai.ai_attack_object_id(
                     obj_id,
                     self.data.max_shots_to_fire as i32,
                     CommandSourceType::FromAi,
                 );
-                aim_turrets_at_object(&ai, obj_id);
+                aim_turrets_at_object(ai, obj_id);
             }
         }
 

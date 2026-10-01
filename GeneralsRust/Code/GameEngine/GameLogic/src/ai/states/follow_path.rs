@@ -183,11 +183,6 @@ impl AIFollowPathState {
 
     pub(crate) fn set_goal_position(&mut self, pos: Coord3D) {
         self.base.goal_position = pos;
-        if let Ok(machine) = self.base.base.get_machine() {
-            if let Ok(mut guard) = machine.try_lock() {
-                guard.set_goal_position(pos);
-            }
-        }
     }
 
     pub(crate) fn configure_segment(
@@ -514,11 +509,6 @@ impl AIFollowPathState {
         &mut self,
         mut borrowed: Option<&mut dyn crate::modules::AIUpdateInterface>,
     ) -> Result<StateReturnType, String> {
-        if let Ok(machine) = self.base.base.get_machine() {
-            if let Ok(mut guard) = machine.try_lock() {
-                guard.set_goal_position(self.base.goal_position);
-            }
-        }
         let status = if let Some(ai) = borrowed.as_mut() {
             self.base.classic_on_update_with_ai(*ai)?
         } else {

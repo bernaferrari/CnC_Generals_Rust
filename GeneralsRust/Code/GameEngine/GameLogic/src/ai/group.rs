@@ -591,11 +591,9 @@ impl AIGroup {
                     extra_margin = extra_margin.max(obj.get_geometry_info().get_major_radius());
                 } else if obj.is_kind_of(KindOf::Aircraft) {
                     if let Some(ai) = obj.get_ai_update_interface() {
-                        if let Ok(ai_guard) = ai.lock() {
-                            if !ai_guard.is_doing_ground_movement() {
-                                tighten_group = false;
-                                is_formation = false;
-                            }
+                        if !ai.is_doing_ground_movement() {
+                            tighten_group = false;
+                            is_formation = false;
                         }
                     }
                     extra_margin = extra_margin.max(STD_AIRCRAFT_EXTRA_MARGIN);
@@ -643,12 +641,10 @@ impl AIGroup {
                     }
                     if did_vehicles && obj.is_kind_of(KindOf::Vehicle) {
                         if let Some(ai) = obj.get_ai_update_interface() {
-                            if let Ok(ai_guard) = ai.lock() {
-                                if ai_guard.is_doing_ground_movement()
-                                    && !obj.is_kind_of(KindOf::CliffJumper)
-                                {
-                                    return None;
-                                }
+                            if ai.is_doing_ground_movement()
+                                && !obj.is_kind_of(KindOf::CliffJumper)
+                            {
+                                return None;
                             }
                         }
                     }
@@ -694,29 +690,31 @@ impl AIGroup {
                 continue;
             };
 
-            let _ = OBJECT_REGISTRY.with_object(member_id, |obj| {
-                let Some(ai) = obj.get_ai_update_interface() else {
-                    return;
-                };
-                if matches!(cmd_source, CommandSourceType::FromPlayer)
+            let _ = OBJECT_REGISTRY.with_object_mut(member_id, |obj| {
+                let wants_stealth_delay = matches!(cmd_source, CommandSourceType::FromPlayer)
                     && obj.test_status(ObjectStatusTypes::CanStealth)
                     && !obj.test_status(ObjectStatusTypes::Stealthed)
-                    && !obj.test_status(ObjectStatusTypes::Detected)
-                {
-                    if let Some(stealth) = obj.get_stealth() {
-                        if let (Ok(stealth_guard), Ok(mut ai_guard)) = (stealth.lock(), ai.lock())
+                    && !obj.test_status(ObjectStatusTypes::Detected);
+                let stealth_handle = if wants_stealth_delay {
+                    obj.get_stealth()
+                } else {
+                    None
+                };
+                let Some(ai) = obj.get_ai_update_interface_mut() else {
+                    return;
+                };
+                if let Some(stealth) = stealth_handle {
+                    if let Ok(stealth_guard) = stealth.lock() {
+                        if ai.can_auto_acquire()
+                            && !stealth_guard.is_granted_by_special_power()
+                            && !ai.can_auto_acquire_while_stealthed()
                         {
-                            if ai_guard.can_auto_acquire()
-                                && !stealth_guard.is_granted_by_special_power()
-                                && !ai_guard.can_auto_acquire_while_stealthed()
-                            {
-                                let stealth_frames = stealth_guard.get_stealth_delay();
-                                let random_frames =
-                                    GameLogicRandomValue(0, LOGICFRAMES_PER_SECOND as i32) as u32;
-                                ai_guard.set_next_mood_check_time(
-                                    TheGameLogic::get_frame() + stealth_frames + random_frames,
-                                );
-                            }
+                            let stealth_frames = stealth_guard.get_stealth_delay();
+                            let random_frames =
+                                GameLogicRandomValue(0, LOGICFRAMES_PER_SECOND as i32) as u32;
+                            ai.set_next_mood_check_time(
+                                TheGameLogic::get_frame() + stealth_frames + random_frames,
+                            );
                         }
                     }
                 }
@@ -766,8 +764,8 @@ impl AIGroup {
 
         let mut heli_idx = 0i32;
         for (member_id, _) in movers {
-            let _ = OBJECT_REGISTRY.with_object(member_id, |obj| {
-                let Some(ai) = obj.get_ai_update_interface() else {
+            let _ = OBJECT_REGISTRY.with_object_mut(member_id, |obj| {
+                let Some(ai) = obj.get_ai_update_interface_mut() else {
                     return;
                 };
                 if add_waypoint {
@@ -793,8 +791,8 @@ impl AIGroup {
         }
 
         for &member_id in &self.member_list {
-            let _ = OBJECT_REGISTRY.with_object(member_id, |obj_ref| {
-                if let Some(ai) = obj_ref.get_ai_update_interface() {
+            let _ = OBJECT_REGISTRY.with_object_mut(member_id, |obj_ref| {
+                if let Some(ai) = obj_ref.get_ai_update_interface_mut() {
                     ai.ai_move_to_and_evacuate(pos, cmd_source);
                 }
             });
@@ -811,8 +809,8 @@ impl AIGroup {
             return;
         }
         for &member_id in &self.member_list {
-            let _ = OBJECT_REGISTRY.with_object(member_id, |obj_ref| {
-                if let Some(ai) = obj_ref.get_ai_update_interface() {
+            let _ = OBJECT_REGISTRY.with_object_mut(member_id, |obj_ref| {
+                if let Some(ai) = obj_ref.get_ai_update_interface_mut() {
                     ai.ai_move_to_and_evacuate_and_exit(pos, cmd_source);
                 }
             });
@@ -825,8 +823,8 @@ impl AIGroup {
             return;
         }
         for &member_id in &self.member_list {
-            let _ = OBJECT_REGISTRY.with_object(member_id, |obj_ref| {
-                if let Some(ai) = obj_ref.get_ai_update_interface() {
+            let _ = OBJECT_REGISTRY.with_object_mut(member_id, |obj_ref| {
+                if let Some(ai) = obj_ref.get_ai_update_interface_mut() {
                     ai.ai_hunt(cmd_source);
                 }
             });
@@ -839,8 +837,8 @@ impl AIGroup {
             return;
         }
         for &member_id in &self.member_list {
-            let _ = OBJECT_REGISTRY.with_object(member_id, |obj_ref| {
-                if let Some(ai) = obj_ref.get_ai_update_interface() {
+            let _ = OBJECT_REGISTRY.with_object_mut(member_id, |obj_ref| {
+                if let Some(ai) = obj_ref.get_ai_update_interface_mut() {
                     ai.ai_enter(obj_id, cmd_source);
                 }
             });
@@ -853,8 +851,8 @@ impl AIGroup {
             return;
         }
         for &member_id in &self.member_list {
-            let _ = OBJECT_REGISTRY.with_object(member_id, |obj_ref| {
-                if let Some(ai) = obj_ref.get_ai_update_interface() {
+            let _ = OBJECT_REGISTRY.with_object_mut(member_id, |obj_ref| {
+                if let Some(ai) = obj_ref.get_ai_update_interface_mut() {
                     ai.ai_dock(obj_id, cmd_source);
                 }
             });
@@ -874,10 +872,13 @@ impl AIGroup {
             return;
         }
         for &member_id in &self.member_list {
-            let _ = OBJECT_REGISTRY.with_object(member_id, |obj_ref| {
-                if let Some(ai) = obj_ref.get_ai_update_interface() {
-                    if obj_ref.is_kind_of(KindOf::Aircraft) && obj_ref.is_airborne_target() {
-                        let mut pos = *obj_ref.get_position();
+            let _ = OBJECT_REGISTRY.with_object_mut(member_id, |obj_ref| {
+                let is_airborne_aircraft =
+                    obj_ref.is_kind_of(KindOf::Aircraft) && obj_ref.is_airborne_target();
+                let obj_pos = *obj_ref.get_position();
+                if let Some(ai) = obj_ref.get_ai_update_interface_mut() {
+                    if is_airborne_aircraft {
+                        let mut pos = obj_pos;
                         if let Ok(terrain) = get_terrain_logic().read() {
                             pos.z = terrain.get_ground_height(pos.x, pos.y, None);
                         }
@@ -887,7 +888,7 @@ impl AIGroup {
                         let _ = ai.execute_command(&params);
                     }
                 } else if obj_ref.is_kind_of(KindOf::Structure) {
-                    if let Some(contain) = obj_ref.get_contain() {
+                    if let Some(contain) = obj_ref.get_contain_mut() {
                         let _ = contain.order_all_passengers_to_exit(cmd_source, false);
                     }
                 }
@@ -928,8 +929,8 @@ impl AIGroup {
         let mut scatter_center = center;
         for (member_id, _) in movers {
             scatter_center.x -= 0.01;
-            let _ = OBJECT_REGISTRY.with_object(member_id, |obj| {
-                let Some(ai) = obj.get_ai_update_interface() else {
+            let _ = OBJECT_REGISTRY.with_object_mut(member_id, |obj| {
+                let Some(ai) = obj.get_ai_update_interface_mut() else {
                     return;
                 };
                 let unit_pos = *obj.get_position();
@@ -1148,7 +1149,7 @@ impl AIGroup {
             if !allowed {
                 continue;
             }
-            let _ = OBJECT_REGISTRY.with_object(member_id, |obj_ref| match (location, target) {
+            let _ = OBJECT_REGISTRY.with_object_mut(member_id, |obj_ref| match (location, target) {
                 (Some(loc), _) => obj_ref.do_special_power_at_location(
                     &template_name,
                     &loc,
@@ -1172,8 +1173,8 @@ impl AIGroup {
             return;
         }
         for &member_id in &self.member_list {
-            let _ = OBJECT_REGISTRY.with_object(member_id, |obj_ref| {
-                if let Some(ai) = obj_ref.get_ai_update_interface() {
+            let _ = OBJECT_REGISTRY.with_object_mut(member_id, |obj_ref| {
+                if let Some(ai) = obj_ref.get_ai_update_interface_mut() {
                     let _ = ai.execute_command(params);
                 }
             });
@@ -1188,8 +1189,8 @@ impl AIGroup {
         }
 
         for &member_id in &self.member_list {
-            let _ = OBJECT_REGISTRY.with_object(member_id, |obj_ref| {
-                if let Some(ai) = obj_ref.get_ai_update_interface() {
+            let _ = OBJECT_REGISTRY.with_object_mut(member_id, |obj_ref| {
+                if let Some(ai) = obj_ref.get_ai_update_interface_mut() {
                     ai.ai_follow_waypoint_path(way, cmd_source);
                 }
             });
@@ -1204,8 +1205,8 @@ impl AIGroup {
         }
 
         for &member_id in &self.member_list {
-            let _ = OBJECT_REGISTRY.with_object(member_id, |obj_ref| {
-                if let Some(ai) = obj_ref.get_ai_update_interface() {
+            let _ = OBJECT_REGISTRY.with_object_mut(member_id, |obj_ref| {
+                if let Some(ai) = obj_ref.get_ai_update_interface_mut() {
                     ai.ai_follow_waypoint_path_exact(way, cmd_source);
                 }
             });
@@ -1224,8 +1225,8 @@ impl AIGroup {
         }
 
         for &member_id in &self.member_list {
-            let _ = OBJECT_REGISTRY.with_object(member_id, |obj_ref| {
-                if let Some(ai) = obj_ref.get_ai_update_interface() {
+            let _ = OBJECT_REGISTRY.with_object_mut(member_id, |obj_ref| {
+                if let Some(ai) = obj_ref.get_ai_update_interface_mut() {
                     ai.ai_follow_waypoint_path_as_team(way, cmd_source);
                 }
             });
@@ -1244,8 +1245,8 @@ impl AIGroup {
         }
 
         for &member_id in &self.member_list {
-            let _ = OBJECT_REGISTRY.with_object(member_id, |obj_ref| {
-                if let Some(ai) = obj_ref.get_ai_update_interface() {
+            let _ = OBJECT_REGISTRY.with_object_mut(member_id, |obj_ref| {
+                if let Some(ai) = obj_ref.get_ai_update_interface_mut() {
                     ai.ai_follow_waypoint_path_exact_as_team(way, cmd_source);
                 }
             });
@@ -1260,52 +1261,51 @@ impl AIGroup {
         }
 
         for &member_id in &self.member_list {
-            let _ = OBJECT_REGISTRY.with_object(member_id, |obj_ref| {
-                if let Some(ai) = obj_ref.get_ai_update_interface() {
-                    ai.ai_idle(cmd_source);
-                    if matches!(cmd_source, CommandSourceType::FromPlayer)
-                        && obj_ref.test_status(ObjectStatusTypes::CanStealth)
+            let _ = OBJECT_REGISTRY.with_object_mut(member_id, |obj_ref| {
+                let wants_stealth_delay = matches!(cmd_source, CommandSourceType::FromPlayer)
+                    && obj_ref.test_status(ObjectStatusTypes::CanStealth)
 
-                        && !obj_ref.test_status(ObjectStatusTypes::Stealthed)
-                        && !obj_ref.test_status(ObjectStatusTypes::Detected)
-                    {
-                        if let Some(stealth) = obj_ref.get_stealth() {
-                            if let (Ok(stealth_guard), Ok(mut ai_guard)) =
-                                (stealth.lock(), ai.lock())
+                    && !obj_ref.test_status(ObjectStatusTypes::Stealthed)
+                    && !obj_ref.test_status(ObjectStatusTypes::Detected);
+                let stealth_handle = if wants_stealth_delay {
+                    obj_ref.get_stealth()
+                } else {
+                    None
+                };
+                if let Some(ai) = obj_ref.get_ai_update_interface_mut() {
+                    ai.ai_idle(cmd_source);
+                    if let Some(stealth) = stealth_handle {
+                        if let Ok(stealth_guard) = stealth.lock() {
+                            if ai.can_auto_acquire()
+                                && !stealth_guard.is_granted_by_special_power()
+                                && !ai.can_auto_acquire_while_stealthed()
                             {
-                                if ai_guard.can_auto_acquire()
-                                    && !stealth_guard.is_granted_by_special_power()
-                                    && !ai_guard.can_auto_acquire_while_stealthed()
-                                {
-                                    let stealth_frames = stealth_guard.get_stealth_delay();
-                                    let random_frames = GameLogicRandomValue(
-                                        0,
-                                        LOGICFRAMES_PER_SECOND as i32,
-                                    )
-                                        as u32;
-                                    ai_guard.set_next_mood_check_time(
-                                        TheGameLogic::get_frame()
-                                            + stealth_frames
-                                            + random_frames,
-                                    );
-                                }
+                                let stealth_frames = stealth_guard.get_stealth_delay();
+                                let random_frames = GameLogicRandomValue(
+                                    0,
+                                    LOGICFRAMES_PER_SECOND as i32,
+                                )
+                                    as u32;
+                                ai.set_next_mood_check_time(
+                                    TheGameLogic::get_frame()
+                                        + stealth_frames
+                                        + random_frames,
+                                );
                             }
                         }
                     }
                 } else if let Some(contain) = obj_ref.get_contain() {
                     for passenger_id in contain.get_contained_objects() {
-                        let _ = OBJECT_REGISTRY.with_object(passenger_id, |passenger| {
-                            if let Some(pai) = passenger.get_ai_update_interface() {
+                        let _ = OBJECT_REGISTRY.with_object_mut(passenger_id, |passenger| {
+                            if let Some(pai) = passenger.get_ai_update_interface_mut() {
                                 pai.ai_idle(cmd_source);
                             }
                         });
                     }
                 }
                 if let Some(behavior) = obj_ref.get_spawn_behavior_interface_public() {
-                    if let Ok(mut guard) = behavior.lock() {
-                        if let Some(spawn) = guard.get_spawn_behavior_full_interface() {
-                            let _ = spawn.order_slaves_to_go_idle(cmd_source);
-                        }
+                    if let Some(spawn) = behavior.get_spawn_behavior_full_interface() {
+                        let _ = spawn.order_slaves_to_go_idle(cmd_source);
                     }
                 }
             });
@@ -1320,7 +1320,7 @@ impl AIGroup {
         }
 
         for &member_id in &self.member_list {
-            let _ = OBJECT_REGISTRY.with_object(member_id, |obj_ref| {
+            let _ = OBJECT_REGISTRY.with_object_mut(member_id, |obj_ref| {
                 let _ = obj_ref.with_overcharge_behavior_interface(|overcharge| {
                     let _ = overcharge.toggle();
                 });
@@ -1342,11 +1342,9 @@ impl AIGroup {
         }
 
         for &member_id in &self.member_list {
-            let _ = OBJECT_REGISTRY.with_object(member_id, |obj_ref| {
-                if let Some(ai) = obj_ref.get_ai_update_interface() {
-                    if let Ok(mut ai_guard) = ai.try_lock() {
-                        ai_guard.set_surrendered(obj_we_surrendered_to, surrender);
-                    }
+            let _ = OBJECT_REGISTRY.with_object_mut(member_id, |obj_ref| {
+                if let Some(ai) = obj_ref.get_ai_update_interface_mut() {
+                    ai.set_surrendered(obj_we_surrendered_to, surrender);
                 }
             });
         }
@@ -1379,14 +1377,12 @@ impl AIGroup {
 
         let prisoner_id = Some(prisoner_id);
         for &member_id in &self.member_list {
-            let _ = OBJECT_REGISTRY.with_object(member_id, |obj_ref| {
-                if let Some(ai) = obj_ref.get_ai_update_interface() {
-                    if let Ok(mut ai_guard) = ai.try_lock() {
-                        let mut params =
-                            AiCommandParams::new(AiCommandType::PickUpPrisoner, cmd_source);
-                        params.obj = prisoner_id;
-                        let _ = ai_guard.execute_command(&params);
-                    }
+            let _ = OBJECT_REGISTRY.with_object_mut(member_id, |obj_ref| {
+                if let Some(ai) = obj_ref.get_ai_update_interface_mut() {
+                    let mut params =
+                        AiCommandParams::new(AiCommandType::PickUpPrisoner, cmd_source);
+                    params.obj = prisoner_id;
+                    let _ = ai.execute_command(&params);
                 }
             });
         }
@@ -1402,14 +1398,12 @@ impl AIGroup {
 
         let prison_id = Some(prison_id);
         for &member_id in &self.member_list {
-            let _ = OBJECT_REGISTRY.with_object(member_id, |obj_ref| {
-                if let Some(ai) = obj_ref.get_ai_update_interface() {
-                    if let Ok(mut ai_guard) = ai.try_lock() {
-                        let mut params =
-                            AiCommandParams::new(AiCommandType::ReturnPrisoners, cmd_source);
-                        params.obj = prison_id;
-                        let _ = ai_guard.execute_command(&params);
-                    }
+            let _ = OBJECT_REGISTRY.with_object_mut(member_id, |obj_ref| {
+                if let Some(ai) = obj_ref.get_ai_update_interface_mut() {
+                    let mut params =
+                        AiCommandParams::new(AiCommandType::ReturnPrisoners, cmd_source);
+                    params.obj = prison_id;
+                    let _ = ai.execute_command(&params);
                 }
             });
         }
@@ -1428,15 +1422,13 @@ impl AIGroup {
         }
 
         for &member_id in &self.member_list {
-            let _ = OBJECT_REGISTRY.with_object(member_id, |obj_ref| {
-                if let Some(ai) = obj_ref.get_ai_update_interface() {
-                    if let Ok(mut ai_guard) = ai.try_lock() {
-                        let mut params =
-                            AiCommandParams::new(AiCommandType::CombatDrop, cmd_source);
-                        params.obj = target_id;
-                        params.pos = *pos;
-                        let _ = ai_guard.execute_command(&params);
-                    }
+            let _ = OBJECT_REGISTRY.with_object_mut(member_id, |obj_ref| {
+                if let Some(ai) = obj_ref.get_ai_update_interface_mut() {
+                    let mut params =
+                        AiCommandParams::new(AiCommandType::CombatDrop, cmd_source);
+                    params.obj = target_id;
+                    params.pos = *pos;
+                    let _ = ai.execute_command(&params);
                 }
             });
         }
@@ -1583,7 +1575,7 @@ impl AIGroup {
         movers.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
 
         for (member_id, _) in movers {
-            let _ = OBJECT_REGISTRY.with_object(member_id, |obj_ref| {
+            let _ = OBJECT_REGISTRY.with_object_mut(member_id, |obj_ref| {
                 if let Some(contain) = obj_ref.get_contain() {
                     if contain.is_passenger_allowed_to_fire(None) {
                         for passenger_id in contain.get_contained_objects() {
@@ -1607,8 +1599,8 @@ impl AIGroup {
                                 can,
                                 CanAttackResult::Possible | CanAttackResult::PossibleAfterMoving
                             ) {
-                                let _ = OBJECT_REGISTRY.with_object(passenger_id, |passenger| {
-                                    if let Some(pai) = passenger.get_ai_update_interface() {
+                                let _ = OBJECT_REGISTRY.with_object_mut(passenger_id, |passenger| {
+                                    if let Some(pai) = passenger.get_ai_update_interface_mut() {
                                         if forced {
                                             pai.ai_force_attack_object(
                                                 victim_id,
@@ -1629,24 +1621,22 @@ impl AIGroup {
                     }
                 }
                 if let Some(behavior) = obj_ref.get_spawn_behavior_interface_public() {
-                    if let Ok(mut guard) = behavior.lock() {
-                        if let Some(spawn) = guard.get_spawn_behavior_full_interface() {
-                            if !spawn.do_slaves_have_freedom() {
-                                let _ = OBJECT_REGISTRY.with_object(victim_id, |victim| {
-                                    let _ = spawn.order_slaves_to_attack_target(
-                                        victim,
-                                        max_shots_to_fire,
-                                        cmd_source,
-                                    );
-                                });
-                            }
+                    if let Some(spawn) = behavior.get_spawn_behavior_full_interface() {
+                        if !spawn.do_slaves_have_freedom() {
+                            let _ = OBJECT_REGISTRY.with_object(victim_id, |victim| {
+                                let _ = spawn.order_slaves_to_attack_target(
+                                    victim,
+                                    max_shots_to_fire,
+                                    cmd_source,
+                                );
+                            });
                         }
                     }
                 }
                 if member_id == victim_id {
                     return;
                 }
-                if let Some(ai) = obj_ref.get_ai_update_interface() {
+                if let Some(ai) = obj_ref.get_ai_update_interface_mut() {
                     if forced {
                         ai.ai_force_attack_object(victim_id, max_shots_to_fire, cmd_source);
                     } else {
@@ -1668,8 +1658,8 @@ impl AIGroup {
             return;
         }
         for &member_id in &self.member_list {
-            let _ = OBJECT_REGISTRY.with_object(member_id, |obj_ref| {
-                if let Some(ai) = obj_ref.get_ai_update_interface() {
+            let _ = OBJECT_REGISTRY.with_object_mut(member_id, |obj_ref| {
+                if let Some(ai) = obj_ref.get_ai_update_interface_mut() {
                     ai.ai_attack_team(team, max_shots_to_fire, cmd_source);
                 }
             });
@@ -1689,7 +1679,7 @@ impl AIGroup {
         }
 
         for &member_id in &self.member_list {
-            let _ = OBJECT_REGISTRY.with_object(member_id, |obj_ref| {
+            let _ = OBJECT_REGISTRY.with_object_mut(member_id, |obj_ref| {
                 let attack_pos = *pos;
                 if let Some(contain) = obj_ref.get_contain() {
                     if contain.is_passenger_allowed_to_fire(None) {
@@ -1707,8 +1697,8 @@ impl AIGroup {
                                 can,
                                 CanAttackResult::Possible | CanAttackResult::PossibleAfterMoving
                             ) {
-                                let _ = OBJECT_REGISTRY.with_object(passenger_id, |passenger| {
-                                    if let Some(pai) = passenger.get_ai_update_interface() {
+                                let _ = OBJECT_REGISTRY.with_object_mut(passenger_id, |passenger| {
+                                    if let Some(pai) = passenger.get_ai_update_interface_mut() {
                                         pai.ai_attack_position(
                                             &attack_pos,
                                             max_shots_to_fire,
@@ -1721,19 +1711,17 @@ impl AIGroup {
                     }
                 }
                 if let Some(behavior) = obj_ref.get_spawn_behavior_interface_public() {
-                    if let Ok(mut guard) = behavior.lock() {
-                        if let Some(spawn) = guard.get_spawn_behavior_full_interface() {
-                            if !spawn.do_slaves_have_freedom() {
-                                let _ = spawn.order_slaves_to_attack_position(
-                                    &attack_pos,
-                                    max_shots_to_fire,
-                                    cmd_source,
-                                );
-                            }
+                    if let Some(spawn) = behavior.get_spawn_behavior_full_interface() {
+                        if !spawn.do_slaves_have_freedom() {
+                            let _ = spawn.order_slaves_to_attack_position(
+                                &attack_pos,
+                                max_shots_to_fire,
+                                cmd_source,
+                            );
                         }
                     }
                 }
-                if let Some(ai) = obj_ref.get_ai_update_interface() {
+                if let Some(ai) = obj_ref.get_ai_update_interface_mut() {
                     ai.ai_attack_position(&attack_pos, max_shots_to_fire, cmd_source);
                 }
             });
@@ -1752,8 +1740,8 @@ impl AIGroup {
         }
 
         for &member_id in &self.member_list {
-            let _ = OBJECT_REGISTRY.with_object(member_id, |obj_ref| {
-                if let Some(ai) = obj_ref.get_ai_update_interface() {
+            let _ = OBJECT_REGISTRY.with_object_mut(member_id, |obj_ref| {
+                if let Some(ai) = obj_ref.get_ai_update_interface_mut() {
                     ai.ai_guard_position(pos, guard_mode, cmd_source);
                 }
             });
@@ -1802,8 +1790,8 @@ impl AIGroup {
         }
 
         for &member_id in &self.member_list {
-            let _ = OBJECT_REGISTRY.with_object(member_id, |obj_ref| {
-                if let Some(ai) = obj_ref.get_ai_update_interface() {
+            let _ = OBJECT_REGISTRY.with_object_mut(member_id, |obj_ref| {
+                if let Some(ai) = obj_ref.get_ai_update_interface_mut() {
                     ai.ai_guard_object(obj_to_guard_id, guard_mode, cmd_source);
                 }
             });
@@ -2022,8 +2010,8 @@ impl AIGroup {
     /// Set attitude for all group members
     pub fn set_attitude(&self, attitude: AttitudeType) {
         for &member_id in &self.member_list {
-            let _ = OBJECT_REGISTRY.with_object(member_id, |obj_ref| {
-                if let Some(ai) = obj_ref.get_ai_update_interface() {
+            let _ = OBJECT_REGISTRY.with_object_mut(member_id, |obj_ref| {
+                if let Some(ai) = obj_ref.get_ai_update_interface_mut() {
                     ai.set_attitude(to_module_attitude(attitude));
                 }
             });
@@ -2132,11 +2120,12 @@ impl AIGroup {
         }
 
         for &member_id in &self.member_list {
-            let _ = OBJECT_REGISTRY.with_object(member_id, |obj_ref| {
-                let Some(ai) = obj_ref.get_ai_update_interface() else {
+            let _ = OBJECT_REGISTRY.with_object_mut(member_id, |obj_ref| {
+                let can_attack = obj_ref.is_able_to_attack();
+                let Some(ai) = obj_ref.get_ai_update_interface_mut() else {
                     return;
                 };
-                if obj_ref.is_able_to_attack() {
+                if can_attack {
                     ai.ai_attack_move_to_position(
                         pos,
                         crate::weapon::NO_MAX_SHOTS_LIMIT,
@@ -2305,10 +2294,7 @@ impl AIGroup {
                         let Some(ai) = obj.get_ai_update_interface() else {
                             return true;
                         };
-                        let Ok(ai_guard) = ai.lock() else {
-                            return true;
-                        };
-                        let Some(set) = ai_guard.get_locomotor_set_clone() else {
+                        let Some(set) = ai.get_locomotor_set_clone() else {
                             return true;
                         };
                         the_ai()
@@ -2450,10 +2436,8 @@ impl AIGroup {
                             return None;
                         }
                         if let Some(ai) = obj.get_ai_update_interface() {
-                            if let Ok(ai_guard) = ai.lock() {
-                                if !ai_guard.is_doing_ground_movement() {
-                                    return None;
-                                }
+                            if !ai.is_doing_ground_movement() {
+                                return None;
                             }
                         }
                     }
@@ -2532,8 +2516,8 @@ impl AIGroup {
             dest.x += offset * column_delta as f32 * end_normal.x;
             dest.y += offset * column_delta as f32 * end_normal.y;
             dests.push(dest);
-            let _ = OBJECT_REGISTRY.with_object(*member_id, |obj| {
-                if let Some(ai) = obj.get_ai_update_interface() {
+            let _ = OBJECT_REGISTRY.with_object_mut(*member_id, |obj| {
+                if let Some(ai) = obj.get_ai_update_interface_mut() {
                     ai.ai_follow_path(&dests, None, cmd_source);
                 }
             });
@@ -2568,14 +2552,14 @@ impl AIGroup {
         };
 
         for &member_id in &self.member_list {
-            let _ = OBJECT_REGISTRY.with_object(member_id, |obj| {
+            let _ = OBJECT_REGISTRY.with_object_mut(member_id, |obj| {
                 if obj.is_disabled_by_type(DisabledType::Held) {
                     return;
                 }
-                let Some(ai) = obj.get_ai_update_interface() else {
+                let offset = obj.get_formation_offset();
+                let Some(ai) = obj.get_ai_update_interface_mut() else {
                     return;
                 };
-                let offset = obj.get_formation_offset();
                 if let Some(start) = start_node {
                     let mut dests: Vec<Coord3D> = Vec::new();
                     if let Some(path) = path {

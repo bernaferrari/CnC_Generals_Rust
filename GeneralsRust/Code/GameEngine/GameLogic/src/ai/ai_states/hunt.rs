@@ -414,14 +414,11 @@ impl AIState for AIMoveAndTightenState {
             return;
         }
 
-        if let Some(ai) = OBJECT_REGISTRY
-            .with_object(context.owner_id, |owner| owner.get_ai_update_interface())
-            .flatten()
-        {
-            if let Ok(mut ai_guard) = ai.lock() {
+        let _ = OBJECT_REGISTRY.with_object_mut(context.owner_id, |owner| {
+            if let Some(ai_guard) = owner.get_ai_update_interface_mut() {
                 ai_guard.destroy_path();
             }
-        }
+        });
     }
 
     fn get_state_type(&self) -> AIStateType {
@@ -495,7 +492,7 @@ impl AIState for AIMoveAwayFromRepulsorsState {
         let Some(owner_arc) = OBJECT_REGISTRY.get_object(context.owner_id) else {
             return StateReturnType::Failed;
         };
-        let Ok(owner) = owner_arc.read() else {
+        let Ok(mut owner) = owner_arc.write() else {
             return StateReturnType::Failed;
         };
 
@@ -517,10 +514,8 @@ impl AIState for AIMoveAwayFromRepulsorsState {
             return StateReturnType::Failed;
         };
 
-        if let Some(ai) = owner.get_ai_update_interface() {
-            if let Ok(mut ai_guard) = ai.lock() {
-                let _ = ai_guard.choose_locomotor_set(LocomotorSetType::Panic);
-            }
+        if let Some(ai) = owner.get_ai_update_interface_mut() {
+            let _ = ai.choose_locomotor_set(LocomotorSetType::Panic);
         }
 
         let owner_pos = *owner.get_position();
@@ -579,15 +574,12 @@ impl AIState for AIMoveAwayFromRepulsorsState {
         let _ = OBJECT_REGISTRY.with_object_mut(context.owner_id, |owner| {
             owner.clear_model_condition_state(ModelConditionFlags::PANICKING);
         });
-        if let Some(ai) = OBJECT_REGISTRY
-            .with_object(context.owner_id, |owner| owner.get_ai_update_interface())
-            .flatten()
-        {
-            if let Ok(mut ai_guard) = ai.lock() {
+        let _ = OBJECT_REGISTRY.with_object_mut(context.owner_id, |owner| {
+            if let Some(ai_guard) = owner.get_ai_update_interface_mut() {
                 ai_guard.destroy_path();
-                ai_guard.choose_locomotor_set(LocomotorSetType::Normal);
+                let _ = ai_guard.choose_locomotor_set(LocomotorSetType::Normal);
             }
-        }
+        });
     }
 
     fn get_state_type(&self) -> AIStateType {

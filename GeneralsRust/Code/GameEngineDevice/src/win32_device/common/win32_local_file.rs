@@ -7,7 +7,6 @@
 
 use std::{
     path::{Path, PathBuf},
-    sync::Arc,
     time::SystemTime,
     fmt,
 };
@@ -15,7 +14,6 @@ use std::{
 use tokio::{
     fs::{File, OpenOptions},
     io::{AsyncReadExt, AsyncWriteExt, AsyncSeekExt, AsyncBufReadExt, BufReader, SeekFrom},
-    sync::{RwLock, Mutex},
 };
 
 use memmap2::{Mmap, MmapOptions, MmapMut};

@@ -64,9 +64,7 @@ pub use player_science::{
     PlayerRank, PlayerScience, PlayerScienceManager, get_player_science_manager,
     initialize_player_science,
 };
-pub use registry::{
-    SpecialPowerRegistry, get_player_powers, get_power, get_power_registry, register_power,
-};
+pub use registry::{SpecialPowerRegistry, get_power_registry, register_power, with_power};
 pub use targeting::{TargetValidator, TargetingInfo};
 pub use types::*;
 
@@ -123,7 +121,17 @@ pub fn update() {
     let current_frame = crate::helpers::TheGameLogic::get_frame();
     area_damage::update_damage_over_time(current_frame);
     if let Some(registry) = get_power_registry() {
-        let mut reg = registry.write().unwrap();
+        // Take the registry out of the RwLock for the update pass:
+        // power.update() dispatches into power modules that re-enter the
+        // registry helpers (register/get/unregister), which would deadlock
+        // against a live write guard.
+        let mut reg = {
+            let mut guard = registry.write().unwrap();
+            std::mem::take(&mut *guard)
+        };
         reg.update();
+        if let Ok(mut guard) = registry.write() {
+            *guard = reg;
+        }
     }
 }

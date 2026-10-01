@@ -12,7 +12,7 @@ use crate::common::{
 };
 use crate::helpers::{ThePartitionManager, game_logic_random_value};
 use crate::modules::{
-    AIUpdateInterfaceExt, BehaviorModuleInterface, CleanupHazardUpdateInterface, UPDATE_SLEEP_NONE,
+    BehaviorModuleInterface, CleanupHazardUpdateInterface, UPDATE_SLEEP_NONE,
     UpdateModuleInterface, UpdateSleepTime,
 };
 use crate::object::behavior::behavior_module::{BehaviorModuleData, xfer_update_module_base_state};
@@ -236,21 +236,18 @@ impl CleanupHazardUpdate {
 
         if target_id != INVALID_ID {
             if OBJECT_REGISTRY.with_object(target_id, |_| ()).is_some() {
-                if let Some(ai_arc) = me.get_ai() {
-                    if let Ok(mut ai) = ai_arc.lock() {
-                        if !(ai.is_idle() || ai.is_busy()) {
-                            return;
-                        }
-                        me.set_weapon_lock(
-                            self.module_data.weapon_slot,
-                            WeaponLockType::LockedTemporarily,
-                        );
-                        let mut params = AiCommandParams::new(
-                            AiCommandType::AttackObject,
-                            CommandSourceType::FromAi,
-                        );
-                        params.obj = Some(target_id);
-                        params.int_value = -1;
+                if me.get_ai().map(|ai| ai.is_idle() || ai.is_busy()) == Some(true) {
+                    me.set_weapon_lock(
+                        self.module_data.weapon_slot,
+                        WeaponLockType::LockedTemporarily,
+                    );
+                    let mut params = AiCommandParams::new(
+                        AiCommandType::AttackObject,
+                        CommandSourceType::FromAi,
+                    );
+                    params.obj = Some(target_id);
+                    params.int_value = -1;
+                    if let Some(ai) = me.get_ai_mut() {
                         let _ = ai.execute_command(&params);
                     }
                 }
@@ -277,12 +274,18 @@ impl CleanupHazardUpdateInterface for CleanupHazardUpdate {
         }) else {
             return;
         };
-        let Ok(me) = me_arc.read() else {
+        let Ok(mut me) = me_arc.write() else {
             return;
         };
 
-        if let Some(ai_arc) = me.get_ai() {
-            ai_arc.ai_move_to_position(pos, false, CommandSourceType::FromAi);
+        if let Some(ai) = me.get_ai_mut() {
+            // C++ AIUpdateInterface::aiMoveToPosition(pos, FALSE, FromAI).
+            let mut params = AiCommandParams::new(
+                AiCommandType::MoveToPosition,
+                CommandSourceType::FromAi,
+            );
+            params.pos = *pos;
+            let _ = ai.execute_command(&params);
         }
     }
 }
@@ -304,12 +307,19 @@ impl UpdateModuleInterface for CleanupHazardUpdate {
         };
 
         if self.move_range > 0.0 {
-            if let Some(ai_arc) = me_arc.read().ok().and_then(|me| me.get_ai()) {
-                if ai_arc.is_idle() {
-                    ai_arc.ai_busy(CommandSourceType::FromAi);
-                } else if ai_arc.get_last_command_source() != CommandSourceType::FromAi {
-                    self.move_range = 0.0;
-                    return UPDATE_SLEEP_NONE;
+            if let Ok(mut me) = me_arc.write() {
+                if let Some(ai) = me.get_ai_mut() {
+                    if ai.is_idle() {
+                        // C++ AIUpdateInterface::aiBusy(FromAI).
+                        let params = AiCommandParams::new(
+                            AiCommandType::Busy,
+                            CommandSourceType::FromAi,
+                        );
+                        let _ = ai.execute_command(&params);
+                    } else if ai.get_last_command_source() != CommandSourceType::FromAi {
+                        self.move_range = 0.0;
+                        return UPDATE_SLEEP_NONE;
+                    }
                 }
             }
         }
@@ -324,19 +334,23 @@ impl UpdateModuleInterface for CleanupHazardUpdate {
         if self.scan_closest_target().is_some() {
             self.fire_when_ready();
         } else if self.move_range > 0.0 {
-            if let Some(ai_arc) = me_arc.read().ok().and_then(|me| me.get_ai()) {
-                if ai_arc.is_idle() || ai_arc.is_busy() {
-                    if let Ok(me) = me_arc.read() {
-                        let dist_sqr = ThePartitionManager::get_distance_squared_to_pos(
-                            &me,
-                            &self.pos,
-                            FROM_CENTER_2D,
+            if let Ok(mut me) = me_arc.write() {
+                if me.get_ai().map(|ai| ai.is_idle() || ai.is_busy()) == Some(true) {
+                    let dist_sqr = ThePartitionManager::get_distance_squared_to_pos(
+                        &me,
+                        &self.pos,
+                        FROM_CENTER_2D,
+                    );
+                    if dist_sqr < 25.0 * 25.0 {
+                        self.move_range = 0.0;
+                    } else if let Some(ai) = me.get_ai_mut() {
+                        // C++ AIUpdateInterface::aiMoveToPosition(pos, FALSE, FromAI).
+                        let mut params = AiCommandParams::new(
+                            AiCommandType::MoveToPosition,
+                            CommandSourceType::FromAi,
                         );
-                        if dist_sqr < 25.0 * 25.0 {
-                            self.move_range = 0.0;
-                        } else {
-                            ai_arc.ai_move_to_position(&self.pos, false, CommandSourceType::FromAi);
-                        }
+                        params.pos = self.pos;
+                        let _ = ai.execute_command(&params);
                     }
                 }
             }

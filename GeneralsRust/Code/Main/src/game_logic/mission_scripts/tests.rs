@@ -1289,11 +1289,20 @@ mod tests {
             );
         }
 
-        if let Ok(mut guard) = get_script_engine().write() {
-            if let Some(engine) = guard.as_mut() {
-                engine
-                    .update()
-                    .expect("one-frame quick-end timer should expire");
+        // Take the engine out of the global RwLock for update() (production
+        // pattern, script_runtime_camera.rs): update() executes
+        // conditions/actions that re-enter get_script_engine() and would
+        // deadlock against a live write guard.
+        let taken = match get_script_engine().write() {
+            Ok(mut guard) => guard.take(),
+            Err(_) => None,
+        };
+        if let Some(mut engine) = taken {
+            engine
+                .update()
+                .expect("one-frame quick-end timer should expire");
+            if let Ok(mut guard) = get_script_engine().write() {
+                *guard = Some(engine);
             }
         }
 

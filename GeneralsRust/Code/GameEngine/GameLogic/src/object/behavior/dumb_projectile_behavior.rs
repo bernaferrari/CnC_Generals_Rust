@@ -818,7 +818,7 @@ impl DumbProjectileBehavior {
             return false;
         }
 
-        let Some((contain_handle, immune)) = OBJECT_REGISTRY
+        let Some(contained_ids) = OBJECT_REGISTRY
             .with_object(other_id, |other_guard| {
                 if other_guard.is_effectively_dead() {
                     return None;
@@ -828,27 +828,21 @@ impl DumbProjectileBehavior {
                     .ok()
                     .map(|data| data.immune_to_clear_building_attacks)
                     .unwrap_or(false);
-                Some((other_guard.get_contain(), immune))
+                let Some(contain) = other_guard.get_contain() else {
+                    return None;
+                };
+                let garrisoned = contain.get_contained_count() > 0;
+                let garrisonable = contain.is_garrisonable();
+                if !garrisoned || !garrisonable || immune {
+                    return None;
+                }
+                Some(contain.get_contained_objects().into_owned())
             })
             .flatten()
         else {
             return false;
         };
 
-        let Some(contain_handle) = contain_handle else {
-            return false;
-        };
-        let Ok(contain_guard) = contain_handle.lock() else {
-            return false;
-        };
-        let garrisoned = contain_guard.get_contained_count() > 0;
-        let garrisonable = contain_guard.is_garrisonable();
-        if !garrisoned || !garrisonable || immune {
-            return false;
-        }
-
-        let contained_ids = contain_guard.get_contained_objects().into_owned();
-        drop(contain_guard);
 
         let mut num_killed = 0;
         for contained_id in contained_ids {
@@ -1032,15 +1026,13 @@ impl DumbProjectileBehavior {
             self.flight_path_start = pos;
         }
         if self.module_data.tumble_randomly {
-            let _ = self.with_object(|obj_guard| {
-                if let Some(physics) = obj_guard.get_physics() {
-                    if let Ok(mut phys_guard) = physics.lock() {
-                        let min = -1.0 / std::f32::consts::PI;
-                        let max = 1.0 / std::f32::consts::PI;
-                        phys_guard.set_pitch_rate(get_game_logic_random_value_real(min, max));
-                        phys_guard.set_yaw_rate(get_game_logic_random_value_real(min, max));
-                        phys_guard.set_roll_rate(get_game_logic_random_value_real(min, max));
-                    }
+            let _ = self.with_object_mut(|obj_guard| {
+                if let Some(physics) = obj_guard.get_physics_mut() {
+                    let min = -1.0 / std::f32::consts::PI;
+                    let max = 1.0 / std::f32::consts::PI;
+                    physics.set_pitch_rate(get_game_logic_random_value_real(min, max));
+                    physics.set_yaw_rate(get_game_logic_random_value_real(min, max));
+                    physics.set_roll_rate(get_game_logic_random_value_real(min, max));
                 }
             });
         }

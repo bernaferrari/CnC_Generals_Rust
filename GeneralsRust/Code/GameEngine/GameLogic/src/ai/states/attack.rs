@@ -1874,7 +1874,11 @@ impl AIAttackSquadState {
             return None;
         }
 
-        let squad = self.base.get_machine_goal_squad()?;
+        // Per-frame owned copy of the machine goal squad (same live-list output
+        // as the old lock-based read).
+        let Some(mut squad) = self.base.get_machine_goal_squad() else {
+            return None;
+        };
         let owner = self.base.get_machine_owner()?;
         let owner_guard = owner.read().ok()?;
         let owner_pos = *owner_guard.get_position();
@@ -1921,8 +1925,7 @@ impl AIAttackSquadState {
         }
         drop(owner_guard);
 
-        let mut squad_guard = squad.lock().ok()?;
-        let object_ids = squad_guard.get_live_object_ids();
+        let object_ids = squad.get_live_object_ids();
 
         match difficulty {
             crate::player::GameDifficulty::Easy => {
@@ -1973,10 +1976,7 @@ impl StateImplementation for AIAttackSquadState {
         self.classic_on_enter().unwrap_or(StateReturnType::Failure)
     }
 
-    fn bind_goal_squad(
-        &mut self,
-        squad: Option<std::sync::Arc<std::sync::Mutex<crate::ai::squad::Squad>>>,
-    ) {
+    fn bind_goal_squad(&mut self, squad: Option<crate::ai::squad::Squad>) {
         self.base.goal_squad_copied = squad;
     }
 
@@ -2153,10 +2153,7 @@ impl StateImplementation for AIAttackAreaState {
         self.classic_on_enter().unwrap_or(StateReturnType::Failure)
     }
 
-    fn bind_goal_squad(
-        &mut self,
-        squad: Option<std::sync::Arc<std::sync::Mutex<crate::ai::squad::Squad>>>,
-    ) {
+    fn bind_goal_squad(&mut self, squad: Option<crate::ai::squad::Squad>) {
         self.base.goal_squad_copied = squad;
     }
 

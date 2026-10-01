@@ -872,6 +872,12 @@ impl AudioStreamer {
     }
 
     /// Lock the stream for exclusive access
+    // HAZARD (unreachable today): this acquires the tokio Mutex and
+    // mem::forgets the guard, while unlock_stream is a no-op — any second
+    // lock_stream on this stream deadlocks forever. No in-tree caller exists
+    // (lock_all_streams/unlock_all_streams are also uncalled); if this API is
+    // ever wired up, replace the forgotten guard with a stored guard handle
+    // that unlock_stream drops.
     pub async fn lock_stream(&self) {
         let _lock = self.stream_lock.lock().await;
         std::mem::forget(_lock); // Keep lock acquired

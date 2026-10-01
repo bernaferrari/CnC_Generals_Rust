@@ -244,12 +244,12 @@ fn team_follow_waypoints_honors_as_team_int() {
     let obj = Arc::new(RwLock::new(crate::object::Object::new_test(UNIT_ID, 100.0)));
     {
         let mut guard = obj.write().unwrap();
-        guard.set_ai_update_interface(Some(Arc::new(Mutex::new(RecordingMoveAi {
+        guard.set_ai_update_interface(Some(Box::new(RecordingMoveAi {
             commands: Arc::clone(&commands),
             locomotors: Arc::clone(&locomotors),
             cleared: Arc::new(Mutex::new(0)),
             attitudes: Arc::new(Mutex::new(Vec::new())),
-        }))));
+        })));
         let _ = guard.set_position(&Coord3D::new(4.0, 5.0, 0.0));
     }
     TheGameLogic::register_object(obj).expect("register team follower");

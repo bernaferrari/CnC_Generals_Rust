@@ -163,13 +163,8 @@ impl UpdateModuleInterface for AutoFindHealingUpdate {
 
         // Check health status. Matches C++ lines 98-104
         if let Some(body) = obj_read.get_body_module() {
-            let body_guard = match body.lock() {
-                Ok(guard) => guard,
-                Err(_) => return 0,
-            };
-
-            let health = body_guard.get_health();
-            let max_health = body_guard.get_max_health();
+            let health = body.get_health();
+            let max_health = body.get_max_health();
 
             // If we're very healthy, don't bother looking for healing. Matches C++ lines 102-104
             if health > max_health * self.module_data.never_heal {

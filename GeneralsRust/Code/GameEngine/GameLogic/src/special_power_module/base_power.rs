@@ -413,9 +413,6 @@ impl SpecialPowerModuleInterface for SpecialPowerModule {
     }
 }
 
-/// Shared power module type
-pub type SharedSpecialPowerModule = Arc<Mutex<Box<dyn SpecialPowerModuleInterface>>>;
-
 #[cfg(test)]
 mod tests {
     use super::*;

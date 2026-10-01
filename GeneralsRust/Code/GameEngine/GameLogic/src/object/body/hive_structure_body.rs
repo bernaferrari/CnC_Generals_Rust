@@ -240,7 +240,7 @@ impl HiveStructureBody {
             return HiveRedirect::NoInterface;
         };
 
-        let (had_spawn, closest_slave, contain) = match owner.read() {
+        let (had_spawn, closest_slave, contained_ids) = match owner.read() {
             Ok(guard) => {
                 let had_spawn = guard.with_spawn_behavior_full_interface(|_| ()).is_some();
                 let closest = if had_spawn {
@@ -252,7 +252,16 @@ impl HiveStructureBody {
                 } else {
                     None
                 };
-                (had_spawn, closest, guard.get_contain())
+                let contained_ids: Option<Vec<ObjectId>> = guard
+                    .get_contain()
+                    .map(|contain| {
+                        contain
+                            .get_contained_objects()
+                            .iter()
+                            .copied()
+                            .collect()
+                    });
+                (had_spawn, closest, contained_ids)
             }
             Err(_) => return HiveRedirect::NoInterface,
         };
@@ -267,39 +276,30 @@ impl HiveStructureBody {
             return HiveRedirect::NoTarget;
         }
 
-        if let Some(contain_handle) = contain {
-            if let Ok(contain_guard) = contain_handle.lock() {
-                let contained_ids: Vec<ObjectId> = contain_guard
-                    .get_contained_objects()
-                    .iter()
-                    .copied()
-                    .collect();
-                drop(contain_guard);
+        if let Some(contained_ids) = contained_ids {
+            let mut closest: Option<Arc<RwLock<Object>>> = None;
+            let mut closest_dist_sq = f32::INFINITY;
 
-                let mut closest: Option<Arc<RwLock<Object>>> = None;
-                let mut closest_dist_sq = f32::INFINITY;
-
-                for rider_id in contained_ids {
-                    if let Some(rider) = TheGameLogic::find_object_by_id(rider_id) {
-                        if let Ok(rider_guard) = rider.read() {
-                            let rider_pos = *rider_guard.get_position();
-                            let dx = rider_pos.x - shooter_pos.x;
-                            let dy = rider_pos.y - shooter_pos.y;
-                            let dist_sq = dx * dx + dy * dy;
-                            if dist_sq < closest_dist_sq {
-                                closest_dist_sq = dist_sq;
-                                closest = Some(Arc::clone(&rider));
-                            }
+            for rider_id in contained_ids {
+                if let Some(rider) = TheGameLogic::find_object_by_id(rider_id) {
+                    if let Ok(rider_guard) = rider.read() {
+                        let rider_pos = *rider_guard.get_position();
+                        let dx = rider_pos.x - shooter_pos.x;
+                        let dy = rider_pos.y - shooter_pos.y;
+                        let dist_sq = dx * dx + dy * dy;
+                        if dist_sq < closest_dist_sq {
+                            closest_dist_sq = dist_sq;
+                            closest = Some(Arc::clone(&rider));
                         }
                     }
                 }
+            }
 
-                if let Some(rider) = closest {
-                    if let Ok(mut rider_guard) = rider.write() {
-                        let _ = rider_guard.attempt_damage(damage_info);
-                    }
-                    return HiveRedirect::Propagated;
+            if let Some(rider) = closest {
+                if let Ok(mut rider_guard) = rider.write() {
+                    let _ = rider_guard.attempt_damage(damage_info);
                 }
+                return HiveRedirect::Propagated;
             }
             return HiveRedirect::NoTarget;
         }

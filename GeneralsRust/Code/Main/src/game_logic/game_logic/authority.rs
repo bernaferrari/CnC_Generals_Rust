@@ -122,11 +122,38 @@ impl GameLogic {
 
 impl GameLogic {
     pub(super) fn load_campaign_objectives(&self, map_name: &str) -> Vec<ObjectiveDisplay> {
-        let Some(manager) = &self.campaign_manager else {
-            return Self::seed_sample_objectives();
-        };
-
-        let Ok(guard) = manager.lock() else {
+        let Ok(found) = crate::save_load::game_state::global_campaign_manager(|manager| {
+            // Path-stem + short-name match (MD_USA01 ↔ .../MD_USA01.map);
+            // prefer missions that actually define objectives (Campaign.ini
+            // residual table).
+            manager.find_mission_for_map(map_name).map(|mission| {
+                let mut displays = Vec::new();
+                for (category, list) in [
+                    (ObjectiveCategory::Primary, &mission.primary_objectives),
+                    (ObjectiveCategory::Secondary, &mission.secondary_objectives),
+                    (ObjectiveCategory::Bonus, &mission.bonus_objectives),
+                ] {
+                    for obj in list.iter() {
+                        displays.push(mission_objective_to_display(obj, category));
+                    }
+                }
+                if displays.is_empty() {
+                    log::warn!(
+                        "Mission '{}' ({}) does not define objectives; falling back to samples",
+                        mission.name,
+                        mission.id
+                    );
+                } else {
+                    log::info!(
+                        "Loaded {} mission objectives for '{}' ({})",
+                        displays.len(),
+                        mission.name,
+                        mission.id
+                    );
+                }
+                displays
+            })
+        }) else {
             log::warn!(
                 "Campaign manager unavailable while loading objectives for '{}'",
                 map_name
@@ -134,41 +161,16 @@ impl GameLogic {
             return Self::seed_sample_objectives();
         };
 
-        // Path-stem + short-name match (MD_USA01 ↔ .../MD_USA01.map); prefer
-        // missions that actually define objectives (Campaign.ini residual table).
-        let Some(mission) = guard.find_mission_for_map(map_name) else {
+        let Some(displays) = found else {
             log::info!(
                 "No campaign mission metadata found for map '{}'; using sample objectives",
                 map_name
             );
             return Self::seed_sample_objectives();
         };
-
-        let mut displays = Vec::new();
-        for (category, list) in [
-            (ObjectiveCategory::Primary, &mission.primary_objectives),
-            (ObjectiveCategory::Secondary, &mission.secondary_objectives),
-            (ObjectiveCategory::Bonus, &mission.bonus_objectives),
-        ] {
-            for obj in list.iter() {
-                displays.push(mission_objective_to_display(obj, category));
-            }
-        }
-
         if displays.is_empty() {
-            log::warn!(
-                "Mission '{}' ({}) does not define objectives; falling back to samples",
-                mission.name,
-                mission.id
-            );
             Self::seed_sample_objectives()
         } else {
-            log::info!(
-                "Loaded {} mission objectives for '{}' ({})",
-                displays.len(),
-                mission.name,
-                mission.id
-            );
             displays
         }
     }

@@ -613,12 +613,10 @@ impl WeaponTemplate {
         }
 
         // If target has a sneaky targeting offset, do not collide this frame.
-        if let Some(ai) = collided_guard.get_ai() {
-            if let Ok(ai_guard) = ai.lock() {
-                let mut offset = Coord3D::new(0.0, 0.0, 0.0);
-                if ai_guard.get_sneaky_targeting_offset(&mut offset) {
-                    return false;
-                }
+        if let Some(ai_guard) = collided_guard.get_ai() {
+            let mut offset = Coord3D::new(0.0, 0.0, 0.0);
+            if ai_guard.get_sneaky_targeting_offset(&mut offset) {
+                return false;
             }
         }
 
@@ -1054,10 +1052,7 @@ impl WeaponTemplate {
                 if is_missile {
                     if let Some(victim_arc) = TheGameLogic::find_object_by_id(victim_id) {
                         if let Ok(mut victim_guard) = victim_arc.write() {
-                            for behavior in victim_guard.get_behavior_modules() {
-                                let Ok(mut behavior) = behavior.lock() else {
-                                    continue;
-                                };
+                            for behavior in victim_guard.get_behavior_modules_mut() {
                                 if let Some(countermeasures) =
                                     behavior.get_countermeasures_behavior_interface()
                                 {
@@ -1264,23 +1259,19 @@ impl WeaponTemplate {
             };
         }
         if victim_guard.is_kind_of(KindOf::Structure) && self.damage_type == DamageType::Sniper {
-            if let Some(contain) = victim_guard.get_contain() {
-                if let Ok(guard) = contain.try_lock() {
-                    if guard.get_contained_count() == 0 {
-                        return 0.0;
-                    }
+            if let Some(guard) = victim_guard.get_contain() {
+                if guard.get_contained_count() == 0 {
+                    return 0.0;
                 }
             }
         }
         if self.damage_type == DamageType::Surrender || self.allow_attack_garrisoned_bldgs {
-            if let Some(contain) = victim_guard.get_contain() {
-                if let Ok(guard) = contain.try_lock() {
-                    if guard.get_contained_count() > 0
-                        && guard.is_garrisonable()
-                        && !guard.is_immune_to_clear_building_attacks()
-                    {
-                        return 1.0;
-                    }
+            if let Some(guard) = victim_guard.get_contain() {
+                if guard.get_contained_count() > 0
+                    && guard.is_garrisonable()
+                    && !guard.is_immune_to_clear_building_attacks()
+                {
+                    return 1.0;
                 }
             }
         }

@@ -1104,9 +1104,9 @@ mod tests {
         let ctx = test_ctx();
         let record = Arc::new(Mutex::new(AttackRecord::default()));
         let mut obj = Object::new_test(77, 100.0);
-        let ai: Arc<Mutex<dyn AIUpdateInterface>> = Arc::new(Mutex::new(RecordingAi {
+        let ai: Box<dyn AIUpdateInterface> = Box::new(RecordingAi {
             record: Arc::clone(&record),
-        }));
+        });
         obj.set_ai_update_interface(Some(ai));
 
         let nugget = AttackNugget {
@@ -1134,10 +1134,10 @@ mod tests {
         let ctx = test_ctx();
         let record = Arc::new(Mutex::new(ForceRecord::default()));
         let mut obj = Object::new_test(88, 100.0);
-        let physics: Arc<Mutex<dyn PhysicsBehavior>> = Arc::new(Mutex::new(RecordingPhysics {
+        let physics: Box<dyn PhysicsBehavior> = Box::new(RecordingPhysics {
             record: Arc::clone(&record),
             vel: Vec3D::ZERO,
-        }));
+        });
         obj.set_physics(Some(physics));
 
         let nugget = ApplyRandomForceNugget {

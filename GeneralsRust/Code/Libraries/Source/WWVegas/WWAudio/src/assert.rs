@@ -50,8 +50,16 @@ pub fn set_assert_handler(handler: Box<dyn AssertHandler + Send + Sync>) {
 #[doc(hidden)]
 pub fn assert_internal(condition: bool, message: &str, file: &str, line: u32) {
     if !condition {
-        let handler = handler_cell().lock();
+        // Take the handler out of the lock, invoke unlocked, restore: an
+        // asserting handler must be able to re-enter assert_internal (it
+        // finds the default handler for the nested report) without
+        // self-deadlocking on this std Mutex.
+        let handler = {
+            let mut cell = handler_cell().lock();
+            std::mem::replace(&mut **cell, Box::new(DefaultAssertHandler))
+        };
         handler.handle_assertion(message, file, line);
+        *handler_cell().lock() = handler;
     }
 }
 

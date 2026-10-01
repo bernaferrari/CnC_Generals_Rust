@@ -438,16 +438,13 @@ impl AIUpdate {
                 force_update,
             } => {
                 // Update individual unit AI
-                let ai = OBJECT_REGISTRY
-                    .with_object(unit_id, |obj_guard| obj_guard.get_ai_update_interface())
-                    .flatten();
-                if let Some(ai) = ai {
-                    if let Ok(mut ai_guard) = ai.lock() {
+                let _ = OBJECT_REGISTRY.with_object_mut(unit_id, |obj_guard| {
+                    if let Some(ai_guard) = obj_guard.get_ai_update_interface_mut() {
                         if force_update || !ai_guard.is_moving() {
                             let _ = ai_guard.update();
                         }
                     }
-                }
+                });
                 Ok(())
             }
             AiTaskData::GroupUpdate { group_id, command } => {

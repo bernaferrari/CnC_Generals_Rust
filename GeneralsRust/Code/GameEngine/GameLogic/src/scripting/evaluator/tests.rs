@@ -691,10 +691,9 @@ fn team_reached_waypoints_end_requires_the_requested_path_like_cpp() {
         MEMBER_ID, 100.0,
     )));
     fixture.object = Some(Arc::clone(&object));
-    let ai: Arc<std::sync::Mutex<dyn crate::modules::AIUpdateInterface>> =
-        Arc::new(std::sync::Mutex::new(CompletedWaypointAi {
-            completed_waypoint_id: Arc::clone(&completed_waypoint_id),
-        }));
+    let ai: Box<dyn crate::modules::AIUpdateInterface> = Box::new(CompletedWaypointAi {
+        completed_waypoint_id: Arc::clone(&completed_waypoint_id),
+    });
     object.write().unwrap().set_ai_update_interface(Some(ai));
     crate::object::registry::OBJECT_REGISTRY.register_object(MEMBER_ID, &object);
     get_named_object_tracker()

@@ -228,6 +228,16 @@ impl DebugSystem {
         }
     }
 
+    /// Snapshot of the handler list for dispatch outside the global lock.
+    ///
+    /// Handlers are `Arc<dyn DebugHandler>`; cloning the Vec keeps the
+    /// iteration order while letting callers drop the `DEBUG_SYSTEM` guard
+    /// before any handler runs, so a handler that itself logs cannot
+    /// re-enter the same std Mutex (self-deadlock).
+    pub fn snapshot_handlers(&self) -> Vec<Arc<dyn DebugHandler>> {
+        self.handlers.clone()
+    }
+
     pub fn flush_all(&self) {
         for handler in &self.handlers {
             handler.flush();
@@ -347,9 +357,12 @@ impl Drop for ProfilerTimer {
 pub fn debug_assert_impl(condition: bool, message: &str, file: &str, line: u32) {
     if !condition {
         let debug_message = format!("Assertion failed: {}", message);
-        if let Some(debug_system) = get_debug_system() {
-            debug_system.log(DebugLevel::Fatal, debug_message, file.to_string(), line);
-        }
+        dispatch_debug_log(
+            DebugLevel::Fatal,
+            debug_message,
+            file.to_string(),
+            line,
+        );
 
         // In debug builds, panic
         #[cfg(debug_assertions)]
@@ -376,6 +389,23 @@ pub fn get_debug_system() -> Option<MutexGuard<'static, DebugSystem>> {
     DEBUG_SYSTEM.get().and_then(|system| system.lock().ok())
 }
 
+/// Log a message through the global debug system without holding its lock
+/// during handler dispatch (handlers may themselves log).
+pub fn dispatch_debug_log(level: DebugLevel, message: String, file: String, line: u32) {
+    let Some(system) = get_debug_system() else {
+        return;
+    };
+    if !system.is_enabled() || level < system.get_min_level() {
+        return;
+    }
+    let debug_message = DebugMessage::new(level, message, file, line);
+    let handlers = system.snapshot_handlers();
+    drop(system);
+    for handler in &handlers {
+        handler.handle_message(&debug_message);
+    }
+}
+
 /// Global profiler instance
 static PROFILER: OnceCell<Profiler> = OnceCell::new();
 
@@ -397,56 +427,48 @@ pub fn get_profiler() -> Option<&'static Profiler> {
 #[macro_export]
 macro_rules! debug_trace {
     ($($arg:tt)*) => {
-        if let Some(system) = $crate::common::system::debug::get_debug_system() {
-            system.log(
-                $crate::common::system::debug::DebugLevel::Trace,
-                format!($($arg)*),
-                file!().to_string(),
-                line!()
-            );
-        }
+        $crate::common::system::debug::dispatch_debug_log(
+            $crate::common::system::debug::DebugLevel::Trace,
+            format!($($arg)*),
+            file!().to_string(),
+            line!()
+        );
     };
 }
 
 #[macro_export]
 macro_rules! debug_info {
     ($($arg:tt)*) => {
-        if let Some(system) = $crate::common::system::debug::get_debug_system() {
-            system.log(
-                $crate::common::system::debug::DebugLevel::Info,
-                format!($($arg)*),
-                file!().to_string(),
-                line!()
-            );
-        }
+        $crate::common::system::debug::dispatch_debug_log(
+            $crate::common::system::debug::DebugLevel::Info,
+            format!($($arg)*),
+            file!().to_string(),
+            line!()
+        );
     };
 }
 
 #[macro_export]
 macro_rules! debug_warn {
     ($($arg:tt)*) => {
-        if let Some(system) = $crate::common::system::debug::get_debug_system() {
-            system.log(
-                $crate::common::system::debug::DebugLevel::Warning,
-                format!($($arg)*),
-                file!().to_string(),
-                line!()
-            );
-        }
+        $crate::common::system::debug::dispatch_debug_log(
+            $crate::common::system::debug::DebugLevel::Warning,
+            format!($($arg)*),
+            file!().to_string(),
+            line!()
+        );
     };
 }
 
 #[macro_export]
 macro_rules! debug_error {
     ($($arg:tt)*) => {
-        if let Some(system) = $crate::common::system::debug::get_debug_system() {
-            system.log(
-                $crate::common::system::debug::DebugLevel::Error,
-                format!($($arg)*),
-                file!().to_string(),
-                line!()
-            );
-        }
+        $crate::common::system::debug::dispatch_debug_log(
+            $crate::common::system::debug::DebugLevel::Error,
+            format!($($arg)*),
+            file!().to_string(),
+            line!()
+        );
     };
 }
 

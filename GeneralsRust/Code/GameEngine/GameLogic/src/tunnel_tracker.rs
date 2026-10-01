@@ -331,25 +331,22 @@ impl TunnelTracker {
             return Ok(());
         };
 
-        let Ok(obj_read) = obj.try_read() else {
-            return Ok(());
+        let (max_health, frames_contained) = {
+            let Ok(obj_read) = obj.try_read() else {
+                return Ok(());
+            };
+            let Some(body_module) = obj_read.get_body_module() else {
+                return Ok(());
+            };
+            let max_health = body_module.get_max_health();
+            let Ok(current_frame) = get_current_frame() else {
+                log::warn!("TunnelTracker::healObject frame unavailable for {}", object_id);
+                return Ok(());
+            };
+            let contained_by_frame = obj_read.get_contained_by_frame();
+            let frames_contained = current_frame.saturating_sub(contained_by_frame);
+            (max_health, frames_contained)
         };
-        let body_module = match obj_read.get_body_module() {
-            Some(body) => body,
-            None => return Ok(()),
-        };
-        let Ok(current_frame) = get_current_frame() else {
-            log::warn!("TunnelTracker::healObject frame unavailable for {}", object_id);
-            return Ok(());
-        };
-        let contained_by_frame = obj_read.get_contained_by_frame();
-        let frames_contained = current_frame.saturating_sub(contained_by_frame);
-        let Ok(body_guard) = body_module.try_lock() else {
-            return Ok(());
-        };
-        let max_health = body_guard.get_max_health();
-        drop(body_guard);
-        drop(obj_read);
 
         let mut heal_info = DamageInfo::new();
         heal_info.input.damage_type = crate::damage::DamageType::Healing;
@@ -361,17 +358,13 @@ impl TunnelTracker {
         }
         heal_info.sync_from_input();
 
-        let Ok(obj_read) = obj.try_read() else {
+        let Ok(mut obj_write) = obj.try_write() else {
             return Ok(());
         };
-        let Some(body_module) = obj_read.get_body_module() else {
+        let Some(body_module) = obj_write.get_body_module_mut() else {
             return Ok(());
         };
-        drop(obj_read);
-        let Ok(mut body_guard) = body_module.try_lock() else {
-            return Ok(());
-        };
-        if let Err(err) = body_guard.attempt_healing(&mut heal_info) {
+        if let Err(err) = body_module.attempt_healing(&mut heal_info) {
             log::warn!("TunnelTracker::healObject heal {}: {}", object_id, err);
         }
 

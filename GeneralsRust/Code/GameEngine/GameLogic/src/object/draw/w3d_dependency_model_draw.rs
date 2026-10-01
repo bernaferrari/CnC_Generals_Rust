@@ -142,13 +142,9 @@ impl W3DDependencyModelDraw {
         let Some(contain) = container_guard.get_contain() else {
             return *transform_mtx;
         };
-        let Ok(contain_guard) = contain.lock() else {
-            return *transform_mtx;
-        };
-        if contain_guard.is_enclosing_container_for(&owner_guard) {
+        if contain.is_enclosing_container_for(&owner_guard) {
             return *transform_mtx;
         }
-        drop(contain_guard);
         let Some(container_drawable) = container_guard.get_drawable() else {
             return *transform_mtx;
         };
@@ -204,10 +200,8 @@ impl DrawModule for W3DDependencyModelDraw {
                     if let Some(container_arc) = find_object(container) {
                         if let Ok(container_guard) = container_arc.read() {
                             if let Some(contain) = container_guard.get_contain() {
-                                if let Ok(contain_guard) = contain.lock() {
-                                    if contain_guard.is_enclosing_container_for(&owner_guard) {
-                                        return;
-                                    }
+                                if contain.is_enclosing_container_for(&owner_guard) {
+                                    return;
                                 }
                             }
                             if let Some(container_drawable) = container_guard.get_drawable() {

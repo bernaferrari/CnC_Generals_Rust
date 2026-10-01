@@ -162,7 +162,6 @@ impl UpgradeModuleInterface for UnpauseSpecialPowerUpgrade {
         };
 
         let template_name = template.get_name().to_string();
-        let object_id = self.object_id;
         let Some(()) = OBJECT_REGISTRY.with_object_mut(self.object_id, |object_guard| {
             let mut paused = false;
             for module_handle in
@@ -180,19 +179,9 @@ impl UpgradeModuleInterface for UnpauseSpecialPowerUpgrade {
             }
 
             if !paused {
-                for behavior in object_guard.get_behavior_modules() {
-                    let mut behavior_guard = match behavior.lock() {
-                        Ok(guard) => guard,
-                        Err(_) => {
-                            log::warn!(
-                                "UnpauseSpecialPowerUpgrade: Failed to lock behavior on object {}",
-                                object_id
-                            );
-                            continue;
-                        }
-                    };
+                for behavior in object_guard.get_behavior_modules_mut() {
 
-                    if let Some(sp_module) = behavior_guard.get_special_power_module_interface() {
+                    if let Some(sp_module) = behavior.get_special_power_module_interface() {
                         if sp_module.get_power_name() == template_name {
                             sp_module.pause_countdown(false);
                         }

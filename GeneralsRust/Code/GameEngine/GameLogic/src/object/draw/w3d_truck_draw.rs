@@ -688,9 +688,8 @@ impl W3DTruckDraw {
             if let Some(owner) = TheGameLogic::find_object_by_id(owner_id) {
                 if let Ok(owner_guard) = owner.read() {
                     if let Some(ai) = owner_guard.get_ai_update_interface() {
-                        if let Ok(ai_guard) = ai.lock() {
-                            if ai_guard.has_nonempty_path() {
-                                if let Some(point) = ai_guard.peek_cached_point_on_path() {
+                        if ai.has_nonempty_path() {
+                            if let Some(point) = ai.peek_cached_point_on_path() {
                                 let pos = *owner_guard.get_position();
                                 let facing = owner_guard.get_orientation();
                                 let angle_to_goal = relative_angle_2d(pos, facing, point);
@@ -708,7 +707,6 @@ impl W3DTruckDraw {
                                     if desired_cab < 0.0 {
                                         desired_cab = 0.0;
                                     }
-                                }
                                 }
                             }
                         }
@@ -811,24 +809,20 @@ impl DrawModule for W3DTruckDraw {
             if let Ok(owner_guard) = owner.read() {
                 airborne = owner_guard.is_significantly_above_terrain();
                 if let Some(physics) = owner_guard.get_physics() {
-                    if let Ok(physics_guard) = physics.lock() {
-                        let velocity = physics_guard.get_velocity();
-                        vel_x = velocity.x;
-                        vel_y = velocity.y;
-                        speed = velocity.length();
-                        turning = physics_guard.get_turning();
-                        motive = physics_guard.is_motive();
-                        let accel = physics_guard.get_acceleration();
-                        accel_x = accel.x;
-                        accel_y = accel.y;
-                    }
+                    let velocity = physics.get_velocity();
+                    vel_x = velocity.x;
+                    vel_y = velocity.y;
+                    speed = velocity.length();
+                    turning = physics.get_turning();
+                    motive = physics.is_motive();
+                    let accel = physics.get_acceleration();
+                    accel_x = accel.x;
+                    accel_y = accel.y;
                 }
                 if let Some(ai) = owner_guard.get_ai_update_interface() {
-                    if let Ok(ai_guard) = ai.lock() {
-                        ai_guard.with_cur_locomotor(&mut |loco| {
-                            backwards = loco.is_moving_backwards();
-                        });
-                    }
+                    ai.with_cur_locomotor(&mut |loco| {
+                        backwards = loco.is_moving_backwards();
+                    });
                 }
             }
         }

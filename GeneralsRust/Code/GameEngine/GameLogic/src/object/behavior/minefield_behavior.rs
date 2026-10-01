@@ -412,10 +412,9 @@ impl MinefieldBehavior {
             let (health, max_health) = owner
                 .read()
                 .ok()
-                .and_then(|object| object.get_body_module())
-                .and_then(|body| {
-                    body.lock()
-                        .ok()
+                .and_then(|object| {
+                    object
+                        .get_body_module()
                         .map(|body| (body.get_health(), body.get_max_health()))
                 })
                 .unwrap_or((0.0, 0.0));
@@ -525,8 +524,11 @@ impl MinefieldBehavior {
             let amount = owner
                 .read()
                 .ok()
-                .and_then(|object| object.get_body_module())
-                .and_then(|body| body.lock().ok().map(|body| body.get_health() - MIN_HEALTH))
+                .and_then(|object| {
+                    object
+                        .get_body_module()
+                        .map(|body| body.get_health() - MIN_HEALTH)
+                })
                 .unwrap_or(0.0);
             if amount > 0.0 {
                 self.ignore_damage = true;
@@ -630,8 +632,9 @@ impl MinefieldBehavior {
                 let max_health = owner
                     .read()
                     .ok()
-                    .and_then(|object| object.get_body_module())
-                    .and_then(|body| body.lock().ok().map(|body| body.get_max_health()))
+                    .and_then(|object| {
+                        object.get_body_module().map(|body| body.get_max_health())
+                    })
                     .unwrap_or(0.0);
                 let amount = (max_health * self.module_data.health_percent_to_drain_per_second)
                     / LOGICFRAMES_PER_SECOND as Real;
@@ -702,11 +705,9 @@ impl MinefieldBehavior {
                 other_object.is_kind_of(KindOf::Infantry) && other_object.is_kind_of(KindOf::Dozer);
             let clearing = other_object
                 .get_ai()
-                .and_then(|ai| {
-                    ai.lock().ok().map(|ai| {
-                        ai.is_clearing_mines()
-                            && ai.get_goal_object_id() != crate::common::INVALID_ID
-                    })
+                .map(|ai| {
+                    ai.is_clearing_mines()
+                        && ai.get_goal_object_id() != crate::common::INVALID_ID
                 })
                 .unwrap_or(false);
             let geom = object.get_geometry_info();
@@ -789,11 +790,9 @@ impl MinefieldBehavior {
                 .ok()
                 .and_then(|object| {
                     let pos = *object.get_position();
-                    object.get_body_module().and_then(|body| {
-                        body.lock()
-                            .ok()
-                            .map(|body| (body.get_health(), body.get_max_health(), pos))
-                    })
+                    object
+                        .get_body_module()
+                        .map(|body| (body.get_health(), body.get_max_health(), pos))
                 })
                 .unwrap_or((0.0, 1.0, Coord3D::new(0.0, 0.0, 0.0)));
 
@@ -823,12 +822,8 @@ impl MinefieldBehavior {
 
         if self.virtual_mines_remaining == 0 && self.regenerates {
             if let Some(owner) = self.owner() {
-                if let Some(body) = owner
-                    .read()
-                    .ok()
-                    .and_then(|object| object.get_body_module())
-                {
-                    if let Ok(mut body) = body.lock() {
+                if let Ok(mut object) = owner.write() {
+                    if let Some(body) = object.get_body_module_mut() {
                         let health = body.get_health();
                         if health < MIN_HEALTH {
                             let _ = body.internal_change_health(MIN_HEALTH - health);

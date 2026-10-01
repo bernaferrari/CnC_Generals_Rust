@@ -1085,13 +1085,10 @@ impl GenerateMinefieldBehavior {
         // C++ lines 204-212: Set scoot parameters for land mine interface
         // Handled by the mine's own behavior modules
         if mine_id != INVALID_OBJECT_ID {
-            let behaviors = mine
-                .read()
-                .map(|guard| guard.get_behavior_modules())
-                .unwrap_or_default();
-            for behavior in behaviors {
-                if let Ok(mut guard) = behavior.lock() {
-                    if let Some(lmi) = guard.get_land_mine_interface() {
+            if let Ok(mut mine_guard) = mine.write() {
+                let behaviors = mine_guard.get_behavior_modules_mut();
+                for behavior in behaviors {
+                    if let Some(lmi) = behavior.get_land_mine_interface() {
                         lmi.set_scoot_parms(&owner_pos, position);
                         break;
                     }

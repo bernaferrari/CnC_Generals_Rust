@@ -437,16 +437,14 @@ impl CreateCrateDie {
             return Ok(());
         };
         let killer_obj = resolve_die_object(kid).ok_or("killer unavailable")?;
-        let killer_lock = killer_obj.read().map_err(|_| "Failed to lock killer")?;
+        let mut killer_lock = killer_obj.write().map_err(|_| "Failed to lock killer")?;
 
         if let Some(player) = killer_lock.get_controlling_player() {
             let player_lock = player.read().map_err(|_| "Failed to lock player")?;
 
             if player_lock.get_player_type() == PlayerType::Computer {
-                if let Some(ai) = killer_lock.get_ai_update_interface() {
-                    if let Ok(mut ai_guard) = ai.lock() {
-                        ai_guard.notify_crate(crate_id);
-                    }
+                if let Some(ai) = killer_lock.get_ai_update_interface_mut() {
+                    ai.notify_crate(crate_id);
                 }
             }
         }

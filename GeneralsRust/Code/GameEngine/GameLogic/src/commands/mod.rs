@@ -153,7 +153,7 @@ pub fn initialize_command_system(max_players: i32) -> Result<(), String> {
             .write()
             .map_err(|_| "Failed to lock selection manager")?;
 
-        manager.set_object_lookup(Arc::new(selection::RegistryObjectLookup));
+        manager.set_object_lookup(Box::new(selection::RegistryObjectLookup));
 
         // Initialize player selections
         for player_id in 0..max_players {

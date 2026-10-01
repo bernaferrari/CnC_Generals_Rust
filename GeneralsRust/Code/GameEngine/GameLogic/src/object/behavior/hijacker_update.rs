@@ -10,7 +10,7 @@ use crate::common::{
 };
 use crate::helpers::TheGameLogic;
 use crate::modules::{
-    AIUpdateInterfaceExt, BehaviorModuleInterface, UpdateModuleInterface, UpdateSleepTime,
+    BehaviorModuleInterface, UpdateModuleInterface, UpdateSleepTime,
 };
 use crate::object::behavior::behavior_module::{BehaviorModuleData, xfer_update_module_base_state};
 use crate::object::registry::OBJECT_REGISTRY;
@@ -231,14 +231,12 @@ impl UpdateModuleInterface for HijackerUpdate {
                 }) {
                     if let Ok(hijacker_guard) = hijacker_arc.read() {
                         if let Some(container_id) = hijacker_guard.get_container_id() {
-                            let _ = crate::object::registry::OBJECT_REGISTRY.with_object(
+                            let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(
                                 container_id,
                                 |container_guard| {
-                                    if let Some(contain_arc) = container_guard.get_contain() {
-                                        if let Ok(mut contain_guard) = contain_arc.lock() {
-                                            let _ = contain_guard
-                                                .release_object(hijacker_guard.get_id());
-                                        }
+                                    if let Some(contain) = container_guard.get_contain_mut() {
+                                        let _ = contain
+                                            .release_object(hijacker_guard.get_id());
                                     }
                                 },
                             );
@@ -258,11 +256,13 @@ impl UpdateModuleInterface for HijackerUpdate {
                             false,
                         );
                         hijacker_guard.handle_partition_cell_maintenance();
-                        let ai = hijacker_guard.get_ai();
-                        drop(hijacker_guard);
-
-                        if let Some(ai) = ai {
-                            ai.ai_idle(CommandSourceType::FromAi);
+                        if let Some(ai) = hijacker_guard.get_ai_mut() {
+                            // C++ AIUpdateInterface::aiIdle(FromAI) issued after eject.
+                            let params = crate::ai::AiCommandParams::new(
+                                crate::ai::AiCommandType::Idle,
+                                CommandSourceType::FromAi,
+                            );
+                            let _ = ai.execute_command(&params);
                         }
                     }
                 }

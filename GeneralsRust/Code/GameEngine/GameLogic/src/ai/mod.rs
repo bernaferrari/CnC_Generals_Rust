@@ -878,16 +878,11 @@ impl AiGroup {
 
         let module_attitude = to_module_attitude(attitude);
         for obj_id in &self.member_list {
-            let Some(ai) = OBJECT_REGISTRY
-                .with_object(*obj_id, |obj_guard| obj_guard.get_ai_update_interface())
-                .flatten()
-            else {
-                continue;
-            };
-            let Ok(mut ai_guard) = ai.lock() else {
-                continue;
-            };
-            let _ = ai_guard.set_attitude(module_attitude);
+            let _ = OBJECT_REGISTRY.with_object_mut(*obj_id, |obj_guard| {
+                if let Some(ai_guard) = obj_guard.get_ai_update_interface_mut() {
+                    let _ = ai_guard.set_attitude(module_attitude);
+                }
+            });
         }
         Ok(())
     }
@@ -899,16 +894,14 @@ impl AiGroup {
         }
 
         for obj_id in &self.member_list {
-            let Some(ai) = OBJECT_REGISTRY
-                .with_object(*obj_id, |obj_guard| obj_guard.get_ai_update_interface())
-                .flatten()
-            else {
-                continue;
-            };
-            let Ok(ai_guard) = ai.lock() else {
-                continue;
-            };
-            return Ok(from_module_attitude(ai_guard.get_attitude()));
+            let attitude = OBJECT_REGISTRY.with_object(*obj_id, |obj_guard| {
+                obj_guard
+                    .get_ai_update_interface()
+                    .map(|ai_guard| from_module_attitude(ai_guard.get_attitude()))
+            });
+            if let Some(attitude) = attitude.flatten() {
+                return Ok(attitude);
+            }
         }
         Ok(AttitudeType::Normal)
     }
@@ -924,10 +917,7 @@ impl AiGroup {
         for obj_id in &self.member_list {
             let member = OBJECT_REGISTRY.with_object(*obj_id, |obj_guard| {
                 let ai = obj_guard.get_ai_update_interface()?;
-                let Ok(ai_guard) = ai.lock() else {
-                    return None;
-                };
-                Some(ai_guard.is_idle() || obj_guard.is_effectively_dead())
+                Some(ai.is_idle() || obj_guard.is_effectively_dead())
             });
             let Some(Some(member_idle)) = member else {
                 continue;
@@ -951,10 +941,7 @@ impl AiGroup {
         for obj_id in &self.member_list {
             let member = OBJECT_REGISTRY.with_object(*obj_id, |obj_guard| {
                 let ai = obj_guard.get_ai_update_interface()?;
-                let Ok(ai_guard) = ai.lock() else {
-                    return None;
-                };
-                Some(ai_guard.is_busy() && !obj_guard.is_effectively_dead())
+                Some(ai.is_busy() && !obj_guard.is_effectively_dead())
             });
             let Some(Some(member_busy)) = member else {
                 continue;
@@ -1115,11 +1102,9 @@ impl AiGroup {
                     is_formation = false;
                 } else if obj.is_kind_of(KindOf::Aircraft) {
                     if let Some(ai) = obj.get_ai_update_interface() {
-                        if let Ok(ai_guard) = ai.lock() {
-                            if !ai_guard.is_doing_ground_movement() {
-                                tighten_group = false;
-                                is_formation = false;
-                            }
+                        if !ai.is_doing_ground_movement() {
+                            tighten_group = false;
+                            is_formation = false;
                         }
                     }
                 }
@@ -1189,20 +1174,17 @@ impl AiGroup {
             let dest =
                 self.compute_individual_destination(member_id, &goal_pos, &center, is_formation);
 
-            let Some(ai) = OBJECT_REGISTRY
-                .with_object(member_id, |obj| obj.get_ai_update_interface())
-                .flatten()
-            else {
-                continue;
-            };
-            {
+            let _ = OBJECT_REGISTRY.with_object_mut(member_id, |obj| {
                 use crate::modules::AIUpdateInterfaceExt;
+                let Some(ai) = obj.get_ai_update_interface_mut() else {
+                    return;
+                };
                 if add_waypoint {
                     ai.ai_follow_path_append(&dest, cmd_source);
                 } else {
                     ai.ai_move_to_position(&dest, false, cmd_source);
                 }
-            }
+            });
         }
     }
 
@@ -1243,8 +1225,8 @@ impl AiGroup {
         movers.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
         let mut heli_idx = 0i32;
         for (member_id, _) in movers {
-            let _ = OBJECT_REGISTRY.with_object(member_id, |obj| {
-                let Some(ai) = obj.get_ai_update_interface() else {
+            let _ = OBJECT_REGISTRY.with_object_mut(member_id, |obj| {
+                let Some(ai) = obj.get_ai_update_interface_mut() else {
                     return;
                 };
                 if add_waypoint {
@@ -1355,7 +1337,7 @@ impl AiGroup {
                 .with_object(*obj_id, |obj_guard| {
                     obj_guard
                         .get_ai_update_interface()
-                        .and_then(|ai| ai.lock().ok().map(|ai_guard| ai_guard.get_speed().max(0.0)))
+                        .map(|ai| ai.get_speed().max(0.0))
                 })
                 .flatten()
             else {
@@ -1377,16 +1359,11 @@ impl AiGroup {
         }
 
         for obj_id in &self.member_list {
-            let Some(ai) = OBJECT_REGISTRY
-                .with_object(*obj_id, |obj_guard| obj_guard.get_ai_update_interface())
-                .flatten()
-            else {
-                continue;
-            };
-            let Ok(mut ai_guard) = ai.lock() else {
-                continue;
-            };
-            let _ = ai_guard.execute_command(params);
+            let _ = OBJECT_REGISTRY.with_object_mut(*obj_id, |obj_guard| {
+                if let Some(ai_guard) = obj_guard.get_ai_update_interface_mut() {
+                    let _ = ai_guard.execute_command(params);
+                }
+            });
         }
     }
 
@@ -1440,28 +1417,53 @@ impl AiCommandInterface for AiGroup {
             return Ok(());
         }
 
-        for obj_id in &self.member_list {
-            let dispatch_started = Instant::now();
-            if let Some(ai) = OBJECT_REGISTRY
-                .with_object(*obj_id, |obj_guard| obj_guard.get_ai_update_interface())
-                .flatten()
-            {
-                if let Ok(mut ai_guard) = ai.lock() {
-                    let _ = ai_guard.execute_command(params);
-                }
-            }
-            let elapsed = dispatch_started.elapsed();
-            if elapsed >= Duration::from_millis(200) {
-                log::warn!(
-                    "Slow AI group command dispatch: cmd={:?} object_id={} elapsed={:?}",
-                    params.cmd,
-                    obj_id,
-                    elapsed
-                );
-            }
-        }
-        Ok(())
+        dispatch_ai_group_command_to_members(&self.member_list, params)
     }
+}
+
+/// Dispatch an AI group command to `member_list` with no group guard held.
+fn dispatch_ai_group_command_to_members(
+    member_list: &[ObjectId],
+    params: &AiCommandParams,
+) -> Result<(), AiError> {
+    for obj_id in member_list {
+        let dispatch_started = Instant::now();
+        let _ = OBJECT_REGISTRY.with_object_mut(*obj_id, |obj_guard| {
+            if let Some(ai_guard) = obj_guard.get_ai_update_interface_mut() {
+                let _ = ai_guard.execute_command(params);
+            }
+        });
+        let elapsed = dispatch_started.elapsed();
+        if elapsed >= Duration::from_millis(200) {
+            log::warn!(
+                "Slow AI group command dispatch: cmd={:?} object_id={} elapsed={:?}",
+                params.cmd,
+                obj_id,
+                elapsed
+            );
+        }
+    }
+    Ok(())
+}
+
+/// Dispatch a command to every member of an AI group WITHOUT holding the
+/// group's write guard across member AI execution: the member commands
+/// re-enter group/object state, which would deadlock against a live guard on
+/// this non-reentrant std RwLock. Skips silently when the group lock is
+/// poisoned (matching the previous `if let Ok(mut group)` call sites).
+pub fn dispatch_ai_group_command_unguarded(
+    group: &std::sync::Arc<std::sync::RwLock<AiGroup>>,
+    params: &AiCommandParams,
+) -> Result<(), AiError> {
+    // Wave 263: empty dual-world → Ok(()).
+    if dual_world_registry_unavailable() {
+        return Ok(());
+    }
+    let member_list = match group.read() {
+        Ok(guard) => guard.member_list.clone(),
+        Err(_) => return Ok(()),
+    };
+    dispatch_ai_group_command_to_members(&member_list, params)
 }
 
 // AI error types
@@ -1798,12 +1800,7 @@ impl AI {
                         let template_name = target.get_template().get_name().to_string();
                         let contained_ids = target
                             .get_contain()
-                            .and_then(|contain| {
-                                contain
-                                    .lock()
-                                    .ok()
-                                    .map(|cg| cg.get_contained_objects().into_owned())
-                            })
+                            .map(|cg| cg.get_contained_objects().into_owned())
                             .unwrap_or_default();
 
                         Some((dist_sqr, template_name, contained_ids))
@@ -2047,12 +2044,9 @@ impl AI {
                             .map(|guard| guard.get_player_type() == PlayerType::Human)
                     })
                     .unwrap_or(false);
-                let attitude = obj_guard.get_ai_update_interface().and_then(|ai_update| {
-                    ai_update
-                        .lock()
-                        .ok()
-                        .map(|ai_guard| ai_guard.get_attitude())
-                });
+                let attitude = obj_guard
+                    .get_ai_update_interface()
+                    .map(|ai_guard| ai_guard.get_attitude());
                 let contained = obj_guard.get_contained_by().is_some();
                 let weapon_range = obj_guard.get_largest_weapon_range();
                 (range, player_is_human, attitude, contained, weapon_range)
@@ -2602,12 +2596,10 @@ impl Pathfinder {
             }
             unit_radius = obj_guard.get_geometry_info().get_major_radius();
             if let Some(ai) = obj_guard.get_ai_update_interface() {
-                if let Ok(ai_guard) = ai.lock() {
-                    move_allies = ai_guard.get_can_path_through_units();
-                    let ignored = ai_guard.get_ignored_obstacle_id();
-                    if ignored != INVALID_ID {
-                        ignore_obstacle_id = Some(ignored);
-                    }
+                move_allies = ai.get_can_path_through_units();
+                let ignored = ai.get_ignored_obstacle_id();
+                if ignored != INVALID_ID {
+                    ignore_obstacle_id = Some(ignored);
                 }
             }
         });
@@ -2910,10 +2902,7 @@ impl Pathfinder {
         let Some(ai) = obj.get_ai_update_interface() else {
             return false;
         };
-        let Ok(ai_guard) = ai.lock() else {
-            return false;
-        };
-        let Some(loco_set) = ai_guard.get_locomotor_set_clone() else {
+        let Some(loco_set) = ai.get_locomotor_set_clone() else {
             return false;
         };
         let surfaces = loco_set.get_valid_surfaces();

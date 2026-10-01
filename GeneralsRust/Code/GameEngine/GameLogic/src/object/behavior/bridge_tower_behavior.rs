@@ -251,11 +251,7 @@ impl BridgeTowerBehavior {
 
             let Some(result) = OBJECT_REGISTRY.with_object_mut(*tower_id, |tower_write| {
                 if let Some(body) = tower_write.get_body_module() {
-                    let body_guard = match body.lock() {
-                        Ok(g) => g,
-                        Err(_) => return Err("BridgeTowerBehavior: body lock poisoned".to_string()),
-                    };
-                    let max_health = body_guard.get_max_health();
+                    let max_health = body.get_max_health();
                     if max_health > 0.0 {
                         let mut propagated = DamageInfo::new();
                         propagated.input.source_id = self.object_id;
@@ -281,10 +277,7 @@ impl BridgeTowerBehavior {
             .write()
             .map_err(|e| format!("bridge lock poisoned: {}", e))?;
         if let Some(body) = bridge_write.get_body_module() {
-            let body_guard = body
-                .lock()
-                .map_err(|_| "BridgeTowerBehavior: body lock poisoned")?;
-            let max_health = body_guard.get_max_health();
+            let max_health = body.get_max_health();
             if max_health > 0.0 {
                 let mut bridge_damage = DamageInfo::new();
                 bridge_damage.input.source_id = self.object_id;
@@ -336,17 +329,7 @@ impl BridgeTowerBehavior {
                     if let Some(result) =
                         OBJECT_REGISTRY.with_object_mut(*tower_id, |tower_write| {
                             if let Some(body) = tower_write.get_body_module() {
-                                let body_guard = match body.lock() {
-                                    Ok(g) => g,
-                                    Err(_) => {
-                                        return Err(
-                                            Box::<dyn std::error::Error + Send + Sync>::from(
-                                                "BridgeTowerBehavior: body lock poisoned",
-                                            ),
-                                        );
-                                    }
-                                };
-                                let max_health = body_guard.get_max_health();
+                                let max_health = body.get_max_health();
                                 if max_health > 0.0 {
                                     let amount = healing_percentage * max_health;
                                     tower_write.attempt_healing(amount, Some(source_guard))?;
@@ -363,10 +346,7 @@ impl BridgeTowerBehavior {
                     .write()
                     .map_err(|e| format!("bridge lock poisoned: {}", e))?;
                 if let Some(body) = bridge_write.get_body_module() {
-                    let body_guard = body
-                        .lock()
-                        .map_err(|_| "BridgeTowerBehavior: body lock poisoned")?;
-                    let max_health = body_guard.get_max_health();
+                    let max_health = body.get_max_health();
                     if max_health > 0.0 {
                         let amount = healing_percentage * max_health;
                         bridge_write.attempt_healing(amount, Some(source_guard))?;
@@ -485,10 +465,7 @@ impl DamageModuleInterface for BridgeTowerBehavior {
         let damage_percentage = self.with_object(
             |me_read| -> Result<f32, Box<dyn std::error::Error + Send + Sync>> {
                 if let Some(body) = me_read.get_body_module() {
-                    let body_guard = body
-                        .lock()
-                        .map_err(|_| "BridgeTowerBehavior: body lock poisoned")?;
-                    let max_health = body_guard.get_max_health();
+                    let max_health = body.get_max_health();
                     Ok(if max_health > 0.0 {
                         damage_info.input.amount / max_health
                     } else {
@@ -510,12 +487,7 @@ impl DamageModuleInterface for BridgeTowerBehavior {
         let healing_percentage = self.with_object(
             |me_read| -> Result<f32, Box<dyn std::error::Error + Send + Sync>> {
                 if let Some(body) = me_read.get_body_module() {
-                    let max_health = {
-                        let body_guard = body
-                            .lock()
-                            .map_err(|_| "BridgeTowerBehavior: body lock poisoned")?;
-                        body_guard.get_max_health()
-                    };
+                    let max_health = body.get_max_health();
                     Ok(if max_health > 0.0 {
                         damage_info.input.amount / max_health
                     } else {

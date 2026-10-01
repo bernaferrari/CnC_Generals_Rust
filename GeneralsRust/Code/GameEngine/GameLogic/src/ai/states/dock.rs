@@ -161,19 +161,13 @@ impl ClassicState for AIDockState {
             owner_guard.ai_pending_ignore_id = Some(goal_id);
         }
 
-        let dock_machine = AIDockMachine::new(owner.clone())?;
-        let init_result = if let Ok(mut machine) = dock_machine.state_machine.lock() {
-            machine.set_goal_object_by_id(Some(goal_id));
-            Some(machine.init_default_state())
-        } else {
-            None
-        };
-        if let Some(result) = init_result {
-            self.dock_machine = Some(dock_machine);
-            return Ok(result);
-        }
-
-        Ok(StateReturnType::Failure)
+        // The dock machine is owned by this state; the previous lock-failure
+        // branch is unreachable now that the machine is a plain field.
+        let mut dock_machine = AIDockMachine::new(owner.clone())?;
+        dock_machine.state_machine.set_goal_object_by_id(Some(goal_id));
+        let init_result = dock_machine.state_machine.init_default_state();
+        self.dock_machine = Some(dock_machine);
+        Ok(init_result)
     }
 
     fn classic_on_update(&mut self) -> Result<StateReturnType, String> {
@@ -187,11 +181,7 @@ impl ClassicState for AIDockState {
             }
         }
 
-        let result = dock_machine
-            .state_machine
-            .lock()
-            .map_err(|_| "dock state machine lock failed".to_string())?
-            .update();
+        let result = dock_machine.state_machine.update();
 
         Ok(match result {
             StateReturnType::Sleep(_) => StateReturnType::Continue,

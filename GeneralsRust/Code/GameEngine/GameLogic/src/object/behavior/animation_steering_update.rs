@@ -102,7 +102,7 @@ impl UpdateModuleInterface for AnimationSteeringUpdate {
             return UpdateSleepTime::None;
         };
 
-        let Some(physics_arc) = object_guard.get_physics() else {
+        let Some(physics) = object_guard.get_physics() else {
             return UpdateSleepTime::None;
         };
         let Some(drawable_arc) = object_guard.get_drawable() else {
@@ -114,10 +114,7 @@ impl UpdateModuleInterface for AnimationSteeringUpdate {
             return UpdateSleepTime::None;
         }
 
-        let current_turn = physics_arc
-            .lock()
-            .map(|guard| guard.get_turning())
-            .unwrap_or(0.0);
+        let current_turn = physics.get_turning();
 
         let turn_state = if current_turn < 0.0 {
             ModelConditionFlags::CenterToRight

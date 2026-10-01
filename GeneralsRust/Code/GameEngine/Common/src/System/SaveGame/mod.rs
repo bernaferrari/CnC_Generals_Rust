@@ -199,141 +199,131 @@ pub fn register_campaign_manager_runtime_hooks(
 }
 
 pub fn capture_campaign_manager_runtime() -> CampaignManagerXferState {
-    save_load_hooks()
+    // Clone the Arc hook out and drop the registry lock before invoking, so
+    // hooks that register/notify lifecycle hooks cannot self-deadlock.
+    let capture = save_load_hooks()
         .lock()
         .ok()
-        .and_then(|hooks| hooks.capture_campaign_manager.as_ref().map(|cb| cb()))
-        .unwrap_or_default()
+        .and_then(|hooks| hooks.capture_campaign_manager.clone());
+    capture.map(|cb| cb()).unwrap_or_default()
 }
 
 pub fn apply_campaign_manager_runtime(state: CampaignManagerXferState) {
-    if let Ok(hooks) = save_load_hooks().lock() {
-        if let Some(apply) = hooks.apply_campaign_manager.as_ref() {
-            apply(state);
-        }
+    let apply = save_load_hooks()
+        .lock()
+        .ok()
+        .and_then(|hooks| hooks.apply_campaign_manager.clone());
+    if let Some(apply) = apply {
+        apply(state);
     }
 }
 
 pub(crate) fn notify_get_campaign_snapshot() -> Option<(String, i32, String)> {
-    let hooks = save_load_hooks().lock().ok()?;
-    hooks
-        .get_campaign_snapshot
-        .as_ref()
-        .and_then(|callback| callback())
+    let callback = save_load_hooks()
+        .lock()
+        .ok()
+        .and_then(|hooks| hooks.get_campaign_snapshot.clone())?;
+    callback()
 }
 
 pub(crate) fn notify_begin_load() {
-    if let Ok(hooks) = save_load_hooks().lock() {
-        if let Some(callback) = hooks.begin_load.as_ref() {
-            callback();
-        }
+    if let Some(callback) = hook_clone(|hooks| hooks.begin_load.clone()) {
+        callback();
     }
 }
 
 pub(crate) fn notify_end_load() {
-    if let Ok(hooks) = save_load_hooks().lock() {
-        if let Some(callback) = hooks.end_load.as_ref() {
-            callback();
-        }
+    if let Some(callback) = hook_clone(|hooks| hooks.end_load.clone()) {
+        callback();
     }
 }
 
 pub(crate) fn notify_set_loading_save(loading: bool) {
-    if let Ok(hooks) = save_load_hooks().lock() {
-        if let Some(callback) = hooks.set_loading_save.as_ref() {
-            callback(loading);
-        }
+    if let Some(callback) = hook_clone(|hooks| hooks.set_loading_save.clone()) {
+        callback(loading);
     }
 }
 
 pub(crate) fn notify_get_game_mode() -> Option<i32> {
-    let hooks = save_load_hooks().lock().ok()?;
-    hooks.get_game_mode.as_ref().map(|callback| callback())
+    hook_clone(|hooks| hooks.get_game_mode.clone()).map(|callback| callback())
 }
 
 pub(crate) fn notify_set_game_mode(game_mode: i32) {
-    if let Ok(hooks) = save_load_hooks().lock() {
-        if let Some(callback) = hooks.set_game_mode.as_ref() {
-            callback(game_mode);
-        }
+    if let Some(callback) = hook_clone(|hooks| hooks.set_game_mode.clone()) {
+        callback(game_mode);
     }
 }
 
 pub(crate) fn notify_start_new_game_from_save() {
-    if let Ok(hooks) = save_load_hooks().lock() {
-        if let Some(callback) = hooks.start_new_game_from_save.as_ref() {
-            callback();
-        }
+    if let Some(callback) = hook_clone(|hooks| hooks.start_new_game_from_save.clone()) {
+        callback();
     }
 }
 
 pub(crate) fn notify_post_load_refresh() {
-    if let Ok(hooks) = save_load_hooks().lock() {
-        if let Some(callback) = hooks.post_load_refresh.as_ref() {
-            callback();
-        }
+    if let Some(callback) = hook_clone(|hooks| hooks.post_load_refresh.clone()) {
+        callback();
     }
 }
 
 pub(crate) fn notify_clear_game_data() {
-    if let Ok(hooks) = save_load_hooks().lock() {
-        if let Some(callback) = hooks.clear_game_data.as_ref() {
-            callback();
-        }
+    if let Some(callback) = hook_clone(|hooks| hooks.clear_game_data.clone()) {
+        callback();
     }
 }
 
 pub(crate) fn notify_get_mission_start_args() -> Option<(i32, i32)> {
-    let hooks = save_load_hooks().lock().ok()?;
-    hooks.mission_start_args.as_ref().map(|callback| callback())
+    hook_clone(|hooks| hooks.mission_start_args.clone()).map(|callback| callback())
 }
 
 pub(crate) fn notify_save_lock_ghost_objects(enable: bool) {
-    if let Ok(hooks) = save_load_hooks().lock() {
-        if let Some(callback) = hooks.save_lock_ghost_objects.as_ref() {
-            callback(enable);
-        }
+    if let Some(callback) = hook_clone(|hooks| hooks.save_lock_ghost_objects.clone()) {
+        callback(enable);
     }
 }
 
 pub(crate) fn notify_get_skirmish_payload() -> Option<Vec<u8>> {
-    let hooks = save_load_hooks().lock().ok()?;
-    hooks
-        .get_skirmish_payload
-        .as_ref()
-        .and_then(|callback| callback())
+    hook_clone(|hooks| hooks.get_skirmish_payload.clone()).and_then(|callback| callback())
 }
 
 pub(crate) fn notify_set_skirmish_payload(payload: Option<Vec<u8>>) {
-    if let Ok(hooks) = save_load_hooks().lock() {
-        if let Some(callback) = hooks.set_skirmish_payload.as_ref() {
-            callback(payload);
-        }
+    if let Some(callback) = hook_clone(|hooks| hooks.set_skirmish_payload.clone()) {
+        callback(payload);
     }
 }
 
 pub fn get_runtime_object_id_counter() -> Option<ObjectID> {
-    let hooks = id_counter_hooks().lock().ok()?;
-    hooks.object_getter.as_ref().map(|getter| getter())
+    let getter = id_counter_hooks().lock().ok()?.object_getter.clone();
+    getter.map(|getter| getter())
 }
 
 pub fn set_runtime_object_id_counter(counter: ObjectID) {
-    if let Ok(hooks) = id_counter_hooks().lock() {
-        if let Some(setter) = hooks.object_setter.as_ref() {
-            setter(counter);
-        }
+    let setter = id_counter_hooks()
+        .lock()
+        .ok()
+        .and_then(|hooks| hooks.object_setter.clone());
+    if let Some(setter) = setter {
+        setter(counter);
     }
 }
 
 pub fn get_runtime_drawable_id_counter() -> Option<DrawableID> {
-    let hooks = id_counter_hooks().lock().ok()?;
-    hooks.drawable_getter.as_ref().map(|getter| getter())
+    let getter = id_counter_hooks().lock().ok()?.drawable_getter.clone();
+    getter.map(|getter| getter())
 }
 
 pub fn set_runtime_drawable_id_counter(counter: DrawableID) {
-    if let Ok(hooks) = id_counter_hooks().lock() {
-        if let Some(setter) = hooks.drawable_setter.as_ref() {
-            setter(counter);
-        }
+    let setter = id_counter_hooks()
+        .lock()
+        .ok()
+        .and_then(|hooks| hooks.drawable_setter.clone());
+    if let Some(setter) = setter {
+        setter(counter);
     }
+}
+
+/// Clone a hook out of the registry lock so it can be invoked with the lock
+/// released (hooks may re-enter registration or other notify_* calls).
+fn hook_clone<T: Clone>(get: impl Fn(&SaveLoadLifecycleHooks) -> Option<T>) -> Option<T> {
+    save_load_hooks().lock().ok().and_then(|hooks| get(&hooks))
 }

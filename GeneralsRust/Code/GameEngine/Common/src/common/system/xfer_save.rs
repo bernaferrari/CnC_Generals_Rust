@@ -151,7 +151,9 @@ impl<W: Write + Seek> Xfer for XferSave<W> {
             // SAFETY: caller contract — data valid for reads of data_size;
             // write_all consumes exactly that many bytes.
     unsafe fn xfer_implementation(&mut self, data: *mut u8, data_size: usize) -> io::Result<()> {
-        let slice = std::slice::from_raw_parts(data, data_size);
+        // SAFETY: caller contract of `xfer_implementation`: `data` is valid
+        // for `data_size` readable bytes.
+        let slice = unsafe { std::slice::from_raw_parts(data, data_size) };
         self.writer.write_all(slice)?;
         Ok(())
     }

@@ -129,11 +129,9 @@ mod tests {
             normal_data,
         )
         .expect("flammable module");
-        let normal_module: Arc<Mutex<dyn BehaviorModuleInterface>> =
-            Arc::new(Mutex::new(normal_flammable));
-        normal_object.write().unwrap().behaviors.push(normal_module);
+        let normal_module: Box<dyn BehaviorModuleInterface> = Box::new(normal_flammable);
 
-        assert!(normal_object.find_flammable_update().is_some());
+        assert!(normal_object.find_flammable_update(|_| ()).is_some());
 
         let aflame_object = Arc::new(RwLock::new(Object::new_test(9104, 100.0)));
         let aflame_data = Arc::new(
@@ -145,11 +143,9 @@ mod tests {
         )
         .expect("flammable module");
         aflame_flammable.try_to_ignite();
-        let aflame_module: Arc<Mutex<dyn BehaviorModuleInterface>> =
-            Arc::new(Mutex::new(aflame_flammable));
-        aflame_object.write().unwrap().behaviors.push(aflame_module);
+        let aflame_module: Box<dyn BehaviorModuleInterface> = Box::new(aflame_flammable);
 
-        assert!(aflame_object.find_flammable_update().is_none());
+        assert!(aflame_object.find_flammable_update(|_| ()).is_none());
     }
 
     #[test]
@@ -266,10 +262,10 @@ mod tests {
         let mut module_data = ActiveBodyModuleData::default();
         module_data.max_health = 100.0;
         module_data.initial_health = 75.0;
-        let active_body: Arc<Mutex<dyn BodyModuleInterface>> = Arc::new(Mutex::new(
-            ActiveBody::new_with_owner(module_data, obj.get_id()),
+        let active_body: Box<dyn BodyModuleInterface> = Box::new(ActiveBody::new_with_owner(
+            module_data,
+            obj.get_id(),
         ));
-        obj.body = Some(active_body);
 
         assert_eq!(obj.get_health(), 75.0);
         assert_eq!(obj.get_max_health(), 100.0);
@@ -281,12 +277,7 @@ mod tests {
         let names: Vec<String> = obj
             .get_behavior_modules()
             .into_iter()
-            .map(|module| {
-                module
-                    .lock()
-                    .map(|g| g.get_module_name().to_string())
-                    .unwrap_or_default()
-            })
+            .map(|module| module.get_module_name().to_string())
             .collect();
         assert!(
             names.len() >= 3,
@@ -426,16 +417,15 @@ mod tests {
 
     #[test]
     fn destroy_walks_get_behavior_modules() {
-        let obj = Object::new_test(99, 100.0);
-        let modules = obj.get_behavior_modules();
+        let mut obj = Object::new_test(99, 100.0);
+        let modules = obj.get_behavior_modules_mut();
         assert!(
             !modules.is_empty(),
             "destroyObject walks get_behavior_modules(); list must not be empty"
         );
         for module in modules {
-            let mut guard = module.lock().expect("behavior lock");
-            let _ = guard.get_destroy();
-            let _ = guard.get_damage();
+            let _ = module.get_destroy();
+            let _ = module.get_damage();
         }
     }
 
@@ -551,12 +541,7 @@ mod tests {
         let names: Vec<String> = obj
             .get_behavior_modules()
             .into_iter()
-            .map(|module| {
-                module
-                    .lock()
-                    .map(|g| g.get_module_name().to_string())
-                    .unwrap_or_default()
-            })
+            .map(|module| module.get_module_name().to_string())
             .collect();
         assert_eq!(names[0], "ObjectSMCHelper");
         assert_eq!(names[1], "StatusDamageHelper");
@@ -633,12 +618,7 @@ mod tests {
     fn behavior_names(obj: &Object) -> Vec<String> {
         obj.get_behavior_modules()
             .into_iter()
-            .map(|module| {
-                module
-                    .lock()
-                    .map(|g| g.get_module_name().to_string())
-                    .unwrap_or_default()
-            })
+            .map(|module| module.get_module_name().to_string())
             .collect()
     }
 
@@ -853,8 +833,9 @@ mod tests {
         let mut module_data = ActiveBodyModuleData::default();
         module_data.max_health = 100.0;
         module_data.initial_health = 100.0;
-        let active_body: Arc<Mutex<dyn BodyModuleInterface>> = Arc::new(Mutex::new(
-            ActiveBody::new_with_owner(module_data, obj.get_id()),
+        let active_body: Box<dyn BodyModuleInterface> = Box::new(ActiveBody::new_with_owner(
+            module_data,
+            obj.get_id(),
         ));
         obj.body = Some(active_body);
 
@@ -915,18 +896,18 @@ mod tests {
     #[test]
     fn radar_priority_only_treats_garrisonable_contain_as_structure() {
         let mut transport_obj = Object::new_test(1, 100.0);
-        transport_obj.set_contain(Some(Arc::new(Mutex::new(TestContainModule {
+        transport_obj.set_contain(Some(Box::new(TestContainModule {
             garrisonable: false,
-        }))));
+        })));
         assert_eq!(
             transport_obj.get_radar_priority(),
             RadarPriorityType::Invalid
         );
 
         let mut garrison_obj = Object::new_test(2, 100.0);
-        garrison_obj.set_contain(Some(Arc::new(Mutex::new(TestContainModule {
+        garrison_obj.set_contain(Some(Box::new(TestContainModule {
             garrisonable: true,
-        }))));
+        })));
         assert_eq!(
             garrison_obj.get_radar_priority(),
             RadarPriorityType::Structure
@@ -962,8 +943,9 @@ mod tests {
         let mut module_data = ActiveBodyModuleData::default();
         module_data.max_health = 100.0;
         module_data.initial_health = 25.0;
-        let active_body: Arc<Mutex<dyn BodyModuleInterface>> = Arc::new(Mutex::new(
-            ActiveBody::new_with_owner(module_data, obj.get_id()),
+        let active_body: Box<dyn BodyModuleInterface> = Box::new(ActiveBody::new_with_owner(
+            module_data,
+            obj.get_id(),
         ));
         obj.body = Some(active_body);
 
@@ -992,8 +974,9 @@ mod tests {
         let mut module_data = ActiveBodyModuleData::default();
         module_data.max_health = 100.0;
         module_data.initial_health = 100.0;
-        let active_body: Arc<Mutex<dyn BodyModuleInterface>> = Arc::new(Mutex::new(
-            ActiveBody::new_with_owner(module_data, obj.get_id()),
+        let active_body: Box<dyn BodyModuleInterface> = Box::new(ActiveBody::new_with_owner(
+            module_data,
+            obj.get_id(),
         ));
         obj.body = Some(active_body);
 
@@ -1016,16 +999,14 @@ mod tests {
         assert!(obj.test_armor_set_flag(ArmorSetFlag::CrateUpgradeOne));
         let body = obj.get_body_module().expect("test object has active body");
         assert!(
-            body.lock().expect("body lock").test_armor_set_flag(
-                crate::object::body::body_module::ArmorSetType::CrateUpgradeOne
-            )
+            body.test_armor_set_flag(crate::object::body::body_module::ArmorSetType::CrateUpgradeOne)
         );
 
         obj.clear_armor_set_flag(ArmorSetFlag::CrateUpgradeOne);
 
         assert!(!obj.test_armor_set_flag(ArmorSetFlag::CrateUpgradeOne));
         assert!(
-            !body.lock().expect("body lock").test_armor_set_flag(
+            !body.test_armor_set_flag(
                 crate::object::body::body_module::ArmorSetType::CrateUpgradeOne
             )
         );
@@ -1097,8 +1078,9 @@ mod tests {
         let mut module_data = ActiveBodyModuleData::default();
         module_data.max_health = 100.0;
         module_data.initial_health = 100.0;
-        let active_body: Arc<Mutex<dyn BodyModuleInterface>> = Arc::new(Mutex::new(
-            ActiveBody::new_with_owner(module_data, obj.get_id()),
+        let active_body: Box<dyn BodyModuleInterface> = Box::new(ActiveBody::new_with_owner(
+            module_data,
+            obj.get_id(),
         ));
         obj.body = Some(active_body);
 
@@ -1222,8 +1204,9 @@ mod tests {
         let mut module_data = ActiveBodyModuleData::default();
         module_data.max_health = 100.0;
         module_data.initial_health = 10.0;
-        let active_body: Arc<Mutex<dyn BodyModuleInterface>> = Arc::new(Mutex::new(
-            ActiveBody::new_with_owner(module_data, obj.get_id()),
+        let active_body: Box<dyn BodyModuleInterface> = Box::new(ActiveBody::new_with_owner(
+            module_data,
+            obj.get_id(),
         ));
         obj.body = Some(active_body);
 
@@ -2594,8 +2577,9 @@ mod visibility_tests {
             let mut module_data = ActiveBodyModuleData::default();
             module_data.max_health = 100.0;
             module_data.initial_health = 100.0;
-            let active_body: Arc<Mutex<dyn BodyModuleInterface>> = Arc::new(Mutex::new(
-                ActiveBody::new_with_owner(module_data, obj_guard.get_id()),
+            let active_body: Box<dyn BodyModuleInterface> = Box::new(ActiveBody::new_with_owner(
+                module_data,
+                obj_guard.get_id(),
             ));
             obj_guard.body = Some(active_body);
 

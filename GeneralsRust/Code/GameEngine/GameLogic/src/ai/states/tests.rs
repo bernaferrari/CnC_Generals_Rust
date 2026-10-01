@@ -54,7 +54,7 @@ use crate::common::INVALID_ID;
 use std::collections::HashMap;
 use std::io::Cursor;
 use std::sync::atomic::{AtomicI32, AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, Mutex as StdMutex, OnceLock, RwLock, Weak};
+use std::sync::{Arc, Mutex as StdMutex, OnceLock, RwLock, Weak};
 
 fn test_guard() -> std::sync::MutexGuard<'static, ()> {
     static TEST_LOCK: OnceLock<StdMutex<()>> = OnceLock::new();
@@ -129,15 +129,19 @@ fn clear_uses_base_clear_semantics() {
 fn set_goal_squad_copies_instead_of_aliasing() {
     let _guard = test_guard();
     let mut machine = AIStateMachine::new(Weak::<RwLock<Object>>::new(), "ai-squad");
-    let source = Arc::new(Mutex::new(Squad::new()));
+    let mut source = Squad::new();
+    source.add_object_id(101);
+    source.add_object_id(202);
 
-    machine.set_goal_squad(Some(source.clone()));
+    machine.set_goal_squad(Some(source));
 
-    let stored = machine
-        .get_goal_squad()
-        .expect("goal squad should be set")
-        .clone();
-    assert!(!Arc::ptr_eq(&stored, &source));
+    // Same ids carried over...
+    let stored = machine.get_goal_squad().expect("goal squad should be set");
+    assert_eq!(stored.get_object_ids(), &[101, 202]);
+    // ...but independent values: mutating the machine's squad does not alias
+    // anything, and re-setting stores a fresh copy.
+    machine.set_goal_squad(None);
+    assert!(machine.get_goal_squad().is_none());
 }
 
 #[test]
@@ -233,7 +237,7 @@ fn xfer_roundtrip_preserves_path_squad_temp_and_waypoint_lookup_rules() {
     let mut source = AIStateMachine::new(Weak::<RwLock<Object>>::new(), "ai-roundtrip-source");
     let path = vec![Coord3D::new(1.0, 2.0, 3.0), Coord3D::new(4.0, 5.0, 6.0)];
     source.set_goal_path(&path);
-    source.set_goal_squad(Some(Arc::new(Mutex::new(Squad::new()))));
+    source.set_goal_squad(Some(Squad::new()));
     source.set_goal_waypoint(Some(Arc::new(Waypoint::new(
         777_010,
         Coord3D::new(30.0, 40.0, 50.0),

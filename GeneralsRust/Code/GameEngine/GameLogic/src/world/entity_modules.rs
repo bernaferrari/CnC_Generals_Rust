@@ -38,7 +38,7 @@ pub struct EntityModuleGraph {
     pub on_delete_order: Vec<String>,
 }
 
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Default)]
 pub struct GameWorldEntityModules {
     graphs: HashMap<u32, EntityModuleGraph>,
     last_delete: HashMap<u32, Vec<String>>,

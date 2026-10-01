@@ -132,9 +132,6 @@ pub struct BaseHeightMap {
     pub x: i32,
     pub y: i32,
 
-    /// Pointer to the world height map data (C++ m_map)
-    map: Option<std::sync::Arc<std::sync::RwLock<WorldHeightMap>>>,
-
     /// Minimum height value in the heightmap (C++ m_minHeight)
     pub min_height: f32,
     /// Maximum height value in the heightmap (C++ m_maxHeight)
@@ -174,7 +171,6 @@ impl BaseHeightMap {
         Self {
             x: 0,
             y: 0,
-            map: None,
             min_height: 0.0,
             max_height,
             disable_textures: false,
@@ -190,30 +186,27 @@ impl BaseHeightMap {
         }
     }
 
-    /// Set the world height map.
-    /// Corresponds to C++ BaseHeightMapRenderObjClass::redirectToHeightmap (line 108-112).
-    pub fn set_map(&mut self, map: std::sync::Arc<std::sync::RwLock<WorldHeightMap>>) {
-        self.map = Some(map);
-    }
-
-    /// Get a reference to the world height map.
-    /// Corresponds to C++ BaseHeightMapRenderObjClass::getMap (line 191).
-    pub fn get_map(&self) -> Option<&std::sync::Arc<std::sync::RwLock<WorldHeightMap>>> {
-        self.map.as_ref()
-    }
-
-    pub fn world_to_grid(&self, x: f32, y: f32) -> Option<(i32, i32)> {
-        let map = self.map.as_ref()?;
-        let map = map.read().ok()?;
+    /// Convert world coordinates to grid coordinates.
+    /// Borrow-first ownership migration: the caller supplies the world height
+    /// map (C++ m_map back-pointer) instead of a shared `Arc<RwLock>` pin.
+    pub fn world_to_grid(
+        &self,
+        map: &WorldHeightMap,
+        x: f32,
+        y: f32,
+    ) -> Option<(i32, i32)> {
         Some((
             (x / MAP_XY_FACTOR).floor() as i32 + map.get_border_size(),
             (y / MAP_XY_FACTOR).floor() as i32 + map.get_border_size(),
         ))
     }
 
-    pub fn grid_to_world(&self, x_index: i32, y_index: i32) -> Option<(f32, f32)> {
-        let map = self.map.as_ref()?;
-        let map = map.read().ok()?;
+    pub fn grid_to_world(
+        &self,
+        map: &WorldHeightMap,
+        x_index: i32,
+        y_index: i32,
+    ) -> Option<(f32, f32)> {
         let border = map.get_border_size() as f32;
         Some((
             (x_index as f32 - border) * MAP_XY_FACTOR,
@@ -223,19 +216,20 @@ impl BaseHeightMap {
 
     pub fn get_height_map_height_lod(
         &self,
+        map: &WorldHeightMap,
         x: f32,
         y: f32,
         lod: u32,
         normal: Option<&mut [f32; 3]>,
     ) -> f32 {
         if lod <= 1 {
-            return self.get_height_map_height(x, y, normal);
+            return self.get_height_map_height(map, x, y, normal);
         }
 
         let lod = lod as f32;
         let sample_x = (x / MAP_XY_FACTOR / lod).floor() * MAP_XY_FACTOR * lod;
         let sample_y = (y / MAP_XY_FACTOR / lod).floor() * MAP_XY_FACTOR * lod;
-        self.get_height_map_height(sample_x, sample_y, normal)
+        self.get_height_map_height(map, sample_x, sample_y, normal)
     }
 
     // =========================================================================
@@ -246,9 +240,9 @@ impl BaseHeightMap {
     /// Corresponds to C++ BaseHeightMapRenderObjClass::getClipHeight (line 115-131).
     ///
     /// Clamps x and y to valid range [0, extent-1] before looking up the height.
-    pub fn get_clip_height(&self, x: i32, y: i32) -> u8 {
-        if let Some(map) = &self.map {
-            let map = map.read().unwrap();
+    pub fn get_clip_height(&self, map: &WorldHeightMap, x: i32, y: i32) -> u8 {
+        {
+            let map = map;
             let xextent = map.get_x_extent() - 1;
             let yextent = map.get_y_extent() - 1;
 
@@ -268,8 +262,6 @@ impl BaseHeightMap {
             };
 
             map.get_height(x, y)
-        } else {
-            0
         }
     }
 
@@ -283,9 +275,14 @@ impl BaseHeightMap {
     /// PARITY_NOTE: This is a critical gameplay function used for object placement,
     /// projectile trajectories, and camera positioning. The interpolation algorithm
     /// must match C++ exactly.
-    pub fn get_height_map_height(&self, x: f32, y: f32, normal: Option<&mut [f32; 3]>) -> f32 {
-        if let Some(map) = &self.map {
-            let map = map.read().unwrap();
+    pub fn get_height_map_height(
+        &self,
+        map: &WorldHeightMap,
+        x: f32,
+        y: f32,
+        normal: Option<&mut [f32; 3]>,
+    ) -> f32 {
+        {
 
             if map.get_data_ptr().is_empty() {
                 if let Some(n) = normal {
@@ -322,7 +319,7 @@ impl BaseHeightMap {
                     n[1] = 0.0;
                     n[2] = 1.0;
                 }
-                return self.get_clip_height(ix, iy) as f32 * MAP_HEIGHT_SCALE;
+                return self.get_clip_height(map, ix, iy) as f32 * MAP_HEIGHT_SCALE;
             }
 
             let data = map.get_data_ptr();
@@ -415,21 +412,14 @@ impl BaseHeightMap {
             }
 
             height
-        } else {
-            if let Some(n) = normal {
-                n[0] = 0.0;
-                n[1] = 0.0;
-                n[2] = 1.0;
-            }
-            0.0
         }
     }
 
     /// Get the maximum height of the 4 cell corners at (x, y).
     /// Corresponds to C++ BaseHeightMapRenderObjClass::getMaxCellHeight (line 1172-1217).
-    pub fn get_max_cell_height(&self, x: f32, y: f32) -> f32 {
-        if let Some(map) = &self.map {
-            let map = map.read().unwrap();
+    pub fn get_max_cell_height(&self, map: &WorldHeightMap, x: f32, y: f32) -> f32 {
+        {
+            let map = map;
             if map.get_data_ptr().is_empty() {
                 return 0.0;
             }
@@ -455,16 +445,14 @@ impl BaseHeightMap {
             let p3 = data[(ix as usize + (iy + 1) as usize * xe)] as f32 * MAP_HEIGHT_SCALE;
 
             p0.max(p1).max(p2).max(p3)
-        } else {
-            0.0
         }
     }
 
     /// Check if the cell at (x, y) is a cliff cell.
     /// Corresponds to C++ BaseHeightMapRenderObjClass::isCliffCell (line 1224-1247).
-    pub fn is_cliff_cell(&self, x: f32, y: f32) -> bool {
-        if let Some(map) = &self.map {
-            let map = map.read().unwrap();
+    pub fn is_cliff_cell(&self, map: &WorldHeightMap, x: f32, y: f32) -> bool {
+        {
+            let map = map;
             if map.get_data_ptr().is_empty() {
                 return false;
             }
@@ -482,8 +470,6 @@ impl BaseHeightMap {
             }
 
             map.get_cliff_state(ix, iy)
-        } else {
-            false
         }
     }
 
@@ -491,12 +477,13 @@ impl BaseHeightMap {
     /// Corresponds to C++ BaseHeightMapRenderObjClass::isClearLineOfSight (line 979-1165).
     ///
     /// PARITY_NOTE: Uses the Bresenham version (C++ DO_BRESENHAM path) for parity.
-    pub fn is_clear_line_of_sight(&self, pos: &[f32; 3], pos_other: &[f32; 3]) -> bool {
-        if self.map.is_none() {
-            return false;
-        }
-
-        let map = self.map.as_ref().unwrap().read().unwrap();
+    pub fn is_clear_line_of_sight(
+        &self,
+        map: &WorldHeightMap,
+        pos: &[f32; 3],
+        pos_other: &[f32; 3],
+    ) -> bool {
+        let map = map;
         let map_xy_factor_inv = 1.0 / MAP_XY_FACTOR;
         let border = map.get_border_size();
         let x_extent = map.get_x_extent();
@@ -588,11 +575,7 @@ impl BaseHeightMap {
 
     /// Check if a cell should be shown as a visible cliff.
     /// Corresponds to C++ BaseHeightMapRenderObjClass::showAsVisibleCliff (line 1251-1261).
-    pub fn show_as_visible_cliff(&self, x_index: i32, y_index: i32) -> bool {
-        if self.map.is_none() {
-            return false;
-        }
-        let map = self.map.as_ref().unwrap().read().unwrap();
+    pub fn show_as_visible_cliff(&self, map: &WorldHeightMap, x_index: i32, y_index: i32) -> bool {
         let x_size = map.get_x_extent();
         let idx = (x_index + y_index * x_size) as usize;
         self.show_as_visible_cliff
@@ -605,14 +588,11 @@ impl BaseHeightMap {
     /// Corresponds to C++ BaseHeightMapRenderObjClass::evaluateAsVisibleCliff (line 1265-1303).
     pub fn evaluate_as_visible_cliff(
         &self,
+        map: &WorldHeightMap,
         x_index: i32,
         y_index: i32,
         values_greater_than_rad: f32,
     ) -> bool {
-        if self.map.is_none() {
-            return false;
-        }
-        let map = self.map.as_ref().unwrap().read().unwrap();
 
         // C++ lines 1268-1274: Distance lookup for 4 corners
         static DISTANCE: [f32; 4] = [
@@ -699,16 +679,13 @@ impl BaseHeightMap {
     /// Corresponds to C++ BaseHeightMapRenderObjClass::updateViewImpassableAreas.
     pub fn update_view_impassable_areas(
         &mut self,
+        map: &WorldHeightMap,
         partial: bool,
         min_x: i32,
         max_x: i32,
         min_y: i32,
         max_y: i32,
     ) {
-        if self.map.is_none() {
-            return;
-        }
-        let map = self.map.as_ref().unwrap().read().unwrap();
         let x_size = map.get_x_extent();
         let y_size = map.get_y_extent();
 
@@ -732,8 +709,9 @@ impl BaseHeightMap {
                 }
                 let idx = (ix + iy * x_size) as usize;
                 if idx < self.show_as_visible_cliff.len() {
-                    self.show_as_visible_cliff[idx] =
-                        self.evaluate_as_visible_cliff(ix, iy, values_greater_than_rad);
+                    let visible =
+                        self.evaluate_as_visible_cliff(map, ix, iy, values_greater_than_rad);
+                    self.show_as_visible_cliff[idx] = visible;
                 }
             }
         }

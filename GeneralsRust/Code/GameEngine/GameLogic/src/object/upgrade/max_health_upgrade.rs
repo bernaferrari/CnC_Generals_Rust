@@ -262,20 +262,15 @@ impl MaxHealthUpgradeInner {
         let mut original = self.original_max_health;
         let result =
             OBJECT_REGISTRY.with_object_mut(self.object_id, |object| -> Result<(), String> {
-                if let Some(body) = &object.get_body() {
-                    let mut body_guard = body
-                        .lock()
-                        .map_err(|_| "MaxHealthUpgrade failed to lock body".to_string())?;
-
+                if let Some(body) = object.get_body_mut() {
                     if original.is_none() {
-                        original = Some(body_guard.get_max_health());
+                        original = Some(body.get_max_health());
                     }
 
-                    let current_max = body_guard.get_max_health();
+                    let current_max = body.get_max_health();
                     let new_max = current_max + add;
 
-                    body_guard
-                        .set_max_health(new_max, change_type)
+                    body.set_max_health(new_max, change_type)
                         .map_err(|e| {
                             format!("MaxHealthUpgrade failed to set max health: {:?}", e)
                         })?;
@@ -305,20 +300,15 @@ impl MaxHealthUpgradeInner {
         let object_id = self.object_id;
         let result =
             OBJECT_REGISTRY.with_object_mut(self.object_id, |object| -> Result<(), String> {
-                if let Some(body) = &object.get_body() {
-                    let mut body_guard = body
-                        .lock()
-                        .map_err(|_| "MaxHealthUpgrade failed to lock body".to_string())?;
-
+                if let Some(body) = object.get_body_mut() {
                     if let Some(orig) = original.take() {
-                        body_guard.set_max_health(orig, change_type).map_err(|e| {
+                        body.set_max_health(orig, change_type).map_err(|e| {
                             format!("MaxHealthUpgrade failed to restore max health: {:?}", e)
                         })?;
                     } else {
-                        let current_max = body_guard.get_max_health();
+                        let current_max = body.get_max_health();
                         let new_max = current_max - add;
-                        body_guard
-                            .set_max_health(new_max, change_type)
+                        body.set_max_health(new_max, change_type)
                             .map_err(|e| {
                                 format!("MaxHealthUpgrade failed to reduce max health: {:?}", e)
                             })?;
@@ -597,8 +587,7 @@ mod tests {
         {
             let object = object_handle.read().expect("lock object");
             if let Some(body) = object.get_body() {
-                let body_guard = body.lock().expect("lock body");
-                assert_eq!(body_guard.get_max_health(), 150.0);
+                assert_eq!(body.get_max_health(), 150.0);
             } else {
                 panic!("Object should have a body");
             }
@@ -635,9 +624,8 @@ mod tests {
         {
             let object = object_handle.read().expect("lock object");
             if let Some(body) = object.get_body() {
-                let body_guard = body.lock().expect("lock body");
                 // C++ MaxHealthUpgrade only applies on gain and does not roll back.
-                assert_eq!(body_guard.get_max_health(), 175.0);
+                assert_eq!(body.get_max_health(), 175.0);
             }
         }
 

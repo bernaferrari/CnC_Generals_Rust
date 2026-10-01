@@ -136,16 +136,14 @@ impl Object {
         }
 
         // Handle contained rider disable state propagation (C++ lines 2259-2268)
-        if let Some(contain) = &self.contain {
-            if let Ok(contain_guard) = contain.lock() {
-                if let Some(rider_id) = contain_guard.get_rider_id() {
-                    if let Some(rider) = crate::helpers::TheGameLogic::find_object_by_id(rider_id) {
-                        if let Ok(mut rider_guard) = rider.write() {
-                            // If this was a FOREVER disable, clear the rider's matching disable
-                            if let Some(index) = self.get_disabled_type_index(disabled_type) {
-                                if self.disabled_till_frame[index] == FOREVER {
-                                    let _ = rider_guard.clear_disabled(disabled_type);
-                                }
+        if let Some(contain) = self.contain.as_ref() {
+            if let Some(rider_id) = contain.get_rider_id() {
+                if let Some(rider) = crate::helpers::TheGameLogic::find_object_by_id(rider_id) {
+                    if let Ok(mut rider_guard) = rider.write() {
+                        // If this was a FOREVER disable, clear the rider's matching disable
+                        if let Some(index) = self.get_disabled_type_index(disabled_type) {
+                            if self.disabled_till_frame[index] == FOREVER {
+                                let _ = rider_guard.clear_disabled(disabled_type);
                             }
                         }
                     }
@@ -204,21 +202,16 @@ impl Object {
     ///     t.apply_toppling_force(...);
     /// });
     /// ```
-    pub fn with_friend_module<T: 'static, F, R>(&self, key: NameKeyType, func: F) -> Option<R>
+    pub fn with_friend_module<T: 'static, F, R>(&mut self, key: NameKeyType, func: F) -> Option<R>
     where
         F: FnOnce(&mut T) -> R,
     {
         let mut func = Some(func);
 
-        for behavior_arc in &self.behaviors {
-            let Ok(mut guard) = behavior_arc.lock() else {
-                continue;
-            };
-            if guard.get_module_name_key() == key {
+        for behavior in self.behaviors.iter_mut() {
+            if behavior.get_module_name_key() == key {
                 if let Some(f) = func.take() {
-                    return (&mut *guard as &mut dyn std::any::Any)
-                        .downcast_mut::<T>()
-                        .map(f);
+                    return behavior.as_any_mut().downcast_mut::<T>().map(f);
                 }
             }
         }
@@ -245,7 +238,7 @@ impl Object {
     /// Friend access to a typed module by name string.
     /// Convenience wrapper that resolves the NameKeyType internally.
     pub fn with_friend_module_by_name<T: 'static, F, R>(
-        &self,
+        &mut self,
         module_name: &str,
         func: F,
     ) -> Option<R>
@@ -256,33 +249,21 @@ impl Object {
         self.with_friend_module(key, func)
     }
 
-    /// Get the spawn behavior interface if this object has one.
-    /// Used for handling spawns-as-weapons disable propagation.
-    #[allow(dead_code)]
-    pub(super) fn get_spawn_behavior_interface(
-        &self,
-    ) -> Option<Arc<Mutex<dyn SpawnBehaviorInterface>>> {
-        None // Placeholder - spawn behavior is accessed directly through behaviors
-    }
 
     /// Call order_slaves_to_clear_disabled on any spawn behavior modules
     pub(super) fn order_spawn_slaves_to_clear_disabled(&mut self, disabled_type: DisabledType) {
-        for behavior in &self.behaviors {
-            if let Ok(mut guard) = behavior.lock() {
-                if let Some(spawn) = guard.get_spawn_behavior_interface() {
-                    let _ = spawn.order_slaves_to_clear_disabled(disabled_type);
-                    return;
-                }
+        for behavior in self.behaviors.iter_mut() {
+            if let Some(spawn) = behavior.get_spawn_behavior_interface() {
+                let _ = spawn.order_slaves_to_clear_disabled(disabled_type);
+                return;
             }
         }
     }
 
     pub(super) fn on_disabled_edge(&mut self, becoming_disabled: bool) {
         self.cancel_dozer_task_on_disabled_edge(becoming_disabled);
-        for behavior in &self.behaviors {
-            if let Ok(mut guard) = behavior.lock() {
-                guard.on_disabled_edge(becoming_disabled);
-            }
+        for behavior in self.behaviors.iter_mut() {
+            behavior.on_disabled_edge(becoming_disabled);
         }
 
         let Some(player) = self.get_controlling_player() else {
@@ -340,16 +321,14 @@ impl Object {
                     }
                 }
                 for behavior in &self.behaviors {
-                    if let Ok(guard) = behavior.lock() {
-                        if let Some(overcharge) = guard
-                            .as_any()
-                            .downcast_ref::<crate::object::behavior::overcharge_behavior::OverchargeBehavior>()
-                        {
-                            if overcharge.is_overcharge_active() {
-                                power_to_adjust += energy_bonus;
-                            }
-                            break;
+                    if let Some(overcharge) = behavior
+                        .as_any()
+                        .downcast_ref::<crate::object::behavior::overcharge_behavior::OverchargeBehavior>()
+                    {
+                        if overcharge.is_overcharge_active() {
+                            power_to_adjust += energy_bonus;
                         }
+                        break;
                     }
                 }
             }
@@ -422,7 +401,7 @@ impl Object {
     /// C++ `Object::affectedByUpgrade` (`Object.cpp:4444-4469`).
     /// Combine player|object completed masks with this upgrade, then ask
     /// each upgrade module `wouldUpgrade` (`can_upgrade`).
-    pub fn affected_by_upgrade(&self, upgrade_template: &UpgradeTemplate) -> bool {
+    pub fn affected_by_upgrade(&mut self, upgrade_template: &UpgradeTemplate) -> bool {
         let mut mask_to_check = UpgradeMaskType::none();
         if let Some(player) = self.get_controlling_player() {
             if let Ok(player) = player.read() {
@@ -450,11 +429,8 @@ impl Object {
             }
         }
 
-        for behavior in &self.behaviors {
-            let Ok(mut guard) = behavior.lock() else {
-                continue;
-            };
-            if let Some(upgrade) = guard.get_upgrade() {
+        for behavior in self.behaviors.iter_mut() {
+            if let Some(upgrade) = behavior.get_upgrade() {
                 if upgrade.can_upgrade(mask_to_check) {
                     return true;
                 }
@@ -703,16 +679,12 @@ impl Object {
     /// C++ parity: Object::hasProductionInQueue()
     pub fn has_production_in_queue(&self) -> bool {
         self.get_contain()
-            .map(|c| {
-                c.lock()
-                    .map(|guard| guard.get_contain_count() > 0)
-                    .unwrap_or(false)
-            })
+            .map(|c| c.get_contain_count() > 0)
             .unwrap_or(false)
     }
 
     pub(super) fn queue_unit_via_production(
-        &self,
+        &mut self,
         template: &Arc<dyn crate::common::ThingTemplate>,
     ) -> bool {
         let template_name = template.get_name().to_string();
@@ -732,16 +704,12 @@ impl Object {
             }
         }
 
-        for behavior in &self.behaviors {
-            let Ok(mut behavior_guard) = behavior.lock() else {
-                continue;
-            };
-
-            if let Some(kind) = behavior_production_queue_kind(&mut *behavior_guard) {
+        for behavior in self.behaviors.iter_mut() {
+            if let Some(kind) = behavior_production_queue_kind(behavior.as_mut()) {
                 return kind.queue_unit(template_name.clone(), build_cost, build_time, player_id);
             }
 
-            if let Some(prod) = behavior_guard.get_production_update_interface() {
+            if let Some(prod) = behavior.get_production_update_interface() {
                 return prod
                     .start_production(template_name.clone(), player_id)
                     .is_ok();
@@ -752,7 +720,7 @@ impl Object {
     }
 
     pub(super) fn queue_unit_via_production_id(
-        &self,
+        &mut self,
         template: &Arc<dyn crate::common::ThingTemplate>,
         production_id: u32,
     ) -> bool {
@@ -779,12 +747,8 @@ impl Object {
             }
         }
 
-        for behavior in &self.behaviors {
-            let Ok(mut behavior_guard) = behavior.lock() else {
-                continue;
-            };
-
-            if let Some(kind) = behavior_production_queue_kind(&mut *behavior_guard) {
+        for behavior in self.behaviors.iter_mut() {
+            if let Some(kind) = behavior_production_queue_kind(behavior.as_mut()) {
                 return kind.queue_unit_with_production_id(
                     template_name.clone(),
                     build_cost,
@@ -798,7 +762,7 @@ impl Object {
         self.queue_unit_via_production(template)
     }
 
-    pub(super) fn queue_upgrade_via_production(&self, upgrade: &Arc<UpgradeTemplate>) -> bool {
+    pub(super) fn queue_upgrade_via_production(&mut self, upgrade: &Arc<UpgradeTemplate>) -> bool {
         let upgrade_name = upgrade.get_name().to_string();
         let player_id = self.get_controlling_player_id().unwrap_or(0) as ObjectID;
         let (build_cost, build_time) = if let Some(player_arc) = self.get_controlling_player() {
@@ -832,16 +796,12 @@ impl Object {
             }
         }
 
-        for behavior in &self.behaviors {
-            let Ok(mut behavior_guard) = behavior.lock() else {
-                continue;
-            };
-
-            if let Some(kind) = behavior_production_queue_kind(&mut *behavior_guard) {
+        for behavior in self.behaviors.iter_mut() {
+            if let Some(kind) = behavior_production_queue_kind(behavior.as_mut()) {
                 return kind.queue_upgrade(upgrade_name.clone(), build_cost, build_time, player_id);
             }
 
-            if let Some(prod) = behavior_guard.get_production_update_interface() {
+            if let Some(prod) = behavior.get_production_update_interface() {
                 return prod
                     .start_production(upgrade_name.clone(), player_id)
                     .is_ok();
@@ -851,7 +811,7 @@ impl Object {
         false
     }
 
-    pub(super) fn cancel_upgrade_via_production(&self, upgrade: &Arc<UpgradeTemplate>) -> bool {
+    pub(super) fn cancel_upgrade_via_production(&mut self, upgrade: &Arc<UpgradeTemplate>) -> bool {
         let upgrade_name = upgrade.get_name().to_string();
 
         for entry in &self.modules {
@@ -870,16 +830,12 @@ impl Object {
             }
         }
 
-        for behavior in &self.behaviors {
-            let Ok(mut behavior_guard) = behavior.lock() else {
-                continue;
-            };
-
-            if let Some(kind) = behavior_production_queue_kind(&mut *behavior_guard) {
+        for behavior in self.behaviors.iter_mut() {
+            if let Some(kind) = behavior_production_queue_kind(behavior.as_mut()) {
                 return kind.cancel_upgrade(&upgrade_name);
             }
 
-            if let Some(prod) = behavior_guard.get_production_update_interface() {
+            if let Some(prod) = behavior.get_production_update_interface() {
                 if prod.cancel_production(0).is_ok() {
                     return true;
                 }
@@ -889,7 +845,7 @@ impl Object {
         false
     }
 
-    pub(super) fn cancel_unit_via_production_id(&self, production_id: u32) -> bool {
+    pub(super) fn cancel_unit_via_production_id(&mut self, production_id: u32) -> bool {
         for entry in &self.modules {
             let canceled = entry.with_module(|module| {
                 module_production_queue_kind(module).and_then(|kind| {
@@ -906,12 +862,8 @@ impl Object {
             }
         }
 
-        for behavior in &self.behaviors {
-            let Ok(mut behavior_guard) = behavior.lock() else {
-                continue;
-            };
-
-            if let Some(kind) = behavior_production_queue_kind(&mut *behavior_guard) {
+        for behavior in self.behaviors.iter_mut() {
+            if let Some(kind) = behavior_production_queue_kind(behavior.as_mut()) {
                 return kind.cancel_unit_by_production_id(production_id);
             }
         }
@@ -920,7 +872,7 @@ impl Object {
     }
 
     pub(super) fn cancel_unit_via_template(
-        &self,
+        &mut self,
         template: &Arc<dyn crate::common::ThingTemplate>,
     ) -> bool {
         let template_name = template.get_name().to_string();
@@ -941,16 +893,12 @@ impl Object {
             }
         }
 
-        for behavior in &self.behaviors {
-            let Ok(mut behavior_guard) = behavior.lock() else {
-                continue;
-            };
-
-            if let Some(kind) = behavior_production_queue_kind(&mut *behavior_guard) {
+        for behavior in self.behaviors.iter_mut() {
+            if let Some(kind) = behavior_production_queue_kind(behavior.as_mut()) {
                 return kind.cancel_unit_by_template_name(&template_name);
             }
 
-            if let Some(prod) = behavior_guard.get_production_update_interface() {
+            if let Some(prod) = behavior.get_production_update_interface() {
                 if prod.cancel_production(0).is_ok() {
                     return true;
                 }
@@ -960,16 +908,16 @@ impl Object {
         false
     }
 
-    pub fn queue_upgrade(&self, upgrade: &Arc<UpgradeTemplate>) -> bool {
+    pub fn queue_upgrade(&mut self, upgrade: &Arc<UpgradeTemplate>) -> bool {
         self.queue_upgrade_via_production(upgrade)
     }
 
-    pub fn queue_unit(&self, template: &Arc<dyn crate::common::ThingTemplate>) -> bool {
+    pub fn queue_unit(&mut self, template: &Arc<dyn crate::common::ThingTemplate>) -> bool {
         self.queue_unit_via_production(template)
     }
 
     pub fn queue_unit_with_production_id(
-        &self,
+        &mut self,
         template: &Arc<dyn crate::common::ThingTemplate>,
         production_id: u32,
     ) -> bool {
@@ -990,12 +938,8 @@ impl Object {
             }
         }
 
-        for behavior in &self.behaviors {
-            let Ok(mut behavior_guard) = behavior.lock() else {
-                continue;
-            };
-
-            if let Some(kind) = behavior_production_queue_kind(&mut *behavior_guard) {
+        for behavior in self.behaviors.iter_mut() {
+            if let Some(kind) = behavior_production_queue_kind(behavior.as_mut()) {
                 if let Some(id) = kind.request_unique_unit_id() {
                     return Some(id);
                 }
@@ -1005,18 +949,18 @@ impl Object {
         None
     }
 
-    pub fn cancel_upgrade(&self, upgrade: &Arc<UpgradeTemplate>) -> bool {
+    pub fn cancel_upgrade(&mut self, upgrade: &Arc<UpgradeTemplate>) -> bool {
         self.cancel_upgrade_via_production(upgrade)
     }
 
     pub fn cancel_unit_by_template(
-        &self,
+        &mut self,
         template: &Arc<dyn crate::common::ThingTemplate>,
     ) -> bool {
         self.cancel_unit_via_template(template)
     }
 
-    pub fn cancel_unit_by_production_id(&self, production_id: u32) -> bool {
+    pub fn cancel_unit_by_production_id(&mut self, production_id: u32) -> bool {
         self.cancel_unit_via_production_id(production_id)
     }
 
@@ -1029,11 +973,8 @@ impl Object {
             });
         }
 
-        for behavior in &self.behaviors {
-            let Ok(mut behavior_guard) = behavior.lock() else {
-                continue;
-            };
-            if let Some(prod) = behavior_guard.get_production_update_interface() {
+        for behavior in self.behaviors.iter_mut() {
+            if let Some(prod) = behavior.get_production_update_interface() {
                 Self::cancel_production_queue_entries(prod);
             }
         }
@@ -1095,18 +1036,14 @@ impl Object {
             }
         }
 
-        for behavior in &self.behaviors {
-            let Ok(mut behavior_guard) = behavior.lock() else {
-                continue;
-            };
-
-            if let Some(kind) = behavior_production_queue_kind(&mut *behavior_guard) {
+        for behavior in self.behaviors.iter_mut() {
+            if let Some(kind) = behavior_production_queue_kind(behavior.as_mut()) {
                 if kind.apply_production_enabled(enabled) {
                     continue;
                 }
             }
 
-            if let Some(prod) = behavior_guard.get_production_update_interface() {
+            if let Some(prod) = behavior.get_production_update_interface() {
                 if enabled {
                     prod.resume_production();
                 } else {

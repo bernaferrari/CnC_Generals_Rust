@@ -761,6 +761,9 @@ pub fn is_launcher_running() -> bool {
 pub fn notify_launcher() -> Result<()> {
     match get_copy_protection() {
         Some(handle) => {
+            // Guard-across-trait-dispatch is safe here: both backend impls
+            // (dev :243, production :398) are inert logging stubs that never
+            // re-enter get_copy_protection() or any copy-protection API.
             let mut cp = handle.lock();
             cp.notify_launcher()
         }
@@ -772,6 +775,8 @@ pub fn notify_launcher() -> Result<()> {
 pub fn notify_launcher_version(game_version: &str) -> Result<()> {
     match get_copy_protection() {
         Some(handle) => {
+        // Same proof as notify_launcher(): backend impls are inert logging
+        // stubs with no re-entry into copy-protection state.
             let mut cp = handle.lock();
             cp.notify_launcher_version(game_version)
         }

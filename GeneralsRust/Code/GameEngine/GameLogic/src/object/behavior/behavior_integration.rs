@@ -79,10 +79,8 @@ impl IntegratedBehaviorSystem {
         let position = *object.get_position();
         let mut velocity = [0.0, 0.0, 0.0];
         if let Some(physics) = object.get_physics() {
-            if let Ok(guard) = physics.lock() {
-                let vel = guard.get_velocity();
-                velocity = [vel.x, vel.y, vel.z];
-            }
+            let vel = physics.get_velocity();
+            velocity = [vel.x, vel.y, vel.z];
         }
         BehaviorContext {
             object_id: object.get_id(),

@@ -14,7 +14,7 @@ impl Object {
 
     /// No-target `GUI_COMMAND_SPECIAL_POWER` → `doSpecialPower(..., cmdSource == CMD_FROM_SCRIPT)`.
     pub(super) fn command_button_special_power_no_target(
-        &self,
+        &mut self,
         template_name: &str,
         options: crate::object::special_power_module::SpecialPowerCommandOptions,
         source: CommandSource,
@@ -28,7 +28,7 @@ impl Object {
 
     /// At-object special power with `forced = (source == FromScript)`.
     pub(super) fn command_button_special_power_at_object(
-        &self,
+        &mut self,
         template_name: &str,
         target_id: ObjectID,
         options: crate::object::special_power_module::SpecialPowerCommandOptions,
@@ -44,7 +44,7 @@ impl Object {
 
     /// At-location special power; forwards `angle` like C++ `doSpecialPowerAtLocation`.
     pub(super) fn command_button_special_power_at_location(
-        &self,
+        &mut self,
         template_name: &str,
         location: &Coord3D,
         angle: f32,
@@ -62,7 +62,7 @@ impl Object {
 
     /// Waypoint special power with `forced = (source == FromScript)`.
     pub(super) fn command_button_special_power_using_waypoints(
-        &self,
+        &mut self,
         template_name: &str,
         waypoint: &crate::object::special_power_module::Waypoint,
         options: crate::object::special_power_module::SpecialPowerCommandOptions,
@@ -78,7 +78,7 @@ impl Object {
 
     /// No-target `GUI_COMMAND_DOZER_CONSTRUCT` / `UNIT_BUILD` → `queueCreateUnit`.
     pub(super) fn command_button_dozer_construct_no_target(
-        &self,
+        &mut self,
         template: &Arc<dyn crate::common::ThingTemplate>,
     ) -> bool {
         self.queue_unit_via_production(template)

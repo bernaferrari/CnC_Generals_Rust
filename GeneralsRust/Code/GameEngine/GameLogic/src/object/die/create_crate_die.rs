@@ -398,9 +398,18 @@ impl DieModuleInterface for CreateCrateDie {
                     },
                 );
                 if computer == Some(true) {
-                    if let Some(ai) = killer_obj.and_then(|killer| killer.get_ai_update_interface()) {
-                        if let Ok(mut ai_guard) = ai.lock() {
-                            ai_guard.notify_crate(crate_id);
+                    // Release the killer read guard before re-acquiring as writer.
+                    drop(killer_obj);
+                    drop(killer_guard);
+                    if killer_is_self {
+                        if let Some(ai) = object.get_ai_update_interface_mut() {
+                            ai.notify_crate(crate_id);
+                        }
+                    } else if let Some(killer_arc) = killer_arc.as_ref() {
+                        if let Ok(mut killer_write) = killer_arc.write() {
+                            if let Some(ai) = killer_write.get_ai_update_interface_mut() {
+                                ai.notify_crate(crate_id);
+                            }
                         }
                     }
                 }

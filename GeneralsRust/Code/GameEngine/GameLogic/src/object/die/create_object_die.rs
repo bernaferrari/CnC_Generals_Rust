@@ -212,18 +212,11 @@ impl CreateObjectDie {
         let Some(old_body) = old_object.get_body_module() else {
             return;
         };
-        let Some(new_body) = _new_object.get_body_module() else {
+        let Some(new_body) = _new_object.get_body_module_mut() else {
             return;
         };
 
-        let Ok(old_body_guard) = old_body.lock() else {
-            return;
-        };
-        let Ok(mut new_body_guard) = new_body.lock() else {
-            return;
-        };
-
-        let subdual_damage = old_body_guard.get_current_subdual_damage_amount();
+        let subdual_damage = old_body.get_current_subdual_damage_amount();
         if subdual_damage > 0.0 {
             let mut info = DamageInfo::with_simple(
                 subdual_damage,
@@ -231,16 +224,16 @@ impl CreateObjectDie {
                 DamageType::SubdualUnresistable,
                 DeathType::Normal,
             );
-            let _ = new_body_guard.attempt_damage(&mut info);
+            let _ = new_body.attempt_damage(&mut info);
         }
 
-        let last_damage_source = old_body_guard
+        let last_damage_source = old_body
             .get_last_damage_info()
             .map(|info| info.input.source_id)
             .unwrap_or(INVALID_ID);
 
         let damage_amount =
-            (old_body_guard.get_max_health() - old_body_guard.get_previous_health()).max(0.0);
+            (old_body.get_max_health() - old_body.get_previous_health()).max(0.0);
         if damage_amount > 0.0 {
             let mut info = DamageInfo::with_simple(
                 damage_amount,
@@ -248,7 +241,7 @@ impl CreateObjectDie {
                 DamageType::Unresistable,
                 DeathType::Normal,
             );
-            let _ = new_body_guard.attempt_damage(&mut info);
+            let _ = new_body.attempt_damage(&mut info);
         }
     }
 
@@ -263,10 +256,8 @@ impl CreateObjectDie {
             return;
         }
 
-        if let Some(ai) = dying_object.get_ai_update_interface() {
-            if let Ok(mut ai_guard) = ai.lock() {
-                ai_guard.transfer_attack(old_object_id, new_object_id);
-            }
+        if let Some(ai) = dying_object.get_ai_update_interface_mut() {
+            ai.transfer_attack(old_object_id, new_object_id);
         }
 
         let Ok(game_logic) = get_game_logic().lock() else {
@@ -277,11 +268,9 @@ impl CreateObjectDie {
             if object_id == old_object_id || object_id == new_object_id {
                 continue;
             }
-            let _ = OBJECT_REGISTRY.with_object(object_id, |obj_guard| {
-                if let Some(ai) = obj_guard.get_ai_update_interface() {
-                    if let Ok(mut ai_guard) = ai.lock() {
-                        ai_guard.transfer_attack(old_object_id, new_object_id);
-                    }
+            let _ = OBJECT_REGISTRY.with_object_mut(object_id, |obj_guard| {
+                if let Some(ai) = obj_guard.get_ai_update_interface_mut() {
+                    ai.transfer_attack(old_object_id, new_object_id);
                 }
             });
         }
@@ -318,10 +307,8 @@ impl DieModuleInterface for CreateObjectDie {
                         continue;
                     };
                     self.transfer_health(object, &mut created_obj);
-                    if let Some(ai) = created_obj.get_ai_update_interface() {
-                        if let Ok(mut ai_guard) = ai.lock() {
-                            ai_guard.transfer_attack(object.get_id(), created_obj.get_id());
-                        }
+                    if let Some(ai) = created_obj.get_ai_update_interface_mut() {
+                        ai.transfer_attack(object.get_id(), created_obj.get_id());
                     }
                     created_obj.get_id()
                 };

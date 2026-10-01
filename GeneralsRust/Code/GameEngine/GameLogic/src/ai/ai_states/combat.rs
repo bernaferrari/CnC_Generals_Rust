@@ -186,15 +186,13 @@ impl AIState for AIAttackState {
             let relationship = owner.relationship_to(&target);
             if !target.test_status(ObjectStatusTypes::CanAttack) {
                 if let Some(contain) = target.get_contain() {
-                    if let Ok(contain_guard) = contain.lock() {
-                        if contain_guard.is_garrisonable()
-                            && contain_guard.get_contained_count() == 0
-                            && relationship == Relationship::Neutral
-                        {
-                            context.goal_object = None;
-                            clear_team_target_if_victim(&owner, target_id);
-                            return StateReturnType::Failed;
-                        }
+                    if contain.is_garrisonable()
+                        && contain.get_contained_count() == 0
+                        && relationship == Relationship::Neutral
+                    {
+                        context.goal_object = None;
+                        clear_team_target_if_victim(&owner, target_id);
+                        return StateReturnType::Failed;
                     }
                 }
             }

@@ -336,10 +336,7 @@ impl ScriptEvaluator {
                 let Some(ai) = obj_guard.get_ai_update_interface() else {
                     return Ok(false);
                 };
-                let Ok(ai_guard) = ai.lock() else {
-                    return Ok(false);
-                };
-                let Some(completed_id) = ai_guard.get_completed_waypoint_id() else {
+                let Some(completed_id) = ai.get_completed_waypoint_id() else {
                     return Ok(false);
                 };
 
@@ -397,10 +394,7 @@ impl ScriptEvaluator {
                         let Some(ai) = member_guard.get_ai_update_interface() else {
                             continue;
                         };
-                        let Ok(ai_guard) = ai.lock() else {
-                            continue;
-                        };
-                        let Some(completed_id) = ai_guard.get_completed_waypoint_id() else {
+                        let Some(completed_id) = ai.get_completed_waypoint_id() else {
                             continue;
                         };
                         // C++ compares each of the completed waypoint's three path labels
@@ -1815,10 +1809,7 @@ impl ScriptEvaluator {
                     let Some(contain) = obj_guard.get_contain() else {
                         continue;
                     };
-                    let Ok(contain_guard) = contain.lock() else {
-                        continue;
-                    };
-                    if contain_guard.is_garrisonable() && contain_guard.get_contained_count() > 0 {
+                    if contain.is_garrisonable() && contain.get_contained_count() > 0 {
                         num_garrisoned += 1;
                     }
                 }

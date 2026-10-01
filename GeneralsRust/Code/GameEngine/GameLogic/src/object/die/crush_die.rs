@@ -222,11 +222,7 @@ impl CrushDie {
     fn crush_location_check(&self, crusher: &Object, victim: &Object) -> CrushEnum {
         // Get crush flags from body module
         let (front_crushed, back_crushed) = if let Some(body) = victim.get_body_module() {
-            let body_guard = body.lock().unwrap();
-            (
-                body_guard.get_front_crushed(),
-                body_guard.get_back_crushed(),
-            )
+            (body.get_front_crushed(), body.get_back_crushed())
         } else {
             (false, false)
         };
@@ -343,20 +339,19 @@ impl CrushDie {
         let back_crushed =
             crush_type == CrushEnum::TotalCrush || crush_type == CrushEnum::BackEndCrush;
 
-        // C++ lines 171-172: Update body module crush flags
-        if let Some(body) = object.get_body_module() {
-            let mut body_guard = body.lock().unwrap();
-            if let Err(err) = body_guard.set_front_crushed(front_crushed) {
+        let object_id = object.get_id();
+        if let Some(body) = object.get_body_module_mut() {
+            if let Err(err) = body.set_front_crushed(front_crushed) {
                 log::warn!(
                     "CrushDie: failed to set front-crushed flag for object {}: {}",
-                    object.get_id(),
+                    object_id,
                     err
                 );
             }
-            if let Err(err) = body_guard.set_back_crushed(back_crushed) {
+            if let Err(err) = body.set_back_crushed(back_crushed) {
                 log::warn!(
                     "CrushDie: failed to set back-crushed flag for object {}: {}",
-                    object.get_id(),
+                    object_id,
                     err
                 );
             }

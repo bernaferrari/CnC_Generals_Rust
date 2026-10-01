@@ -257,12 +257,10 @@ impl SupplyWarehouseDockUpdate {
         self.boxes_stored -= 1;
 
         let mut gained = false;
-        if let Ok(docker_write) = docker.write() {
-            if let Some(ai) = docker_write.get_ai_update_interface() {
-                if let Ok(mut ai_guard) = ai.lock() {
-                    if let Some(truck) = ai_guard.get_supply_truck_ai_interface_mut() {
-                        gained = truck.gain_one_box(self.boxes_stored);
-                    }
+        if let Ok(mut docker_write) = docker.write() {
+            if let Some(ai) = docker_write.get_ai_update_interface_mut() {
+                if let Some(truck) = ai.get_supply_truck_ai_interface_mut() {
+                    gained = truck.gain_one_box(self.boxes_stored);
                 }
             }
         }
@@ -477,11 +475,18 @@ impl DockUpdateInterface for SupplyWarehouseDockUpdate {
                             if !victim_guard.is_using_airborne_locomotor() {
                                 victim_guard.kill(None, None);
                             }
-                        } else if let Some(ai) = victim_guard.get_ai_update_interface() {
-                            if let Ok(mut ai_guard) = ai.lock() {
-                                if let Some(truck) = ai_guard.get_supply_truck_ai_interface_mut() {
-                                    victim_guard.ai_idle();
-                                    truck.set_force_wanting_state(true);
+                        } else {
+                            let has_truck = victim_guard
+                                .get_ai_update_interface_mut()
+                                .is_some_and(|ai| {
+                                    ai.get_supply_truck_ai_interface_mut().is_some()
+                                });
+                            if has_truck {
+                                victim_guard.ai_idle();
+                                if let Some(ai) = victim_guard.get_ai_update_interface_mut() {
+                                    if let Some(truck) = ai.get_supply_truck_ai_interface_mut() {
+                                        truck.set_force_wanting_state(true);
+                                    }
                                 }
                             }
                         }

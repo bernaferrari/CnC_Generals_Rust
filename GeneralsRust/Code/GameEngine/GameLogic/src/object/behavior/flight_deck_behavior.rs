@@ -25,7 +25,7 @@ use crate::helpers::{
     TheGameLogic, TheParticleSystemManager, ThePartitionManager, TheThingFactory,
 };
 use crate::modules::{
-    AIUpdateInterfaceExt, BehaviorModuleInterface, DieModuleInterface,
+    BehaviorModuleInterface, DieModuleInterface,
     ExitDoorType as ModuleExitDoorType, ExitInterface as ModuleExitInterface,
     ProductionUpdateInterface, UPDATE_SLEEP_NONE, UpdateModuleInterface, UpdateSleepTime,
 };
@@ -957,8 +957,8 @@ impl FlightDeckBehavior {
             let non_idle_can_give_up = if non_idle_id == INVALID_OBJECT_ID {
                 true
             } else if let Some(obj_arc) = TheGameLogic::find_object_by_id(non_idle_id) {
-                if let Ok(obj_guard) = obj_arc.read() {
-                    Self::is_able_to_give_up_parking_space(&obj_guard, state, designated_command)
+                if let Ok(mut obj_guard) = obj_arc.write() {
+                    Self::is_able_to_give_up_parking_space(&mut obj_guard, state, designated_command)
                 } else {
                     false
                 }
@@ -988,14 +988,17 @@ impl FlightDeckBehavior {
                                 parked_guard
                                     .set_status(ObjectStatusMaskType::REASSIGN_PARKING, true);
 
-                                if let Some(ai) = parked_guard.get_ai() {
+                                if let Some(ai) = parked_guard.get_ai_mut() {
                                     let mut exit_path = Vec::with_capacity(1);
                                     exit_path.push(state.parking_spaces[index].position);
-                                    ai.ai_follow_exit_production_path(
-                                        &exit_path,
-                                        Some(owner_id),
+                                    // C++ AIUpdateInterface::aiFollowExitProductionPath(path, owner, FromAI).
+                                    let mut params = crate::ai::AiCommandParams::new(
+                                        crate::ai::AiCommandType::FollowExitProductionPath,
                                         crate::ai::CommandSourceType::FromAi,
                                     );
+                                    params.coords = exit_path;
+                                    params.obj = Some(owner_id);
+                                    let _ = ai.execute_command(&params);
                                 }
 
                                 complete[runway_index] = true;
@@ -1032,7 +1035,7 @@ impl FlightDeckBehavior {
         let Some(owner_arc) = TheGameLogic::find_object_by_id(owner_id) else {
             return;
         };
-        let Ok(owner_guard) = owner_arc.write() else {
+        let Ok(mut owner_guard) = owner_arc.write() else {
             return;
         };
 
@@ -1071,14 +1074,10 @@ impl FlightDeckBehavior {
             }
 
             if !checked {
-                for behavior in owner_guard.get_behavior_modules() {
-                    let Ok(mut behavior_guard) = behavior.lock() else {
-                        continue;
-                    };
-                    if let Some(prod) = behavior_guard.get_production_update_interface() {
+                let player_id = owner_guard.get_controlling_player_id().unwrap_or(0) as ObjectID;
+                for behavior in owner_guard.get_behavior_modules_mut() {
+                    if let Some(prod) = behavior.get_production_update_interface() {
                         if prod.get_queue_size() == 0 && !prod.is_producing() {
-                            let player_id =
-                                owner_guard.get_controlling_player_id().unwrap_or(0) as ObjectID;
                             if prod
                                 .start_production(
                                     config.thing_template_name.clone(),
@@ -1140,7 +1139,7 @@ impl FlightDeckBehavior {
             let Some(jet_arc) = TheGameLogic::find_object_by_id(space.object_id) else {
                 continue;
             };
-            let Ok(jet_guard) = jet_arc.read() else {
+            let Ok(mut jet_guard) = jet_arc.write() else {
                 continue;
             };
             if Self::is_able_to_give_up_parking_space(
@@ -1148,13 +1147,13 @@ impl FlightDeckBehavior {
                 state,
                 self.designated_command,
             ) {
-                self.propagate_order_to_specific_plane(&jet_guard);
+                self.propagate_order_to_specific_plane(&mut jet_guard);
             }
         }
     }
 
-    fn propagate_order_to_specific_plane(&self, jet: &GameObject) {
-        let Some(ai) = jet.get_ai() else {
+    fn propagate_order_to_specific_plane(&self, jet: &mut GameObject) {
+        let Some(ai) = jet.get_ai_mut() else {
             return;
         };
         let target_arc = if self.designated_target != INVALID_OBJECT_ID {
@@ -1165,37 +1164,55 @@ impl FlightDeckBehavior {
 
         match self.designated_command {
             AiCommandType::GuardPosition => {
-                ai.ai_guard_position(
-                    &self.designated_position,
-                    GuardMode::Normal,
+                // C++ AIUpdateInterface::aiGuardPosition(pos, NORMAL, FromAI).
+                let mut params = crate::ai::AiCommandParams::new(
+                    crate::ai::AiCommandType::GuardPosition,
                     CommandSourceType::FromAi,
                 );
+                params.pos = self.designated_position;
+                params.int_value = GuardMode::Normal.as_i32();
+                let _ = ai.execute_command(&params);
             }
             AiCommandType::AttackPosition => {
-                ai.ai_attack_position(
-                    &self.designated_position,
-                    NO_MAX_SHOTS_LIMIT,
+                // C++ AIUpdateInterface::aiAttackPosition(pos, maxShots, FromAI).
+                let mut params = crate::ai::AiCommandParams::new(
+                    crate::ai::AiCommandType::AttackPosition,
                     CommandSourceType::FromAi,
                 );
+                params.pos = self.designated_position;
+                params.int_value = NO_MAX_SHOTS_LIMIT;
+                let _ = ai.execute_command(&params);
             }
             AiCommandType::ForceAttackObject | AiCommandType::AttackObject => {
                 if let Some(target_arc) = target_arc {
-                    ai.ai_force_attack_object(
-                        target_arc.read().ok().map(|g| g.get_id()).unwrap_or(0),
-                        NO_MAX_SHOTS_LIMIT,
+                    // C++ AIUpdateInterface::aiForceAttackObject(victim, maxShots, FromPlayer).
+                    let mut params = crate::ai::AiCommandParams::new(
+                        crate::ai::AiCommandType::ForceAttackObject,
                         CommandSourceType::FromPlayer,
                     );
+                    params.obj = Some(target_arc.read().ok().map(|g| g.get_id()).unwrap_or(0));
+                    params.int_value = NO_MAX_SHOTS_LIMIT;
+                    let _ = ai.execute_command(&params);
                 }
             }
             AiCommandType::AttackMoveToPosition => {
-                ai.ai_attack_move_to_position(
-                    &self.designated_position,
-                    NO_MAX_SHOTS_LIMIT,
+                // C++ AIUpdateInterface::aiAttackMoveToPosition(pos, maxShots, FromAI).
+                let mut params = crate::ai::AiCommandParams::new(
+                    crate::ai::AiCommandType::AttackMoveToPosition,
                     CommandSourceType::FromAi,
                 );
+                params.pos = self.designated_position;
+                params.int_value = NO_MAX_SHOTS_LIMIT;
+                let _ = ai.execute_command(&params);
             }
             AiCommandType::Idle => {
-                ai.ai_enter(self.object_id, CommandSourceType::FromAi);
+                // C++ AIUpdateInterface::aiEnter(owner, FromAI).
+                let mut params = crate::ai::AiCommandParams::new(
+                    crate::ai::AiCommandType::Enter,
+                    CommandSourceType::FromAi,
+                );
+                params.obj = Some(self.object_id);
+                let _ = ai.execute_command(&params);
             }
             _ => {}
         }
@@ -1242,12 +1259,12 @@ impl FlightDeckBehavior {
             let Some(jet_arc) = TheGameLogic::find_object_by_id(jet_id) else {
                 continue;
             };
-            let Ok(jet_guard) = jet_arc.read() else {
+            let Ok(mut jet_guard) = jet_arc.write() else {
                 continue;
             };
 
             if !Self::is_able_to_give_up_parking_space(
-                &jet_guard,
+                &mut jet_guard,
                 state,
                 self.designated_command,
             )
@@ -1267,7 +1284,7 @@ impl FlightDeckBehavior {
                     }
 
                     if state.ramp_up[i] && state.ramp_up_frame[i] <= now {
-                        self.propagate_order_to_specific_plane(&jet_guard);
+                        self.propagate_order_to_specific_plane(&mut jet_guard);
                         state.next_launch_wave_frame[i] = now + self.config.launch_wave_frames;
                         state.catapult_system_frame[i] = now + self.config.catapult_fire_frames;
                         state.lower_ramp_frame[i] = now + self.config.lower_ramp_frames;
@@ -1327,15 +1344,7 @@ impl FlightDeckBehavior {
         let mut pp_info = SharedPPInfo::default();
         let parking_offset = if let Some(arc) = TheGameLogic::find_object_by_id(object_id) {
             if let Ok(guard) = arc.read() {
-                if let Some(ai) = guard.get_ai() {
-                    if let Ok(ai_guard) = ai.lock() {
-                        ai_guard.get_parking_offset()
-                    } else {
-                        0.0
-                    }
-                } else {
-                    0.0
-                }
+                guard.get_ai().map(|ai| ai.get_parking_offset()).unwrap_or(0.0)
             } else {
                 0.0
             }
@@ -1386,14 +1395,17 @@ impl FlightDeckBehavior {
             }
         }
 
-        if let Some(ai) = object_guard.get_ai() {
+        if let Some(ai) = object_guard.get_ai_mut() {
             let mut exit_path = Vec::with_capacity(1);
             exit_path.push(pp_info.parking_space);
-            ai.ai_follow_exit_production_path(
-                &exit_path,
-                Some(self.object_id),
+            // C++ AIUpdateInterface::aiFollowExitProductionPath(path, owner, FromAI).
+            let mut params = crate::ai::AiCommandParams::new(
+                crate::ai::AiCommandType::FollowExitProductionPath,
                 CommandSourceType::FromAi,
             );
+            params.coords = exit_path;
+            params.obj = Some(self.object_id);
+            let _ = ai.execute_command(&params);
         }
 
         Ok(())
@@ -1416,11 +1428,7 @@ impl FlightDeckBehavior {
 
                 let takeoff_or_landing = obj_guard
                     .get_ai()
-                    .and_then(|ai| {
-                        ai.lock()
-                            .ok()
-                            .map(|ai| ai.is_takeoff_or_landing_in_progress())
-                    })
+                    .map(|ai| ai.is_takeoff_or_landing_in_progress())
                     .unwrap_or(false);
 
                 if obj_guard.is_above_terrain() && !takeoff_or_landing {
@@ -1486,11 +1494,7 @@ impl FlightDeckBehavior {
 
         let takeoff_or_landing = obj_guard
             .get_ai()
-            .and_then(|ai| {
-                ai.lock()
-                    .ok()
-                    .map(|ai| ai.is_takeoff_or_landing_in_progress())
-            })
+            .map(|ai| ai.is_takeoff_or_landing_in_progress())
             .unwrap_or(false);
 
         if obj_guard.is_above_terrain() && !takeoff_or_landing {
@@ -1586,9 +1590,9 @@ impl FlightDeckBehavior {
                 let can_take = if non_idle_jet_id == INVALID_OBJECT_ID {
                     true
                 } else if let Some(jet_arc) = TheGameLogic::find_object_by_id(non_idle_jet_id) {
-                    if let Ok(jet_guard) = jet_arc.read() {
+                    if let Ok(mut jet_guard) = jet_arc.write() {
                         Self::is_able_to_give_up_parking_space(
-                            &jet_guard,
+                            &mut jet_guard,
                             state,
                             self.designated_command,
                         )
@@ -1671,7 +1675,7 @@ impl FlightDeckBehavior {
     }
 
     fn is_able_to_give_up_parking_space(
-        jet: &GameObject,
+        jet: &mut GameObject,
         state: &FlightDeckState,
         designated_command: AiCommandType,
     ) -> Bool {
@@ -1679,10 +1683,7 @@ impl FlightDeckBehavior {
             return true;
         }
 
-        let Some(ai_arc) = jet.get_ai() else {
-            return false;
-        };
-        let Ok(mut ai) = ai_arc.lock() else {
+        let Some(ai) = jet.get_ai_mut() else {
             return false;
         };
 
@@ -1732,10 +1733,7 @@ impl FlightDeckBehavior {
     }
 
     fn is_able_to_move_forward(jet: &GameObject) -> Bool {
-        let Some(ai_arc) = jet.get_ai() else {
-            return false;
-        };
-        let Ok(ai) = ai_arc.lock() else {
+        let Some(ai) = jet.get_ai() else {
             return false;
         };
 

@@ -570,7 +570,7 @@ impl CountermeasuresBehavior {
                 let unit_dir = obj_guard.get_unit_direction_vector_2d();
                 let velocity = obj_guard
                     .get_physics()
-                    .and_then(|physics| physics.lock().ok().map(|phys| phys.get_velocity()))
+                    .map(|physics| physics.get_velocity())
                     .unwrap_or_else(|| Vec3D::new(0.0, 0.0, 0.0));
                 (pos, angle_base, team, unit_dir, velocity)
             })?;
@@ -601,11 +601,9 @@ impl CountermeasuresBehavior {
             let mut flare_guard = flare.write().map_err(|_| BehaviorError::ModuleDisabled)?;
             let _ = flare_guard.set_position(&spawn_pos);
             let _ = flare_guard.set_orientation(owner_angle);
-            if let Some(flare_physics) = flare_guard.get_physics() {
-                if let Ok(mut physics_guard) = flare_physics.lock() {
-                    physics_guard.set_velocity(&owner_velocity);
-                    physics_guard.apply_motive_force(&motive);
-                }
+            if let Some(physics) = flare_guard.get_physics_mut() {
+                physics.set_velocity(&owner_velocity);
+                physics.apply_motive_force(&motive);
             }
         }
 
@@ -812,20 +810,17 @@ impl CountermeasuresBehaviorInterface for CountermeasuresBehavior {
             let Some(missile_arc) = TheGameLogic::find_object_by_id(missile_id) else {
                 return Ok(());
             };
-            let Ok(missile_guard) = missile_arc.read() else {
+            let Ok(mut missile_guard) = missile_arc.write() else {
                 return Ok(());
             };
 
             let current_frame = self.get_current_frame();
             let decoy_frames = self.module_data.missile_decoy_frames;
             let reaction_frames = self.module_data.countermeasure_reaction_frames;
-            let modules = missile_guard.get_behavior_modules();
+            let modules = missile_guard.get_behavior_modules_mut();
 
             let mut diverted = false;
             for behavior in modules {
-                let Ok(mut behavior) = behavior.lock() else {
-                    continue;
-                };
                 if let Some(projectile) = behavior.get_projectile_update_interface() {
                     projectile.set_frames_till_countermeasure_diversion_occurs(
                         decoy_frames,

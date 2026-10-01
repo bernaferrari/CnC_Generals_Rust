@@ -20,14 +20,11 @@ impl AIFollowPathState {
         }
         let next = context.goal_path[self.path_index];
         context.goal_position = Some(next);
-        if let Some(ai) = OBJECT_REGISTRY
-            .with_object(context.owner_id, |owner| owner.get_ai_update_interface())
-            .flatten()
-        {
-            if let Ok(mut ai_guard) = ai.lock() {
+        let _ = OBJECT_REGISTRY.with_object_mut(context.owner_id, |owner| {
+            if let Some(ai_guard) = owner.get_ai_update_interface_mut() {
                 let _ = ai_guard.set_movement_target(&next);
             }
-        }
+        });
         true
     }
 }
@@ -64,15 +61,12 @@ impl AIState for AIFollowPathState {
             return;
         }
 
-        if let Some(ai) = OBJECT_REGISTRY
-            .with_object(context.owner_id, |owner| owner.get_ai_update_interface())
-            .flatten()
-        {
-            if let Ok(mut ai_guard) = ai.lock() {
+        let _ = OBJECT_REGISTRY.with_object_mut(context.owner_id, |owner| {
+            if let Some(ai_guard) = owner.get_ai_update_interface_mut() {
                 ai_guard.set_can_path_through_units(false);
                 ai_guard.destroy_path();
             }
-        }
+        });
     }
 
     fn get_state_type(&self) -> AIStateType {
@@ -170,12 +164,11 @@ impl AIState for AIDeadState {
             return StateReturnType::Failed;
         }
 
-        if let Some(ai) = OBJECT_REGISTRY
-            .with_object(context.owner_id, |owner| owner.get_ai_update_interface())
-            .flatten()
-        {
-            ai.mark_as_dead();
-        }
+        let _ = OBJECT_REGISTRY.with_object_mut(context.owner_id, |owner| {
+            if let Some(ai_guard) = owner.get_ai_update_interface_mut() {
+                ai_guard.mark_as_dead();
+            }
+        });
         StateReturnType::Continue
     }
 
@@ -245,17 +238,13 @@ impl AIState for AIDockState {
             return StateReturnType::Failed;
         };
 
-        if let Some(ai) = OBJECT_REGISTRY
-            .with_object(context.owner_id, |owner_guard| owner_guard.get_ai_update_interface())
-            .flatten()
-        {
-            if let Ok(mut ai_guard) = ai.lock() {
-                let _ = ai_guard.ignore_obstacle(
-                    goal_arc.read().ok().map(|g| g.get_id()),
-                );
+        let _ = OBJECT_REGISTRY.with_object_mut(context.owner_id, |owner_guard| {
+            if let Some(ai_guard) = owner_guard.get_ai_update_interface_mut() {
+                let _ = ai_guard
+                    .ignore_obstacle(goal_arc.read().ok().map(|g| g.get_id()));
                 let _ = ai_guard.set_can_path_through_units(true);
             }
-        }
+        });
 
         let mut dock_machine = match AIDockMachine::new(owner_arc.clone()) {
             Ok(machine) => machine,
@@ -291,15 +280,12 @@ impl AIState for AIDockState {
         if let Some(mut machine) = self.dock_machine.take() {
             let _ = machine.halt();
         }
-        if let Some(ai) = OBJECT_REGISTRY
-            .with_object(context.owner_id, |owner| owner.get_ai_update_interface())
-            .flatten()
-        {
-            if let Ok(mut ai_guard) = ai.lock() {
+        let _ = OBJECT_REGISTRY.with_object_mut(context.owner_id, |owner| {
+            if let Some(ai_guard) = owner.get_ai_update_interface_mut() {
                 let _ = ai_guard.set_can_path_through_units(false);
                 let _ = ai_guard.ignore_obstacle(None);
             }
-        }
+        });
     }
 
     fn get_state_type(&self) -> AIStateType {

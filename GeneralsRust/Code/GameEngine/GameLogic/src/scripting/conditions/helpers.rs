@@ -2217,11 +2217,13 @@ pub(crate) fn perform_comparison(actual: i64, comparison: &str, expected: i64) -
 }
 
 pub(super) fn with_script_engine_mut<R>(
-    f: impl FnOnce(&mut crate::scripting::engine::ScriptEngine) -> R,
+    f: impl FnOnce(&crate::scripting::engine::ScriptEngine) -> R,
 ) -> Option<R> {
-    let engine = get_script_engine();
-    let mut engine_guard = engine.write().ok()?;
-    engine_guard.as_mut().map(f)
+    // Delegate to the engine's TLS-aware shared accessor: condition helpers
+    // run inside script evaluation where the global write guard may already
+    // be held, so re-locking here (the old divergent shape) could deadlock.
+    // Every call site only needs `&ScriptEngine` (shared query methods).
+    crate::scripting::engine::with_script_engine_ref(f)
 }
 
 pub(super) fn parse_nested_condition(

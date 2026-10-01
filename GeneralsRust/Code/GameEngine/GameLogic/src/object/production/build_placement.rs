@@ -446,10 +446,8 @@ impl BuildPlacementMode {
             obj_guard.set_model_condition_state(ModelConditionFlags::AWAITING_CONSTRUCTION);
 
             // Set health to 1 (like C++ Object construction start)
-            if let Some(body) = obj_guard.get_body_module() {
-                if let Ok(mut body_guard) = body.lock() {
-                    body_guard.set_health(1.0);
-                }
+            if let Some(body) = obj_guard.get_body_module_mut() {
+                body.set_health(1.0);
             }
 
             Ok(obj_guard.get_id())
@@ -505,9 +503,7 @@ impl BuildPlacementMode {
             .and_then(|template| {
                 TheGameLogic::find_object_by_id(building_id).and_then(|obj| {
                     obj.read().ok().and_then(|guard| {
-                        guard
-                            .get_body_module()
-                            .and_then(|body| body.lock().ok().map(|b| b.get_max_health()))
+                        guard.get_body_module().map(|b| b.get_max_health())
                     })
                 })
             })

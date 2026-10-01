@@ -147,11 +147,11 @@ impl W3DRopeDraw {
                     start.z - each_len,
                 );
 
-                if let Some(line) = scene_guard.get_segmented_line(seg.line) {
-                    line.write().set_points(&[start, end]);
+                if let Some(line) = scene_guard.get_segmented_line_mut(seg.line) {
+                    line.set_points(&[start, end]);
                 }
-                if let Some(line) = scene_guard.get_segmented_line(seg.soft_line) {
-                    line.write().set_points(&[start, end]);
+                if let Some(line) = scene_guard.get_segmented_line_mut(seg.soft_line) {
+                    line.set_points(&[start, end]);
                 }
                 start = end;
             }

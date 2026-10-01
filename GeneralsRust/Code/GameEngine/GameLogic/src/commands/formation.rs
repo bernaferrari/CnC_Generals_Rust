@@ -656,7 +656,7 @@ pub struct FormationManager {
     next_formation_id: UnsignedInt,
 
     /// Object lookup interface
-    object_lookup: Option<Arc<RwLock<dyn FormationObjectLookup>>>,
+    object_lookup: Option<Box<dyn FormationObjectLookup>>,
 
     /// Current frame
     current_frame: UnsignedInt,
@@ -679,7 +679,7 @@ impl FormationManager {
     }
 
     /// Set object lookup interface
-    pub fn set_object_lookup(&mut self, lookup: Arc<RwLock<dyn FormationObjectLookup>>) {
+    pub fn set_object_lookup(&mut self, lookup: Box<dyn FormationObjectLookup>) {
         self.object_lookup = Some(lookup);
     }
 
@@ -726,14 +726,12 @@ impl FormationManager {
                 Formation::new(formation_id, template, objects, owner, self.current_frame);
             self.formations.insert(formation_id, formation);
 
-            // Initialize formation positions
-            if let Some(formation) = self.formations.get_mut(&formation_id) {
-                if let Some(lookup) = &self.object_lookup {
-                    if let Ok(lookup_guard) = lookup.read() {
-                        formation.assign_positions(&*lookup_guard);
-                        formation.update_center(&*lookup_guard);
-                    }
-                }
+            // Initialize formation positions using the installed lookup
+            let formation = self.formations.get_mut(&formation_id);
+            let lookup = self.object_lookup.as_deref();
+            if let (Some(formation), Some(lookup)) = (formation, lookup) {
+                formation.assign_positions(lookup);
+                formation.update_center(lookup);
             }
 
             Some(formation_id)
@@ -753,40 +751,36 @@ impl FormationManager {
 
         let mut formations_to_remove = Vec::new();
 
-        if let Some(lookup) = &self.object_lookup {
-            if let Ok(lookup_guard) = lookup.read() {
-                for (formation_id, formation) in &mut self.formations {
-                    formation.last_update_frame = frame;
+        if let Some(lookup) = self.object_lookup.as_deref() {
+            for (formation_id, formation) in &mut self.formations {
+                formation.last_update_frame = frame;
 
-                    // Remove dead objects
-                    formation
-                        .objects
-                        .retain(|&obj_id| lookup_guard.is_object_alive(obj_id));
+                // Remove dead objects
+                formation.objects.retain(|&obj_id| lookup.is_object_alive(obj_id));
 
-                    // Check if formation is still viable
-                    if !formation.is_viable() {
-                        formations_to_remove.push(*formation_id);
-                        continue;
-                    }
+                // Check if formation is still viable
+                if !formation.is_viable() {
+                    formations_to_remove.push(*formation_id);
+                    continue;
+                }
 
-                    // Update formation state
-                    formation.update_center(&*lookup_guard);
-                    formation.assign_positions(&*lookup_guard);
+                // Update formation state
+                formation.update_center(lookup);
+                formation.assign_positions(lookup);
 
-                    // Update formation state based on conditions
-                    match formation.state {
-                        FormationState::Moving => {
-                            if formation.has_reached_target() {
-                                formation.state = FormationState::Holding;
-                                formation.movement_target = None;
-                            }
-                        }
-                        FormationState::Forming => {
-                            // Check if formation has stabilized
+                // Update formation state based on conditions
+                match formation.state {
+                    FormationState::Moving => {
+                        if formation.has_reached_target() {
                             formation.state = FormationState::Holding;
+                            formation.movement_target = None;
                         }
-                        _ => {}
                     }
+                    FormationState::Forming => {
+                        // Check if formation has stabilized
+                        formation.state = FormationState::Holding;
+                    }
+                    _ => {}
                 }
             }
         }
@@ -812,10 +806,8 @@ impl FormationManager {
         formation_id: UnsignedInt,
     ) -> Vec<FormationMovementOrder> {
         if let Some(formation) = self.formations.get(&formation_id) {
-            if let Some(lookup) = &self.object_lookup {
-                if let Ok(lookup_guard) = lookup.read() {
-                    return formation.get_movement_orders(&*lookup_guard);
-                }
+            if let Some(lookup) = self.object_lookup.as_deref() {
+                return formation.get_movement_orders(lookup);
             }
         }
         Vec::new()

@@ -549,18 +549,10 @@ impl ExperienceTracker {
         xfer.xfer_version(&mut version, current_version)
             .map_err(|e| e.to_string())?;
 
-        // C++ parity: xferUser(&m_currentLevel, sizeof(VeterancyLevel))
+        // C++ parity: xferUser(&m_currentLevel, sizeof(VeterancyLevel)) —
+        // VeterancyLevel serializes as one 4-byte int.
         let mut current_level = self.current_level as i32;
-        // SAFETY: `current_level` is an initialized stack `i32`;
-        // `xfer_user` moves exactly `size_of::<VeterancyLevel>()` (== 4)
-        // bytes within this call, matching C++ `xferUser`.
-        unsafe {
-            xfer.xfer_user(
-                (&mut current_level as *mut i32).cast::<u8>(),
-                std::mem::size_of::<VeterancyLevel>(),
-            )
-        }
-        .map_err(|e| e.to_string())?;
+        xfer.xfer_int(&mut current_level).map_err(|e| e.to_string())?;
         if xfer.get_xfer_mode() == XferMode::Load {
             self.current_level = match current_level {
                 1 => VeterancyLevel::Veteran,

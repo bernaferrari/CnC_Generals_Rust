@@ -88,9 +88,8 @@ impl W3DTracerDraw {
 
         if let Some(line_id) = self.line_id {
             let scene = W3DDisplay::global_scene();
-            if let Some(line) = scene.read().get_segmented_line(line_id) {
-                let mut line = line.write();
-                line.set_width(self.width);
+            if let Some(line) = scene.write().get_segmented_line_mut(line_id) {
+                                line.set_width(self.width);
                 line.set_color(Vector3::new(
                     self.color.red,
                     self.color.green,
@@ -108,9 +107,8 @@ impl W3DTracerDraw {
         self.transform = transform;
         if let Some(line_id) = self.line_id {
             let scene = W3DDisplay::global_scene();
-            if let Some(line) = scene.read().get_segmented_line(line_id) {
-                let mut line = line.write();
-                let (start, end) = self.compute_endpoints();
+            if let Some(line) = scene.write().get_segmented_line_mut(line_id) {
+                                let (start, end) = self.compute_endpoints();
                 line.set_points(&[start, end]);
             }
         }
@@ -153,8 +151,8 @@ impl W3DTracerDraw {
                 self.opacity = (self.opacity - decay).max(0.0);
                 if let Some(line_id) = self.line_id {
                     let scene = W3DDisplay::global_scene();
-                    if let Some(line) = scene.read().get_segmented_line(line_id) {
-                        line.write().set_opacity(self.opacity);
+                    if let Some(line) = scene.write().get_segmented_line_mut(line_id) {
+                        line.set_opacity(self.opacity);
                     }
                 }
             }
@@ -167,9 +165,8 @@ impl W3DTracerDraw {
             self.transform = self.transform * translation;
             if let Some(line_id) = self.line_id {
                 let scene = W3DDisplay::global_scene();
-                if let Some(line) = scene.read().get_segmented_line(line_id) {
-                    let mut line = line.write();
-                    let (start, end) = self.compute_endpoints();
+                if let Some(line) = scene.write().get_segmented_line_mut(line_id) {
+                                        let (start, end) = self.compute_endpoints();
                     line.set_points(&[start, end]);
                 }
             }

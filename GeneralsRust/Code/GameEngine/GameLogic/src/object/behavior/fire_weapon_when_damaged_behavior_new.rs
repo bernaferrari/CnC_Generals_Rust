@@ -641,7 +641,7 @@ impl DamageModuleInterface for FireWeaponWhenDamagedBehavior {
 
         let Some(body_damage_type) = obj_read
             .get_body_module()
-            .and_then(|body| body.lock().ok().map(|guard| guard.get_damage_state()))
+            .map(|body| body.get_damage_state())
         else {
             return Ok(());
         };
@@ -709,7 +709,7 @@ impl UpdateModuleInterface for FireWeaponWhenDamagedBehavior {
 
         let Some(body_damage_type) = obj_read
             .get_body_module()
-            .and_then(|body| body.lock().ok().map(|guard| guard.get_damage_state()))
+            .map(|body| body.get_damage_state())
         else {
             return UPDATE_SLEEP_NONE;
         };

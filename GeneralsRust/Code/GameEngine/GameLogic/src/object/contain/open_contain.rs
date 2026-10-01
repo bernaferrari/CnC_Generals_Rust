@@ -51,9 +51,6 @@ struct ExitPrep {
     owner_id: ObjectID,
     end_pos: Coord3D,
     exit_path: Vec<Coord3D>,
-    /// Physics/AI arcs copied out of the exit object. Do not lock either while that guard is held.
-    physics: Option<Arc<Mutex<dyn crate::modules::PhysicsBehavior>>>,
-    ai: Option<Arc<Mutex<dyn crate::modules::AIUpdateInterface>>>,
 }
 
 fn queue_produced_exit(obj_id: ObjectID, exit: crate::object::PendingProducedExit) {
@@ -66,28 +63,6 @@ fn queue_produced_exit(obj_id: ObjectID, exit: crate::object::PendingProducedExi
     owner.ai_pending_produced_exits.push(exit);
 }
 
-/// C++ reads `getAllowToFall`, sets false for `aiFollowPath`/`updateGoal`, then restores.
-/// One guard does both the read and the write. `std::Mutex` does not reenter: `WouldBlock`
-/// means this thread already holds the physics mutex, so do not lock it again.
-fn pause_allow_to_fall(physics: &Arc<Mutex<dyn PhysicsBehavior>>) -> Option<bool> {
-    let mut guard = match physics.try_lock() {
-        Ok(guard) => guard,
-        Err(std::sync::TryLockError::Poisoned(poisoned)) => poisoned.into_inner(),
-        Err(std::sync::TryLockError::WouldBlock) => return None,
-    };
-    let previous = guard.get_allow_to_fall();
-    guard.set_allow_to_fall(false);
-    Some(previous)
-}
-
-fn restore_allow_to_fall(physics: &Arc<Mutex<dyn PhysicsBehavior>>, allow: bool) {
-    let mut guard = match physics.try_lock() {
-        Ok(guard) => guard,
-        Err(std::sync::TryLockError::Poisoned(poisoned)) => poisoned.into_inner(),
-        Err(std::sync::TryLockError::WouldBlock) => return,
-    };
-    guard.set_allow_to_fall(allow);
-}
 
 /// Constant for unlimited contain capacity
 pub const CONTAIN_MAX_UNKNOWN: i32 = -1;
@@ -1122,6 +1097,13 @@ impl OpenContain {
         crate::object::registry::OBJECT_REGISTRY.with_object(self.object_id, f)
     }
 
+    fn with_object_mut<R>(&mut self, f: impl FnOnce(&mut Object) -> R) -> Option<R> {
+        if self.object_id == crate::common::INVALID_ID {
+            return None;
+        }
+        crate::object::registry::OBJECT_REGISTRY.with_object_mut(self.object_id, f)
+    }
+
     /// Update method called once per frame
     pub fn update(&mut self) -> GameResult<UpdateSleepTime> {
         // Wave 261: empty dual-world → sleep none.
@@ -1333,10 +1315,7 @@ impl OpenContain {
             let Some(ai) = guard.get_ai_update_interface() else {
                 return Ok(false);
             };
-            let Ok(ai_guard) = ai.try_lock() else {
-                return Ok(false);
-            };
-            ai_guard.get_enter_target() == Some(self.object_id)
+            ai.get_enter_target() == Some(self.object_id)
         };
         if !wants_enter {
             return Ok(false);
@@ -1363,17 +1342,17 @@ impl OpenContain {
                 _ => false,
             };
             if !same_player {
-                let (stealth, ai) = if let Ok(guard) = rider.try_read() {
+                let (stealth, has_ai) = if let Ok(guard) = rider.try_read() {
                     let stealth = if guard.is_kind_of(KindOf::StealthGarrison) {
                         guard.get_stealth()
                     } else {
                         None
                     };
-                    (stealth, guard.get_ai_update_interface())
+                    (stealth, guard.get_ai_update_interface().is_some())
                 } else {
                     continue;
                 };
-                if ai.is_some() {
+                if has_ai {
                     if let Some(stealth) = stealth {
                         if let Ok(mut stealth_guard) = stealth.try_lock() {
                             stealth_guard.mark_as_detected();
@@ -1814,16 +1793,11 @@ impl OpenContain {
             let Ok(guard) = obj.try_read() else {
                 continue;
             };
-            let body = guard.get_body_module();
-            drop(guard);
-            let max_health = body
-                .as_ref()
-                .and_then(|body| {
-                    body.try_lock()
-                        .ok()
-                        .map(|body_guard| body_guard.get_max_health())
-                })
+            let max_health = guard
+                .get_body_module()
+                .map(|body| body.get_max_health())
                 .unwrap_or(0.0);
+            drop(guard);
             let mut damage_info = DamageInfo::with_simple(
                 max_health * percent_damage,
                 owner_id,
@@ -1871,13 +1845,11 @@ impl OpenContain {
             pos.z = terrain.get_layer_height(pos.x, pos.y, layer);
         }
         let _ = rider.set_orientation(angle);
-        if let Some(ai) = rider.get_ai() {
+        if rider.get_ai_update_interface().is_some() {
             let _ = rider.set_position(&container_pos);
-            if let Ok(mut ai_guard) = ai.try_lock() {
-                let _ = ai_guard.ignore_obstacle(Some(self.get_object_id()));
-                let _ = ai_guard.ai_move_to_position(&pos);
-            } else {
-                let _ = rider.set_position(&pos);
+            if let Some(ai) = rider.get_ai_update_interface_mut() {
+                let _ = ai.ignore_obstacle(Some(self.get_object_id()));
+                let _ = ai.ai_move_to_position(&pos);
             }
         } else {
             let _ = rider.set_position(&pos);
@@ -2045,11 +2017,7 @@ impl OpenContain {
             let Some(contain) = parent_guard.get_contain() else {
                 return true;
             };
-            if let Ok(contain_guard) = contain.lock() {
-                contain_guard.is_passenger_allowed_to_fire(None)
-            } else {
-                true
-            }
+            contain.is_passenger_allowed_to_fire(None)
         })
         .unwrap_or(true)
     }
@@ -2193,19 +2161,18 @@ impl OpenContain {
         }
     }
 
-    fn refresh_owner_pathfind_goal(owner: &Object) {
-        let Some(owner_ai) = owner.get_ai_update_interface() else {
+    fn refresh_owner_pathfind_goal(owner: &mut Object) {
+        let is_vehicle = owner.is_kind_of(KindOf::Vehicle);
+        let owner_id = owner.get_id();
+        let owner_pos = *owner.get_position();
+        let owner_layer = Self::destination_layer(&owner_pos);
+        let Some(owner_ai) = owner.get_ai_update_interface_mut() else {
             return;
         };
-        let Ok(mut owner_ai_guard) = owner_ai.try_lock() else {
-            return;
-        };
-        if !owner_ai_guard.is_idle() || !owner.is_kind_of(KindOf::Vehicle) {
+        if !owner_ai.is_idle() || !is_vehicle {
             return;
         }
 
-        let owner_id = owner.get_id();
-        let owner_pos = *owner.get_position();
         let ai_store = the_ai();
         if let Ok(ai_guard) = ai_store.read() {
             if let Some(pathfinder) = ai_guard.pathfinder() {
@@ -2215,8 +2182,7 @@ impl OpenContain {
                 }
             }
         }
-        let owner_layer = Self::destination_layer(&owner_pos);
-        let _ = owner_ai_guard.update_goal_position(&owner_pos, owner_layer);
+        let _ = owner_ai.update_goal_position(&owner_pos, owner_layer);
     }
 
     fn prepare_object(&mut self, obj_id: ObjectID, hurry: bool) -> GameResult<Option<ExitPrep>> {
@@ -2263,32 +2229,28 @@ impl OpenContain {
             return Ok(None);
         };
 
-        let (exit_id, physics, ai) = if let Ok(mut exit_guard) = obj.write() {
+        let exit_id = if let Ok(mut exit_guard) = obj.write() {
             let _ = exit_guard.set_position(&start_pos);
             let _ = exit_guard.set_orientation(exit_angle);
             exit_guard.set_layer(owner_layer);
-            (
-                exit_guard.get_id(),
-                exit_guard.get_physics(),
-                exit_guard.get_ai_update_interface(),
-            )
+            exit_guard.get_id()
         } else {
             return Ok(None);
         };
 
         Self::add_to_pathfind_map(exit_id, start_pos);
-        let _ = self.with_object(|owner_guard| {
+        let _ = self.with_object_mut(|owner_guard| {
             Self::refresh_owner_pathfind_goal(owner_guard);
         });
 
         if !hurry {
-            if let Some(ai) = ai.as_ref() {
-                if let Ok(mut ai_guard) = ai.try_lock() {
-                    ai_guard.set_ignore_collision_time(LOGICFRAMES_PER_SECOND as UnsignedInt);
-                    let _ = ai_guard.ignore_obstacle(None);
-                    let _ = ai_guard.adjust_destination(&mut end_pos);
+            if let Ok(mut exit_guard) = obj.try_write() {
+                if let Some(ai) = exit_guard.get_ai_update_interface_mut() {
+                    ai.set_ignore_collision_time(LOGICFRAMES_PER_SECOND as UnsignedInt);
+                    let _ = ai.ignore_obstacle(None);
+                    let _ = ai.adjust_destination(&mut end_pos);
                     let _ =
-                        ai_guard.update_goal_position(&end_pos, Self::destination_layer(&end_pos));
+                        ai.update_goal_position(&end_pos, Self::destination_layer(&end_pos));
                 }
             }
         }
@@ -2306,8 +2268,6 @@ impl OpenContain {
             owner_id,
             end_pos,
             exit_path,
-            physics,
-            ai,
         }))
     }
 
@@ -2321,7 +2281,7 @@ impl OpenContain {
             return Ok(());
         }
 
-        let Some(_obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
+        let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
             .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
         else {
             return Ok(());
@@ -2336,35 +2296,48 @@ impl OpenContain {
         };
 
         // C++ clears allow-to-fall only around aiFollowPath + updateGoal, then restores
-        // the copied flag. The physics arc was taken in prepare_object; do not re-read
-        // the exit object or lock that mutex a second time on top of a held guard.
+        // the copied flag. Physics and AI are owned by the exit object now, so the
+        // pause/execute/restore sequence runs under one write guard.
         // ignoreObstacle(NULL) already ran in prepare when this call owns the clear.
-        let paused_allow_to_fall = if prep.ai.is_some() {
-            prep.physics.as_ref().and_then(pause_allow_to_fall)
-        } else {
-            None
-        };
+        let has_ai = obj
+            .try_read()
+            .map(|guard| guard.get_ai_update_interface().is_some())
+            .unwrap_or(false);
+        if !has_ai {
+            queue_produced_exit(
+                obj_id,
+                crate::object::PendingProducedExit::Follow {
+                    path: prep.exit_path,
+                    ignore_id: prep.owner_id,
+                    end: prep.end_pos,
+                },
+            );
+            return Ok(());
+        }
 
-        if let Some(ai) = prep.ai.as_ref() {
-            if let Ok(mut ai_guard) = ai.try_lock() {
+        if let Ok(mut exit_guard) = obj.try_write() {
+            let paused_allow_to_fall = exit_guard.get_physics_mut().map(|physics| {
+                let previous = physics.get_allow_to_fall();
+                physics.set_allow_to_fall(false);
+                previous
+            });
+
+            if let Some(ai) = exit_guard.get_ai_update_interface_mut() {
                 let mut params = crate::ai::AiCommandParams::new(
                     crate::ai::AiCommandType::FollowPath,
                     CommandSourceType::FromAi,
                 );
                 params.coords = prep.exit_path.clone();
                 params.obj = Some(prep.owner_id);
-                let _ = ai_guard.execute_command(&params);
-                let _ = ai_guard
+                let _ = ai.execute_command(&params);
+                let _ = ai
                     .update_goal_position(&prep.end_pos, Self::destination_layer(&prep.end_pos));
-            } else {
-                queue_produced_exit(
-                    obj_id,
-                    crate::object::PendingProducedExit::Follow {
-                        path: prep.exit_path,
-                        ignore_id: prep.owner_id,
-                        end: prep.end_pos,
-                    },
-                );
+            }
+
+            if let Some(previous) = paused_allow_to_fall {
+                if let Some(physics) = exit_guard.get_physics_mut() {
+                    physics.set_allow_to_fall(previous);
+                }
             }
         } else {
             queue_produced_exit(
@@ -2375,12 +2348,6 @@ impl OpenContain {
                     end: prep.end_pos,
                 },
             );
-        }
-
-        if let Some(previous) = paused_allow_to_fall {
-            if let Some(physics) = prep.physics.as_ref() {
-                restore_allow_to_fall(physics, previous);
-            }
         }
 
         Ok(())
@@ -2402,26 +2369,25 @@ impl OpenContain {
             return Ok(());
         };
 
-        let ai = obj
+        let has_ai = obj
             .try_read()
-            .ok()
-            .and_then(|exit_guard| exit_guard.get_ai_update_interface())
-            .or_else(|| {
-                obj.try_read()
-                    .ok()
-                    .and_then(|exit_guard| exit_guard.get_ai_update_interface())
-            });
-        if let Some(ai) = ai {
-            if let Ok(mut ai_guard) = ai.try_lock() {
-                ai_guard.do_quick_exit(&prep.exit_path);
-                let _ = ai_guard
+            .map(|guard| guard.get_ai_update_interface().is_some())
+            .unwrap_or(false);
+        if !has_ai {
+            return Ok(());
+        }
+
+        if let Ok(mut exit_guard) = obj.try_write() {
+            if let Some(ai) = exit_guard.get_ai_update_interface_mut() {
+                ai.do_quick_exit(&prep.exit_path);
+                let _ = ai
                     .update_goal_position(&prep.end_pos, Self::destination_layer(&prep.end_pos));
-            } else {
-                queue_produced_exit(
-                    obj_id,
-                    crate::object::PendingProducedExit::Quick(prep.exit_path),
-                );
             }
+        } else {
+            queue_produced_exit(
+                obj_id,
+                crate::object::PendingProducedExit::Quick(prep.exit_path),
+            );
         }
 
         Ok(())
@@ -2656,10 +2622,7 @@ impl OpenContain {
 
         let contained_ids = obj.try_read().ok().and_then(|guard| {
             let contain = guard.get_contain()?;
-            contain
-                .try_lock()
-                .ok()
-                .map(|contain_guard| contain_guard.get_contained_objects().into_owned())
+            Some(contain.get_contained_objects().into_owned())
         });
         for child_id in contained_ids.unwrap_or_default() {
             let Some(child) = TheGameLogic::find_object_by_id(child_id)
@@ -2670,10 +2633,7 @@ impl OpenContain {
             let should_recurse = obj.try_read().ok().and_then(|obj_guard| {
                 let contain = obj_guard.get_contain()?;
                 let child_guard = child.try_read().ok()?;
-                contain
-                    .try_lock()
-                    .ok()
-                    .map(|contain_guard| !contain_guard.is_enclosing_container_for(&*child_guard))
+                Some(!contain.is_enclosing_container_for(&*child_guard))
             });
             if should_recurse.unwrap_or(false) {
                 let _ = self.add_or_remove_obj_from_world(child_id, add);
@@ -3575,6 +3535,7 @@ mod tests {
     #[derive(Debug)]
     struct DoorExitPhysics {
         allow: bool,
+        log: Arc<Mutex<Vec<String>>>,
     }
 
     impl crate::modules::PhysicsBehavior for DoorExitPhysics {
@@ -3590,6 +3551,10 @@ mod tests {
         }
         fn set_allow_to_fall(&mut self, allow: bool) {
             self.allow = allow;
+            self.log
+                .lock()
+                .expect("log")
+                .push(format!("allow={allow}"));
         }
         fn get_allow_to_fall(&self) -> bool {
             self.allow
@@ -3598,8 +3563,7 @@ mod tests {
 
     #[derive(Debug)]
     struct DoorExitAi {
-        physics: Arc<Mutex<dyn crate::modules::PhysicsBehavior>>,
-        samples: Arc<Mutex<Vec<bool>>>,
+        log: Arc<Mutex<Vec<String>>>,
         ignores: Arc<Mutex<Vec<Option<ObjectID>>>>,
     }
 
@@ -3621,14 +3585,14 @@ mod tests {
             obj_id: Option<ObjectID>,
         ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             self.ignores.lock().expect("ignores").push(obj_id);
+            self.log.lock().expect("log").push("ignore".to_string());
             Ok(())
         }
         fn execute_command(
             &mut self,
             _command: &crate::ai::AiCommandParams,
         ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-            let allow = self.physics.lock().expect("physics").get_allow_to_fall();
-            self.samples.lock().expect("samples").push(allow);
+            self.log.lock().expect("log").push("follow".to_string());
             Ok(())
         }
         fn update_goal_position(
@@ -3636,31 +3600,28 @@ mod tests {
             _goal: &Coord3D,
             _layer: crate::common::PathfindLayerEnum,
         ) -> Result<(), String> {
-            let allow = self.physics.lock().expect("physics").get_allow_to_fall();
-            self.samples.lock().expect("samples").push(allow);
+            self.log.lock().expect("log").push("goal".to_string());
             Ok(())
         }
     }
 
     #[test]
-    fn exit_object_via_door_pauses_allow_to_fall_without_relock() {
+    fn exit_object_via_door_pauses_allow_to_fall_around_follow() {
         let _lock = crate::test_sync::lock();
         let owner = test_object("DoorExitTransport", 93011);
         let rider = test_object("DoorExitRider", 93012);
-        let physics: Arc<Mutex<dyn crate::modules::PhysicsBehavior>> =
-            Arc::new(Mutex::new(DoorExitPhysics { allow: true }));
-        let samples = Arc::new(Mutex::new(Vec::new()));
+        let log: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
         let ignores = Arc::new(Mutex::new(Vec::new()));
-        let ai: Arc<Mutex<dyn crate::modules::AIUpdateInterface>> =
-            Arc::new(Mutex::new(DoorExitAi {
-                physics: Arc::clone(&physics),
-                samples: Arc::clone(&samples),
-                ignores: Arc::clone(&ignores),
-            }));
         {
             let mut rider_guard = rider.write().expect("rider write");
-            rider_guard.set_physics(Some(Arc::clone(&physics)));
-            rider_guard.set_ai_update_interface(Some(ai));
+            rider_guard.set_physics(Some(Box::new(DoorExitPhysics {
+                allow: true,
+                log: Arc::clone(&log),
+            })));
+            rider_guard.set_ai_update_interface(Some(Box::new(DoorExitAi {
+                log: Arc::clone(&log),
+                ignores: Arc::clone(&ignores),
+            })));
         }
 
         let mut contain =
@@ -3672,14 +3633,25 @@ mod tests {
             .exit_object_via_door(93012, ExitDoorType::Door1)
             .expect("exit via door");
 
-        let during = samples.lock().expect("samples").clone();
         assert_eq!(
-            during,
-            vec![true, false, false],
-            "allow-to-fall stays set through adjust, then false for follow-path and updateGoal"
+            *log.lock().expect("log"),
+            vec![
+                "ignore".to_string(),
+                "goal".to_string(),
+                "allow=false".to_string(),
+                "follow".to_string(),
+                "goal".to_string(),
+                "allow=true".to_string(),
+            ],
+            "C++ clears allow-to-fall only around aiFollowPath + updateGoal, then restores"
         );
         assert!(
-            physics.lock().expect("physics").get_allow_to_fall(),
+            rider
+                .read()
+                .expect("rider read")
+                .get_physics()
+                .expect("physics")
+                .get_allow_to_fall(),
             "C++ restores the copied allow-to-fall flag after aiFollowPath"
         );
         assert_eq!(
@@ -3687,17 +3659,6 @@ mod tests {
             &[None],
             "exit_object_via_door must not add a second ignoreObstacle(NULL)"
         );
-
-        // Same-thread physics guard: pause must not lock again, and must not clobber the flag.
-        {
-            let held = physics.lock().expect("hold physics");
-            assert!(super::pause_allow_to_fall(&physics).is_none());
-            assert!(held.get_allow_to_fall());
-        }
-        assert_eq!(super::pause_allow_to_fall(&physics), Some(true));
-        assert!(!physics.lock().expect("physics").get_allow_to_fall());
-        super::restore_allow_to_fall(&physics, true);
-        assert!(physics.lock().expect("physics").get_allow_to_fall());
 
         OBJECT_REGISTRY.unregister_object(93011);
         OBJECT_REGISTRY.unregister_object(93012);

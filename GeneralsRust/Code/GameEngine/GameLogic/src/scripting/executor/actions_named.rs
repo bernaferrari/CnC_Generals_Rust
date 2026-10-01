@@ -34,21 +34,19 @@ impl ScriptActionDispatcher {
 
         if let (Some(uid), Some(tid)) = (unit_id, target_id) {
             if let Some(obj_arc) = TheGameLogic::find_object_by_id(uid) {
-                if let Ok(obj) = obj_arc.read() {
-                    if let Some(ai_arc) = obj.get_ai_update_interface() {
-                        if let Ok(mut ai) = ai_arc.lock() {
-                            let mut params = AiCommandParams::new(
-                                AiCommandType::Enter,
-                                CommandSourceType::FromScript,
-                            );
-                            params.obj = Some(tid);
-                            let _ = ai.execute_command(&params);
-                            log::info!(
-                                "Unit '{}' enter command issued to '{}'",
-                                unit_name,
-                                target_name
-                            );
-                        }
+                if let Ok(mut obj) = obj_arc.write() {
+                    if let Some(ai) = obj.get_ai_update_interface_mut() {
+                        let mut params = AiCommandParams::new(
+                            AiCommandType::Enter,
+                            CommandSourceType::FromScript,
+                        );
+                        params.obj = Some(tid);
+                        let _ = ai.execute_command(&params);
+                        log::info!(
+                            "Unit '{}' enter command issued to '{}'",
+                            unit_name,
+                            target_name
+                        );
                     }
                 }
             }
@@ -84,16 +82,14 @@ impl ScriptActionDispatcher {
 
         if let Some(oid) = object_id {
             if let Some(obj_arc) = TheGameLogic::find_object_by_id(oid) {
-                if let Ok(obj) = obj_arc.read() {
-                    if let Some(ai_arc) = obj.get_ai_update_interface() {
-                        if let Ok(mut ai) = ai_arc.lock() {
-                            let params = AiCommandParams::new(
-                                AiCommandType::Evacuate,
-                                CommandSourceType::FromScript,
-                            );
-                            let _ = ai.execute_command(&params);
-                            log::info!("Unit '{}' evacuate command issued", unit_name);
-                        }
+                if let Ok(mut obj) = obj_arc.write() {
+                    if let Some(ai) = obj.get_ai_update_interface_mut() {
+                        let params = AiCommandParams::new(
+                            AiCommandType::Evacuate,
+                            CommandSourceType::FromScript,
+                        );
+                        let _ = ai.execute_command(&params);
+                        log::info!("Unit '{}' evacuate command issued", unit_name);
                     }
                 }
             }
@@ -139,11 +135,11 @@ impl ScriptActionDispatcher {
                 };
                 // C++ ScriptActions.cpp:1621-1623 leaveGroup + NORMAL loco.
                 if let Ok(mut obj_guard) = obj_arc.write() {
-                    let Some(ai_arc) = obj_guard.get_ai_update_interface() else {
+                    if obj_guard.get_ai_update_interface().is_none() {
                         return Ok(ScriptActionResult::Success);
-                    };
+                    }
                     obj_guard.leave_group();
-                    if let Ok(mut ai) = ai_arc.lock() {
+                    if let Some(ai) = obj_guard.get_ai_update_interface_mut() {
                         let _ = ai.choose_locomotor_set(crate::common::LocomotorSetType::Normal);
                         let mut params = AiCommandParams::new(
                             AiCommandType::FollowWaypointPath,
@@ -196,11 +192,11 @@ impl ScriptActionDispatcher {
                 };
                 // C++ ScriptActions.cpp:1648-1650 leaveGroup + NORMAL loco.
                 if let Ok(mut obj_guard) = obj_arc.write() {
-                    let Some(ai_arc) = obj_guard.get_ai_update_interface() else {
+                    if obj_guard.get_ai_update_interface().is_none() {
                         return Ok(ScriptActionResult::Success);
-                    };
+                    }
                     obj_guard.leave_group();
-                    if let Ok(mut ai) = ai_arc.lock() {
+                    if let Some(ai) = obj_guard.get_ai_update_interface_mut() {
                         let _ = ai.choose_locomotor_set(crate::common::LocomotorSetType::Normal);
                         let mut params = AiCommandParams::new(
                             AiCommandType::FollowWaypointPathExact,
@@ -248,35 +244,29 @@ impl ScriptActionDispatcher {
 
         if let Some(object_id) = object_id_opt {
             if let Some(obj_arc) = TheGameLogic::find_object_by_id(object_id) {
-                let ai_result = obj_arc
-                    .read()
-                    .ok()
-                    .and_then(|obj| obj.get_ai_update_interface());
-                if let Some(ai_arc) = ai_result {
-                    if let Ok(mut obj_guard) = obj_arc.write() {
+                if let Ok(mut obj_guard) = obj_arc.write() {
+                    if obj_guard.get_ai_update_interface().is_none() {
+                        log::warn!("Named unit '{}' has no AI update interface", unit_name);
+                    } else {
                         obj_guard.leave_group();
+                        if let Some(ai) = obj_guard.get_ai_update_interface_mut() {
+                            let _ =
+                                ai.choose_locomotor_set(crate::common::LocomotorSetType::Normal);
+                            let mut params = AiCommandParams::new(
+                                AiCommandType::AttackArea,
+                                CommandSourceType::FromScript,
+                            );
+                            params.pos = area_center;
+                            params.polygon = Some(trigger_id);
+                            let _ = ai.execute_command(&params);
+                            log::info!(
+                                "Named unit '{}' attack area '{}' command issued (ID: {})",
+                                unit_name,
+                                area_name,
+                                object_id
+                            );
+                        }
                     }
-                    if let Ok(mut ai) = ai_arc.lock() {
-                        let _ = ai.choose_locomotor_set(crate::common::LocomotorSetType::Normal);
-                    }
-
-                    let mut params = AiCommandParams::new(
-                        AiCommandType::AttackArea,
-                        CommandSourceType::FromScript,
-                    );
-                    params.pos = area_center;
-                    params.polygon = Some(trigger_id);
-                    let _ = ai_arc.lock().ok().map(|mut ai| {
-                        let _ = ai.execute_command(&params);
-                        log::info!(
-                            "Named unit '{}' attack area '{}' command issued (ID: {})",
-                            unit_name,
-                            area_name,
-                            object_id
-                        );
-                    });
-                } else {
-                    log::warn!("Named unit '{}' has no AI update interface", unit_name);
                 }
             } else {
                 log::warn!("Named unit '{}' not found in object registry", unit_name);
@@ -320,35 +310,29 @@ impl ScriptActionDispatcher {
 
         if let Some(object_id) = object_id_opt {
             if let Some(obj_arc) = TheGameLogic::find_object_by_id(object_id) {
-                let ai_result = obj_arc
-                    .read()
-                    .ok()
-                    .and_then(|obj| obj.get_ai_update_interface());
-                if let Some(ai_arc) = ai_result {
-                    if let Ok(mut obj_guard) = obj_arc.write() {
+                if let Ok(mut obj_guard) = obj_arc.write() {
+                    if obj_guard.get_ai_update_interface().is_none() {
+                        log::warn!("Named unit '{}' has no AI update interface", unit_name);
+                    } else {
                         obj_guard.leave_group();
+                        if let Some(ai) = obj_guard.get_ai_update_interface_mut() {
+                            let _ =
+                                ai.choose_locomotor_set(crate::common::LocomotorSetType::Normal);
+                            let mut params = AiCommandParams::new(
+                                AiCommandType::AttackTeam,
+                                CommandSourceType::FromScript,
+                            );
+                            params.team = Some(team_name.clone());
+                            params.int_value = -1; // NO_MAX_SHOTS_LIMIT
+                            let _ = ai.execute_command(&params);
+                            log::info!(
+                                "Named unit '{}' attack team '{}' command issued (ID: {})",
+                                unit_name,
+                                team_name,
+                                object_id
+                            );
+                        }
                     }
-                    if let Ok(mut ai) = ai_arc.lock() {
-                        let _ = ai.choose_locomotor_set(crate::common::LocomotorSetType::Normal);
-                    }
-
-                    let mut params = AiCommandParams::new(
-                        AiCommandType::AttackTeam,
-                        CommandSourceType::FromScript,
-                    );
-                    params.team = Some(team_name.clone());
-                    params.int_value = -1; // NO_MAX_SHOTS_LIMIT
-                    let _ = ai_arc.lock().ok().map(|mut ai| {
-                        let _ = ai.execute_command(&params);
-                        log::info!(
-                            "Named unit '{}' attack team '{}' command issued (ID: {})",
-                            unit_name,
-                            team_name,
-                            object_id
-                        );
-                    });
-                } else {
-                    log::warn!("Named unit '{}' has no AI update interface", unit_name);
                 }
             } else {
                 log::warn!("Named unit '{}' not found in object registry", unit_name);
@@ -433,12 +417,8 @@ impl ScriptActionDispatcher {
 
         if let Some(object_id) = object_id_opt {
             if let Some(obj_arc) = TheGameLogic::find_object_by_id(object_id) {
-                let ai_result = obj_arc
-                    .read()
-                    .ok()
-                    .and_then(|obj| obj.get_ai_update_interface());
-                if let Some(ai_arc) = ai_result {
-                    if let Ok(mut ai) = ai_arc.lock() {
+                if let Ok(mut obj_guard) = obj_arc.write() {
+                    if let Some(ai) = obj_guard.get_ai_update_interface_mut() {
                         if let Err(err) = ai.set_attitude(attitude) {
                             log::debug!(
                                 "ScriptActions::do_named_set_attitude failed for object {}: {}",
@@ -452,9 +432,9 @@ impl ScriptActionDispatcher {
                             attitude,
                             object_id
                         );
+                    } else {
+                        log::warn!("Named unit '{}' has no AI update interface", unit_name);
                     }
-                } else {
-                    log::warn!("Named unit '{}' has no AI update interface", unit_name);
                 }
             } else {
                 log::warn!("Named unit '{}' not found in object registry", unit_name);
@@ -566,11 +546,7 @@ impl ScriptActionDispatcher {
             if !building_guard.is_kind_of(crate::common::KindOf::Structure) {
                 false
             } else if let Some(contain) = building_guard.get_contain() {
-                let entered_mask = contain
-                    .lock()
-                    .ok()
-                    .map(|c| c.get_player_who_entered())
-                    .unwrap_or_else(crate::common::PlayerMaskType::none);
+                let entered_mask = contain.get_player_who_entered();
                 entered_mask == crate::common::PlayerMaskType::none() || entered_mask == player_mask
             } else {
                 false
@@ -1163,14 +1139,24 @@ impl ScriptActionDispatcher {
             .unwrap_or(0);
 
         let fired = if let Ok(mut source_guard) = source_obj.write() {
-            if let Some(weapon) = source_guard
+            match source_guard
                 .weapon_set
-                .find_waypoint_following_capable_weapon()
+                .take_waypoint_following_capable_weapon()
             {
-                let _ = weapon.force_fire_weapon(source_id, &source_pos);
-                true
-            } else {
-                false
+                Some((slot, mut weapon)) => {
+                    // Fire with the object guard released: the projectile /
+                    // damage cascade re-reads the source object from the
+                    // registry and would deadlock against a live write guard.
+                    drop(source_guard);
+                    let _ = weapon.force_fire_weapon(source_id, &source_pos);
+                    if let Ok(mut source_guard) = source_obj.write() {
+                        source_guard
+                            .weapon_set
+                            .restore_waypoint_following_weapon(slot, weapon);
+                    }
+                    true
+                }
+                None => false,
             }
         } else {
             false
@@ -1191,6 +1177,10 @@ impl ScriptActionDispatcher {
         if let Ok(mut projectile_guard) = projectile_obj.write() {
             let ai = projectile_guard.get_ai_update_interface();
             projectile_guard.leave_group();
+            // Release the projectile guard before the AI dispatch:
+            // execute_command re-reads the projectile from the object
+            // registry, which would deadlock against a live write guard.
+            drop(projectile_guard);
             if let Some(ai_arc) = ai {
                 if let Ok(mut ai_guard) = ai_arc.lock() {
                     let _ = ai_guard.choose_locomotor_set(crate::common::LocomotorSetType::Normal);

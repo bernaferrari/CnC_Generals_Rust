@@ -63,21 +63,21 @@ fn leftover_restake_idle_pathfinder(owner_id: ObjectID) {
     let Some(owner_arc) = OBJECT_REGISTRY.get_object(owner_id) else {
         return;
     };
-    let Ok(owner) = owner_arc.read() else {
-        return;
-    };
-    let Some(ai) = owner.get_ai_update_interface() else {
-        return;
-    };
-    let Ok(mut ai_guard) = ai.lock() else {
+    let Ok(mut owner) = owner_arc.write() else {
         return;
     };
     let mut ultra_accurate = false;
-    ai_guard.with_cur_locomotor(&mut |loco| ultra_accurate = loco.is_ultra_accurate());
+    let (is_idle, doing_ground_movement) = {
+        let Some(ai_guard) = owner.get_ai_update_interface_mut() else {
+            return;
+        };
+        ai_guard.with_cur_locomotor(&mut |loco| ultra_accurate = loco.is_ultra_accurate());
+        (ai_guard.is_idle(), ai_guard.is_doing_ground_movement())
+    };
     let pos = *owner.get_position();
     let plan = crate::ai::states::idle_pathfinder_restake_plan(
-        ai_guard.is_idle(),
-        ai_guard.is_doing_ground_movement(),
+        is_idle,
+        doing_ground_movement,
         pos,
         ultra_accurate,
     );
@@ -99,13 +99,11 @@ fn leftover_restake_idle_pathfinder(owner_id: ObjectID) {
         if plan.snap {
             if let Some(snapped) = crate::ai::pathfind::goal_position(&pos) {
                 if TheGameLogic::get_frame() <= 1 {
-                    ai_guard.set_locomotor_goal_none();
-                    ai_guard.set_current_victim(None);
-                    drop(ai_guard);
-                    drop(owner);
-                    if let Ok(mut obj_w) = owner_arc.write() {
-                        let _ = obj_w.set_position(&snapped);
+                    if let Some(ai_guard) = owner.get_ai_update_interface_mut() {
+                        ai_guard.set_locomotor_goal_none();
+                        ai_guard.set_current_victim(None);
                     }
+                    let _ = owner.set_position(&snapped);
                     let _ = crate::ai::pathfind::update_goal_for_object(owner_id, &snapped, layer);
                     return;
                 }
@@ -113,8 +111,10 @@ fn leftover_restake_idle_pathfinder(owner_id: ObjectID) {
             }
         }
     }
-    ai_guard.set_locomotor_goal_none();
-    ai_guard.set_current_victim(None);
+    if let Some(ai_guard) = owner.get_ai_update_interface_mut() {
+        ai_guard.set_locomotor_goal_none();
+        ai_guard.set_current_victim(None);
+    }
 }
 
 /// AI Move To State
@@ -203,14 +203,11 @@ impl AIState for AIMoveToState {
             return;
         }
 
-        if let Some(ai) = OBJECT_REGISTRY
-            .with_object(context.owner_id, |owner| owner.get_ai_update_interface())
-            .flatten()
-        {
-            if let Ok(mut ai_guard) = ai.lock() {
+        let _ = OBJECT_REGISTRY.with_object_mut(context.owner_id, |owner| {
+            if let Some(ai_guard) = owner.get_ai_update_interface_mut() {
                 ai_guard.destroy_path();
             }
-        }
+        });
     }
 
     fn get_state_type(&self) -> AIStateType {
@@ -240,16 +237,14 @@ impl AIState for AIMoveOutOfTheWayState {
             return StateReturnType::Failed;
         }
 
-        let Some(ai) = OBJECT_REGISTRY
-            .with_object(context.owner_id, |owner| owner.get_ai_update_interface())
+        let Some(goal_pos) = OBJECT_REGISTRY
+            .with_object(context.owner_id, |owner| {
+                owner
+                    .get_ai_update_interface()
+                    .and_then(|ai| ai.get_path_destination())
+            })
             .flatten()
         else {
-            return StateReturnType::Failed;
-        };
-        let Ok(ai_guard) = ai.lock() else {
-            return StateReturnType::Failed;
-        };
-        let Some(goal_pos) = ai_guard.get_path_destination() else {
             return StateReturnType::Failed;
         };
 
@@ -265,21 +260,23 @@ impl AIState for AIMoveOutOfTheWayState {
             return StateReturnType::Failed;
         }
 
-        let Some(status) = OBJECT_REGISTRY.with_object(context.owner_id, |owner| {
+        let Some(ai_present) = OBJECT_REGISTRY.with_object_mut(context.owner_id, |owner| {
             if owner.is_effectively_dead() {
                 return None;
             }
-            owner.get_ai_update_interface()
+            Some(if let Some(ai_guard) = owner.get_ai_update_interface_mut() {
+                if ai_guard.is_blocked_and_stuck() {
+                    let _ = ai_guard.set_can_path_through_units(true);
+                }
+                true
+            } else {
+                false
+            })
         }) else {
             return StateReturnType::Failed;
         };
-        let Some(ai) = status else {
+        if !ai_present {
             return StateReturnType::Success;
-        };
-        if let Ok(mut ai_guard) = ai.lock() {
-            if ai_guard.is_blocked_and_stuck() {
-                let _ = ai_guard.set_can_path_through_units(true);
-            }
         }
 
         if context.goal_position.is_some() {
@@ -295,16 +292,13 @@ impl AIState for AIMoveOutOfTheWayState {
             return;
         }
 
-        if let Some(ai) = OBJECT_REGISTRY
-            .with_object(context.owner_id, |owner| owner.get_ai_update_interface())
-            .flatten()
-        {
-            if let Ok(mut ai_guard) = ai.lock() {
+        let _ = OBJECT_REGISTRY.with_object_mut(context.owner_id, |owner| {
+            if let Some(ai_guard) = owner.get_ai_update_interface_mut() {
                 ai_guard.destroy_path();
                 let _ = ai_guard.set_can_path_through_units(false);
                 ai_guard.clear_move_out_of_way();
             }
-        }
+        });
     }
 
     fn get_state_type(&self) -> AIStateType {
@@ -330,12 +324,10 @@ impl AIMoveAndEvacuateState {
     }
 
     fn evacuate_contents(owner: &mut GameObject) {
-        if let Some(contain) = owner.get_contain() {
-            if let Ok(mut contain_guard) = contain.lock() {
-                let ids: Vec<ObjectID> = contain_guard.get_contained_objects().into_owned();
-                for id in ids {
-                    let _ = contain_guard.release_object(id);
-                }
+        if let Some(contain) = owner.get_contain_mut() {
+            let ids: Vec<ObjectID> = contain.get_contained_objects().into_owned();
+            for id in ids {
+                let _ = contain.release_object(id);
             }
         }
 
@@ -462,14 +454,11 @@ impl AIState for AIMoveAndDeleteState {
             return;
         }
 
-        if let Some(ai) = OBJECT_REGISTRY
-            .with_object(context.owner_id, |owner| owner.get_ai_update_interface())
-            .flatten()
-        {
-            if let Ok(mut ai_guard) = ai.lock() {
+        let _ = OBJECT_REGISTRY.with_object_mut(context.owner_id, |owner| {
+            if let Some(ai_guard) = owner.get_ai_update_interface_mut() {
                 ai_guard.destroy_path();
             }
-        }
+        });
     }
 
     fn get_state_type(&self) -> AIStateType {

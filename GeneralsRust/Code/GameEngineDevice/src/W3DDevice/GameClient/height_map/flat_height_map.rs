@@ -12,7 +12,7 @@
 
 use super::base_height_map::BaseHeightMap;
 use super::world_height_map::WorldHeightMap;
-use std::sync::{Arc, RwLock};
+
 
 /// Cells per tile for flat height map (C++ FlatHeightMap.cpp line 87)
 pub const CELLS_PER_TILE: i32 = 16;
@@ -47,14 +47,12 @@ impl FlatHeightMap {
         }
     }
 
-    pub fn init_height_data(&mut self, map: Arc<RwLock<WorldHeightMap>>) {
-        self.base.set_map(Arc::clone(&map));
-        let map_guard = map.read().unwrap();
-        self.base.x = map_guard.get_x_extent();
-        self.base.y = map_guard.get_y_extent();
-        self.uniform_height = map_guard.get_height(0, 0);
-        self.tiles_width = (map_guard.get_x_extent() + CELLS_PER_TILE - 2) / CELLS_PER_TILE;
-        self.tiles_height = (map_guard.get_y_extent() + CELLS_PER_TILE - 2) / CELLS_PER_TILE;
+    pub fn init_height_data(&mut self, map: &WorldHeightMap) {
+        self.base.x = map.get_x_extent();
+        self.base.y = map.get_y_extent();
+        self.uniform_height = map.get_height(0, 0);
+        self.tiles_width = (map.get_x_extent() + CELLS_PER_TILE - 2) / CELLS_PER_TILE;
+        self.tiles_height = (map.get_y_extent() + CELLS_PER_TILE - 2) / CELLS_PER_TILE;
         self.num_tiles = self.tiles_width * self.tiles_height;
     }
 
@@ -62,22 +60,18 @@ impl FlatHeightMap {
         self.uniform_height = height;
     }
 
-    pub fn get_grid_height(&self, x_index: i32, y_index: i32) -> u8 {
-        if let Some(map) = self.base.get_map() {
-            map.read().unwrap().get_height(x_index, y_index)
-        } else {
-            self.uniform_height
-        }
+    pub fn get_grid_height(&self, map: &WorldHeightMap, x_index: i32, y_index: i32) -> u8 {
+        map.get_height(x_index, y_index)
     }
 
-    pub fn get_height(&self, x: f32, y: f32) -> f32 {
-        self.base.get_height_map_height(x, y, None)
+    pub fn get_height(&self, map: &WorldHeightMap, x: f32, y: f32) -> f32 {
+        self.base.get_height_map_height(map, x, y, None)
     }
 
-    pub fn get_height_lod(&self, x: f32, y: f32) -> f32 {
+    pub fn get_height_lod(&self, map: &WorldHeightMap, x: f32, y: f32) -> f32 {
         let sample_x = (x / CELLS_PER_TILE as f32).floor() * CELLS_PER_TILE as f32;
         let sample_y = (y / CELLS_PER_TILE as f32).floor() * CELLS_PER_TILE as f32;
-        self.base.get_height_map_height(sample_x, sample_y, None)
+        self.base.get_height_map_height(map, sample_x, sample_y, None)
     }
 
     pub fn update_center(&mut self) {

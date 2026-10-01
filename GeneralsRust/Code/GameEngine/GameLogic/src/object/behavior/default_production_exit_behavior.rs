@@ -6,7 +6,7 @@ use crate::ai::the_ai;
 use crate::common::*;
 use crate::helpers::TheTerrainLogic;
 use crate::modules::{
-    AIUpdateInterfaceExt, BehaviorModule, BehaviorModuleInterface,
+    BehaviorModule, BehaviorModuleInterface,
     ExitDoorType as ModuleExitDoorType, ExitInterface as ModuleExitInterface, UPDATE_SLEEP_FOREVER,
     UpdateModuleInterface, UpdateSleepTime,
 };
@@ -175,23 +175,24 @@ impl DefaultProductionExitBehavior {
         let natural_rally = self.get_natural_rally_point(&transform, true);
         exit_path.push(natural_rally);
 
-        if let Ok(guard) = new_obj.read() {
-            if let Some(ai) = guard.get_ai_update_interface() {
+        if let Ok(mut guard) = new_obj.write() {
+            if let Some(ai) = guard.get_ai_update_interface_mut() {
                 if self.rally_point_exists {
-                    if let Ok(mut ai_guard) = ai.lock() {
-                        if ai_guard.is_doing_ground_movement() {
-                            let mut rally = self.rally_point;
-                            if ai_guard.adjust_destination(&mut rally) {
-                                exit_path.push(rally);
-                            }
+                    if ai.is_doing_ground_movement() {
+                        let mut rally = self.rally_point;
+                        if ai.adjust_destination(&mut rally) {
+                            exit_path.push(rally);
                         }
                     }
                 }
-                ai.ai_follow_exit_production_path(
-                    &exit_path,
-                    Some(self.owner_id),
+                // C++ AIUpdateInterface::aiFollowExitProductionPath(path, owner, FromAI).
+                let mut params = crate::ai::AiCommandParams::new(
+                    crate::ai::AiCommandType::FollowExitProductionPath,
                     CommandSourceType::FromAi,
                 );
+                params.coords = exit_path;
+                params.obj = Some(self.owner_id);
+                let _ = ai.execute_command(&params);
             }
         }
 

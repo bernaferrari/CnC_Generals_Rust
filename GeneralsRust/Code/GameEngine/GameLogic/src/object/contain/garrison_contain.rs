@@ -590,10 +590,7 @@ impl GarrisonContain {
     pub fn is_valid_container_for(&self, obj: &Object, check_capacity: bool) -> bool {
         // Garrison has extra checks beyond OpenContain
         if let Some(false) = self.with_owner_object(|owner| {
-            let Some(body) = owner.get_body_module() else {
-                return true;
-            };
-            let Ok(body_mod) = body.lock() else {
+            let Some(body_mod) = owner.get_body_module() else {
                 return true;
             };
             if body_mod.get_health() <= 0.0 {
@@ -1560,7 +1557,7 @@ impl GarrisonContain {
         self.load_garrison_points()?;
         self.load_station_garrison_points()?;
 
-        let Some((roster, owner_name, controller, contain)) = self
+        let Some((roster, owner_name, controller)) = self
             .with_owner_object(|owner_guard| {
                 let module_data = match owner_guard.get_garrison_contain_module_data() {
                     Ok(data) => data,
@@ -1571,9 +1568,8 @@ impl GarrisonContain {
                     return None;
                 }
                 let owner_name = owner_guard.get_name().to_string();
-                let contain = owner_guard.get_contain()?;
                 let controller = owner_guard.get_controlling_player()?;
-                Some((roster, owner_name, controller, contain))
+                Some((roster, owner_name, controller))
             })
             .flatten()
         else {
@@ -1600,10 +1596,8 @@ impl GarrisonContain {
         for _ in 0..roster.count {
             let payload = factory.new_object(template.clone(), &*team_guard)?;
             let payload_id = payload.read().map_err(|_| GameError::LockError)?.get_id();
-            let mut contain_guard = contain.lock().map_err(|_| GameError::LockError)?;
-            if contain_guard.can_contain(payload_id) {
-                contain_guard
-                    .contain_object(payload_id)
+            if self.can_contain(payload_id) {
+                self.contain_object(payload_id)
                     .map_err(|e| e.to_string())?;
             } else {
                 return Err(format!(
@@ -2487,10 +2481,7 @@ impl GarrisonContain {
     /// Find condition index based on current damage state
     fn find_condition_index(&self) -> usize {
         self.with_owner_object(|owner| {
-            let Some(body) = owner.get_body_module() else {
-                return GarrisonPointCondition::Pristine as usize;
-            };
-            let Ok(body_mod) = body.lock() else {
+            let Some(body_mod) = owner.get_body_module() else {
                 return GarrisonPointCondition::Pristine as usize;
             };
             match body_mod.get_damage_state() {
@@ -2606,18 +2597,13 @@ impl GarrisonContain {
         let Ok(obj_guard) = obj.try_read() else {
             return Ok(());
         };
-        let body = obj_guard.get_body_module();
+        let Some(body_mod) = obj_guard.get_body_module() else {
+            return Ok(());
+        };
         let contained_by_frame = obj_guard.get_contained_by_frame();
+        let max_health = body_mod.get_max_health();
+        let current_health = body_mod.get_health();
         drop(obj_guard);
-        let Some(body) = body else {
-            return Ok(());
-        };
-        let Ok(body_guard) = body.try_lock() else {
-            return Ok(());
-        };
-        let max_health = body_guard.get_max_health();
-        let current_health = body_guard.get_health();
-        drop(body_guard);
         if current_health < max_health {
             let current_frame = TheGameLogic::get_frame();
             let frames_contained = current_frame.saturating_sub(contained_by_frame);

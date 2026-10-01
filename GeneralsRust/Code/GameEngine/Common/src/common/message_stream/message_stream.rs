@@ -315,6 +315,11 @@ impl MessageStream {
                     break;
                 };
                 let disposition = translator_guard.translate_game_message(&message);
+                // Re-entrancy contract: the translator write guard and the
+                // caller's stream write guard are both live during this dyn
+                // dispatch, so translators MUST emit via emit_message()/
+                // take_emitted_messages() (appended below) — never by
+                // re-locking the stream or another translator.
 
                 let emitted = take_emitted_messages();
                 if !emitted.is_empty() {

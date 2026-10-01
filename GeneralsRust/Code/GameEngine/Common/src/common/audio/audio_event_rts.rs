@@ -802,6 +802,10 @@ impl AudioEventRts {
     }
 
     pub fn is_currently_playing(&self) -> bool {
+    // The lock() here is a temporary dropped before the return; no in-tree
+    // caller invokes this while already holding the audio-manager lock (the
+    // play path uses try_lock + fallback in game_audio.rs), so it cannot
+    // self-deadlock today.
         if let Some(manager) = super::game_audio::get_global_audio_manager() {
             if let Ok(guard) = manager.lock() {
                 return guard.is_currently_playing(self.playing_handle);

@@ -708,10 +708,7 @@ impl AutoHealPlayerScanHelper {
                 }
 
                 if let Some(body) = test_obj_read.get_body_module() {
-                    let body_lock = body
-                        .lock()
-                        .map_err(|e| format!("auto-heal body lock poisoned: {}", e))?;
-                    if body_lock.get_health() >= body_lock.get_max_health() {
+                    if body.get_health() >= body.get_max_health() {
                         return Ok(false);
                     }
                 }
@@ -1212,11 +1209,7 @@ impl AutoHealBehavior {
         let needs_healing = self
             .with_object(|obj_read| {
                 if let Some(body) = obj_read.get_body_module() {
-                    if let Ok(body_lock) = body.lock() {
-                        body_lock.get_health() < body_lock.get_max_health()
-                    } else {
-                        false
-                    }
+                    body.get_health() < body.get_max_health()
                 } else {
                     false
                 }
@@ -1302,11 +1295,7 @@ impl AutoHealBehavior {
                     && !object_matches_kind_mask(&candidate_read, forbidden_kind_of);
 
                 let needs_heal = if let Some(body) = candidate_read.get_body_module() {
-                    if let Ok(body_guard) = body.lock() {
-                        body_guard.get_health() < body_guard.get_max_health()
-                    } else {
-                        false
-                    }
+                    body.get_health() < body.get_max_health()
                 } else {
                     false
                 };

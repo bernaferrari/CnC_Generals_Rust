@@ -69,8 +69,8 @@ impl Object {
 
     fn fill_special_power_bits_from_modules(&mut self) {
         let mut bits = SpecialPowerMask::default();
-        for behavior in &self.behaviors {
-            let Ok(mut guard) = behavior.lock() else {
+        for behavior in self.behaviors.iter_mut() {
+            let Some(sp) = behavior.get_special_power() else {
                 continue;
             };
             let Some(sp) = guard.get_special_power() else {
@@ -129,18 +129,16 @@ impl Object {
             .unwrap_or(1.0);
 
         if (health_factor - 1.0).abs() > f32::EPSILON {
-            if let Some(body) = &self.body {
-                if let Ok(mut body_guard) = body.lock() {
-                    let max_health = body_guard.get_max_health();
-                    let new_max = if apply {
-                        max_health * health_factor
-                    } else if health_factor != 0.0 {
-                        max_health / health_factor
-                    } else {
-                        max_health
-                    };
-                    let _ = body_guard.set_max_health(new_max, MaxHealthChangeType::PreserveRatio);
-                }
+            if let Some(body) = self.body.as_mut() {
+                let max_health = body.get_max_health();
+                let new_max = if apply {
+                    max_health * health_factor
+                } else if health_factor != 0.0 {
+                    max_health / health_factor
+                } else {
+                    max_health
+                };
+                let _ = body.set_max_health(new_max, MaxHealthChangeType::PreserveRatio);
             }
         }
 

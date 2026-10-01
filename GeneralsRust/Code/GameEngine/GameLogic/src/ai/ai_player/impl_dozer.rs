@@ -167,13 +167,13 @@ impl AIPlayer {
         //           dozer->getAI()->getLocomotorSet(), dozerPos, &pos))
         //        { log; dozer->setPosition(&pos); }
         let Some((dpos, loco_set)) = OBJECT_REGISTRY
-            .with_object(dozer_id, |dozer_g| {
-                let Some(dozer_ai) = dozer_g.get_ai_update_interface() else {
+            .with_object_mut(dozer_id, |dozer_g| {
+                let dpos = *dozer_g.get_position();
+                let Some(dozer_ai) = dozer_g.get_ai_update_interface_mut() else {
                     return None;
                 };
-                let dpos = *dozer_g.get_position();
                 // Ensure Normal set is selected (C++ getLocomotorSet is current).
-                dozer_ai.choose_locomotor_set(LocomotorSetType::Normal);
+                let _ = dozer_ai.choose_locomotor_set(LocomotorSetType::Normal);
                 let loco_set = dozer_ai.get_locomotor_set_clone();
                 Some((dpos, loco_set))
             })
@@ -231,9 +231,7 @@ impl AIPlayer {
         let mut build_max_health = 0.0;
         if let Ok(guard) = new_object.read() {
             if let Some(body) = guard.get_body_module() {
-                if let Ok(body_guard) = body.lock() {
-                    build_max_health = body_guard.get_max_health();
-                }
+                build_max_health = body.get_max_health();
             }
         }
 
@@ -269,18 +267,15 @@ impl AIPlayer {
             })
             .unwrap_or(300);
 
-        if let Some(ai) = OBJECT_REGISTRY
-            .with_object(dozer_id, |dozer_g| dozer_g.get_ai_update_interface())
-            .flatten()
-        {
-            if let Ok(mut ai_g) = ai.try_lock() {
+        let _ = OBJECT_REGISTRY.with_object_mut(dozer_id, |dozer_g| {
+            if let Some(ai_g) = dozer_g.get_ai_update_interface_mut() {
                 if let Some(dozer_ai) = ai_g.get_dozer_ai_update_interface_mut() {
                     dozer_ai.set_build_task(bldg_id, total_build_frames, build_max_health, false);
                 } else if let Some(worker_ai) = ai_g.get_worker_ai_update_interface_mut() {
                     worker_ai.set_build_task(bldg_id, total_build_frames, build_max_health, false);
                 }
             }
-        }
+        });
 
         // C++ stamps the BuildListInfo* passed into buildStructureWithDozer
         // (setObjectID/timestamp/underConstruction). Match that entry by template
@@ -689,8 +684,8 @@ impl AIPlayer {
             return Ok(None);
         }
 
-        let Some((module_handles, behaviors)) = OBJECT_REGISTRY
-            .with_object(obj_id, |obj_guard| {
+        let candidate = OBJECT_REGISTRY
+            .with_object_mut(obj_id, |obj_guard| {
                 if obj_guard.get_controlling_player_id() != Some(self.player_id) {
                     return None;
                 }
@@ -700,66 +695,62 @@ impl AIPlayer {
                 {
                     return None;
                 }
-                Some((
-                    obj_guard.behavior_modules(),
-                    obj_guard.get_behavior_modules(),
-                ))
+
+                let module_handles = obj_guard.behavior_modules();
+                let mut checked = false;
+                for module_handle in &module_handles {
+                    let mut can_produce = false;
+                    let mut is_busy = false;
+                    let matched = module_handle.with_module(|module| {
+                        let Some(prod) = module.get_production_control_interface() else {
+                            return false;
+                        };
+                        if prod.can_produce(thing_template) {
+                            can_produce = true;
+                            is_busy = prod.is_producing() || prod.queue_size() > 0;
+                        }
+                        true
+                    });
+                    if matched {
+                        checked = true;
+                        if !can_produce {
+                            return None;
+                        }
+                        if !is_busy {
+                            return Some(obj_id);
+                        }
+                        // C++ overwrites busyFactory on every busy match (last wins).
+                        if busy_ok {
+                            *busy_factory = Some(obj_id);
+                        }
+                        return None;
+                    }
+                }
+
+                if !checked {
+                    for behavior in obj_guard.get_behavior_modules_mut() {
+                        let Some(prod) = behavior.get_production_update_interface() else {
+                            continue;
+                        };
+                        if !prod.can_produce(thing_template) {
+                            continue;
+                        }
+                        let is_busy = prod.is_producing() || prod.get_queue_size() > 0;
+                        if !is_busy {
+                            return Some(obj_id);
+                        }
+                        if busy_ok {
+                            *busy_factory = Some(obj_id);
+                        }
+                        break;
+                    }
+                }
+
+                None
             })
-            .flatten()
-        else {
-            return Ok(None);
-        };
-
-        let mut checked = false;
-        for module_handle in module_handles {
-            let mut can_produce = false;
-            let mut is_busy = false;
-            let matched = module_handle.with_module(|module| {
-                let Some(prod) = module.get_production_control_interface() else {
-                    return false;
-                };
-                if prod.can_produce(thing_template) {
-                    can_produce = true;
-                    is_busy = prod.is_producing() || prod.queue_size() > 0;
-                }
-                true
-            });
-            if matched {
-                checked = true;
-                if !can_produce {
-                    return Ok(None);
-                }
-                if !is_busy {
-                    return Ok(Some(obj_id));
-                }
-                // C++ overwrites busyFactory on every busy match (last wins).
-                if busy_ok {
-                    *busy_factory = Some(obj_id);
-                }
-                return Ok(None);
-            }
-        }
-
-        if !checked {
-            for behavior in behaviors {
-                let Ok(mut behavior_guard) = behavior.lock() else {
-                    continue;
-                };
-                let Some(prod) = behavior_guard.get_production_update_interface() else {
-                    continue;
-                };
-                if !prod.can_produce(thing_template) {
-                    continue;
-                }
-                let is_busy = prod.is_producing() || prod.get_queue_size() > 0;
-                if !is_busy {
-                    return Ok(Some(obj_id));
-                }
-                if busy_ok {
-                    *busy_factory = Some(obj_id);
-                }
-                break;
-            }
+            .flatten();
+        if candidate.is_some() {
+            return Ok(Some(obj_id));
         }
 
         Ok(None)
@@ -1097,7 +1088,7 @@ impl AIPlayer {
                 // Transfer to this team + idle (C++ setTeam + aiIdle).
                 if let Ok(mut unit_g) = unit_arc.write() {
                     let _ = unit_g.set_team(Some(team_arc.clone()));
-                    if let Some(ai) = unit_g.get_ai_update_interface() {
+                    if let Some(ai) = unit_g.get_ai_update_interface_mut() {
                         ai.ai_idle(CommandSourceType::FromAi);
                     }
                     recruited_id = Some(unit_g.get_id());

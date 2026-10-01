@@ -14,10 +14,11 @@ impl Object {
         let Some(object_arc) = crate::helpers::TheGameLogic::find_object_by_id(self.id) else {
             return;
         };
-        for behavior in self.get_behavior_modules() {
-            let Ok(mut behavior) = behavior.lock() else {
-                continue;
-            };
+        // The owned behavior list is taken out for the topple pass because
+        // `apply_toppling_force_with_object` needs `&mut self` (the owner) at
+        // the same time; it is put straight back, preserving the pass order.
+        let mut behaviors = std::mem::take(&mut self.behaviors);
+        for behavior in behaviors.iter_mut() {
             let Some(topple) = behavior.get_topple_control_interface() else {
                 continue;
             };
@@ -32,6 +33,7 @@ impl Object {
             }
             break;
         }
+        self.behaviors = behaviors;
     }
 
     //=========================================================================
@@ -103,11 +105,9 @@ impl Object {
         self.check_disabled_status();
         self.update_firing_tracker();
 
-        if let Some(contain) = &self.contain {
-            if let Ok(mut contain_guard) = contain.lock() {
-                if let Err(err) = contain_guard.update() {
-                    log::warn!("Object {} contain update failed: {}", self.id, err);
-                }
+        if let Some(contain) = self.contain.as_mut() {
+            if let Err(err) = contain.update() {
+                log::warn!("Object {} contain update failed: {}", self.id, err);
             }
         }
 
@@ -218,7 +218,7 @@ impl Object {
         let body = self.get_body_module();
 
         if let Some(helper) = &mut self.subdual_damage_helper {
-            let _ = helper.update_in_owner(current_frame, body.as_ref());
+            let _ = helper.update_in_owner(current_frame, body);
         }
 
         // The owned helpers are taken out for the update call because
@@ -335,9 +335,7 @@ impl Object {
     /// Check if object is moving
     pub fn is_moving(&self) -> bool {
         if let Some(ai) = &self.ai {
-            if let Ok(ai_guard) = ai.lock() {
-                return ai_guard.is_moving();
-            }
+            return ai.is_moving();
         }
         false
     }
@@ -345,9 +343,7 @@ impl Object {
     /// Check if object is idle
     pub fn is_idle(&self) -> bool {
         if let Some(ai) = &self.ai {
-            if let Ok(ai_guard) = ai.lock() {
-                return ai_guard.is_idle();
-            }
+            return ai.is_idle();
         }
         !self.is_moving()
     }
@@ -415,36 +411,39 @@ impl Object {
         }
 
         let mut contain_notified = false;
-        if let Some(contain) = &self.contain {
-            if let Ok(mut contain_guard) = contain.lock() {
-                if let Err(err) =
-                    contain_guard.on_capture(self, old_owner.as_ref(), new_owner.as_ref())
-                {
-                    log::warn!("Object {} contain on_capture failed: {}", self.id, err);
-                }
-                contain_notified = true;
+        // The contain module is taken out because `on_capture` re-enters the
+        // owner (`&Object`); it is put straight back, preserving C++ order.
+        let mut contain_module = self.contain.take();
+        if let Some(contain) = contain_module.as_mut() {
+            if let Err(err) = contain.on_capture(self, old_owner.as_ref(), new_owner.as_ref()) {
+                log::warn!("Object {} contain on_capture failed: {}", self.id, err);
             }
+            contain_notified = true;
         }
+        self.contain = contain_module;
 
-        for behavior in &self.behaviors {
-            if let Ok(mut behavior_guard) = behavior.lock() {
-                behavior_guard.on_capture(old_owner.as_ref(), new_owner.as_ref());
-                if !contain_notified {
-                    if let Some(contain) = behavior_guard.get_contain() {
-                        if let Err(err) =
-                            contain.on_capture(self, old_owner.as_ref(), new_owner.as_ref())
-                        {
-                            log::warn!(
-                                "Object {} behavior-backed contain on_capture failed: {}",
-                                self.id,
-                                err
-                            );
-                        }
-                        contain_notified = true;
+        // The owned behavior list is taken out for the capture pass because
+        // `on_capture` re-enters the owner; it is put straight back,
+        // preserving the notification order.
+        let mut behaviors = std::mem::take(&mut self.behaviors);
+        for behavior in behaviors.iter_mut() {
+            behavior.on_capture(old_owner.as_ref(), new_owner.as_ref());
+            if !contain_notified {
+                if let Some(contain) = behavior.get_contain() {
+                    if let Err(err) =
+                        contain.on_capture(self, old_owner.as_ref(), new_owner.as_ref())
+                    {
+                        log::warn!(
+                            "Object {} behavior-backed contain on_capture failed: {}",
+                            self.id,
+                            err
+                        );
                     }
+                    contain_notified = true;
                 }
             }
         }
+        self.behaviors = behaviors;
 
         if owners_differ {
             let upgrade_modules = self.modules.clone();
@@ -883,11 +882,9 @@ impl Object {
             || self.defect_play_timer_tick(),
         );
 
-        if let Some(contain) = self.get_contain() {
-            if let Ok(mut contain_guard) = contain.lock() {
-                if contain_guard.is_kick_out_on_capture() {
-                    let _ = contain_guard.remove_all_contained(true);
-                }
+        if let Some(contain) = self.get_contain_mut() {
+            if contain.is_kick_out_on_capture() {
+                let _ = contain.remove_all_contained(true);
             }
         }
 

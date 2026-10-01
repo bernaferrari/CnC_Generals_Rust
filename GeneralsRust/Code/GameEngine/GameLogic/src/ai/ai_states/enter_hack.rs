@@ -30,35 +30,32 @@ impl AIState for AIEnterState {
             return StateReturnType::Failed;
         };
 
-        let Ok(owner_guard) = owner_arc.read() else {
+        let mut goal_pos_holder: Option<Coord3D> = None;
+        let Ok(mut owner_guard) = owner_arc.write() else {
             return StateReturnType::Failed;
         };
-        let Ok(goal_guard) = goal_arc.read() else {
-            return StateReturnType::Failed;
-        };
-        let Some(contain) = goal_guard.get_contain() else {
-            return StateReturnType::Failed;
-        };
-        let Ok(mut contain_guard) = contain.lock() else {
-            return StateReturnType::Failed;
-        };
-        if !contain_guard.is_valid_container_for(&*owner_guard, true) {
-            return StateReturnType::Failed;
+        {
+            let Ok(mut goal_guard) = goal_arc.write() else {
+                return StateReturnType::Failed;
+            };
+            let Some(contain) = goal_guard.get_contain_mut() else {
+                return StateReturnType::Failed;
+            };
+            if !contain.is_valid_container_for(&*owner_guard, true) {
+                return StateReturnType::Failed;
+            }
+            let _ = contain
+                .on_object_wants_to_enter_or_exit(&*owner_guard, ContainWant::WantsToEnter);
+            goal_pos_holder = Some(*goal_guard.get_position());
         }
-        let _ = contain_guard
-            .on_object_wants_to_enter_or_exit(&*owner_guard, ContainWant::WantsToEnter);
-        drop(contain_guard);
-
-        let goal_pos = *goal_guard.get_position();
+        let goal_pos = goal_pos_holder.unwrap();
         context.goal_position = Some(goal_pos);
 
-        if let Some(ai) = owner_guard.get_ai_update_interface() {
-            if let Ok(mut ai_guard) = ai.lock() {
-                let _ = ai_guard.set_allow_invalid_position(true);
-                let legacy_goal = get_legacy_object(goal_id);
-                let _ = ai_guard.ignore_obstacle(legacy_goal.as_ref().and_then(|a| a.read().ok().map(|g| g.get_id())));
-                let _ = ai_guard.set_movement_target(&goal_pos);
-            }
+        if let Some(ai_guard) = owner_guard.get_ai_update_interface_mut() {
+            let _ = ai_guard.set_allow_invalid_position(true);
+            let legacy_goal = get_legacy_object(goal_id);
+            let _ = ai_guard.ignore_obstacle(legacy_goal.as_ref().and_then(|a| a.read().ok().map(|g| g.get_id())));
+            let _ = ai_guard.set_movement_target(&goal_pos);
         }
 
         self.entry_to_clear = goal_id;
@@ -81,34 +78,22 @@ impl AIState for AIEnterState {
             return StateReturnType::Failed;
         };
 
-        let Ok(owner_guard) = owner_arc.read() else {
+        let Ok(mut owner_guard) = owner_arc.write() else {
             return StateReturnType::Failed;
         };
-        let Ok(goal_guard) = goal_arc.read() else {
+        let Ok(mut goal_guard) = goal_arc.write() else {
             return StateReturnType::Failed;
         };
 
-        if let Some(ai) = owner_guard.get_ai_update_interface() {
-            if let Ok(mut ai_guard) = ai.lock() {
-                let current_goal = context
-                    .goal_position
-                    .unwrap_or_else(|| *goal_guard.get_position());
-                if current_goal != *goal_guard.get_position() {
-                    let new_goal = *goal_guard.get_position();
-                    context.goal_position = Some(new_goal);
-                    let _ = ai_guard.set_movement_target(&new_goal);
-                }
+        if let Some(ai_guard) = owner_guard.get_ai_update_interface_mut() {
+            let current_goal = context
+                .goal_position
+                .unwrap_or_else(|| *goal_guard.get_position());
+            if current_goal != *goal_guard.get_position() {
+                let new_goal = *goal_guard.get_position();
+                context.goal_position = Some(new_goal);
+                let _ = ai_guard.set_movement_target(&new_goal);
             }
-        }
-
-        let Some(contain) = goal_guard.get_contain() else {
-            return StateReturnType::Failed;
-        };
-        let Ok(mut contain_guard) = contain.lock() else {
-            return StateReturnType::Failed;
-        };
-        if !contain_guard.is_valid_container_for(&*owner_guard, true) {
-            return StateReturnType::Failed;
         }
 
         let owner_pos = owner_guard.get_position();
@@ -116,8 +101,15 @@ impl AIState for AIEnterState {
         let dx = owner_pos.x - goal_pos.x;
         let dy = owner_pos.y - goal_pos.y;
         let radius = goal_guard.get_geometry_info().get_major_radius();
+        let Some(contain) = goal_guard.get_contain_mut() else {
+            return StateReturnType::Failed;
+        };
+        if !contain.is_valid_container_for(&*owner_guard, true) {
+            return StateReturnType::Failed;
+        }
+
         if dx * dx + dy * dy <= radius * radius {
-            let _ = contain_guard.add_to_contain(&*owner_guard);
+            let _ = contain.add_to_contain(&*owner_guard);
             return StateReturnType::Success;
         }
 
@@ -130,27 +122,22 @@ impl AIState for AIEnterState {
             return;
         }
 
-        if let Some(ai) = OBJECT_REGISTRY
-            .with_object(context.owner_id, |owner| owner.get_ai_update_interface())
-            .flatten()
-        {
-            if let Ok(mut ai_guard) = ai.lock() {
+        let _ = OBJECT_REGISTRY.with_object_mut(context.owner_id, |owner| {
+            if let Some(ai_guard) = owner.get_ai_update_interface_mut() {
                 let _ = ai_guard.set_allow_invalid_position(false);
                 let _ = ai_guard.ignore_obstacle(None);
             }
-        }
+        });
         if self.entry_to_clear != INVALID_ID {
             if let Some(goal_arc) = OBJECT_REGISTRY.get_object(self.entry_to_clear) {
-                if let Ok(goal_guard) = goal_arc.read() {
-                    if let Some(contain) = goal_guard.get_contain() {
-                        if let Ok(mut contain_guard) = contain.lock() {
-                            if let Some(owner_arc) = OBJECT_REGISTRY.get_object(context.owner_id) {
-                                if let Ok(owner_guard) = owner_arc.read() {
-                                    let _ = contain_guard.on_object_wants_to_enter_or_exit(
-                                        &*owner_guard,
-                                        ContainWant::WantsNeither,
-                                    );
-                                }
+                if let Ok(mut goal_guard) = goal_arc.write() {
+                    if let Some(contain) = goal_guard.get_contain_mut() {
+                        if let Some(owner_arc) = OBJECT_REGISTRY.get_object(context.owner_id) {
+                            if let Ok(owner_guard) = owner_arc.read() {
+                                let _ = contain.on_object_wants_to_enter_or_exit(
+                                    &*owner_guard,
+                                    ContainWant::WantsNeither,
+                                );
                             }
                         }
                     }
@@ -194,17 +181,14 @@ impl AIState for AIExitState {
         let Some(container_arc) = OBJECT_REGISTRY.get_object(container_id) else {
             return StateReturnType::Failed;
         };
-        let Ok(container_guard) = container_arc.read() else {
+        let Ok(mut container_guard) = container_arc.write() else {
             return StateReturnType::Failed;
         };
-        let Some(contain) = container_guard.get_contain() else {
-            return StateReturnType::Failed;
-        };
-        let Ok(mut contain_guard) = contain.lock() else {
+        let Some(contain) = container_guard.get_contain_mut() else {
             return StateReturnType::Failed;
         };
         let _ =
-            contain_guard.on_object_wants_to_enter_or_exit(&*owner_guard, ContainWant::WantsToExit);
+            contain.on_object_wants_to_enter_or_exit(&*owner_guard, ContainWant::WantsToExit);
         StateReturnType::Continue
     }
 
@@ -232,18 +216,14 @@ impl AIState for AIExitState {
             let Some(container_id) = owner_guard.get_contained_by() else {
                 return;
             };
-            let Some(contain) = OBJECT_REGISTRY
-                .with_object(container_id, |container_guard| container_guard.get_contain())
-                .flatten()
-            else {
-                return;
-            };
-            if let Ok(mut contain_guard) = contain.lock() {
-                let _ = contain_guard.on_object_wants_to_enter_or_exit(
-                    owner_guard,
-                    ContainWant::WantsNeither,
-                );
-            };
+            let _ = OBJECT_REGISTRY.with_object_mut(container_id, |container_guard| {
+                if let Some(contain) = container_guard.get_contain_mut() {
+                    let _ = contain.on_object_wants_to_enter_or_exit(
+                        owner_guard,
+                        ContainWant::WantsNeither,
+                    );
+                }
+            });
         });
     }
 
@@ -279,12 +259,10 @@ impl AIState for AIPickUpCrateState {
             return StateReturnType::Failed;
         };
 
-        if let Ok(owner_guard) = owner_arc.read() {
+        if let Ok(mut owner_guard) = owner_arc.write() {
             if let Ok(goal_guard) = goal_arc.read() {
-                if let Some(ai) = owner_guard.get_ai_update_interface() {
-                    if let Ok(mut ai_guard) = ai.lock() {
-                        let _ = ai_guard.set_movement_target(goal_guard.get_position());
-                    }
+                if let Some(ai_guard) = owner_guard.get_ai_update_interface_mut() {
+                    let _ = ai_guard.set_movement_target(goal_guard.get_position());
                 }
             }
         }
@@ -333,14 +311,11 @@ impl AIState for AIPickUpCrateState {
             return;
         }
 
-        if let Some(ai) = OBJECT_REGISTRY
-            .with_object(context.owner_id, |owner| owner.get_ai_update_interface())
-            .flatten()
-        {
-            if let Ok(mut ai_guard) = ai.lock() {
+        let _ = OBJECT_REGISTRY.with_object_mut(context.owner_id, |owner| {
+            if let Some(ai_guard) = owner.get_ai_update_interface_mut() {
                 ai_guard.destroy_path();
             }
-        }
+        });
     }
 
     fn get_state_type(&self) -> AIStateType {

@@ -290,219 +290,10 @@ pub fn signed_forward_speed_3d(
 }
 
 
-/// Extension for `Arc<Mutex<dyn PhysicsBehavior>>`.
-///
-/// C++ `PhysicsBehavior` methods return the live velocity and apply writes.
-/// They do not turn a busy mutex into zero or a dropped set. `std::sync::Mutex`
-/// is not reentrant: a caller that already has `&mut dyn PhysicsBehavior` must
-/// use that reference (the fields) and must not call these methods on the same
-/// `Arc`.
-pub trait PhysicsBehaviorExt {
-    fn get_velocity(&self) -> Vec3D;
-    fn set_velocity(&self, velocity: &Vec3D);
-    fn apply_force(&self, force: &Vec3D);
-    fn add_velocity_to(&self, velocity: &Vec3D);
-    fn set_yaw_rate(&self, rate: Real);
-    fn set_roll_rate(&self, rate: Real);
-    fn set_pitch_rate(&self, rate: Real);
-    fn set_mass(&self, mass: Real);
-    fn get_mass(&self) -> Real;
-    fn set_extra_friction(&self, friction: Real);
-    fn set_extra_bounciness(&self, bounciness: Real);
-    fn set_allow_bouncing(&self, allow: bool);
-    fn set_allow_airborne_friction(&self, allow: bool);
-    fn set_allow_to_fall(&self, allow: bool);
-    fn get_allow_to_fall(&self) -> bool;
-    fn allow_to_fall(&self) -> bool;
-    fn set_is_in_freefall(&self, allow: bool);
-    fn get_is_in_freefall(&self) -> bool;
-    fn set_stick_to_ground(&self, stick: bool);
-    fn get_stick_to_ground(&self) -> bool;
-    fn get_forward_speed_2d(&self) -> Real;
-    fn get_forward_speed_3d(&self) -> Real;
-    fn get_center_of_mass_offset(&self) -> Real;
-    fn set_turning(&self, turning: i32);
-    fn set_angles(&self, yaw: Real, pitch: Real, roll: Real);
-    fn apply_angular_velocity(&self, angular_velocity: &Vec3D);
-    fn apply_motive_force(&self, force: &Vec3D);
-    fn get_turning(&self) -> Real;
-    fn get_last_collidee(&self) -> ObjectID;
-    fn set_bounce_sound(&self, sound: Option<AudioEventRts>);
-    fn get_bounce_sound(&self) -> Option<AudioEventRts>;
-    fn set_ignore_collisions_with(&self, obj_id: ObjectID);
-    fn clear_acceleration(&self);
-    fn scrub_velocity_2d(&self, desired_velocity: Real);
-    fn scrub_velocity_z(&self, desired_velocity: Real);
-    fn reset_dynamic_physics(&self);
-}
-
-fn with_physics_ref<R>(
-    physics: &Arc<Mutex<dyn PhysicsBehavior>>,
-    f: impl FnOnce(&dyn PhysicsBehavior) -> R,
-) -> R {
-    match physics.lock() {
-        Ok(guard) => f(&*guard),
-        Err(poisoned) => f(&*poisoned.into_inner()),
-    }
-}
-
-fn with_physics_mut<R>(
-    physics: &Arc<Mutex<dyn PhysicsBehavior>>,
-    f: impl FnOnce(&mut dyn PhysicsBehavior) -> R,
-) -> R {
-    match physics.lock() {
-        Ok(mut guard) => f(&mut *guard),
-        Err(poisoned) => f(&mut *poisoned.into_inner()),
-    }
-}
-
-impl PhysicsBehaviorExt for Arc<Mutex<dyn PhysicsBehavior>> {
-    fn get_velocity(&self) -> Vec3D {
-        with_physics_ref(self, |physics| physics.get_velocity())
-    }
-
-    fn set_velocity(&self, velocity: &Vec3D) {
-        with_physics_mut(self, |physics| physics.set_velocity(velocity));
-    }
-
-    fn apply_force(&self, force: &Vec3D) {
-        with_physics_mut(self, |physics| physics.apply_force(force));
-    }
-
-    fn add_velocity_to(&self, velocity: &Vec3D) {
-        with_physics_mut(self, |physics| physics.add_velocity_to(velocity));
-    }
-
-    fn set_yaw_rate(&self, rate: Real) {
-        with_physics_mut(self, |physics| physics.set_yaw_rate(rate));
-    }
-
-    fn set_roll_rate(&self, rate: Real) {
-        with_physics_mut(self, |physics| physics.set_roll_rate(rate));
-    }
-
-    fn set_pitch_rate(&self, rate: Real) {
-        with_physics_mut(self, |physics| physics.set_pitch_rate(rate));
-    }
-
-    fn set_mass(&self, mass: Real) {
-        with_physics_mut(self, |physics| physics.set_mass(mass));
-    }
-
-    fn set_extra_friction(&self, friction: Real) {
-        with_physics_mut(self, |physics| physics.set_extra_friction(friction));
-    }
-
-    fn set_extra_bounciness(&self, bounciness: Real) {
-        with_physics_mut(self, |physics| physics.set_extra_bounciness(bounciness));
-    }
-
-    fn set_allow_bouncing(&self, allow: bool) {
-        with_physics_mut(self, |physics| physics.set_allow_bouncing(allow));
-    }
-
-    fn set_allow_airborne_friction(&self, allow: bool) {
-        with_physics_mut(self, |physics| physics.set_allow_airborne_friction(allow));
-    }
-
-    fn set_allow_to_fall(&self, allow: bool) {
-        with_physics_mut(self, |physics| physics.set_allow_to_fall(allow));
-    }
-
-    fn get_allow_to_fall(&self) -> bool {
-        with_physics_ref(self, |physics| physics.get_allow_to_fall())
-    }
-
-    fn allow_to_fall(&self) -> bool {
-        self.get_allow_to_fall()
-    }
-
-    fn set_is_in_freefall(&self, allow: bool) {
-        with_physics_mut(self, |physics| physics.set_is_in_freefall(allow));
-    }
-
-    fn get_is_in_freefall(&self) -> bool {
-        with_physics_ref(self, |physics| physics.get_is_in_freefall())
-    }
-
-    fn get_center_of_mass_offset(&self) -> Real {
-        with_physics_ref(self, |physics| physics.get_center_of_mass_offset())
-    }
-
-    fn set_stick_to_ground(&self, stick: bool) {
-        with_physics_mut(self, |physics| physics.set_stick_to_ground(stick));
-    }
-
-    fn get_stick_to_ground(&self) -> bool {
-        with_physics_ref(self, |physics| physics.get_stick_to_ground())
-    }
-
-    fn get_forward_speed_2d(&self) -> Real {
-        with_physics_ref(self, |physics| physics.get_forward_speed_2d())
-    }
-
-    fn get_forward_speed_3d(&self) -> Real {
-        with_physics_ref(self, |physics| physics.get_forward_speed_3d())
-    }
-
-    fn set_turning(&self, turning: i32) {
-        with_physics_mut(self, |physics| physics.set_turning(turning));
-    }
-
-    fn set_angles(&self, yaw: Real, pitch: Real, roll: Real) {
-        with_physics_mut(self, |physics| physics.set_angles(yaw, pitch, roll));
-    }
-
-    fn get_mass(&self) -> Real {
-        with_physics_ref(self, |physics| physics.get_mass())
-    }
-
-    fn apply_angular_velocity(&self, angular_velocity: &Vec3D) {
-        with_physics_mut(self, |physics| {
-            physics.apply_angular_velocity(angular_velocity)
-        });
-    }
-
-    fn apply_motive_force(&self, force: &Vec3D) {
-        with_physics_mut(self, |physics| physics.apply_motive_force(force));
-    }
-
-    fn get_turning(&self) -> Real {
-        with_physics_ref(self, |physics| physics.get_turning())
-    }
-
-    fn get_last_collidee(&self) -> ObjectID {
-        with_physics_ref(self, |physics| physics.get_last_collidee())
-    }
-
-    fn set_ignore_collisions_with(&self, obj_id: ObjectID) {
-        with_physics_mut(self, |physics| physics.set_ignore_collisions_with(obj_id));
-    }
-
-    fn set_bounce_sound(&self, sound: Option<AudioEventRts>) {
-        with_physics_mut(self, |physics| physics.set_bounce_sound(sound));
-    }
-
-    fn get_bounce_sound(&self) -> Option<AudioEventRts> {
-        with_physics_ref(self, |physics| physics.get_bounce_sound())
-    }
-
-    fn clear_acceleration(&self) {
-        with_physics_mut(self, |physics| physics.clear_acceleration());
-    }
-
-    fn scrub_velocity_2d(&self, desired_velocity: Real) {
-        with_physics_mut(self, |physics| physics.scrub_velocity_2d(desired_velocity));
-    }
-
-    fn scrub_velocity_z(&self, desired_velocity: Real) {
-        with_physics_mut(self, |physics| physics.scrub_velocity_z(desired_velocity));
-    }
-
-    fn reset_dynamic_physics(&self) {
-        with_physics_mut(self, |physics| physics.reset_dynamic_physics());
-    }
-}
+// The former `PhysicsBehaviorExt for Arc<Mutex<dyn PhysicsBehavior>>` adapter
+// duplicated this trait's own surface through `with_physics_ref`/`with_physics_mut`
+// lock helpers. Physics modules are owned values now: call `PhysicsBehavior`
+// methods directly on the borrowed trait object.
 
 
 #[cfg(test)]
@@ -561,56 +352,24 @@ mod physics_behavior_default_tests {
         assert!((physics.get_forward_speed_2d() - 3.0).abs() < 1.0e-5);
     }
 
-    fn arc_physics(physics: DummyPhysics) -> Arc<Mutex<dyn PhysicsBehavior>> {
-        Arc::new(Mutex::new(physics))
-    }
-
     #[test]
-    fn ext_applies_velocity_while_another_thread_holds_the_mutex() {
-        let physics = arc_physics(DummyPhysics {
-            vel: Vec3D::new(8.0, 0.0, 1.0),
-            stick: false,
-        });
-        let physics_for_setter = physics.clone();
-        let entered = Arc::new(std::sync::atomic::AtomicBool::new(false));
-        let entered_flag = Arc::clone(&entered);
-        let _guard = physics.lock().unwrap_or_else(|err| err.into_inner());
-        let setter = std::thread::spawn(move || {
-            entered_flag.store(true, std::sync::atomic::Ordering::SeqCst);
-            physics_for_setter.set_velocity(&Vec3D::new(2.0, 3.0, 4.0));
-            physics_for_setter.set_stick_to_ground(true);
-        });
-        while !entered.load(std::sync::atomic::Ordering::SeqCst) {
-            std::thread::yield_now();
-        }
-        // The setter is inside set_velocity. A try_lock failure would drop it.
-        std::thread::sleep(std::time::Duration::from_millis(40));
-        drop(_guard);
-        setter.join().unwrap();
-        let vel = physics.get_velocity();
-        assert_eq!((vel.x, vel.y, vel.z), (2.0, 3.0, 4.0));
-        assert!(physics.get_stick_to_ground());
-        physics.scrub_velocity_2d(0.0);
-        let vel = physics.get_velocity();
-        assert_eq!((vel.x, vel.y, vel.z), (0.0, 0.0, 4.0));
-    }
-
-    #[test]
-    fn held_physics_guard_reads_velocity_without_the_arc() {
-        let physics = arc_physics(DummyPhysics {
+    fn borrowed_physics_object_scrubs_and_reads_directly() {
+        // C++ operates on the physics object directly; the owned-module world
+        // hands callers `&mut dyn PhysicsBehavior` with no intermediate lock.
+        let mut physics = DummyPhysics {
             vel: Vec3D::new(1.5, -2.0, 0.5),
             stick: true,
-        });
-        let mut guard = physics.lock().unwrap_or_else(|err| err.into_inner());
-        assert_eq!(PhysicsBehavior::get_velocity(&*guard).x, 1.5);
-        guard.set_velocity(&Vec3D::new(0.0, 4.0, 0.5));
-        guard.scrub_velocity_2d(0.0);
-        let vel = guard.get_velocity();
+        };
+        assert_eq!(PhysicsBehavior::get_velocity(&physics).x, 1.5);
+        physics.set_velocity(&Vec3D::new(0.0, 4.0, 0.5));
+        physics.scrub_velocity_2d(0.0);
+        let vel = physics.get_velocity();
         assert_eq!(vel.x, 0.0);
         assert_eq!(vel.y, 0.0);
         assert_eq!(vel.z, 0.5);
-        assert!(guard.get_stick_to_ground());
+        assert!(physics.get_stick_to_ground());
     }
+
 
 
 }

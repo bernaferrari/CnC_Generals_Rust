@@ -418,14 +418,11 @@ impl WorkerAIUpdate {
             return false;
         };
         let bridge_id = {
-            let Ok(tower_guard) = tower_obj.read() else {
+            let Ok(mut tower_guard) = tower_obj.write() else {
                 return false;
             };
             let mut id = INVALID_ID;
-            for behavior in tower_guard.get_behavior_modules() {
-                let Ok(mut behavior) = behavior.lock() else {
-                    continue;
-                };
+            for behavior in tower_guard.get_behavior_modules_mut() {
                 if let Some(tower) = behavior.get_bridge_tower_behavior_interface() {
                     id = tower.get_bridge_id();
                     break;
@@ -439,15 +436,10 @@ impl WorkerAIUpdate {
         let Some(bridge_obj) = TheGameLogic::find_object_by_id(bridge_id) else {
             return false;
         };
-        let Ok(bridge_guard) = bridge_obj.read() else {
+        let Ok(mut bridge_guard) = bridge_obj.write() else {
             return false;
         };
-        let behaviors = bridge_guard.get_behavior_modules();
-        drop(bridge_guard);
-        for behavior in behaviors {
-            let Ok(mut behavior) = behavior.lock() else {
-                continue;
-            };
+        for behavior in bridge_guard.get_behavior_modules_mut() {
             if let Some(bridge) = behavior.get_bridge_behavior_interface() {
                 bridge.create_scaffolding();
                 return bridge.is_scaffold_in_motion();
@@ -460,14 +452,11 @@ impl WorkerAIUpdate {
         let Some(tower_obj) = TheGameLogic::find_object_by_id(bridge_tower_id) else {
             return;
         };
-        let Ok(tower_guard) = tower_obj.read() else {
+        let Ok(mut tower_guard) = tower_obj.write() else {
             return;
         };
         let mut bridge_id: Option<ObjectID> = None;
-        for behavior in tower_guard.get_behavior_modules() {
-            let Ok(mut behavior) = behavior.lock() else {
-                continue;
-            };
+        for behavior in tower_guard.get_behavior_modules_mut() {
             let Some(tower) = behavior.get_bridge_tower_behavior_interface() else {
                 continue;
             };
@@ -482,15 +471,10 @@ impl WorkerAIUpdate {
         let Some(bridge_obj) = TheGameLogic::find_object_by_id(bridge_id) else {
             return;
         };
-        let Ok(bridge_guard) = bridge_obj.read() else {
+        let Ok(mut bridge_guard) = bridge_obj.write() else {
             return;
         };
-        let behaviors = bridge_guard.get_behavior_modules();
-        drop(bridge_guard);
-        for behavior in behaviors {
-            let Ok(mut behavior) = behavior.lock() else {
-                continue;
-            };
+        for behavior in bridge_guard.get_behavior_modules_mut() {
             let Some(bridge) = behavior.get_bridge_behavior_interface() else {
                 continue;
             };
@@ -503,6 +487,7 @@ impl WorkerAIUpdate {
             break;
         }
     }
+
 
     fn new_task(&mut self, task: WorkerDozerTaskSlot, target_id: ObjectID) {
         // Wave 298: empty dual-world → no-op.
@@ -743,7 +728,10 @@ impl WorkerAIUpdate {
         let owner_pos = *owner_guard.get_position();
         let owner_pos_local = Coord3D::new(owner_pos.x, owner_pos.y, owner_pos.z);
         let owner_airborne = owner_guard.is_using_airborne_locomotor();
-        let owner_ai_update = owner_guard.get_ai_update_interface();
+        let owner_has_ai = owner_guard.get_ai_update_interface().is_some();
+        // Drop the read guard: the MoveToActionPos branch below needs the
+        // write lock to steer the owner's AI module.
+        drop(owner_guard);
 
         let target_pos = *target_guard.get_position();
         let target_pos_local = Coord3D::new(target_pos.x, target_pos.y, target_pos.z);
@@ -809,15 +797,19 @@ impl WorkerAIUpdate {
             WorkerDozerActionState::MoveToActionPos => {
                 if dist_sq <= MIN_ACTION_TOLERANCE * MIN_ACTION_TOLERANCE {
                     self.dozer_action_state = WorkerDozerActionState::DoAction;
-                } else if let Some(ai) = owner_ai_update.as_ref() {
-                    if let Ok(mut ai_guard) = ai.lock() {
-                        let dock_pos_logic = LogicCoord3D::new(dock_pos.x, dock_pos.y, dock_pos.z);
-                        if let Err(err) = ai_guard.set_movement_target(&dock_pos_logic) {
-                            log::debug!(
-                                "WorkerAIUpdate::update_dozer_task set_movement_target failed: {}",
-                                err
-                            );
-                        }
+                } else if owner_has_ai {
+                    let Ok(mut owner_write) = owner.write() else {
+                        return;
+                    };
+                    let Some(ai) = owner_write.get_ai_update_interface_mut() else {
+                        return;
+                    };
+                    let dock_pos_logic = LogicCoord3D::new(dock_pos.x, dock_pos.y, dock_pos.z);
+                    if let Err(err) = ai.set_movement_target(&dock_pos_logic) {
+                        log::debug!(
+                            "WorkerAIUpdate::update_dozer_task set_movement_target failed: {}",
+                            err
+                        );
                     }
                 }
             }
@@ -828,7 +820,7 @@ impl WorkerAIUpdate {
                         clear_current(self);
                         return;
                     }
-                    let Ok(target_guard) = target.read() else {
+                    let (Ok(owner_guard), Ok(target_guard)) = (owner.read(), target.read()) else {
                         self.dozer_task = None;
                         return;
                     };
@@ -896,7 +888,7 @@ impl WorkerAIUpdate {
                         clear_current(self);
                         return;
                     }
-                    let Ok(target_guard) = target.read() else {
+                    let (Ok(owner_guard), Ok(target_guard)) = (owner.read(), target.read()) else {
                         self.dozer_task = None;
                         return;
                     };
@@ -940,7 +932,7 @@ impl WorkerAIUpdate {
                             if let Some(body) = target_write.get_body_module() {
                                 let new_health =
                                     (body.get_health() + max_health / frames).min(max_health);
-                                body.set_health(new_health);
+                                let _ = body.set_health(new_health);
                             }
                         }
                     }
@@ -991,9 +983,17 @@ impl WorkerAIUpdate {
                         task.started_construction = true;
                     }
 
-                    let completed = manager.update_for_dozer(self.object_id);
-                    let progress = manager.get_progress(task.target_id).unwrap_or(0.0);
-                    let current_health = manager.get_current_health(task.target_id);
+                    let (completed, progress, current_health) = {
+                        let completed = manager.update_for_dozer(self.object_id);
+                        let progress = manager.get_progress(task.target_id).unwrap_or(0.0);
+                        let current_health = manager.get_current_health(task.target_id);
+                        // Manager methods are pure in-manager state updates
+                        // (no callbacks), but release the manager guard
+                        // before writing the target: set_health can run
+                        // damage callbacks that re-enter construction state.
+                        drop(manager);
+                        (completed, progress, current_health)
+                    };
                     if let Ok(mut target_write) = target.write() {
                         target_write.set_construction_percent(progress);
                         if let Some(health) = current_health {
@@ -1056,19 +1056,21 @@ impl WorkerAIUpdate {
             }
             target_guard.set_construction_percent(crate::object::CONSTRUCTION_COMPLETE);
 
-            if let Some(body) = target_guard.get_body_module() {
-                if let Ok(mut body_guard) = body.lock() {
-                    if let Err(err) = body_guard.evaluate_visual_condition() {
-                        log::debug!(
-                            "WorkerAIUpdate::handle_build_completion evaluate_visual_condition failed: {}",
-                            err
-                        );
-                    }
+            if let Some(body) = target_guard.get_body_module_mut() {
+                if let Err(err) = body.evaluate_visual_condition() {
+                    log::debug!(
+                        "WorkerAIUpdate::handle_build_completion evaluate_visual_condition failed: {}",
+                        err
+                    );
                 }
             }
 
             target_guard.handle_partition_cell_maintenance();
             target_guard.update_upgrade_modules_from_player();
+            // Non-reentrant-safe: run_create_hooks hands the hooks this
+            // Object's module state directly (see object_lifecycle.rs —
+            // "hooks receive it directly so they do not re-lock"), so the
+            // create-hook dispatch cannot re-enter the target lock.
             target_guard.on_build_complete();
 
             let template = target_guard.get_template();
@@ -1078,6 +1080,9 @@ impl WorkerAIUpdate {
         }
 
         if let Some(player) = controlling_player {
+            // The player guard is held across this call, but the handler
+            // works on object/script-engine state via IDs and never
+            // re-resolves this player, so it cannot re-enter the lock.
             if let Ok(mut player_guard) = player.write() {
                 let builder_id = owner.read().ok().map(|g| g.get_id());
                 let structure_id = target

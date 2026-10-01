@@ -706,18 +706,16 @@ impl SpawnBehavior {
 
         let data = Arc::clone(&self.module_data);
 
-        // Get exit interface
-        let exit_interface = self
-            .with_object(|obj_guard| obj_guard.get_object_exit_interface())
-            .map_err(|_| "Failed to read object")?
+        // Get exit interface and reserve a door; the interface borrows the
+        // owner object mutably, so the reservation is its own scope.
+        let exit_door = self
+            .with_object_mut(|obj_guard| {
+                obj_guard
+                    .get_object_exit_interface()
+                    .map(|mut exit_guard| exit_guard.reserve_door_for_exit(None, None))
+            })
+            .map_err(|_| "Failed to write object")?
             .ok_or("Object must have ExitInterface to use SpawnBehavior")?;
-
-        let exit_door = {
-            let mut exit_guard = exit_interface
-                .lock()
-                .map_err(|_| "Failed to lock exit interface")?;
-            exit_guard.reserve_door_for_exit(None, None)
-        };
 
         if matches!(exit_door, crate::modules::ExitDoorType::NoneAvailable) {
             return Ok(false);
@@ -809,9 +807,6 @@ impl SpawnBehavior {
 
         // Handle exit behavior
         if !reclaimed_orphan {
-            let mut exit_guard = exit_interface
-                .lock()
-                .map_err(|_| "Failed to lock exit interface")?;
 
             if data.exit_by_budding {
                 let mut barracks_exit_success = false;
@@ -830,36 +825,34 @@ impl SpawnBehavior {
                             drop(barracks_guard);
 
                             if is_structure {
-                                if let Some(barracks_exit) = barracks
+                                let spawn_id = new_spawn
                                     .read()
                                     .ok()
-                                    .and_then(|guard| guard.get_object_exit_interface())
+                                    .map(|guard| guard.get_id())
+                                    .unwrap_or(0);
+                                let mut barracks_write =
+                                    barracks.write().map_err(|_| "Failed to write barracks")?;
+                                if let Some(mut barracks_exit_guard) =
+                                    barracks_write.get_object_exit_interface()
                                 {
-                                    let mut barracks_exit_guard = barracks_exit
-                                        .lock()
-                                        .map_err(|_| "Failed to lock barracks exit")?;
                                     let barracks_door =
                                         barracks_exit_guard.reserve_door_for_exit(None, None);
-                                    let spawn_id = new_spawn
-                                        .read()
-                                        .ok()
-                                        .map(|guard| guard.get_id())
-                                        .unwrap_or(0);
                                     barracks_exit_guard
                                         .exit_object_via_door(spawn_id, barracks_door)?;
-                                        drop(barracks_exit_guard);
+                                    drop(barracks_exit_guard);
+                                    drop(barracks_write);
 
-                                        // Set producer back to parent
-                                        let mut spawn_guard = new_spawn
-                                            .write()
-                                            .map_err(|_| "Failed to write spawn")?;
-                                        let _ = self.with_object(|parent_obj| {
-                                            spawn_guard.set_producer(Some(parent_obj));
-                                        })?;
-                                        drop(spawn_guard);
+                                    // Set producer back to parent
+                                    let mut spawn_guard = new_spawn
+                                        .write()
+                                        .map_err(|_| "Failed to write spawn")?;
+                                    let _ = self.with_object(|parent_obj| {
+                                        spawn_guard.set_producer(Some(parent_obj));
+                                    })?;
+                                    drop(spawn_guard);
 
-                                        self.initial_burst_countdown -= 1;
-                                        barracks_exit_success = true;
+                                    self.initial_burst_countdown -= 1;
+                                    barracks_exit_success = true;
                                 }
                             }
                         }
@@ -899,19 +892,29 @@ impl SpawnBehavior {
                     let host_id = bud_host.as_ref().and_then(|host| {
                         host.read().ok().map(|guard| guard.get_id())
                     });
-                    exit_guard.exit_object_by_budding(new_spawn_id, host_id)?;
+                    self.with_object_mut(|obj_guard| {
+                        if let Some(mut exit_guard) = obj_guard.get_object_exit_interface() {
+                            exit_guard.exit_object_by_budding(new_spawn_id, host_id)?;
+                        }
+                        Ok(())
+                    })??;
                 }
             } else {
-                exit_guard.exit_object_via_door(new_spawn_id, exit_door)?;
+                self.with_object_mut(|obj_guard| {
+                    if let Some(mut exit_guard) = obj_guard.get_object_exit_interface() {
+                        exit_guard.exit_object_via_door(new_spawn_id, exit_door)?;
+                    }
+                    Ok(())
+                })??;
             }
-            drop(exit_guard);
         } else {
             // Unreserve the door since we used a reclaimed orphan
-            let mut exit_guard = exit_interface
-                .lock()
-                .map_err(|_| "Failed to lock exit interface")?;
-            exit_guard.unreserve_door_for_exit(exit_door);
-            drop(exit_guard);
+            self.with_object_mut(|obj_guard| {
+                if let Some(mut exit_guard) = obj_guard.get_object_exit_interface() {
+                    exit_guard.unreserve_door_for_exit(exit_door);
+                }
+            })
+            .map_err(|_| "Failed to write object")?;
         }
 
         // Update counters
@@ -1030,20 +1033,22 @@ impl SpawnBehavior {
         // Process each spawn
         for &spawn_id in &self.spawn_ids {
             if let Some(current_spawn) = TheGameLogic::find_object_by_id(spawn_id) {
-                let mut spawn_guard = current_spawn.read().map_err(|_| "Failed to read spawn")?;
-
-                // Count self-tasking spawns
-                for behavior in spawn_guard.get_behavior_modules() {
-                    let mut behavior_guard = behavior
-                        .lock()
-                        .map_err(|_| "Failed to lock behavior module")?;
-                    if let Some(slaved) = behavior_guard.get_slaved_update_interface() {
-                        if slaved.is_self_tasking() {
-                            self.self_tasking_spawn_count += 1;
+                // Count self-tasking spawns (write scope: the slaved-update
+                // probe needs &mut behavior modules)
+                {
+                    let mut spawn_write =
+                        current_spawn.write().map_err(|_| "Failed to write spawn")?;
+                    for behavior in spawn_write.get_behavior_modules_mut() {
+                        if let Some(slaved) = behavior.get_slaved_update_interface() {
+                            if slaved.is_self_tasking() {
+                                self.self_tasking_spawn_count += 1;
+                            }
+                            break;
                         }
-                        break;
                     }
                 }
+
+                let mut spawn_guard = current_spawn.read().map_err(|_| "Failed to read spawn")?;
 
                 // Handle veterancy synchronization
                 let spawn_vet_level = spawn_guard.get_veterancy_level();
@@ -1076,10 +1081,8 @@ impl SpawnBehavior {
                 avg_spawn_pos += *spawn_guard.get_position();
 
                 if let Some(body) = spawn_guard.get_body_module() {
-                    let body_guard = body.lock().map_err(|_| "Failed to lock spawn body")?;
-                    acr_health += body_guard.get_health();
-                    avg_health_max += body_guard.get_max_health();
-                    drop(body_guard);
+                    acr_health += body.get_health();
+                    avg_health_max += body.get_max_health();
                 }
 
                 // Check selection status
@@ -1172,20 +1175,16 @@ impl SpawnBehavior {
             );
 
             self.with_object_mut(|obj_guard| {
-                if let Some(body) = obj_guard.get_body_module() {
-                    let mut body_guard = body.lock().map_err(|_| "Failed to lock object body")?;
-                    body_guard
-                        .set_initial_health(percent)
+                if let Some(body) = obj_guard.get_body_module_mut() {
+                    body.set_initial_health(percent)
                         .map_err(|e| format!("Failed to set spawn initial health: {e}"))?;
                 }
                 Ok::<(), Box<dyn std::error::Error + Send + Sync>>(())
             })??;
         } else {
             self.with_object_mut(|obj_guard| {
-                if let Some(body) = obj_guard.get_body_module() {
-                    let mut body_guard = body.lock().map_err(|_| "Failed to lock object body")?;
-                    body_guard
-                        .set_initial_health(0)
+                if let Some(body) = obj_guard.get_body_module_mut() {
+                    body.set_initial_health(0)
                         .map_err(|e| format!("Failed to set spawn initial zero health: {e}"))?;
                 }
                 Ok::<(), Box<dyn std::error::Error + Send + Sync>>(())
@@ -1308,21 +1307,15 @@ impl DieModuleInterface for SpawnBehavior {
                 }
 
                 if !handled {
-                    let spawn_behaviors = {
-                        let spawn_guard =
-                            current_spawn.read().map_err(|_| "Failed to read spawn")?;
-                        spawn_guard.get_behavior_modules()
-                    };
-
-                    for behavior in spawn_behaviors {
-                        let mut behavior_guard = behavior
-                            .lock()
-                            .map_err(|_| "Failed to lock behavior module")?;
-                        if let Some(slaved) = behavior_guard.get_slaved_update_interface() {
+                    let mut spawn_guard =
+                        current_spawn.write().map_err(|_| "Failed to write spawn")?;
+                    for behavior in spawn_guard.get_behavior_modules_mut() {
+                        if let Some(slaved) = behavior.get_slaved_update_interface() {
                             slaved.on_slaver_die(Some(damage_info))?;
                             break;
                         }
                     }
+                    drop(spawn_guard);
                 }
 
                 let mut spawn_guard = current_spawn.write().map_err(|_| "Failed to write spawn")?;
@@ -1381,17 +1374,10 @@ impl DamageModuleInterface for SpawnBehavior {
                 }
 
                 if !handled {
-                    let spawn_behaviors = {
-                        let spawn_guard =
-                            current_spawn.read().map_err(|_| "Failed to read spawn")?;
-                        spawn_guard.get_behavior_modules()
-                    };
-
-                    for behavior in spawn_behaviors {
-                        let mut behavior_guard = behavior
-                            .lock()
-                            .map_err(|_| "Failed to lock behavior module")?;
-                        if let Some(slaved) = behavior_guard.get_slaved_update_interface() {
+                    let mut spawn_guard =
+                        current_spawn.write().map_err(|_| "Failed to write spawn")?;
+                    for behavior in spawn_guard.get_behavior_modules_mut() {
+                        if let Some(slaved) = behavior.get_slaved_update_interface() {
                             slaved.on_slaver_damage(damage_info)?;
                             break;
                         }
@@ -1426,7 +1412,7 @@ impl SpawnBehaviorInterface for SpawnBehavior {
             .with_object(|object| {
                 object
                     .get_ai_update_interface()
-                    .and_then(|ai| ai.lock().ok().map(|g| g.get_last_command_source()))
+                    .map(|ai| ai.get_last_command_source())
             })
             .ok()
             .flatten();
@@ -1523,12 +1509,10 @@ impl SpawnBehaviorInterface for SpawnBehavior {
             let Some(spawn_obj) = TheGameLogic::find_object_by_id(spawn_id) else {
                 continue;
             };
-            let ai = spawn_obj
-                .read()
-                .ok()
-                .and_then(|spawn_guard| spawn_guard.get_ai_update_interface());
-            if let Some(ai) = ai {
-                ai.ai_force_attack_object(target_id, max_shots_to_fire, cmd_source);
+            if let Ok(mut spawn_guard) = spawn_obj.write() {
+                if let Some(ai) = spawn_guard.get_ai_update_interface_mut() {
+                    ai.ai_force_attack_object(target_id, max_shots_to_fire, cmd_source);
+                }
             }
         }
         Ok(())
@@ -1550,12 +1534,10 @@ impl SpawnBehaviorInterface for SpawnBehavior {
             let Some(spawn_obj) = TheGameLogic::find_object_by_id(spawn_id) else {
                 continue;
             };
-            let ai = spawn_obj
-                .read()
-                .ok()
-                .and_then(|spawn_guard| spawn_guard.get_ai_update_interface());
-            if let Some(ai) = ai {
-                ai.ai_attack_position(pos, max_shots_to_fire, cmd_source);
+            if let Ok(mut spawn_guard) = spawn_obj.write() {
+                if let Some(ai) = spawn_guard.get_ai_update_interface_mut() {
+                    ai.ai_attack_position(pos, max_shots_to_fire, cmd_source);
+                }
             }
         }
         Ok(())
@@ -1676,12 +1658,10 @@ impl SpawnBehaviorInterface for SpawnBehavior {
             let Some(spawn_obj) = TheGameLogic::find_object_by_id(spawn_id) else {
                 continue;
             };
-            let ai = spawn_obj
-                .read()
-                .ok()
-                .and_then(|spawn_guard| spawn_guard.get_ai_update_interface());
-            if let Some(ai) = ai {
-                ai.ai_idle(cmd_source);
+            if let Ok(mut spawn_guard) = spawn_obj.write() {
+                if let Some(ai) = spawn_guard.get_ai_update_interface_mut() {
+                    ai.ai_idle(cmd_source);
+                }
             }
         }
         Ok(())
@@ -1702,14 +1682,10 @@ impl SpawnBehaviorInterface for SpawnBehavior {
             let Some(spawn_obj) = TheGameLogic::find_object_by_id(spawn_id) else {
                 continue;
             };
-            let ai = spawn_obj
-                .read()
-                .ok()
-                .and_then(|spawn_guard| spawn_guard.get_ai_update_interface());
-            if let Some(ai) = ai {
-                ai.ai_idle(CMD_FROM_AI);
-            }
             if let Ok(mut spawn_guard) = spawn_obj.write() {
+                if let Some(ai) = spawn_guard.get_ai_update_interface_mut() {
+                    ai.ai_idle(CMD_FROM_AI);
+                }
                 spawn_guard.set_disabled_until(disabled_type, frame);
             }
         }

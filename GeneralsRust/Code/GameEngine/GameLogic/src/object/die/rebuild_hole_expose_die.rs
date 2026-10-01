@@ -266,17 +266,15 @@ impl RebuildHoleExposeDie {
             }
         }
 
-        if let Ok(hole_guard) = hole.read() {
-            if let Some(body) = hole_guard.get_body_module() {
-                if let Ok(mut body_guard) = body.lock() {
-                    if let Err(_err) = body_guard.set_max_health(
-                        self.base.module_data.hole_max_health,
-                        // C++ RebuildHoleExposeDie.cpp:141 one-arg setMaxHealth
-                        // defaults to SAME_CURRENTHEALTH (BodyModule.h:152).
-                        MaxHealthChangeType::SameCurrentHealth,
-                    ) {
-                        // Keep C++ behavior: failure to apply health here is non-fatal.
-                    }
+        if let Ok(mut hole_guard) = hole.write() {
+            if let Some(body) = hole_guard.get_body_module_mut() {
+                if let Err(_err) = body.set_max_health(
+                    self.base.module_data.hole_max_health,
+                    // C++ RebuildHoleExposeDie.cpp:141 one-arg setMaxHealth
+                    // defaults to SAME_CURRENTHEALTH (BodyModule.h:152).
+                    MaxHealthChangeType::SameCurrentHealth,
+                ) {
+                    // Keep C++ behavior: failure to apply health here is non-fatal.
                 }
             }
         }
@@ -304,11 +302,9 @@ impl RebuildHoleExposeDie {
         };
 
         for &object_id in game_logic.get_all_object_ids() {
-            let _ = OBJECT_REGISTRY.with_object(object_id, |obj_guard| {
-                if let Some(ai) = obj_guard.get_ai_update_interface() {
-                    if let Ok(mut ai_guard) = ai.lock() {
-                        ai_guard.transfer_attack(old_object_id, new_object_id);
-                    }
+            let _ = OBJECT_REGISTRY.with_object_mut(object_id, |obj_guard| {
+                if let Some(ai) = obj_guard.get_ai_update_interface_mut() {
+                    ai.transfer_attack(old_object_id, new_object_id);
                 }
             });
         }
@@ -351,7 +347,7 @@ impl DieModuleInterface for RebuildHoleExposeDie {
 
         // Create the rebuild hole
         if let Some(hole_arc) = self.create_hole(object) {
-            if let Ok(hole) = hole_arc.read() {
+            if let Ok(mut hole) = hole_arc.write() {
                 let hole_id = hole.get_id();
                 let pos = *hole.get_position();
                 let ai_store = the_ai(); if let Ok(ai_guard) = ai_store.read() {
@@ -362,11 +358,8 @@ impl DieModuleInterface for RebuildHoleExposeDie {
                     }
                 }
 
-                for behavior in hole.get_behavior_modules() {
-                    let Ok(mut behavior_guard) = behavior.lock() else {
-                        continue;
-                    };
-                    if let Some(rebuild) = behavior_guard.get_rebuild_hole_behavior_interface() {
+                for behavior in hole.get_behavior_modules_mut() {
+                    if let Some(rebuild) = behavior.get_rebuild_hole_behavior_interface() {
                         rebuild.start_rebuild_process(
                             Arc::clone(object.get_template()),
                             object.get_id(),

@@ -244,13 +244,8 @@ impl ArmorUpgradeInner {
         match OBJECT_REGISTRY.with_object_mut(self.object_id, |object| -> Result<(), String> {
             mux_give_self_upgrade(&self.data.upgrade_mux_data, object);
             // C++ ArmorUpgrade::upgradeImplementation (ArmorUpgrade.cpp:63-81)
-            if let Some(body) = &object.get_body_module() {
-                let mut body_guard = body
-                    .lock()
-                    .map_err(|_| "ArmorUpgrade failed to lock body".to_string())?;
-
-                body_guard
-                    .set_armor_set_flag(ArmorSetType::PlayerUpgrade)
+            if let Some(body) = object.get_body_module_mut() {
+                body.set_armor_set_flag(ArmorSetType::PlayerUpgrade)
                     .map_err(|e| format!("ArmorUpgrade failed to set armor: {:?}", e))?;
             }
 
@@ -419,8 +414,7 @@ mod tests {
         {
             let object = object_handle.read().expect("lock object");
             if let Some(body) = object.get_body() {
-                let body_guard = body.lock().expect("lock body");
-                assert!(body_guard.test_armor_set_flag(ArmorSetType::PlayerUpgrade));
+                assert!(body.test_armor_set_flag(ArmorSetType::PlayerUpgrade));
             } else {
                 panic!("Object should have a body");
             }
@@ -452,9 +446,8 @@ mod tests {
         {
             let object = object_handle.read().expect("lock object");
             if let Some(body) = object.get_body() {
-                let body_guard = body.lock().expect("lock body");
                 // C++ ArmorUpgrade has no remove implementation; flag remains set.
-                assert!(body_guard.test_armor_set_flag(ArmorSetType::PlayerUpgrade));
+                assert!(body.test_armor_set_flag(ArmorSetType::PlayerUpgrade));
             }
         }
 

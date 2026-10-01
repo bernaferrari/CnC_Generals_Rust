@@ -126,22 +126,15 @@ impl UpdateModuleInterface for AutoFindHealingUpdate {
         let Some(ai) = obj.get_ai_update_interface() else {
             return UpdateSleepTime::None;
         };
-        let Ok(ai_guard) = ai.lock() else {
-            return UpdateSleepTime::None;
-        };
-        if !ai_guard.is_idle() {
+        if !ai.is_idle() {
             return UpdateSleepTime::None;
         }
-        drop(ai_guard);
 
         let Some(body) = obj.get_body_module() else {
             return UpdateSleepTime::None;
         };
-        let Ok(body_guard) = body.lock() else {
-            return UpdateSleepTime::None;
-        };
 
-        if body_guard.get_health() > body_guard.get_max_health() * self.module_data.never_heal {
+        if body.get_health() > body.get_max_health() * self.module_data.never_heal {
             return UpdateSleepTime::None;
         }
 

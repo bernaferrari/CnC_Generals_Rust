@@ -125,7 +125,7 @@ pub struct TurretAI {
     victim_initial_team: Option<TeamID>,
     /// Target position (if aiming at position)
     target_position: Option<Coord3D>,
-    /// State machine back-reference
+    /// State machine backref (PROOF-KEPT: see TurretStateMachine note above)
     state_machine: Option<Weak<Mutex<StateMachine>>>,
     /// Turret's natural/default angle
     natural_angle: f32,
@@ -1829,6 +1829,17 @@ fn turret_out_of_weapon_range_object(
     ))
 }
 
+// PROOF-KEPT SITE (ownership migration): `base: Arc<Mutex<StateMachine>>`,
+// `turret_ai: Option<Arc<Mutex<TurretAI>>>` and the `TurretAI::state_machine`
+// Weak backref cannot become plain-owned from this file alone:
+// - object/unit/ai_interface_update.rs (out of scope, W3-ObjectModules) drives
+//   the per-frame step via `TurretAI::update_turret_ai_handle(&Arc<Mutex<TurretAI>>)`
+//   and stamps cached values through ~40 `machine.get_turret_ai()` sites;
+// - ai_interface_update.rs:63-72 round-trips `export_idle_goal()` /
+//   `sync_machine_goal(Weak<Mutex<StateMachine>>)` across that same boundary;
+// - TurretAI setters called from object/unit mid-frame sync goals into the
+//   machine through the Weak backref (`sync_goal_object`, `recenter_turret`).
+// Migrating requires converting those callers; enumerated here instead.
 pub struct TurretStateMachine {
     /// Base state machine
     base: Arc<Mutex<StateMachine>>,
@@ -2023,10 +2034,13 @@ impl TurretState {
         shared: Arc<TurretSharedState>,
         name: &str,
     ) -> Self {
-        Self {
-            base: State::with_machine(Some(Arc::downgrade(machine)), name),
-            shared,
-        }
+        // Snapshot only the owner id from the machine (State no longer holds a
+        // machine handle; goal data is bound by the machine before each step).
+        let base = machine
+            .lock()
+            .map(|guard| State::new(&guard, name))
+            .unwrap_or_else(|_| State::detached(name));
+        Self { base, shared }
     }
 
     fn change_state(&self, state: TurretStateType) -> Result<(), String> {

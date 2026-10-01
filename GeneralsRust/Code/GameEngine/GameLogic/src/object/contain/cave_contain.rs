@@ -864,27 +864,24 @@ impl CaveContain {
                     continue;
                 };
 
-                let (contain_arc, current_team) = {
+                let current_team = {
                     let Ok(obj_guard) = obj_arc.read() else {
                         continue;
                     };
-                    (obj_guard.get_contain(), obj_guard.get_team())
+                    obj_guard.get_team()
                 };
-
-                if let Some(contain) = contain_arc {
-                    if let Ok(mut contain_guard) = contain.lock() {
-                        let original_team = if set_original_teams {
-                            current_team.as_ref().map(Arc::downgrade)
-                        } else {
-                            None
-                        };
-                        contain_guard.set_original_team(original_team);
-                    }
-                }
 
                 let Ok(mut obj_guard) = obj_arc.write() else {
                     continue;
                 };
+                if let Some(contain) = obj_guard.get_contain_mut() {
+                    let original_team = if set_original_teams {
+                        current_team.as_ref().map(Arc::downgrade)
+                    } else {
+                        None
+                    };
+                    contain.set_original_team(original_team);
+                }
                 obj_guard.defect(team_arc.clone(), 0);
             }
         }

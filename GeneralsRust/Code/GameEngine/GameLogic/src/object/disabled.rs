@@ -85,15 +85,13 @@ impl Object {
                 }
             }
 
-            if let Some(contain) = &self.contain {
-                if let Ok(contain_guard) = contain.lock() {
-                    if let Some(rider_id) = contain_guard.get_rider_id() {
-                        if let Some(rider) =
-                            crate::helpers::TheGameLogic::find_object_by_id(rider_id)
-                        {
-                            if let Ok(mut rider_guard) = rider.write() {
-                                rider_guard.set_disabled_until(disabled_type, frame);
-                            }
+            if let Some(contain) = self.contain.as_ref() {
+                if let Some(rider_id) = contain.get_rider_id() {
+                    if let Some(rider) =
+                        crate::helpers::TheGameLogic::find_object_by_id(rider_id)
+                    {
+                        if let Ok(mut rider_guard) = rider.write() {
+                            rider_guard.set_disabled_until(disabled_type, frame);
                         }
                     }
                 }
@@ -139,12 +137,10 @@ impl Object {
         disabled_type: DisabledType,
         frame: UnsignedInt,
     ) {
-        for behavior in &self.behaviors {
-            if let Ok(mut guard) = behavior.lock() {
-                if let Some(spawn) = guard.get_spawn_behavior_interface() {
-                    let _ = spawn.order_slaves_disabled_until(disabled_type, frame);
-                    return;
-                }
+        for behavior in self.behaviors.iter_mut() {
+            if let Some(spawn) = behavior.get_spawn_behavior_interface() {
+                let _ = spawn.order_slaves_disabled_until(disabled_type, frame);
+                return;
             }
         }
     }
@@ -154,12 +150,8 @@ impl Object {
             let sniper_id = self
                 .body
                 .as_ref()
-                .and_then(|body| body.lock().ok())
-                .and_then(|body_guard| {
-                    body_guard
-                        .get_last_damage_info()
-                        .map(|info| info.input.source_id)
-                });
+                .and_then(|body| body.get_last_damage_info())
+                .map(|info| info.input.source_id);
             if let Some(sniper_id) = sniper_id {
                 if sniper_id != INVALID_ID {
                     if let Some(sniper) = crate::helpers::TheGameLogic::find_object_by_id(sniper_id)
@@ -189,13 +181,10 @@ impl Object {
         if !becoming_disabled {
             return;
         }
-        let Some(ai) = self.ai.clone() else {
+        let Some(ai) = self.ai.as_mut() else {
             return;
         };
-        let Ok(mut ai_guard) = ai.lock() else {
-            return;
-        };
-        let Some(dozer_ai) = ai_guard.get_dozer_ai_update_interface_mut() else {
+        let Some(dozer_ai) = ai.get_dozer_ai_update_interface_mut() else {
             return;
         };
         let task = dozer_ai.get_current_task();

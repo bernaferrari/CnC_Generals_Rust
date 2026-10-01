@@ -39,9 +39,7 @@ use crate::common::{
     ObjectStatusMaskType, PlayerMaskType, Real, ThingTemplate, UnsignedInt,
 };
 use crate::helpers::{TheGameLogic, get_game_logic_random_value};
-use crate::modules::{
-    AIUpdateInterface, BehaviorModuleInterface, UPDATE_SLEEP_NONE, UpdateSleepTime,
-};
+use crate::modules::{AIUpdateInterface, UPDATE_SLEEP_NONE, UpdateSleepTime};
 use crate::object::{
     CrushSquishTestType, MAX_TRIGGER_AREA_INFOS, Object, crate_registry_bind::bind_crate_object,
     registry::OBJECT_REGISTRY,
@@ -390,13 +388,6 @@ impl GameObjectInstance {
         self.update_cached_position();
     }
 
-    /// Retrieve behavior modules for this object (delegates to base Object).
-    pub fn get_behavior_modules(&self) -> Vec<Arc<Mutex<dyn BehaviorModuleInterface>>> {
-        self.base()
-            .read()
-            .map(|base| base.get_behavior_modules())
-            .unwrap_or_default()
-    }
 
     /// Update cached position from transform matrix
     fn update_cached_position(&mut self) {
@@ -656,17 +647,20 @@ impl GameObjectInstance {
     // AI INTERFACE METHODS
     // ============================================================================
 
-    /// Get the AI update interface for this object
-    /// C++ Reference: Object::getAIUpdateInterface()
-    pub fn get_ai_update_interface(&self) -> Option<Arc<Mutex<dyn AIUpdateInterface>>> {
-        self.base()
-            .read()
-            .ok()
-            .and_then(|base| base.get_ai_update_interface())
+    /// Run a closure over the base Object's AI update interface while the base
+    /// write lock is held (C++ Object::getAIUpdateInterface() borrowed the module).
+    pub fn with_ai_update_interface<R>(
+        &mut self,
+        f: impl FnOnce(&mut dyn AIUpdateInterface) -> R,
+    ) -> Option<R> {
+        let Ok(mut base) = self.base().write() else {
+            return None;
+        };
+        base.get_ai_update_interface_mut().map(f)
     }
 
     /// Set the AI update interface for this object
-    pub fn set_ai_update_interface(&mut self, ai: Option<Arc<Mutex<dyn AIUpdateInterface>>>) {
+    pub fn set_ai_update_interface(&mut self, ai: Option<Box<dyn AIUpdateInterface>>) {
         if let Ok(mut base) = self.base().write() {
             base.set_ai_update_interface(ai);
         }
@@ -720,14 +714,16 @@ impl AiCommandInterface for GameObjectInstance {
         &mut self,
         params: &crate::ai::AiCommandParams,
     ) -> Result<(), crate::ai::AiError> {
-        let Some(ai_module) = self.get_ai_update_interface() else {
+        let Ok(mut base) = self.base().write() else {
             return Err(crate::ai::AiError::InvalidCommand);
         };
-        if let Ok(mut ai) = ai_module.lock() {
-            let _ = ai.execute_command(params);
-            return Ok(());
+        match base.get_ai_update_interface_mut() {
+            Some(ai) => {
+                let _ = ai.execute_command(params);
+                Ok(())
+            }
+            None => Err(crate::ai::AiError::InvalidCommand),
         }
-        Err(crate::ai::AiError::InvalidCommand)
     }
 }
 

@@ -20,7 +20,7 @@ use crate::common::{
 use crate::damage::{DamageInfo, DamageType, DeathType};
 use crate::helpers::{TheFXListStore, TheGameLogic, TheObjectCreationListStore};
 use crate::modules::{
-    BehaviorModuleInterface, ContainModuleInterfaceExt, DieModuleInterface,
+    BehaviorModuleInterface, DieModuleInterface,
     SlowDeathBehaviorInterface, UpdateModuleInterface, UpdateSleepTime,
 };
 use crate::object::behavior::slow_death_behavior::{
@@ -684,8 +684,8 @@ impl BattleBusSlowDeathBehavior {
         if dual_world_registry_unavailable() {
             return Ok(());
         }
-        let _ = self.with_object(|obj_guard| {
-            if let Some(contain) = obj_guard.get_contain() {
+        let _ = self.with_object_mut(|obj_guard| {
+            if let Some(contain) = obj_guard.get_contain_mut() {
                 contain.process_damage_to_contained(damage_percent);
             }
         });
@@ -714,17 +714,13 @@ impl BattleBusSlowDeathBehavior {
             obj_guard.set_disabled(DisabledType::Held);
         });
 
-        let _ = self.with_object(|obj_guard| {
-            if let Some(ai) = obj_guard.get_ai() {
-                if let Ok(mut ai_guard) = ai.lock() {
-                    let _ = ai_guard.ai_idle();
-                }
+        let _ = self.with_object_mut(|obj_guard| {
+            if let Some(ai) = obj_guard.get_ai_mut() {
+                let _ = ai.ai_idle();
             }
-            if let Some(physics) = obj_guard.get_physics() {
-                if let Ok(mut physics_guard) = physics.lock() {
-                    physics_guard.clear_acceleration();
-                    physics_guard.scrub_velocity_2d(0.0);
-                }
+            if let Some(physics) = obj_guard.get_physics_mut() {
+                physics.clear_acceleration();
+                physics.scrub_velocity_2d(0.0);
             }
         });
 
@@ -767,20 +763,16 @@ impl SlowDeathBehaviorInterface for BattleBusSlowDeathBehavior {
 
             let throw_force = data.throw_force;
             // C++ lines 132-151: AI idle + physics throw
-            let _ = self.with_object(|obj_guard| {
-                if let Some(ai) = obj_guard.get_ai() {
-                    if let Ok(mut ai_guard) = ai.lock() {
-                        let _ = ai_guard.ai_idle();
-                    }
+            let _ = self.with_object_mut(|obj_guard| {
+                if let Some(ai) = obj_guard.get_ai_mut() {
+                    let _ = ai.ai_idle();
                 }
-                if let Some(physics) = obj_guard.get_physics() {
-                    if let Ok(mut physics_guard) = physics.lock() {
-                        physics_guard.clear_acceleration();
-                        physics_guard.scrub_velocity_2d(0.0);
-                        let throw_velocity = Coord3D::new(0.0, 0.0, throw_force);
-                        physics_guard.apply_shock(&throw_velocity);
-                        physics_guard.apply_random_rotation();
-                    }
+                if let Some(physics) = obj_guard.get_physics_mut() {
+                    physics.clear_acceleration();
+                    physics.scrub_velocity_2d(0.0);
+                    let throw_velocity = Coord3D::new(0.0, 0.0, throw_force);
+                    physics.apply_shock(&throw_velocity);
+                    physics.apply_random_rotation();
                 }
             });
 
@@ -813,12 +805,8 @@ impl SlowDeathBehaviorInterface for BattleBusSlowDeathBehavior {
         let overkill_damage =
             damage_info.output.actual_damage_dealt - damage_info.output.actual_damage_clipped;
         let Some(max_health) = self.with_object(|obj_read| {
-            if let Some(body_arc) = obj_read.get_body_module() {
-                if let Ok(body_guard) = body_arc.lock() {
-                    body_guard.get_max_health()
-                } else {
-                    1.0
-                }
+            if let Some(body) = obj_read.get_body_module() {
+                body.get_max_health()
             } else {
                 1.0
             }
@@ -867,12 +855,9 @@ impl BattleBusSlowDeathBehavior {
         &self,
     ) -> Result<Option<usize>, Box<dyn std::error::Error + Send + Sync>> {
         let Some(count) = self.with_object(|obj_guard| {
-            obj_guard.get_contain().and_then(|contain| {
-                contain
-                    .lock()
-                    .ok()
-                    .map(|contain_guard| contain_guard.get_contained_count())
-            })
+            obj_guard
+                .get_contain()
+                .map(|contain| contain.get_contained_count())
         }) else {
             return Err(
                 std::io::Error::other("BattleBusSlowDeathBehavior missing owning object").into(),

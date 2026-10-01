@@ -21,7 +21,7 @@ use crate::common::{
 use crate::damage::{DamageInfo, DamageType, DeathType};
 use crate::effects::FXList;
 use crate::helpers::{TheGameLogic, TheVictoryConditions};
-use crate::modules::{AIUpdateInterfaceExt, ContainModuleInterfaceExt};
+use crate::modules::{AIUpdateInterfaceExt, ContainModuleInterface};
 use crate::object::object_factory::{GameObjectInstance, get_object_factory};
 use crate::object::registry::OBJECT_REGISTRY;
 use crate::object::special_power_template::find_or_create_special_power_template;
@@ -448,11 +448,7 @@ impl ScriptAction for PlayerGarrisonAllBuildingsAction {
                     continue;
                 };
                 if let Some(contain) = obj_guard.get_contain() {
-                    if contain
-                        .try_lock()
-                        .map(|guard| guard.is_garrisonable())
-                        .unwrap_or(false)
-                    {
+                    if contain.is_garrisonable() {
                         garrison_buildings.push(obj_arc.clone());
                     }
                 }
@@ -467,13 +463,13 @@ impl ScriptAction for PlayerGarrisonAllBuildingsAction {
             }
 
             for unit_arc in infantry_units {
-                let Ok(unit_guard) = unit_arc.read() else {
-                    continue;
-                };
-                let Some(ai) = unit_guard.get_ai_update_interface() else {
+                let Ok(mut unit_guard) = unit_arc.write() else {
                     continue;
                 };
                 let unit_pos = *unit_guard.get_position();
+                let Some(ai) = unit_guard.get_ai_update_interface_mut() else {
+                    continue;
+                };
                 let mut best: Option<(f32, u32)> = None;
 
                 for building_arc in &garrison_buildings {
@@ -633,26 +629,18 @@ impl ScriptAction for PlayerEvacuateBuildingAction {
                 else {
                     continue;
                 };
-                let Ok(obj_guard) = obj_arc.read() else {
+                let Ok(mut obj_guard) = obj_arc.write() else {
                     continue;
                 };
-                let Some(contain) = obj_guard.get_contain() else {
+                let Some(contain) = obj_guard.get_contain_mut() else {
                     continue;
                 };
-                let contained = {
-                    let Ok(contain_guard) = contain.try_lock() else {
-                        continue;
-                    };
-                    if !contain_guard.is_garrisonable() {
-                        continue;
-                    }
-                    contain_guard.get_contained_objects().into_owned()
-                };
-                let contain_lock = contain.try_lock();
-                if let Ok(mut contain_guard) = contain_lock {
-                    for occupant in contained {
-                        let _ = contain_guard.release_object(occupant);
-                    }
+                if !contain.is_garrisonable() {
+                    continue;
+                }
+                let contained = contain.get_contained_objects().into_owned();
+                for occupant in contained {
+                    let _ = contain.release_object(occupant);
                 }
             }
         }

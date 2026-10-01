@@ -124,25 +124,19 @@ impl UpdateModuleInterface for BaseRegenerateUpdate {
             return UpdateSleepTime::Forever;
         }
 
-        let body = obj.get_body_module();
-        let Some(body) = body else {
+        let Some(body) = obj.get_body_module() else {
             return UpdateSleepTime::Forever;
         };
-        let body_guard = match body.lock() {
-            Ok(guard) => guard,
-            Err(_) => return UpdateSleepTime::None,
-        };
 
-        if body_guard.get_max_health() == body_guard.get_health() {
+        if body.get_max_health() == body.get_health() {
             return UpdateSleepTime::Forever;
         }
 
         const HEAL_RATE: UnsignedInt = 3;
         let amount = HEAL_RATE as Real
-            * (body_guard.get_max_health()
+            * (body.get_max_health()
                 * global_data.get_base_regen_health_percent_per_second())
             / LOGICFRAMES_PER_SECOND as Real;
-        drop(body_guard);
         let source_id = obj.get_id();
         drop(obj);
 
@@ -157,10 +151,10 @@ impl UpdateModuleInterface for BaseRegenerateUpdate {
             ..Default::default()
         };
         healing_info.sync_from_input();
-        if let Ok(mut body_guard) = body.lock() {
-            let _ = body_guard.attempt_healing(&mut healing_info);
-        }
         if let Ok(mut obj) = object_arc.write() {
+            if let Some(body) = obj.get_body_module_mut() {
+                let _ = body.attempt_healing(&mut healing_info);
+            }
             obj.sync_effectively_dead_from_body();
             obj.apply_structure_rubble_pose();
         }

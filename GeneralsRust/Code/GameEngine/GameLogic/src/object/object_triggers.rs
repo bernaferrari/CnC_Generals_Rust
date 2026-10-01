@@ -218,11 +218,7 @@ impl Object {
         }
         let bone_pos = bone_positions[0];
 
-        let (turret_rotation, _) = ai
-            .lock()
-            .ok()
-            .and_then(|guard| guard.get_turret_rot_and_pitch(turret))
-            .unwrap_or((0.0, 0.0));
+        let (turret_rotation, _) = ai.get_turret_rot_and_pitch(turret).unwrap_or((0.0, 0.0));
 
         let bone_offset = Matrix3D::from_translation(bone_pos);
         let turn_adjustment = Matrix3D::from_translation(launch.turret_rot_pos)
@@ -406,12 +402,7 @@ impl Object {
         let use_turret = self
             .contain
             .as_ref()
-            .and_then(|contain| contain.try_lock().ok())
-            .is_some_and(|guard| guard.passengers_in_turret());
-        let ai_held = use_turret
-            && self
-                .get_ai_update_interface()
-                .is_some_and(|ai| ai.try_lock().is_err());
+            .is_some_and(|contain| contain.passengers_in_turret());
         let bones = if use_turret && self.cached_main_turret_valid {
             let yaw = self.cached_main_turret_yaw;
             let mut turret_bones = Vec::new();
@@ -423,8 +414,6 @@ impl Object {
                 turret_bones.push(matrix);
             }
             Some(turret_bones)
-        } else if use_turret && ai_held {
-            None
         } else if use_turret {
             let mut turret_bones = Vec::new();
             for index in 1..=32 {
@@ -442,23 +431,13 @@ impl Object {
         };
         let position = self.geometry_info.position;
         if let Some(bones) = bones {
-            if let Some(contain) = &self.contain {
-                if let Ok(mut guard) = contain.try_lock() {
-                    if let Some(hidden) = guard.drawable_hidden_after_transform() {
-                        if let Some(drawable) = self.get_drawable() {
-                            drawable.set_drawable_hidden(hidden);
-                        }
-                    }
-                    guard.redeploy_riders_at(&position, &bones);
-                }
-            }
-        } else if let Some(contain) = &self.contain {
-            if let Ok(guard) = contain.try_lock() {
-                if let Some(hidden) = guard.drawable_hidden_after_transform() {
+            if let Some(contain) = self.contain.as_mut() {
+                if let Some(hidden) = contain.drawable_hidden_after_transform() {
                     if let Some(drawable) = self.get_drawable() {
                         drawable.set_drawable_hidden(hidden);
                     }
                 }
+                contain.redeploy_riders_at(&position, &bones);
             }
         }
     }

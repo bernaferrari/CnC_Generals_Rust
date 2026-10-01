@@ -18,7 +18,7 @@ fn dual_world_registry_unavailable() -> bool {
 }
 
 #[cfg(feature = "allow_surrender")]
-use std::sync::{Arc, Mutex, RwLock, Weak};
+use std::sync::{Arc, RwLock, Weak};
 
 #[cfg(feature = "allow_surrender")]
 use game_engine::common::ini::{FieldParse, INI, INIError};
@@ -232,32 +232,34 @@ impl PropagandaCenterBehavior {
             if current_frame.saturating_sub(self.brainwashing_subject_start_frame)
                 >= self.module_data.brainwash_duration
             {
-                let Some(exit_interface) = self
-                    .with_object(|guard| guard.get_object_exit_interface())
-                    .flatten()
-                else {
+                let Some(owner_arc) = self.get_object() else {
                     return Ok(());
                 };
 
-                let Ok(subject_guard) = subject_arc.read() else {
-                    return Ok(());
+                // The exit interface borrows the owner object mutably; player
+                // data is read before that borrow begins. Lock order and the
+                // per-operation exit scope match the pre-migration module
+                // mutex scopes (reserve, then release, then exit).
+                let (exit_door, controlling_player) = {
+                    let Ok(mut owner_guard) = owner_arc.write() else {
+                        return Ok(());
+                    };
+                    let controlling_player = owner_guard.get_controlling_player();
+                    let Some(mut exit_interface) = owner_guard.get_object_exit_interface()
+                    else {
+                        return Ok(());
+                    };
+
+                    let Ok(subject_guard) = subject_arc.read() else {
+                        return Ok(());
+                    };
+                    // The spawner argument is ignored by every ExitInterface
+                    // implementation, so the owner is not aliased against the
+                    // mutable exit borrow.
+                    let exit_door =
+                        exit_interface.reserve_door_for_exit(None, Some(&*subject_guard));
+                    (exit_door, controlling_player)
                 };
-                let Some((exit_door, controlling_player)) = self
-                    .with_object(|owner_guard| {
-                        let Ok(mut exit_guard) = exit_interface.lock() else {
-                            return None;
-                        };
-                        Some((
-                            exit_guard
-                                .reserve_door_for_exit(Some(owner_guard), Some(&*subject_guard)),
-                            owner_guard.get_controlling_player(),
-                        ))
-                    })
-                    .flatten()
-                else {
-                    return Ok(());
-                };
-                drop(subject_guard);
 
                 if matches!(exit_door, ExitDoorType::None | ExitDoorType::NoneAvailable) {
                     return Ok(());
@@ -273,11 +275,9 @@ impl PropagandaCenterBehavior {
                     }
                 }
 
-                if let Ok(subject_guard) = subject_arc.read() {
-                    if let Some(ai) = subject_guard.get_ai_update_interface() {
-                        if let Ok(mut ai_guard) = ai.lock() {
-                            ai_guard.set_surrendered(None, false);
-                        }
+                if let Ok(mut subject_guard) = subject_arc.write() {
+                    if let Some(ai) = subject_guard.get_ai_update_interface_mut() {
+                        ai.set_surrendered(None, false);
                     }
                 }
 
@@ -286,9 +286,11 @@ impl PropagandaCenterBehavior {
                     self.brainwashed_list.push(subject_id);
                 }
 
-                if let Ok(mut exit_guard) = exit_interface.lock() {
-                    let _ = exit_guard.exit_object_via_door(subject_id, exit_door);
-                };
+                if let Ok(mut owner_guard) = owner_arc.write() {
+                    if let Some(mut exit_interface) = owner_guard.get_object_exit_interface() {
+                        let _ = exit_interface.exit_object_via_door(subject_id, exit_door);
+                    }
+                }
             }
         }
 
@@ -541,7 +543,10 @@ impl Snapshotable for PropagandaCenterBehavior {
 #[cfg(feature = "allow_surrender")]
 #[derive(Debug)]
 pub struct PropagandaCenterBehaviorModule {
-    behavior: Arc<Mutex<PropagandaCenterBehavior>>,
+    /// Owned contain behavior. `contain_handle()` hands it to the Object's
+    /// contain slot during construction (C++ Object::setContain binding);
+    /// the module entry keeps nothing afterwards.
+    behavior: Option<Box<PropagandaCenterBehavior>>,
     module_name_key: NameKeyType,
     module_data: Arc<PropagandaCenterBehaviorModuleData>,
 }
@@ -555,98 +560,39 @@ impl PropagandaCenterBehaviorModule {
     ) -> Self {
         let module_name_key = NameKeyGenerator::name_to_key(module_name.as_str());
         Self {
-            behavior: Arc::new(Mutex::new(behavior)),
+            behavior: Some(Box::new(behavior)),
             module_name_key,
             module_data,
         }
     }
 
-    pub fn behavior(&self) -> Option<std::sync::MutexGuard<'_, PropagandaCenterBehavior>> {
-        self.behavior.lock().ok()
+    pub fn behavior(&mut self) -> Option<&mut PropagandaCenterBehavior> {
+        self.behavior.as_deref_mut()
     }
 
-    pub fn contain_handle(&self) -> Arc<Mutex<dyn ContainModuleInterface>> {
-        Arc::new(Mutex::new(PropagandaCenterBehaviorContainHandle {
-            behavior: Arc::clone(&self.behavior),
-        }))
-    }
-}
-
-#[cfg(feature = "allow_surrender")]
-#[derive(Debug)]
-struct PropagandaCenterBehaviorContainHandle {
-    behavior: Arc<Mutex<PropagandaCenterBehavior>>,
-}
-
-#[cfg(feature = "allow_surrender")]
-impl ContainModuleInterface for PropagandaCenterBehaviorContainHandle {
-    fn can_contain(&self, object_id: ObjectID) -> bool {
+    /// C++ Object.cpp contain binding (Object::setContain for the propaganda
+    /// center): the Object's contain slot owns the behavior instance after
+    /// this handover. Take semantics — invoked once during construction.
+    pub fn contain_handle(&mut self) -> Option<Box<dyn ContainModuleInterface>> {
         self.behavior
-            .lock()
-            .map(|guard| guard.can_contain(object_id))
-            .unwrap_or(false)
-    }
-
-    fn contain_object(&mut self, object_id: ObjectID) -> Result<(), String> {
-        self.behavior
-            .lock()
-            .map_err(|_| "PropagandaCenterBehaviorContainHandle lock poisoned".to_string())?
-            .contain_object(object_id)
-    }
-
-    fn release_object(&mut self, object_id: ObjectID) -> Result<(), String> {
-        self.behavior
-            .lock()
-            .map_err(|_| "PropagandaCenterBehaviorContainHandle lock poisoned".to_string())?
-            .release_object(object_id)
-    }
-
-    fn get_contained_objects(&self) -> Cow<'_, [ObjectID]> {
-        Cow::Owned(
-            self.behavior
-                .lock()
-                .map(|guard| guard.get_contained_objects().into_owned())
-                .unwrap_or_default(),
-        )
-    }
-
-    fn get_contained_count(&self) -> usize {
-        self.behavior
-            .lock()
-            .map(|guard| guard.get_contained_count())
-            .unwrap_or(0)
-    }
-
-    fn get_max_capacity(&self) -> usize {
-        self.behavior
-            .lock()
-            .map(|guard| guard.get_max_capacity())
-            .unwrap_or(0)
-    }
-
-    fn on_delete(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        self.behavior
-            .lock()
-            .map_err(|_| "PropagandaCenterBehaviorContainHandle lock poisoned")?
-            .on_delete()
+            .take()
+            .map(|behavior| behavior as Box<dyn ContainModuleInterface>)
     }
 }
 
 #[cfg(feature = "allow_surrender")]
 impl Snapshotable for PropagandaCenterBehaviorModule {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        if let Ok(guard) = self.behavior.lock() {
-            Snapshotable::crc(&*guard, xfer)
-        } else {
-            Ok(())
+        match self.behavior.as_deref() {
+            Some(behavior) => Snapshotable::crc(behavior, xfer),
+            None => Ok(()),
         }
     }
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        if let Ok(mut guard) = self.behavior.lock() {
-            Snapshotable::xfer(&mut *guard, xfer)
-        } else {
-            Ok(())
+        match self.behavior.as_deref_mut() {
+            Some(behavior) => Snapshotable::xfer(behavior, xfer),
+            None => Ok(()),
         }
     }
 
@@ -670,8 +616,8 @@ impl Module for PropagandaCenterBehaviorModule {
     }
 
     fn on_delete(&mut self) {
-        if let Ok(mut guard) = self.behavior.lock() {
-            let _ = guard.on_delete();
+        if let Some(behavior) = self.behavior.as_deref_mut() {
+            let _ = behavior.on_delete();
         }
     }
 }
@@ -742,7 +688,7 @@ mod contain_snapshot_tests {
     use super::*;
 
     #[test]
-    fn contain_handle_keeps_first_snapshot_across_a_second_query() {
+    fn contain_handle_hands_over_the_owned_contain_state() {
         let object = Object::new_with_id(
             Arc::new(crate::common::DefaultThingTemplate::new(
                 "PropagandaSnapshotOwner".to_string(),
@@ -757,18 +703,20 @@ mod contain_snapshot_tests {
             Arc::new(PropagandaCenterBehaviorModuleData::default()),
         )
         .expect("behavior");
-        let module = PropagandaCenterBehaviorModule::new(
+        let mut module = PropagandaCenterBehaviorModule::new(
             behavior,
             &AsciiString::from("PropagandaCenterBehavior"),
             Arc::new(PropagandaCenterBehaviorModuleData::default()),
         );
-        let handle = module.contain_handle();
-        let guard = handle.lock().expect("contain handle");
+        let contain = module.contain_handle().expect("contain handle");
 
-        let retained = guard.get_contained_objects();
-        let refreshed = guard.get_contained_objects();
+        let retained = contain.get_contained_objects();
+        let refreshed = contain.get_contained_objects();
 
         assert!(retained.is_empty());
         assert!(refreshed.is_empty());
+        // Object.contain owns the box after the handover; a second query
+        // yields None.
+        assert!(module.contain_handle().is_none());
     }
 }

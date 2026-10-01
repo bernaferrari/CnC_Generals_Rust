@@ -182,8 +182,7 @@ impl Xfer for XferLoad {
         let mut buffer = vec![0u8; len as usize];
 
         if len > 0 {
-            // SAFETY: buffer was allocated with len elements
-            unsafe { self.xfer_user(buffer.as_mut_ptr(), len as usize)? };
+            self.xfer_user_bytes(&mut buffer)?;
         }
 
         // C++ AsciiString::set keeps the raw 8-bit payload. Map each byte to U+00xx
@@ -203,14 +202,17 @@ impl Xfer for XferLoad {
         let mut buffer = vec![0u16; len as usize];
 
         if len > 0 {
-            // Read as raw bytes
+            // Read as raw bytes, then reassemble native-endian u16 units —
+            // byte-identical to C++ xferUser over the raw u16 buffer.
             let byte_len = len as usize * std::mem::size_of::<u16>();
-            let byte_buffer =
-                            // SAFETY: reinterprets the u16 buffer as bytes; length equals
-                            // buffer allocation so the write below stays in bounds.
-                unsafe { std::slice::from_raw_parts_mut(buffer.as_mut_ptr() as *mut u8, byte_len) };
-            // SAFETY: byte_buffer is valid for byte_len bytes
-            unsafe { self.xfer_user(byte_buffer.as_mut_ptr(), byte_len)? };
+            let mut byte_buffer = vec![0u8; byte_len];
+            self.xfer_user_bytes(&mut byte_buffer)?;
+            for (i, unit) in buffer.iter_mut().enumerate() {
+                let start = i * std::mem::size_of::<u16>();
+                let mut raw = [0u8; 2];
+                raw.copy_from_slice(&byte_buffer[start..start + 2]);
+                *unit = u16::from_ne_bytes(raw);
+            }
         }
 
         // Convert UTF-16 to String
@@ -233,7 +235,9 @@ impl Xfer for XferLoad {
         let file = self.file.as_mut().ok_or(XferStatus::FileNotOpen)?;
 
         // Convert pointer to mutable slice
-        let slice = std::slice::from_raw_parts_mut(data, data_size);
+        // SAFETY: caller contract of `xfer_implementation`: `data` is valid
+        // for `data_size` writable bytes.
+        let slice = unsafe { std::slice::from_raw_parts_mut(data, data_size) };
 
         // Read data from file
         if file.read_exact(slice).is_err() {

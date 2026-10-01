@@ -123,24 +123,23 @@ impl SpyVisionSpecialPower {
 
         // Check if the owner object has a contain module for bonus duration
         if let Some(owner) = TheGameLogic::find_object_by_id(self.owner_object_id) {
-            let contain = {
+            let contain_count = {
                 let owner_read = owner.read().ok();
-                owner_read.and_then(|guard| guard.get_contain())
+                owner_read
+                    .and_then(|guard| guard.get_contain())
+                    .map(|contain| contain.get_contained_count())
             };
 
-            if let Some(contain_arc) = contain {
-                if let Ok(contain_guard) = contain_arc.lock() {
-                    // For every captured unit we get a bonus
-                    let contain_count = contain_guard.get_contain_count();
-                    duration = duration.saturating_add(
-                        contain_count
-                            .saturating_mul(self.data.bonus_duration_per_captured_in_frames),
-                    );
+            if let Some(contain_count) = contain_count {
+                // For every captured unit we get a bonus
+                duration = duration.saturating_add(
+                    contain_count
+                        .saturating_mul(self.data.bonus_duration_per_captured_in_frames),
+                );
 
-                    // C++ always caps when contain exists, including MaxDuration==0.
-                    if duration > self.data.max_duration_in_frames {
-                        duration = self.data.max_duration_in_frames;
-                    }
+                // C++ always caps when contain exists, including MaxDuration==0.
+                if duration > self.data.max_duration_in_frames {
+                    duration = self.data.max_duration_in_frames;
                 }
             }
 

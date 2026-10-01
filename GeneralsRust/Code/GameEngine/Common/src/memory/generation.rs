@@ -26,8 +26,7 @@ impl Generation {
     /// Create the first generation (1).
     #[inline]
     pub fn first() -> Self {
-        // SAFETY: 1 is non-zero
-        Generation(unsafe { NonZeroU32::new_unchecked(1) })
+        Generation(NonZeroU32::MIN)
     }
 
     /// Increment to the next generation, wrapping at u32::MAX.
@@ -36,8 +35,9 @@ impl Generation {
         let next_val = self.0.get().wrapping_add(1);
         // Avoid zero - wrap to 1 instead
         let next_val = if next_val == 0 { 1 } else { next_val };
-        // SAFETY: We just ensured it's non-zero
-        Generation(unsafe { NonZeroU32::new_unchecked(next_val) })
+        // `next_val` is non-zero by the guard above; `unwrap_or` only satisfies
+        // the type system and never contributes a value here.
+        Generation(NonZeroU32::new(next_val).unwrap_or(NonZeroU32::MIN))
     }
 
     /// Get the raw generation value.

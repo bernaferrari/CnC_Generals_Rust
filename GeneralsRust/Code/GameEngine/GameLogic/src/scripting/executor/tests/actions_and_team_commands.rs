@@ -28,10 +28,10 @@ fn executor_named_attack_named_leaves_group_and_dispatches_force_attack() {
     {
         let __base_arc = attacker.base();
         let mut base = __base_arc.write().unwrap();
-        base.set_ai_update_interface(Some(Arc::new(Mutex::new(RecordingAi {
+        base.set_ai_update_interface(Some(Box::new(RecordingAi {
             commands: Arc::clone(&commands),
             locomotors: Arc::clone(&locomotors),
-        }))));
+        })));
         base.enter_group(&crate::ai::AIGroup::new(91));
         assert_eq!(base.get_group_id(), Some(91));
     }
@@ -140,11 +140,11 @@ fn executor_team_attack_team_dispatches_attack_team() {
             .base()
             .write()
             .unwrap()
-            .set_ai_update_interface(Some(Arc::new(Mutex::new(RecordingAi {
+            .set_ai_update_interface(Some(Box::new(RecordingAi {
                 commands: Arc::clone(&commands),
                 locomotors: Arc::clone(&locomotors),
-            }))));
-    }
+            })));
+        }
 
     let attacker_id = attacker.get_id();
     get_object_manager()
@@ -226,10 +226,10 @@ fn executor_named_attack_area_leaves_group_and_selects_normal_locomotor() {
     {
         let __base_arc = attacker.base();
         let mut base = __base_arc.write().unwrap();
-        base.set_ai_update_interface(Some(Arc::new(Mutex::new(RecordingAi {
+        base.set_ai_update_interface(Some(Box::new(RecordingAi {
             commands: Arc::clone(&commands),
             locomotors: Arc::clone(&locomotors),
-        }))));
+        })));
         base.enter_group(&crate::ai::AIGroup::new(92));
         assert_eq!(base.get_group_id(), Some(92));
     }
@@ -319,10 +319,10 @@ fn executor_named_attack_team_validates_team_and_sets_max_shots() {
     {
         let __base_arc = attacker.base();
         let mut base = __base_arc.write().unwrap();
-        base.set_ai_update_interface(Some(Arc::new(Mutex::new(RecordingAi {
+        base.set_ai_update_interface(Some(Box::new(RecordingAi {
             commands: Arc::clone(&commands),
             locomotors: Arc::clone(&locomotors),
-        }))));
+        })));
         base.enter_group(&crate::ai::AIGroup::new(93));
         assert_eq!(base.get_group_id(), Some(93));
     }
@@ -415,11 +415,11 @@ fn executor_team_attack_named_ignores_stale_target_tracker_id() {
             .base()
             .write()
             .unwrap()
-            .set_ai_update_interface(Some(Arc::new(Mutex::new(RecordingAi {
+            .set_ai_update_interface(Some(Box::new(RecordingAi {
                 commands: Arc::clone(&commands),
                 locomotors: Arc::clone(&locomotors),
-            }))));
-    }
+            })));
+        }
 
     get_object_manager()
         .write()
@@ -478,10 +478,10 @@ fn executor_named_hunt_selects_normal_locomotor_before_hunt() {
     {
         let __base_arc = hunter.base();
         let mut base = __base_arc.write().unwrap();
-        base.set_ai_update_interface(Some(Arc::new(Mutex::new(RecordingAi {
+        base.set_ai_update_interface(Some(Box::new(RecordingAi {
             commands: Arc::clone(&commands),
             locomotors: Arc::clone(&locomotors),
-        }))));
+        })));
         base.enter_group(&crate::ai::AIGroup::new(95));
         assert_eq!(base.get_group_id(), Some(95));
     }
@@ -554,11 +554,11 @@ fn executor_named_stop_dispatches_direct_ai_without_player_owner() {
             .base()
             .write()
             .unwrap()
-            .set_ai_update_interface(Some(Arc::new(Mutex::new(RecordingAi {
+            .set_ai_update_interface(Some(Box::new(RecordingAi {
                 commands: Arc::clone(&commands),
                 locomotors: Arc::clone(&locomotors),
-            }))));
-    }
+            })));
+        }
 
     get_object_manager()
         .write()
@@ -612,10 +612,10 @@ fn executor_named_guard_leaves_group_selects_locomotor_and_sets_guard_mode() {
     {
         let __base_arc = guard.base();
         let mut base = __base_arc.write().unwrap();
-        base.set_ai_update_interface(Some(Arc::new(Mutex::new(RecordingAi {
+        base.set_ai_update_interface(Some(Box::new(RecordingAi {
             commands: Arc::clone(&commands),
             locomotors: Arc::clone(&locomotors),
-        }))));
+        })));
         base.enter_group(&crate::ai::AIGroup::new(94));
         assert_eq!(base.get_group_id(), Some(94));
     }
@@ -701,11 +701,11 @@ fn executor_team_guard_dispatches_direct_ai_without_player_owner() {
             .base()
             .write()
             .unwrap()
-            .set_ai_update_interface(Some(Arc::new(Mutex::new(RecordingAi {
+            .set_ai_update_interface(Some(Box::new(RecordingAi {
                 commands: Arc::clone(&commands),
                 locomotors: Arc::clone(&locomotors),
-            }))));
-    }
+            })));
+        }
 
     get_object_manager()
         .write()
@@ -780,11 +780,11 @@ fn executor_team_guard_for_framecount_dispatches_idle_like_cxx_switch() {
             .base()
             .write()
             .unwrap()
-            .set_ai_update_interface(Some(Arc::new(Mutex::new(RecordingAi {
+            .set_ai_update_interface(Some(Box::new(RecordingAi {
                 commands: Arc::clone(&commands),
                 locomotors: Arc::clone(&locomotors),
-            }))));
-    }
+            })));
+        }
 
     get_object_manager()
         .write()
@@ -864,11 +864,11 @@ fn executor_team_guard_object_ignores_stale_target_tracker_id() {
             .base()
             .write()
             .unwrap()
-            .set_ai_update_interface(Some(Arc::new(Mutex::new(RecordingAi {
+            .set_ai_update_interface(Some(Box::new(RecordingAi {
                 commands: Arc::clone(&commands),
                 locomotors: Arc::clone(&locomotors),
-            }))));
-    }
+            })));
+        }
 
     get_object_manager()
         .write()
@@ -974,11 +974,11 @@ fn executor_team_stop_and_disband_marks_members_recruitable_and_merges_default_t
             .base()
             .write()
             .unwrap()
-            .set_ai_update_interface(Some(Arc::new(Mutex::new(RecruitableRecordingAi {
+            .set_ai_update_interface(Some(Box::new(RecruitableRecordingAi {
                 commands: Arc::clone(&commands),
                 recruitable: Arc::clone(&recruitable),
-            }))));
-    }
+            })));
+        }
 
     get_object_manager()
         .write()
@@ -1066,11 +1066,11 @@ fn executor_team_execute_sequential_script_requires_script_before_idle() {
             .base()
             .write()
             .unwrap()
-            .set_ai_update_interface(Some(Arc::new(Mutex::new(RecordingAi {
+            .set_ai_update_interface(Some(Box::new(RecordingAi {
                 commands: Arc::clone(&commands),
                 locomotors: Arc::clone(&locomotors),
-            }))));
-    }
+            })));
+        }
 
     get_object_manager()
         .write()
@@ -1788,7 +1788,7 @@ fn active_world_actions_clone_the_handler_before_host_callback_reentry() {
         let previous = engine.action_handler();
         engine.set_action_handler(Some(Arc::new(ReentrantWorldActionHandler {
             calls: Arc::clone(&calls),
-        })));
+            })));
         previous
     };
 
@@ -1918,7 +1918,7 @@ fn active_player_display_actions_clone_handler_before_reentry() {
         let previous = engine.action_handler();
         engine.set_action_handler(Some(Arc::new(ReentrantWorldActionHandler {
             calls: Arc::clone(&calls),
-        })));
+            })));
         previous
     };
 
@@ -2002,7 +2002,7 @@ fn active_camera_actions_snapshot_handler_and_mutate_fade_without_relocking() {
         let previous = engine.action_handler();
         engine.set_action_handler(Some(Arc::new(ReentrantWorldActionHandler {
             calls: Arc::clone(&calls),
-        })));
+            })));
         previous
     };
 
@@ -2250,7 +2250,7 @@ fn active_named_actions_do_not_relock_the_engine_or_hold_host_callbacks() {
         let previous = engine.action_handler();
         engine.set_action_handler(Some(Arc::new(ReentrantWorldActionHandler {
             calls: Arc::clone(&calls),
-        })));
+            })));
         previous
     };
 
@@ -2567,10 +2567,10 @@ fn team_hunt_with_command_button_invokes_hunt_update() {
     {
         let __base_arc = hunter.base();
         let mut base = __base_arc.write().unwrap();
-        base.set_ai_update_interface(Some(Arc::new(Mutex::new(RecordingAi {
+        base.set_ai_update_interface(Some(Box::new(RecordingAi {
             commands: Arc::clone(&commands),
             locomotors: Arc::clone(&locomotors),
-        }))));
+        })));
         base.set_command_set_string_override(&AsciiString::from(COMMAND_SET));
         let data = Arc::new(
                 crate::object::update::command_button_hunt_update::CommandButtonHuntUpdateModuleData::default(),
@@ -3000,12 +3000,12 @@ fn move_named_unit_to_leaves_group_and_dispatches_ai_move() {
     {
         let __base_arc = unit.base();
         let mut base = __base_arc.write().unwrap();
-        base.set_ai_update_interface(Some(Arc::new(Mutex::new(RecordingMoveAi {
+        base.set_ai_update_interface(Some(Box::new(RecordingMoveAi {
             commands: Arc::clone(&commands),
             locomotors: Arc::clone(&locomotors),
             cleared: Arc::clone(&cleared),
             attitudes: Arc::new(Mutex::new(Vec::new())),
-        }))));
+        })));
         base.enter_group(&crate::ai::AIGroup::new(93));
         assert_eq!(base.get_group_id(), Some(93));
     }

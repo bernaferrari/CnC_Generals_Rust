@@ -787,42 +787,32 @@ impl AIPlayer {
                 self.queue_units_home_for_team(team_arc.as_ref(), team_name.as_str());
             // has_home is true only for prototype homeLocation (not base-center fallback).
             if has_home {
-                if let Some(ai) = OBJECT_REGISTRY
-                    .with_object(unit_id, |unit_g| {
-                        unit_g.get_ai_update_interface().map(|ai| {
-                            let start = ai
-                                .get_goal_position()
-                                .unwrap_or_else(|| *unit_g.get_position());
-                            (ai, start)
-                        })
-                    })
-                    .flatten()
-                {
-                    let (ai, start) = ai;
-                    let path = [start, home];
-                    ai.ai_follow_exit_production_path(&path, None, CommandSourceType::FromAi);
-                }
+                let _ = OBJECT_REGISTRY.with_object_mut(unit_id, |unit_g| {
+                    if let Some(ai) = unit_g.get_ai_update_interface_mut() {
+                        let unit_pos = *unit_g.get_position();
+                        let start = ai.get_goal_position().unwrap_or(unit_pos);
+                        let path = [start, home];
+                        ai.ai_follow_exit_production_path(&path, None, CommandSourceType::FromAi);
+                    }
+                });
             }
 
             // Supply truck force-wanting + dock (C++ SupplyTruckAIInterface).
-            if let Some(ai) = OBJECT_REGISTRY
-                .with_object(unit_id, |unit_g| unit_g.get_ai_update_interface())
-                .flatten()
-            {
-                if let Ok(mut ai_g) = ai.lock() {
+            let _ = OBJECT_REGISTRY.with_object_mut(unit_id, |unit_g| {
+                if let Some(ai_g) = unit_g.get_ai_update_interface_mut() {
                     if let Some(truck) = ai_g.get_supply_truck_ai_interface_mut() {
                         supply_truck = is_resource_gatherer_order;
                         truck.set_force_wanting_state(supply_truck);
                     }
-                }
-                if supply_truck {
-                    // C++: assign to first supply build-list entry needing gatherers,
-                    // then aiDock(obj, CMD_FROM_PLAYER).
-                    if let Some(dock_id) = self.take_supply_gatherer_slot() {
-                        ai.ai_dock(dock_id, CommandSourceType::FromPlayer);
+                    if supply_truck {
+                        // C++: assign to first supply build-list entry needing gatherers,
+                        // then aiDock(obj, CMD_FROM_PLAYER).
+                        if let Some(dock_id) = self.take_supply_gatherer_slot() {
+                            ai_g.ai_dock(dock_id, CommandSourceType::FromPlayer);
+                        }
                     }
                 }
-            }
+            });
         }
 
         // C++ dozer path is NOT gated on `found` (AIPlayer.cpp after the queue loop).
@@ -971,22 +961,21 @@ impl AIPlayer {
                     let list_id = node.get_object_id();
                     if list_id != INVALID_ID {
                         if OBJECT_REGISTRY
-                            .with_object(list_id, |hole_g| {
+                            .with_object_mut(list_id, |hole_g| {
                                 if !hole_g.is_kind_of(KindOf::RebuildHole) {
                                     return false;
                                 }
                                 // C++: only if bldg->getID() == rhbi->getReconstructedBuildingID().
                                 let mut is_this_spawn = false;
                                 let mut saw_rhbi = false;
-                                for behavior in hole_g.get_behavior_modules() {
-                                    if let Ok(mut bg) = behavior.lock() {
-                                        if let Some(rhbi) = bg.get_rebuild_hole_behavior_interface()
-                                        {
-                                            saw_rhbi = true;
-                                            let rebuilt = rhbi.get_reconstructed_building_id();
-                                            is_this_spawn = rebuilt == structure_id;
-                                            break;
-                                        }
+                                for behavior in hole_g.get_behavior_modules_mut() {
+                                    if let Some(rhbi) = behavior
+                                        .get_rebuild_hole_behavior_interface()
+                                    {
+                                        saw_rhbi = true;
+                                        let rebuilt = rhbi.get_reconstructed_building_id();
+                                        is_this_spawn = rebuilt == structure_id;
+                                        break;
                                     }
                                 }
                                 saw_rhbi && is_this_spawn

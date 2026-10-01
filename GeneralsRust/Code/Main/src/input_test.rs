@@ -1,18 +1,17 @@
 use crate::game_logic::GameLogic;
 use crate::input_system::RtsInputSystem;
 use crate::input_system_simple::SimpleInputProcessor;
-use std::sync::Arc;
 
 /// Test the input system functionality
 pub fn test_input_system() {
     println!("Testing RTS Input System...");
 
     // Create input system
-    let input_system = Arc::new(std::sync::Mutex::new(RtsInputSystem::new()));
+    let input_system = RtsInputSystem::new();
     println!("✓ Created RTS input system");
 
     // Create game logic
-    let game_logic = Arc::new(std::sync::Mutex::new(GameLogic::initialize()));
+    let mut game_logic = GameLogic::initialize();
     println!("✓ Initialized GameLogic singleton");
 
     // Create simple input processor
@@ -20,7 +19,7 @@ pub fn test_input_system() {
     println!("✓ Created input processor");
 
     // Test input processing (without actual input events)
-    match pollster::block_on(processor.process_input(&input_system, &game_logic)) {
+    match pollster::block_on(processor.process_input(&input_system, &mut game_logic)) {
         Ok(_) => {}
         Err(e) => println!("Input processing error: {}", e),
     };
@@ -28,8 +27,7 @@ pub fn test_input_system() {
 
     // Test camera controls
     {
-        let input = input_system.lock().unwrap_or_else(|e| e.into_inner());
-        let camera = input.get_camera();
+        let camera = input_system.get_camera();
         println!(
             "✓ Camera position: {:?}, zoom: {:.1}",
             camera.position, camera.zoom
@@ -47,7 +45,7 @@ pub fn test_input_system() {
 pub fn test_input_commands() {
     println!("\nTesting Input Commands...");
 
-    let input_system = Arc::new(std::sync::Mutex::new(RtsInputSystem::new()));
+    let input_system = RtsInputSystem::new();
     let _game_logic = GameLogic::initialize();
     let processor = SimpleInputProcessor::new(0, (1024.0, 768.0));
 

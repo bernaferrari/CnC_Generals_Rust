@@ -60,11 +60,9 @@ impl Object {
             return;
         };
         if let Ok(mut hole_guard) = hole.write() {
-            for behavior in hole_guard.behaviors.clone() {
-                if let Ok(mut bg) = behavior.lock() {
-                    if let Some(rhbi) = bg.get_rebuild_hole_behavior_interface() {
-                        rhbi.start_rebuild_process(template.clone(), dead_id);
-                    }
+            for behavior in hole_guard.behaviors.iter_mut() {
+                if let Some(rhbi) = behavior.get_rebuild_hole_behavior_interface() {
+                    rhbi.start_rebuild_process(template.clone(), dead_id);
                 }
             }
         }
@@ -87,13 +85,11 @@ impl Object {
             else {
                 continue;
             };
-            let Ok(guard) = obj.read() else {
+            let Ok(mut guard) = obj.write() else {
                 continue;
             };
-            if let Some(ai) = guard.get_ai_update_interface() {
-                if let Ok(mut ai_guard) = ai.try_lock() {
-                    ai_guard.transfer_attack(from_id, to_id);
-                }
+            if let Some(ai) = guard.get_ai_update_interface_mut() {
+                ai.transfer_attack(from_id, to_id);
             }
         }
     }

@@ -135,10 +135,7 @@ impl AIPlayer {
                     let Some(ai) = obj.get_ai_update_interface() else {
                         return false;
                     };
-                    ai.lock()
-                        .ok()
-                        .map(|ai_g| ai_g.get_supply_truck_ai_interface().is_some())
-                        .unwrap_or(false)
+                    ai.get_supply_truck_ai_interface().is_some()
                 })
                 .unwrap_or(false);
             if counts {

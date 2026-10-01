@@ -186,10 +186,14 @@ pub fn dump_stack(message: Option<&str>) {
 
     eprintln!("{}", stack_dump.to_string());
 
-    if let Some(handler_lock) = STACK_DUMP_HANDLER.get() {
-        if let Some(handler) = *handler_lock.read() {
-            handler(&stack_dump);
-        }
+    // Copy the fn-pointer handler out of the read guard before invoking it:
+    // this runs inside the panic hook, so a panicking handler must be able to
+    // re-enter dump_stack without recursive-locking the handler RwLock.
+    let handler = STACK_DUMP_HANDLER
+        .get()
+        .and_then(|lock| *lock.read().ok()?);
+    if let Some(handler) = handler {
+        handler(&stack_dump);
     }
 }
 

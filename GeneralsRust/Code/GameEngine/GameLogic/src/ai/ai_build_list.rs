@@ -1265,10 +1265,7 @@ impl AIBuildList {
                     let Some(ai) = obj_guard.get_ai_update_interface() else {
                         return false;
                     };
-                    ai.lock()
-                        .ok()
-                        .map(|ai_guard| ai_guard.is_idle())
-                        .unwrap_or(false)
+                    ai.is_idle()
                 })
                 .unwrap_or(false);
             if idle_dozer {

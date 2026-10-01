@@ -102,18 +102,22 @@ impl ProfileCmdInterface {
     /// Execute result functions (typically called on program exit)
     pub fn run_result_functions() {
         let state = &*COMMAND_STATE;
-        let mut combined = state.combined.lock();
-        let result_functions = &mut combined.registered_result_functions;
-
-        // If no result functions registered, add default CSV output
-        if result_functions.is_empty() {
-            if let Some(csv_writer) = ResultFunctionRegistry::create_function("file_csv", &[]) {
-                result_functions.push(csv_writer);
+        // Take the registered functions out and release the lock before
+        // executing: result writers may read profiler/command state, and the
+        // drop/reacquire discipline used elsewhere in this crate must hold
+        // here too. Mirrors lib.rs execute_result_functions.
+        let result_functions = {
+            let mut combined = state.combined.lock();
+            if combined.registered_result_functions.is_empty() {
+                if let Some(csv_writer) = ResultFunctionRegistry::create_function("file_csv", &[]) {
+                    combined.registered_result_functions.push(csv_writer);
+                }
             }
-        }
+            std::mem::take(&mut combined.registered_result_functions)
+        };
 
-        // Execute all result functions
-        for result_fn in result_functions.drain(..) {
+        // Execute all result functions (unlocked)
+        for result_fn in result_functions {
             result_fn.write_results();
         }
     }
@@ -259,13 +263,25 @@ impl ProfileCmdInterface {
             let func_name = args[0];
             let func_args = &args[1..];
 
-            let mut combined = state.combined.lock();
-            let factory = combined.result_factories.get(func_name);
+            // Snapshot the factory fn-pointer and release the lock before
+            // calling it: factory functions may read profiler state; the
+            // produced function is pushed back under a fresh lock.
+            let factory_fn = {
+                let combined = state.combined.lock();
+                combined
+                    .result_factories
+                    .get(func_name)
+                    .map(|factory| factory.factory_fn)
+            };
 
-            match factory {
-                Some(factory) => {
-                    if let Some(result_fn) = (factory.factory_fn)(func_args) {
-                        combined.registered_result_functions.push(result_fn);
+            match factory_fn {
+                Some(factory_fn) => {
+                    if let Some(result_fn) = factory_fn(func_args) {
+                        state
+                            .combined
+                            .lock()
+                            .registered_result_functions
+                            .push(result_fn);
 
                         if normal_mode {
                             writeln!(writer, "Result function {} added", func_name)?;

@@ -214,18 +214,16 @@ impl RailedTransportDockUpdate {
             self.base
                 .cancel_dock(docker.read().map(|g| g.get_id()).unwrap_or(0))?;
 
-            if let Ok(docker_guard) = docker.read() {
-                if let Some(ai) = docker_guard.get_ai_update_interface() {
+            if let Ok(mut docker_guard) = docker.write() {
+                if let Some(ai) = docker_guard.get_ai_update_interface_mut() {
                     ai.ai_idle(CommandSourceType::FromAi);
                 }
             }
 
-            if let Ok(us_guard) = us.read() {
-                if let Some(contain) = us_guard.get_contain() {
-                    if let Ok(mut contain_guard) = contain.lock() {
-                        if let Ok(docker_guard) = docker.read() {
-                            let _ = contain_guard.add_to_contain(&*docker_guard);
-                        }
+            if let Ok(mut us_guard) = us.write() {
+                if let Some(contain) = us_guard.get_contain_mut() {
+                    if let Ok(docker_guard) = docker.read() {
+                        let _ = contain.add_to_contain(&*docker_guard);
                     }
                 }
             }
@@ -292,8 +290,8 @@ impl RailedTransportDockUpdate {
         }
 
         if reached {
-            if let Ok(unloader_guard) = unloader.read() {
-                if let Some(ai) = unloader_guard.get_ai_update_interface() {
+            if let Ok(mut unloader_guard) = unloader.write() {
+                if let Some(ai) = unloader_guard.get_ai_update_interface_mut() {
                     ai.ai_idle(CommandSourceType::FromAi);
                 }
             }
@@ -304,8 +302,8 @@ impl RailedTransportDockUpdate {
             }
 
             let us = TheGameLogic::find_object_by_id(self.base.owner_id());
-            if let (Some(us), Ok(unloader_guard)) = (us, unloader.read()) {
-                if let Some(ai) = unloader_guard.get_ai_update_interface() {
+            if let (Some(us), Ok(mut unloader_guard)) = (us, unloader.write()) {
+                if let Some(ai) = unloader_guard.get_ai_update_interface_mut() {
                     if let Ok(us_guard) = us.read() {
                         if let Some(drawable) = us_guard.get_drawable() {
                             if let Ok(drawable_guard) = drawable.read() {
@@ -351,18 +349,11 @@ impl RailedTransportDockUpdate {
             return Ok(());
         };
 
-        let contain = {
-            let us_guard = us.read().map_err(|_| "Failed to lock dock owner")?;
-            us_guard.get_contain()
-        };
-
-        let Some(contain) = contain else {
-            return Ok(());
-        };
-
         let unloader_id = {
-            let contain_guard = contain.lock().map_err(|_| "Failed to lock contain")?;
-            contain_guard.get_contained_objects().first().copied()
+            let us_guard = us.read().map_err(|_| "Failed to lock dock owner")?;
+            us_guard
+                .get_contain()
+                .and_then(|contain| contain.get_contained_objects().first().copied())
         };
 
         let Some(unloader_id) = unloader_id else {
@@ -374,8 +365,10 @@ impl RailedTransportDockUpdate {
         };
 
         {
-            let mut contain_guard = contain.lock().map_err(|_| "Failed to lock contain")?;
-            let _ = contain_guard.release_object(unloader_id);
+            let mut us_guard = us.write().map_err(|_| "Failed to lock dock owner")?;
+            if let Some(contain) = us_guard.get_contain_mut() {
+                let _ = contain.release_object(unloader_id);
+            }
         }
 
         let us_pos = {
@@ -555,14 +548,14 @@ impl DockUpdateInterface for RailedTransportDockUpdate {
             return Ok(false);
         };
 
-        let contain = {
+        let has_contain = {
             let us_guard = us.read().map_err(|_| "Failed to lock dock owner")?;
-            us_guard.get_contain()
+            us_guard.get_contain().is_some()
         };
 
-        let Some(contain) = contain else {
+        if !has_contain {
             return Ok(true);
-        };
+        }
 
         let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
             .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
@@ -570,8 +563,11 @@ impl DockUpdateInterface for RailedTransportDockUpdate {
             return Ok(false);
         };
         let obj_guard = obj.read().map_err(|_| "Failed to lock docker")?;
-        let contain_guard = contain.lock().map_err(|_| "Failed to lock contain")?;
-        Ok(contain_guard.is_valid_container_for(&*obj_guard, true))
+        let us_guard = us.read().map_err(|_| "Failed to lock dock owner")?;
+        Ok(us_guard
+            .get_contain()
+            .map(|contain| contain.is_valid_container_for(&*obj_guard, true))
+            .unwrap_or(true))
     }
 
     fn is_allow_passthrough_type(&self) -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {

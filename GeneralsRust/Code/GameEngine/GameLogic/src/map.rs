@@ -563,18 +563,17 @@ use lazy_static::lazy_static;
 use std::sync::RwLock;
 
 lazy_static! {
-    pub static ref THE_MAP_SYSTEM: Arc<RwLock<MapSystem>> = Arc::new(RwLock::new(MapSystem::new()));
-    pub static ref THE_GAME_STATE_MAP: Arc<RwLock<GameStateMap>> =
-        Arc::new(RwLock::new(GameStateMap::new()));
+    pub static ref THE_MAP_SYSTEM: RwLock<MapSystem> = RwLock::new(MapSystem::new());
+    pub static ref THE_GAME_STATE_MAP: RwLock<GameStateMap> = RwLock::new(GameStateMap::new());
 }
 
 /// Get global map system instance
-pub fn get_map_system() -> &'static Arc<RwLock<MapSystem>> {
+pub fn get_map_system() -> &'static RwLock<MapSystem> {
     &THE_MAP_SYSTEM
 }
 
-/// Get global game state map instance  
-pub fn get_game_state_map() -> &'static Arc<RwLock<GameStateMap>> {
+/// Get global game state map instance
+pub fn get_game_state_map() -> &'static RwLock<GameStateMap> {
     &THE_GAME_STATE_MAP
 }
 

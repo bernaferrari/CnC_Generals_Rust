@@ -885,22 +885,20 @@ impl SpecialAbilityUpdate {
 
         let target_id = self.target_id;
         let target_pos = self.target_pos;
-        self.with_object(|obj_guard| {
+        self.with_object_mut(|obj_guard| {
             if target_id != INVALID_ID {
                 if crate::object::registry::OBJECT_REGISTRY
                     .with_object(target_id, |_| ())
                     .is_some()
                 {
-                    if let Some(ai) = obj_guard.get_ai_update_interface() {
-                        let _ = ai.lock().map(|mut ai_guard| {
-                            ai_guard.ignore_obstacle(Some(target_id));
-                        });
+                    if let Some(ai) = obj_guard.get_ai_update_interface_mut() {
+                        ai.ignore_obstacle(Some(target_id));
                         ai.ai_move_to_object(target_id, CMD_FROM_AI);
                         return true;
                     }
                 }
             } else if target_pos.x != 0.0 || target_pos.y != 0.0 || target_pos.z != 0.0 {
-                if let Some(ai) = obj_guard.get_ai_update_interface() {
+                if let Some(ai) = obj_guard.get_ai_update_interface_mut() {
                     ai.ai_move_to_position(&target_pos, false, CMD_FROM_AI);
                     return true;
                 }
@@ -1015,7 +1013,7 @@ impl SpecialAbilityUpdate {
         });
 
         let _ = self.with_object_mut(|obj_guard| {
-            if let Some(ai) = obj_guard.get_ai_update_interface() {
+            if let Some(ai) = obj_guard.get_ai_update_interface_mut() {
                 ai.ai_idle(CMD_FROM_AI);
             }
             obj_guard.set_status(crate::common::ObjectStatusMaskType::IS_USING_ABILITY, true);
@@ -1212,7 +1210,7 @@ impl SpecialAbilityUpdate {
                             WeaponSlotType::Secondary,
                             WeaponLockType::LockedTemporarily,
                         );
-                        if let Some(ai) = obj_guard.get_ai_update_interface() {
+                        if let Some(ai) = obj_guard.get_ai_update_interface_mut() {
                             ai.ai_attack_object(
                                 target_id,
                                 crate::weapon::NO_MAX_SHOTS_LIMIT,
@@ -1374,12 +1372,10 @@ impl SpecialAbilityUpdate {
                     return;
                 }
 
-                if let Some(contain) = target_guard.get_contain() {
-                    if let Ok(mut contain_guard) = contain.lock() {
-                        if contain_guard.is_garrisonable() {
-                            let _ = contain_guard.remove_all_contained(true);
-                            return;
-                        }
+                if let Some(contain) = target_guard.get_contain_mut() {
+                    if contain.is_garrisonable() {
+                        let _ = contain.remove_all_contained(true);
+                        return;
                     }
                 }
 
@@ -1600,7 +1596,7 @@ impl SpecialAbilityUpdate {
                     let _ = tracker.lock().map(|mut t| t.set_experience_sink(owner_id));
                 }
             }
-            if let Some(physics) = new_guard.get_physics() {
+            if let Some(physics) = new_guard.get_physics_mut() {
                 physics.set_pitch_rate(0.0);
                 physics.set_allow_airborne_friction(false);
             }
@@ -1614,12 +1610,15 @@ impl SpecialAbilityUpdate {
     }
 
     fn is_facing(&mut self) -> bool {
-        let Some(ai) = self.with_object(|g| g.get_ai_update_interface()).flatten() else {
+        let Some(ai_is_idle) = self
+            .with_object(|g| g.get_ai_update_interface().map(|ai| ai.is_idle()))
+            .flatten()
+        else {
             return true;
         };
 
         if !self.facing_complete && self.facing_initiated {
-            if ai.lock().map(|a| a.is_idle()).unwrap_or(false) {
+            if ai_is_idle {
                 self.facing_complete = true;
                 return false;
             }
@@ -1630,9 +1629,8 @@ impl SpecialAbilityUpdate {
 
     fn need_to_face(&self) -> bool {
         if self
-            .with_object(|g| g.get_ai_update_interface())
-            .flatten()
-            .is_none()
+            .with_object(|g| g.get_ai_update_interface().is_none())
+            .unwrap_or(true)
         {
             return false;
         }
@@ -1643,13 +1641,18 @@ impl SpecialAbilityUpdate {
     }
 
     fn start_facing(&mut self) {
-        let Some(ai) = self.with_object(|g| g.get_ai_update_interface()).flatten() else {
+        if self
+            .with_object(|g| g.get_ai_update_interface().is_none())
+            .unwrap_or(true)
+        {
             return;
-        };
+        }
 
-        ai.ai_idle(CMD_FROM_AI);
-        let _ = self.with_object(|obj_guard| {
-            if let Some(physics) = obj_guard.get_physics() {
+        let _ = self.with_object_mut(|obj_guard| {
+            if let Some(ai) = obj_guard.get_ai_update_interface_mut() {
+                ai.ai_idle(CMD_FROM_AI);
+            }
+            if let Some(physics) = obj_guard.get_physics_mut() {
                 physics.reset_dynamic_physics();
             }
         });
@@ -1670,8 +1673,8 @@ impl SpecialAbilityUpdate {
                 let dy = target_pos.y - obj_guard.get_position().y;
                 let angle = dy.atan2(dx);
                 let _ = obj_guard.set_orientation(angle);
-                if let Ok(mut ai_guard) = ai.lock() {
-                    ai_guard.set_locomotor_goal_orientation(angle);
+                if let Some(ai) = obj_guard.get_ai_update_interface_mut() {
+                    ai.set_locomotor_goal_orientation(angle);
                 }
             });
         }
@@ -1789,8 +1792,8 @@ impl SpecialAbilityUpdate {
                 obj_guard.set_animation_completion_time(self.anim_frames);
             }
 
-            if let Some(ai) = obj_guard.get_ai_update_interface() {
-                let _ = ai.lock().map(|mut ai_guard| ai_guard.ai_busy(CMD_FROM_AI));
+            if let Some(ai) = obj_guard.get_ai_update_interface_mut() {
+                ai.ai_busy(CMD_FROM_AI);
             }
         });
         if let Some(sound) = self.module_data.pack_sound.as_ref() {
@@ -1833,8 +1836,8 @@ impl SpecialAbilityUpdate {
                 obj_guard.set_animation_completion_time(self.anim_frames);
             }
 
-            if let Some(ai) = obj_guard.get_ai_update_interface() {
-                let _ = ai.lock().map(|mut ai_guard| ai_guard.ai_busy(CMD_FROM_AI));
+            if let Some(ai) = obj_guard.get_ai_update_interface_mut() {
+                ai.ai_busy(CMD_FROM_AI);
             }
         });
         if let Some(sound) = self.module_data.unpack_sound.as_ref() {
@@ -1863,7 +1866,7 @@ impl SpecialAbilityUpdate {
             let flip = self.module_data.flip_object_after_unpacking
                 || self.module_data.flip_object_after_packing;
             let target_id = self.target_id;
-            let _ = self.with_object(|obj_guard| {
+            let _ = self.with_object_mut(|obj_guard| {
                 let (dir_x, dir_y) = obj_guard.get_unit_direction_vector_2d();
                 let mut pos = *obj_guard.get_position();
                 if flip {
@@ -1874,23 +1877,22 @@ impl SpecialAbilityUpdate {
                     pos.y -= dir_y * scale;
                 }
 
-                if let Some(ai) = obj_guard.get_ai_update_interface() {
-                    if let Some(physics) = obj_guard.get_physics() {
+                if let Some(ai) = obj_guard.get_ai_update_interface_mut() {
+                    if let Some(physics) = obj_guard.get_physics_mut() {
                         physics.apply_motive_force(&Coord3D::ZERO);
                     }
                     ai.ai_move_to_position(&pos, false, CMD_FROM_AI);
                     if target_id != INVALID_ID {
-                        let _ = ai.lock().map(|mut guard| {
-                            let _ = guard.ignore_obstacle(Some(target_id));
-                        });
+                        let _ = ai.ignore_obstacle(Some(target_id));
                     }
                 }
             });
-        } else if let Some(ai) = self
-            .with_object(|obj_guard| obj_guard.get_ai_update_interface())
-            .flatten()
-        {
-            ai.ai_idle(CMD_FROM_AI);
+        } else {
+            let _ = self.with_object_mut(|obj_guard| {
+                if let Some(ai) = obj_guard.get_ai_update_interface_mut() {
+                    ai.ai_idle(CMD_FROM_AI);
+                }
+            });
         }
 
         self.on_exit(false);
@@ -1947,32 +1949,28 @@ impl UpdateModuleInterface for SpecialAbilityUpdate {
             return Ok(self.calc_sleep_time());
         }
 
-        let Some(ai) = self
-            .with_object(|obj_guard| obj_guard.get_ai_update_interface())
-            .flatten()
+        let Some((last_command_source, ai_is_moving)) = self
+            .with_object(|obj_guard| obj_guard
+                .get_ai_update_interface()
+                .map(|ai| (ai.get_last_command_source(), ai.is_moving())))
         else {
             self.on_exit(false);
             return Ok(self.calc_sleep_time());
         };
 
-        if let Ok(ai_guard) = ai.lock() {
-            if ai_guard.get_last_command_source() != CMD_FROM_AI {
-                self.on_exit(false);
-                return Ok(self.calc_sleep_time());
-            }
+        if last_command_source != CMD_FROM_AI {
+            self.on_exit(false);
+            return Ok(self.calc_sleep_time());
+        }
 
-            if ai_guard.is_moving()
-                && self.is_power_currently_in_use(None)
-                && !self.facing_initiated
-            {
-                match self.get_special_power_type() {
-                    Some(CommonSpecialPowerType::SpecialInfantryCaptureBuilding)
-                    | Some(CommonSpecialPowerType::SpecialBlackLotusCaptureBuilding) => {
-                        self.on_exit(false);
-                        return Ok(self.calc_sleep_time());
-                    }
-                    _ => {}
+        if ai_is_moving && self.is_power_currently_in_use(None) && !self.facing_initiated {
+            match self.get_special_power_type() {
+                Some(CommonSpecialPowerType::SpecialInfantryCaptureBuilding)
+                | Some(CommonSpecialPowerType::SpecialBlackLotusCaptureBuilding) => {
+                    self.on_exit(false);
+                    return Ok(self.calc_sleep_time());
                 }
+                _ => {}
             }
         }
 
@@ -2044,12 +2042,11 @@ impl UpdateModuleInterface for SpecialAbilityUpdate {
 
         let spm_exists = self.with_spm(|_| ()).is_some();
         if should_abort || self.get_template().is_none() || !spm_exists {
-            if let Some(ai) = self
-                .with_object(|obj_guard| obj_guard.get_ai_update_interface())
-                .flatten()
-            {
-                ai.ai_idle(CMD_FROM_AI);
-            }
+            let _ = self.with_object_mut(|obj_guard| {
+                if let Some(ai) = obj_guard.get_ai_update_interface_mut() {
+                    ai.ai_idle(CMD_FROM_AI);
+                }
+            });
             self.on_exit(false);
             return Ok(self.calc_sleep_time());
         }
@@ -2125,7 +2122,11 @@ impl UpdateModuleInterface for SpecialAbilityUpdate {
                     }
                 }
             }
-        } else if ai.lock().map(|g| g.is_idle()).unwrap_or(false) {
+        } else if self
+            .with_object(|obj_guard| obj_guard.get_ai_update_interface().map(|ai| ai.is_idle()))
+            .flatten()
+            .unwrap_or(false)
+        {
             self.approach_target();
         }
 

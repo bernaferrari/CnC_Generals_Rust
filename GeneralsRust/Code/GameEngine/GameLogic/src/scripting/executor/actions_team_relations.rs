@@ -447,13 +447,12 @@ impl ScriptActionDispatcher {
         if let Some(tid) = target_id {
             // Create group first, then use it
             let group_arc = self.create_ai_group_from_team(&team_name)?;
-            let write_result = group_arc.write();
-            if let Ok(mut group) = write_result {
-                let mut params =
-                    AiCommandParams::new(AiCommandType::Enter, CommandSourceType::FromScript);
-                params.obj = Some(tid);
-                let _ = group.ai_do_command(&params);
-            }
+            // Dispatch with no group guard live: member AI commands re-enter
+            // group/object state and would deadlock against a live write guard.
+            let mut params =
+                AiCommandParams::new(AiCommandType::Enter, CommandSourceType::FromScript);
+            params.obj = Some(tid);
+            let _ = crate::ai::dispatch_ai_group_command_unguarded(&group_arc, &params);
         } else {
             log::warn!("Target '{}' not found for team enter", target_name);
         }
@@ -479,12 +478,10 @@ impl ScriptActionDispatcher {
         }
 
         let group_arc = self.create_ai_group_from_team(&team_name)?;
-        let write_result = group_arc.write();
-        if let Ok(mut group) = write_result {
-            let params =
-                AiCommandParams::new(AiCommandType::Evacuate, CommandSourceType::FromScript);
-            let _ = group.ai_do_command(&params);
-        }
+        // No group guard held across member AI dispatch (re-entrancy).
+        let params =
+            AiCommandParams::new(AiCommandType::Evacuate, CommandSourceType::FromScript);
+        let _ = crate::ai::dispatch_ai_group_command_unguarded(&group_arc, &params);
 
         Ok(ScriptActionResult::Success)
     }
@@ -554,13 +551,12 @@ impl ScriptActionDispatcher {
             }
 
             let group_arc = self.create_ai_group_from_team(&team_name)?;
-            let write_result = group_arc.write();
-            if let Ok(mut group) = write_result {
-                let mut params =
-                    AiCommandParams::new(AiCommandType::Enter, CommandSourceType::FromScript);
-                params.obj = Some(tid);
-                let _ = group.ai_do_command(&params);
-            }
+            // Dispatch with no group guard live: member AI commands re-enter
+            // group/object state and would deadlock against a live write guard.
+            let mut params =
+                AiCommandParams::new(AiCommandType::Enter, CommandSourceType::FromScript);
+            params.obj = Some(tid);
+            let _ = crate::ai::dispatch_ai_group_command_unguarded(&group_arc, &params);
         } else {
             log::warn!("Building '{}' not found for team garrison", building_name);
         }
@@ -650,16 +646,15 @@ impl ScriptActionDispatcher {
 
         if let Some(position) = waypoint_pos {
             let group_arc = self.create_ai_group_from_team(&team_name)?;
-            let write_result = group_arc.write();
-            if let Ok(mut group) = write_result {
-                let mut params = AiCommandParams::new(
-                    AiCommandType::GuardPosition,
-                    CommandSourceType::FromScript,
-                );
-                params.pos = position;
-                params.int_value = 0; // GUARDMODE_NORMAL
-                let _ = group.ai_do_command(&params);
-            }
+            // Dispatch with no group guard live: member AI commands re-enter
+            // group/object state and would deadlock against a live write guard.
+            let mut params = AiCommandParams::new(
+                AiCommandType::GuardPosition,
+                CommandSourceType::FromScript,
+            );
+            params.pos = position;
+            params.int_value = 0; // GUARDMODE_NORMAL
+            let _ = crate::ai::dispatch_ai_group_command_unguarded(&group_arc, &params);
         } else {
             log::warn!(
                 "Waypoint '{}' not found for team guard position",
@@ -700,14 +695,13 @@ impl ScriptActionDispatcher {
             }
 
             let group_arc = self.create_ai_group_from_team(&team_name)?;
-            let write_result = group_arc.write();
-            if let Ok(mut group) = write_result {
-                let mut params =
-                    AiCommandParams::new(AiCommandType::GuardObject, CommandSourceType::FromScript);
-                params.obj = Some(tid);
-                params.int_value = GuardMode::Normal.as_i32();
-                let _ = group.ai_do_command(&params);
-            }
+            // Dispatch with no group guard live: member AI commands re-enter
+            // group/object state and would deadlock against a live write guard.
+            let mut params =
+                AiCommandParams::new(AiCommandType::GuardObject, CommandSourceType::FromScript);
+            params.obj = Some(tid);
+            params.int_value = GuardMode::Normal.as_i32();
+            let _ = crate::ai::dispatch_ai_group_command_unguarded(&group_arc, &params);
         } else {
             log::warn!("Object '{}' not found for team guard", object_name);
         }
@@ -741,14 +735,13 @@ impl ScriptActionDispatcher {
         };
 
         let group_arc = self.create_ai_group_from_team(&team_name)?;
-        if let Ok(mut group) = group_arc.write() {
-            let mut params =
-                AiCommandParams::new(AiCommandType::GuardArea, CommandSourceType::FromScript);
-            params.pos = area_center;
-            params.polygon = Some(trigger_id);
-            params.int_value = GuardMode::Normal.as_i32();
-            let _ = group.ai_do_command(&params);
-        }
+        // No group guard held across member AI dispatch (re-entrancy).
+        let mut params =
+            AiCommandParams::new(AiCommandType::GuardArea, CommandSourceType::FromScript);
+        params.pos = area_center;
+        params.polygon = Some(trigger_id);
+        params.int_value = GuardMode::Normal.as_i32();
+        let _ = crate::ai::dispatch_ai_group_command_unguarded(&group_arc, &params);
 
         Ok(ScriptActionResult::Success)
     }
@@ -908,11 +901,10 @@ impl ScriptActionDispatcher {
 
         // C++ parity: idle the team through an AI group.
         if let Ok(group_arc) = self.create_ai_group_from_team(&team_name) {
-            if let Ok(mut group) = group_arc.write() {
-                let params =
-                    AiCommandParams::new(AiCommandType::Idle, CommandSourceType::FromScript);
-                let _ = group.ai_do_command(&params);
-            }
+            // No group guard held across member AI dispatch (re-entrancy).
+            let params =
+                AiCommandParams::new(AiCommandType::Idle, CommandSourceType::FromScript);
+            let _ = crate::ai::dispatch_ai_group_command_unguarded(&group_arc, &params);
         }
 
         if frames > 0 {
@@ -1012,17 +1004,16 @@ impl ScriptActionDispatcher {
 
         if let Some(wid) = waypoint_id {
             let group_arc = self.create_ai_group_from_team(&team_name)?;
-            let write_result = group_arc.write();
-            if let Ok(mut group) = write_result {
-                let cmd = if as_team {
-                    AiCommandType::FollowWaypointPathAsTeamExact
-                } else {
-                    AiCommandType::FollowWaypointPathExact
-                };
-                let mut params = AiCommandParams::new(cmd, CommandSourceType::FromScript);
-                params.waypoint = Some(wid);
-                let _ = group.ai_do_command(&params);
-            }
+            // Dispatch with no group guard live: member AI commands re-enter
+            // group/object state and would deadlock against a live write guard.
+            let cmd = if as_team {
+                AiCommandType::FollowWaypointPathAsTeamExact
+            } else {
+                AiCommandType::FollowWaypointPathExact
+            };
+            let mut params = AiCommandParams::new(cmd, CommandSourceType::FromScript);
+            params.waypoint = Some(wid);
+            let _ = crate::ai::dispatch_ai_group_command_unguarded(&group_arc, &params);
         }
 
         Ok(ScriptActionResult::Success)
@@ -1057,14 +1048,12 @@ impl ScriptActionDispatcher {
 
         // Issue AttackArea command to team AI group
         let group_arc = self.create_ai_group_from_team(&team_name)?;
-        let write_result = group_arc.write();
-        if let Ok(mut group) = write_result {
-            let mut params =
-                AiCommandParams::new(AiCommandType::AttackArea, CommandSourceType::FromScript);
-            params.pos = area_center;
-            params.polygon = Some(trigger_id);
-            let _ = group.ai_do_command(&params);
-        }
+        // No group guard held across member AI dispatch (re-entrancy).
+        let mut params =
+            AiCommandParams::new(AiCommandType::AttackArea, CommandSourceType::FromScript);
+        params.pos = area_center;
+        params.polygon = Some(trigger_id);
+        let _ = crate::ai::dispatch_ai_group_command_unguarded(&group_arc, &params);
 
         Ok(ScriptActionResult::Success)
     }
@@ -1099,16 +1088,15 @@ impl ScriptActionDispatcher {
             }
 
             let group_arc = self.create_ai_group_from_team(&team_name)?;
-            let write_result = group_arc.write();
-            if let Ok(mut group) = write_result {
-                let mut params = AiCommandParams::new(
-                    AiCommandType::AttackObject,
-                    CommandSourceType::FromScript,
-                );
-                params.obj = Some(tid);
-                params.int_value = -1; // NO_MAX_SHOTS_LIMIT
-                let _ = group.ai_do_command(&params);
-            }
+            // Dispatch with no group guard live: member AI commands re-enter
+            // group/object state and would deadlock against a live write guard.
+            let mut params = AiCommandParams::new(
+                AiCommandType::AttackObject,
+                CommandSourceType::FromScript,
+            );
+            params.obj = Some(tid);
+            params.int_value = -1; // NO_MAX_SHOTS_LIMIT
+            let _ = crate::ai::dispatch_ai_group_command_unguarded(&group_arc, &params);
         } else {
             log::warn!("Target '{}' not found for team attack", target_name);
         }
@@ -1249,11 +1237,10 @@ impl ScriptActionDispatcher {
 
         // C++ parity: idle team before queueing sequential script.
         if let Ok(group_arc) = self.create_ai_group_from_team(&team_name) {
-            if let Ok(mut group) = group_arc.write() {
-                let params =
-                    AiCommandParams::new(AiCommandType::Idle, CommandSourceType::FromScript);
-                let _ = group.ai_do_command(&params);
-            }
+            // No group guard held across member AI dispatch (re-entrancy).
+            let params =
+                AiCommandParams::new(AiCommandType::Idle, CommandSourceType::FromScript);
+            let _ = crate::ai::dispatch_ai_group_command_unguarded(&group_arc, &params);
         }
 
         let _ = with_script_engine_mut(|engine| {
@@ -1297,11 +1284,10 @@ impl ScriptActionDispatcher {
 
         // C++ parity: idle team before queueing sequential script.
         if let Ok(group_arc) = self.create_ai_group_from_team(&team_name) {
-            if let Ok(mut group) = group_arc.write() {
-                let params =
-                    AiCommandParams::new(AiCommandType::Idle, CommandSourceType::FromScript);
-                let _ = group.ai_do_command(&params);
-            }
+            // No group guard held across member AI dispatch (re-entrancy).
+            let params =
+                AiCommandParams::new(AiCommandType::Idle, CommandSourceType::FromScript);
+            let _ = crate::ai::dispatch_ai_group_command_unguarded(&group_arc, &params);
         }
 
         let _ = with_script_engine_mut(|engine| {

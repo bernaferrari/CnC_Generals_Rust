@@ -122,7 +122,7 @@ use crate::helpers::{
 };
 use crate::modules::{
     AIAttitudeType, AIUpdateInterface, AIUpdateInterfaceExt, BehaviorModuleInterface,
-    BodyModuleInterface, BodyModuleInterfaceExt, CollideModuleInterface, ContainModuleInterface,
+    BodyModuleInterface, CollideModuleInterface, ContainModuleInterface,
     CountermeasuresBehaviorInterface, CreateModuleInterface, DamageModule, DestroyModuleInterface,
     DieModuleInterface, DockUpdateInterface, ExitInterface, PhysicsBehavior,
     PowerPlantUpdateInterface, ProductionUpdateInterface, ProjectileUpdateInterface,
@@ -177,8 +177,17 @@ pub trait ObjectLockExt {
     fn try_lock(&self) -> std::sync::TryLockResult<std::sync::RwLockWriteGuard<'_, Object>>;
 }
 
-struct SpecialAbilityUpdateProxy {
-    behavior: Arc<Mutex<dyn BehaviorModuleInterface>>,
+/// Borrowed special-ability adapter: delegates to a behavior module's
+/// special-power update interface without a shared lockable handle.
+/// Replaces the former `SpecialAbilityUpdateProxy { behavior: Arc<Mutex<..>> }`.
+pub(crate) struct SpecialAbilityUpdateRef<'a> {
+    behavior: &'a mut dyn BehaviorModuleInterface,
+}
+
+impl<'a> SpecialAbilityUpdateRef<'a> {
+    pub(crate) fn new(behavior: &'a mut dyn BehaviorModuleInterface) -> Self {
+        Self { behavior }
+    }
 }
 
 #[allow(dead_code)]
@@ -186,16 +195,16 @@ struct ModuleSpecialAbilityUpdateProxy {
     entry: Arc<ModuleEntry>,
 }
 
-struct ExitInterfaceProxy {
-    behavior: Arc<Mutex<dyn BehaviorModuleInterface>>,
-}
-
-struct ContainExitInterfaceProxy {
-    contain: Arc<Mutex<dyn ContainModuleInterface>>,
-}
-
 struct ModuleExitInterfaceProxy {
     entry: Arc<ModuleEntry>,
+}
+
+/// Owned-module exit interface handle: either a production-exit module entry
+/// (entries stay Arc-shared with the global update registries) or a direct
+/// borrow of this object's owned contain module.
+pub enum ObjectExitInterface<'a> {
+    Module(ModuleExitInterfaceProxy),
+    Contain(&'a mut dyn ContainModuleInterface),
 }
 
 enum ProductionBehaviorModuleKindMut<'a> {
@@ -1402,26 +1411,23 @@ fn module_die_kind(module: &mut dyn Module) -> Option<DieModuleKindMut<'_>> {
     None
 }
 
-impl SpecialAbilityUpdate for SpecialAbilityUpdateProxy {
+impl SpecialAbilityUpdate for SpecialAbilityUpdateRef<'_> {
     fn update_ability(
         &mut self,
         frame_time: f32,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        if let Ok(mut guard) = self.behavior.lock() {
-            if let Some(update) = guard.get_special_power_update_interface() {
-                return update.update_special_power(frame_time);
-            }
+        if let Some(update) = self.behavior.get_special_power_update_interface() {
+            return update.update_special_power(frame_time);
         }
         Ok(())
     }
 
     fn is_ability_active(&self) -> bool {
-        if let Ok(mut guard) = self.behavior.lock() {
-            if let Some(update) = guard.get_special_power_update_interface() {
-                return update.is_active();
-            }
-        }
-        false
+        self.behavior
+            .as_any()
+            .downcast_ref::<SpecialAbilityUpdateBehavior>()
+            .map(|update| update.is_active())
+            .unwrap_or(false)
     }
 }
 
@@ -1467,32 +1473,48 @@ impl ModuleExitInterfaceProxy {
     }
 }
 
-impl ExitInterface for ExitInterfaceProxy {
+
+impl ExitInterface for ObjectExitInterface<'_> {
     fn can_exit(&self, object_id: ObjectID) -> bool {
-        if let Ok(mut guard) = self.behavior.lock() {
-            if let Some(exit_interface) = guard.get_update_exit_interface() {
-                return exit_interface.can_exit(object_id);
-            }
+        match self {
+            Self::Module(proxy) => proxy.can_exit(object_id),
+            Self::Contain(contain) => contain.can_exit(object_id),
         }
-        false
     }
 
     fn exit(&mut self, object_id: ObjectID) -> bool {
-        if let Ok(mut guard) = self.behavior.lock() {
-            if let Some(exit_interface) = guard.get_update_exit_interface() {
-                return exit_interface.exit(object_id);
+        match self {
+            Self::Module(proxy) => proxy.exit(object_id),
+            Self::Contain(_) => {
+                let Some(obj) = TheGameLogic::find_object_by_id(object_id) else {
+                    return false;
+                };
+                let exit_id = obj.read().map(|g| g.get_id()).unwrap_or(0);
+                self.exit_object_via_door(exit_id, crate::modules::ExitDoorType::Primary)
+                    .is_ok()
             }
         }
-        false
     }
 
     fn get_rally_point(&self) -> Result<Option<Coord3D>, Box<dyn std::error::Error + Send + Sync>> {
-        if let Ok(mut guard) = self.behavior.lock() {
-            if let Some(exit_interface) = guard.get_update_exit_interface() {
-                return exit_interface.get_rally_point();
-            }
+        match self {
+            Self::Module(proxy) => proxy.get_rally_point(),
+            Self::Contain(contain) => Ok(contain.get_rally_point()),
         }
-        Ok(None)
+    }
+
+    fn get_exit_position(&self, exit_position: &mut Coord3D) -> bool {
+        match self {
+            Self::Module(proxy) => proxy.get_exit_position(exit_position),
+            Self::Contain(contain) => contain.get_exit_position(exit_position),
+        }
+    }
+
+    fn get_natural_rally_point(&self, rally_point: &mut Coord3D, offset: bool) -> bool {
+        match self {
+            Self::Module(proxy) => proxy.get_natural_rally_point(rally_point, offset),
+            Self::Contain(contain) => contain.get_natural_rally_point(rally_point, offset),
+        }
     }
 
     fn reserve_door_for_exit(
@@ -1500,19 +1522,16 @@ impl ExitInterface for ExitInterfaceProxy {
         spawner: Option<&crate::object::Object>,
         spawn: Option<&crate::object::Object>,
     ) -> crate::modules::ExitDoorType {
-        if let Ok(mut guard) = self.behavior.lock() {
-            if let Some(exit_interface) = guard.get_update_exit_interface() {
-                return exit_interface.reserve_door_for_exit(spawner, spawn);
-            }
+        match self {
+            Self::Module(proxy) => proxy.reserve_door_for_exit(spawner, spawn),
+            Self::Contain(contain) => contain.reserve_door_for_exit(spawner, spawn),
         }
-        crate::modules::DOOR_NONE_AVAILABLE
     }
 
     fn unreserve_door_for_exit(&mut self, door: crate::modules::ExitDoorType) {
-        if let Ok(mut guard) = self.behavior.lock() {
-            if let Some(exit_interface) = guard.get_update_exit_interface() {
-                exit_interface.unreserve_door_for_exit(door);
-            }
+        match self {
+            Self::Module(proxy) => proxy.unreserve_door_for_exit(door),
+            Self::Contain(contain) => contain.unreserve_door_for_exit(door),
         }
     }
 
@@ -1533,12 +1552,10 @@ impl ExitInterface for ExitInterfaceProxy {
             return Ok(());
         }
 
-        if let Ok(mut guard) = self.behavior.lock() {
-            if let Some(exit_interface) = guard.get_update_exit_interface() {
-                return exit_interface.exit_object_via_door(obj_id, door);
-            }
+        match self {
+            Self::Module(proxy) => proxy.exit_object_via_door(obj_id, door),
+            Self::Contain(contain) => contain.exit_object_via_door(obj_id, door),
         }
-        Ok(())
     }
 
     fn exit_object_in_a_hurry(
@@ -1556,12 +1573,10 @@ impl ExitInterface for ExitInterfaceProxy {
             return Ok(());
         };
 
-        if let Ok(mut guard) = self.behavior.lock() {
-            if let Some(exit_interface) = guard.get_update_exit_interface() {
-                return exit_interface.exit_object_in_a_hurry(obj_id);
-            }
+        match self {
+            Self::Module(proxy) => proxy.exit_object_in_a_hurry(obj_id),
+            Self::Contain(contain) => contain.exit_object_in_a_hurry(obj_id),
         }
-        Ok(())
     }
 
     fn exit_object_by_budding(
@@ -1574,73 +1589,6 @@ impl ExitInterface for ExitInterfaceProxy {
             return Ok(());
         }
 
-        let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
-        else {
-            return Ok(());
-        };
-
-        if let Ok(mut guard) = self.behavior.lock() {
-            if let Some(exit_interface) = guard.get_update_exit_interface() {
-                return exit_interface.exit_object_by_budding(obj_id, host_id);
-            }
-        }
-        Ok(())
-    }
-}
-
-impl ExitInterface for ContainExitInterfaceProxy {
-    fn can_exit(&self, object_id: ObjectID) -> bool {
-        self.contain
-            .lock()
-            .map(|guard| guard.can_exit(object_id))
-            .unwrap_or(false)
-    }
-
-    fn exit(&mut self, object_id: ObjectID) -> bool {
-        let Some(obj) = TheGameLogic::find_object_by_id(object_id) else {
-            return false;
-        };
-        let exit_id = obj.read().map(|g| g.get_id()).unwrap_or(0);
-        self.exit_object_via_door(exit_id, crate::modules::ExitDoorType::Primary)
-            .is_ok()
-    }
-
-    fn get_rally_point(&self) -> Result<Option<Coord3D>, Box<dyn std::error::Error + Send + Sync>> {
-        Ok(self
-            .contain
-            .lock()
-            .ok()
-            .and_then(|guard| guard.get_rally_point()))
-    }
-
-    fn reserve_door_for_exit(
-        &mut self,
-        spawner: Option<&crate::object::Object>,
-        spawn: Option<&crate::object::Object>,
-    ) -> crate::modules::ExitDoorType {
-        self.contain
-            .lock()
-            .map(|mut guard| guard.reserve_door_for_exit(spawner, spawn))
-            .unwrap_or(crate::modules::ExitDoorType::NoneAvailable)
-    }
-
-    fn unreserve_door_for_exit(&mut self, door: crate::modules::ExitDoorType) {
-        if let Ok(mut guard) = self.contain.lock() {
-            guard.unreserve_door_for_exit(door);
-        }
-    }
-
-    fn exit_object_via_door(
-        &mut self,
-        obj_id: ObjectID,
-        door: crate::modules::ExitDoorType,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        // Wave 264: empty dual-world → Ok(()).
-        if dual_world_registry_unavailable() {
-            return Ok(());
-        }
-
         if crate::helpers::TheGameLogic::find_object_by_id(obj_id)
             .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
             .is_none()
@@ -1648,31 +1596,10 @@ impl ExitInterface for ContainExitInterfaceProxy {
             return Ok(());
         }
 
-        self.contain
-            .lock()
-            .map_err(|_| "failed to lock contain exit interface".into())
-            .and_then(|mut guard| guard.exit_object_via_door(obj_id, door))
-    }
-
-    fn exit_object_in_a_hurry(
-        &mut self,
-        obj_id: ObjectID,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        // Wave 264: empty dual-world → Ok(()).
-        if dual_world_registry_unavailable() {
-            return Ok(());
+        match self {
+            Self::Module(proxy) => proxy.exit_object_by_budding(obj_id, host_id),
+            Self::Contain(contain) => contain.exit_object_by_budding(obj_id, host_id),
         }
-
-        let Some(obj) = crate::helpers::TheGameLogic::find_object_by_id(obj_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
-        else {
-            return Ok(());
-        };
-
-        self.contain
-            .lock()
-            .map_err(|_| "failed to lock contain exit interface".into())
-            .and_then(|mut guard| guard.exit_object_in_a_hurry(obj_id))
     }
 }
 
@@ -2903,8 +2830,9 @@ pub struct Object {
     original_team_name: AsciiString,
     indicator_color: Color,
 
-    // Modules - using Arc<Mutex<>> for thread safety
-    behaviors: Vec<Arc<Mutex<dyn BehaviorModuleInterface>>>,
+    // Modules - owned by the Object; entries stay Arc-shared with the global
+    // update/sleepy registries (rule (d) boundary).
+    behaviors: Vec<Box<dyn BehaviorModuleInterface>>,
     modules: Vec<Arc<ModuleEntry>>,
     body_module_handles: Vec<Arc<ModuleEntry>>,
     die_module_handles: Vec<Arc<ModuleEntry>>,
@@ -2913,11 +2841,11 @@ pub struct Object {
     collide_module_handles: Vec<Arc<ModuleEntry>>,
     contain_module_handles: Vec<Arc<ModuleEntry>>,
     upgrade_module_handles: Vec<Arc<ModuleEntry>>,
-    body: Option<Arc<Mutex<dyn BodyModuleInterface>>>,
-    contain: Option<Arc<Mutex<dyn ContainModuleInterface>>>,
+    body: Option<Box<dyn BodyModuleInterface>>,
+    contain: Option<Box<dyn ContainModuleInterface>>,
     stealth: Option<StealthUpdateHandle>,
-    ai: Option<Arc<Mutex<dyn AIUpdateInterface>>>,
-    physics: Option<Arc<Mutex<dyn PhysicsBehavior>>>,
+    ai: Option<Box<dyn AIUpdateInterface>>,
+    physics: Option<Box<dyn PhysicsBehavior>>,
 
     // Helper modules
     repulsor_helper: Option<ObjectRepulsorHelper>,

@@ -25,7 +25,7 @@ use crate::helpers::{
     TheRadar, TheThingFactory, get_game_logic_random_value_real,
 };
 use crate::modules::{
-    BehaviorModuleInterface, DamageModuleInterface, DieModuleInterface, PhysicsBehaviorExt,
+    BehaviorModuleInterface, DamageModuleInterface, DieModuleInterface,
     UpdateModuleInterface, UpdateSleepTime,
 };
 use crate::object::{
@@ -669,10 +669,7 @@ impl BridgeBehavior {
         self.scaffold_present = false;
 
         let allow_passable = self.with_object(|me_read| match me_read.get_body_module() {
-            Some(body) => match body.lock() {
-                Ok(body_guard) => body_guard.get_damage_state() != BodyDamageType::Rubble,
-                Err(_) => false,
-            },
+            Some(body) => body.get_damage_state() != BodyDamageType::Rubble,
             None => false,
         })?;
         if allow_passable {
@@ -1084,7 +1081,7 @@ impl BridgeBehavior {
                     obj_write.set_layer(PathfindLayerEnum::Ground);
                 }
 
-                if let Some(physics) = obj_write.get_physics() {
+                if let Some(physics) = obj_write.get_physics_mut() {
                     physics.set_allow_to_fall(true);
                 } else {
                     obj_write.kill(None, None);
@@ -1135,12 +1132,19 @@ impl BridgeBehavior {
         obj: &Arc<RwLock<GameObject>>,
         f: impl FnOnce(&mut dyn BridgeScaffoldBehaviorInterface) -> R,
     ) -> Option<R> {
-        let behaviors = obj.read().ok()?.get_behavior_modules();
+        // Module entries are shared with the global update registries and their
+        // locks are independent of the owning Object's RwLock, so `f` may
+        // re-enter the Object exactly as before the borrow migration.
+        let behaviors = obj.read().ok()?.behavior_modules();
         for behavior in behaviors {
-            if let Ok(mut guard) = behavior.lock() {
-                if let Some(interface) = guard.get_bridge_scaffold_behavior_interface() {
-                    return Some(f(interface));
-                }
+            let result = behavior.try_with_module(|module| {
+                module
+                    .as_any_mut()
+                    .downcast_mut::<crate::object::behavior::bridge_scaffold_behavior::BridgeScaffoldBehavior>()
+                    .map(|scaffold| f(scaffold))
+            });
+            if let Some(result) = result {
+                return Some(result);
             }
         }
         None
@@ -1650,15 +1654,10 @@ impl DamageModuleInterface for BridgeBehavior {
         let me_id = self.owner_object_id();
         let max_health = self.with_object(
             |me_read| -> Result<f32, Box<dyn std::error::Error + Send + Sync>> {
-                let body = match me_read.get_body_module() {
-                    Some(body) => body,
-                    None => return Ok(0.0),
+                let Some(body) = me_read.get_body_module() else {
+                    return Ok(0.0);
                 };
-                let max_health = body
-                    .lock()
-                    .map_err(|_| "BridgeBehavior::on_damage body lock poisoned")?
-                    .get_max_health();
-                Ok(max_health)
+                Ok(body.get_max_health())
             },
         )??;
         if max_health <= 0.0 {
@@ -1686,11 +1685,7 @@ impl DamageModuleInterface for BridgeBehavior {
                     let Some(tower_body) = tower_read.get_body_module() else {
                         continue;
                     };
-                    let tower_health = tower_body
-                        .lock()
-                        .map_err(|_| "BridgeBehavior::on_damage tower body lock poisoned")?
-                        .get_max_health();
-                    tower_health
+                    tower_body.get_max_health()
                 };
 
                 if tower_max <= 0.0 {
@@ -1723,15 +1718,10 @@ impl DamageModuleInterface for BridgeBehavior {
 
         let max_health = self.with_object(
             |me_read| -> Result<f32, Box<dyn std::error::Error + Send + Sync>> {
-                let body = match me_read.get_body_module() {
-                    Some(body) => body,
-                    None => return Ok(0.0),
+                let Some(body) = me_read.get_body_module() else {
+                    return Ok(0.0);
                 };
-                let max_health = body
-                    .lock()
-                    .map_err(|_| "BridgeBehavior::on_healing body lock poisoned")?
-                    .get_max_health();
-                Ok(max_health)
+                Ok(body.get_max_health())
             },
         )??;
         if max_health <= 0.0 {
@@ -1759,11 +1749,7 @@ impl DamageModuleInterface for BridgeBehavior {
                     let Some(tower_body) = tower_read.get_body_module() else {
                         continue;
                     };
-                    let tower_health = tower_body
-                        .lock()
-                        .map_err(|_| "BridgeBehavior::on_healing tower body lock poisoned")?
-                        .get_max_health();
-                    tower_health
+                    tower_body.get_max_health()
                 };
 
                 if tower_max <= 0.0 {

@@ -362,7 +362,7 @@ impl CommandButton {
     /// Mirrors C++ CommandButton::isValidToUseOn.
     pub fn is_valid_to_use_on(
         &self,
-        source_obj: &crate::object::Object,
+        source_obj: &mut crate::object::Object,
         target_obj: Option<&crate::object::Object>,
         target_location: Option<&Coord3D>,
         command_source: crate::common::CommandSourceType,
@@ -444,7 +444,7 @@ impl CommandButton {
     }
 
     /// Returns true when a command button is ready for use.
-    pub fn is_ready(&self, source_obj: &crate::object::Object) -> bool {
+    pub fn is_ready(&self, source_obj: &mut crate::object::Object) -> bool {
         if let Some(sp_template) = self.special_power_template.as_ref() {
             let name = sp_template.get_name();
             if let Some(ready) = source_obj
@@ -532,11 +532,8 @@ impl SciencePlayerAccess for crate::player::Player {
     }
 }
 
-fn has_upgrade_in_production_queue(obj: &crate::object::Object) -> bool {
-    for behavior in obj.get_behavior_modules() {
-        let Ok(mut behavior) = behavior.lock() else {
-            continue;
-        };
+fn has_upgrade_in_production_queue(obj: &mut crate::object::Object) -> bool {
+    for behavior in obj.get_behavior_modules_mut() {
         let Some(production) = behavior.get_production_update_interface() else {
             continue;
         };

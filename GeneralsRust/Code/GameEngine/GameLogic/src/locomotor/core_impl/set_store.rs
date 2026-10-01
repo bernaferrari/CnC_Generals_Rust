@@ -302,8 +302,8 @@ impl LocomotorStore {
 }
 
 // Global instance
-pub static LOCOMOTOR_STORE: Lazy<Arc<LocomotorStore>> = Lazy::new(|| {
-    let store = Arc::new(LocomotorStore::new());
+pub static LOCOMOTOR_STORE: Lazy<LocomotorStore> = Lazy::new(|| {
+    let store = LocomotorStore::new();
 
     // Fallback stubs used before / without INI. Retail names come from Common.
     store.register_template(LocomotorTemplate::new_infantry("Infantry".to_string()));

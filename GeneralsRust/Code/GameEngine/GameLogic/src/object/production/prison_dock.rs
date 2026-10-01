@@ -191,29 +191,25 @@ impl DockUpdateInterface for PrisonDockUpdate {
         else {
             return Ok(false);
         };
-        let docker_guard = obj.read().map_err(|_| "Failed to lock docker")?;
+        let mut docker_guard = obj.write().map_err(|_| "Failed to lock docker")?;
         if let Some(contain) = docker_guard.get_contain() {
-            if let Ok(contain_guard) = contain.lock() {
-                if contain_guard.get_contained_count() == 0 {
-                    return Ok(false);
-                }
+            if contain.get_contained_count() == 0 {
+                return Ok(false);
             }
         }
 
-        let ai = docker_guard.get_ai_update_interface().ok_or_else(|| {
+        let ai = docker_guard.get_ai_update_interface_mut().ok_or_else(|| {
             std::io::Error::new(
                 std::io::ErrorKind::Other,
                 "PrisonDockUpdate requires POW truck AI",
             )
         })?;
-        drop(docker_guard);
 
         let Some(prison) = TheGameLogic::find_object_by_id(self.base.owner_id()) else {
             return Ok(false);
         };
 
-        let mut ai_guard = ai.lock().map_err(|_| "Failed to lock POW truck AI")?;
-        let pow_ai = ai_guard
+        let pow_ai = ai
             .get_pow_truck_ai_update_interface()
             .ok_or_else(|| {
                 std::io::Error::new(std::io::ErrorKind::Other, "POW truck AI interface missing")

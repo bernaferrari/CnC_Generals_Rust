@@ -261,7 +261,9 @@ impl<X: Xfer> Xfer for XferCRC<X> {
         // bytes per this trait method's contract; nothing is written.
     unsafe fn xfer_implementation(&mut self, data: *mut u8, data_size: usize) -> io::Result<()> {
         if data_size > 0 && !data.is_null() {
-            let slice = std::slice::from_raw_parts(data, data_size);
+            // SAFETY: trait contract above guarantees `data` is valid for
+            // `data_size` bytes; read-only for the checksum.
+            let slice = unsafe { std::slice::from_raw_parts(data, data_size) };
             self.update_crc(slice);
         }
         Ok(())
@@ -361,7 +363,9 @@ impl<X: Xfer> Xfer for XferDeepCRC<X> {
                 // of xfer_implementation; read-only for the checksum.
         let result = unsafe { self.inner.xfer_implementation(data, data_size) };
         if result.is_ok() {
-            let slice = std::slice::from_raw_parts(data, data_size);
+            // SAFETY: same caller-validated contract as the inner call above;
+            // the slice is read-only for the checksum.
+            let slice = unsafe { std::slice::from_raw_parts(data, data_size) };
             self.update_crc(slice);
         }
         result

@@ -840,31 +840,14 @@ pub trait AIUpdateInterface: Send + Sync + std::fmt::Debug {
         Ok(())
     }
 
-    /// AI move to and evacuate
-    fn ai_move_to_and_evacuate(
-        &mut self,
-        _pos: &Coord3D,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        Ok(())
-    }
-
     /// AI idle
     fn ai_idle(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         Ok(())
     }
 
-    /// AI hunt
-    fn ai_hunt(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        Ok(())
-    }
-
-    /// AI force attack object
-    fn ai_force_attack_object(
-        &mut self,
-        _target_id: ObjectID,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        Ok(())
-    }
+    // The command-style `aiMoveToAndEvacuate` / `aiHunt` / `aiForceAttackObject` /
+    // `aiAttackPosition` overloads live on `AIUpdateInterfaceExt` (built as
+    // `AiCommandParams` and dispatched through `execute_command`).
 
     /// AI attack object
     fn ai_attack_object(
@@ -874,13 +857,6 @@ pub trait AIUpdateInterface: Send + Sync + std::fmt::Debug {
         Ok(())
     }
 
-    /// AI attack position
-    fn ai_attack_position(
-        &mut self,
-        _pos: &Coord3D,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        Ok(())
-    }
 
     /// AI guard position
     fn ai_guard_position(

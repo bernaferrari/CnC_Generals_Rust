@@ -10,11 +10,9 @@ use super::*;
 impl Object {
     /// AI helper: idle if AI present.
     pub fn ai_idle(&mut self) {
-        if let Some(ai) = &self.ai {
-            if let Ok(mut guard) = ai.lock() {
-                if let Err(err) = guard.ai_idle() {
-                    log::debug!("Object::ai_idle failed: {err}");
-                }
+        if let Some(ai) = self.ai.as_mut() {
+            if let Err(err) = ai.ai_idle() {
+                log::debug!("Object::ai_idle failed: {err}");
             }
         }
     }
@@ -138,11 +136,9 @@ impl Object {
 
         if let Some(max_hps) = get_int(crate::common::well_known_keys::key_object_max_hps()) {
             if max_hps >= 0 {
-                if let Some(body) = self.get_body_module() {
-                    if let Ok(mut guard) = body.lock() {
-                        let _ = guard
-                            .set_max_health(max_hps as f32, MaxHealthChangeType::PreserveRatio);
-                    }
+                if let Some(body) = self.get_body_module_mut() {
+                    let _ = body
+                        .set_max_health(max_hps as f32, MaxHealthChangeType::PreserveRatio);
                 }
             }
         }
@@ -150,10 +146,8 @@ impl Object {
         if let Some(initial_health) =
             get_int(crate::common::well_known_keys::key_object_initial_health())
         {
-            if let Some(body) = self.get_body_module() {
-                if let Ok(mut guard) = body.lock() {
-                    let _ = guard.set_initial_health(initial_health);
-                }
+            if let Some(body) = self.get_body_module_mut() {
+                let _ = body.set_initial_health(initial_health);
             }
         }
 
@@ -176,27 +170,23 @@ impl Object {
         if let Some(attitude_val) =
             get_int(crate::common::well_known_keys::key_object_aggressiveness())
         {
-            if let Some(ai) = self.get_ai_update_interface() {
-                if let Ok(mut guard) = ai.lock() {
-                    let attitude = match attitude_val {
-                        -2 => AIAttitudeType::Sleep,
-                        -1 => AIAttitudeType::Passive,
-                        1 => AIAttitudeType::Defensive,
-                        2 => AIAttitudeType::Aggressive,
-                        _ => AIAttitudeType::Normal,
-                    };
-                    let _ = guard.set_attitude(attitude);
-                }
+            if let Some(ai) = self.get_ai_update_interface_mut() {
+                let attitude = match attitude_val {
+                    -2 => AIAttitudeType::Sleep,
+                    -1 => AIAttitudeType::Passive,
+                    1 => AIAttitudeType::Defensive,
+                    2 => AIAttitudeType::Aggressive,
+                    _ => AIAttitudeType::Normal,
+                };
+                let _ = ai.set_attitude(attitude);
             }
         }
 
         if let Some(recruitable) =
             get_bool(crate::common::well_known_keys::key_object_recruitable_ai())
         {
-            if let Some(ai) = self.get_ai_update_interface() {
-                if let Ok(mut guard) = ai.lock() {
-                    guard.set_is_recruitable(recruitable);
-                }
+            if let Some(ai) = self.get_ai_update_interface_mut() {
+                ai.set_is_recruitable(recruitable);
             }
         }
 
@@ -212,11 +202,9 @@ impl Object {
         {
             if stop_dist >= 0.5 {
                 if let Some(ai) = self.get_ai_update_interface() {
-                    if let Ok(ai_guard) = ai.lock() {
-                        ai_guard.with_cur_locomotor(&mut |loco| {
-                            loco.set_close_enough_dist(stop_dist);
-                        });
-                    }
+                    ai.with_cur_locomotor(&mut |loco| {
+                        loco.set_close_enough_dist(stop_dist);
+                    });
                 }
             }
         }
@@ -232,10 +220,8 @@ impl Object {
         if let Some(indestructible) =
             get_bool(crate::common::well_known_keys::key_object_indestructible())
         {
-            if let Some(body) = self.get_body_module() {
-                if let Ok(mut guard) = body.lock() {
-                    let _ = guard.set_indestructible(indestructible);
-                }
+            if let Some(body) = self.get_body_module_mut() {
+                let _ = body.set_indestructible(indestructible);
             }
         }
 
@@ -510,8 +496,7 @@ impl Object {
     /// C++ Reference: Object.cpp - getGoalObject()
     pub fn get_goal_object_id(&self) -> Option<ObjectID> {
         let ai = self.ai.as_ref()?;
-        let guard = ai.lock().ok()?;
-        let id = guard.get_goal_object_id();
+        let id = ai.get_goal_object_id();
         if id != INVALID_ID { Some(id) } else { None }
     }
 
@@ -574,22 +559,15 @@ impl Object {
         let Some(ai) = self.ai.as_ref() else {
             return;
         };
-        let Ok(guard) = ai.lock() else {
-            return;
-        };
-        guard.with_cur_locomotor(f);
+        ai.with_cur_locomotor(f);
     }
 
     /// C++ ControlBarCommand.cpp:1140 `dozerAI->isTaskPending(DOZER_TASK_BUILD)`.
-    pub fn is_dozer_task_pending(&self) -> bool {
-        let Some(ai) = self.get_ai_update_interface() else {
+    pub fn is_dozer_task_pending(&mut self) -> bool {
+        let Some(ai) = self.get_ai_update_interface_mut() else {
             return false;
         };
-        let Ok(mut guard) = ai.lock() else {
-            return false;
-        };
-        guard
-            .get_dozer_ai_update_interface_mut()
+        ai.get_dozer_ai_update_interface_mut()
             .is_some_and(|dozer| {
                 dozer.is_task_pending(
                     crate::object::update::ai_update::dozer_ai_update::DozerTask::Build,
@@ -600,11 +578,7 @@ impl Object {
     /// C++ parity: Object::hasContainedObjects()
     pub fn has_contained_objects(&self) -> bool {
         self.get_contain()
-            .map(|c| {
-                c.lock()
-                    .map(|guard| guard.get_contain_count() > 0)
-                    .unwrap_or(false)
-            })
+            .map(|c| c.get_contain_count() > 0)
             .unwrap_or(false)
     }
 
@@ -880,11 +854,7 @@ impl Object {
             {
                 if let Ok(guard) = container.try_read() {
                     if let Some(contain) = guard.get_contain() {
-                        if let Ok(contain_guard) = contain.try_lock() {
-                            contain_guard.is_enclosing_container_for(self)
-                        } else {
-                            true
-                        }
+                        contain.is_enclosing_container_for(self)
                     } else {
                         true
                     }
@@ -981,18 +951,17 @@ impl Object {
 
         enum SlotLook {
             Normal,
-            Busy,
             Riders(Vec<ObjectID>),
         }
         let look = self
             .contain
             .as_ref()
-            .map(|contain| match contain.try_lock() {
-                Ok(guard) if guard.is_special_zero_slot_container() => {
-                    SlotLook::Riders(guard.get_contained_objects().into_owned())
+            .map(|contain| {
+                if contain.is_special_zero_slot_container() {
+                    SlotLook::Riders(contain.get_contained_objects().into_owned())
+                } else {
+                    SlotLook::Normal
                 }
-                Ok(_) => SlotLook::Normal,
-                Err(_) => SlotLook::Busy,
             })
             .unwrap_or(SlotLook::Normal);
         match look {
@@ -1008,7 +977,7 @@ impl Object {
                     }
                 }
             }
-            SlotLook::Busy | SlotLook::Normal => {}
+            SlotLook::Normal => {}
         }
 
         count

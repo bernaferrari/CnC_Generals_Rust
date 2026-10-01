@@ -558,10 +558,22 @@ impl UpdateModuleInterface for HordeUpdate {
         {
             self.last_horde_refresh_frame = current_frame;
             self.check_horde_status();
-            if let Some(ai) = obj.get_ai_update_interface() {
-                let _ = ai.lock().map(|mut ai| ai.evaluate_morale_bonus());
+            drop(obj);
+            // evaluateMoraleBonus needs &mut AI access: run it under a
+            // short-lived write guard, still ahead of the icon pass below as
+            // in the pre-migration order.
+            if let Ok(mut obj_mut) = object_arc.write() {
+                if let Some(ai) = obj_mut.get_ai_update_interface_mut() {
+                    let _ = ai.evaluate_morale_bonus();
+                }
             }
+        } else {
+            drop(obj);
         }
+
+        let Ok(obj) = object_arc.read() else {
+            return UpdateSleepTime::Forever;
+        };
 
         if let Some(drawable) = obj.get_drawable() {
             if !obj.is_effectively_dead() {

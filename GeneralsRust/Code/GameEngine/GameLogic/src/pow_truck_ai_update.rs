@@ -464,32 +464,31 @@ impl POWTruckAIUpdate {
             return Ok(());
         }
 
-        let contain = owner_arc.read().ok().and_then(|guard| guard.get_contain());
-        let Some(contain) = contain else {
-            return Ok(());
-        };
-
-        if let Ok(contain_guard) = contain.lock() {
-            if contain_guard.get_contained_count() == contain_guard.get_max_capacity() {
-                drop(contain_guard);
-                if let Some(prison_id) = self.find_best_prison(self.owner_id) {
-                    self.set_task(POWTruckTask::ReturningPrisoners, Some(prison_id));
-                } else {
-                    self.set_task(POWTruckTask::Waiting, None);
-                }
+        let full = {
+            let Ok(mut owner_guard) = owner_arc.write() else {
                 return Ok(());
+            };
+            let Some(contain) = owner_guard.get_contain_mut() else {
+                return Ok(());
+            };
+            let full = contain.get_contained_count() == contain.get_max_capacity();
+            if !full {
+                let _ = contain.contain_object(prisoner_id);
             }
+            full
+        };
+        if full {
+            if let Some(prison_id) = self.find_best_prison(self.owner_id) {
+                self.set_task(POWTruckTask::ReturningPrisoners, Some(prison_id));
+            } else {
+                self.set_task(POWTruckTask::Waiting, None);
+            }
+            return Ok(());
         }
 
-        let _ = contain
-            .lock()
-            .map(|mut guard| guard.contain_object(prisoner_id));
-
-        if let Ok(prisoner_guard) = prisoner_arc.read() {
-            if let Some(prisoner_ai) = prisoner_guard.get_ai_update_interface() {
-                if let Ok(mut ai_guard) = prisoner_ai.lock() {
-                    ai_guard.set_surrendered(None, false);
-                }
+        if let Ok(mut prisoner_guard) = prisoner_arc.write() {
+            if let Some(prisoner_ai) = prisoner_guard.get_ai_update_interface_mut() {
+                prisoner_ai.set_surrendered(None, false);
             }
         }
 
@@ -667,15 +666,14 @@ impl POWTruckAIUpdate {
             return Ok(());
         };
 
-        if let Some(contain) = owner_guard.get_contain() {
-            if let Ok(contain_guard) = contain.lock() {
-                if contain_guard.get_contained_count() == contain_guard.get_max_capacity() {
-                    drop(contain_guard);
-                    drop(owner_guard);
-                    self.do_return_prisoners(owner_id, ai)?;
-                    return Ok(());
-                }
-            }
+        let is_full = owner_guard
+            .get_contain()
+            .map(|contain| contain.get_contained_count() == contain.get_max_capacity())
+            .unwrap_or(false);
+        if is_full {
+            drop(owner_guard);
+            self.do_return_prisoners(owner_id, ai)?;
+            return Ok(());
         }
 
         drop(owner_guard);
@@ -686,8 +684,7 @@ impl POWTruckAIUpdate {
             let has_prisoners = owner_arc
                 .read()
                 .ok()
-                .and_then(|guard| guard.get_contain())
-                .and_then(|contain| contain.lock().ok().map(|c| c.get_contained_count() > 0))
+                .and_then(|guard| guard.get_contain().map(|c| c.get_contained_count() > 0))
                 .unwrap_or(false);
             if has_prisoners {
                 self.do_return_prisoners(owner_id, ai)?;
@@ -873,11 +870,7 @@ impl POWTruckAIUpdate {
         let owner_guard = owner_arc.read().ok()?;
         let owner_pos = *owner_guard.get_position();
         let owner_ai = owner_guard.get_ai_update_interface();
-        let loco_set = owner_ai.as_ref().and_then(|ai| {
-            ai.lock()
-                .ok()
-                .and_then(|guard| guard.get_locomotor_set_clone())
-        });
+        let loco_set = owner_ai.and_then(|ai| ai.get_locomotor_set_clone());
 
         let mut closest_target: Option<ObjectID> = None;
         let mut closest_dist_sq: Real = Real::MAX;
@@ -912,9 +905,7 @@ impl POWTruckAIUpdate {
             };
             let dest = *obj_guard.get_position();
             let quick_ok = owner_ai
-                .as_ref()
-                .and_then(|ai| ai.lock().ok())
-                .map(|guard| guard.is_quick_path_available(&dest))
+                .map(|ai| ai.is_quick_path_available(&dest))
                 .unwrap_or(false);
             if !quick_ok {
                 continue;
@@ -1008,37 +999,33 @@ impl POWTruckAIUpdateInterface for POWTruckAIUpdate {
         let Some(owner_arc) = TheGameLogic::find_object_by_id(self.owner_id) else {
             return;
         };
-        let owner_guard = owner_arc
-            .read()
-            .map_err(|_| "pow truck owner lock poisoned");
-        let Ok(owner_guard) = owner_guard else {
-            return;
-        };
-        let Some(truck_contain) = owner_guard.get_contain() else {
-            return;
+        // Phase 1 (owner read): snapshot the prisoners before releasing them.
+        let prisoner_ids: Vec<ObjectID> = {
+            let Ok(owner_guard) = owner_arc.read() else {
+                return;
+            };
+            match owner_guard.get_contain() {
+                Some(contain) => contain.get_contained_objects().to_vec(),
+                None => return,
+            }
         };
 
         let mut bounty: u32 = 0;
-        let prisoner_ids: Vec<ObjectID> = truck_contain
-            .lock()
-            .map(|contain| contain.get_contained_objects().into_owned())
-            .unwrap_or_default();
-
         for prisoner_id in prisoner_ids {
             let prisoner_arc = TheGameLogic::find_object_by_id(prisoner_id);
             let Some(prisoner_arc) = prisoner_arc else {
                 continue;
             };
 
-            let _ = truck_contain
-                .lock()
-                .map(|mut contain| contain.release_object(prisoner_id));
+            if let Ok(mut owner_guard) = owner_arc.write() {
+                if let Some(contain) = owner_guard.get_contain_mut() {
+                    let _ = contain.release_object(prisoner_id);
+                }
+            }
 
-            if let Ok(prison_guard) = prison.write() {
-                if let Some(prison_contain) = prison_guard.get_contain() {
-                    let _ = prison_contain
-                        .lock()
-                        .map(|mut contain| contain.contain_object(prisoner_id));
+            if let Ok(mut prison_guard) = prison.write() {
+                if let Some(prison_contain) = prison_guard.get_contain_mut() {
+                    let _ = prison_contain.contain_object(prisoner_id);
                 }
             }
 
@@ -1050,6 +1037,10 @@ impl POWTruckAIUpdateInterface for POWTruckAIUpdate {
                 bounty = bounty.saturating_add((multiplier * cost) as u32);
             };
         }
+
+        let Ok(owner_guard) = owner_arc.read() else {
+            return;
+        };
 
         if let Ok(prison_guard) = prison.read() {
             if prison_guard.is_kind_of(crate::common::KindOf::CollectsPrisonBounty) && bounty > 0 {

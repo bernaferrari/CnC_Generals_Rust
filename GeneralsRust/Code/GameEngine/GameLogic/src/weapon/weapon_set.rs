@@ -1155,6 +1155,30 @@ impl WeaponSet {
         }
     }
 
+    /// Detach the waypoint-following-capable weapon (same reverse-slot
+    /// selection as `find_waypoint_following_capable_weapon`) so it can be
+    /// fired while the owning object's write guard is released — the fire
+    /// cascade re-reads the source object from the registry. Restore with
+    /// `restore_waypoint_following_weapon`.
+    pub fn take_waypoint_following_capable_weapon(&mut self) -> Option<(usize, Weapon)> {
+        for slot_idx in (0..crate::common::WEAPONSLOT_COUNT).rev() {
+            if let Some(weapon) = &self.weapons[slot_idx] {
+                if weapon.get_template().capable_of_following_waypoint {
+                    return self.weapons[slot_idx].take().map(|w| (slot_idx, w));
+                }
+            }
+        }
+        None
+    }
+
+    /// Restore a weapon detached by `take_waypoint_following_capable_weapon`
+    /// into its original slot (no-op if the slot was refilled meanwhile).
+    pub fn restore_waypoint_following_weapon(&mut self, slot_idx: usize, weapon: Weapon) {
+        if slot_idx < self.weapons.len() && self.weapons[slot_idx].is_none() {
+            self.weapons[slot_idx] = Some(weapon);
+        }
+    }
+
     /// Find weapon that shows ammo pips
     pub fn find_ammo_pip_showing_weapon(&self) -> Option<&Weapon> {
         for weapon_opt in &self.weapons {

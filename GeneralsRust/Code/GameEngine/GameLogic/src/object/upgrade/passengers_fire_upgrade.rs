@@ -164,25 +164,14 @@ fn apply_passengers_fire(object_id: ObjectID) -> bool {
         return false;
     }
 
-    let Some(contain) =
-        OBJECT_REGISTRY.with_object(object_id, |object_guard| object_guard.get_contain())
-    else {
+    let Some(()) = OBJECT_REGISTRY.with_object_mut(object_id, |object_guard| {
+        if let Some(contain) = object_guard.get_contain_mut() {
+            contain.set_passenger_allowed_to_fire(true);
+        }
+    }) else {
         log::warn!("PassengersFireUpgrade: Object {} not found", object_id);
         return true;
     };
-
-    let Some(contain) = contain else {
-        return true;
-    };
-
-    if let Ok(mut contain_guard) = contain.lock() {
-        contain_guard.set_passenger_allowed_to_fire(true);
-    } else {
-        log::warn!(
-            "PassengersFireUpgrade: Failed to lock contain module for object {}",
-            object_id
-        );
-    }
 
     true
 }

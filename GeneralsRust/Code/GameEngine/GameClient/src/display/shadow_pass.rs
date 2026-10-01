@@ -496,8 +496,12 @@ struct ShadowPassGpu {
     bind_group_layout: wgpu::BindGroupLayout,
 }
 
+// SAFETY: compiled only for wasm32, where the client executes on a single
+// thread, so the wgpu pipeline/layout handles cannot be accessed
+// concurrently; native builds never use these impls.
 #[cfg(target_arch = "wasm32")]
 unsafe impl Send for ShadowPassGpu {}
+// SAFETY: same single-threaded wasm32 invariant as the Send impl above.
 #[cfg(target_arch = "wasm32")]
 unsafe impl Sync for ShadowPassGpu {}
 const VOLUME_VERTEX_ATTRS: [wgpu::VertexAttribute; 1] = wgpu::vertex_attr_array![0 => Float32x3];

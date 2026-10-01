@@ -421,14 +421,12 @@ impl Weapon {
                 // C++ Weapon.cpp:2495-2506 — beginAssault then continue to normal fire.
                 if let Some(source_obj) = crate::helpers::TheGameLogic::find_object_by_id(source_id)
                 {
-                    if let Ok(source_guard) = source_obj.read() {
-                        if let Some(ai) = source_guard.get_ai() {
-                            if let Ok(mut ai_guard) = ai.lock() {
-                                if let Some(assault) =
-                                    ai_guard.get_assault_transport_ai_update_interface()
-                                {
-                                    assault.begin_assault(target_id);
-                                }
+                    if let Ok(mut source_guard) = source_obj.write() {
+                        if let Some(ai_guard) = source_guard.get_ai_mut() {
+                            if let Some(assault) =
+                                ai_guard.get_assault_transport_ai_update_interface()
+                            {
+                                assault.begin_assault(target_id);
                             }
                         }
                     }
@@ -1671,15 +1669,7 @@ impl Snapshotable for Weapon {
             .map_err(|e| e.to_string())?;
 
         let mut wslot = snap.wslot;
-        // SAFETY: `wslot` is an initialized stack `i32`; `xfer_user` moves
-        // exactly `size_of::<i32>()` bytes within this call.
-        unsafe {
-            xfer.xfer_user(
-                (&mut wslot as *mut i32).cast::<u8>(),
-                std::mem::size_of::<i32>(),
-            )
-        }
-        .map_err(|e| e.to_string())?;
+        xfer.xfer_int(&mut wslot).map_err(|e| e.to_string())?;
 
         let mut ammo = snap.ammo_in_clip;
         xfer.xfer_unsigned_int(&mut ammo)
@@ -1762,15 +1752,7 @@ impl Snapshotable for Weapon {
 
         // Weapon slot
         let mut wslot = self.wslot as i32;
-        // SAFETY: `wslot` is an initialized stack `i32`; `xfer_user` moves
-        // exactly `size_of::<i32>()` bytes within this call.
-        unsafe {
-            xfer.xfer_user(
-                (&mut wslot as *mut i32).cast::<u8>(),
-                std::mem::size_of::<i32>(),
-            )
-        }
-        .map_err(|e| e.to_string())?;
+        xfer.xfer_int(&mut wslot).map_err(|e| e.to_string())?;
         if xfer.is_reading() {
             self.wslot = match wslot {
                 1 => WeaponSlotType::Secondary,
@@ -1781,15 +1763,7 @@ impl Snapshotable for Weapon {
 
         // Status
         let mut status = self.status as i32;
-        // SAFETY: `status` is an initialized stack `i32`; `xfer_user` moves
-        // exactly `size_of::<i32>()` bytes within this call.
-        unsafe {
-            xfer.xfer_user(
-                (&mut status as *mut i32).cast::<u8>(),
-                std::mem::size_of::<i32>(),
-            )
-        }
-        .map_err(|e| e.to_string())?;
+        xfer.xfer_int(&mut status).map_err(|e| e.to_string())?;
         if xfer.is_reading() {
             self.status = match status {
                 0 => WeaponStatus::ReadyToFire,

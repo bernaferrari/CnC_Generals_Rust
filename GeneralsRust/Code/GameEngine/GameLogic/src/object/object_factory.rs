@@ -693,7 +693,7 @@ impl ObjectFactory {
                     let ai_update_module_data = ai_update_module_data
                         .or_else(|| wander_ai_module_data.as_ref().map(|data| data.base.clone()));
 
-                    let ai_update = Arc::new(Mutex::new(UnitAIUpdate::new(
+                    let mut ai_update = Box::new(UnitAIUpdate::new(
                         object_id,
                         supply_ai,
                         chinook_ai,
@@ -709,16 +709,14 @@ impl ObjectFactory {
                         transport_ai,
                         deploy_style_ai,
                         wander_ai,
-                    )));
+                    ));
 
                     if let Some(data) = ai_update_module_data {
-                        if let Ok(mut ai_guard) = ai_update.lock() {
-                            ai_guard.apply_ai_update_module_data(&data);
-                        }
+                        ai_update.apply_ai_update_module_data(&data);
                     }
                     if let Ok(mut obj_guard) = base_object.write() {
-                        obj_guard.set_ai_update_interface(Some(ai_update.clone()));
-                        obj_guard.attach_ai_update_to_module(ai_update);
+                        obj_guard.set_ai_update_interface(Some(ai_update));
+                        obj_guard.attach_ai_update_to_module();
                     }
                 }
 

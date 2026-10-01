@@ -92,8 +92,7 @@ impl GameStateMap {
     pub fn embed_pristine_map<X: Xfer>(&self, map_path: &Path, xfer: &mut X) -> io::Result<()> {
         let mut bytes = fs::read(map_path)?;
         xfer.begin_block().map_err(map_xfer_error)?;
-        // SAFETY: bytes was just allocated with valid data
-        unsafe { xfer.xfer_user(bytes.as_mut_ptr(), bytes.len())? };
+        xfer.xfer_user_bytes(&mut bytes)?;
         xfer.end_block().map_err(map_xfer_error)?;
         Ok(())
     }
@@ -115,8 +114,7 @@ impl GameStateMap {
 
         let mut bytes = vec![0u8; size as usize];
         if !bytes.is_empty() {
-            // SAFETY: bytes was just allocated with size elements
-            unsafe { xfer.xfer_user(bytes.as_mut_ptr(), bytes.len())? };
+            xfer.xfer_user_bytes(&mut bytes)?;
         }
         xfer.end_block().map_err(map_xfer_error)?;
 

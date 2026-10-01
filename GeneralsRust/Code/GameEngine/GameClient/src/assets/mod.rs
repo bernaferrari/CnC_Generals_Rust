@@ -358,8 +358,12 @@ pub struct AssetManager {
     shutdown_notify: Arc<Notify>,
 }
 
+// SAFETY: compiled only for wasm32, where the client executes on a single
+// thread (no std::thread workers), so the JS/GPU handles inside cannot be
+// accessed concurrently; native builds never use these impls.
 #[cfg(target_arch = "wasm32")]
 unsafe impl Send for AssetManager {}
+// SAFETY: same single-threaded wasm32 invariant as the Send impl above.
 #[cfg(target_arch = "wasm32")]
 unsafe impl Sync for AssetManager {}
 

@@ -14,7 +14,7 @@ use crate::common::{
 };
 use crate::helpers::{TheGameLogic, TheParticleSystemManager, ThePartitionManager};
 use crate::modules::{
-    AIUpdateInterfaceExt, BehaviorModuleInterface, UpdateModuleInterface, UpdateSleepTime,
+    BehaviorModuleInterface, UpdateModuleInterface, UpdateSleepTime,
 };
 use crate::object::behavior::auto_heal_behavior::parse_kind_of_mask;
 use crate::object::behavior::behavior_module::BehaviorModuleData;

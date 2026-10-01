@@ -328,13 +328,16 @@ impl AudioEventSystem {
     pub fn fire_event(&self, event: AudioEvent) {
         trace!("Firing audio event: {:?}", event);
 
-        let mut state = self.state.lock();
-
-        // Add to event queue
-        state.event_queue.push(event.clone());
-
-        // Call all registered callbacks
-        for callback in state.callbacks.values() {
+        // Queue the event and snapshot the callbacks under the lock, then
+        // invoke them with the lock released: a callback that registers or
+        // unregisters callbacks (or fires another event) would otherwise
+        // re-enter this non-reentrant parking_lot Mutex and deadlock.
+        let callbacks: Vec<_> = {
+            let mut state = self.state.lock();
+            state.event_queue.push(event.clone());
+            state.callbacks.values().cloned().collect()
+        };
+        for callback in &callbacks {
             callback(&event);
         }
     }

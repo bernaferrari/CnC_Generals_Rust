@@ -245,7 +245,7 @@ pub enum EconomicEvent {
 /// Main economy manager
 pub struct EconomyManager {
     /// Player resource storage
-    player_resources: HashMap<u32, Arc<RwLock<ResourceStorage>>>,
+    player_resources: HashMap<u32, ResourceStorage>,
     /// Economic buildings by player
     player_buildings: HashMap<u32, Vec<EconomicBuilding>>,
     /// Supply lines by player
@@ -259,7 +259,7 @@ pub struct EconomyManager {
     /// Market prices for trading
     market_prices: HashMap<ResourceType, f32>,
     /// Player supply managers (new supply system integration)
-    player_supply_managers: HashMap<u32, Arc<RwLock<PlayerSupplyManager>>>,
+    player_supply_managers: HashMap<u32, PlayerSupplyManager>,
 }
 
 impl std::fmt::Debug for EconomyManager {
@@ -292,37 +292,27 @@ impl EconomyManager {
     }
 
     /// Get or create player supply manager
-    pub fn get_player_supply_manager(
-        &mut self,
-        player_id: u32,
-    ) -> Arc<RwLock<PlayerSupplyManager>> {
+    pub fn get_player_supply_manager(&mut self, player_id: u32) -> &mut PlayerSupplyManager {
         self.player_supply_managers
             .entry(player_id)
-            .or_insert_with(|| Arc::new(RwLock::new(PlayerSupplyManager::new(player_id, 10000))))
-            .clone()
+            .or_insert_with(|| PlayerSupplyManager::new(player_id, 10000))
     }
 
     /// Get player's money (new supply system)
-    pub fn get_player_money(&mut self, player_id: u32) -> Option<Arc<RwLock<Money>>> {
-        if let Some(manager) = self.player_supply_managers.get(&player_id) {
-            if let Ok(mgr) = manager.read() {
-                return Some(mgr.get_money());
-            }
-        }
-        None
+    pub fn get_player_money(&mut self, player_id: u32) -> Option<&Money> {
+        self.player_supply_managers
+            .get(&player_id)
+            .map(|mgr| mgr.get_money())
     }
 
     /// Get player's resource gathering manager (new supply system)
     pub fn get_player_resource_manager(
         &mut self,
         player_id: u32,
-    ) -> Option<Arc<RwLock<ResourceGatheringManager>>> {
-        if let Some(manager) = self.player_supply_managers.get(&player_id) {
-            if let Ok(mgr) = manager.read() {
-                return Some(mgr.get_resource_manager());
-            }
-        }
-        None
+    ) -> Option<&ResourceGatheringManager> {
+        self.player_supply_managers
+            .get(&player_id)
+            .map(|mgr| mgr.get_resource_manager())
     }
 
     /// Initialize a player's economy
@@ -361,8 +351,7 @@ impl EconomyManager {
             upkeep_costs,
         };
 
-        self.player_resources
-            .insert(player_id, Arc::new(RwLock::new(resource_storage)));
+        self.player_resources.insert(player_id, resource_storage);
         self.player_buildings.insert(player_id, Vec::new());
         self.player_supply_lines.insert(player_id, Vec::new());
         self.player_metrics
@@ -385,10 +374,7 @@ impl EconomyManager {
         }
 
         let player_key = player_id.as_u32();
-        let resources_arc = if let Some(existing) = self.player_resources.get(&player_key).cloned()
-        {
-            existing
-        } else {
+        if self.player_resources.get(&player_key).is_none() {
             let list_guard = crate::player::ThePlayerList()
                 .read()
                 .map_err(|_| GameLogicError::SystemNotInitialized("PlayerList".to_string()))?;
@@ -405,51 +391,55 @@ impl EconomyManager {
                 (current_money as i64).min(i32::MAX as i64) as i32,
             );
             self.initialize_player_economy(player_key, starting_resources)?;
-            self.player_resources
-                .get(&player_key)
-                .cloned()
-                .ok_or_else(|| GameLogicError::InvalidObject(player_key))?
-        };
-
-        let mut storage = resources_arc.write().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to acquire resource lock: {}", e))
-        })?;
+        }
 
         let mut _actual_delta = 0;
-        if amount > 0 {
-            let cap = storage
-                .storage_capacity
-                .get(&ResourceType::Money)
-                .copied()
-                .unwrap_or(i32::MAX);
-            let entry = storage.resources.entry(ResourceType::Money).or_insert(0);
-            let original = *entry;
-            let updated = entry.saturating_add(amount).min(cap);
-            *entry = updated;
-            let actual_added = updated.saturating_sub(original);
-            _actual_delta = actual_added;
-            if actual_added > 0 {
-                self.log_economic_event(EconomicEvent::IncomeReceived {
-                    resource_type: ResourceType::Money,
-                    amount: actual_added,
-                    source,
-                });
+        let mut pending_event: Option<EconomicEvent> = None;
+        let current_money;
+        {
+            let storage = self
+                .player_resources
+                .get_mut(&player_key)
+                .ok_or_else(|| GameLogicError::InvalidObject(player_key))?;
+
+            if amount > 0 {
+                let cap = storage
+                    .storage_capacity
+                    .get(&ResourceType::Money)
+                    .copied()
+                    .unwrap_or(i32::MAX);
+                let entry = storage.resources.entry(ResourceType::Money).or_insert(0);
+                let original = *entry;
+                let updated = entry.saturating_add(amount).min(cap);
+                *entry = updated;
+                let actual_added = updated.saturating_sub(original);
+                _actual_delta = actual_added;
+                if actual_added > 0 {
+                    pending_event = Some(EconomicEvent::IncomeReceived {
+                        resource_type: ResourceType::Money,
+                        amount: actual_added,
+                        source,
+                    });
+                }
+            } else {
+                let entry = storage.resources.entry(ResourceType::Money).or_insert(0);
+                let spend = amount.abs();
+                let actual_spent = (*entry).min(spend);
+                *entry = (*entry).saturating_sub(actual_spent);
+                _actual_delta = -(actual_spent as i32);
+                if actual_spent > 0 {
+                    pending_event = Some(EconomicEvent::ResourceSpent {
+                        resource_type: ResourceType::Money,
+                        amount: actual_spent,
+                        purpose: spend_purpose.unwrap_or_else(|| "Unspecified spend".to_string()),
+                    });
+                }
             }
-        } else {
-            let entry = storage.resources.entry(ResourceType::Money).or_insert(0);
-            let spend = amount.abs();
-            let actual_spent = (*entry).min(spend);
-            *entry = (*entry).saturating_sub(actual_spent);
-            _actual_delta = -(actual_spent as i32);
-            if actual_spent > 0 {
-                self.log_economic_event(EconomicEvent::ResourceSpent {
-                    resource_type: ResourceType::Money,
-                    amount: actual_spent,
-                    purpose: spend_purpose.unwrap_or_else(|| "Unspecified spend".to_string()),
-                });
-            }
+            current_money = *storage.resources.get(&ResourceType::Money).unwrap_or(&0);
         }
-        let current_money = *storage.resources.get(&ResourceType::Money).unwrap_or(&0);
+        if let Some(event) = pending_event {
+            self.log_economic_event(event);
+        }
 
         if _actual_delta != 0 {
             if let Ok(list) = crate::player::ThePlayerList().read() {
@@ -506,11 +496,9 @@ impl EconomyManager {
 
     /// Update player resource income
     fn update_player_income(&mut self, player_id: u32, delta_time: f32) -> GameLogicResult<()> {
-        let resources_arc = self
-            .player_resources
-            .get(&player_id)
-            .ok_or_else(|| GameLogicError::InvalidObject(player_id))?
-            .clone();
+        if !self.player_resources.contains_key(&player_id) {
+            return Err(GameLogicError::InvalidObject(player_id));
+        }
 
         // Calculate total income from all sources.
         let empty_buildings = Vec::new();
@@ -543,10 +531,12 @@ impl EconomyManager {
             }
         }
 
+        let mut income_events: Vec<EconomicEvent> = Vec::new();
         {
-            let mut resources = resources_arc.write().map_err(|e| {
-                GameLogicError::Threading(format!("Failed to acquire resource lock: {}", e))
-            })?;
+            let resources = self
+                .player_resources
+                .get_mut(&player_id)
+                .ok_or_else(|| GameLogicError::InvalidObject(player_id))?;
 
             // Apply non-money income and check storage limits.
             for (resource_type, source, amount) in income_entries
@@ -565,7 +555,7 @@ impl EconomyManager {
                 resources.resources.insert(*resource_type, new_amount);
 
                 if actual_added > 0 {
-                    self.log_economic_event(EconomicEvent::IncomeReceived {
+                    income_events.push(EconomicEvent::IncomeReceived {
                         resource_type: *resource_type,
                         amount: actual_added,
                         source: *source,
@@ -602,6 +592,9 @@ impl EconomyManager {
                     resources.resources.insert(resource_type, new_amount);
                 }
             }
+        }
+        for event in income_events {
+            self.log_economic_event(event);
         }
 
         // Apply money income via add_credits to keep player money in sync.
@@ -676,11 +669,7 @@ impl EconomyManager {
         }
 
         // Update resource storage with power information
-        if let Some(resources_arc) = self.player_resources.get(&player_id) {
-            let mut resources = resources_arc.write().map_err(|e| {
-                GameLogicError::Threading(format!("Failed to acquire resource lock: {}", e))
-            })?;
-
+        if let Some(resources) = self.player_resources.get_mut(&player_id) {
             resources
                 .resources
                 .insert(ResourceType::Power, total_power_generation as i32);
@@ -743,28 +732,27 @@ impl EconomyManager {
     }
     /// Calculate economic metrics for a player
     fn calculate_economic_metrics(&mut self, player_id: u32) -> GameLogicResult<()> {
-        let resources_arc = self
-            .player_resources
-            .get(&player_id)
-            .ok_or_else(|| GameLogicError::InvalidObject(player_id))?
-            .clone();
-
-        let resources = resources_arc.read().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to acquire resource lock: {}", e))
-        })?;
+        let (income_rates, upkeep_costs) = {
+            let resources = self
+                .player_resources
+                .get(&player_id)
+                .ok_or_else(|| GameLogicError::InvalidObject(player_id))?;
+            (resources.income_rates.clone(), resources.upkeep_costs.clone())
+        };
 
         let mut metrics = EconomicMetrics::default();
 
         // Calculate income and expenses per minute
-        for (&resource_type, &rate) in &resources.income_rates {
+        for (&resource_type, &rate) in &income_rates {
             metrics.income_per_minute.insert(resource_type, rate * 60.0);
         }
 
-        for (&resource_type, &rate) in &resources.upkeep_costs {
+        for (&resource_type, &rate) in &upkeep_costs {
             metrics
                 .expenses_per_minute
                 .insert(resource_type, rate * 60.0);
         }
+
 
         // Calculate net income
         for (&resource_type, &income) in &metrics.income_per_minute {
@@ -875,43 +863,40 @@ impl EconomyManager {
         costs: HashMap<ResourceType, i32>,
         purpose: String,
     ) -> GameLogicResult<bool> {
-        let resources_arc = self
-            .player_resources
-            .get(&player_id)
-            .ok_or_else(|| GameLogicError::InvalidObject(player_id))?
-            .clone();
+        {
+            let resources = self
+                .player_resources
+                .get_mut(&player_id)
+                .ok_or_else(|| GameLogicError::InvalidObject(player_id))?;
 
-        let mut resources = resources_arc.write().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to acquire resource lock: {}", e))
-        })?;
-
-        // Check if player has enough resources
-        for (&resource_type, &cost) in &costs {
-            let available = resources
-                .resources
-                .get(&resource_type)
-                .copied()
-                .unwrap_or(0);
-            if available < cost {
-                return Ok(false); // Not enough resources
+            // Check if player has enough resources
+            for (&resource_type, &cost) in &costs {
+                let available = resources
+                    .resources
+                    .get(&resource_type)
+                    .copied()
+                    .unwrap_or(0);
+                if available < cost {
+                    return Ok(false); // Not enough resources
+                }
             }
-        }
 
-        // Deduct resources
-        for (&resource_type, &cost) in &costs {
-            let current = resources
-                .resources
-                .get(&resource_type)
-                .copied()
-                .unwrap_or(0);
-            resources.resources.insert(resource_type, current - cost);
+            // Deduct resources
+            for (&resource_type, &cost) in &costs {
+                let current = resources
+                    .resources
+                    .get(&resource_type)
+                    .copied()
+                    .unwrap_or(0);
+                resources.resources.insert(resource_type, current - cost);
 
-            // Log expense
-            self.log_economic_event(EconomicEvent::ResourceSpent {
-                resource_type,
-                amount: cost,
-                purpose: purpose.clone(),
-            });
+                // Log expense
+                self.log_economic_event(EconomicEvent::ResourceSpent {
+                    resource_type,
+                    amount: cost,
+                    purpose: purpose.clone(),
+                });
+            }
         }
 
         Ok(true)
@@ -922,14 +907,10 @@ impl EconomyManager {
         &self,
         player_id: u32,
     ) -> GameLogicResult<HashMap<ResourceType, i32>> {
-        let resources_arc = self
+        let resources = self
             .player_resources
             .get(&player_id)
             .ok_or_else(|| GameLogicError::InvalidObject(player_id))?;
-
-        let resources = resources_arc.read().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to acquire resource lock: {}", e))
-        })?;
 
         Ok(resources.resources.clone())
     }

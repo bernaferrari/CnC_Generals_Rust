@@ -646,11 +646,8 @@ fn write_game_state_map_block<W: Write + Seek>(
     xfer.begin_block()
         .map_err(|e| SaveLoadError::Serialization(format!("{e:?}")))?;
     if !map_bytes.is_empty() {
-        // SAFETY: buffer lives for the xfer_user call.
-        unsafe {
-            xfer.xfer_user(map_bytes.as_mut_ptr(), map_bytes.len())
-                .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
-        }
+        xfer.xfer_user_bytes(&mut map_bytes)
+            .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
     }
     xfer.end_block()
         .map_err(|e| SaveLoadError::Serialization(format!("{e:?}")))?;
@@ -680,11 +677,7 @@ fn extract_embedded_map(payload: &[u8], save_dir: &Path) -> Option<PathBuf> {
         return None;
     }
     let mut buffer = vec![0u8; data_size as usize];
-    // SAFETY: buffer is an owned Vec sized to the map block's data_size;
-    // xfer_user fills exactly buffer.len() bytes.
-    unsafe {
-        xfer.xfer_user(buffer.as_mut_ptr(), buffer.len()).ok()?;
-    }
+    xfer.xfer_user_bytes(&mut buffer).ok()?;
     let _ = xfer.end_block();
     let leaf = map_leaf_name(&save_game_map);
     if leaf.is_empty() {
@@ -1348,11 +1341,8 @@ impl SaveFileManager {
                     CHUNK_GAME_LOGIC => {
                         if !logic_payload.is_empty() {
                             let mut bytes = logic_payload.clone();
-                            // SAFETY: buffer lives for this block write.
-                            unsafe {
-                                xfer.xfer_user(bytes.as_mut_ptr(), bytes.len())
-                                    .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
-                            }
+                            xfer.xfer_user_bytes(&mut bytes)
+                                .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
                         }
                         Ok(())
                     }
@@ -1361,12 +1351,8 @@ impl SaveFileManager {
                         write_null_snapshot_version(xfer)?;
                         if !ghost_bytes.is_empty() {
                             let mut bytes = ghost_bytes.clone();
-                            // SAFETY: bytes is an owned clone; xfer_user
-                            // writes exactly its length during save.
-                            unsafe {
-                                xfer.xfer_user(bytes.as_mut_ptr(), bytes.len())
-                                    .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
-                            }
+                            xfer.xfer_user_bytes(&mut bytes)
+                                .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
                         }
                         Ok(())
                     }
@@ -1375,12 +1361,8 @@ impl SaveFileManager {
                             write_null_snapshot_version(xfer)
                         } else {
                             let mut bytes = game_client_bytes.to_vec();
-                            // SAFETY: owned byte vector of exact
-                            // length handed to the save writer.
-                            unsafe {
-                                xfer.xfer_user(bytes.as_mut_ptr(), bytes.len())
-                                    .map_err(|e| SaveLoadError::Serialization(e.to_string()))
-                            }
+                            xfer.xfer_user_bytes(&mut bytes)
+                                .map_err(|e| SaveLoadError::Serialization(e.to_string()))
                         }
                     }
                     CHUNK_PARTICLE_SYSTEM => {
@@ -1388,12 +1370,8 @@ impl SaveFileManager {
                             write_null_snapshot_version(xfer)
                         } else {
                             let mut bytes = particle_system_bytes.clone();
-                            // SAFETY: owned byte vector of exact length
-                            // handed to the save writer.
-                            unsafe {
-                                xfer.xfer_user(bytes.as_mut_ptr(), bytes.len())
-                                    .map_err(|e| SaveLoadError::Serialization(e.to_string()))
-                            }
+                            xfer.xfer_user_bytes(&mut bytes)
+                                .map_err(|e| SaveLoadError::Serialization(e.to_string()))
                         }
                     }
                     CHUNK_TERRAIN_VISUAL => {
@@ -1401,12 +1379,8 @@ impl SaveFileManager {
                             write_null_snapshot_version(xfer)
                         } else {
                             let mut bytes = terrain_visual_bytes.clone();
-                            // SAFETY: owned byte vector of exact length
-                            // handed to the save writer.
-                            unsafe {
-                                xfer.xfer_user(bytes.as_mut_ptr(), bytes.len())
-                                    .map_err(|e| SaveLoadError::Serialization(e.to_string()))
-                            }
+                            xfer.xfer_user_bytes(&mut bytes)
+                                .map_err(|e| SaveLoadError::Serialization(e.to_string()))
                         }
                     }
                     CHUNK_CAMPAIGN => write_campaign_block(xfer),

@@ -6,9 +6,9 @@
 #[derive(Debug)]
 pub struct PlayerSupplyManager {
     /// Player's money account
-    money: Arc<RwLock<Money>>,
+    money: Money,
     /// Resource gathering manager
-    resource_manager: Arc<RwLock<ResourceGatheringManager>>,
+    resource_manager: ResourceGatheringManager,
     /// Supply box value (can be modified by upgrades)
     supply_box_value: u32,
     /// Player's faction
@@ -34,8 +34,8 @@ impl PlayerSupplyManager {
         faction: Faction,
     ) -> Self {
         Self {
-            money: Arc::new(RwLock::new(Money::new(player_index, starting_money))),
-            resource_manager: Arc::new(RwLock::new(ResourceGatheringManager::new())),
+            money: Money::new(player_index, starting_money),
+            resource_manager: ResourceGatheringManager::new(),
             supply_box_value: BASE_VALUE_PER_SUPPLY_BOX as u32,
             faction,
             supply_piles: Vec::new(),
@@ -45,12 +45,20 @@ impl PlayerSupplyManager {
         }
     }
 
-    pub fn get_money(&self) -> Arc<RwLock<Money>> {
-        Arc::clone(&self.money)
+    pub fn get_money(&self) -> &Money {
+        &self.money
     }
 
-    pub fn get_resource_manager(&self) -> Arc<RwLock<ResourceGatheringManager>> {
-        Arc::clone(&self.resource_manager)
+    pub fn get_money_mut(&mut self) -> &mut Money {
+        &mut self.money
+    }
+
+    pub fn get_resource_manager(&self) -> &ResourceGatheringManager {
+        &self.resource_manager
+    }
+
+    pub fn get_resource_manager_mut(&mut self) -> &mut ResourceGatheringManager {
+        &mut self.resource_manager
     }
 
     pub fn get_supply_box_value(&self) -> u32 {
@@ -171,8 +179,6 @@ impl Snapshotable for SupplyTruckAIUpdate {
         if let Some(state_machine) = &mut self.state_machine {
             state_machine
                 .machine
-                .lock()
-                .map_err(|_| "SupplyTruckStateMachine lock poisoned".to_string())?
                 .xfer(xfer)
                 .map_err(|e| e.to_string())?;
             self.sync_state_from_machine();

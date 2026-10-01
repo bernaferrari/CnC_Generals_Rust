@@ -12,7 +12,7 @@ pub struct GameStateManager {
     // Core components
     save_file_manager: SaveFileManager,
     replay_manager: ReplayManager,
-    campaign_manager: Arc<Mutex<CampaignManager>>,
+    campaign_manager: CampaignManager,
 
     // Game systems to snapshot
     game_logic: Option<Arc<Mutex<GameLogic>>>,
@@ -35,7 +35,7 @@ impl GameStateManager {
         Self {
             save_file_manager: SaveFileManager::new(),
             replay_manager: ReplayManager::new(),
-            campaign_manager: Arc::new(Mutex::new(CampaignManager::new())),
+            campaign_manager: CampaignManager::new(),
 
             game_logic: None,
             command_system: None,
@@ -56,10 +56,7 @@ impl GameStateManager {
         // Initialize sub-managers
         self.save_file_manager.init()?;
         self.replay_manager.init()?;
-        self.campaign_manager
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .init()?;
+        self.campaign_manager.init()?;
 
         log::info!("Game state manager initialized");
         Ok(())
@@ -281,10 +278,10 @@ impl GameStateManager {
     }
 
 
-    /// Get campaign manager
-    pub fn get_campaign_manager(&self) -> Arc<Mutex<CampaignManager>> {
-        self.campaign_manager.clone()
-    }
+    // `get_campaign_manager` Arc hand-off removed: the campaign manager is
+    // owned by `GameStateManager` and serialized by the `GAME_STATE_MANAGER`
+    // global boundary lock. External mutation goes through
+    // [`global_campaign_manager`]'s closure form.
 
     /// Start new campaign
     pub fn start_campaign(
@@ -292,11 +289,7 @@ impl GameStateManager {
         campaign_id: CampaignId,
         player_name: &str,
     ) -> SaveLoadResult<()> {
-        let mut campaign_manager = self
-            .campaign_manager
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        campaign_manager.start_campaign(campaign_id, player_name)
+        self.campaign_manager.start_campaign(campaign_id, player_name)
     }
 
     /// Complete current mission
@@ -306,29 +299,18 @@ impl GameStateManager {
         difficulty: MissionDifficulty,
         completion_data: MissionCompletionData,
     ) -> SaveLoadResult<()> {
-        let mut campaign_manager = self
-            .campaign_manager
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        campaign_manager.complete_mission(mission_id, difficulty, completion_data)
+        self.campaign_manager
+            .complete_mission(mission_id, difficulty, completion_data)
     }
 
     /// Save mission state for campaign
     pub fn save_mission_state(&mut self, save_state: MissionSaveState) -> SaveLoadResult<()> {
-        let mut campaign_manager = self
-            .campaign_manager
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        campaign_manager.save_mission_state(save_state)
+        self.campaign_manager.save_mission_state(save_state)
     }
 
     /// Load mission state for campaign
     pub fn load_mission_state(&mut self) -> SaveLoadResult<Option<MissionSaveState>> {
-        let mut campaign_manager = self
-            .campaign_manager
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        campaign_manager.load_mission_state()
+        self.campaign_manager.load_mission_state()
     }
 
     /// Check if currently in load operation
@@ -506,10 +488,12 @@ lazy_static::lazy_static! {
         Mutex::new(GameStateManager::new());
 }
 
-pub fn global_campaign_manager() -> Result<Arc<Mutex<CampaignManager>>, &'static str> {
+pub fn global_campaign_manager<R>(
+    f: impl FnOnce(&mut CampaignManager) -> R,
+) -> Result<R, &'static str> {
     GAME_STATE_MANAGER
         .try_lock()
-        .map(|manager| manager.get_campaign_manager())
+        .map(|mut manager| f(&mut manager.campaign_manager))
         .map_err(|_| "Campaign manager unavailable")
 }
 

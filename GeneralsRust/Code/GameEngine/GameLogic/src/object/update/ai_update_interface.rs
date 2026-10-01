@@ -2768,7 +2768,11 @@ impl AIUpdateInterface {
 pub struct AIUpdateInterfaceModule {
     module_name_key: NameKeyType,
     data: Arc<AIUpdateModuleData>,
-    runtime_ai: Option<Arc<Mutex<dyn crate::modules::AIUpdateInterface>>>,
+    /// True once the Object's owned `ai` instance exists. The runtime AI is
+    /// owned by the Object (`Object::ai`); its xfer/crc/lpp state is written
+    /// by the Object-side module walk at this entry's list position, keeping
+    /// the original byte order (version byte here, then AI state).
+    runtime_ai_present: bool,
 }
 
 impl AIUpdateInterfaceModule {
@@ -2776,15 +2780,12 @@ impl AIUpdateInterfaceModule {
         Self {
             module_name_key,
             data,
-            runtime_ai: None,
+            runtime_ai_present: false,
         }
     }
 
-    pub fn set_runtime_ai(
-        &mut self,
-        runtime_ai: Arc<Mutex<dyn crate::modules::AIUpdateInterface>>,
-    ) {
-        self.runtime_ai = Some(runtime_ai);
+    pub fn set_runtime_ai_present(&mut self, present: bool) {
+        self.runtime_ai_present = present;
     }
 }
 
@@ -2808,12 +2809,8 @@ impl Snapshotable for AIUpdateInterfaceModule {
         let mut version = current_version;
         xfer.xfer_version(&mut version, current_version)
             .map_err(|e| e.to_string())?;
-        if let Some(runtime_ai) = &self.runtime_ai {
-            let mut guard = runtime_ai
-                .lock()
-                .map_err(|_| "AIUpdate runtime lock poisoned during crc".to_string())?;
-            let _ = guard.xfer_ai_update_state(xfer)?;
-        }
+        // AI runtime state is crc'd by the Object-side module walk through
+        // the owned `ai` field at this entry's list position.
         Ok(())
     }
 
@@ -2822,22 +2819,14 @@ impl Snapshotable for AIUpdateInterfaceModule {
         let mut version = current_version;
         xfer.xfer_version(&mut version, current_version)
             .map_err(|e| e.to_string())?;
-        if let Some(runtime_ai) = &self.runtime_ai {
-            let mut guard = runtime_ai
-                .lock()
-                .map_err(|_| "AIUpdate runtime lock poisoned during xfer".to_string())?;
-            let _ = guard.xfer_ai_update_state(xfer)?;
-        }
+        // AI runtime state is xfered by the Object-side module walk through
+        // the owned `ai` field at this entry's list position.
         Ok(())
     }
 
     fn load_post_process(&mut self) -> Result<(), String> {
-        if let Some(runtime_ai) = &self.runtime_ai {
-            let mut guard = runtime_ai
-                .lock()
-                .map_err(|_| "AIUpdate runtime lock poisoned during load post process".to_string())?;
-            guard.load_post_process_path_cells();
-        }
+        // Handled by the Object-side load_post_process walk through the owned
+        // `ai` field.
         Ok(())
     }
 }

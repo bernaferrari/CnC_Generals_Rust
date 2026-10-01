@@ -234,7 +234,6 @@ pub struct ExitConditions {
 
 #[derive(Debug)]
 pub struct GuardSharedState {
-    machine: Weak<Mutex<StateMachine>>,
     owner: Weak<RwLock<Object>>,
     // One cell keeps the machine configuration and deferred transition request coherent across
     // the contained state views that hold an Arc to this record.
@@ -252,9 +251,8 @@ struct GuardSharedFields {
 }
 
 impl GuardSharedState {
-    fn new(machine: &Arc<Mutex<StateMachine>>, owner: Weak<RwLock<Object>>) -> Self {
+    fn new(owner: Weak<RwLock<Object>>) -> Self {
         Self {
-            machine: Arc::downgrade(machine),
             owner,
             fields: Mutex::new(GuardSharedFields {
                 target_to_guard: crate::common::INVALID_ID,
@@ -284,24 +282,17 @@ impl GuardSharedState {
             .and_then(|mut fields| fields.pending_state.take())
     }
 
-    fn with_machine<F, R>(&self, f: F) -> Result<R, String>
-    where
-        F: FnOnce(&mut StateMachine) -> R,
-    {
-        let machine = self
-            .machine
-            .upgrade()
-            .ok_or_else(|| "guard state machine context lost".to_string())?;
-        let mut guard = machine
-            .lock()
-            .map_err(|_| "guard state machine lock poisoned".to_string())?;
-        Ok(f(&mut guard))
+    /// Request a transition. The owning machine applies it after the child
+    /// update returns (see `update_machine_then_apply_pending_state`), which
+    /// preserves the legacy callback order without re-entering the machine.
+    fn request_state(&self, state: GuardStateType) {
+        self.request_state_id(state as u32);
     }
 
-    fn change_state(&self, state: GuardStateType) -> Result<(), String> {
-        self.with_machine(|machine| {
-            let _ = machine.set_current_state(state as u32);
-        })
+    fn request_state_id(&self, state: u32) {
+        if let Ok(mut fields) = self.fields.lock() {
+            fields.pending_state = Some(state);
+        }
     }
 
     fn get_target_to_guard(&self) -> ObjectID {
@@ -449,34 +440,30 @@ mod tests {
     }
 
     #[test]
-    fn guard_shared_state_applies_state_transition() {
-        let machine = Arc::new(Mutex::new(StateMachine::new(
-            Some(Weak::new()),
-            "test_guard",
-        )));
-        {
-            let mut locked = machine.lock().unwrap();
-            locked.define_state(
-                GuardStateType::Inner as u32,
-                Box::new(DummyState),
-                None,
-                None,
-                None,
-            );
-            locked.define_state(
-                GuardStateType::Outer as u32,
-                Box::new(DummyState),
-                None,
-                None,
-                None,
-            );
-        }
+    fn guard_shared_state_applies_pending_state_transition() {
+        let mut machine = StateMachine::new(Some(Weak::new()), "test_guard");
+        machine.define_state(
+            GuardStateType::Inner as u32,
+            Box::new(DummyState),
+            None,
+            None,
+            None,
+        );
+        machine.define_state(
+            GuardStateType::Outer as u32,
+            Box::new(DummyState),
+            None,
+            None,
+            None,
+        );
 
-        let shared = GuardSharedState::new(&machine, Weak::new());
-        shared.change_state(GuardStateType::Inner).unwrap();
-        shared.change_state(GuardStateType::Outer).unwrap();
+        let shared = GuardSharedState::new(Weak::new());
+        shared.request_state(GuardStateType::Inner);
+        let _ = machine.set_current_state(shared.take_pending_state().unwrap());
+        shared.request_state(GuardStateType::Outer);
+        let _ = machine.set_current_state(shared.take_pending_state().unwrap());
 
-        let current = machine.lock().unwrap().get_current_state_id();
+        let current = machine.get_current_state_id();
         assert_eq!(current, Some(GuardStateType::Outer as u32));
     }
 
@@ -484,10 +471,8 @@ mod tests {
     fn guard_shared_fields_are_visible_across_state_handles_but_isolated_per_machine() {
         let owner_a = Arc::new(RwLock::new(Object::new_test(77, 100.0)));
         let owner_b = Arc::new(RwLock::new(Object::new_test(77, 100.0)));
-        let machine_a = Arc::new(Mutex::new(StateMachine::new(Some(Weak::new()), "guard_a")));
-        let machine_b = Arc::new(Mutex::new(StateMachine::new(Some(Weak::new()), "guard_b")));
-        let shared_a = Arc::new(GuardSharedState::new(&machine_a, Arc::downgrade(&owner_a)));
-        let shared_b = Arc::new(GuardSharedState::new(&machine_b, Arc::downgrade(&owner_b)));
+        let shared_a = Arc::new(GuardSharedState::new(Arc::downgrade(&owner_a)));
+        let shared_b = Arc::new(GuardSharedState::new(Arc::downgrade(&owner_b)));
         let child_view_a = Arc::clone(&shared_a);
 
         shared_a.set_nemesis_to_attack(101);
@@ -502,40 +487,34 @@ mod tests {
 
     #[test]
     fn guard_pending_state_applies_only_after_child_update_returns() {
-        let machine = Arc::new(Mutex::new(StateMachine::new(
-            Some(Weak::new()),
-            "test_guard_pending_order",
-        )));
-        let shared = Arc::new(GuardSharedState::new(&machine, Weak::new()));
+        let mut locked = StateMachine::new(Some(Weak::new()), "test_guard_pending_order");
+        let shared = Arc::new(GuardSharedState::new(Weak::new()));
         let update_finished = Arc::new(AtomicBool::new(false));
         let destination = GuardStateType::Outer as u32;
-        {
-            let mut locked = machine.lock().unwrap();
-            locked.define_state(
-                GuardStateType::Inner as u32,
-                Box::new(QueueGuardTransition {
-                    shared: Arc::clone(&shared),
-                    update_finished: Arc::clone(&update_finished),
-                    destination,
-                }),
-                None,
-                None,
-                None,
-            );
-            locked.define_state(
+        locked.define_state(
+            GuardStateType::Inner as u32,
+            Box::new(QueueGuardTransition {
+                shared: Arc::clone(&shared),
+                update_finished: Arc::clone(&update_finished),
                 destination,
-                Box::new(CheckGuardTransitionOrder(Arc::clone(&update_finished))),
-                None,
-                None,
-                None,
-            );
-            locked.init_default_state();
-            assert_eq!(
-                update_machine_then_apply_pending_state(&mut locked, &shared),
-                StateReturnType::Continue
-            );
-            assert_eq!(locked.get_current_state_id(), Some(destination));
-        }
+            }),
+            None,
+            None,
+            None,
+        );
+        locked.define_state(
+            destination,
+            Box::new(CheckGuardTransitionOrder(Arc::clone(&update_finished))),
+            None,
+            None,
+            None,
+        );
+        locked.init_default_state();
+        assert_eq!(
+            update_machine_then_apply_pending_state(&mut locked, &shared),
+            StateReturnType::Continue
+        );
+        assert_eq!(locked.get_current_state_id(), Some(destination));
         assert!(update_finished.load(Ordering::SeqCst));
     }
 
@@ -584,11 +563,8 @@ mod tests {
     fn return_and_crate_construct_internal_move_helpers() {
         // C++ AIGuard.h:193 AIGuardReturnState : public AIInternalMoveToState
         // C++ AIGuard.cpp:744 AIGuardPickUpCrateState : public AIPickUpCrateState
-        let machine = Arc::new(Mutex::new(StateMachine::new(
-            Some(Weak::new()),
-            "test_guard_return",
-        )));
-        let shared = Arc::new(GuardSharedState::new(&machine, Weak::new()));
+        let machine = StateMachine::new(Some(Weak::new()), "test_guard_return");
+        let shared = Arc::new(GuardSharedState::new(Weak::new()));
         let ret = AIGuardReturnState::new(&machine, shared.clone());
         let _ = ret.move_helper.get_adjusts_destination();
         let crate_state = AIGuardPickUpCrateState::new(&machine, shared);
@@ -598,11 +574,8 @@ mod tests {
     #[test]
     fn inner_outer_aggressor_wrap_ai_attack_object_state() {
         // C++ AIGuard.cpp:397/520/815 construct AIAttackState, not a bare AttackStateMachine.
-        let machine = Arc::new(Mutex::new(StateMachine::new(
-            Some(Weak::new()),
-            "test_guard_attack",
-        )));
-        let shared = Arc::new(GuardSharedState::new(&machine, Weak::new()));
+        let machine = StateMachine::new(Some(Weak::new()), "test_guard_attack");
+        let shared = Arc::new(GuardSharedState::new(Weak::new()));
         let inner = AIGuardInnerState::new(&machine, shared.clone());
         let outer = AIGuardOuterState::new(&machine, shared.clone());
         let agg = AIGuardAttackAggressorState::new(&machine, shared);
@@ -721,7 +694,7 @@ impl ExitConditions {
 #[derive(Debug)]
 pub struct AIGuardMachine {
     /// Base state machine
-    base: Arc<Mutex<StateMachine>>,
+    base: StateMachine,
     /// Shared state used by guard states
     shared: Arc<GuardSharedState>,
     /// Object to guard by ID
@@ -738,11 +711,8 @@ pub struct AIGuardMachine {
 
 impl AIGuardMachine {
     pub fn new(owner: Weak<RwLock<Object>>) -> Self {
-        let base = Arc::new(Mutex::new(StateMachine::new(
-            Some(owner.clone()),
-            "AIGuardMachine",
-        )));
-        let shared = Arc::new(GuardSharedState::new(&base, owner));
+        let base = StateMachine::new(Some(owner.clone()), "AIGuardMachine");
+        let shared = Arc::new(GuardSharedState::new(owner));
 
         let mut machine = Self {
             base,
@@ -756,17 +726,13 @@ impl AIGuardMachine {
 
         // Define states - order matters: first state is default
         machine.define_guard_states();
-        if let Ok(mut guard) = machine.base.lock() {
-            let _ = guard.init_default_state();
-        }
+        let _ = machine.base.init_default_state();
         machine
     }
 
     fn define_guard_states(&mut self) {
         let shared = self.shared.clone();
-        let base_arc = self.base.clone();
 
-        let mut base = self.base.lock().expect("guard state machine lock poisoned");
         let attack_aggressor_conditions_inner = vec![legacy_transition(
             guard_attack_aggressor_inner,
             GuardStateType::AttackAggressor as u32,
@@ -786,55 +752,63 @@ impl AIGuardMachine {
             "has_attacked_me_and_i_can_return_fire",
         )];
 
+        // Build each state first (it only copies the machine's owner id), then
+        // register — avoids overlapping borrows of `self.base`.
+        let inner_state = AIGuardInnerState::new(&self.base, shared.clone());
         register_classic_state(
-            &mut *base,
+            &mut self.base,
             GuardStateType::Inner as u32,
-            AIGuardInnerState::new(&base_arc, shared.clone()),
+            inner_state,
             Some(GuardStateType::Outer as u32),
             Some(GuardStateType::Outer as u32),
             &attack_aggressor_conditions_inner,
         );
 
+        let return_state = AIGuardReturnState::new(&self.base, shared.clone());
         register_classic_state(
-            &mut *base,
+            &mut self.base,
             GuardStateType::Return as u32,
-            AIGuardReturnState::new(&base_arc, shared.clone()),
+            return_state,
             Some(GuardStateType::Idle as u32),
             Some(GuardStateType::Inner as u32),
             &attack_aggressor_conditions_return,
         );
 
+        let idle_state = AIGuardIdleState::new(&self.base, shared.clone());
         register_classic_state(
-            &mut *base,
+            &mut self.base,
             GuardStateType::Idle as u32,
-            AIGuardIdleState::new(&base_arc, shared.clone()),
+            idle_state,
             Some(GuardStateType::Inner as u32),
             Some(GuardStateType::Return as u32),
             &attack_aggressor_conditions_idle,
         );
 
+        let outer_state = AIGuardOuterState::new(&self.base, shared.clone());
         register_classic_state(
-            &mut *base,
+            &mut self.base,
             GuardStateType::Outer as u32,
-            AIGuardOuterState::new(&base_arc, shared.clone()),
+            outer_state,
             Some(GuardStateType::GetCrate as u32),
             Some(GuardStateType::GetCrate as u32),
             &[],
         );
 
+        let crate_state = AIGuardPickUpCrateState::new(&self.base, shared.clone());
         register_classic_state(
-            &mut *base,
+            &mut self.base,
             GuardStateType::GetCrate as u32,
-            AIGuardPickUpCrateState::new(&base_arc, shared.clone()),
+            crate_state,
             Some(GuardStateType::Return as u32),
             Some(GuardStateType::Return as u32),
             &[],
         );
 
+        let aggressor_state = AIGuardAttackAggressorState::new(&self.base, shared.clone());
         register_classic_state(
-            &mut *base,
+            &mut self.base,
             GuardStateType::AttackAggressor as u32,
-            AIGuardAttackAggressorState::new(&base_arc, shared.clone()),
+            aggressor_state,
             Some(GuardStateType::Inner as u32),
             Some(GuardStateType::Inner as u32),
             &[],
@@ -898,54 +872,31 @@ impl AIGuardMachine {
     }
 
     pub fn init_default_state(&mut self) -> StateReturnType {
-        let Ok(mut guard) = self.base.lock() else {
-            return StateReturnType::Failure;
-        };
-        guard.init_default_state()
+        self.base.init_default_state()
     }
 
     pub fn set_state(&mut self, state: GuardStateType) -> StateReturnType {
-        let Ok(mut guard) = self.base.lock() else {
-            return StateReturnType::Failure;
-        };
-        guard.set_current_state(state as u32)
+        self.base.set_current_state(state as u32)
     }
 
     pub fn halt(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let Ok(mut guard) = self.base.lock() else {
-            return Ok(());
-        };
-        guard.halt()
+        self.base.halt()
     }
 
     pub fn is_in_attack_state(&self) -> bool {
-        self.base
-            .lock()
-            .map(|machine| machine.is_in_attack_state())
-            .unwrap_or(false)
+        self.base.is_in_attack_state()
     }
 
     pub fn is_in_guard_idle_state(&self) -> bool {
-        self.base
-            .lock()
-            .map(|machine| machine.is_in_guard_idle_state())
-            .unwrap_or(false)
+        self.base.is_in_guard_idle_state()
     }
 
     pub fn update(&mut self) -> StateReturnType {
-        let Ok(mut guard) = self.base.lock() else {
-            return StateReturnType::Failure;
-        };
-        update_machine_then_apply_pending_state(&mut guard, &self.shared)
+        update_machine_then_apply_pending_state(&mut self.base, &self.shared)
     }
 
     pub fn look_for_inner_target(&mut self) -> bool {
-        let Some(owner_arc) = self
-            .base
-            .lock()
-            .ok()
-            .and_then(|machine| machine.get_owner())
-        else {
+        let Some(owner_arc) = self.base.get_owner() else {
             return false;
         };
         let Ok(owner_guard) = owner_arc.read() else {
@@ -1015,9 +966,7 @@ impl AIGuardMachine {
             .map_err(|e| format!("Failed to xfer version: {:?}", e))?;
 
         if version >= 2 {
-            if let Ok(mut guard) = self.base.lock() {
-                guard.xfer(xfer).map_err(|e| e.to_string())?;
-            }
+            self.base.xfer(xfer).map_err(|e| e.to_string())?;
         }
 
         if !xfer.is_loading() {
@@ -1065,11 +1014,7 @@ impl AIGuardMachine {
     }
 
     pub fn load_post_process(&mut self) -> Result<(), String> {
-        let mut guard = self
-            .base
-            .lock()
-            .map_err(|_| "guard state machine lock poisoned".to_string())?;
-        guard
+        self.base
             .load_post_process()
             .map_err(|e| format!("guard load_post_process: {e}"))
     }
@@ -1085,9 +1030,9 @@ pub struct GuardState {
 }
 
 impl GuardState {
-    fn new(machine: &Arc<Mutex<StateMachine>>, shared: Arc<GuardSharedState>, name: &str) -> Self {
+    fn new(machine: &StateMachine, shared: Arc<GuardSharedState>, name: &str) -> Self {
         Self {
-            base: State::with_machine(Some(Arc::downgrade(machine)), name),
+            base: State::new(machine, name),
             shared,
         }
     }
@@ -1100,16 +1045,6 @@ impl GuardState {
         &mut self.base
     }
 
-    fn change_state(&self, state: GuardStateType) -> Result<(), String> {
-        self.shared.change_state(state)
-    }
-
-    fn with_machine<F, R>(&self, f: F) -> Result<R, String>
-    where
-        F: FnOnce(&mut StateMachine) -> R,
-    {
-        self.shared.with_machine(f)
-    }
 
     fn get_target_to_guard(&self) -> ObjectID {
         self.shared.get_target_to_guard()
@@ -1147,7 +1082,7 @@ pub struct AIGuardInnerState {
 }
 
 impl AIGuardInnerState {
-    pub fn new(machine: &Arc<Mutex<StateMachine>>, shared: Arc<GuardSharedState>) -> Self {
+    pub fn new(machine: &StateMachine, shared: Arc<GuardSharedState>) -> Self {
         Self {
             base: GuardState::new(machine, shared, "AIGuardInner"),
             exit_conditions: Arc::new(Mutex::new(ExitConditions::new())),
@@ -1341,7 +1276,7 @@ pub struct AIGuardIdleState {
 }
 
 impl AIGuardIdleState {
-    pub fn new(machine: &Arc<Mutex<StateMachine>>, shared: Arc<GuardSharedState>) -> Self {
+    pub fn new(machine: &StateMachine, shared: Arc<GuardSharedState>) -> Self {
         Self {
             base: GuardState::new(machine, shared, "AIGuardIdleState"),
             next_enemy_scan_time: 0,
@@ -1490,7 +1425,7 @@ pub struct AIGuardOuterState {
 }
 
 impl AIGuardOuterState {
-    pub fn new(machine: &Arc<Mutex<StateMachine>>, shared: Arc<GuardSharedState>) -> Self {
+    pub fn new(machine: &StateMachine, shared: Arc<GuardSharedState>) -> Self {
         Self {
             base: GuardState::new(machine, shared, "AIGuardOuter"),
             exit_conditions: Arc::new(Mutex::new(ExitConditions::new())),
@@ -1705,13 +1640,12 @@ pub struct AIGuardReturnState {
 }
 
 impl AIGuardReturnState {
-    pub fn new(machine: &Arc<Mutex<StateMachine>>, shared: Arc<GuardSharedState>) -> Self {
+    pub fn new(machine: &StateMachine, shared: Arc<GuardSharedState>) -> Self {
         Self {
             base: GuardState::new(machine, shared, "AIGuardReturn"),
             next_return_scan_time: 0,
             goal_position: Coord3D::new(0.0, 0.0, 0.0),
-            move_helper: AIInternalMoveToState::new(machine, "AIGuardReturn".to_string())
-                .expect("AIInternalMoveToState bind"),
+            move_helper: AIInternalMoveToState::new("AIGuardReturn".to_string()),
         }
     }
 }
@@ -1849,7 +1783,7 @@ pub struct AIGuardPickUpCrateState {
 }
 
 impl AIGuardPickUpCrateState {
-    pub fn new(machine: &Arc<Mutex<StateMachine>>, shared: Arc<GuardSharedState>) -> Self {
+    pub fn new(machine: &StateMachine, shared: Arc<GuardSharedState>) -> Self {
         Self {
             base: GuardState::new(machine, shared, "AIGuardPickUpCrate"),
             crate_state: None,
@@ -1940,7 +1874,7 @@ pub struct AIGuardAttackAggressorState {
 }
 
 impl AIGuardAttackAggressorState {
-    pub fn new(machine: &Arc<Mutex<StateMachine>>, shared: Arc<GuardSharedState>) -> Self {
+    pub fn new(machine: &StateMachine, shared: Arc<GuardSharedState>) -> Self {
         Self {
             base: GuardState::new(machine, shared, "AIGuardAttackAggressor"),
             exit_conditions: Arc::new(Mutex::new(ExitConditions::new())),
@@ -2118,8 +2052,8 @@ impl ClassicState for AIGuardAttackAggressorState {
 }
 
 /// Helper function to check if an object has attacked and can be retaliated against
-pub fn has_attacked_me_and_i_can_return_fire(machine: &StateMachine) -> bool {
-    if let Some(owner) = machine.get_owner() {
+pub fn has_attacked_me_and_i_can_return_fire(owner: Option<&Arc<RwLock<Object>>>) -> bool {
+    if let Some(owner) = owner {
         if let Ok(owner_ref) = owner.try_read() {
             if let Some(body_module) = owner_ref.get_body_module() {
                 if let Ok(mut body_guard) = body_module.lock() {
@@ -2173,11 +2107,9 @@ pub fn has_attacked_me_and_i_can_return_fire(machine: &StateMachine) -> bool {
 }
 
 fn guard_attack_aggressor_common<T: ClassicState>(state: &T) -> Result<bool, String> {
-    let machine = state.base_state().get_machine()?;
-    let guard = machine
-        .lock()
-        .map_err(|_| "guard state machine lock poisoned".to_string())?;
-    Ok(has_attacked_me_and_i_can_return_fire(&guard))
+    Ok(has_attacked_me_and_i_can_return_fire(
+        state.base_state().get_machine_owner().as_ref(),
+    ))
 }
 
 fn guard_attack_aggressor_inner(

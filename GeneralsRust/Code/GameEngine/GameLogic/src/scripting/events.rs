@@ -438,19 +438,25 @@ impl EventManager {
 
     /// Process a single event
     async fn process_single_event(&self, event: &GameEvent) -> GameLogicResult<()> {
-        let subscribers = self
-            .subscribers
-            .read()
-            .map_err(|e| GameLogicError::Threading(format!("Failed to read subscribers: {}", e)))?;
+        // Take the subscriber list out of the RwLock for the fan-out:
+        // on_event handlers may subscribe/unsubscribe (write lock), which
+        // would deadlock against a live read guard on this std RwLock.
+        // Mutations made by handlers are preserved by splicing back below.
+        let subscribers = {
+            let mut guard = self.subscribers.write().map_err(|e| {
+                GameLogicError::Threading(format!("Failed to write subscribers: {}", e))
+            })?;
+            std::mem::take(&mut *guard)
+        };
 
         // Find matching subscribers
-        let matching_subscribers: Vec<_> = subscribers
+        let matching: Vec<_> = subscribers
             .iter()
             .filter(|subscriber| subscriber.get_filter().matches(event))
             .collect();
 
         // Notify subscribers
-        for subscriber in matching_subscribers {
+        for subscriber in matching {
             if let Err(e) = subscriber.on_event(event) {
                 log::warn!(
                     "Subscriber '{}' failed to process event: {}",
@@ -458,6 +464,13 @@ impl EventManager {
                     e
                 );
             }
+        }
+
+        // Splice back, keeping any subscribe/unsubscribe performed by handlers
+        if let Ok(mut guard) = self.subscribers.write() {
+            let mut current = std::mem::take(&mut *guard);
+            current.extend(subscribers);
+            *guard = current;
         }
 
         // Update statistics

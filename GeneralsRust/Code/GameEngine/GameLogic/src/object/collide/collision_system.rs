@@ -96,7 +96,6 @@ struct AiCollisionInfo {
     formation_id: FormationID,
     move_priority: LocomotorPriority,
     group_id: Option<u32>,
-    ai: Arc<std::sync::Mutex<dyn crate::modules::AIUpdateInterface>>,
 }
 
 impl CollisionSystem {
@@ -309,10 +308,7 @@ impl CollisionSystem {
         let Some(physics) = guard.get_physics() else {
             return false;
         };
-        let Ok(physics_guard) = physics.lock() else {
-            return false;
-        };
-        physics_guard.get_ignore_collisions_with() == other_id
+        physics.get_ignore_collisions_with() == other_id
     }
 
     fn should_ignore_ai_collision_id(id: ObjectId) -> bool {
@@ -326,10 +322,7 @@ impl CollisionSystem {
                 let Some(ai) = guard.get_ai_update_interface() else {
                     return false;
                 };
-                let Ok(ai_guard) = ai.lock() else {
-                    return false;
-                };
-                ai_guard.get_ignore_collisions_until() > TheGameLogic::get_frame()
+                ai.get_ignore_collisions_until() > TheGameLogic::get_frame()
             })
             .unwrap_or(false)
     }
@@ -345,10 +338,7 @@ impl CollisionSystem {
                 let Some(physics) = guard.get_physics() else {
                     return false;
                 };
-                let Ok(physics_guard) = physics.lock() else {
-                    return false;
-                };
-                physics_guard.get_ignore_collisions_with() == other_id
+                physics.get_ignore_collisions_with() == other_id
             })
             .unwrap_or(false)
     }
@@ -360,10 +350,7 @@ impl CollisionSystem {
         let Some(ai) = guard.get_ai_update_interface() else {
             return false;
         };
-        let Ok(ai_guard) = ai.lock() else {
-            return false;
-        };
-        ai_guard.get_ignore_collisions_until() > TheGameLogic::get_frame()
+        ai.get_ignore_collisions_until() > TheGameLogic::get_frame()
     }
 
     /// Apply move-away hints for unit collisions (matches C++ AIUpdateInterface::processCollision).
@@ -375,101 +362,45 @@ impl CollisionSystem {
         // C++ reference: GameLogic/Object/Update/AIUpdate.cpp AIUpdateInterface::processCollision.
 
         fn gather_info(obj: &Arc<RwLock<crate::object::Object>>) -> Option<AiCollisionInfo> {
-            let (
-                id,
-                position,
-                direction,
-                is_infantry,
-                is_vehicle,
-                is_dozer,
-                using_ability,
-                ai,
-                velocity,
-                formation_id,
-                _move_priority,
-                group_id,
-            ) = {
-                let guard = obj.read().ok()?;
-                let ai = guard.get_ai_update_interface()?;
-                let velocity = guard
-                    .get_physics()
-                    .and_then(|physics| physics.lock().ok().map(|phys| phys.get_velocity()))
-                    .unwrap_or(Vec3D::ZERO);
-                (
-                    guard.get_id(),
-                    *guard.get_position(),
-                    guard.get_unit_direction_vector_2d(),
-                    guard.is_kind_of(KindOf::Infantry),
-                    guard.is_kind_of(KindOf::Vehicle),
-                    guard.is_kind_of(KindOf::Dozer),
-                    guard.test_status(ObjectStatusTypes::IsUsingAbility),
-                    ai,
-                    velocity,
-                    guard.get_formation_id(),
-                    LocomotorPriority::Middle,
-                    guard.get_group_id(),
-                )
+            let guard = obj.read().ok()?;
+            let ai = guard.get_ai_update_interface()?;
+            let velocity = guard
+                .get_physics()
+                .map(|physics| physics.get_velocity())
+                .unwrap_or(Vec3D::ZERO);
+            let moving_backwards = {
+                let mut __back = false;
+                ai.with_cur_locomotor(&mut |loco| __back = loco.is_moving_backwards());
+                __back
             };
-
-            let (
-                moving,
-                ground,
-                busy,
-                can_path_through_units,
-                waiting_for_path,
-                dead,
-                path_destination,
-                frames_blocked,
-                moving_backwards,
-                move_priority,
-            ) = {
-                let guard = ai.lock().ok()?;
-                (
-                    guard.is_moving(),
-                    guard.is_doing_ground_movement(),
-                    guard.is_busy(),
-                    guard.get_can_path_through_units(),
-                    guard.is_waiting_for_path(),
-                    guard.is_ai_in_dead_state(),
-                    guard.get_path_destination(),
-                    guard.get_num_frames_blocked(),
-                    {
-            let mut __back = false;
-            guard.with_cur_locomotor(&mut |loco| __back = loco.is_moving_backwards());
-            __back
-        },
-                    {
-                        let mut priority = LocomotorPriority::Middle;
-                        guard.with_cur_locomotor(&mut |loco| {
-                            priority = loco.template.move_priority;
-                        });
-                        priority
-                    },
-                )
+            let move_priority = {
+                let mut priority = LocomotorPriority::Middle;
+                ai.with_cur_locomotor(&mut |loco| {
+                    priority = loco.template.move_priority;
+                });
+                priority
             };
-
             Some(AiCollisionInfo {
-                id,
-                position,
-                direction,
-                is_infantry,
-                is_vehicle,
-                is_dozer,
-                using_ability,
-                moving,
-                ground,
-                busy,
-                can_path_through_units,
-                waiting_for_path,
-                dead,
-                path_destination,
-                frames_blocked,
+                id: guard.get_id(),
+                position: *guard.get_position(),
+                direction: guard.get_unit_direction_vector_2d(),
+                is_infantry: guard.is_kind_of(KindOf::Infantry),
+                is_vehicle: guard.is_kind_of(KindOf::Vehicle),
+                is_dozer: guard.is_kind_of(KindOf::Dozer),
+                using_ability: guard.test_status(ObjectStatusTypes::IsUsingAbility),
+                moving: ai.is_moving(),
+                ground: ai.is_doing_ground_movement(),
+                busy: ai.is_busy(),
+                can_path_through_units: ai.get_can_path_through_units(),
+                waiting_for_path: ai.is_waiting_for_path(),
+                dead: ai.is_ai_in_dead_state(),
+                path_destination: ai.get_path_destination(),
+                frames_blocked: ai.get_num_frames_blocked(),
                 moving_backwards,
                 velocity,
-                formation_id,
+                formation_id: guard.get_formation_id(),
                 move_priority,
-                group_id,
-                ai,
+                group_id: guard.get_group_id(),
             })
         }
 
@@ -496,37 +427,47 @@ impl CollisionSystem {
         let overlap_threshold = PATHFIND_CELL_SIZE_F * PATHFIND_CELL_SIZE_F * 0.25;
         if !a_info.moving && !b_info.moving && dist_sqr < overlap_threshold {
             if !a_info.using_ability && !a_info.busy {
-                let should_move = a_info
-                    .ai
-                    .lock()
-                    .ok()
-                    .map(|guard| guard.is_idle())
+                let should_move = OBJECT_REGISTRY
+                    .with_object(a_info.id, |obj| {
+                        obj.get_ai_update_interface()
+                            .map(|ai| ai.is_idle())
+                            .unwrap_or(false)
+                    })
                     .unwrap_or(false);
                 if should_move {
                     let mut safe_position = a_info.position;
-                    if let Ok(mut guard) = a_info.ai.lock() {
-                        let _ = guard.adjust_destination(&mut safe_position);
-                    }
-                    a_info
-                        .ai
-                        .ai_move_to_position(&safe_position, false, CommandSourceType::FromAi);
+                    OBJECT_REGISTRY.with_object_mut(a_info.id, |obj| {
+                        if let Some(ai) = obj.get_ai_update_interface_mut() {
+                            let _ = ai.adjust_destination(&mut safe_position);
+                            ai.ai_move_to_position(
+                                &safe_position,
+                                false,
+                                CommandSourceType::FromAi,
+                            );
+                        }
+                    });
                 }
             }
             if !b_info.using_ability && !b_info.busy {
-                let should_move = b_info
-                    .ai
-                    .lock()
-                    .ok()
-                    .map(|guard| guard.is_idle())
+                let should_move = OBJECT_REGISTRY
+                    .with_object(b_info.id, |obj| {
+                        obj.get_ai_update_interface()
+                            .map(|ai| ai.is_idle())
+                            .unwrap_or(false)
+                    })
                     .unwrap_or(false);
                 if should_move {
                     let mut safe_position = b_info.position;
-                    if let Ok(mut guard) = b_info.ai.lock() {
-                        let _ = guard.adjust_destination(&mut safe_position);
-                    }
-                    b_info
-                        .ai
-                        .ai_move_to_position(&safe_position, false, CommandSourceType::FromAi);
+                    OBJECT_REGISTRY.with_object_mut(b_info.id, |obj| {
+                        if let Some(ai) = obj.get_ai_update_interface_mut() {
+                            let _ = ai.adjust_destination(&mut safe_position);
+                            ai.ai_move_to_position(
+                                &safe_position,
+                                false,
+                                CommandSourceType::FromAi,
+                            );
+                        }
+                    });
                 }
             }
         }
@@ -554,18 +495,22 @@ impl CollisionSystem {
             return;
         }
 
-        let other_moving_away_from_mover = other
-            .ai
-            .lock()
-            .ok()
-            .map(|guard| guard.is_moving_away_from(mover.id))
+        let other_moving_away_from_mover = OBJECT_REGISTRY
+            .with_object(other.id, |obj| {
+                obj.get_ai_update_interface()
+                    .map(|ai| ai.is_moving_away_from(mover.id))
+                    .unwrap_or(false)
+            })
             .unwrap_or(false);
         let mut should_move_mover_away = false;
         let mut should_move_other_infantry_away = false;
         {
-            let Ok(mut guard) = mover.ai.lock() else {
-                return;
-            };
+            // Mover AI runs under its object write; `other` is only read
+            // inside, mirroring the old mover-AI-lock > other-AI-lock order.
+            let _ = OBJECT_REGISTRY.with_object_mut(mover.id, |obj| {
+                let Some(guard) = obj.get_ai_update_interface_mut() else {
+                    return;
+                };
             if guard.get_current_state_id() == Some(AIStateType::Panic as u32) && mover.is_infantry
             {
                 return;
@@ -588,26 +533,32 @@ impl CollisionSystem {
                 guard.set_blocked_and_stuck(true);
             } else if other.moving {
                 let other_blocked = Self::blocked_by(other, mover);
-                let other_needs_rotation = other
-                    .ai
-                    .lock()
-                    .ok()
-                    .map(|other_guard| other_guard.need_to_rotate())
+                let other_needs_rotation = OBJECT_REGISTRY
+                    .with_object(other.id, |obj| {
+                        obj.get_ai_update_interface()
+                            .map(|other_guard| other_guard.need_to_rotate())
+                            .unwrap_or(true)
+                    })
                     .unwrap_or(true);
                 should_move_mover_away = other_blocked
                     && !other_needs_rotation
                     && !Self::has_higher_path_priority(mover, other);
             }
+            });
         }
 
         if should_move_other_infantry_away {
-            other
-                .ai
-                .ai_move_away_from_unit(mover.id, CommandSourceType::FromAi);
+            let _ = OBJECT_REGISTRY.with_object_mut(other.id, |obj| {
+                if let Some(ai) = obj.get_ai_update_interface_mut() {
+                    ai.ai_move_away_from_unit(mover.id, CommandSourceType::FromAi);
+                }
+            });
         } else if should_move_mover_away {
-            mover
-                .ai
-                .ai_move_away_from_unit(other.id, CommandSourceType::FromAi);
+            let _ = OBJECT_REGISTRY.with_object_mut(mover.id, |obj| {
+                if let Some(ai) = obj.get_ai_update_interface_mut() {
+                    ai.ai_move_away_from_unit(other.id, CommandSourceType::FromAi);
+                }
+            });
         }
     }
 
@@ -754,7 +705,13 @@ impl CollisionSystem {
 
         let mut other_speed = b.velocity.length();
         if other_speed <= 0.0 {
-            other_speed = b.ai.get_speed() as Real;
+            other_speed = OBJECT_REGISTRY
+                .with_object(b.id, |obj| {
+                    obj.get_ai_update_interface()
+                        .map(|ai| ai.get_speed() as Real)
+                        .unwrap_or(0.0)
+                })
+                .unwrap_or(0.0);
         }
         let away_speed = other_speed * dot_product;
         let towards_dot = vector_to_other.0 * a.direction.0 + vector_to_other.1 * a.direction.1;
@@ -988,14 +945,18 @@ mod tests {
 
     fn recording_ai(
         move_away_commands: Arc<Mutex<Vec<ObjectId>>>,
-    ) -> Arc<Mutex<dyn crate::modules::AIUpdateInterface>> {
-        Arc::new(Mutex::new(RecordingCollisionAi::new(move_away_commands)))
+    ) -> Box<dyn crate::modules::AIUpdateInterface> {
+        Box::new(RecordingCollisionAi::new(move_away_commands))
     }
 
-    fn ai_collision_info(
-        id: ObjectId,
-        ai: Arc<Mutex<dyn crate::modules::AIUpdateInterface>>,
-    ) -> AiCollisionInfo {
+    fn register_recording_ai(id: ObjectId, move_away_commands: Arc<Mutex<Vec<ObjectId>>>) {
+        let mut obj = crate::object::Object::new_test(id, 100.0);
+        obj.set_ai_update_interface(Some(recording_ai(move_away_commands)));
+        let arc = Arc::new(RwLock::new(obj));
+        OBJECT_REGISTRY.register_object(id, &arc);
+    }
+
+    fn ai_collision_info(id: ObjectId) -> AiCollisionInfo {
         AiCollisionInfo {
             id,
             position: GameCoord3D::new(0.0, 0.0, 0.0),
@@ -1017,7 +978,6 @@ mod tests {
             formation_id: FormationID::NONE,
             move_priority: LocomotorPriority::Middle,
             group_id: None,
-            ai,
         }
     }
 
@@ -1030,16 +990,19 @@ mod tests {
 
     #[test]
     fn vehicle_tells_blocking_infantry_to_move_away_after_blocked_by_accepts() {
+        OBJECT_REGISTRY.clear();
         let vehicle_commands = Arc::new(Mutex::new(Vec::new()));
         let infantry_commands = Arc::new(Mutex::new(Vec::new()));
-        let mut vehicle = ai_collision_info(1, recording_ai(Arc::clone(&vehicle_commands)));
+        register_recording_ai(1, Arc::clone(&vehicle_commands));
+        register_recording_ai(2, Arc::clone(&infantry_commands));
+        let mut vehicle = ai_collision_info(1);
         vehicle.position = GameCoord3D::new(0.0, 0.0, 0.0);
         vehicle.direction = (1.0, 0.0);
         vehicle.is_vehicle = true;
         vehicle.moving = true;
         vehicle.path_destination = Some(GameCoord3D::new(PATHFIND_CELL_SIZE_F * 4.0, 0.0, 0.0));
 
-        let mut infantry = ai_collision_info(2, recording_ai(Arc::clone(&infantry_commands)));
+        let mut infantry = ai_collision_info(2);
         infantry.position = GameCoord3D::new(PATHFIND_CELL_SIZE_F * 0.5, 0.0, 0.0);
         infantry.direction = (1.0, 0.0);
         infantry.is_infantry = true;
@@ -1048,20 +1011,24 @@ mod tests {
 
         assert!(vehicle_commands.lock().unwrap().is_empty());
         assert_eq!(*infantry_commands.lock().unwrap(), vec![vehicle.id]);
+        OBJECT_REGISTRY.clear();
     }
 
     #[test]
     fn vehicle_does_not_move_infantry_when_blocked_by_goal_exemption_rejects() {
+        OBJECT_REGISTRY.clear();
         let vehicle_commands = Arc::new(Mutex::new(Vec::new()));
         let infantry_commands = Arc::new(Mutex::new(Vec::new()));
-        let mut vehicle = ai_collision_info(1, recording_ai(Arc::clone(&vehicle_commands)));
+        register_recording_ai(1, Arc::clone(&vehicle_commands));
+        register_recording_ai(2, Arc::clone(&infantry_commands));
+        let mut vehicle = ai_collision_info(1);
         vehicle.position = GameCoord3D::new(0.0, 0.0, 0.0);
         vehicle.direction = (1.0, 0.0);
         vehicle.is_vehicle = true;
         vehicle.moving = true;
         vehicle.path_destination = Some(GameCoord3D::new(PATHFIND_CELL_SIZE_F * 0.5, 0.0, 0.0));
 
-        let mut infantry = ai_collision_info(2, recording_ai(Arc::clone(&infantry_commands)));
+        let mut infantry = ai_collision_info(2);
         infantry.position = GameCoord3D::new(PATHFIND_CELL_SIZE_F * 0.25, 0.0, 0.0);
         infantry.direction = (1.0, 0.0);
         infantry.is_infantry = true;
@@ -1070,6 +1037,7 @@ mod tests {
 
         assert!(vehicle_commands.lock().unwrap().is_empty());
         assert!(infantry_commands.lock().unwrap().is_empty());
+        OBJECT_REGISTRY.clear();
     }
 
     #[test]

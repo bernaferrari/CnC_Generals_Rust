@@ -237,10 +237,8 @@ impl FlammableUpdate {
             if let Ok(mut obj) = object_arc.try_write() {
                 obj.set_status(crate::common::ObjectStatusMaskType::AFLAME, true);
                 obj.set_model_condition_state(crate::common::ModelConditionFlags::Aflame);
-                if let Some(body) = obj.get_body_module() {
-                    if let Ok(mut body_guard) = body.lock() {
-                        let _ = body_guard.set_aflame(true);
-                    }
+                if let Some(body) = obj.get_body_module_mut() {
+                    let _ = body.set_aflame(true);
                 }
                 self.needs_aflame_side_effects = false;
             } else {
@@ -507,10 +505,8 @@ impl FlammableUpdate {
         }
         obj.set_status(crate::common::ObjectStatusMaskType::AFLAME, true);
         obj.set_model_condition_state(crate::common::ModelConditionFlags::Aflame);
-        if let Some(body) = obj.get_body_module() {
-            if let Ok(mut body_guard) = body.lock() {
-                let _ = body_guard.set_aflame(true);
-            }
+        if let Some(body) = obj.get_body_module_mut() {
+            let _ = body.set_aflame(true);
         }
         self.needs_aflame_side_effects = false;
     }
@@ -578,10 +574,8 @@ impl UpdateModuleInterface for FlammableUpdate {
                 };
                 obj.set_status(crate::common::ObjectStatusMaskType::AFLAME, false);
                 obj.clear_model_condition_state(crate::common::ModelConditionFlags::Aflame);
-                if let Some(body) = obj.get_body_module() {
-                    if let Ok(mut body_guard) = body.lock() {
-                        let _ = body_guard.set_aflame(false);
-                    }
+                if let Some(body) = obj.get_body_module_mut() {
+                    let _ = body.set_aflame(false);
                 }
                 drop(obj);
                 self.stop_burning_sound();

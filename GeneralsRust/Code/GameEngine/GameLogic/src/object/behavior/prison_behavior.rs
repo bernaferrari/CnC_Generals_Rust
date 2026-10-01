@@ -4,7 +4,7 @@
 
 use std::any::Any;
 use std::borrow::Cow;
-use std::sync::{Arc, Mutex, RwLock, Weak};
+use std::sync::{Arc, RwLock, Weak};
 
 use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::name_key_generator::NameKeyGenerator;
@@ -517,7 +517,10 @@ impl BehaviorModuleInterface for PrisonBehavior {
 #[cfg(feature = "allow_surrender")]
 #[derive(Debug)]
 pub struct PrisonBehaviorModule {
-    behavior: Arc<Mutex<PrisonBehavior>>,
+    /// Owned contain behavior. `contain_handle()` hands it to the Object's
+    /// contain slot during construction (C++ Object::setContain binding);
+    /// the module entry keeps nothing afterwards.
+    behavior: Option<Box<PrisonBehavior>>,
     module_name_key: NameKeyType,
     module_data: Arc<PrisonBehaviorModuleData>,
 }
@@ -531,105 +534,49 @@ impl PrisonBehaviorModule {
     ) -> Self {
         let module_name_key = NameKeyGenerator::name_to_key(module_name.as_str());
         Self {
-            behavior: Arc::new(Mutex::new(behavior)),
+            behavior: Some(Box::new(behavior)),
             module_name_key,
             module_data,
         }
     }
 
-    pub fn contain_handle(&self) -> Arc<Mutex<dyn ContainModuleInterface>> {
-        Arc::new(Mutex::new(PrisonBehaviorContainHandle {
-            behavior: Arc::clone(&self.behavior),
-        }))
+    pub fn behavior_mut(&mut self) -> Option<&mut PrisonBehavior> {
+        self.behavior.as_deref_mut()
     }
-}
 
-#[cfg(feature = "allow_surrender")]
-#[derive(Debug)]
-struct PrisonBehaviorContainHandle {
-    behavior: Arc<Mutex<PrisonBehavior>>,
-}
-
-#[cfg(feature = "allow_surrender")]
-impl ContainModuleInterface for PrisonBehaviorContainHandle {
-    fn can_contain(&self, object_id: ObjectID) -> bool {
+    /// C++ Object.cpp contain binding (Object::setContain for the prison):
+    /// the Object's contain slot owns the behavior instance after this
+    /// handover. Take semantics — invoked once during construction.
+    pub fn contain_handle(&mut self) -> Option<Box<dyn ContainModuleInterface>> {
         self.behavior
-            .lock()
-            .map(|guard| guard.can_contain(object_id))
-            .unwrap_or(false)
-    }
-
-    fn contain_object(&mut self, object_id: ObjectID) -> Result<(), String> {
-        self.behavior
-            .lock()
-            .map_err(|_| "PrisonBehaviorContainHandle lock poisoned".to_string())?
-            .contain_object(object_id)
-    }
-
-    fn release_object(&mut self, object_id: ObjectID) -> Result<(), String> {
-        self.behavior
-            .lock()
-            .map_err(|_| "PrisonBehaviorContainHandle lock poisoned".to_string())?
-            .release_object(object_id)
-    }
-
-    fn get_contained_objects(&self) -> Cow<'_, [ObjectID]> {
-        Cow::Owned(
-            self.behavior
-                .lock()
-                .map(|guard| guard.get_contained_objects().into_owned())
-                .unwrap_or_default(),
-        )
-    }
-
-    fn get_contained_count(&self) -> usize {
-        self.behavior
-            .lock()
-            .map(|guard| guard.get_contained_count())
-            .unwrap_or(0)
-    }
-
-    fn get_max_capacity(&self) -> usize {
-        self.behavior
-            .lock()
-            .map(|guard| guard.get_max_capacity())
-            .unwrap_or(0)
-    }
-
-    fn on_delete(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        self.behavior
-            .lock()
-            .map_err(|_| "PrisonBehaviorContainHandle lock poisoned")?
-            .on_delete()
+            .take()
+            .map(|behavior| behavior as Box<dyn ContainModuleInterface>)
     }
 }
 
 #[cfg(feature = "allow_surrender")]
 impl Snapshotable for PrisonBehaviorModule {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let guard = self
-            .behavior
-            .lock()
-            .map_err(|_| "PrisonBehaviorModule: behavior lock poisoned".to_string())?;
-        Snapshotable::crc(&*guard, xfer)
+        match self.behavior.as_deref() {
+            Some(behavior) => Snapshotable::crc(behavior, xfer),
+            None => Ok(()),
+        }
     }
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
         // Live module snapshot is PrisonBehavior::xfer (version, OpenContain,
         // visualCount + each yard objectID/drawableID). Do not skip visuals.
-        let mut guard = self
-            .behavior
-            .lock()
-            .map_err(|_| "PrisonBehaviorModule: behavior lock poisoned".to_string())?;
-        Snapshotable::xfer(&mut *guard, xfer)
+        match self.behavior.as_deref_mut() {
+            Some(behavior) => Snapshotable::xfer(behavior, xfer),
+            None => Ok(()),
+        }
     }
 
     fn load_post_process(&mut self) -> Result<(), String> {
-        let mut guard = self
-            .behavior
-            .lock()
-            .map_err(|_| "PrisonBehaviorModule: behavior lock poisoned".to_string())?;
-        Snapshotable::load_post_process(&mut *guard)
+        match self.behavior.as_deref_mut() {
+            Some(behavior) => Snapshotable::load_post_process(behavior),
+            None => Ok(()),
+        }
     }
 }
 
@@ -723,8 +670,8 @@ impl Module for PrisonBehaviorModule {
         self.module_data.as_ref()
     }
     fn on_delete(&mut self) {
-        if let Ok(mut guard) = self.behavior.lock() {
-            let _ = guard.on_delete();
+        if let Some(behavior) = self.behavior.as_deref_mut() {
+            let _ = behavior.on_delete();
         }
     }
 }
@@ -746,7 +693,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn contain_handle_returns_stable_owned_snapshot_across_shared_mutation() {
+    fn contain_handle_hands_over_the_owned_prisoner_list() {
         let contain = OpenContain::new(
             Weak::<RwLock<Object>>::new(),
             &OpenContainModuleData::default(),
@@ -758,26 +705,25 @@ mod tests {
             contain,
             visuals: Vec::new(),
         };
-        let module = PrisonBehaviorModule::new(
+        let mut module = PrisonBehaviorModule::new(
             behavior,
             &AsciiString::from("PrisonBehavior"),
             Arc::new(PrisonBehaviorModuleData::default()),
         );
-        let handle = module.contain_handle();
-        let guard = handle.lock().expect("contain handle");
-
-        let retained = guard.get_contained_objects();
         module
-            .behavior
-            .lock()
+            .behavior_mut()
             .expect("behavior")
             .contain
             .add_to_contain_list_id(77002, false)
             .expect("add prisoner");
-        let refreshed = guard.get_contained_objects();
 
-        assert!(retained.is_empty());
-        assert_eq!(refreshed.as_ref(), &[77002]);
+        let contain = module.contain_handle().expect("contain handle");
+        let prisoners = contain.get_contained_objects();
+
+        // Object.contain now owns the prisoner list; the module entry keeps
+        // nothing and a second handover yields None.
+        assert_eq!(prisoners.as_ref(), &[77002]);
+        assert!(module.contain_handle().is_none());
     }
 
     #[test]

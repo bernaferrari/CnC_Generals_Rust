@@ -21,7 +21,7 @@ use crate::common::{
 use crate::damage::{DamageInfo, DamageType, DeathType};
 use crate::effects::FXList;
 use crate::helpers::{TheGameLogic, TheVictoryConditions};
-use crate::modules::{AIUpdateInterfaceExt, ContainModuleInterfaceExt};
+use crate::modules::{AIUpdateInterfaceExt, ContainModuleInterface};
 use crate::object::object_factory::{GameObjectInstance, get_object_factory};
 use crate::object::registry::OBJECT_REGISTRY;
 use crate::object::special_power_template::find_or_create_special_power_template;
@@ -86,27 +86,26 @@ impl ScriptAction for NamedAttackAction {
             return Ok(ScriptResult::Success(None));
         };
 
-        let ai = attacker_arc.write().ok().and_then(|mut obj| {
-            obj.leave_group();
-            obj.get_ai_update_interface()
-        });
-
-        if let Some(ai) = ai {
-            if let Ok(mut ai_guard) = ai.lock() {
-                let _ = ai_guard.choose_locomotor_set(LocomotorSetType::Normal);
+        // The write guard is held across the AI dispatch (C++ call-stack
+        // ownership: leave_group/get_ai_update_interface/execute_command only
+        // touch this object and the team list, so no re-entry occurs).
+        if let Ok(mut obj_guard) = attacker_arc.write() {
+            obj_guard.leave_group();
+            if let Some(ai) = obj_guard.get_ai_update_interface_mut() {
+                let _ = ai.choose_locomotor_set(LocomotorSetType::Normal);
                 let mut params = AiCommandParams::new(
                     AiCommandType::ForceAttackObject,
                     CommandSourceType::FromScript,
                 );
                 params.obj = Some(target_id);
                 params.int_value = -1; // NO_MAX_SHOTS_LIMIT
-                let _ = ai_guard.execute_command(&params);
+                let _ = ai.execute_command(&params);
+            } else {
+                log::warn!(
+                    "NamedAttackAction: attacker '{}' has no AI update interface",
+                    attacker_name
+                );
             }
-        } else {
-            log::warn!(
-                "NamedAttackAction: attacker '{}' has no AI update interface",
-                attacker_name
-            );
         }
 
         Ok(ScriptResult::Success(None))
@@ -169,15 +168,18 @@ impl ScriptAction for NamedAttackTeamAction {
             return Ok(ScriptResult::Success(None));
         };
 
+        // The write guard is held across the AI dispatch: the AI module is
+        // owned by the Object now, so the dispatch borrows it (C++ call-stack
+        // ownership).
         if let Ok(mut obj_guard) = object_arc.write() {
             obj_guard.leave_group();
-            if let Some(ai) = obj_guard.get_ai_update_interface() {
-                ai.choose_locomotor_set(LocomotorSetType::Normal);
+            if let Some(ai) = obj_guard.get_ai_update_interface_mut() {
+                let _ = ai.choose_locomotor_set(LocomotorSetType::Normal);
                 let mut params =
                     AiCommandParams::new(AiCommandType::AttackTeam, CommandSourceType::FromScript);
                 params.team = Some(resolved_team);
                 params.int_value = -1; // NO_MAX_SHOTS_LIMIT
-                let _ = ai.lock().ok().map(|mut ai| ai.execute_command(&params));
+                let _ = ai.execute_command(&params);
             } else {
                 log::warn!(
                     "NamedAttackTeamAction: unit '{}' has no AI update interface",
@@ -247,15 +249,18 @@ impl ScriptAction for NamedAttackAreaAction {
             return Ok(ScriptResult::Success(None));
         };
 
+        // The write guard is held across the AI dispatch: the AI module is
+        // owned by the Object now, so the dispatch borrows it (C++ call-stack
+        // ownership).
         if let Ok(mut obj_guard) = object_arc.write() {
             obj_guard.leave_group();
-            if let Some(ai) = obj_guard.get_ai_update_interface() {
-                ai.choose_locomotor_set(LocomotorSetType::Normal);
+            if let Some(ai) = obj_guard.get_ai_update_interface_mut() {
+                let _ = ai.choose_locomotor_set(LocomotorSetType::Normal);
                 let mut params =
                     AiCommandParams::new(AiCommandType::AttackArea, CommandSourceType::FromScript);
                 params.pos = center;
                 params.polygon = Some(trigger_id);
-                let _ = ai.lock().ok().map(|mut ai| ai.execute_command(&params));
+                let _ = ai.execute_command(&params);
             } else {
                 log::warn!(
                     "NamedAttackAreaAction: unit '{}' has no AI update interface",
@@ -338,8 +343,8 @@ impl ScriptAction for NamedMoveToAction {
 
         if let Ok(mut obj_guard) = object_arc.write() {
             obj_guard.leave_group();
-            if let Some(ai) = obj_guard.get_ai_update_interface() {
-                ai.choose_locomotor_set(LocomotorSetType::Normal);
+            if let Some(ai) = obj_guard.get_ai_update_interface_mut() {
+                let _ = ai.choose_locomotor_set(LocomotorSetType::Normal);
                 ai.ai_move_to_position(&destination, false, CommandSourceType::FromScript);
             } else {
                 log::warn!(
@@ -471,16 +476,14 @@ impl ScriptAction for NamedFollowWaypointsAction {
             return Ok(ScriptResult::Success(None));
         };
 
-        if let Ok(obj_guard) = object_arc.write() {
-            if let Some(ai) = obj_guard.get_ai_update_interface() {
-                if let Ok(mut ai_guard) = ai.try_lock() {
-                    let mut params = AiCommandParams::new(
-                        AiCommandType::FollowWaypointPath,
-                        CommandSourceType::FromScript,
-                    );
-                    params.waypoint = Some(waypoint_id);
-                    let _ = ai_guard.execute_command(&params);
-                }
+        if let Ok(mut obj_guard) = object_arc.write() {
+            if let Some(ai) = obj_guard.get_ai_update_interface_mut() {
+                let mut params = AiCommandParams::new(
+                    AiCommandType::FollowWaypointPath,
+                    CommandSourceType::FromScript,
+                );
+                params.waypoint = Some(waypoint_id);
+                let _ = ai.execute_command(&params);
             } else {
                 log::warn!(
                     "NamedFollowWaypointsAction: unit '{}' has no AI update interface",
@@ -544,9 +547,9 @@ impl ScriptAction for NamedGuardAction {
             return Ok(ScriptResult::Success(None));
         };
 
-        if let Ok(obj_guard) = object_arc.read() {
+        if let Ok(mut obj_guard) = object_arc.write() {
             let pos = *obj_guard.get_position();
-            if let Some(ai) = obj_guard.get_ai_update_interface() {
+            if let Some(ai) = obj_guard.get_ai_update_interface_mut() {
                 ai.ai_guard_position(&pos, GuardMode::Normal, CommandSourceType::FromScript);
             } else {
                 log::warn!(
@@ -611,9 +614,9 @@ impl ScriptAction for NamedHuntAction {
             return Ok(ScriptResult::Success(None));
         };
 
-        if let Ok(obj_guard) = object_arc.read() {
-            if let Some(ai) = obj_guard.get_ai_update_interface() {
-                ai.choose_locomotor_set(LocomotorSetType::Normal);
+        if let Ok(mut obj_guard) = object_arc.write() {
+            if let Some(ai) = obj_guard.get_ai_update_interface_mut() {
+                let _ = ai.choose_locomotor_set(LocomotorSetType::Normal);
                 ai.ai_hunt(CommandSourceType::FromScript);
             } else {
                 log::warn!(
@@ -765,8 +768,8 @@ impl ScriptAction for NamedEnterNamedAction {
             return Ok(ScriptResult::Success(None));
         };
 
-        let (unit_guard, contain) = match (unit_arc.read(), building_arc.read()) {
-            (Ok(unit_guard), Ok(building_guard)) => (unit_guard, building_guard.get_contain()),
+        let (unit_guard, mut building_guard) = match (unit_arc.read(), building_arc.write()) {
+            (Ok(unit_guard), Ok(building_guard)) => (unit_guard, building_guard),
             _ => {
                 log::warn!(
                     "NamedEnterNamedAction: failed to lock unit/building for '{}'",
@@ -776,7 +779,7 @@ impl ScriptAction for NamedEnterNamedAction {
             }
         };
 
-        let Some(contain) = contain else {
+        let Some(contain) = building_guard.get_contain_mut() else {
             log::warn!(
                 "NamedEnterNamedAction: building '{}' has no contain module",
                 building_name
@@ -793,7 +796,7 @@ impl ScriptAction for NamedEnterNamedAction {
             return Ok(ScriptResult::Success(None));
         }
 
-        contain.add_to_contain(&unit_guard);
+        let _ = contain.add_to_contain(&unit_guard);
 
         Ok(ScriptResult::Success(None))
     }
@@ -866,12 +869,10 @@ impl ScriptAction for NamedExitAction {
         };
 
         let released = crate::object::registry::OBJECT_REGISTRY
-            .with_object(container_id, |c| {
-                if let Some(contain) = c.get_contain() {
-                    if let Ok(mut contain_guard) = contain.try_lock() {
-                        let _ = contain_guard.release_object(unit_id);
-                        return true;
-                    }
+            .with_object_mut(container_id, |c| {
+                if let Some(contain) = c.get_contain_mut() {
+                    let _ = contain.release_object(unit_id);
+                    return true;
                 }
                 false
             })
@@ -958,9 +959,9 @@ impl ScriptAction for NamedSetAttitudeAction {
             _ => crate::modules::AIAttitudeType::Normal,
         };
 
-        if let Ok(unit_guard) = unit_arc.read() {
-            if let Some(ai) = unit_guard.get_ai_update_interface() {
-                ai.set_attitude(attitude_type);
+        if let Ok(mut unit_guard) = unit_arc.write() {
+            if let Some(ai) = unit_guard.get_ai_update_interface_mut() {
+                let _ = ai.set_attitude(attitude_type);
             } else {
                 log::warn!(
                     "NamedSetAttitudeAction: unit '{}' has no AI update interface",

@@ -97,8 +97,13 @@ pub fn WWDebug_Install_Profile_Stop_Handler(func: Option<ProfileFunc>) -> Option
 }
 
 fn dispatch_message(kind: DebugType, message: &str) {
-    let handlers = handlers().lock().expect("debug handler lock poisoned");
-    if let Some(handler) = handlers.message {
+    // Copy the fn-pointer handler out and release the lock before calling:
+    // a handler that itself logs would re-enter handlers() and self-deadlock.
+    let handler = handlers()
+        .lock()
+        .expect("debug handler lock poisoned")
+        .message;
+    if let Some(handler) = handler {
         handler(kind, message);
     }
 }
@@ -142,13 +147,16 @@ macro_rules! wwdebug_printf_error {
 #[allow(non_snake_case)]
 pub fn WWDebug_Assert_Fail(expr: &str, file: &str, line: i32) {
     let message = format!("{file} ({line}) Assert: {expr}\n");
-    let handlers = handlers().lock().expect("debug handler lock poisoned");
-    if let Some(assert_handler) = handlers.assert {
+    // Snapshot the handler so the lock is not held across the call.
+    let assert_handler = handlers()
+        .lock()
+        .expect("debug handler lock poisoned")
+        .assert;
+    if let Some(assert_handler) = assert_handler {
         assert_handler(&message);
         return;
     }
 
-    drop(handlers);
     if cfg!(debug_assertions) {
         panic!("{message}");
     }
@@ -157,13 +165,16 @@ pub fn WWDebug_Assert_Fail(expr: &str, file: &str, line: i32) {
 #[allow(non_snake_case)]
 pub fn WWDebug_Assert_Fail_Print(expr: &str, file: &str, line: i32, string: &str) {
     let message = format!("{file} ({line}) Assert: {expr} {string}\n");
-    let handlers = handlers().lock().expect("debug handler lock poisoned");
-    if let Some(assert_handler) = handlers.assert {
+    // Snapshot the handler so the lock is not held across the call.
+    let assert_handler = handlers()
+        .lock()
+        .expect("debug handler lock poisoned")
+        .assert;
+    if let Some(assert_handler) = assert_handler {
         assert_handler(&message);
         return;
     }
 
-    drop(handlers);
     if cfg!(debug_assertions) {
         panic!("{message}");
     }
@@ -171,8 +182,12 @@ pub fn WWDebug_Assert_Fail_Print(expr: &str, file: &str, line: i32, string: &str
 
 #[allow(non_snake_case)]
 pub fn WWDebug_Check_Trigger(trigger_num: i32) -> bool {
-    let handlers = handlers().lock().expect("debug handler lock poisoned");
-    if let Some(trigger_handler) = handlers.trigger {
+    // Snapshot the handler so the lock is not held across the call.
+    let trigger_handler = handlers()
+        .lock()
+        .expect("debug handler lock poisoned")
+        .trigger;
+    if let Some(trigger_handler) = trigger_handler {
         return trigger_handler(trigger_num);
     }
     false
@@ -180,16 +195,24 @@ pub fn WWDebug_Check_Trigger(trigger_num: i32) -> bool {
 
 #[allow(non_snake_case)]
 pub fn WWDebug_Profile_Start(title: &str) {
-    let handlers = handlers().lock().expect("debug handler lock poisoned");
-    if let Some(handler) = handlers.profile_start {
+    // Snapshot the handler so the lock is not held across the call.
+    let handler = handlers()
+        .lock()
+        .expect("debug handler lock poisoned")
+        .profile_start;
+    if let Some(handler) = handler {
         handler(title);
     }
 }
 
 #[allow(non_snake_case)]
 pub fn WWDebug_Profile_Stop(title: &str) {
-    let handlers = handlers().lock().expect("debug handler lock poisoned");
-    if let Some(handler) = handlers.profile_stop {
+    // Snapshot the handler so the lock is not held across the call.
+    let handler = handlers()
+        .lock()
+        .expect("debug handler lock poisoned")
+        .profile_stop;
+    if let Some(handler) = handler {
         handler(title);
     }
 }

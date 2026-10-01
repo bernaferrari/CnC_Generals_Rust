@@ -323,7 +323,7 @@ impl Drawable {
 
         let damage_state = object
             .get_body_module()
-            .and_then(|body| body.lock().ok().map(|guard| guard.get_damage_state()))
+            .map(|body| body.get_damage_state())
             .unwrap_or(BodyDamageType::Pristine);
 
         if self.custom_sound_ambient_off && damage_state != BodyDamageType::Rubble {

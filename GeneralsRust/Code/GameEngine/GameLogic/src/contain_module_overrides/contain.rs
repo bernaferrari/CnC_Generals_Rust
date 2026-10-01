@@ -107,11 +107,14 @@ impl<'a> ContainModuleDataKind<'a> {
     }
 }
 
-#[derive(Debug)]
-struct ContainBindingModule {
+pub(super) struct ContainBindingModule {
     module_name_key: NameKeyType,
     module_data: Arc<dyn ModuleData>,
-    contain: Arc<Mutex<dyn ContainModuleInterface>>,
+    /// Owned until `on_object_created` moves it into the Object's `contain`
+    /// field. Afterwards `None` — the Object-side module walks substitute the
+    /// owned field at this entry's list position (xfer/crc/lpp/on_delete and
+    /// the CaveContain create hooks), preserving C++ list-position ordering.
+    contain: Option<Box<dyn ContainModuleInterface>>,
     owner_id: ObjectID,
 }
 
@@ -119,13 +122,13 @@ impl ContainBindingModule {
     fn new(
         module_name_key: NameKeyType,
         module_data: Arc<dyn ModuleData>,
-        contain: Arc<Mutex<dyn ContainModuleInterface>>,
+        contain: Box<dyn ContainModuleInterface>,
         owner_id: ObjectID,
     ) -> Self {
         Self {
             module_name_key,
             module_data,
-            contain,
+            contain: Some(contain),
             owner_id,
         }
     }
@@ -145,13 +148,25 @@ impl Module for ContainBindingModule {
     }
 
     fn on_object_created(&mut self) {
-        attach_contain_to_object(self.owner_id, Arc::clone(&self.contain));
-        if let Ok(mut contain_guard) = self.contain.lock() {
-            if let Err(err) = contain_guard.on_owner_created() {
-                warn!(
-                    "Contain module on_owner_created failed for object {}: {}",
-                    self.owner_id, err
-                );
+        // C++ order: register the contain instance on the Object, then run
+        // onOwnerCreated on that same instance.
+        if let Some(contain) = self.contain.take() {
+            attach_contain_to_object(self.owner_id, contain);
+        }
+        if let Some(object) = TheGameLogic::find_object_by_id(self.owner_id) {
+            if let Ok(mut guard) = object.write() {
+                // Take/restore so the hook runs without holding a borrow
+                // across the callback.
+                let mut contain = guard.contain.take();
+                if let Some(contain) = contain.as_mut() {
+                    if let Err(err) = contain.on_owner_created() {
+                        warn!(
+                            "Contain module on_owner_created failed for object {}: {}",
+                            self.owner_id, err
+                        );
+                    }
+                }
+                guard.contain = contain;
             }
         }
     }
@@ -166,71 +181,48 @@ impl Module for ContainBindingModule {
     }
 
     fn on_delete(&mut self) {
-        if let Ok(mut contain_guard) = self.contain.lock() {
-            if let Err(err) = contain_guard.on_delete() {
-                warn!(
-                    "Contain module on_delete failed for object {}: {}",
-                    self.owner_id, err
-                );
-            }
-        }
+        // The contain instance is owned by the Object; the Object-side
+        // on_delete walk invokes it at this entry's position.
     }
 }
 
 impl CreateInterface for ContainBindingModule {
     fn on_create(&self) {
-        if let Ok(mut contain_guard) = self.contain.lock() {
-            if let Err(err) = contain_guard.on_create() {
-                warn!(
-                    "CaveContain on_create failed for object {}: {}",
-                    self.owner_id, err
-                );
-            }
-        }
+        // Handled by the Object-side create walk through the owned contain
+        // field (CaveContain).
     }
 
     fn on_build_complete(&self) {
-        if let Ok(mut contain_guard) = self.contain.lock() {
-            if let Err(err) = contain_guard.on_build_complete() {
-                warn!(
-                    "CaveContain on_build_complete failed for object {}: {}",
-                    self.owner_id, err
-                );
-            }
-        }
+        // Handled by the Object-side create walk through the owned contain
+        // field (CaveContain).
     }
 
     fn should_do_on_build_complete(&self) -> bool {
-        self.contain
-            .lock()
-            .map(|guard| guard.should_do_on_build_complete())
-            .unwrap_or(false)
+        // Gate evaluated by the Object-side create walk against the owned
+        // contain field.
+        false
     }
 }
 
 impl Snapshotable for ContainBindingModule {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        if let Ok(contain) = self.contain.lock() {
-            contain.snapshot_crc(xfer)
-        } else {
-            Ok(())
-        }
+        // Contain payload is crc'd by the Object-side module walk through the
+        // owned `contain` field at this entry's list position.
+        let _ = xfer;
+        Ok(())
     }
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        if let Ok(mut contain) = self.contain.lock() {
-            contain.snapshot_xfer(xfer)
-        } else {
-            Ok(())
-        }
+        // Contain payload is xfered by the Object-side module walk through the
+        // owned `contain` field at this entry's list position.
+        let _ = xfer;
+        Ok(())
     }
 
     fn load_post_process(&mut self) -> Result<(), String> {
-        if let Ok(mut contain) = self.contain.lock() {
-            contain.snapshot_load_post_process()
-        } else {
-            Ok(())
-        }
+        // Handled by the Object-side load_post_process walk through the owned
+        // `contain` field.
+        Ok(())
     }
 }
 
@@ -238,7 +230,7 @@ pub(super) fn build_contain_module(
     module_name: &str,
     thing: Arc<dyn ModuleThing>,
     module_data: Arc<dyn ModuleData>,
-    contain: Arc<Mutex<dyn ContainModuleInterface>>,
+    contain: Box<dyn ContainModuleInterface>,
 ) -> Box<dyn Module> {
     let module_name_key = NameKeyGenerator::name_to_key(module_name);
     let owner_id = resolve_owner_id(&thing);
@@ -274,7 +266,7 @@ pub(super) fn open_contain_module_factory(
         OpenContain::new(Weak::new(), &OpenContainModuleData::default())
             .expect("OpenContain default construction failed")
     });
-    let contain: Arc<Mutex<dyn ContainModuleInterface>> = Arc::new(Mutex::new(contain));
+    let contain: Box<dyn ContainModuleInterface> = Box::new(contain);
     build_contain_module("OpenContain", thing, module_data, contain)
 }
 
@@ -303,7 +295,7 @@ pub(super) fn transport_contain_module_factory(
         TransportContain::new(Weak::new(), &TransportContainModuleData::default())
             .expect("TransportContain default construction failed")
     });
-    let contain: Arc<Mutex<dyn ContainModuleInterface>> = Arc::new(Mutex::new(contain));
+    let contain: Box<dyn ContainModuleInterface> = Box::new(contain);
     build_contain_module("TransportContain", thing, module_data, contain)
 }
 
@@ -332,7 +324,7 @@ pub(super) fn garrison_contain_module_factory(
         GarrisonContain::new(Weak::new(), &GarrisonContainModuleData::default())
             .expect("GarrisonContain default construction failed")
     });
-    let contain: Arc<Mutex<dyn ContainModuleInterface>> = Arc::new(Mutex::new(contain));
+    let contain: Box<dyn ContainModuleInterface> = Box::new(contain);
     build_contain_module("GarrisonContain", thing, module_data, contain)
 }
 
@@ -361,7 +353,7 @@ pub(super) fn tunnel_contain_module_factory(
         TunnelContain::new(Weak::new(), &TunnelContainModuleData::default())
             .expect("TunnelContain default construction failed")
     });
-    let contain: Arc<Mutex<dyn ContainModuleInterface>> = Arc::new(Mutex::new(contain));
+    let contain: Box<dyn ContainModuleInterface> = Box::new(contain);
     build_contain_module("TunnelContain", thing, module_data, contain)
 }
 
@@ -390,7 +382,7 @@ pub(super) fn overlord_contain_module_factory(
         OverlordContain::new(Weak::new(), &OverlordContainModuleData::default())
             .expect("OverlordContain default construction failed")
     });
-    let contain: Arc<Mutex<dyn ContainModuleInterface>> = Arc::new(Mutex::new(contain));
+    let contain: Box<dyn ContainModuleInterface> = Box::new(contain);
     build_contain_module("OverlordContain", thing, module_data, contain)
 }
 
@@ -418,7 +410,7 @@ pub(super) fn helix_contain_module_factory(
         HelixContain::new(Weak::new(), &HelixContainModuleData::default())
             .expect("HelixContain default construction failed")
     });
-    let contain: Arc<Mutex<dyn ContainModuleInterface>> = Arc::new(Mutex::new(contain));
+    let contain: Box<dyn ContainModuleInterface> = Box::new(contain);
     build_contain_module("HelixContain", thing, module_data, contain)
 }
 
@@ -452,7 +444,7 @@ pub(super) fn railed_transport_contain_module_factory(
             RailedTransportContain::new(Weak::new(), &RailedTransportContainModuleData::default())
                 .expect("RailedTransportContain default construction failed")
         });
-    let contain: Arc<Mutex<dyn ContainModuleInterface>> = Arc::new(Mutex::new(contain));
+    let contain: Box<dyn ContainModuleInterface> = Box::new(contain);
     build_contain_module("RailedTransportContain", thing, module_data, contain)
 }
 
@@ -484,7 +476,7 @@ pub(super) fn rider_change_contain_module_factory(
             RiderChangeContain::new(Weak::new(), &RiderChangeContainModuleData::default())
                 .expect("RiderChangeContain default construction failed")
         });
-    let contain: Arc<Mutex<dyn ContainModuleInterface>> = Arc::new(Mutex::new(contain));
+    let contain: Box<dyn ContainModuleInterface> = Box::new(contain);
     build_contain_module("RiderChangeContain", thing, module_data, contain)
 }
 
@@ -516,7 +508,7 @@ pub(super) fn internet_hack_contain_module_factory(
             InternetHackContain::new(Weak::new(), &InternetHackContainModuleData::default())
                 .expect("InternetHackContain default construction failed")
         });
-    let contain: Arc<Mutex<dyn ContainModuleInterface>> = Arc::new(Mutex::new(contain));
+    let contain: Box<dyn ContainModuleInterface> = Box::new(contain);
     build_contain_module("InternetHackContain", thing, module_data, contain)
 }
 
@@ -544,7 +536,7 @@ pub(super) fn heal_contain_module_factory(
         HealContain::new(Weak::new(), &HealContainModuleData::default())
             .expect("HealContain default construction failed")
     });
-    let contain: Arc<Mutex<dyn ContainModuleInterface>> = Arc::new(Mutex::new(contain));
+    let contain: Box<dyn ContainModuleInterface> = Box::new(contain);
     build_contain_module("HealContain", thing, module_data, contain)
 }
 
@@ -582,7 +574,7 @@ pub(super) fn cave_contain_module_factory(
         )
         .expect("CaveContain default construction failed")
     });
-    let contain: Arc<Mutex<dyn ContainModuleInterface>> = Arc::new(Mutex::new(contain));
+    let contain: Box<dyn ContainModuleInterface> = Box::new(contain);
     build_contain_module("CaveContain", thing, module_data, contain)
 }
 
@@ -611,7 +603,7 @@ pub(super) fn parachute_contain_module_factory(
         ParachuteContain::new(Weak::new(), &ParachuteContainModuleData::default())
             .expect("ParachuteContain default construction failed")
     });
-    let contain: Arc<Mutex<dyn ContainModuleInterface>> = Arc::new(Mutex::new(contain));
+    let contain: Box<dyn ContainModuleInterface> = Box::new(contain);
     build_contain_module("ParachuteContain", thing, module_data, contain)
 }
 
@@ -640,7 +632,7 @@ pub(super) fn mob_nexus_contain_module_factory(
         MobNexusContain::new(Weak::new(), &MobNexusContainModuleData::default())
             .expect("MobNexusContain default construction failed")
     });
-    let contain: Arc<Mutex<dyn ContainModuleInterface>> = Arc::new(Mutex::new(contain));
+    let contain: Box<dyn ContainModuleInterface> = Box::new(contain);
     build_contain_module("MobNexusContain", thing, module_data, contain)
 }
 

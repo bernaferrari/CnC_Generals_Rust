@@ -890,8 +890,7 @@ fn sequential_script_dispatch_reenters_immediately_without_holding_inner_borrow(
     let object = Arc::new(RwLock::new(crate::object::Object::new_test(
         object_id, 100.0,
     )));
-    let ai: Arc<Mutex<dyn crate::modules::AIUpdateInterface>> =
-        Arc::new(Mutex::new(IdleSequentialAi));
+    let ai: Box<dyn crate::modules::AIUpdateInterface> = Box::new(IdleSequentialAi);
     object.write().unwrap().set_ai_update_interface(Some(ai));
     OBJECT_REGISTRY.register_object(object_id, &object);
     let _cleanup = RegisteredSequentialObjectCleanup(object_id);

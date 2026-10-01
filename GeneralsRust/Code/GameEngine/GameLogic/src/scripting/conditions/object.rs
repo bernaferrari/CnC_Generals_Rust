@@ -10,6 +10,8 @@ use super::helpers::{
 use super::{ConditionRegistry, ScriptCondition, ScriptContext, ScriptValue};
 use crate::common::{Coord3D, KindOf, LOGICFRAMES_PER_SECOND, Relationship};
 use crate::helpers::{TheGameLogic, ThePartitionManager, TheVictoryConditions};
+use crate::modules::ContainModuleInterface;
+use crate::object::body::body_module::BodyModuleInterface;
 use crate::object::registry::OBJECT_REGISTRY;
 use crate::object_manager::get_object_manager;
 use crate::player::{Player, PlayerType, player_list};
@@ -540,12 +542,8 @@ impl ScriptCondition for UnitEmptiedCondition {
 
         let Some((obj_id, num_peeps)) = OBJECT_REGISTRY.with_object(object_id, |obj| {
             let obj_id = obj.get_id();
-            let num_peeps = if let Some(contain_arc) = obj.get_contain() {
-                if let Ok(contain_guard) = contain_arc.lock() {
-                    contain_guard.get_contained_count() as i32
-                } else {
-                    0
-                }
+            let num_peeps = if let Some(contain) = obj.get_contain() {
+                contain.get_contained_count() as i32
             } else {
                 0
             };
@@ -642,8 +640,11 @@ impl ScriptCondition for UnitHealthCondition {
             GameLogicError::Configuration(format!("Unit '{}' not found", unit_name))
         })?;
 
-        let body = OBJECT_REGISTRY
-            .with_object(object_id, |obj| obj.get_body_module())
+        let Some((cur_health, initial_health)) = OBJECT_REGISTRY
+            .with_object(object_id, |obj| {
+                obj.get_body_module()
+                    .map(|body| (body.get_health(), body.get_initial_health()))
+            })
             .flatten()
             .ok_or_else(|| {
                 GameLogicError::Configuration(format!(
@@ -651,13 +652,6 @@ impl ScriptCondition for UnitHealthCondition {
                     unit_name, object_id
                 ))
             })?;
-
-        let body_guard = body
-            .lock()
-            .map_err(|e| GameLogicError::Threading(format!("Failed to lock body module: {}", e)))?;
-
-        let cur_health = body_guard.get_health();
-        let initial_health = body_guard.get_initial_health();
 
         if initial_health <= 0.0 {
             return Ok(false);

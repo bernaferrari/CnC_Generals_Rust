@@ -538,15 +538,33 @@ impl GameLogic {
     pub fn update_ai_players(&mut self, frame: UnsignedInt) -> Result<(), GameLogicError> {
         trace!("GameLogic::update_ai_players(frame={})", frame);
 
-        // Access the global AI system
-        let ai_store = the_ai(); if let Ok(mut ai) = ai_store.write() {
-            if let Err(e) = ai.update(frame) {
-                return Err(GameLogicError::AIError(format!("AI update failed: {}", e)));
+        // Access the global AI system.
+        // Take the AI out of the store for the update pass: helpers reached
+        // from AI::update (object queries, weapon approach, lifecycle)
+        // re-enter the_ai().read(), which would deadlock against a live
+        // write guard on this non-reentrant std RwLock.
+        let ai_store = the_ai();
+        let mut ai = match ai_store.write() {
+            Ok(mut store) => std::mem::take(&mut *store),
+            Err(_) => {
+                return Err(GameLogicError::AIError(
+                    "AI system lock poisoned".to_string(),
+                ));
             }
-        } else {
-            return Err(GameLogicError::AIError(
-                "AI system lock poisoned".to_string(),
-            ));
+        };
+        let update_result = ai.update(frame);
+        match ai_store.write() {
+            Ok(mut store) => *store = ai,
+            // Only reachable if another holder panicked mid-update; keep the
+            // original poison error reporting shape.
+            Err(_) => {
+                return Err(GameLogicError::AIError(
+                    "AI system lock poisoned".to_string(),
+                ));
+            }
+        }
+        if let Err(e) = update_result {
+            return Err(GameLogicError::AIError(format!("AI update failed: {}", e)));
         }
 
         if let Some(result) = with_ai_integration_mut(|manager| manager.update_ai_players_only()) {

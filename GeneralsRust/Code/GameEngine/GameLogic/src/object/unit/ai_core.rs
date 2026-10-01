@@ -700,14 +700,22 @@ impl UnitAIUpdate {
 
                                     if found_position {
                                         let mut used_ai_path = false;
-                                        if let Ok(unit_guard) = unit.read() {
-                                            if let Some(ai) = unit_guard.get_ai_update_interface() {
-                                                ai.ai_follow_path(
-                                                    &[end_position],
-                                                    current_state.target_id,
-                                                    CommandSourceType::FromAi,
-                                                );
-                                                used_ai_path = true;
+                                        if let Some(base) = unit
+                                            .read()
+                                            .ok()
+                                            .map(|unit_guard| unit_guard.base_arc())
+                                        {
+                                            if let Ok(mut base_guard) = base.write() {
+                                                if let Some(ai) =
+                                                    base_guard.get_ai_update_interface_mut()
+                                                {
+                                                    ai.ai_follow_path(
+                                                        &[end_position],
+                                                        current_state.target_id,
+                                                        CommandSourceType::FromAi,
+                                                    );
+                                                    used_ai_path = true;
+                                                }
                                             }
                                         }
                                         if !used_ai_path {

@@ -1432,8 +1432,8 @@ impl DockUpdateInterface for SupplyCenterDockUpdate {
         let Some(obj) = resolve_dock_object(obj_id) else {
             return Ok(false);
         };
-        let docker_guard = obj.write().unwrap();
-        let Some(ai) = docker_guard.get_ai_update_interface() else {
+        let mut docker_guard = obj.write().unwrap();
+        let Some(ai) = docker_guard.get_ai_update_interface_mut() else {
             return Ok(false);
         };
 
@@ -1449,15 +1449,13 @@ impl DockUpdateInterface for SupplyCenterDockUpdate {
             .unwrap_or(0);
 
         let mut value: u32 = 0;
-        if let Ok(mut ai_guard) = ai.lock() {
-            if let Some(truck) = ai_guard.get_supply_truck_ai_interface_mut() {
-                while truck.lose_one_box() {
-                    value = value.saturating_add(supply_box_value);
-                }
-                value = value.saturating_add(truck.get_upgraded_supply_boost());
-            } else {
-                return Ok(false);
+        if let Some(truck) = ai.get_supply_truck_ai_interface_mut() {
+            while truck.lose_one_box() {
+                value = value.saturating_add(supply_box_value);
             }
+            value = value.saturating_add(truck.get_upgraded_supply_boost());
+        } else {
+            return Ok(false);
         }
 
         if value > 0 {
@@ -1760,10 +1758,10 @@ mod tests {
         let mut module_data = ActiveBodyModuleData::default();
         module_data.max_health = max_health;
         module_data.initial_health = health;
-        let body: Arc<Mutex<dyn BodyModuleInterface>> = Arc::new(Mutex::new(
-            ActiveBody::new_with_owner(module_data, obj.get_id()),
-        ));
-        obj.set_body_module(Some(body));
+        obj.set_body_module(Some(Box::new(ActiveBody::new_with_owner(
+            module_data,
+            obj.get_id(),
+        ))));
         Arc::new(RwLock::new(obj))
     }
 

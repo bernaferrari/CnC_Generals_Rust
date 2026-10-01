@@ -256,12 +256,20 @@ fn apply_static_lod_level(level_name: &str) {
         refresh_custom_static_lod_level();
     }
 
+    // Resolve the ideal LOD before taking the manager read guard:
+    // find_static_lod_level re-enters get_game_lod_manager(), and a nested
+    // std RwLock read while a writer waits would deadlock.
+    if level != StaticGameLODLevel::Custom && get_ideal_static_lod().eq_ignore_ascii_case("Unknown")
+    {
+        let _ = find_static_lod_level();
+    }
     let (lod_info, requested_texture_reduction) = {
         let manager = get_game_lod_manager();
         let lod_info = manager.static_game_lod_info[index].clone();
         let texture_reduction = if level == StaticGameLODLevel::Custom {
             lod_info.texture_reduction
         } else {
+            // Ideal is non-Unknown now, so this cannot re-enter the manager lock.
             recommended_texture_reduction(&manager, level)
         };
         (lod_info, texture_reduction)

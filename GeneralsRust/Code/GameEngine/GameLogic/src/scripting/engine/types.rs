@@ -862,15 +862,8 @@ impl XferSnapshot for SequentialScript {
                 }
             }
         }
-        // SAFETY: `team_id` is an initialized stack `TeamID`; `xfer_user`
-        // moves exactly `size_of::<TeamID>()` bytes within this call and
-        // never retains the pointer.
-        unsafe {
-            xfer.xfer_user(
-                &mut team_id as *mut TeamID as *mut u8,
-                std::mem::size_of::<TeamID>(),
-            )?
-        };
+        // C++ xferUser(&teamID, sizeof(TeamID)) — raw u32 transfer.
+        xfer.xfer_unsigned_int(&mut team_id)?;
         if xfer.get_xfer_mode() == game_engine::system::XferMode::Load {
             if team_id == TEAM_ID_INVALID {
                 self.team_to_exec_on = None;

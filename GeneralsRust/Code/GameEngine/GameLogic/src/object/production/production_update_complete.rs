@@ -1083,7 +1083,7 @@ impl ProductionUpdateComplete {
         let Some(owner) = TheGameLogic::find_object_by_id(self.owner_id) else {
             return Ok(-1);
         };
-        let Ok(guard) = owner.read() else {
+        let Ok(mut guard) = owner.write() else {
             return Ok(-1);
         };
         let needs = guard
@@ -1094,14 +1094,10 @@ impl ProductionUpdateComplete {
         if !needs {
             return Ok(-1);
         }
-        let Some(exit) = guard.get_object_exit_interface() else {
+        let Some(mut exit) = guard.get_object_exit_interface() else {
             return Err("No parking door available".to_string());
         };
-        drop(guard);
-        let Ok(mut exit_guard) = exit.lock() else {
-            return Err("No parking door available".to_string());
-        };
-        let door = exit_guard.reserve_door_for_exit(None, None);
+        let door = exit.reserve_door_for_exit(None, None);
         if door == ExitDoorType::NoneAvailable {
             return Err("No parking door available".to_string());
         }
@@ -1117,15 +1113,10 @@ impl ProductionUpdateComplete {
         let Some(owner) = TheGameLogic::find_object_by_id(self.owner_id) else {
             return;
         };
-        let Some(exit) = owner
-            .read()
-            .ok()
-            .and_then(|guard| guard.get_object_exit_interface())
-        else {
-            return;
-        };
-        if let Ok(mut exit_guard) = exit.lock() {
-            exit_guard.unreserve_door_for_exit(i32_to_exit_door(exit_door));
+        if let Ok(mut guard) = owner.write() {
+            if let Some(mut exit) = guard.get_object_exit_interface() {
+                exit.unreserve_door_for_exit(i32_to_exit_door(exit_door));
+            }
         }
     }
 
@@ -1190,11 +1181,11 @@ impl ProductionUpdateComplete {
         let Some(owner) = TheGameLogic::find_object_by_id(self.owner_id) else {
             return Err("Cannot create unit, producer object missing".to_string());
         };
-        let Some(exit) = owner
-            .read()
+        let has_exit = owner
+            .write()
             .ok()
-            .and_then(|guard| guard.get_object_exit_interface())
-        else {
+            .is_some_and(|mut guard| guard.get_object_exit_interface().is_some());
+        if !has_exit {
             return Err(format!(
                 "Cannot create '{}', there is no ExitUpdate interface defined for producer",
                 self.current_production
@@ -1202,7 +1193,7 @@ impl ProductionUpdateComplete {
                     .map(|p| p.entry.template_name.as_str())
                     .unwrap_or("<unknown>")
             ));
-        };
+        }
 
         let number_to_try = self
             .current_production
@@ -1219,7 +1210,7 @@ impl ProductionUpdateComplete {
                     .is_some_and(|template| {
                         template.is_kind_of(crate::common::KindOf::ProducedAtHelipad)
                     });
-                let has_parking = owner.read().ok().is_some_and(|guard| {
+                let has_parking = owner.write().ok().is_some_and(|mut guard| {
                     guard
                         .with_parking_place_behavior(|_| true)
                         .unwrap_or(false)
@@ -1227,10 +1218,13 @@ impl ProductionUpdateComplete {
                 if produced_at_helipad && has_parking {
                     prod.exit_door = -2;
                 } else {
-                    let Ok(mut exit_guard) = exit.lock() else {
+                    let Ok(mut guard) = owner.write() else {
                         break;
                     };
-                    let door = exit_guard.reserve_door_for_exit(None, None);
+                    let Some(mut exit) = guard.get_object_exit_interface() else {
+                        break;
+                    };
+                    let door = exit.reserve_door_for_exit(None, None);
                     prod.exit_door = exit_door_to_i32(door);
                 }
             }
@@ -1314,10 +1308,11 @@ impl ProductionUpdateComplete {
                 new_guard.set_producer_id(producer_id);
             }
 
-            if let Ok(mut exit_guard) = exit.lock() {
-                exit_guard
-                    .exit_object_via_door(new_id, i32_to_exit_door(exit_door))
-                    .map_err(|err| err.to_string())?;
+            if let Ok(mut guard) = owner.write() {
+                if let Some(mut exit) = guard.get_object_exit_interface() {
+                    exit.exit_object_via_door(new_id, i32_to_exit_door(exit_door))
+                        .map_err(|err| err.to_string())?;
+                }
             }
             if let Some(prod) = self.current_production.as_mut() {
                 prod.exit_door = -1;

@@ -890,21 +890,10 @@ fn campaign_victory_override(map_name: &str) -> Option<VictoryType> {
         return None;
     }
 
-    let manager_arc = crate::save_load::game_state::global_campaign_manager().ok()?;
-    let manager = manager_arc.try_lock().ok()?;
-    // Prefer stem/path-aware mission match so full map paths resolve Campaign.ini
-    // residual table entries (MD_USA01, GC_*, etc.).
-    if let Some(mission) = manager.find_mission_for_map(map_name) {
-        if let Some(rule) = mission
-            .victory_rule
-            .as_deref()
-            .and_then(parse_victory_keyword)
-        {
-            return Some(rule);
-        }
-    }
-    for mission in manager.iter_missions() {
-        if crate::save_load::campaign::map_name_matches_mission(map_name, &mission.map_name) {
+    crate::save_load::game_state::global_campaign_manager(|manager| {
+        // Prefer stem/path-aware mission match so full map paths resolve Campaign.ini
+        // residual table entries (MD_USA01, GC_*, etc.).
+        if let Some(mission) = manager.find_mission_for_map(map_name) {
             if let Some(rule) = mission
                 .victory_rule
                 .as_deref()
@@ -913,8 +902,20 @@ fn campaign_victory_override(map_name: &str) -> Option<VictoryType> {
                 return Some(rule);
             }
         }
-    }
-    None
+        for mission in manager.iter_missions() {
+            if crate::save_load::campaign::map_name_matches_mission(map_name, &mission.map_name) {
+                if let Some(rule) = mission
+                    .victory_rule
+                    .as_deref()
+                    .and_then(parse_victory_keyword)
+                {
+                    return Some(rule);
+                }
+            }
+        }
+        None
+    })
+    .ok()?
 }
 
 fn parse_victory_keyword(keyword: &str) -> Option<VictoryType> {

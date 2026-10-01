@@ -1,4 +1,4 @@
-use std::sync::{Arc, Mutex, RwLock, Weak};
+use std::sync::{Arc, RwLock};
 
 use crate::ai::the_ai;
 use crate::common::{
@@ -9,7 +9,7 @@ use crate::helpers::{TheAudio, TheGameLogic};
 use crate::locomotor::LocomotorAppearance;
 use crate::object::Object;
 use crate::path::PATHFIND_CELL_SIZE_F;
-use crate::state_machine::{StateExitType, StateMachine, StateReturnType};
+use crate::state_machine::{StateExitType, StateReturnType};
 use crate::terrain::get_terrain_logic;
 
 /// Internal move-to helper bridging legacy AI move states to the modern state machine.
@@ -19,7 +19,6 @@ use crate::terrain::get_terrain_logic;
 #[derive(Debug)]
 pub struct AIInternalMoveToState {
     name: String,
-    machine: Weak<Mutex<StateMachine>>,
     goal_position: Coord3D,
     goal_object_id: crate::common::ObjectID,
     owner_id: crate::common::ObjectID,
@@ -43,11 +42,11 @@ fn is_cliff_at(pos: &Coord3D) -> bool {
 }
 
 impl AIInternalMoveToState {
-    /// Create a new helper bound to the provided state machine.
-    pub fn new(machine: &Arc<Mutex<StateMachine>>, name: String) -> Result<Self, String> {
-        Ok(Self {
+    /// Create a new move helper. Goal data is bound by the owning machine
+    /// before each step; the helper keeps only per-instance move state.
+    pub fn new(name: String) -> Self {
+        Self {
             name,
-            machine: Arc::downgrade(machine),
             goal_position: Coord3D::new(0.0, 0.0, 0.0),
             goal_object_id: crate::common::INVALID_ID,
             owner_id: crate::common::INVALID_ID,
@@ -59,30 +58,7 @@ impl AIInternalMoveToState {
             try_one_more_repath: true,
             adjusts_destination: true,
             ambient_playing_handle: 0,
-        })
-    }
-
-    fn upgrade_machine(&self) -> Result<Arc<Mutex<StateMachine>>, String> {
-        self.machine.upgrade().ok_or_else(|| {
-            format!(
-                "AIInternalMoveToState '{}' lost its machine context",
-                self.name
-            )
-        })
-    }
-
-    fn with_machine<F, R>(&self, f: F) -> Result<R, String>
-    where
-        F: FnOnce(&mut StateMachine) -> R,
-    {
-        let machine = self.upgrade_machine()?;
-        let Ok(mut guard) = machine.try_lock() else {
-            return Err(format!(
-                "AIInternalMoveToState '{}' machine lock busy",
-                self.name
-            ));
-        };
-        Ok(f(&mut guard))
+        }
     }
 
     /// Hook invoked when the enclosing state machine enters the move helper.
@@ -360,17 +336,12 @@ impl AIInternalMoveToState {
     }
 
     /// Set the target goal position for the underlying move helper.
+    /// The machine goal stays authoritative: it rebinds before every step.
     pub fn set_goal_position(&mut self, pos: Coord3D) {
         self.goal_position = pos;
-        let _ = self.with_machine(|machine| machine.set_goal_position(pos));
     }
 
     fn get_machine_goal_position(&self) -> Result<Coord3D, String> {
-        if let Ok(machine) = self.upgrade_machine() {
-            if let Ok(guard) = machine.try_lock() {
-                return Ok(guard.get_goal_position());
-            }
-        }
         Ok(self.goal_position)
     }
 
@@ -490,14 +461,6 @@ impl AIInternalMoveToState {
     }
 
     pub fn get_machine_goal_object_id(&self) -> Result<Option<crate::common::ObjectID>, String> {
-        if let Ok(machine) = self.upgrade_machine() {
-            if let Ok(guard) = machine.try_lock() {
-                let id = guard.get_goal_object_id();
-                if id != crate::common::INVALID_ID {
-                    return Ok(Some(id));
-                }
-            }
-        }
         if self.goal_object_id == crate::common::INVALID_ID {
             Ok(None)
         } else {
@@ -506,24 +469,11 @@ impl AIInternalMoveToState {
     }
 
     pub fn get_machine_owner_id(&self) -> Result<crate::common::ObjectID, String> {
-        if let Ok(machine) = self.upgrade_machine() {
-            if let Ok(guard) = machine.try_lock() {
-                let id = guard.get_owner_id();
-                if id != crate::common::INVALID_ID {
-                    return Ok(id);
-                }
-            }
-        }
         if self.owner_id == crate::common::INVALID_ID {
             Err("state machine owner not set".to_string())
         } else {
             Ok(self.owner_id)
         }
-    }
-
-    /// Obtain a handle to the underlying state machine.
-    pub fn get_machine(&self) -> Result<Arc<Mutex<StateMachine>>, String> {
-        self.upgrade_machine()
     }
 
     /// Whether the move helper adjusts its destination on the fly.

@@ -3,7 +3,6 @@ use game_engine::common::frame_clock::FrameClock;
 use glam::{Mat4, Vec3, Vec4};
 use log::{error, info, warn};
 use std::sync::Arc;
-use std::sync::RwLock;
 use wgpu::{Device, Queue, Surface, SurfaceConfiguration};
 use winit::{
     application::ApplicationHandler,

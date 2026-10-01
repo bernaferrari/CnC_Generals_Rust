@@ -8,6 +8,7 @@ use super::helpers::{
 use super::{ConditionRegistry, ScriptCondition, ScriptContext, ScriptValue};
 use crate::common::{Coord3D, KindOf, LOGICFRAMES_PER_SECOND, Relationship};
 use crate::helpers::{TheGameLogic, ThePartitionManager, TheVictoryConditions};
+use crate::modules::{AIUpdateInterface, ContainModuleInterface};
 use crate::object::registry::OBJECT_REGISTRY;
 use crate::object_manager::get_object_manager;
 use crate::player::{Player, PlayerType, player_list};
@@ -465,11 +466,7 @@ impl ScriptCondition for NamedBuildingIsEmptyCondition {
                 let Some(contain) = obj.get_contain() else {
                     return false;
                 };
-                contain
-                    .lock()
-                    .ok()
-                    .map(|contain_guard| contain_guard.get_contain_count() == 0)
-                    .unwrap_or(false)
+                contain.get_contain_count() == 0
             })
             .unwrap_or(false))
     }
@@ -516,15 +513,9 @@ impl ScriptCondition for NamedHasFreeContainerSlotsCondition {
                 let Some(contain) = obj.get_contain() else {
                     return false;
                 };
-                contain
-                    .lock()
-                    .ok()
-                    .map(|contain_guard| {
-                        let max = contain_guard.get_contain_max() as u32;
-                        let cur = contain_guard.get_contain_count();
-                        cur < max
-                    })
-                    .unwrap_or(false)
+                let max = contain.get_contain_max() as u32;
+                let cur = contain.get_contain_count();
+                cur < max
             })
             .unwrap_or(false))
     }
@@ -656,10 +647,7 @@ impl ScriptCondition for NamedReachedWaypointsEndCondition {
                 let Some(ai) = obj.get_ai_update_interface() else {
                     return false;
                 };
-                ai.try_lock()
-                    .ok()
-                    .map(|ai_guard| ai_guard.is_idle())
-                    .unwrap_or(false)
+                ai.is_idle()
             })
             .unwrap_or(false))
     }

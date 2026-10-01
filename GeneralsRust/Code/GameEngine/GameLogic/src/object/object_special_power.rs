@@ -13,7 +13,7 @@ impl Object {
     ///
     /// When `pausing` is true, increments the pause count for all special powers.
     /// When `pausing` is false, decrements the pause count (unpausing).
-    pub(super) fn pause_all_special_powers(&self, pausing: bool) {
+    pub(super) fn pause_all_special_powers(&mut self, pausing: bool) {
         for entry in &self.modules {
             entry.with_module(|module| {
                 if let Some(sp) = Self::get_special_power_from_module(module) {
@@ -22,11 +22,9 @@ impl Object {
             });
         }
 
-        for behavior in &self.behaviors {
-            if let Ok(mut guard) = behavior.lock() {
-                if let Some(sp) = guard.get_special_power_module_interface() {
-                    sp.pause_countdown(pausing);
-                }
+        for behavior in self.behaviors.iter_mut() {
+            if let Some(sp) = behavior.get_special_power_module_interface() {
+                sp.pause_countdown(pausing);
             }
         }
     }
@@ -143,28 +141,22 @@ impl Object {
             }
         }
 
-        for behavior in &self.behaviors {
-            let Ok(mut behavior_guard) = behavior.lock() else {
-                continue;
-            };
-
-            if let Some(kind) = behavior_production_rally_kind(&mut *behavior_guard) {
+        for behavior in self.behaviors.iter_mut() {
+            if let Some(kind) = behavior_production_rally_kind(behavior.as_mut()) {
                 kind.set_rally_point(pos);
                 applied = true;
             }
         }
 
-        if let Some(contain) = &self.contain {
-            if let Ok(mut contain_guard) = contain.lock() {
-                contain_guard.set_rally_point(*pos);
-                applied = true;
-            }
+        if let Some(contain) = self.contain.as_mut() {
+            contain.set_rally_point(*pos);
+            applied = true;
         }
 
         applied
     }
 
-    pub(crate) fn forward_command_to_flight_deck(&self, params: &crate::ai::AiCommandParams) {
+    pub(crate) fn forward_command_to_flight_deck(&mut self, params: &crate::ai::AiCommandParams) {
         for entry in &self.modules {
             let forwarded = entry.with_module(|module| {
                 module_production_behavior_kind(module)
@@ -183,11 +175,8 @@ impl Object {
             }
         }
 
-        for behavior_arc in &self.behaviors {
-            let Ok(mut behavior_guard) = behavior_arc.lock() else {
-                continue;
-            };
-            if let Some(flight) = behavior_production_rally_kind(&mut *behavior_guard)
+        for behavior in self.behaviors.iter_mut() {
+            if let Some(flight) = behavior_production_rally_kind(behavior.as_mut())
                 .and_then(ProductionBehaviorRallyKindMut::into_flight_deck)
             {
                 flight.ai_do_command(
@@ -225,7 +214,6 @@ impl Object {
             return Ok(());
         };
 
-        let ai = self.get_ai_update_interface();
         match command_button.get_command_type() {
             CommandType::SpecialPower => {
                 if let Some(template) = command_button.get_special_power_template() {
@@ -242,7 +230,7 @@ impl Object {
                 }
             }
             CommandType::DoStop => {
-                if let Some(ai) = ai {
+                if let Some(ai) = self.get_ai_update_interface() {
                     ai.ai_idle(source);
                     return Ok(());
                 }
@@ -252,7 +240,7 @@ impl Object {
                 return Ok(());
             }
             CommandType::FireWeapon => {
-                if let Some(ai) = ai {
+                if self.get_ai_update_interface().is_some() {
                     let options = SpecialPowerCommandOptions::from_bits_truncate(
                         command_button.get_options_bits(),
                     );
@@ -267,14 +255,14 @@ impl Object {
                         return Ok(());
                     }
                     self.lock_fire_weapon_from_command(command_button);
-                    if let Ok(mut guard) = ai.try_lock() {
-                        let mut params =
-                            AiCommandParams::new(AiCommandType::AttackPosition, source);
-                        params.int_value = command_button.get_max_shots_to_fire();
-                        self.forward_command_to_flight_deck(&params);
-                        let _ = guard.execute_command(&params);
+                    let Some(ai) = self.get_ai_update_interface() else {
                         return Ok(());
-                    }
+                    };
+                    let mut params = AiCommandParams::new(AiCommandType::AttackPosition, source);
+                    params.int_value = command_button.get_max_shots_to_fire();
+                    self.forward_command_to_flight_deck(&params);
+                    let _ = ai.execute_command(&params);
+                    return Ok(());
                 }
             }
             CommandType::QueueUpgrade => {
@@ -298,13 +286,11 @@ impl Object {
                 }
             }
             CommandType::InternetHack => {
-                if let Some(ai) = ai {
-                    if let Ok(mut guard) = ai.try_lock() {
-                        let params = AiCommandParams::new(AiCommandType::HackInternet, source);
-                        self.forward_command_to_flight_deck(&params);
-                        let _ = guard.execute_command(&params);
-                        return Ok(());
-                    }
+                if let Some(ai) = self.get_ai_update_interface() {
+                    let params = AiCommandParams::new(AiCommandType::HackInternet, source);
+                    self.forward_command_to_flight_deck(&params);
+                    let _ = ai.execute_command(&params);
+                    return Ok(());
                 }
             }
             CommandType::Sell => {
@@ -362,22 +348,21 @@ impl Object {
             return Ok(());
         };
 
-        let ai = self.get_ai_update_interface();
         #[allow(unreachable_patterns)]
         match command_button.get_command_type() {
             CommandType::CombatDropAtLocation | CommandType::CombatDropAtObject => {
-                if let Some(ai) = ai {
-                    if let Ok(mut guard) = ai.try_lock() {
-                        let mut params = crate::ai::AiCommandParams::new(
-                            crate::ai::AiCommandType::CombatDrop,
-                            source,
-                        );
-                        params.obj = Some(target.get_id());
-                        params.pos = *target.get_position();
-                        self.forward_command_to_flight_deck(&params);
-                        let _ = guard.execute_command(&params);
-                        return Ok(());
+                if self.get_ai_update_interface().is_some() {
+                    let mut params = crate::ai::AiCommandParams::new(
+                        crate::ai::AiCommandType::CombatDrop,
+                        source,
+                    );
+                    params.obj = Some(target.get_id());
+                    params.pos = *target.get_position();
+                    self.forward_command_to_flight_deck(&params);
+                    if let Some(ai) = self.get_ai_update_interface() {
+                        let _ = ai.execute_command(&params);
                     }
+                    return Ok(());
                 }
             }
             CommandType::SpecialPower => {
@@ -396,15 +381,17 @@ impl Object {
                 }
             }
             CommandType::DoStop => {
-                if let Some(ai) = ai {
+                if self.get_ai_update_interface().is_some() {
                     let params = AiCommandParams::new(AiCommandType::Idle, source);
                     self.forward_command_to_flight_deck(&params);
-                    ai.ai_idle(source);
+                    if let Some(ai) = self.get_ai_update_interface() {
+                        ai.ai_idle(source);
+                    }
                     return Ok(());
                 }
             }
             CommandType::FireWeapon => {
-                if let Some(ai) = ai {
+                if self.get_ai_update_interface().is_some() {
                     let options = SpecialPowerCommandOptions::from_bits_truncate(
                         command_button.get_options_bits(),
                     );
@@ -429,21 +416,25 @@ impl Object {
                         params.pos = *target.get_position();
                         params.int_value = command_button.get_max_shots_to_fire();
                         self.forward_command_to_flight_deck(&params);
-                        ai.ai_attack_position(
-                            target.get_position(),
-                            command_button.get_max_shots_to_fire(),
-                            source,
-                        );
+                        if let Some(ai) = self.get_ai_update_interface() {
+                            ai.ai_attack_position(
+                                target.get_position(),
+                                command_button.get_max_shots_to_fire(),
+                                source,
+                            );
+                        }
                     } else {
                         let mut params = AiCommandParams::new(AiCommandType::AttackObject, source);
                         params.obj = Some(target.get_id());
                         params.int_value = command_button.get_max_shots_to_fire();
                         self.forward_command_to_flight_deck(&params);
-                        ai.ai_attack_object_id(
-                            target.get_id(),
-                            command_button.get_max_shots_to_fire(),
-                            source,
-                        );
+                        if let Some(ai) = self.get_ai_update_interface() {
+                            ai.ai_attack_object_id(
+                                target.get_id(),
+                                command_button.get_max_shots_to_fire(),
+                                source,
+                            );
+                        }
                     }
                     return Ok(());
                 }
@@ -452,11 +443,13 @@ impl Object {
             | CommandType::HijackVehicle
             | CommandType::ConvertToCarBomb
             | CommandType::SabotageBuilding => {
-                if let Some(ai) = ai {
+                if self.get_ai_update_interface().is_some() {
                     let mut params = AiCommandParams::new(AiCommandType::Enter, source);
                     params.obj = Some(target.get_id());
                     self.forward_command_to_flight_deck(&params);
-                    ai.ai_enter(target.get_id(), source);
+                    if let Some(ai) = self.get_ai_update_interface() {
+                        ai.ai_enter(target.get_id(), source);
+                    }
                     return Ok(());
                 }
             }
@@ -492,7 +485,6 @@ impl Object {
             return Ok(());
         };
 
-        let ai = self.get_ai_update_interface();
         match command_button.get_command_type() {
             CommandType::SpecialPower => {
                 if let Some(template) = command_button.get_special_power_template() {
@@ -511,25 +503,29 @@ impl Object {
                 }
             }
             CommandType::DoAttackMoveTo => {
-                if let Some(ai) = ai {
+                if self.get_ai_update_interface().is_some() {
                     let mut params =
                         AiCommandParams::new(AiCommandType::AttackMoveToPosition, source);
                     params.pos = *pos;
                     params.int_value = command_button.get_max_shots_to_fire();
                     self.forward_command_to_flight_deck(&params);
-                    ai.ai_attack_move_to_position(
-                        pos,
-                        command_button.get_max_shots_to_fire(),
-                        source,
-                    );
+                    if let Some(ai) = self.get_ai_update_interface() {
+                        ai.ai_attack_move_to_position(
+                            pos,
+                            command_button.get_max_shots_to_fire(),
+                            source,
+                        );
+                    }
                     return Ok(());
                 }
             }
             CommandType::DoStop => {
-                if let Some(ai) = ai {
+                if self.get_ai_update_interface().is_some() {
                     let params = AiCommandParams::new(AiCommandType::Idle, source);
                     self.forward_command_to_flight_deck(&params);
-                    ai.ai_idle(source);
+                    if let Some(ai) = self.get_ai_update_interface() {
+                        ai.ai_idle(source);
+                    }
                     return Ok(());
                 }
             }
@@ -540,7 +536,7 @@ impl Object {
                 }
             }
             CommandType::FireWeapon => {
-                if let Some(ai) = ai {
+                if self.get_ai_update_interface().is_some() {
                     let options = SpecialPowerCommandOptions::from_bits_truncate(
                         command_button.get_options_bits(),
                     );
@@ -549,7 +545,13 @@ impl Object {
                     }
 
                     self.lock_fire_weapon_from_command(command_button);
-                    ai.ai_attack_position(pos, command_button.get_max_shots_to_fire(), source);
+                    if let Some(ai) = self.get_ai_update_interface() {
+                        ai.ai_attack_position(
+                            pos,
+                            command_button.get_max_shots_to_fire(),
+                            source,
+                        );
+                    }
                     return Ok(());
                 }
             }
@@ -561,7 +563,7 @@ impl Object {
 
     /// Execute a command button ability using a waypoint path.
     pub fn do_command_button_using_waypoints(
-        &self,
+        &mut self,
         button_id: u32,
         waypoint: &crate::object::special_power_module::Waypoint,
         source: CommandSource,
@@ -616,7 +618,7 @@ impl Object {
     }
 
     pub fn do_special_power_using_waypoints(
-        &self,
+        &mut self,
         special_power_name: &str,
         waypoint: &crate::object::special_power_module::Waypoint,
         command_options: crate::object::special_power_module::SpecialPowerCommandOptions,
@@ -630,7 +632,7 @@ impl Object {
     }
 
     pub fn do_special_power_using_waypoints_forced(
-        &self,
+        &mut self,
         special_power_name: &str,
         waypoint: &crate::object::special_power_module::Waypoint,
         command_options: crate::object::special_power_module::SpecialPowerCommandOptions,
@@ -669,26 +671,19 @@ impl Object {
     /// # Returns
     /// An optional reference to the special ability update module
     pub fn find_special_ability_update(
-        &self,
+        &mut self,
         power_type: crate::common::types::SpecialPowerType,
-    ) -> Option<Arc<Mutex<dyn crate::modules::SpecialAbilityUpdate>>> {
-        for behavior in &self.behaviors {
-            let matches = {
-                let Ok(guard) = behavior.lock() else {
-                    continue;
-                };
-                guard
-                    .as_any()
-                    .downcast_ref::<SpecialAbilityUpdateBehavior>()
-                    .and_then(|update| update.get_special_power_type())
-                    .map(|update_type| update_type == power_type)
-                    .unwrap_or(false)
-            };
+    ) -> Option<SpecialAbilityUpdateRef<'_>> {
+        for behavior in self.behaviors.iter_mut() {
+            let matches = behavior
+                .as_any()
+                .downcast_ref::<SpecialAbilityUpdateBehavior>()
+                .and_then(|update| update.get_special_power_type())
+                .map(|update_type| update_type == power_type)
+                .unwrap_or(false);
 
             if matches {
-                return Some(Arc::new(Mutex::new(SpecialAbilityUpdateProxy {
-                    behavior: behavior.clone(),
-                })));
+                return Some(SpecialAbilityUpdateRef::new(behavior.as_mut()));
             }
         }
 
@@ -704,11 +699,8 @@ impl Object {
     /// Return whether this object owns a special-power module capable of executing `template`.
     /// Matches the module-presence gate in C++ `Object::getSpecialPowerModule`.
     pub fn has_special_power_module_for_power(&self, template: &SpecialPowerTemplate) -> bool {
-        for behavior_arc in &self.behaviors {
-            let Ok(behavior_lock) = behavior_arc.lock() else {
-                continue;
-            };
-            if behavior_lock
+        for behavior in &self.behaviors {
+            if behavior
                 .get_special_power_module_interface_const()
                 .map(|sp_module| sp_module.is_module_for_power(template))
                 .unwrap_or(false)
@@ -741,11 +733,8 @@ impl Object {
     /// # Returns
     /// An optional special power module ID
     pub fn get_special_power_module(&self, template_id: u32) -> Option<u32> {
-        for behavior_arc in &self.behaviors {
-            let Ok(behavior_lock) = behavior_arc.lock() else {
-                continue;
-            };
-            if let Some(sp_module) = behavior_lock.get_special_power_module_interface_const() {
+        for behavior in &self.behaviors {
+            if let Some(sp_module) = behavior.get_special_power_module_interface_const() {
                 if let Some(template_any) = sp_module.get_special_power_template() {
                     if let Some(template) = template_any
                         .as_ref()
@@ -780,24 +769,23 @@ impl Object {
 
     /// Get special power module by its template name
     pub fn get_special_power_module_by_name(
-        &self,
+        &mut self,
         template_name: &str,
-    ) -> Option<Arc<Mutex<dyn BehaviorModuleInterface>>> {
-        for behavior_arc in &self.behaviors {
-            let Ok(behavior_lock) = behavior_arc.lock() else {
-                continue;
-            };
-            if let Some(sp_module) = behavior_lock.get_special_power_module_interface_const() {
-                if sp_module.get_power_name() == template_name {
-                    return Some(behavior_arc.clone());
-                }
+    ) -> Option<&mut dyn BehaviorModuleInterface> {
+        for behavior in self.behaviors.iter_mut() {
+            let matches = behavior
+                .get_special_power_module_interface_const()
+                .map(|sp_module| sp_module.get_power_name() == template_name)
+                .unwrap_or(false);
+            if matches {
+                return Some(behavior.as_mut());
             }
         }
         None
     }
 
     pub fn with_special_power_module_mut_by_name<F, R>(
-        &self,
+        &mut self,
         template_name: &str,
         func: F,
     ) -> Option<R>
@@ -806,11 +794,8 @@ impl Object {
     {
         let mut func = Some(func);
 
-        for behavior_arc in &self.behaviors {
-            let Ok(mut behavior_lock) = behavior_arc.lock() else {
-                continue;
-            };
-            if let Some(sp_module) = behavior_lock.get_special_power_module_interface() {
+        for behavior in self.behaviors.iter_mut() {
+            if let Some(sp_module) = behavior.get_special_power_module_interface() {
                 if sp_module.get_power_name() == template_name {
                     let func = func.take().expect("special power callback already used");
                     return Some(func(sp_module));
@@ -844,11 +829,8 @@ impl Object {
     where
         F: FnMut(&dyn SpecialPowerModuleInterface) -> R,
     {
-        for behavior_arc in &self.behaviors {
-            let Ok(behavior_lock) = behavior_arc.lock() else {
-                continue;
-            };
-            if let Some(sp_module) = behavior_lock.get_special_power_module_interface_const() {
+        for behavior in &self.behaviors {
+            if let Some(sp_module) = behavior.get_special_power_module_interface_const() {
                 if sp_module.get_power_name() == template_name {
                     return Some(func(sp_module));
                 }
@@ -897,7 +879,7 @@ impl Object {
     }
 
     pub fn do_special_power(
-        &self,
+        &mut self,
         special_power_template_name: &str,
         command_options: crate::object::special_power_module::SpecialPowerCommandOptions,
         forced: bool,
@@ -916,7 +898,7 @@ impl Object {
     }
 
     pub fn do_special_power_at_object(
-        &self,
+        &mut self,
         special_power_template_name: &str,
         target_obj_id: ObjectID,
         command_options: crate::object::special_power_module::SpecialPowerCommandOptions,
@@ -936,7 +918,7 @@ impl Object {
     }
 
     pub fn do_special_power_at_location(
-        &self,
+        &mut self,
         special_power_template_name: &str,
         location: &Coord3D,
         angle: f32,
@@ -962,22 +944,18 @@ impl Object {
     // ========================================================================
 
     pub fn find_special_power_module_interface(
-        &self,
+        &mut self,
         special_power_type: SpecialPowerType,
-    ) -> Option<Arc<Mutex<dyn BehaviorModuleInterface>>> {
-        for behavior in &self.behaviors {
-            let Ok(mut guard) = behavior.lock() else {
-                continue;
-            };
-            if let Some(sp) = guard.get_special_power_module_interface() {
+    ) -> Option<&mut dyn BehaviorModuleInterface> {
+        for behavior in self.behaviors.iter_mut() {
+            if let Some(sp) = behavior.get_special_power_module_interface() {
                 if let Some(template_any) = sp.get_special_power_template() {
                     if let Some(template) = template_any.downcast_ref::<Arc<SpecialPowerTemplate>>()
                     {
                         if template.get_special_power_type() == special_power_type
                             || special_power_type == SpecialPowerType::Invalid
                         {
-                            drop(guard);
-                            return Some(behavior.clone());
+                            return Some(behavior.as_mut());
                         }
                     }
                 }
@@ -987,19 +965,15 @@ impl Object {
     }
 
     pub fn find_any_shortcut_special_power_module_interface(
-        &self,
-    ) -> Option<Arc<Mutex<dyn BehaviorModuleInterface>>> {
-        for behavior in &self.behaviors {
-            let Ok(mut guard) = behavior.lock() else {
-                continue;
-            };
-            if let Some(sp) = guard.get_special_power_module_interface() {
+        &mut self,
+    ) -> Option<&mut dyn BehaviorModuleInterface> {
+        for behavior in self.behaviors.iter_mut() {
+            if let Some(sp) = behavior.get_special_power_module_interface() {
                 if let Some(template_any) = sp.get_special_power_template() {
                     if let Some(template) = template_any.downcast_ref::<Arc<SpecialPowerTemplate>>()
                     {
                         if template.is_shortcut_power() {
-                            drop(guard);
-                            return Some(behavior.clone());
+                            return Some(behavior.as_mut());
                         }
                     }
                 }
@@ -1009,17 +983,13 @@ impl Object {
     }
 
     pub fn find_special_power_with_overridable_destination_active(
-        &self,
+        &mut self,
         _special_power_type: SpecialPowerType,
-    ) -> Option<Arc<Mutex<dyn BehaviorModuleInterface>>> {
-        for behavior in &self.behaviors {
-            let Ok(mut guard) = behavior.lock() else {
-                continue;
-            };
-            if let Some(sp_interface) = guard.get_special_power_update_interface() {
+    ) -> Option<&mut dyn BehaviorModuleInterface> {
+        for behavior in self.behaviors.iter_mut() {
+            if let Some(sp_interface) = behavior.get_special_power_update_interface() {
                 if sp_interface.does_special_power_have_overridable_destination_active() {
-                    drop(guard);
-                    return Some(behavior.clone());
+                    return Some(behavior.as_mut());
                 }
             }
         }
@@ -1027,17 +997,13 @@ impl Object {
     }
 
     pub fn find_special_power_with_overridable_destination(
-        &self,
+        &mut self,
         _special_power_type: SpecialPowerType,
-    ) -> Option<Arc<Mutex<dyn BehaviorModuleInterface>>> {
-        for behavior in &self.behaviors {
-            let Ok(mut guard) = behavior.lock() else {
-                continue;
-            };
-            if let Some(sp_interface) = guard.get_special_power_update_interface() {
+    ) -> Option<&mut dyn BehaviorModuleInterface> {
+        for behavior in self.behaviors.iter_mut() {
+            if let Some(sp_interface) = behavior.get_special_power_update_interface() {
                 if sp_interface.does_special_power_have_overridable_destination() {
-                    drop(guard);
-                    return Some(behavior.clone());
+                    return Some(behavior.as_mut());
                 }
             }
         }

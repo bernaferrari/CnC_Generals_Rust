@@ -9,7 +9,7 @@ use std::{
     collections::VecDeque,
     ffi::c_void,
     ptr,
-    sync::{Arc, Mutex, atomic::{AtomicBool, Ordering}},
+    sync::atomic::{AtomicBool, Ordering},
 };
 
 use anyhow::{Result, Context};

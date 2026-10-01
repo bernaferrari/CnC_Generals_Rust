@@ -23,7 +23,7 @@ use crate::helpers::{
     FindPositionOptions, TheAudio, TheGameLogic, TheGameText, TheInGameUI, ThePartitionManager,
 };
 use crate::modules::{
-    AIUpdateInterface, BodyModuleInterfaceExt, SupplyTruckAIInterface, WorkerAIUpdateInterface,
+    AIUpdateInterface, BodyModuleInterface, SupplyTruckAIInterface, WorkerAIUpdateInterface,
 };
 use crate::object::Object;
 use crate::object::drawable::DrawableExt;

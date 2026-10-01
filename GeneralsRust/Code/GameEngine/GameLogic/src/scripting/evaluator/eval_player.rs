@@ -118,10 +118,7 @@ impl ScriptEvaluator {
         let Some(contain) = obj_guard.get_contain() else {
             return Ok(false);
         };
-        let Ok(contain_guard) = contain.lock() else {
-            return Ok(false);
-        };
-        Ok(contain_guard.get_contained_count() == 0)
+        Ok(contain.get_contained_count() == 0)
     }
 
     fn evaluate_building_entered_by_player_condition(
@@ -176,11 +173,7 @@ impl ScriptEvaluator {
         let Some(contain) = obj_guard.get_contain() else {
             return Ok(false);
         };
-        let Ok(contain_guard) = contain.lock() else {
-            return Ok(false);
-        };
-
-        let player_mask = contain_guard.get_player_who_entered();
+        let player_mask = contain.get_player_who_entered();
         if player_mask == PlayerMaskType::none() {
             return Ok(false);
         }

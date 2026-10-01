@@ -44,11 +44,7 @@ impl Object {
         let is_rubble = self
             .body
             .as_ref()
-            .and_then(|body| {
-                body.lock()
-                    .ok()
-                    .map(|guard| guard.get_damage_state() == crate::common::BodyDamageType::Rubble)
-            })
+            .map(|body| body.get_damage_state() == crate::common::BodyDamageType::Rubble)
             .unwrap_or(false);
         if !is_rubble {
             return;
@@ -135,10 +131,8 @@ impl Object {
         };
         healing_info.sync_from_input();
 
-        if let Some(body) = &self.body {
-            if let Ok(mut body_guard) = body.lock() {
-                body_guard.attempt_healing(&mut healing_info)?;
-            }
+        if let Some(body) = self.body.as_mut() {
+            body.attempt_healing(&mut healing_info)?;
         }
         self.sync_effectively_dead_from_body();
         self.apply_structure_rubble_pose();
@@ -161,10 +155,8 @@ impl Object {
             ..Default::default()
         };
         healing_info.sync_from_input();
-        if let Some(body) = &self.body {
-            if let Ok(mut body_guard) = body.lock() {
-                body_guard.attempt_healing(&mut healing_info)?;
-            }
+        if let Some(body) = self.body.as_mut() {
+            body.attempt_healing(&mut healing_info)?;
         }
         self.sync_effectively_dead_from_body();
         self.apply_structure_rubble_pose();
@@ -220,10 +212,8 @@ impl Object {
             };
             healing_info.sync_from_input();
 
-            if let Some(body) = &self.body {
-                if let Ok(mut body_guard) = body.lock() {
-                    body_guard.attempt_healing(&mut healing_info)?;
-                }
+            if let Some(body) = self.body.as_mut() {
+                body.attempt_healing(&mut healing_info)?;
             }
             self.apply_structure_rubble_pose();
 
@@ -242,10 +232,8 @@ impl Object {
     }
 
     pub fn estimate_damage(&self, _damage_info: &DamageInfoInput) -> Real {
-        if let Some(body) = &self.body {
-            if let Ok(body_guard) = body.lock() {
-                return body_guard.estimate_damage(_damage_info).unwrap_or(0.0);
-            }
+        if let Some(body) = self.body.as_ref() {
+            return body.estimate_damage(_damage_info).unwrap_or(0.0);
         }
         0.0
     }
@@ -260,11 +248,7 @@ impl Object {
         if self.subdual_damage_helper.is_some() {
             let heal_rate = self
                 .get_body_module()
-                .and_then(|body| {
-                    body.lock()
-                        .ok()
-                        .map(|guard| guard.get_subdual_damage_heal_rate())
-                })
+                .map(|body| body.get_subdual_damage_heal_rate())
                 .unwrap_or(0);
             if let Some(helper) = &mut self.subdual_damage_helper {
                 helper.notify_subdual_damage(amount, heal_rate);
@@ -561,11 +545,8 @@ impl Object {
         }
 
         // Notify body module (C++ lines 3018-3020)
-        if let Some(body) = &self.body {
-            if let Ok(mut body_guard) = body.lock() {
-                let _ =
-                    body_guard.on_veterancy_level_changed(old_level, new_level, provide_feedback);
-            }
+        if let Some(body) = self.body.as_mut() {
+            let _ = body.on_veterancy_level_changed(old_level, new_level, provide_feedback);
         }
         self.sync_effectively_dead_from_body();
 
@@ -666,8 +647,7 @@ impl Object {
         let dead = self
             .body
             .as_ref()
-            .and_then(|body| body.lock().ok())
-            .map(|guard| guard.get_health() <= 0.0);
+            .map(|body| body.get_health() <= 0.0);
         if let Some(dead) = dead {
             if self.is_effectively_dead() != dead {
                 self.set_effectively_dead(dead);
@@ -858,11 +838,9 @@ impl Object {
         let container_bonus_flags = self.get_container_id().and_then(|container_id| {
             crate::object::registry::OBJECT_REGISTRY
                 .with_object(container_id, |container| {
-                    if let Some(contain_module) = &container.contain {
-                        if let Ok(contain) = contain_module.try_lock() {
-                            if contain.passes_weapon_bonus_to_passengers() {
-                                return Some(container.weapon_bonus_condition);
-                            }
+                    if let Some(contain) = &container.contain {
+                        if contain.passes_weapon_bonus_to_passengers() {
+                            return Some(container.weapon_bonus_condition);
                         }
                     }
                     None
@@ -944,11 +922,9 @@ impl Object {
         let container_bonus_flags = self.get_container_id().and_then(|container_id| {
             crate::object::registry::OBJECT_REGISTRY
                 .with_object(container_id, |container| {
-                    if let Some(contain_module) = &container.contain {
-                        if let Ok(contain) = contain_module.try_lock() {
-                            if contain.passes_weapon_bonus_to_passengers() {
-                                return Some(container.weapon_bonus_condition);
-                            }
+                    if let Some(contain) = &container.contain {
+                        if contain.passes_weapon_bonus_to_passengers() {
+                            return Some(container.weapon_bonus_condition);
                         }
                     }
                     None
@@ -1216,10 +1192,8 @@ impl Object {
             if let Some(container) = crate::helpers::TheGameLogic::find_object_by_id(container_id) {
                 if let Ok(guard) = container.try_read() {
                     if let Some(contain) = guard.get_contain() {
-                        if let Ok(contain) = contain.try_lock() {
-                            if !contain.is_passenger_allowed_to_fire(Some(self.id)) {
-                                return false;
-                            }
+                        if !contain.is_passenger_allowed_to_fire(Some(self.id)) {
+                            return false;
                         }
                     }
                 }
@@ -1256,29 +1230,27 @@ impl Object {
         }
         if !self.is_kind_of(KindOf::CanAttack) {
             if let Some(ai) = self.get_ai() {
-                if let Ok(ai) = ai.try_lock() {
-                    let mut any_weapon = false;
-                    let mut any_enabled = false;
-                    for slot in [
-                        WeaponSlotType::Primary,
-                        WeaponSlotType::Secondary,
-                        WeaponSlotType::Tertiary,
-                    ] {
-                        if self.get_weapon_in_weapon_slot(slot).is_none() {
-                            continue;
-                        }
-                        any_weapon = true;
-                        let turret = ai.get_which_turret_for_weapon_slot(slot);
-                        if turret == crate::common::types::TurretType::Invalid
-                            || ai.is_turret_enabled(turret)
-                        {
-                            any_enabled = true;
-                            break;
-                        }
+                let mut any_weapon = false;
+                let mut any_enabled = false;
+                for slot in [
+                    WeaponSlotType::Primary,
+                    WeaponSlotType::Secondary,
+                    WeaponSlotType::Tertiary,
+                ] {
+                    if self.get_weapon_in_weapon_slot(slot).is_none() {
+                        continue;
                     }
-                    if any_weapon && !any_enabled {
-                        return false;
+                    any_weapon = true;
+                    let turret = ai.get_which_turret_for_weapon_slot(slot);
+                    if turret == crate::common::types::TurretType::Invalid
+                        || ai.is_turret_enabled(turret)
+                    {
+                        any_enabled = true;
+                        break;
                     }
+                }
+                if any_weapon && !any_enabled {
+                    return false;
                 }
             }
         }
@@ -1286,12 +1258,10 @@ impl Object {
             return true;
         }
         if let Some(contain) = self.get_contain() {
-            if let Ok(contain) = contain.try_lock() {
-                if contain.is_passenger_allowed_to_fire(Some(self.id))
-                    && contain.get_contain_count() > 0
-                {
-                    return true;
-                }
+            if contain.is_passenger_allowed_to_fire(Some(self.id))
+                && contain.get_contain_count() > 0
+            {
+                return true;
             }
         }
         if self.get_ai().is_some() && self.has_any_weapon() {
@@ -1444,28 +1414,22 @@ impl Object {
 
     /// Flag helpers for salvage armor upgrades.
     pub fn test_armor_set_flag(&self, flag: ArmorSetFlag) -> bool {
-        if let Some(body) = &self.body {
-            if let Ok(body_guard) = body.lock() {
-                return body_guard.test_armor_set_flag(armor_set_type_for_flag(flag));
-            }
+        if let Some(body) = self.body.as_ref() {
+            return body.test_armor_set_flag(armor_set_type_for_flag(flag));
         }
         self.armor_set_flags.test(flag)
     }
 
     pub fn set_armor_set_flag(&mut self, flag: ArmorSetFlag) {
-        if let Some(body) = &self.body {
-            if let Ok(mut body_guard) = body.lock() {
-                let _ = body_guard.set_armor_set_flag(armor_set_type_for_flag(flag));
-            }
+        if let Some(body) = self.body.as_mut() {
+            let _ = body.set_armor_set_flag(armor_set_type_for_flag(flag));
         }
         self.armor_set_flags.set(flag);
     }
 
     pub fn clear_armor_set_flag(&mut self, flag: ArmorSetFlag) {
-        if let Some(body) = &self.body {
-            if let Ok(mut body_guard) = body.lock() {
-                let _ = body_guard.clear_armor_set_flag(armor_set_type_for_flag(flag));
-            }
+        if let Some(body) = self.body.as_mut() {
+            let _ = body.clear_armor_set_flag(armor_set_type_for_flag(flag));
         }
         self.armor_set_flags.clear(flag);
     }
@@ -1505,8 +1469,7 @@ impl Object {
     /// Returns the object this unit is currently targeting
     pub fn get_current_victim_id(&self) -> Option<ObjectID> {
         let ai = self.ai.as_ref()?;
-        let guard = ai.lock().ok()?;
-        guard.get_current_victim()
+        ai.get_current_victim()
     }
 
     pub fn get_current_victim(&self) -> Option<Arc<RwLock<Object>>> {
@@ -1532,11 +1495,9 @@ impl Object {
     }
 
     pub fn get_health_percentage(&self) -> f32 {
-        if let Some(body) = &self.body {
-            if let Ok(guard) = body.lock() {
-                let max_health = guard.get_max_health().max(f32::EPSILON);
-                return (guard.get_health() / max_health).clamp(0.0, 1.0);
-            }
+        if let Some(body) = self.body.as_ref() {
+            let max_health = body.get_max_health().max(f32::EPSILON);
+            return (body.get_health() / max_health).clamp(0.0, 1.0);
         }
         1.0
     }
@@ -1640,12 +1601,13 @@ impl Object {
     }
 
     /// Match C++ Object::calculateCountermeasureToDivertTo.
-    pub fn calculate_countermeasure_to_divert_to(&self, victim: &Object) -> ObjectID {
+    pub fn calculate_countermeasure_to_divert_to(&mut self, victim: &mut Object) -> ObjectID {
         if self.get_ai_update_interface().is_none() {
             return INVALID_ID;
         }
 
         let countermeasures_key = NameKeyGenerator::name_to_key("CountermeasuresBehavior");
+        let victim_id = victim.get_id();
         victim
             .with_friend_module::<
                 crate::object::behavior::countermeasures_behavior::CountermeasuresBehaviorModule,
@@ -1654,7 +1616,7 @@ impl Object {
             >(countermeasures_key, |module| {
                 module
                     .behavior()
-                    .calculate_countermeasure_to_divert_to(victim.get_id())
+                    .calculate_countermeasure_to_divert_to(victim_id)
                     .unwrap_or(INVALID_ID)
             })
             .unwrap_or(INVALID_ID)
@@ -1686,10 +1648,8 @@ impl Object {
     /// Get current health
     /// C++ Reference: Object.cpp - health accessor
     pub fn get_health(&self) -> f32 {
-        if let Some(body) = &self.body {
-            if let Ok(body_guard) = body.lock() {
-                return body_guard.get_health();
-            }
+        if let Some(body) = self.body.as_ref() {
+            return body.get_health();
         }
         100.0 // Default health
     }
@@ -1697,11 +1657,9 @@ impl Object {
     /// Last DamageInfo recorded by the body module (`BodyModule::getLastDamageInfo`).
     /// Includes the death type of a killing blow (e.g. `DeathType::Flooded`).
     pub fn get_last_damage_info(&self) -> Option<DamageInfo> {
-        self.body.as_ref().and_then(|body| {
-            body.lock()
-                .ok()
-                .and_then(|body_guard| body_guard.get_last_damage_info())
-        })
+        self.body
+            .as_ref()
+            .and_then(|body| body.get_last_damage_info())
     }
 
     /// Last death type stored on this object via the body last-damage snapshot.
@@ -1714,10 +1672,8 @@ impl Object {
     /// Get maximum health
     /// C++ Reference: Object.cpp - max health accessor
     pub fn get_max_health(&self) -> f32 {
-        if let Some(body) = &self.body {
-            if let Ok(body_guard) = body.lock() {
-                return body_guard.get_max_health();
-            }
+        if let Some(body) = self.body.as_ref() {
+            return body.get_max_health();
         }
         100.0 // Default max health
     }
@@ -1744,11 +1700,9 @@ impl Object {
         }
 
         // Get body module
-        let body = self.body.as_ref().ok_or(ObjectError::NoBodyModule)?;
-
         let max_health = {
-            let body_guard = body.lock().map_err(|_| ObjectError::LockPoisoned)?;
-            body_guard.get_max_health()
+            let body = self.body.as_ref().ok_or(ObjectError::NoBodyModule)?;
+            body.get_max_health()
         };
 
         // Clamp health between 0 and max
@@ -1756,14 +1710,13 @@ impl Object {
 
         // Apply the health change through body module's internal method
         {
-            let mut body_guard = body.lock().map_err(|_| ObjectError::LockPoisoned)?;
+            let body = self.body.as_mut().ok_or(ObjectError::NoBodyModule)?;
 
-            let current_health = body_guard.get_health();
+            let current_health = body.get_health();
             let delta = clamped_health - current_health;
 
             // Use internal_change_health to bypass armor/fx
-            body_guard
-                .internal_change_health(delta)
+            body.internal_change_health(delta)
                 .map_err(|e| ObjectError::BodyModuleError(e.to_string()))?;
         }
 
@@ -1812,11 +1765,8 @@ impl Object {
             ..Default::default()
         };
 
-        if let Some(body) = &self.body {
-            let mut body_guard = body.lock().map_err(|_| ObjectError::LockPoisoned)?;
-
-            body_guard
-                .attempt_healing(&mut healing_info)
+        if let Some(body) = self.body.as_mut() {
+            body.attempt_healing(&mut healing_info)
                 .map_err(|e| ObjectError::BodyModuleError(e.to_string()))?;
         } else {
             return Err(ObjectError::NoBodyModule);
@@ -1877,18 +1827,15 @@ impl Object {
         // it to 0, except unresistable, and doDamageFX still runs.
 
         // Delegate to body module for damage processing
-        if let Some(body) = &self.body {
-            let mut body_guard = body.lock().map_err(|_| ObjectError::LockPoisoned)?;
-            let body_context = crate::object::body::BodyDamageContext {
-                owner_is_preferred_source: self.is_kind_of(KindOf::Vehicle)
-                    || self.is_kind_of(KindOf::Infantry)
-                    || self.is_faction_structure(),
-            };
+        let body_context = crate::object::body::BodyDamageContext {
+            owner_is_preferred_source: self.is_kind_of(KindOf::Vehicle)
+                || self.is_kind_of(KindOf::Infantry)
+                || self.is_faction_structure(),
+        };
 
-            body_guard
-                .attempt_damage_with_context(damage_info, &body_context)
+        if let Some(body) = self.body.as_mut() {
+            body.attempt_damage_with_context(damage_info, &body_context)
                 .map_err(|e| ObjectError::BodyModuleError(e.to_string()))?;
-            drop(body_guard);
         }
         self.apply_structure_rubble_pose();
         // C++ ActiveBody.cpp:649-653: onDie, then doDamageFX. The body skipped
@@ -1905,26 +1852,22 @@ impl Object {
                 }
             }
             self.handle_death(Some(damage_info));
-            if let Some(body) = &self.body {
-                if let Ok(mut body_guard) = body.lock() {
-                    body_guard.do_damage_fx_after_death(damage_info);
-                }
+            if let Some(body) = self.body.as_mut() {
+                body.do_damage_fx_after_death(damage_info);
             }
         }
         self.apply_post_damage_object_effects(damage_info);
 
-        if let Some(contain) = &self.contain {
-            if let Ok(mut contain_guard) = contain.lock() {
-                if let Err(err) = contain_guard.on_damage(damage_info) {
-                    log::warn!("Object {} contain on_damage failed: {}", self.id, err);
-                }
+        if let Some(contain) = self.contain.as_mut() {
+            if let Err(err) = contain.on_damage(damage_info) {
+                log::warn!("Object {} contain on_damage failed: {}", self.id, err);
             }
         }
 
         // Process shockwave forces (C++ Object.cpp:1800-1835).
-        // The impulse depends only on DamageInfo input. Copy it out while no
-        // body guard is live, then lock physics. Physics update holds this
-        // mutex and can lock the body; holding body across this lock deadlocks.
+        // The impulse depends only on DamageInfo input. The physics borrow
+        // ends before set_shockwave_stunned_flailing, which re-enters the
+        // owner mutably.
         if damage_info.input.shock_wave_amount > 0.0 && damage_info.input.shock_wave_radius > 0.0 {
             // Check if object is eligible for shockwave (not airborne, not projectile)
             if self.shockwave_applies() {
@@ -1940,18 +1883,11 @@ impl Object {
                 shock_wave_force *= damage_info.input.shock_wave_amount * shock_taper_mult;
                 shock_wave_force.z = shock_wave_force.length();
 
-                // Clone the Arc so the physics lock ends before the model-condition
-                // write. Do not borrow self.physics across set_shockwave_stunned_flailing.
-                let physics = self.physics.clone();
-                let shocked = if let Some(physics) = physics {
-                    if let Ok(mut physics_guard) = physics.lock() {
-                        physics_guard.apply_shock(&shock_wave_force);
-                        physics_guard.apply_random_rotation();
-                        physics_guard.set_stunned(true);
-                        true
-                    } else {
-                        false
-                    }
+                let shocked = if let Some(physics) = self.physics.as_mut() {
+                    physics.apply_shock(&shock_wave_force);
+                    physics.apply_random_rotation();
+                    physics.set_stunned(true);
+                    true
                 } else {
                     false
                 };
@@ -2132,11 +2068,9 @@ impl Object {
         let container_bonus_flags = self.get_container_id().and_then(|container_id| {
             crate::object::registry::OBJECT_REGISTRY
                 .with_object(container_id, |container| {
-                    if let Some(contain_module) = &container.contain {
-                        if let Ok(contain) = contain_module.try_lock() {
-                            if contain.passes_weapon_bonus_to_passengers() {
-                                return Some(container.weapon_bonus_condition);
-                            }
+                    if let Some(contain) = &container.contain {
+                        if contain.passes_weapon_bonus_to_passengers() {
+                            return Some(container.weapon_bonus_condition);
                         }
                     }
                     None
@@ -2363,10 +2297,8 @@ impl Object {
         // Matches C++ Object::isAttacking() behavior
 
         if let Some(ai) = self.get_ai_update_interface() {
-            if let Ok(ai_guard) = ai.lock() {
-                if ai_guard.is_attacking() {
-                    return true;
-                }
+            if ai.is_attacking() {
+                return true;
             }
         }
 
@@ -2437,10 +2369,7 @@ impl Object {
 
     pub fn has_countermeasures(&self) -> bool {
         for behavior in &self.behaviors {
-            let Ok(guard) = behavior.lock() else {
-                continue;
-            };
-            if let Some(cbi) = guard.get_countermeasures_behavior_interface_const() {
+            if let Some(cbi) = behavior.get_countermeasures_behavior_interface_const() {
                 if cbi.is_active() {
                     return true;
                 }
@@ -2449,27 +2378,20 @@ impl Object {
         false
     }
 
-    pub fn report_missile_for_countermeasures(&self, missile_id: ObjectID) {
-        for behavior in &self.behaviors {
-            let Ok(mut guard) = behavior.lock() else {
-                continue;
-            };
-            if let Some(cbi) = guard.get_countermeasures_behavior_interface() {
+    pub fn report_missile_for_countermeasures(&mut self, missile_id: ObjectID) {
+        for behavior in self.behaviors.iter_mut() {
+            if let Some(cbi) = behavior.get_countermeasures_behavior_interface() {
                 let _ = cbi.report_missile_for_countermeasures(missile_id);
             }
         }
     }
 
     pub fn get_countermeasures_behavior_interface(
-        &self,
-    ) -> Option<Arc<Mutex<dyn BehaviorModuleInterface>>> {
-        for behavior in &self.behaviors {
-            let Ok(mut guard) = behavior.lock() else {
-                continue;
-            };
-            if guard.get_countermeasures_behavior_interface().is_some() {
-                drop(guard);
-                return Some(behavior.clone());
+        &mut self,
+    ) -> Option<&mut dyn BehaviorModuleInterface> {
+        for behavior in self.behaviors.iter_mut() {
+            if behavior.get_countermeasures_behavior_interface().is_some() {
+                return Some(behavior.as_mut());
             }
         }
         None

@@ -49,9 +49,8 @@ impl SceneSubmission for DeviceSceneSubmission {
 
     fn update_line(&self, id: SceneLineId, desc: &SceneLineDesc) {
         let scene = W3DDisplay::global_scene();
-        let guard = scene.read();
-        if let Some(line_arc) = guard.get_segmented_line(id) {
-            let mut line = line_arc.write();
+        let mut guard = scene.write();
+        if let Some(line) = guard.get_segmented_line_mut(id) {
             line.set_points(&[coord3d_to_point3(&desc.start), coord3d_to_point3(&desc.end)]);
             line.set_width(desc.width);
             line.set_color(cgmath::Vector3::new(

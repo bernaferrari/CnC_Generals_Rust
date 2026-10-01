@@ -141,11 +141,9 @@ impl UpgradeModuleInterface for LocomotorSetUpgrade {
             return false;
         };
 
-        if let Ok(object_guard) = object.read() {
-            if let Some(ai) = object_guard.get_ai_update_interface() {
-                if let Ok(mut ai_guard) = ai.lock() {
-                    let _ = ai_guard.set_locomotor_upgrade(true);
-                }
+        if let Ok(mut object_guard) = object.write() {
+            if let Some(ai) = object_guard.get_ai_update_interface_mut() {
+                let _ = ai.set_locomotor_upgrade(true);
             }
         }
 

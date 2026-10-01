@@ -5,7 +5,7 @@
 
 use std::any::Any;
 use std::borrow::Cow;
-use std::sync::{Arc, Mutex, RwLock, Weak};
+use std::sync::{Arc, RwLock, Weak};
 
 use game_engine::common::ini::{INI, INIError};
 use game_engine::common::name_key_generator::NameKeyGenerator;
@@ -139,22 +139,57 @@ impl POWTruckBehavior {
         &mut self,
         prisoner_id: ObjectID,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let Some(ai_handle) = self
-            .with_object(|guard| guard.get_ai_update_interface())
-            .flatten()
-        else {
-            return Ok(());
-        };
+        Self::load_prisoner_via_object(self.get_object_id(), prisoner_id)
+    }
 
-        let mut ai_guard = ai_handle
-            .lock()
-            .map_err(|_| "POWTruckBehavior AI lock poisoned")?;
-        let Some(pow_ai) = ai_guard.get_pow_truck_ai_update_interface() else {
+    /// C++ POWTruckBehavior::loadSurrenderedPrisoner resolved through the
+    /// owning object's AI update. Owner-id based so the collision adapter can
+    /// run it without borrowing this behavior.
+    fn load_prisoner_via_object(
+        owner_id: ObjectID,
+        prisoner_id: ObjectID,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // Wave 366: empty dual-world → Ok(()).
+        if dual_world_registry_unavailable() || owner_id == crate::common::INVALID_ID {
             return Ok(());
-        };
+        }
 
-        pow_ai.load_prisoner(prisoner_id);
+        crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner_id, |guard| {
+            if let Some(ai) = guard.get_ai_update_interface_mut() {
+                if let Some(pow_ai) = ai.get_pow_truck_ai_update_interface() {
+                    pow_ai.load_prisoner(prisoner_id);
+                }
+            }
+        });
         Ok(())
+    }
+
+    /// C++ POWTruckBehavior::onCollision body, owner-resolved so the collision
+    /// adapter needs no borrow of this behavior.
+    fn on_collision_for_owner(object_id: ObjectID, other_id: ObjectID) {
+        // Wave 366: empty dual-world → no-op.
+        if dual_world_registry_unavailable() {
+            return;
+        }
+
+        if object_id == other_id {
+            return;
+        }
+
+        let Some(other) = TheGameLogic::find_object_by_id(other_id) else {
+            return;
+        };
+
+        let surrendered = other
+            .read()
+            .ok()
+            .and_then(|guard| guard.get_ai_update_interface())
+            .map(|ai| ai.is_surrendered())
+            .unwrap_or(false);
+
+        if surrendered {
+            let _ = Self::load_prisoner_via_object(object_id, other_id);
+        }
     }
 
     /// C++ OpenContain::onDelete via POWTruckBehavior contain.
@@ -173,29 +208,7 @@ impl UpdateModuleInterface for POWTruckBehavior {
 #[cfg(feature = "allow_surrender")]
 impl CollideModuleInterface for POWTruckBehavior {
     fn on_collision(&mut self, object_id: ObjectID, other_id: ObjectID) {
-        // Wave 366: empty dual-world → no-op.
-        if dual_world_registry_unavailable() {
-            return;
-        }
-
-        if object_id == other_id {
-            return;
-        }
-
-        let Some(other) = TheGameLogic::find_object_by_id(other_id) else {
-            return;
-        };
-
-        let surrendered = other
-            .read()
-            .ok()
-            .and_then(|guard| guard.get_ai_update_interface())
-            .and_then(|ai| ai.lock().ok().map(|ai| ai.is_surrendered()))
-            .unwrap_or(false);
-
-        if surrendered {
-            let _ = self.load_surrendered_prisoner(other_id);
-        }
+        Self::on_collision_for_owner(object_id, other_id);
     }
 }
 
@@ -369,13 +382,12 @@ impl BehaviorModuleInterface for POWTruckBehavior {
 #[derive(Debug)]
 struct POWTruckCollideAdapter {
     owner_id: ObjectID,
-    behavior: Arc<Mutex<POWTruckBehavior>>,
 }
 
 #[cfg(feature = "allow_surrender")]
 impl POWTruckCollideAdapter {
-    fn new(owner_id: ObjectID, behavior: Arc<Mutex<POWTruckBehavior>>) -> Self {
-        Self { owner_id, behavior }
+    fn new(owner_id: ObjectID) -> Self {
+        Self { owner_id }
     }
 }
 
@@ -388,9 +400,7 @@ impl LegacyCollideAdapter for POWTruckCollideAdapter {
         _normal: &CollideCoord3D,
     ) -> Result<(), GameError> {
         let other_id = other_id;
-        if let Ok(mut guard) = self.behavior.lock() {
-            guard.on_collision(self.owner_id, other_id);
-        }
+        POWTruckBehavior::on_collision_for_owner(self.owner_id, other_id);
         Ok(())
     }
 
@@ -412,7 +422,7 @@ impl LegacyCollideAdapter for POWTruckCollideAdapter {
             .read()
             .ok()
             .and_then(|guard| guard.get_ai_update_interface())
-            .and_then(|ai| ai.lock().ok().map(|ai| ai.is_surrendered()))
+            .map(|ai| ai.is_surrendered())
             .unwrap_or(false);
 
         if !surrendered {
@@ -426,7 +436,11 @@ impl LegacyCollideAdapter for POWTruckCollideAdapter {
 #[cfg(feature = "allow_surrender")]
 #[derive(Debug)]
 pub struct POWTruckBehaviorModule {
-    behavior: Arc<Mutex<POWTruckBehavior>>,
+    /// Owned contain behavior. `contain_handle()` hands it to the Object's
+    /// contain slot during construction (C++ Object::setContain binding);
+    /// the module entry keeps nothing afterwards.
+    behavior: Option<Box<POWTruckBehavior>>,
+    owner_id: ObjectID,
     module_name_key: NameKeyType,
     module_data: Arc<POWTruckBehaviorModuleData>,
 }
@@ -438,110 +452,51 @@ impl POWTruckBehaviorModule {
         module_name: &AsciiString,
         module_data: Arc<POWTruckBehaviorModuleData>,
     ) -> Self {
-        let behavior_arc = Arc::new(Mutex::new(behavior));
+        let owner_id = behavior.object_id;
         let module_name_key = NameKeyGenerator::name_to_key(module_name.as_str());
         Self {
-            behavior: behavior_arc,
+            behavior: Some(Box::new(behavior)),
+            owner_id,
             module_name_key,
             module_data,
         }
     }
 
-    pub fn behavior(&self) -> Option<std::sync::MutexGuard<'_, POWTruckBehavior>> {
-        self.behavior.lock().ok()
+    pub fn behavior_mut(&mut self) -> Option<&mut POWTruckBehavior> {
+        self.behavior.as_deref_mut()
     }
 
-    pub fn contain_handle(&self) -> Arc<Mutex<dyn ContainModuleInterface>> {
-        Arc::new(Mutex::new(POWTruckBehaviorContainHandle {
-            behavior: Arc::clone(&self.behavior),
-        }))
-    }
-}
-
-#[cfg(feature = "allow_surrender")]
-#[derive(Debug)]
-struct POWTruckBehaviorContainHandle {
-    behavior: Arc<Mutex<POWTruckBehavior>>,
-}
-
-#[cfg(feature = "allow_surrender")]
-impl ContainModuleInterface for POWTruckBehaviorContainHandle {
-    fn can_contain(&self, object_id: ObjectID) -> bool {
+    /// C++ Object.cpp contain binding (Object::setContain for the POW truck):
+    /// the Object's contain slot owns the behavior instance after this
+    /// handover. Take semantics — invoked once during construction.
+    pub fn contain_handle(&mut self) -> Option<Box<dyn ContainModuleInterface>> {
         self.behavior
-            .lock()
-            .map(|guard| guard.can_contain(object_id))
-            .unwrap_or(false)
-    }
-
-    fn contain_object(&mut self, object_id: ObjectID) -> Result<(), String> {
-        self.behavior
-            .lock()
-            .map_err(|_| "POWTruckBehaviorContainHandle lock poisoned".to_string())?
-            .contain_object(object_id)
-    }
-
-    fn release_object(&mut self, object_id: ObjectID) -> Result<(), String> {
-        self.behavior
-            .lock()
-            .map_err(|_| "POWTruckBehaviorContainHandle lock poisoned".to_string())?
-            .release_object(object_id)
-    }
-
-    fn get_contained_objects(&self) -> Cow<'_, [ObjectID]> {
-        Cow::Owned(
-            self.behavior
-                .lock()
-                .map(|guard| guard.get_contained_objects().into_owned())
-                .unwrap_or_default(),
-        )
-    }
-
-    fn get_contained_count(&self) -> usize {
-        self.behavior
-            .lock()
-            .map(|guard| guard.get_contained_count())
-            .unwrap_or(0)
-    }
-
-    fn get_max_capacity(&self) -> usize {
-        self.behavior
-            .lock()
-            .map(|guard| guard.get_max_capacity())
-            .unwrap_or(0)
-    }
-
-    fn on_delete(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        self.behavior
-            .lock()
-            .map_err(|_| "POWTruckBehaviorContainHandle lock poisoned")?
-            .on_delete()
+            .take()
+            .map(|behavior| behavior as Box<dyn ContainModuleInterface>)
     }
 }
 
 #[cfg(feature = "allow_surrender")]
 impl Snapshotable for POWTruckBehaviorModule {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let guard = self
-            .behavior
-            .lock()
-            .map_err(|_| "POWTruckBehaviorModule lock poisoned".to_string())?;
-        Snapshotable::crc(&guard.contain, xfer)
+        match self.behavior.as_deref() {
+            Some(behavior) => Snapshotable::crc(&behavior.contain, xfer),
+            None => Ok(()),
+        }
     }
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let mut guard = self
-            .behavior
-            .lock()
-            .map_err(|_| "POWTruckBehaviorModule lock poisoned".to_string())?;
-        Snapshotable::xfer(&mut guard.contain, xfer)
+        match self.behavior.as_deref_mut() {
+            Some(behavior) => Snapshotable::xfer(&mut behavior.contain, xfer),
+            None => Ok(()),
+        }
     }
 
     fn load_post_process(&mut self) -> Result<(), String> {
-        let mut behavior = self
-            .behavior
-            .lock()
-            .map_err(|_| "POWTruckBehaviorModule lock poisoned".to_string())?;
-        Snapshotable::load_post_process(&mut behavior.contain)
+        match self.behavior.as_deref_mut() {
+            Some(behavior) => Snapshotable::load_post_process(&mut behavior.contain),
+            None => Ok(()),
+        }
     }
 }
 
@@ -560,12 +515,8 @@ impl Module for POWTruckBehaviorModule {
     }
 
     fn on_object_created(&mut self) {
-        let object_id = self
-            .behavior
-            .lock()
-            .ok()
-            .and_then(|behavior| behavior.get_object())
-            .and_then(|object| object.read().ok().map(|guard| guard.get_id()))
+        let object_id = crate::object::registry::OBJECT_REGISTRY
+            .with_object(self.owner_id, |guard| guard.get_id())
             .unwrap_or(INVALID_ID);
 
         if object_id == INVALID_ID {
@@ -574,25 +525,18 @@ impl Module for POWTruckBehaviorModule {
 
         if let Err(err) = COLLISION_MANAGER.register_collide_module(
             object_id,
-            Box::new(POWTruckCollideAdapter::new(
-                object_id,
-                Arc::clone(&self.behavior),
-            )),
+            Box::new(POWTruckCollideAdapter::new(object_id)),
         ) {
             warn!("POWTruckBehavior collision registration failed: {err}");
         }
     }
 
     fn on_delete(&mut self) {
-        if let Ok(mut behavior) = self.behavior.lock() {
+        if let Some(behavior) = self.behavior.as_deref_mut() {
             let _ = behavior.on_delete();
         }
-        let object_id = self
-            .behavior
-            .lock()
-            .ok()
-            .and_then(|behavior| behavior.get_object())
-            .and_then(|object| object.read().ok().map(|guard| guard.get_id()))
+        let object_id = crate::object::registry::OBJECT_REGISTRY
+            .with_object(self.owner_id, |guard| guard.get_id())
             .unwrap_or(INVALID_ID);
 
         if object_id != INVALID_ID {
@@ -618,9 +562,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn contain_handle_exposes_open_contain_riders() {
+    fn contain_handle_hands_over_open_contain_riders() {
         // C++ POWTruckAIUpdate.cpp:766 iterateContained(putPrisonersInPrison)
-        // walks the truck OpenContain list, not an empty stub.
+        // walks the truck OpenContain list; the handed-over box owns that list.
         let contain = OpenContain::new(
             std::sync::Weak::<RwLock<Object>>::new(),
             &OpenContainModuleData::default(),
@@ -630,25 +574,23 @@ mod tests {
             object_id: crate::common::INVALID_ID,
             contain,
         };
-        let module = POWTruckBehaviorModule::new(
+        let mut module = POWTruckBehaviorModule::new(
             behavior,
             &AsciiString::from("POWTruckBehavior"),
             Arc::new(POWTruckBehaviorModuleData::default()),
         );
-        let handle = module.contain_handle();
-        let guard = handle.lock().expect("contain handle");
-
-        let retained = guard.get_contained_objects();
         module
-            .behavior
-            .lock()
+            .behavior_mut()
             .expect("behavior")
             .contain
             .add_to_contain_list_id(77001, false)
             .expect("add rider");
-        let refreshed = guard.get_contained_objects();
 
-        assert!(retained.is_empty());
-        assert_eq!(refreshed.as_ref(), &[77001]);
+        let contain = module.contain_handle().expect("contain handle");
+        let riders = contain.get_contained_objects();
+
+        // Object.contain now owns the rider list; the module entry keeps nothing.
+        assert_eq!(riders.as_ref(), &[77001]);
+        assert!(module.contain_handle().is_none());
     }
 }

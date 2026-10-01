@@ -297,7 +297,7 @@ pub trait StateImplementation: Any + AsAny + std::fmt::Debug + Send + Sync {
     fn take_published_goal(&mut self) -> Option<(Coord3D, bool)> {
         None
     }
-    fn bind_goal_squad(&mut self, _squad: Option<Arc<Mutex<Squad>>>) {}
+    fn bind_goal_squad(&mut self, _squad: Option<Squad>) {}
 
     fn bind_goal_polygon(&mut self, _polygon: Option<Arc<PolygonTrigger>>) {}
 
@@ -342,6 +342,10 @@ pub trait StateImplementation: Any + AsAny + std::fmt::Debug + Send + Sync {
     fn get_machine_goal_object(
         &self,
     ) -> Result<Option<Arc<RwLock<crate::object::Object>>>, String> {
+        if let Some(base_state) = self.as_any().downcast_ref::<State>() {
+            return Ok(base_state.get_machine_goal_object());
+        }
+
         Ok(None)
     }
 
@@ -353,13 +357,10 @@ pub trait StateImplementation: Any + AsAny + std::fmt::Debug + Send + Sync {
                 .ok_or_else(|| "state machine owner not attached".to_string());
         }
 
-        let machine = self.get_machine()?;
-        let guard = machine
-            .lock()
-            .map_err(|_| "failed to lock state machine".to_string())?;
-        guard
-            .get_owner()
-            .ok_or_else(|| "state machine owner not attached".to_string())
+        Err(format!(
+            "state '{}' does not expose its owner",
+            self.get_name()
+        ))
     }
 
     fn get_machine_owner_id(&self) -> Result<crate::common::ObjectID, String> {
@@ -368,41 +369,11 @@ pub trait StateImplementation: Any + AsAny + std::fmt::Debug + Send + Sync {
                 .get_machine_owner_id()
                 .ok_or_else(|| "state machine owner not attached".to_string());
         }
-        let machine = self.get_machine()?;
-        let guard = machine
-            .lock()
-            .map_err(|_| "failed to lock state machine".to_string())?;
-        let id = guard.get_owner_id();
-        if id == crate::common::INVALID_ID {
-            Err("state machine owner not attached".to_string())
-        } else {
-            Ok(id)
-        }
-    }
-
-    /// Get the state machine (default implementation returns error)
-    fn get_machine(&self) -> Result<Arc<Mutex<StateMachine>>, String> {
-        if let Some(base_state) = self.as_any().downcast_ref::<State>() {
-            return base_state.get_machine();
-        }
 
         Err(format!(
-            "state '{}' does not expose machine reference",
+            "state '{}' does not expose its owner",
             self.get_name()
         ))
-    }
-
-    /// Serialize state-specific snapshot data (default no-op).
-    fn xfer_snapshot(&mut self, _xfer: &mut dyn crate::common::xfer::Xfer) -> Result<(), String> {
-        Ok(())
-    }
-
-    /// Evaluate an opaque transition payload against this concrete state.
-    ///
-    /// Legacy adapters use this to run strongly typed transition predicates
-    /// without requiring callers to downcast trait objects at each transition.
-    fn evaluate_transition_payload(&self, _payload: &(dyn Any + Send + Sync)) -> Option<bool> {
-        None
     }
 }
 
@@ -423,15 +394,14 @@ pub struct State {
     pub success_state_id: StateId,
     pub failure_state_id: StateId,
     pub transitions: Vec<TransitionInfo>,
-    pub machine: Option<Weak<Mutex<StateMachine>>>,
     /// Copied from [`StateMachine::owner_id`] at construction. No second mutex.
     pub owner_id: crate::common::ObjectID,
-    /// Victim id copied from the machine that owns this state. `machine` is often `None`.
+    /// Victim id copied from the machine that owns this state.
     pub goal_object_id: crate::common::ObjectID,
-    /// Goal point copied from the machine when `machine` is `None`.
+    /// Goal point copied from the machine before each step.
     pub goal_position_copied: Option<Coord3D>,
-    /// Squad copied before an update that already holds the machine lock.
-    pub goal_squad_copied: Option<Arc<Mutex<Squad>>>,
+    /// Squad value copied from the machine before each step.
+    pub goal_squad_copied: Option<Squad>,
     /// Area copied before an update that already holds the machine lock.
     pub goal_polygon_copied: Option<Arc<PolygonTrigger>>,
     /// Waypoint copied before an update that already holds the machine lock.
@@ -442,20 +412,20 @@ impl State {
     /// Create a state without wiring it to a concrete machine. This mirrors the
     /// legacy usage where most states lived inside stack-owned state machines.
     pub fn new(machine: &StateMachine, name: &str) -> Self {
-        let mut state = Self::with_machine(None, name);
+        let mut state = Self::detached(name);
         state.owner_id = machine.get_owner_id();
         state
     }
 
-    /// Create a state that tracks the owning state machine through a `Weak`.
-    pub fn with_machine(machine: Option<Weak<Mutex<StateMachine>>>, name: &str) -> Self {
+    /// Create a state that is not attached to any machine. Goal data is bound
+    /// by the owning machine before every step.
+    pub fn detached(name: &str) -> Self {
         Self {
             id: INVALID_STATE_ID,
             name: name.to_string(),
             success_state_id: INVALID_STATE_ID,
             failure_state_id: INVALID_STATE_ID,
             transitions: Vec::new(),
-            machine,
             owner_id: crate::common::INVALID_ID,
             goal_object_id: crate::common::INVALID_ID,
             goal_position_copied: None,
@@ -479,14 +449,6 @@ impl State {
 
     /// Get the machine owner object
     pub fn get_machine_owner(&self) -> Option<Arc<RwLock<Object>>> {
-        if let Some(owner) = self
-            .machine
-            .as_ref()
-            .and_then(|weak| weak.upgrade())
-            .and_then(|arc| arc.try_lock().ok().and_then(|guard| guard.get_owner()))
-        {
-            return Some(owner);
-        }
         if self.owner_id == crate::common::INVALID_ID {
             return None;
         }
@@ -501,15 +463,8 @@ impl State {
             .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(id))
     }
 
+    /// Machine goal object id, bound by the machine before each step.
     pub fn get_machine_goal_object_id(&self) -> Option<crate::common::ObjectID> {
-        if let Some(machine) = self.machine.as_ref().and_then(|weak| weak.upgrade()) {
-            if let Ok(guard) = machine.try_lock() {
-                let id = guard.get_goal_object_id();
-                if id != crate::common::INVALID_ID {
-                    return Some(id);
-                }
-            }
-        }
         if self.goal_object_id == crate::common::INVALID_ID {
             None
         } else {
@@ -517,15 +472,8 @@ impl State {
         }
     }
 
+    /// Machine owner id, bound by the machine before each step.
     pub fn get_machine_owner_id(&self) -> Option<crate::common::ObjectID> {
-        if let Some(machine) = self.machine.as_ref().and_then(|weak| weak.upgrade()) {
-            if let Ok(guard) = machine.try_lock() {
-                let id = guard.get_owner_id();
-                if id != crate::common::INVALID_ID {
-                    return Some(id);
-                }
-            }
-        }
         if self.owner_id == crate::common::INVALID_ID {
             None
         } else {
@@ -533,79 +481,22 @@ impl State {
         }
     }
 
-    /// Get the machine goal squad
-    pub fn get_machine_goal_squad(&self) -> Option<Arc<Mutex<Squad>>> {
-        if let Some(squad) = self
-            .machine
-            .as_ref()
-            .and_then(|weak| weak.upgrade())
-            .and_then(|arc| arc.try_lock().ok().and_then(|guard| guard.get_goal_squad()))
-        {
-            return Some(squad);
-        }
+    /// Machine goal squad value, bound by the machine before each step.
+    /// Returns an owned copy; pruning it does not affect the machine's squad.
+    pub fn get_machine_goal_squad(&self) -> Option<Squad> {
         self.goal_squad_copied.clone()
     }
 
-    /// Get the machine goal polygon trigger
+    /// Machine goal polygon trigger, bound by the machine before each step.
     pub fn get_machine_goal_polygon(&self) -> Option<Arc<PolygonTrigger>> {
-        if let Some(polygon) = self
-            .machine
-            .as_ref()
-            .and_then(|weak| weak.upgrade())
-            .and_then(|arc| arc.try_lock().ok().and_then(|guard| guard.get_goal_polygon()))
-        {
-            return Some(polygon);
-        }
         self.goal_polygon_copied.clone()
     }
 
-    /// Get the machine goal position
+    /// Machine goal position, bound by the machine before each step.
     pub fn get_machine_goal_position(&self) -> Option<Coord3D> {
-        if let Some(pos) = self
-            .machine
-            .as_ref()
-            .and_then(|weak| weak.upgrade())
-            .and_then(|arc| arc.try_lock().ok().map(|guard| guard.get_goal_position()))
-        {
-            return Some(pos);
-        }
         self.goal_position_copied
     }
 
-    /// Get the state machine reference.
-    pub fn get_machine(&self) -> Result<Arc<Mutex<StateMachine>>, String> {
-        self.machine
-            .as_ref()
-            .and_then(|weak| weak.upgrade())
-            .ok_or_else(|| "State machine reference not available".to_string())
-    }
-
-    /// Set machine goal object through the attached state machine.
-    pub fn set_goal_object(&self, obj: Option<Weak<RwLock<Object>>>) {
-        if let Some(machine) = self.machine.as_ref().and_then(|weak| weak.upgrade()) {
-            if let Ok(mut guard) = machine.lock() {
-                guard.set_goal_object(obj);
-            }
-        }
-    }
-
-    /// ID-first goal object through attached state machine.
-    pub fn set_goal_object_by_id(&self, object_id: Option<crate::common::ObjectID>) {
-        if let Some(machine) = self.machine.as_ref().and_then(|weak| weak.upgrade()) {
-            if let Ok(mut guard) = machine.lock() {
-                guard.set_goal_object_by_id(object_id);
-            }
-        }
-    }
-
-    /// Set machine goal position through the attached state machine.
-    pub fn set_goal_position(&self, pos: Coord3D) {
-        if let Some(machine) = self.machine.as_ref().and_then(|weak| weak.upgrade()) {
-            if let Ok(mut guard) = machine.lock() {
-                guard.set_goal_position(pos);
-            }
-        }
-    }
 
     /// Define success transition
     pub fn on_success(&mut self, to_state_id: StateId) {
@@ -636,9 +527,6 @@ impl State {
     /// Handle state exit - called when leaving this state
     pub fn on_exit(&mut self, _exit_type: StateExitType) {
         // Default implementation - can be overridden by specific states
-        if self.machine.is_some() {
-            // Could notify state machine of exit if needed
-        }
     }
 
     /// Check for state transitions based on return status
@@ -680,7 +568,7 @@ pub struct StateMachine {
     default_state_id: StateId,
     current_state_id: Option<StateId>,
     goal_object_id: crate::common::ObjectID,
-    goal_squad: Option<Weak<Mutex<Squad>>>,
+    goal_squad: Option<Squad>,
     goal_polygon: Option<Weak<PolygonTrigger>>,
     goal_waypoint: Option<WaypointId>,
     guard_mode_raw: i32,
@@ -816,7 +704,7 @@ impl StateMachine {
             let state_before_update = state_id;
             let goal_object_id = self.get_goal_object_id();
             let goal_position = self.get_goal_position();
-            let goal_squad = self.get_goal_squad();
+            let goal_squad = self.get_goal_squad().cloned();
             let goal_polygon = self.get_goal_polygon();
             let goal_waypoint = self.get_goal_waypoint();
             let step_owner = self.get_owner();
@@ -881,7 +769,7 @@ impl StateMachine {
             let machine_locked = self.locked;
             let goal_object_id = self.get_goal_object_id();
             let goal_position = self.get_goal_position();
-            let goal_squad = self.get_goal_squad();
+            let goal_squad = self.get_goal_squad().cloned();
             let goal_polygon = self.get_goal_polygon();
             let goal_waypoint = self.get_goal_waypoint();
             let step_owner = self.get_owner();
@@ -1097,7 +985,7 @@ impl StateMachine {
             let state_before_enter = current_id;
             let goal_id = self.get_goal_object_id();
             let goal_pos = self.get_goal_position();
-            let goal_squad = self.get_goal_squad();
+            let goal_squad = self.get_goal_squad().cloned();
             let goal_polygon = self.get_goal_polygon();
             let locks_machine = self
                 .state_map
@@ -1452,13 +1340,13 @@ impl StateMachine {
     }
 
     /// Set goal squad
-    pub fn set_goal_squad(&mut self, squad: Option<Weak<Mutex<Squad>>>) {
+    pub fn set_goal_squad(&mut self, squad: Option<Squad>) {
         self.goal_squad = squad;
     }
 
     /// Get goal squad
-    pub fn get_goal_squad(&self) -> Option<Arc<Mutex<Squad>>> {
-        self.goal_squad.as_ref()?.upgrade()
+    pub fn get_goal_squad(&self) -> Option<&Squad> {
+        self.goal_squad.as_ref()
     }
 
     /// Set goal polygon trigger

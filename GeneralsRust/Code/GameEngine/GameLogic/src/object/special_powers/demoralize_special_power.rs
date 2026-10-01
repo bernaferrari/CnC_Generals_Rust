@@ -137,24 +137,22 @@ impl DemoralizeSpecialPower {
         if let Some(owner) = TheGameLogic::find_object_by_id(self.owner_object_id) {
             if let Ok(owner_guard) = owner.read() {
                 if let Some(contain) = owner_guard.get_contain() {
-                    if let Ok(contain_guard) = contain.lock() {
-                        let contain_count = contain_guard.get_contained_count() as UnsignedInt;
+                    let contain_count = contain.get_contained_count() as UnsignedInt;
 
-                        // Bonus duration per captured unit, capped at max
-                        duration = duration.saturating_add(
-                            self.data
-                                .bonus_duration_per_captured_in_frames
-                                .saturating_mul(contain_count),
-                        );
-                        if duration > self.data.max_duration_in_frames {
-                            duration = self.data.max_duration_in_frames;
-                        }
+                    // Bonus duration per captured unit, capped at max
+                    duration = duration.saturating_add(
+                        self.data
+                            .bonus_duration_per_captured_in_frames
+                            .saturating_mul(contain_count),
+                    );
+                    if duration > self.data.max_duration_in_frames {
+                        duration = self.data.max_duration_in_frames;
+                    }
 
-                        // Bonus range per captured unit, capped at max
-                        range += self.data.bonus_range_per_captured * contain_count as Real;
-                        if range > self.data.max_range {
-                            range = self.data.max_range;
-                        }
+                    // Bonus range per captured unit, capped at max
+                    range += self.data.bonus_range_per_captured * contain_count as Real;
+                    if range > self.data.max_range {
+                        range = self.data.max_range;
                     }
                 }
             }
@@ -245,11 +243,9 @@ impl DemoralizeSpecialPower {
             }
 
             // Apply demoralize (C++: ai->setDemoralized(duration))
-            if let Ok(obj_guard) = obj_arc.read() {
-                if let Some(ai) = obj_guard.get_ai_update_interface() {
-                    if let Ok(mut ai_guard) = ai.lock() {
-                        ai_guard.set_demoralized(duration);
-                    }
+            if let Ok(mut obj_guard) = obj_arc.write() {
+                if let Some(ai) = obj_guard.get_ai_update_interface_mut() {
+                    ai.set_demoralized(duration);
                 }
             };
         }

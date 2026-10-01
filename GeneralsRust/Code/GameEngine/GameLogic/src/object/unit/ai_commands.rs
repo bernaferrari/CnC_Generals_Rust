@@ -1053,12 +1053,12 @@ impl UnitAIUpdate {
                     }
 
                     let owner_object = guard.base_arc();
-                    let dock_machine =
+                    let mut dock_machine =
                         AIDockMachine::new(owner_object.clone()).map_err(|err| err.to_string())?;
-                    if let Ok(mut machine) = dock_machine.state_machine.lock() {
-                        machine.set_goal_object_by_id(target_arc.read().ok().map(|g| g.get_id()));
-                        let _ = machine.init_default_state();
-                    }
+                    dock_machine
+                        .state_machine
+                        .set_goal_object_by_id(target_arc.read().ok().map(|g| g.get_id()));
+                    let _ = dock_machine.state_machine.init_default_state();
                     let _ = self.set_can_path_through_units(true);
                     self.dock_machine = Some(dock_machine);
                 }
@@ -1248,13 +1248,12 @@ impl UnitAIUpdate {
                         }
 
                         let owner_object = guard.base_arc();
-                        let dock_machine = AIDockMachine::new(owner_object.clone())
+                        let mut dock_machine = AIDockMachine::new(owner_object.clone())
                             .map_err(|err| err.to_string())?;
-                        if let Ok(mut machine) = dock_machine.state_machine.lock() {
-                            machine
-                                .set_goal_object_by_id(target_arc.read().ok().map(|g| g.get_id()));
-                            let _ = machine.init_default_state();
-                        }
+                        dock_machine
+                            .state_machine
+                            .set_goal_object_by_id(target_arc.read().ok().map(|g| g.get_id()));
+                        let _ = dock_machine.state_machine.init_default_state();
                         let _ = self.set_can_path_through_units(true);
                         self.dock_machine = Some(dock_machine);
                     }

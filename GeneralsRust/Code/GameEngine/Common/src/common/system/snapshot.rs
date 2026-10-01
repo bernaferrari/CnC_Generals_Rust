@@ -92,10 +92,7 @@ impl Snapshot {
             self.data.resize(data_len as usize, 0);
         }
         if data_len > 0 {
-            // SAFETY: `data` has exactly `data_len` bytes.
-            unsafe {
-                xfer.xfer_user(self.data.as_mut_ptr(), data_len as usize)?;
-            }
+            xfer.xfer_user_bytes(&mut self.data)?;
         }
         let mut metadata_count = self.metadata.len() as u32;
         xfer.xfer_unsigned_int(&mut metadata_count)?;

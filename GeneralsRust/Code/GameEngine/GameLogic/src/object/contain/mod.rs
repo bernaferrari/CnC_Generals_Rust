@@ -118,13 +118,10 @@ pub(crate) fn should_cancel_containment_after_booby_trap(
 /// container (parachute), validate the first contained infantry instead.
 pub(crate) fn unwrap_special_zero_slot_rider(obj: &Object) -> Option<Arc<RwLock<Object>>> {
     let contain = obj.get_contain()?;
-    let first_id = {
-        let guard = contain.lock().ok()?;
-        if guard.get_max_capacity() != 0 {
-            return None;
-        }
-        *guard.get_contained_objects().first()?
-    };
+    if contain.get_max_capacity() != 0 {
+        return None;
+    }
+    let first_id = *contain.get_contained_objects().first()?;
     crate::helpers::TheGameLogic::find_object_by_id(first_id)
         .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(first_id))
 }

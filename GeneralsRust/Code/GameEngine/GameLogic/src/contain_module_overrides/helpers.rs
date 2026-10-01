@@ -89,10 +89,7 @@ pub(super) fn owner_weak(owner_id: ObjectID) -> Weak<RwLock<crate::object::Objec
         .unwrap_or_else(Weak::new)
 }
 
-pub(super) fn attach_contain_to_object(
-    object_id: ObjectID,
-    contain: Arc<Mutex<dyn ContainModuleInterface>>,
-) {
+pub(super) fn attach_contain_to_object(object_id: ObjectID, contain: Box<dyn ContainModuleInterface>) {
     if let Some(object) = TheGameLogic::find_object_by_id(object_id) {
         if let Ok(mut guard) = object.write() {
             guard.set_contain(Some(contain));
@@ -100,15 +97,20 @@ pub(super) fn attach_contain_to_object(
     }
 }
 
-pub(super) fn attach_body_to_object(
-    object_id: ObjectID,
-    body: Arc<Mutex<dyn BodyModuleInterface>>,
-) {
+pub(super) fn attach_body_to_object(object_id: ObjectID, body: Box<dyn BodyModuleInterface>) {
     if let Some(object) = TheGameLogic::find_object_by_id(object_id) {
         if let Ok(mut guard) = object.write() {
             guard.set_body_module(Some(body));
         }
     }
+}
+
+/// True when `module` is the contain binding module whose contain instance is
+/// owned by the Object's `contain` field. Object-side module walks substitute
+/// the owned field at this entry's list position to preserve byte-exact xfer
+/// ordering and on_delete side effects.
+pub(crate) fn is_contain_binding(module: &dyn Module) -> bool {
+    module.as_any().is::<super::contain::ContainBindingModule>()
 }
 
 #[derive(Debug)]

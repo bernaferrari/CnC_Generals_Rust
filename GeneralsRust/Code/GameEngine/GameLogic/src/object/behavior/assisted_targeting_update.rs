@@ -257,20 +257,22 @@ impl AssistedTargetingUpdateInterface for AssistedTargetingUpdate {
         let Ok(mut me) = me_arc.write() else {
             return;
         };
-        let Some(ai_arc) = me.get_ai() else {
+        if me.get_ai().is_none() {
             return;
-        };
+        }
         me.set_weapon_lock(
             self.module_data.weapon_slot,
             WeaponLockType::LockedTemporarily,
         );
         let me_id = me.get_id();
-        drop(me);
         let mut params =
             AiCommandParams::new(AiCommandType::AttackObject, CommandSourceType::FromAi);
         params.obj = Some(victim_object_id);
         params.int_value = self.module_data.clip_size;
-        let _ = ai_arc.lock().ok().map(|mut ai| ai.execute_command(&params));
+        if let Some(ai) = me.get_ai_mut() {
+            let _ = ai.execute_command(&params);
+        }
+        drop(me);
 
         let laser_from_assisted = self.laser_from_assisted.clone();
         let laser_to_target = self.laser_to_target.clone();

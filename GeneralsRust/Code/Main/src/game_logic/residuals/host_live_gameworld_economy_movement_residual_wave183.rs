@@ -137,13 +137,11 @@ pub fn simulate_live_gameworld_economy_movement_honesty() -> bool {
     }
 
     ensure_gate_damage_authority();
-    // SAFETY: env mutation funnels through env_compat wrappers; serialized
-    // by the repo --test-threads=1 / authority_env_lock convention and
-    // caches are refreshed immediately below. Authority channels are no
-    // longer env-backed (hq-e84zk) — only the shadow opt-out remains env.
-    unsafe {
-        crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
-    }
+    // Env mutation funnels through the safe env_compat wrapper (serialized
+    // by the --test-threads=1 / authority_env_lock convention); caches are
+    // refreshed immediately below. Authority channels are no longer
+    // env-backed (hq-e84zk) — only the shadow opt-out remains env.
+    crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", "1");
     crate::gameworld_shadow::refresh_gameworld_authority_env_caches();
     // Wave 757: clear leaked coupled-tick depth from earlier tests so movement
     // writeback is not skipped due to stale pending-host-log gates.

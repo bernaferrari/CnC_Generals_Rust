@@ -274,14 +274,8 @@ impl Unit {
             .map(|guard| guard.get_unit_direction_vector_2d())
             .unwrap_or((1.0, 0.0))
     }
-    pub fn get_ai_update_interface(&self) -> Option<Arc<Mutex<dyn AIUpdateInterface>>> {
-        self.base_arc()
-            .read()
-            .ok()
-            .and_then(|guard| guard.get_ai_update_interface())
-    }
     pub(crate) fn forward_command_to_flight_deck(&self, params: &crate::ai::AiCommandParams) {
-        if let Ok(guard) = self.base_arc().read() {
+        if let Ok(mut guard) = self.base_arc().write() {
             guard.forward_command_to_flight_deck(params);
         }
     }

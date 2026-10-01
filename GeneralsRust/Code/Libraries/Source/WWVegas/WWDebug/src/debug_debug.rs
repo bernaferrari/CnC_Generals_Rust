@@ -113,12 +113,20 @@ impl Debug {
     }
 
     pub fn command(cmd: &str) {
+    // The instance lock is held across exec_command → Box<dyn
+    // DebugCmdInterface>::execute. Non-reentrant by contract: every in-tree
+    // implementation (incl. the FnMut adapter) operates only on the passed
+    // &mut Debug and never re-enters the static Debug::command/update/dlog
+    // entries, so this cannot self-deadlock.
         let mut dbg = Debug::instance().lock().unwrap();
         dbg.ensure_initialized();
         dbg.exec_command(cmd);
     }
 
     pub fn update() {
+    // Same proof as command(): poll_io → Box<dyn DebugIO>::read/write only
+    // use the passed &mut Debug; no in-tree implementation re-enters the
+    // instance lock.
         let mut dbg = Debug::instance().lock().unwrap();
         dbg.ensure_initialized();
         dbg.poll_io();

@@ -84,6 +84,10 @@ impl AudioEventManager {
     /// Start event processing loop
     pub async fn start_processing(&self) -> Result<()> {
         let mut receiver = self.event_receiver.lock().await;
+        // The receiver guard lives across handler dispatch by design (single
+        // processing loop). No other method locks `event_receiver`, and
+        // handlers emitting events use `send_event` (a channel send), so
+        // dispatch cannot re-enter this mutex.
         while let Some(event) = receiver.recv().await {
             for handler in &self.handlers {
                 if let Err(e) = handler.handle_event(event.clone()).await {

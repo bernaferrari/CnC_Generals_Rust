@@ -194,13 +194,7 @@ impl AIIdleState {
         let old_sleep_offset = self.initial_sleep_offset;
         self.initial_sleep_offset = 0;
         if self.should_look_for_targets {
-            let locked = if let Some(flag) = machine_locked {
-                flag
-            } else if let Ok(machine) = self.base.get_machine() {
-                machine.try_lock().map(|guard| guard.is_locked()).unwrap_or(false)
-            } else {
-                false
-            };
+            let locked = machine_locked.unwrap_or(false);
             if locked {
                 return Ok(StateReturnType::Sleep(time_to_sleep));
             }

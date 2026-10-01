@@ -7,12 +7,12 @@ use super::cooldown::CooldownManager;
 use super::types::*;
 use crate::common::*;
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex, OnceLock, RwLock};
+use std::sync::{OnceLock, RwLock};
 
 /// Special power registry - manages all active special powers
 pub struct SpecialPowerRegistry {
     /// All registered powers by ID
-    powers: HashMap<SpecialPowerID, SharedSpecialPowerModule>,
+    powers: HashMap<SpecialPowerID, Box<dyn SpecialPowerModuleInterface>>,
     /// Powers by player ID
     player_powers: HashMap<ObjectID, Vec<SpecialPowerID>>,
     /// Powers by kind
@@ -61,8 +61,7 @@ impl SpecialPowerRegistry {
         );
 
         // Store the power
-        let shared_power: SharedSpecialPowerModule = Arc::new(Mutex::new(power));
-        self.powers.insert(power_id, shared_power);
+        self.powers.insert(power_id, power);
 
         // Track by player if specified
         if let Some(pid) = player_id {
@@ -82,34 +81,36 @@ impl SpecialPowerRegistry {
             "Registered special power ID {} ({:?})",
             power_id,
             power_kind
-        );
-        power_id
-    }
-
     /// Get a power by ID
-    pub fn get_power(&self, power_id: SpecialPowerID) -> Option<SharedSpecialPowerModule> {
-        self.powers.get(&power_id).cloned()
+    pub fn get_power(&self, power_id: SpecialPowerID) -> Option<&dyn SpecialPowerModuleInterface> {
+        self.powers.get(&power_id).map(|p| p.as_ref())
     }
 
     /// Get all powers for a player
-    pub fn get_player_powers(&self, player_id: ObjectID) -> Vec<SharedSpecialPowerModule> {
+    pub fn get_player_powers(
+        &self,
+        player_id: ObjectID,
+    ) -> Vec<&dyn SpecialPowerModuleInterface> {
         self.player_powers
             .get(&player_id)
             .map(|ids| {
                 ids.iter()
-                    .filter_map(|id| self.powers.get(id).cloned())
+                    .filter_map(|id| self.powers.get(id).map(|p| p.as_ref()))
                     .collect()
             })
             .unwrap_or_default()
     }
 
     /// Get all powers of a specific kind
-    pub fn get_powers_by_kind(&self, kind: SpecialPowerKind) -> Vec<SharedSpecialPowerModule> {
+    pub fn get_powers_by_kind(
+        &self,
+        kind: SpecialPowerKind,
+    ) -> Vec<&dyn SpecialPowerModuleInterface> {
         self.powers_by_kind
             .get(&kind)
             .map(|ids| {
                 ids.iter()
-                    .filter_map(|id| self.powers.get(id).cloned())
+                    .filter_map(|id| self.powers.get(id).map(|p| p.as_ref()))
                     .collect()
             })
             .unwrap_or_default()
@@ -143,10 +144,8 @@ impl SpecialPowerRegistry {
         self.cooldown_manager.update(delta_time);
 
         // Update each power
-        for power in self.powers.values() {
-            if let Ok(mut p) = power.lock() {
-                p.update(delta_time);
-            }
+        for power in self.powers.values_mut() {
+            power.update(delta_time);
         }
     }
 
@@ -154,10 +153,8 @@ impl SpecialPowerRegistry {
     pub fn reset_all(&mut self) {
         self.cooldown_manager.reset_all();
 
-        for power in self.powers.values() {
-            if let Ok(mut p) = power.lock() {
-                p.reset();
-            }
+        for power in self.powers.values_mut() {
+            power.reset();
         }
     }
 
@@ -180,17 +177,15 @@ impl SpecialPowerRegistry {
         let mut stats = HashMap::new();
 
         for (&id, power) in &self.powers {
-            if let Ok(p) = power.lock() {
-                stats.insert(id, p.get_stats().clone());
-            }
+            stats.insert(id, power.get_stats().clone());
         }
 
         stats
     }
 
     /// Get all registered powers.
-    pub fn get_all_powers(&self) -> Vec<SharedSpecialPowerModule> {
-        self.powers.values().cloned().collect()
+    pub fn get_all_powers(&self) -> Vec<&dyn SpecialPowerModuleInterface> {
+        self.powers.values().map(|p| p.as_ref()).collect()
     }
 }
 
@@ -228,26 +223,14 @@ pub fn register_power(
     Ok(reg.register_power(power, player_id))
 }
 
-/// Get a power from the global registry
-pub fn get_power(power_id: SpecialPowerID) -> Option<SharedSpecialPowerModule> {
+/// Get a power from the global registry and run `f` on it under the registry read lock.
+pub fn with_power<T>(
+    power_id: SpecialPowerID,
+    f: impl FnOnce(&dyn SpecialPowerModuleInterface) -> T,
+) -> Option<T> {
     let registry = get_power_registry()?;
     let reg = registry.read().ok()?;
-    reg.get_power(power_id)
-}
-
-/// Get all powers for a player
-pub fn get_player_powers(player_id: ObjectID) -> Vec<SharedSpecialPowerModule> {
-    let registry = match get_power_registry() {
-        Some(r) => r,
-        None => return Vec::new(),
-    };
-
-    let reg = match registry.read() {
-        Ok(r) => r,
-        Err(_) => return Vec::new(),
-    };
-
-    reg.get_player_powers(player_id)
+    reg.get_power(power_id).map(f)
 }
 
 #[cfg(test)]

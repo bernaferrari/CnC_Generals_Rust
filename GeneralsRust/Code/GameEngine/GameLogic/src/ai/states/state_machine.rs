@@ -85,7 +85,7 @@ pub struct AIStateMachine {
     /// Goal waypoint
     pub(crate) goal_waypoint: Option<Arc<Waypoint>>,
     /// Goal squad to attack
-    pub(crate) goal_squad: Option<Arc<Mutex<Squad>>>,
+    pub(crate) goal_squad: Option<Squad>,
     /// Goal polygon area
     pub(crate) goal_polygon: Option<Arc<PolygonTrigger>>,
     /// Temporary state for short interruptions
@@ -764,40 +764,18 @@ impl AIStateMachine {
 
     /// Set goal team (converts to squad)
     pub fn set_goal_team(&mut self, team: &Arc<RwLock<Team>>) {
-        let squad = self
-            .goal_squad
-            .get_or_insert_with(|| Arc::new(Mutex::new(Squad::new())))
-            .clone();
-        if let (Ok(team_guard), Ok(mut squad_guard)) = (team.read(), squad.lock()) {
-            squad_guard.squad_from_team(&team_guard, true);
+        let squad = self.goal_squad.get_or_insert_with(Squad::new);
+        if let Ok(team_guard) = team.read() {
+            squad.squad_from_team(&team_guard, true);
         }
-        self.set_goal_squad(Some(squad));
+        self.base.set_goal_squad(self.goal_squad.clone());
     }
 
     /// Set goal squad
     /// Set goal squad
-    pub fn set_goal_squad(&mut self, squad: Option<Arc<Mutex<Squad>>>) {
-        if let Some(source) = squad {
-            let target = self
-                .goal_squad
-                .get_or_insert_with(|| Arc::new(Mutex::new(Squad::new())))
-                .clone();
-
-            if !Arc::ptr_eq(&target, &source) {
-                if let Ok(source_guard) = source.lock() {
-                    if let Ok(mut target_guard) = target.lock() {
-                        *target_guard = source_guard.clone();
-                    }
-                }
-            }
-
-            self.goal_squad = Some(target);
-        } else {
-            self.goal_squad = None;
-        }
-
-        self.base
-            .set_goal_squad(self.goal_squad.as_ref().map(Arc::downgrade));
+    pub fn set_goal_squad(&mut self, squad: Option<Squad>) {
+        self.goal_squad = squad;
+        self.base.set_goal_squad(self.goal_squad.clone());
     }
 
     pub fn set_goal_polygon(&mut self, polygon: Option<Arc<PolygonTrigger>>) {
@@ -808,18 +786,13 @@ impl AIStateMachine {
 
     /// Set goal AI group (converts to squad)
     pub fn set_goal_ai_group(&mut self, group: &AIGroup) {
-        let squad = self
-            .goal_squad
-            .get_or_insert_with(|| Arc::new(Mutex::new(Squad::new())))
-            .clone();
-        if let Ok(mut squad_guard) = squad.lock() {
-            squad_guard.squad_from_ai_group(group, true);
-        }
-        self.set_goal_squad(Some(squad));
+        let squad = self.goal_squad.get_or_insert_with(Squad::new);
+        squad.squad_from_ai_group(group, true);
+        self.base.set_goal_squad(self.goal_squad.clone());
     }
 
     /// Get goal squad
-    pub fn get_goal_squad(&self) -> Option<&Arc<Mutex<Squad>>> {
+    pub fn get_goal_squad(&self) -> Option<&Squad> {
         self.goal_squad.as_ref()
     }
 
@@ -835,7 +808,7 @@ impl AIStateMachine {
 
         let goal_id = self.base.get_goal_object_id();
         let goal_pos = self.base.get_goal_position();
-        let goal_squad = self.base.get_goal_squad();
+        let goal_squad = self.base.get_goal_squad().cloned();
         let goal_polygon = self.base.get_goal_polygon();
         let goal_waypoint = self.base.get_goal_waypoint();
         if let Some(state) = self.base.get_state_mut(new_state_id) {
@@ -887,7 +860,7 @@ impl AIStateMachine {
         if let Some(temp_state_id) = self.temporary_state_id {
             let goal_id = self.base.get_goal_object_id();
             let goal_pos = self.base.get_goal_position();
-            let goal_squad = self.base.get_goal_squad();
+            let goal_squad = self.base.get_goal_squad().cloned();
             let goal_polygon = self.base.get_goal_polygon();
             let goal_waypoint = self.base.get_goal_waypoint();
             if let Some(state) = self.base.get_state_mut(temp_state_id) {
@@ -1203,23 +1176,17 @@ impl Snapshotable for AIStateMachine {
         xfer.xfer_bool(&mut has_squad)
             .map_err(|e| format!("Failed to xfer has_squad: {:?}", e))?;
 
-        if xfer.is_loading() {
-            if has_squad && self.goal_squad.is_none() {
-                self.goal_squad = Some(Arc::new(Mutex::new(Squad::new())));
-            }
+        if xfer.is_loading() && has_squad && self.goal_squad.is_none() {
+            self.goal_squad = Some(Squad::new());
         }
 
         if has_squad {
-            if let Some(squad) = self.goal_squad.as_ref() {
-                let mut guard = squad
-                    .lock()
-                    .map_err(|_| "AIStateMachine squad lock poisoned".to_string())?;
-                guard.xfer(xfer)?;
+            if let Some(squad) = self.goal_squad.as_mut() {
+                squad.xfer(xfer)?;
             }
         }
 
-        self.base
-            .set_goal_squad(self.goal_squad.as_ref().map(|value| Arc::downgrade(value)));
+        self.base.set_goal_squad(self.goal_squad.clone());
 
         let mut temp_state_id = self.temporary_state_id.unwrap_or(INVALID_STATE_ID);
 

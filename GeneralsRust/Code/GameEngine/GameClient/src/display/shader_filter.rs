@@ -33,8 +33,12 @@ struct ShaderFilterGpu {
     last_kind: FilterType,
 }
 
+// SAFETY: compiled only for wasm32, where the client executes on a single
+// thread, so the wgpu pipeline/layout handles cannot be accessed
+// concurrently; native builds never use these impls.
 #[cfg(target_arch = "wasm32")]
 unsafe impl Send for ShaderFilterGpu {}
+// SAFETY: same single-threaded wasm32 invariant as the Send impl above.
 #[cfg(target_arch = "wasm32")]
 unsafe impl Sync for ShaderFilterGpu {}
 

@@ -964,11 +964,22 @@ impl AIPlayer {
                 if let Some(script) = e.find_script_clone_by_name(&cond) {
                     if let Some(action) = script.get_action().cloned() {
                         drop(eng);
-                        if let Ok(mut writer) =
-                            gamelogic::scripting::engine::get_script_engine().write()
-                        {
-                            if let Some(engine) = writer.as_mut() {
-                                engine.friend_execute_action(&action, Some(team_name));
+                        // Take the engine out of the global RwLock for the
+                        // action execution (script_runtime_camera.rs pattern):
+                        // friend_execute_action runs the full action chain,
+                        // which re-enters get_script_engine() and would
+                        // deadlock against a live write guard.
+                        let taken =
+                            match gamelogic::scripting::engine::get_script_engine().write() {
+                                Ok(mut writer) => writer.take(),
+                                Err(_) => None,
+                            };
+                        if let Some(mut engine) = taken {
+                            engine.friend_execute_action(&action, Some(team_name));
+                            if let Ok(mut writer) =
+                                gamelogic::scripting::engine::get_script_engine().write()
+                            {
+                                *writer = Some(engine);
                             }
                         }
                     }
@@ -2111,11 +2122,22 @@ impl AIPlayer {
                     if let Some(script) = e.find_script_clone_by_name(&production_condition) {
                         if let Some(action) = script.get_action().cloned() {
                             drop(eng);
-                            if let Ok(mut writer) =
-                                gamelogic::scripting::engine::get_script_engine().write()
-                            {
-                                if let Some(engine) = writer.as_mut() {
-                                    engine.friend_execute_action(&action, Some(team_name));
+                            // Take the engine out of the global RwLock for
+                            // the action execution (script_runtime_camera.rs
+                            // pattern): the action chain re-enters
+                            // get_script_engine() and would deadlock against
+                            // a live write guard.
+                            let taken =
+                                match gamelogic::scripting::engine::get_script_engine().write() {
+                                    Ok(mut writer) => writer.take(),
+                                    Err(_) => None,
+                                };
+                            if let Some(mut engine) = taken {
+                                engine.friend_execute_action(&action, Some(team_name));
+                                if let Ok(mut writer) =
+                                    gamelogic::scripting::engine::get_script_engine().write()
+                                {
+                                    *writer = Some(engine);
                                 }
                             }
                         }

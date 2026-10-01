@@ -276,12 +276,7 @@ impl AIWanderState {
         &mut self,
         mut borrowed: Option<&mut dyn crate::modules::AIUpdateInterface>,
     ) -> Result<StateReturnType, String> {
-        let machine = self.base.get_machine()?;
-        let waypoint_id = machine
-            .try_lock()
-            .ok()
-            .and_then(|guard| guard.get_goal_waypoint())
-            .or(self.base.goal_waypoint_copied);
+        let waypoint_id = self.base.goal_waypoint_copied;
         self.core.current_waypoint = waypoint_id.and_then(resolve_waypoint_by_id);
         self.core.prior_waypoint = None;
         self.core.group_offset = Coord2D::new(0.0, 0.0);
@@ -588,12 +583,7 @@ impl AIPanicState {
         &mut self,
         mut borrowed: Option<&mut dyn crate::modules::AIUpdateInterface>,
     ) -> Result<StateReturnType, String> {
-        let machine = self.base.get_machine()?;
-        let waypoint_id = machine
-            .try_lock()
-            .ok()
-            .and_then(|guard| guard.get_goal_waypoint())
-            .or(self.base.goal_waypoint_copied);
+        let waypoint_id = self.base.goal_waypoint_copied;
         self.core.current_waypoint = waypoint_id.and_then(resolve_waypoint_by_id);
         self.core.prior_waypoint = None;
         self.core.group_offset = Coord2D::new(0.0, 0.0);

@@ -1203,12 +1203,12 @@ impl Default for SelectionManager {
 
 /// Global selection manager instance
 use once_cell::sync::Lazy;
-static SELECTION_MANAGER: Lazy<Arc<RwLock<SelectionManager>>> =
-    Lazy::new(|| Arc::new(RwLock::new(SelectionManager::new())));
+static SELECTION_MANAGER: Lazy<RwLock<SelectionManager>> =
+    Lazy::new(|| RwLock::new(SelectionManager::new()));
 
 /// Get global selection manager
-pub fn get_selection_manager() -> Arc<RwLock<SelectionManager>> {
-    SELECTION_MANAGER.clone()
+pub fn get_selection_manager() -> &'static RwLock<SelectionManager> {
+    &SELECTION_MANAGER
 }
 
 /// Selection lookup backed by the global `OBJECT_REGISTRY`.

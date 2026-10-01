@@ -196,9 +196,9 @@ pub struct AiStateData {
     goal_polygon: Option<crate::polygon_trigger::PolygonTriggerId>,
     /// Target squad for squad attacks
     goal_squad: Option<SquadId>,
-    /// Squad handle (legacy machine parity)
+    /// Squad value (legacy machine parity)
     #[serde(skip)]
-    goal_squad_handle: Option<std::sync::Arc<std::sync::Mutex<Squad>>>,
+    goal_squad_handle: Option<Squad>,
     /// Maximum shots to fire in attack states
     max_shots: i32,
     /// Guard mode for guard states
@@ -597,23 +597,18 @@ impl AiStateMachine {
                 }
 
                 let mut parachuting = false;
-                let ai = OBJECT_REGISTRY
-                    .with_object_mut(self.owner_id, |owner_guard| {
-                        owner_guard.set_model_condition_state(ModelConditionFlags::MOVING);
-                        if is_cliff_at(owner_guard.get_position()) {
-                            owner_guard.set_model_condition_state(ModelConditionFlags::CLIMBING);
-                            owner_guard
-                                .clear_model_condition_state(ModelConditionFlags::RAPPELLING);
-                        }
-                        parachuting =
-                            owner_guard.test_status(crate::common::ObjectStatusTypes::Parachuting);
-                        owner_guard.get_ai_update_interface()
-                    })
-                    .flatten();
-                // Object write is dropped before locomotor/unit locks.
-                // `with_cur_locomotor` write-locks the unit.
-                if let Some(ai) = ai {
-                    if let Ok(mut ai_guard) = ai.lock() {
+                OBJECT_REGISTRY.with_object_mut(self.owner_id, |owner_guard| {
+                    owner_guard.set_model_condition_state(ModelConditionFlags::MOVING);
+                    if is_cliff_at(owner_guard.get_position()) {
+                        owner_guard.set_model_condition_state(ModelConditionFlags::CLIMBING);
+                        owner_guard
+                            .clear_model_condition_state(ModelConditionFlags::RAPPELLING);
+                    }
+                    parachuting =
+                        owner_guard.test_status(crate::common::ObjectStatusTypes::Parachuting);
+                    // Object write is dropped before locomotor/unit locks.
+                    // `with_cur_locomotor` write-locks the unit.
+                    if let Some(ai_guard) = owner_guard.get_ai_update_interface_mut() {
                         if parachuting || !ai_guard.is_allowed_to_adjust_destination() {
                             state.adjust_destinations = false;
                         }
@@ -625,7 +620,7 @@ impl AiStateMachine {
                         ai_guard.set_adjusts_destination(state.adjust_destinations);
                         let _ = ai_guard.set_path_extra_distance(0.0);
                     }
-                }
+                });
                 self.start_move_sound(state);
             }
             AiStateType::AttackObject | AiStateType::AttackPosition => {
@@ -665,18 +660,13 @@ impl AiStateMachine {
             AiStateType::FaceObject | AiStateType::FacePosition => {
                 // C++ AIFaceState::onEnter caches whether this locomotor can turn in place.
                 state.scratch.face_can_turn_in_place = false;
-                let ai = OBJECT_REGISTRY
-                    .with_object(self.owner_id, |owner_guard| {
-                        owner_guard.get_ai_update_interface()
-                    })
-                    .flatten();
-                if let Some(ai) = ai {
-                    if let Ok(ai_guard) = ai.lock() {
+                let _ = OBJECT_REGISTRY.with_object(self.owner_id, |owner_guard| {
+                    if let Some(ai_guard) = owner_guard.get_ai_update_interface() {
                         ai_guard.with_cur_locomotor(&mut |loco| {
                             state.scratch.face_can_turn_in_place = loco.template.min_speed == 0.0;
                         });
                     }
-                }
+                });
             }
             _ => {} // Most states don't need special enter logic
         }
@@ -711,18 +701,13 @@ impl AiStateMachine {
                         audio.remove_audio_event(state.scratch.move_sound_handle);
                     }
                 }
-                let ai = OBJECT_REGISTRY
-                    .with_object(self.owner_id, |owner_guard| {
-                        owner_guard.get_ai_update_interface()
-                    })
-                    .flatten();
                 // `destroy_path` can read the owner object (jet goal). Do not
                 // hold that write across the call.
-                if let Some(ai) = ai {
-                    if let Ok(mut ai_guard) = ai.lock() {
+                let _ = OBJECT_REGISTRY.with_object_mut(self.owner_id, |owner_guard| {
+                    if let Some(ai_guard) = owner_guard.get_ai_update_interface_mut() {
                         ai_guard.destroy_path();
                     }
-                }
+                });
                 let _ = OBJECT_REGISTRY.with_object_mut(self.owner_id, |owner_guard| {
                     owner_guard.clear_model_condition_state(ModelConditionFlags::MOVING);
                     owner_guard.clear_model_condition_state(ModelConditionFlags::CLIMBING);
@@ -841,14 +826,13 @@ impl AiStateMachine {
 
         let blocked = OBJECT_REGISTRY
             .with_object(self.owner_id, |obj_guard| {
-                obj_guard.get_ai_update_interface()
-            })
-            .flatten()
-            .and_then(|ai| {
-                ai.lock().ok().map(|ai_guard| {
-                    ai_guard.is_blocked_and_stuck()
-                        || ai_guard.get_num_frames_blocked() > 2 * LOGICFRAMES_PER_SECOND
-                })
+                obj_guard
+                    .get_ai_update_interface()
+                    .map(|ai_guard| {
+                        ai_guard.is_blocked_and_stuck()
+                            || ai_guard.get_num_frames_blocked() > 2 * LOGICFRAMES_PER_SECOND
+                    })
+                    .unwrap_or(false)
             })
             .unwrap_or(false);
         if blocked {
@@ -861,19 +845,14 @@ impl AiStateMachine {
 
         let mut frames_blocked = 0;
         let mut moving_backwards = false;
-        if let Some(ai) = OBJECT_REGISTRY
-            .with_object(self.owner_id, |obj_guard| {
-                obj_guard.get_ai_update_interface()
-            })
-            .flatten()
-        {
-            if let Ok(ai_guard) = ai.lock() {
+        let _ = OBJECT_REGISTRY.with_object(self.owner_id, |obj_guard| {
+            if let Some(ai_guard) = obj_guard.get_ai_update_interface() {
                 frames_blocked = ai_guard.get_num_frames_blocked();
                 ai_guard.with_cur_locomotor(&mut |loco| {
                     moving_backwards = loco.is_moving_backwards();
                 });
             }
-        }
+        });
 
         let _ = OBJECT_REGISTRY.with_object_mut(self.owner_id, |obj_guard| {
             if frames_blocked > LOGICFRAMES_PER_SECOND / 4 {
@@ -1001,18 +980,13 @@ impl AiStateMachine {
                 .unwrap_or(10.0);
 
             let mut close_enough = 5.0;
-            let ai = OBJECT_REGISTRY
-                .with_object(self.owner_id, |obj_guard| {
-                    obj_guard.get_ai_update_interface()
-                })
-                .flatten();
-            if let Some(ai) = ai {
-                if let Ok(ai_guard) = ai.lock() {
+            let _ = OBJECT_REGISTRY.with_object(self.owner_id, |obj_guard| {
+                if let Some(ai_guard) = obj_guard.get_ai_update_interface() {
                     ai_guard.with_cur_locomotor(&mut |loco| {
                         close_enough = loco.get_close_enough_dist();
                     });
                 }
-            }
+            });
 
             if dist_to_waypoint < close_enough {
                 // Reached this waypoint, advance to next
@@ -1373,19 +1347,15 @@ impl AiStateMachine {
             return Ok(StateReturnType::StateFailed);
         }
 
-        let Some(squad_arc) = state.goal_squad_handle.clone() else {
+        let Some(mut squad) = state.goal_squad_handle.clone() else {
             return Ok(StateReturnType::StateFailed);
         };
         let best_target = {
-            let Ok(mut squad_guard) = squad_arc.lock() else {
-                return Ok(StateReturnType::StateFailed);
-            };
-
             let owner_pos = self.resolve_current_position(state);
             let mut best_target = None;
             let mut best_dist = f32::INFINITY;
 
-            for id in squad_guard.get_live_object_ids() {
+            for id in squad.get_live_object_ids() {
                 let Some(pos) = OBJECT_REGISTRY
                     .with_object(id, |target| {
                         if target.is_effectively_dead() {
@@ -1522,39 +1492,41 @@ impl AiStateMachine {
             return Ok(StateReturnType::StateFailed);
         }
 
-        let Some((owner_pos, owner_orientation, ai)) =
+        let Some((owner_pos, owner_orientation)) =
             OBJECT_REGISTRY.with_object(self.owner_id, |owner_guard| {
-                (
-                    *owner_guard.get_position(),
-                    owner_guard.get_orientation(),
-                    owner_guard.get_ai_update_interface(),
-                )
+                (*owner_guard.get_position(), owner_guard.get_orientation())
             })
         else {
             return Ok(StateReturnType::StateFailed);
         };
-        let Some(ai) = ai else {
-            return Ok(StateReturnType::StateFailed);
-        };
-        let Ok(mut ai_guard) = ai.lock() else {
-            return Err(AiError::LockFailed);
-        };
 
-        let rel_angle = relative_angle_2d(&owner_pos, owner_orientation, &target_pos);
+        // Missing AI → StateFailed even when already facing (original order:
+        // presence check, then the angle check, then the locomotor goal).
+        let faced = OBJECT_REGISTRY.with_object_mut(self.owner_id, |owner_guard| {
+            let Some(ai_guard) = owner_guard.get_ai_update_interface_mut() else {
+                return None;
+            };
+            let rel_angle = relative_angle_2d(&owner_pos, owner_orientation, &target_pos);
 
-        const REL_THRESH: Real = 0.035;
-        if rel_angle.abs() < REL_THRESH {
-            return Ok(StateReturnType::StateComplete);
+            const REL_THRESH: Real = 0.035;
+            if rel_angle.abs() < REL_THRESH {
+                return Some(true);
+            }
+
+            if state.scratch.face_can_turn_in_place {
+                let desired_angle = owner_orientation + rel_angle;
+                ai_guard.set_locomotor_goal_orientation(desired_angle);
+            } else {
+                ai_guard.set_locomotor_goal_position_explicit(target_pos);
+            }
+
+            Some(false)
+        });
+        match faced {
+            None => Ok(StateReturnType::StateFailed),
+            Some(true) => Ok(StateReturnType::StateComplete),
+            Some(false) => Ok(StateReturnType::Continue),
         }
-
-        if state.scratch.face_can_turn_in_place {
-            let desired_angle = owner_orientation + rel_angle;
-            ai_guard.set_locomotor_goal_orientation(desired_angle);
-        } else {
-            ai_guard.set_locomotor_goal_position_explicit(target_pos);
-        }
-
-        Ok(StateReturnType::Continue)
     }
 
     fn update_guard_tunnel_network_state(
@@ -1783,18 +1755,13 @@ impl AiStateMachine {
 
         state.scratch.last_move_target = Some(target);
 
-        if let Some(ai) = OBJECT_REGISTRY
-            .with_object(self.owner_id, |obj_guard| {
-                obj_guard.get_ai_update_interface()
-            })
-            .flatten()
-        {
-            if let Ok(mut ai_guard) = ai.lock() {
+        let _ = OBJECT_REGISTRY.with_object_mut(self.owner_id, |obj_guard| {
+            if let Some(ai_guard) = obj_guard.get_ai_update_interface_mut() {
                 let _ = ai_guard.set_movement_target(&target);
                 let _ =
                     ai_guard.update_goal_position(&target, common_layer(state.scratch.path_layer));
             }
-        }
+        });
 
         if let Ok(mut factory_guard) = get_object_factory().write() {
             if let Some(GameObjectInstance::Unit(unit)) =
@@ -1815,9 +1782,7 @@ impl AiStateMachine {
             .with_object(self.owner_id, |owner_guard| {
                 let mut use_damaged = false;
                 if let Some(body) = owner_guard.get_body_module() {
-                    if let Ok(body_guard) = body.lock() {
-                        use_damaged = body_guard.get_damage_state() > BodyDamageType::Damaged;
-                    }
+                    use_damaged = body.get_damage_state() > BodyDamageType::Damaged;
                 }
 
                 let template = owner_guard.get_template();
@@ -2012,12 +1977,10 @@ impl AiStateMachine {
     }
 
     fn evacuate_contents(&self, owner: &mut crate::object::Object) {
-        if let Some(contain) = owner.get_contain() {
-            if let Ok(mut contain_guard) = contain.lock() {
-                let ids: Vec<ObjectID> = contain_guard.get_contained_objects().into_owned();
-                for id in ids {
-                    let _ = contain_guard.release_object(id);
-                }
+        if let Some(contain) = owner.get_contain_mut() {
+            let ids: Vec<ObjectID> = contain.get_contained_objects().into_owned();
+            for id in ids {
+                let _ = contain.release_object(id);
             }
         }
 
@@ -2028,7 +1991,7 @@ impl AiStateMachine {
         }
     }
 
-    fn release_from_container(&self, owner: &crate::object::Object) {
+    fn release_from_container(&self, owner: &mut crate::object::Object) {
         // Wave 267: empty dual-world → no factory object walks.
         if dual_world_registry_unavailable() {
             panic!("dual-world registry unavailable in test helper");
@@ -2040,19 +2003,15 @@ impl AiStateMachine {
         // ExitInstantly already write-locks `owner`. Re-locking that same object
         // deadlocks; release through the borrowed owner instead.
         if container_id == owner.get_id() {
-            if let Some(contain) = owner.get_contain() {
-                if let Ok(mut contain_guard) = contain.lock() {
-                    let _ = contain_guard.release_object(owner.get_id());
-                }
+            if let Some(contain) = owner.get_contain_mut() {
+                let _ = contain.release_object(owner.get_id());
             }
             return;
         }
         let _ =
             crate::object::registry::OBJECT_REGISTRY.with_object_mut(container_id, |container| {
-                if let Some(contain) = container.get_contain() {
-                    if let Ok(mut contain_guard) = contain.lock() {
-                        let _ = contain_guard.release_object(owner.get_id());
-                    }
+                if let Some(contain) = container.get_contain_mut() {
+                    let _ = contain.release_object(owner.get_id());
                 }
             });
     }
@@ -2389,7 +2348,7 @@ impl AiStateMachine {
                     }
                 }
             }
-            handle = Some(std::sync::Arc::new(std::sync::Mutex::new(squad_obj)));
+            handle = Some(squad_obj);
         }
         self.current_state.goal_squad_handle = handle;
     }
@@ -2723,8 +2682,7 @@ impl AiCommandInterface for AiStateMachine {
                         }
                     }
                 }
-                self.current_state.goal_squad_handle =
-                    Some(std::sync::Arc::new(std::sync::Mutex::new(squad)));
+                self.current_state.goal_squad_handle = Some(squad);
             }
         }
 
@@ -2793,11 +2751,10 @@ mod tests {
         capture: Arc<Mutex<FaceAiCapture>>,
     }
 
-    // SAFETY: `AIUpdateInterface: Sync`, but this double is only installed as
-    // `Arc<Mutex<dyn AIUpdateInterface>>` and the sim is single-threaded.
-    // The outer mutex is the only share path; `borrow_mut` never runs on two
-    // threads at once. `RefCell` stays the non-reentrant stand-in for the
-    // C++ locomotor pointer.
+    // SAFETY: `AIUpdateInterface: Sync`; the sim is single-threaded and this
+    // double is only installed as the object's owned AI module, so
+    // `borrow_mut` never runs on two threads at once. `RefCell` stays the
+    // non-reentrant stand-in for the C++ locomotor pointer.
     unsafe impl Sync for FaceTestAI {}
 
     impl AIUpdateInterface for FaceTestAI {
@@ -2852,10 +2809,10 @@ mod tests {
         let locomotor = RefCell::new(Locomotor::new(Arc::new(template)));
 
         let capture = Arc::new(Mutex::new(FaceAiCapture::default()));
-        let ai: Arc<Mutex<dyn AIUpdateInterface>> = Arc::new(Mutex::new(FaceTestAI {
+        let ai: Box<dyn AIUpdateInterface> = Box::new(FaceTestAI {
             locomotor,
             capture: capture.clone(),
-        }));
+        });
 
         {
             let Ok(mut guard) = object.write() else {

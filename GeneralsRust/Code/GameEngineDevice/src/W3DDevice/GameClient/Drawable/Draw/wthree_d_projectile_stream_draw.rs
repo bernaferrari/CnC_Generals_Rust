@@ -28,8 +28,8 @@ impl W3DProjectileStreamDraw {
         let scene = W3DDisplay::global_scene();
         let mut scene_guard = scene.write();
         for line_id in self.lines.iter().flatten() {
-            if let Some(line) = scene_guard.get_segmented_line(*line_id) {
-                line.write().set_visible(!fully_obscured);
+            if let Some(line) = scene_guard.get_segmented_line_mut(*line_id) {
+                line.set_visible(!fully_obscured);
             }
         }
     }
@@ -99,10 +99,10 @@ impl W3DProjectileStreamDraw {
         if let Some(line_id) = self.lines[line_index] {
             let scene = W3DDisplay::global_scene();
             let mut scene_guard = scene.write();
-            if let Some(line) = scene_guard.get_segmented_line(line_id) {
-                line.write().set_points(points);
+            if let Some(line) = scene_guard.get_segmented_line_mut(line_id) {
+                line.set_points(points);
                 if new_line {
-                    line.write().set_visible(true);
+                    line.set_visible(true);
                 }
             }
         }

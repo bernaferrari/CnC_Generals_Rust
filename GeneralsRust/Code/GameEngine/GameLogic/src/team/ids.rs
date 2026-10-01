@@ -133,22 +133,31 @@ pub fn flush_pending_team_script_events() {
     }
 
     // C++ Team::updateState: TheScriptEngine->runScript(scriptName, this).
+    // Take the engine out of the global RwLock for the run_script loop
+    // (script_runtime_camera.rs pattern): std RwLock is not re-entrant, and
+    // script conditions/actions re-enter get_script_engine() (read or write),
+    // which would deadlock against a live write guard.
     let script_engine = get_script_engine();
-    let Ok(mut engine_guard) = script_engine.write() else {
-        if let Ok(mut queue) = pending_team_script_events().lock() {
-            queue.splice(0..0, pending);
-        }
-        return;
+    let taken = match script_engine.write() {
+        Ok(mut guard) => guard.take(),
+        Err(_) => None,
     };
-    let Some(engine) = engine_guard.as_mut() else {
-        if let Ok(mut queue) = pending_team_script_events().lock() {
-            queue.splice(0..0, pending);
+    let engine = match taken {
+        Some(engine) => engine,
+        None => {
+            if let Ok(mut queue) = pending_team_script_events().lock() {
+                queue.splice(0..0, pending);
+            }
+            return;
         }
-        return;
     };
 
     for event in pending {
         engine.run_script(&event.script_name, Some(event.team_name.as_str()));
+    }
+
+    if let Ok(mut guard) = script_engine.write() {
+        *guard = Some(engine);
     }
 }
 

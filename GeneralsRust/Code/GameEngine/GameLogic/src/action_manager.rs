@@ -233,9 +233,6 @@ fn special_power_module_percent_ready(
     sp_template: &SpecialPowerTemplate,
 ) -> Option<f32> {
     for behavior in obj.get_behavior_modules() {
-        let Ok(behavior) = behavior.lock() else {
-            continue;
-        };
         if let Some(module) = behavior.get_special_power_module_interface_const() {
             if module.is_module_for_power(sp_template) {
                 return Some(module.get_percent_ready());
@@ -249,10 +246,7 @@ fn special_ability_object_counts(obj: &Object, power_type: SpecialPowerType) -> 
     use crate::object::behavior::special_ability_update::SpecialAbilityUpdate as SpecialAbilityUpdateBehavior;
 
     for behavior in obj.get_behavior_modules() {
-        let Ok(guard) = behavior.lock() else {
-            continue;
-        };
-        let Some(update) = guard
+        let Some(update) = behavior
             .as_any()
             .downcast_ref::<SpecialAbilityUpdateBehavior>()
         else {
@@ -399,17 +393,13 @@ fn appears_to_contain_friendlies(obj: &Object, other: &Object) -> bool {
     let Some(contain) = other.get_contain() else {
         return false;
     };
-    let Ok(contain_guard) = contain.lock() else {
-        return false;
-    };
     let Some(observer) = obj.get_controlling_player() else {
         return false;
     };
     let Ok(observer_guard) = observer.read() else {
         return false;
     };
-    let Some(apparent_player) =
-        contain_guard.get_apparent_controlling_player(Some(&observer_guard))
+    let Some(apparent_player) = contain.get_apparent_controlling_player(Some(&observer_guard))
     else {
         return false;
     };
@@ -434,10 +424,7 @@ fn appears_to_contain_friendlies(obj: &Object, other: &Object) -> bool {
 fn get_special_power_ready_percent(obj: &Object, power_type: SpecialPowerType) -> Option<f32> {
     let mut ready = None;
     for behavior in obj.get_behavior_modules() {
-        let Ok(mut behavior) = behavior.lock() else {
-            continue;
-        };
-        if let Some(module) = behavior.get_special_power() {
+        if let Some(module) = behavior.get_special_power_module_interface_const() {
             if module.get_power_type() == power_type as u32 {
                 ready = Some(module.get_percent_ready());
             }
@@ -484,14 +471,11 @@ impl TheActionManager {
         let Some(ai) = prisoner.get_ai_update_interface() else {
             return false;
         };
-        let Ok(ai_guard) = ai.lock() else {
-            return false;
-        };
-        if !ai_guard.is_surrendered() {
+        if !ai.is_surrendered() {
             return false;
         }
 
-        if let Some(surrendered_to) = ai_guard.get_surrendered_player_index() {
+        if let Some(surrendered_to) = ai.get_surrendered_player_index() {
             if obj.get_controlling_player_id() != Some(surrendered_to as u32) {
                 return false;
             }
@@ -549,10 +533,7 @@ impl TheActionManager {
         let Some(body) = obj.get_body_module() else {
             return false;
         };
-        let Ok(body_guard) = body.lock() else {
-            return false;
-        };
-        if body_guard.get_health() >= body_guard.get_max_health() {
+        if body.get_health() >= body.get_max_health() {
             return false;
         }
 
@@ -863,10 +844,7 @@ impl TheActionManager {
         let Some(ai) = obj.get_ai_update_interface() else {
             return false;
         };
-        let Ok(ai_guard) = ai.lock() else {
-            return false;
-        };
-        let Some(supply_truck) = ai_guard.get_supply_truck_ai_interface() else {
+        let Some(supply_truck) = ai.get_supply_truck_ai_interface() else {
             return false;
         };
 
@@ -974,10 +952,7 @@ impl TheActionManager {
         let Some(body) = obj.get_body_module() else {
             return false;
         };
-        let Ok(body_guard) = body.lock() else {
-            return false;
-        };
-        if body_guard.get_health() >= body_guard.get_max_health() {
+        if body.get_health() >= body.get_max_health() {
             return false;
         }
 
@@ -1026,10 +1001,7 @@ impl TheActionManager {
         let Some(body) = object_to_repair.get_body_module() else {
             return false;
         };
-        let Ok(body_guard) = body.lock() else {
-            return false;
-        };
-        if body_guard.get_health() >= body_guard.get_max_health() {
+        if body.get_health() >= body.get_max_health() {
             return false;
         }
 
@@ -1076,19 +1048,17 @@ impl TheActionManager {
         let builder_id = object_being_constructed.get_builder_id();
         if builder_id != crate::common::INVALID_ID {
             if let Some(builder) = TheGameLogic::find_object_by_id(builder_id) {
-                if let Ok(builder_guard) = builder.read() {
-                    if let Some(ai) = builder_guard.get_ai_update_interface() {
-                        if let Ok(mut ai_guard) = ai.lock() {
-                            use crate::object::update::ai_update::dozer_ai_update::DozerTask;
-                            let build_pending = ai_guard
-                                .get_dozer_ai_update_interface_mut()
-                                .is_some_and(|dozer| dozer.is_task_pending(DozerTask::Build));
-                            if build_pending
-                                && ai_guard.get_goal_object_id()
-                                    == object_being_constructed.get_id()
-                            {
-                                return false;
-                            }
+                if let Ok(mut builder_guard) = builder.write() {
+                    if let Some(ai) = builder_guard.get_ai_update_interface_mut() {
+                        use crate::object::update::ai_update::dozer_ai_update::DozerTask;
+                        let build_pending = ai
+                            .get_dozer_ai_update_interface_mut()
+                            .is_some_and(|dozer| dozer.is_task_pending(DozerTask::Build));
+                        if build_pending
+                            && ai.get_goal_object_id()
+                                == object_being_constructed.get_id()
+                        {
+                            return false;
                         }
                     }
                 }
@@ -1206,18 +1176,12 @@ impl TheActionManager {
         let Some(contain) = object_to_enter.get_contain() else {
             return false;
         };
-        let Ok(contain_guard) = contain.lock() else {
-            return false;
-        };
 
-        if contain_guard.is_heal_contain() {
+        if contain.is_heal_contain() {
             let Some(body) = obj.get_body_module() else {
                 return false;
             };
-            let Ok(body_guard) = body.lock() else {
-                return false;
-            };
-            if body_guard.get_health() >= body_guard.get_max_health() {
+            if body.get_health() >= body.get_max_health() {
                 return false;
             }
         }
@@ -1228,8 +1192,8 @@ impl TheActionManager {
             }
         } else {
             let mut check_capacity = mode == CanEnterType::CheckCapacity;
-            let contain_count = contain_guard.get_contained_count();
-            let stealth_count = count_stealthed_contained(&*contain_guard);
+            let contain_count = contain.get_contained_count();
+            let stealth_count = count_stealthed_contained(contain);
             let non_stealth = contain_count.saturating_sub(stealth_count);
 
             if object_to_enter.get_controlling_player_id() != obj.get_controlling_player_id() {
@@ -1250,7 +1214,7 @@ impl TheActionManager {
                 return false;
             }
 
-            if !contain_guard.is_valid_container_for(obj, check_capacity) {
+            if !contain.is_valid_container_for(obj, check_capacity) {
                 return false;
             }
         }
@@ -1452,14 +1416,12 @@ impl TheActionManager {
         }
 
         if let Some(contain) = object_to_capture.get_contain() {
-            if let Ok(contain_guard) = contain.lock() {
-                if contain_guard.is_garrisonable() {
-                    let contain_count = contain_guard.get_contained_count();
-                    let stealth_count = count_stealthed_contained(&*contain_guard);
-                    let non_stealth = contain_count.saturating_sub(stealth_count);
-                    if non_stealth > 0 {
-                        return false;
-                    }
+            if contain.is_garrisonable() {
+                let contain_count = contain.get_contained_count();
+                let stealth_count = count_stealthed_contained(contain);
+                let non_stealth = contain_count.saturating_sub(stealth_count);
+                if non_stealth > 0 {
+                    return false;
                 }
             }
         }
@@ -1787,15 +1749,12 @@ impl TheActionManager {
         let Some(contain) = target.get_contain() else {
             return false;
         };
-        let Ok(contain_guard) = contain.lock() else {
-            return false;
-        };
-        if !contain_guard.is_garrisonable() {
+        if !contain.is_garrisonable() {
             return false;
         }
 
         if obj.get_controlling_player_id() == target.get_controlling_player_id() {
-            return contain_guard.is_valid_container_for(obj, true);
+            return contain.is_valid_container_for(obj, true);
         }
 
         // C++ ActionManager.cpp:2016 — player->getRelationship(target->getTeam()) == NEUTRAL
@@ -1806,8 +1765,8 @@ impl TheActionManager {
                         if player_guard.get_relationship_with_team(&*target_team_guard)
                             == Relationship::Neutral
                         {
-                            return contain_guard.get_contained_count() == 0
-                                && contain_guard.is_valid_container_for(obj, true);
+                            return contain.get_contained_count() == 0
+                                && contain.is_valid_container_for(obj, true);
                         }
                     }
                 }
@@ -1834,10 +1793,7 @@ impl TheActionManager {
         let Some(contain) = target.get_contain() else {
             return false;
         };
-        let Ok(contain_guard) = contain.lock() else {
-            return false;
-        };
-        if !contain_guard.is_garrisonable() {
+        if !contain.is_garrisonable() {
             return false;
         }
 
@@ -1852,7 +1808,7 @@ impl TheActionManager {
                         if player.get_relationship_with_team(&*target_team_guard)
                             == Relationship::Neutral
                         {
-                            return contain_guard.get_contained_count() == 0;
+                            return contain.get_contained_count() == 0;
                         }
                     }
                 }
@@ -1934,10 +1890,7 @@ impl TheActionManager {
         }
 
         if obj.is_kind_of(KindOf::SpawnsAreTheWeapons) {
-            for behavior in obj.get_behavior_modules() {
-                let Ok(mut behavior) = behavior.lock() else {
-                    continue;
-                };
+            for behavior in obj.get_behavior_modules_mut() {
                 if let Some(spawn_behavior) = behavior.get_spawn_behavior_full_interface() {
                     let result = spawn_behavior.get_can_any_slaves_attack_specific_target(
                         attack_type,
@@ -2203,14 +2156,14 @@ impl ActionExecutor for GameLogicActionExecutor {
     }
 }
 
-static RTS_ACTION_MANAGER: Lazy<Arc<RwLock<RtsActionManager>>> = Lazy::new(|| {
+static RTS_ACTION_MANAGER: Lazy<RwLock<RtsActionManager>> = Lazy::new(|| {
     let mut manager = RtsActionManager::new();
     GameLogicActionExecutor::install(&mut manager);
-    Arc::new(RwLock::new(manager))
+    RwLock::new(manager)
 });
 
-pub fn get_rts_action_manager() -> Arc<RwLock<RtsActionManager>> {
-    RTS_ACTION_MANAGER.clone()
+pub fn get_rts_action_manager() -> &'static RwLock<RtsActionManager> {
+    &RTS_ACTION_MANAGER
 }
 
 #[cfg(test)]
@@ -2294,10 +2247,9 @@ mod tests {
     }
 
     fn attach_overridable_special_power(obj: &mut Object, active: bool) {
-        let behavior: Arc<Mutex<dyn BehaviorModuleInterface>> =
-            Arc::new(Mutex::new(OverridableSpecialPowerBehavior {
-                update: OverridableSpecialPowerUpdate { active },
-            }));
+        let behavior: Box<dyn BehaviorModuleInterface> = Box::new(OverridableSpecialPowerBehavior {
+            update: OverridableSpecialPowerUpdate { active },
+        });
         obj.push_behavior_module_for_test(behavior);
     }
 
@@ -2514,14 +2466,13 @@ mod tests {
         obj.set_special_power_available(power_type, true);
         let template = SpecialPowerTemplate::new(format!("TestPower{power_type:?}"), 9000)
             .with_power_type(power_type);
-        let behavior: Arc<Mutex<dyn BehaviorModuleInterface>> =
-            Arc::new(Mutex::new(ReadySpecialPowerBehavior {
-                module: ReadySpecialPowerModule {
-                    power_type,
-                    percent_ready,
-                    template: template.clone(),
-                },
-            }));
+        let behavior: Box<dyn BehaviorModuleInterface> = Box::new(ReadySpecialPowerBehavior {
+            module: ReadySpecialPowerModule {
+                power_type,
+                percent_ready,
+                template: template.clone(),
+            },
+        });
         obj.push_behavior_module_for_test(behavior);
         template
     }
@@ -2900,8 +2851,8 @@ mod tests {
         ));
 
         let mut damaged = object_with_kinds(8927, 100.0, &[KindOf::Structure]);
-        if let Some(body) = damaged.get_body_module() {
-            body.lock().unwrap().set_health(40.0).ok();
+        if let Some(body) = damaged.get_body_module_mut() {
+            let _ = body.set_health(40.0);
         }
         assert!(TheActionManager::can_repair_object(
             &dozer,
@@ -2910,8 +2861,8 @@ mod tests {
         ));
 
         let mut hole = object_with_kinds(8928, 100.0, &[KindOf::Structure, KindOf::RebuildHole]);
-        if let Some(body) = hole.get_body_module() {
-            body.lock().unwrap().set_health(40.0).ok();
+        if let Some(body) = hole.get_body_module_mut() {
+            let _ = body.set_health(40.0);
         }
         assert!(!TheActionManager::can_repair_object(
             &dozer,
@@ -2945,11 +2896,11 @@ mod tests {
         ));
 
         let mut infantry = object_with_kinds(8933, 100.0, &[KindOf::Infantry]);
-        infantry.set_contain(Some(Arc::new(Mutex::new(TestContain {
+        infantry.set_contain(Some(Box::new(TestContain {
             ids: Vec::new(),
             garrisonable: false,
             max: 1,
-        }))));
+        })));
         assert!(!TheActionManager::can_garrison(
             &infantry,
             &building,
@@ -2957,11 +2908,11 @@ mod tests {
         ));
 
         let mut garrisonable = object_with_kinds(8934, 100.0, &[KindOf::Structure]);
-        garrisonable.set_contain(Some(Arc::new(Mutex::new(TestContain {
+        garrisonable.set_contain(Some(Box::new(TestContain {
             ids: Vec::new(),
             garrisonable: true,
             max: 2,
-        }))));
+        })));
         assert!(TheActionManager::can_garrison(
             &infantry,
             &garrisonable,
@@ -2969,11 +2920,11 @@ mod tests {
         ));
 
         let mut full = object_with_kinds(8935, 100.0, &[KindOf::Structure]);
-        full.set_contain(Some(Arc::new(Mutex::new(TestContain {
+        full.set_contain(Some(Box::new(TestContain {
             ids: vec![1, 2],
             garrisonable: true,
             max: 2,
-        }))));
+        })));
         // Same missing player id on both → treated as same owner; capacity is
         // still checked via is_valid_container_for (default true). Kind-of and
         // garrisonable gates already passed above.

@@ -2169,12 +2169,11 @@ impl LineRenderer {
         render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
 
         for line in scene.iter_segmented_lines() {
-            let guard = line.read();
-            if !guard.is_visible() || guard.get_num_points() < 2 {
+            if !line.is_visible() || line.get_num_points() < 2 {
                 continue;
             }
 
-            let vertices = build_line_vertices(&guard, camera_dir);
+            let vertices = build_line_vertices(line, camera_dir);
             if vertices.is_empty() {
                 continue;
             }
@@ -2191,7 +2190,7 @@ impl LineRenderer {
             }
             queue.write_buffer(&self.vertex_buffer, 0, bytemuck::cast_slice(&vertices));
 
-            let bind_group = self.get_texture_binding(device, textures, guard.get_texture_name());
+            let bind_group = self.get_texture_binding(device, textures, line.get_texture_name());
             render_pass.set_bind_group(1, bind_group, &[]);
             render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..required_size));
             render_pass.draw(0..vertices.len() as u32, 0..1);

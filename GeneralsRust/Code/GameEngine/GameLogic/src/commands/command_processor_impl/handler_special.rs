@@ -711,16 +711,17 @@ impl DefaultCommandHandler {
         }
 
         let new_object = match TheThingFactory::get() {
-            Ok(factory) => {
-                let team_ref = player_team.as_ref().and_then(|team| team.read().ok());
-                if let Some(team_guard) = team_ref.as_ref() {
-                    factory.new_object(template.clone(), team_guard).ok()
-                } else {
-                    factory
-                        .new_object_optional_team(template.clone(), None)
-                        .ok()
-                }
-            }
+            Ok(factory) => match player_team.as_ref() {
+                // Create via the team handle without holding a team read
+                // guard: object creation runs create-hook dispatch that can
+                // re-enter the team lock and deadlock against it.
+                Some(team_arc) => factory
+                    .new_object_with_team_handle(template.clone(), team_arc.clone())
+                    .ok(),
+                None => factory
+                    .new_object_optional_team(template.clone(), None)
+                    .ok(),
+            },
             Err(_) => None,
         };
 

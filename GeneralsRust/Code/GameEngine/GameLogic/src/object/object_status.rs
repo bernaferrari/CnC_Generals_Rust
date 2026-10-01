@@ -477,7 +477,7 @@ impl Object {
             // Garrisonable objects show as structures
             if self
                 .get_contain()
-                .and_then(|contain| contain.lock().ok().map(|guard| guard.is_garrisonable()))
+                .map(|contain| contain.is_garrisonable())
                 .unwrap_or(false)
             {
                 priority = RadarPriorityType::Structure;
@@ -549,10 +549,7 @@ impl Object {
 
     pub fn is_salvage_crate(&self) -> bool {
         for behavior in &self.behaviors {
-            let Ok(guard) = behavior.lock() else {
-                continue;
-            };
-            if guard.as_any().is::<crate::object::collide::crate_collide::salvage_crate_collide::SalvageCrateCollide>() {
+            if behavior.as_any().is::<crate::object::collide::crate_collide::salvage_crate_collide::SalvageCrateCollide>() {
                 return true;
             }
         }
@@ -566,14 +563,12 @@ impl Object {
         }
 
         if let Some(contain) = self.get_contain() {
-            if let Ok(guard) = contain.lock() {
-                for &contained_id in guard.get_contained_objects().iter() {
-                    if OBJECT_REGISTRY
-                        .with_object(contained_id, |obj_guard| obj_guard.is_kind_of(KindOf::Hero))
-                        .unwrap_or(false)
-                    {
-                        return true;
-                    }
+            for &contained_id in contain.get_contained_objects().iter() {
+                if OBJECT_REGISTRY
+                    .with_object(contained_id, |obj_guard| obj_guard.is_kind_of(KindOf::Hero))
+                    .unwrap_or(false)
+                {
+                    return true;
                 }
             }
         }

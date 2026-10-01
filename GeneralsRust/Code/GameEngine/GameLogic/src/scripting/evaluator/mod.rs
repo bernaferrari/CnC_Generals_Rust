@@ -17,7 +17,7 @@ use crate::common::{
     PlayerMaskType, UnsignedInt,
 };
 use crate::helpers::TheGameLogic;
-use crate::modules::ContainModuleInterface;
+use crate::modules::{AIUpdateInterface, BodyModuleInterface, ContainModuleInterface};
 use crate::object::object_types::ObjectTypes;
 use crate::player::player_list;
 use crate::polygon_trigger::PolygonTrigger;

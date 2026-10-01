@@ -39,10 +39,7 @@ impl ScriptEvaluator {
         let Some(body) = obj_guard.get_body_module() else {
             return Ok(false);
         };
-        let Ok(body_guard) = body.lock() else {
-            return Ok(false);
-        };
-        let Some(last) = body_guard.get_last_damage_info() else {
+        let Some(last) = body.get_last_damage_info() else {
             return Ok(false);
         };
 
@@ -98,10 +95,7 @@ impl ScriptEvaluator {
                 let Some(body) = member_guard.get_body_module() else {
                     continue;
                 };
-                let Ok(body_guard) = body.lock() else {
-                    continue;
-                };
-                let Some(last) = body_guard.get_last_damage_info() else {
+                let Some(last) = body.get_last_damage_info() else {
                     continue;
                 };
 
@@ -163,10 +157,7 @@ impl ScriptEvaluator {
         let Some(body) = obj_guard.get_body_module() else {
             return Ok(false);
         };
-        let Ok(body_guard) = body.lock() else {
-            return Ok(false);
-        };
-        let Some(last) = body_guard.get_last_damage_info() else {
+        let Some(last) = body.get_last_damage_info() else {
             return Ok(false);
         };
 
@@ -245,10 +236,7 @@ impl ScriptEvaluator {
                 let Some(body) = member_guard.get_body_module() else {
                     continue;
                 };
-                let Ok(body_guard) = body.lock() else {
-                    continue;
-                };
-                let Some(last) = body_guard.get_last_damage_info() else {
+                let Some(last) = body.get_last_damage_info() else {
                     continue;
                 };
                 let attacker_id = last.input.source_id;

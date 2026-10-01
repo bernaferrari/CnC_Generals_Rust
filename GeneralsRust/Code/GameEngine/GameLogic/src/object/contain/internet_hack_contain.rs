@@ -80,18 +80,14 @@ impl InternetHackContain {
             return Ok(());
         };
 
-        let Ok(rider_guard) = rider.try_read() else {
+        let Ok(mut rider_guard) = rider.try_write() else {
             return Err("Internet hack rider lock busy".into());
         };
-        let Some(ai) = rider_guard.get_ai() else {
+        let Some(ai) = rider_guard.get_ai_mut() else {
             return Ok(());
         };
-        let Ok(mut ai_guard) = ai.try_lock() else {
-            return Err("Internet hack AI lock busy".into());
-        };
-        drop(rider_guard);
         let params = AiCommandParams::new(AiCommandType::HackInternet, CommandSourceType::FromAi);
-        ai_guard.execute_command(&params)?;
+        ai.execute_command(&params)?;
         Ok(())
     }
 

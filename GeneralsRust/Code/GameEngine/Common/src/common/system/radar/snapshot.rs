@@ -6,8 +6,8 @@ use crate::System::xfer::{
 };
 use crate::System::{SnapshotType, get_game_state};
 
-/// C++ `sizeof(RadarEventType)` — MSVC enum is 4 bytes.
-const RADAR_EVENT_TYPE_SIZE: usize = 4;
+// C++ writes `sizeof(RadarEventType)` raw enum bytes; MSVC enum is 4 bytes,
+// which `xfer_int` transfers exactly.
 
 pub struct RadarSnapshot;
 
@@ -58,13 +58,8 @@ impl RadarSystem {
 
         for event in &mut self.events {
             let mut type_bits = event.event_type as i32;
-            // SAFETY: C++ writes `sizeof(RadarEventType)` raw enum bytes.
-            unsafe {
-                xfer.xfer_user(
-                    (&mut type_bits as *mut i32).cast::<u8>(),
-                    RADAR_EVENT_TYPE_SIZE,
-                )?;
-            }
+            // C++ writes `sizeof(RadarEventType)` raw enum bytes.
+            xfer.xfer_int(&mut type_bits)?;
             event.event_type = match type_bits {
                 1 => RadarEventType::Construction,
                 2 => RadarEventType::Upgrade,

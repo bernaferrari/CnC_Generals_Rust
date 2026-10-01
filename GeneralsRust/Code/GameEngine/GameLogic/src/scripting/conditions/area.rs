@@ -8,6 +8,7 @@ use super::helpers::{
 use super::{ConditionRegistry, ScriptCondition, ScriptContext, ScriptValue};
 use crate::common::{Coord3D, KindOf, LOGICFRAMES_PER_SECOND, Relationship};
 use crate::helpers::{TheGameLogic, ThePartitionManager, TheVictoryConditions};
+use crate::modules::ContainModuleInterface;
 use crate::object::registry::OBJECT_REGISTRY;
 use crate::object_manager::get_object_manager;
 use crate::player::{Player, PlayerType, player_list};
@@ -614,14 +615,8 @@ impl ScriptCondition for BuildingEnteredByPlayerCondition {
                 let Some(contain) = obj.get_contain() else {
                     return false;
                 };
-                contain
-                    .lock()
-                    .ok()
-                    .map(|contain_guard| {
-                        let entered_mask = contain_guard.get_player_who_entered();
-                        !entered_mask.is_empty() && entered_mask == player_mask
-                    })
-                    .unwrap_or(false)
+                let entered_mask = contain.get_player_who_entered();
+                !entered_mask.is_empty() && entered_mask == player_mask
             })
             .unwrap_or(false))
     }

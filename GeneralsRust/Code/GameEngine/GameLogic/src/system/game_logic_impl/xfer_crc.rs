@@ -107,7 +107,9 @@ impl Xfer for LogicXferCrc {
         data_size: usize,
     ) -> Result<(), XferStatus> {
         if data_size > 0 && !data.is_null() {
-            self.update_crc(std::slice::from_raw_parts(data, data_size));
+            // SAFETY: trait contract above guarantees `data` is valid for
+            // `data_size` bytes; read-only for the CRC fold.
+            self.update_crc(unsafe { std::slice::from_raw_parts(data, data_size) });
         }
         Ok(())
     }
@@ -193,7 +195,9 @@ impl game_engine::common::system::xfer::Xfer for LogicXferCrc {
         data_size: usize,
     ) -> std::io::Result<()> {
         if data_size > 0 && !data.is_null() {
-            self.update_crc(std::slice::from_raw_parts(data, data_size));
+            // SAFETY: trait contract above guarantees `data` is valid for
+            // `data_size` bytes; read-only for the CRC fold.
+            self.update_crc(unsafe { std::slice::from_raw_parts(data, data_size) });
         }
         Ok(())
     }

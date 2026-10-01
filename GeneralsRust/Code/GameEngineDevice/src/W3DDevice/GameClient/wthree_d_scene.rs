@@ -15,7 +15,7 @@ use crate::W3DDevice::GameClient::Shadow::wthree_d_shadow::{
     do_shadows, the_w3d_shadow_manager, Frustum as ShadowFrustum, RenderInfo as ShadowRenderInfo,
 };
 use cgmath::{Matrix4, Point3, SquareMatrix, Vector3, Zero};
-use parking_lot::RwLock;
+
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 use wgpu::{IndexFormat, RenderPass};
@@ -330,7 +330,7 @@ pub struct W3DScene {
     // Object management
     next_id: RenderObjectId,
     render_objects: HashMap<RenderObjectId, RenderObject>,
-    segmented_lines: HashMap<RenderObjectId, Arc<RwLock<SegmentedLine>>>,
+    segmented_lines: HashMap<RenderObjectId, SegmentedLine>,
 
     // Dynamic lighting
     dynamic_lights: Vec<W3DDynamicLight>,
@@ -461,26 +461,28 @@ impl W3DScene {
     pub fn add_segmented_line(&mut self, line: SegmentedLine) -> RenderObjectId {
         let id = self.next_id;
         self.next_id = self.next_id.wrapping_add(1).max(1);
-        self.segmented_lines.insert(id, Arc::new(RwLock::new(line)));
+        self.segmented_lines.insert(id, line);
         id
     }
 
     /// Remove a segmented line from the scene
-    pub fn remove_segmented_line(
-        &mut self,
-        id: RenderObjectId,
-    ) -> Option<Arc<RwLock<SegmentedLine>>> {
+    pub fn remove_segmented_line(&mut self, id: RenderObjectId) -> Option<SegmentedLine> {
         self.segmented_lines.remove(&id)
     }
 
     /// Get a segmented line by ID
-    pub fn get_segmented_line(&self, id: RenderObjectId) -> Option<Arc<RwLock<SegmentedLine>>> {
-        self.segmented_lines.get(&id).cloned()
+    pub fn get_segmented_line(&self, id: RenderObjectId) -> Option<&SegmentedLine> {
+        self.segmented_lines.get(&id)
+    }
+
+    /// Get a segmented line by ID for mutation
+    pub fn get_segmented_line_mut(&mut self, id: RenderObjectId) -> Option<&mut SegmentedLine> {
+        self.segmented_lines.get_mut(&id)
     }
 
     /// Iterate over all segmented lines
-    pub fn iter_segmented_lines(&self) -> impl Iterator<Item = Arc<RwLock<SegmentedLine>>> + '_ {
-        self.segmented_lines.values().cloned()
+    pub fn iter_segmented_lines(&self) -> impl Iterator<Item = &SegmentedLine> {
+        self.segmented_lines.values()
     }
 
     /// Add a dynamic light to the scene
@@ -1015,10 +1017,8 @@ impl W3DScene {
     /// Update scene state
     pub fn update(&mut self, delta_time_seconds: f32) {
         // Update segmented lines
-        for line in self.segmented_lines.values() {
-            if let Some(mut guard) = line.try_write() {
-                guard.advance_uv(delta_time_seconds);
-            }
+        for line in self.segmented_lines.values_mut() {
+            line.advance_uv(delta_time_seconds);
         }
 
         // Update dynamic lights

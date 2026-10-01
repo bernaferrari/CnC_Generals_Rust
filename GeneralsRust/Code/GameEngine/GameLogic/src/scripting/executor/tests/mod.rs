@@ -330,12 +330,12 @@ fn install_recording_named_unit(
     {
         let base_arc = unit.base();
         let mut base = base_arc.write().unwrap();
-        base.set_ai_update_interface(Some(Arc::new(Mutex::new(RecordingMoveAi {
+        base.set_ai_update_interface(Some(Box::new(RecordingMoveAi {
             commands: Arc::clone(&commands),
             locomotors: Arc::clone(&locomotors),
             cleared: Arc::clone(&cleared),
             attitudes: Arc::clone(&attitudes),
-        }))));
+        })));
         if let Some(gid) = group_id {
             base.enter_group(&crate::ai::AIGroup::new(gid));
         }

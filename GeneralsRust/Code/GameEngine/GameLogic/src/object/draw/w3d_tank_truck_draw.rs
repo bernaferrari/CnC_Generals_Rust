@@ -458,19 +458,15 @@ impl DrawModule for W3DTankTruckDraw {
                         direction = Coord3D::new(dir_x, dir_y, 0.0);
                     }
                     if let Some(physics) = owner_guard.get_physics() {
-                        if let Ok(physics_guard) = physics.lock() {
-                            let velocity = physics_guard.get_velocity();
-                            self.current_velocity =
-                                (velocity.x * velocity.x + velocity.y * velocity.y).sqrt();
-                            is_motive = self.current_velocity > 0.0;
-                        }
+                        let velocity = physics.get_velocity();
+                        self.current_velocity =
+                            (velocity.x * velocity.x + velocity.y * velocity.y).sqrt();
+                        is_motive = self.current_velocity > 0.0;
                     }
                     if let Some(ai) = owner_guard.get_ai_update_interface() {
-                        if let Ok(ai_guard) = ai.lock() {
-                            let locomotor_speed = ai_guard.get_cur_locomotor_speed();
-                            if locomotor_speed > 0.0 {
-                                self.max_velocity = locomotor_speed;
-                            }
+                        let locomotor_speed = ai.get_cur_locomotor_speed();
+                        if locomotor_speed > 0.0 {
+                            self.max_velocity = locomotor_speed;
                         }
                     }
                 }

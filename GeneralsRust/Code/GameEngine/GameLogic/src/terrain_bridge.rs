@@ -12,6 +12,7 @@ use crate::damage::{DamageInfo, DamageType, DeathType, HUGE_DAMAGE_AMOUNT};
 use crate::helpers::TheGameLogic;
 use crate::object::Object;
 use crate::object::registry::OBJECT_REGISTRY;
+use std::sync::{Arc, RwLock};
 use crate::path::{LAYER_Z_CLOSE_ENOUGH_F, PATHFIND_CELL_SIZE_F, PathfindLayerEnum};
 use crate::terrain::Bridge;
 
@@ -34,18 +35,15 @@ pub fn update_damage_state(bridge: &mut Bridge) {
         return;
     };
 
-    let Ok(obj_guard) = obj_arc.read() else {
-        return;
+    let damage_state = {
+        let Ok(obj_guard) = obj_arc.read() else {
+            return;
+        };
+        let Some(body) = obj_guard.get_body_module() else {
+            return;
+        };
+        body.get_damage_state()
     };
-
-    let Some(body) = obj_guard.get_body_module() else {
-        return;
-    };
-    let Ok(body_guard) = body.lock() else {
-        return;
-    };
-    let damage_state = body_guard.get_damage_state();
-    drop(body_guard);
 
     let cur_state = bridge.get_bridge_info().cur_damage_state;
     if damage_state == cur_state {
@@ -58,12 +56,14 @@ pub fn update_damage_state(bridge: &mut Bridge) {
     if damage_state == BodyDamageType::Rubble {
         change_bridge_state(layer, false);
         bridge.bridge_info_mut().damage_state_changed = true;
-        splat_units_on_bridge(bridge, &obj_guard);
+        if let Ok(obj_guard) = obj_arc.read() {
+            splat_units_on_bridge(bridge, &obj_guard);
+        }
     }
 
     if cur_state == BodyDamageType::Rubble {
         // C++: do not re-enable the layer while scaffolding is up.
-        if !bridge_has_scaffold(&obj_guard) {
+        if !bridge_has_scaffold(&obj_arc) {
             change_bridge_state(layer, true);
         }
         bridge.bridge_info_mut().damage_state_changed = true;
@@ -76,12 +76,12 @@ fn change_bridge_state(layer: PathfindLayerEnum, repaired: bool) {
     }
 }
 
-fn bridge_has_scaffold(bridge_obj: &Object) -> bool {
-    for module in bridge_obj.get_behavior_modules() {
-        let Ok(mut guard) = module.lock() else {
-            continue;
-        };
-        if let Some(bbi) = guard.get_bridge_behavior_interface() {
+fn bridge_has_scaffold(bridge_obj: &Arc<RwLock<Object>>) -> bool {
+    let Ok(mut obj_guard) = bridge_obj.write() else {
+        return false;
+    };
+    for module in obj_guard.get_behavior_modules_mut() {
+        if let Some(bbi) = module.get_bridge_behavior_interface() {
             return bbi.is_scaffold_present();
         }
     }

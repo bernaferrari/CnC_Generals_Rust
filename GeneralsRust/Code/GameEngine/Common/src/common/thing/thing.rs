@@ -62,6 +62,10 @@ fn align_on_terrain(angle: Real, pos: &Coord3D, stick_to_ground: bool, mtx: &mut
     let Some(provider) = ALIGN_ON_TERRAIN.get() else {
         return false;
     };
+    // Non-reentrant-safe: the sole registrant (GameLogic lib.rs initialize)
+    // registers once at startup and its body only reads terrain-logic state,
+    // never re-entering ALIGN_ON_TERRAIN, so the guard across the call cannot
+    // self-deadlock.
     let Ok(guard) = provider.lock() else {
         return false;
     };
@@ -235,6 +239,8 @@ impl BaseThing {
 
     /// Check if underwater and get water level via the registered provider.
     /// Returns (false, 0.0) if no provider is registered.
+    // Same proof as get_ground_height: single startup registrant, read-only
+    // terrain-logic body, no re-entry into UNDERWATER_PROVIDER.
     fn is_underwater(&self, x: Real, y: Real) -> (bool, Real) {
         UNDERWATER_PROVIDER
             .get()

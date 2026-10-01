@@ -9,8 +9,6 @@
 //! surface: the C++ batching constants and the `W3DSnowManager::update`
 //! frame-time stepping.
 
-use std::sync::{Arc, Mutex};
-
 pub use game_client::snow::{
     camera_facing_quad_corners, get_snow_manager, get_weather_setting, SnowManager,
     SnowVisibleBoxXy,
@@ -41,9 +39,6 @@ pub fn update_snow(frame_time_ms: f32) {
         step_snow_time(&mut guard, frame_time_ms);
     }
 }
-
-/// Shared manager handle type mirroring the C++ `TheSnowManager` pointer.
-pub type SnowManagerHandle = Arc<Mutex<SnowManager>>;
 
 #[cfg(test)]
 mod tests {

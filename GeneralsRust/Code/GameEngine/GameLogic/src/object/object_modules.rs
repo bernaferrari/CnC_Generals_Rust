@@ -9,25 +9,37 @@ use super::*;
 
 impl Object {
     // Module access
-    pub fn get_body_module(&self) -> Option<Arc<Mutex<dyn BodyModuleInterface>>> {
-        self.body.clone()
+    pub fn get_body_module(&self) -> Option<&dyn BodyModuleInterface> {
+        self.body.as_deref()
     }
 
     /// Compatibility alias that mirrors the original C++ Object API.
-    pub fn get_body(&self) -> Option<Arc<Mutex<dyn BodyModuleInterface>>> {
+    pub fn get_body(&self) -> Option<&dyn BodyModuleInterface> {
         self.get_body_module()
     }
 
-    #[allow(dead_code)]
-    pub(crate) fn set_body_module(&mut self, body: Option<Arc<Mutex<dyn BodyModuleInterface>>>) {
+    pub fn get_body_module_mut(&mut self) -> Option<&mut dyn BodyModuleInterface> {
+        self.body.as_deref_mut()
+    }
+
+    /// Mutable compatibility alias mirroring C++ Object API.
+    pub fn get_body_mut(&mut self) -> Option<&mut dyn BodyModuleInterface> {
+        self.get_body_module_mut()
+    }
+
+    pub(crate) fn set_body_module(&mut self, body: Option<Box<dyn BodyModuleInterface>>) {
         self.body = body;
     }
 
-    pub fn get_contain(&self) -> Option<Arc<Mutex<dyn ContainModuleInterface>>> {
-        self.contain.clone()
+    pub fn get_contain(&self) -> Option<&dyn ContainModuleInterface> {
+        self.contain.as_deref()
     }
 
-    pub fn set_contain(&mut self, contain: Option<Arc<Mutex<dyn ContainModuleInterface>>>) {
+    pub fn get_contain_mut(&mut self) -> Option<&mut dyn ContainModuleInterface> {
+        self.contain.as_deref_mut()
+    }
+
+    pub fn set_contain(&mut self, contain: Option<Box<dyn ContainModuleInterface>>) {
         self.contain = contain;
     }
 
@@ -62,30 +74,37 @@ impl Object {
         self.stealth = Some(module);
     }
 
-    pub fn get_ai_update_interface(&self) -> Option<Arc<Mutex<dyn AIUpdateInterface>>> {
-        self.ai.clone()
+    pub fn get_ai_update_interface(&self) -> Option<&dyn AIUpdateInterface> {
+        self.ai.as_deref()
     }
 
-    /// Mutable access to AI update interface (note: Arc<Mutex<>> already provides interior mutability)
-    pub fn get_ai_update_interface_mut(&mut self) -> Option<Arc<Mutex<dyn AIUpdateInterface>>> {
-        self.ai.clone()
+    pub fn get_ai_update_interface_mut(&mut self) -> Option<&mut dyn AIUpdateInterface> {
+        self.ai.as_deref_mut()
     }
 
-    pub fn get_ai(&self) -> Option<Arc<Mutex<dyn AIUpdateInterface>>> {
+    pub fn get_ai(&self) -> Option<&dyn AIUpdateInterface> {
         self.get_ai_update_interface()
     }
 
-    pub fn set_ai_update_interface(&mut self, ai: Option<Arc<Mutex<dyn AIUpdateInterface>>>) {
+    pub fn get_ai_mut(&mut self) -> Option<&mut dyn AIUpdateInterface> {
+        self.get_ai_update_interface_mut()
+    }
+
+    pub fn set_ai_update_interface(&mut self, ai: Option<Box<dyn AIUpdateInterface>>) {
         self.ai = ai;
     }
 
-    pub fn attach_ai_update_to_module(&mut self, ai: Arc<Mutex<dyn AIUpdateInterface>>) {
+    /// Notify the AI-update module entry that a runtime AI instance now lives
+    /// on this Object. The module no longer stores a shared pointer back to
+    /// the AI; it only records that the runtime AI exists (xfer/crc state is
+    /// written by the Object-side module walk through `self.ai`).
+    pub fn attach_ai_update_to_module(&mut self) {
         for entry in &self.modules {
             entry.with_module(|module| {
                 if let Some(ai_module) = (module as &mut dyn Any)
-                    .downcast_mut::<crate::object::update::ai_update_interface::AIUpdateInterfaceModule>()
-                {
-                    ai_module.set_runtime_ai(Arc::clone(&ai));
+                    .downcast_mut::<crate::object::update::ai_update_interface::AIUpdateInterfaceModule>(
+                ) {
+                    ai_module.set_runtime_ai_present(self.ai.is_some());
                 }
             });
         }
@@ -149,7 +168,7 @@ impl Object {
         None
     }
 
-    pub fn with_overcharge_behavior_interface<F, R>(&self, func: F) -> Option<R>
+    pub fn with_overcharge_behavior_interface<F, R>(&mut self, func: F) -> Option<R>
     where
         F: FnMut(
             &mut dyn crate::object::behavior::behavior_module::OverchargeBehaviorInterface,
@@ -168,21 +187,15 @@ impl Object {
             }
         }
 
-        for behavior in &self.behaviors {
-            let result = {
-                let Ok(mut guard) = behavior.lock() else {
-                    continue;
-                };
-                guard.get_overcharge_behavior_interface().map(&mut func)
-            };
-            if result.is_some() {
-                return result;
+        for behavior in &mut self.behaviors {
+            if let Some(result) = behavior.get_overcharge_behavior_interface().map(&mut func) {
+                return Some(result);
             }
         }
         None
     }
 
-    pub fn with_power_plant_update_interface<F, R>(&self, func: F) -> Option<R>
+    pub fn with_power_plant_update_interface<F, R>(&mut self, func: F) -> Option<R>
     where
         F: FnMut(&mut dyn PowerPlantUpdateInterface) -> R,
     {
@@ -199,15 +212,9 @@ impl Object {
             }
         }
 
-        for behavior in &self.behaviors {
-            let result = {
-                let Ok(mut guard) = behavior.lock() else {
-                    continue;
-                };
-                guard.get_power_plant_update_interface().map(&mut func)
-            };
-            if result.is_some() {
-                found = result;
+        for behavior in &mut self.behaviors {
+            if let Some(result) = behavior.get_power_plant_update_interface().map(&mut func) {
+                found = Some(result);
             }
         }
         found
@@ -229,15 +236,12 @@ impl Object {
     }
 
     /// Invoke a callback with the first exit interface found.
-    pub fn with_object_exit_interface<F, R>(&self, func: F) -> Option<R>
+    pub fn with_object_exit_interface<F, R>(&mut self, func: F) -> Option<R>
     where
         F: FnOnce(&mut dyn ExitInterface) -> R,
     {
-        let exit_interface = self.get_object_exit_interface()?;
-        let Ok(mut guard) = exit_interface.lock() else {
-            return None;
-        };
-        Some(func(&mut *guard))
+        let mut exit_interface = self.get_object_exit_interface()?;
+        Some(func(&mut exit_interface))
     }
 
     /// Find an update module by name.
@@ -301,19 +305,13 @@ impl Object {
 
     /// Find a legacy behavior module by name (behavior list only).
     pub fn find_update_behavior(
-        &self,
+        &mut self,
         module_name: &str,
-    ) -> Option<Arc<Mutex<dyn BehaviorModuleInterface>>> {
-        self.behaviors.iter().find_map(|module| {
-            let Ok(guard) = module.lock() else {
-                return None;
-            };
-            if guard.get_module_name() == module_name {
-                Some(Arc::clone(module))
-            } else {
-                None
-            }
-        })
+    ) -> Option<&mut dyn BehaviorModuleInterface> {
+        self.behaviors
+            .iter_mut()
+            .find(|behavior| behavior.get_module_name() == module_name)
+            .map(|behavior| behavior.as_mut())
     }
 
     /// Find a module by its NameKeyType (matches C++ Object::findModule).
@@ -329,16 +327,11 @@ impl Object {
     /// Object.cpp:2847 - Object::findModule(NameKeyType key)
     pub fn find_module_by_name_key(&self, key: NameKeyType) -> Option<Arc<ModuleEntry>> {
         // First search behavior modules (matching C++ order)
-        for behavior_arc in &self.behaviors {
-            let Ok(guard) = behavior_arc.lock() else {
-                continue;
-            };
+        for behavior in &self.behaviors {
             // Check if this module has a matching name key via the Module trait
-            if guard.get_module_name_key() == key {
-                // Return a synthetic ModuleEntry for the behavior
-                drop(guard);
-                // We need to convert the behavior back to a module entry
-                // For now, search the modules list since behaviors is separate
+            if behavior.get_module_name_key() == key {
+                // Behaviors wrap module entries; the entry search below
+                // resolves the same module.
                 break;
             }
         }
@@ -383,7 +376,7 @@ impl Object {
     }
 
     pub fn with_update_behavior_downcast<T: 'static, F, R>(
-        &self,
+        &mut self,
         module_name: &str,
         func: F,
     ) -> Option<R>
@@ -391,12 +384,15 @@ impl Object {
         F: FnOnce(&mut T) -> R,
     {
         let behavior = self.find_update_behavior(module_name)?;
-        let mut guard = behavior.lock().ok()?;
-        behavior_with_downcast::<T, _, _>(&mut *guard, func)
+        behavior_with_downcast::<T, _, _>(behavior, func)
     }
 
-    pub fn get_behavior_modules(&self) -> Vec<Arc<Mutex<dyn BehaviorModuleInterface>>> {
-        self.behaviors.iter().cloned().collect()
+    pub fn get_behavior_modules(&self) -> Vec<&dyn BehaviorModuleInterface> {
+        self.behaviors.iter().map(|b| b.as_ref()).collect()
+    }
+
+    pub fn get_behavior_modules_mut(&mut self) -> Vec<&mut dyn BehaviorModuleInterface> {
+        self.behaviors.iter_mut().map(|b| b.as_mut()).collect()
     }
 
     pub fn status_damage_helper(
@@ -503,52 +499,52 @@ impl Object {
 
     /// `get_behavior_modules()` == C++ Object.cpp:299-384 helper order, then template modules.
     pub(super) fn rebuild_behavior_list(&mut self) {
-        let mut behaviors: Vec<Arc<Mutex<dyn BehaviorModuleInterface>>> = Vec::new();
+        let mut behaviors: Vec<Box<dyn BehaviorModuleInterface>> = Vec::new();
         if self.smc_helper.is_some() {
-            behaviors.push(Arc::new(Mutex::new(CtorHelperBehavior {
+            behaviors.push(Box::new(CtorHelperBehavior {
                 name: "ObjectSMCHelper",
-            })));
+            }));
         }
         if self.status_damage_helper.is_some() {
-            behaviors.push(Arc::new(Mutex::new(CtorHelperBehavior {
+            behaviors.push(Box::new(CtorHelperBehavior {
                 name: "StatusDamageHelper",
-            })));
+            }));
         }
         if self.subdual_damage_helper.is_some() {
-            behaviors.push(Arc::new(Mutex::new(CtorHelperBehavior {
+            behaviors.push(Box::new(CtorHelperBehavior {
                 name: "SubdualDamageHelper",
-            })));
+            }));
         }
         if self.repulsor_helper.is_some() {
-            behaviors.push(Arc::new(Mutex::new(CtorHelperBehavior {
+            behaviors.push(Box::new(CtorHelperBehavior {
                 name: "ObjectRepulsorHelper",
-            })));
+            }));
         }
         if self.defection_helper.is_some() {
-            behaviors.push(Arc::new(Mutex::new(CtorHelperBehavior {
+            behaviors.push(Box::new(CtorHelperBehavior {
                 name: "ObjectDefectionHelper",
-            })));
+            }));
         }
         if self.ws_helper.is_some() {
-            behaviors.push(Arc::new(Mutex::new(CtorHelperBehavior {
+            behaviors.push(Box::new(CtorHelperBehavior {
                 name: "ObjectWeaponStatusHelper",
-            })));
+            }));
         }
         if self.firing_tracker.is_some() {
-            behaviors.push(Arc::new(Mutex::new(CtorHelperBehavior {
+            behaviors.push(Box::new(CtorHelperBehavior {
                 name: "FiringTracker",
-            })));
+            }));
         }
         if self.temp_weapon_bonus_helper.is_some() {
-            behaviors.push(Arc::new(Mutex::new(CtorHelperBehavior {
+            behaviors.push(Box::new(CtorHelperBehavior {
                 name: "TempWeaponBonusHelper",
-            })));
+            }));
         }
         for entry in &self.modules {
-            behaviors.push(Arc::new(Mutex::new(TemplateModuleBehavior {
+            behaviors.push(Box::new(TemplateModuleBehavior {
                 name: entry.name().to_string(),
                 entry: Arc::clone(entry),
-            })));
+            }));
         }
         self.behaviors = behaviors;
     }
@@ -584,20 +580,15 @@ impl Object {
     }
 
     /// Borrow-first flammable module lookup (no outer Object Arc required).
-    pub fn find_flammable_update_module(&self) -> Option<Arc<Mutex<dyn BehaviorModuleInterface>>> {
-        for module in self.get_behavior_modules() {
-            let would_ignite = {
-                let Ok(module_guard) = module.try_lock() else {
-                    continue;
-                };
-                module_guard
-                    .as_any()
-                    .downcast_ref::<crate::object::behavior::flammable_update::FlammableUpdate>()
-                    .map(|flammable| flammable.would_ignite())
-                    .unwrap_or(false)
-            };
+    pub fn find_flammable_update_module(&mut self) -> Option<&mut dyn BehaviorModuleInterface> {
+        for module in self.behaviors.iter_mut() {
+            let would_ignite = module
+                .as_any()
+                .downcast_ref::<crate::object::behavior::flammable_update::FlammableUpdate>()
+                .map(|flammable| flammable.would_ignite())
+                .unwrap_or(false);
             if would_ignite {
-                return Some(module);
+                return Some(module.as_mut());
             }
         }
         None
@@ -674,7 +665,7 @@ impl Object {
     }
 
 
-    pub fn get_object_exit_interface(&self) -> Option<Arc<Mutex<dyn ExitInterface>>> {
+    pub fn get_object_exit_interface(&mut self) -> Option<ObjectExitInterface<'_>> {
         for entry in &self.modules {
             let has_exit = entry.with_module(|module| {
                 module_production_behavior_kind(module)
@@ -682,57 +673,42 @@ impl Object {
                     .unwrap_or(false)
             });
             if has_exit {
-                return Some(Arc::new(Mutex::new(ModuleExitInterfaceProxy {
+                return Some(ObjectExitInterface::Module(ModuleExitInterfaceProxy {
                     entry: Arc::clone(entry),
-                })));
+                }));
             }
         }
 
-        for behavior in &self.behaviors {
-            let has_exit = {
-                let Ok(mut guard) = behavior.lock() else {
-                    continue;
-                };
-                guard.get_update_exit_interface().is_some()
-            };
+        // NOTE: the former behavior-list exit probe was dead code —
+        // `behaviors` holds CtorHelper/TemplateModule wrappers whose
+        // `get_update_exit_interface()` is the default `None`; the module
+        // list above already covers the wrapped entries.
 
-            if has_exit {
-                return Some(Arc::new(Mutex::new(ExitInterfaceProxy {
-                    behavior: behavior.clone(),
-                })));
-            }
-        }
-
-        if let Some(contain) = &self.contain {
-            return Some(Arc::new(Mutex::new(ContainExitInterfaceProxy {
-                contain: Arc::clone(contain),
-            })));
+        if let Some(contain) = self.contain.as_deref_mut() {
+            return Some(ObjectExitInterface::Contain(contain));
         }
 
         None
     }
 
     /// C++ ContainModuleInterface::getContainExitInterface. Not the production exit.
-    pub fn get_contain_exit_interface(&self) -> Option<Arc<Mutex<dyn ExitInterface>>> {
-        self.contain.as_ref().map(|contain| {
-            Arc::new(Mutex::new(ContainExitInterfaceProxy {
-                contain: Arc::clone(contain),
-            })) as Arc<Mutex<dyn ExitInterface>>
-        })
+    pub fn get_contain_exit_interface(&mut self) -> Option<ObjectExitInterface<'_>> {
+        self.contain
+            .as_deref_mut()
+            .map(ObjectExitInterface::Contain)
     }
 
-    pub fn get_physics(&self) -> Option<Arc<Mutex<dyn PhysicsBehavior>>> {
-        self.physics.clone()
+    pub fn get_physics(&self) -> Option<&dyn PhysicsBehavior> {
+        self.physics.as_deref()
     }
 
-    pub fn set_physics(&mut self, physics: Option<Arc<Mutex<dyn PhysicsBehavior>>>) {
+    pub fn set_physics(&mut self, physics: Option<Box<dyn PhysicsBehavior>>) {
         self.physics = physics;
     }
 
-    /// Get mutable access to physics behavior
-    /// Returns Arc<Mutex<>> to allow interior mutability through locking
-    pub fn get_physics_mut(&mut self) -> Option<Arc<Mutex<dyn PhysicsBehavior>>> {
-        self.physics.clone()
+    /// Mutable access to the owned physics behavior.
+    pub fn get_physics_mut(&mut self) -> Option<&mut dyn PhysicsBehavior> {
+        self.physics.as_deref_mut()
     }
 
     /// Iterate over modules that advertise a given interface mask.
@@ -934,27 +910,26 @@ impl Object {
 
             #[cfg(feature = "allow_surrender")]
             if guard.contain.is_none() {
-                for entry in &guard.contain_module_handles {
+                let contain_entries: Vec<Arc<ModuleEntry>> =
+                    guard.contain_module_handles.iter().cloned().collect();
+                for entry in contain_entries {
                     let contain_handle = entry.with_module(|module| {
-                        module
-                            .as_any()
-                            .downcast_ref::<crate::object::behavior::pow_truck_behavior::POWTruckBehaviorModule>()
-                            .map(|module| module.contain_handle())
+                        (module as &mut dyn Any)
+                            .downcast_mut::<crate::object::behavior::pow_truck_behavior::POWTruckBehaviorModule>()
+                            .and_then(|module| module.contain_handle())
                             .or_else(|| {
-                                module
-                                    .as_any()
-                                    .downcast_ref::<crate::object::behavior::prison_behavior::PrisonBehaviorModule>()
-                                    .map(|module| module.contain_handle())
+                                (module as &mut dyn Any)
+                                    .downcast_mut::<crate::object::behavior::prison_behavior::PrisonBehaviorModule>()
+                                    .and_then(|module| module.contain_handle())
                             })
                             .or_else(|| {
-                                module
-                                    .as_any()
-                                    .downcast_ref::<crate::object::behavior::propaganda_center_behavior::PropagandaCenterBehaviorModule>()
-                                    .map(|module| module.contain_handle())
+                                (module as &mut dyn Any)
+                                    .downcast_mut::<crate::object::behavior::propaganda_center_behavior::PropagandaCenterBehaviorModule>()
+                                    .and_then(|module| module.contain_handle())
                             })
                     });
                     if let Some(handle) = contain_handle {
-                        guard.set_contain(Some(handle));
+                        guard.set_contain(handle);
                         break;
                     }
                 }
@@ -1040,7 +1015,7 @@ impl Object {
         }
 
         // C++ parity: after AI module construction, seed attitude from team prototype.
-        if let Ok(obj_guard) = object.read() {
+        if let Ok(mut obj_guard) = object.write() {
             obj_guard.apply_team_ai_profile();
         }
 
@@ -1099,18 +1074,16 @@ impl Object {
 
     /// Invoke a callback with the parking place behavior module if this object has one.
     /// C++ Reference: Object.cpp - Parking place behavior accessor
-    pub fn with_parking_place_behavior<F, R>(&self, func: F) -> Option<R>
+    pub fn with_parking_place_behavior<F, R>(&mut self, func: F) -> Option<R>
     where
         F: FnMut(
             &mut dyn crate::object::behavior::behavior_module::ParkingPlaceBehaviorInterface,
         ) -> R,
     {
         let mut func = func;
-        for behavior in &self.behaviors {
-            if let Ok(mut guard) = behavior.lock() {
-                if let Some(parking) = guard.get_parking_place_behavior_interface() {
-                    return Some(func(parking));
-                }
+        for behavior in self.behaviors.iter_mut() {
+            if let Some(parking) = behavior.get_parking_place_behavior_interface() {
+                return Some(func(parking));
             }
         }
 
@@ -1134,63 +1107,46 @@ impl Object {
     // ========================================================================
 
     pub fn get_projectile_update_interface(
-        &self,
-    ) -> Option<Arc<Mutex<dyn BehaviorModuleInterface>>> {
-        for behavior in &self.behaviors {
-            let Ok(mut guard) = behavior.lock() else {
-                continue;
-            };
-            if guard.get_projectile_update_interface().is_some() {
-                drop(guard);
-                return Some(behavior.clone());
+        &mut self,
+    ) -> Option<&mut dyn BehaviorModuleInterface> {
+        for behavior in self.behaviors.iter_mut() {
+            if behavior.get_projectile_update_interface().is_some() {
+                return Some(behavior.as_mut());
             }
         }
         None
     }
 
     pub fn get_spawn_behavior_interface_public(
-        &self,
-    ) -> Option<Arc<Mutex<dyn BehaviorModuleInterface>>> {
-        for behavior in &self.behaviors {
-            let Ok(mut guard) = behavior.lock() else {
-                continue;
-            };
-            if guard.get_spawn_behavior_interface().is_some() {
-                drop(guard);
-                return Some(behavior.clone());
+        &mut self,
+    ) -> Option<&mut dyn BehaviorModuleInterface> {
+        for behavior in self.behaviors.iter_mut() {
+            if behavior.get_spawn_behavior_interface().is_some() {
+                return Some(behavior.as_mut());
             }
         }
         None
     }
 
     pub fn get_production_update_interface(
-        &self,
-    ) -> Option<Arc<Mutex<dyn BehaviorModuleInterface>>> {
-        for behavior in &self.behaviors {
-            let Ok(mut guard) = behavior.lock() else {
-                continue;
-            };
-            if guard.get_production_update_interface().is_some() {
-                drop(guard);
-                return Some(behavior.clone());
+        &mut self,
+    ) -> Option<&mut dyn BehaviorModuleInterface> {
+        for behavior in self.behaviors.iter_mut() {
+            if behavior.get_production_update_interface().is_some() {
+                return Some(behavior.as_mut());
             }
         }
         None
     }
 
-    pub fn get_dock_update_interface(&self) -> Option<Arc<Mutex<dyn BehaviorModuleInterface>>> {
-        for behavior in &self.behaviors {
-            let Ok(mut guard) = behavior.lock() else {
-                continue;
-            };
-            if guard.get_dock_update_interface().is_some() {
-                drop(guard);
-                return Some(behavior.clone());
+    pub fn get_dock_update_interface(&mut self) -> Option<&mut dyn BehaviorModuleInterface> {
+        for behavior in self.behaviors.iter_mut() {
+            if behavior.get_dock_update_interface().is_some() {
+                return Some(behavior.as_mut());
             }
         }
         None
     }
-
     pub fn force_refresh_sub_object_upgrade_status(&mut self) {
         for entry in &self.upgrade_module_handles {
             entry.with_module(|module| {

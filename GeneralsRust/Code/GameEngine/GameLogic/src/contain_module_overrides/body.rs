@@ -11,7 +11,7 @@ where
     module_name_key: NameKeyType,
     owner_id: ObjectID,
     data: Arc<T>,
-    create_body: fn(T, ObjectID) -> Arc<Mutex<dyn BodyModuleInterface>>,
+    create_body: fn(T, ObjectID) -> Box<dyn BodyModuleInterface>,
 }
 
 impl<T> BodyBindingModule<T>
@@ -22,7 +22,7 @@ where
         module_name: &str,
         owner_id: ObjectID,
         data: Arc<T>,
-        create_body: fn(T, ObjectID) -> Arc<Mutex<dyn BodyModuleInterface>>,
+        create_body: fn(T, ObjectID) -> Box<dyn BodyModuleInterface>,
     ) -> Self {
         Self {
             module_name_key: NameKeyGenerator::name_to_key(module_name),
@@ -81,50 +81,50 @@ where
 pub(super) fn inactive_body_instance(
     data: BodyModuleData,
     owner_id: ObjectID,
-) -> Arc<Mutex<dyn BodyModuleInterface>> {
-    Arc::new(Mutex::new(InactiveBody::new_with_owner(data, owner_id)))
+) -> Box<dyn BodyModuleInterface> {
+    Box::new(InactiveBody::new_with_owner(data, owner_id))
 }
 
 pub(super) fn active_body_instance(
     data: ActiveBodyModuleData,
     owner_id: ObjectID,
-) -> Arc<Mutex<dyn BodyModuleInterface>> {
-    Arc::new(Mutex::new(ActiveBody::new_with_owner(data, owner_id)))
+) -> Box<dyn BodyModuleInterface> {
+    Box::new(ActiveBody::new_with_owner(data, owner_id))
 }
 
 pub(super) fn structure_body_instance(
     data: StructureBodyModuleData,
     owner_id: ObjectID,
-) -> Arc<Mutex<dyn BodyModuleInterface>> {
-    Arc::new(Mutex::new(StructureBody::new(data, owner_id)))
+) -> Box<dyn BodyModuleInterface> {
+    Box::new(StructureBody::new(data, owner_id))
 }
 
 pub(super) fn highlander_body_instance(
     data: ActiveBodyModuleData,
     owner_id: ObjectID,
-) -> Arc<Mutex<dyn BodyModuleInterface>> {
-    Arc::new(Mutex::new(HighlanderBody::new(data, owner_id)))
+) -> Box<dyn BodyModuleInterface> {
+    Box::new(HighlanderBody::new(data, owner_id))
 }
 
 pub(super) fn immortal_body_instance(
     data: ActiveBodyModuleData,
     owner_id: ObjectID,
-) -> Arc<Mutex<dyn BodyModuleInterface>> {
-    Arc::new(Mutex::new(ImmortalBody::new(data, owner_id)))
+) -> Box<dyn BodyModuleInterface> {
+    Box::new(ImmortalBody::new(data, owner_id))
 }
 
 pub(super) fn hive_structure_body_instance(
     data: HiveStructureBodyModuleData,
     owner_id: ObjectID,
-) -> Arc<Mutex<dyn BodyModuleInterface>> {
-    Arc::new(Mutex::new(HiveStructureBody::new(data, owner_id)))
+) -> Box<dyn BodyModuleInterface> {
+    Box::new(HiveStructureBody::new(data, owner_id))
 }
 
 pub(super) fn undead_body_instance(
     data: UndeadBodyModuleData,
     owner_id: ObjectID,
-) -> Arc<Mutex<dyn BodyModuleInterface>> {
-    Arc::new(Mutex::new(UndeadBody::new(data, owner_id)))
+) -> Box<dyn BodyModuleInterface> {
+    Box::new(UndeadBody::new(data, owner_id))
 }
 
 pub(super) fn parse_active_body_data(

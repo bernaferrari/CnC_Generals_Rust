@@ -240,11 +240,6 @@ impl ClassicState for AIEnterState {
 
             self.goal_position = *goal_guard.get_position();
             owner_guard.ai_pending_goal_id = Some(goal_guard.get_id());
-            if let Ok(machine) = self.base.base.get_machine() {
-                if let Ok(mut machine_guard) = machine.try_lock() {
-                    machine_guard.set_goal_position(self.goal_position);
-                }
-            }
 
             let cmd_source = owner_guard.ai_fire_last_command_source;
             if !TheActionManager::can_enter_object(
@@ -498,13 +493,6 @@ impl ClassicState for AIExitState {
             .exit_object_via_door(owner_id, exit_door)
             .map_err(|err| format!("exit state exit_object_via_door failed: {}", err))?;
 
-        if let Ok(machine) = self.base.get_machine() {
-            if let Ok(machine_guard) = machine.try_lock() {
-                if machine_guard.get_current_state_id() != Some(self.base.get_id()) {
-                    return Ok(StateReturnType::Continue);
-                }
-            }
-        }
         Ok(StateReturnType::Success)
     }
 
@@ -641,13 +629,6 @@ impl ClassicState for AIExitInstantlyState {
     }
 
     fn classic_on_update(&mut self) -> Result<StateReturnType, String> {
-        if let Ok(machine) = self.base.get_machine() {
-            if let Ok(machine_guard) = machine.try_lock() {
-                if machine_guard.get_current_state_id() != Some(self.base.get_id()) {
-                    return Ok(StateReturnType::Continue);
-                }
-            }
-        }
         Ok(StateReturnType::Success)
     }
 

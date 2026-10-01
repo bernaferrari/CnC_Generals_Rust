@@ -186,10 +186,15 @@ fn record_object_create_override(
             });
         }
     }
-    if let Ok(guard) = OBJECT_CREATE_OVERRIDES_LIVE_OVERLAY.read() {
-        if let Some(overlay) = *guard {
-            overlay(name, reskin_from, properties);
-        }
+    // Copy the fn-pointer overlay out of the read guard before invoking it so
+    // an overlay that registers/clears overrides (write lock on this or the
+    // overlay RwLock) cannot deadlock against the live read guard.
+    let overlay = OBJECT_CREATE_OVERRIDES_LIVE_OVERLAY
+        .read()
+        .ok()
+        .and_then(|guard| *guard);
+    if let Some(overlay) = overlay {
+        overlay(name, reskin_from, properties);
     }
 }
 

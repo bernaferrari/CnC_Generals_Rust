@@ -80,9 +80,6 @@ fn leftover_can_turn_in_place(owner: &GameObject) -> bool {
     let Some(ai) = owner.get_ai_update_interface() else {
         return false;
     };
-    let Ok(ai_guard) = ai.lock() else {
-        return false;
-    };
     let mut can_turn = false;
     let mut has_loco = false;
     ai_guard.with_cur_locomotor(&mut |loco| {
@@ -114,21 +111,19 @@ fn leftover_face_update(
         };
         pos
     };
-    let Some((owner_pos, owner_ori, ai)) = OBJECT_REGISTRY.with_object(context.owner_id, |owner| {
-        (
-            *owner.get_position(),
-            owner.get_orientation(),
-            owner.get_ai_update_interface(),
-        )
-    }) else {
+    let Some((owner_pos, owner_ori, ai_present)) =
+        OBJECT_REGISTRY.with_object(context.owner_id, |owner| {
+            (
+                *owner.get_position(),
+                owner.get_orientation(),
+                owner.get_ai_update_interface().is_some(),
+            )
+        }) else {
         return StateReturnType::Failed;
     };
-    let Some(ai) = ai else {
+    if !ai_present {
         return StateReturnType::Failed;
-    };
-    let Ok(mut ai_guard) = ai.lock() else {
-        return StateReturnType::Failed;
-    };
+    }
     let dx = target_pos.x - owner_pos.x;
     let dy = target_pos.y - owner_pos.y;
     let mut rel = if dx == 0.0 && dy == 0.0 {
@@ -147,11 +142,15 @@ fn leftover_face_update(
     if rel.abs() < 0.035 {
         return StateReturnType::Success;
     }
-    if can_turn_in_place {
-        ai_guard.set_locomotor_goal_orientation(owner_ori + rel);
-    } else {
-        ai_guard.set_locomotor_goal_position_explicit(target_pos);
-    }
+    let _ = OBJECT_REGISTRY.with_object_mut(context.owner_id, |owner| {
+        if let Some(ai_guard) = owner.get_ai_update_interface_mut() {
+            if can_turn_in_place {
+                ai_guard.set_locomotor_goal_orientation(owner_ori + rel);
+            } else {
+                ai_guard.set_locomotor_goal_position_explicit(target_pos);
+            }
+        }
+    });
     StateReturnType::Continue
 }
 
@@ -312,10 +311,8 @@ impl AIExitInstantlyState {
             let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(
                 container_id,
                 |container| {
-                    if let Some(contain) = container.get_contain() {
-                        if let Ok(mut contain_guard) = contain.lock() {
-                            let _ = contain_guard.release_object(owner.get_id());
-                        }
+                    if let Some(contain) = container.get_contain_mut() {
+                        let _ = contain.release_object(owner.get_id());
                     }
                 },
             );
@@ -323,12 +320,10 @@ impl AIExitInstantlyState {
     }
 
     fn evacuate_contents(owner: &mut GameObject) {
-        if let Some(contain) = owner.get_contain() {
-            if let Ok(mut contain_guard) = contain.lock() {
-                let ids: Vec<ObjectID> = contain_guard.get_contained_objects().into_owned();
-                for id in ids {
-                    let _ = contain_guard.release_object(id);
-                }
+        if let Some(contain) = owner.get_contain_mut() {
+            let ids: Vec<ObjectID> = contain.get_contained_objects().into_owned();
+            for id in ids {
+                let _ = contain.release_object(id);
             }
         }
     }
@@ -371,18 +366,12 @@ impl AIState for AIExitInstantlyState {
             let Some(container_id) = owner_guard.get_contained_by() else {
                 return;
             };
-            let Some(contain) = OBJECT_REGISTRY
-                .with_object(container_id, |container_guard| {
-                    container_guard.get_contain()
-                })
-                .flatten()
-            else {
-                return;
-            };
-            if let Ok(mut contain_guard) = contain.lock() {
-                let _ = contain_guard
-                    .on_object_wants_to_enter_or_exit(owner_guard, ContainWant::WantsNeither);
-            };
+            let _ = OBJECT_REGISTRY.with_object_mut(container_id, |container_guard| {
+                if let Some(contain) = container_guard.get_contain_mut() {
+                    let _ = contain
+                        .on_object_wants_to_enter_or_exit(owner_guard, ContainWant::WantsNeither);
+                }
+            });
         });
     }
 
@@ -442,14 +431,11 @@ impl AIState for AIGetRepairedState {
 
         // C++ has no AIGetRepairedState class -- GetRepaired delegates to AIDockState/landing states.
         // Destroy any path that may have been computed for the repair depot approach.
-        if let Some(ai) = OBJECT_REGISTRY
-            .with_object(context.owner_id, |owner| owner.get_ai_update_interface())
-            .flatten()
-        {
-            if let Ok(mut ai_guard) = ai.lock() {
+        let _ = OBJECT_REGISTRY.with_object_mut(context.owner_id, |owner| {
+            if let Some(ai_guard) = owner.get_ai_update_interface_mut() {
                 ai_guard.destroy_path();
             }
-        }
+        });
     }
 
     fn get_state_type(&self) -> AIStateType {

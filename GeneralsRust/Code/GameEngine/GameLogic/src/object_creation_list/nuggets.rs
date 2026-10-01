@@ -1457,12 +1457,12 @@ mod tests {
                 obj.set_template_for_test(Arc::new(tmpl));
             }
             if self.options.attach_physics {
-                obj.set_physics(Some(Arc::new(Mutex::new(RecordingPhysics {
+                obj.set_physics(Some(Box::new(RecordingPhysics {
                     extra_friction: Arc::clone(&self.extra_friction),
                     ignore_id: Arc::clone(&self.ignore_id),
                     allow_to_fall: Arc::clone(&self.allow_to_fall),
                     vel: Vec3D::ZERO,
-                }))));
+                })));
             }
             if self.options.attach_drawable || self.options.attach_debris_draw {
                 let mut drawable =
@@ -1705,10 +1705,10 @@ mod tests {
         let id = NEXT_OBJECT_ID.fetch_add(1, Ordering::SeqCst);
         let mut source = Object::new_test(id, 100.0);
         if let Some(valid) = valid {
-            source.set_contain(Some(Arc::new(Mutex::new(TestOclContain {
+            source.set_contain(Some(Box::new(TestOclContain {
                 valid,
                 contained: Vec::new(),
-            }))));
+            })));
         }
         if hidden {
             let mut drawable = Drawable::new(id, id, "OclSrc".to_string(), DrawableType::Static);

@@ -640,7 +640,9 @@ impl Object {
             }
             let remaining =
                 (module_count as usize).saturating_sub(self.ctor_helper_xfer_tags().len());
-            for entry in self.modules.iter().take(remaining) {
+            let entries: Vec<Arc<ModuleEntry>> =
+                self.modules.iter().take(remaining).cloned().collect();
+            for entry in entries {
                 let mut module_identifier = entry
                     .with_module(|module| {
                         NameKeyGenerator::key_to_name(module.get_module_tag_name_key())
@@ -649,14 +651,53 @@ impl Object {
                 let _ = xfer.xfer_ascii_string(&mut module_identifier);
 
                 if xfer.begin_block().is_ok() {
-                    entry.with_module(|module| {
-                        if let Err(err) = module.xfer(xfer) {
+                    // Object-owned module instances (contain binding) xfer
+                    // through the owned field at this entry's list position.
+                    let is_contain = entry.with_module(|module| {
+                        crate::contain_module_overrides::is_contain_binding(module)
+                    });
+                    let is_ai_update = entry.with_module(|module| {
+                        module
+                            .as_any()
+                            .is::<crate::object::update::ai_update_interface::AIUpdateInterfaceModule>(
+                            )
+                    });
+                    if is_contain {
+                        let mut contain = self.contain.take();
+                        let result = contain
+                            .as_mut()
+                            .map(|contain| contain.snapshot_xfer(xfer));
+                        self.contain = contain;
+                        if let Some(Err(err)) = result {
                             warn!(
                                 "Object::xfer failed for module '{}' on object {}: {}",
                                 module_identifier, self.id, err
                             );
                         }
-                    });
+                    } else {
+                        entry.with_module(|module| {
+                            if let Err(err) = module.xfer(xfer) {
+                                warn!(
+                                    "Object::xfer failed for module '{}' on object {}: {}",
+                                    module_identifier, self.id, err
+                                );
+                            }
+                        });
+                        // AI runtime state follows the module's version byte,
+                        // matching the pre-migration byte order.
+                        if is_ai_update {
+                            let mut ai = self.ai.take();
+                            let result =
+                                ai.as_mut().map(|ai| ai.xfer_ai_update_state(xfer));
+                            self.ai = ai;
+                            if let Some(Err(err)) = result {
+                                warn!(
+                                    "Object::xfer AI state failed for module '{}' on object {}: {}",
+                                    module_identifier, self.id, err
+                                );
+                            }
+                        }
+                    }
                     let _ = xfer.end_block();
                 }
             }
@@ -677,15 +718,50 @@ impl Object {
                     })
                 });
                 if let Some(index) = module_index {
-                    let entry = &self.modules[index];
-                    entry.with_module(|module| {
-                        if let Err(err) = module.xfer(xfer) {
+                    let entry = Arc::clone(&self.modules[index]);
+                    let is_contain = entry.with_module(|module| {
+                        crate::contain_module_overrides::is_contain_binding(module)
+                    });
+                    let is_ai_update = entry.with_module(|module| {
+                        module
+                            .as_any()
+                            .is::<crate::object::update::ai_update_interface::AIUpdateInterfaceModule>(
+                            )
+                    });
+                    if is_contain {
+                        let mut contain = self.contain.take();
+                        let result = contain
+                            .as_mut()
+                            .map(|contain| contain.snapshot_xfer(xfer));
+                        self.contain = contain;
+                        if let Some(Err(err)) = result {
                             warn!(
                                 "Object::xfer load failed for module '{}' on object {}: {}",
                                 module_identifier, self.id, err
                             );
                         }
-                    });
+                    } else {
+                        entry.with_module(|module| {
+                            if let Err(err) = module.xfer(xfer) {
+                                warn!(
+                                    "Object::xfer load failed for module '{}' on object {}: {}",
+                                    module_identifier, self.id, err
+                                );
+                            }
+                        });
+                        if is_ai_update {
+                            let mut ai = self.ai.take();
+                            let result =
+                                ai.as_mut().map(|ai| ai.xfer_ai_update_state(xfer));
+                            self.ai = ai;
+                            if let Some(Err(err)) = result {
+                                warn!(
+                                    "Object::xfer load AI state failed for module '{}' on object {}: {}",
+                                    module_identifier, self.id, err
+                                );
+                            }
+                        }
+                    }
                 } else if data_size > 0 {
                     let _ = xfer.skip(data_size);
                 }
@@ -1091,8 +1167,35 @@ impl Snapshot for Object {
 
     fn load_post_process(&mut self) {
         // contained_by_id already restored during xfer (v6+).
-
-        for entry in &self.modules {
+        let entries: Vec<Arc<ModuleEntry>> = self.modules.iter().cloned().collect();
+        for entry in entries {
+            // Object-owned module instances (contain binding, AI runtime) run
+            // their post-process through the owned fields at this entry's
+            // list position.
+            let is_contain = entry.with_module(|module| {
+                crate::contain_module_overrides::is_contain_binding(module)
+            });
+            let is_ai_update = entry.with_module(|module| {
+                module
+                    .as_any()
+                    .is::<crate::object::update::ai_update_interface::AIUpdateInterfaceModule>()
+            });
+            if is_contain {
+                let mut contain = self.contain.take();
+                let result = contain
+                    .as_mut()
+                    .map(|contain| contain.snapshot_load_post_process());
+                self.contain = contain;
+                if let Some(Err(err)) = result {
+                    warn!(
+                        "Object::load_post_process module '{}' on object {} failed: {}",
+                        entry.name(),
+                        self.id,
+                        err
+                    );
+                }
+                continue;
+            }
             entry.with_module(|module| {
                 if let Err(err) = module.load_post_process() {
                     warn!(
@@ -1103,8 +1206,14 @@ impl Snapshot for Object {
                     );
                 }
             });
+            if is_ai_update {
+                let mut ai = self.ai.take();
+                if let Some(ai) = ai.as_mut() {
+                    ai.load_post_process_path_cells();
+                }
+                self.ai = ai;
+            }
         }
-
         if let Some(drawable) = &self.drawable {
             if let Ok(mut drawable_guard) = drawable.write() {
                 drawable_guard.load_post_process();

@@ -24,12 +24,12 @@ fn rider_id_of(owner_id: ObjectID) -> Option<ObjectID> {
     let owner = find_object(owner_id)?;
     let owner_guard = owner.read().ok()?;
     let contain = owner_guard.get_contain()?;
-    let cg = contain.lock().ok()?;
-    if let Some(id) = cg.friend_get_rider().filter(|id| *id != INVALID_ID) {
+    if let Some(id) = contain.friend_get_rider().filter(|id| *id != INVALID_ID) {
         return Some(id);
     }
     // C++ Overlord: first contained is the portable-structure rider.
-    cg.get_contained_objects()
+    contain
+        .get_contained_objects()
         .iter()
         .copied()
         .find(|id| *id != INVALID_ID)

@@ -9,7 +9,7 @@ use crate::common::{
 };
 use crate::helpers::{TheAudio, TheGameLogic, TheGameText, TheInGameUI, TheRadar};
 use crate::modules::{
-    AIUpdateInterfaceExt, BehaviorModuleInterface, SpecialPowerCommandOptions,
+    BehaviorModuleInterface, SpecialPowerCommandOptions,
     SpecialPowerUpdateInterface, UpdateModuleInterface, UpdateSleepTime,
 };
 use crate::object::Object as GameObject;
@@ -480,26 +480,22 @@ impl BattlePlanUpdate {
     }
 
     fn enable_turret(&self, enable: bool) {
-        self.with_object(|object| {
-            if let Some(ai) = object.get_ai() {
-                if let Ok(mut ai_guard) = ai.lock() {
-                    let turret = ai_guard.get_which_turret_for_cur_weapon();
-                    if turret != TurretType::Invalid {
-                        ai_guard.set_turret_enabled(turret, enable);
-                    }
+        self.with_object_mut(|object| {
+            if let Some(ai) = object.get_ai_mut() {
+                let turret = ai.get_which_turret_for_cur_weapon();
+                if turret != TurretType::Invalid {
+                    ai.set_turret_enabled(turret, enable);
                 }
             }
         });
     }
 
     fn recenter_turret(&self) {
-        self.with_object(|object| {
-            if let Some(ai) = object.get_ai() {
-                if let Ok(mut ai_guard) = ai.lock() {
-                    let turret = ai_guard.get_which_turret_for_cur_weapon();
-                    if turret != TurretType::Invalid {
-                        ai_guard.recenter_turret(turret);
-                    }
+        self.with_object_mut(|object| {
+            if let Some(ai) = object.get_ai_mut() {
+                let turret = ai.get_which_turret_for_cur_weapon();
+                if turret != TurretType::Invalid {
+                    ai.recenter_turret(turret);
                 }
             }
         });
@@ -508,11 +504,9 @@ impl BattlePlanUpdate {
     fn is_turret_in_natural_position(&self) -> bool {
         self.with_object(|object| {
             if let Some(ai) = object.get_ai() {
-                if let Ok(ai_guard) = ai.lock() {
-                    let turret = ai_guard.get_which_turret_for_cur_weapon();
-                    if turret != TurretType::Invalid {
-                        return ai_guard.is_turret_in_natural_position(turret);
-                    }
+                let turret = ai.get_which_turret_for_cur_weapon();
+                if turret != TurretType::Invalid {
+                    return ai.is_turret_in_natural_position(turret);
                 }
             }
             false
@@ -848,21 +842,19 @@ impl BattlePlanUpdate {
             return;
         }
 
-        self.with_object(|object| {
-            if let Some(body) = object.get_body_module() {
-                if let Ok(mut body_guard) = body.lock() {
-                    let current_max = body_guard.get_max_health();
-                    let new_max = current_max
-                        * self
-                            .module_data
-                            .strategy_center_hold_the_line_max_health_scalar;
-                    if let Err(_err) = body_guard.set_max_health(
-                        new_max,
-                        self.module_data
-                            .strategy_center_hold_the_line_max_health_change_type,
-                    ) {
-                        // Keep C++ flow (best-effort bonus application) even if body update fails.
-                    }
+        self.with_object_mut(|object| {
+            if let Some(body) = object.get_body_module_mut() {
+                let current_max = body.get_max_health();
+                let new_max = current_max
+                    * self
+                        .module_data
+                        .strategy_center_hold_the_line_max_health_scalar;
+                if let Err(_err) = body.set_max_health(
+                    new_max,
+                    self.module_data
+                        .strategy_center_hold_the_line_max_health_change_type,
+                ) {
+                    // Keep C++ flow (best-effort bonus application) even if body update fails.
                 }
             }
         });
@@ -905,20 +897,18 @@ impl BattlePlanUpdate {
                     .strategy_center_hold_the_line_max_health_scalar
                     != 1.0
                 {
-                    if let Some(body) = object.get_body_module() {
-                        if let Ok(mut body_guard) = body.lock() {
-                            let current_max = body_guard.get_max_health();
-                            let new_max = current_max
-                                / self
-                                    .module_data
-                                    .strategy_center_hold_the_line_max_health_scalar;
-                            if let Err(_err) = body_guard.set_max_health(
-                                new_max,
-                                self.module_data
-                                    .strategy_center_hold_the_line_max_health_change_type,
-                            ) {
-                                // Keep C++ flow (best-effort bonus removal) even if body update fails.
-                            }
+                    if let Some(body) = object.get_body_module_mut() {
+                        let current_max = body.get_max_health();
+                        let new_max = current_max
+                            / self
+                                .module_data
+                                .strategy_center_hold_the_line_max_health_scalar;
+                        if let Err(_err) = body.set_max_health(
+                            new_max,
+                            self.module_data
+                                .strategy_center_hold_the_line_max_health_change_type,
+                        ) {
+                            // Keep C++ flow (best-effort bonus removal) even if body update fails.
                         }
                     }
                 }
@@ -993,12 +983,22 @@ impl UpdateModuleInterface for BattlePlanUpdate {
                 TransitionStatus::Active => {
                     if self.current_plan != self.desired_plan {
                         if self.current_plan == BattlePlanStatus::Bombardment {
-                            let should_pack = self.with_object(|object| {
-                                if let Some(ai) = object.get_ai() {
-                                    if self.is_turret_in_natural_position() {
+                            // Hoisted pure turret query: the closure below takes a
+                            // write guard and must not re-enter the same Object.
+                            let turret_in_natural_position = self.is_turret_in_natural_position();
+                            let should_pack = self.with_object_mut(|object| {
+                                if object.get_ai().is_some() {
+                                    if turret_in_natural_position {
                                         true
                                     } else if !self.centering_turret {
-                                        ai.ai_idle(CommandSourceType::FromAI);
+                                        // C++ AIUpdateInterface::aiIdle(cmdSource).
+                                        if let Some(ai) = object.get_ai_mut() {
+                                            let params = crate::ai::AiCommandParams::new(
+                                                crate::ai::AiCommandType::Idle,
+                                                CommandSourceType::FromAI,
+                                            );
+                                            let _ = ai.execute_command(&params);
+                                        }
                                         false
                                     } else {
                                         false

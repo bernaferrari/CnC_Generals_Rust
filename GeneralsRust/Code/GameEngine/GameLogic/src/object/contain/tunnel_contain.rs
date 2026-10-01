@@ -802,16 +802,13 @@ impl TunnelContain {
                     let Some(body) = owner_read.get_body_module() else {
                         return Ok(None);
                     };
-                    let Ok(body_guard) = body.try_lock() else {
-                        return Ok(None);
-                    };
-                    let Some(info) = body_guard.get_last_damage_info() else {
+                    let Some(info) = body.get_last_damage_info() else {
                         return Ok(None);
                     };
                     let Ok(frame) = get_current_frame() else {
                         return Ok(None);
                     };
-                    if body_guard
+                    if body
                         .get_last_damage_timestamp()
                         .saturating_add(crate::common::LOGICFRAMES_PER_SECOND)
                         <= frame

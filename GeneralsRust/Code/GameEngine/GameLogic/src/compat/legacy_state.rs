@@ -56,10 +56,9 @@ pub trait LegacyState: Send + Sync + Any + std::fmt::Debug {
     fn machine_owner(&self) -> Result<Arc<RwLock<Object>>, String> {
         Err("machine owner not attached".to_string())
     }
-    /// Owning state machine (used for locks / advanced coordination).
-    fn machine(&self) -> Result<Arc<Mutex<core::StateMachine>>, String> {
-        Err("state machine not attached".to_string())
-    }
+    /// Owning state machine reference is no longer exposed: states receive
+    /// goal data through `bind_goal_*` before each step and publish requests
+    /// back through the machine-owned wrapper.
 
     /// Whether this state should be treated as "idle" by higher level systems.
     fn is_idle(&self) -> bool {
@@ -92,9 +91,6 @@ pub trait LegacyState: Send + Sync + Any + std::fmt::Debug {
         Ok(())
     }
 
-    /// Callback used by the original system when a state needs access to a
-    /// machine reference but only has a weak pointer.
-    fn attach_machine(&mut self, _machine: Weak<Mutex<core::StateMachine>>) {}
 
     fn note_step_owner(&mut self, _owner: Arc<RwLock<Object>>) {}
 
@@ -121,11 +117,7 @@ pub trait LegacyState: Send + Sync + Any + std::fmt::Debug {
 
     fn bind_goal_position(&mut self, _pos: crate::common::Coord3D) {}
 
-    fn bind_goal_squad(
-        &mut self,
-        _squad: Option<Arc<Mutex<crate::ai::squad::Squad>>>,
-    ) {
-    }
+    fn bind_goal_squad(&mut self, _squad: Option<crate::ai::squad::Squad>) {}
 
     fn bind_goal_polygon(
         &mut self,
@@ -235,10 +227,6 @@ impl<S: LegacyState + 'static> core::StateImplementation for LegacyStateAdapter<
         self.inner.machine_owner()
     }
 
-    fn get_machine(&self) -> Result<Arc<Mutex<core::StateMachine>>, String> {
-        self.inner.machine()
-    }
-
     fn xfer_snapshot(&mut self, xfer: &mut dyn crate::common::xfer::Xfer) -> Result<(), String> {
         self.inner.xfer_snapshot(xfer)
     }
@@ -279,7 +267,7 @@ impl<S: LegacyState + 'static> core::StateImplementation for LegacyStateAdapter<
         self.inner.bind_goal_position(pos);
     }
 
-    fn bind_goal_squad(&mut self, squad: Option<Arc<Mutex<crate::ai::squad::Squad>>>) {
+    fn bind_goal_squad(&mut self, squad: Option<crate::ai::squad::Squad>) {
         self.inner.bind_goal_squad(squad);
     }
 
@@ -489,10 +477,6 @@ where
             .ok_or_else(|| "state machine owner not attached".to_string())
     }
 
-    fn machine(&self) -> Result<Arc<Mutex<core::StateMachine>>, String> {
-        self.base_state().get_machine()
-    }
-
     fn is_idle(&self) -> bool {
         self.classic_is_idle()
     }
@@ -551,7 +535,7 @@ where
         self.base_state_mut().goal_position_copied = Some(pos);
     }
 
-    fn bind_goal_squad(&mut self, squad: Option<Arc<Mutex<crate::ai::squad::Squad>>>) {
+    fn bind_goal_squad(&mut self, squad: Option<crate::ai::squad::Squad>) {
         self.base_state_mut().goal_squad_copied = squad;
     }
 
@@ -588,7 +572,7 @@ mod tests {
 
     impl DummyState {
         fn new(id: StateId, name: &'static str) -> Self {
-            let mut base = core::State::with_machine(None, name);
+            let mut base = core::State::detached(name);
             base.set_id(id);
             Self {
                 base,

@@ -81,35 +81,24 @@ impl Snapshotable for Player {
         // Money has its own Snapshotable xfer (version + u32 money value)
         match xfer.get_xfer_mode() {
             XferMode::Save => {
-                let money_data = self.money.xfer_save();
+                let mut money_data = self.money.xfer_save();
                 // Money xfer is: version byte (1) + 4 bytes money value = 5 bytes raw
-                                // SAFETY: money_data is an owned Vec of exactly the serialized
-                                // length; xfer_user reads it without writing.
-                unsafe {
-                    xfer.xfer_user(money_data.as_ptr() as *mut u8, money_data.len())
-                        .map_err(|e| format!("money xfer_user failed: {}", e))?;
-                }
+                xfer.xfer_user_bytes(&mut money_data)
+                    .map_err(|e| format!("money xfer_user failed: {}", e))?;
             }
             XferMode::Load => {
                 // Money xfer starts with version byte, then u32 money value (5 bytes total)
                 let mut money_data = vec![0u8; 5];
-                                // SAFETY: money_data is an owned 5-byte Vec; xfer_user writes
-                                // exactly its length into it before xfer_load parses a copy.
-                unsafe {
-                    xfer.xfer_user(money_data.as_mut_ptr(), money_data.len())
-                        .map_err(|e| format!("money xfer_user load failed: {}", e))?;
-                }
+                xfer.xfer_user_bytes(&mut money_data)
+                    .map_err(|e| format!("money xfer_user load failed: {}", e))?;
                 self.money
                     .xfer_load(&money_data)
                     .map_err(|e| e.to_string())?;
             }
             XferMode::Crc => {
-                let money_data = self.money.xfer_save();
-                                // SAFETY: owned Vec, CRC path only reads the exact length.
-                unsafe {
-                    xfer.xfer_user(money_data.as_ptr() as *mut u8, money_data.len())
-                        .map_err(|e| format!("money crc failed: {}", e))?;
-                }
+                let mut money_data = self.money.xfer_save();
+                xfer.xfer_user_bytes(&mut money_data)
+                    .map_err(|e| format!("money crc failed: {}", e))?;
             }
             _ => {}
         }
@@ -222,30 +211,16 @@ impl Snapshotable for Player {
                 // Since we store names, write dummy 4-byte IDs (will be resolved by TeamFactory on load)
                 for _ in 0..prototype_count {
                     let mut dummy_id: u32 = 0;
-                                        // SAFETY: &mut dummy_id is a valid aligned u32 for the
-                                        // sizeof(u32) raw transfer matching C++ xferUser.
-                    unsafe {
-                        xfer.xfer_user(
-                            &mut dummy_id as *mut u32 as *mut u8,
-                            std::mem::size_of::<u32>(),
-                        )
+                    xfer.xfer_unsigned_int(&mut dummy_id)
                         .map_err(|e| format!("prototype id xfer failed: {}", e))?;
-                    }
                 }
             }
             XferMode::Load => {
                 self.team_prototypes.clear();
                 for _ in 0..prototype_count {
                     let mut dummy_id: u32 = 0;
-                                        // SAFETY: &mut dummy_id is a valid aligned u32; loaded
-                                        // value is consumed after the call.
-                    unsafe {
-                        xfer.xfer_user(
-                            &mut dummy_id as *mut u32 as *mut u8,
-                            std::mem::size_of::<u32>(),
-                        )
+                    xfer.xfer_unsigned_int(&mut dummy_id)
                         .map_err(|e| format!("load prototype id failed: {}", e))?;
-                    }
                     // In C++, this resolves via TheTeamFactory->findTeamPrototypeByID
                     // Store as string representation since we don't have team factory
                     self.team_prototypes
@@ -526,15 +501,9 @@ impl Snapshotable for Player {
         // --- 19. Default team ---
         // C++ lines 4219-4223: xferUser(&teamID, sizeof(TeamID))
         let mut team_id = self.default_team.unwrap_or(0);
-                // SAFETY: &mut team_id is a valid aligned u32 for the sizeof(u32)
-                // transfer mirroring C++ xferUser(&teamID, sizeof(TeamID)).
-        unsafe {
-            xfer.xfer_user(
-                &mut team_id as *mut u32 as *mut u8,
-                std::mem::size_of::<u32>(),
-            )
+        // C++ xferUser(&teamID, sizeof(TeamID)) — raw u32 transfer.
+        xfer.xfer_unsigned_int(&mut team_id)
             .map_err(|e| format!("default_team xfer failed: {}", e))?;
-        }
         if matches!(xfer.get_xfer_mode(), XferMode::Load) {
             self.default_team = if team_id != 0 { Some(team_id) } else { None };
         }
@@ -561,30 +530,16 @@ impl Snapshotable for Player {
                 XferMode::Save => {
                     for &science in &self.sciences {
                         let mut sci = science;
-                                                // SAFETY: &mut sci is a live i32 (ScienceType) sized
-                                                // by size_of::<ScienceType>() for this transfer.
-                        unsafe {
-                            xfer.xfer_user(
-                                &mut sci as *mut i32 as *mut u8,
-                                std::mem::size_of::<ScienceType>(),
-                            )
+                        xfer.xfer_int(&mut sci)
                             .map_err(|e| format!("science xfer failed: {}", e))?;
-                        }
                     }
                 }
                 XferMode::Load => {
                     self.sciences.clear();
                     for _ in 0..science_count {
                         let mut science: ScienceType = 0;
-                                                // SAFETY: &mut science is a live i32 initialized to
-                                                // SCIENCE_INVALID and overwritten by the load.
-                        unsafe {
-                            xfer.xfer_user(
-                                &mut science as *mut i32 as *mut u8,
-                                std::mem::size_of::<ScienceType>(),
-                            )
+                        xfer.xfer_int(&mut science)
                             .map_err(|e| format!("load science failed: {}", e))?;
-                        }
                         self.sciences.insert(science);
                     }
                 }
@@ -685,21 +640,13 @@ impl Snapshotable for Player {
                         let start = i * std::mem::size_of::<u32>();
                         blob[start..start + 4].copy_from_slice(&val.to_le_bytes());
                     }
-                                        // SAFETY: blob is an owned Vec<u8> of exactly blob_size;
-                                        // save/crc only read it.
-                    unsafe {
-                        xfer.xfer_user(blob.as_ptr() as *mut u8, blob_size)
-                            .map_err(|e| format!("attacked_by xfer failed: {}", e))?;
-                    }
+                    xfer.xfer_user_bytes(&mut blob)
+                        .map_err(|e| format!("attacked_by xfer failed: {}", e))?;
                 }
                 XferMode::Load => {
                     let mut blob = vec![0u8; blob_size];
-                                        // SAFETY: blob is an owned Vec<u8> of exactly blob_size;
-                                        // load fills every byte before parsing.
-                    unsafe {
-                        xfer.xfer_user(blob.as_mut_ptr(), blob_size)
-                            .map_err(|e| format!("attacked_by load failed: {}", e))?;
-                    }
+                    xfer.xfer_user_bytes(&mut blob)
+                        .map_err(|e| format!("attacked_by load failed: {}", e))?;
                     for i in 0..max_players {
                         let start = i * std::mem::size_of::<u32>();
                         if start + 4 <= blob.len() && i < self.attacked_by.len() {

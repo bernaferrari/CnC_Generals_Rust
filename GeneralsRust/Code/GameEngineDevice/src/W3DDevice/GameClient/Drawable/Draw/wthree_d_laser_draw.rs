@@ -131,11 +131,10 @@ impl W3DLaserDraw {
             for beam in (0..beams).rev() {
                 let index = (segment * beams + beam) as usize;
                 let line_id = self.line_ids[index];
-                let Some(line_arc) = scene_guard.get_segmented_line(line_id) else {
+                let Some(line) = scene_guard.get_segmented_line_mut(line_id) else {
                     continue;
                 };
-                let mut line = line_arc.write();
-
+                
                 let width = if beams == 1 {
                     self.data.inner_beam_width * self.width_scale
                 } else {

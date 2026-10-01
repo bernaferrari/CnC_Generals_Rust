@@ -546,9 +546,6 @@ impl ScriptCondition for SpecialPowerAvailableCondition {
 
         let power_name_lower = power_name.to_ascii_lowercase();
         for power in registry.get_all_powers() {
-            let Ok(power) = power.lock() else {
-                continue;
-            };
             if power.get_data().name.to_string().to_ascii_lowercase() != power_name_lower {
                 continue;
             }
@@ -974,9 +971,6 @@ impl ScriptCondition for SpecialPowerReadyCondition {
 
         let power_name_lower = power_name.to_ascii_lowercase();
         for power in registry.get_all_powers() {
-            let Ok(power) = power.lock() else {
-                continue;
-            };
             if power.get_data().name.to_string().to_ascii_lowercase() != power_name_lower {
                 continue;
             }

@@ -22,7 +22,6 @@ use crate::damage::{DamageInfo, DamageType};
 use crate::helpers::TheGameLogic;
 use crate::object::behavior::behavior_module::xfer_update_module_base_state;
 use crate::object::body::body_module::BodyModuleInterface;
-use std::sync::{Arc, Mutex};
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 
 /// Module data for SubdualDamageHelper
@@ -149,31 +148,28 @@ impl SubdualDamageHelper {
     pub fn update_in_owner(
         &mut self,
         _current_frame: u32,
-        owner_body: Option<&Arc<Mutex<dyn BodyModuleInterface>>>,
+        owner_body: Option<&mut dyn BodyModuleInterface>,
     ) -> UpdateSleepTime {
         let Some(body) = owner_body else {
             return UpdateSleepTime::Forever; // No body module, sleep
         };
 
-        let Ok(mut body_guard) = body.lock() else {
-            return UpdateSleepTime::None;
-        };
 
         self.healing_step_countdown = self.healing_step_countdown.saturating_sub(1);
         if self.healing_step_countdown > 0 {
             return UpdateSleepTime::None;
         }
 
-        self.healing_step_countdown = body_guard.get_subdual_damage_heal_rate();
+        self.healing_step_countdown = body.get_subdual_damage_heal_rate();
 
         let mut damage = DamageInfo::new();
         damage.input.damage_type = DamageType::SubdualUnresistable;
-        damage.input.amount = -body_guard.get_subdual_damage_heal_amount();
+        damage.input.amount = -body.get_subdual_damage_heal_amount();
         damage.input.source_id = INVALID_ID;
         damage.sync_from_input();
-        let _ = body_guard.attempt_damage(&mut damage);
+        let _ = body.attempt_damage(&mut damage);
 
-        if body_guard.has_any_subdual_damage() {
+        if body.has_any_subdual_damage() {
             UpdateSleepTime::None
         } else {
             UpdateSleepTime::Forever
@@ -186,32 +182,29 @@ impl ObjectHelperInterface for SubdualDamageHelper {
         let Some(owner) = TheGameLogic::find_object_by_id(self.owner_id) else {
             return UpdateSleepTime::Forever;
         };
-        let Ok(owner_guard) = owner.read() else {
+        let Ok(mut owner_guard) = owner.write() else {
             return UpdateSleepTime::None;
         };
-        let Some(body) = owner_guard.get_body_module() else {
+        let Some(body) = owner_guard.get_body_module_mut() else {
             return UpdateSleepTime::Forever;
         };
 
-        let Ok(mut body_guard) = body.lock() else {
-            return UpdateSleepTime::None;
-        };
 
         self.healing_step_countdown = self.healing_step_countdown.saturating_sub(1);
         if self.healing_step_countdown > 0 {
             return UpdateSleepTime::None;
         }
 
-        self.healing_step_countdown = body_guard.get_subdual_damage_heal_rate();
+        self.healing_step_countdown = body.get_subdual_damage_heal_rate();
 
         let mut damage = DamageInfo::new();
         damage.input.damage_type = DamageType::SubdualUnresistable;
-        damage.input.amount = -body_guard.get_subdual_damage_heal_amount();
+        damage.input.amount = -body.get_subdual_damage_heal_amount();
         damage.input.source_id = INVALID_ID;
         damage.sync_from_input();
-        let _ = body_guard.attempt_damage(&mut damage);
+        let _ = body.attempt_damage(&mut damage);
 
-        if body_guard.has_any_subdual_damage() {
+        if body.has_any_subdual_damage() {
             UpdateSleepTime::None
         } else {
             UpdateSleepTime::Forever
@@ -381,12 +374,11 @@ mod tests {
         module_data.subdual_damage_cap = 50.0;
         module_data.subdual_damage_heal_rate = 1;
         module_data.subdual_damage_heal_amount = 10.0;
-        let body: Arc<Mutex<dyn BodyModuleInterface>> =
-            Arc::new(Mutex::new(ActiveBody::new(module_data)));
+        let mut body: Box<dyn BodyModuleInterface> = Box::new(ActiveBody::new(module_data));
 
         // Apply 20 subdual damage so there is something to heal.
         {
-            let mut body_guard = body.lock().unwrap();
+            let body_guard = &mut *body;
             let mut damage = DamageInfo::new();
             damage.input.damage_type = DamageType::SubdualUnresistable;
             damage.input.amount = 20.0;
@@ -400,21 +392,18 @@ mod tests {
         helper.notify_subdual_damage(20.0, 1);
 
         // First frame: countdown hits zero, heals 10, subdual remains -> None.
-        assert_eq!(helper.update_in_owner(0, Some(&body)), UpdateSleepTime::None);
         assert_eq!(
-            body.lock().unwrap().get_current_subdual_damage_amount(),
-            10.0
+            helper.update_in_owner(0, Some(&mut *body)),
+            UpdateSleepTime::None
         );
+        assert_eq!(body.get_current_subdual_damage_amount(), 10.0);
 
         // Second frame: heals the last 10, no subdual left -> sleep forever.
         assert_eq!(
-            helper.update_in_owner(1, Some(&body)),
+            helper.update_in_owner(1, Some(&mut *body)),
             UpdateSleepTime::Forever
         );
-        assert_eq!(
-            body.lock().unwrap().get_current_subdual_damage_amount(),
-            0.0
-        );
+        assert_eq!(body.get_current_subdual_damage_amount(), 0.0);
 
         // Missing body module: same early return as the trait impl (Forever).
         assert_eq!(helper.update_in_owner(2, None), UpdateSleepTime::Forever);

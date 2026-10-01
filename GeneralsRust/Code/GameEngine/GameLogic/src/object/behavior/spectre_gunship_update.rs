@@ -614,10 +614,7 @@ impl SpectreGunshipUpdate {
 
         let mut disguised_player_index = None;
         for behavior in target.get_behavior_modules() {
-            let Ok(guard) = behavior.lock() else {
-                continue;
-            };
-            if let Some(idx) = guard.get_disguised_player_index() {
+            if let Some(idx) = behavior.get_disguised_player_index() {
                 disguised_player_index = Some(idx);
                 break;
             }

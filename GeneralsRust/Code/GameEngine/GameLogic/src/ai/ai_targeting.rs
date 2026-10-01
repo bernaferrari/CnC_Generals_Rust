@@ -639,14 +639,14 @@ impl AITargeting {
 
             let movement_speed = target_guard
                 .get_physics()
-                .and_then(|physics| physics.lock().ok().map(|p| p.get_velocity().length()))
+                .map(|p| p.get_velocity().length())
                 .unwrap_or(0.0);
 
             let predicted_position = if self.config.prediction_enabled && movement_speed > 0.0 {
                 let mut predicted = position;
                 let velocity = target_guard
                     .get_physics()
-                    .and_then(|physics| physics.lock().ok().map(|p| p.get_velocity()))
+                    .map(|p| p.get_velocity())
                     .unwrap_or_else(Coord3D::origin);
                 predicted.x += velocity.x * self.config.prediction_time_seconds;
                 predicted.y += velocity.y * self.config.prediction_time_seconds;

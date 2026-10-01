@@ -21,7 +21,7 @@ use crate::common::{
 use crate::damage::{DamageInfo, DamageType, DeathType};
 use crate::effects::FXList;
 use crate::helpers::{TheGameLogic, TheVictoryConditions};
-use crate::modules::{AIUpdateInterfaceExt, ContainModuleInterfaceExt};
+use crate::modules::{AIUpdateInterfaceExt, ContainModuleInterface};
 use crate::object::object_factory::{GameObjectInstance, get_object_factory};
 use crate::object::registry::OBJECT_REGISTRY;
 use crate::object::special_power_template::find_or_create_special_power_template;
@@ -261,9 +261,9 @@ impl ScriptAction for TeamGuardAction {
             let mut guarded_count = 0usize;
             for member_id in members {
                 if let Some(obj_arc) = TheGameLogic::find_object_by_id(member_id) {
-                    if let Ok(obj_guard) = obj_arc.read() {
+                    if let Ok(mut obj_guard) = obj_arc.write() {
                         let pos = *obj_guard.get_position();
-                        if let Some(ai) = obj_guard.get_ai_update_interface() {
+                        if let Some(ai) = obj_guard.get_ai_update_interface_mut() {
                             ai.ai_guard_position(
                                 &pos,
                                 GuardMode::Normal,
@@ -529,23 +529,25 @@ impl ScriptAction for TeamGarrisonBuildingAction {
             return Ok(ScriptResult::Success(None));
         }
 
-        let contain = building_arc.read().ok().and_then(|b| b.get_contain());
+        let mut building_guard = building_arc.write().ok();
 
         for member_id in members {
             let Some(unit_arc) = TheGameLogic::find_object_by_id(member_id) else {
                 continue;
             };
-            let Ok(unit_guard) = unit_arc.read() else {
+            let Ok(mut unit_guard) = unit_arc.write() else {
                 continue;
             };
-            if let Some(ai) = unit_guard.get_ai_update_interface() {
+            if let Some(ai) = unit_guard.get_ai_update_interface_mut() {
                 ai.ai_enter(building_id, CommandSourceType::FromScript);
                 continue;
             }
 
-            if let Some(contain) = &contain {
-                if contain.is_valid_container_for(&unit_guard, true) {
-                    contain.add_to_contain(&unit_guard);
+            if let Some(building_guard) = building_guard.as_mut() {
+                if let Some(contain) = building_guard.get_contain_mut() {
+                    if contain.is_valid_container_for(&unit_guard, true) {
+                        let _ = contain.add_to_contain(&unit_guard);
+                    }
                 }
             }
         }
@@ -627,11 +629,9 @@ impl ScriptAction for TeamExitBuildingAction {
             else {
                 continue;
             };
-            let _ = crate::object::registry::OBJECT_REGISTRY.with_object(container_id, |c| {
-                if let Some(contain) = c.get_contain() {
-                    if let Ok(mut contain_guard) = contain.try_lock() {
-                        let _ = contain_guard.release_object(member_id);
-                    }
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(container_id, |c| {
+                if let Some(contain) = c.get_contain_mut() {
+                    let _ = contain.release_object(member_id);
                 }
             });
         }
@@ -811,24 +811,19 @@ impl ScriptAction for TeamRepairAction {
             let Some(unit_arc) = TheGameLogic::find_object_by_id(member_id) else {
                 continue;
             };
-            let Ok(unit_guard) = unit_arc.read() else {
+            let Ok(mut unit_guard) = unit_arc.write() else {
                 continue;
             };
             if !unit_guard.is_kind_of(crate::common::KindOf::CanRepair) {
                 continue;
             }
-            let ai = unit_guard.get_ai_update_interface();
-            drop(unit_guard);
-            let Some(ai) = ai else {
-                continue;
-            };
-            let Ok(mut ai_guard) = ai.lock() else {
+            let Some(ai) = unit_guard.get_ai_update_interface_mut() else {
                 continue;
             };
             let mut params =
                 AiCommandParams::new(AiCommandType::Repair, CommandSourceType::FromScript);
             params.obj = Some(target_id);
-            let _ = ai_guard.execute_command(&params);
+            let _ = ai.execute_command(&params);
         }
 
         Ok(ScriptResult::Success(None))
@@ -1312,7 +1307,7 @@ impl ScriptAction for TeamGuardInTunnelAction {
             let Some(unit_arc) = TheGameLogic::find_object_by_id(member_id) else {
                 continue;
             };
-            let Ok(unit_guard) = unit_arc.read() else {
+            let Ok(mut unit_guard) = unit_arc.write() else {
                 continue;
             };
             let unit_pos = *unit_guard.get_position();
@@ -1329,16 +1324,16 @@ impl ScriptAction for TeamGuardInTunnelAction {
                 }
             }
 
-            if let Some(ai) = unit_guard.get_ai_update_interface() {
+            if let Some(ai) = unit_guard.get_ai_update_interface_mut() {
                 ai.ai_enter(best_tunnel, CommandSourceType::FromScript);
                 continue;
             }
 
             if let Some(tunnel_arc) = TheGameLogic::find_object_by_id(best_tunnel) {
-                if let Ok(tunnel_guard) = tunnel_arc.read() {
-                    if let Some(contain) = tunnel_guard.get_contain() {
+                if let Ok(mut tunnel_guard) = tunnel_arc.write() {
+                    if let Some(contain) = tunnel_guard.get_contain_mut() {
                         if contain.is_valid_container_for(&unit_guard, true) {
-                            contain.add_to_contain(&unit_guard);
+                            let _ = contain.add_to_contain(&unit_guard);
                         }
                     }
                 }

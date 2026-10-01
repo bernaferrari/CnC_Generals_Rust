@@ -19,8 +19,12 @@ struct LaserCallbackPack {
     vertex_count: u32,
 }
 
+// SAFETY: compiled only for wasm32, where the client executes on a single
+// thread, so the Arc'd wgpu pipeline/bind-group/buffer handles cannot be
+// accessed concurrently; native builds never use these impls.
 #[cfg(target_arch = "wasm32")]
 unsafe impl Send for LaserCallbackPack {}
+// SAFETY: same single-threaded wasm32 invariant as the Send impl above.
 #[cfg(target_arch = "wasm32")]
 unsafe impl Sync for LaserCallbackPack {}
 #[cfg(feature = "game_client")]

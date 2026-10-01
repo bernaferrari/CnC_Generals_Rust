@@ -393,9 +393,6 @@ impl JetSlowDeathBehavior {
         let Some(physics) = object.get_physics() else {
             return false;
         };
-        let Ok(physics) = physics.lock() else {
-            return false;
-        };
         let tree_id = physics.get_last_collidee();
         if tree_id == INVALID_ID {
             return false;
@@ -437,22 +434,19 @@ impl JetSlowDeathBehavior {
             }
         }
 
-        let ai = object
-            .read()
-            .ok()
-            .and_then(|object| object.get_ai_update_interface());
-        let Some(ai) = ai else {
+        let Ok(object_guard) = object.read() else {
+            return;
+        };
+        let Some(ai) = object_guard.get_ai_update_interface() else {
             return;
         };
         let mut has_loco = false;
-        if let Ok(ai_guard) = ai.lock() {
-            ai_guard.with_cur_locomotor(&mut |loco| {
-                has_loco = true;
-                let gravity = -1.0;
-                loco.set_max_lift(-gravity * (1.0 - self.module_data.fall_how_fast));
-                loco.set_max_turn_rate(0.0);
-            });
-        }
+        ai.with_cur_locomotor(&mut |loco| {
+            has_loco = true;
+            let gravity = -1.0;
+            loco.set_max_lift(-gravity * (1.0 - self.module_data.fall_how_fast));
+            loco.set_max_turn_rate(0.0);
+        });
         if !has_loco {
             return;
         }
@@ -470,11 +464,9 @@ impl UpdateModuleInterface for JetSlowDeathBehavior {
         };
 
         {
-            if let Ok(object_guard) = object.read() {
-                if let Some(physics) = object_guard.get_physics() {
-                    if let Ok(mut physics) = physics.lock() {
-                        physics.set_roll_rate(self.roll_rate);
-                    }
+            if let Ok(mut object_guard) = object.write() {
+                if let Some(physics) = object_guard.get_physics_mut() {
+                    physics.set_roll_rate(self.roll_rate);
                 }
             }
         }
@@ -514,11 +506,9 @@ impl UpdateModuleInterface for JetSlowDeathBehavior {
                 self.do_ocl(&self.module_data.ocl_hit_ground, &object);
                 self.timer_on_ground_frame = TheGameLogic::get_frame();
 
-                if let Ok(object_guard) = object.read() {
-                    if let Some(physics) = object_guard.get_physics() {
-                        if let Ok(mut physics) = physics.lock() {
-                            physics.set_pitch_rate(self.module_data.pitch_rate);
-                        }
+                if let Ok(mut object_guard) = object.write() {
+                    if let Some(physics) = object_guard.get_physics_mut() {
+                        physics.set_pitch_rate(self.module_data.pitch_rate);
                     }
                 }
             }

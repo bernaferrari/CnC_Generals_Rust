@@ -75,6 +75,9 @@ pub struct Win32GameEngine {
     subsystem_manager: Option<SubsystemManager>,
 }
 
+// SAFETY: compiled only for wasm32, where the engine runs on a single
+// thread, so the interior non-Send handles cannot be accessed concurrently;
+// native builds never use this impl.
 #[cfg(target_arch = "wasm32")]
 unsafe impl Send for Win32GameEngine {}
 

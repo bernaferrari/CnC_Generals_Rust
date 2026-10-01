@@ -369,11 +369,7 @@ impl ScriptEvaluator {
         let Some(contain) = obj_guard.get_contain() else {
             return Ok(false);
         };
-        let Ok(contain_guard) = contain.lock() else {
-            return Ok(false);
-        };
-
-        Ok(contain_guard.get_contained_count() < contain_guard.get_max_capacity())
+        Ok(contain.get_contained_count() < contain.get_max_capacity())
     }
 
     fn evaluate_unit_emptied_condition(&self, condition: &Condition) -> GameLogicResult<bool> {
@@ -403,7 +399,7 @@ impl ScriptEvaluator {
 
         let num_peeps = obj_guard
             .get_contain()
-            .and_then(|contain| contain.lock().ok().map(|c| c.get_contained_count()))
+            .map(|contain| contain.get_contained_count())
             .unwrap_or(0);
 
         let frame = TheGameLogic::get_frame();

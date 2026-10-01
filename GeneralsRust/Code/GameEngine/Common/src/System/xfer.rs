@@ -444,7 +444,17 @@ pub trait Xfer {
         // SAFETY: forwards the caller's pointer contract to the concrete
         // xfer_implementation; no dereferencing happens here.
     unsafe fn xfer_user(&mut self, data: *mut u8, data_size: usize) -> Result<(), XferStatus> {
-        self.xfer_implementation(data, data_size)
+        // SAFETY: `xfer_implementation` upholds the same caller-established
+        // contract documented above; this forwarding adds no dereference.
+        unsafe { self.xfer_implementation(data, data_size) }
+    }
+
+    /// Safe wrapper around `xfer_user` for a Rust slice (C++ `xferUser`
+    /// over a `void*` buffer of known length).
+    fn xfer_user_bytes(&mut self, data: &mut [u8]) -> Result<(), XferStatus> {
+        // SAFETY: `data` is a live exclusive slice of exactly `data.len()`
+        // bytes, satisfying the `xfer_user` buffer contract.
+        unsafe { self.xfer_user(data.as_mut_ptr(), data.len()) }
     }
 
     /// Transfer a single ScienceType value as a string for enum reorder safety.

@@ -294,9 +294,10 @@ pub struct TerrainVisualImpl {
     flat_lod_meshes: Vec<GpuRoadMesh>,
 }
 
+// SAFETY: compiled only for wasm32, where the client executes on a single
+// thread. The legacy global Mutex requires Send until the renderer is
+// instance-owned; no caller shares &TerrainVisualImpl across threads on wasm.
 #[cfg(target_arch = "wasm32")]
-// The legacy global Mutex requires Send until the renderer is instance-owned.
-// No caller requires sharing &TerrainVisualImpl across threads on wasm.
 unsafe impl Send for TerrainVisualImpl {}
 
 struct GpuChunkMesh {

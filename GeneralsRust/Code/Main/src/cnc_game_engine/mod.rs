@@ -59,7 +59,6 @@ use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::sync::atomic::AtomicU32;
 use std::sync::mpsc::{self, Receiver, TryRecvError};
-use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll, Wake, Waker};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime};

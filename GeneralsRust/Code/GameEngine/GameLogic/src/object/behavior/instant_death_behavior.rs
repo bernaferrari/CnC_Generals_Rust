@@ -198,14 +198,11 @@ impl DieModuleInterface for InstantDeathBehavior {
             return;
         }
 
-        if let Some(ai) = object.get_ai_update_interface() {
-            let Ok(mut ai_guard) = ai.lock() else {
-                return;
-            };
-            if ai_guard.is_ai_in_dead_state() {
+        if let Some(ai) = object.get_ai_update_interface_mut() {
+            if ai.is_ai_in_dead_state() {
                 return;
             }
-            ai_guard.mark_as_dead();
+            ai.mark_as_dead();
         }
 
         let object_arc = self.base.get_object();

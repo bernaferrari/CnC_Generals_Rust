@@ -382,20 +382,10 @@ impl AIFollowWaypointPathAsTeamState {
         self.core.group_offset = Coord2D::new(0.0, 0.0);
         self.core.angle = 0.0;
 
-        let machine = self.base.get_machine()?;
-        let waypoint_id = machine
-            .try_lock()
-            .ok()
-            .and_then(|guard| guard.get_goal_waypoint())
-            .or(self.base.goal_waypoint_copied);
+        let waypoint_id = self.base.goal_waypoint_copied;
         self.core.current_waypoint = waypoint_id.and_then(resolve_waypoint_by_id);
         if self.core.current_waypoint.is_none() && !self.core.move_as_group {
             return Ok(StateReturnType::Failure);
-        }
-        if let Some(current) = self.core.current_waypoint.as_ref() {
-            if let Ok(mut guard) = machine.try_lock() {
-                guard.set_goal_position(current.position);
-            }
         }
         let owner = self
             .base
@@ -507,13 +497,7 @@ impl AIFollowWaypointPathAsTeamState {
             &mut *locked_ai
         };
 
-        if let Some(current) = self.core.current_waypoint.as_ref() {
-            if let Ok(machine) = self.base.get_machine() {
-                if let Ok(mut guard) = machine.try_lock() {
-                    guard.set_goal_position(current.position);
-                }
-            }
-        } else {
+        if self.core.current_waypoint.is_none() {
             return Ok(StateReturnType::Success);
         }
 
@@ -824,18 +808,10 @@ impl AIFollowWaypointPathAsTeamExactState {
         &mut self,
         mut borrowed: Option<&mut dyn crate::modules::AIUpdateInterface>,
     ) -> Result<StateReturnType, String> {
-        let machine = self.base.get_machine()?;
-        let waypoint_id = machine
-            .try_lock()
-            .ok()
-            .and_then(|guard| guard.get_goal_waypoint())
-            .or(self.base.goal_waypoint_copied);
+        let waypoint_id = self.base.goal_waypoint_copied;
         let current = waypoint_id
             .and_then(resolve_waypoint_by_id)
             .ok_or_else(|| "follow waypoint exact missing waypoint".to_string())?;
-        if let Ok(mut guard) = machine.try_lock() {
-            guard.set_goal_position(current.position);
-        }
         let owner = self
             .base
             .get_machine_owner()
@@ -1122,20 +1098,10 @@ impl AIFollowWaypointPathAsIndividualsState {
         self.core.frames_sleeping = 0;
         self.core.group_offset = Coord2D::new(0.0, 0.0);
         self.core.angle = 0.0;
-        let machine = self.base.get_machine()?;
-        let waypoint_id = machine
-            .try_lock()
-            .ok()
-            .and_then(|guard| guard.get_goal_waypoint())
-            .or(self.base.goal_waypoint_copied);
+        let waypoint_id = self.base.goal_waypoint_copied;
         self.core.current_waypoint = waypoint_id.and_then(resolve_waypoint_by_id);
         if self.core.current_waypoint.is_none() && !self.core.move_as_group {
             return Ok(StateReturnType::Failure);
-        }
-        if let Some(current) = self.core.current_waypoint.as_ref() {
-            if let Ok(mut guard) = machine.try_lock() {
-                guard.set_goal_position(current.position);
-            }
         }
         let owner = self
             .base
@@ -1205,13 +1171,7 @@ impl AIFollowWaypointPathAsIndividualsState {
                 .map_err(|_| "follow waypoint path AI lock poisoned".to_string())?;
             &mut *locked_ai
         };
-        if let Some(current) = self.core.current_waypoint.as_ref() {
-            if let Ok(machine) = self.base.get_machine() {
-                if let Ok(mut guard) = machine.try_lock() {
-                    guard.set_goal_position(current.position);
-                }
-            }
-        } else {
+        if self.core.current_waypoint.is_none() {
             return Ok(StateReturnType::Success);
         }
         if self.core.is_follow_waypoint_path_state {
@@ -1416,18 +1376,10 @@ impl AIFollowWaypointPathAsIndividualsExactState {
         &mut self,
         mut borrowed: Option<&mut dyn crate::modules::AIUpdateInterface>,
     ) -> Result<StateReturnType, String> {
-        let machine = self.base.get_machine()?;
-        let waypoint_id = machine
-            .try_lock()
-            .ok()
-            .and_then(|guard| guard.get_goal_waypoint())
-            .or(self.base.goal_waypoint_copied);
+        let waypoint_id = self.base.goal_waypoint_copied;
         let current = waypoint_id
             .and_then(resolve_waypoint_by_id)
             .ok_or_else(|| "follow waypoint exact missing waypoint".to_string())?;
-        if let Ok(mut guard) = machine.try_lock() {
-            guard.set_goal_position(current.position);
-        }
         let owner = self
             .base
             .get_machine_owner()

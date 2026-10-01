@@ -547,10 +547,8 @@ impl SpecialPowerModule {
                         }
                     });
                 } else if let Some(behavior) = view_guard.find_update_behavior("DeletionUpdate") {
-                    if let Ok(mut behavior) = behavior.lock() {
-                        if let Some(deletion) = behavior.get_deletion_lifetime_interface() {
-                            deletion.set_lifetime_range(vision_duration, vision_duration);
-                        }
+                    if let Some(deletion) = behavior.get_deletion_lifetime_interface() {
+                        deletion.set_lifetime_range(vision_duration, vision_duration);
                     }
                 }
             };

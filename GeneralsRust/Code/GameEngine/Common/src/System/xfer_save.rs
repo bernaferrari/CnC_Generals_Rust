@@ -289,7 +289,9 @@ impl Xfer for XferSave {
         let file = self.file.as_mut().ok_or(XferStatus::FileNotOpen)?;
 
         // Convert pointer to slice
-        let slice = std::slice::from_raw_parts(data, data_size);
+        // SAFETY: caller contract of `xfer_implementation`: `data` is valid
+        // for `data_size` readable bytes.
+        let slice = unsafe { std::slice::from_raw_parts(data, data_size) };
 
         // Write data to file
         if file.write_all(slice).is_err() {

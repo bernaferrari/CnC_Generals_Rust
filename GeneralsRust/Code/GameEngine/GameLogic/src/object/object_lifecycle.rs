@@ -347,6 +347,37 @@ impl Object {
         let modules = self.modules_with_interface(ModuleInterfaceType::CREATE);
         let object_id = self.id;
         for module in modules {
+            // The contain binding's create hooks run against the Object-owned
+            // contain field (CaveContain) with take/restore so no borrow is
+            // held across the callback.
+            let is_contain = module.with_module(|module| {
+                crate::contain_module_overrides::is_contain_binding(module)
+            });
+            if is_contain {
+                let mut contain = self.contain.take();
+                if let Some(contain) = contain.as_mut() {
+                    let run = if build_complete {
+                        contain.should_do_on_build_complete()
+                    } else {
+                        true
+                    };
+                    if run {
+                        let result = if build_complete {
+                            contain.on_build_complete()
+                        } else {
+                            contain.on_create()
+                        };
+                        if let Err(err) = result {
+                            warn!(
+                                "CaveContain create hook failed for object {}: {}",
+                                self.id, err
+                            );
+                        }
+                    }
+                }
+                self.contain = contain;
+                continue;
+            }
             module.with_module(|module| {
                 if let Some(create) = module.get_create_interface() {
                     if build_complete {
@@ -487,13 +518,11 @@ impl Object {
     pub(crate) fn on_destroy_internal(&mut self) {
         // C++ counterpart releases containment before running module onDelete.
         if let Some(container_id) = self.get_container_id() {
-            let _ = crate::object::registry::OBJECT_REGISTRY.with_object(
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(
                 container_id,
-                |container_read| {
-                    if let Some(contain_module) = container_read.get_contain() {
-                        if let Ok(mut contain_guard) = contain_module.lock() {
-                            let _ = contain_guard.release_object(self.id);
-                        }
+                |container| {
+                    if let Some(contain_module) = container.get_contain_mut() {
+                        let _ = contain_module.release_object(self.id);
                     }
                 },
             );
@@ -504,6 +533,23 @@ impl Object {
 
         let mut modules = std::mem::take(&mut self.modules);
         for entry in modules.drain(..) {
+            // The contain binding's on_delete runs against the Object-owned
+            // contain field at this entry's list position (take/restore).
+            let is_contain = entry.with_module(|module| {
+                crate::contain_module_overrides::is_contain_binding(module)
+            });
+            if is_contain {
+                let mut contain = self.contain.take();
+                if let Some(contain) = contain.as_mut() {
+                    if let Err(err) = contain.on_delete() {
+                        warn!(
+                            "Contain module on_delete failed for object {}: {}",
+                            self.id, err
+                        );
+                    }
+                }
+                self.contain = contain;
+            }
             entry.with_module(|module| {
                 if let Some(upgrade) = super::module_upgrade_kind(module) {
                     upgrade.into_interface().on_delete(self);
@@ -890,7 +936,7 @@ impl Object {
         Ok(())
     }
 
-    pub(super) fn apply_team_ai_profile(&self) {
+    pub(super) fn apply_team_ai_profile(&mut self) {
         let team_name = {
             let team = self.get_team();
             team.and_then(|team_ref| team_ref.read().ok().map(|g| g.get_name().to_string()))
@@ -918,10 +964,8 @@ impl Object {
             return;
         };
 
-        if let Some(ai) = self.get_ai_update_interface() {
-            if let Ok(mut ai_guard) = ai.lock() {
-                let _ = ai_guard.set_attitude(attitude);
-            }
+        if let Some(ai) = self.get_ai_update_interface_mut() {
+            let _ = ai.set_attitude(attitude);
         }
     }
 
@@ -1086,14 +1130,13 @@ impl Object {
         log::debug!("Object {} calling die modules", self.id);
         self.call_on_die_hooks(Some(damage_info));
 
-        let contain = self.contain.clone();
-        if let Some(contain) = contain {
-            if let Ok(mut contain_guard) = contain.lock() {
-                if let Err(err) = contain_guard.on_die_with_owner(self, Some(damage_info)) {
-                    log::warn!("Object {} contain on_die failed: {}", self.id, err);
-                }
+        let mut contain = self.contain.take();
+        if let Some(contain) = contain.as_mut() {
+            if let Err(err) = contain.on_die_with_owner(self, Some(damage_info)) {
+                log::warn!("Object {} contain on_die failed: {}", self.id, err);
             }
         }
+        self.contain = contain;
 
         self.on_die_remove_from_radar();
 
@@ -1201,13 +1244,12 @@ impl Object {
         let mut module_data = crate::object::body::active_body::ActiveBodyModuleData::default();
         module_data.max_health = max_health;
         module_data.initial_health = max_health;
-        let body: Arc<Mutex<dyn crate::object::body::body_module::BodyModuleInterface>> =
-            Arc::new(Mutex::new(
-                crate::object::body::active_body::ActiveBody::new_with_owner(
-                    module_data,
-                    obj.get_id(),
-                ),
-            ));
+        let body: Box<dyn crate::object::body::body_module::BodyModuleInterface> = Box::new(
+            crate::object::body::active_body::ActiveBody::new_with_owner(
+                module_data,
+                obj.get_id(),
+            ),
+        );
         obj.body = Some(body);
         obj.install_ctor_helpers();
         obj
@@ -1230,13 +1272,12 @@ impl Object {
         let mut module_data = crate::object::body::active_body::ActiveBodyModuleData::default();
         module_data.max_health = max_health;
         module_data.initial_health = max_health;
-        let body: Arc<Mutex<dyn crate::object::body::body_module::BodyModuleInterface>> =
-            Arc::new(Mutex::new(
-                crate::object::body::active_body::ActiveBody::new_with_owner(
-                    module_data,
-                    obj.get_id(),
-                ),
-            ));
+        let body: Box<dyn crate::object::body::body_module::BodyModuleInterface> = Box::new(
+            crate::object::body::active_body::ActiveBody::new_with_owner(
+                module_data,
+                obj.get_id(),
+            ),
+        );
         obj.body = Some(body);
         obj.install_ctor_helpers();
         obj
@@ -1252,7 +1293,7 @@ impl Object {
     #[cfg(any(test, feature = "internal"))]
     pub fn push_behavior_module_for_test(
         &mut self,
-        behavior: Arc<Mutex<dyn crate::modules::BehaviorModuleInterface>>,
+        behavior: Box<dyn crate::modules::BehaviorModuleInterface>,
     ) {
         self.behaviors.push(behavior);
     }

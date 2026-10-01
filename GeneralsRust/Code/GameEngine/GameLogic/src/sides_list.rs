@@ -19,7 +19,7 @@ use game_engine::common::system::file_system::get_file_system;
 use game_engine::common::system::{DataChunkInfo, DataChunkInput, DataChunkOutput};
 use game_engine::system::XferVersion;
 use once_cell::sync::Lazy;
-use std::sync::{Arc, RwLock};
+use std::sync::RwLock;
 
 #[derive(Debug, Clone, Default)]
 pub struct SidesInfo {
@@ -778,11 +778,10 @@ impl Snapshot for SidesList {
     fn load_post_process(&mut self) {}
 }
 
-pub static THE_SIDES_LIST: Lazy<Arc<RwLock<SidesList>>> =
-    Lazy::new(|| Arc::new(RwLock::new(SidesList::new())));
+pub static THE_SIDES_LIST: Lazy<RwLock<SidesList>> = Lazy::new(|| RwLock::new(SidesList::new()));
 
-pub fn get_sides_list() -> Arc<RwLock<SidesList>> {
-    THE_SIDES_LIST.clone()
+pub fn get_sides_list() -> &'static RwLock<SidesList> {
+    &THE_SIDES_LIST
 }
 
 #[derive(Default)]

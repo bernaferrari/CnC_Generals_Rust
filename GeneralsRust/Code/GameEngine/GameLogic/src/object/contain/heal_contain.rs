@@ -215,36 +215,24 @@ impl HealContain {
         // Get current frame and contained frame
         let current_frame = self.get_current_frame();
 
-        let Ok(object) = obj.try_read() else {
+        let Ok(mut object) = obj.try_write() else {
             return Err("HealContain patient lock busy".into());
         };
         let contained_by_frame = object.get_contained_by_frame();
-        let body = object.get_body_module();
-        drop(object);
-        let Some(body) = body else {
+        let Some(body_module) = object.get_body_module_mut() else {
             return Ok(false);
         };
-        let Ok(body_module) = body.try_lock() else {
-            return Err("HealContain body lock busy".into());
-        };
         let max_health = body_module.get_max_health();
-        drop(body_module);
         let frames_contained = current_frame.saturating_sub(contained_by_frame);
         if frames_contained >= frames_for_full_heal {
             heal_info.input.amount = max_health;
             heal_info.sync_from_input();
-            let Ok(mut body_mut) = body.try_lock() else {
-                return Err("HealContain body lock busy".into());
-            };
-            body_mut.attempt_healing(&mut heal_info)?;
+            body_module.attempt_healing(&mut heal_info)?;
             done_healing = true;
         } else {
             heal_info.input.amount = max_health / frames_for_full_heal as f32;
             heal_info.sync_from_input();
-            let Ok(mut body_mut) = body.try_lock() else {
-                return Err("HealContain body lock busy".into());
-            };
-            body_mut.attempt_healing(&mut heal_info)?;
+            body_module.attempt_healing(&mut heal_info)?;
         }
 
         Ok(done_healing)
@@ -549,7 +537,6 @@ mod tests {
     use crate::object::body::active_body::{ActiveBody, ActiveBodyModuleData};
     use game_engine::common::system::{XferBlockSize, XferMode, XferStatus};
     use std::io;
-    use std::sync::Mutex;
 
     struct RecordingXfer {
         bytes: Vec<u8>,
@@ -649,7 +636,7 @@ mod tests {
         );
         obj.write()
             .expect("object write")
-            .set_body_module(Some(Arc::new(Mutex::new(body))));
+            .set_body_module(Some(Box::new(body)));
     }
 
     #[test]
@@ -729,7 +716,7 @@ mod tests {
             .expect("patient read")
             .get_body_module()
             .expect("body module");
-        assert_eq!(body.lock().expect("body lock").get_health(), 100.0);
+        assert_eq!(body.get_health(), 100.0);
     }
 
     #[test]
@@ -761,6 +748,6 @@ mod tests {
             .expect("patient read")
             .get_body_module()
             .expect("body module");
-        assert_eq!(body.lock().expect("body lock").get_health(), 27.0);
+        assert_eq!(body.get_health(), 27.0);
     }
 }

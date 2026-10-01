@@ -4,7 +4,7 @@
 //! including payload templates and special overlord-style container behavior.
 
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex, RwLock, Weak};
+use std::sync::{Arc, RwLock, Weak};
 
 use super::{ContainerIniParse, ContainerInterface, TransportContain};
 use crate::common::{
@@ -350,16 +350,11 @@ impl HelixContain {
                 if let Some(portable) = TheGameLogic::find_object_by_id(portable_id)
                     .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(portable_id))
                 {
-                    let Ok(portable_guard) = portable.try_read() else {
+                    let Ok(mut portable_guard) = portable.try_write() else {
                         return Err("Helix portable lock busy".into());
                     };
-                    let body = portable_guard.get_body_module();
-                    drop(portable_guard);
-                    if let Some(body) = body {
-                        let Ok(mut body_guard) = body.try_lock() else {
-                            return Err("Helix portable body lock busy".into());
-                        };
-                        body_guard.set_damage_state(new_state)?;
+                    if let Some(body) = portable_guard.get_body_module_mut() {
+                        body.set_damage_state(new_state)?;
                     }
                 }
             }
@@ -1302,7 +1297,7 @@ mod tests {
         );
         obj.write()
             .expect("object write")
-            .set_body_module(Some(Arc::new(Mutex::new(body))));
+            .set_body_module(Some(Box::new(body)));
     }
 
     #[test]
@@ -1531,7 +1526,7 @@ mod tests {
             .get_body_module()
             .expect("portable body");
         assert_eq!(
-            body.lock().expect("body lock").get_damage_state(),
+            body.get_damage_state(),
             BodyDamageType::ReallyDamaged
         );
 

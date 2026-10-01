@@ -927,6 +927,10 @@ impl Snapshotable for ModuleFactory {
 
         // Module data is shared with templates via Arc. C++ still xfers every
         // entry; save/load is single-threaded, so exclusive mutation is valid.
+        // SAFETY: `Arc::as_ptr` returns a valid pointer to a live allocation
+        // (the Arc is held by `self.module_data_list` for the whole call) and
+        // save/load runs on the single host thread, so no other reference
+        // observes the temporary `&mut` used to drive the in-place xfer.
         for module_data in &self.module_data_list {
             let data = unsafe { &mut *(Arc::as_ptr(module_data) as *mut dyn ModuleData) };
             data.xfer(xfer)?;

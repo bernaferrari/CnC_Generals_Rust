@@ -853,9 +853,18 @@ fn execute_pending_team_create_action_scripts(script_names: Vec<String>) {
         let Some(action) = action else {
             continue;
         };
-        if let Ok(mut eng) = script_engine.write() {
-            if let Some(e) = eng.as_mut() {
-                e.friend_execute_action(&action, None);
+        // Take the engine out of the RwLock for action execution
+        // (script_runtime_camera.rs pattern): friend_execute_action runs the
+        // full action chain, which re-enters get_script_engine() and would
+        // deadlock against a live write guard.
+        let taken = match script_engine.write() {
+            Ok(mut eng) => eng.take(),
+            Err(_) => None,
+        };
+        if let Some(mut e) = taken {
+            e.friend_execute_action(&action, None);
+            if let Ok(mut eng) = script_engine.write() {
+                *eng = Some(e);
             }
         }
     }
@@ -968,9 +977,20 @@ fn execute_pending_team_generic_script_evals(script_evals: Vec<PendingTeamGeneri
                 if condition_true {
                     if let Some(action) = script.get_action().cloned() {
                         // C++ friend_executeAction(action, this) — team-scoped.
-                        if let Ok(mut eng) = script_engine.write() {
-                            if let Some(e) = eng.as_mut() {
-                                e.friend_execute_action(&action, Some(pending.team_name.as_str()));
+                        // Take the engine out of the RwLock for the dispatch
+                        // (script_runtime_camera.rs pattern) so the action
+                        // chain can re-enter get_script_engine() freely.
+                        let taken = match script_engine.write() {
+                            Ok(mut eng) => eng.take(),
+                            Err(_) => None,
+                        };
+                        if let Some(mut e) = taken {
+                            e.friend_execute_action(
+                                &action,
+                                Some(pending.team_name.as_str()),
+                            );
+                            if let Ok(mut eng) = script_engine.write() {
+                                *eng = Some(e);
                             }
                         }
                     }

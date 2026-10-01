@@ -676,21 +676,17 @@ impl DrawModule for W3DTankDraw {
                     }
 
                     if let Some(physics) = owner_guard.get_physics() {
-                        if let Ok(physics_guard) = physics.lock() {
-                            let velocity = physics_guard.get_velocity();
-                            self.current_velocity =
-                                (velocity.x * velocity.x + velocity.y * velocity.y).sqrt();
-                            turning = physics_guard.get_turning();
-                            is_motive = physics_guard.is_motive();
-                        }
+                        let velocity = physics.get_velocity();
+                        self.current_velocity =
+                            (velocity.x * velocity.x + velocity.y * velocity.y).sqrt();
+                        turning = physics.get_turning();
+                        is_motive = physics.is_motive();
                     }
 
                     if let Some(ai) = owner_guard.get_ai_update_interface() {
-                        if let Ok(ai_guard) = ai.lock() {
-                            let locomotor_speed = ai_guard.get_cur_locomotor_speed();
-                            if locomotor_speed > 0.0 {
-                                self.max_velocity = locomotor_speed;
-                            }
+                        let locomotor_speed = ai.get_cur_locomotor_speed();
+                        if locomotor_speed > 0.0 {
+                            self.max_velocity = locomotor_speed;
                         }
                     }
                 }

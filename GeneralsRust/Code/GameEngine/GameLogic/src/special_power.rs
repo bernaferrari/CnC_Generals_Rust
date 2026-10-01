@@ -8,8 +8,8 @@ pub use crate::special_power_module::{
     CleanupAreaPower, CooldownManager, CooldownState, DefectorSpecialPower, DemoralizeSpecialPower,
     FireWeaponPower, OCLSpecialPower, SpecialPowerFlags, SpecialPowerID, SpecialPowerKind,
     SpecialPowerModule, SpecialPowerModuleData, SpecialPowerModuleInterface, SpecialPowerRegistry,
-    SpecialPowerStats, SpyVisionSpecialPower, TargetValidator, TargetingInfo, get_player_powers,
-    get_power, get_power_registry, register_power,
+    SpecialPowerStats, SpyVisionSpecialPower, TargetValidator, TargetingInfo, get_power_registry,
+    register_power, with_power,
 };
 
 use crate::common::*;

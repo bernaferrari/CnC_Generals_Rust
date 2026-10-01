@@ -485,12 +485,8 @@ fn xfer_sighting_info(
     xfer.xfer_real(&mut info.where_pos[2])?;
     xfer.xfer_real(&mut info.how_far)?;
     let mut for_whom = info.for_whom as u16;
-    // SAFETY: `for_whom` is an initialized stack `u16`; `xfer_user` moves
-    // exactly `size_of::<u16>()` bytes within this call (C++ SightingInfo
-    // xferUser parity).
-    unsafe {
-        xfer.xfer_user((&mut for_whom as *mut u16).cast::<u8>(), std::mem::size_of::<u16>())?;
-    }
+    // C++ SightingInfo xferUser parity — raw u16 transfer.
+    xfer.xfer_unsigned_short(&mut for_whom)?;
     if xfer.get_xfer_mode() == XferMode::Load {
         info.for_whom = for_whom as u32;
     }

@@ -4,7 +4,7 @@
 //! velocity/scatter, InitialPayload spawn, HealthRegen%PerSec heal, tryToEvacuate.
 
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex, RwLock, Weak};
+use std::sync::{Arc, RwLock, Weak};
 
 use super::{
     ContainerIniParse, ContainerInterface, ObjectTemplate, unwrap_special_zero_slot_rider,
@@ -227,18 +227,9 @@ pub struct MobNexusContain {
     payload_created: bool,
 }
 
-fn with_physics_mut<R>(
-    physics: &Arc<Mutex<dyn PhysicsBehavior>>,
-    f: impl FnOnce(&mut dyn PhysicsBehavior) -> R,
-) -> R {
-    match physics.lock() {
-        Ok(mut guard) => f(&mut *guard),
-        Err(poisoned) => f(&mut *poisoned.into_inner()),
-    }
-}
 
 /// C++ `child->getCenterOfMassOffset() * exitPitchRate`, then `setPitchRate`.
-/// The offset is read from the held guard. A failed lock must not become pitch 0.
+/// The offset is read from the borrowed physics module.
 fn apply_exit_pitch_and_force(
     body: &mut dyn PhysicsBehavior,
     vel: crate::common::Coord3D,
@@ -251,24 +242,6 @@ fn apply_exit_pitch_and_force(
     body.set_pitch_rate(pitch_rate);
 }
 
-/// Parent and child physics may be the same mutex. Never hold both locks.
-fn inherit_container_exit_velocity(
-    parent: &Arc<Mutex<dyn PhysicsBehavior>>,
-    child: &Arc<Mutex<dyn PhysicsBehavior>>,
-    exit_pitch_rate: f32,
-) {
-    if Arc::ptr_eq(parent, child) {
-        with_physics_mut(child, |body| {
-            let vel = body.get_velocity();
-            apply_exit_pitch_and_force(body, vel, exit_pitch_rate);
-        });
-        return;
-    }
-    let vel = with_physics_mut(parent, |body| body.get_velocity());
-    with_physics_mut(child, |body| {
-        apply_exit_pitch_and_force(body, vel, exit_pitch_rate);
-    });
-}
 
 impl MobNexusContain {
     /// Create a new MobNexusContain module
@@ -408,25 +381,21 @@ impl MobNexusContain {
             }
         }
 
-        let child_physics = rider.get_physics();
         let slot_count = rider.get_transport_slot_count();
-        // getMass / applyMotiveForce take the object lock. Drop this write first.
-        drop(rider);
 
-        if self.module_data.keep_container_velocity_on_exit {
-            if let Some(child) = child_physics.clone() {
-                if let Some(parent) = self
-                    .with_owner_object(|owner| owner.get_physics())
-                    .flatten()
-                {
-                    inherit_container_exit_velocity(
-                        &parent,
-                        &child,
-                        self.module_data.exit_pitch_rate,
-                    );
+        if self.module_data.keep_container_velocity_on_exit && rider.get_physics_mut().is_some() {
+            // C++: never hold parent and child physics at once — read the
+            // container velocity first, then apply to the rider physics.
+            let parent_velocity = self
+                .with_owner_object(|owner| owner.get_physics().map(|body| body.get_velocity()))
+                .flatten();
+            if let Some(vel) = parent_velocity {
+                if let Some(child) = rider.get_physics_mut() {
+                    apply_exit_pitch_and_force(child, vel, self.module_data.exit_pitch_rate);
                 }
             }
         }
+        drop(rider);
 
         let mut rider = match obj.write() {
             Ok(guard) => guard,
@@ -453,8 +422,12 @@ impl MobNexusContain {
             .with_owner_object(|owner| owner.is_above_terrain())
             .unwrap_or(false)
         {
-            if let Some(physics) = child_physics {
-                with_physics_mut(&physics, |body| body.set_allow_to_fall(true));
+            let mut rider = match obj.write() {
+                Ok(guard) => guard,
+                Err(poisoned) => poisoned.into_inner(),
+            };
+            if let Some(physics) = rider.get_physics_mut() {
+                physics.set_allow_to_fall(true);
             }
         }
         Ok(())
@@ -631,21 +604,12 @@ impl MobNexusContain {
                         log::warn!("MobNexusContain::update regen lock busy for {}", object_id);
                         continue;
                     };
-                    let body = guard.get_body_module();
+                    let Some(body) = guard.get_body_module() else {
+                        continue;
+                    };
+                    let max_health = body.get_max_health();
+                    let needs_healing = body.get_health() < max_health && max_health > 0.0;
                     drop(guard);
-                    let Some(body) = body else {
-                        continue;
-                    };
-                    let Ok(body_guard) = body.try_lock() else {
-                        log::warn!(
-                            "MobNexusContain::update regen body lock busy for {}",
-                            object_id
-                        );
-                        continue;
-                    };
-                    let max_health = body_guard.get_max_health();
-                    let needs_healing = body_guard.get_health() < max_health && max_health > 0.0;
-                    drop(body_guard);
                     if !needs_healing {
                         continue;
                     }
@@ -689,13 +653,11 @@ impl MobNexusContain {
         let blocked = self
             .with_owner_object(|me| {
                 if let Some(ai) = me.get_ai_update_interface() {
-                    if let Ok(ai_guard) = ai.lock() {
-                        if !matches!(
-                            ai_guard.get_ai_free_to_exit(me),
-                            AIFreeToExitType::FreeToExit
-                        ) {
-                            return true;
-                        }
+                    if !matches!(
+                        ai.get_ai_free_to_exit(me),
+                        AIFreeToExitType::FreeToExit
+                    ) {
+                        return true;
                     }
                 }
                 false
@@ -1044,14 +1006,13 @@ mod tests {
     use crate::common::{Coord3D, DefaultThingTemplate, ObjectID, ObjectStatusMaskType};
     use crate::helpers::TheGameLogic;
     use crate::object::Object;
-    use std::sync::{Arc, Mutex, RwLock, Weak};
+    use std::sync::{Arc, Mutex, RwLock};
 
     #[derive(Debug)]
     struct ExitRecord {
         pitch: f32,
         force: Coord3D,
         applied: bool,
-        object_writable_during_force: bool,
     }
 
     #[derive(Debug)]
@@ -1060,7 +1021,6 @@ mod tests {
         mass: f32,
         com: f32,
         record: Arc<Mutex<ExitRecord>>,
-        object: Weak<RwLock<Object>>,
     }
 
     impl PhysicsBehavior for ExitPhysics {
@@ -1089,18 +1049,12 @@ mod tests {
                 .pitch = rate;
         }
         fn apply_motive_force(&mut self, force: &Coord3D) {
-            let writable = self
-                .object
-                .upgrade()
-                .map(|arc| arc.try_write().is_ok())
-                .unwrap_or(false);
             let mut record = self
                 .record
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner());
             record.force = *force;
             record.applied = true;
-            record.object_writable_during_force = writable;
         }
     }
 
@@ -1137,25 +1091,26 @@ mod tests {
         mass: f32,
         com: f32,
         pitch: f32,
-    ) -> (Arc<Mutex<dyn PhysicsBehavior>>, Arc<Mutex<ExitRecord>>) {
-        let record = Arc::new(Mutex::new(ExitRecord {
-            pitch,
-            force: Coord3D::new(0.0, 0.0, 0.0),
-            applied: false,
-            object_writable_during_force: false,
-        }));
-        let physics: Arc<Mutex<dyn PhysicsBehavior>> = Arc::new(Mutex::new(ExitPhysics {
+        shared: Option<Arc<Mutex<ExitRecord>>>,
+    ) -> Arc<Mutex<ExitRecord>> {
+        let record = shared.unwrap_or_else(|| {
+            Arc::new(Mutex::new(ExitRecord {
+                pitch,
+                force: Coord3D::new(0.0, 0.0, 0.0),
+                applied: false,
+            }))
+        });
+        let physics = ExitPhysics {
             vel,
             mass,
             com,
             record: record.clone(),
-            object: Arc::downgrade(object),
-        }));
+        };
         object
             .write()
             .expect("object")
-            .set_physics(Some(physics.clone()));
-        (physics, record)
+            .set_physics(Some(Box::new(physics)));
+        record
     }
 
     #[test]
@@ -1165,18 +1120,28 @@ mod tests {
         let _registered = Registered(vec![owner_id, rider_id]);
         let owner = test_object("MobNexusPitchOwner", owner_id);
         let rider = test_object("MobNexusPitchRider", rider_id);
-        let _parent = attach_physics(&owner, Coord3D::new(3.0, -1.0, 2.0), 10.0, 0.0, 0.0);
-        let (_child, record) = attach_physics(&rider, Coord3D::new(0.0, 0.0, 0.0), 4.0, 2.5, 9.0);
+        let _parent = attach_physics(
+            &owner,
+            Coord3D::new(3.0, -1.0, 2.0),
+            10.0,
+            0.0,
+            0.0,
+            None,
+        );
+        let record = attach_physics(
+            &rider,
+            Coord3D::new(0.0, 0.0, 0.0),
+            4.0,
+            2.5,
+            9.0,
+            None,
+        );
         let mut nexus = nexus_for(&owner, 0.4);
         nexus.on_removing(rider_id).expect("on_removing");
         let record = record
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         assert!(record.applied);
-        assert!(
-            record.object_writable_during_force,
-            "rider write was held across physics"
-        );
         assert!(
             (record.pitch - 1.0).abs() < 1.0e-5,
             "pitch {} is not center-of-mass * exit rate",
@@ -1186,21 +1151,34 @@ mod tests {
     }
 
     #[test]
-    fn on_removing_same_physics_scales_pitch_without_nesting() {
+    fn on_removing_same_physics_state_scales_pitch() {
         let owner_id = 91_440_021;
         let rider_id = 91_440_022;
         let _registered = Registered(vec![owner_id, rider_id]);
         let owner = test_object("MobNexusSameOwner", owner_id);
         let rider = test_object("MobNexusSameRider", rider_id);
-        let (physics, record) = attach_physics(&rider, Coord3D::new(3.0, -1.0, 2.0), 4.0, 2.5, 9.0);
-        owner.write().expect("owner").set_physics(Some(physics));
+        let record = attach_physics(
+            &owner,
+            Coord3D::new(3.0, -1.0, 2.0),
+            4.0,
+            2.5,
+            9.0,
+            None,
+        );
+        attach_physics(
+            &rider,
+            Coord3D::new(3.0, -1.0, 2.0),
+            4.0,
+            2.5,
+            9.0,
+            Some(record.clone()),
+        );
         let mut nexus = nexus_for(&owner, 0.4);
         nexus.on_removing(rider_id).expect("on_removing");
         let record = record
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         assert!(record.applied);
-        assert!(record.object_writable_during_force);
         assert!(
             (record.pitch - 1.0).abs() < 1.0e-5,
             "same-physics pitch {}",
@@ -1217,7 +1195,7 @@ mod tests {
         let _registered = Registered(vec![owner_id, rider_id]);
         let owner = test_object("MobNexusNoPhysOwner", owner_id);
         let rider = test_object("MobNexusNoPhysRider", rider_id);
-        let (_child, record) = attach_physics(&rider, Coord3D::new(1.0, 0.0, 0.0), 4.0, 2.5, 9.0);
+        let record = attach_physics(&rider, Coord3D::new(1.0, 0.0, 0.0), 4.0, 2.5, 9.0, None);
         let mut nexus = nexus_for(&owner, 0.4);
         nexus.on_removing(rider_id).expect("on_removing");
         let record = record

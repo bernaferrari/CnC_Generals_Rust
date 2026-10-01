@@ -171,8 +171,8 @@ impl<T> DockResultExt<T> for Result<T, Box<dyn std::error::Error + Send + Sync>>
 /// The docking state machine.
 #[derive(Debug)]
 pub struct AIDockMachine {
-    /// Base state machine functionality
-    pub state_machine: Arc<Mutex<StateMachine>>,
+    /// Base state machine functionality, owned by this machine.
+    pub state_machine: StateMachine,
     shared: Arc<DockSharedState>,
 }
 
@@ -181,10 +181,7 @@ impl AIDockMachine {
     /// can possibly be in, and set the initial (default) state.
     pub fn new(owner: Arc<RwLock<Object>>) -> Result<Self, String> {
         let owner_weak = Arc::downgrade(&owner);
-        let state_machine = Arc::new(Mutex::new(StateMachine::new(
-            Some(owner_weak),
-            "AIDockMachine",
-        )));
+        let mut state_machine = StateMachine::new(Some(owner_weak), "AIDockMachine");
         let shared = Arc::new(DockSharedState::default());
 
         let wait_for_clearance_conditions = vec![legacy_transition(
@@ -193,88 +190,80 @@ impl AIDockMachine {
             StateTransitionUserData::new(),
             "able_to_advance",
         )];
-        {
-            let mut machine = state_machine
-                .lock()
-                .map_err(|_| "Failed to lock dock state machine while initialising".to_string())?;
 
-            register_classic_state(
-                &mut machine,
-                AIDockState::Approach.into(),
-                AIDockApproachState::new(&state_machine, shared.clone())?,
-                Some(AIDockState::WaitForClearance.into()),
-                Some(StateMachine::EXIT_MACHINE_WITH_FAILURE),
-                &[],
-            );
+        register_classic_state(
+            &mut state_machine,
+            AIDockState::Approach.into(),
+            AIDockApproachState::new(&state_machine, shared.clone()),
+            Some(AIDockState::WaitForClearance.into()),
+            Some(StateMachine::EXIT_MACHINE_WITH_FAILURE),
+            &[],
+        );
 
-            register_classic_state(
-                &mut machine,
-                AIDockState::WaitForClearance.into(),
-                AIDockWaitForClearanceState::new(&state_machine, shared.clone())?,
-                Some(AIDockState::MoveToEntry.into()),
-                Some(StateMachine::EXIT_MACHINE_WITH_FAILURE),
-                &wait_for_clearance_conditions,
-            );
+        register_classic_state(
+            &mut state_machine,
+            AIDockState::WaitForClearance.into(),
+            AIDockWaitForClearanceState::new(&state_machine, shared.clone()),
+            Some(AIDockState::MoveToEntry.into()),
+            Some(StateMachine::EXIT_MACHINE_WITH_FAILURE),
+            &wait_for_clearance_conditions,
+        );
 
-            register_classic_state(
-                &mut machine,
-                AIDockState::AdvancePosition.into(),
-                AIDockAdvancePositionState::new(&state_machine, shared.clone())?,
-                Some(AIDockState::WaitForClearance.into()),
-                Some(StateMachine::EXIT_MACHINE_WITH_FAILURE),
-                &[],
-            );
+        register_classic_state(
+            &mut state_machine,
+            AIDockState::AdvancePosition.into(),
+            AIDockAdvancePositionState::new(&state_machine, shared.clone()),
+            Some(AIDockState::WaitForClearance.into()),
+            Some(StateMachine::EXIT_MACHINE_WITH_FAILURE),
+            &[],
+        );
 
-            register_classic_state(
-                &mut machine,
-                AIDockState::MoveToEntry.into(),
-                AIDockMoveToEntryState::new(&state_machine, shared.clone())?,
-                Some(AIDockState::MoveToDock.into()),
-                Some(AIDockState::MoveToExit.into()),
-                &[],
-            );
+        register_classic_state(
+            &mut state_machine,
+            AIDockState::MoveToEntry.into(),
+            AIDockMoveToEntryState::new(&state_machine, shared.clone()),
+            Some(AIDockState::MoveToDock.into()),
+            Some(AIDockState::MoveToExit.into()),
+            &[],
+        );
 
-            register_classic_state(
-                &mut machine,
-                AIDockState::MoveToDock.into(),
-                AIDockMoveToDockState::new(&state_machine, shared.clone())?,
-                Some(AIDockState::ProcessDock.into()),
-                Some(AIDockState::MoveToExit.into()),
-                &[],
-            );
+        register_classic_state(
+            &mut state_machine,
+            AIDockState::MoveToDock.into(),
+            AIDockMoveToDockState::new(&state_machine, shared.clone()),
+            Some(AIDockState::ProcessDock.into()),
+            Some(AIDockState::MoveToExit.into()),
+            &[],
+        );
 
-            register_classic_state(
-                &mut machine,
-                AIDockState::ProcessDock.into(),
-                AIDockProcessDockState::new(&state_machine, shared.clone())?,
-                Some(AIDockState::MoveToExit.into()),
-                Some(AIDockState::MoveToExit.into()),
-                &[],
-            );
+        register_classic_state(
+            &mut state_machine,
+            AIDockState::ProcessDock.into(),
+            AIDockProcessDockState::new(&state_machine, shared.clone()),
+            Some(AIDockState::MoveToExit.into()),
+            Some(AIDockState::MoveToExit.into()),
+            &[],
+        );
 
-            register_classic_state(
-                &mut machine,
-                AIDockState::MoveToExit.into(),
-                AIDockMoveToExitState::new(&state_machine, shared.clone())?,
-                Some(AIDockState::MoveToRally.into()),
-                Some(StateMachine::EXIT_MACHINE_WITH_FAILURE),
-                &[],
-            );
+        register_classic_state(
+            &mut state_machine,
+            AIDockState::MoveToExit.into(),
+            AIDockMoveToExitState::new(&state_machine, shared.clone()),
+            Some(AIDockState::MoveToRally.into()),
+            Some(StateMachine::EXIT_MACHINE_WITH_FAILURE),
+            &[],
+        );
 
-            register_classic_state(
-                &mut machine,
-                AIDockState::MoveToRally.into(),
-                AIDockMoveToRallyState::new(&state_machine)?,
-                Some(StateMachine::EXIT_MACHINE_WITH_SUCCESS),
-                Some(StateMachine::EXIT_MACHINE_WITH_FAILURE),
-                &[],
-            );
-        }
+        register_classic_state(
+            &mut state_machine,
+            AIDockState::MoveToRally.into(),
+            AIDockMoveToRallyState::new(&state_machine),
+            Some(StateMachine::EXIT_MACHINE_WITH_SUCCESS),
+            Some(StateMachine::EXIT_MACHINE_WITH_FAILURE),
+            &[],
+        );
 
-        Ok(Self {
-            state_machine,
-            shared,
-        })
+        Ok(Self { state_machine, shared })
     }
 
     /// Stops the state machine & disables it in preparation for deleting it.
@@ -284,18 +273,12 @@ impl AIDockMachine {
             return Ok(());
         }
 
-        let goal_object_id = self
-            .state_machine
-            .lock()
-            .map_err(|_| "Failed to lock dock state machine".to_string())?
-            .get_goal_object_id();
+        let goal_object_id = self.state_machine.get_goal_object_id();
 
         // Sanity check
         if goal_object_id != crate::common::INVALID_ID {
             let owner = self
                 .state_machine
-                .lock()
-                .map_err(|_| "Failed to lock dock state machine".to_string())?
                 .get_owner()
                 .ok_or_else(|| "Dock machine missing owner".to_string())?;
             let owner_id = owner.read().map(|g| g.get_id()).unwrap_or(0);
@@ -310,22 +293,14 @@ impl AIDockMachine {
                 .unwrap_or(Ok(()))?;
         }
 
-        self.state_machine
-            .lock()
-            .map_err(|_| "Failed to lock dock state machine".to_string())?
-            .halt()
-            .map_err(|err| err.to_string())?;
+        self.state_machine.halt().map_err(|err| err.to_string())?;
 
         Ok(())
     }
 
     /// CRC calculation for state synchronization
     pub fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        self.state_machine
-            .lock()
-            .map_err(|_| "Failed to lock dock state machine".to_string())?
-            .crc(xfer)
-            .map_err(|err| err.to_string())
+        self.state_machine.crc(xfer).map_err(|err| err.to_string())
     }
 
     /// Xfer method for serialization
@@ -336,8 +311,6 @@ impl AIDockMachine {
             .map_err(|e| e.to_string())?;
 
         self.state_machine
-            .lock()
-            .map_err(|_| "Failed to lock dock state machine".to_string())?
             .xfer(xfer)
             .map_err(|err| err.to_string())?;
 
@@ -352,8 +325,6 @@ impl AIDockMachine {
     /// Load post process
     pub fn load_post_process(&mut self) -> Result<(), String> {
         self.state_machine
-            .lock()
-            .map_err(|_| "Failed to lock dock state machine".to_string())?
             .load_post_process()
             .map_err(|err| err.to_string())
     }
@@ -368,15 +339,12 @@ pub struct AIDockApproachState {
 }
 
 impl AIDockApproachState {
-    pub fn new(
-        machine: &Arc<Mutex<StateMachine>>,
-        shared: Arc<DockSharedState>,
-    ) -> Result<Self, String> {
-        Ok(Self {
-            base: State::with_machine(Some(Arc::downgrade(machine)), "AIDockApproachState"),
-            move_helper: AIInternalMoveToState::new(machine, "AIDockApproachState".to_string())?,
+    pub fn new(machine: &StateMachine, shared: Arc<DockSharedState>) -> Self {
+        Self {
+            base: State::new(machine, "AIDockApproachState"),
+            move_helper: AIInternalMoveToState::new("AIDockApproachState".to_string()),
             shared,
-        })
+        }
     }
 
     pub fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
@@ -451,13 +419,11 @@ impl ClassicState for AIDockApproachState {
 
                 self.move_helper.set_goal_position(goal_position);
 
-                if let Ok(owner_guard) = owner.read() {
-                    if let Some(ai) = owner_guard.get_ai_update_interface() {
-                        if let Ok(mut ai_guard) = ai.lock() {
-                            ai_guard
-                                .ignore_obstacle(None)
-                                .map_err(|err| err.to_string())?;
-                        }
+                if let Ok(mut owner_guard) = owner.write() {
+                    if let Some(ai_guard) = owner_guard.get_ai_update_interface_mut() {
+                        ai_guard
+                            .ignore_obstacle(None)
+                            .map_err(|err| err.to_string())?;
                     }
                 }
 
@@ -521,15 +487,12 @@ pub struct AIDockWaitForClearanceState {
 }
 
 impl AIDockWaitForClearanceState {
-    pub fn new(
-        machine: &Arc<Mutex<StateMachine>>,
-        shared: Arc<DockSharedState>,
-    ) -> Result<Self, String> {
-        Ok(Self {
-            base: State::with_machine(Some(Arc::downgrade(machine)), "AIDockWaitForClearanceState"),
+    pub fn new(machine: &StateMachine, shared: Arc<DockSharedState>) -> Self {
+        Self {
+            base: State::new(machine, "AIDockWaitForClearanceState"),
             enter_frame: 0,
             shared,
-        })
+        }
     }
 
     pub fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
@@ -683,18 +646,12 @@ pub struct AIDockAdvancePositionState {
 }
 
 impl AIDockAdvancePositionState {
-    pub fn new(
-        machine: &Arc<Mutex<StateMachine>>,
-        shared: Arc<DockSharedState>,
-    ) -> Result<Self, String> {
-        Ok(Self {
-            base: State::with_machine(Some(Arc::downgrade(machine)), "AIDockAdvancePositionState"),
-            move_helper: AIInternalMoveToState::new(
-                machine,
-                "AIDockAdvancePositionState".to_string(),
-            )?,
+    pub fn new(machine: &StateMachine, shared: Arc<DockSharedState>) -> Self {
+        Self {
+            base: State::new(machine, "AIDockAdvancePositionState"),
+            move_helper: AIInternalMoveToState::new("AIDockAdvancePositionState".to_string()),
             shared,
-        })
+        }
     }
 
     fn goal_owner(&self) -> Result<(ObjectID, ObjectID), String> {
@@ -752,13 +709,11 @@ impl ClassicState for AIDockAdvancePositionState {
                 self.shared.set_approach_position(approach_position);
                 self.move_helper.set_goal_position(goal_position);
 
-                if let Ok(owner_guard) = owner.read() {
-                    if let Some(ai) = owner_guard.get_ai_update_interface() {
-                        if let Ok(mut ai_guard) = ai.lock() {
-                            ai_guard
-                                .ignore_obstacle(None)
-                                .map_err(|err| err.to_string())?;
-                        }
+                if let Ok(mut owner_guard) = owner.write() {
+                    if let Some(ai_guard) = owner_guard.get_ai_update_interface_mut() {
+                        ai_guard
+                            .ignore_obstacle(None)
+                            .map_err(|err| err.to_string())?;
                     }
                 }
 
@@ -822,15 +777,12 @@ pub struct AIDockMoveToEntryState {
 }
 
 impl AIDockMoveToEntryState {
-    pub fn new(
-        machine: &Arc<Mutex<StateMachine>>,
-        shared: Arc<DockSharedState>,
-    ) -> Result<Self, String> {
-        Ok(Self {
-            base: State::with_machine(Some(Arc::downgrade(machine)), "AIDockMoveToEntryState"),
-            move_helper: AIInternalMoveToState::new(machine, "AIDockMoveToEntryState".to_string())?,
+    pub fn new(machine: &StateMachine, shared: Arc<DockSharedState>) -> Self {
+        Self {
+            base: State::new(machine, "AIDockMoveToEntryState"),
+            move_helper: AIInternalMoveToState::new("AIDockMoveToEntryState".to_string()),
             shared,
-        })
+        }
     }
 
     fn goal_owner(&self) -> Result<(ObjectID, ObjectID), String> {
@@ -872,14 +824,12 @@ impl ClassicState for AIDockMoveToEntryState {
                     return Ok(StateReturnType::Failure);
                 }
 
-                if let Ok(owner_guard) = owner.read() {
-                    if let Some(ai) = owner_guard.get_ai_update_interface() {
+                if let Ok(mut owner_guard) = owner.write() {
+                    if let Some(ai_guard) = owner_guard.get_ai_update_interface_mut() {
                         if dock.is_allow_passthrough_type().into_string_err()? {
-                            if let Ok(mut ai_guard) = ai.lock() {
-                                ai_guard
-                                    .ignore_obstacle(Some(goal_id))
-                                    .map_err(|err| err.to_string())?;
-                            }
+                            ai_guard
+                                .ignore_obstacle(Some(goal_id))
+                                .map_err(|err| err.to_string())?;
                         }
                     }
                 }
@@ -954,15 +904,12 @@ pub struct AIDockMoveToDockState {
 }
 
 impl AIDockMoveToDockState {
-    pub fn new(
-        machine: &Arc<Mutex<StateMachine>>,
-        shared: Arc<DockSharedState>,
-    ) -> Result<Self, String> {
-        Ok(Self {
-            base: State::with_machine(Some(Arc::downgrade(machine)), "AIDockMoveToDockState"),
-            move_helper: AIInternalMoveToState::new(machine, "AIDockMoveToDockState".to_string())?,
+    pub fn new(machine: &StateMachine, shared: Arc<DockSharedState>) -> Self {
+        Self {
+            base: State::new(machine, "AIDockMoveToDockState"),
+            move_helper: AIInternalMoveToState::new("AIDockMoveToDockState".to_string()),
             shared,
-        })
+        }
     }
 
     fn goal_owner(&self) -> Result<(ObjectID, ObjectID), String> {
@@ -974,21 +921,6 @@ impl AIDockMoveToDockState {
         )
     }
 
-    fn lock_machine(&self) -> Result<(), String> {
-        let machine = self.move_helper.get_machine()?;
-        if let Ok(mut guard) = machine.try_lock() {
-            guard.lock();
-        }
-        Ok(())
-    }
-
-    fn unlock_machine(&self) -> Result<(), String> {
-        let machine = self.move_helper.get_machine()?;
-        if let Ok(mut guard) = machine.try_lock() {
-            guard.unlock();
-        }
-        Ok(())
-    }
 }
 
 impl ClassicState for AIDockMoveToDockState {
@@ -1032,13 +964,11 @@ impl ClassicState for AIDockMoveToDockState {
                     .is_allow_passthrough_type()
                     .map_err(|err| err.to_string())?
                 {
-                    if let Ok(owner_guard) = owner.read() {
-                        if let Some(ai) = owner_guard.get_ai_update_interface() {
-                            if let Ok(mut ai_guard) = ai.lock() {
-                                ai_guard
-                                    .ignore_obstacle(Some(goal_id))
-                                    .map_err(|err| err.to_string())?;
-                            }
+                    if let Ok(mut owner_guard) = owner.write() {
+                        if let Some(ai_guard) = owner_guard.get_ai_update_interface_mut() {
+                            ai_guard
+                                .ignore_obstacle(Some(goal_id))
+                                .map_err(|err| err.to_string())?;
                             self.move_helper.set_adjusts_destination(false);
                         }
                     }
@@ -1053,8 +983,6 @@ impl ClassicState for AIDockMoveToDockState {
         if let Ok(id) = self.move_helper.get_machine_owner_id() {
             self.move_helper.note_owner_id(id);
         }
-        self.lock_machine()?;
-
         self.move_helper.on_enter()
     }
 
@@ -1106,9 +1034,6 @@ impl ClassicState for AIDockMoveToDockState {
                 Ok::<_, String>(())
             });
         }
-
-        self.unlock_machine()?;
-
         self.move_helper.on_exit(exit)?;
         Ok(())
     }
@@ -1136,16 +1061,13 @@ pub struct AIDockProcessDockState {
 }
 
 impl AIDockProcessDockState {
-    pub fn new(
-        machine: &Arc<Mutex<StateMachine>>,
-        shared: Arc<DockSharedState>,
-    ) -> Result<Self, String> {
-        Ok(Self {
-            base: State::with_machine(Some(Arc::downgrade(machine)), "AIDockProcessDockState"),
+    pub fn new(machine: &StateMachine, shared: Arc<DockSharedState>) -> Self {
+        Self {
+            base: State::new(machine, "AIDockProcessDockState"),
             next_dock_action_frame: 0,
             drone_id: None,
             shared,
-        })
+        }
     }
 
     fn owner_and_goal(&self) -> Result<(ObjectID, ObjectID), String> {
@@ -1180,14 +1102,12 @@ impl AIDockProcessDockState {
 
         if let Ok(owner_guard) = owner.read() {
             if let Some(ai) = owner_guard.get_ai() {
-                if let Ok(ai_guard) = ai.lock() {
-                    if let Some(supply_truck) = ai_guard.get_supply_truck_ai_interface() {
-                        self.next_dock_action_frame = TheGameLogic::try_get_frame()?
-                            + supply_truck
-                                .get_action_delay_for_dock(goal_id)
-                                .map_err(|err| err.to_string())?;
-                        return Ok(());
-                    }
+                if let Some(supply_truck) = ai.get_supply_truck_ai_interface() {
+                    self.next_dock_action_frame = TheGameLogic::try_get_frame()?
+                        + supply_truck
+                            .get_action_delay_for_dock(goal_id)
+                            .map_err(|err| err.to_string())?;
+                    return Ok(());
                 }
             }
         }
@@ -1244,13 +1164,6 @@ impl AIDockProcessDockState {
             .and_then(|id| crate::object::registry::OBJECT_REGISTRY.get_object(id)))
     }
 
-    fn unlock_machine(&self) -> Result<(), String> {
-        let machine = self.base.get_machine()?;
-        if let Ok(mut guard) = machine.try_lock() {
-            guard.unlock();
-        }
-        Ok(())
-    }
 }
 
 impl ClassicState for AIDockProcessDockState {
@@ -1307,7 +1220,8 @@ impl ClassicState for AIDockProcessDockState {
     }
 
     fn classic_on_exit(&mut self, _exit: StateExitType) -> Result<(), String> {
-        self.unlock_machine()
+        // Machine unlock is handled by the `locks_machine` trait hook.
+        Ok(())
     }
 
     fn classic_is_busy(&self) -> bool {
@@ -1324,15 +1238,12 @@ pub struct AIDockMoveToExitState {
 }
 
 impl AIDockMoveToExitState {
-    pub fn new(
-        machine: &Arc<Mutex<StateMachine>>,
-        shared: Arc<DockSharedState>,
-    ) -> Result<Self, String> {
-        Ok(Self {
-            base: State::with_machine(Some(Arc::downgrade(machine)), "AIDockMoveToExitState"),
-            move_helper: AIInternalMoveToState::new(machine, "AIDockMoveToExitState".to_string())?,
+    pub fn new(machine: &StateMachine, shared: Arc<DockSharedState>) -> Self {
+        Self {
+            base: State::new(machine, "AIDockMoveToExitState"),
+            move_helper: AIInternalMoveToState::new("AIDockMoveToExitState".to_string()),
             shared,
-        })
+        }
     }
 
     fn goal_owner(&self) -> Result<(ObjectID, ObjectID), String> {
@@ -1380,13 +1291,11 @@ impl ClassicState for AIDockMoveToExitState {
                     .is_allow_passthrough_type()
                     .map_err(|err| err.to_string())?
                 {
-                    if let Ok(owner_guard) = owner.read() {
-                        if let Some(ai) = owner_guard.get_ai_update_interface() {
-                            if let Ok(mut ai_guard) = ai.lock() {
-                                ai_guard
-                                    .ignore_obstacle(Some(goal_id))
-                                    .map_err(|err| err.to_string())?;
-                            }
+                    if let Ok(mut owner_guard) = owner.write() {
+                        if let Some(ai_guard) = owner_guard.get_ai_update_interface_mut() {
+                            ai_guard
+                                .ignore_obstacle(Some(goal_id))
+                                .map_err(|err| err.to_string())?;
                             self.move_helper.set_adjusts_destination(false);
                         }
                     }
@@ -1426,12 +1335,6 @@ impl ClassicState for AIDockMoveToExitState {
             });
         }
 
-        if let Ok(machine) = self.move_helper.get_machine() {
-            if let Ok(mut guard) = machine.try_lock() {
-                guard.unlock();
-            }
-        }
-
         self.move_helper.on_exit(exit)?;
         Ok(())
     }
@@ -1453,11 +1356,11 @@ pub struct AIDockMoveToRallyState {
 }
 
 impl AIDockMoveToRallyState {
-    pub fn new(machine: &Arc<Mutex<StateMachine>>) -> Result<Self, String> {
-        Ok(Self {
-            base: State::with_machine(Some(Arc::downgrade(machine)), "AIDockMoveToRallyState"),
-            move_helper: AIInternalMoveToState::new(machine, "AIDockMoveToRallyState".to_string())?,
-        })
+    pub fn new(machine: &StateMachine) -> Self {
+        Self {
+            base: State::new(machine, "AIDockMoveToRallyState"),
+            move_helper: AIInternalMoveToState::new("AIDockMoveToRallyState".to_string()),
+        }
     }
 }
 

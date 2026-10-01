@@ -119,11 +119,6 @@ impl FollowWaypointPathCore {
         let which = get_game_logic_random_value(0, (link_count - 1) as i32) as usize;
         let next_id = current.get_link(which)?;
         self.prior_waypoint = self.current_waypoint.clone();
-        if let Ok(machine) = state.get_machine() {
-            if let Ok(mut guard) = machine.try_lock() {
-                guard.set_goal_position(current.position);
-            }
-        }
         resolve_waypoint_by_id(next_id)
     }
 
@@ -227,11 +222,6 @@ impl FollowWaypointPathCore {
 
         ai.set_path_extra_distance(self.calc_extra_path_distance())
             .map_err(|e| e.to_string())?;
-        if let Ok(machine) = state.get_machine() {
-            if let Ok(mut guard) = machine.try_lock() {
-                guard.set_goal_position(self.goal_position);
-            }
-        }
         let _dest = self.goal_position;
         Ok(())
     }

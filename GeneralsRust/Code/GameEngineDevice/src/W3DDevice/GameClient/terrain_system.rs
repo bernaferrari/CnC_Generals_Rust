@@ -92,7 +92,7 @@ impl TerrainRenderingSystem {
     pub fn from_world_height_map(
         device: Arc<Device>,
         queue: Arc<Queue>,
-        world_height_map: Arc<RwLock<WorldHeightMap>>,
+        world_height_map: WorldHeightMap,
         bind_group_layout: &BindGroupLayout,
     ) -> Result<Self> {
         let height_map = TerrainHeightMap::from_world_map(world_height_map);

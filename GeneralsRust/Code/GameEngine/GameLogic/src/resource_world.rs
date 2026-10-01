@@ -164,8 +164,7 @@ impl ResourceWorld for LiveResourceWorld {
         let query = self.clone_object(_query_id)?;
         let query_guard = query.read().ok()?;
         let ai = query_guard.get_ai_update_interface()?;
-        let ai_guard = ai.lock().ok()?;
-        let supply_truck = ai_guard.get_supply_truck_ai_interface()?;
+        let supply_truck = ai.get_supply_truck_ai_interface()?;
         supply_truck.get_preferred_dock_id()
     }
 
@@ -173,8 +172,7 @@ impl ResourceWorld for LiveResourceWorld {
         let query = self.clone_object(_query_id)?;
         let query_guard = query.read().ok()?;
         let ai = query_guard.get_ai_update_interface()?;
-        let ai_guard = ai.lock().ok()?;
-        let supply_truck = ai_guard.get_supply_truck_ai_interface()?;
+        let supply_truck = ai.get_supply_truck_ai_interface()?;
 
         let is_ai_player = query_guard
             .get_controlling_player_id()

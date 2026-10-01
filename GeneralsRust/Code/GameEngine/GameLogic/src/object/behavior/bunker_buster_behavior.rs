@@ -344,37 +344,35 @@ impl BunkerBusterBehavior {
 
         if target_exists {
             if let Some(target_arc) = target_arc.as_ref() {
-                if let Ok(target_guard) = target_arc.read() {
-                    if let Some(contain_handle) = target_guard.get_contain() {
-                        if let Ok(mut contain_guard) = contain_handle.lock() {
-                            if contain_guard.is_bustable() {
-                                let source_player_mask = object_guard
-                                    .get_controlling_player()
-                                    .and_then(|player| {
-                                        player.read().ok().map(|p| p.get_player_mask())
-                                    })
-                                    .unwrap_or_else(PlayerMaskType::none);
+                if let Ok(mut target_guard) = target_arc.write() {
+                    if let Some(contain) = target_guard.get_contain_mut() {
+                        if contain.is_bustable() {
+                            let source_player_mask = object_guard
+                                .get_controlling_player()
+                                .and_then(|player| {
+                                    player.read().ok().map(|p| p.get_player_mask())
+                                })
+                                .unwrap_or_else(PlayerMaskType::none);
 
-                                if let Some(weapon_template) =
-                                    data.occupant_damage_weapon_template.as_ref()
-                                {
-                                    let mut damage_info = crate::damage::DamageInfo::with_simple(
-                                        BUNKER_BUSTER_HARM_AND_FORCE_EXIT_AMOUNT,
-                                        object_guard.get_id(),
-                                        crate::damage::DamageType::from_u32(
-                                            weapon_template.damage_type as u32,
-                                        ),
-                                        crate::damage::DeathType::from_u32(
-                                            weapon_template.death_type as u32,
-                                        ),
-                                    );
-                                    damage_info.input.source_player_mask = source_player_mask;
-                                    damage_info.sync_from_input();
-                                    let _ = contain_guard
-                                        .harm_and_force_exit_all_contained(&mut damage_info);
-                                } else {
-                                    let _ = contain_guard.kill_all_contained();
-                                }
+                            if let Some(weapon_template) =
+                                data.occupant_damage_weapon_template.as_ref()
+                            {
+                                let mut damage_info = crate::damage::DamageInfo::with_simple(
+                                    BUNKER_BUSTER_HARM_AND_FORCE_EXIT_AMOUNT,
+                                    object_guard.get_id(),
+                                    crate::damage::DamageType::from_u32(
+                                        weapon_template.damage_type as u32,
+                                    ),
+                                    crate::damage::DeathType::from_u32(
+                                        weapon_template.death_type as u32,
+                                    ),
+                                );
+                                damage_info.input.source_player_mask = source_player_mask;
+                                damage_info.sync_from_input();
+                                let _ = contain
+                                    .harm_and_force_exit_all_contained(&mut damage_info);
+                            } else {
+                                let _ = contain.kill_all_contained();
                             }
                         }
                     }
@@ -473,8 +471,7 @@ impl BunkerBusterBehavior {
         })?;
         let guard = object.read().ok()?;
         let ai = guard.get_ai()?;
-        let ai_guard = ai.lock().ok()?;
-        ai_guard.get_current_victim()
+        ai.get_current_victim()
     }
 
     pub fn crc(

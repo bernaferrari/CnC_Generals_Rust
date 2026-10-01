@@ -35,7 +35,7 @@ impl BoneFXDamage {
         F: FnOnce(&mut dyn BoneFxControlInterface) -> Result<(), String>,
     {
         let object_id = self.object_id;
-        let Some(result) = OBJECT_REGISTRY.with_object(self.object_id, |object_guard| {
+        let Some(result) = OBJECT_REGISTRY.with_object_mut(self.object_id, |object_guard| {
             if let Some(module) = object_guard.find_update_module("BoneFXUpdate") {
                 let mut func = Some(func);
                 let mut result = None;
@@ -50,12 +50,8 @@ impl BoneFXDamage {
                     .unwrap_or_else(|| Err("BoneFXUpdate module type mismatch".to_string()));
             }
 
-            let Some(behavior) = object_guard.find_update_behavior("BoneFXUpdate") else {
+            let Some(mut behavior) = object_guard.find_update_behavior("BoneFXUpdate") else {
                 return Err("BoneFXUpdate type mismatch".to_string());
-            };
-            let mut behavior = match behavior.lock() {
-                Ok(b) => b,
-                Err(_) => return Err("BoneFXDamage: BoneFXUpdate lock failed".to_string()),
             };
             let Some(bone_fx) = behavior.get_bone_fx_control_interface() else {
                 return Err("BoneFXUpdate type mismatch".to_string());

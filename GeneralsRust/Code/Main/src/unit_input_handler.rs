@@ -8,11 +8,9 @@
 //! (host-testable; not full retail MessageStream / GUIEdit drag matrix).
 
 use crate::game_logic::{GameLogic, Team};
-use crate::input_system::{ButtonState, RtsCommand, RtsInputSystem};
+use crate::input_system::{ButtonState, RtsInputSystem};
 use crate::unit_control::{DOUBLE_CLICK_THRESHOLD_SECS, UnitControlSystem};
 use glam::Vec2;
-use std::sync::Arc;
-use std::sync::Mutex as AsyncMutex;
 use winit::keyboard::{Key, NamedKey};
 
 /// Screen-pixel residual: drag distance above this becomes box selection (not click).
@@ -68,24 +66,20 @@ impl UnitInputHandler {
     }
 
     /// Process input from the RTS input system
-    pub async fn process_input(
-        &mut self,
-        input_system: &mut RtsInputSystem,
-        game_logic: &Arc<AsyncMutex<GameLogic>>,
-    ) {
+    pub fn process_input(&mut self, input_system: &mut RtsInputSystem, game_logic: &mut GameLogic) {
         // Update camera
         self.unit_control.update_camera(input_system);
 
         // Update hover state
         let mouse_pos = input_system.get_mouse_position();
         self.current_mouse_pos = mouse_pos;
-        self.unit_control.update_hover(mouse_pos, game_logic).await;
+        self.unit_control.update_hover(mouse_pos);
 
         // Process mouse input
-        self.process_mouse_input(input_system, game_logic).await;
+        self.process_mouse_input(input_system, game_logic);
 
         // Process keyboard input
-        self.process_keyboard_input(input_system, game_logic).await;
+        self.process_keyboard_input(input_system, game_logic);
 
         // Update input state for next frame
         self.left_click_processed = false;
@@ -93,10 +87,10 @@ impl UnitInputHandler {
     }
 
     /// Process mouse input events
-    async fn process_mouse_input(
+    fn process_mouse_input(
         &mut self,
         input_system: &mut RtsInputSystem,
-        game_logic: &Arc<AsyncMutex<GameLogic>>,
+        game_logic: &mut GameLogic,
     ) {
         let mouse_pos = input_system.get_mouse_position();
         let shift_pressed = input_system.is_shift_pressed();
@@ -120,14 +114,12 @@ impl UnitInputHandler {
                     if drag_distance > DRAG_SELECT_THRESHOLD_PX {
                         // This was a drag operation - handle box selection
                         self.unit_control
-                            .handle_box_selection(start_pos, mouse_pos, shift_pressed, game_logic)
-                            .await;
+                            .handle_box_selection(start_pos, mouse_pos, shift_pressed, game_logic);
                         self.drag_in_progress = false;
                     } else {
                         // This was a click - handle unit selection
                         self.unit_control
-                            .handle_left_click(mouse_pos, shift_pressed, ctrl_pressed, game_logic)
-                            .await;
+                            .handle_left_click(mouse_pos, shift_pressed, ctrl_pressed, game_logic);
                     }
                 }
                 self.drag_start_pos = None;
@@ -140,8 +132,7 @@ impl UnitInputHandler {
             ButtonState::Pressed if !self.right_click_processed => {
                 self.right_click_processed = true;
                 self.unit_control
-                    .handle_right_click(mouse_pos, game_logic)
-                    .await;
+                    .handle_right_click(mouse_pos, game_logic);
             }
             _ => {}
         }
@@ -166,10 +157,10 @@ impl UnitInputHandler {
     }
 
     /// Process keyboard input events
-    async fn process_keyboard_input(
+    fn process_keyboard_input(
         &mut self,
         input_system: &mut RtsInputSystem,
-        game_logic: &Arc<AsyncMutex<GameLogic>>,
+        game_logic: &mut GameLogic,
     ) {
         // Control groups (0-9) - 10 groups total like C++ Generals
         for i in 0..=9 {
@@ -177,14 +168,11 @@ impl UnitInputHandler {
             if input_system.is_key_just_pressed(&key) {
                 if input_system.is_ctrl_pressed() {
                     // Ctrl+Number: Assign control group
-                    self.unit_control
-                        .assign_control_group(i as u8, game_logic)
-                        .await;
+                    self.unit_control.assign_control_group(i as u8);
                 } else {
                     // Number: Select control group
                     self.unit_control
-                        .select_control_group(i as u8, game_logic)
-                        .await;
+                        .select_control_group(i as u8, game_logic);
                 }
             }
         }
@@ -193,17 +181,17 @@ impl UnitInputHandler {
         if input_system.is_ctrl_pressed()
             && input_system.is_key_just_pressed(&Key::Character("a".into()))
         {
-            self.unit_control.select_all_units(game_logic).await;
+            self.unit_control.select_all_units(game_logic);
         }
 
         // Delete: Destroy selected units (debug feature)
         if input_system.is_key_just_pressed(&Key::Named(NamedKey::Delete)) {
-            self.delete_selected_units(game_logic).await;
+            self.delete_selected_units(game_logic);
         }
 
         // Tab: Cycle through units
         if input_system.is_key_just_pressed(&Key::Named(NamedKey::Tab)) {
-            self.cycle_selected_units(game_logic).await;
+            self.cycle_selected_units();
         }
 
         // F1: Toggle debug mode
@@ -216,22 +204,22 @@ impl UnitInputHandler {
         if input_system.is_key_just_pressed(&Key::Character("s".into()))
             && !input_system.is_ctrl_pressed()
         {
-            self.unit_control.command_stop(game_logic).await;
+            self.unit_control.command_stop(game_logic);
         }
 
         // H: Hold position command
         if input_system.is_key_just_pressed(&Key::Character("h".into())) {
-            self.unit_control.command_hold_position(game_logic).await;
+            self.unit_control.command_hold_position(game_logic);
         }
 
         // G: Guard command
         if input_system.is_key_just_pressed(&Key::Character("g".into())) {
-            self.unit_control.command_guard(game_logic).await;
+            self.unit_control.command_guard(game_logic);
         }
     }
 
     /// Delete selected units (debug feature)
-    async fn delete_selected_units(&mut self, game_logic: &Arc<AsyncMutex<GameLogic>>) {
+    fn delete_selected_units(&mut self, game_logic: &mut GameLogic) {
         let selected_objects = self.unit_control.get_selected_objects().to_vec();
 
         if selected_objects.is_empty() {
@@ -239,29 +227,19 @@ impl UnitInputHandler {
             return;
         }
 
-        let Ok(mut logic) = game_logic.lock() else {
-            log::warn!("Skipping delete_selected_units: game logic lock poisoned");
-            return;
-        };
-
         for &object_id in &selected_objects {
-            logic.destroy_object(object_id);
+            game_logic.destroy_object(object_id);
         }
 
         log::debug!("Destroyed {} selected units", selected_objects.len());
 
         // Clear selection since units are destroyed
         self.unit_control.selected_objects.clear();
-        logic.select_objects(self.local_player_id, vec![]);
+        game_logic.select_objects(self.local_player_id, vec![]);
     }
 
     /// Cycle through selected units
-    async fn cycle_selected_units(&mut self, game_logic: &Arc<AsyncMutex<GameLogic>>) {
-        let Ok(_logic) = game_logic.lock() else {
-            log::warn!("Skipping cycle_selected_units read: game logic lock poisoned");
-            return;
-        };
-
+    fn cycle_selected_units(&mut self) {
         // Wave 950: presentation-only unit cycle (no live GameLogic dual-read).
         let mut all_units: Vec<crate::game_logic::ObjectId> =
             if let Some(frame) = self.unit_control.presentation_frame() {
@@ -313,15 +291,8 @@ impl UnitInputHandler {
     }
 
     /// Get selection center for camera focusing
-    pub async fn get_selection_center(
-        &self,
-        game_logic: &Arc<AsyncMutex<GameLogic>>,
-    ) -> Option<glam::Vec3> {
-        let Ok(logic) = game_logic.lock() else {
-            log::warn!("Skipping get_selection_center: game logic lock poisoned");
-            return None;
-        };
-        self.unit_control.get_selection_center(&logic)
+    pub fn get_selection_center(&self) -> Option<glam::Vec3> {
+        self.unit_control.get_selection_center()
     }
 
     /// Check if an object is selected
@@ -369,80 +340,6 @@ impl UnitInputHandler {
     }
 }
 
-/// Helper functions for command processing
-impl UnitInputHandler {
-    /// Execute RTS command through unit control system
-    pub async fn execute_rts_command(
-        &mut self,
-        command: RtsCommand,
-        input_system: &RtsInputSystem,
-        game_logic: &Arc<AsyncMutex<GameLogic>>,
-    ) {
-        match command {
-            RtsCommand::LeftClick => {
-                let mouse_pos = input_system.get_mouse_position();
-                let shift_pressed = input_system.is_shift_pressed();
-                let ctrl_pressed = input_system.is_ctrl_pressed();
-                self.unit_control
-                    .handle_left_click(mouse_pos, shift_pressed, ctrl_pressed, game_logic)
-                    .await;
-            }
-            RtsCommand::RightClick => {
-                let mouse_pos = input_system.get_mouse_position();
-                self.unit_control
-                    .handle_right_click(mouse_pos, game_logic)
-                    .await;
-            }
-            RtsCommand::SelectAll => {
-                self.unit_control.select_all_units(game_logic).await;
-            }
-            RtsCommand::DeleteSelected => {
-                self.delete_selected_units(game_logic).await;
-            }
-            RtsCommand::CycleUnits => {
-                self.cycle_selected_units(game_logic).await;
-            }
-            RtsCommand::ControlGroup1
-            | RtsCommand::ControlGroup2
-            | RtsCommand::ControlGroup3
-            | RtsCommand::ControlGroup4
-            | RtsCommand::ControlGroup5
-            | RtsCommand::ControlGroup6
-            | RtsCommand::ControlGroup7
-            | RtsCommand::ControlGroup8
-            | RtsCommand::ControlGroup9 => {
-                let group_num = match command {
-                    RtsCommand::ControlGroup1 => 1,
-                    RtsCommand::ControlGroup2 => 2,
-                    RtsCommand::ControlGroup3 => 3,
-                    RtsCommand::ControlGroup4 => 4,
-                    RtsCommand::ControlGroup5 => 5,
-                    RtsCommand::ControlGroup6 => 6,
-                    RtsCommand::ControlGroup7 => 7,
-                    RtsCommand::ControlGroup8 => 8,
-                    RtsCommand::ControlGroup9 => 9,
-                    _ => 1,
-                };
-
-                if input_system.is_ctrl_pressed() {
-                    self.unit_control
-                        .assign_control_group(group_num as u8, game_logic)
-                        .await;
-                } else {
-                    self.unit_control
-                        .select_control_group(group_num as u8, game_logic)
-                        .await;
-                }
-            }
-            // Note: Group 0 is handled via direct keyboard input (Ctrl+0 or just 0)
-            // since RtsCommand enum doesn't include ControlGroup0
-            _ => {
-                // Other commands not handled by unit control
-                log::debug!("Unhandled RTS command: {:?}", command);
-            }
-        }
-    }
-}
 
 #[cfg(test)]
 mod tests {

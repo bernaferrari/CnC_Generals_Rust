@@ -612,6 +612,8 @@ impl ScriptActionDispatcher {
         if let Some(object_id) = object_id_opt {
             // Get the object manager and destroy the object
             let manager_arc = get_object_manager();
+            // destroy_object only queues the ID (no cascade, no callbacks),
+            // so the manager guard across it cannot re-enter.
             let _ = manager_arc.write().ok().map(|mut mgr_guard| {
                 mgr_guard.destroy_object(object_id);
                 log::info!("Named unit '{}' deleted (ID: {})", unit_name, object_id);
@@ -693,6 +695,11 @@ impl ScriptActionDispatcher {
         if let Some(object_id) = object_id_opt {
             // Get the object from manager and apply damage
             if let Some(obj_arc) = TheGameLogic::find_object_by_id(object_id) {
+            // The object guard is held across attempt_damage by necessity
+            // (&mut self method). With DamageType::Unresistable and source
+            // INVALID_ID, the damage path's registry re-entry targets only
+            // the (absent) source ID, not this object; own-id re-entry would
+            // require reworking the object-owned damage cascade (object/**).
                 let _ = obj_arc.write().ok().map(|mut obj_guard| {
                     // Create damage info with script damage (unresistable type)
                     let mut damage_info = DamageInfo::with_simple(

@@ -104,10 +104,7 @@ impl StateImplementation for AIGuardState {
         self.base.goal_position_copied = Some(pos);
     }
 
-    fn bind_goal_squad(
-        &mut self,
-        squad: Option<std::sync::Arc<std::sync::Mutex<crate::ai::squad::Squad>>>,
-    ) {
+    fn bind_goal_squad(&mut self, squad: Option<crate::ai::squad::Squad>) {
         self.base.goal_squad_copied = squad;
     }
 
@@ -238,12 +235,9 @@ impl ClassicState for AIGuardState {
             guard_machine.set_target_position_to_guard(owner_guard.get_position());
         }
 
-        let guard_mode = self
-            .base
-            .get_machine()
-            .ok()
-            .and_then(|machine| machine.try_lock().ok().map(|guard| guard.get_guard_mode_raw()))
-            .unwrap_or(self.enter_mode);
+        // Machines no longer attach a Weak self-reference; the machine guard-mode
+        // read never ran, so fall back to the enter-time mode unconditionally.
+        let guard_mode = self.enter_mode;
         guard_machine.set_guard_mode(GuardMode::from_i32(guard_mode));
 
         if guard_machine.init_default_state().is_failure() {
@@ -316,10 +310,7 @@ impl StateImplementation for AIGuardRetaliateState {
         self.base.goal_position_copied = Some(pos);
     }
 
-    fn bind_goal_squad(
-        &mut self,
-        squad: Option<std::sync::Arc<std::sync::Mutex<crate::ai::squad::Squad>>>,
-    ) {
+    fn bind_goal_squad(&mut self, squad: Option<crate::ai::squad::Squad>) {
         self.base.goal_squad_copied = squad;
     }
 
@@ -443,10 +434,7 @@ impl StateImplementation for AITunnelNetworkGuardState {
         self.base.goal_position_copied = Some(pos);
     }
 
-    fn bind_goal_squad(
-        &mut self,
-        squad: Option<std::sync::Arc<std::sync::Mutex<crate::ai::squad::Squad>>>,
-    ) {
+    fn bind_goal_squad(&mut self, squad: Option<crate::ai::squad::Squad>) {
         self.base.goal_squad_copied = squad;
     }
 

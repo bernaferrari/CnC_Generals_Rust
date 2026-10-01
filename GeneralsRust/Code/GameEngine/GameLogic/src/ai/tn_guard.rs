@@ -151,7 +151,6 @@ impl AttackExitConditionsInterface for TunnelNetworkExitConditionsHandle {
 
 #[derive(Debug)]
 pub struct TnGuardSharedState {
-    machine: Weak<Mutex<StateMachine>>,
     owner: Weak<RwLock<Object>>,
     fields: Mutex<TnGuardSharedFields>,
 }
@@ -165,9 +164,8 @@ struct TnGuardSharedFields {
 }
 
 impl TnGuardSharedState {
-    fn new(machine: &Arc<Mutex<StateMachine>>, owner: Weak<RwLock<Object>>) -> Self {
+    fn new(owner: Weak<RwLock<Object>>) -> Self {
         Self {
-            machine: Arc::downgrade(machine),
             owner,
             fields: Mutex::new(TnGuardSharedFields {
                 guard_mode: GuardMode::Normal,
@@ -195,26 +193,12 @@ impl TnGuardSharedState {
             .and_then(|mut fields| fields.pending_state.take())
     }
 
-    fn with_machine<F, R>(&self, f: F) -> Result<R, String>
-    where
-        F: FnOnce(&mut StateMachine) -> R,
-    {
-        let machine = self
-            .machine
-            .upgrade()
-            .ok_or_else(|| "tn guard state machine context lost".to_string())?;
-        let mut guard = machine
-            .lock()
-            .map_err(|_| "tn guard state machine lock poisoned".to_string())?;
-        Ok(f(&mut guard))
+    /// Request a transition; the owning machine applies it after the child
+    /// update returns, preserving the legacy callback order.
+    #[allow(dead_code)]
+    fn request_tn_state(&self, state: TNGuardStateType) {
+        self.request_state(state as u32);
     }
-
-    fn change_state(&self, state: TNGuardStateType) -> Result<(), String> {
-        self.with_machine(|machine| {
-            let _ = machine.set_current_state(state as u32);
-        })
-    }
-
     fn get_guard_mode(&self) -> GuardMode {
         self.fields
             .lock()
@@ -283,42 +267,36 @@ mod tests {
 
     #[test]
     fn tn_guard_shared_state_applies_transitions() {
-        let machine = Arc::new(Mutex::new(StateMachine::new(
-            Some(Weak::new()),
-            "test_tn_guard",
-        )));
-        {
-            let mut locked = machine.lock().unwrap();
-            locked.define_state(
-                TNGuardStateType::Inner as u32,
-                Box::new(DummyState),
-                None,
-                None,
-                None,
-            );
-            locked.define_state(
-                TNGuardStateType::Idle as u32,
-                Box::new(DummyState),
-                None,
-                None,
-                None,
-            );
-        }
+        let mut machine = StateMachine::new(Some(Weak::new()), "test_tn_guard");
+        machine.define_state(
+            TNGuardStateType::Inner as u32,
+            Box::new(DummyState),
+            None,
+            None,
+            None,
+        );
+        machine.define_state(
+            TNGuardStateType::Idle as u32,
+            Box::new(DummyState),
+            None,
+            None,
+            None,
+        );
 
-        let shared = TnGuardSharedState::new(&machine, Weak::new());
-        shared.change_state(TNGuardStateType::Inner).unwrap();
-        shared.change_state(TNGuardStateType::Idle).unwrap();
+        let shared = TnGuardSharedState::new(Weak::new());
+        shared.request_state(TNGuardStateType::Inner as u32);
+        let _ = machine.set_current_state(shared.take_pending_state().unwrap());
+        shared.request_state(TNGuardStateType::Idle as u32);
+        let _ = machine.set_current_state(shared.take_pending_state().unwrap());
 
-        let current = machine.lock().unwrap().get_current_state_id();
+        let current = machine.get_current_state_id();
         assert_eq!(current, Some(TNGuardStateType::Idle as u32));
     }
 
     #[test]
     fn tn_guard_shared_fields_are_isolated_per_instance_and_shared_with_states() {
-        let machine_a = Arc::new(Mutex::new(StateMachine::new(Some(Weak::new()), "tn_a")));
-        let machine_b = Arc::new(Mutex::new(StateMachine::new(Some(Weak::new()), "tn_b")));
-        let shared_a = Arc::new(TnGuardSharedState::new(&machine_a, Weak::new()));
-        let shared_b = Arc::new(TnGuardSharedState::new(&machine_b, Weak::new()));
+        let shared_a = Arc::new(TnGuardSharedState::new(Weak::new()));
+        let shared_b = Arc::new(TnGuardSharedState::new(Weak::new()));
         let child_view_a = Arc::clone(&shared_a);
 
         shared_a.set_nemesis_to_attack(41);
@@ -341,8 +319,8 @@ mod tests {
 /// Tunnel Network Guard state machine
 #[derive(Debug)]
 pub struct AITNGuardMachine {
-    /// Base state machine
-    base: Arc<Mutex<StateMachine>>,
+    /// Base state machine, owned by this machine.
+    base: StateMachine,
     /// Shared state for tunnel guard states
     shared: Arc<TnGuardSharedState>,
     /// Position to guard
@@ -355,11 +333,8 @@ pub struct AITNGuardMachine {
 
 impl AITNGuardMachine {
     pub fn new(owner: Weak<RwLock<Object>>) -> Self {
-        let base = Arc::new(Mutex::new(StateMachine::new(
-            Some(owner.clone()),
-            "AITNGuardMachine",
-        )));
-        let shared = Arc::new(TnGuardSharedState::new(&base, owner));
+        let base = StateMachine::new(Some(owner.clone()), "AITNGuardMachine");
+        let shared = Arc::new(TnGuardSharedState::new(owner));
 
         let mut machine = Self {
             base,
@@ -370,20 +345,13 @@ impl AITNGuardMachine {
         };
 
         machine.define_tn_guard_states();
-        if let Ok(mut guard) = machine.base.lock() {
-            let _ = guard.init_default_state();
-        }
+        let _ = machine.base.init_default_state();
         machine
     }
 
     fn define_tn_guard_states(&mut self) {
         let shared = self.shared.clone();
-        let base_arc = self.base.clone();
 
-        let mut base = self
-            .base
-            .lock()
-            .expect("tn guard state machine lock poisoned");
         let attack_aggressor_conditions_return = vec![StateConditionInfo::new(
             tn_guard_attack_aggressor_return,
             TNGuardStateType::AttackAggressor as u32,
@@ -397,57 +365,61 @@ impl AITNGuardMachine {
             "has_attacked_me_and_i_can_return_fire",
         )];
 
-        base.define_state(
+        let return_state = AITNGuardReturnState::new(&self.base, shared.clone());
+        self.base.define_state(
             TNGuardStateType::Return as u32,
-            Box::new(AITNGuardReturnState::new(&base_arc, shared.clone())),
+            Box::new(return_state),
             Some(TNGuardStateType::Idle as u32),
             Some(TNGuardStateType::Inner as u32),
             Some(&attack_aggressor_conditions_return),
         );
 
-        base.define_state(
+        let idle_state = AITNGuardIdleState::new(&self.base, shared.clone());
+        self.base.define_state(
             TNGuardStateType::Idle as u32,
-            Box::new(AITNGuardIdleState::new(&base_arc, shared.clone())),
+            Box::new(idle_state),
             Some(TNGuardStateType::Inner as u32),
             Some(TNGuardStateType::Return as u32),
             None,
         );
 
-        base.define_state(
+        let inner_state = AITNGuardInnerState::new(&self.base, shared.clone());
+        self.base.define_state(
             TNGuardStateType::Inner as u32,
-            Box::new(AITNGuardInnerState::new(&base_arc, shared.clone())),
+            Box::new(inner_state),
             Some(TNGuardStateType::Outer as u32),
             Some(TNGuardStateType::Outer as u32),
             Some(&attack_aggressor_conditions_inner),
         );
 
-        base.define_state(
+        let outer_state = AITNGuardOuterState::new(&self.base, shared.clone());
+        self.base.define_state(
             TNGuardStateType::Outer as u32,
-            Box::new(AITNGuardOuterState::new(&base_arc, shared.clone())),
+            Box::new(outer_state),
             Some(TNGuardStateType::GetCrate as u32),
             Some(TNGuardStateType::GetCrate as u32),
             None,
         );
 
-        base.define_state(
+        let crate_state = AITNGuardPickUpCrateState::new(&self.base, shared.clone());
+        self.base.define_state(
             TNGuardStateType::GetCrate as u32,
-            Box::new(AITNGuardPickUpCrateState::new(&base_arc, shared.clone())),
+            Box::new(crate_state),
             Some(TNGuardStateType::Return as u32),
             Some(TNGuardStateType::Return as u32),
             None,
         );
 
-        base.define_state(
+        let aggressor_state = AITNGuardAttackAggressorState::new(&self.base, shared.clone());
+        self.base.define_state(
             TNGuardStateType::AttackAggressor as u32,
-            Box::new(AITNGuardAttackAggressorState::new(
-                &base_arc,
-                shared.clone(),
-            )),
+            Box::new(aggressor_state),
             Some(TNGuardStateType::Return as u32),
             Some(TNGuardStateType::Return as u32),
             None,
         );
     }
+
 
     /// Get position to guard
     pub fn get_position_to_guard(&self) -> &Coord3D {
@@ -464,9 +436,7 @@ impl AITNGuardMachine {
     pub fn set_nemesis_id(&mut self, id: ObjectID) {
         self.nemesis_to_attack = id;
         self.shared.set_nemesis_to_attack(id);
-        if let Ok(mut guard) = self.base.lock() {
-            guard.set_goal_object_by_id(Some(id));
-        }
+        self.base.set_goal_object_by_id(Some(id));
     }
 
     /// Get nemesis ID
@@ -486,47 +456,29 @@ impl AITNGuardMachine {
     }
 
     pub fn init_default_state(&mut self) -> StateReturnType {
-        let Ok(mut guard) = self.base.lock() else {
-            return StateReturnType::Failure;
-        };
-        guard.init_default_state()
+        self.base.init_default_state()
     }
 
     pub fn set_state(&mut self, state: TNGuardStateType) -> StateReturnType {
-        let Ok(mut guard) = self.base.lock() else {
-            return StateReturnType::Failure;
-        };
-        guard.set_current_state(state as u32)
+        self.base.set_current_state(state as u32)
     }
 
     pub fn halt(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let Ok(mut guard) = self.base.lock() else {
-            return Ok(());
-        };
-        guard.halt()
+        self.base.halt()
     }
 
     pub fn is_in_attack_state(&self) -> bool {
-        self.base
-            .lock()
-            .map(|machine| machine.is_in_attack_state())
-            .unwrap_or(false)
+        self.base.is_in_attack_state()
     }
 
     pub fn is_in_guard_idle_state(&self) -> bool {
-        self.base
-            .lock()
-            .map(|machine| machine.is_in_guard_idle_state())
-            .unwrap_or(false)
+        self.base.is_in_guard_idle_state()
     }
 
     pub fn update(&mut self) -> StateReturnType {
-        let Ok(mut guard) = self.base.lock() else {
-            return StateReturnType::Failure;
-        };
-        let result = guard.update();
+        let result = self.base.update();
         if let Some(state_id) = self.shared.take_pending_state() {
-            let _ = guard.set_current_state(state_id);
+            let _ = self.base.set_current_state(state_id);
         }
         result
     }
@@ -577,9 +529,7 @@ impl AITNGuardMachine {
             .map_err(|e| format!("Failed to xfer version: {:?}", e))?;
 
         if version >= 2 {
-            if let Ok(mut guard) = self.base.lock() {
-                guard.xfer(xfer).map_err(|e| e.to_string())?;
-            }
+            self.base.xfer(xfer).map_err(|e| e.to_string())?;
         }
 
         xfer.xfer_object_id(&mut self.nemesis_to_attack)
@@ -599,11 +549,7 @@ impl AITNGuardMachine {
             self.position_to_guard,
             self.guard_mode,
         );
-        let mut guard = self
-            .base
-            .lock()
-            .map_err(|_| "tn guard state machine lock poisoned".to_string())?;
-        guard
+        self.base
             .load_post_process()
             .map_err(|e| format!("tn guard load_post_process: {e}"))
     }
@@ -618,13 +564,9 @@ struct TnGuardState {
 }
 
 impl TnGuardState {
-    fn new(
-        machine: &Arc<Mutex<StateMachine>>,
-        shared: Arc<TnGuardSharedState>,
-        name: &str,
-    ) -> Self {
+    fn new(machine: &StateMachine, shared: Arc<TnGuardSharedState>, name: &str) -> Self {
         Self {
-            base: State::with_machine(Some(Arc::downgrade(machine)), name),
+            base: State::new(machine, name),
             shared,
         }
     }
@@ -637,20 +579,13 @@ impl TnGuardState {
         &mut self.base
     }
 
-    fn change_state(&self, state: TNGuardStateType) -> Result<(), String> {
-        self.shared.change_state(state)
-    }
+
 
     fn guard_mode(&self) -> GuardMode {
         self.shared.get_guard_mode()
     }
 
-    fn with_machine<F, R>(&self, f: F) -> Result<R, String>
-    where
-        F: FnOnce(&mut StateMachine) -> R,
-    {
-        self.shared.with_machine(f)
-    }
+
 
     fn get_nemesis_to_attack(&self) -> ObjectID {
         self.shared.get_nemesis_to_attack()
@@ -676,7 +611,7 @@ pub struct AITNGuardInnerState {
 }
 
 impl AITNGuardInnerState {
-    pub fn new(machine: &Arc<Mutex<StateMachine>>, shared: Arc<TnGuardSharedState>) -> Self {
+    pub fn new(machine: &StateMachine, shared: Arc<TnGuardSharedState>) -> Self {
         Self {
             base: TnGuardState::new(machine, shared, "AITNGuardInner"),
             exit_conditions: Arc::new(Mutex::new(TunnelNetworkExitConditions::new())),
@@ -927,7 +862,7 @@ pub struct AITNGuardIdleState {
 }
 
 impl AITNGuardIdleState {
-    pub fn new(machine: &Arc<Mutex<StateMachine>>, shared: Arc<TnGuardSharedState>) -> Self {
+    pub fn new(machine: &StateMachine, shared: Arc<TnGuardSharedState>) -> Self {
         Self {
             base: TnGuardState::new(machine, shared, "AITNGuardIdleState"),
             next_enemy_scan_time: 0,
@@ -1082,7 +1017,7 @@ pub struct AITNGuardOuterState {
 }
 
 impl AITNGuardOuterState {
-    pub fn new(machine: &Arc<Mutex<StateMachine>>, shared: Arc<TnGuardSharedState>) -> Self {
+    pub fn new(machine: &StateMachine, shared: Arc<TnGuardSharedState>) -> Self {
         Self {
             base: TnGuardState::new(machine, shared, "AITNGuardOuter"),
             exit_conditions: Arc::new(Mutex::new(TunnelNetworkExitConditions::new())),
@@ -1224,8 +1159,6 @@ impl StateImplementation for AITNGuardOuterState {
         self.is_attacking = false;
     }
 }
-
-/// Return tunnel network guard state
 #[derive(Debug)]
 pub struct AITNGuardReturnState {
     base: TnGuardState,
@@ -1234,13 +1167,8 @@ pub struct AITNGuardReturnState {
 }
 
 impl AITNGuardReturnState {
-    pub fn new(machine: &Arc<Mutex<StateMachine>>, shared: Arc<TnGuardSharedState>) -> Self {
-        let enter_state = {
-            let guard = machine
-                .lock()
-                .expect("tn guard state machine lock poisoned while creating return state");
-            AIEnterState::new(&guard)
-        };
+    pub fn new(machine: &StateMachine, shared: Arc<TnGuardSharedState>) -> Self {
+        let enter_state = AIEnterState::new(machine);
         Self {
             base: TnGuardState::new(machine, shared, "AITNGuardReturn"),
             enter_state,
@@ -1375,13 +1303,8 @@ pub struct AITNGuardPickUpCrateState {
 }
 
 impl AITNGuardPickUpCrateState {
-    pub fn new(machine: &Arc<Mutex<StateMachine>>, shared: Arc<TnGuardSharedState>) -> Self {
-        let pick_up_state = {
-            let guard = machine
-                .lock()
-                .expect("tn guard state machine lock poisoned while creating crate state");
-            AIPickUpCrateState::new(&guard)
-        };
+    pub fn new(machine: &StateMachine, shared: Arc<TnGuardSharedState>) -> Self {
+        let pick_up_state = AIPickUpCrateState::new(machine);
         Self {
             base: TnGuardState::new(machine, shared, "AITNGuardPickUpCrate"),
             pick_up_state,
@@ -1433,7 +1356,7 @@ pub struct AITNGuardAttackAggressorState {
 }
 
 impl AITNGuardAttackAggressorState {
-    pub fn new(machine: &Arc<Mutex<StateMachine>>, shared: Arc<TnGuardSharedState>) -> Self {
+    pub fn new(machine: &StateMachine, shared: Arc<TnGuardSharedState>) -> Self {
         Self {
             base: TnGuardState::new(machine, shared, "AITNGuardAttackAggressor"),
             exit_conditions: Arc::new(Mutex::new(TunnelNetworkExitConditions::new())),
@@ -1779,7 +1702,7 @@ pub fn has_attacked_me_and_i_can_return_fire_tn(machine: &StateMachine) -> bool 
     if dual_world_registry_unavailable() {
         return false;
     }
-    let Some(owner) = machine.get_owner() else {
+    let Some(owner) = machine.get_machine_owner() else {
         return false;
     };
     has_attacked_tn_owner(&owner)
