@@ -2,7 +2,6 @@
 
 use crate::error::Result;
 use parking_lot::Mutex;
-use std::sync::Arc;
 
 /// Memory allocation strategy
 #[derive(Debug, Clone, Copy)]
@@ -20,15 +19,20 @@ pub struct MemoryPool {
     _strategy: AllocationStrategy,
     pool_size: usize,
     _block_size: usize,
-    _allocated_blocks: Arc<Mutex<Vec<*mut u8>>>,
 }
 
 /// Audio memory manager
 pub struct AudioMemoryManager {
     pools: Vec<MemoryPool>,
-    total_allocated: Arc<Mutex<usize>>,
-    peak_usage: Arc<Mutex<usize>>,
-    active_allocations: Arc<Mutex<usize>>,
+    /// Allocation counters guarded by a single lock
+    state: Mutex<CombinedState>,
+}
+
+/// Total/peak allocation tracking (previously three locks)
+struct CombinedState {
+    total_allocated: usize,
+    peak_usage: usize,
+    active_allocations: usize,
 }
 
 impl AudioMemoryManager {
@@ -36,9 +40,11 @@ impl AudioMemoryManager {
     pub fn new() -> Self {
         Self {
             pools: Vec::new(),
-            total_allocated: Arc::new(Mutex::new(0)),
-            peak_usage: Arc::new(Mutex::new(0)),
-            active_allocations: Arc::new(Mutex::new(0)),
+            state: Mutex::new(CombinedState {
+                total_allocated: 0,
+                peak_usage: 0,
+                active_allocations: 0,
+            }),
         }
     }
 
@@ -49,18 +55,12 @@ impl AudioMemoryManager {
         }
 
         {
-            let mut total = self.total_allocated.lock();
-            *total = total.saturating_add(size);
-
-            let mut peak = self.peak_usage.lock();
-            if *total > *peak {
-                *peak = *total;
+            let mut state = self.state.lock();
+            state.total_allocated = state.total_allocated.saturating_add(size);
+            if state.total_allocated > state.peak_usage {
+                state.peak_usage = state.total_allocated;
             }
-        }
-
-        {
-            let mut active = self.active_allocations.lock();
-            *active = active.saturating_add(1);
+            state.active_allocations = state.active_allocations.saturating_add(1);
         }
 
         Ok(vec![0u8; size])
@@ -72,13 +72,9 @@ impl AudioMemoryManager {
         drop(buffer);
 
         {
-            let mut total = self.total_allocated.lock();
-            *total = total.saturating_sub(size);
-        }
-
-        {
-            let mut active = self.active_allocations.lock();
-            *active = active.saturating_sub(1);
+            let mut state = self.state.lock();
+            state.total_allocated = state.total_allocated.saturating_sub(size);
+            state.active_allocations = state.active_allocations.saturating_sub(1);
         }
 
         Ok(())
@@ -86,21 +82,19 @@ impl AudioMemoryManager {
 
     /// Get memory statistics
     pub fn stats(&self) -> MemoryStats {
-        let total_allocated = *self.total_allocated.lock();
-        let peak_usage = *self.peak_usage.lock();
-        let active_allocations = *self.active_allocations.lock();
+        let state = self.state.lock();
 
         let pool_capacity: usize = self.pools.iter().map(|pool| pool.pool_size).sum();
         let pool_utilization = if pool_capacity == 0 {
             0.0
         } else {
-            (total_allocated.min(pool_capacity) as f32) / (pool_capacity as f32)
+            (state.total_allocated.min(pool_capacity) as f32) / (pool_capacity as f32)
         };
 
         MemoryStats {
-            total_allocated,
-            peak_usage,
-            active_allocations,
+            total_allocated: state.total_allocated,
+            peak_usage: state.peak_usage,
+            active_allocations: state.active_allocations,
             pool_utilization,
         }
     }
@@ -122,7 +116,6 @@ impl MemoryPool {
             _strategy: strategy,
             pool_size,
             _block_size: block_size,
-            _allocated_blocks: Arc::new(Mutex::new(Vec::new())),
         }
     }
 }
@@ -133,13 +126,7 @@ impl Default for AudioMemoryManager {
     }
 }
 
-// Safety: MemoryPool is thread-safe through internal synchronization
-// SAFETY: The only non-`Copy` field, `_allocated_blocks`, is an
-// `Arc<Mutex<Vec<*mut u8>>>`; the stored raw pointers are never
-// dereferenced through this type (the pool performs no allocation itself),
-// so moving a MemoryPool across threads is sound.
+// Safety: MemoryPool only carries plain configuration values, so moving it
+// across threads and sharing `&MemoryPool` is sound.
 unsafe impl Send for MemoryPool {}
-// SAFETY: Same reasoning as the Send impl: the raw pointers inside
-// `_allocated_blocks` are never dereferenced through this type, so sharing
-// `&MemoryPool` across threads is sound.
 unsafe impl Sync for MemoryPool {}

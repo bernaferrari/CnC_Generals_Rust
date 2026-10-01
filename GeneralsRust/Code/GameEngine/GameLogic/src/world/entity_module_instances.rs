@@ -17,18 +17,18 @@ use crate::object::helper::{
     StatusDamageHelperModuleData, SubdualDamageHelper, SubdualDamageHelperModuleData,
     TempWeaponBonusHelper, TempWeaponBonusHelperModuleData,
 };
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 #[derive(Debug, Clone)]
 pub enum EntityLiveModule {
-    Smc(Arc<Mutex<ObjectSMCHelper>>),
-    Status(Arc<Mutex<StatusDamageHelper>>),
-    Subdual(Arc<Mutex<SubdualDamageHelper>>),
-    Repulsor(Arc<Mutex<ObjectRepulsorHelper>>),
-    Defection(Arc<Mutex<ObjectDefectionHelper>>),
-    WeaponStatus(Arc<Mutex<ObjectWeaponStatusHelper>>),
-    FiringTracker(Arc<Mutex<FiringTracker>>),
-    TempWeaponBonus(Arc<Mutex<TempWeaponBonusHelper>>),
+    Smc(Arc<ObjectSMCHelper>),
+    Status(Arc<StatusDamageHelper>),
+    Subdual(Arc<SubdualDamageHelper>),
+    Repulsor(Arc<ObjectRepulsorHelper>),
+    Defection(Arc<ObjectDefectionHelper>),
+    WeaponStatus(Arc<ObjectWeaponStatusHelper>),
+    FiringTracker(Arc<FiringTracker>),
+    TempWeaponBonus(Arc<TempWeaponBonusHelper>),
     Template { tag: String },
 }
 
@@ -54,37 +54,37 @@ impl EntityLiveModule {
 
 pub fn live_modules_from_spec(spec: &EntityModuleInstallSpec) -> Vec<EntityLiveModule> {
     let mut out = Vec::new();
-    out.push(EntityLiveModule::Smc(Arc::new(Mutex::new(
-        ObjectSMCHelper::new(ObjectSMCHelperModuleData::new()),
+    out.push(EntityLiveModule::Smc(Arc::new(ObjectSMCHelper::new(
+        ObjectSMCHelperModuleData::new(),
     ))));
     if !spec.inactive_body {
-        out.push(EntityLiveModule::Status(Arc::new(Mutex::new(
-            StatusDamageHelper::new(0, StatusDamageHelperModuleData::new()),
+        out.push(EntityLiveModule::Status(Arc::new(StatusDamageHelper::new(
+            0,
+            StatusDamageHelperModuleData::new(),
         ))));
-        out.push(EntityLiveModule::Subdual(Arc::new(Mutex::new(
-            SubdualDamageHelper::new(0, SubdualDamageHelperModuleData::new()),
+        out.push(EntityLiveModule::Subdual(Arc::new(SubdualDamageHelper::new(
+            0,
+            SubdualDamageHelperModuleData::new(),
         ))));
     }
     if spec.can_be_repulsed {
-        out.push(EntityLiveModule::Repulsor(Arc::new(Mutex::new(
+        out.push(EntityLiveModule::Repulsor(Arc::new(
             ObjectRepulsorHelper::new(ObjectRepulsorHelperModuleData::new()),
-        ))));
+        )));
     }
     if !spec.shrubbery {
-        out.push(EntityLiveModule::Defection(Arc::new(Mutex::new(
+        out.push(EntityLiveModule::Defection(Arc::new(
             ObjectDefectionHelper::new(ObjectDefectionHelperModuleData::new()),
-        ))));
+        )));
     }
     if spec.has_weapons {
-        out.push(EntityLiveModule::WeaponStatus(Arc::new(Mutex::new(
+        out.push(EntityLiveModule::WeaponStatus(Arc::new(
             ObjectWeaponStatusHelper::new(ObjectWeaponStatusHelperModuleData::new(), true),
-        ))));
-        out.push(EntityLiveModule::FiringTracker(Arc::new(Mutex::new(
-            FiringTracker::new(0),
-        ))));
-        out.push(EntityLiveModule::TempWeaponBonus(Arc::new(Mutex::new(
+        )));
+        out.push(EntityLiveModule::FiringTracker(Arc::new(FiringTracker::new(0))));
+        out.push(EntityLiveModule::TempWeaponBonus(Arc::new(
             TempWeaponBonusHelper::new(0, TempWeaponBonusHelperModuleData::new()),
-        ))));
+        )));
     }
     for tag in &spec.template_module_tags {
         out.push(EntityLiveModule::Template { tag: tag.clone() });

@@ -102,7 +102,7 @@ pub struct ProductionUpdate {
     /// Reference to the owning object
     owner_id: ObjectID,
     /// Exit strategy for spawned units
-    exit_strategy: Option<Arc<Mutex<dyn ProductionExitStrategy>>>,
+    exit_strategy: Option<Box<dyn ProductionExitStrategy>>,
     /// Whether production is currently enabled
     production_enabled: bool,
     /// Last frame production was updated
@@ -218,7 +218,7 @@ impl ProductionUpdate {
     }
 
     /// Set the exit strategy
-    pub fn set_exit_strategy(&mut self, strategy: Arc<Mutex<dyn ProductionExitStrategy>>) {
+    pub fn set_exit_strategy(&mut self, strategy: Box<dyn ProductionExitStrategy>) {
         self.exit_strategy = Some(strategy);
     }
 
@@ -472,12 +472,8 @@ impl ProductionUpdate {
             let rally = self.rally_points.get_rally(Some(&entry.template_name));
 
             // Spawn the unit using exit strategy
-            if let Some(strategy) = &self.exit_strategy {
-                let mut strategy_guard = strategy
-                    .lock()
-                    .map_err(|_| "Failed to lock exit strategy".to_string())?;
-
-                strategy_guard.spawn_unit(
+            if let Some(strategy) = self.exit_strategy.as_deref_mut() {
+                strategy.spawn_unit(
                     &entry.template_name,
                     self.owner_id,
                     self.current_door,

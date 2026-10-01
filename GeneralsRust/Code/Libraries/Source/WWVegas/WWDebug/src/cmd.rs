@@ -8,7 +8,7 @@ use crate::{Profile, ProfileError, ProfileResult};
 use once_cell::sync::Lazy;
 use std::collections::HashMap;
 use std::io::{self, Write};
-use std::sync::Mutex;
+use parking_lot::Mutex;
 
 /// Command execution mode
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -38,16 +38,23 @@ struct ResultFactory {
     factory_fn: ResultFactoryFn,
 }
 
+/// Combined command interface payloads guarded by a single lock
+struct CombinedCommandState {
+    result_factories: HashMap<String, ResultFactory>,
+    registered_result_functions: Vec<Box<dyn ProfileResultInterface>>,
+}
+
 /// Global command interface state
 struct CommandInterfaceState {
-    result_factories: Mutex<HashMap<String, ResultFactory>>,
-    registered_result_functions: Mutex<Vec<Box<dyn ProfileResultInterface>>>,
+    combined: Mutex<CombinedCommandState>,
 }
 
 static COMMAND_STATE: Lazy<CommandInterfaceState> = Lazy::new(|| {
     let mut state = CommandInterfaceState {
-        result_factories: Mutex::new(HashMap::new()),
-        registered_result_functions: Mutex::new(Vec::new()),
+        combined: Mutex::new(CombinedCommandState {
+            result_factories: HashMap::new(),
+            registered_result_functions: Vec::new(),
+        }),
     };
 
     // Register default result functions
@@ -72,7 +79,8 @@ impl ProfileCmdInterface {
         factory_fn: ResultFactoryFn,
     ) -> ProfileResult<()> {
         let state = &*COMMAND_STATE;
-        let mut factories = state.result_factories.lock().unwrap();
+        let mut combined = state.combined.lock();
+        let factories = &mut combined.result_factories;
 
         // Don't add duplicates
         if factories.contains_key(name) {
@@ -94,7 +102,8 @@ impl ProfileCmdInterface {
     /// Execute result functions (typically called on program exit)
     pub fn run_result_functions() {
         let state = &*COMMAND_STATE;
-        let mut result_functions = state.registered_result_functions.lock().unwrap();
+        let mut combined = state.combined.lock();
+        let result_functions = &mut combined.registered_result_functions;
 
         // If no result functions registered, add default CSV output
         if result_functions.is_empty() {
@@ -234,8 +243,8 @@ impl ProfileCmdInterface {
 
         if args.is_empty() {
             // List available result functions
-            let factories = state.result_factories.lock().unwrap();
-            for factory in factories.values() {
+            let combined = state.combined.lock();
+            for factory in combined.result_factories.values() {
                 write!(writer, "{}", factory.name)?;
                 if (!factory.description.is_empty() && factory.description != factory.name)
                     || !normal_mode
@@ -250,16 +259,13 @@ impl ProfileCmdInterface {
             let func_name = args[0];
             let func_args = &args[1..];
 
-            let factories = state.result_factories.lock().unwrap();
-            let factory = factories.get(func_name);
+            let mut combined = state.combined.lock();
+            let factory = combined.result_factories.get(func_name);
 
             match factory {
                 Some(factory) => {
                     if let Some(result_fn) = (factory.factory_fn)(func_args) {
-                        drop(factories); // Release lock before acquiring another
-                        let mut result_functions =
-                            state.registered_result_functions.lock().unwrap();
-                        result_functions.push(result_fn);
+                        combined.registered_result_functions.push(result_fn);
 
                         if normal_mode {
                             writeln!(writer, "Result function {} added", func_name)?;
@@ -370,7 +376,8 @@ impl ProfileCmdInterface {
 
     /// Register default result functions
     fn register_default_result_functions(state: &mut CommandInterfaceState) {
-        let mut factories = state.result_factories.lock().unwrap();
+        let mut combined = state.combined.lock();
+        let factories = &mut combined.result_factories;
 
         // CSV file writer
         factories.insert(

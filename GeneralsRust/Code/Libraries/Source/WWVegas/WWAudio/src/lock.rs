@@ -195,7 +195,7 @@ impl<'a, T> Drop for ScopedLock<'a, T> {
 /// Lock manager for tracking and debugging locks
 pub struct LockManager {
     config: LockConfig,
-    active_locks: Arc<Mutex<std::collections::HashMap<String, Instant>>>,
+    active_locks: Mutex<std::collections::HashMap<String, Instant>>,
 }
 
 impl LockManager {
@@ -203,7 +203,7 @@ impl LockManager {
     pub fn new(config: LockConfig) -> Self {
         Self {
             config,
-            active_locks: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            active_locks: Mutex::new(std::collections::HashMap::new()),
         }
     }
 

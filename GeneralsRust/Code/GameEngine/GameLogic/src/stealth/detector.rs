@@ -10,7 +10,7 @@ use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{Module, ModuleData, NameKeyType};
 use log::{debug, trace};
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::Arc;
 
 /// Wave 339: host-only path has no dual-world factory objects.
 #[inline]
@@ -306,7 +306,7 @@ impl StealthDetectorController {
 pub struct StealthDetectorUpdate {
     module_name_key: NameKeyType,
     data: Arc<StealthDetectorUpdateModuleData>,
-    controller: Arc<Mutex<StealthDetectorController>>,
+    controller: StealthDetectorController,
     object_id: ObjectID,
     current_frame: u32,
 }
@@ -317,10 +317,7 @@ impl StealthDetectorUpdate {
         data: Arc<StealthDetectorUpdateModuleData>,
         object_id: ObjectID,
     ) -> Self {
-        let controller = Arc::new(Mutex::new(StealthDetectorController::new(
-            data.clone(),
-            object_id,
-        )));
+        let controller = StealthDetectorController::new(data.clone(), object_id);
 
         Self {
             module_name_key,
@@ -331,8 +328,8 @@ impl StealthDetectorUpdate {
         }
     }
 
-    pub fn get_controller(&self) -> Arc<Mutex<StealthDetectorController>> {
-        self.controller.clone()
+    pub fn get_controller(&self) -> &StealthDetectorController {
+        &self.controller
     }
 }
 
@@ -385,10 +382,7 @@ impl Snapshotable for StealthDetectorUpdate {
         xfer.xfer_unsigned_int(&mut self.current_frame)
             .map_err(|e| e.to_string())?;
 
-        let mut controller = self
-            .controller
-            .lock()
-            .map_err(|_| "StealthDetectorUpdate: controller lock poisoned".to_string())?;
+        let controller = &mut self.controller;
 
         xfer.xfer_unsigned_int(&mut controller.scan_cooldown_frames)
             .map_err(|e| e.to_string())?;

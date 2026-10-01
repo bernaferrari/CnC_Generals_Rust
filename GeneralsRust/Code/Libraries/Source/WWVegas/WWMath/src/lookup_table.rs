@@ -286,14 +286,14 @@ impl LookupTable {
 /// This provides a global registry of lookup tables that can be shared
 /// across the application.
 pub struct LookupTableManager {
-    tables: Arc<Mutex<HashMap<String, Arc<LookupTable>>>>,
+    tables: Mutex<HashMap<String, Arc<LookupTable>>>,
 }
 
 impl LookupTableManager {
     /// Create a new lookup table manager.
     pub fn new() -> Self {
         Self {
-            tables: Arc::new(Mutex::new(HashMap::new())),
+            tables: Mutex::new(HashMap::new()),
         }
     }
 

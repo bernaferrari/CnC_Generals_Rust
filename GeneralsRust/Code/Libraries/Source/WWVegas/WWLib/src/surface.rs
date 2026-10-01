@@ -42,7 +42,7 @@
 
 use crate::point::Point2D;
 use std::fmt::{Debug, Display, Formatter, Result as FmtResult};
-use std::sync::{Arc, Mutex};
+use std::sync::Mutex;
 
 /// Errors that can occur during surface operations.
 #[derive(Debug, Clone, PartialEq)]
@@ -419,7 +419,7 @@ pub struct Surface {
     pixel_format: PixelFormat,
     buffer: Vec<u8>,
     palette: Option<Palette>,
-    is_locked: Arc<Mutex<bool>>,
+    is_locked: Mutex<bool>,
 }
 
 impl Surface {
@@ -461,7 +461,7 @@ impl Surface {
             pixel_format,
             buffer,
             palette,
-            is_locked: Arc::new(Mutex::new(false)),
+            is_locked: Mutex::new(false),
         })
     }
 
@@ -1103,7 +1103,7 @@ impl Clone for Surface {
             pixel_format: self.pixel_format,
             buffer: self.buffer.clone(),
             palette: self.palette.clone(),
-            is_locked: Arc::new(Mutex::new(false)), // New surface starts unlocked
+            is_locked: Mutex::new(false), // New surface starts unlocked
         }
     }
 }

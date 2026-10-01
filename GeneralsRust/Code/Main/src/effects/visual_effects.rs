@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::assets::archive::ArchiveFileSystem;
-use crate::effects::animation_system::AnimationManager;
+
 use crate::effects::audio_integration::{AudioEventType, EnhancedAudioManager};
 use crate::effects::particle_system::ParticleSystemManager;
 use crate::game_logic::ObjectId;
@@ -542,8 +542,6 @@ impl WeaponEffect {
 pub struct VisualEffectsManager {
     effects: HashMap<EffectType, VisualEffect>,
     pub(crate) active_effects: Vec<ActiveEffect>,
-    particle_manager: Arc<std::sync::Mutex<ParticleSystemManager>>,
-    animation_manager: Arc<std::sync::Mutex<AnimationManager>>,
     scheduled_impulses: Vec<ScheduledImpulse>,
     active_lights: Vec<ActiveLight>,
     current_time: f32,
@@ -555,15 +553,10 @@ pub struct VisualEffectsManager {
 }
 
 impl VisualEffectsManager {
-    pub fn new(
-        particle_manager: Arc<std::sync::Mutex<ParticleSystemManager>>,
-        animation_manager: Arc<std::sync::Mutex<AnimationManager>>,
-    ) -> Self {
+    pub fn new() -> Self {
         let mut manager = Self {
             effects: HashMap::new(),
             active_effects: Vec::new(),
-            particle_manager,
-            animation_manager,
             scheduled_impulses: Vec::new(),
             active_lights: Vec::new(),
             current_time: 0.0,
@@ -581,6 +574,7 @@ impl VisualEffectsManager {
     /// Trigger a visual effect at a position
     pub fn trigger_effect(
         &mut self,
+        particle_manager: &mut ParticleSystemManager,
         effect_type: EffectType,
         position: Vec3,
         scale: f32,
@@ -590,10 +584,7 @@ impl VisualEffectsManager {
         if let Some(effect_def) = self.effects.get(&effect_type).cloned() {
             // Create particle system if specified
             let particle_system_id = if !effect_def.particle_template_name.is_empty() {
-                let mut manager = self
-                    .particle_manager
-                    .lock()
-                    .expect("Particle system manager mutex poisoned");
+                let manager = particle_manager;
                 let id = manager.create_system(&effect_def.particle_template_name);
                 if let Some(system_id) = id {
                     if let Some(system) = manager.get_system_mut(system_id) {
@@ -648,6 +639,7 @@ impl VisualEffectsManager {
     /// Trigger an explosion effect
     pub async fn trigger_explosion(
         &mut self,
+        particle_manager: &mut ParticleSystemManager,
         explosion: ExplosionEffect,
         audio_manager: &mut EnhancedAudioManager,
         archive_system: &mut ArchiveFileSystem,
@@ -662,10 +654,7 @@ impl VisualEffectsManager {
             let execute_at = self.current_time + delay_seconds;
 
             if !stage.particle_template.is_empty() {
-                let mut manager = self
-                    .particle_manager
-                    .lock()
-                    .expect("Particle system manager mutex poisoned");
+                let manager = particle_manager;
                 if let Some(system_id) = manager.create_system(&stage.particle_template) {
                     if let Some(system) = manager.get_system_mut(system_id) {
                         system.set_position(explosion.position);
@@ -718,6 +707,7 @@ impl VisualEffectsManager {
     /// Trigger a weapon effect
     pub async fn trigger_weapon_effect(
         &mut self,
+        particle_manager: &mut ParticleSystemManager,
         weapon: WeaponEffect,
         audio_manager: &mut EnhancedAudioManager,
         archive_system: &mut ArchiveFileSystem,
@@ -731,7 +721,7 @@ impl VisualEffectsManager {
             let effect_position = weapon.muzzle_position + stage.position_offset;
 
             // Trigger visual effect
-            self.trigger_effect(stage.effect_type, effect_position, 1.0, 0.0, None);
+            self.trigger_effect(particle_manager, stage.effect_type, effect_position, 1.0, 0.0, None);
 
             // Play audio
             if let Some(audio_event) = stage.audio_event {
@@ -752,7 +742,7 @@ impl VisualEffectsManager {
     }
 
     /// Update all active effects
-    pub fn update(&mut self, delta_time: f32, camera_pos: Vec3) {
+    pub fn update(&mut self, particle_manager: &mut ParticleSystemManager, delta_time: f32, camera_pos: Vec3) {
         self.current_time += delta_time;
         self.camera_position = camera_pos;
 
@@ -792,9 +782,7 @@ impl VisualEffectsManager {
             if elapsed >= effect.duration {
                 effect.is_active = false;
                 if let Some(system_id) = effect.particle_system_id {
-                    if let Ok(mut manager) = self.particle_manager.lock() {
-                        manager.destroy_system(system_id);
-                    }
+                    particle_manager.destroy_system(system_id);
                 }
                 continue;
             }

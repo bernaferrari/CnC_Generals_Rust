@@ -20,7 +20,7 @@
 
 use std::collections::HashMap;
 use std::fmt;
-use std::sync::{Mutex, OnceLock, RwLock};
+use std::sync::{Mutex, OnceLock};
 
 /// Errors that can occur during save/load operations
 #[derive(Debug)]
@@ -243,7 +243,6 @@ impl DefinitionManager {
 
 /// Global definition manager instance
 static THE_DEFINITION_MGR: OnceLock<Mutex<DefinitionManager>> = OnceLock::new();
-static DEFINITION_MGR_LOCK: RwLock<()> = RwLock::new(());
 
 /// Get a reference to the global definition manager
 fn get_definition_manager() -> std::sync::MutexGuard<'static, DefinitionManager> {
@@ -265,9 +264,8 @@ impl WWSaveLoad {
     /// This function should be called once by the application during startup.
     /// It initializes the global definition manager and prepares the save/load system.
     pub fn init() {
-        let _lock = DEFINITION_MGR_LOCK.write();
-
         // Initialize the definition manager if not already done
+
         let _mgr = get_definition_manager();
 
         // Additional initialization logic would go here
@@ -279,9 +277,8 @@ impl WWSaveLoad {
     /// This function should be called once by the application during shutdown.
     /// It frees all definitions and cleans up the save/load system resources.
     pub fn shutdown() {
-        let _lock = DEFINITION_MGR_LOCK.write();
-
         // Free all definitions from the global definition manager
+
         let mut def_mgr = get_definition_manager();
         def_mgr.free_definitions();
 

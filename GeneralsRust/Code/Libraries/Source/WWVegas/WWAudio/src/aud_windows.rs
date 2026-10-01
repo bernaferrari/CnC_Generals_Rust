@@ -123,7 +123,7 @@ pub struct AudThread {
     #[cfg(target_os = "windows")]
     thread_id: u32,
     data: Mutex<*mut std::ffi::c_void>,
-    callback: Arc<Box<AudThreadCallback>>,
+    callback: Box<AudThreadCallback>,
     #[cfg(target_os = "windows")]
     critical_section: Mutex<CRITICAL_SECTION>,
     #[cfg(not(target_os = "windows"))]
@@ -299,7 +299,7 @@ impl AudThread {
             #[cfg(target_os = "windows")]
             thread_id: 0,
             data: Mutex::new(ptr::null_mut()),
-            callback: Arc::new(callback),
+            callback,
             #[cfg(target_os = "windows")]
             // SAFETY: All-zero bit pattern is the documented initial state of
             // a CRITICAL_SECTION before InitializeCriticalSection; this field

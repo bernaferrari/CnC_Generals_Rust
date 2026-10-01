@@ -1410,11 +1410,11 @@ impl ScriptContext {
 /// C++ Reference: ScriptActions::executeAction()
 /// This is the main entry point for executing script actions
 pub struct ScriptActionDispatcher {
-    context: Arc<RwLock<ScriptContext>>,
+    context: ScriptContext,
 }
 
 impl ScriptActionDispatcher {
-    pub fn new(context: Arc<RwLock<ScriptContext>>) -> Self {
+    pub fn new(context: ScriptContext) -> Self {
         Self { context }
     }
 }
@@ -1423,13 +1423,12 @@ impl ScriptActionDispatcher {
 ///
 /// C++ Reference: ScriptConditions::evaluateCondition()
 /// This evaluates script conditions to determine script flow
-#[allow(dead_code)]
 pub struct ScriptConditionEvaluator {
-    context: Arc<RwLock<ScriptContext>>,
+    context: ScriptContext,
 }
 
 impl ScriptConditionEvaluator {
-    pub fn new(context: Arc<RwLock<ScriptContext>>) -> Self {
+    pub fn new(context: ScriptContext) -> Self {
         Self { context }
     }
 
@@ -1437,12 +1436,12 @@ impl ScriptConditionEvaluator {
         &self,
         f: impl FnOnce(&crate::scripting::HostTriggerWorld, u32) -> R,
     ) -> R {
-        let context = self.context.read().unwrap_or_else(|e| e.into_inner());
-        let world = context
+        let world = self
+            .context
             .host_trigger_world
             .lock()
             .unwrap_or_else(|e| e.into_inner());
-        f(&world, context.current_frame)
+        f(&world, self.context.current_frame)
     }
 }
 

@@ -217,29 +217,28 @@ impl Object {
         // this update loop.
         let body = self.get_body_module();
 
-        if let Some(helper) = &self.subdual_damage_helper {
-            if let Ok(mut guard) = helper.lock() {
-                let _ = guard.update_in_owner(current_frame, body.as_ref());
-            }
+        if let Some(helper) = &mut self.subdual_damage_helper {
+            let _ = helper.update_in_owner(current_frame, body.as_ref());
         }
 
-        let status_helper = self.status_damage_helper.clone();
-        if let Some(helper) = status_helper {
-            if let Ok(mut guard) = helper.lock() {
-                if guard.has_active_status() && guard.get_frame_to_heal() <= current_frame {
-                    let _ = guard.update_in_owner(current_frame, self);
-                }
+        // The owned helpers are taken out for the update call because
+        // `update_in_owner` needs `&mut self` (the owner) at the same time;
+        // they are put straight back, preserving the update sequence.
+        let mut status_helper = self.status_damage_helper.take();
+        if let Some(helper) = status_helper.as_mut() {
+            if helper.has_active_status() && helper.get_frame_to_heal() <= current_frame {
+                let _ = helper.update_in_owner(current_frame, self);
             }
         }
+        self.status_damage_helper = status_helper;
 
-        let temp_helper = self.temp_weapon_bonus_helper.clone();
-        if let Some(helper) = temp_helper {
-            if let Ok(mut guard) = helper.lock() {
-                if guard.has_active_bonus() && guard.get_frame_to_remove() <= current_frame {
-                    let _ = guard.update_in_owner(current_frame, self);
-                }
+        let mut temp_helper = self.temp_weapon_bonus_helper.take();
+        if let Some(helper) = temp_helper.as_mut() {
+            if helper.has_active_bonus() && helper.get_frame_to_remove() <= current_frame {
+                let _ = helper.update_in_owner(current_frame, self);
             }
         }
+        self.temp_weapon_bonus_helper = temp_helper;
 
         if self.get_last_shot_fired_frame() == current_frame {
             self.set_status(

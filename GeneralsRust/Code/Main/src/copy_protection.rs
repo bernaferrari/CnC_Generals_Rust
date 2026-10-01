@@ -195,19 +195,19 @@ pub enum LauncherMessage {
 /// Copy protection trait - allows different implementations to be swapped
 pub trait CopyProtectionProvider {
     /// Check if launcher is running
-    fn is_launcher_running(&self) -> Result<LauncherStatus>;
+    fn is_launcher_running(&mut self) -> Result<LauncherStatus>;
 
     /// Notify launcher of game start
-    fn notify_launcher(&self, message: LauncherMessage) -> Result<()>;
+    fn notify_launcher(&mut self, message: LauncherMessage) -> Result<()>;
 
     /// Check for launcher messages
-    fn check_for_message(&self) -> Result<Option<LauncherMessage>>;
+    fn check_for_message(&mut self) -> Result<Option<LauncherMessage>>;
 
     /// Perform copy protection validation
     fn validate_protection(&self) -> Result<ProtectionStatus>;
 
     /// Clean shutdown of copy protection
-    fn shutdown(&self) -> Result<()>;
+    fn shutdown(&mut self) -> Result<()>;
 
     /// Get provider name for logging
     fn provider_name(&self) -> &'static str;
@@ -235,12 +235,12 @@ impl DevelopmentProvider {
 }
 
 impl CopyProtectionProvider for DevelopmentProvider {
-    fn is_launcher_running(&self) -> Result<LauncherStatus> {
+    fn is_launcher_running(&mut self) -> Result<LauncherStatus> {
         debug!("Development mode: Bypassing launcher check");
         Ok(LauncherStatus::Bypassed)
     }
 
-    fn notify_launcher(&self, message: LauncherMessage) -> Result<()> {
+    fn notify_launcher(&mut self, message: LauncherMessage) -> Result<()> {
         debug!(
             "Development mode: Would notify launcher with message: {:?}",
             message
@@ -248,7 +248,7 @@ impl CopyProtectionProvider for DevelopmentProvider {
         Ok(())
     }
 
-    fn check_for_message(&self) -> Result<Option<LauncherMessage>> {
+    fn check_for_message(&mut self) -> Result<Option<LauncherMessage>> {
         debug!("Development mode: No launcher messages (bypassed)");
         Ok(None)
     }
@@ -258,7 +258,7 @@ impl CopyProtectionProvider for DevelopmentProvider {
         Ok(ProtectionStatus::Bypassed)
     }
 
-    fn shutdown(&self) -> Result<()> {
+    fn shutdown(&mut self) -> Result<()> {
         let elapsed = self.start_time.elapsed().unwrap_or_default();
         info!("Development copy protection shutdown after {:?}", elapsed);
         Ok(())
@@ -273,8 +273,8 @@ impl CopyProtectionProvider for DevelopmentProvider {
 pub struct ProductionProvider {
     start_time: SystemTime,
     process_id: u32,
-    launcher_last_seen: Mutex<Option<SystemTime>>,
-    message_queue: Mutex<VecDeque<LauncherMessage>>,
+    launcher_last_seen: Option<SystemTime>,
+    message_queue: VecDeque<LauncherMessage>,
 }
 
 impl Default for ProductionProvider {
@@ -288,13 +288,13 @@ impl ProductionProvider {
         Self {
             start_time: SystemTime::now(),
             process_id: std::process::id(),
-            launcher_last_seen: Mutex::new(None),
-            message_queue: Mutex::new(VecDeque::new()),
+            launcher_last_seen: None,
+            message_queue: VecDeque::new(),
         }
     }
 
     /// Check if launcher process is actually running (stub)
-    fn check_launcher_process(&self) -> Result<bool> {
+    fn check_launcher_process(&mut self) -> Result<bool> {
         if env_string("CNC_GENERALS_SKIP_LAUNCHER_CHECK").is_some() {
             return Ok(true);
         }
@@ -310,9 +310,8 @@ impl ProductionProvider {
                         .unwrap_or_else(|_| Duration::from_secs(u64::MAX));
 
                     if age <= Duration::from_secs(_DEFAULT_HEARTBEAT_STALE_SECONDS) {
-                        if let Ok(mut last_seen) = self.launcher_last_seen.lock() {
-                            *last_seen = Some(SystemTime::now());
-                        }
+                    self.launcher_last_seen = Some(SystemTime::now());
+
 
                         info!("Production launcher heartbeat is fresh for {}", path);
                         return Ok(true);
@@ -339,9 +338,8 @@ impl ProductionProvider {
             env_string("CNC_GENERALS_LAUNCHER_PID").and_then(|pid| pid.parse::<u32>().ok())
         {
             if pid != 0 {
-                if let Ok(mut last_seen) = self.launcher_last_seen.lock() {
-                    *last_seen = Some(SystemTime::now());
-                }
+                self.launcher_last_seen = Some(SystemTime::now());
+
                 return Ok(true);
             }
         }
@@ -380,7 +378,7 @@ impl ProductionProvider {
 }
 
 impl CopyProtectionProvider for ProductionProvider {
-    fn is_launcher_running(&self) -> Result<LauncherStatus> {
+    fn is_launcher_running(&mut self) -> Result<LauncherStatus> {
         match self.check_launcher_process() {
             Ok(true) => {
                 info!("Launcher detected and running");
@@ -397,39 +395,31 @@ impl CopyProtectionProvider for ProductionProvider {
         }
     }
 
-    fn notify_launcher(&self, message: LauncherMessage) -> Result<()> {
+    fn notify_launcher(&mut self, message: LauncherMessage) -> Result<()> {
         info!(
             "Production mode: Would notify launcher with message: {:?}",
             message
         );
 
-        if let Ok(mut queue) = self.message_queue.lock() {
-            if queue.len() >= _MAX_LOCAL_LAUNCHER_MESSAGE_QUEUE {
-                while queue.len() >= _MAX_LOCAL_LAUNCHER_MESSAGE_QUEUE {
-                    queue.pop_front();
-                }
+        let queue = &mut self.message_queue;
+        if queue.len() >= _MAX_LOCAL_LAUNCHER_MESSAGE_QUEUE {
+            while queue.len() >= _MAX_LOCAL_LAUNCHER_MESSAGE_QUEUE {
+                queue.pop_front();
             }
-
-            queue.push_back(message);
-        } else {
-            return Err(anyhow::anyhow!("Failed to access production message queue"));
         }
 
-        if let Ok(mut last_seen) = self.launcher_last_seen.lock() {
-            *last_seen = Some(SystemTime::now());
-        }
+        queue.push_back(message);
+
+        self.launcher_last_seen = Some(SystemTime::now());
 
         Ok(())
     }
 
-    fn check_for_message(&self) -> Result<Option<LauncherMessage>> {
-        if let Ok(mut queue) = self.message_queue.lock() {
-            if let Some(message) = queue.pop_front() {
-                return Ok(Some(message));
-            }
-        } else {
-            return Err(anyhow::anyhow!("Failed to access production message queue"));
+    fn check_for_message(&mut self) -> Result<Option<LauncherMessage>> {
+        if let Some(message) = self.message_queue.pop_front() {
+            return Ok(Some(message));
         }
+
 
         if let Some(path) = env_string("CNC_GENERALS_MESSAGE_FILE") {
             let message = parse_message_file(&path);
@@ -453,17 +443,12 @@ impl CopyProtectionProvider for ProductionProvider {
         self.perform_protection_validation()
     }
 
-    fn shutdown(&self) -> Result<()> {
+    fn shutdown(&mut self) -> Result<()> {
         let elapsed = self.start_time.elapsed();
         info!("Production copy protection shutdown after {:?}", elapsed);
 
-        if let Ok(mut queue) = self.message_queue.lock() {
-            queue.clear();
-        }
-
-        if let Ok(mut last_seen) = self.launcher_last_seen.lock() {
-            *last_seen = None;
-        }
+        self.message_queue.clear();
+        self.launcher_last_seen = None;
 
         Ok(())
     }
@@ -541,7 +526,7 @@ impl CopyProtection {
     }
 
     /// Check if launcher is running (matching C++ CopyProtect::isLauncherRunning)
-    pub fn is_launcher_running(&self) -> bool {
+    pub fn is_launcher_running(&mut self) -> bool {
         if !self.initialized {
             debug!(
                 "Copy protection not initialized or disabled, returning false for launcher check"
@@ -572,7 +557,7 @@ impl CopyProtection {
     }
 
     /// Notify launcher of game start (matching C++ CopyProtect::notifyLauncher)
-    pub fn notify_launcher(&self) -> Result<()> {
+    pub fn notify_launcher(&mut self) -> Result<()> {
         if !self.initialized {
             return Err(anyhow::anyhow!("Copy protection not initialized"));
         }
@@ -598,7 +583,7 @@ impl CopyProtection {
     }
 
     /// Notify launcher with current game version for compatibility checks.
-    pub fn notify_launcher_version(&self, game_version: &str) -> Result<()> {
+    pub fn notify_launcher_version(&mut self, game_version: &str) -> Result<()> {
         if !self.initialized {
             return Err(anyhow::anyhow!("Copy protection not initialized"));
         }
@@ -616,7 +601,7 @@ impl CopyProtection {
     }
 
     /// Check for launcher messages (matching C++ CopyProtect::checkForMessage)
-    pub fn check_for_message(&self) -> Result<Option<LauncherMessage>> {
+    pub fn check_for_message(&mut self) -> Result<Option<LauncherMessage>> {
         if !self.initialized || !COPY_PROTECTION_ENABLED.load(Ordering::Relaxed) {
             return Ok(None);
         }
@@ -627,7 +612,7 @@ impl CopyProtection {
     }
 
     /// Clean shutdown (matching C++ CopyProtect::shutdown)
-    pub fn shutdown(&self) -> Result<()> {
+    pub fn shutdown(&mut self) -> Result<()> {
         if !self.initialized {
             debug!("Copy protection not initialized, nothing to shutdown");
             return Ok(());
@@ -727,7 +712,7 @@ pub fn get_copy_protection() -> Option<CopyProtectionHandle> {
 /// Shutdown global copy protection
 pub fn shutdown_copy_protection() -> Result<()> {
     if let Some(arc) = COPY_PROTECTION.get() {
-        let cp = arc
+        let mut cp = arc
             .lock()
             .expect("CopyProtection mutex poisoned during shutdown");
         cp.shutdown()?;
@@ -762,7 +747,7 @@ pub fn is_copy_protection_enabled() -> bool {
 pub fn is_launcher_running() -> bool {
     match get_copy_protection() {
         Some(handle) => {
-            let cp = handle.lock();
+            let mut cp = handle.lock();
             cp.is_launcher_running()
         }
         None => {
@@ -776,7 +761,7 @@ pub fn is_launcher_running() -> bool {
 pub fn notify_launcher() -> Result<()> {
     match get_copy_protection() {
         Some(handle) => {
-            let cp = handle.lock();
+            let mut cp = handle.lock();
             cp.notify_launcher()
         }
         None => Err(anyhow::anyhow!("Copy protection not initialized")),
@@ -787,7 +772,7 @@ pub fn notify_launcher() -> Result<()> {
 pub fn notify_launcher_version(game_version: &str) -> Result<()> {
     match get_copy_protection() {
         Some(handle) => {
-            let cp = handle.lock();
+            let mut cp = handle.lock();
             cp.notify_launcher_version(game_version)
         }
         None => Err(anyhow::anyhow!("Copy protection not initialized")),
@@ -798,7 +783,7 @@ pub fn notify_launcher_version(game_version: &str) -> Result<()> {
 pub fn check_for_message() -> Result<Option<LauncherMessage>> {
     match get_copy_protection() {
         Some(handle) => {
-            let cp = handle.lock();
+            let mut cp = handle.lock();
             cp.check_for_message()
         }
         None => Ok(None),
@@ -818,7 +803,7 @@ mod tests {
 
     #[test]
     fn test_development_provider() {
-        let provider = DevelopmentProvider::new();
+        let mut provider = DevelopmentProvider::new();
 
         // All checks should return bypassed in development mode
         assert_eq!(
@@ -840,7 +825,7 @@ mod tests {
 
     #[test]
     fn test_production_provider() {
-        let provider = ProductionProvider::new();
+        let mut provider = ProductionProvider::new();
 
         // Production provider should return actual status (currently stubs)
         assert_eq!(

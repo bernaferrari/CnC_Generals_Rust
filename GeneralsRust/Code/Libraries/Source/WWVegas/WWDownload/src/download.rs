@@ -66,7 +66,7 @@ pub struct DownloadManager {
     #[allow(dead_code)]
     config_manager: ConfigManager,
     http_client: Client,
-    current_status: Arc<Mutex<DownloadStatus>>,
+    current_status: DownloadStatus,
 }
 
 impl DownloadManager {
@@ -85,7 +85,7 @@ impl DownloadManager {
         Ok(Self {
             config_manager,
             http_client,
-            current_status: Arc::new(Mutex::new(DownloadStatus::None)),
+            current_status: DownloadStatus::None,
         })
     }
 
@@ -347,15 +347,12 @@ impl DownloadManager {
 
     /// Get current status
     pub fn status(&self) -> DownloadStatus {
-        *self.current_status.lock().unwrap()
+        self.current_status
     }
 
     /// Set current status
     async fn set_status(&self, status: DownloadStatus) {
-        {
-            let mut current = self.current_status.lock().unwrap();
-            *current = status;
-        }
+        self.current_status = status;
         debug!("Download status changed to: {:?}", status);
     }
 

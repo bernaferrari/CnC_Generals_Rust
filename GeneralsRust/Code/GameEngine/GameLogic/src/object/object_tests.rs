@@ -307,9 +307,7 @@ mod tests {
         let mut saved = Object::new_test(42, 100.0);
         assert!(saved.set_health(55.0).is_ok());
         if let Some(helper) = saved.status_damage_helper() {
-            if let Ok(mut guard) = helper.lock() {
-                guard.set_frame_to_heal_for_test(77);
-            }
+            helper.set_frame_to_heal_for_test(77);
         }
 
         let mut bytes = Vec::new();
@@ -334,7 +332,7 @@ mod tests {
         );
         let heal_frame = loaded
             .status_damage_helper()
-            .and_then(|h| h.lock().ok().map(|g| g.get_frame_to_heal()))
+            .map(|h| h.get_frame_to_heal())
             .unwrap_or(0);
         assert_eq!(heal_frame, 77, "StatusDamageHelper must xfer with Object");
     }
@@ -574,9 +572,7 @@ mod tests {
         let mut saved = Object::new_test(7, 100.0);
         assert!(saved.behavior_module_xfer_count() >= 3);
         if let Some(helper) = saved.status_damage_helper() {
-            if let Ok(mut guard) = helper.lock() {
-                guard.set_frame_to_heal_for_test(88);
-            }
+            helper.set_frame_to_heal_for_test(88);
         }
 
         let mut bytes = Vec::new();
@@ -598,7 +594,7 @@ mod tests {
         );
         let heal_frame = loaded
             .status_damage_helper()
-            .and_then(|h| h.lock().ok().map(|g| g.get_frame_to_heal()))
+            .map(|h| h.get_frame_to_heal())
             .unwrap_or(0);
         assert_eq!(heal_frame, 88);
     }
@@ -1425,7 +1421,7 @@ mod tests {
         }
         let mut victim = Object::new_test_from_template(id, 100.0, Arc::new(template));
         victim.set_team(Some(team.clone())).unwrap();
-        victim.set_radar_data_for_test(Some(Arc::new(Mutex::new(RadarObject::new(id)))));
+        victim.set_radar_data_for_test(Some(Box::new(RadarObject::new(id))));
         (team, victim)
     }
 

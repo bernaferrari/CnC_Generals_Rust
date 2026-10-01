@@ -776,13 +776,9 @@ impl Renderer {
             .light_environment
             .as_ref()
             .map(|env| {
-                env.lights.iter().any(|light| {
-                    if let Ok(light) = light.lock() {
-                        light.enabled && light.casts_shadows
-                    } else {
-                        false
-                    }
-                })
+                env.lights
+                    .iter()
+                    .any(|light| light.enabled && light.casts_shadows)
             })
             .unwrap_or(false);
 

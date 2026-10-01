@@ -187,25 +187,17 @@ impl ScriptEngine {
         // Host takes the engine out of the global RwLock before update()
         // (scripts_camera.rs), so this walk cannot re-lock TheScriptEngine.
 
-        // Prepare executor context for this frame (shared by action/condition evaluation).
-        let exec_context = Arc::new(RwLock::new(crate::scripting::executor::ScriptContext {
-            game_logic_id: 0,
-            object_manager_id: 0,
-            player_manager_id: 0,
-            event_system_id: 0,
-            camera_system_id: 0,
-            audio_system_id: 0,
-            partition_manager_id: 0,
-            special_powers_id: 0,
-            current_frame,
-            suppress_new_windows: false,
-            host_trigger_world: Arc::new(std::sync::Mutex::new(Default::default())),
-        }));
-
+        // Prepare executor context for this frame (fresh per consumer; the
+        // previously shared RwLock wrapper never carried observable state
+        // between the dispatcher and the evaluator).
+        let mut exec_context = crate::scripting::executor::ScriptContext::new();
+        exec_context.current_frame = current_frame;
         let mut action_dispatcher =
-            crate::scripting::executor::ScriptActionDispatcher::new(exec_context.clone());
+            crate::scripting::executor::ScriptActionDispatcher::new(exec_context);
         let mut condition_evaluator =
-            crate::scripting::executor::ScriptConditionEvaluator::new(exec_context);
+            crate::scripting::executor::ScriptConditionEvaluator::new(
+                crate::scripting::executor::ScriptContext::new(),
+            );
 
         // Snapshot player names before dispatch.  A script action may change
         // player state or call a subroutine; no PlayerList lock may survive
@@ -620,19 +612,8 @@ impl ScriptEngine {
         });
 
         let current_frame = crate::helpers::TheGameLogic::get_frame();
-        let exec_context = Arc::new(RwLock::new(crate::scripting::executor::ScriptContext {
-            game_logic_id: 0,
-            object_manager_id: 0,
-            player_manager_id: 0,
-            event_system_id: 0,
-            camera_system_id: 0,
-            audio_system_id: 0,
-            partition_manager_id: 0,
-            special_powers_id: 0,
-            current_frame,
-            suppress_new_windows: false,
-            host_trigger_world: Arc::new(std::sync::Mutex::new(Default::default())),
-        }));
+        let mut exec_context = crate::scripting::executor::ScriptContext::new();
+        exec_context.current_frame = current_frame;
         let mut dispatcher = crate::scripting::executor::ScriptActionDispatcher::new(exec_context);
 
         let mut i: usize = 0;

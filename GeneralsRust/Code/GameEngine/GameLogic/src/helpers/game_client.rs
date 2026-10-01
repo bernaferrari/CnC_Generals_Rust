@@ -179,25 +179,48 @@ pub struct ScenePointLight {
 /// maps belong to the world bundle so a staged restore cannot mutate the
 /// still-playable world or leak records into the next match.
 pub(crate) struct ClientVisualState {
-    pub(crate) drawables: Mutex<HashMap<u32, DrawableState>>,
-    pub(crate) model_draw_frames: Mutex<HashMap<ObjectID, ObjectModelDrawFrameState>>,
-    pub(crate) wheel_info: Mutex<HashMap<ObjectID, DrawWheelInfo>>,
-    pub(crate) point_lights: Mutex<HashMap<u64, ScenePointLight>>,
+    /// All mutable presentation-bridge queues behind one lock: the maps are
+    /// only ever touched together from the single host/client update paths,
+    /// so one consolidated guard replaces six per-map mutexes.
+    pub(crate) queues: Mutex<ClientVisualQueues>,
     pub(crate) next_point_light: std::sync::atomic::AtomicU64,
-    pub(crate) terrain_trees: Mutex<HashMap<u32, TerrainTreeRegistration>>,
-    pub(crate) weapon_recoils: Mutex<Vec<(ObjectID, f32, f32)>>,
+}
+
+/// The mutable maps previously locked individually on `ClientVisualState`.
+pub(crate) struct ClientVisualQueues {
+    pub(crate) drawables: HashMap<u32, DrawableState>,
+    pub(crate) model_draw_frames: HashMap<ObjectID, ObjectModelDrawFrameState>,
+    pub(crate) wheel_info: HashMap<ObjectID, DrawWheelInfo>,
+    pub(crate) point_lights: HashMap<u64, ScenePointLight>,
+    pub(crate) terrain_trees: HashMap<u32, TerrainTreeRegistration>,
+    pub(crate) weapon_recoils: Vec<(ObjectID, f32, f32)>,
+}
+
+impl ClientVisualState {
+    pub(crate) fn with_queues<R>(
+        &self,
+        f: impl FnOnce(&mut ClientVisualQueues) -> R,
+    ) -> R {
+        let mut queues = self
+            .queues
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        f(&mut queues)
+    }
 }
 
 impl Default for ClientVisualState {
     fn default() -> Self {
         Self {
-            drawables: Mutex::new(HashMap::new()),
-            model_draw_frames: Mutex::new(HashMap::new()),
-            wheel_info: Mutex::new(HashMap::new()),
-            point_lights: Mutex::new(HashMap::new()),
+            queues: Mutex::new(ClientVisualQueues {
+                drawables: HashMap::new(),
+                model_draw_frames: HashMap::new(),
+                wheel_info: HashMap::new(),
+                point_lights: HashMap::new(),
+                terrain_trees: HashMap::new(),
+                weapon_recoils: Vec::new(),
+            }),
             next_point_light: std::sync::atomic::AtomicU64::new(1),
-            terrain_trees: Mutex::new(HashMap::new()),
-            weapon_recoils: Mutex::new(Vec::new()),
         }
     }
 }
@@ -247,31 +270,31 @@ impl ClientVisualHandle {
         }
         self.stores
             .client_visuals()
-            .weapon_recoils
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .push((object_id, amount, aim_angle));
+            .with_queues(|queues| queues.weapon_recoils.push((object_id, amount, aim_angle)));
     }
 
     pub fn snapshot_objectless_drawables(&self) -> Vec<(u32, DrawableState)> {
-        let Ok(map) = self.stores.client_visuals().drawables.lock() else {
-            return Vec::new();
-        };
-        let mut entries: Vec<(u32, DrawableState)> = map
-            .iter()
-            .filter_map(|(id, state)| {
-                let bound = state
-                    .drawable
-                    .as_ref()
-                    .and_then(|drawable| drawable.read().ok())
-                    .map(|guard| guard.get_object_id())
-                    .unwrap_or(INVALID_ID);
-                if bound != INVALID_ID && bound != 0 {
-                    return None;
-                }
-                Some((*id, state.clone()))
-            })
-            .collect();
+        let mut entries: Vec<(u32, DrawableState)> = self
+            .stores
+            .client_visuals()
+            .with_queues(|queues| {
+                queues
+                    .drawables
+                    .iter()
+                    .filter_map(|(id, state)| {
+                        let bound = state
+                            .drawable
+                            .as_ref()
+                            .and_then(|drawable| drawable.read().ok())
+                            .map(|guard| guard.get_object_id())
+                            .unwrap_or(INVALID_ID);
+                        if bound != INVALID_ID && bound != 0 {
+                            return None;
+                        }
+                        Some((*id, state.clone()))
+                    })
+                    .collect()
+            });
         entries.sort_by_key(|(id, _)| *id);
         entries
     }
@@ -304,14 +327,9 @@ impl ClientVisualHandle {
     }
 
     pub fn take_weapon_recoils(&self) -> Vec<(ObjectID, f32, f32)> {
-        std::mem::take(
-            &mut *self
-                .stores
-                .client_visuals()
-                .weapon_recoils
-                .lock()
-                .unwrap_or_else(|p| p.into_inner()),
-        )
+        self.stores
+            .client_visuals()
+            .with_queues(|queues| std::mem::take(&mut queues.weapon_recoils))
     }
 
     /// Clear the presentation bridge for this world after its GameClient
@@ -319,37 +337,17 @@ impl ClientVisualHandle {
     /// the active slot, so reset must use the owner captured by the engine.
     pub fn clear_visual_state_for_reset(&self) {
         let visuals = self.stores.client_visuals();
-        let drawables =
-            std::mem::take(&mut *visuals.drawables.lock().unwrap_or_else(|p| p.into_inner()));
-        visuals
-            .model_draw_frames
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .clear();
-        visuals
-            .wheel_info
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .clear();
-        visuals
-            .point_lights
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .clear();
+        visuals.with_queues(|queues| {
+            queues.drawables.clear();
+            queues.model_draw_frames.clear();
+            queues.wheel_info.clear();
+            queues.point_lights.clear();
+            queues.terrain_trees.clear();
+            queues.weapon_recoils.clear();
+        });
         visuals
             .next_point_light
             .store(1, std::sync::atomic::Ordering::Relaxed);
-        visuals
-            .terrain_trees
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .clear();
-        visuals
-            .weapon_recoils
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .clear();
-        drop(drawables);
     }
 }
 
@@ -359,8 +357,8 @@ pub fn create_scene_point_light() -> u64 {
     let id = visuals
         .next_point_light
         .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    if let Ok(mut lights) = visuals.point_lights.lock() {
-        lights.insert(
+    visuals.with_queues(|queues| {
+        queues.point_lights.insert(
             id,
             ScenePointLight {
                 id,
@@ -373,7 +371,7 @@ pub fn create_scene_point_light() -> u64 {
                 fade_remaining: 0,
             },
         );
-    }
+    });
     id
 }
 
@@ -387,8 +385,8 @@ pub fn update_scene_point_light(
 ) {
     let stores = crate::system::engine_stores::active();
     let visuals = stores.client_visuals();
-    if let Ok(mut lights) = visuals.point_lights.lock() {
-        if let Some(light) = lights.get_mut(&id) {
+    visuals.with_queues(|queues| {
+        if let Some(light) = queues.point_lights.get_mut(&id) {
             light.pos = pos;
             light.ambient = ambient;
             light.diffuse = diffuse;
@@ -396,25 +394,25 @@ pub fn update_scene_point_light(
             light.far_end = far_end;
             light.enabled = true;
         }
-    }
+    });
 }
 
 pub fn fade_scene_point_light(id: u64, frames: u32) {
     let stores = crate::system::engine_stores::active();
     let visuals = stores.client_visuals();
-    if let Ok(mut lights) = visuals.point_lights.lock() {
-        if let Some(light) = lights.get_mut(&id) {
+    visuals.with_queues(|queues| {
+        if let Some(light) = queues.point_lights.get_mut(&id) {
             light.fade_remaining = frames.max(1);
         }
-    }
+    });
 }
 
 pub fn tick_scene_point_lights() {
     let stores = crate::system::engine_stores::active();
     let visuals = stores.client_visuals();
-    if let Ok(mut lights) = visuals.point_lights.lock() {
+    visuals.with_queues(|queues| {
         let mut dead = Vec::new();
-        for light in lights.values_mut() {
+        for light in queues.point_lights.values_mut() {
             if light.fade_remaining == 0 {
                 continue;
             }
@@ -437,19 +435,22 @@ pub fn tick_scene_point_lights() {
             }
         }
         for id in dead {
-            lights.remove(&id);
+            queues.point_lights.remove(&id);
         }
-    }
+    });
 }
 
 pub fn scene_point_lights() -> Vec<ScenePointLight> {
     let stores = crate::system::engine_stores::active();
     let visuals = stores.client_visuals();
-    visuals
-        .point_lights
-        .lock()
-        .map(|lights| lights.values().filter(|l| l.enabled).cloned().collect())
-        .unwrap_or_default()
+    visuals.with_queues(|queues| {
+        queues
+            .point_lights
+            .values()
+            .filter(|l| l.enabled)
+            .cloned()
+            .collect()
+    })
 }
 
 /// Bridge trait for camera view operations.
@@ -745,25 +746,26 @@ impl TheGameClient {
                 }
             }
         }
-        let mut map = visuals.drawables.lock().unwrap();
-        map.insert(
-            id,
-            DrawableState {
-                template_name: template.get_name().to_string(),
-                indicator_color: Color::default(),
-                position: Coord3D::ZERO,
-                orientation: 0.0,
-                shroud_status_object_id: INVALID_ID,
-                beam_start: None,
-                beam_end: None,
-                beam_width,
-                laser_growth_frames: None,
-                laser_growth_start_frame: None,
-                projectile_stream: None,
-                drawable: Some(Arc::clone(&drawable)),
-                expiration_frame: None,
-            },
-        );
+        visuals.with_queues(|queues| {
+            queues.drawables.insert(
+                id,
+                DrawableState {
+                    template_name: template.get_name().to_string(),
+                    indicator_color: Color::default(),
+                    position: Coord3D::ZERO,
+                    orientation: 0.0,
+                    shroud_status_object_id: INVALID_ID,
+                    beam_start: None,
+                    beam_end: None,
+                    beam_width,
+                    laser_growth_frames: None,
+                    laser_growth_start_frame: None,
+                    projectile_stream: None,
+                    drawable: Some(Arc::clone(&drawable)),
+                    expiration_frame: None,
+                },
+            );
+        });
         id
     }
 }
@@ -821,24 +823,21 @@ impl TheGameClient {
 
     fn destroy_drawable_in(stores: &Arc<crate::system::engine_stores::EngineStores>, id: u32) {
         let visuals = stores.client_visuals();
-        let mut map = visuals.drawables.lock().unwrap();
-        let removed_drawable = map
-            .remove(&id)
-            .and_then(|state| state.drawable)
-            .and_then(|drawable| drawable.read().ok().map(|guard| guard.get_object_id()));
-        drop(map);
-
-        if let Some(object_id) = removed_drawable {
-            if object_id != INVALID_ID {
-                visuals.model_draw_frames.lock().unwrap().remove(&object_id);
+        let removed_drawable = visuals.with_queues(|queues| {
+            let removed_drawable = queues
+                .drawables
+                .remove(&id)
+                .and_then(|state| state.drawable)
+                .and_then(|drawable| drawable.read().ok().map(|guard| guard.get_object_id()));
+            if let Some(object_id) = removed_drawable {
+                if object_id != INVALID_ID {
+                    queues.model_draw_frames.remove(&object_id);
+                }
             }
-        }
+            queues.terrain_trees.remove(&id).is_some()
+        });
 
-        let mut tree_map = visuals.terrain_trees.lock().unwrap();
-        let removed = tree_map.remove(&id).is_some();
-        drop(tree_map);
-
-        if removed {
+        if removed_drawable {
             if let Some(hook) = get_terrain_tree_hook() {
                 hook(TerrainTreeEvent::Remove(id));
             }
@@ -848,82 +847,88 @@ impl TheGameClient {
     pub fn set_drawable_indicator_color(&self, id: u32, color: Color) {
         let stores = crate::system::engine_stores::active();
         let visuals = stores.client_visuals();
-        let mut map = visuals.drawables.lock().unwrap();
-        if let Some(state) = map.get_mut(&id) {
-            state.indicator_color = color;
-            if let Some(drawable) = state.drawable.as_ref() {
-                if let Ok(mut guard) = drawable.write() {
-                    guard.set_indicator_color(color);
+        visuals.with_queues(|queues| {
+            if let Some(state) = queues.drawables.get_mut(&id) {
+                state.indicator_color = color;
+                if let Some(drawable) = state.drawable.as_ref() {
+                    if let Ok(mut guard) = drawable.write() {
+                        guard.set_indicator_color(color);
+                    }
                 }
             }
-        }
+        });
     }
 
     pub fn set_drawable_position(&self, id: u32, position: &Coord3D) {
         let stores = crate::system::engine_stores::active();
         let visuals = stores.client_visuals();
-        let mut map = visuals.drawables.lock().unwrap();
-        if let Some(state) = map.get_mut(&id) {
-            state.position = *position;
-            if let Some(drawable) = state.drawable.as_ref() {
-                if let Ok(mut guard) = drawable.write() {
-                    guard.set_transform(Matrix3D::from_translation(*position));
+        visuals.with_queues(|queues| {
+            if let Some(state) = queues.drawables.get_mut(&id) {
+                state.position = *position;
+                if let Some(drawable) = state.drawable.as_ref() {
+                    if let Ok(mut guard) = drawable.write() {
+                        guard.set_transform(Matrix3D::from_translation(*position));
+                    }
                 }
             }
-        }
+        });
     }
 
     pub fn set_drawable_orientation(&self, id: u32, orientation: Real) {
         let stores = crate::system::engine_stores::active();
         let visuals = stores.client_visuals();
-        let mut map = visuals.drawables.lock().unwrap();
-        if let Some(state) = map.get_mut(&id) {
-            state.orientation = orientation;
-            if let Some(drawable) = state.drawable.as_ref() {
-                if let Ok(mut guard) = drawable.write() {
-                    let translation = guard.get_position();
-                    let rotation = glam::Quat::from_rotation_z(orientation);
-                    let transform = Matrix3D::from_scale_rotation_translation(
-                        glam::Vec3::ONE,
-                        rotation,
-                        glam::Vec3::new(translation.x, translation.y, translation.z),
-                    );
-                    guard.set_transform(transform);
+        visuals.with_queues(|queues| {
+            if let Some(state) = queues.drawables.get_mut(&id) {
+                state.orientation = orientation;
+                if let Some(drawable) = state.drawable.as_ref() {
+                    if let Ok(mut guard) = drawable.write() {
+                        let translation = guard.get_position();
+                        let rotation = glam::Quat::from_rotation_z(orientation);
+                        let transform = Matrix3D::from_scale_rotation_translation(
+                            glam::Vec3::ONE,
+                            rotation,
+                            glam::Vec3::new(translation.x, translation.y, translation.z),
+                        );
+                        guard.set_transform(transform);
+                    }
                 }
             }
-        }
+        });
     }
 
     pub fn set_drawable_hidden(&self, id: u32, hidden: bool) {
         let stores = crate::system::engine_stores::active();
         let visuals = stores.client_visuals();
-        let mut map = visuals.drawables.lock().unwrap();
-        if let Some(state) = map.get_mut(&id) {
-            if let Some(drawable) = state.drawable.as_ref() {
-                if let Ok(mut guard) = drawable.write() {
-                    let _ = guard.set_drawable_hidden(hidden);
+        visuals.with_queues(|queues| {
+            if let Some(state) = queues.drawables.get_mut(&id) {
+                if let Some(drawable) = state.drawable.as_ref() {
+                    if let Ok(mut guard) = drawable.write() {
+                        let _ = guard.set_drawable_hidden(hidden);
+                    }
                 }
             }
-        }
+        });
     }
 
     pub fn set_drawable_shroud_status_object_id(&self, id: u32, object_id: ObjectID) {
         let stores = crate::system::engine_stores::active();
         let visuals = stores.client_visuals();
-        let mut map = visuals.drawables.lock().unwrap();
-        if let Some(state) = map.get_mut(&id) {
-            state.shroud_status_object_id = object_id;
-        }
+        visuals.with_queues(|queues| {
+            if let Some(state) = queues.drawables.get_mut(&id) {
+                state.shroud_status_object_id = object_id;
+            }
+        });
     }
 
     pub fn set_drawable_beam(&self, id: u32, start: &Coord3D, end: &Coord3D) {
         let stores = crate::system::engine_stores::active();
         let visuals = stores.client_visuals();
-        let mut map = visuals.drawables.lock().unwrap();
-        if let Some(state) = map.get_mut(&id) {
-            state.beam_start = Some(*start);
-            state.beam_end = Some(*end);
-        }
+        visuals.with_queues(|queues| {
+            if let Some(state) = queues.drawables.get_mut(&id) {
+                state.beam_start = Some(*start);
+                state.beam_end = Some(*end);
+            }
+        });
     }
 
     /// C++ `LaserUpdate::initLaser` on the drawable ClientUpdate module.
@@ -931,15 +936,16 @@ impl TheGameClient {
         let stores = crate::system::engine_stores::active();
         let visuals = stores.client_visuals();
         {
-            let mut map = visuals.drawables.lock().unwrap();
-            if let Some(state) = map.get_mut(&id) {
-                state.beam_start = Some(*start);
-                state.beam_end = Some(*end);
-                if growth_frames != 0 {
-                    state.laser_growth_frames = Some(growth_frames);
-                    state.laser_growth_start_frame = Some(TheGameLogic::get_frame());
+            visuals.with_queues(|queues| {
+                if let Some(state) = queues.drawables.get_mut(&id) {
+                    state.beam_start = Some(*start);
+                    state.beam_end = Some(*end);
+                    if growth_frames != 0 {
+                        state.laser_growth_frames = Some(growth_frames);
+                        state.laser_growth_start_frame = Some(TheGameLogic::get_frame());
+                    }
                 }
-            }
+            });
         }
 
         let Some(drawable) = self.get_drawable_arc(id) else {
@@ -985,15 +991,15 @@ impl TheGameClient {
     pub fn get_current_laser_radius(&self, id: u32) -> Option<Real> {
         let stores = crate::system::engine_stores::active();
         let visuals = stores.client_visuals();
-        let (template_width, growth_frames, growth_start) = {
-            let map = visuals.drawables.lock().ok()?;
-            let state = map.get(&id)?;
-            (
-                state.beam_width.unwrap_or(1.0),
-                state.laser_growth_frames,
-                state.laser_growth_start_frame,
-            )
-        };
+        let (template_width, growth_frames, growth_start) =
+            visuals.with_queues(|queues| {
+                let state = queues.drawables.get(&id)?;
+                Some((
+                    state.beam_width.unwrap_or(1.0),
+                    state.laser_growth_frames,
+                    state.laser_growth_start_frame,
+                ))
+            })?;
 
         if let Some(drawable) = self.get_drawable_arc(id) {
             if let Ok(guard) = drawable.read() {
@@ -1028,24 +1034,28 @@ impl TheGameClient {
     ) {
         let stores = crate::system::engine_stores::active();
         let visuals = stores.client_visuals();
-        let mut map = visuals.drawables.lock().unwrap();
-        if let Some(state) = map.get_mut(&id) {
-            state.projectile_stream = Some(ProjectileStreamState {
-                lines,
-                texture_name,
-                width,
-                tile_factor,
-                scroll_rate,
-            });
-        }
+        visuals.with_queues(|queues| {
+            if let Some(state) = queues.drawables.get_mut(&id) {
+                state.projectile_stream = Some(ProjectileStreamState {
+                    lines,
+                    texture_name,
+                    width,
+                    tile_factor,
+                    scroll_rate,
+                });
+            }
+        });
     }
 
     pub fn get_drawable_projectile_stream(&self, id: u32) -> Option<ProjectileStreamState> {
         let stores = crate::system::engine_stores::active();
         let visuals = stores.client_visuals();
-        let map = visuals.drawables.lock().ok()?;
-        map.get(&id)
-            .and_then(|state| state.projectile_stream.clone())
+        visuals.with_queues(|queues| {
+            queues
+                .drawables
+                .get(&id)
+                .and_then(|state| state.projectile_stream.clone())
+        })
     }
 
     /// Begin a new C++ `Drawable::draw()` bridge frame for one bound object.
@@ -1060,11 +1070,12 @@ impl TheGameClient {
             return;
         }
 
-        let mut frames = visuals.model_draw_frames.lock().unwrap();
-        let frame = frames.entry(object_id).or_default();
-        frame.active_source = None;
-        frame.active = None;
-        frame.committed.clear();
+        visuals.with_queues(|queues| {
+            let frame = queues.model_draw_frames.entry(object_id).or_default();
+            frame.active_source = None;
+            frame.active = None;
+            frame.committed.clear();
+        });
     }
 
     /// Start one actual DRAW-interface module invocation.  The outer drawable
@@ -1082,10 +1093,11 @@ impl TheGameClient {
             return;
         }
 
-        let mut frames = visuals.model_draw_frames.lock().unwrap();
-        let frame = frames.entry(object_id).or_default();
-        frame.active_source = Some(source);
-        frame.active = None;
+        visuals.with_queues(|queues| {
+            let frame = queues.model_draw_frames.entry(object_id).or_default();
+            frame.active_source = Some(source);
+            frame.active = None;
+        });
     }
 
     /// Replace the active result of the current draw-module invocation.
@@ -1098,13 +1110,14 @@ impl TheGameClient {
             return;
         }
 
-        let mut frames = visuals.model_draw_frames.lock().unwrap();
-        let Some(frame) = frames.get_mut(&object_id) else {
-            return;
-        };
-        if frame.active_source.is_some() {
-            frame.active = Some(model_draw);
-        }
+        visuals.with_queues(|queues| {
+            let Some(frame) = queues.model_draw_frames.get_mut(&object_id) else {
+                return;
+            };
+            if frame.active_source.is_some() {
+                frame.active = Some(model_draw);
+            }
+        });
     }
 
     /// Mutate only the active result of the current draw-module invocation.
@@ -1121,9 +1134,10 @@ impl TheGameClient {
             return None;
         }
 
-        let mut frames = visuals.model_draw_frames.lock().ok()?;
-        let frame = frames.get_mut(&object_id)?;
-        frame.active.as_mut().map(func)
+        visuals.with_queues(|queues| {
+            let frame = queues.model_draw_frames.get_mut(&object_id)?;
+            frame.active.as_mut().map(func)
+        })
     }
 
     pub fn set_object_wheel_info(&self, object_id: ObjectID, info: DrawWheelInfo) {
@@ -1132,9 +1146,9 @@ impl TheGameClient {
         if object_id == INVALID_ID {
             return;
         }
-        if let Ok(mut map) = visuals.wheel_info.lock() {
-            map.insert(object_id, info);
-        }
+        visuals.with_queues(|queues| {
+            queues.wheel_info.insert(object_id, info);
+        });
     }
 
     pub fn get_object_wheel_info(&self, object_id: ObjectID) -> Option<DrawWheelInfo> {
@@ -1143,11 +1157,7 @@ impl TheGameClient {
         if object_id == INVALID_ID {
             return None;
         }
-        visuals
-            .wheel_info
-            .lock()
-            .ok()
-            .and_then(|map| map.get(&object_id).copied())
+        visuals.with_queues(|queues| queues.wheel_info.get(&object_id).copied())
     }
 
     /// Commit the active output after its enclosing draw module completes.
@@ -1158,17 +1168,18 @@ impl TheGameClient {
             return;
         }
 
-        let mut frames = visuals.model_draw_frames.lock().unwrap();
-        let Some(frame) = frames.get_mut(&object_id) else {
-            return;
-        };
-        let source = frame.active_source.take();
-        let active = frame.active.take();
-        if let (Some(source), Some(mut active)) = (source, active) {
-            active.source = source;
-            active.logic_drawable_id = logic_drawable_id;
-            frame.committed.push(active);
-        }
+        visuals.with_queues(|queues| {
+            let Some(frame) = queues.model_draw_frames.get_mut(&object_id) else {
+                return;
+            };
+            let source = frame.active_source.take();
+            let active = frame.active.take();
+            if let (Some(source), Some(mut active)) = (source, active) {
+                active.source = source;
+                active.logic_drawable_id = logic_drawable_id;
+                frame.committed.push(active);
+            }
+        });
     }
 
     /// Read the complete ordered W3D model output for a gameplay object.
@@ -1181,10 +1192,12 @@ impl TheGameClient {
         }
 
         visuals
-            .model_draw_frames
-            .lock()
-            .ok()
-            .and_then(|frames| frames.get(&object_id).map(|frame| frame.committed.clone()))
+            .with_queues(|queues| {
+                queues
+                    .model_draw_frames
+                    .get(&object_id)
+                    .map(|frame| frame.committed.clone())
+            })
             .unwrap_or_default()
     }
 
@@ -1249,35 +1262,37 @@ impl TheGameClient {
         let stores = crate::system::engine_stores::active();
         let visuals = stores.client_visuals();
         if object_id != INVALID_ID {
-            visuals.model_draw_frames.lock().unwrap().remove(&object_id);
+            visuals.with_queues(|queues| {
+                queues.model_draw_frames.remove(&object_id);
+            });
         }
     }
 
     pub fn find_drawable_by_id(&self, id: u32) -> Option<DrawableState> {
         let stores = crate::system::engine_stores::active();
         let visuals = stores.client_visuals();
-        let map = visuals.drawables.lock().ok()?;
-        map.get(&id).cloned()
+        visuals.with_queues(|queues| queues.drawables.get(&id).cloned())
     }
 
     /// Wave 1006: dual-world residual — count of host drawable state entries.
     pub fn drawable_count(&self) -> usize {
         let stores = crate::system::engine_stores::active();
         let visuals = stores.client_visuals();
-        visuals.drawables.lock().ok().map(|m| m.len()).unwrap_or(0)
+        visuals.with_queues(|queues| queues.drawables.len())
     }
 
     /// Client-only drawables (RallyPointMarker) keyed by leftover drawable state.
     pub fn leftover_drawables_named(&self, template: &str) -> Vec<(u32, DrawableState)> {
         let stores = crate::system::engine_stores::active();
         let visuals = stores.client_visuals();
-        let Ok(map) = visuals.drawables.lock() else {
-            return Vec::new();
-        };
-        map.iter()
-            .filter(|(_, state)| state.template_name.eq_ignore_ascii_case(template))
-            .map(|(id, state)| (*id, state.clone()))
-            .collect()
+        visuals.with_queues(|queues| {
+            queues
+                .drawables
+                .iter()
+                .filter(|(_, state)| state.template_name.eq_ignore_ascii_case(template))
+                .map(|(id, state)| (*id, state.clone()))
+                .collect()
+        })
     }
 
     /// C++ `GameClient::xfer` objectless drawables (`objectID == INVALID_ID`).
@@ -1309,18 +1324,17 @@ impl TheGameClient {
         if from == to || to == 0 {
             return;
         }
-        let Ok(mut map) = visuals.drawables.lock() else {
-            return;
-        };
-        let Some(mut state) = map.remove(&from) else {
-            return;
-        };
-        if let Some(drawable) = state.drawable.as_ref() {
-            if let Ok(mut guard) = drawable.write() {
-                guard.set_drawable_id(to);
+        visuals.with_queues(|queues| {
+            let Some(mut state) = queues.drawables.remove(&from) else {
+                return;
+            };
+            if let Some(drawable) = state.drawable.as_ref() {
+                if let Ok(mut guard) = drawable.write() {
+                    guard.set_drawable_id(to);
+                }
             }
-        }
-        map.insert(to, state);
+            queues.drawables.insert(to, state);
+        });
         let next = Drawable::get_drawable_id_counter();
         if to >= next {
             Drawable::set_drawable_id_counter(to.saturating_add(1).max(1));
@@ -1347,10 +1361,7 @@ impl TheGameClient {
         }
         let exists = stores
             .client_visuals()
-            .drawables
-            .lock()
-            .ok()
-            .is_some_and(|map| map.contains_key(&saved_id));
+            .with_queues(|queues| queues.drawables.contains_key(&saved_id));
         if !exists {
             let Some(template) = TheThingFactory::find_template(state.template_name.as_str())
             else {
@@ -1367,38 +1378,37 @@ impl TheGameClient {
 
         // Keep the C++ xfer restoration sequence: position transform first,
         // then orientation transform, followed by shroud/beam/lifetime fields.
-        let Ok(mut map) = stores.client_visuals().drawables.lock() else {
-            return;
-        };
-        let Some(restored) = map.get_mut(&saved_id) else {
-            return;
-        };
-        restored.position = state.position;
-        if let Some(drawable) = restored.drawable.as_ref() {
-            if let Ok(mut guard) = drawable.write() {
-                guard.set_transform(Matrix3D::from_translation(state.position));
+        stores.client_visuals().with_queues(|queues| {
+            let Some(restored) = queues.drawables.get_mut(&saved_id) else {
+                return;
+            };
+            restored.position = state.position;
+            if let Some(drawable) = restored.drawable.as_ref() {
+                if let Ok(mut guard) = drawable.write() {
+                    guard.set_transform(Matrix3D::from_translation(state.position));
+                }
             }
-        }
-        restored.orientation = state.orientation;
-        if let Some(drawable) = restored.drawable.as_ref() {
-            if let Ok(mut guard) = drawable.write() {
-                let translation = guard.get_position();
-                let rotation = glam::Quat::from_rotation_z(state.orientation);
-                guard.set_transform(Matrix3D::from_scale_rotation_translation(
-                    glam::Vec3::ONE,
-                    rotation,
-                    glam::Vec3::new(translation.x, translation.y, translation.z),
-                ));
+            restored.orientation = state.orientation;
+            if let Some(drawable) = restored.drawable.as_ref() {
+                if let Ok(mut guard) = drawable.write() {
+                    let translation = guard.get_position();
+                    let rotation = glam::Quat::from_rotation_z(state.orientation);
+                    guard.set_transform(Matrix3D::from_scale_rotation_translation(
+                        glam::Vec3::ONE,
+                        rotation,
+                        glam::Vec3::new(translation.x, translation.y, translation.z),
+                    ));
+                }
             }
-        }
-        restored.shroud_status_object_id = state.shroud_status_object_id;
-        if let (Some(start), Some(end)) = (state.beam_start, state.beam_end) {
-            restored.beam_start = Some(start);
-            restored.beam_end = Some(end);
-        }
-        if let Some(frame) = state.expiration_frame {
-            restored.expiration_frame = Some(frame);
-        }
+            restored.shroud_status_object_id = state.shroud_status_object_id;
+            if let (Some(start), Some(end)) = (state.beam_start, state.beam_end) {
+                restored.beam_start = Some(start);
+                restored.beam_end = Some(end);
+            }
+            if let Some(frame) = state.expiration_frame {
+                restored.expiration_frame = Some(frame);
+            }
+        });
     }
 
     pub fn restore_objectless_drawables(
@@ -1413,16 +1423,20 @@ impl TheGameClient {
     pub fn get_drawable_beam_width(&self, id: u32) -> Option<Real> {
         let stores = crate::system::engine_stores::active();
         let visuals = stores.client_visuals();
-        let map = visuals.drawables.lock().ok()?;
-        map.get(&id).and_then(|state| state.beam_width)
+        visuals.with_queues(|queues| {
+            queues.drawables.get(&id).and_then(|state| state.beam_width)
+        })
     }
 
     pub fn get_drawable_arc(&self, id: u32) -> Option<Arc<RwLock<Drawable>>> {
         let stores = crate::system::engine_stores::active();
         let visuals = stores.client_visuals();
-        let map = visuals.drawables.lock().ok()?;
-        map.get(&id)
-            .and_then(|state| state.drawable.as_ref().cloned())
+        visuals.with_queues(|queues| {
+            queues
+                .drawables
+                .get(&id)
+                .and_then(|state| state.drawable.as_ref().cloned())
+        })
     }
 
     #[cfg(test)]
@@ -1434,25 +1448,26 @@ impl TheGameClient {
             .ok()
             .map(|guard| guard.get_position())
             .unwrap_or(Coord3D::ZERO);
-        let mut map = visuals.drawables.lock().unwrap();
-        map.insert(
-            id,
-            DrawableState {
-                template_name: "TestDrawable".to_string(),
-                indicator_color: Color::default(),
-                position,
-                orientation: 0.0,
-                shroud_status_object_id: INVALID_ID,
-                beam_start: None,
-                beam_end: None,
-                beam_width: None,
-                laser_growth_frames: None,
-                laser_growth_start_frame: None,
-                projectile_stream: None,
-                drawable: Some(drawable),
-                expiration_frame: None,
-            },
-        );
+        visuals.with_queues(|queues| {
+            queues.drawables.insert(
+                id,
+                DrawableState {
+                    template_name: "TestDrawable".to_string(),
+                    indicator_color: Color::default(),
+                    position,
+                    orientation: 0.0,
+                    shroud_status_object_id: INVALID_ID,
+                    beam_start: None,
+                    beam_end: None,
+                    beam_width: None,
+                    laser_growth_frames: None,
+                    laser_growth_start_frame: None,
+                    projectile_stream: None,
+                    drawable: Some(drawable),
+                    expiration_frame: None,
+                },
+            );
+        });
     }
 
     /// C++ `W3DTreeDraw::reactToTransformChange` reads `getDrawable()` current
@@ -1465,19 +1480,20 @@ impl TheGameClient {
         if id == INVALID_ID {
             return None;
         }
-        let map = visuals.drawables.lock().ok()?;
-        let state = map.get(&id)?;
-        if let Some(drawable) = state.drawable.as_ref() {
-            if let Ok(guard) = drawable.try_read() {
-                let pos = guard.get_position();
-                let transform = guard.get_transform_matrix();
-                let (_, rotation, _) = transform.to_scale_rotation_translation();
-                let (_, _, angle) = rotation.to_euler(glam::EulerRot::XYZ);
-                let scale = guard.get_instance_scale();
-                return Some((pos, angle, scale));
+        visuals.with_queues(|queues| {
+            let state = queues.drawables.get(&id)?;
+            if let Some(drawable) = state.drawable.as_ref() {
+                if let Ok(guard) = drawable.try_read() {
+                    let pos = guard.get_position();
+                    let transform = guard.get_transform_matrix();
+                    let (_, rotation, _) = transform.to_scale_rotation_translation();
+                    let (_, _, angle) = rotation.to_euler(glam::EulerRot::XYZ);
+                    let scale = guard.get_instance_scale();
+                    return Some((pos, angle, scale));
+                }
             }
-        }
-        Some((state.position, state.orientation, 1.0))
+            Some((state.position, state.orientation, 1.0))
+        })
     }
 
     #[cfg(test)]
@@ -1489,63 +1505,71 @@ impl TheGameClient {
     ) {
         let stores = crate::system::engine_stores::active();
         let visuals = stores.client_visuals();
-        let mut map = visuals.drawables.lock().unwrap();
-        if let Some(state) = map.get_mut(&id) {
-            state.position = position;
-            state.orientation = orientation;
-            return;
-        }
-        map.insert(
-            id,
-            DrawableState {
-                template_name: "TestTree".to_string(),
-                indicator_color: Color::default(),
-                position,
-                orientation,
-                shroud_status_object_id: INVALID_ID,
-                beam_start: None,
-                beam_end: None,
-                beam_width: None,
-                laser_growth_frames: None,
-                laser_growth_start_frame: None,
-                projectile_stream: None,
-                drawable: None,
-                expiration_frame: None,
-            },
-        );
+        visuals.with_queues(|queues| {
+            if let Some(state) = queues.drawables.get_mut(&id) {
+                state.position = position;
+                state.orientation = orientation;
+                return;
+            }
+            queues.drawables.insert(
+                id,
+                DrawableState {
+                    template_name: "TestTree".to_string(),
+                    indicator_color: Color::default(),
+                    position,
+                    orientation,
+                    shroud_status_object_id: INVALID_ID,
+                    beam_start: None,
+                    beam_end: None,
+                    beam_width: None,
+                    laser_growth_frames: None,
+                    laser_growth_start_frame: None,
+                    projectile_stream: None,
+                    drawable: None,
+                    expiration_frame: None,
+                },
+            );
+        });
     }
 
     pub fn set_drawable_expiration_date(&self, id: u32, frame: UnsignedInt) {
         let stores = crate::system::engine_stores::active();
         let visuals = stores.client_visuals();
-        let mut map = visuals.drawables.lock().unwrap();
-        if let Some(state) = map.get_mut(&id) {
-            state.expiration_frame = Some(frame);
-        }
+        visuals.with_queues(|queues| {
+            if let Some(state) = queues.drawables.get_mut(&id) {
+                state.expiration_frame = Some(frame);
+            }
+        });
     }
 
     pub fn update_drawables(&self, frame: UnsignedInt) {
         let stores = crate::system::engine_stores::active();
         let visuals = stores.client_visuals();
-        let mut map = visuals.drawables.lock().unwrap();
-        let expired: Vec<u32> = map
-            .iter()
-            .filter_map(|(id, state)| {
-                if let Some(expiration) = state.expiration_frame {
-                    if frame >= expiration {
-                        return Some(*id);
+        let expired: Vec<(u32, bool)> = visuals.with_queues(|queues| {
+            let expired: Vec<u32> = queues
+                .drawables
+                .iter()
+                .filter_map(|(id, state)| {
+                    if let Some(expiration) = state.expiration_frame {
+                        if frame >= expiration {
+                            return Some(*id);
+                        }
                     }
-                }
-                None
-            })
-            .collect();
+                    None
+                })
+                .collect();
 
-        for id in expired {
-            map.remove(&id);
-            let removed_tree = {
-                let mut tree_map = visuals.terrain_trees.lock().unwrap();
-                tree_map.remove(&id).is_some()
-            };
+            expired
+                .into_iter()
+                .map(|id| {
+                    queues.drawables.remove(&id);
+                    let removed_tree = queues.terrain_trees.remove(&id).is_some();
+                    (id, removed_tree)
+                })
+                .collect()
+        });
+
+        for (id, removed_tree) in expired {
             if removed_tree {
                 if let Some(hook) = get_terrain_tree_hook() {
                     hook(TerrainTreeEvent::Remove(id));
@@ -1592,9 +1616,10 @@ impl TheGameClient {
             module_data: module_data.clone(),
         };
 
-        let mut tree_map = visuals.terrain_trees.lock().unwrap();
-        tree_map.insert(drawable_id, registration.clone());
-        drop(tree_map);
+        visuals.with_queues(|queues| {
+            queues.terrain_trees.insert(drawable_id, registration.clone());
+        });
+
 
         if let Some(hook) = get_terrain_tree_hook() {
             hook(TerrainTreeEvent::Add(registration));
@@ -1608,9 +1633,10 @@ impl TheGameClient {
             return;
         }
 
-        if let Ok(mut tree_map) = visuals.terrain_trees.lock() {
-            tree_map.remove(&drawable_id);
-        }
+        visuals.with_queues(|queues| {
+            queues.terrain_trees.remove(&drawable_id);
+        });
+
 
         if let Some(hook) = get_terrain_tree_hook() {
             hook(TerrainTreeEvent::Remove(drawable_id));
@@ -1620,8 +1646,7 @@ impl TheGameClient {
     pub fn get_registered_tree(&self, drawable_id: u32) -> Option<TerrainTreeRegistration> {
         let stores = crate::system::engine_stores::active();
         let visuals = stores.client_visuals();
-        let tree_map = visuals.terrain_trees.lock().ok()?;
-        tree_map.get(&drawable_id).cloned()
+        visuals.with_queues(|queues| queues.terrain_trees.get(&drawable_id).cloned())
     }
 }
 
@@ -1678,11 +1703,7 @@ mod model_draw_bridge_tests {
         assert_eq!(committed[0].source.runtime_draw_ordinal, 0);
         assert!(
             visuals
-                .drawables
-                .lock()
-                .expect("drawable state")
-                .get(&unrelated_client_drawable_id)
-                .is_none(),
+                .with_queues(|queues| queues.drawables.get(&unrelated_client_drawable_id).is_none()),
             "object-keyed W3D output must not manufacture a client-DrawableID entry"
         );
 

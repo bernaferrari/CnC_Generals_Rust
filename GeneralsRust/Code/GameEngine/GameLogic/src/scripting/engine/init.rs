@@ -222,21 +222,19 @@ impl ScriptEngine {
         saved_player: Option<String>,
     ) {
         let current_frame = crate::helpers::TheGameLogic::get_frame();
-        let exec_context = std::sync::Arc::new(std::sync::RwLock::new(
-            crate::scripting::executor::ScriptContext {
-                game_logic_id: 0,
-                object_manager_id: 0,
-                player_manager_id: 0,
-                event_system_id: 0,
-                camera_system_id: 0,
-                audio_system_id: 0,
-                partition_manager_id: 0,
-                special_powers_id: 0,
-                current_frame,
-                suppress_new_windows: false,
-                host_trigger_world: Arc::new(std::sync::Mutex::new(Default::default())),
-            },
-        ));
+        let exec_context = crate::scripting::executor::ScriptContext {
+            game_logic_id: 0,
+            object_manager_id: 0,
+            player_manager_id: 0,
+            event_system_id: 0,
+            camera_system_id: 0,
+            audio_system_id: 0,
+            partition_manager_id: 0,
+            special_powers_id: 0,
+            current_frame,
+            suppress_new_windows: false,
+            host_trigger_world: Arc::new(std::sync::Mutex::new(Default::default())),
+        };
         let mut dispatcher = crate::scripting::executor::ScriptActionDispatcher::new(exec_context);
         if let Err(err) = self.execute_action_chain(action, &mut dispatcher) {
             log::warn!("friend_execute_action: {}", err);
@@ -964,24 +962,17 @@ impl ScriptEngine {
             return Ok(false);
         };
         let current_frame = crate::helpers::TheGameLogic::get_frame();
-        let exec_context = Arc::new(RwLock::new(crate::scripting::executor::ScriptContext {
-            game_logic_id: 0,
-            object_manager_id: 0,
-            player_manager_id: 0,
-            event_system_id: 0,
-            camera_system_id: 0,
-            audio_system_id: 0,
-            partition_manager_id: 0,
-            special_powers_id: 0,
-            current_frame,
-            suppress_new_windows: false,
-            host_trigger_world: Arc::new(std::sync::Mutex::new(Default::default())),
-        }));
+        let mut exec_context = crate::scripting::executor::ScriptContext::new();
+        exec_context.current_frame = current_frame;
 
+        // Fresh per consumer; the previously shared RwLock wrapper never
+        // carried observable state between dispatcher and evaluator.
         let mut action_dispatcher =
-            crate::scripting::executor::ScriptActionDispatcher::new(exec_context.clone());
+            crate::scripting::executor::ScriptActionDispatcher::new(exec_context);
         let mut condition_evaluator =
-            crate::scripting::executor::ScriptConditionEvaluator::new(exec_context);
+            crate::scripting::executor::ScriptConditionEvaluator::new(
+                crate::scripting::executor::ScriptContext::new(),
+            );
 
         match self.find_subroutine_lookup(name)? {
             SubroutineLookup::Group {

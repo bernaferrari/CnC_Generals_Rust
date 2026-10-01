@@ -35,7 +35,7 @@ use game_engine::common::thing::module::{
 use log::warn;
 use std::any::Any;
 use std::fmt;
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, RwLock};
 
 /// Wave 306: host-only path has no dual-world factory objects.
 #[inline]
@@ -746,7 +746,7 @@ pub struct AutoHealBehavior {
     object_id: ObjectID,
     /// Last `setWakeFrame` request (C++ AutoHealBehavior.cpp:148/154). Test/debug.
     last_wake_sleep: Option<UpdateSleepTime>,
-    upgrade_masks: Mutex<Option<(UpgradeMaskType, UpgradeMaskType)>>,
+
 }
 
 impl fmt::Debug for AutoHealBehavior {
@@ -773,7 +773,7 @@ impl AutoHealBehavior {
             upgrade_executed: false,
             object_id,
             last_wake_sleep: None,
-            upgrade_masks: Mutex::new(None),
+
         };
 
         if let Some(radius_tmpl) = &behavior.module_data.radius_particle_system_tmpl {
@@ -1456,41 +1456,32 @@ impl Snapshotable for AutoHealBehavior {
 // Serialization support
 impl AutoHealBehavior {
     fn compute_upgrade_masks(&self) -> (UpgradeMaskType, UpgradeMaskType) {
-        if let Ok(mut cache) = self.upgrade_masks.lock() {
-            if let Some(mask_pair) = *cache {
-                return mask_pair;
-            }
+        // Masks are a pure function of immutable module_data; no cache needed.
+        let activation = self
+            .module_data
+            .upgrade_mux_data
+            .activation_upgrade_names()
+            .iter()
+            .chain(
+                self.module_data
+                    .upgrade_mux_data
+                    .trigger_upgrade_names()
+                    .iter(),
+            )
+            .fold(UpgradeMaskType::none(), |mask, name| {
+                mask | upgrade_mask_for_ascii(name)
+            });
 
-            let activation = self
-                .module_data
-                .upgrade_mux_data
-                .activation_upgrade_names()
-                .iter()
-                .chain(
-                    self.module_data
-                        .upgrade_mux_data
-                        .trigger_upgrade_names()
-                        .iter(),
-                )
-                .fold(UpgradeMaskType::none(), |mask, name| {
-                    mask | upgrade_mask_for_ascii(name)
-                });
+        let conflicting = self
+            .module_data
+            .upgrade_mux_data
+            .conflicting_upgrade_names()
+            .iter()
+            .fold(UpgradeMaskType::none(), |mask, name| {
+                mask | upgrade_mask_for_ascii(name)
+            });
 
-            let conflicting = self
-                .module_data
-                .upgrade_mux_data
-                .conflicting_upgrade_names()
-                .iter()
-                .fold(UpgradeMaskType::none(), |mask, name| {
-                    mask | upgrade_mask_for_ascii(name)
-                });
-
-            let result = (activation, conflicting);
-            *cache = Some(result);
-            result
-        } else {
-            (UpgradeMaskType::none(), UpgradeMaskType::none())
-        }
+        (activation, conflicting)
     }
 }
 

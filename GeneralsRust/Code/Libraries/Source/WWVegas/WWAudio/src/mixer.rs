@@ -11,11 +11,12 @@ use crate::{
 };
 use crossbeam_channel::{Receiver, Sender, TryRecvError, unbounded};
 use log::{debug, trace, warn};
+use parking_lot::Mutex;
 use std::{
     collections::{HashMap, VecDeque, hash_map::Entry},
     f32::EPSILON,
     fmt,
-    sync::{Arc, Mutex},
+    sync::Arc,
     time::Duration,
 };
 
@@ -722,12 +723,12 @@ enum MixerCommand {
 }
 
 /// Thread-safe mixer wrapper shared across subsystems.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct AudioMixer {
-    inner: Arc<Mutex<MixerState>>,
+    inner: Mutex<MixerState>,
     config: MixerConfig,
     command_tx: Sender<MixerCommand>,
-    command_rx: Arc<Mutex<Receiver<MixerCommand>>>,
+    command_rx: Mutex<Receiver<MixerCommand>>,
 }
 
 impl AudioMixer {
@@ -735,10 +736,10 @@ impl AudioMixer {
         let (command_tx, command_rx) = unbounded();
         let state = MixerState::default_with_rate(config.sample_rate);
         Self {
-            inner: Arc::new(Mutex::new(state)),
+            inner: Mutex::new(state),
             config,
             command_tx,
-            command_rx: Arc::new(Mutex::new(command_rx)),
+            command_rx: Mutex::new(command_rx),
         }
     }
 
@@ -748,32 +749,23 @@ impl AudioMixer {
 
     /// Obtain the current mixer timeline snapshot.
     pub fn timeline_snapshot(&self) -> MixerTimelineSnapshot {
-        self.inner
-            .lock()
-            .expect("Mixer mutex poisoned")
-            .timeline_snapshot()
+        self.inner.lock().timeline_snapshot()
     }
 
     pub fn restore_timeline(&self, snapshot: MixerTimelineSnapshot) {
-        self.inner
-            .lock()
-            .expect("Mixer mutex poisoned")
-            .restore_timeline(snapshot);
+        self.inner.lock().restore_timeline(snapshot);
     }
 
     /// Query the timeline state for a specific voice handle.
     pub fn voice_timeline(&self, handle: VoiceHandle) -> Option<VoiceTimelineState> {
         self.apply_pending_commands();
-        self.inner
-            .lock()
-            .expect("Mixer mutex poisoned")
-            .voice_timeline_state(handle)
+        self.inner.lock().voice_timeline_state(handle)
     }
 
     /// Reserve a new voice slot and return its identifier.
     pub fn start_voice(&self, descriptor: VoiceDescriptor) -> VoiceHandle {
         let handle = {
-            let mut guard = self.inner.lock().expect("Mixer mutex poisoned");
+            let mut guard = self.inner.lock();
             guard.reserve_voice_handle()
         };
         if let Err(err) = self
@@ -831,7 +823,7 @@ impl AudioMixer {
     /// Advance internal bookkeeping. Real mixing will eventually live here.
     pub fn tick(&self, _delta: Duration) {
         self.apply_pending_commands();
-        let mut guard = self.inner.lock().expect("Mixer mutex poisoned");
+        let mut guard = self.inner.lock();
         let mut completed = Vec::new();
 
         for voice in guard.voices.values_mut() {
@@ -855,10 +847,8 @@ impl AudioMixer {
 
     /// Snapshot the mixer state for debugging or persistence.
     pub fn voice_snapshot(&self) -> HashMap<VoiceHandle, VoiceDescriptor> {
-        self.apply_pending_commands();
         self.inner
             .lock()
-            .expect("Mixer mutex poisoned")
             .voices
             .values()
             .map(|voice| (voice.handle, voice.descriptor.clone()))
@@ -866,16 +856,13 @@ impl AudioMixer {
     }
 
     pub fn drain_events(&self) -> Vec<MixerEvent> {
-        self.inner
-            .lock()
-            .expect("Mixer mutex poisoned")
-            .drain_events()
+        self.inner.lock().drain_events()
     }
 
     /// Render the current voice set into the provided mix buffer.
     pub fn render_into(&self, buffer: &mut MixBuffer) -> MixRenderStats {
         self.apply_pending_commands();
-        let mut guard = self.inner.lock().expect("Mixer mutex poisoned");
+        let mut guard = self.inner.lock();
         let frames = buffer.frames;
         let span = guard.begin_render(frames);
         buffer.prepare(span.sequence);
@@ -1028,14 +1015,11 @@ impl AudioMixer {
     }
 
     fn apply_pending_commands(&self) {
-        let rx = self
-            .command_rx
-            .lock()
-            .expect("Mixer command receiver poisoned");
+        let rx = self.command_rx.lock();
         loop {
             match rx.try_recv() {
                 Ok(command) => {
-                    let mut guard = self.inner.lock().expect("Mixer mutex poisoned");
+                    let mut guard = self.inner.lock();
                     guard.apply_command(command);
                 }
                 Err(TryRecvError::Empty) => break,

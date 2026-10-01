@@ -1,6 +1,6 @@
 use cgmath::{Vector2, Vector3, Vector4};
 use std::collections::HashMap;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 use thiserror::Error;
 use wgpu::{
     BindGroupLayout, BindGroupLayoutDescriptor, BindGroupLayoutEntry, BindingType, Buffer,
@@ -371,7 +371,7 @@ pub struct W3DShaderManager {
     pub current_filter: FilterType,
     pub textures: [Option<TextureResource>; MAX_TEXTURE_STAGES],
     pub shaders: HashMap<ShaderType, ShaderDescription>,
-    pub filters: HashMap<FilterType, Arc<RwLock<Box<dyn ScreenFilter>>>>,
+    pub filters: HashMap<FilterType, Box<dyn ScreenFilter>>,
     pub render_to_texture_supported: bool,
     pub rendering_to_texture: bool,
     pub render_target: Option<RenderTarget>,
@@ -477,8 +477,8 @@ impl W3DShaderManager {
     }
 
     pub fn shutdown(&mut self) {
-        for filter in self.filters.values() {
-            filter.write().unwrap().shutdown();
+        for filter in self.filters.values_mut() {
+            filter.shutdown();
         }
         self.filters.clear();
         self.compiled_shaders.clear();
@@ -597,8 +597,7 @@ impl W3DShaderManager {
         skip_render: &mut bool,
         scene_pass_mode: &mut CustomScenePassMode,
     ) -> bool {
-        if let Some(filter_impl) = self.filters.get(&filter) {
-            let mut filter_impl = filter_impl.write().unwrap();
+        if let Some(filter_impl) = self.filters.get_mut(&filter) {
             let active = filter_impl.pre_render(skip_render, scene_pass_mode);
             if active {
                 self.current_filter = filter;
@@ -615,11 +614,8 @@ impl W3DShaderManager {
         scroll_delta: &mut Vector2<f32>,
         do_extra_render: &mut bool,
     ) -> bool {
-        if let Some(filter_impl) = self.filters.get(&filter) {
-            return filter_impl
-                .write()
-                .unwrap()
-                .post_render(mode, scroll_delta, do_extra_render);
+        if let Some(filter_impl) = self.filters.get_mut(&filter) {
+            return filter_impl.post_render(mode, scroll_delta, do_extra_render);
         }
         self.current_filter = FilterType::NullFilter;
         false
@@ -627,8 +623,8 @@ impl W3DShaderManager {
 
     pub fn filter_setup(&mut self, filter: FilterType, mode: FilterMode) -> bool {
         self.filters
-            .get(&filter)
-            .map(|filter_impl| filter_impl.write().unwrap().setup(mode))
+            .get_mut(&filter)
+            .map(|filter_impl| filter_impl.setup(mode))
             .unwrap_or(false)
     }
 
@@ -727,8 +723,7 @@ impl W3DShaderManager {
         mut filter: Box<dyn ScreenFilter>,
     ) -> Result<(), ShaderManagerError> {
         filter.init()?;
-        self.filters
-            .insert(filter_type, Arc::new(RwLock::new(filter)));
+        self.filters.insert(filter_type, filter);
         Ok(())
     }
 

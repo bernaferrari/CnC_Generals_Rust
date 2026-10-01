@@ -213,34 +213,51 @@ pub struct StreamStatus {
 pub struct AudioStreamer {
     /// Stream configuration
     config: StreamConfig,
-    /// Current stream state
-    state: Arc<RwLock<StreamState>>,
-    /// Stream control flags
-    flags: Arc<Mutex<StreamFlags>>,
     /// Associated audio device
     _device: Weak<AudioDevice>,
+    /// Pause control mutex
+    pause_lock: tokio::sync::Mutex<()>,
+    /// Stream lock for thread safety
+    stream_lock: tokio::sync::Mutex<()>,
+    /// Consolidated streamer state behind a single lock.
+    ///
+    /// Replaces the previously separate `Arc`-wrapped lock fields (state,
+    /// flags, channel, format, sample, file, file_info, timing, name, volume)
+    /// that were never cloned outside this struct; every method locks this
+    /// once and operates on the whole state.
+    state: tokio::sync::Mutex<StreamerState>,
+    /// Stream buffering manager
+    stream_buffer: Arc<Mutex<StreamBuffering>>,
+}
+
+/// Consolidated mutable state for [`AudioStreamer`].
+///
+/// Each payload was previously an individually locked, `Arc`-wrapped field of
+/// the streamer; the Arcs were never cloned outside the struct, so a single
+/// lock now guards all of them. Locking order: `pause_lock`/`stream_lock` are
+/// acquired before this state lock (never the other way around), and the
+/// channel mutex is always the innermost lock.
+struct StreamerState {
+    /// Current stream state
+    state: StreamState,
+    /// Stream control flags
+    flags: StreamFlags,
     /// Associated audio channel
     channel: Option<Arc<Mutex<AudioChannel>>>,
     /// Current audio format
-    format: Arc<RwLock<EnhancedAudioFormat>>,
+    format: EnhancedAudioFormat,
     /// Audio sample for playback
-    sample: Arc<Mutex<AudioSample>>,
+    sample: AudioSample,
     /// Current file handle
-    file: Arc<Mutex<Option<File>>>,
+    file: Option<File>,
     /// File metadata
-    file_info: Arc<Mutex<FileInfo>>,
+    file_info: FileInfo,
     /// Stream timing information
-    timing: Arc<Mutex<StreamTiming>>,
+    timing: StreamTiming,
     /// Stream name for debugging
-    name: Arc<RwLock<String>>,
+    name: String,
     /// Volume control
-    volume: Arc<Mutex<Volume>>,
-    /// Pause control mutex
-    pause_lock: Arc<tokio::sync::Mutex<()>>,
-    /// Stream lock for thread safety
-    stream_lock: Arc<tokio::sync::Mutex<()>>,
-    /// Stream buffering manager
-    stream_buffer: Arc<Mutex<StreamBuffering>>,
+    volume: Volume,
 }
 
 /// File information for streaming
@@ -300,20 +317,17 @@ impl Default for StreamTiming {
 /// Global stream manager for handling multiple streams
 pub struct StreamManager {
     /// Map of active streams
-    pub(crate) streams: Arc<RwLock<HashMap<u64, Arc<AudioStreamer>>>>,
+    pub(crate) streams: RwLock<HashMap<u64, Arc<AudioStreamer>>>,
     /// Next stream ID
-    next_stream_id: Arc<Mutex<u64>>,
+    next_stream_id: Mutex<u64>,
 }
 
 impl StreamManager {
     /// Create a new stream manager
     pub fn new() -> Self {
-        let streams: Arc<RwLock<HashMap<u64, Arc<AudioStreamer>>>> =
-            Arc::new(RwLock::new(HashMap::new()));
-
         Self {
-            streams,
-            next_stream_id: Arc::new(Mutex::new(0)),
+            streams: RwLock::new(HashMap::new()),
+            next_stream_id: Mutex::new(0),
         }
     }
 
@@ -437,30 +451,34 @@ impl AudioStreamer {
             buffer_guard.set_self_reference(&stream_buffer);
         }
 
-        let streamer = Arc::new(Self {
-            config: config.clone(),
-            state: Arc::new(RwLock::new(StreamState::Stopped)),
-            flags: Arc::new(Mutex::new(StreamFlags::new())),
-            _device: Arc::downgrade(&device),
+        let state = StreamerState {
+            state: StreamState::Stopped,
+            flags: StreamFlags::new(),
             channel: Some(Arc::new(Mutex::new(channel))),
-            format: Arc::new(RwLock::new(EnhancedAudioFormat::from_basic(&config.format))),
-            sample: Arc::new(Mutex::new(AudioSample::new())),
-            file: Arc::new(Mutex::new(None)),
-            file_info: Arc::new(Mutex::new(FileInfo::default())),
-            timing: Arc::new(Mutex::new(StreamTiming::default())),
-            name: Arc::new(RwLock::new(config.name)),
-            volume: Arc::new(Mutex::new(config.max_volume)),
-            pause_lock: Arc::new(tokio::sync::Mutex::new(())),
-            stream_lock: Arc::new(tokio::sync::Mutex::new(())),
-            stream_buffer: stream_buffer.clone(),
-        });
+            format: EnhancedAudioFormat::from_basic(&config.format),
+            sample: AudioSample::new(),
+            file: None,
+            file_info: FileInfo::default(),
+            timing: StreamTiming::default(),
+            name: config.name.clone(),
+            volume: config.max_volume,
+        };
 
         // Setup channel callbacks
-        if let Some(ref channel) = streamer.channel {
+        if let Some(channel) = &state.channel {
             let _channel_guard = channel.lock().unwrap();
             // Set up callbacks for frame processing, sample completion, etc.
             // This would interface with the channel system
         }
+
+        let streamer = Arc::new(Self {
+            config,
+            _device: Arc::downgrade(&device),
+            pause_lock: tokio::sync::Mutex::new(()),
+            stream_lock: tokio::sync::Mutex::new(()),
+            state: tokio::sync::Mutex::new(state),
+            stream_buffer,
+        });
 
         Ok(streamer)
     }
@@ -468,8 +486,9 @@ impl AudioStreamer {
     /// Open a file for streaming
     pub async fn open_file<P: AsRef<Path>>(&self, path: P) -> Result<()> {
         let _lock = self.stream_lock.lock().await;
+        let mut st = self.state.lock().await;
 
-        self.close().await?;
+        self.close_locked(&mut st);
 
         let path = path.as_ref();
         let mut file = File::open(path).await.map_err(|e| {
@@ -479,35 +498,20 @@ impl AudioStreamer {
         // Read and parse audio format from file header
         let (format, data_start, total_bytes) = self.read_wave_file_format(&mut file).await?;
 
-        {
-            let mut file_info = self.file_info.lock().unwrap();
-            file_info.path = Some(path.to_path_buf());
-            file_info.total_bytes = total_bytes;
-            file_info.data_start = data_start;
-            file_info.bytes_left = total_bytes;
-            file_info.stream_position = 0;
-        }
+        st.file_info.path = Some(path.to_path_buf());
+        st.file_info.total_bytes = total_bytes;
+        st.file_info.data_start = data_start;
+        st.file_info.bytes_left = total_bytes;
+        st.file_info.stream_position = 0;
 
-        {
-            let mut format_guard = self.format.write().await;
-            *format_guard = format;
-        }
+        st.format = format;
 
-        {
-            let mut sample_guard = self.sample.lock().unwrap();
-            let name_string = path.display().to_string();
-            sample_guard.set_name(&name_string);
-        }
+        let name_string = path.display().to_string();
+        st.sample.set_name(&name_string);
 
-        {
-            let mut file_guard = self.file.lock().unwrap();
-            *file_guard = Some(file);
-        }
+        st.file = Some(file);
 
-        {
-            let mut flags = self.flags.lock().unwrap();
-            flags.set_open();
-        }
+        st.flags.set_open();
 
         Ok(())
     }
@@ -515,40 +519,29 @@ impl AudioStreamer {
     /// Open from an existing file handle
     pub async fn open_from_file(&self, mut file: File, close_file: bool) -> Result<()> {
         let _lock = self.stream_lock.lock().await;
+        let mut st = self.state.lock().await;
 
-        self.close().await?;
+        self.close_locked(&mut st);
 
         // Read and parse audio format from file
         let (format, data_start, total_bytes) = self.read_wave_file_format(&mut file).await?;
 
-        {
-            let mut file_info = self.file_info.lock().unwrap();
-            file_info.path = None;
-            file_info.total_bytes = total_bytes;
-            file_info.data_start = data_start;
-            file_info.bytes_left = total_bytes;
-            file_info.stream_position = 0;
-        }
+        st.file_info.path = None;
+        st.file_info.total_bytes = total_bytes;
+        st.file_info.data_start = data_start;
+        st.file_info.bytes_left = total_bytes;
+        st.file_info.stream_position = 0;
 
-        {
-            let mut format_guard = self.format.write().await;
-            *format_guard = format;
-        }
+        st.format = format;
 
-        {
-            let mut file_guard = self.file.lock().unwrap();
-            *file_guard = Some(file);
-        }
+        st.file = Some(file);
 
-        {
-            let mut flags = self.flags.lock().unwrap();
-            if close_file {
-                flags.clear(StreamFlags::NO_FILE_CLOSE);
-            } else {
-                flags.set_no_file_close();
-            }
-            flags.set_open();
+        if close_file {
+            st.flags.clear(StreamFlags::NO_FILE_CLOSE);
+        } else {
+            st.flags.set_no_file_close();
         }
+        st.flags.set_open();
 
         Ok(())
     }
@@ -556,37 +549,36 @@ impl AudioStreamer {
     /// Start streaming playback
     pub async fn start(&self) -> Result<()> {
         let _lock = self.stream_lock.lock().await;
+        let mut st = self.state.lock().await;
+        self.start_locked(&mut st).await
+    }
 
-        {
-            let flags = self.flags.lock().unwrap();
-            if !flags.is_open() {
-                return Err(Error::Channel(ChannelError::InvalidState(
-                    "Stream not open".to_string(),
-                )));
-            }
+    /// Start streaming playback with the streamer state already locked
+    async fn start_locked(&self, st: &mut StreamerState) -> Result<()> {
+        if !st.flags.is_open() {
+            return Err(Error::Channel(ChannelError::InvalidState(
+                "Stream not open".to_string(),
+            )));
         }
 
         // Setup buffering
-        {
-            let mut timing = self.timing.lock().unwrap();
-            timing.buffering_time = Duration::from_secs(self.config.buffering_seconds);
-            if timing.frame_size == 0 {
-                timing.frame_size = if self.config.buffer_size > 0 {
-                    self.config.buffer_size
-                } else {
-                    MIN_FRAME_SIZE
-                };
-            }
+        st.timing.buffering_time = Duration::from_secs(self.config.buffering_seconds);
+        if st.timing.frame_size == 0 {
+            st.timing.frame_size = if self.config.buffer_size > 0 {
+                self.config.buffer_size
+            } else {
+                MIN_FRAME_SIZE
+            };
         }
 
         // Prime the stream with an initial frame
-        let _ = self.stream_next_frame().await?;
+        let _ = self.stream_next_frame_locked(st).await?;
 
         // Setup sample for playback
-        self.setup_playback_sample().await?;
+        self.setup_playback_sample(st)?;
 
         // Start the channel
-        if let Some(ref channel) = self.channel {
+        if let Some(channel) = &st.channel {
             let mut channel_guard = channel.lock().unwrap();
             channel_guard.start().map_err(|_| {
                 Error::Channel(ChannelError::InvalidState(
@@ -596,22 +588,13 @@ impl AudioStreamer {
         }
 
         // Update state and flags
-        {
-            let mut state = self.state.write().await;
-            *state = StreamState::Playing;
-        }
+        st.state = StreamState::Playing;
 
-        {
-            let mut flags = self.flags.lock().unwrap();
-            flags.set_playing();
-            flags.set_fill();
-        }
+        st.flags.set_playing();
+        st.flags.set_fill();
 
-        {
-            let mut timing = self.timing.lock().unwrap();
-            timing.start_time = Some(Instant::now());
-            timing.end_time = timing.start_time;
-        }
+        st.timing.start_time = Some(Instant::now());
+        st.timing.end_time = st.timing.start_time;
 
         Ok(())
     }
@@ -619,38 +602,38 @@ impl AudioStreamer {
     /// Stop streaming playback
     pub async fn stop(&self) -> Result<()> {
         let _lock = self.stream_lock.lock().await;
+        let mut st = self.state.lock().await;
+        self.stop_locked(&mut st);
+        Ok(())
+    }
 
-        if let Some(ref channel) = self.channel {
+    /// Stop streaming playback with the streamer state already locked
+    fn stop_locked(&self, st: &mut StreamerState) {
+        if let Some(channel) = &st.channel {
             let mut channel_guard = channel.lock().unwrap();
             channel_guard.stop().unwrap_or(());
         }
 
-        self.update_stream_state_on_stop().await;
-        Ok(())
+        self.update_stream_state_on_stop(st);
     }
 
     /// Pause streaming playback
     pub async fn pause(&self) -> Result<()> {
         let pause_guard = self.pause_lock.lock().await;
+        let mut st = self.state.lock().await;
 
-        if let Some(ref channel) = self.channel {
+        if let Some(channel) = &st.channel {
             let mut channel_guard = channel.lock().unwrap();
             channel_guard.pause().unwrap_or(());
         }
 
-        {
-            let mut state = self.state.write().await;
-            if *state == StreamState::Playing {
-                *state = StreamState::Paused;
-            }
+        if st.state == StreamState::Playing {
+            st.state = StreamState::Paused;
         }
 
-        {
-            let mut flags = self.flags.lock().unwrap();
-            if flags.is_playing() {
-                flags.set_paused();
-                flags.clear_playing();
-            }
+        if st.flags.is_playing() {
+            st.flags.set_paused();
+            st.flags.clear_playing();
         }
 
         std::mem::forget(pause_guard); // Keep lock acquired
@@ -661,27 +644,22 @@ impl AudioStreamer {
     pub async fn resume(&self) -> Result<()> {
         // This will block if pause lock is held
         let _pause_guard = self.pause_lock.lock().await;
+        let mut st = self.state.lock().await;
 
-        if let Some(ref channel) = self.channel {
+        if let Some(channel) = &st.channel {
             let mut channel_guard = channel.lock().unwrap();
-            if self.flags.lock().unwrap().is_paused() {
+            if st.flags.is_paused() {
                 channel_guard.resume().unwrap_or(());
             }
         }
 
-        {
-            let mut state = self.state.write().await;
-            if *state == StreamState::Paused {
-                *state = StreamState::Playing;
-            }
+        if st.state == StreamState::Paused {
+            st.state = StreamState::Playing;
         }
 
-        {
-            let mut flags = self.flags.lock().unwrap();
-            if flags.is_paused() {
-                flags.clear_paused();
-                flags.set_playing();
-            }
+        if st.flags.is_paused() {
+            st.flags.clear_paused();
+            st.flags.set_playing();
         }
 
         Ok(())
@@ -690,70 +668,66 @@ impl AudioStreamer {
     /// Close the stream
     pub async fn close(&self) -> Result<()> {
         let _lock = self.stream_lock.lock().await;
-
-        self.stop().await?;
-
-        {
-            let mut file_guard = self.file.lock().unwrap();
-            if let Some(file) = file_guard.take() {
-                drop(file); // File will be closed when dropped
-            }
-        }
-
-        {
-            let mut flags = self.flags.lock().unwrap();
-            flags.clear(StreamFlags::OPEN | StreamFlags::NO_FILE_CLOSE | StreamFlags::LOOPING);
-        }
-
-        {
-            let mut state = self.state.write().await;
-            *state = StreamState::Stopped;
-        }
-
+        let mut st = self.state.lock().await;
+        self.close_locked(&mut st);
         Ok(())
+    }
+
+    /// Close the stream with the streamer state already locked
+    fn close_locked(&self, st: &mut StreamerState) {
+        self.stop_locked(st);
+
+        if let Some(file) = st.file.take() {
+            drop(file); // File will be closed when dropped
+        }
+
+        st.flags.clear(StreamFlags::OPEN | StreamFlags::NO_FILE_CLOSE | StreamFlags::LOOPING);
+
+        st.state = StreamState::Stopped;
     }
 
     /// Get current stream state
     pub async fn get_state(&self) -> StreamState {
-        *self.state.read().await
+        self.state.lock().await.state
     }
 
     /// Check if stream is playing
     pub async fn is_playing(&self) -> bool {
-        *self.state.read().await == StreamState::Playing
+        self.state.lock().await.state == StreamState::Playing
     }
 
     /// Check if stream is active (playing or paused)
     pub async fn is_active(&self) -> bool {
-        let state = *self.state.read().await;
-        matches!(state, StreamState::Playing | StreamState::Paused)
+        matches!(
+            self.state.lock().await.state,
+            StreamState::Playing | StreamState::Paused
+        )
     }
 
     /// Set stream volume
     pub async fn set_volume(&self, volume: Volume) -> Result<()> {
         let volume = volume.min(MAX_VOLUME);
+        let mut st = self.state.lock().await;
 
-        if let Some(ref channel) = self.channel {
+        if let Some(channel) = &st.channel {
             let mut channel_guard = channel.lock().unwrap();
             channel_guard.set_volume(volume)?;
         }
 
-        {
-            let mut volume_guard = self.volume.lock().unwrap();
-            *volume_guard = volume;
-        }
+        st.volume = volume;
 
         Ok(())
     }
 
     /// Get current volume
     pub async fn get_volume(&self) -> Volume {
-        if let Some(ref channel) = self.channel {
+        let st = self.state.lock().await;
+        if let Some(channel) = &st.channel {
             if let Ok(channel_guard) = channel.lock() {
                 return channel_guard.volume();
             }
         }
-        *self.volume.lock().unwrap()
+        st.volume
     }
 
     /// Set maximum volume
@@ -771,38 +745,41 @@ impl AudioStreamer {
     /// Set looping mode
     pub async fn set_looping(&self, looping: bool) {
         let _lock = self.stream_lock.lock().await;
+        let mut st = self.state.lock().await;
 
-        let mut flags = self.flags.lock().unwrap();
         if looping {
-            flags.set_looping();
+            st.flags.set_looping();
         } else {
-            flags.clear_looping();
+            st.flags.clear_looping();
         }
     }
 
     /// Check if looping is enabled
     pub async fn is_looping(&self) -> bool {
-        self.flags.lock().unwrap().is_looping()
+        self.state.lock().await.flags.is_looping()
     }
 
     /// Get current position in bytes
     pub async fn get_position(&self) -> usize {
-        self.file_info.lock().unwrap().stream_position
+        self.state.lock().await.file_info.stream_position
     }
 
     /// Set position in bytes
     pub async fn set_position(&self, position: usize) -> Result<()> {
-        let was_playing = self.is_playing().await;
+        let mut st = self.state.lock().await;
+        self.set_position_locked(&mut st, position).await
+    }
 
-        self.stop().await?;
+    /// Set position in bytes with the streamer state already locked
+    async fn set_position_locked(&self, st: &mut StreamerState, position: usize) -> Result<()> {
+        let was_playing = st.state == StreamState::Playing;
 
-        {
-            let mut file_info = self.file_info.lock().unwrap();
-            file_info.stream_position = position.min(file_info.total_bytes);
-        }
+        self.stop_locked(st);
+
+        st.file_info.stream_position = position.min(st.file_info.total_bytes);
 
         if was_playing {
-            self.start().await?;
+            self.start_locked(st).await?;
         }
 
         Ok(())
@@ -810,24 +787,23 @@ impl AudioStreamer {
 
     /// Get current time position
     pub async fn get_time_position(&self) -> TimeStamp {
-        let position = self.get_position().await;
-        let format = self.format.read().await;
-        let source_ts = format.bytes_to_time(position);
+        let st = self.state.lock().await;
+        let source_ts = st.format.bytes_to_time(st.file_info.stream_position);
         TimeStamp::from_millis(source_ts.as_millis())
     }
 
     /// Set time position
     pub async fn set_time_position(&self, time: TimeStamp) -> Result<()> {
-        let format = self.format.read().await;
+        let mut st = self.state.lock().await;
         let source_ts = SourceTimeStamp::from_millis(time.as_millis());
-        let byte_position = format.time_to_bytes(source_ts);
-        drop(format);
-        self.set_position(byte_position).await
+        let byte_position = st.format.time_to_bytes(source_ts);
+        self.set_position_locked(&mut st, byte_position).await
     }
 
     /// Fade in the stream
     pub async fn fade_in(&self) -> Result<()> {
-        if let Some(ref channel) = self.channel {
+        let st = self.state.lock().await;
+        if let Some(channel) = &st.channel {
             let mut channel_guard = channel.lock().unwrap();
             channel_guard.fade_to_volume(self.config.max_volume, Duration::from_secs(2))?;
         }
@@ -836,7 +812,8 @@ impl AudioStreamer {
 
     /// Fade out the stream
     pub async fn fade_out(&self) -> Result<()> {
-        if let Some(ref channel) = self.channel {
+        let st = self.state.lock().await;
+        if let Some(channel) = &st.channel {
             let mut channel_guard = channel.lock().unwrap();
             channel_guard.fade_to_volume(MIN_VOLUME, Duration::from_secs(2))?;
         }
@@ -845,7 +822,8 @@ impl AudioStreamer {
 
     /// Check if stream is currently fading
     pub async fn is_fading(&self) -> bool {
-        if let Some(ref channel) = self.channel {
+        let st = self.state.lock().await;
+        if let Some(channel) = &st.channel {
             if let Ok(channel_guard) = channel.lock() {
                 return channel_guard.is_fading();
             }
@@ -855,7 +833,8 @@ impl AudioStreamer {
 
     /// Wait for fade to complete
     pub async fn wait_for_fade(&self) -> Result<()> {
-        if let Some(ref _channel) = self.channel {
+        let has_channel = self.state.lock().await.channel.is_some();
+        if has_channel {
             let timeout = Duration::from_secs(10); // Reasonable timeout
             let start = Instant::now();
 
@@ -868,18 +847,18 @@ impl AudioStreamer {
 
     /// Get stream name
     pub async fn get_name(&self) -> String {
-        self.name.read().await.clone()
+        self.state.lock().await.name.clone()
     }
 
     /// Set stream name
     pub async fn set_name(&self, name: String) {
-        let mut name_guard = self.name.write().await;
-        *name_guard = name;
+        self.state.lock().await.name = name;
     }
 
     /// Check if channel is audible
     pub async fn is_audible(&self) -> bool {
-        if let Some(ref channel) = self.channel {
+        let st = self.state.lock().await;
+        if let Some(channel) = &st.channel {
             if let Ok(channel_guard) = channel.lock() {
                 return channel_guard.is_audible();
             }
@@ -889,7 +868,7 @@ impl AudioStreamer {
 
     /// Get end timestamp
     pub async fn get_end_timestamp(&self) -> Option<Instant> {
-        self.timing.lock().unwrap().end_time
+        self.state.lock().await.timing.end_time
     }
 
     /// Lock the stream for exclusive access
@@ -906,22 +885,31 @@ impl AudioStreamer {
 
     /// Service the stream (called periodically by stream manager)
     pub async fn service_stream(&self) -> Result<()> {
-        let state = *self.state.read().await;
-        if !matches!(state, StreamState::Playing | StreamState::Buffering) {
+        let mut st = self.state.lock().await;
+        if !matches!(st.state, StreamState::Playing | StreamState::Buffering) {
             return Ok(());
         }
 
-        self.stream_next_frame().await
+        self.stream_next_frame_locked(&mut st).await
     }
 
     /// Get stream status
     pub async fn get_status(&self) -> StreamStatus {
-        let state = *self.state.read().await;
-        let position_bytes = self.get_position().await;
-        let position_time = self.get_time_position().await;
-        let total_bytes = self.file_info.lock().unwrap().total_bytes;
-        let volume = self.get_volume().await;
-        let looping = self.is_looping().await;
+        let st = self.state.lock().await;
+        let state = st.state;
+        let position_bytes = st.file_info.stream_position;
+        let source_ts = st.format.bytes_to_time(position_bytes);
+        let position_time = TimeStamp::from_millis(source_ts.as_millis());
+        let total_bytes = st.file_info.total_bytes;
+        let volume = if let Some(channel) = &st.channel {
+            match channel.lock() {
+                Ok(channel_guard) => channel_guard.volume(),
+                Err(_) => st.volume,
+            }
+        } else {
+            st.volume
+        };
+        let looping = st.flags.is_looping();
 
         // Calculate buffer fill percentage
         let buffer_fill_percent = {
@@ -1018,67 +1006,50 @@ impl AudioStreamer {
     }
 
     /// Seek to start of audio data
-    async fn seek_to_start(&self) -> Result<()> {
-        let data_start = self.file_info.lock().unwrap().data_start;
-        let total_bytes = self.file_info.lock().unwrap().total_bytes;
+    async fn seek_to_start(&self, st: &mut StreamerState) -> Result<()> {
+        let data_start = st.file_info.data_start;
+        let total_bytes = st.file_info.total_bytes;
 
-        let mut file_guard = self.file.lock().unwrap();
-        if let Some(ref mut file) = *file_guard {
+        if let Some(file) = &mut st.file {
             file.seek(SeekFrom::Start(data_start))
                 .await
                 .map_err(|e| Error::Io(e))?;
         }
 
-        {
-            let mut file_info = self.file_info.lock().unwrap();
-            file_info.bytes_left = total_bytes;
-            file_info.stream_position = 0;
-        }
+        st.file_info.bytes_left = total_bytes;
+        st.file_info.stream_position = 0;
 
         Ok(())
     }
 
     /// Setup sample for playback
-    async fn setup_playback_sample(&self) -> Result<()> {
+    fn setup_playback_sample(&self, st: &mut StreamerState) -> Result<()> {
         // Get current output block from stream
         // This would be implemented using the stream buffering system
 
-        let format = self.format.read().await;
-        let frame_time = if let Some(ref channel) = self.channel {
+        let frame_time = if let Some(channel) = &st.channel {
             channel.lock().unwrap().frame_time()
         } else {
             Duration::from_millis(50)
         };
 
-        let sample_bytes = format.time_to_bytes_duration(frame_time);
+        let sample_bytes = st.format.time_to_bytes_duration(frame_time);
 
-        {
-            let mut sample = self.sample.lock().unwrap();
-            sample.set_format(format.to_basic());
-            sample.set_size(sample_bytes);
-        }
+        st.sample.set_format(st.format.to_basic());
+        st.sample.set_size(sample_bytes);
 
         Ok(())
     }
 
     /// Update stream state when stopping
-    async fn update_stream_state_on_stop(&self) {
-        {
-            let mut state = self.state.write().await;
-            if matches!(*state, StreamState::Playing | StreamState::Paused) {
-                *state = StreamState::Stopped;
-            }
+    fn update_stream_state_on_stop(&self, st: &mut StreamerState) {
+        if matches!(st.state, StreamState::Playing | StreamState::Paused) {
+            st.state = StreamState::Stopped;
         }
 
-        {
-            let mut flags = self.flags.lock().unwrap();
-            flags.clear(StreamFlags::PLAYING | StreamFlags::PAUSED | StreamFlags::FILL);
-        }
+        st.flags.clear(StreamFlags::PLAYING | StreamFlags::PAUSED | StreamFlags::FILL);
 
-        {
-            let mut timing = self.timing.lock().unwrap();
-            timing.end_time = Some(Instant::now());
-        }
+        st.timing.end_time = Some(Instant::now());
     }
 }
 
@@ -1086,29 +1057,32 @@ impl AudioStreamer {
 impl AudioStreamer {
     /// Called when channel needs next frame of audio data
     pub async fn stream_next_frame(&self) -> Result<()> {
-        let format_guard = self.format.read().await;
-        let bytes_per_second = format_guard.bytes_per_second.max(1) as usize;
-        let basic_format = format_guard.to_basic();
-        drop(format_guard);
+        let mut st = self.state.lock().await;
+        self.stream_next_frame_locked(&mut st).await
+    }
+
+    /// Feed the next frame of audio data with the streamer state already locked
+    async fn stream_next_frame_locked(&self, st: &mut StreamerState) -> Result<()> {
+        let bytes_per_second = st.format.bytes_per_second.max(1) as usize;
+        let basic_format = st.format.to_basic();
 
         let frame_size = {
-            let mut timing = self.timing.lock().unwrap();
-            if timing.frame_size == 0 {
-                timing.frame_size = (bytes_per_second / 60).max(MIN_FRAME_SIZE);
+            if st.timing.frame_size == 0 {
+                st.timing.frame_size = (bytes_per_second / 60).max(MIN_FRAME_SIZE);
             }
-            timing.frame_size
+            st.timing.frame_size
         };
 
         if frame_size == 0 {
             return Ok(());
         }
 
-        let looping = self.flags.lock().unwrap().is_looping();
+        let looping = st.flags.is_looping();
 
         let mut buffer = vec![0u8; frame_size];
         let bytes_read = {
-            let mut file_guard = self.file.lock().unwrap();
-            let file = file_guard
+            let file = st
+                .file
                 .as_mut()
                 .ok_or_else(|| Error::Stream(StreamError::NotInitialized))?;
             file.read(&mut buffer).await.map_err(Error::Io)?
@@ -1116,54 +1090,44 @@ impl AudioStreamer {
 
         if bytes_read == 0 {
             if looping {
-                self.seek_to_start().await?;
+                self.seek_to_start(st).await?;
                 return Ok(());
             } else {
-                self.update_stream_state_on_stop().await;
+                self.update_stream_state_on_stop(st);
                 return Ok(());
             }
         }
 
         buffer.truncate(bytes_read);
 
-        {
-            let mut sample = self.sample.lock().unwrap();
-            sample.set_format(basic_format);
-            sample.write_data(&buffer);
+        st.sample.set_format(basic_format);
+        st.sample.write_data(&buffer);
+
+        if st.timing.start_time.is_none() {
+            st.timing.start_time = Some(Instant::now());
+        }
+        st.timing.pending_bytes = bytes_read;
+
+        st.file_info.bytes_left = st.file_info.bytes_left.saturating_sub(bytes_read);
+        st.file_info.stream_position = st.file_info.stream_position.saturating_add(bytes_read);
+        if st.file_info.bytes_left == 0 && looping {
+            self.seek_to_start(st).await?;
         }
 
-        {
-            let mut timing = self.timing.lock().unwrap();
-            if timing.start_time.is_none() {
-                timing.start_time = Some(Instant::now());
-            }
-            timing.pending_bytes = bytes_read;
-        }
-
-        {
-            let mut file_info = self.file_info.lock().unwrap();
-            file_info.bytes_left = file_info.bytes_left.saturating_sub(bytes_read);
-            file_info.stream_position = file_info.stream_position.saturating_add(bytes_read);
-            if file_info.bytes_left == 0 && looping {
-                drop(file_info);
-                self.seek_to_start().await?;
-            }
-        }
-
-        if let Some(ref channel) = self.channel {
+        if let Some(channel) = &st.channel {
             if let Ok(mut channel_guard) = channel.lock() {
                 channel_guard.update();
             }
         }
 
-        self.flags.lock().unwrap().set_fill();
-        let mut state = self.state.write().await;
-        if !matches!(*state, StreamState::Playing) {
-            *state = StreamState::Playing;
+        st.flags.set_fill();
+        if !matches!(st.state, StreamState::Playing) {
+            st.state = StreamState::Playing;
         }
 
         Ok(())
     }
+
     /// Called when sample playback is complete
     pub async fn stream_sample_done(&self) -> Result<()> {
         self.stream_stop().await
@@ -1171,7 +1135,8 @@ impl AudioStreamer {
 
     /// Called when stream should stop
     pub async fn stream_stop(&self) -> Result<()> {
-        self.update_stream_state_on_stop().await;
+        let mut st = self.state.lock().await;
+        self.update_stream_state_on_stop(&mut st);
         Ok(())
     }
 }

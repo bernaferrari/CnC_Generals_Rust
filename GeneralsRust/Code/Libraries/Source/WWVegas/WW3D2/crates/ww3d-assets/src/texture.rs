@@ -306,14 +306,14 @@ struct DDSHeader {
 
 /// Texture loader supporting multiple formats
 pub struct TextureLoader {
-    cache: Arc<Mutex<HashMap<String, Arc<TextureBase>>>>,
+    cache: Mutex<HashMap<String, Arc<TextureBase>>>,
 }
 
 impl TextureLoader {
     /// Create a new texture loader
     pub fn new() -> Self {
         Self {
-            cache: Arc::new(Mutex::new(HashMap::new())),
+            cache: Mutex::new(HashMap::new()),
         }
     }
 

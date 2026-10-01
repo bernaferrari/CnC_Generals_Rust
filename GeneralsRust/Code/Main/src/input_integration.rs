@@ -11,12 +11,12 @@ use crate::input_system::{RtsCommandEvent, RtsInputSystem};
 use crate::presentation_frame::PresentationFrame;
 use glam::{Vec2, Vec3};
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 /// Input processor that bridges input system and game logic
 pub struct InputProcessor {
     /// Reference to the input system
-    input_system: Arc<Mutex<RtsInputSystem>>,
+    input_system: RtsInputSystem,
 
     /// Current player ID for command execution
     local_player_id: u32,
@@ -43,7 +43,7 @@ pub struct InputProcessor {
 impl InputProcessor {
     /// Create new input processor
     pub fn new(
-        input_system: Arc<Mutex<RtsInputSystem>>,
+        input_system: RtsInputSystem,
         local_player_id: u32,
         window_size: (f32, f32),
     ) -> Self {
@@ -145,7 +145,8 @@ impl InputProcessor {
 
         let mut resolved = Vec::new();
 
-        if let Ok(mut input) = self.input_system.try_lock() {
+        {
+            let input = &mut self.input_system;
             let shift = input.is_shift_pressed();
             let ctrl = input.is_ctrl_pressed();
             let window_size = self.window_size;
@@ -776,7 +777,7 @@ mod tests {
     use crate::input_system::RtsInputSystem;
     use crate::presentation_frame::PresentationFrame;
     use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
-    use std::sync::{Arc, Mutex};
+
 
     #[test]
     fn input_processor_pick_prefers_presentation_pose() {
@@ -796,8 +797,7 @@ mod tests {
         if let Some(obj) = logic.host_object_mut(id) {
             obj.position = glam::Vec3::new(8888.0, 0.0, 8888.0);
         }
-        let input = Arc::new(Mutex::new(RtsInputSystem::new()));
-        let mut proc = InputProcessor::new(input, 0, (1024.0, 768.0));
+        let mut proc = InputProcessor::new(RtsInputSystem::new(), 0, (1024.0, 768.0));
         assert!(
             proc.find_object_at_position(glam::Vec3::new(12.0, 0.0, 18.0), &logic)
                 .is_none(),

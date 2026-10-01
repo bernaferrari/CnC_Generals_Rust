@@ -9,7 +9,7 @@ use crate::{GameLogicError, GameLogicResult};
 
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Mutex, RwLock};
 use std::time::Instant;
 
 /// Game event types
@@ -141,16 +141,23 @@ struct EventHistoryEntry {
 
 /// Game event manager
 pub struct EventManager {
-    /// Event queue
-    event_queue: Arc<Mutex<VecDeque<GameEvent>>>,
-    /// Event subscribers
-    subscribers: Arc<RwLock<Vec<Box<dyn EventSubscriber>>>>,
-    /// Event history (for lookups and debugging)
-    event_history: Arc<RwLock<VecDeque<EventHistoryEntry>>>,
+    /// Event subscribers. Kept under their own lock (not folded into
+    /// `queues`) because subscriber `on_event` callbacks are invoked while it
+    /// is held and must stay free to re-enter fire/process paths.
+    subscribers: RwLock<Vec<Box<dyn EventSubscriber>>>,
+    /// Queue, history, and statistics behind one lock: they are only ever
+    /// touched together from the single host update path, so one guard
+    /// replaces three separate locks.
+    queues: Mutex<EventManagerQueues>,
     /// Maximum history size
     max_history_size: usize,
-    /// Event statistics
-    statistics: Arc<RwLock<EventStatistics>>,
+}
+
+/// The mutable queues previously locked individually on [`EventManager`].
+struct EventManagerQueues {
+    event_queue: VecDeque<GameEvent>,
+    event_history: VecDeque<EventHistoryEntry>,
+    statistics: EventStatistics,
 }
 
 /// Event processing statistics
@@ -338,12 +345,23 @@ impl EventManager {
     /// Create a new event manager
     pub fn new() -> Self {
         Self {
-            event_queue: Arc::new(Mutex::new(VecDeque::new())),
-            subscribers: Arc::new(RwLock::new(Vec::new())),
-            event_history: Arc::new(RwLock::new(VecDeque::new())),
+            subscribers: RwLock::new(Vec::new()),
+            queues: Mutex::new(EventManagerQueues {
+                event_queue: VecDeque::new(),
+                event_history: VecDeque::new(),
+                statistics: EventStatistics::default(),
+            }),
             max_history_size: 10000,
-            statistics: Arc::new(RwLock::new(EventStatistics::default())),
         }
+    }
+
+    /// Run `f` with the consolidated queue/history/statistics state.
+    fn with_queues<R>(&self, f: impl FnOnce(&mut EventManagerQueues) -> R) -> R {
+        let mut queues = self
+            .queues
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        f(&mut queues)
     }
 
     /// Fire an event
@@ -354,21 +372,10 @@ impl EventManager {
             event.description
         );
 
-        // Add to queue
-        {
-            let mut queue = self.event_queue.lock().map_err(|e| {
-                GameLogicError::Threading(format!("Failed to acquire event queue lock: {}", e))
-            })?;
-            queue.push_back(event.clone());
-        }
-
-        // Update statistics
-        {
-            let mut stats = self.statistics.write().map_err(|e| {
-                GameLogicError::Threading(format!("Failed to write statistics: {}", e))
-            })?;
-            stats.queued_events += 1;
-        }
+        self.with_queues(|queues| {
+            queues.event_queue.push_back(event.clone());
+            queues.statistics.queued_events += 1;
+        });
 
         Ok(())
     }
@@ -384,32 +391,20 @@ impl EventManager {
             event.description
         );
 
-        {
-            let mut queue = self.event_queue.lock().map_err(|e| {
-                GameLogicError::Threading(format!("Failed to acquire event queue lock: {}", e))
-            })?;
-            queue.push_back(event.clone());
-        }
-
-        {
-            let mut stats = self.statistics.write().map_err(|e| {
-                GameLogicError::Threading(format!("Failed to write statistics: {}", e))
-            })?;
-            stats.queued_events += 1;
-        }
+        self.with_queues(|queues| {
+            queues.event_queue.push_back(event.clone());
+            queues.statistics.queued_events += 1;
+        });
 
         Ok(())
     }
 
     /// Process all queued events
     pub async fn process_events(&self) -> GameLogicResult<()> {
-        let events_to_process = {
-            let mut queue = self.event_queue.lock().map_err(|e| {
-                GameLogicError::Threading(format!("Failed to acquire event queue lock: {}", e))
-            })?;
-            let events: Vec<_> = queue.drain(..).collect();
+        let events_to_process = self.with_queues(|queues| {
+            let events: Vec<_> = queues.event_queue.drain(..).collect();
             events
-        };
+        });
 
         if events_to_process.is_empty() {
             return Ok(());
@@ -427,10 +422,7 @@ impl EventManager {
                 log::error!("Failed to process event {:?}: {}", event.event_type, e);
 
                 // Update failure statistics
-                let mut stats = self.statistics.write().map_err(|e| {
-                    GameLogicError::Threading(format!("Failed to write statistics: {}", e))
-                })?;
-                stats.failed_events += 1;
+                self.with_queues(|queues| queues.statistics.failed_events += 1);
             }
 
             // Add to history
@@ -469,19 +461,17 @@ impl EventManager {
         }
 
         // Update statistics
-        let mut stats = self
-            .statistics
-            .write()
-            .map_err(|e| GameLogicError::Threading(format!("Failed to write statistics: {}", e)))?;
+        self.with_queues(|queues| {
+            queues.statistics.total_events += 1;
+            queues.statistics.queued_events = queues.statistics.queued_events.saturating_sub(1);
 
-        stats.total_events += 1;
-        stats.queued_events = stats.queued_events.saturating_sub(1);
-
-        let count = stats
-            .events_by_type
-            .entry(event.event_type.clone())
-            .or_insert(0);
-        *count += 1;
+            let count = queues
+                .statistics
+                .events_by_type
+                .entry(event.event_type.clone())
+                .or_insert(0);
+            *count += 1;
+        });
 
         Ok(())
     }
@@ -497,34 +487,34 @@ impl EventManager {
         subscribers.push(subscriber);
 
         // Update statistics
-        let mut stats = self
-            .statistics
-            .write()
-            .map_err(|e| GameLogicError::Threading(format!("Failed to write statistics: {}", e)))?;
-        stats.active_subscribers = subscribers.len() as u32;
+        let active_subscribers = subscribers.len() as u32;
+        self.with_queues(|queues| queues.statistics.active_subscribers = active_subscribers);
 
         Ok(())
     }
 
     /// Remove all subscribers matching a filter
     pub async fn unsubscribe_by_name(&self, name: &str) -> GameLogicResult<usize> {
-        let mut subscribers = self.subscribers.write().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to write subscribers: {}", e))
-        })?;
-
-        let original_len = subscribers.len();
-        subscribers.retain(|subscriber| subscriber.get_name() != name);
-        let removed_count = original_len - subscribers.len();
-
-        if removed_count > 0 {
-            log::info!("Removed {} subscribers with name '{}'", removed_count, name);
-
-            // Update statistics
-            let mut stats = self.statistics.write().map_err(|e| {
-                GameLogicError::Threading(format!("Failed to write statistics: {}", e))
+        let removed_count = {
+            let mut subscribers = self.subscribers.write().map_err(|e| {
+                GameLogicError::Threading(format!("Failed to write subscribers: {}", e))
             })?;
-            stats.active_subscribers = subscribers.len() as u32;
-        }
+
+            let original_len = subscribers.len();
+            subscribers.retain(|subscriber| subscriber.get_name() != name);
+            let removed_count = original_len - subscribers.len();
+
+            if removed_count > 0 {
+                log::info!("Removed {} subscribers with name '{}'", removed_count, name);
+
+                // Update statistics
+                let active_subscribers = subscribers.len() as u32;
+                self.with_queues(|queues| {
+                    queues.statistics.active_subscribers = active_subscribers;
+                });
+            }
+            removed_count
+        };
 
         Ok(removed_count)
     }
@@ -535,20 +525,16 @@ impl EventManager {
         filter: &EventFilter,
         max_results: usize,
     ) -> GameLogicResult<Vec<GameEvent>> {
-        let history = self
-            .event_history
-            .read()
-            .map_err(|e| GameLogicError::Threading(format!("Failed to read history: {}", e)))?;
-
-        let matching_events: Vec<_> = history
-            .iter()
-            .rev() // Most recent first
-            .filter(|entry| filter.matches(&entry.event))
-            .take(max_results)
-            .map(|entry| entry.event.clone())
-            .collect();
-
-        Ok(matching_events)
+        Ok(self.with_queues(|queues| {
+            queues
+                .event_history
+                .iter()
+                .rev() // Most recent first
+                .filter(|entry| filter.matches(&entry.event))
+                .take(max_results)
+                .map(|entry| entry.event.clone())
+                .collect()
+        }))
     }
 
     /// Check if event occurred recently
@@ -557,39 +543,29 @@ impl EventManager {
         filter: &EventFilter,
         within_seconds: f64,
     ) -> GameLogicResult<bool> {
-        let history = self
-            .event_history
-            .read()
-            .map_err(|e| GameLogicError::Threading(format!("Failed to read history: {}", e)))?;
-
         let cutoff_time = Instant::now() - std::time::Duration::from_secs_f64(within_seconds);
 
-        let found = history
-            .iter()
-            .rev() // Most recent first
-            .any(|entry| entry.event.timestamp >= cutoff_time && filter.matches(&entry.event));
-
-        Ok(found)
+        Ok(self.with_queues(|queues| {
+            queues
+                .event_history
+                .iter()
+                .rev() // Most recent first
+                .any(|entry| entry.event.timestamp >= cutoff_time && filter.matches(&entry.event))
+        }))
     }
 
     /// Get current statistics
     pub async fn get_statistics(&self) -> GameLogicResult<EventStatistics> {
-        let stats = self
-            .statistics
-            .read()
-            .map_err(|e| GameLogicError::Threading(format!("Failed to read statistics: {}", e)))?;
-        Ok(stats.clone())
+        Ok(self.with_queues(|queues| queues.statistics.clone()))
     }
 
     /// Clear event history
     pub async fn clear_history(&self) -> GameLogicResult<()> {
-        let mut history = self
-            .event_history
-            .write()
-            .map_err(|e| GameLogicError::Threading(format!("Failed to write history: {}", e)))?;
-
-        let cleared_count = history.len();
-        history.clear();
+        let cleared_count = self.with_queues(|queues| {
+            let cleared_count = queues.event_history.len();
+            queues.event_history.clear();
+            cleared_count
+        });
 
         log::info!("Cleared {} events from history", cleared_count);
         Ok(())
@@ -597,18 +573,15 @@ impl EventManager {
 
     /// Add event to history
     async fn add_to_history(&self, event: GameEvent, processed: bool) -> GameLogicResult<()> {
-        let mut history = self
-            .event_history
-            .write()
-            .map_err(|e| GameLogicError::Threading(format!("Failed to write history: {}", e)))?;
+        self.with_queues(|queues| {
+            // Add new entry
+            queues.event_history.push_back(EventHistoryEntry { event, processed });
 
-        // Add new entry
-        history.push_back(EventHistoryEntry { event, processed });
-
-        // Trim history if too large
-        while history.len() > self.max_history_size {
-            history.pop_front();
-        }
+            // Trim history if too large
+            while queues.event_history.len() > self.max_history_size {
+                queues.event_history.pop_front();
+            }
+        });
 
         Ok(())
     }
@@ -618,20 +591,17 @@ impl EventManager {
         &self,
         processing_time: std::time::Duration,
     ) -> GameLogicResult<()> {
-        let mut stats = self
-            .statistics
-            .write()
-            .map_err(|e| GameLogicError::Threading(format!("Failed to write statistics: {}", e)))?;
-
         let processing_time_ms = processing_time.as_secs_f64() * 1000.0;
 
-        // Simple moving average
-        if stats.avg_processing_time_ms == 0.0 {
-            stats.avg_processing_time_ms = processing_time_ms;
-        } else {
-            stats.avg_processing_time_ms =
-                (stats.avg_processing_time_ms * 0.95) + (processing_time_ms * 0.05);
-        }
+        self.with_queues(|queues| {
+            // Simple moving average
+            if queues.statistics.avg_processing_time_ms == 0.0 {
+                queues.statistics.avg_processing_time_ms = processing_time_ms;
+            } else {
+                queues.statistics.avg_processing_time_ms =
+                    (queues.statistics.avg_processing_time_ms * 0.95) + (processing_time_ms * 0.05);
+            }
+        });
 
         Ok(())
     }
@@ -747,12 +717,9 @@ impl Default for EventFilter {
 
 /// Named object tracker for script system
 pub struct NamedObjectTracker {
-    /// Map from object name to object ID
-    name_to_id: Arc<RwLock<HashMap<String, u32>>>,
-    /// Map from object ID to name
-    id_to_name: Arc<RwLock<HashMap<u32, String>>>,
-    /// Names that have existed at least once (used for ScriptConditions::didUnitExist parity)
-    name_history: Arc<RwLock<HashSet<String>>>,
+    /// Name/ID maps and history behind one lock: they are only ever touched
+    /// together, so a single guard replaces three separate locks.
+    state: Mutex<NamedObjectTrackerState>,
 }
 
 /// Owned mutable state of [`NamedObjectTracker`] used only by a whole-world
@@ -769,32 +736,35 @@ impl NamedObjectTracker {
     /// Create a new named object tracker
     pub fn new() -> Self {
         Self {
-            name_to_id: Arc::new(RwLock::new(HashMap::new())),
-            id_to_name: Arc::new(RwLock::new(HashMap::new())),
-            name_history: Arc::new(RwLock::new(HashSet::new())),
+            state: Mutex::new(NamedObjectTrackerState {
+                name_to_id: HashMap::new(),
+                id_to_name: HashMap::new(),
+                name_history: HashSet::new(),
+            }),
         }
+    }
+
+    /// Run `f` with the consolidated tracker state.
+    fn with_state<R>(&self, f: impl FnOnce(&mut NamedObjectTrackerState) -> R) -> R {
+        let mut state = self
+            .state
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        f(&mut state)
     }
 
     /// Register a named object
     pub fn register_named_object(&self, name: String, object_id: u32) -> GameLogicResult<()> {
-        let mut name_map = self.name_to_id.write().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to acquire name map lock: {}", e))
-        })?;
+        self.with_state(|state| {
+            // Remove old mapping if object was previously named
+            if let Some(old_name) = state.id_to_name.insert(object_id, name.clone()) {
+                state.name_to_id.remove(&old_name);
+            }
 
-        let mut id_map = self.id_to_name.write().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to acquire ID map lock: {}", e))
-        })?;
-
-        // Remove old mapping if object was previously named
-        if let Some(old_name) = id_map.insert(object_id, name.clone()) {
-            name_map.remove(&old_name);
-        }
-
-        // Add new mapping
-        name_map.insert(name.clone(), object_id);
-        if let Ok(mut history) = self.name_history.write() {
-            history.insert(name.clone());
-        }
+            // Add new mapping
+            state.name_to_id.insert(name.clone(), object_id);
+            state.name_history.insert(name.clone());
+        });
         log::debug!("Registered named object: {} -> {}", name, object_id);
 
         Ok(())
@@ -802,75 +772,50 @@ impl NamedObjectTracker {
 
     /// Unregister an object
     pub fn unregister_object(&self, object_id: u32) -> GameLogicResult<()> {
-        let mut id_map = self.id_to_name.write().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to acquire ID map lock: {}", e))
-        })?;
-
-        if let Some(name) = id_map.remove(&object_id) {
-            let mut name_map = self.name_to_id.write().map_err(|e| {
-                GameLogicError::Threading(format!("Failed to acquire name map lock: {}", e))
-            })?;
-            name_map.remove(&name);
-            log::debug!("Unregistered named object: {} (ID: {})", name, object_id);
-        }
+        self.with_state(|state| {
+            if let Some(name) = state.id_to_name.remove(&object_id) {
+                state.name_to_id.remove(&name);
+                log::debug!("Unregistered named object: {} (ID: {})", name, object_id);
+            }
+        });
 
         Ok(())
     }
 
     /// Get object ID by name
     pub fn get_object_id(&self, name: &str) -> GameLogicResult<Option<u32>> {
-        let name_map = self.name_to_id.read().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to acquire name map lock: {}", e))
-        })?;
-
-        Ok(name_map.get(name).copied())
+        Ok(self.with_state(|state| state.name_to_id.get(name).copied()))
     }
 
     /// Get object name by ID
     pub fn get_object_name(&self, object_id: u32) -> GameLogicResult<Option<String>> {
-        let id_map = self.id_to_name.read().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to acquire ID map lock: {}", e))
-        })?;
-
-        Ok(id_map.get(&object_id).cloned())
+        Ok(self
+            .with_state(|state| state.id_to_name.get(&object_id).cloned()))
     }
 
     /// Check if object is named
     pub fn is_named(&self, object_id: u32) -> GameLogicResult<bool> {
-        let id_map = self.id_to_name.read().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to acquire ID map lock: {}", e))
-        })?;
-
-        Ok(id_map.contains_key(&object_id))
+        Ok(self.with_state(|state| state.id_to_name.contains_key(&object_id)))
     }
 
     /// Get all named objects
     pub fn get_all_named_objects(&self) -> GameLogicResult<Vec<(String, u32)>> {
-        let name_map = self.name_to_id.read().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to acquire name map lock: {}", e))
-        })?;
-
-        Ok(name_map
-            .iter()
-            .map(|(name, id)| (name.clone(), *id))
-            .collect())
+        Ok(self.with_state(|state| {
+            state
+                .name_to_id
+                .iter()
+                .map(|(name, id)| (name.clone(), *id))
+                .collect()
+        }))
     }
 
     /// Clear all tracked named objects and history.
     pub fn clear(&self) -> GameLogicResult<()> {
-        let mut name_map = self.name_to_id.write().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to acquire name map lock: {}", e))
-        })?;
-        let mut id_map = self.id_to_name.write().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to acquire ID map lock: {}", e))
-        })?;
-        let mut history = self.name_history.write().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to acquire name history lock: {}", e))
-        })?;
-
-        name_map.clear();
-        id_map.clear();
-        history.clear();
+        self.with_state(|state| {
+            state.name_to_id.clear();
+            state.id_to_name.clear();
+            state.name_history.clear();
+        });
         Ok(())
     }
 
@@ -878,24 +823,7 @@ impl NamedObjectTracker {
     /// identity.  Whole-world save staging uses this rather than clearing the
     /// active world's tracker, so a failed stage can restore it exactly.
     pub(crate) fn take_state_for_world_boundary(&self) -> NamedObjectTrackerState {
-        let mut name_to_id = self
-            .name_to_id
-            .write()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let mut id_to_name = self
-            .id_to_name
-            .write()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let mut name_history = self
-            .name_history
-            .write()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-
-        NamedObjectTrackerState {
-            name_to_id: std::mem::take(&mut *name_to_id),
-            id_to_name: std::mem::take(&mut *id_to_name),
-            name_history: std::mem::take(&mut *name_history),
-        }
+        self.with_state(std::mem::take)
     }
 
     /// Install owned tracker contents and return the contents they replaced.
@@ -905,32 +833,12 @@ impl NamedObjectTracker {
         &self,
         state: NamedObjectTrackerState,
     ) -> NamedObjectTrackerState {
-        let mut name_to_id = self
-            .name_to_id
-            .write()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let mut id_to_name = self
-            .id_to_name
-            .write()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let mut name_history = self
-            .name_history
-            .write()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-
-        NamedObjectTrackerState {
-            name_to_id: std::mem::replace(&mut *name_to_id, state.name_to_id),
-            id_to_name: std::mem::replace(&mut *id_to_name, state.id_to_name),
-            name_history: std::mem::replace(&mut *name_history, state.name_history),
-        }
+        self.with_state(|current| std::mem::replace(current, state))
     }
 
     /// Check whether a named object has ever been registered.
     pub fn did_object_exist(&self, name: &str) -> GameLogicResult<bool> {
-        let history = self.name_history.read().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to acquire name history lock: {}", e))
-        })?;
-        Ok(history.contains(name))
+        Ok(self.with_state(|state| state.name_history.contains(name)))
     }
 }
 
@@ -1028,14 +936,10 @@ fn trigger_area_aabb(area: &TriggerArea) -> Option<(f32, f32, f32, f32)> {
 
 /// Area tracker for enter/exit events
 pub struct AreaTracker {
-    /// Registered trigger areas
-    areas: Arc<RwLock<HashMap<String, TriggerArea>>>,
-    /// Objects in each area (area_name -> set of object IDs)
-    objects_in_areas: Arc<RwLock<HashMap<String, HashSet<u32>>>>,
-    /// Last frame when an object entered an area (C++ Object::didEnter equivalent support)
-    last_enter_frame: Arc<RwLock<HashMap<(String, u32), u32>>>,
-    /// Last frame when an object exited an area (C++ Object::didExit equivalent support)
-    last_exit_frame: Arc<RwLock<HashMap<(String, u32), u32>>>,
+    /// Areas, membership, and enter/exit frames behind one lock: they are
+    /// only ever touched together from the single host update path, so one
+    /// guard replaces four separate locks.
+    state: Mutex<AreaTrackerState>,
 }
 
 /// Owned mutable state of [`AreaTracker`] used only by a whole-world
@@ -1052,27 +956,35 @@ impl AreaTracker {
     /// Create a new area tracker
     pub fn new() -> Self {
         Self {
-            areas: Arc::new(RwLock::new(HashMap::new())),
-            objects_in_areas: Arc::new(RwLock::new(HashMap::new())),
-            last_enter_frame: Arc::new(RwLock::new(HashMap::new())),
-            last_exit_frame: Arc::new(RwLock::new(HashMap::new())),
+            state: Mutex::new(AreaTrackerState {
+                areas: HashMap::new(),
+                objects_in_areas: HashMap::new(),
+                last_enter_frame: HashMap::new(),
+                last_exit_frame: HashMap::new(),
+            }),
         }
+    }
+
+    /// Run `f` with the consolidated tracker state.
+    fn with_state<R>(&self, f: impl FnOnce(&mut AreaTrackerState) -> R) -> R {
+        let mut state = self
+            .state
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        f(&mut state)
     }
 
     /// Register a trigger area
     pub fn register_area(&self, area: TriggerArea) -> GameLogicResult<()> {
-        let mut areas = self.areas.write().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to acquire areas lock: {}", e))
-        })?;
-
         let area_name = area.name.clone();
-        areas.insert(area_name.clone(), area);
+        self.with_state(|state| {
+            state.areas.insert(area_name.clone(), area);
 
-        // Initialize empty set for this area
-        let mut objects_in_areas = self.objects_in_areas.write().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to acquire objects in areas lock: {}", e))
-        })?;
-        objects_in_areas.insert(area_name.clone(), HashSet::new());
+            // Initialize empty set for this area
+            state
+                .objects_in_areas
+                .insert(area_name.clone(), HashSet::new());
+        });
 
         log::debug!("Registered trigger area: {}", area_name);
         Ok(())
@@ -1094,16 +1006,10 @@ impl AreaTracker {
 
     /// Unregister a trigger area
     pub fn unregister_area(&self, area_name: &str) -> GameLogicResult<()> {
-        let mut areas = self.areas.write().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to acquire areas lock: {}", e))
-        })?;
-
-        areas.remove(area_name);
-
-        let mut objects_in_areas = self.objects_in_areas.write().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to acquire objects in areas lock: {}", e))
-        })?;
-        objects_in_areas.remove(area_name);
+        self.with_state(|state| {
+            state.areas.remove(area_name);
+            state.objects_in_areas.remove(area_name);
+        });
 
         log::debug!("Unregistered trigger area: {}", area_name);
         Ok(())
@@ -1124,117 +1030,116 @@ impl AreaTracker {
             }
         }
         let frame = crate::helpers::TheGameLogic::get_frame() as u32;
-        let areas = self.areas.read().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to acquire areas lock: {}", e))
-        })?;
+        Ok(self.with_state(|state| {
+            // Split borrows so the areas scan can iterate while membership
+            // and frame maps mutate, exactly as the separate locks did.
+            let AreaTrackerState {
+                areas,
+                objects_in_areas,
+                last_enter_frame,
+                last_exit_frame,
+            } = state;
 
-        let mut objects_in_areas = self.objects_in_areas.write().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to acquire objects in areas lock: {}", e))
-        })?;
+            let terrain = get_terrain_logic().read().ok();
+            let mut events = Vec::new();
 
-        let terrain = get_terrain_logic().read().ok();
-        let mut events = Vec::new();
+            for (area_name, area) in areas.iter() {
+                let was_inside = objects_in_areas
+                    .get(area_name)
+                    .map(|set| set.contains(&object_id))
+                    .unwrap_or(false);
 
-        for (area_name, area) in areas.iter() {
-            let was_inside = objects_in_areas
-                .get(area_name)
-                .map(|set| set.contains(&object_id))
-                .unwrap_or(false);
-
-            let is_inside = if !area.active {
-                false
-            } else if let Some(polygon_name) = area.polygon_name.as_deref() {
-                if let Some(terrain_guard) = terrain.as_ref() {
-                    if let Some(trigger) = terrain_guard.get_trigger_area_by_name(polygon_name) {
-                        let point = ICoord3D::new(
-                            position[0] as i32,
-                            position[1] as i32,
-                            position[2] as i32,
-                        );
-                        trigger.point_in_trigger_int(&point)
+                let is_inside = if !area.active {
+                    false
+                } else if let Some(polygon_name) = area.polygon_name.as_deref() {
+                    if let Some(terrain_guard) = terrain.as_ref() {
+                        if let Some(trigger) = terrain_guard.get_trigger_area_by_name(polygon_name) {
+                            let point = ICoord3D::new(
+                                position[0] as i32,
+                                position[1] as i32,
+                                position[2] as i32,
+                            );
+                            trigger.point_in_trigger_int(&point)
+                        } else {
+                            false
+                        }
                     } else {
                         false
                     }
                 } else {
-                    false
-                }
-            } else {
-                area.contains_position(position)
-            };
+                    area.contains_position(position)
+                };
 
-            if is_inside && !was_inside {
-                objects_in_areas
-                    .entry(area_name.clone())
-                    .or_insert_with(HashSet::new)
-                    .insert(object_id);
+                if is_inside && !was_inside {
+                    objects_in_areas
+                        .entry(area_name.clone())
+                        .or_insert_with(HashSet::new)
+                        .insert(object_id);
 
-                if let Ok(mut enter_frames) = self.last_enter_frame.write() {
-                    enter_frames.insert((area_name.clone(), object_id), frame);
-                }
+                    last_enter_frame.insert((area_name.clone(), object_id), frame);
 
-                if let Some(obj_arc) = crate::helpers::TheGameLogic::find_object_by_id(object_id) {
-                    // Avoid self-deadlock when called from Object::set_position while that object
-                    // is already write-locked by the caller.
-                    if let Ok(obj_guard) = obj_arc.try_read() {
-                        if let Some(team_arc) = obj_guard.get_team() {
-                            if let Ok(mut team_guard) = team_arc.write() {
-                                team_guard.set_entered_exited();
+                    if let Some(obj_arc) = crate::helpers::TheGameLogic::find_object_by_id(object_id) {
+                        // Avoid self-deadlock when called from Object::set_position while that object
+                        // is already write-locked by the caller.
+                        if let Ok(obj_guard) = obj_arc.try_read() {
+                            if let Some(team_arc) = obj_guard.get_team() {
+                                if let Ok(mut team_guard) = team_arc.write() {
+                                    team_guard.set_entered_exited();
+                                }
                             }
                         }
                     }
-                }
 
-                let event = GameEvent::new(
-                    GameEventType::UnitEntersArea,
-                    format!("Object {} entered area {}", object_id, area_name),
-                )
-                .with_source_object(object_id)
-                .with_parameter(
-                    "area_name".to_string(),
-                    ScriptValue::String(area_name.clone()),
-                )
-                .with_parameter("frame".to_string(), ScriptValue::Int(frame as i64))
-                .with_parameter("position".to_string(), ScriptValue::Coord3D(position));
+                    let event = GameEvent::new(
+                        GameEventType::UnitEntersArea,
+                        format!("Object {} entered area {}", object_id, area_name),
+                    )
+                    .with_source_object(object_id)
+                    .with_parameter(
+                        "area_name".to_string(),
+                        ScriptValue::String(area_name.clone()),
+                    )
+                    .with_parameter("frame".to_string(), ScriptValue::Int(frame as i64))
+                    .with_parameter("position".to_string(), ScriptValue::Coord3D(position));
 
-                events.push(event);
-            } else if !is_inside && was_inside {
-                if let Some(set) = objects_in_areas.get_mut(area_name) {
-                    set.remove(&object_id);
-                }
+                    events.push(event);
+                } else if !is_inside && was_inside {
+                    if let Some(set) = objects_in_areas.get_mut(area_name) {
+                        set.remove(&object_id);
+                    }
 
-                if let Ok(mut exit_frames) = self.last_exit_frame.write() {
-                    exit_frames.insert((area_name.clone(), object_id), frame);
-                }
+                    last_exit_frame.insert((area_name.clone(), object_id), frame);
 
-                if let Some(obj_arc) = crate::helpers::TheGameLogic::find_object_by_id(object_id) {
-                    // Avoid self-deadlock when called from Object::set_position while that object
-                    // is already write-locked by the caller.
-                    if let Ok(obj_guard) = obj_arc.try_read() {
-                        if let Some(team_arc) = obj_guard.get_team() {
-                            if let Ok(mut team_guard) = team_arc.write() {
-                                team_guard.set_entered_exited();
+                    if let Some(obj_arc) = crate::helpers::TheGameLogic::find_object_by_id(object_id) {
+                        // Avoid self-deadlock when called from Object::set_position while that object
+                        // is already write-locked by the caller.
+                        if let Ok(obj_guard) = obj_arc.try_read() {
+                            if let Some(team_arc) = obj_guard.get_team() {
+                                if let Ok(mut team_guard) = team_arc.write() {
+                                    team_guard.set_entered_exited();
+                                }
                             }
                         }
                     }
+
+                    let event = GameEvent::new(
+                        GameEventType::UnitLeavesArea,
+                        format!("Object {} exited area {}", object_id, area_name),
+                    )
+                    .with_source_object(object_id)
+                    .with_parameter(
+                        "area_name".to_string(),
+                        ScriptValue::String(area_name.clone()),
+                    )
+                    .with_parameter("frame".to_string(), ScriptValue::Int(frame as i64))
+                    .with_parameter("position".to_string(), ScriptValue::Coord3D(position));
+
+                    events.push(event);
                 }
-
-                let event = GameEvent::new(
-                    GameEventType::UnitLeavesArea,
-                    format!("Object {} exited area {}", object_id, area_name),
-                )
-                .with_source_object(object_id)
-                .with_parameter(
-                    "area_name".to_string(),
-                    ScriptValue::String(area_name.clone()),
-                )
-                .with_parameter("frame".to_string(), ScriptValue::Int(frame as i64))
-                .with_parameter("position".to_string(), ScriptValue::Coord3D(position));
-
-                events.push(event);
             }
-        }
 
-        Ok(events)
+            events
+        }))
     }
 
     /// Update object position and fire enter/exit events
@@ -1265,84 +1170,80 @@ impl AreaTracker {
 
     /// Remove object from all areas (call when object is destroyed)
     pub fn remove_object(&self, object_id: u32) -> GameLogicResult<()> {
-        let mut objects_in_areas = self.objects_in_areas.write().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to acquire objects in areas lock: {}", e))
-        })?;
+        self.with_state(|state| {
+            for set in state.objects_in_areas.values_mut() {
+                set.remove(&object_id);
+            }
 
-        for set in objects_in_areas.values_mut() {
-            set.remove(&object_id);
-        }
-
-        if let Ok(mut enter_frames) = self.last_enter_frame.write() {
-            enter_frames.retain(|(_, id), _| *id != object_id);
-        }
-        if let Ok(mut exit_frames) = self.last_exit_frame.write() {
-            exit_frames.retain(|(_, id), _| *id != object_id);
-        }
+            state.last_enter_frame.retain(|(_, id), _| *id != object_id);
+            state.last_exit_frame.retain(|(_, id), _| *id != object_id);
+        });
 
         Ok(())
     }
 
     pub fn get_last_enter_frame(&self, area_name: &str, object_id: u32) -> Option<u32> {
-        let guard = self.last_enter_frame.read().ok()?;
-        guard.get(&(area_name.to_string(), object_id)).copied()
+        self.with_state(|state| {
+            state
+                .last_enter_frame
+                .get(&(area_name.to_string(), object_id))
+                .copied()
+        })
     }
 
     pub fn get_last_exit_frame(&self, area_name: &str, object_id: u32) -> Option<u32> {
-        let guard = self.last_exit_frame.read().ok()?;
-        guard.get(&(area_name.to_string(), object_id)).copied()
+        self.with_state(|state| {
+            state
+                .last_exit_frame
+                .get(&(area_name.to_string(), object_id))
+                .copied()
+        })
     }
 
     /// Get all objects in an area
     pub fn get_objects_in_area(&self, area_name: &str) -> GameLogicResult<Vec<u32>> {
-        let objects_in_areas = self.objects_in_areas.read().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to acquire objects in areas lock: {}", e))
-        })?;
-
-        Ok(objects_in_areas
-            .get(area_name)
-            .map(|set| set.iter().copied().collect())
-            .unwrap_or_default())
+        Ok(self.with_state(|state| {
+            state
+                .objects_in_areas
+                .get(area_name)
+                .map(|set| set.iter().copied().collect())
+                .unwrap_or_default()
+        }))
     }
 
     /// Host-path AABB for a named area: `(min_x, min_z, max_x, max_z)`.
     /// Circular areas become a conservative AABB. Unresolved polygon-only
     /// areas (no radius/bounds) return `None`.
     pub fn get_area_aabb(&self, area_name: &str) -> Option<(f32, f32, f32, f32)> {
-        let areas = self.areas.read().ok()?;
-        trigger_area_aabb(areas.get(area_name)?)
+        self.with_state(|state| trigger_area_aabb(state.areas.get(area_name)?))
     }
 
     /// All named areas that have resolvable AABB geometry.
-    /// Must not re-lock `self.areas` (std `RwLock` is not re-entrant).
+    /// Must not re-enter `with_state` (std `Mutex` is not re-entrant).
     pub fn all_area_aabbs(&self) -> Vec<(String, (f32, f32, f32, f32))> {
-        let Ok(areas) = self.areas.read() else {
-            return Vec::new();
-        };
-        areas
-            .iter()
-            .filter_map(|(name, area)| trigger_area_aabb(area).map(|aabb| (name.clone(), aabb)))
-            .collect()
+        self.with_state(|state| {
+            state
+                .areas
+                .iter()
+                .filter_map(|(name, area)| trigger_area_aabb(area).map(|aabb| (name.clone(), aabb)))
+                .collect()
+        })
     }
 
     /// Check if a trigger area is registered.
     pub fn has_area(&self, area_name: &str) -> GameLogicResult<bool> {
-        let areas = self.areas.read().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to acquire areas lock: {}", e))
-        })?;
-        Ok(areas.contains_key(area_name))
+        Ok(self.with_state(|state| state.areas.contains_key(area_name)))
     }
 
     /// Check if object is in area
     pub fn is_object_in_area(&self, object_id: u32, area_name: &str) -> GameLogicResult<bool> {
-        let objects_in_areas = self.objects_in_areas.read().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to acquire objects in areas lock: {}", e))
-        })?;
-
-        Ok(objects_in_areas
-            .get(area_name)
-            .map(|set| set.contains(&object_id))
-            .unwrap_or(false))
+        Ok(self.with_state(|state| {
+            state
+                .objects_in_areas
+                .get(area_name)
+                .map(|set| set.contains(&object_id))
+                .unwrap_or(false)
+        }))
     }
 
     /// Move all mutable tracker contents out while preserving this singleton's
@@ -1350,29 +1251,7 @@ impl AreaTracker {
     /// mutation; poisoned locks are recovered so rollback cannot strand a
     /// partially staged world.
     pub(crate) fn take_state_for_world_boundary(&self) -> AreaTrackerState {
-        let mut areas = self
-            .areas
-            .write()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let mut objects_in_areas = self
-            .objects_in_areas
-            .write()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let mut last_enter_frame = self
-            .last_enter_frame
-            .write()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let mut last_exit_frame = self
-            .last_exit_frame
-            .write()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-
-        AreaTrackerState {
-            areas: std::mem::take(&mut *areas),
-            objects_in_areas: std::mem::take(&mut *objects_in_areas),
-            last_enter_frame: std::mem::take(&mut *last_enter_frame),
-            last_exit_frame: std::mem::take(&mut *last_exit_frame),
-        }
+        self.with_state(std::mem::take)
     }
 
     /// Install owned tracker contents and return the contents they replaced.
@@ -1380,29 +1259,7 @@ impl AreaTracker {
         &self,
         state: AreaTrackerState,
     ) -> AreaTrackerState {
-        let mut areas = self
-            .areas
-            .write()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let mut objects_in_areas = self
-            .objects_in_areas
-            .write()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let mut last_enter_frame = self
-            .last_enter_frame
-            .write()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let mut last_exit_frame = self
-            .last_exit_frame
-            .write()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-
-        AreaTrackerState {
-            areas: std::mem::replace(&mut *areas, state.areas),
-            objects_in_areas: std::mem::replace(&mut *objects_in_areas, state.objects_in_areas),
-            last_enter_frame: std::mem::replace(&mut *last_enter_frame, state.last_enter_frame),
-            last_exit_frame: std::mem::replace(&mut *last_exit_frame, state.last_exit_frame),
-        }
+        self.with_state(|current| std::mem::replace(current, state))
     }
 }
 
@@ -1421,6 +1278,7 @@ impl Default for AreaTracker {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Arc;
 
     struct TestSubscriber {
         name: String,

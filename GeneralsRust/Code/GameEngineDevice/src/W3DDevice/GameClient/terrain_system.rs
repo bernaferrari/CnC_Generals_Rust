@@ -19,7 +19,6 @@ use super::{
 };
 use anyhow::{Context, Result};
 use cgmath::{Matrix4, Point3, Vector3, Vector4};
-use parking_lot::RwLock;
 use std::sync::Arc;
 use wgpu::{BindGroupLayout, Device, Queue, RenderPass};
 
@@ -27,13 +26,13 @@ use wgpu::{BindGroupLayout, Device, Queue, RenderPass};
 /// Corresponds to C++ W3DTerrainVisual class
 pub struct TerrainRenderingSystem {
     /// HeightMap mesh
-    heightmap: Arc<RwLock<HeightMapMesh>>,
+    heightmap: HeightMapMesh,
 
     /// Texture manager
-    texture_manager: Arc<RwLock<TerrainTextureManager>>,
+    texture_manager: TerrainTextureManager,
 
     /// LOD manager
-    lod_manager: Arc<RwLock<TerrainLODManager>>,
+    lod_manager: TerrainLODManager,
 
     /// Dynamic lights affecting terrain
     dynamic_lights: Vec<DynamicLight>,
@@ -79,9 +78,9 @@ impl TerrainRenderingSystem {
         let lod_manager = TerrainLODManager::new(TerrainLOD::Max);
 
         Ok(Self {
-            heightmap: Arc::new(RwLock::new(heightmap)),
-            texture_manager: Arc::new(RwLock::new(texture_manager)),
-            lod_manager: Arc::new(RwLock::new(lod_manager)),
+            heightmap,
+            texture_manager,
+            lod_manager,
             dynamic_lights: Vec::new(),
             frustum_planes: [Vector4::new(0.0, 0.0, 0.0, 0.0); 6],
             camera_position: Point3::new(0.0, 0.0, 0.0),
@@ -107,15 +106,15 @@ impl TerrainRenderingSystem {
         )
     }
 
-    pub fn sync_height_map(&self, height_map: &TerrainHeightMap) -> Result<()> {
-        let mut mesh = self.heightmap.write();
-        mesh.update_height_data(height_map.height_data_for_render())
+    pub fn sync_height_map(&mut self, height_map: &TerrainHeightMap) -> Result<()> {
+        self.heightmap
+            .update_height_data(height_map.height_data_for_render())
     }
 
     /// Load terrain textures from map data
     /// Corresponds to C++ WorldHeightMap texture loading
-    pub fn load_textures(&self, tiles: Vec<TileData>) -> Result<()> {
-        let mut texture_mgr = self.texture_manager.write();
+    pub fn load_textures(&mut self, tiles: Vec<TileData>) -> Result<()> {
+        let texture_mgr = &mut self.texture_manager;
 
         for (idx, tile) in tiles.into_iter().enumerate() {
             texture_mgr.load_source_tile(idx, tile)?;
@@ -124,7 +123,7 @@ impl TerrainRenderingSystem {
         texture_mgr.update_base_atlas()?;
         texture_mgr.update_detail_atlas()?;
 
-        let mut heightmap = self.heightmap.write();
+        let heightmap = &mut self.heightmap;
         heightmap.update_textures_from_views(
             texture_mgr.get_base_view(),
             texture_mgr.get_base_sampler(),
@@ -138,8 +137,8 @@ impl TerrainRenderingSystem {
     }
 
     /// Load edge blend tiles
-    pub fn load_edge_tiles(&self, tiles: Vec<TileData>) -> Result<()> {
-        let mut texture_mgr = self.texture_manager.write();
+    pub fn load_edge_tiles(&mut self, tiles: Vec<TileData>) -> Result<()> {
+        let texture_mgr = &mut self.texture_manager;
 
         for (idx, tile) in tiles.into_iter().enumerate() {
             texture_mgr.load_edge_tile(idx, tile)?;
@@ -147,7 +146,7 @@ impl TerrainRenderingSystem {
 
         texture_mgr.update_detail_atlas()?;
 
-        let mut heightmap = self.heightmap.write();
+        let heightmap = &mut self.heightmap;
         heightmap.update_textures_from_views(
             texture_mgr.get_base_view(),
             texture_mgr.get_base_sampler(),
@@ -161,9 +160,8 @@ impl TerrainRenderingSystem {
     }
 
     /// Add a texture class
-    pub fn add_texture_class(&self, class: TextureClass) {
-        let mut texture_mgr = self.texture_manager.write();
-        texture_mgr.add_texture_class(class);
+    pub fn add_texture_class(&mut self, class: TextureClass) {
+        self.texture_manager.add_texture_class(class);
     }
 
     /// Update dynamic lighting
@@ -178,8 +176,8 @@ impl TerrainRenderingSystem {
 
         // Update dynamic lighting on terrain chunks
         if !self.dynamic_lights.is_empty() {
-            let mut heightmap = self.heightmap.write();
-            heightmap.update_dynamic_lighting(&self.dynamic_lights);
+            self.heightmap
+                .update_dynamic_lighting(&self.dynamic_lights);
         }
     }
 
@@ -188,8 +186,7 @@ impl TerrainRenderingSystem {
     pub fn update_frustum(&mut self, frustum_planes: [Vector4<f32>; 6]) {
         self.frustum_planes = frustum_planes;
 
-        let mut heightmap = self.heightmap.write();
-        heightmap.update_frustum_culling(&frustum_planes);
+        self.heightmap.update_frustum_culling(&frustum_planes);
     }
 
     /// Update camera position for LOD calculations
@@ -216,15 +213,13 @@ impl TerrainRenderingSystem {
 
     /// Set global LOD level
     /// Corresponds to C++ adjustTerrainLOD
-    pub fn set_lod_level(&self, lod: TerrainLOD) {
-        let mut lod_mgr = self.lod_manager.write();
-        lod_mgr.set_global_lod(lod);
+    pub fn set_lod_level(&mut self, lod: TerrainLOD) {
+        self.lod_manager.set_global_lod(lod);
     }
 
     /// Get current LOD level
     pub fn get_lod_level(&self) -> TerrainLOD {
-        let lod_mgr = self.lod_manager.read();
-        lod_mgr.get_global_lod()
+        self.lod_manager.get_global_lod()
     }
 
     /// Render the terrain
@@ -235,18 +230,16 @@ impl TerrainRenderingSystem {
         }
 
         // Update uniforms
-        let heightmap = self.heightmap.read();
-        heightmap.update_uniforms(view_proj, self.time);
+        self.heightmap.update_uniforms(view_proj, self.time);
 
         // Render terrain
-        heightmap.render(render_pass);
+        self.heightmap.render(render_pass);
     }
 
     /// Get height at world position
     /// Corresponds to C++ BaseHeightMapRenderObjClass::getHeightMapHeight
     pub fn get_height_at(&self, x: f32, y: f32) -> f32 {
-        let heightmap = self.heightmap.read();
-        heightmap.get_height_at(x, y)
+        self.heightmap.get_height_at(x, y)
     }
 
     /// Enable or disable terrain rendering
@@ -260,18 +253,26 @@ impl TerrainRenderingSystem {
     }
 
     /// Get texture manager for external access
-    pub fn get_texture_manager(&self) -> Arc<RwLock<TerrainTextureManager>> {
-        Arc::clone(&self.texture_manager)
+    pub fn get_texture_manager(&self) -> &TerrainTextureManager {
+        &self.texture_manager
+    }
+
+    pub fn get_texture_manager_mut(&mut self) -> &mut TerrainTextureManager {
+        &mut self.texture_manager
     }
 
     /// Get heightmap for external access
-    pub fn get_heightmap(&self) -> Arc<RwLock<HeightMapMesh>> {
-        Arc::clone(&self.heightmap)
+    pub fn get_heightmap(&self) -> &HeightMapMesh {
+        &self.heightmap
+    }
+
+    pub fn get_heightmap_mut(&mut self) -> &mut HeightMapMesh {
+        &mut self.heightmap
     }
 
     /// Get LOD manager for external access
-    pub fn get_lod_manager(&self) -> Arc<RwLock<TerrainLODManager>> {
-        Arc::clone(&self.lod_manager)
+    pub fn get_lod_manager(&self) -> &TerrainLODManager {
+        &self.lod_manager
     }
 }
 

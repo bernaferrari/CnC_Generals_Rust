@@ -130,7 +130,7 @@ pub type Result<T> = std::result::Result<T, AssetError>;
 /// Main asset pipeline
 pub struct AssetPipeline {
     config: PipelineConfig,
-    cache: Arc<cache::AssetCache>,
+    cache: cache::AssetCache,
     importers: HashMap<String, Box<dyn AssetImporter>>,
     processors: Vec<Box<dyn AssetProcessor>>,
     exporters: HashMap<String, Box<dyn AssetExporter>>,
@@ -141,7 +141,7 @@ impl AssetPipeline {
     /// Create new asset pipeline
     pub fn new() -> Self {
         let config = PipelineConfig::default();
-        let cache = Arc::new(cache::AssetCache::new(&config.cache_dir));
+        let cache = cache::AssetCache::new(&config.cache_dir);
         let metadata_store = metadata::MetadataStore::new(&config.metadata_dir);
 
         let mut pipeline = Self {
@@ -161,7 +161,7 @@ impl AssetPipeline {
     /// Configure cache directory
     pub fn with_cache_dir<P: Into<PathBuf>>(mut self, path: P) -> Self {
         self.config.cache_dir = path.into();
-        self.cache = Arc::new(cache::AssetCache::new(&self.config.cache_dir));
+        self.cache = cache::AssetCache::new(&self.config.cache_dir);
         self
     }
 

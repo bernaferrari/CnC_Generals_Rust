@@ -88,7 +88,7 @@
 
 use std::collections::HashMap;
 use std::fmt;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use crate::saveload::{
     ChunkId, ChunkLoad, ChunkSave, Persist, PersistFactory, RemapId, SaveLoadError, SaveLoadResult,
@@ -239,18 +239,18 @@ where
 /// C++ factory registration system with a type-safe Rust implementation.
 ///
 /// # Thread Safety
-/// The registry uses Arc and Mutex internally to provide thread-safe access
-/// to the factory collection.
+/// The registry is a plain value type; wrap it in a lock if shared access is
+/// needed. All mutating methods take `&mut self`.
 #[derive(Default)]
 pub struct PersistFactoryRegistry {
-    factories: Mutex<HashMap<ChunkId, Arc<dyn PersistFactory>>>,
+    factories: HashMap<ChunkId, Arc<dyn PersistFactory>>,
 }
 
 impl PersistFactoryRegistry {
     /// Create a new empty persist factory registry
     pub fn new() -> Self {
         Self {
-            factories: Mutex::new(HashMap::new()),
+            factories: HashMap::new(),
         }
     }
 
@@ -262,8 +262,8 @@ impl PersistFactoryRegistry {
     /// # Returns
     /// * `Ok(())` if registration was successful
     /// * `Err(SaveLoadError)` if a factory with the same chunk ID is already registered
-    pub fn register_factory(&self, factory: Arc<dyn PersistFactory>) -> SaveLoadResult<()> {
-        let mut factories = self.factories.lock().unwrap();
+    pub fn register_factory(&mut self, factory: Arc<dyn PersistFactory>) -> SaveLoadResult<()> {
+        let factories = &mut self.factories;
         let chunk_id = factory.chunk_id();
 
         if factories.contains_key(&chunk_id) {
@@ -284,9 +284,8 @@ impl PersistFactoryRegistry {
     ///
     /// # Returns
     /// `true` if a factory was unregistered, `false` if no factory was found
-    pub fn unregister_factory(&self, chunk_id: ChunkId) -> bool {
-        let mut factories = self.factories.lock().unwrap();
-        factories.remove(&chunk_id).is_some()
+    pub fn unregister_factory(&mut self, chunk_id: ChunkId) -> bool {
+        self.factories.remove(&chunk_id).is_some()
     }
 
     /// Find a persist factory by chunk ID
@@ -298,20 +297,17 @@ impl PersistFactoryRegistry {
     /// * `Some(Arc<dyn PersistFactory>)` if a factory was found
     /// * `None` if no factory was found for the given chunk ID
     pub fn find_factory(&self, chunk_id: ChunkId) -> Option<Arc<dyn PersistFactory>> {
-        let factories = self.factories.lock().unwrap();
-        factories.get(&chunk_id).cloned()
+        self.factories.get(&chunk_id).cloned()
     }
 
     /// Get the number of registered factories
     pub fn factory_count(&self) -> usize {
-        let factories = self.factories.lock().unwrap();
-        factories.len()
+        self.factories.len()
     }
 
     /// Clear all registered factories
-    pub fn clear(&self) {
-        let mut factories = self.factories.lock().unwrap();
-        factories.clear();
+    pub fn clear(&mut self) {
+        self.factories.clear();
     }
 
     /// Get all registered chunk IDs
@@ -321,14 +317,13 @@ impl PersistFactoryRegistry {
     /// # Returns
     /// A vector containing all registered chunk IDs
     pub fn registered_chunk_ids(&self) -> Vec<ChunkId> {
-        let factories = self.factories.lock().unwrap();
-        factories.keys().copied().collect()
+        self.factories.keys().copied().collect()
     }
 }
 
 impl fmt::Debug for PersistFactoryRegistry {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let factories = self.factories.lock().unwrap();
+        let factories = &self.factories;
         f.debug_struct("PersistFactoryRegistry")
             .field("factory_count", &factories.len())
             .field(

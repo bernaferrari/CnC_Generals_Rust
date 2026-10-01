@@ -11,7 +11,6 @@ use bytemuck::{Pod, Zeroable};
 use cgmath::{EuclideanSpace, InnerSpace, Matrix4, Point3, Vector3, Zero};
 use dashmap::DashMap;
 use game_network::NetworkInstant;
-use parking_lot::{Mutex, RwLock};
 use rayon::prelude::*;
 use slotmap::{DefaultKey, SecondaryMap, SlotMap};
 use smallvec::SmallVec;
@@ -426,10 +425,6 @@ pub struct W3DTreeBuffer {
     // Memory management
     temp_allocator: Bump,
 
-    // Thread safety
-    update_lock: Mutex<()>,
-    read_lock: RwLock<()>,
-
     // Configuration
     culling_enabled: bool,
     batching_enabled: bool,
@@ -481,8 +476,6 @@ impl W3DTreeBuffer {
             last_update_time: NetworkInstant::now(),
             frame_counter: 0,
             temp_allocator: Bump::new(),
-            update_lock: Mutex::new(()),
-            read_lock: RwLock::new(()),
             culling_enabled: true,
             batching_enabled: true,
             lod_enabled: true,
@@ -519,8 +512,6 @@ impl W3DTreeBuffer {
 
     /// Add new render object to the tree buffer
     pub fn add_object(&mut self, mut object: RenderObject) -> Result<DefaultKey> {
-        let _lock = self.update_lock.lock();
-
         // Calculate world bounds from transform and local bounds
         self.update_object_world_bounds(&mut object);
 
@@ -549,8 +540,6 @@ impl W3DTreeBuffer {
         object_key: DefaultKey,
         transform: Matrix4<f32>,
     ) -> Result<()> {
-        let _lock = self.update_lock.lock();
-
         let object = self
             .objects
             .get_mut(object_key)
@@ -570,8 +559,6 @@ impl W3DTreeBuffer {
 
     /// Remove object from tree buffer
     pub fn remove_object(&mut self, object_key: DefaultKey) -> Result<()> {
-        let _lock = self.update_lock.lock();
-
         if self.objects.remove(object_key).is_none() {
             return Err(TreeBufferError::ObjectNotFound(object_key));
         }
@@ -647,8 +634,6 @@ impl W3DTreeBuffer {
         frustum_planes: [FrustumPlane; 6],
     ) -> Result<()> {
         let start_time = NetworkInstant::now();
-        let _lock = self.update_lock.lock();
-
         self.camera_position = camera_position;
         self.frustum_planes = frustum_planes;
         self.frame_counter += 1;
@@ -944,7 +929,6 @@ impl W3DTreeBuffer {
 
     /// Query objects in a spatial region
     pub fn query_region(&self, region: &AABB) -> Vec<DefaultKey> {
-        let _lock = self.read_lock.read();
         let mut results = Vec::new();
         self.root_node.query_region(region, &mut results);
         results
@@ -1012,8 +996,6 @@ impl W3DTreeBuffer {
 
     /// Clear all objects and reset tree
     pub fn clear(&mut self) {
-        let _lock = self.update_lock.lock();
-
         self.objects.clear();
         self.object_transforms.clear();
         self.object_visibility.clear();
@@ -1040,8 +1022,8 @@ impl W3DTreeBuffer {
 // SAFETY: pointers, so moving it between threads cannot invalidate anything.
 unsafe impl Send for W3DTreeBuffer {}
 // SAFETY: every field is independently Sync (owned collections, Arc'd wgpu
-// SAFETY: resources, Mutex/RwLock guards); no interior mutability is exposed
-// SAFETY: outside those locks, so shared references are thread-safe.
+// SAFETY: resources, plain values); no interior mutability is exposed, so
+// SAFETY: shared references are thread-safe.
 unsafe impl Sync for W3DTreeBuffer {}
 
 #[cfg(test)]

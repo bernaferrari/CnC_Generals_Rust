@@ -9,7 +9,7 @@
 //! - Animation blending and state management
 
 use glam::{Mat4, Quat, Vec3};
-use std::sync::{Arc, Mutex};
+
 use ww3d_animation::{HAnimClass, HCompressedAnimClass, HTreeClass};
 
 /// Result type for animation evaluation
@@ -105,7 +105,7 @@ pub struct GPUSkinningData {
 /// Source animation data for evaluation (compressed or uncompressed).
 pub enum AnimationSource {
     Uncompressed(HAnimClass),
-    Compressed(Arc<Mutex<HCompressedAnimClass>>),
+    Compressed(Box<HCompressedAnimClass>),
 }
 
 impl GPUSkinningData {
@@ -182,8 +182,8 @@ impl AnimationEvaluator {
     }
 
     /// Attach a compressed animation source.
-    pub fn set_compressed_animation(&mut self, animation: Arc<Mutex<HCompressedAnimClass>>) {
-        self.animation = Some(AnimationSource::Compressed(animation));
+    pub fn set_compressed_animation(&mut self, animation: HCompressedAnimClass) {
+        self.animation = Some(AnimationSource::Compressed(Box::new(animation)));
         self.is_dirty = true;
     }
 
@@ -228,7 +228,7 @@ impl AnimationEvaluator {
 
         let animation = self
             .animation
-            .as_ref()
+            .as_mut()
             .ok_or(AnimationEvaluatorError::AnimationNotLoaded)?;
         let hierarchy = self
             .hierarchy
@@ -257,9 +257,6 @@ impl AnimationEvaluator {
                 }
             }
             AnimationSource::Compressed(anim) => {
-                let mut anim = anim.lock().map_err(|_| {
-                    AnimationEvaluatorError::EvaluationError("Animation lock poisoned".to_string())
-                })?;
                 for i in 0..bone_count {
                     translations[i] = anim.get_translation(i, frame);
                     rotations[i] = anim.get_orientation(i, frame);

@@ -53,7 +53,7 @@ use rhai::{Array as RhaiArray, Dynamic, Engine, EvalAltResult, Map as RhaiMap, S
 /// Manages Rhai script execution within the game engine, providing access to
 /// game state and actions through registered functions.
 pub struct RhaiScriptExecutor {
-    engine: Arc<RwLock<Engine>>,
+    engine: Engine,
 }
 
 impl RhaiScriptExecutor {
@@ -64,9 +64,7 @@ impl RhaiScriptExecutor {
         // Register all game-specific functions
         Self::register_game_functions(&mut engine)?;
 
-        Ok(Self {
-            engine: Arc::new(RwLock::new(engine)),
-        })
+        Ok(Self { engine })
     }
 
     /// Helper function to access game logic safely
@@ -804,10 +802,7 @@ impl RhaiScriptExecutor {
     pub fn execute(&self, script: &str, context: &ScriptContext) -> GameLogicResult<Dynamic> {
         log::debug!("Executing Rhai script: {} bytes", script.len());
 
-        let engine = self
-            .engine
-            .read()
-            .map_err(|e| GameLogicError::Threading(format!("Failed to lock engine: {}", e)))?;
+        let engine = &self.engine;
 
         // Use a fresh scope per execution to match the C++ script engine behavior:
         // persistent state should live in explicit counters/flags/variables, not in local
@@ -889,14 +884,12 @@ impl RhaiScriptExecutor {
     /// Register a custom function in the Rhai engine
     ///
     /// Allows dynamic registration of game-specific functions at runtime.
-    pub fn register_custom_function<F>(&self, name: &str, _func: F)
+    pub fn register_custom_function<F>(&mut self, name: &str, _func: F)
     where
         F: Fn() + Send + Sync + 'static,
     {
         log::debug!("Registering custom Rhai function: {}", name);
-        if let Ok(mut engine) = self.engine.write() {
-            engine.register_fn(name, _func);
-        }
+        self.engine.register_fn(name, _func);
     }
 }
 

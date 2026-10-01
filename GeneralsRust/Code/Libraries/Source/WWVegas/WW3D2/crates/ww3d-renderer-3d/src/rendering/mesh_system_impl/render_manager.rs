@@ -282,7 +282,7 @@ pub struct MeshRenderManager {
     /// texture on first use (W3DAssetManager.cpp:127-225); the port's pass
     /// textures are built with pixel data but no GPU upload, so the mesh
     /// manager owns the first-bind upload, keyed by texture name.
-    gpu_texture_views: Mutex<HashMap<String, Arc<wgpu::TextureView>>>,
+    gpu_texture_views: HashMap<String, Arc<wgpu::TextureView>>,
     stats: MeshRenderStats,
     pipeline_mgr: WgpuPipelineManager,
     asset_manager: Option<Arc<Mutex<AssetManager>>>,
@@ -312,7 +312,7 @@ pub struct MeshRenderManager {
     /// Warn-once dedup for missing-texture binds, keyed by
     /// (lowercased texture name, reason). Mirrors C++ WW3D's single
     /// "texture not found" debug spam guard; prevents per-frame log floods.
-    fallback_bind_warnings: Mutex<HashMap<(String, &'static str), ()>>,
+    fallback_bind_warnings: HashMap<(String, &'static str), ()>,
 }
 
 impl MeshRenderManager {
@@ -352,8 +352,8 @@ impl MeshRenderManager {
         Self {
             gpu_device,
             preparedmodels: HashMap::new(),
-            gpu_texture_views: Mutex::new(HashMap::new()),
-            fallback_bind_warnings: Mutex::new(HashMap::new()),
+            gpu_texture_views: HashMap::new(),
+            fallback_bind_warnings: HashMap::new(),
             stats: MeshRenderStats::default(),
             pipeline_mgr,
             asset_manager: None,
@@ -1480,7 +1480,7 @@ impl MeshRenderManager {
     }
 
     fn create_texture_bind_groups(
-        &self,
+        &mut self,
         pipeline: &wgpu::RenderPipeline,
         pass: &MaterialPassClass,
         first_group_index: u32,
@@ -1533,7 +1533,7 @@ impl MeshRenderManager {
         bind_groups
     }
 
-    fn stage_resources_for(&self, pass: &MaterialPassClass, stage: usize) -> StageResources {
+    fn stage_resources_for(&mut self, pass: &MaterialPassClass, stage: usize) -> StageResources {
         let texture_opt = pass.get_texture(stage);
         let resources = if let Some(texture) = texture_opt {
             if let Some(view) = texture.get_texture_view() {
@@ -1614,11 +1614,9 @@ impl MeshRenderManager {
     /// resolve and the magenta missing texture is bound instead. C++ logs the
     /// miss once at the asset-manager layer; without the dedup this fires
     /// per stage per frame.
-    fn warn_fallback_bind_once(&self, texture_name: &str, reason: &'static str) {
-        let Ok(mut seen) = self.fallback_bind_warnings.lock() else {
-            return;
-        };
-        if seen
+    fn warn_fallback_bind_once(&mut self, texture_name: &str, reason: &'static str) {
+        if self
+            .fallback_bind_warnings
             .insert((texture_name.to_ascii_lowercase(), reason), ())
             .is_none()
         {
@@ -1652,13 +1650,12 @@ impl MeshRenderManager {
     /// map stage in this lane — every stage hint (diffuse/emissive/env/spec
     /// mask) is color content — so all four 32-bit formats map to their Srgb
     /// view variant.
-    fn ensure_gpu_texture_view(&self, texture: &TextureClass) -> Option<Arc<wgpu::TextureView>> {
+    fn ensure_gpu_texture_view(&mut self, texture: &TextureClass) -> Option<Arc<wgpu::TextureView>> {
         let key = texture.get_name().to_ascii_lowercase();
-        if let Ok(cache) = self.gpu_texture_views.lock() {
-            if let Some(view) = cache.get(&key) {
-                return Some(Arc::clone(view));
-            }
+        if let Some(view) = self.gpu_texture_views.get(&key) {
+            return Some(Arc::clone(view));
         }
+
 
         let pixels = texture.raw_pixels();
         let (width, height) = (texture.width, texture.height);
@@ -1718,13 +1715,11 @@ impl MeshRenderManager {
         );
         let view = Arc::new(gpu_texture.create_view(&wgpu::TextureViewDescriptor::default()));
 
-        if let Ok(mut cache) = self.gpu_texture_views.lock() {
-            if let Some(existing) = cache.get(&key) {
-                // Another thread won the upload race; reuse its view.
-                return Some(Arc::clone(existing));
-            }
-            cache.insert(key, Arc::clone(&view));
+        if let Some(existing) = self.gpu_texture_views.get(&key) {
+            // A prior bind uploaded this texture; reuse its view.
+            return Some(Arc::clone(existing));
         }
+        self.gpu_texture_views.insert(key, Arc::clone(&view));
         Some(view)
     }
 
@@ -1942,13 +1937,11 @@ mod per_mesh_lighting_tests {
         let camera = Arc::new(CameraClass::new());
         let mut info = RenderInfoClass::new(camera);
         let mut environment = LightEnvironmentClass::new();
-        environment.add_light(Arc::new(std::sync::Mutex::new(
-            crate::rendering::lighting_system::LightClass::directional(
-                glam::Vec3::new(0.2, -1.0, 0.1),
-                glam::Vec3::ONE,
-                1.0,
-            ),
-        )));
+        environment.add_light(crate::rendering::lighting_system::LightClass::directional(
+            glam::Vec3::new(0.2, -1.0, 0.1),
+            glam::Vec3::ONE,
+            1.0,
+        ));
         info.set_lighting_environment(environment);
         let dir = live_cascade_light_direction(&info);
         assert!((dir.y + 1.0 / (0.2f32 * 0.2 + 1.0 + 0.1 * 0.1).sqrt()).abs() < 0.02);
@@ -2355,13 +2348,11 @@ mod per_mesh_lighting_tests {
 pub(crate) fn live_cascade_light_direction(render_info: &RenderInfoClass) -> glam::Vec3 {
     if let Some(environment) = render_info.lighting.as_ref() {
         for light in &environment.lights {
-            if let Ok(light) = light.lock() {
-                if light.enabled
-                    && light.light_type == crate::rendering::lighting_system::LightType::Directional
-                    && light.direction.length_squared() > 1e-6
-                {
-                    return light.direction;
-                }
+            if light.enabled
+                && light.light_type == crate::rendering::lighting_system::LightType::Directional
+                && light.direction.length_squared() > 1e-6
+            {
+                return light.direction;
             }
         }
     }

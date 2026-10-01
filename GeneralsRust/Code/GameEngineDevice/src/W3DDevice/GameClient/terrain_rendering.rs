@@ -16,7 +16,6 @@
 use anyhow::{Context, Result};
 use bytemuck::{Pod, Zeroable};
 use cgmath::{InnerSpace, Matrix4, Point3, Vector2, Vector3, Vector4};
-use parking_lot::RwLock;
 use std::sync::Arc;
 use wgpu::util::DeviceExt;
 use wgpu::{

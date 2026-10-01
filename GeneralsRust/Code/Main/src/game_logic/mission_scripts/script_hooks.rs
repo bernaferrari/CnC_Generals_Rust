@@ -1,75 +1,154 @@
 // C++ ownership: ScriptEngine.cpp host notification queues — push/drain seams and completion tracking for every scripted side effect.
 
+/// All host notification queues and completion maps.  C++ ScriptEngine kept
+/// these as plain member vectors on the (single-threaded) engine; the Rust
+/// host shares `Arc<MissionScriptHooks>` with the gamelogic script engine,
+/// so one lock guards the whole set with identical per-queue ordering.
+struct MissionScriptQueues {
+    pending_warehouse_set_values: Vec<(String, i32)>,
+    messages: Vec<String>,
+    sounds: Vec<String>,
+    sound_events: Vec<ScriptSoundEvent>,
+    camera_moves: Vec<Vec3>,
+    camera_follows: Vec<CameraFollowRequest>,
+    camera_tethers: Vec<CameraTetherRequest>,
+    camera_path_moves: Vec<CameraPathRequest>,
+    camera_move_to: Vec<CameraMoveToRequest>,
+    camera_move_to_selection_requests: Vec<()>,
+    camera_move_home_requests: Vec<()>,
+    camera_resets: Vec<CameraResetRequest>,
+    camera_zoom_requests: Vec<CameraZoomRequest>,
+    camera_pitch_requests: Vec<CameraPitchRequest>,
+    camera_rotate_requests: Vec<CameraRotateRequest>,
+    camera_mod_final_zoom_requests: Vec<CameraModFinalZoomRequest>,
+    camera_mod_final_pitch_requests: Vec<CameraModFinalPitchRequest>,
+    camera_mod_freeze_time_requests: Vec<()>,
+    camera_mod_freeze_angle_requests: Vec<()>,
+    camera_mod_final_speed_multiplier_requests: Vec<CameraModFinalSpeedMultiplierRequest>,
+    camera_mod_rolling_average_requests: Vec<CameraModRollingAverageRequest>,
+    visual_speed_multiplier_requests: Vec<VisualSpeedMultiplierRequest>,
+    script_freeze_time_requests: Vec<bool>,
+    set_fps_limit_requests: Vec<SetFpsLimitRequest>,
+    camera_setup_requests: Vec<CameraSetupRequest>,
+    camera_look_toward_object_requests: Vec<CameraLookTowardObjectRequest>,
+    camera_look_toward_waypoint_requests: Vec<CameraLookTowardWaypointRequest>,
+    camera_mod_look_toward_requests: Vec<CameraModLookTowardRequest>,
+    camera_mod_final_look_toward_requests: Vec<CameraModFinalLookTowardRequest>,
+    camera_set_default_requests: Vec<CameraSetDefaultRequest>,
+    camera_slave_mode_enable_requests: Vec<CameraSlaveModeRequest>,
+    camera_slave_mode_disable_requests: Vec<()>,
+    screen_shake_requests: Vec<ScreenShakeRequest>,
+    camera_add_shaker_requests: Vec<CameraAddShakerRequest>,
+    named_special_power_countdown_mutations: Vec<NamedSpecialPowerCountdownMutation>,
+
+    popup_message_requests: Vec<ScriptPopupMessageRequest>,
+    view_guardband_requests: Vec<ViewGuardbandRequest>,
+    camera_bw_mode_requests: Vec<CameraBwModeRequest>,
+    skybox_enabled_updates: Vec<bool>,
+    camera_motion_blur_requests: Vec<CameraMotionBlurRequest>,
+    cameo_flash_requests: Vec<CameoFlashRequest>,
+    named_timer_mutations: Vec<NamedTimerMutation>,
+    named_timer_display_updates: Vec<bool>,
+    superweapon_display_enabled_updates: Vec<bool>,
+    superweapon_object_display_mutations: Vec<SuperweaponObjectDisplayMutation>,
+    cinematic_text: Vec<(String, String, i32)>,
+    military_captions: Vec<MilitaryCaptionRequest>,
+    letterbox_events: Vec<bool>,
+    movie_requests: Vec<String>,
+    radar_movie_requests: Vec<String>,
+    objective_updates: Vec<ObjectiveUpdate>,
+    effect_requests: Vec<ScriptEffectRequest>,
+    radar_event_requests: Vec<RadarScriptEventRequest>,
+    radar_enabled_updates: Vec<bool>,
+    radar_forced_updates: Vec<bool>,
+    weather_visibility_updates: Vec<bool>,
+    music_stop_requests: Vec<()>,
+    oversize_terrain_requests: Vec<i32>,
+    border_shroud_levels: Vec<u8>,
+    speech_complete_frame: HashMap<String, u64>,
+    speech_handles: HashMap<String, Vec<u32>>,
+    audio_complete_frame: HashMap<String, u64>,
+}
+
+impl MissionScriptQueues {
+    fn new() -> Self {
+        Self {
+            pending_warehouse_set_values: Vec::new(),
+            messages: Vec::new(),
+            sounds: Vec::new(),
+            sound_events: Vec::new(),
+            camera_moves: Vec::new(),
+            camera_follows: Vec::new(),
+            camera_tethers: Vec::new(),
+            camera_path_moves: Vec::new(),
+            camera_move_to: Vec::new(),
+            camera_move_to_selection_requests: Vec::new(),
+            camera_move_home_requests: Vec::new(),
+            camera_resets: Vec::new(),
+            camera_zoom_requests: Vec::new(),
+            camera_pitch_requests: Vec::new(),
+            camera_rotate_requests: Vec::new(),
+            camera_mod_final_zoom_requests: Vec::new(),
+            camera_mod_final_pitch_requests: Vec::new(),
+            camera_mod_freeze_time_requests: Vec::new(),
+            camera_mod_freeze_angle_requests: Vec::new(),
+            camera_mod_final_speed_multiplier_requests: Vec::new(),
+            camera_mod_rolling_average_requests: Vec::new(),
+            visual_speed_multiplier_requests: Vec::new(),
+            script_freeze_time_requests: Vec::new(),
+            set_fps_limit_requests: Vec::new(),
+            camera_setup_requests: Vec::new(),
+            camera_look_toward_object_requests: Vec::new(),
+            camera_look_toward_waypoint_requests: Vec::new(),
+            camera_mod_look_toward_requests: Vec::new(),
+            camera_mod_final_look_toward_requests: Vec::new(),
+            camera_set_default_requests: Vec::new(),
+            camera_slave_mode_enable_requests: Vec::new(),
+            camera_slave_mode_disable_requests: Vec::new(),
+            screen_shake_requests: Vec::new(),
+            camera_add_shaker_requests: Vec::new(),
+            named_special_power_countdown_mutations: Vec::new(),
+
+            popup_message_requests: Vec::new(),
+            view_guardband_requests: Vec::new(),
+            camera_bw_mode_requests: Vec::new(),
+            skybox_enabled_updates: Vec::new(),
+            camera_motion_blur_requests: Vec::new(),
+            cameo_flash_requests: Vec::new(),
+            named_timer_mutations: Vec::new(),
+            named_timer_display_updates: Vec::new(),
+            superweapon_display_enabled_updates: Vec::new(),
+            superweapon_object_display_mutations: Vec::new(),
+            cinematic_text: Vec::new(),
+            military_captions: Vec::new(),
+            letterbox_events: Vec::new(),
+            movie_requests: Vec::new(),
+            radar_movie_requests: Vec::new(),
+            objective_updates: Vec::new(),
+            effect_requests: Vec::new(),
+            radar_event_requests: Vec::new(),
+            radar_enabled_updates: Vec::new(),
+            radar_forced_updates: Vec::new(),
+            weather_visibility_updates: Vec::new(),
+            music_stop_requests: Vec::new(),
+            oversize_terrain_requests: Vec::new(),
+            border_shroud_levels: Vec::new(),
+            speech_complete_frame: HashMap::new(),
+            speech_handles: HashMap::new(),
+            audio_complete_frame: HashMap::new(),
+        }
+    }
+}
+
 pub struct MissionScriptHooks {
     runtime: Mutex<MissionScriptRuntime>,
     pending_script_enabled_updates: Arc<Mutex<Vec<(String, bool)>>>,
-    // The action handler uses `&self` while the script runtime is locked;
-    // defer this per-world value until the owning GameLogic tick drains it.
-    pending_warehouse_set_values: Mutex<Vec<(String, i32)>>,
-    messages: Mutex<Vec<String>>,
-    sounds: Mutex<Vec<String>>,
-    sound_events: Mutex<Vec<ScriptSoundEvent>>,
-    camera_moves: Mutex<Vec<Vec3>>,
-    camera_follows: Mutex<Vec<CameraFollowRequest>>,
-    camera_tethers: Mutex<Vec<CameraTetherRequest>>,
-    camera_path_moves: Mutex<Vec<CameraPathRequest>>,
-    camera_move_to: Mutex<Vec<CameraMoveToRequest>>,
-    camera_move_to_selection_requests: Mutex<Vec<()>>,
-    camera_move_home_requests: Mutex<Vec<()>>,
-    camera_resets: Mutex<Vec<CameraResetRequest>>,
-    camera_zoom_requests: Mutex<Vec<CameraZoomRequest>>,
-    camera_pitch_requests: Mutex<Vec<CameraPitchRequest>>,
-    camera_rotate_requests: Mutex<Vec<CameraRotateRequest>>,
-    camera_mod_final_zoom_requests: Mutex<Vec<CameraModFinalZoomRequest>>,
-    camera_mod_final_pitch_requests: Mutex<Vec<CameraModFinalPitchRequest>>,
-    camera_mod_freeze_time_requests: Mutex<Vec<()>>,
-    camera_mod_freeze_angle_requests: Mutex<Vec<()>>,
-    camera_mod_final_speed_multiplier_requests: Mutex<Vec<CameraModFinalSpeedMultiplierRequest>>,
-    camera_mod_rolling_average_requests: Mutex<Vec<CameraModRollingAverageRequest>>,
-    visual_speed_multiplier_requests: Mutex<Vec<VisualSpeedMultiplierRequest>>,
-    script_freeze_time_requests: Mutex<Vec<bool>>,
-    set_fps_limit_requests: Mutex<Vec<SetFpsLimitRequest>>,
-    camera_setup_requests: Mutex<Vec<CameraSetupRequest>>,
-    camera_look_toward_object_requests: Mutex<Vec<CameraLookTowardObjectRequest>>,
-    camera_look_toward_waypoint_requests: Mutex<Vec<CameraLookTowardWaypointRequest>>,
-    camera_mod_look_toward_requests: Mutex<Vec<CameraModLookTowardRequest>>,
-    camera_mod_final_look_toward_requests: Mutex<Vec<CameraModFinalLookTowardRequest>>,
-    camera_set_default_requests: Mutex<Vec<CameraSetDefaultRequest>>,
-    camera_slave_mode_enable_requests: Mutex<Vec<CameraSlaveModeRequest>>,
-    camera_slave_mode_disable_requests: Mutex<Vec<()>>,
-    screen_shake_requests: Mutex<Vec<ScreenShakeRequest>>,
-    camera_add_shaker_requests: Mutex<Vec<CameraAddShakerRequest>>,
-    named_special_power_countdown_mutations: Mutex<Vec<NamedSpecialPowerCountdownMutation>>,
-
-    popup_message_requests: Mutex<Vec<ScriptPopupMessageRequest>>,
-    view_guardband_requests: Mutex<Vec<ViewGuardbandRequest>>,
-    camera_bw_mode_requests: Mutex<Vec<CameraBwModeRequest>>,
-    skybox_enabled_updates: Mutex<Vec<bool>>,
-    camera_motion_blur_requests: Mutex<Vec<CameraMotionBlurRequest>>,
-    cameo_flash_requests: Mutex<Vec<CameoFlashRequest>>,
-    named_timer_mutations: Mutex<Vec<NamedTimerMutation>>,
-    named_timer_display_updates: Mutex<Vec<bool>>,
-    superweapon_display_enabled_updates: Mutex<Vec<bool>>,
-    superweapon_object_display_mutations: Mutex<Vec<SuperweaponObjectDisplayMutation>>,
-    cinematic_text: Mutex<Vec<(String, String, i32)>>,
-    military_captions: Mutex<Vec<MilitaryCaptionRequest>>,
-    letterbox_events: Mutex<Vec<bool>>,
-    movie_requests: Mutex<Vec<String>>,
-    radar_movie_requests: Mutex<Vec<String>>,
-    objective_updates: Mutex<Vec<ObjectiveUpdate>>,
-    effect_requests: Mutex<Vec<ScriptEffectRequest>>,
-    radar_event_requests: Mutex<Vec<RadarScriptEventRequest>>,
-    radar_enabled_updates: Mutex<Vec<bool>>,
-    radar_forced_updates: Mutex<Vec<bool>>,
-    weather_visibility_updates: Mutex<Vec<bool>>,
-    music_stop_requests: Mutex<Vec<()>>,
-    oversize_terrain_requests: Mutex<Vec<i32>>,
-    border_shroud_levels: Mutex<Vec<u8>>,
+    // ScriptActionHandler callbacks take `&self` and run inside the locked
+    // runtime, so warehouse values cross that synchronous boundary through a
+    // queue owned by these per-world hooks and drained by their GameLogic.
+    queues: Mutex<MissionScriptQueues>,
     camera_movement_finished: AtomicBool,
     frame_counter: AtomicU64,
-    speech_complete_frame: Mutex<HashMap<String, u64>>,
-    speech_handles: Mutex<HashMap<String, Vec<u32>>>,
-    audio_complete_frame: Mutex<HashMap<String, u64>>,
 }
 
 impl MissionScriptHooks {
@@ -77,21 +156,21 @@ impl MissionScriptHooks {
         if name.is_empty() {
             return;
         }
-        if let Ok(mut queue) = self.pending_warehouse_set_values.lock() {
-            queue.push((name.to_string(), cash));
+        if let Ok(mut queues) = self.queues.lock() {
+            queues.pending_warehouse_set_values.push((name.to_string(), cash));
         }
     }
 
     pub fn drain_warehouse_set_values(&self) -> Vec<(String, i32)> {
-        self.pending_warehouse_set_values
+        self.queues
             .lock()
-            .map(|mut queue| queue.drain(..).collect())
+            .map(|mut q| q.pending_warehouse_set_values.drain(..).collect())
             .unwrap_or_default()
     }
 
     pub fn clear_warehouse_set_values(&self) {
-        if let Ok(mut queue) = self.pending_warehouse_set_values.lock() {
-            queue.clear();
+        if let Ok(mut queues) = self.queues.lock() {
+            queues.pending_warehouse_set_values.clear();
         }
     }
 
@@ -109,71 +188,9 @@ impl MissionScriptHooks {
                 host_trigger_world,
             )?),
             pending_script_enabled_updates,
-            pending_warehouse_set_values: Mutex::new(Vec::new()),
-            messages: Mutex::new(Vec::new()),
-            sounds: Mutex::new(Vec::new()),
-            sound_events: Mutex::new(Vec::new()),
-            camera_moves: Mutex::new(Vec::new()),
-            camera_follows: Mutex::new(Vec::new()),
-            camera_tethers: Mutex::new(Vec::new()),
-            camera_path_moves: Mutex::new(Vec::new()),
-            camera_move_to: Mutex::new(Vec::new()),
-            camera_move_to_selection_requests: Mutex::new(Vec::new()),
-            camera_move_home_requests: Mutex::new(Vec::new()),
-            camera_resets: Mutex::new(Vec::new()),
-            camera_zoom_requests: Mutex::new(Vec::new()),
-            camera_pitch_requests: Mutex::new(Vec::new()),
-            camera_rotate_requests: Mutex::new(Vec::new()),
-            camera_mod_final_zoom_requests: Mutex::new(Vec::new()),
-            camera_mod_final_pitch_requests: Mutex::new(Vec::new()),
-            camera_mod_freeze_time_requests: Mutex::new(Vec::new()),
-            camera_mod_freeze_angle_requests: Mutex::new(Vec::new()),
-            camera_mod_final_speed_multiplier_requests: Mutex::new(Vec::new()),
-            camera_mod_rolling_average_requests: Mutex::new(Vec::new()),
-            visual_speed_multiplier_requests: Mutex::new(Vec::new()),
-            script_freeze_time_requests: Mutex::new(Vec::new()),
-            set_fps_limit_requests: Mutex::new(Vec::new()),
-            camera_setup_requests: Mutex::new(Vec::new()),
-            camera_look_toward_object_requests: Mutex::new(Vec::new()),
-            camera_look_toward_waypoint_requests: Mutex::new(Vec::new()),
-            camera_mod_look_toward_requests: Mutex::new(Vec::new()),
-            camera_mod_final_look_toward_requests: Mutex::new(Vec::new()),
-            camera_set_default_requests: Mutex::new(Vec::new()),
-            camera_slave_mode_enable_requests: Mutex::new(Vec::new()),
-            camera_slave_mode_disable_requests: Mutex::new(Vec::new()),
-            screen_shake_requests: Mutex::new(Vec::new()),
-            camera_add_shaker_requests: Mutex::new(Vec::new()),
-            named_special_power_countdown_mutations: Mutex::new(Vec::new()),
-
-            popup_message_requests: Mutex::new(Vec::new()),
-            view_guardband_requests: Mutex::new(Vec::new()),
-            camera_bw_mode_requests: Mutex::new(Vec::new()),
-            skybox_enabled_updates: Mutex::new(Vec::new()),
-            camera_motion_blur_requests: Mutex::new(Vec::new()),
-            cameo_flash_requests: Mutex::new(Vec::new()),
-            named_timer_mutations: Mutex::new(Vec::new()),
-            named_timer_display_updates: Mutex::new(Vec::new()),
-            superweapon_display_enabled_updates: Mutex::new(Vec::new()),
-            superweapon_object_display_mutations: Mutex::new(Vec::new()),
-            cinematic_text: Mutex::new(Vec::new()),
-            military_captions: Mutex::new(Vec::new()),
-            letterbox_events: Mutex::new(Vec::new()),
-            movie_requests: Mutex::new(Vec::new()),
-            radar_movie_requests: Mutex::new(Vec::new()),
-            objective_updates: Mutex::new(Vec::new()),
-            effect_requests: Mutex::new(Vec::new()),
-            radar_event_requests: Mutex::new(Vec::new()),
-            radar_enabled_updates: Mutex::new(Vec::new()),
-            radar_forced_updates: Mutex::new(Vec::new()),
-            weather_visibility_updates: Mutex::new(Vec::new()),
-            music_stop_requests: Mutex::new(Vec::new()),
-            oversize_terrain_requests: Mutex::new(Vec::new()),
-            border_shroud_levels: Mutex::new(Vec::new()),
+            queues: Mutex::new(MissionScriptQueues::new()),
             camera_movement_finished: AtomicBool::new(true),
             frame_counter: AtomicU64::new(0),
-            speech_complete_frame: Mutex::new(HashMap::new()),
-            speech_handles: Mutex::new(HashMap::new()),
-            audio_complete_frame: Mutex::new(HashMap::new()),
         }))
     }
 
@@ -230,125 +247,125 @@ impl MissionScriptHooks {
     }
 
     pub fn push_message(&self, text: String) {
-        if let Ok(mut queue) = self.messages.lock() {
+        if let Ok(mut queues) = self.queues.lock() {
             let localized = localization::localize_with_args(
                 "hud.script.broadcast",
                 "Transmission: {message}",
                 &[("message", text.as_str())],
             );
-            queue.push(localized);
+            queues.messages.push(localized);
         }
     }
 
     pub fn push_sound(&self, name: String) {
-        if let Ok(mut queue) = self.sounds.lock() {
-            queue.push(name);
+        if let Ok(mut queues) = self.queues.lock() {
+            queues.sounds.push(name);
         }
     }
 
     pub fn push_sound_event(&self, event: ScriptSoundEvent) {
-        if let Ok(mut queue) = self.sound_events.lock() {
-            queue.push(event);
+        if let Ok(mut queues) = self.queues.lock() {
+            queues.sound_events.push(event);
         }
     }
 
     pub fn push_camera_move(&self, position: Vec3) {
-        if let Ok(mut queue) = self.camera_moves.lock() {
-            queue.push(position);
+        if let Ok(mut queues) = self.queues.lock() {
+            queues.camera_moves.push(position);
         }
     }
 
     pub fn push_camera_tether(&self, request: CameraTetherRequest) {
-        if let Ok(mut queue) = self.camera_tethers.lock() {
-            queue.push(request);
+        if let Ok(mut queues) = self.queues.lock() {
+            queues.camera_tethers.push(request);
         }
     }
 
     pub fn push_camera_follow(&self, request: CameraFollowRequest) {
-        if let Ok(mut queue) = self.camera_follows.lock() {
-            queue.push(request);
+        if let Ok(mut queues) = self.queues.lock() {
+            queues.camera_follows.push(request);
         }
     }
 
     pub fn push_camera_path_move(&self, request: CameraPathRequest) {
         self.camera_movement_finished
             .store(false, Ordering::Relaxed);
-        if let Ok(mut queue) = self.camera_path_moves.lock() {
-            queue.push(request);
+        if let Ok(mut queues) = self.queues.lock() {
+            queues.camera_path_moves.push(request);
         }
     }
 
     pub fn push_camera_move_to(&self, request: CameraMoveToRequest) {
         self.camera_movement_finished
             .store(false, Ordering::Relaxed);
-        if let Ok(mut queue) = self.camera_move_to.lock() {
-            queue.push(request);
+        if let Ok(mut queues) = self.queues.lock() {
+            queues.camera_move_to.push(request);
         }
     }
 
     pub fn push_camera_move_to_selection(&self) {
-        if let Ok(mut queue) = self.camera_move_to_selection_requests.lock() {
-            queue.push(());
+        if let Ok(mut queues) = self.queues.lock() {
+            queues.camera_move_to_selection_requests.push(());
         }
     }
 
     pub fn push_camera_move_home(&self) {
-        if let Ok(mut queue) = self.camera_move_home_requests.lock() {
-            queue.push(());
+        if let Ok(mut queues) = self.queues.lock() {
+            queues.camera_move_home_requests.push(());
         }
     }
 
     pub fn push_camera_reset(&self, request: CameraResetRequest) {
-        if let Ok(mut queue) = self.camera_resets.lock() {
-            queue.push(request);
+        if let Ok(mut queues) = self.queues.lock() {
+            queues.camera_resets.push(request);
         }
     }
 
     pub fn push_camera_zoom(&self, request: CameraZoomRequest) {
         self.camera_movement_finished
             .store(false, Ordering::Relaxed);
-        if let Ok(mut queue) = self.camera_zoom_requests.lock() {
-            queue.push(request);
+        if let Ok(mut queues) = self.queues.lock() {
+            queues.camera_zoom_requests.push(request);
         }
     }
 
     pub fn push_camera_pitch(&self, request: CameraPitchRequest) {
         self.camera_movement_finished
             .store(false, Ordering::Relaxed);
-        if let Ok(mut queue) = self.camera_pitch_requests.lock() {
-            queue.push(request);
+        if let Ok(mut queues) = self.queues.lock() {
+            queues.camera_pitch_requests.push(request);
         }
     }
 
     pub fn push_camera_rotate(&self, request: CameraRotateRequest) {
         self.camera_movement_finished
             .store(false, Ordering::Relaxed);
-        if let Ok(mut queue) = self.camera_rotate_requests.lock() {
-            queue.push(request);
+        if let Ok(mut queues) = self.queues.lock() {
+            queues.camera_rotate_requests.push(request);
         }
     }
 
     pub fn push_camera_mod_final_zoom(&self, request: CameraModFinalZoomRequest) {
-        if let Ok(mut queue) = self.camera_mod_final_zoom_requests.lock() {
-            queue.push(request);
+        if let Ok(mut queues) = self.queues.lock() {
+            queues.camera_mod_final_zoom_requests.push(request);
         }
     }
 
     pub fn push_camera_mod_final_pitch(&self, request: CameraModFinalPitchRequest) {
-        if let Ok(mut queue) = self.camera_mod_final_pitch_requests.lock() {
-            queue.push(request);
+        if let Ok(mut queues) = self.queues.lock() {
+            queues.camera_mod_final_pitch_requests.push(request);
         }
     }
 
     pub fn push_camera_mod_freeze_time(&self) {
-        if let Ok(mut queue) = self.camera_mod_freeze_time_requests.lock() {
-            queue.push(());
+        if let Ok(mut queues) = self.queues.lock() {
+            queues.camera_mod_freeze_time_requests.push(());
         }
     }
 
     pub fn push_camera_mod_freeze_angle(&self) {
-        if let Ok(mut queue) = self.camera_mod_freeze_angle_requests.lock() {
-            queue.push(());
+        if let Ok(mut queues) = self.queues.lock() {
+            queues.camera_mod_freeze_angle_requests.push(());
         }
     }
 
@@ -356,96 +373,98 @@ impl MissionScriptHooks {
         &self,
         request: CameraModFinalSpeedMultiplierRequest,
     ) {
-        if let Ok(mut queue) = self.camera_mod_final_speed_multiplier_requests.lock() {
-            queue.push(request);
+        if let Ok(mut queues) = self.queues.lock() {
+            queues
+                .camera_mod_final_speed_multiplier_requests
+                .push(request);
         }
     }
 
     pub fn push_camera_mod_rolling_average(&self, request: CameraModRollingAverageRequest) {
-        if let Ok(mut queue) = self.camera_mod_rolling_average_requests.lock() {
-            queue.push(request);
+        if let Ok(mut queues) = self.queues.lock() {
+            queues.camera_mod_rolling_average_requests.push(request);
         }
     }
 
     pub fn push_visual_speed_multiplier(&self, request: VisualSpeedMultiplierRequest) {
-        if let Ok(mut queue) = self.visual_speed_multiplier_requests.lock() {
-            queue.push(request);
+        if let Ok(mut queues) = self.queues.lock() {
+            queues.visual_speed_multiplier_requests.push(request);
         }
     }
 
     pub fn push_script_freeze_time(&self, freeze: bool) {
-        if let Ok(mut queue) = self.script_freeze_time_requests.lock() {
-            queue.push(freeze);
+        if let Ok(mut queues) = self.queues.lock() {
+            queues.script_freeze_time_requests.push(freeze);
         }
     }
 
     pub fn push_set_fps_limit(&self, request: SetFpsLimitRequest) {
-        if let Ok(mut queue) = self.set_fps_limit_requests.lock() {
-            queue.push(request);
+        if let Ok(mut queues) = self.queues.lock() {
+            queues.set_fps_limit_requests.push(request);
         }
     }
 
     pub fn push_camera_setup(&self, request: CameraSetupRequest) {
-        if let Ok(mut queue) = self.camera_setup_requests.lock() {
-            queue.push(request);
+        if let Ok(mut queues) = self.queues.lock() {
+            queues.camera_setup_requests.push(request);
         }
     }
 
     pub fn push_camera_look_toward_object(&self, request: CameraLookTowardObjectRequest) {
         self.camera_movement_finished
             .store(false, Ordering::Relaxed);
-        if let Ok(mut queue) = self.camera_look_toward_object_requests.lock() {
-            queue.push(request);
+        if let Ok(mut queues) = self.queues.lock() {
+            queues.camera_look_toward_object_requests.push(request);
         }
     }
 
     pub fn push_camera_look_toward_waypoint(&self, request: CameraLookTowardWaypointRequest) {
         self.camera_movement_finished
             .store(false, Ordering::Relaxed);
-        if let Ok(mut queue) = self.camera_look_toward_waypoint_requests.lock() {
-            queue.push(request);
+        if let Ok(mut queues) = self.queues.lock() {
+            queues.camera_look_toward_waypoint_requests.push(request);
         }
     }
 
     pub fn push_camera_mod_look_toward(&self, request: CameraModLookTowardRequest) {
-        if let Ok(mut queue) = self.camera_mod_look_toward_requests.lock() {
-            queue.push(request);
+        if let Ok(mut queues) = self.queues.lock() {
+            queues.camera_mod_look_toward_requests.push(request);
         }
     }
 
     pub fn push_camera_mod_final_look_toward(&self, request: CameraModFinalLookTowardRequest) {
-        if let Ok(mut queue) = self.camera_mod_final_look_toward_requests.lock() {
-            queue.push(request);
+        if let Ok(mut queues) = self.queues.lock() {
+            queues.camera_mod_final_look_toward_requests.push(request);
         }
     }
 
     pub fn push_camera_set_default(&self, request: CameraSetDefaultRequest) {
-        if let Ok(mut queue) = self.camera_set_default_requests.lock() {
-            queue.push(request);
+        if let Ok(mut queues) = self.queues.lock() {
+            queues.camera_set_default_requests.push(request);
         }
     }
 
     pub fn push_camera_slave_mode_enable(&self, request: CameraSlaveModeRequest) {
-        if let Ok(mut queue) = self.camera_slave_mode_enable_requests.lock() {
-            queue.push(request);
+        if let Ok(mut queues) = self.queues.lock() {
+            queues.camera_slave_mode_enable_requests.push(request);
         }
     }
 
     pub fn push_camera_slave_mode_disable(&self) {
-        if let Ok(mut queue) = self.camera_slave_mode_disable_requests.lock() {
-            queue.push(());
+        if let Ok(mut queues) = self.queues.lock() {
+            queues.camera_slave_mode_disable_requests.push(());
         }
     }
 
     pub fn push_screen_shake(&self, request: ScreenShakeRequest) {
-        if let Ok(mut queue) = self.screen_shake_requests.lock() {
-            queue.push(request);
+        if let Ok(mut queues) = self.queues.lock() {
+            queues.screen_shake_requests.push(request);
         }
     }
 
     pub fn push_camera_add_shaker(&self, request: CameraAddShakerRequest) {
-        if let Ok(mut queue) = self.camera_add_shaker_requests.lock() {
-            queue.push(request);
+        if let Ok(mut queues) = self.queues.lock() {
+            queues.camera_add_shaker_requests.push(request);
         }
     }
 
@@ -459,68 +478,70 @@ impl MissionScriptHooks {
     }
 
     pub fn push_cinematic_text(&self, text: String, font: String, duration_seconds: i32) {
-        if let Ok(mut queue) = self.cinematic_text.lock() {
-            queue.push((text, font, duration_seconds));
+        if let Ok(mut queues) = self.queues.lock() {
+            queues.cinematic_text.push((text, font, duration_seconds));
         }
     }
 
     pub fn push_military_caption(&self, text: String, duration_ms: i32) {
-        if let Ok(mut queue) = self.military_captions.lock() {
-            queue.push(MilitaryCaptionRequest { text, duration_ms });
+        if let Ok(mut queues) = self.queues.lock() {
+            queues
+                .military_captions
+                .push(MilitaryCaptionRequest { text, duration_ms });
         }
     }
 
     pub fn push_letterbox(&self, enabled: bool) {
-        if let Ok(mut queue) = self.letterbox_events.lock() {
-            queue.push(enabled);
+        if let Ok(mut queues) = self.queues.lock() {
+            queues.letterbox_events.push(enabled);
         }
     }
 
     pub fn push_movie_request(&self, filename: String) {
-        if let Ok(mut queue) = self.movie_requests.lock() {
-            queue.push(filename);
+        if let Ok(mut queues) = self.queues.lock() {
+            queues.movie_requests.push(filename);
         }
     }
 
     pub fn push_radar_movie_request(&self, filename: String) {
-        if let Ok(mut queue) = self.radar_movie_requests.lock() {
-            queue.push(filename);
+        if let Ok(mut queues) = self.queues.lock() {
+            queues.radar_movie_requests.push(filename);
         }
     }
 
     pub fn push_objective_update(&self, update: ObjectiveUpdate) {
-        if let Ok(mut queue) = self.objective_updates.lock() {
-            queue.push(update);
+        if let Ok(mut queues) = self.queues.lock() {
+            queues.objective_updates.push(update);
         }
     }
 
     pub fn push_effect_request(&self, request: ScriptEffectRequest) {
-        if let Ok(mut queue) = self.effect_requests.lock() {
-            queue.push(request);
+        if let Ok(mut queues) = self.queues.lock() {
+            queues.effect_requests.push(request);
         }
     }
 
     pub fn push_radar_event_request(&self, request: RadarScriptEventRequest) {
-        if let Ok(mut queue) = self.radar_event_requests.lock() {
-            queue.push(request);
+        if let Ok(mut queues) = self.queues.lock() {
+            queues.radar_event_requests.push(request);
         }
     }
 
     pub fn push_radar_enabled(&self, enabled: bool) {
-        if let Ok(mut queue) = self.radar_enabled_updates.lock() {
-            queue.push(enabled);
+        if let Ok(mut queues) = self.queues.lock() {
+            queues.radar_enabled_updates.push(enabled);
         }
     }
 
     pub fn push_radar_forced(&self, forced: bool) {
-        if let Ok(mut queue) = self.radar_forced_updates.lock() {
-            queue.push(forced);
+        if let Ok(mut queues) = self.queues.lock() {
+            queues.radar_forced_updates.push(forced);
         }
     }
 
     pub fn push_weather_visible(&self, visible: bool) {
-        if let Ok(mut queue) = self.weather_visibility_updates.lock() {
-            queue.push(visible);
+        if let Ok(mut queues) = self.queues.lock() {
+            queues.weather_visibility_updates.push(visible);
         }
     }
 
@@ -528,56 +549,56 @@ impl MissionScriptHooks {
         // Keep this opaque and monotonic rather than deriving authority from
         // popup text/layout fields. Acknowledge only the exact live instance.
         request.popup_generation = next_live_popup_generation();
-        if let Ok(mut queue) = self.popup_message_requests.lock() {
-            queue.push(request);
+        if let Ok(mut queues) = self.queues.lock() {
+            queues.popup_message_requests.push(request);
         }
     }
 
     pub fn push_view_guardband(&self, request: ViewGuardbandRequest) {
-        if let Ok(mut queue) = self.view_guardband_requests.lock() {
-            queue.push(request);
+        if let Ok(mut queues) = self.queues.lock() {
+            queues.view_guardband_requests.push(request);
         }
     }
 
     pub fn push_camera_bw_mode(&self, request: CameraBwModeRequest) {
-        if let Ok(mut queue) = self.camera_bw_mode_requests.lock() {
-            queue.push(request);
+        if let Ok(mut queues) = self.queues.lock() {
+            queues.camera_bw_mode_requests.push(request);
         }
     }
 
     pub fn push_skybox_enabled(&self, enabled: bool) {
-        if let Ok(mut queue) = self.skybox_enabled_updates.lock() {
-            queue.push(enabled);
+        if let Ok(mut queues) = self.queues.lock() {
+            queues.skybox_enabled_updates.push(enabled);
         }
     }
 
     pub fn push_camera_motion_blur(&self, request: CameraMotionBlurRequest) {
-        if let Ok(mut queue) = self.camera_motion_blur_requests.lock() {
-            queue.push(request);
+        if let Ok(mut queues) = self.queues.lock() {
+            queues.camera_motion_blur_requests.push(request);
         }
     }
 
     pub fn push_cameo_flash(&self, request: CameoFlashRequest) {
-        if let Ok(mut queue) = self.cameo_flash_requests.lock() {
-            queue.push(request);
+        if let Ok(mut queues) = self.queues.lock() {
+            queues.cameo_flash_requests.push(request);
         }
     }
 
     pub fn push_named_timer_mutation(&self, request: NamedTimerMutation) {
-        if let Ok(mut queue) = self.named_timer_mutations.lock() {
-            queue.push(request);
+        if let Ok(mut queues) = self.queues.lock() {
+            queues.named_timer_mutations.push(request);
         }
     }
 
     pub fn push_named_timer_display(&self, show: bool) {
-        if let Ok(mut queue) = self.named_timer_display_updates.lock() {
-            queue.push(show);
+        if let Ok(mut queues) = self.queues.lock() {
+            queues.named_timer_display_updates.push(show);
         }
     }
 
     pub fn push_superweapon_display_enabled(&self, enabled: bool) {
-        if let Ok(mut queue) = self.superweapon_display_enabled_updates.lock() {
-            queue.push(enabled);
+        if let Ok(mut queues) = self.queues.lock() {
+            queues.superweapon_display_enabled_updates.push(enabled);
         }
     }
 
@@ -585,8 +606,10 @@ impl MissionScriptHooks {
         &self,
         request: NamedSpecialPowerCountdownMutation,
     ) {
-        if let Ok(mut queue) = self.named_special_power_countdown_mutations.lock() {
-            queue.push(request);
+        if let Ok(mut queues) = self.queues.lock() {
+            queues
+                .named_special_power_countdown_mutations
+                .push(request);
         }
     }
 
@@ -594,20 +617,20 @@ impl MissionScriptHooks {
         &self,
         request: SuperweaponObjectDisplayMutation,
     ) {
-        if let Ok(mut queue) = self.superweapon_object_display_mutations.lock() {
-            queue.push(request);
+        if let Ok(mut queues) = self.queues.lock() {
+            queues.superweapon_object_display_mutations.push(request);
         }
     }
 
     pub fn push_music_stop(&self) {
-        if let Ok(mut queue) = self.music_stop_requests.lock() {
-            queue.push(());
+        if let Ok(mut queues) = self.queues.lock() {
+            queues.music_stop_requests.push(());
         }
     }
 
     pub fn push_oversize_terrain(&self, amount: i32) {
-        if let Ok(mut queue) = self.oversize_terrain_requests.lock() {
-            queue.push(amount);
+        if let Ok(mut queues) = self.queues.lock() {
+            queues.oversize_terrain_requests.push(amount);
         }
     }
 
@@ -620,12 +643,16 @@ impl MissionScriptHooks {
             return;
         }
         let now = self.frame_counter.load(Ordering::Relaxed);
-        if let Ok(mut map) = self.speech_complete_frame.lock() {
-            map.insert(name.to_string(), speech_completion_frame(now, name));
-        }
-        if handle != 0 {
-            if let Ok(mut handles) = self.speech_handles.lock() {
-                handles.entry(name.to_string()).or_default().push(handle);
+        if let Ok(mut queues) = self.queues.lock() {
+            queues
+                .speech_complete_frame
+                .insert(name.to_string(), speech_completion_frame(now, name));
+            if handle != 0 {
+                queues
+                    .speech_handles
+                    .entry(name.to_string())
+                    .or_default()
+                    .push(handle);
             }
         }
     }
@@ -660,26 +687,25 @@ impl MissionScriptHooks {
         if name.trim().is_empty() {
             return false;
         }
-        // Leftover GameClient `is_named_audio_complete`: a live Miles/rodio
-        // handle is still playing, so the line is not finished yet.
-        if let Ok(mut handles) = self.speech_handles.lock() {
-            if let Some(pending) = handles.get_mut(name) {
-                match gamelogic::helpers::TheAudio::get() {
-                    Some(audio) => pending.retain(|handle| audio.is_currently_playing(*handle)),
-                    None => pending.clear(),
-                }
-                if !pending.is_empty() {
-                    return false;
-                }
-                if flush {
-                    handles.remove(name);
-                }
-            }
-        }
         let now = self.frame_counter.load(Ordering::Relaxed);
-        let Ok(mut map) = self.speech_complete_frame.lock() else {
+        let Ok(mut queues) = self.queues.lock() else {
             return true;
         };
+        // Leftover GameClient `is_named_audio_complete`: a live Miles/rodio
+        // handle is still playing, so the line is not finished yet.
+        if let Some(pending) = queues.speech_handles.get_mut(name) {
+            match gamelogic::helpers::TheAudio::get() {
+                Some(audio) => pending.retain(|handle| audio.is_currently_playing(*handle)),
+                None => pending.clear(),
+            }
+            if !pending.is_empty() {
+                return false;
+            }
+            if flush {
+                queues.speech_handles.remove(name);
+            }
+        }
+        let map = &mut queues.speech_complete_frame;
         let done_frame = match map.get(name).copied() {
             Some(done_frame) => done_frame,
             None => {
@@ -704,9 +730,10 @@ impl MissionScriptHooks {
         // TheAudio length timer; true only after that frame. Use the live
         // frame clock — leftover TheGameLogic::get_frame is not the host.
         let now = self.frame_counter.load(Ordering::Relaxed);
-        let Ok(mut map) = self.audio_complete_frame.lock() else {
+        let Ok(mut queues) = self.queues.lock() else {
             return false;
         };
+        let map = &mut queues.audio_complete_frame;
         let done_frame = match map.get(name).copied() {
             Some(done_frame) => done_frame,
             None => {
@@ -734,424 +761,424 @@ impl MissionScriptHooks {
     }
 
     pub fn drain_messages(&self) -> Vec<String> {
-        self.messages
+        self.queues
             .lock()
-            .map(|mut q| q.drain(..).collect())
+            .map(|mut q| q.messages.drain(..).collect())
             .unwrap_or_default()
     }
 
     pub fn drain_sounds(&self) -> Vec<String> {
-        self.sounds
+        self.queues
             .lock()
-            .map(|mut q| q.drain(..).collect())
+            .map(|mut q| q.sounds.drain(..).collect())
             .unwrap_or_default()
     }
 
     pub fn drain_sound_events(&self) -> Vec<ScriptSoundEvent> {
-        self.sound_events
+        self.queues
             .lock()
-            .map(|mut q| q.drain(..).collect())
+            .map(|mut q| q.sound_events.drain(..).collect())
             .unwrap_or_default()
     }
 
     pub fn drain_camera_moves(&self) -> Vec<Vec3> {
-        self.camera_moves
+        self.queues
             .lock()
-            .map(|mut q| q.drain(..).collect())
+            .map(|mut q| q.camera_moves.drain(..).collect())
             .unwrap_or_default()
     }
 
     pub fn drain_camera_follows(&self) -> Vec<CameraFollowRequest> {
-        self.camera_follows
+        self.queues
             .lock()
-            .map(|mut q| q.drain(..).collect())
+            .map(|mut q| q.camera_follows.drain(..).collect())
             .unwrap_or_default()
     }
 
     pub fn drain_camera_tethers(&self) -> Vec<CameraTetherRequest> {
-        self.camera_tethers
+        self.queues
             .lock()
-            .map(|mut q| q.drain(..).collect())
+            .map(|mut q| q.camera_tethers.drain(..).collect())
             .unwrap_or_default()
     }
 
     pub fn drain_camera_path_moves(&self) -> Vec<CameraPathRequest> {
-        self.camera_path_moves
+        self.queues
             .lock()
-            .map(|mut q| q.drain(..).collect())
+            .map(|mut q| q.camera_path_moves.drain(..).collect())
             .unwrap_or_default()
     }
 
     pub fn drain_camera_move_to(&self) -> Vec<CameraMoveToRequest> {
-        self.camera_move_to
+        self.queues
             .lock()
-            .map(|mut q| q.drain(..).collect())
+            .map(|mut q| q.camera_move_to.drain(..).collect())
             .unwrap_or_default()
     }
 
     pub fn drain_camera_move_to_selection_requests(&self) -> Vec<()> {
-        self.camera_move_to_selection_requests
+        self.queues
             .lock()
-            .map(|mut q| q.drain(..).collect())
+            .map(|mut q| q.camera_move_to_selection_requests.drain(..).collect())
             .unwrap_or_default()
     }
 
     pub fn drain_camera_move_home_requests(&self) -> Vec<()> {
-        self.camera_move_home_requests
+        self.queues
             .lock()
-            .map(|mut q| q.drain(..).collect())
+            .map(|mut q| q.camera_move_home_requests.drain(..).collect())
             .unwrap_or_default()
     }
 
     pub fn drain_camera_resets(&self) -> Vec<CameraResetRequest> {
-        self.camera_resets
+        self.queues
             .lock()
-            .map(|mut q| q.drain(..).collect())
+            .map(|mut q| q.camera_resets.drain(..).collect())
             .unwrap_or_default()
     }
 
     pub fn drain_camera_zoom_requests(&self) -> Vec<CameraZoomRequest> {
-        self.camera_zoom_requests
+        self.queues
             .lock()
-            .map(|mut q| q.drain(..).collect())
+            .map(|mut q| q.camera_zoom_requests.drain(..).collect())
             .unwrap_or_default()
     }
 
     pub fn drain_camera_pitch_requests(&self) -> Vec<CameraPitchRequest> {
-        self.camera_pitch_requests
+        self.queues
             .lock()
-            .map(|mut q| q.drain(..).collect())
+            .map(|mut q| q.camera_pitch_requests.drain(..).collect())
             .unwrap_or_default()
     }
 
     pub fn drain_camera_rotate_requests(&self) -> Vec<CameraRotateRequest> {
-        self.camera_rotate_requests
+        self.queues
             .lock()
-            .map(|mut q| q.drain(..).collect())
+            .map(|mut q| q.camera_rotate_requests.drain(..).collect())
             .unwrap_or_default()
     }
 
     pub fn drain_camera_mod_final_zoom_requests(&self) -> Vec<CameraModFinalZoomRequest> {
-        self.camera_mod_final_zoom_requests
+        self.queues
             .lock()
-            .map(|mut q| q.drain(..).collect())
+            .map(|mut q| q.camera_mod_final_zoom_requests.drain(..).collect())
             .unwrap_or_default()
     }
 
     pub fn drain_camera_mod_final_pitch_requests(&self) -> Vec<CameraModFinalPitchRequest> {
-        self.camera_mod_final_pitch_requests
+        self.queues
             .lock()
-            .map(|mut q| q.drain(..).collect())
+            .map(|mut q| q.camera_mod_final_pitch_requests.drain(..).collect())
             .unwrap_or_default()
     }
 
     pub fn drain_camera_mod_freeze_time_requests(&self) -> Vec<()> {
-        self.camera_mod_freeze_time_requests
+        self.queues
             .lock()
-            .map(|mut q| q.drain(..).collect())
+            .map(|mut q| q.camera_mod_freeze_time_requests.drain(..).collect())
             .unwrap_or_default()
     }
 
     pub fn drain_camera_mod_freeze_angle_requests(&self) -> Vec<()> {
-        self.camera_mod_freeze_angle_requests
+        self.queues
             .lock()
-            .map(|mut q| q.drain(..).collect())
+            .map(|mut q| q.camera_mod_freeze_angle_requests.drain(..).collect())
             .unwrap_or_default()
     }
 
     pub fn drain_camera_mod_final_speed_multiplier_requests(
         &self,
     ) -> Vec<CameraModFinalSpeedMultiplierRequest> {
-        self.camera_mod_final_speed_multiplier_requests
+        self.queues
             .lock()
-            .map(|mut q| q.drain(..).collect())
+            .map(|mut q| q.camera_mod_final_speed_multiplier_requests.drain(..).collect())
             .unwrap_or_default()
     }
 
     pub fn drain_camera_mod_rolling_average_requests(&self) -> Vec<CameraModRollingAverageRequest> {
-        self.camera_mod_rolling_average_requests
+        self.queues
             .lock()
-            .map(|mut q| q.drain(..).collect())
+            .map(|mut q| q.camera_mod_rolling_average_requests.drain(..).collect())
             .unwrap_or_default()
     }
 
     pub fn drain_visual_speed_multiplier_requests(&self) -> Vec<VisualSpeedMultiplierRequest> {
-        self.visual_speed_multiplier_requests
+        self.queues
             .lock()
-            .map(|mut q| q.drain(..).collect())
+            .map(|mut q| q.visual_speed_multiplier_requests.drain(..).collect())
             .unwrap_or_default()
     }
 
     pub fn drain_script_freeze_time_requests(&self) -> Vec<bool> {
-        self.script_freeze_time_requests
+        self.queues
             .lock()
-            .map(|mut q| q.drain(..).collect())
+            .map(|mut q| q.script_freeze_time_requests.drain(..).collect())
             .unwrap_or_default()
     }
 
     pub fn drain_set_fps_limit_requests(&self) -> Vec<SetFpsLimitRequest> {
-        self.set_fps_limit_requests
+        self.queues
             .lock()
-            .map(|mut q| q.drain(..).collect())
+            .map(|mut q| q.set_fps_limit_requests.drain(..).collect())
             .unwrap_or_default()
     }
 
     pub fn drain_camera_setup_requests(&self) -> Vec<CameraSetupRequest> {
-        self.camera_setup_requests
+        self.queues
             .lock()
-            .map(|mut q| q.drain(..).collect())
+            .map(|mut q| q.camera_setup_requests.drain(..).collect())
             .unwrap_or_default()
     }
 
     pub fn drain_camera_look_toward_object_requests(&self) -> Vec<CameraLookTowardObjectRequest> {
-        self.camera_look_toward_object_requests
+        self.queues
             .lock()
-            .map(|mut q| q.drain(..).collect())
+            .map(|mut q| q.camera_look_toward_object_requests.drain(..).collect())
             .unwrap_or_default()
     }
 
     pub fn drain_camera_look_toward_waypoint_requests(
         &self,
     ) -> Vec<CameraLookTowardWaypointRequest> {
-        self.camera_look_toward_waypoint_requests
+        self.queues
             .lock()
-            .map(|mut q| q.drain(..).collect())
+            .map(|mut q| q.camera_look_toward_waypoint_requests.drain(..).collect())
             .unwrap_or_default()
     }
 
     pub fn drain_camera_mod_look_toward_requests(&self) -> Vec<CameraModLookTowardRequest> {
-        self.camera_mod_look_toward_requests
+        self.queues
             .lock()
-            .map(|mut q| q.drain(..).collect())
+            .map(|mut q| q.camera_mod_look_toward_requests.drain(..).collect())
             .unwrap_or_default()
     }
 
     pub fn drain_camera_mod_final_look_toward_requests(
         &self,
     ) -> Vec<CameraModFinalLookTowardRequest> {
-        self.camera_mod_final_look_toward_requests
+        self.queues
             .lock()
-            .map(|mut q| q.drain(..).collect())
+            .map(|mut q| q.camera_mod_final_look_toward_requests.drain(..).collect())
             .unwrap_or_default()
     }
 
     pub fn drain_camera_set_default_requests(&self) -> Vec<CameraSetDefaultRequest> {
-        self.camera_set_default_requests
+        self.queues
             .lock()
-            .map(|mut q| q.drain(..).collect())
+            .map(|mut q| q.camera_set_default_requests.drain(..).collect())
             .unwrap_or_default()
     }
 
     pub fn drain_camera_slave_mode_enable_requests(&self) -> Vec<CameraSlaveModeRequest> {
-        self.camera_slave_mode_enable_requests
+        self.queues
             .lock()
-            .map(|mut q| q.drain(..).collect())
+            .map(|mut q| q.camera_slave_mode_enable_requests.drain(..).collect())
             .unwrap_or_default()
     }
 
     pub fn drain_camera_slave_mode_disable_requests(&self) -> Vec<()> {
-        self.camera_slave_mode_disable_requests
+        self.queues
             .lock()
-            .map(|mut q| q.drain(..).collect())
+            .map(|mut q| q.camera_slave_mode_disable_requests.drain(..).collect())
             .unwrap_or_default()
     }
 
     pub fn drain_screen_shake_requests(&self) -> Vec<ScreenShakeRequest> {
-        self.screen_shake_requests
+        self.queues
             .lock()
-            .map(|mut q| q.drain(..).collect())
+            .map(|mut q| q.screen_shake_requests.drain(..).collect())
             .unwrap_or_default()
     }
 
     pub fn drain_camera_add_shaker_requests(&self) -> Vec<CameraAddShakerRequest> {
-        self.camera_add_shaker_requests
+        self.queues
             .lock()
-            .map(|mut q| q.drain(..).collect())
+            .map(|mut q| q.camera_add_shaker_requests.drain(..).collect())
             .unwrap_or_default()
     }
 
     pub fn drain_cinematic_text(&self) -> Vec<(String, String, i32)> {
-        self.cinematic_text
+        self.queues
             .lock()
-            .map(|mut q| q.drain(..).collect())
+            .map(|mut q| q.cinematic_text.drain(..).collect())
             .unwrap_or_default()
     }
 
     pub fn drain_military_captions(&self) -> Vec<MilitaryCaptionRequest> {
-        self.military_captions
+        self.queues
             .lock()
-            .map(|mut q| q.drain(..).collect())
+            .map(|mut q| q.military_captions.drain(..).collect())
             .unwrap_or_default()
     }
 
     pub fn drain_letterbox_events(&self) -> Vec<bool> {
-        self.letterbox_events
+        self.queues
             .lock()
-            .map(|mut q| q.drain(..).collect())
+            .map(|mut q| q.letterbox_events.drain(..).collect())
             .unwrap_or_default()
     }
 
     pub fn drain_movie_requests(&self) -> Vec<String> {
-        self.movie_requests
+        self.queues
             .lock()
-            .map(|mut q| q.drain(..).collect())
+            .map(|mut q| q.movie_requests.drain(..).collect())
             .unwrap_or_default()
     }
 
     pub fn drain_radar_movie_requests(&self) -> Vec<String> {
-        self.radar_movie_requests
+        self.queues
             .lock()
-            .map(|mut q| q.drain(..).collect())
+            .map(|mut q| q.radar_movie_requests.drain(..).collect())
             .unwrap_or_default()
     }
 
     pub fn drain_objective_updates(&self) -> Vec<ObjectiveUpdate> {
-        self.objective_updates
+        self.queues
             .lock()
-            .map(|mut q| q.drain(..).collect())
+            .map(|mut q| q.objective_updates.drain(..).collect())
             .unwrap_or_default()
     }
 
     pub fn drain_effect_requests(&self) -> Vec<ScriptEffectRequest> {
-        self.effect_requests
+        self.queues
             .lock()
-            .map(|mut q| q.drain(..).collect())
+            .map(|mut q| q.effect_requests.drain(..).collect())
             .unwrap_or_default()
     }
 
     pub fn drain_radar_event_requests(&self) -> Vec<RadarScriptEventRequest> {
-        self.radar_event_requests
+        self.queues
             .lock()
-            .map(|mut q| q.drain(..).collect())
+            .map(|mut q| q.radar_event_requests.drain(..).collect())
             .unwrap_or_default()
     }
 
     pub fn drain_radar_enabled_updates(&self) -> Vec<bool> {
-        self.radar_enabled_updates
+        self.queues
             .lock()
-            .map(|mut q| q.drain(..).collect())
+            .map(|mut q| q.radar_enabled_updates.drain(..).collect())
             .unwrap_or_default()
     }
 
     pub fn drain_radar_forced_updates(&self) -> Vec<bool> {
-        self.radar_forced_updates
+        self.queues
             .lock()
-            .map(|mut q| q.drain(..).collect())
+            .map(|mut q| q.radar_forced_updates.drain(..).collect())
             .unwrap_or_default()
     }
 
     pub fn drain_weather_visibility_updates(&self) -> Vec<bool> {
-        self.weather_visibility_updates
+        self.queues
             .lock()
-            .map(|mut q| q.drain(..).collect())
+            .map(|mut q| q.weather_visibility_updates.drain(..).collect())
             .unwrap_or_default()
     }
 
     pub fn drain_popup_message_requests(&self) -> Vec<ScriptPopupMessageRequest> {
-        self.popup_message_requests
+        self.queues
             .lock()
-            .map(|mut q| q.drain(..).collect())
+            .map(|mut q| q.popup_message_requests.drain(..).collect())
             .unwrap_or_default()
     }
 
     pub fn drain_view_guardband_requests(&self) -> Vec<ViewGuardbandRequest> {
-        self.view_guardband_requests
+        self.queues
             .lock()
-            .map(|mut q| q.drain(..).collect())
+            .map(|mut q| q.view_guardband_requests.drain(..).collect())
             .unwrap_or_default()
     }
 
     pub fn drain_camera_bw_mode_requests(&self) -> Vec<CameraBwModeRequest> {
-        self.camera_bw_mode_requests
+        self.queues
             .lock()
-            .map(|mut q| q.drain(..).collect())
+            .map(|mut q| q.camera_bw_mode_requests.drain(..).collect())
             .unwrap_or_default()
     }
 
     pub fn drain_skybox_enabled_updates(&self) -> Vec<bool> {
-        self.skybox_enabled_updates
+        self.queues
             .lock()
-            .map(|mut q| q.drain(..).collect())
+            .map(|mut q| q.skybox_enabled_updates.drain(..).collect())
             .unwrap_or_default()
     }
 
     pub fn drain_camera_motion_blur_requests(&self) -> Vec<CameraMotionBlurRequest> {
-        self.camera_motion_blur_requests
+        self.queues
             .lock()
-            .map(|mut q| q.drain(..).collect())
+            .map(|mut q| q.camera_motion_blur_requests.drain(..).collect())
             .unwrap_or_default()
     }
 
     pub fn drain_cameo_flash_requests(&self) -> Vec<CameoFlashRequest> {
-        self.cameo_flash_requests
+        self.queues
             .lock()
-            .map(|mut q| q.drain(..).collect())
+            .map(|mut q| q.cameo_flash_requests.drain(..).collect())
             .unwrap_or_default()
     }
 
     pub fn drain_named_timer_mutations(&self) -> Vec<NamedTimerMutation> {
-        self.named_timer_mutations
+        self.queues
             .lock()
-            .map(|mut q| q.drain(..).collect())
+            .map(|mut q| q.named_timer_mutations.drain(..).collect())
             .unwrap_or_default()
     }
 
     pub fn drain_named_timer_display_updates(&self) -> Vec<bool> {
-        self.named_timer_display_updates
+        self.queues
             .lock()
-            .map(|mut q| q.drain(..).collect())
+            .map(|mut q| q.named_timer_display_updates.drain(..).collect())
             .unwrap_or_default()
     }
 
     pub fn drain_superweapon_display_enabled_updates(&self) -> Vec<bool> {
-        self.superweapon_display_enabled_updates
+        self.queues
             .lock()
-            .map(|mut q| q.drain(..).collect())
+            .map(|mut q| q.superweapon_display_enabled_updates.drain(..).collect())
             .unwrap_or_default()
     }
 
     pub fn drain_named_special_power_countdown_mutations(
         &self,
     ) -> Vec<NamedSpecialPowerCountdownMutation> {
-        self.named_special_power_countdown_mutations
+        self.queues
             .lock()
-            .map(|mut q| q.drain(..).collect())
+            .map(|mut q| q.named_special_power_countdown_mutations.drain(..).collect())
             .unwrap_or_default()
     }
 
     pub fn drain_superweapon_object_display_mutations(
         &self,
     ) -> Vec<SuperweaponObjectDisplayMutation> {
-        self.superweapon_object_display_mutations
+        self.queues
             .lock()
-            .map(|mut q| q.drain(..).collect())
+            .map(|mut q| q.superweapon_object_display_mutations.drain(..).collect())
             .unwrap_or_default()
     }
 
     pub fn drain_music_stop_requests(&self) -> Vec<()> {
-        self.music_stop_requests
+        self.queues
             .lock()
-            .map(|mut q| q.drain(..).collect())
+            .map(|mut q| q.music_stop_requests.drain(..).collect())
             .unwrap_or_default()
     }
 
     pub fn push_border_shroud_level(&self, level: u8) {
-        if let Ok(mut queue) = self.border_shroud_levels.lock() {
-            queue.push(level);
+        if let Ok(mut queues) = self.queues.lock() {
+            queues.border_shroud_levels.push(level);
         }
     }
 
     pub fn drain_border_shroud_levels(&self) -> Vec<u8> {
-        self.border_shroud_levels
+        self.queues
             .lock()
-            .map(|mut q| q.drain(..).collect())
+            .map(|mut q| q.border_shroud_levels.drain(..).collect())
             .unwrap_or_default()
     }
 
     pub fn drain_oversize_terrain_requests(&self) -> Vec<i32> {
-        self.oversize_terrain_requests
+        self.queues
             .lock()
-            .map(|mut q| q.drain(..).collect())
+            .map(|mut q| q.oversize_terrain_requests.drain(..).collect())
             .unwrap_or_default()
     }
 }

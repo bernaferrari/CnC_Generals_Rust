@@ -3,7 +3,7 @@
 //! This module provides integration between ww3d-assets and ww3d-renderer-3d,
 //! enabling loaded textures and meshes to be uploaded to GPU and used in rendering.
 
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use ww3d_assets::{Material, TextureBase, TextureFormat as AssetTextureFormat};
 use ww3d_core::errors::{W3DError, W3DResult};
 use ww3d_gpu::device::GpuDevice;
@@ -215,7 +215,7 @@ pub fn upload_texture_to_gpu(
 /// Texture upload manager that caches GPU textures
 pub struct TextureUploadManager {
     device: Arc<GpuDevice>,
-    cache: Mutex<std::collections::HashMap<String, Arc<GpuTexture>>>,
+    cache: std::collections::HashMap<String, Arc<GpuTexture>>,
 }
 
 impl TextureUploadManager {
@@ -223,45 +223,38 @@ impl TextureUploadManager {
     pub fn new(device: Arc<GpuDevice>) -> Self {
         Self {
             device,
-            cache: Mutex::new(std::collections::HashMap::new()),
+            cache: std::collections::HashMap::new(),
         }
     }
 
     /// Get or upload a texture to GPU
-    pub fn get_or_upload(&self, texture: &Arc<TextureBase>) -> W3DResult<Arc<GpuTexture>> {
+    pub fn get_or_upload(&mut self, texture: &Arc<TextureBase>) -> W3DResult<Arc<GpuTexture>> {
         let key = texture.name.clone();
 
         // Check cache first
-        {
-            let cache = self.cache.lock().unwrap();
-            if let Some(gpu_texture) = cache.get(&key) {
-                return Ok(Arc::clone(gpu_texture));
-            }
+        if let Some(gpu_texture) = self.cache.get(&key) {
+            return Ok(Arc::clone(gpu_texture));
         }
 
         // Upload texture
         let gpu_texture = upload_texture_to_gpu(texture, &self.device)?;
 
         // Cache it
-        {
-            let mut cache = self.cache.lock().unwrap();
-            cache.insert(key, Arc::clone(&gpu_texture));
-        }
+        self.cache.insert(key, Arc::clone(&gpu_texture));
 
         Ok(gpu_texture)
     }
 
     /// Clear the texture cache
-    pub fn clear_cache(&self) {
-        let mut cache = self.cache.lock().unwrap();
-        cache.clear();
+    pub fn clear_cache(&mut self) {
+        self.cache.clear();
     }
 
     /// Get cache statistics
     pub fn cache_stats(&self) -> (usize, u64) {
-        let cache = self.cache.lock().unwrap();
-        let count = cache.len();
-        let total_memory: u64 = cache
+        let count = self.cache.len();
+        let total_memory: u64 = self
+            .cache
             .values()
             .map(|t| (t.width() * t.height() * 4) as u64) // Assume 4 bytes per pixel
             .sum();
@@ -279,7 +272,7 @@ impl MaterialBinding {
     /// Create material bindings from asset material
     pub fn from_asset_material(
         material: &Material,
-        texture_manager: &TextureUploadManager,
+        texture_manager: &mut TextureUploadManager,
         asset_textures: &[Arc<TextureBase>],
     ) -> W3DResult<Self> {
         let mut textures = Vec::new();

@@ -147,9 +147,9 @@ pub struct W3DShadowManager {
     /// Stencil shadow mask (m_stencilShadowMask)
     stencil_shadow_mask: i32,
     /// Volumetric shadow manager
-    volumetric_manager: Option<Arc<RwLock<W3DVolumetricShadowManager>>>,
-    /// Projected shadow manager  
-    projected_manager: Option<Arc<RwLock<W3DProjectedShadowManager>>>,
+    volumetric_manager: Option<Box<W3DVolumetricShadowManager>>,
+    /// Projected shadow manager
+    projected_manager: Option<Box<W3DProjectedShadowManager>>,
 }
 
 impl Default for W3DShadowManager {
@@ -193,16 +193,14 @@ impl W3DShadowManager {
     pub fn init(&mut self, device: &wgpu::Device, queue: &wgpu::Queue) -> bool {
         let mut result = true;
 
-        if let Some(ref vol_manager) = self.volumetric_manager {
-            let mut mgr = vol_manager.write();
-            if mgr.init() && mgr.re_acquire_resources() {
+        if let Some(vol_manager) = self.volumetric_manager.as_mut() {
+            if vol_manager.init() && vol_manager.re_acquire_resources() {
                 result = true;
             }
         }
 
-        if let Some(ref proj_manager) = self.projected_manager {
-            let mut mgr = proj_manager.write();
-            if mgr.init() && mgr.re_acquire_resources(device, queue) {
+        if let Some(proj_manager) = self.projected_manager.as_mut() {
+            if proj_manager.init() && proj_manager.re_acquire_resources(device, queue) {
                 result = true;
             }
         }
@@ -213,11 +211,11 @@ impl W3DShadowManager {
     /// Per-map reset - frees shadows from all objects
     /// C++: void W3DShadowManager::Reset()
     pub fn reset(&mut self) {
-        if let Some(ref vol_manager) = self.volumetric_manager {
-            vol_manager.write().reset();
+        if let Some(vol_manager) = self.volumetric_manager.as_mut() {
+            vol_manager.reset();
         }
-        if let Some(ref proj_manager) = self.projected_manager {
-            proj_manager.write().reset();
+        if let Some(proj_manager) = self.projected_manager.as_mut() {
+            proj_manager.reset();
         }
     }
 
@@ -226,13 +224,13 @@ impl W3DShadowManager {
     pub fn re_acquire_resources(&mut self, device: &wgpu::Device, queue: &wgpu::Queue) -> bool {
         let mut result = true;
 
-        if let Some(ref vol_manager) = self.volumetric_manager {
-            if !vol_manager.write().re_acquire_resources() {
+        if let Some(vol_manager) = self.volumetric_manager.as_mut() {
+            if !vol_manager.re_acquire_resources() {
                 result = false;
             }
         }
-        if let Some(ref proj_manager) = self.projected_manager {
-            if !proj_manager.write().re_acquire_resources(device, queue) {
+        if let Some(proj_manager) = self.projected_manager.as_mut() {
+            if !proj_manager.re_acquire_resources(device, queue) {
                 result = false;
             }
         }
@@ -243,11 +241,11 @@ impl W3DShadowManager {
     /// Release device-dependent resources
     /// C++: void W3DShadowManager::ReleaseResources()
     pub fn release_resources(&mut self) {
-        if let Some(ref vol_manager) = self.volumetric_manager {
-            vol_manager.write().release_resources();
+        if let Some(vol_manager) = self.volumetric_manager.as_mut() {
+            vol_manager.release_resources();
         }
-        if let Some(ref proj_manager) = self.projected_manager {
-            proj_manager.write().release_resources();
+        if let Some(proj_manager) = self.projected_manager.as_mut() {
+            proj_manager.release_resources();
         }
     }
 
@@ -335,11 +333,11 @@ impl W3DShadowManager {
     /// Force update of all shadows even when light/object hasn't moved
     /// C++: void W3DShadowManager::invalidateCachedLightPositions()
     pub fn invalidate_cached_light_positions(&mut self) {
-        if let Some(ref vol_manager) = self.volumetric_manager {
-            vol_manager.write().invalidate_cached_light_positions();
+        if let Some(vol_manager) = self.volumetric_manager.as_mut() {
+            vol_manager.invalidate_cached_light_positions();
         }
-        if let Some(ref proj_manager) = self.projected_manager {
-            proj_manager.write().invalidate_cached_light_positions();
+        if let Some(proj_manager) = self.projected_manager.as_mut() {
+            proj_manager.invalidate_cached_light_positions();
         }
     }
 
@@ -353,17 +351,17 @@ impl W3DShadowManager {
         let shadow_type = shadow_info.map(|i| i.shadow_type).unwrap_or_default();
 
         if shadow_type.is_volume() {
-            if let Some(ref vol_manager) = self.volumetric_manager {
-                vol_manager.write().add_shadow()
+            if let Some(vol_manager) = self.volumetric_manager.as_mut() {
+                vol_manager.add_shadow()
             } else {
                 None
             }
         } else if shadow_type.is_projection() || shadow_type.is_decal() {
-            if let Some(ref proj_manager) = self.projected_manager {
+            if let Some(proj_manager) = self.projected_manager.as_mut() {
                 if let Some(info) = shadow_info {
-                    proj_manager.write().add_decal(info)
+                    proj_manager.add_decal(info)
                 } else {
-                    proj_manager.write().add_shadow()
+                    proj_manager.add_shadow()
                 }
             } else {
                 None
@@ -378,12 +376,12 @@ impl W3DShadowManager {
     pub fn remove_shadow(&mut self, shadow: &ShadowHandle) {
         // C++ calls shadow->release() which delegates to appropriate manager
         if shadow.shadow_type.is_volume() {
-            if let Some(ref vol_manager) = self.volumetric_manager {
-                vol_manager.write().remove_shadow(shadow);
+            if let Some(vol_manager) = self.volumetric_manager.as_mut() {
+                vol_manager.remove_shadow(shadow);
             }
         } else {
-            if let Some(ref proj_manager) = self.projected_manager {
-                proj_manager.write().remove_shadow(shadow);
+            if let Some(proj_manager) = self.projected_manager.as_mut() {
+                proj_manager.remove_shadow(shadow);
             }
         }
     }
@@ -391,21 +389,21 @@ impl W3DShadowManager {
     /// Remove all shadows
     /// C++: void W3DShadowManager::removeAllShadows()
     pub fn remove_all_shadows(&mut self) {
-        if let Some(ref vol_manager) = self.volumetric_manager {
-            vol_manager.write().remove_all_shadows();
+        if let Some(vol_manager) = self.volumetric_manager.as_mut() {
+            vol_manager.remove_all_shadows();
         }
-        if let Some(ref proj_manager) = self.projected_manager {
-            proj_manager.write().remove_all_shadows();
+        if let Some(proj_manager) = self.projected_manager.as_mut() {
+            proj_manager.remove_all_shadows();
         }
     }
 
     /// Set the volumetric shadow manager
-    pub fn set_volumetric_manager(&mut self, manager: Arc<RwLock<W3DVolumetricShadowManager>>) {
+    pub fn set_volumetric_manager(&mut self, manager: Box<W3DVolumetricShadowManager>) {
         self.volumetric_manager = Some(manager);
     }
 
     /// Set the projected shadow manager
-    pub fn set_projected_manager(&mut self, manager: Arc<RwLock<W3DProjectedShadowManager>>) {
+    pub fn set_projected_manager(&mut self, manager: Box<W3DProjectedShadowManager>) {
         self.projected_manager = Some(manager);
     }
 }
@@ -508,40 +506,36 @@ pub fn do_shadows(rinfo: &mut RenderInfo, stencil_pass: bool) {
     // Store the camera frustum for shadow culling
     // C++: shadowCameraFrustum = &rinfo.Camera.Get_Frustum();
     let camera_frustum = rinfo.camera_frustum.clone();
-    let (is_shadow_scene, projected_manager, volumetric_manager) = {
-        let mgr = manager.read();
-        (
-            mgr.is_shadow_scene(),
-            mgr.projected_manager.clone(),
-            mgr.volumetric_manager.clone(),
-        )
-    };
-
+    let is_shadow_scene;
     let mut projection_count: i32 = 0;
+    {
+        let mut mgr = manager.write();
+        is_shadow_scene = mgr.is_shadow_scene();
 
-    // Projected shadows render first because they may fill the stencil buffer
-    // which will be used by the shadow volumes
-    // C++: if (stencilPass == FALSE && TheW3DProjectedShadowManager)
-    if !stencil_pass && is_shadow_scene {
-        if let Some(proj_manager) = projected_manager {
-            projection_count = proj_manager.write().render_shadows(rinfo);
+        // Projected shadows render first because they may fill the stencil buffer
+        // which will be used by the shadow volumes
+        // C++: if (stencilPass == FALSE && TheW3DProjectedShadowManager)
+        if !stencil_pass && is_shadow_scene {
+            if let Some(proj_manager) = mgr.projected_manager.as_mut() {
+                projection_count = proj_manager.render_shadows(rinfo);
+            }
         }
-    }
 
-    // C++: if (stencilPass == TRUE && TheW3DVolumetricShadowManager)
-    if stencil_pass && is_shadow_scene {
-        // Restore camera frustum for volumetric shadows
-        rinfo.camera_frustum = camera_frustum;
+        // C++: if (stencilPass == TRUE && TheW3DVolumetricShadowManager)
+        if stencil_pass && is_shadow_scene {
+            // Restore camera frustum for volumetric shadows
+            rinfo.camera_frustum = camera_frustum;
 
-        if let Some(vol_manager) = volumetric_manager {
-            vol_manager.write().render_shadows(projection_count, false);
+            if let Some(vol_manager) = mgr.volumetric_manager.as_mut() {
+                vol_manager.render_shadows(projection_count, false);
+            }
         }
-    }
 
-    // Reset shadow processing flag for this frame
-    // C++: if (TheW3DShadowManager && stencilPass) TheW3DShadowManager->queueShadows(FALSE);
-    if stencil_pass {
-        manager.write().queue_shadows(false);
+        // Reset shadow processing flag for this frame
+        // C++: if (TheW3DShadowManager && stencilPass) TheW3DShadowManager->queueShadows(FALSE);
+        if stencil_pass {
+            mgr.queue_shadows(false);
+        }
     }
 }
 

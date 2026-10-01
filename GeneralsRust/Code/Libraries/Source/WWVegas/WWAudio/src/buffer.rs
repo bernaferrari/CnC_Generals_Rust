@@ -3,7 +3,6 @@
 
 use crate::{error::Result, formats::AudioFormat};
 use parking_lot::RwLock;
-use std::sync::Arc;
 
 /// Audio buffer for internal use
 pub(crate) struct AudioBuffer {
@@ -24,7 +23,7 @@ pub(crate) struct CircularBuffer {
 
 /// Buffer pool for reusing audio buffers
 pub(crate) struct BufferPool {
-    available: Arc<RwLock<Vec<AudioBuffer>>>,
+    available: RwLock<Vec<AudioBuffer>>,
     max_buffers: usize,
     buffer_size: usize,
 }
@@ -158,7 +157,7 @@ impl BufferPool {
     /// Create new buffer pool
     pub fn new(max_buffers: usize, buffer_size: usize) -> Self {
         Self {
-            available: Arc::new(RwLock::new(Vec::new())),
+            available: RwLock::new(Vec::new()),
             max_buffers,
             buffer_size,
         }

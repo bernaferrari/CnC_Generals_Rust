@@ -7,7 +7,6 @@
 //! - Hardware-accelerated image operations
 
 use crate::{Asset, AssetData, AssetError, MeshData, Result, TextureData, TextureFormat};
-use std::sync::Arc;
 
 #[cfg(feature = "gpu_processing")]
 use wgpu;
@@ -49,9 +48,9 @@ impl Default for GpuConfig {
 pub struct GpuProcessor {
     config: GpuConfig,
     #[cfg(feature = "gpu_processing")]
-    device: Option<Arc<wgpu::Device>>,
+    device: Option<wgpu::Device>,
     #[cfg(feature = "gpu_processing")]
-    queue: Option<Arc<wgpu::Queue>>,
+    queue: Option<wgpu::Queue>,
 }
 
 impl GpuProcessor {
@@ -107,8 +106,8 @@ impl GpuProcessor {
                     AssetError::GpuProcessingError(format!("Failed to create device: {}", e))
                 })?;
 
-            self.device = Some(Arc::new(device));
-            self.queue = Some(Arc::new(queue));
+            self.device = Some(device);
+            self.queue = Some(queue);
 
             log::info!("GPU processor initialized successfully");
             Ok(())

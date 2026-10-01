@@ -40,7 +40,7 @@ use game_engine::common::system::build_assistant;
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, RwLock};
 
 /// An "AIGroup" is a simple collection of AI objects, used by the AI
 /// for such things as Group Pathfinding.
@@ -55,16 +55,14 @@ pub struct AIGroup {
     speed: f32,
     /// "Dirty bit" - if true then group speed needs recomputation
     dirty: bool,
-    /// Group ground path
-    ground_path: Option<Arc<Mutex<Path>>>,
     /// Cached ID list for returning by reference
     last_requested_id_list: Vec<ObjectID>,
     /// Formation ID for this group (if in formation)
     formation_id: Option<u32>,
     /// Formation type
     formation_type: FormationType,
-    /// Formation manager reference (shared across all groups)
-    formation_manager: Option<Arc<Mutex<FormationManager>>>,
+    /// Formation manager owned by this group (host build never shares one)
+    formation_manager: Option<FormationManager>,
 }
 
 impl AIGroup {
@@ -76,7 +74,6 @@ impl AIGroup {
             member_list_size: 0,
             speed: 0.0,
             dirty: false,
-            ground_path: None,
             last_requested_id_list: Vec::new(),
             formation_id: None,
             formation_type: FormationType::None,
@@ -91,14 +88,13 @@ impl AIGroup {
     }
 
     /// Create new AIGroup with formation manager
-    pub fn new_with_formation(id: u32, formation_manager: Arc<Mutex<FormationManager>>) -> Self {
+    pub fn new_with_formation(id: u32, formation_manager: FormationManager) -> Self {
         Self {
             id,
             member_list: Vec::new(),
             member_list_size: 0,
             speed: 0.0,
             dirty: false,
-            ground_path: None,
             last_requested_id_list: Vec::new(),
             formation_id: None,
             formation_type: FormationType::None,
@@ -2057,43 +2053,44 @@ impl AIGroup {
         self.formation_type = formation_type;
 
         // Create or update formation if we have a formation manager
-        if let Some(ref manager_arc) = self.formation_manager {
-            if let Ok(mut manager) = manager_arc.try_lock() {
-                if let Some(formation_id) = self.formation_id {
-                    // Update existing formation
-                    if let Some(formation) = manager.get_formation_mut(formation_id) {
-                        let _ = formation
-                            .execute_command(FormationCommand::SetFormation(formation_type));
-                    }
-                } else if self.member_list_size >= 2 {
-                    // Create new formation
-                    let settings = FormationSettings::default();
-                    let formation_id =
-                        manager.create_formation(formation_type, settings, player_id);
-                    self.formation_id = Some(formation_id);
+        if self.formation_manager.is_some() {
+            // Take the manager out so `self` fields can be mutated freely.
+            let mut manager = self.formation_manager.take().unwrap();
+            if let Some(formation_id) = self.formation_id {
+                // Update existing formation
+                if let Some(formation) = manager.get_formation_mut(formation_id) {
+                    let _ = formation
+                        .execute_command(FormationCommand::SetFormation(formation_type));
+                }
+            } else if self.member_list_size >= 2 {
+                // Create new formation
+                let settings = FormationSettings::default();
+                let formation_id =
+                    manager.create_formation(formation_type, settings, player_id);
+                self.formation_id = Some(formation_id);
 
-                    // Add all members to the formation
-                    for &member_id in &self.member_list {
-                        let _ = OBJECT_REGISTRY.with_object(member_id, |obj_ref| {
-                            let unit_id = obj_ref.get_id();
-                            let position = *obj_ref.get_position();
-                            let speed = if let Some(ai) = obj_ref.get_ai_update_interface() {
-                                ai.get_speed()
-                            } else {
-                                100.0
-                            };
-                            // Get actual health percentage from object
-                            let health = obj_ref.get_health_percentage();
-                            // Get actual veterancy rank (0=Regular, 1=Veteran, 2=Elite, 3=Heroic)
-                            let rank = obj_ref.get_veterancy_level() as u32;
+                // Add all members to the formation
+                for &member_id in &self.member_list {
+                    let _ = OBJECT_REGISTRY.with_object(member_id, |obj_ref| {
+                        let unit_id = obj_ref.get_id();
+                        let position = *obj_ref.get_position();
+                        let speed = if let Some(ai) = obj_ref.get_ai_update_interface() {
+                            ai.get_speed()
+                        } else {
+                            100.0
+                        };
+                        // Get actual health percentage from object
+                        let health = obj_ref.get_health_percentage();
+                        // Get actual veterancy rank (0=Regular, 1=Veteran, 2=Elite, 3=Heroic)
+                        let rank = obj_ref.get_veterancy_level() as u32;
 
-                            if let Some(formation) = manager.get_formation_mut(formation_id) {
-                                let _ = formation.add_unit(unit_id, position, speed, health, rank);
-                            }
-                        });
-                    }
+                        if let Some(formation) = manager.get_formation_mut(formation_id) {
+                            let _ = formation.add_unit(unit_id, position, speed, health, rank);
+                        }
+                    });
                 }
             }
+            self.formation_manager = Some(manager);
         }
     }
 
@@ -2115,12 +2112,10 @@ impl AIGroup {
         }
 
         if let Some(formation_id) = self.formation_id {
-            if let Some(ref manager_arc) = self.formation_manager {
-                if let Ok(mut manager) = manager_arc.try_lock() {
-                    if let Some(formation) = manager.get_formation_mut(formation_id) {
-                        // Issue formation move command
-                        let _ = formation.execute_command(FormationCommand::MoveTo(*pos));
-                    }
+            if let Some(manager) = self.formation_manager.as_mut() {
+                if let Some(formation) = manager.get_formation_mut(formation_id) {
+                    // Issue formation move command
+                    let _ = formation.execute_command(FormationCommand::MoveTo(*pos));
                 }
             }
         } else {
@@ -2157,11 +2152,9 @@ impl AIGroup {
     /// Break formation (units move independently)
     pub fn break_formation(&mut self) {
         if let Some(formation_id) = self.formation_id {
-            if let Some(ref manager_arc) = self.formation_manager {
-                if let Ok(mut manager) = manager_arc.try_lock() {
-                    if let Some(formation) = manager.get_formation_mut(formation_id) {
-                        let _ = formation.execute_command(FormationCommand::Break);
-                    }
+            if let Some(manager) = self.formation_manager.as_mut() {
+                if let Some(formation) = manager.get_formation_mut(formation_id) {
+                    let _ = formation.execute_command(FormationCommand::Break);
                 }
             }
         }
@@ -2171,11 +2164,9 @@ impl AIGroup {
     /// Reform formation
     pub fn reform_formation(&mut self) {
         if let Some(formation_id) = self.formation_id {
-            if let Some(ref manager_arc) = self.formation_manager {
-                if let Ok(mut manager) = manager_arc.try_lock() {
-                    if let Some(formation) = manager.get_formation_mut(formation_id) {
-                        let _ = formation.execute_command(FormationCommand::Reform);
-                    }
+            if let Some(manager) = self.formation_manager.as_mut() {
+                if let Some(formation) = manager.get_formation_mut(formation_id) {
+                    let _ = formation.execute_command(FormationCommand::Reform);
                 }
             }
         }
@@ -2189,23 +2180,21 @@ impl AIGroup {
     /// Update formation positions (should be called regularly)
     pub fn update_formation(&mut self, _frame: u32) {
         if let Some(formation_id) = self.formation_id {
-            if let Some(ref manager_arc) = self.formation_manager {
-                if let Ok(mut manager) = manager_arc.try_lock() {
-                    // Update member positions in formation
-                    if let Some(formation) = manager.get_formation_mut(formation_id) {
-                        for &member_id in &self.member_list {
-                            let _ = OBJECT_REGISTRY.with_object(member_id, |obj_ref| {
-                                let unit_id = obj_ref.get_id();
-                                let position = *obj_ref.get_position();
-                                // Get actual health percentage from object
-                                let health = obj_ref.get_health_percentage();
-                                // Check if object is in combat
-                                let in_combat = obj_ref.is_in_combat();
+            if let Some(manager) = self.formation_manager.as_mut() {
+                // Update member positions in formation
+                if let Some(formation) = manager.get_formation_mut(formation_id) {
+                    for &member_id in &self.member_list {
+                        let _ = OBJECT_REGISTRY.with_object(member_id, |obj_ref| {
+                            let unit_id = obj_ref.get_id();
+                            let position = *obj_ref.get_position();
+                            // Get actual health percentage from object
+                            let health = obj_ref.get_health_percentage();
+                            // Check if object is in combat
+                            let in_combat = obj_ref.is_in_combat();
 
-                                let _ = formation
-                                    .update_unit_status(unit_id, position, health, in_combat);
-                            });
-                        }
+                            let _ = formation
+                                .update_unit_status(unit_id, position, health, in_combat);
+                        });
                     }
                 }
             }
@@ -2213,7 +2202,7 @@ impl AIGroup {
     }
 
     /// Set formation manager (for integration with global formation system)
-    pub fn set_formation_manager(&mut self, manager: Arc<Mutex<FormationManager>>) {
+    pub fn set_formation_manager(&mut self, manager: FormationManager) {
         self.formation_manager = Some(manager);
     }
 
@@ -2708,8 +2697,8 @@ mod tests {
 
     #[test]
     fn test_formation_creation() {
-        let manager = Arc::new(Mutex::new(FormationManager::new()));
-        let mut group = AIGroup::new_with_formation(1, manager.clone());
+        let manager = FormationManager::new();
+        let mut group = AIGroup::new_with_formation(1, manager);
 
         // Initially no formation
         assert_eq!(group.get_formation_type(), FormationType::None);
@@ -2722,8 +2711,8 @@ mod tests {
 
     #[test]
     fn test_formation_break_and_reform() {
-        let manager = Arc::new(Mutex::new(FormationManager::new()));
-        let mut group = AIGroup::new_with_formation(1, manager.clone());
+        let manager = FormationManager::new();
+        let mut group = AIGroup::new_with_formation(1, manager);
 
         group.set_formation(FormationType::Wedge, 0);
         assert!(group.is_in_formation());
@@ -2746,14 +2735,14 @@ mod tests {
 
     #[test]
     fn test_formation_manager_reference() {
-        let manager = Arc::new(Mutex::new(FormationManager::new()));
+        let manager = FormationManager::new();
         let mut group = AIGroup::new(1);
 
         // Initially no manager
         assert!(group.formation_manager.is_none());
 
         // Set manager
-        group.set_formation_manager(manager.clone());
+        group.set_formation_manager(manager);
         assert!(group.formation_manager.is_some());
     }
 }

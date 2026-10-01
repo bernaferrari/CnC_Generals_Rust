@@ -4,7 +4,6 @@ use super::{
 };
 use anyhow::Result;
 use cgmath::{InnerSpace, Matrix4, Vector3};
-use parking_lot::RwLock;
 use std::sync::Arc;
 use wgpu::{
     BindGroupLayout, BindGroupLayoutDescriptor, BindGroupLayoutEntry, BindingType,
@@ -35,7 +34,7 @@ pub struct WthreeDTerrainVisual {
     device: Option<Arc<Device>>,
     queue: Option<Arc<Queue>>,
     bind_group_layout: Option<BindGroupLayout>,
-    terrain_mesh: Option<Arc<RwLock<HeightMapMesh>>>,
+    terrain_mesh: Option<HeightMapMesh>,
     shroud_overlay: Option<FowTerrainOverlay>,
     terrain_size: (usize, usize),
     lighting: TerrainLightingState,
@@ -104,7 +103,7 @@ impl WthreeDTerrainVisual {
         self.device = Some(device);
         self.queue = Some(queue);
         self.bind_group_layout = Some(bind_group_layout);
-        self.terrain_mesh = Some(Arc::new(RwLock::new(terrain_mesh)));
+        self.terrain_mesh = Some(terrain_mesh);
         self.shroud_overlay = Some(shroud_overlay);
         self.terrain_size = (width, height);
         self.accumulated_time = 0.0;
@@ -123,16 +122,14 @@ impl WthreeDTerrainVisual {
         height: usize,
         heights: &[u8],
     ) -> Result<()> {
-        if let Some(mesh) = &self.terrain_mesh {
-            mesh.write()
-                .update_height_region(start_x, start_y, width, height, heights)?;
+        if let Some(mesh) = &mut self.terrain_mesh {
+            mesh.update_height_region(start_x, start_y, width, height, heights)?;
         }
         Ok(())
     }
 
     pub fn render<'a>(&'a self, render_pass: &mut RenderPass<'a>, view_proj: Matrix4<f32>) {
         if let Some(mesh) = &self.terrain_mesh {
-            let mesh = mesh.read();
             mesh.update_uniforms(view_proj, self.accumulated_time);
             mesh.render(render_pass);
         }
@@ -159,8 +156,8 @@ impl WthreeDTerrainVisual {
             time_of_day,
         };
 
-        if let Some(mesh) = &self.terrain_mesh {
-            mesh.write().set_global_lighting(
+        if let Some(mesh) = &mut self.terrain_mesh {
+            mesh.set_global_lighting(
                 self.lighting.ambient,
                 self.lighting.light_direction,
                 self.lighting.light_color,
@@ -177,15 +174,15 @@ impl WthreeDTerrainVisual {
     }
 
     pub fn update_dynamic_lighting(&mut self, dynamic_lights: &[DynamicLight]) {
-        if let Some(mesh) = &self.terrain_mesh {
-            mesh.write().update_dynamic_lighting(dynamic_lights);
+        if let Some(mesh) = &mut self.terrain_mesh {
+            mesh.update_dynamic_lighting(dynamic_lights);
         }
     }
 
     pub fn get_height_at(&self, world_x: f32, world_y: f32) -> f32 {
         self.terrain_mesh
             .as_ref()
-            .map(|mesh| mesh.read().get_height_at(world_x, world_y))
+            .map(|mesh| mesh.get_height_at(world_x, world_y))
             .unwrap_or(0.0)
     }
 
@@ -206,8 +203,7 @@ impl WthreeDTerrainVisual {
         ray_end_y: f32,
         ray_end_z: f32,
     ) -> Option<(f32, f32, f32)> {
-        let mesh = self.terrain_mesh.as_ref()?;
-        let mesh_lock = mesh.read();
+        let mesh_lock = self.terrain_mesh.as_ref()?;
 
         let (map_w, map_h) = self.terrain_size;
         if map_w == 0 || map_h == 0 {
@@ -319,8 +315,8 @@ impl WthreeDTerrainVisual {
         }
     }
 
-    pub fn terrain_mesh(&self) -> Option<Arc<RwLock<HeightMapMesh>>> {
-        self.terrain_mesh.as_ref().map(Arc::clone)
+    pub fn terrain_mesh(&self) -> Option<&HeightMapMesh> {
+        self.terrain_mesh.as_ref()
     }
 
     fn create_bind_group_layout(device: &Device) -> BindGroupLayout {

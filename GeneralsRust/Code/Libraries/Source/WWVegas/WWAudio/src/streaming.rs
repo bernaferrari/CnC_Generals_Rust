@@ -111,7 +111,7 @@ pub struct StreamHandle {
     event_rx: Receiver<StreamEvent>,
     state: Arc<Mutex<StreamState>>,
     position: Arc<AtomicU64>,
-    duration: Arc<AtomicU64>,
+    duration: AtomicU64,
 }
 
 impl StreamHandle {
@@ -224,7 +224,7 @@ impl AudioStreamer {
         let (event_tx, event_rx) = bounded::<StreamEvent>(32);
         let state = Arc::new(Mutex::new(StreamState::Idle));
         let position = Arc::new(AtomicU64::new(0));
-        let duration_arc = Arc::new(AtomicU64::new(duration_ms));
+        let duration = AtomicU64::new(duration_ms);
 
         // Clone for thread
         let state_clone = Arc::clone(&state);
@@ -255,7 +255,7 @@ impl AudioStreamer {
             event_rx,
             state,
             position,
-            duration: duration_arc,
+            duration,
         })
     }
 

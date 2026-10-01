@@ -24,13 +24,19 @@ struct ProfileFuncIdInner {
     function_name: Option<String>,
     line_number: u32,
     address: usize,
-    call_counts: RwLock<HashMap<u32, u64>>, // frame -> count
-    total_times: RwLock<HashMap<u32, u64>>, // frame -> time (including children)
-    function_times: RwLock<HashMap<u32, u64>>, // frame -> time (excluding children)
-    caller_lists: RwLock<HashMap<u32, Vec<(ProfileFuncId, u32)>>>, // frame -> [(caller, count)]
+    stats: RwLock<CombinedFuncState>,
     total_calls: AtomicU64,
     total_time: AtomicU64,
     total_function_time: AtomicU64,
+}
+
+/// Per-frame call statistics guarded by a single lock
+#[derive(Debug)]
+struct CombinedFuncState {
+    call_counts: HashMap<u32, u64>, // frame -> count
+    total_times: HashMap<u32, u64>, // frame -> time (including children)
+    function_times: HashMap<u32, u64>, // frame -> time (excluding children)
+    caller_lists: HashMap<u32, Vec<(ProfileFuncId, u32)>>, // frame -> [(caller, count)]
 }
 
 impl ProfileFuncId {
@@ -46,10 +52,12 @@ impl ProfileFuncId {
                 function_name,
                 line_number,
                 address,
-                call_counts: RwLock::new(HashMap::new()),
-                total_times: RwLock::new(HashMap::new()),
-                function_times: RwLock::new(HashMap::new()),
-                caller_lists: RwLock::new(HashMap::new()),
+                stats: RwLock::new(CombinedFuncState {
+                    call_counts: HashMap::new(),
+                    total_times: HashMap::new(),
+                    function_times: HashMap::new(),
+                    caller_lists: HashMap::new(),
+                }),
                 total_calls: AtomicU64::new(0),
                 total_time: AtomicU64::new(0),
                 total_function_time: AtomicU64::new(0),
@@ -82,8 +90,8 @@ impl ProfileFuncId {
         if frame == Self::TOTAL {
             self.inner.total_calls.load(Ordering::Relaxed)
         } else {
-            let call_counts = self.inner.call_counts.read();
-            call_counts.get(&frame).copied().unwrap_or(0)
+            let stats = self.inner.stats.read();
+            stats.call_counts.get(&frame).copied().unwrap_or(0)
         }
     }
 
@@ -92,8 +100,8 @@ impl ProfileFuncId {
         if frame == Self::TOTAL {
             self.inner.total_time.load(Ordering::Relaxed)
         } else {
-            let total_times = self.inner.total_times.read();
-            total_times.get(&frame).copied().unwrap_or(0)
+            let stats = self.inner.stats.read();
+            stats.total_times.get(&frame).copied().unwrap_or(0)
         }
     }
 
@@ -102,25 +110,25 @@ impl ProfileFuncId {
         if frame == Self::TOTAL {
             self.inner.total_function_time.load(Ordering::Relaxed)
         } else {
-            let function_times = self.inner.function_times.read();
-            function_times.get(&frame).copied().unwrap_or(0)
+            let stats = self.inner.stats.read();
+            stats.function_times.get(&frame).copied().unwrap_or(0)
         }
     }
 
     /// Get the list of caller IDs for a specific frame
     pub fn get_caller(&self, frame: u32) -> ProfileFuncIdList {
-        let caller_lists = self.inner.caller_lists.read();
+        let stats = self.inner.stats.read();
         let callers = if frame == Self::TOTAL {
             // Aggregate all frames
             let mut all_callers = HashMap::new();
-            for frame_callers in caller_lists.values() {
+            for frame_callers in stats.caller_lists.values() {
                 for (caller, count) in frame_callers {
                     *all_callers.entry(caller.clone()).or_insert(0) += count;
                 }
             }
             all_callers.into_iter().collect()
         } else {
-            caller_lists.get(&frame).cloned().unwrap_or_default()
+            stats.caller_lists.get(&frame).cloned().unwrap_or_default()
         };
 
         ProfileFuncIdList { callers }
@@ -145,25 +153,14 @@ impl ProfileFuncId {
 
         // Update frame-specific data if frame is provided
         if let Some(frame_num) = frame {
-            {
-                let mut call_counts = self.inner.call_counts.write();
-                *call_counts.entry(frame_num).or_insert(0) += 1;
-            }
-
-            {
-                let mut total_times = self.inner.total_times.write();
-                *total_times.entry(frame_num).or_insert(0) += total_time;
-            }
-
-            {
-                let mut function_times = self.inner.function_times.write();
-                *function_times.entry(frame_num).or_insert(0) += function_time;
-            }
+            let mut stats = self.inner.stats.write();
+            *stats.call_counts.entry(frame_num).or_insert(0) += 1;
+            *stats.total_times.entry(frame_num).or_insert(0) += total_time;
+            *stats.function_times.entry(frame_num).or_insert(0) += function_time;
 
             // Record caller information if provided
             if let Some(caller_id) = caller {
-                let mut caller_lists = self.inner.caller_lists.write();
-                let frame_callers = caller_lists.entry(frame_num).or_insert_with(Vec::new);
+                let frame_callers = stats.caller_lists.entry(frame_num).or_insert_with(Vec::new);
 
                 // Find existing caller or add new one
                 if let Some(pos) = frame_callers

@@ -20,7 +20,6 @@ use cgmath::{Deg, EuclideanSpace, InnerSpace, Matrix4, Point3, SquareMatrix, Vec
 use game_network::NetworkInstant;
 use image::io::Reader as ImageReader;
 use image::GenericImageView;
-use parking_lot::RwLock as ParkingRwLock;
 use slotmap::{DefaultKey, SlotMap};
 use smallvec::SmallVec;
 use std::path::Path;
@@ -357,12 +356,11 @@ pub struct W3DView {
 
     // Rendering system
     pub render_queue: RenderQueue,
-    pub render_pipeline: Option<Arc<RenderPipeline>>,
     pub uniform_buffer: Option<Buffer>,
     pub bind_group: Option<BindGroup>,
     pub mesh_renderer: Option<MeshRenderer>,
     pub line_renderer: Option<LineRenderer>,
-    pub depth_stencil_texture: Option<Arc<Texture>>,
+    pub depth_stencil_texture: Option<Texture>,
     pub depth_stencil_view: Option<Arc<TextureView>>,
 
     // Resource management
@@ -379,9 +377,6 @@ pub struct W3DView {
     pub needs_redraw: bool,
     pub wireframe_mode: bool,
     pub debug_mode: bool,
-
-    // Thread safety
-    pub state_lock: Arc<ParkingRwLock<()>>,
 }
 
 impl Default for W3DView {
@@ -444,7 +439,6 @@ impl W3DView {
             pitch_info: None,
             zoom_info: None,
             render_queue: RenderQueue::default(),
-            render_pipeline: None,
             uniform_buffer: None,
             bind_group: None,
             mesh_renderer: None,
@@ -460,7 +454,6 @@ impl W3DView {
             needs_redraw: true,
             wireframe_mode: false,
             debug_mode: false,
-            state_lock: Arc::new(ParkingRwLock::new(())),
         }
     }
 
@@ -1371,8 +1364,6 @@ impl W3DView {
 
     /// Reset view to default state
     pub fn reset(&mut self) {
-        let _lock = self.state_lock.write();
-
         self.camera = CameraState::default();
         self.viewport = ViewportConfig::default();
         self.waypoint_info = None;
@@ -1414,7 +1405,7 @@ impl W3DView {
         });
 
         let depth_view = depth_texture.create_view(&wgpu::TextureViewDescriptor::default());
-        self.depth_stencil_texture = Some(Arc::new(depth_texture));
+        self.depth_stencil_texture = Some(depth_texture);
         self.depth_stencil_view = Some(Arc::new(depth_view));
         Ok(())
     }

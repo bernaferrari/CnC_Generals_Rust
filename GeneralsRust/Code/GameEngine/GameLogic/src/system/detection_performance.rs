@@ -16,7 +16,6 @@
 //! - Reduced RwLock contention
 
 use std::collections::HashMap;
-use std::sync::{Arc, RwLock};
 
 #[cfg(feature = "legacy_port")]
 use crate::common::UnsignedInt;
@@ -338,8 +337,8 @@ impl BitmaskOperationUtils {
 /// Performance-optimized detection calculator wrapper
 /// Provides caching and fast paths around the base calculator
 pub struct PerformanceOptimizedDetectionCalculator {
-    modifier_cache: Arc<RwLock<DetectionModifierCache>>,
-    distance_cache: Arc<RwLock<DistanceCalculationCache>>,
+    modifier_cache: DetectionModifierCache,
+    distance_cache: DistanceCalculationCache,
     // Fast path counters
     fast_path_hits: u64,
     fast_path_misses: u64,
@@ -349,8 +348,8 @@ impl PerformanceOptimizedDetectionCalculator {
     /// Create new optimized calculator
     pub fn new() -> Self {
         Self {
-            modifier_cache: Arc::new(RwLock::new(DetectionModifierCache::new())),
-            distance_cache: Arc::new(RwLock::new(DistanceCalculationCache::new())),
+            modifier_cache: DetectionModifierCache::new(),
+            distance_cache: DistanceCalculationCache::new(),
             fast_path_hits: 0,
             fast_path_misses: 0,
         }
@@ -377,13 +376,13 @@ impl PerformanceOptimizedDetectionCalculator {
     }
 
     /// Get modifier cache for direct access
-    pub fn modifier_cache(&self) -> Arc<RwLock<DetectionModifierCache>> {
-        Arc::clone(&self.modifier_cache)
+    pub fn modifier_cache(&mut self) -> &mut DetectionModifierCache {
+        &mut self.modifier_cache
     }
 
     /// Get distance cache for direct access
-    pub fn distance_cache(&self) -> Arc<RwLock<DistanceCalculationCache>> {
-        Arc::clone(&self.distance_cache)
+    pub fn distance_cache(&mut self) -> &mut DistanceCalculationCache {
+        &mut self.distance_cache
     }
 
     /// Get fast path statistics
@@ -401,15 +400,13 @@ impl PerformanceOptimizedDetectionCalculator {
     pub fn reset_stats(&mut self) {
         self.fast_path_hits = 0;
         self.fast_path_misses = 0;
-        if let Ok(mut cache) = self.modifier_cache.write() {
-            cache.reset_stats();
-        }
+        self.modifier_cache.reset_stats();
     }
 
     /// Batch calculate modifiers for multiple detectors
     /// More efficient than individual calculations
     pub fn batch_calculate_modifiers(
-        &self,
+        &mut self,
         detector_ids: &[u32],
         distances: &[f32],
         max_range: f32,
@@ -433,12 +430,10 @@ impl PerformanceOptimizedDetectionCalculator {
                 los_flags[i],
             );
 
-            if let Ok(mut cache) = self.modifier_cache.write() {
-                let modifier = cache.get_or_compute(key, || {
-                    compute_fn(detector_ids[i], distances[i], unit_types[i], los_flags[i])
-                });
-                results.push(modifier);
-            }
+            let modifier = self.modifier_cache.get_or_compute(key, || {
+                compute_fn(detector_ids[i], distances[i], unit_types[i], los_flags[i])
+            });
+            results.push(modifier);
         }
 
         results
@@ -625,7 +620,7 @@ mod detection_performance_tests {
 
     #[test]
     fn test_batch_calculate_modifiers() {
-        let calc = PerformanceOptimizedDetectionCalculator::new();
+        let mut calc = PerformanceOptimizedDetectionCalculator::new();
 
         let detector_ids = vec![1, 2, 3];
         let distances = vec![50.0, 100.0, 150.0];

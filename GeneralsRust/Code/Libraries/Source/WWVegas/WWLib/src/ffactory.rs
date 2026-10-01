@@ -128,15 +128,22 @@ impl FileFactoryClass for RawFileFactory {
 }
 
 pub struct SimpleFileFactory {
-    sub_directory: Mutex<String>,
-    strip_path: Mutex<bool>,
+    /// Consolidated mutable state, guarded by a single lock
+    state: Mutex<SimpleFactoryState>,
+}
+
+struct SimpleFactoryState {
+    sub_directory: String,
+    strip_path: bool,
 }
 
 impl Default for SimpleFileFactory {
     fn default() -> Self {
         Self {
-            sub_directory: Mutex::new(String::new()),
-            strip_path: Mutex::new(false),
+            state: Mutex::new(SimpleFactoryState {
+                sub_directory: String::new(),
+                strip_path: false,
+            }),
         }
     }
 }
@@ -147,15 +154,15 @@ impl SimpleFileFactory {
     }
 
     pub fn get_sub_directory(&self) -> String {
-        self.sub_directory
+        self.state
             .lock()
-            .map(|value| value.clone())
+            .map(|value| value.sub_directory.clone())
             .unwrap_or_default()
     }
 
     pub fn set_sub_directory(&self, sub_directory: &str) {
-        if let Ok(mut guard) = self.sub_directory.lock() {
-            *guard = sub_directory.to_string();
+        if let Ok(mut state) = self.state.lock() {
+            state.sub_directory = sub_directory.to_string();
         }
     }
 
@@ -164,9 +171,9 @@ impl SimpleFileFactory {
         if sub.is_empty() {
             return;
         }
-        if let Ok(mut guard) = self.sub_directory.lock() {
-            sub.push_str(guard.as_str());
-            *guard = sub;
+        if let Ok(mut st) = self.state.lock() {
+            sub.push_str(st.sub_directory.as_str());
+            st.sub_directory = sub;
         }
     }
 
@@ -175,26 +182,26 @@ impl SimpleFileFactory {
         if sub.is_empty() {
             return;
         }
-        if let Ok(mut guard) = self.sub_directory.lock() {
-            if !guard.is_empty() && !guard.ends_with(';') {
-                guard.push(';');
+        if let Ok(mut st) = self.state.lock() {
+            if !st.sub_directory.is_empty() && !st.sub_directory.ends_with(';') {
+                st.sub_directory.push(';');
             }
-            guard.push_str(&sub);
+            st.sub_directory.push_str(&sub);
         }
     }
 
     pub fn get_strip_path(&self) -> bool {
-        self.strip_path.lock().map(|v| *v).unwrap_or(false)
+        self.state.lock().map(|v| v.strip_path).unwrap_or(false)
     }
 
     pub fn set_strip_path(&self, enabled: bool) {
-        if let Ok(mut guard) = self.strip_path.lock() {
-            *guard = enabled;
+        if let Ok(mut st) = self.state.lock() {
+            st.strip_path = enabled;
         }
     }
 
     fn should_strip_path(&self) -> bool {
-        self.strip_path.lock().map(|v| *v).unwrap_or(false)
+        self.state.lock().map(|v| v.strip_path).unwrap_or(false)
     }
 }
 
@@ -210,7 +217,8 @@ impl FileFactoryClass for SimpleFileFactory {
         let mut new_name = stripped_name.clone();
 
         if !is_full_path(&new_name) {
-            if let Ok(guard) = self.sub_directory.lock() {
+            if let Ok(st) = self.state.lock() {
+                let guard = &st.sub_directory;
                 if !guard.is_empty() {
                     if guard.contains(';') {
                         let mut found = false;

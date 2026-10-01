@@ -73,17 +73,15 @@ pub struct WgpuMainRenderer {
     registered_with_ww3d: bool,
     pending_frame: Option<ww3d_engine::RenderFrame>,
     #[cfg(not(target_arch = "wasm32"))]
-    pre_scene_callbacks: Mutex<
+    pre_scene_callbacks:
         Vec<Box<dyn FnOnce(&mut ww3d_engine::RenderFrame) -> RendererResult<()> + Send>>,
-    >,
     #[cfg(target_arch = "wasm32")]
     pre_scene_callbacks: std::cell::RefCell<
         Vec<Box<dyn FnOnce(&mut ww3d_engine::RenderFrame) -> RendererResult<()>>>,
     >,
     #[cfg(not(target_arch = "wasm32"))]
-    post_frame_callbacks: Mutex<
+    post_frame_callbacks:
         Vec<Box<dyn FnOnce(&mut ww3d_engine::RenderFrame) -> RendererResult<()> + Send>>,
-    >,
     #[cfg(target_arch = "wasm32")]
     post_frame_callbacks: std::cell::RefCell<
         Vec<Box<dyn FnOnce(&mut ww3d_engine::RenderFrame) -> RendererResult<()>>>,
@@ -227,21 +225,13 @@ impl WgpuMainRenderer {
             pre_scene_callbacks: {
                 #[cfg(not(target_arch = "wasm32"))]
                 {
-                    Mutex::new(Vec::new())
-                }
-                #[cfg(target_arch = "wasm32")]
-                {
-                    std::cell::RefCell::new(Vec::new())
+                    Vec::new()
                 }
             },
             post_frame_callbacks: {
                 #[cfg(not(target_arch = "wasm32"))]
                 {
-                    Mutex::new(Vec::new())
-                }
-                #[cfg(target_arch = "wasm32")]
-                {
-                    std::cell::RefCell::new(Vec::new())
+                    Vec::new()
                 }
             },
             legacy_frame_clock: LegacyFrameClock::new(),
@@ -321,21 +311,13 @@ impl WgpuMainRenderer {
             pre_scene_callbacks: {
                 #[cfg(not(target_arch = "wasm32"))]
                 {
-                    Mutex::new(Vec::new())
-                }
-                #[cfg(target_arch = "wasm32")]
-                {
-                    std::cell::RefCell::new(Vec::new())
+                    Vec::new()
                 }
             },
             post_frame_callbacks: {
                 #[cfg(not(target_arch = "wasm32"))]
                 {
-                    Mutex::new(Vec::new())
-                }
-                #[cfg(target_arch = "wasm32")]
-                {
-                    std::cell::RefCell::new(Vec::new())
+                    Vec::new()
                 }
             },
             legacy_frame_clock: LegacyFrameClock::new(),
@@ -483,11 +465,7 @@ impl WgpuMainRenderer {
             WW3D::sync(frame_timing.total_time.as_millis() as u32);
             let frame_work_result: RendererResult<_> = (|| {
                 #[cfg(not(target_arch = "wasm32"))]
-                let had_pre_scene_callbacks = self
-                    .pre_scene_callbacks
-                    .lock()
-                    .map(|callbacks| !callbacks.is_empty())
-                    .unwrap_or(false);
+                let had_pre_scene_callbacks = !self.pre_scene_callbacks.is_empty();
                 #[cfg(target_arch = "wasm32")]
                 let had_pre_scene_callbacks = !self.pre_scene_callbacks.borrow().is_empty();
                 if had_pre_scene_callbacks {
@@ -578,14 +556,12 @@ impl WgpuMainRenderer {
 
             backend.end_scene(true)?;
             #[cfg(not(target_arch = "wasm32"))]
-            if let Ok(mut callbacks) = self.pre_scene_callbacks.lock() {
-                if !callbacks.is_empty() {
-                    log::warn!(
-                        "pre-scene callbacks ignored when running in legacy backend mode ({} callbacks dropped)",
-                        callbacks.len()
-                    );
-                    callbacks.clear();
-                }
+            if !self.pre_scene_callbacks.is_empty() {
+                log::warn!(
+                    "pre-scene callbacks ignored when running in legacy backend mode ({} callbacks dropped)",
+                    self.pre_scene_callbacks.len()
+                );
+                self.pre_scene_callbacks.clear();
             }
             #[cfg(target_arch = "wasm32")]
             {
@@ -599,14 +575,12 @@ impl WgpuMainRenderer {
                 }
             }
             #[cfg(not(target_arch = "wasm32"))]
-            if let Ok(mut callbacks) = self.post_frame_callbacks.lock() {
-                if !callbacks.is_empty() {
-                    log::warn!(
-                        "post-frame callbacks ignored when running in legacy backend mode ({} callbacks dropped)",
-                        callbacks.len()
-                    );
-                    callbacks.clear();
-                }
+            if !self.post_frame_callbacks.is_empty() {
+                log::warn!(
+                    "post-frame callbacks ignored when running in legacy backend mode ({} callbacks dropped)",
+                    self.post_frame_callbacks.len()
+                );
+                self.post_frame_callbacks.clear();
             }
             #[cfg(target_arch = "wasm32")]
             {
@@ -670,9 +644,7 @@ impl WgpuMainRenderer {
     where
         F: FnOnce(&mut ww3d_engine::RenderFrame) -> RendererResult<()> + Send + 'static,
     {
-        if let Ok(mut callbacks) = self.post_frame_callbacks.lock() {
-            callbacks.push(Box::new(callback));
-        }
+        self.post_frame_callbacks.push(Box::new(callback));
     }
 
     #[cfg(target_arch = "wasm32")]
@@ -688,9 +660,7 @@ impl WgpuMainRenderer {
     where
         F: FnOnce(&mut ww3d_engine::RenderFrame) -> RendererResult<()> + Send + 'static,
     {
-        if let Ok(mut callbacks) = self.pre_scene_callbacks.lock() {
-            callbacks.push(Box::new(callback));
-        }
+        self.pre_scene_callbacks.push(Box::new(callback));
     }
 
     #[cfg(target_arch = "wasm32")]
@@ -706,12 +676,7 @@ impl WgpuMainRenderer {
         frame: &mut ww3d_engine::RenderFrame,
     ) -> RendererResult<()> {
         #[cfg(not(target_arch = "wasm32"))]
-        let callbacks = {
-            let mut callbacks = self.pre_scene_callbacks.lock().map_err(|_| {
-                RendererError::InvalidOperation("pre-scene callback mutex poisoned".into())
-            })?;
-            std::mem::take(&mut *callbacks)
-        };
+        let callbacks = std::mem::take(&mut self.pre_scene_callbacks);
         #[cfg(target_arch = "wasm32")]
         let callbacks = std::mem::take(&mut *self.pre_scene_callbacks.borrow_mut());
         for callback in callbacks {
@@ -725,12 +690,7 @@ impl WgpuMainRenderer {
         frame: &mut ww3d_engine::RenderFrame,
     ) -> RendererResult<()> {
         #[cfg(not(target_arch = "wasm32"))]
-        let callbacks = {
-            let mut callbacks = self.post_frame_callbacks.lock().map_err(|_| {
-                RendererError::InvalidOperation("post-frame callback mutex poisoned".into())
-            })?;
-            std::mem::take(&mut *callbacks)
-        };
+        let callbacks = std::mem::take(&mut self.post_frame_callbacks);
         #[cfg(target_arch = "wasm32")]
         let callbacks = std::mem::take(&mut *self.post_frame_callbacks.borrow_mut());
         for callback in callbacks {

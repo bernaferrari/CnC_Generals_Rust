@@ -47,8 +47,7 @@
 //! ```
 
 use once_cell::sync::{Lazy, OnceCell};
-use parking_lot::RwLock;
-use std::sync::Mutex;
+use parking_lot::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use thiserror::Error;
 
@@ -145,14 +144,9 @@ struct FrameName {
 struct ProfilerState {
     /// Recorded frame count
     rec_count: AtomicUsize,
-    /// Recorded frame names
-    rec_names: Mutex<Vec<String>>,
-    /// Known frame names
-    frame_names: RwLock<Vec<FrameName>>,
-    /// Pattern list for enabling/disabling ranges
-    pattern_list: RwLock<Vec<PatternListEntry>>,
-    /// Result functions to execute on shutdown
-    result_functions: Mutex<Vec<Box<dyn ProfileResultInterface>>>,
+    /// Single lock guarding the recorded frame names, the known frame names,
+    /// the pattern list and the result functions
+    combined: Mutex<CombinedProfilerState>,
     /// High-level profiler instance
     high_level: ProfileHighLevel,
     /// Function-level profiler instance
@@ -161,13 +155,27 @@ struct ProfilerState {
     clock_cycles_per_second: OnceCell<u64>,
 }
 
+/// Payloads guarded by the profiler state's single lock
+struct CombinedProfilerState {
+    /// Recorded frame names
+    rec_names: Vec<String>,
+    /// Known frame names
+    frame_names: Vec<FrameName>,
+    /// Pattern list for enabling/disabling ranges
+    pattern_list: Vec<PatternListEntry>,
+    /// Result functions to execute on shutdown
+    result_functions: Vec<Box<dyn ProfileResultInterface>>,
+}
+
 /// Global profiler state instance
 static PROFILER_STATE: Lazy<ProfilerState> = Lazy::new(|| ProfilerState {
     rec_count: AtomicUsize::new(0),
-    rec_names: Mutex::new(Vec::new()),
-    frame_names: RwLock::new(Vec::new()),
-    pattern_list: RwLock::new(Vec::new()),
-    result_functions: Mutex::new(Vec::new()),
+    combined: Mutex::new(CombinedProfilerState {
+        rec_names: Vec::new(),
+        frame_names: Vec::new(),
+        pattern_list: Vec::new(),
+        result_functions: Vec::new(),
+    }),
     high_level: ProfileHighLevel::new(),
     func_level: ProfileFuncLevel::new(),
     clock_cycles_per_second: OnceCell::new(),
@@ -186,11 +194,11 @@ impl Profile {
         let state = &*PROFILER_STATE;
 
         // Find or create the frame name entry
-        let mut frame_names = state.frame_names.write();
-        let frame_idx = match frame_names.iter().position(|f| f.name == range_name) {
+        let mut combined = state.combined.lock();
+        let frame_idx = match combined.frame_names.iter().position(|f| f.name == range_name) {
             Some(idx) => idx,
             None => {
-                frame_names.push(FrameName {
+                combined.frame_names.push(FrameName {
                     name: range_name.to_string(),
                     frames: 0,
                     is_recording: false,
@@ -199,43 +207,42 @@ impl Profile {
                     high_index: None,
                     last_global_index: None,
                 });
-                frame_names.len() - 1
+                combined.frame_names.len() - 1
             }
         };
 
         // Stop old recording if already recording
-        if frame_names[frame_idx].is_recording {
-            drop(frame_names);
+        if combined.frame_names[frame_idx].is_recording {
+            drop(combined);
             Self::stop_range(Some(range_name))?;
-            frame_names = state.frame_names.write();
+            combined = state.combined.lock();
         }
 
         // Start new recording
-        frame_names[frame_idx].is_recording = true;
-        frame_names[frame_idx].do_append = false;
+        combined.frame_names[frame_idx].is_recording = true;
+        combined.frame_names[frame_idx].do_append = false;
 
         // Check if recording is enabled by pattern matching
-        let pattern_list = state.pattern_list.read();
         let mut active = false;
-        for pattern_entry in pattern_list.iter() {
+        for pattern_entry in combined.pattern_list.iter() {
             if PatternMatcher::simple_match(range_name, &pattern_entry.pattern) {
                 active = pattern_entry.is_active;
             }
         }
-        drop(pattern_list);
 
         if active {
             // Start function level profiling if enabled
             #[cfg(feature = "function-level")]
             {
-                frame_names[frame_idx].func_index = Some(state.func_level.frame_start()?);
+                combined.frame_names[frame_idx].func_index =
+                    Some(state.func_level.frame_start()?);
             }
 
             // Start high level profiling
-            frame_names[frame_idx].high_index = Some(state.high_level.frame_start()?);
+            combined.frame_names[frame_idx].high_index = Some(state.high_level.frame_start()?);
         } else {
-            frame_names[frame_idx].func_index = None;
-            frame_names[frame_idx].high_index = None;
+            combined.frame_names[frame_idx].func_index = None;
+            combined.frame_names[frame_idx].high_index = None;
         }
 
         Ok(())
@@ -249,47 +256,46 @@ impl Profile {
         let range_name = range.unwrap_or("frame");
         let state = &*PROFILER_STATE;
 
-        let mut frame_names = state.frame_names.write();
-        let frame_idx = match frame_names.iter().position(|f| f.name == range_name) {
+        let mut combined = state.combined.lock();
+        let frame_idx = match combined.frame_names.iter().position(|f| f.name == range_name) {
             Some(idx) => idx,
             None => {
                 // Range doesn't exist, so StartRange will handle it
-                drop(frame_names);
+                drop(combined);
                 return Self::start_range(Some(range_name));
             }
         };
 
         // If still recording, don't do anything
-        if frame_names[frame_idx].is_recording {
+        if combined.frame_names[frame_idx].is_recording {
             return Ok(());
         }
 
         // Start new recording
-        frame_names[frame_idx].is_recording = true;
-        frame_names[frame_idx].do_append = true;
+        combined.frame_names[frame_idx].is_recording = true;
+        combined.frame_names[frame_idx].do_append = true;
 
         // Check if recording is enabled by pattern matching
-        let pattern_list = state.pattern_list.read();
         let mut active = false;
-        for pattern_entry in pattern_list.iter() {
+        for pattern_entry in combined.pattern_list.iter() {
             if PatternMatcher::simple_match(range_name, &pattern_entry.pattern) {
                 active = pattern_entry.is_active;
             }
         }
-        drop(pattern_list);
 
         if active {
             // Start function level profiling if enabled
             #[cfg(feature = "function-level")]
             {
-                frame_names[frame_idx].func_index = Some(state.func_level.frame_start()?);
+                combined.frame_names[frame_idx].func_index =
+                    Some(state.func_level.frame_start()?);
             }
 
             // Start high level profiling
-            frame_names[frame_idx].high_index = Some(state.high_level.frame_start()?);
+            combined.frame_names[frame_idx].high_index = Some(state.high_level.frame_start()?);
         } else {
-            frame_names[frame_idx].func_index = None;
-            frame_names[frame_idx].high_index = None;
+            combined.frame_names[frame_idx].func_index = None;
+            combined.frame_names[frame_idx].high_index = None;
         }
 
         Ok(())
@@ -304,49 +310,49 @@ impl Profile {
         let range_name = range.unwrap_or("frame");
         let state = &*PROFILER_STATE;
 
-        let mut frame_names = state.frame_names.write();
-        let frame_idx = match frame_names.iter().position(|f| f.name == range_name) {
+        let mut combined = state.combined.lock();
+        let frame_idx = match combined.frame_names.iter().position(|f| f.name == range_name) {
             Some(idx) => idx,
             None => return Err(ProfileError::RangeNotFound(range_name.to_string())),
         };
 
-        if !frame_names[frame_idx].is_recording {
+        if !combined.frame_names[frame_idx].is_recording {
             return Ok(()); // Not recording, nothing to do
         }
 
         // Stop recording
-        frame_names[frame_idx].is_recording = false;
+        combined.frame_names[frame_idx].is_recording = false;
 
-        let has_active_profiling = frame_names[frame_idx].func_index.is_some()
-            || frame_names[frame_idx].high_index.is_some();
+        let has_active_profiling = combined.frame_names[frame_idx].func_index.is_some()
+            || combined.frame_names[frame_idx].high_index.is_some();
 
         if has_active_profiling {
-            let at_index = if !frame_names[frame_idx].do_append
-                || frame_names[frame_idx].last_global_index.is_none()
+            let at_index = if !combined.frame_names[frame_idx].do_append
+                || combined.frame_names[frame_idx].last_global_index.is_none()
             {
                 // Create new frame record
-                frame_names[frame_idx].frames += 1;
+                combined.frame_names[frame_idx].frames += 1;
                 let global_index = state.rec_count.load(Ordering::Relaxed);
-                frame_names[frame_idx].last_global_index = Some(global_index as i32);
+                combined.frame_names[frame_idx].last_global_index = Some(global_index as i32);
 
-                let frame_name = format!("{}:{}", range_name, frame_names[frame_idx].frames);
-                let mut rec_names = state.rec_names.lock().unwrap();
-                rec_names.push(frame_name);
-                state.rec_count.store(rec_names.len(), Ordering::Relaxed);
+                let frame_name =
+                    format!("{}:{}", range_name, combined.frame_names[frame_idx].frames);
+                combined.rec_names.push(frame_name);
+                state.rec_count.store(combined.rec_names.len(), Ordering::Relaxed);
 
                 None // New frame
             } else {
-                frame_names[frame_idx].last_global_index // Append to existing frame
+                combined.frame_names[frame_idx].last_global_index // Append to existing frame
             };
 
             // End function level profiling if it was started
             #[cfg(feature = "function-level")]
-            if let Some(func_index) = frame_names[frame_idx].func_index {
+            if let Some(func_index) = combined.frame_names[frame_idx].func_index {
                 state.func_level.frame_end(func_index, at_index)?;
             }
 
             // End high level profiling if it was started
-            if let Some(high_index) = frame_names[frame_idx].high_index {
+            if let Some(high_index) = combined.frame_names[frame_idx].high_index {
                 state.high_level.frame_end(high_index, at_index)?;
             }
         }
@@ -360,8 +366,8 @@ impl Profile {
     /// `true` if range profiling is enabled, `false` if not
     pub fn is_enabled() -> bool {
         let state = &*PROFILER_STATE;
-        let frame_names = state.frame_names.read();
-        frame_names.iter().any(|f| f.is_recording)
+        let combined = state.combined.lock();
+        combined.frame_names.iter().any(|f| f.is_recording)
     }
 
     /// Determines the number of known (recorded) range frames.
@@ -382,8 +388,8 @@ impl Profile {
     /// Range name, or None if frame not found
     pub fn get_frame_name(frame: usize) -> Option<String> {
         let state = &*PROFILER_STATE;
-        let rec_names = state.rec_names.lock().unwrap();
-        rec_names.get(frame).cloned()
+        let combined = state.combined.lock();
+        combined.rec_names.get(frame).cloned()
     }
 
     /// Resets all 'total' counter values to 0.
@@ -423,8 +429,8 @@ impl Profile {
     /// * `result_fn` - Result function to add
     pub fn add_result_function(result_fn: Box<dyn ProfileResultInterface>) {
         let state = &*PROFILER_STATE;
-        let mut result_functions = state.result_functions.lock().unwrap();
-        result_functions.push(result_fn);
+        let mut combined = state.combined.lock();
+        combined.result_functions.push(result_fn);
     }
 
     /// Add a pattern to enable/disable profiling ranges
@@ -434,7 +440,8 @@ impl Profile {
     /// * `active` - Whether matched ranges should be active or inactive
     pub fn add_pattern(pattern: &str, active: bool) -> ProfileResult<()> {
         let state = &*PROFILER_STATE;
-        let mut pattern_list = state.pattern_list.write();
+        let mut combined = state.combined.lock();
+        let pattern_list = &mut combined.pattern_list;
         pattern_list.push(PatternListEntry {
             is_active: active,
             pattern: pattern.to_string(),
@@ -445,21 +452,24 @@ impl Profile {
     /// Clear all patterns
     pub fn clear_patterns() {
         let state = &*PROFILER_STATE;
-        let mut pattern_list = state.pattern_list.write();
-        pattern_list.clear();
+        let mut combined = state.combined.lock();
+        combined.pattern_list.clear();
     }
 
     /// Clear patterns matching the provided pattern (supports '*' wildcard)
     pub fn clear_patterns_matching(pattern: &str) {
         let state = &*PROFILER_STATE;
-        let mut pattern_list = state.pattern_list.write();
-        pattern_list.retain(|entry| !PatternMatcher::simple_match(&entry.pattern, pattern));
+        let mut combined = state.combined.lock();
+        combined
+            .pattern_list
+            .retain(|entry| !PatternMatcher::simple_match(&entry.pattern, pattern));
     }
 
     /// Get a snapshot of the current pattern list
     pub fn get_patterns() -> Vec<(bool, String)> {
         let state = &*PROFILER_STATE;
-        let pattern_list = state.pattern_list.read();
+        let combined = state.combined.lock();
+        let pattern_list = &combined.pattern_list;
         pattern_list
             .iter()
             .map(|entry| (entry.is_active, entry.pattern.clone()))
@@ -480,8 +490,14 @@ impl Profile {
     /// Execute all registered result functions (typically called on shutdown)
     pub fn execute_result_functions() {
         let state = &*PROFILER_STATE;
-        let mut result_functions = state.result_functions.lock().unwrap();
-        for result_fn in result_functions.drain(..) {
+        // Take the registered functions out and release the lock before running
+        // them: the writers read profile state via Profile:: getters that take
+        // this same lock.
+        let result_functions = {
+            let mut combined = state.combined.lock();
+            std::mem::take(&mut combined.result_functions)
+        };
+        for result_fn in result_functions {
             result_fn.write_results();
         }
     }

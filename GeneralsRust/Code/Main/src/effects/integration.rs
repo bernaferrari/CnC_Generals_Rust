@@ -1,6 +1,6 @@
 use glam::{Mat4, Vec3};
 use log::{debug, info};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use ww3d_engine::FrameTiming;
 
 use crate::assets::archive::ArchiveFileSystem;
@@ -15,8 +15,8 @@ use crate::game_logic::ObjectId;
 /// Master effects coordinator that manages all visual and audio effects
 pub struct EffectsIntegration {
     // Core systems
-    particle_manager: Arc<Mutex<ParticleSystemManager>>,
-    animation_manager: Arc<Mutex<AnimationManager>>,
+    particle_manager: ParticleSystemManager,
+    animation_manager: AnimationManager,
     audio_manager: EnhancedAudioManager,
     visual_effects: VisualEffectsManager,
     lighting_system: DynamicLighting,
@@ -40,21 +40,20 @@ impl EffectsIntegration {
         info!("Initializing C&C Generals Effects Integration System");
 
         // Initialize particle system
-        let particle_manager = Arc::new(Mutex::new(ParticleSystemManager::new(
+        let particle_manager = ParticleSystemManager::new(
             device.clone(),
             queue.clone(),
             (2000.0 * quality_level.particle_multiplier()) as usize,
-        )));
+        );
 
         // Initialize animation system
-        let animation_manager = Arc::new(Mutex::new(AnimationManager::new()));
+        let animation_manager = AnimationManager::new();
 
         // Initialize enhanced audio system
         let audio_manager = EnhancedAudioManager::new().await?;
 
         // Initialize visual effects system
-        let visual_effects =
-            VisualEffectsManager::new(particle_manager.clone(), animation_manager.clone());
+        let visual_effects = VisualEffectsManager::new();
 
         // Initialize dynamic lighting
         let lighting_system = DynamicLighting::new(device.clone(), queue.clone());
@@ -170,15 +169,13 @@ impl EffectsIntegration {
         let _lod_manager = self.performance_manager.get_lod_manager();
 
         let view_projection = Mat4::IDENTITY;
-        if let Ok(mut manager) = self.particle_manager.lock() {
-            manager.update(view_projection, camera_pos, delta_time);
-        }
+        self.particle_manager
+            .update(view_projection, camera_pos, delta_time);
 
-        if let Ok(mut manager) = self.animation_manager.lock() {
-            manager.update(delta_time);
-        }
+        self.animation_manager.update(delta_time);
 
-        self.visual_effects.update(delta_time, camera_pos);
+        self.visual_effects
+            .update(&mut self.particle_manager, delta_time, camera_pos);
         self.lighting_system.update(delta_time, camera_pos);
 
         self.audio_manager.set_listener_transform(
@@ -190,11 +187,7 @@ impl EffectsIntegration {
         self.audio_manager
             .update_with_time(delta_time, absolute_time);
 
-        let particles = if let Ok(manager) = self.particle_manager.lock() {
-            manager.get_particle_count() as u32
-        } else {
-            0
-        };
+        let particles = self.particle_manager.get_particle_count() as u32;
         let lights = self.lighting_system.get_active_light_count() as u32;
         let effects = self.visual_effects.active_effects.len() as u32;
 
@@ -249,9 +242,7 @@ impl EffectsIntegration {
             });
 
         // Render particles
-        if let Ok(manager) = self.particle_manager.lock() {
-            manager.render(encoder, view, depth_view);
-        }
+        self.particle_manager.render(encoder, view, depth_view);
 
         // Apply dynamic lighting
         self.lighting_system.render_lighting(encoder, view);
@@ -287,7 +278,12 @@ impl EffectsIntegration {
 
         // Trigger the explosion with all effects
         self.visual_effects
-            .trigger_explosion(explosion, &mut self.audio_manager, archive_system)
+            .trigger_explosion(
+                &mut self.particle_manager,
+                explosion,
+                &mut self.audio_manager,
+                archive_system,
+            )
             .await;
 
         // Add dynamic lighting
@@ -344,7 +340,12 @@ impl EffectsIntegration {
 
         // Trigger weapon effect
         self.visual_effects
-            .trigger_weapon_effect(weapon_effect, &mut self.audio_manager, archive_system)
+            .trigger_weapon_effect(
+                &mut self.particle_manager,
+                weapon_effect,
+                &mut self.audio_manager,
+                archive_system,
+            )
             .await;
 
         // Add muzzle flash light
@@ -413,13 +414,11 @@ impl EffectsIntegration {
         animation_type: crate::effects::animation_system::AnimationType,
         replace_existing: bool,
     ) {
-        if let Ok(mut manager) = self.animation_manager.lock() {
-            manager.play_animation(
-                object_id,
-                &format!("{:?}", animation_type),
-                replace_existing,
-            );
-        }
+        self.animation_manager.play_animation(
+            object_id,
+            &format!("{:?}", animation_type),
+            replace_existing,
+        );
         debug!(
             "Started animation {:?} for object {:?}",
             animation_type, object_id
@@ -432,9 +431,7 @@ impl EffectsIntegration {
         object_id: ObjectId,
         animation_type: crate::effects::animation_system::AnimationType,
     ) {
-        if let Ok(mut manager) = self.animation_manager.lock() {
-            manager.stop_animation(object_id, animation_type);
-        }
+        self.animation_manager.stop_animation(object_id, animation_type);
         debug!(
             "Stopped animation {:?} for object {:?}",
             animation_type, object_id
@@ -465,8 +462,14 @@ impl EffectsIntegration {
             _ => return Err(format!("Unknown environmental effect: {}", effect_type).into()),
         };
 
-        self.visual_effects
-            .trigger_effect(visual_effect_type, position, 1.0, 0.0, object_id);
+        self.visual_effects.trigger_effect(
+            &mut self.particle_manager,
+            visual_effect_type,
+            position,
+            1.0,
+            0.0,
+            object_id,
+        );
 
         debug!(
             "Created environmental effect '{}' at {:?}",
@@ -565,9 +568,7 @@ impl EffectsIntegration {
         .await?;
 
         for template in templates {
-            if let Ok(mut manager) = self.particle_manager.lock() {
-                manager.add_template(template);
-            }
+            self.particle_manager.add_template(template);
         }
 
         info!("Loaded particle system templates");
@@ -686,16 +687,14 @@ impl EffectsIntegration {
     /// Stop all effects for an object (when destroyed/removed)
     pub fn stop_all_object_effects(&mut self, object_id: ObjectId) {
         // Stop animations
-        if let Ok(mut manager) = self.animation_manager.lock() {
-            manager.stop_animation(
-                object_id,
-                crate::effects::animation_system::AnimationType::UnitMove,
-            );
-            manager.stop_animation(
-                object_id,
-                crate::effects::animation_system::AnimationType::BuildingConstruct,
-            );
-        }
+        self.animation_manager.stop_animation(
+            object_id,
+            crate::effects::animation_system::AnimationType::UnitMove,
+        );
+        self.animation_manager.stop_animation(
+            object_id,
+            crate::effects::animation_system::AnimationType::BuildingConstruct,
+        );
 
         // Stop audio
         self.audio_manager.stop_object_audio(object_id);

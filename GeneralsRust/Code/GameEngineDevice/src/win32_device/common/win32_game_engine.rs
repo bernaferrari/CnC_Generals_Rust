@@ -9,19 +9,15 @@ use std::{
     collections::HashMap,
     ffi::{c_void, CString, OsString},
     ptr::{self, NonNull},
-    sync::Arc,
+
     time::{Duration, SystemTime},
 };
 
-use tokio::{
-    sync::{RwLock, Mutex, mpsc},
-    time,
-};
 
 use thiserror::Error;
 use uuid::Uuid;
 use dashmap::DashMap;
-use parking_lot::RwLock as SyncRwLock;
+
 use tracing::{debug, error, info, warn, instrument};
 use game_network::NetworkInstant;
 
@@ -159,11 +155,11 @@ pub struct Win32GameEngine {
     /// Configuration
     config: Win32EngineConfig,
     /// Subsystem states
-    subsystem_states: Arc<DashMap<String, SubsystemState>>,
+    subsystem_states: DashMap<String, SubsystemState>,
     /// Performance metrics
-    performance_metrics: Arc<SyncRwLock<PerformanceMetrics>>,
+    performance_metrics: PerformanceMetrics,
     /// Message queue for Windows messages
-    message_queue: Arc<Mutex<Vec<WindowsMessage>>>,
+    message_queue: Vec<WindowsMessage>,
     /// Previous error mode (for blue screen prevention)
     previous_error_mode: u32,
     /// Registry access for configuration
@@ -261,9 +257,9 @@ impl Win32GameEngine {
             perf_counter_start: 0,
             last_frame_time: NetworkInstant::now(),
             config,
-            subsystem_states: Arc::new(DashMap::new()),
-            performance_metrics: Arc::new(SyncRwLock::new(PerformanceMetrics::default())),
-            message_queue: Arc::new(Mutex::new(Vec::new())),
+            subsystem_states: DashMap::new(),
+            performance_metrics: PerformanceMetrics::default(),
+            message_queue: Vec::new(),
             previous_error_mode: 0,
             registry_keys: HashMap::new(),
             thread_pool,
@@ -805,7 +801,7 @@ impl Win32GameEngine {
                 // Convert to our message type and queue it
                 let engine_message = self.convert_windows_message(&msg);
                 if let Some(msg) = engine_message {
-                    let _ = self.message_queue.lock().await.push(msg);
+                    self.message_queue.push(msg);
                 }
             }
         }
@@ -886,19 +882,31 @@ impl Win32GameEngine {
         let now = NetworkInstant::now();
         let frame_time = now.duration_since(self.last_frame_time);
         self.last_frame_time = now;
-        
-        let mut metrics = self.performance_metrics.write();
+
+        // Compute memory usage before mutably borrowing the metrics
+        #[cfg(windows)]
+        let update_memory = (self.performance_metrics.frame_count + 1) % 60 == 0;
+        #[cfg(windows)]
+        let memory_usage_mb = if update_memory {
+            Some(self.get_memory_usage_mb().await)
+        } else {
+            None
+        };
+
+        let metrics = &mut self.performance_metrics;
         metrics.frame_count += 1;
         metrics.frame_time_ms = frame_time.as_secs_f64() * 1000.0;
-        
+
         // Calculate FPS over last second
         if metrics.frame_count % 60 == 0 {
             metrics.fps = 1000.0 / metrics.frame_time_ms;
-            
+
             // Update memory usage
             #[cfg(windows)]
             {
-                metrics.memory_usage_mb = self.get_memory_usage_mb().await;
+                if let Some(m) = memory_usage_mb {
+                    metrics.memory_usage_mb = m;
+                }
             }
         }
     }
@@ -990,7 +998,7 @@ impl Win32GameEngine {
     
     /// Get performance metrics
     pub fn get_performance_metrics(&self) -> PerformanceMetrics {
-        self.performance_metrics.read().clone()
+        self.performance_metrics.clone()
     }
     
     /// Get subsystem state
@@ -1002,11 +1010,8 @@ impl Win32GameEngine {
     }
     
     /// Get pending Windows messages
-    pub async fn get_messages(&self) -> Vec<WindowsMessage> {
-        let mut queue = self.message_queue.lock().await;
-        let messages = queue.clone();
-        queue.clear();
-        messages
+    pub async fn get_messages(&mut self) -> Vec<WindowsMessage> {
+        std::mem::take(&mut self.message_queue)
     }
     
     /// Get registry value

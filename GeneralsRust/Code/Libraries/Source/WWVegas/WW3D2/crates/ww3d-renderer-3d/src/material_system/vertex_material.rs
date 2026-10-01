@@ -16,7 +16,8 @@
 
 use super::texture_mapper::TextureMapperType;
 use glam::Vec3;
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::atomic::{AtomicU32, Ordering as AtomicOrdering};
+use std::sync::{Arc, OnceLock};
 
 /// Maximum number of texture stages supported
 /// C++ Reference: MeshBuilderClass::MAX_STAGES in meshbuild.h
@@ -218,13 +219,8 @@ impl VertexMaterialClass {
     ///
     /// C++ Reference: vertmaterial.h line 111 (VertexMaterialClass constructor)
     pub fn new() -> Self {
-        static NEXT_ID: Mutex<u32> = Mutex::new(1);
-        let unique_id = {
-            let mut id = NEXT_ID.lock().unwrap();
-            let current = *id;
-            *id = id.wrapping_add(1);
-            current
-        };
+        static NEXT_ID: AtomicU32 = AtomicU32::new(1);
+        let unique_id = NEXT_ID.fetch_add(1, AtomicOrdering::Relaxed);
 
         Self {
             name: String::new(),
@@ -253,11 +249,8 @@ impl VertexMaterialClass {
     pub fn clone_material(&self) -> Self {
         let mut cloned = self.clone();
         cloned.unique_id = {
-            static NEXT_ID: Mutex<u32> = Mutex::new(1);
-            let mut id = NEXT_ID.lock().unwrap();
-            let current = *id;
-            *id = id.wrapping_add(1);
-            current
+            static NEXT_ID: AtomicU32 = AtomicU32::new(1);
+            NEXT_ID.fetch_add(1, AtomicOrdering::Relaxed)
         };
         cloned
     }
@@ -631,13 +624,8 @@ impl VertexMaterialClass {
     ///
     /// C++ Reference: vertmaterial.h line 243
     pub fn make_unique(&mut self) {
-        static NEXT_ID: Mutex<u32> = Mutex::new(1000);
-        let unique_id = {
-            let mut id = NEXT_ID.lock().unwrap();
-            let current = *id;
-            *id = id.wrapping_add(1);
-            current
-        };
+        static NEXT_ID: AtomicU32 = AtomicU32::new(1000);
+        let unique_id = NEXT_ID.fetch_add(1, AtomicOrdering::Relaxed);
         self.unique_id = unique_id;
         self.crc_dirty = true;
     }

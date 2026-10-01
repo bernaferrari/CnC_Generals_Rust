@@ -154,7 +154,7 @@ pub struct RenderObject {
     pub collision_type: u32,
     pub controlling_player_index: Option<usize>,
     pub is_terrain: bool,
-    pub render_hook: Option<Arc<dyn SceneRenderHook>>,
+    pub render_hook: Option<Box<dyn SceneRenderHook>>,
 }
 
 impl Default for RenderObject {
@@ -186,7 +186,7 @@ impl RenderObject {
         }
     }
 
-    pub fn with_render_hook(mut self, render_hook: Arc<dyn SceneRenderHook>) -> Self {
+    pub fn with_render_hook(mut self, render_hook: Box<dyn SceneRenderHook>) -> Self {
         self.render_hook = Some(render_hook);
         self
     }
@@ -196,7 +196,7 @@ impl RenderObject {
         self
     }
 
-    pub fn set_render_hook(&mut self, render_hook: Option<Arc<dyn SceneRenderHook>>) {
+    pub fn set_render_hook(&mut self, render_hook: Option<Box<dyn SceneRenderHook>>) {
         self.render_hook = render_hook;
     }
 
@@ -334,8 +334,8 @@ pub struct W3DScene {
 
     // Dynamic lighting
     dynamic_lights: Vec<W3DDynamicLight>,
-    global_lights: [Option<Arc<RwLock<W3DDynamicLight>>>; MAX_LIGHTS],
-    infantry_lights: [Option<Arc<RwLock<W3DDynamicLight>>>; MAX_LIGHTS],
+    global_lights: [Option<W3DDynamicLight>; MAX_LIGHTS],
+    infantry_lights: [Option<W3DDynamicLight>; MAX_LIGHTS],
     num_global_lights: usize,
 
     // Scene state
@@ -421,7 +421,7 @@ impl W3DScene {
         sun_light.set_diffuse(Vector3::new(1.0, 1.0, 0.9));
         sun_light.set_ambient(Vector3::new(0.3, 0.3, 0.3));
 
-        self.global_lights[0] = Some(Arc::new(RwLock::new(sun_light)));
+        self.global_lights[0] = Some(sun_light);
         self.num_global_lights = 1;
 
         // Initialize infantry lights (modified copy of global)
@@ -430,7 +430,7 @@ impl W3DScene {
         infantry_light.set_diffuse(Vector3::new(1.2, 1.2, 1.1)); // Brighter for infantry
         infantry_light.set_ambient(Vector3::new(0.4, 0.4, 0.4));
 
-        self.infantry_lights[0] = Some(Arc::new(RwLock::new(infantry_light)));
+        self.infantry_lights[0] = Some(infantry_light);
     }
 
     /// Add a render object to the scene
@@ -505,7 +505,7 @@ impl W3DScene {
     /// Set a global light
     pub fn set_global_light(&mut self, light: W3DDynamicLight, index: usize) {
         if index < MAX_LIGHTS {
-            self.global_lights[index] = Some(Arc::new(RwLock::new(light)));
+            self.global_lights[index] = Some(light);
             if self.num_global_lights < index + 1 {
                 self.num_global_lights = index + 1;
             }
@@ -956,9 +956,8 @@ impl W3DScene {
 
         // Add global lights
         for i in 0..self.num_global_lights {
-            if let Some(ref light_arc) = self.global_lights[i] {
-                let light = light_arc.read();
-                self.default_light_env.add_light(&light);
+            if let Some(light) = &self.global_lights[i] {
+                self.default_light_env.add_light(light);
             }
         }
 

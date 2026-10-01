@@ -7,7 +7,7 @@
 /// - Light environment management with importance sorting
 /// - Dynamic light contribution calculation
 use glam::{Mat4, Vec3};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, LazyLock, Mutex};
 
 /// Maximum number of lights that can affect an object simultaneously
 pub const MAX_LIGHTS: usize = 4;
@@ -622,13 +622,11 @@ fn hsv_to_rgb(hsv: Vec3) -> Vec3 {
     }
 }
 
-/// Global lighting LOD cutoff - uses Arc<Mutex<f32>> for thread-safe mutable access
-static LIGHTING_LOD_CUTOFF: OnceLock<Arc<Mutex<f32>>> = OnceLock::new();
+/// Global lighting LOD cutoff - uses a Mutex for thread-safe mutable access
+static LIGHTING_LOD_CUTOFF: LazyLock<Mutex<f32>> = LazyLock::new(|| Mutex::new(0.5));
 
-fn get_lod_cutoff_cell() -> Arc<Mutex<f32>> {
-    LIGHTING_LOD_CUTOFF
-        .get_or_init(|| Arc::new(Mutex::new(0.5)))
-        .clone()
+fn get_lod_cutoff_cell() -> &'static Mutex<f32> {
+    &LIGHTING_LOD_CUTOFF
 }
 
 /// Set the lighting LOD cutoff

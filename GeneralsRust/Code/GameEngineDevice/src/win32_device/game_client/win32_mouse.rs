@@ -8,7 +8,7 @@
 use std::{
     collections::VecDeque,
     sync::{
-        Arc, Mutex,
+        Mutex,
         atomic::{AtomicBool, AtomicPtr, Ordering},
     },
 };
@@ -121,7 +121,7 @@ pub struct Win32Mouse {
     /// Device initialized flag
     initialized: AtomicBool,
     /// Event buffer mutex for thread safety
-    event_mutex: Arc<Mutex<()>>,
+    event_mutex: Mutex<()>,
 }
 
 impl Win32Mouse {
@@ -144,7 +144,7 @@ impl Win32Mouse {
             input_moves_absolute: false,
             current_position: Point::default(),
             initialized: AtomicBool::new(false),
-            event_mutex: Arc::new(Mutex::new(())),
+            event_mutex: Mutex::new(()),
         };
 
         // Initialize cursor information

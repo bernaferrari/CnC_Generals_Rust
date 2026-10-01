@@ -5,7 +5,6 @@
 
 use std::f32;
 use std::sync::LazyLock;
-use std::sync::Mutex;
 
 /// Mathematical constants from the original WWMath library
 pub const EPSILON: f32 = 0.0001f32;
@@ -27,15 +26,44 @@ pub const ARC_TABLE_SIZE: usize = 1024;
 pub const SIN_TABLE_SIZE: usize = 1024;
 
 /// Lookup tables for fast trigonometry
-static FAST_ACOS_TABLE: LazyLock<Mutex<Vec<f32>>> =
-    LazyLock::new(|| Mutex::new(vec![0.0; ARC_TABLE_SIZE]));
-static FAST_ASIN_TABLE: LazyLock<Mutex<Vec<f32>>> =
-    LazyLock::new(|| Mutex::new(vec![0.0; ARC_TABLE_SIZE]));
-static FAST_SIN_TABLE: LazyLock<Mutex<Vec<f32>>> =
-    LazyLock::new(|| Mutex::new(vec![0.0; SIN_TABLE_SIZE]));
-static FAST_INV_SIN_TABLE: LazyLock<Mutex<Vec<f32>>> =
-    LazyLock::new(|| Mutex::new(vec![0.0; SIN_TABLE_SIZE]));
-static INITIALIZED: LazyLock<Mutex<bool>> = LazyLock::new(|| Mutex::new(false));
+static FAST_ACOS_TABLE: LazyLock<Vec<f32>> = LazyLock::new(|| {
+    let mut table = vec![0.0; ARC_TABLE_SIZE];
+    for a in 0..ARC_TABLE_SIZE {
+        let cv = (a as f32 - ARC_TABLE_SIZE as f32 / 2.0)
+            * (1.0 / (ARC_TABLE_SIZE as f32 / 2.0));
+        table[a] = cv.acos();
+    }
+    table
+});
+static FAST_ASIN_TABLE: LazyLock<Vec<f32>> = LazyLock::new(|| {
+    let mut table = vec![0.0; ARC_TABLE_SIZE];
+    for a in 0..ARC_TABLE_SIZE {
+        let cv = (a as f32 - ARC_TABLE_SIZE as f32 / 2.0)
+            * (1.0 / (ARC_TABLE_SIZE as f32 / 2.0));
+        table[a] = cv.asin();
+    }
+    table
+});
+static FAST_SIN_TABLE: LazyLock<Vec<f32>> = LazyLock::new(|| {
+    let mut table = vec![0.0; SIN_TABLE_SIZE];
+    for a in 0..SIN_TABLE_SIZE {
+        let cv = a as f32 * 2.0 * PI / SIN_TABLE_SIZE as f32;
+        table[a] = cv.sin();
+    }
+    table
+});
+static FAST_INV_SIN_TABLE: LazyLock<Vec<f32>> = LazyLock::new(|| {
+    let mut table = vec![0.0; SIN_TABLE_SIZE];
+    for a in 0..SIN_TABLE_SIZE {
+        let cv = a as f32 * 2.0 * PI / SIN_TABLE_SIZE as f32;
+        if a > 0 {
+            table[a] = 1.0 / cv.sin();
+        } else {
+            table[a] = FLOAT_MAX;
+        }
+    }
+    table
+});
 
 /// Collection of mathematical utility functions
 pub struct WWMath;
@@ -54,42 +82,12 @@ impl WWMath {
 
     /// Initialize the WWMath subsystem and precompute lookup tables
     pub fn init() {
-        let mut initialized = INITIALIZED.lock().unwrap();
-        if *initialized {
-            return;
-        }
-
-        // Initialize arc tables
-        {
-            let mut acos_table = FAST_ACOS_TABLE.lock().unwrap();
-            let mut asin_table = FAST_ASIN_TABLE.lock().unwrap();
-
-            for a in 0..ARC_TABLE_SIZE {
-                let cv = (a as f32 - ARC_TABLE_SIZE as f32 / 2.0)
-                    * (1.0 / (ARC_TABLE_SIZE as f32 / 2.0));
-                acos_table[a] = cv.acos();
-                asin_table[a] = cv.asin();
-            }
-        }
-
-        // Initialize sin tables
-        {
-            let mut sin_table = FAST_SIN_TABLE.lock().unwrap();
-            let mut inv_sin_table = FAST_INV_SIN_TABLE.lock().unwrap();
-
-            for a in 0..SIN_TABLE_SIZE {
-                let cv = a as f32 * 2.0 * PI / SIN_TABLE_SIZE as f32;
-                sin_table[a] = cv.sin();
-
-                if a > 0 {
-                    inv_sin_table[a] = 1.0 / sin_table[a];
-                } else {
-                    inv_sin_table[a] = FLOAT_MAX;
-                }
-            }
-        }
-
-        *initialized = true;
+        // Force eager construction of the lookup tables, preserving the
+        // eager-init side effect timing of the legacy C++ WWMath::Init.
+        LazyLock::force(&FAST_ACOS_TABLE);
+        LazyLock::force(&FAST_ASIN_TABLE);
+        LazyLock::force(&FAST_SIN_TABLE);
+        LazyLock::force(&FAST_INV_SIN_TABLE);
     }
 
     /// Shutdown the WWMath subsystem
@@ -371,8 +369,6 @@ impl WWMath {
 
     /// Fast table-based sine function
     pub fn fast_sin(val: f32) -> f32 {
-        Self::ensure_initialized();
-
         let index = val * SIN_TABLE_SIZE as f32 / (2.0 * PI);
 
         let idx0 = Self::float_to_int_floor(index) as usize;
@@ -382,7 +378,7 @@ impl WWMath {
         let idx0 = idx0 & (SIN_TABLE_SIZE - 1);
         let idx1 = idx1 & (SIN_TABLE_SIZE - 1);
 
-        let sin_table = FAST_SIN_TABLE.lock().unwrap();
+        let sin_table = &*FAST_SIN_TABLE;
         (1.0 - frac) * sin_table[idx0] + frac * sin_table[idx1]
     }
 
@@ -404,8 +400,6 @@ impl WWMath {
 
     /// Fast table-based arc cosine function
     pub fn fast_acos(val: f32) -> f32 {
-        Self::ensure_initialized();
-
         // Near -1 and +1, the table becomes too inaccurate
         if Self::fabs(val) > 0.975 {
             return Self::acos(val);
@@ -425,14 +419,12 @@ impl WWMath {
             return Self::acos(val);
         }
 
-        let acos_table = FAST_ACOS_TABLE.lock().unwrap();
+        let acos_table = &*FAST_ACOS_TABLE;
         (1.0 - frac) * acos_table[idx0] + frac * acos_table[idx1]
     }
 
     /// Fast table-based arc sine function
     pub fn fast_asin(val: f32) -> f32 {
-        Self::ensure_initialized();
-
         // Near -1 and +1, the table becomes too inaccurate
         if Self::fabs(val) > 0.975 {
             return Self::asin(val);
@@ -452,7 +444,7 @@ impl WWMath {
             return Self::asin(val);
         }
 
-        let asin_table = FAST_ASIN_TABLE.lock().unwrap();
+        let asin_table = &*FAST_ASIN_TABLE;
         (1.0 - frac) * asin_table[idx0] + frac * asin_table[idx1]
     }
 
@@ -502,14 +494,6 @@ impl WWMath {
         })
     }
 
-    /// Ensure lookup tables are initialized
-    fn ensure_initialized() {
-        let initialized = INITIALIZED.lock().unwrap();
-        if !*initialized {
-            drop(initialized);
-            Self::init();
-        }
-    }
 
     /// Convert float to its bit representation as int
     pub fn float_as_int(f: f32) -> i32 {

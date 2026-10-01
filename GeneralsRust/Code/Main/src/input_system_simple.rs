@@ -19,8 +19,8 @@ pub struct SimpleInputProcessor {
     last_frame: u32,
     // Async channels for input event processing
     input_sender: mpsc::UnboundedSender<InputEvent>,
-    input_receiver: Arc<Mutex<mpsc::UnboundedReceiver<InputEvent>>>,
-    control_groups: Mutex<HashMap<u8, Vec<ObjectId>>>, // 0-9 control groups
+    input_receiver: mpsc::UnboundedReceiver<InputEvent>,
+    control_groups: HashMap<u8, Vec<ObjectId>>, // 0-9 control groups
     last_camera_position: Vec3,
     last_camera_zoom: f32,
     /// Dual-tick presentation snapshot for world pick residual (optional).
@@ -49,8 +49,8 @@ impl SimpleInputProcessor {
             window_size,
             last_frame: 0,
             input_sender,
-            input_receiver: Arc::new(Mutex::new(input_receiver)),
-            control_groups: Mutex::new(HashMap::new()),
+            input_receiver,
+            control_groups: HashMap::new(),
             last_camera_position: Vec3::ZERO,
             last_camera_zoom: 50.0,
             presentation_frame: None,
@@ -175,51 +175,16 @@ impl SimpleInputProcessor {
     }
 
     /// Process all queued input events asynchronously
-    async fn process_queued_events(&self, game_logic: &Arc<Mutex<GameLogic>>) -> Result<()> {
-        let mut receiver = self
-            .input_receiver
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
+    async fn process_queued_events(&mut self, game_logic: &Arc<Mutex<GameLogic>>) -> Result<()> {
+        // Drain first, then process: preserves event order without holding a
+        // borrow of the receiver across awaits.
+        let mut events = Vec::new();
+        while let Ok(event) = self.input_receiver.try_recv() {
+            events.push(event);
+        }
 
-        while let Ok(event) = receiver.try_recv() {
-            drop(receiver);
-
-            match event {
-                InputEvent::SelectAll => {
-                    self.select_all_units_async(game_logic).await?;
-                }
-                InputEvent::Delete => {
-                    self.delete_selected_units_async(game_logic).await?;
-                }
-                InputEvent::TogglePause => {
-                    self.toggle_pause_async(game_logic).await?;
-                }
-                InputEvent::CycleUnits => {
-                    self.cycle_units_async(game_logic).await?;
-                }
-                InputEvent::ControlGroup { number, assign } => {
-                    if assign {
-                        self.assign_control_group_async(number, game_logic).await?;
-                    } else {
-                        self.select_control_group_async(number, game_logic).await?;
-                    }
-                }
-                InputEvent::LeftClick {
-                    world_pos,
-                    shift_held,
-                } => {
-                    self.handle_left_click_async(world_pos, shift_held, game_logic)
-                        .await?;
-                }
-                InputEvent::RightClick { world_pos } => {
-                    self.handle_right_click_async(world_pos, game_logic).await?;
-                }
-            }
-
-            receiver = self
-                .input_receiver
-                .lock()
-                .unwrap_or_else(|e| e.into_inner());
+        for event in events {
+            self.process_single_event(event, game_logic).await?;
         }
 
         Ok(())
@@ -333,7 +298,7 @@ impl SimpleInputProcessor {
 
     /// Assign selected units to a control group asynchronously
     async fn assign_control_group_async(
-        &self,
+        &mut self,
         group_num: u8,
         game_logic: &Arc<Mutex<GameLogic>>,
     ) -> Result<()> {
@@ -350,9 +315,7 @@ impl SimpleInputProcessor {
             return Ok(());
         }
 
-        if let Ok(mut groups) = self.control_groups.lock() {
-            groups.insert(group_num, selected_objects.clone());
-        }
+        self.control_groups.insert(group_num, selected_objects.clone());
         println!(
             "Assigned {} units to control group {}",
             selected_objects.len(),
@@ -369,11 +332,7 @@ impl SimpleInputProcessor {
         group_num: u8,
         game_logic: &Arc<Mutex<GameLogic>>,
     ) -> Result<()> {
-        let stored = self
-            .control_groups
-            .lock()
-            .ok()
-            .and_then(|groups| groups.get(&group_num).cloned());
+        let stored = self.control_groups.get(&group_num).cloned();
         let Some(stored) = stored else {
             println!("Control group {} is empty", group_num);
             return Ok(());
@@ -587,7 +546,7 @@ impl SimpleInputProcessor {
 
     /// Process a single input event asynchronously (used for external event queuing)
     pub async fn process_single_event(
-        &self,
+        &mut self,
         event: InputEvent,
         game_logic: &Arc<Mutex<GameLogic>>,
     ) -> Result<()> {
@@ -627,21 +586,18 @@ impl SimpleInputProcessor {
     }
 
     /// Flush all pending input events (useful for frame cleanup or shutdown)
-    pub async fn flush_events(&self, game_logic: &Arc<Mutex<GameLogic>>) -> Result<usize> {
+    pub async fn flush_events(&mut self, game_logic: &Arc<Mutex<GameLogic>>) -> Result<usize> {
         let mut count = 0;
-        let mut receiver = self
-            .input_receiver
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-
-        while let Ok(event) = receiver.try_recv() {
+        // Drain first, then process: preserves event order without holding a
+        // borrow of the receiver across awaits.
+        let mut events = Vec::new();
+        while let Ok(event) = self.input_receiver.try_recv() {
             count += 1;
-            drop(receiver); // Release lock during event processing
+            events.push(event);
+        }
+
+        for event in events {
             self.process_single_event(event, game_logic).await?;
-            receiver = self
-                .input_receiver
-                .lock()
-                .unwrap_or_else(|e| e.into_inner()); // Re-acquire for next iteration
         }
 
         Ok(count)

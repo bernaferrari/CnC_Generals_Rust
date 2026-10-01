@@ -669,7 +669,7 @@ fn active_script_campaign_scene_actions_do_not_relock_the_global_engine() {
 
     let completed = with_script_engine_mut(|engine| {
         let mut dispatcher =
-            ScriptActionDispatcher::new(Arc::new(RwLock::new(ScriptContext::new())));
+            ScriptActionDispatcher::new(ScriptContext::new());
 
         let reveal_name = "ActiveSceneControlReveal";
         let mut reveal = ScriptAction::new(ScriptActionType::MapRevealPermanentlyAtWaypoint);
@@ -1503,9 +1503,7 @@ fn eval_flag_true_when_ui_interaction_name_matches_like_cxx() {
         .add_parameter(Parameter::with_int(ParameterType::Boolean, 1))
         .unwrap();
 
-    let mut evaluator = ScriptConditionEvaluator::new(std::sync::Arc::new(std::sync::RwLock::new(
-        ScriptContext::new(),
-    )));
+    let mut evaluator = ScriptConditionEvaluator::new(ScriptContext::new());
     assert_eq!(
         evaluator.evaluate_condition(&mut pulse).unwrap(),
         ScriptConditionResult::True,

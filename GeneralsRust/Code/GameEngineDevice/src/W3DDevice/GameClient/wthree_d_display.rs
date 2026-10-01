@@ -150,7 +150,7 @@ pub struct W3DDisplay {
     scene_3d_interface: W3DInterfaceScene,
 
     // -- View --
-    view: RwLock<Option<W3DView>>,
+    view: Option<W3DView>,
 
     // -- Lights (C++ m_myLight[MAX_LIGHTS]) --
     global_lights: [Option<W3DDynamicLight>; MAX_LIGHTS],
@@ -226,7 +226,7 @@ impl W3DDisplay {
             scene: Arc::new(RwLock::new(W3DScene::new())),
             scene_2d: W3D2DScene::new(),
             scene_3d_interface: W3DInterfaceScene::new(),
-            view: RwLock::new(None),
+            view: None,
             global_lights: Default::default(),
             num_global_lights: 0,
             asset_manager: None,
@@ -607,7 +607,7 @@ impl W3DDisplay {
 
     /// Set the primary view (called after WGPU device is created).
     pub fn set_view(&mut self, view: W3DView) {
-        *self.view.write() = Some(view);
+        self.view = Some(view);
     }
 
     /// Check if initialized.
@@ -704,10 +704,10 @@ impl W3DDisplay {
     /// 16. FPS bar
     /// 17. WW3D::End_Render()
     pub fn render_frame(&mut self) -> Result<()> {
-        let mut view_guard = self.view.write();
-        let Some(view) = view_guard.as_mut() else {
+        // Early-out before any frame bookkeeping (C++ renders nothing without a view).
+        if self.view.is_none() {
             return Ok(());
-        };
+        }
 
         // Update FPS tracking
         self.update_average_fps();
@@ -716,6 +716,10 @@ impl W3DDisplay {
         if self.cinematic_text_frames > 0 {
             self.cinematic_text_frames -= 1;
         }
+
+        let Some(view) = self.view.as_mut() else {
+            return Ok(());
+        };
 
         // Build render info from the view's camera
         let mut rinfo = RenderInfo::new();
@@ -862,8 +866,7 @@ impl W3DDisplay {
             return String::new();
         }
 
-        let view = self.view.read();
-        let cam = view.as_ref().map(|v| &v.camera);
+        let cam = self.view.as_ref().map(|v| &v.camera);
 
         let mut lines = Vec::new();
         lines.push(format!(

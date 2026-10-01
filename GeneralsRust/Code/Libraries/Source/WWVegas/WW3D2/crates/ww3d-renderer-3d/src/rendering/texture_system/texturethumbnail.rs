@@ -122,11 +122,11 @@ pub struct ThumbnailManagerClass {
 
 impl ThumbnailManagerClass {
     /// Create new thumbnail manager
-    pub fn new() -> Arc<Mutex<Self>> {
-        Arc::new(Mutex::new(Self {
+    pub fn new() -> Self {
+        Self {
             thumbnails: HashMap::new(),
             create_thumbnail_if_not_found: false,
-        }))
+        }
     }
 
     /// Insert thumbnail into hash
@@ -378,17 +378,13 @@ fn thumbnail_manager_cell() -> &'static OnceLock<Arc<Mutex<ThumbnailManagerClass
 /// allocating an additional singleton, keeping legacy entry points working with safe Rust semantics.
 pub fn init_global_thumbnail_manager() -> Arc<Mutex<ThumbnailManagerClass>> {
     let manager = ThumbnailManagerClass::new();
-    if let Err(existing) = thumbnail_manager_cell().set(manager.clone()) {
+    if let Err(existing) = thumbnail_manager_cell().set(Arc::new(Mutex::new(manager.clone()))) {
         if let Ok(mut guard) = existing.lock() {
-            if let Ok(source) = manager.lock() {
-                *guard = source.clone();
-            } else {
-                guard.clear();
-            }
+            *guard = manager;
         }
         existing.clone()
     } else {
-        manager
+        thumbnail_manager_cell().get().expect("just set").clone()
     }
 }
 

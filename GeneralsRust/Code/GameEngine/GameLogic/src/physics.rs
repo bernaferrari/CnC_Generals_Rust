@@ -616,7 +616,7 @@ pub trait TerrainQuery: Send + Sync {
 /// Physics simulation engine - manages all physics objects
 pub struct PhysicsEngine {
     /// All physics objects indexed by object ID
-    physics_objects: HashMap<ObjectID, Arc<RwLock<PhysicsState>>>,
+    physics_objects: HashMap<ObjectID, PhysicsState>,
 
     /// Time step for physics simulation (in seconds)
     time_step: Real,
@@ -662,8 +662,7 @@ impl PhysicsEngine {
 
     /// Add object to physics simulation
     pub fn add_object(&mut self, object_id: ObjectID, physics_state: PhysicsState) {
-        self.physics_objects
-            .insert(object_id, Arc::new(RwLock::new(physics_state)));
+        self.physics_objects.insert(object_id, physics_state);
     }
 
     /// Remove object from physics simulation
@@ -672,8 +671,8 @@ impl PhysicsEngine {
     }
 
     /// Get physics state for object
-    pub fn get_physics_state(&self, object_id: ObjectID) -> Option<Arc<RwLock<PhysicsState>>> {
-        self.physics_objects.get(&object_id).cloned()
+    pub fn get_physics_state(&self, object_id: ObjectID) -> Option<&PhysicsState> {
+        self.physics_objects.get(&object_id)
     }
 
     /// Update all physics objects by one time step - matches C++ physics update loop
@@ -688,68 +687,72 @@ impl PhysicsEngine {
         let mut sorted_ids: Vec<_> = self.physics_objects.keys().copied().collect();
         sorted_ids.sort();
         for object_id in &sorted_ids {
-            let physics_state = self.physics_objects.get(object_id).unwrap();
-            if let Ok(mut state) = physics_state.write() {
-                if !state.enabled {
+            // Take the state out so physics helpers can borrow `self` freely.
+            let Some(mut state) = self.physics_objects.remove(object_id) else {
+                continue;
+            };
+            if !state.enabled {
+                self.physics_objects.insert(*object_id, state);
+                continue;
+            }
+
+            // Update status effects (stun, freeze)
+            state.update_status_effects();
+
+            // Update active force effects (wind, knockback)
+            state.update_force_effects();
+
+            // Update terrain state if terrain query available
+            if let Some(terrain) = &self.terrain_query {
+                self.update_terrain_state(&mut state, terrain.as_ref());
+            }
+
+            // Update lifetime
+            if state.max_lifetime > 0 {
+                state.lifetime += 1;
+                if state.lifetime >= state.max_lifetime {
+                    objects_to_remove.push(*object_id);
+                    self.physics_objects.insert(*object_id, state);
                     continue;
                 }
-
-                // Update status effects (stun, freeze)
-                state.update_status_effects();
-
-                // Update active force effects (wind, knockback)
-                state.update_force_effects();
-
-                // Update terrain state if terrain query available
-                if let Some(ref terrain) = self.terrain_query {
-                    self.update_terrain_state(&mut state, terrain.as_ref());
-                }
-
-                // Update lifetime
-                if state.max_lifetime > 0 {
-                    state.lifetime += 1;
-                    if state.lifetime >= state.max_lifetime {
-                        objects_to_remove.push(*object_id);
-                        continue;
-                    }
-                }
-
-                // Apply physics based on object type
-                match state.physics_type {
-                    PhysicsType::None => {
-                        // No physics simulation
-                    }
-                    PhysicsType::Normal => {
-                        self.update_normal_physics(&mut state)?;
-                    }
-                    PhysicsType::Projectile => {
-                        self.update_projectile_physics(&mut state)?;
-                    }
-                    PhysicsType::Aircraft => {
-                        self.update_aircraft_physics(&mut state)?;
-                    }
-                    PhysicsType::Bouncing => {
-                        self.update_bouncing_physics(&mut state)?;
-                    }
-                    PhysicsType::Naval => {
-                        self.update_naval_physics(&mut state)?;
-                    }
-                    PhysicsType::Hover => {
-                        self.update_hover_physics(&mut state)?;
-                    }
-                }
-
-                // Check for collision and respond
-                let collision = self.check_collision(&state);
-                if collision.collided {
-                    self.handle_collision(&mut state, &collision)?;
-                }
-
-                // Update position based on velocity
-                if state.enabled && state.can_move() {
-                    self.integrate_motion(&mut state);
-                }
             }
+
+            // Apply physics based on object type
+            let type_result = match state.physics_type {
+                PhysicsType::None => {
+                    // No physics simulation
+                    Ok(())
+                }
+                PhysicsType::Normal => self.update_normal_physics(&mut state),
+                PhysicsType::Projectile => self.update_projectile_physics(&mut state),
+                PhysicsType::Aircraft => self.update_aircraft_physics(&mut state),
+                PhysicsType::Bouncing => self.update_bouncing_physics(&mut state),
+                PhysicsType::Naval => self.update_naval_physics(&mut state),
+                PhysicsType::Hover => self.update_hover_physics(&mut state),
+            };
+            if let Err(err) = type_result {
+                self.physics_objects.insert(*object_id, state);
+                return Err(err);
+            }
+
+            // Check for collision and respond
+            let collision = self.check_collision(&state);
+            let collision_result = if collision.collided {
+                self.handle_collision(&mut state, &collision)
+            } else {
+                Ok(())
+            };
+            if let Err(err) = collision_result {
+                self.physics_objects.insert(*object_id, state);
+                return Err(err);
+            }
+
+            // Update position based on velocity
+            if state.enabled && state.can_move() {
+                self.integrate_motion(&mut state);
+            }
+
+            self.physics_objects.insert(*object_id, state);
         }
 
         // Remove expired objects
@@ -1136,142 +1139,107 @@ impl PhysicsEngine {
         explosion_radius: Real,
         explosion_force: Real,
     ) {
-        for physics_state in self.physics_objects.values() {
-            if let Ok(mut state) = physics_state.write() {
-                // Calculate distance from explosion
-                let dx = state.position[0] - explosion_pos[0];
-                let dy = state.position[1] - explosion_pos[1];
-                let dz = state.position[2] - explosion_pos[2];
-                let distance = (dx * dx + dy * dy + dz * dz).sqrt();
+        for state in self.physics_objects.values_mut() {
+            // Calculate distance from explosion
+            let dx = state.position[0] - explosion_pos[0];
+            let dy = state.position[1] - explosion_pos[1];
+            let dz = state.position[2] - explosion_pos[2];
+            let distance = (dx * dx + dy * dy + dz * dz).sqrt();
 
-                if distance < explosion_radius && distance > 0.0 {
-                    // Calculate force direction (away from explosion)
-                    let direction = [dx / distance, dy / distance, dz / distance];
+            if distance < explosion_radius && distance > 0.0 {
+                // Calculate force direction (away from explosion)
+                let direction = [dx / distance, dy / distance, dz / distance];
 
-                    // Calculate force magnitude (falls off with distance)
-                    let force_magnitude = explosion_force * (1.0 - distance / explosion_radius);
+                // Calculate force magnitude (falls off with distance)
+                let force_magnitude = explosion_force * (1.0 - distance / explosion_radius);
 
-                    // Apply wind force
-                    let wind_force = [
-                        direction[0] * force_magnitude,
-                        direction[1] * force_magnitude,
-                        direction[2] * force_magnitude * 0.5, // Less upward force
-                    ];
+                // Apply wind force
+                let wind_force = [
+                    direction[0] * force_magnitude,
+                    direction[1] * force_magnitude,
+                    direction[2] * force_magnitude * 0.5, // Less upward force
+                ];
 
-                    state.apply_wind(wind_force.into(), 30); // 30 frame duration
-                }
+                state.apply_wind(wind_force.into(), 30); // 30 frame duration
             }
         }
     }
 
     /// Apply knockback to specific object
     pub fn apply_knockback_to_object(
-        &self,
+        &mut self,
         object_id: ObjectID,
         knockback_force: Coord3D,
         duration: Int,
     ) -> bool {
-        if let Some(physics_state) = self.get_physics_state(object_id) {
-            if let Ok(mut state) = physics_state.write() {
-                state.apply_knockback(knockback_force, duration);
-                return true;
-            }
+        if let Some(state) = self.physics_objects.get_mut(&object_id) {
+            state.apply_knockback(knockback_force, duration);
+            return true;
         }
         false
     }
 
     /// Apply stun to specific object
-    pub fn apply_stun_to_object(&self, object_id: ObjectID, duration: Int) -> bool {
-        if let Some(physics_state) = self.get_physics_state(object_id) {
-            if let Ok(mut state) = physics_state.write() {
-                state.apply_stun(duration);
-                return true;
-            }
+    pub fn apply_stun_to_object(&mut self, object_id: ObjectID, duration: Int) -> bool {
+        if let Some(state) = self.physics_objects.get_mut(&object_id) {
+            state.apply_stun(duration);
+            return true;
         }
         false
     }
 
     /// Apply freeze to specific object
-    pub fn apply_freeze_to_object(&self, object_id: ObjectID, duration: Int) -> bool {
-        if let Some(physics_state) = self.get_physics_state(object_id) {
-            if let Ok(mut state) = physics_state.write() {
-                state.apply_freeze(duration);
-                return true;
-            }
+    pub fn apply_freeze_to_object(&mut self, object_id: ObjectID, duration: Int) -> bool {
+        if let Some(state) = self.physics_objects.get_mut(&object_id) {
+            state.apply_freeze(duration);
+            return true;
         }
         false
     }
 
     /// Get object position
     pub fn get_object_position(&self, object_id: ObjectID) -> Option<Coord3D> {
-        if let Some(physics_state) = self.get_physics_state(object_id) {
-            if let Ok(state) = physics_state.read() {
-                return Some(state.position);
-            }
-        }
-        None
+        self.get_physics_state(object_id).map(|state| state.position)
     }
 
     /// Get object velocity
     pub fn get_object_velocity(&self, object_id: ObjectID) -> Option<Coord3D> {
-        if let Some(physics_state) = self.get_physics_state(object_id) {
-            if let Ok(state) = physics_state.read() {
-                return Some(state.velocity);
-            }
-        }
-        None
+        self.get_physics_state(object_id).map(|state| state.velocity)
     }
 
     /// Set object position
-    pub fn set_object_position(&self, object_id: ObjectID, position: Coord3D) -> bool {
-        if let Some(physics_state) = self.get_physics_state(object_id) {
-            if let Ok(mut state) = physics_state.write() {
-                state.position = position;
-                return true;
-            }
+    pub fn set_object_position(&mut self, object_id: ObjectID, position: Coord3D) -> bool {
+        if let Some(state) = self.physics_objects.get_mut(&object_id) {
+            state.position = position;
+            return true;
         }
         false
     }
 
     /// Set object velocity
-    pub fn set_object_velocity(&self, object_id: ObjectID, velocity: Coord3D) -> bool {
-        if let Some(physics_state) = self.get_physics_state(object_id) {
-            if let Ok(mut state) = physics_state.write() {
-                state.set_velocity(velocity);
-                return true;
-            }
+    pub fn set_object_velocity(&mut self, object_id: ObjectID, velocity: Coord3D) -> bool {
+        if let Some(state) = self.physics_objects.get_mut(&object_id) {
+            state.set_velocity(velocity);
+            return true;
         }
         false
     }
 
     /// Check if object is on ground
     pub fn is_object_on_ground(&self, object_id: ObjectID) -> bool {
-        if let Some(physics_state) = self.get_physics_state(object_id) {
-            if let Ok(state) = physics_state.read() {
-                return state.on_ground;
-            }
-        }
-        false
+        self.get_physics_state(object_id).is_some_and(|state| state.on_ground)
     }
 
     /// Check if object can move
     pub fn can_object_move(&self, object_id: ObjectID) -> bool {
-        if let Some(physics_state) = self.get_physics_state(object_id) {
-            if let Ok(state) = physics_state.read() {
-                return state.can_move();
-            }
-        }
-        false
+        self.get_physics_state(object_id).is_some_and(|state| state.can_move())
     }
 
     /// Get terrain speed multiplier for object
     pub fn get_terrain_speed_multiplier(&self, object_id: ObjectID) -> Real {
-        if let Some(physics_state) = self.get_physics_state(object_id) {
-            if let Ok(state) = physics_state.read() {
-                return state.get_terrain_speed_multiplier();
-            }
-        }
-        1.0
+        self.get_physics_state(object_id)
+            .map(|state| state.get_terrain_speed_multiplier())
+            .unwrap_or(1.0)
     }
 }
 
@@ -1627,13 +1595,11 @@ mod tests {
         engine.apply_explosion_force(explosion_pos, 30.0, 1000.0);
 
         // Object 1 should have wind force applied
-        let physics1 = engine.get_physics_state(obj1_id).unwrap();
-        let state1 = physics1.read().unwrap();
+        let state1 = engine.get_physics_state(obj1_id).unwrap();
         assert!(state1.active_forces.len() > 0);
 
         // Object 2 should not be affected (too far)
-        let physics2 = engine.get_physics_state(obj2_id).unwrap();
-        let state2 = physics2.read().unwrap();
+        let state2 = engine.get_physics_state(obj2_id).unwrap();
         assert_eq!(state2.active_forces.len(), 0);
     }
 

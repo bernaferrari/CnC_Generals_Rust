@@ -13,8 +13,8 @@
 //!
 //! # Thread Safety
 //!
-//! All major components use Arc<RwLock<>> for thread-safe access and support
-//! concurrent loading and rendering operations.
+//! Shared assets use Arc at real sharing boundaries (loader/renderer handoff);
+//! per-instance state is owned by its subsystem.
 
 pub mod w3d_loader;
 pub mod asset_manager;

@@ -12,7 +12,7 @@
 
 use glam::{Mat4, Quat, Vec3};
 use std::io::Cursor;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use ww3d_animation::{
     HAnimClass, HCompressedAnimClass, load_w3d_animation, w3d_animation_to_hanim,
 };
@@ -74,7 +74,7 @@ pub struct LoadedAnimation {
     /// Uncompressed animation data (if present)
     pub hanim: Option<HAnimClass>,
     /// Compressed animation data (if present)
-    pub compressed_anim: Option<Arc<Mutex<HCompressedAnimClass>>>,
+    pub compressed_anim: Option<Box<HCompressedAnimClass>>,
     /// Custom data that animation systems can store
     /// (e.g., serialized animation data, file handles)
     pub metadata: std::collections::HashMap<String, String>,
@@ -164,13 +164,13 @@ impl W3DAnimationLoader {
         loaded.hanim = hanim;
 
         if let Some(compressed) = compressed_anim {
-            loaded.compressed_anim = Some(Arc::new(Mutex::new(compressed)));
+            loaded.compressed_anim = Some(Box::new(compressed));
         }
 
         loaded.bone_count = if let Some(hanim) = &loaded.hanim {
             hanim.num_pivots() as u32
         } else if let Some(compressed) = &loaded.compressed_anim {
-            compressed.lock().unwrap().get_num_pivots() as u32
+            compressed.get_num_pivots() as u32
         } else {
             0
         };
@@ -198,7 +198,7 @@ impl W3DAnimationLoader {
 /// Works with AnimationFrameCoordinator to synchronize animation time.
 pub struct AnimationPlayback {
     /// Current animation being played
-    pub animation: Arc<LoadedAnimation>,
+    pub animation: LoadedAnimation,
     /// Current playback position (frame number)
     pub current_frame: f32,
     /// Playback mode
@@ -225,7 +225,7 @@ impl AnimationPlayback {
     /// Create a new animation playback controller
     pub fn new(animation: LoadedAnimation) -> Self {
         Self {
-            animation: Arc::new(animation),
+            animation,
             current_frame: 0.0,
             mode: PlaybackMode::default(),
             is_playing: true,
@@ -322,14 +322,12 @@ impl AnimationPlayback {
     }
 
     /// Get bone transform at current frame.
-    pub fn get_bone_transform(&self, bone_index: u32) -> Mat4 {
+    pub fn get_bone_transform(&mut self, bone_index: u32) -> Mat4 {
         let frame = self.get_current_frame() as f32;
         let bone_index = bone_index as usize;
 
-        if let Some(compressed) = &self.animation.compressed_anim {
-            if let Ok(mut anim) = compressed.lock() {
-                return anim.get_transform(bone_index, frame);
-            }
+        if let Some(anim) = self.animation.compressed_anim.as_mut() {
+            return anim.get_transform(bone_index, frame);
         }
 
         if let Some(hanim) = &self.animation.hanim {
@@ -340,14 +338,12 @@ impl AnimationPlayback {
     }
 
     /// Get bone translation at current frame.
-    pub fn get_bone_translation(&self, bone_index: u32) -> Vec3 {
+    pub fn get_bone_translation(&mut self, bone_index: u32) -> Vec3 {
         let frame = self.get_current_frame() as f32;
         let bone_index = bone_index as usize;
 
-        if let Some(compressed) = &self.animation.compressed_anim {
-            if let Ok(mut anim) = compressed.lock() {
-                return anim.get_translation(bone_index, frame);
-            }
+        if let Some(anim) = self.animation.compressed_anim.as_mut() {
+            return anim.get_translation(bone_index, frame);
         }
 
         if let Some(hanim) = &self.animation.hanim {
@@ -358,14 +354,12 @@ impl AnimationPlayback {
     }
 
     /// Get bone rotation at current frame.
-    pub fn get_bone_rotation(&self, bone_index: u32) -> Quat {
+    pub fn get_bone_rotation(&mut self, bone_index: u32) -> Quat {
         let frame = self.get_current_frame() as f32;
         let bone_index = bone_index as usize;
 
-        if let Some(compressed) = &self.animation.compressed_anim {
-            if let Ok(mut anim) = compressed.lock() {
-                return anim.get_orientation(bone_index, frame);
-            }
+        if let Some(anim) = self.animation.compressed_anim.as_mut() {
+            return anim.get_orientation(bone_index, frame);
         }
 
         if let Some(hanim) = &self.animation.hanim {
@@ -376,14 +370,12 @@ impl AnimationPlayback {
     }
 
     /// Get bone visibility at current frame.
-    pub fn get_bone_visibility(&self, bone_index: u32) -> bool {
+    pub fn get_bone_visibility(&mut self, bone_index: u32) -> bool {
         let frame = self.get_current_frame() as f32;
         let bone_index = bone_index as usize;
 
-        if let Some(compressed) = &self.animation.compressed_anim {
-            if let Ok(mut anim) = compressed.lock() {
-                return anim.get_visibility(bone_index, frame);
-            }
+        if let Some(anim) = self.animation.compressed_anim.as_mut() {
+            return anim.get_visibility(bone_index, frame);
         }
 
         if let Some(hanim) = &self.animation.hanim {

@@ -37,8 +37,14 @@ pub struct CacheItem {
 /// Audio cache manager
 pub struct AudioCache {
     config: CacheConfig,
-    items: Arc<RwLock<HashMap<String, CacheItem>>>,
-    stats: Arc<RwLock<CacheStats>>,
+    /// Items and stats are always updated together, so they share one lock
+    state: RwLock<CombinedCacheState>,
+}
+
+/// Cached items plus their statistics (previously two separate locks)
+struct CombinedCacheState {
+    items: HashMap<String, CacheItem>,
+    stats: CacheStats,
 }
 
 impl AudioCache {
@@ -46,35 +52,34 @@ impl AudioCache {
     pub fn new(config: CacheConfig) -> Self {
         Self {
             config,
-            items: Arc::new(RwLock::new(HashMap::new())),
-            stats: Arc::new(RwLock::new(CacheStats {
-                total_size: 0,
-                used_size: 0,
-                item_count: 0,
-                hit_rate: 0.0,
-                miss_count: 0,
-                hit_count: 0,
-            })),
+            state: RwLock::new(CombinedCacheState {
+                items: HashMap::new(),
+                stats: CacheStats {
+                    total_size: 0,
+                    used_size: 0,
+                    item_count: 0,
+                    hit_rate: 0.0,
+                    miss_count: 0,
+                    hit_count: 0,
+                },
+            }),
         }
     }
 
     /// Get cached item
     pub async fn get(&self, key: &str) -> Result<Option<Arc<AudioSource>>> {
-        let mut items = self.items.write();
+        let mut state = self.state.write();
 
-        if let Some(item) = items.get_mut(key) {
+        if let Some(item) = state.items.get_mut(key) {
             item.access_count = item.access_count.saturating_add(1);
             item.last_accessed = std::time::Instant::now();
             let data = std::sync::Arc::clone(&item.source);
-            drop(items);
-
-            let mut stats = self.stats.write();
+            let stats = &mut state.stats;
             stats.hit_count = stats.hit_count.saturating_add(1);
             stats.hit_rate = compute_hit_rate(stats.hit_count, stats.miss_count);
             Ok(Some(data))
         } else {
-            drop(items);
-            let mut stats = self.stats.write();
+            let stats = &mut state.stats;
             stats.miss_count = stats.miss_count.saturating_add(1);
             stats.hit_rate = compute_hit_rate(stats.hit_count, stats.miss_count);
             Ok(None)
@@ -89,8 +94,11 @@ impl AudioCache {
         priority: Priority,
     ) -> Result<()> {
         let data_len = source.metadata().file_size;
-        let mut items = self.items.write();
-        let mut stats = self.stats.write();
+        let mut state = self.state.write();
+        let CombinedCacheState {
+            items,
+            stats,
+        } = &mut *state;
 
         if let Some(existing) = items.get(&key) {
             stats.used_size = stats
@@ -105,7 +113,7 @@ impl AudioCache {
         while (stats.used_size > self.config.max_size_bytes)
             || (items.len() > self.config.max_items)
         {
-            if let Some(evict_key) = select_eviction_candidate(&items) {
+            if let Some(evict_key) = select_eviction_candidate(items) {
                 if let Some(entry) = items.remove(&evict_key) {
                     stats.used_size = stats
                         .used_size
@@ -139,10 +147,9 @@ impl AudioCache {
 
     /// Remove item from cache
     pub async fn remove(&self, key: &str) -> Result<bool> {
-        let mut items = self.items.write();
-        let mut stats = self.stats.write();
-
-        if let Some(entry) = items.remove(key) {
+        let mut state = self.state.write();
+        if let Some(entry) = state.items.remove(key) {
+            let stats = &mut state.stats;
             stats.used_size = stats
                 .used_size
                 .saturating_sub(entry.source.metadata().file_size);
@@ -156,15 +163,15 @@ impl AudioCache {
 
     /// Get cache statistics
     pub fn stats(&self) -> CacheStats {
-        self.stats.read().clone()
+        self.state.read().stats.clone()
     }
 
     /// Clear all cached items
     pub async fn clear(&self) -> Result<()> {
-        let mut items = self.items.write();
-        items.clear();
+        let mut state = self.state.write();
+        state.items.clear();
 
-        let mut stats = self.stats.write();
+        let stats = &mut state.stats;
         stats.used_size = 0;
         stats.item_count = 0;
         stats.hit_rate = compute_hit_rate(stats.hit_count, stats.miss_count);

@@ -10,7 +10,7 @@ use crate::{GameLogicError, GameLogicResult};
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fmt;
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
@@ -311,23 +311,23 @@ pub struct ScriptingEngine {
     /// Rhai engine for script execution
     rhai_engine: Engine,
     /// Registered scripts
-    scripts: Arc<RwLock<HashMap<String, Script>>>,
+    scripts: HashMap<String, Script>,
     /// Active script executions
-    active_executions: Arc<RwLock<HashMap<String, ScriptExecution>>>,
+    active_executions: HashMap<String, ScriptExecution>,
     /// Event queue for triggers
-    event_queue: Arc<Mutex<VecDeque<ScriptEvent>>>,
+    event_queue: VecDeque<ScriptEvent>,
     /// Global script variables
-    global_variables: Arc<RwLock<HashMap<String, ScriptValue>>>,
+    global_variables: HashMap<String, ScriptValue>,
     /// Action registry
-    action_registry: Arc<RwLock<ActionRegistry>>,
+    action_registry: ActionRegistry,
     /// Condition registry
-    condition_registry: Arc<RwLock<ConditionRegistry>>,
+    condition_registry: ConditionRegistry,
     /// Performance metrics
-    metrics: Arc<RwLock<ScriptMetrics>>,
+    metrics: ScriptMetrics,
     /// External action handler (mission hooks)
     action_handler: Option<Arc<dyn ScriptActionHandler>>,
     /// Host-provided game state context for scripts (map name, players, objectives, etc.).
-    host_game_state: Arc<RwLock<GameStateContext>>,
+    host_game_state: GameStateContext,
 }
 
 /// Script execution metrics
@@ -369,22 +369,22 @@ impl ScriptingEngine {
         rhai_engine.set_max_array_size(1_000);
         rhai_engine.set_max_map_size(1_000);
 
-        let mut engine = Self {
+        let engine = Self {
             rhai_engine,
-            scripts: Arc::new(RwLock::new(HashMap::new())),
-            active_executions: Arc::new(RwLock::new(HashMap::new())),
-            event_queue: Arc::new(Mutex::new(VecDeque::new())),
-            global_variables: Arc::new(RwLock::new(HashMap::new())),
-            action_registry: Arc::new(RwLock::new(ActionRegistry::new())),
-            condition_registry: Arc::new(RwLock::new(ConditionRegistry::new())),
-            metrics: Arc::new(RwLock::new(ScriptMetrics::default())),
+            scripts: HashMap::new(),
+            active_executions: HashMap::new(),
+            event_queue: VecDeque::new(),
+            global_variables: HashMap::new(),
+            action_registry: ActionRegistry::new(),
+            condition_registry: ConditionRegistry::new(),
+            metrics: ScriptMetrics::default(),
             action_handler: None,
-            host_game_state: Arc::new(RwLock::new(GameStateContext {
+            host_game_state: GameStateContext {
                 map_name: String::new(),
                 game_mode: String::new(),
                 players: Vec::new(),
                 objectives: Vec::new(),
-            })),
+            },
         };
 
         engine.initialize_engine()?;
@@ -412,11 +412,8 @@ impl ScriptingEngine {
     }
 
     /// Provide the current game state snapshot for scripts (host runtime integration).
-    pub fn set_game_state_context(&self, context: GameStateContext) -> GameLogicResult<()> {
-        let mut guard = self.host_game_state.write().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to write host game state: {}", e))
-        })?;
-        *guard = context;
+    pub fn set_game_state_context(&mut self, context: GameStateContext) -> GameLogicResult<()> {
+        self.host_game_state = context;
         Ok(())
     }
 
@@ -474,7 +471,7 @@ impl ScriptingEngine {
     }
 
     /// Load script from source code
-    pub async fn load_script(&self, script: Script) -> GameLogicResult<()> {
+    pub async fn load_script(&mut self, script: Script) -> GameLogicResult<()> {
         // Compile the script
         let mut compiled_script = script;
         compiled_script.ast = Some(self.rhai_engine.compile(&compiled_script.source).map_err(
@@ -482,33 +479,25 @@ impl ScriptingEngine {
         )?);
 
         // Store the script
-        let mut scripts = self.scripts.write().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to acquire scripts lock: {}", e))
-        })?;
-        scripts.insert(compiled_script.id.clone(), compiled_script);
+        self.scripts.insert(compiled_script.id.clone(), compiled_script);
 
         Ok(())
     }
 
     /// Execute script by ID
     pub async fn execute_script(
-        &self,
+        &mut self,
         script_id: &str,
         context: ScriptContext,
     ) -> GameLogicResult<ScriptResult> {
         // Get the script
-        let script = {
-            let scripts = self.scripts.read().map_err(|e| {
-                GameLogicError::Threading(format!("Failed to acquire scripts lock: {}", e))
-            })?;
-
-            scripts
-                .get(script_id)
-                .ok_or_else(|| {
-                    GameLogicError::Configuration(format!("Script not found: {}", script_id))
-                })?
-                .clone()
-        };
+        let script = self
+            .scripts
+            .get(script_id)
+            .ok_or_else(|| {
+                GameLogicError::Configuration(format!("Script not found: {}", script_id))
+            })?
+            .clone();
 
         // Check if script is enabled and hasn't exceeded max executions
         if !script.enabled {
@@ -525,7 +514,7 @@ impl ScriptingEngine {
 
     /// Internal script execution implementation
     async fn execute_script_impl(
-        &self,
+        &mut self,
         mut script: Script,
         context: ScriptContext,
     ) -> GameLogicResult<ScriptResult> {
@@ -559,13 +548,8 @@ impl ScriptingEngine {
         self.update_metrics(&result, execution_time).await?;
 
         // Update script execution count
-        {
-            let mut scripts = self.scripts.write().map_err(|e| {
-                GameLogicError::Threading(format!("Failed to acquire scripts lock: {}", e))
-            })?;
-            if let Some(stored_script) = scripts.get_mut(&script.id) {
-                stored_script.execution_count = script.execution_count;
-            }
+        if let Some(stored_script) = self.scripts.get_mut(&script.id) {
+            stored_script.execution_count = script.execution_count;
         }
 
         Ok(result)
@@ -592,11 +576,7 @@ impl ScriptingEngine {
         }
 
         // Add global variables
-        let globals = self
-            .global_variables
-            .read()
-            .map_err(|e| GameLogicError::Threading(format!("Failed to read globals: {}", e)))?;
-        for (name, value) in globals.iter() {
+        for (name, value) in self.global_variables.iter() {
             scope.push_dynamic(name, self.script_value_to_dynamic(value));
         }
 
@@ -650,16 +630,9 @@ impl ScriptingEngine {
     }
 
     /// Process script events and triggers
-    pub async fn process_events(&self) -> GameLogicResult<()> {
+    pub async fn process_events(&mut self) -> GameLogicResult<()> {
         // Process event queue
-        let events = {
-            let mut queue = self.event_queue.lock().map_err(|e| {
-                GameLogicError::Threading(format!("Failed to acquire event queue: {}", e))
-            })?;
-
-            let events: Vec<_> = queue.drain(..).collect();
-            events
-        };
+        let events: Vec<_> = self.event_queue.drain(..).collect();
 
         for event in events {
             self.process_event(event).await?;
@@ -669,7 +642,7 @@ impl ScriptingEngine {
     }
 
     /// Process a single script event
-    async fn process_event(&self, event: ScriptEvent) -> GameLogicResult<()> {
+    async fn process_event(&mut self, event: ScriptEvent) -> GameLogicResult<()> {
         // Find scripts triggered by this event
         let triggered_scripts = self.find_triggered_scripts(&event).await?;
 
@@ -679,13 +652,7 @@ impl ScriptingEngine {
                 / crate::common::LOGICFRAMES_PER_SECOND as f64;
             let game_time = Duration::from_secs_f64(game_time_seconds.max(0.0));
 
-            let game_state = self
-                .host_game_state
-                .read()
-                .map_err(|e| {
-                    GameLogicError::Threading(format!("Failed to read host game state: {}", e))
-                })?
-                .clone();
+            let game_state = self.host_game_state.clone();
 
             let context = ScriptContext {
                 game_time,
@@ -707,11 +674,7 @@ impl ScriptingEngine {
     async fn find_triggered_scripts(&self, event: &ScriptEvent) -> GameLogicResult<Vec<String>> {
         let mut triggered = Vec::new();
 
-        let scripts = self.scripts.read().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to acquire scripts lock: {}", e))
-        })?;
-
-        for (script_id, script) in scripts.iter() {
+        for (script_id, script) in self.scripts.iter() {
             if self.script_triggered_by_event(script, event)? {
                 triggered.push(script_id.clone());
             }
@@ -751,17 +714,14 @@ impl ScriptingEngine {
     }
 
     /// Fire a script event
-    pub async fn fire_event(&self, event: ScriptEvent) -> GameLogicResult<()> {
+    pub async fn fire_event(&mut self, event: ScriptEvent) -> GameLogicResult<()> {
         self.fire_event_sync(event)
     }
 
     /// Fire a script event synchronously.
-    pub fn fire_event_sync(&self, event: ScriptEvent) -> GameLogicResult<()> {
-        let mut queue = self.event_queue.lock().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to acquire event queue: {}", e))
-        })?;
-        queue.push_back(event);
-        let pending = queue.len();
+    pub fn fire_event_sync(&mut self, event: ScriptEvent) -> GameLogicResult<()> {
+        self.event_queue.push_back(event);
+        let pending = self.event_queue.len();
         if pending >= 256 && pending % 128 == 0 {
             log::warn!(
                 "Script event queue backlog: {} pending events before processing",
@@ -773,43 +733,32 @@ impl ScriptingEngine {
 
     /// Number of currently queued script events awaiting processing.
     pub fn pending_event_count(&self) -> usize {
-        self.event_queue
-            .lock()
-            .map(|queue| queue.len())
-            .unwrap_or_default()
+        self.event_queue.len()
     }
 
     /// Set global variable
     pub async fn set_global_variable(
-        &self,
+        &mut self,
         name: String,
         value: ScriptValue,
     ) -> GameLogicResult<()> {
-        let mut globals = self.global_variables.write().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to acquire globals lock: {}", e))
-        })?;
-        globals.insert(name, value);
+        self.global_variables.insert(name, value);
         Ok(())
     }
 
+
     /// Get global variable
     pub async fn get_global_variable(&self, name: &str) -> GameLogicResult<Option<ScriptValue>> {
-        let globals = self.global_variables.read().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to acquire globals lock: {}", e))
-        })?;
-        Ok(globals.get(name).cloned())
+        Ok(self.global_variables.get(name).cloned())
     }
 
     /// Update performance metrics
     async fn update_metrics(
-        &self,
+        &mut self,
         result: &ScriptResult,
         execution_time: Duration,
     ) -> GameLogicResult<()> {
-        let mut metrics = self.metrics.write().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to acquire metrics lock: {}", e))
-        })?;
-
+        let metrics = &mut self.metrics;
         metrics.total_executions += 1;
         metrics.total_execution_time += execution_time;
         metrics.avg_execution_time = metrics.total_execution_time / metrics.total_executions as u32;
@@ -884,27 +833,17 @@ impl ScriptingEngine {
 
     /// Get current metrics
     pub async fn get_metrics(&self) -> GameLogicResult<ScriptMetrics> {
-        let metrics = self.metrics.read().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to acquire metrics lock: {}", e))
-        })?;
-        Ok(metrics.clone())
+        Ok(self.metrics.clone())
     }
 
     /// List all registered scripts
     pub async fn list_scripts(&self) -> GameLogicResult<Vec<String>> {
-        let scripts = self.scripts.read().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to acquire scripts lock: {}", e))
-        })?;
-        Ok(scripts.keys().cloned().collect())
+        Ok(self.scripts.keys().cloned().collect())
     }
 
     /// Enable/disable script
-    pub async fn set_script_enabled(&self, script_id: &str, enabled: bool) -> GameLogicResult<()> {
-        let mut scripts = self.scripts.write().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to acquire scripts lock: {}", e))
-        })?;
-
-        if let Some(script) = scripts.get_mut(script_id) {
+    pub async fn set_script_enabled(&mut self, script_id: &str, enabled: bool) -> GameLogicResult<()> {
+        if let Some(script) = self.scripts.get_mut(script_id) {
             script.enabled = enabled;
             Ok(())
         } else {
@@ -916,11 +855,8 @@ impl ScriptingEngine {
     }
 
     /// Clear all scripts
-    pub async fn clear_scripts(&self) -> GameLogicResult<()> {
-        let mut scripts = self.scripts.write().map_err(|e| {
-            GameLogicError::Threading(format!("Failed to acquire scripts lock: {}", e))
-        })?;
-        scripts.clear();
+    pub async fn clear_scripts(&mut self) -> GameLogicResult<()> {
+        self.scripts.clear();
         Ok(())
     }
 }
@@ -980,7 +916,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_script_loading() {
-        let engine = ScriptingEngine::new().unwrap();
+        let mut engine = ScriptingEngine::new().unwrap();
 
         let script = Script {
             id: "test_script".to_string(),
@@ -1004,7 +940,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_script_execution() {
-        let engine = ScriptingEngine::new().unwrap();
+        let mut engine = ScriptingEngine::new().unwrap();
 
         let script = Script {
             id: "test_exec".to_string(),
@@ -1041,7 +977,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_global_variables() {
-        let engine = ScriptingEngine::new().unwrap();
+        let mut engine = ScriptingEngine::new().unwrap();
 
         engine
             .set_global_variable("test_var".to_string(), ScriptValue::Int(42))

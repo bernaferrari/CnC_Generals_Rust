@@ -8,7 +8,7 @@ use crate::texture::Texture;
 use crate::w3d_io::*;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, Mutex, RwLock};
 
 /// Asset types that can be managed
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -205,13 +205,19 @@ struct CacheEntry<T> {
     reference_count: usize,
 }
 
+/// Combined cache state guarded by a single lock (ownership migration:
+/// previously five separate `RwLock` fields, same public API).
+struct AssetCaches {
+    mesh_cache: HashMap<String, CacheEntry<Mesh>>,
+    texture_cache: HashMap<String, CacheEntry<Texture>>,
+    hierarchy_cache: HashMap<String, CacheEntry<Hierarchy>>,
+    animation_cache: HashMap<String, CacheEntry<HierarchyAnimation>>,
+    search_paths: Vec<PathBuf>,
+}
+
 /// Asset manager for centralized asset management
 pub struct AssetManager {
-    mesh_cache: RwLock<HashMap<String, CacheEntry<Mesh>>>,
-    texture_cache: RwLock<HashMap<String, CacheEntry<Texture>>>,
-    hierarchy_cache: RwLock<HashMap<String, CacheEntry<Hierarchy>>>,
-    animation_cache: RwLock<HashMap<String, CacheEntry<HierarchyAnimation>>>,
-    search_paths: RwLock<Vec<PathBuf>>,
+    caches: Mutex<AssetCaches>,
     mesh_loader: Arc<MeshLoader>,
     hierarchy_loader: Arc<HierarchyLoader>,
     animation_loader: Arc<AnimationLoader>,
@@ -220,11 +226,13 @@ pub struct AssetManager {
 impl AssetManager {
     pub fn new() -> Self {
         Self {
-            mesh_cache: RwLock::new(HashMap::new()),
-            texture_cache: RwLock::new(HashMap::new()),
-            hierarchy_cache: RwLock::new(HashMap::new()),
-            animation_cache: RwLock::new(HashMap::new()),
-            search_paths: RwLock::new(Vec::new()),
+            caches: Mutex::new(AssetCaches {
+                mesh_cache: HashMap::new(),
+                texture_cache: HashMap::new(),
+                hierarchy_cache: HashMap::new(),
+                animation_cache: HashMap::new(),
+                search_paths: Vec::new(),
+            }),
             mesh_loader: Arc::new(MeshLoader),
             hierarchy_loader: Arc::new(HierarchyLoader),
             animation_loader: Arc::new(AnimationLoader),
@@ -233,13 +241,13 @@ impl AssetManager {
 
     /// Add a search path for asset loading
     pub fn add_search_path<P: AsRef<Path>>(&self, path: P) {
-        let mut paths = self.search_paths.write().unwrap();
-        paths.push(path.as_ref().to_path_buf());
+        let mut caches = self.caches.lock().unwrap();
+        caches.search_paths.push(path.as_ref().to_path_buf());
     }
 
     /// Find a file in the search paths
     fn find_file(&self, filename: &str) -> Option<PathBuf> {
-        let paths = self.search_paths.read().unwrap();
+        let caches = self.caches.lock().unwrap();
 
         // First try as absolute/relative path
         let path = Path::new(filename);
@@ -248,7 +256,7 @@ impl AssetManager {
         }
 
         // Then search in search paths
-        for search_path in paths.iter() {
+        for search_path in caches.search_paths.iter() {
             let full_path = search_path.join(filename);
             if full_path.exists() {
                 return Some(full_path);
@@ -262,8 +270,8 @@ impl AssetManager {
     pub fn load_mesh(&self, name: &str) -> W3DResult<AssetHandle<Mesh>> {
         // Check if already in cache
         {
-            let mut cache = self.mesh_cache.write().unwrap();
-            if let Some(entry) = cache.get_mut(name) {
+            let mut caches = self.caches.lock().unwrap();
+            if let Some(entry) = caches.mesh_cache.get_mut(name) {
                 entry.reference_count += 1;
                 return Ok(entry.handle.clone());
             }
@@ -284,8 +292,8 @@ impl AssetManager {
                 handle.set(mesh);
 
                 // Add to cache
-                let mut cache = self.mesh_cache.write().unwrap();
-                cache.insert(
+                let mut caches = self.caches.lock().unwrap();
+                caches.mesh_cache.insert(
                     name.to_string(),
                     CacheEntry {
                         handle: handle.clone(),
@@ -307,8 +315,8 @@ impl AssetManager {
     pub fn load_hierarchy(&self, name: &str) -> W3DResult<AssetHandle<Hierarchy>> {
         // Check if already in cache
         {
-            let mut cache = self.hierarchy_cache.write().unwrap();
-            if let Some(entry) = cache.get_mut(name) {
+            let mut caches = self.caches.lock().unwrap();
+            if let Some(entry) = caches.hierarchy_cache.get_mut(name) {
                 entry.reference_count += 1;
                 return Ok(entry.handle.clone());
             }
@@ -329,8 +337,8 @@ impl AssetManager {
                 handle.set(hierarchy);
 
                 // Add to cache
-                let mut cache = self.hierarchy_cache.write().unwrap();
-                cache.insert(
+                let mut caches = self.caches.lock().unwrap();
+                caches.hierarchy_cache.insert(
                     name.to_string(),
                     CacheEntry {
                         handle: handle.clone(),
@@ -352,8 +360,8 @@ impl AssetManager {
     pub fn load_animation(&self, name: &str) -> W3DResult<AssetHandle<HierarchyAnimation>> {
         // Check if already in cache
         {
-            let mut cache = self.animation_cache.write().unwrap();
-            if let Some(entry) = cache.get_mut(name) {
+            let mut caches = self.caches.lock().unwrap();
+            if let Some(entry) = caches.animation_cache.get_mut(name) {
                 entry.reference_count += 1;
                 return Ok(entry.handle.clone());
             }
@@ -374,8 +382,8 @@ impl AssetManager {
                 handle.set(animation);
 
                 // Add to cache
-                let mut cache = self.animation_cache.write().unwrap();
-                cache.insert(
+                let mut caches = self.caches.lock().unwrap();
+                caches.animation_cache.insert(
                     name.to_string(),
                     CacheEntry {
                         handle: handle.clone(),
@@ -397,8 +405,8 @@ impl AssetManager {
     pub fn register_mesh(&self, name: String, mesh: Mesh) -> AssetHandle<Mesh> {
         let handle = AssetHandle::with_asset(name.clone(), mesh);
 
-        let mut cache = self.mesh_cache.write().unwrap();
-        cache.insert(
+        let mut caches = self.caches.lock().unwrap();
+        caches.mesh_cache.insert(
             name.clone(),
             CacheEntry {
                 handle: handle.clone(),
@@ -414,8 +422,8 @@ impl AssetManager {
     pub fn register_texture(&self, name: String, texture: Texture) -> AssetHandle<Texture> {
         let handle = AssetHandle::with_asset(name.clone(), texture);
 
-        let mut cache = self.texture_cache.write().unwrap();
-        cache.insert(
+        let mut caches = self.caches.lock().unwrap();
+        caches.texture_cache.insert(
             name.clone(),
             CacheEntry {
                 handle: handle.clone(),
@@ -429,40 +437,31 @@ impl AssetManager {
 
     /// Get cache statistics
     pub fn cache_stats(&self) -> CacheStats {
+        let caches = self.caches.lock().unwrap();
         CacheStats {
-            mesh_count: self.mesh_cache.read().unwrap().len(),
-            texture_count: self.texture_cache.read().unwrap().len(),
-            hierarchy_count: self.hierarchy_cache.read().unwrap().len(),
-            animation_count: self.animation_cache.read().unwrap().len(),
+            mesh_count: caches.mesh_cache.len(),
+            texture_count: caches.texture_cache.len(),
+            hierarchy_count: caches.hierarchy_cache.len(),
+            animation_count: caches.animation_cache.len(),
         }
     }
 
     /// Clear all caches
     pub fn clear_all_caches(&self) {
-        self.mesh_cache.write().unwrap().clear();
-        self.texture_cache.write().unwrap().clear();
-        self.hierarchy_cache.write().unwrap().clear();
-        self.animation_cache.write().unwrap().clear();
+        let mut caches = self.caches.lock().unwrap();
+        caches.mesh_cache.clear();
+        caches.texture_cache.clear();
+        caches.hierarchy_cache.clear();
+        caches.animation_cache.clear();
     }
 
     /// Clear unused assets (reference count == 0)
     pub fn clear_unused(&self) {
-        {
-            let mut cache = self.mesh_cache.write().unwrap();
-            cache.retain(|_, entry| entry.reference_count > 0);
-        }
-        {
-            let mut cache = self.texture_cache.write().unwrap();
-            cache.retain(|_, entry| entry.reference_count > 0);
-        }
-        {
-            let mut cache = self.hierarchy_cache.write().unwrap();
-            cache.retain(|_, entry| entry.reference_count > 0);
-        }
-        {
-            let mut cache = self.animation_cache.write().unwrap();
-            cache.retain(|_, entry| entry.reference_count > 0);
-        }
+        let mut caches = self.caches.lock().unwrap();
+        caches.mesh_cache.retain(|_, entry| entry.reference_count > 0);
+        caches.texture_cache.retain(|_, entry| entry.reference_count > 0);
+        caches.hierarchy_cache.retain(|_, entry| entry.reference_count > 0);
+        caches.animation_cache.retain(|_, entry| entry.reference_count > 0);
     }
 }
 

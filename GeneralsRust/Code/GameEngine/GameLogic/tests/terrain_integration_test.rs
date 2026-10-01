@@ -155,8 +155,7 @@ fn test_physics_state_terrain_updates() {
     );
 
     // Get the state back
-    let state_arc = engine.get_physics_state(123).unwrap();
-    let state = state_arc.read().unwrap();
+    let state = engine.get_physics_state(123).unwrap();
 
     // Terrain data should be updated (even if empty terrain, values should be set)
     assert!(

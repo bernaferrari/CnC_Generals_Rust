@@ -2697,7 +2697,7 @@ fn script_wait_for_not_contained_uses_live_contained_by_census() {
         Some(99)
     );
 
-    let mut dispatcher = ScriptActionDispatcher::new(Arc::new(RwLock::new(ScriptContext::new())));
+    let mut dispatcher = ScriptActionDispatcher::new(ScriptContext::new());
     let mut wait = ScriptAction::new(ScriptActionType::TeamWaitForNotContainedAll);
     wait.add_parameter(Parameter::with_string(
         ParameterType::Team,

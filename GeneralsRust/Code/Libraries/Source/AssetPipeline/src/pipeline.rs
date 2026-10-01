@@ -43,14 +43,14 @@ impl Default for PipelineJobStatus {
 /// Pipeline coordinator
 #[derive(Debug)]
 pub struct PipelineCoordinator {
-    jobs: Arc<RwLock<HashMap<uuid::Uuid, PipelineJobStatus>>>,
+    jobs: RwLock<HashMap<uuid::Uuid, PipelineJobStatus>>,
     max_concurrent: usize,
 }
 
 impl PipelineCoordinator {
     pub fn new(max_concurrent: usize) -> Self {
         Self {
-            jobs: Arc::new(RwLock::new(HashMap::new())),
+            jobs: RwLock::new(HashMap::new()),
             max_concurrent,
         }
     }

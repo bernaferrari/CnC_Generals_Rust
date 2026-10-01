@@ -102,38 +102,45 @@ pub struct AssetStats {
 
 /// Complete asset management system
 pub struct AssetManager {
-    /// Asset cache
-    cache: RwLock<HashMap<String, Arc<CachedAsset>>>,
+    /// Guarded cache state (cache + stats + size accounting behind one lock).
+    state: RwLock<AssetCacheState>,
     /// Asset search paths
     search_paths: Vec<PathBuf>,
-    /// Loading statistics
-    stats: RwLock<AssetStats>,
     /// Maximum cache size in bytes
     max_cache_size: u64,
-    /// Current cache size
-    current_cache_size: RwLock<u64>,
+}
+
+/// Interior cache state guarded by the single `AssetManager` lock.
+struct AssetCacheState {
+    cache: HashMap<String, Arc<CachedAsset>>,
+    stats: AssetStats,
+    current_cache_size: u64,
 }
 
 impl AssetManager {
     /// Create new asset manager
     pub fn new() -> Self {
         Self {
-            cache: RwLock::new(HashMap::new()),
+            state: RwLock::new(AssetCacheState {
+                cache: HashMap::new(),
+                stats: AssetStats::default(),
+                current_cache_size: 0,
+            }),
             search_paths: Vec::new(),
-            stats: RwLock::new(AssetStats::default()),
             max_cache_size: 512 * 1024 * 1024, // 512MB default
-            current_cache_size: RwLock::new(0),
         }
     }
 
     /// Create asset manager with custom cache size
     pub fn with_cache_size(max_cache_size: u64) -> Self {
         Self {
-            cache: RwLock::new(HashMap::new()),
+            state: RwLock::new(AssetCacheState {
+                cache: HashMap::new(),
+                stats: AssetStats::default(),
+                current_cache_size: 0,
+            }),
             search_paths: Vec::new(),
-            stats: RwLock::new(AssetStats::default()),
             max_cache_size,
-            current_cache_size: RwLock::new(0),
         }
     }
 
@@ -150,17 +157,17 @@ impl AssetManager {
 
         // Check cache first
         {
-            let cache = self.cache.read().unwrap_or_else(|e| e.into_inner());
-            if let Some(asset) = cache.get(&cache_key) {
+            let mut state = self.state.write().unwrap_or_else(|e| e.into_inner());
+            if let Some(asset) = state.cache.get(&cache_key) {
                 // Update access time
                 // Note: This would require interior mutability in a real implementation
-                self.update_stats_cache_hit();
+                state.stats.cache_hits += 1;
                 debug!("Cache hit for asset: {}", name);
                 return Ok(Arc::clone(asset));
             }
+            state.stats.cache_misses += 1;
         }
 
-        self.update_stats_cache_miss();
         debug!("Cache miss for asset: {}, loading from disk", name);
 
         // Find asset file
@@ -193,16 +200,18 @@ impl AssetManager {
         Ok(cached_asset)
     }
 
-    /// Check if asset exists
     pub fn asset_exists(&self, name: &str) -> bool {
         let cache_key = name.to_lowercase();
 
         // Check cache first
+        if self
+            .state
+            .read()
+            .unwrap_or_else(|e| e.into_inner())
+            .cache
+            .contains_key(&cache_key)
         {
-            let cache = self.cache.read().unwrap_or_else(|e| e.into_inner());
-            if cache.contains_key(&cache_key) {
-                return true;
-            }
+            return true;
         }
 
         // Check filesystem
@@ -218,7 +227,11 @@ impl AssetManager {
                 Ok(_) => debug!("Preloaded asset: {}", name),
                 Err(e) => {
                     warn!("Failed to preload asset {}: {}", name, e);
-                    self.update_stats_failed();
+                    self.state
+                        .write()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .stats
+                        .failed_loads += 1;
                 }
             }
         }
@@ -230,41 +243,27 @@ impl AssetManager {
     pub fn clear_cache(&self) {
         info!("Clearing asset cache");
 
-        {
-            let mut cache = self.cache.write().unwrap_or_else(|e| e.into_inner());
-            cache.clear();
-        }
-
-        {
-            let mut cache_size = self
-                .current_cache_size
-                .write()
-                .unwrap_or_else(|e| e.into_inner());
-            *cache_size = 0;
-        }
+        let mut state = self.state.write().unwrap_or_else(|e| e.into_inner());
+        state.cache.clear();
+        state.current_cache_size = 0;
     }
 
     /// Get asset loading statistics
     pub fn get_stats(&self) -> AssetStats {
-        self.stats.read().unwrap_or_else(|e| e.into_inner()).clone()
+        self.state.read().unwrap_or_else(|e| e.into_inner()).stats.clone()
     }
 
     /// Get current cache size
     pub fn get_cache_size(&self) -> u64 {
-        *self
-            .current_cache_size
-            .read()
-            .unwrap_or_else(|e| e.into_inner())
+        self.state.read().unwrap_or_else(|e| e.into_inner()).current_cache_size
     }
 
     /// Get cache utilization (0.0 to 1.0)
     pub fn get_cache_utilization(&self) -> f64 {
-        let current = *self
-            .current_cache_size
-            .read()
-            .unwrap_or_else(|e| e.into_inner());
+        let current = self.state.read().unwrap_or_else(|e| e.into_inner()).current_cache_size;
         current as f64 / self.max_cache_size as f64
     }
+
 
     /// Find asset file in search paths
     fn find_asset_file(&self, name: &str) -> Result<PathBuf> {
@@ -325,99 +324,54 @@ impl AssetManager {
     fn add_to_cache(&self, key: String, asset: Arc<CachedAsset>) -> Result<()> {
         let asset_size = asset.data.len() as u64;
 
+        let mut state = self.state.write().unwrap_or_else(|e| e.into_inner());
+
         // Check if we need to evict assets
-        {
-            let current_size = self
-                .current_cache_size
-                .write()
-                .unwrap_or_else(|e| e.into_inner());
-            if *current_size + asset_size > self.max_cache_size {
-                drop(current_size);
-                self.evict_assets(asset_size)?;
-            }
+        if state.current_cache_size + asset_size > self.max_cache_size {
+            Self::evict_assets_locked(&mut state, asset_size);
         }
 
         // Add to cache
-        {
-            let mut cache = self.cache.write().unwrap_or_else(|e| e.into_inner());
-            cache.insert(key, asset);
-        }
+        state.cache.insert(key, asset);
 
         // Update cache size
-        {
-            let mut current_size = self
-                .current_cache_size
-                .write()
-                .unwrap_or_else(|e| e.into_inner());
-            *current_size += asset_size;
-        }
+        state.current_cache_size += asset_size;
 
         Ok(())
     }
 
-    /// Evict assets to make room
-    fn evict_assets(&self, needed_space: u64) -> Result<()> {
+    /// Evict assets to make room (caller holds the state write lock)
+    fn evict_assets_locked(state: &mut AssetCacheState, needed_space: u64) {
         info!("Evicting assets to make room for {} bytes", needed_space);
 
         let mut to_evict = Vec::new();
         let mut space_freed = 0u64;
 
         // Simple LRU eviction based on loaded_at time
-        {
-            let cache = self.cache.read().unwrap_or_else(|e| e.into_inner());
-            let mut assets: Vec<_> = cache.iter().collect();
-            assets.sort_by_key(|(_, asset)| asset.loaded_at);
+        let mut assets: Vec<_> = state.cache.iter().collect();
+        assets.sort_by_key(|(_, asset)| asset.loaded_at);
 
-            for (key, asset) in assets {
-                if space_freed >= needed_space {
-                    break;
-                }
-                to_evict.push((key.clone(), asset.data.len() as u64));
-                space_freed += asset.data.len() as u64;
+        for (key, asset) in assets {
+            if space_freed >= needed_space {
+                break;
             }
+            to_evict.push((key.clone(), asset.data.len() as u64));
+            space_freed += asset.data.len() as u64;
         }
 
         // Evict selected assets
-        {
-            let mut cache = self.cache.write().unwrap_or_else(|e| e.into_inner());
-            let mut current_size = self
-                .current_cache_size
-                .write()
-                .unwrap_or_else(|e| e.into_inner());
-
-            for (key, size) in to_evict {
-                cache.remove(&key);
-                *current_size -= size;
-                debug!("Evicted asset: {} ({} bytes)", key, size);
-            }
+        for (key, size) in to_evict {
+            state.cache.remove(&key);
+            state.current_cache_size -= size;
+            debug!("Evicted asset: {} ({} bytes)", key, size);
         }
-
-        Ok(())
-    }
-
-    /// Update statistics for cache hit
-    fn update_stats_cache_hit(&self) {
-        let mut stats = self.stats.write().unwrap_or_else(|e| e.into_inner());
-        stats.cache_hits += 1;
-    }
-
-    /// Update statistics for cache miss
-    fn update_stats_cache_miss(&self) {
-        let mut stats = self.stats.write().unwrap_or_else(|e| e.into_inner());
-        stats.cache_misses += 1;
     }
 
     /// Update statistics for loaded asset
     fn update_stats_loaded(&self, asset: &CachedAsset) {
-        let mut stats = self.stats.write().unwrap_or_else(|e| e.into_inner());
+        let mut stats = &mut self.state.write().unwrap_or_else(|e| e.into_inner()).stats;
         stats.total_loaded += 1;
         stats.total_size += asset.data.len() as u64;
-    }
-
-    /// Update statistics for failed load
-    fn update_stats_failed(&self) {
-        let mut stats = self.stats.write().unwrap_or_else(|e| e.into_inner());
-        stats.failed_loads += 1;
     }
 }
 

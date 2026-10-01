@@ -257,18 +257,15 @@ impl Object {
         local_player_guard.is_enemy_with_team(&team_guard)
     }
 
-    pub(crate) fn refresh_radar_object_from_state(&self) {
-        let Some(radar_data) = &self.radar_data else {
-            return;
-        };
-        let Ok(mut radar_guard) = radar_data.lock() else {
+    pub(crate) fn refresh_radar_object_from_state(&mut self) {
+        let Some(radar_data) = self.radar_data.as_mut() else {
             return;
         };
 
-        let mut radar_obj = radar_guard.clone();
+        let mut radar_obj = radar_data.clone();
         self.populate_radar_object_from_state(&mut radar_obj);
-        *radar_guard = radar_obj.clone();
-        drop(radar_guard);
+        let radar_data = self.radar_data.as_mut().expect("checked above");
+        *radar_data = radar_obj.clone();
 
         let radar = game_engine::common::system::radar::get_radar_system();
         let radar_write = radar.write();

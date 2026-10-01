@@ -1565,7 +1565,7 @@ impl ScriptEngine {
         let result = if let Some(or_cond) = script.condition.as_deref_mut() {
             self.with_active(|| {
                 let mut leftover = crate::scripting::executor::ScriptConditionEvaluator::new(
-                    Arc::new(RwLock::new(crate::scripting::executor::ScriptContext::new())),
+                    crate::scripting::executor::ScriptContext::new(),
                 );
                 leftover.evaluate_or_condition(or_cond).unwrap_or(false)
             })

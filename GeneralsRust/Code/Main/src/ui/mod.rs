@@ -8,7 +8,7 @@
 
 use log::warn;
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+
 
 pub mod audio;
 pub mod campaign_menu;
@@ -435,8 +435,8 @@ pub struct UIRenderContext {
     pub screen_size: (u32, u32),
     pub delta_time: f32,
     pub mouse_position: (i32, i32),
-    pub font_manager: Arc<Mutex<FontManager>>,
-    pub texture_manager: Arc<Mutex<TextureManager>>,
+    pub font_manager: FontManager,
+    pub texture_manager: TextureManager,
     /// Accumulated draw commands produced by `Renderable::render` implementations.
     pub draw_commands: Vec<UIRenderCommand>,
 }
@@ -453,8 +453,8 @@ impl UIRenderContext {
             screen_size: (1024, 768),
             delta_time: 0.016,
             mouse_position: (0, 0),
-            font_manager: Arc::new(Mutex::new(FontManager::new())),
-            texture_manager: Arc::new(Mutex::new(TextureManager::new())),
+            font_manager: FontManager::new(),
+            texture_manager: TextureManager::new(),
             draw_commands: Vec::new(),
         }
     }

@@ -2922,17 +2922,17 @@ pub struct Object {
     // Helper modules
     repulsor_helper: Option<ObjectRepulsorHelper>,
     smc_helper: Option<ObjectSMCHelper>,
-    ws_helper: Option<Arc<Mutex<ObjectWeaponStatusHelper>>>,
+    ws_helper: Option<Box<ObjectWeaponStatusHelper>>,
     defection_helper: Option<ObjectDefectionHelper>,
-    status_damage_helper: Option<Arc<Mutex<StatusDamageHelper>>>,
-    subdual_damage_helper: Option<Arc<Mutex<SubdualDamageHelper>>>,
-    temp_weapon_bonus_helper: Option<Arc<Mutex<TempWeaponBonusHelper>>>,
-    firing_tracker: Option<Arc<Mutex<FiringTracker>>>,
-    held_helper: Option<Arc<Mutex<ObjectHeldHelper>>>,
+    status_damage_helper: Option<Box<StatusDamageHelper>>,
+    subdual_damage_helper: Option<Box<SubdualDamageHelper>>,
+    temp_weapon_bonus_helper: Option<Box<TempWeaponBonusHelper>>,
+    firing_tracker: Option<Box<FiringTracker>>,
+    held_helper: Option<Box<ObjectHeldHelper>>,
 
     // Spatial and partition data
     partition_data: Option<Arc<Mutex<PartitionData>>>,
-    radar_data: Option<Arc<Mutex<RadarObject>>>,
+    radar_data: Option<Box<RadarObject>>,
 
     // Vision and detection
     partition_last_look: SightingInfo,

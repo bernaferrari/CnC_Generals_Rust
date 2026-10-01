@@ -126,9 +126,14 @@ impl PerformanceTimer {
 /// Main debug system
 pub struct DebugSystem {
     config: DebugConfig,
-    stats: Arc<Mutex<DebugStats>>,
-    log_writer: Option<Arc<Mutex<BufWriter<File>>>>,
-    performance_timers: Arc<Mutex<std::collections::HashMap<String, PerformanceTimer>>>,
+    state: Mutex<DebugState>,
+}
+
+/// Interior state guarded by the single `DebugSystem` lock.
+struct DebugState {
+    stats: DebugStats,
+    log_writer: Option<BufWriter<File>>,
+    performance_timers: std::collections::HashMap<String, PerformanceTimer>,
 }
 
 impl DebugSystem {
@@ -136,9 +141,11 @@ impl DebugSystem {
     pub fn new(config: DebugConfig) -> Result<Self> {
         let mut system = Self {
             config: config.clone(),
-            stats: Arc::new(Mutex::new(DebugStats::default())),
-            log_writer: None,
-            performance_timers: Arc::new(Mutex::new(std::collections::HashMap::new())),
+            state: Mutex::new(DebugState {
+                stats: DebugStats::default(),
+                log_writer: None,
+                performance_timers: std::collections::HashMap::new(),
+            }),
         };
 
         // Initialize log file if enabled
@@ -176,7 +183,7 @@ impl DebugSystem {
             .context("Failed to open log file")?;
 
         let writer = BufWriter::new(file);
-        self.log_writer = Some(Arc::new(Mutex::new(writer)));
+        self.state.get_mut().unwrap().log_writer = Some(writer);
 
         Ok(())
     }
@@ -253,33 +260,29 @@ impl DebugSystem {
 
     /// Write a debug log entry to file
     pub fn log_to_file(&self, level: &str, message: &str) -> Result<()> {
-        if let Some(ref writer) = self.log_writer {
-            let timestamp = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_millis();
+        let timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis();
 
-            let formatted = format!("[{}] [{}] {}\n", timestamp, level.to_uppercase(), message);
+        let formatted = format!("[{}] [{}] {}\n", timestamp, level.to_uppercase(), message);
 
+        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(writer_guard) = state.log_writer.as_mut() {
+            writer_guard.write_all(formatted.as_bytes())?;
+
+            // Update stats
+            state.stats.log_entries_written += 1;
+            state.stats.total_log_size += formatted.len() as u64;
+
+            // Flush periodically
+            if state
+                .stats
+                .log_entries_written
+                .is_multiple_of(self.config.flush_frequency)
             {
-                let mut writer_guard = writer.lock().unwrap_or_else(|e| e.into_inner());
-                writer_guard.write_all(formatted.as_bytes())?;
-
-                // Update stats
-                {
-                    let mut stats = self.stats.lock().unwrap_or_else(|e| e.into_inner());
-                    stats.log_entries_written += 1;
-                    stats.total_log_size += formatted.len() as u64;
-
-                    // Flush periodically
-                    if stats
-                        .log_entries_written
-                        .is_multiple_of(self.config.flush_frequency)
-                    {
-                        writer_guard.flush()?;
-                        stats.last_flush_time = SystemTime::now();
-                    }
-                }
+                writer_guard.flush()?;
+                state.stats.last_flush_time = SystemTime::now();
             }
         }
 
@@ -292,11 +295,9 @@ impl DebugSystem {
             return;
         }
 
-        let mut timers = self
+        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        let timer = state
             .performance_timers
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        let timer = timers
             .entry(name.to_string())
             .or_insert_with(|| PerformanceTimer::new(name.to_string()));
         timer.start();
@@ -308,11 +309,8 @@ impl DebugSystem {
             return;
         }
 
-        let mut timers = self
-            .performance_timers
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        if let Some(timer) = timers.get_mut(name) {
+        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(timer) = state.performance_timers.get_mut(name) {
             timer.stop();
 
             // Log performance data periodically
@@ -327,25 +325,24 @@ impl DebugSystem {
 
     /// Get performance statistics
     pub fn get_performance_stats(&self) -> std::collections::HashMap<String, PerformanceTimer> {
-        self.performance_timers
+        self.state
             .lock()
             .unwrap_or_else(|e| e.into_inner())
+            .performance_timers
             .clone()
     }
 
     /// Get debug system statistics
     pub fn get_stats(&self) -> DebugStats {
-        self.stats.lock().unwrap_or_else(|e| e.into_inner()).clone()
+        self.state.lock().unwrap_or_else(|e| e.into_inner()).stats.clone()
     }
 
     /// Flush log buffers to disk
     pub fn flush(&self) -> Result<()> {
-        if let Some(ref writer) = self.log_writer {
-            let mut writer_guard = writer.lock().unwrap_or_else(|e| e.into_inner());
+        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(writer_guard) = state.log_writer.as_mut() {
             writer_guard.flush()?;
-
-            let mut stats = self.stats.lock().unwrap_or_else(|e| e.into_inner());
-            stats.last_flush_time = SystemTime::now();
+            state.stats.last_flush_time = SystemTime::now();
         }
         Ok(())
     }
@@ -380,10 +377,7 @@ impl DebugSystem {
 
         file.flush()?;
 
-        {
-            let mut stats = self.stats.lock().unwrap_or_else(|e| e.into_inner());
-            stats.crashes_handled += 1;
-        }
+        self.state.lock().unwrap_or_else(|e| e.into_inner()).stats.crashes_handled += 1;
 
         error!("CRITICAL ERROR: {} (dump: {:?})", error, crash_file);
         Ok(())

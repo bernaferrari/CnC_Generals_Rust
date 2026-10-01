@@ -10,7 +10,6 @@
 use crate::{AssetError, ProcessingResult, Result};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime};
 use tokio::sync::RwLock;
 
@@ -46,16 +45,22 @@ impl CacheStatistics {
     }
 }
 
+/// Combined mutable cache state, guarded by a single lock
+#[derive(Debug)]
+struct CacheCombinedState {
+    entries: HashMap<String, CacheEntry>,
+    stats: CacheStatistics,
+    total_processing_time: Duration,
+    processed_count: u64,
+}
+
 /// Asset cache
 #[derive(Debug)]
 pub struct AssetCache {
     cache_dir: PathBuf,
-    entries: Arc<RwLock<HashMap<String, CacheEntry>>>,
-    stats: Arc<RwLock<CacheStatistics>>,
+    state: RwLock<CacheCombinedState>,
     max_size: usize,
     max_age: Duration,
-    total_processing_time: Arc<RwLock<Duration>>,
-    processed_count: Arc<RwLock<u64>>,
 }
 
 impl AssetCache {
@@ -63,12 +68,14 @@ impl AssetCache {
     pub fn new(cache_dir: &Path) -> Self {
         Self {
             cache_dir: cache_dir.to_path_buf(),
-            entries: Arc::new(RwLock::new(HashMap::new())),
-            stats: Arc::new(RwLock::new(CacheStatistics::default())),
+            state: RwLock::new(CacheCombinedState {
+                entries: HashMap::new(),
+                stats: CacheStatistics::default(),
+                total_processing_time: Duration::ZERO,
+                processed_count: 0,
+            }),
             max_size: 1024 * 1024 * 1024,            // 1 GB default
             max_age: Duration::from_secs(86400 * 7), // 7 days
-            total_processing_time: Arc::new(RwLock::new(Duration::ZERO)),
-            processed_count: Arc::new(RwLock::new(0)),
         }
     }
 
@@ -86,8 +93,12 @@ impl AssetCache {
 
     /// Get cached result
     pub async fn get(&self, key: &str) -> Result<Option<ProcessingResult>> {
-        let mut entries = self.entries.write().await;
-        let mut stats = self.stats.write().await;
+        let mut state = self.state.write().await;
+        let CacheCombinedState {
+            entries,
+            stats,
+            ..
+        } = &mut *state;
 
         if let Some(entry) = entries.get_mut(key) {
             // Check if entry is still valid
@@ -117,8 +128,13 @@ impl AssetCache {
 
     /// Store result in cache
     pub async fn store(&self, key: &str, result: &ProcessingResult) -> Result<()> {
-        let mut entries = self.entries.write().await;
-        let mut stats = self.stats.write().await;
+        let mut state = self.state.write().await;
+        let CacheCombinedState {
+            entries,
+            stats,
+            total_processing_time,
+            processed_count,
+        } = &mut *state;
 
         // Calculate entry size (approximate)
         let size = std::mem::size_of::<ProcessingResult>();
@@ -126,7 +142,7 @@ impl AssetCache {
         // Check if we need to evict
         let current_size = stats.total_size;
         if current_size + size > self.max_size {
-            self.evict_lru(&mut entries, &mut stats, size).await;
+            Self::evict_lru(entries, stats, size);
         }
 
         // Create entry
@@ -145,19 +161,15 @@ impl AssetCache {
         stats.entry_count += 1;
 
         // Update processing stats
-        let mut total_time = self.total_processing_time.write().await;
-        *total_time += result.duration;
-
-        let mut count = self.processed_count.write().await;
-        *count += 1;
+        *total_processing_time += result.duration;
+        *processed_count += 1;
 
         log::debug!("Stored cache entry for key: {}", key);
         Ok(())
     }
 
     /// Evict least recently used entries
-    async fn evict_lru(
-        &self,
+    fn evict_lru(
         entries: &mut HashMap<String, CacheEntry>,
         stats: &mut CacheStatistics,
         needed_space: usize,
@@ -190,21 +202,22 @@ impl AssetCache {
         }
     }
 
-    /// Clear all cache entries
     pub async fn clear(&self) {
-        let mut entries = self.entries.write().await;
-        let mut stats = self.stats.write().await;
-
-        entries.clear();
-        *stats = CacheStatistics::default();
+        let mut state = self.state.write().await;
+        state.entries.clear();
+        state.stats = CacheStatistics::default();
 
         log::info!("Cache cleared");
     }
 
     /// Remove entries older than max_age
     pub async fn prune(&self) -> Result<usize> {
-        let mut entries = self.entries.write().await;
-        let mut stats = self.stats.write().await;
+        let mut state = self.state.write().await;
+        let CacheCombinedState {
+            entries,
+            stats,
+            ..
+        } = &mut *state;
         let mut removed = 0;
 
         let now = SystemTime::now();
@@ -232,8 +245,7 @@ impl AssetCache {
 
     /// Get cache statistics
     pub async fn statistics(&self) -> CacheStatistics {
-        let stats = self.stats.read().await;
-        stats.clone()
+        self.state.read().await.stats.clone()
     }
 
     /// Get cache hit rate
@@ -261,9 +273,9 @@ impl AssetCache {
         Duration::ZERO
     }
 
-    /// Persist cache to disk
     pub async fn persist(&self) -> Result<()> {
-        let entries = self.entries.read().await;
+        let state = self.state.read().await;
+        let entries = &state.entries;
 
         // Create cache directory if it doesn't exist
         std::fs::create_dir_all(&self.cache_dir)?;

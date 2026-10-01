@@ -9,15 +9,12 @@
 use crate::{Asset, AssetError, AssetMetadata, Result};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
-use tokio::sync::RwLock;
 use uuid::Uuid;
 
 /// Metadata store
 #[derive(Debug)]
 pub struct MetadataStore {
     metadata_dir: PathBuf,
-    cache: Arc<RwLock<HashMap<Uuid, AssetMetadata>>>,
 }
 
 impl MetadataStore {
@@ -25,7 +22,6 @@ impl MetadataStore {
     pub fn new(metadata_dir: &Path) -> Self {
         Self {
             metadata_dir: metadata_dir.to_path_buf(),
-            cache: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 
@@ -64,10 +60,6 @@ impl MetadataStore {
 
     /// Update metadata
     pub async fn update(&self, asset_id: Uuid, metadata: AssetMetadata) -> Result<()> {
-        // Update cache
-        let mut cache = self.cache.write().await;
-        cache.insert(asset_id, metadata.clone());
-
         // Write to disk
         let json = serde_json::to_string_pretty(&metadata)?;
         let filename = format!("{}.json", asset_id);
@@ -80,10 +72,6 @@ impl MetadataStore {
 
     /// Delete metadata
     pub async fn delete(&self, asset_id: Uuid) -> Result<()> {
-        // Remove from cache
-        let mut cache = self.cache.write().await;
-        cache.remove(&asset_id);
-
         // Delete file
         let filename = format!("{}.json", asset_id);
         let path = self.metadata_dir.join(filename);
@@ -159,9 +147,6 @@ impl MetadataStore {
 
     /// Clear all metadata
     pub async fn clear(&self) -> Result<()> {
-        let mut cache = self.cache.write().await;
-        cache.clear();
-
         if self.metadata_dir.exists() {
             std::fs::remove_dir_all(&self.metadata_dir)?;
             std::fs::create_dir_all(&self.metadata_dir)?;

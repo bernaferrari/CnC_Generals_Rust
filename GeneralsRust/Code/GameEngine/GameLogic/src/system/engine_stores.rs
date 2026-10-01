@@ -559,13 +559,14 @@ mod tests {
         );
         assert_eq!(
             live.client_visuals()
-                .model_draw_frames
-                .lock()
-                .unwrap()
-                .len(),
+                .with_queues(|queues| queues.model_draw_frames.len()),
             1
         );
-        assert_eq!(live.client_visuals().terrain_trees.lock().unwrap().len(), 1);
+        assert_eq!(
+            live.client_visuals()
+                .with_queues(|queues| queues.terrain_trees.len()),
+            1
+        );
 
         // Failed candidate: dropping it leaves the installed live world and
         // its visual state intact. Successful candidate: the candidate's
@@ -650,19 +651,16 @@ mod tests {
             .create_drawable(&template);
         let drawable = a
             .client_visuals()
-            .drawables
-            .lock()
-            .unwrap()
-            .get(&id)
-            .and_then(|state| state.drawable.clone())
+            .with_queues(|queues| {
+                queues
+                    .drawables
+                    .get(&id)
+                    .and_then(|state| state.drawable.clone())
+            })
             .expect("created drawable");
         let mut saved = a
             .client_visuals()
-            .drawables
-            .lock()
-            .unwrap()
-            .get(&id)
-            .cloned()
+            .with_queues(|queues| queues.drawables.get(&id).cloned())
             .expect("saved drawable");
         saved.position = crate::common::Coord3D::new(4.0, 5.0, 6.0);
         saved.orientation = 0.5;
@@ -681,34 +679,22 @@ mod tests {
         a_visuals.restore_objectless_drawable(id, &saved);
         let restored = a
             .client_visuals()
-            .drawables
-            .lock()
-            .unwrap()
-            .get(&id)
-            .cloned()
+            .with_queues(|queues| queues.drawables.get(&id).cloned())
             .unwrap();
         assert_eq!(restored.position, saved.position);
         assert_eq!(restored.orientation, saved.orientation);
         assert_eq!(restored.beam_end, saved.beam_end);
         assert_eq!(
             b.client_visuals()
-                .drawables
-                .lock()
-                .unwrap()
-                .get(&b_id)
-                .unwrap()
-                .position,
+                .with_queues(|queues| queues.drawables.get(&b_id).unwrap().position),
             crate::common::Coord3D::ZERO
         );
         a_visuals.clear_objectless_drawables();
-        assert!(a.client_visuals().drawables.lock().unwrap().is_empty());
-        assert!(
-            b.client_visuals()
-                .drawables
-                .lock()
-                .unwrap()
-                .contains_key(&b_id)
-        );
+        assert!(a
+            .client_visuals()
+            .with_queues(|queues| queues.drawables.is_empty()));
+        assert!(b.client_visuals()
+            .with_queues(|queues| queues.drawables.contains_key(&b_id)));
         assert!(uninstall_active_if_current(&b));
         assert!(uninstall_active_if_current(&a));
         drop(a_visuals);

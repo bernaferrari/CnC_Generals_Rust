@@ -51,8 +51,8 @@ struct MeshCacheKey {
 pub struct NPatchPipeline {
     config: NPatchConfig,
     tessellator: NPatchTessellator,
-    cache: Arc<RwLock<HashMap<MeshCacheKey, Arc<SubdividedMesh>>>>,
-    stats: Arc<RwLock<PipelineStats>>,
+    cache: RwLock<HashMap<MeshCacheKey, Arc<SubdividedMesh>>>,
+    stats: RwLock<PipelineStats>,
 }
 
 impl NPatchPipeline {
@@ -64,8 +64,8 @@ impl NPatchPipeline {
         Self {
             config,
             tessellator,
-            cache: Arc::new(RwLock::new(HashMap::new())),
-            stats: Arc::new(RwLock::new(PipelineStats::default())),
+            cache: RwLock::new(HashMap::new()),
+            stats: RwLock::new(PipelineStats::default()),
         }
     }
 
@@ -77,8 +77,8 @@ impl NPatchPipeline {
         Self {
             config,
             tessellator,
-            cache: Arc::new(RwLock::new(HashMap::new())),
-            stats: Arc::new(RwLock::new(PipelineStats::default())),
+            cache: RwLock::new(HashMap::new()),
+            stats: RwLock::new(PipelineStats::default()),
         }
     }
 

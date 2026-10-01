@@ -58,7 +58,7 @@ struct WgpuMeshContainer {
 #[derive(Debug)]
 pub struct WgpuRenderNode {
     mesh: Arc<MeshGeometry>,
-    shader: Arc<Mutex<dyn ShdInterface>>,
+    shader: Box<dyn ShdInterface>,
     vertex_buffer: Option<Buffer>,
     index_buffer: Option<Buffer>,
     is_visible: bool,
@@ -302,7 +302,7 @@ impl WgpuRenderer {
     }
 
     fn render_node(&self, render_pass: &mut RenderPass, node: &WgpuRenderNode) -> ShdResult<()> {
-        let shader = node.shader.lock().unwrap();
+        let shader = &*node.shader;
 
         // Apply shader pipeline if it's a WGPU shader
         if let Some(wgpu_shader) = shader.as_any().downcast_ref::<WgpuShaderInterface>() {
@@ -345,7 +345,7 @@ impl WgpuRenderer {
 }
 
 impl WgpuRenderNode {
-    pub fn new(mesh: Arc<MeshGeometry>, shader: Arc<Mutex<dyn ShdInterface>>) -> ShdResult<Self> {
+    pub fn new(mesh: Arc<MeshGeometry>, shader: Box<dyn ShdInterface>) -> ShdResult<Self> {
         Ok(Self {
             mesh,
             shader,
@@ -358,14 +358,14 @@ impl WgpuRenderNode {
 
 impl RenderNode for WgpuRenderNode {
     fn get_shader_class_id(&self) -> u32 {
-        self.shader.lock().unwrap().get_class_id()
+        self.shader.get_class_id()
     }
 
     fn render(&mut self, _pass: u32, render_info: &RenderInfo) -> ShdResult<()> {
         self.is_visible = true;
 
         // Apply shader settings
-        let shader = self.shader.lock().unwrap();
+        let shader = &mut self.shader;
         shader.apply_shared(_pass, render_info)?;
         shader.apply_instance(_pass, render_info)?;
 
@@ -431,9 +431,9 @@ impl ShaderRenderer for WgpuRenderer {
     fn register_mesh(
         &mut self,
         mesh: Arc<MeshGeometry>,
-        shader: Arc<Mutex<dyn ShdInterface>>,
+        shader: Box<dyn ShdInterface>,
     ) -> ShdResult<Arc<Mutex<dyn RenderNode>>> {
-        let class_id = shader.lock().unwrap().get_class_id();
+        let class_id = shader.get_class_id();
 
         // Create render node
         let render_node = Arc::new(Mutex::new(WgpuRenderNode::new(mesh.clone(), shader)?));

@@ -17,13 +17,11 @@ impl Object {
         let holder_id = self.contained_by_id;
 
         if self.held_helper.is_none() {
-            self.held_helper = Some(Arc::new(Mutex::new(ObjectHeldHelper::new())));
+            self.held_helper = Some(Box::new(ObjectHeldHelper::new()));
         }
 
-        if let Some(helper) = &self.held_helper {
-            if let Ok(mut guard) = helper.lock() {
-                guard.set_held(held, holder_id);
-            }
+        if let Some(helper) = self.held_helper.as_mut() {
+            helper.set_held(held, holder_id);
         }
 
         if held {

@@ -306,7 +306,7 @@ impl Object {
             && !self.has_firing_tracker_module()
             && self.weapon_set.has_any_weapons()
         {
-            self.firing_tracker = Some(Arc::new(Mutex::new(FiringTracker::new(self.id))));
+            self.firing_tracker = Some(Box::new(FiringTracker::new(self.id)));
         }
 
         self.init_object_cpp_sequence();
@@ -1260,7 +1260,7 @@ impl Object {
     /// Attach radar-object data so Object::attemptDamage can fire
     /// TheRadar->tryUnderAttackEvent (C++ Object.cpp:1852 m_radarData != NULL).
     #[cfg(any(test, feature = "internal"))]
-    pub fn set_radar_data_for_test(&mut self, data: Option<Arc<Mutex<RadarObject>>>) {
+    pub fn set_radar_data_for_test(&mut self, data: Option<Box<RadarObject>>) {
         self.radar_data = data;
     }
 

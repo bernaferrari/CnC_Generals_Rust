@@ -35,7 +35,7 @@ use game_engine::common::thing::module::{
 };
 use log::{debug, trace, warn};
 use std::f32::consts::PI;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 // Stealth level constants matching C++ StealthUpdate.h lines 20-32
 pub const STEALTH_NOT_WHILE_ATTACKING: u32 = 0x00000001;
@@ -564,7 +564,7 @@ impl StealthUpdateController {
                     if let Some(contain) = obj_guard.get_contain() {
                         if let Ok(contain_guard) = contain.lock() {
                             if contain_guard.is_passenger_allowed_to_fire(None) {
-                                for contained_id in contain_guard.get_contained_objects().iter() {
+                                for contained_id in contain_guard.get_contained_objects() {
                                     let attacking = OBJECT_REGISTRY
                                         .with_object(*contained_id, |rider_guard| {
                                             rider_guard
@@ -1286,7 +1286,7 @@ impl StealthUpdateController {
 pub struct StealthUpdate {
     module_name_key: NameKeyType,
     data: Arc<StealthUpdateModuleData>,
-    controller: Arc<Mutex<StealthUpdateController>>,
+    controller: StealthUpdateController,
     object_id: ObjectID,
     current_frame: UnsignedInt,
     next_call_frame_and_phase: UnsignedInt,
@@ -1299,11 +1299,11 @@ impl StealthUpdate {
         data: Arc<StealthUpdateModuleData>,
         object_id: ObjectID,
     ) -> Self {
-        let controller = Arc::new(Mutex::new(StealthUpdateController::new(
+        let controller = StealthUpdateController::new(
             data.clone(),
             object_id,
             0, // Initial frame
-        )));
+        );
 
         Self {
             module_name_key,
@@ -1315,8 +1315,9 @@ impl StealthUpdate {
         }
     }
 
-    pub fn get_controller(&self) -> Arc<Mutex<StealthUpdateController>> {
-        self.controller.clone()
+
+    pub fn get_controller(&mut self) -> &mut StealthUpdateController {
+        &mut self.controller
     }
 }
 
@@ -1377,15 +1378,8 @@ impl UpdateModuleInterface for StealthUpdate {
     fn update_simple(&mut self) -> UpdateSleepTime {
         let frame = TheGameLogic::get_frame();
         self.current_frame = frame;
-        if let Ok(mut controller) = self.controller.lock() {
-            let _ = controller.update(frame);
-        }
-        if self
-            .controller
-            .lock()
-            .map(|c| c.is_enabled())
-            .unwrap_or(false)
-        {
+        let _ = self.controller.update(frame);
+        if self.controller.is_enabled() {
             UpdateSleepTime::None
         } else {
             UpdateSleepTime::Forever
@@ -1395,9 +1389,7 @@ impl UpdateModuleInterface for StealthUpdate {
 
 impl StealthDisguiseControlInterface for StealthUpdate {
     fn disguise_as_template(&mut self, template_name: Option<String>, current_frame: u32) {
-        if let Ok(mut controller) = self.controller.lock() {
-            controller.disguise_as_object(template_name, current_frame);
-        }
+        self.controller.disguise_as_object(template_name, current_frame);
     }
 }
 
@@ -1411,17 +1403,13 @@ impl Snapshotable for StealthUpdate {
         xfer_update_module_base_state(xfer, &mut next_call_frame_and_phase)?;
 
         {
-            let mut stealth_allowed_frame = self
-                .controller
-                .lock()
-                .map_err(|_| "Lock failed")?
-                .stealth_allowed_frame;
+            let mut stealth_allowed_frame = self.controller.stealth_allowed_frame;
             xfer.xfer_unsigned_int(&mut stealth_allowed_frame)
                 .map_err(|e| format!("crc stealth_allowed_frame: {e}"))?;
         }
 
         {
-            let mut ctrl = self.controller.lock().map_err(|_| "Lock failed")?;
+            let ctrl = &self.controller;
             let mut detection_expires_frame = ctrl.detection_expires_frame;
             xfer.xfer_unsigned_int(&mut detection_expires_frame)
                 .map_err(|e| format!("crc detection_expires_frame: {e}"))?;
@@ -1470,17 +1458,11 @@ impl Snapshotable for StealthUpdate {
 
         xfer_update_module_base_state(xfer, &mut self.next_call_frame_and_phase)?;
 
-        xfer.xfer_unsigned_int(
-            &mut self
-                .controller
-                .lock()
-                .map_err(|_| "Lock failed")?
-                .stealth_allowed_frame,
-        )
-        .map_err(|e| format!("xfer stealth_allowed_frame: {e}"))?;
+        xfer.xfer_unsigned_int(&mut self.controller.stealth_allowed_frame)
+            .map_err(|e| format!("xfer stealth_allowed_frame: {e}"))?;
 
         {
-            let mut ctrl = self.controller.lock().map_err(|_| "Lock failed")?;
+            let ctrl = &mut self.controller;
             xfer.xfer_unsigned_int(&mut ctrl.detection_expires_frame)
                 .map_err(|e| format!("xfer detection_expires_frame: {e}"))?;
             xfer.xfer_bool(&mut ctrl.enabled)
@@ -1517,10 +1499,8 @@ impl Snapshotable for StealthUpdate {
     fn load_post_process(&mut self) -> Result<(), String> {
         // C++ StealthUpdate::loadPostProcess: if (isDisguised())
         // isDisguised() is m_disguiseAsTemplate != NULL, not m_disguised.
-        if let Ok(mut ctrl) = self.controller.lock() {
-            if ctrl.disguise_as_template_name.is_some() {
-                ctrl.xfer_restore_disguise = true;
-            }
+        if self.controller.disguise_as_template_name.is_some() {
+            self.controller.xfer_restore_disguise = true;
         }
         Ok(())
     }

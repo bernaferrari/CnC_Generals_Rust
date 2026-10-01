@@ -9,7 +9,7 @@ use bitflags::bitflags;
 use glam::{Mat3, Mat4, Quat, Vec3, Vec4};
 use std::any::Any;
 use std::sync::atomic::{AtomicU32, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 pub use ww3d_core::RenderObjClassId;
 use ww3d_geometry::LineSegment;
 
@@ -712,7 +712,7 @@ pub struct DecalGeneratorClass {
     mesh_to_projector: Mat4,
     half_extents: Vec3,
     logical_id: u32,
-    mesh_handles: Mutex<Vec<usize>>,
+    mesh_handles: Vec<usize>,
 }
 
 impl DecalGeneratorClass {
@@ -748,7 +748,7 @@ impl DecalGeneratorClass {
             mesh_to_projector: world_to_projector,
             half_extents,
             logical_id,
-            mesh_handles: Mutex::new(Vec::new()),
+            mesh_handles: Vec::new(),
         }
     }
 
@@ -811,23 +811,18 @@ impl DecalGeneratorClass {
         self.logical_id
     }
 
-    pub fn add_mesh_handle(&self, mesh_ptr: *const MeshClass) {
+    pub fn add_mesh_handle(&mut self, mesh_ptr: *const MeshClass) {
         if mesh_ptr.is_null() {
             return;
         }
-        if let Ok(mut handles) = self.mesh_handles.lock() {
-            let address = mesh_ptr as usize;
-            if !handles.contains(&address) {
-                handles.push(address);
-            }
+        let address = mesh_ptr as usize;
+        if !self.mesh_handles.contains(&address) {
+            self.mesh_handles.push(address);
         }
     }
 
     pub fn registered_mesh_handles(&self) -> Vec<usize> {
-        self.mesh_handles
-            .lock()
-            .map(|handles| handles.clone())
-            .unwrap_or_default()
+        self.mesh_handles.clone()
     }
 
     pub fn get_lifetime(&self) -> f32 {
@@ -881,8 +876,7 @@ impl DecalGeneratorClass {
 
 impl Drop for DecalGeneratorClass {
     fn drop(&mut self) {
-        if let Ok(handles) = self.mesh_handles.lock() {
-            for &address in handles.iter() {
+        for &address in self.mesh_handles.iter() {
                 // Validate pointer before dereferencing
                 // Address 0 is reserved as null, small addresses are likely invalid
                 if address == 0 || address < std::mem::size_of::<MeshClass>() {
@@ -910,4 +904,3 @@ impl Drop for DecalGeneratorClass {
             }
         }
     }
-}

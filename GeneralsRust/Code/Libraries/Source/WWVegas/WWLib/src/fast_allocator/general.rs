@@ -11,6 +11,7 @@ pub struct GeneralAlloc {
     id: u32,
 }
 
+#[derive(Clone, Copy)]
 enum Loc {
     Bucket { index: usize, slot: AllocHandle },
     Large,
@@ -21,12 +22,17 @@ pub struct FastAllocatorGeneral {
     max_alloc_size: usize,
     alloc_step: usize,
     buckets: Vec<Mutex<FastFixedAllocator>>,
-    large: Mutex<HashMap<u32, Vec<u8>>>,
-    locs: Mutex<HashMap<u32, Loc>>,
+    /// Large allocations and their location index, guarded by a single lock
+    combined: Mutex<CombinedAllocState>,
     next_id: AtomicU32,
     malloc_bytes: AtomicUsize,
     malloc_count: AtomicUsize,
     actual_bytes: AtomicUsize,
+}
+
+struct CombinedAllocState {
+    large: HashMap<u32, Vec<u8>>,
+    locs: HashMap<u32, Loc>,
 }
 
 impl FastAllocatorGeneral {
@@ -45,8 +51,10 @@ impl FastAllocatorGeneral {
             max_alloc_size: Self::MAX_ALLOC_SIZE,
             alloc_step: Self::ALLOC_STEP,
             buckets,
-            large: Mutex::new(HashMap::new()),
-            locs: Mutex::new(HashMap::new()),
+            combined: Mutex::new(CombinedAllocState {
+                large: HashMap::new(),
+                locs: HashMap::new(),
+            }),
             next_id: AtomicU32::new(1),
             malloc_bytes: AtomicUsize::new(0),
             malloc_count: AtomicUsize::new(0),
@@ -62,36 +70,41 @@ impl FastAllocatorGeneral {
             let mut bucket = self.buckets.get(index)?.lock().ok()?;
             let slot = bucket.alloc()?;
             drop(bucket);
-            self.locs
+            self.combined
                 .lock()
                 .ok()?
+                .locs
                 .insert(id, Loc::Bucket { index, slot });
         } else {
             self.malloc_bytes.fetch_add(size, Ordering::Relaxed);
             self.malloc_count.fetch_add(1, Ordering::Relaxed);
-            self.large.lock().ok()?.insert(id, vec![0u8; size]);
-            self.locs.lock().ok()?.insert(id, Loc::Large);
+            let Ok(mut state) = self.combined.lock() else {
+                return None;
+            };
+            state.large.insert(id, vec![0u8; size]);
+            state.locs.insert(id, Loc::Large);
         }
         Some(GeneralAlloc { id })
     }
 
     pub fn get<'a>(&'a self, handle: GeneralAlloc) -> Option<Vec<u8>> {
-        let locs = self.locs.lock().ok()?;
-        match locs.get(&handle.id)? {
+        let state = self.combined.lock().ok()?;
+        let loc = *state.locs.get(&handle.id)?;
+        match loc {
             Loc::Bucket { index, slot } => {
-                let bucket = self.buckets.get(*index)?.lock().ok()?;
-                bucket.get(*slot).map(|s| s.to_vec())
+                let bucket = self.buckets.get(index)?.lock().ok()?;
+                bucket.get(slot).map(|s| s.to_vec())
             }
-            Loc::Large => self.large.lock().ok()?.get(&handle.id).cloned(),
+            Loc::Large => state.large.get(&handle.id).cloned(),
         }
     }
 
     pub fn write(&self, handle: GeneralAlloc, data: &[u8]) -> bool {
-        let locs = match self.locs.lock() {
+        let state = match self.combined.lock() {
             Ok(g) => g,
             Err(_) => return false,
         };
-        match locs.get(&handle.id) {
+        match state.locs.get(&handle.id) {
             Some(Loc::Bucket { index, slot }) => {
                 let Some(bucket) = self.buckets.get(*index) else {
                     return false;
@@ -107,10 +120,7 @@ impl FastAllocatorGeneral {
                 true
             }
             Some(Loc::Large) => {
-                let Ok(mut large) = self.large.lock() else {
-                    return false;
-                };
-                let Some(buf) = large.get_mut(&handle.id) else {
+                let Some(buf) = state.large.get_mut(&handle.id) else {
                     return false;
                 };
                 let n = data.len().min(buf.len());
@@ -122,10 +132,10 @@ impl FastAllocatorGeneral {
     }
 
     pub fn free(&self, handle: GeneralAlloc) {
-        let Ok(mut locs) = self.locs.lock() else {
+        let Ok(mut state) = self.combined.lock() else {
             return;
         };
-        let Some(loc) = locs.remove(&handle.id) else {
+        let Some(loc) = state.locs.remove(&handle.id) else {
             return;
         };
         match loc {
@@ -142,8 +152,7 @@ impl FastAllocatorGeneral {
                 }
             }
             Loc::Large => {
-                if let Ok(mut large) = self.large.lock() {
-                    if let Some(buf) = large.remove(&handle.id) {
+                if let Some(buf) = state.large.remove(&handle.id) {
                         let n = buf.len();
                         self.actual_bytes.fetch_sub(
                             n.min(self.actual_bytes.load(Ordering::Relaxed)),
@@ -155,7 +164,6 @@ impl FastAllocatorGeneral {
                         );
                         self.malloc_count.fetch_sub(1, Ordering::Relaxed);
                     }
-                }
             }
         }
     }

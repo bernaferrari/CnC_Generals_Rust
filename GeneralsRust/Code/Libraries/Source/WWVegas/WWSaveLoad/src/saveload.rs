@@ -25,12 +25,14 @@
 //! - Uses `Arc<dyn Trait>` and `Weak<dyn Trait>` for safe pointer remapping instead of raw pointers
 //! - Uses `HashMap` for O(1) lookups instead of linked lists
 //! - Uses generic traits instead of inheritance hierarchies for better composition
-//! - Provides thread-safe operations where needed using `Mutex` and `RwLock`
+//! - Provides thread-safe operations where needed using `Mutex`
 
 use std::any::Any;
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex, RwLock, Weak};
+use std::sync::{Arc, Weak};
 use std::time::Instant;
+
+use parking_lot::Mutex;
 
 /// # Usage Examples
 ///
@@ -442,24 +444,32 @@ impl Default for PointerRemap {
 /// Main save/load system class
 /// Replaces the C++ SaveLoadSystemClass
 pub struct SaveLoadSystem {
+    /// Consolidated mutable state, guarded by a single lock
+    state: Mutex<CombinedState>,
+}
+
+/// Private aggregate of the system's mutable state
+struct CombinedState {
     /// Registered subsystems indexed by chunk ID
-    subsystems: RwLock<HashMap<ChunkId, Arc<dyn SaveLoadSubsystem>>>,
+    subsystems: HashMap<ChunkId, Arc<dyn SaveLoadSubsystem>>,
     /// Registered persist factories indexed by chunk ID
-    factories: RwLock<HashMap<ChunkId, Arc<dyn PersistFactory>>>,
+    factories: HashMap<ChunkId, Arc<dyn PersistFactory>>,
     /// Pointer remapping system
-    pointer_remapper: Mutex<PointerRemap>,
+    pointer_remapper: PointerRemap,
     /// Objects registered for post-load callbacks
-    post_load_list: Mutex<Vec<Arc<dyn PostLoadable>>>,
+    post_load_list: Vec<Arc<dyn PostLoadable>>,
 }
 
 impl SaveLoadSystem {
     /// Create a new save/load system
     pub fn new() -> Self {
         Self {
-            subsystems: RwLock::new(HashMap::new()),
-            factories: RwLock::new(HashMap::new()),
-            pointer_remapper: Mutex::new(PointerRemap::new()),
-            post_load_list: Mutex::new(Vec::new()),
+            state: Mutex::new(CombinedState {
+                subsystems: HashMap::new(),
+                factories: HashMap::new(),
+                pointer_remapper: PointerRemap::new(),
+                post_load_list: Vec::new(),
+            }),
         }
     }
 
@@ -482,17 +492,13 @@ impl SaveLoadSystem {
         let start_time = Instant::now();
 
         // Reset pointer remapper
-        {
-            let mut remapper = self.pointer_remapper.lock().unwrap();
-            remapper.reset();
-        }
+        self.state.lock().pointer_remapper.reset();
 
         // Load each chunk we encounter
         while chunk_load.open_chunk()? {
             let chunk_id = chunk_load.current_chunk_id();
 
-            // Find and load the appropriate subsystem
-            let subsystems = self.subsystems.read().unwrap();
+            let subsystems = &self.state.lock().subsystems;
             if let Some(subsystem) = subsystems.get(&chunk_id) {
                 // Note: In a real implementation, we'd need to handle the mutable borrow
                 // For now, we'll assume subsystems can handle concurrent loading or
@@ -508,9 +514,9 @@ impl SaveLoadSystem {
 
         // Process pointer remapping
         {
-            let mut remapper = self.pointer_remapper.lock().unwrap();
-            remapper.process()?;
-            remapper.reset();
+            let mut state = self.state.lock();
+            state.pointer_remapper.process()?;
+            state.pointer_remapper.reset();
         }
 
         // Perform post-load processing if requested
@@ -532,9 +538,7 @@ impl SaveLoadSystem {
         let network_update_interval = std::time::Duration::from_millis(20);
 
         // Process all post-loadable objects
-        let mut post_load_list = self.post_load_list.lock().unwrap();
-        let objects = std::mem::take(&mut *post_load_list);
-        drop(post_load_list);
+        let objects = std::mem::take(&mut self.state.lock().post_load_list);
 
         for _obj in objects {
             // Update network if callback provided and enough time has passed
@@ -557,22 +561,22 @@ impl SaveLoadSystem {
 
     /// Find a persist factory for the given chunk ID
     pub fn find_persist_factory(&self, chunk_id: ChunkId) -> Option<Arc<dyn PersistFactory>> {
-        let factories = self.factories.read().unwrap();
-        factories.get(&chunk_id).cloned()
+        self.state.lock().factories.get(&chunk_id).cloned()
     }
 
     /// Register a post-load callback for an object
     pub fn register_post_load_callback(&self, obj: Arc<dyn PostLoadable>) {
         if !obj.is_post_load_registered() {
-            let mut post_load_list = self.post_load_list.lock().unwrap();
-            post_load_list.push(obj);
+            self.state.lock().post_load_list.push(obj);
         }
     }
 
     /// Register a pointer mapping
     pub fn register_pointer(&self, old_id: RemapId, new_obj: Weak<dyn Persist>) {
-        let mut remapper = self.pointer_remapper.lock().unwrap();
-        remapper.register_pointer(old_id, new_obj);
+        self.state
+            .lock()
+            .pointer_remapper
+            .register_pointer(old_id, new_obj);
     }
 
     /// Request pointer remapping
@@ -580,8 +584,8 @@ impl SaveLoadSystem {
     where
         F: FnOnce(Option<Arc<dyn Persist>>) -> SaveLoadResult<()> + Send + 'static,
     {
-        let mut remapper = self.pointer_remapper.lock().unwrap();
-        remapper.request_pointer_remap(target_id, callback);
+        let mut state = self.state.lock();
+        state.pointer_remapper.request_pointer_remap(target_id, callback);
     }
 
     /// Request pointer remapping for reference-counted objects
@@ -610,8 +614,10 @@ impl SaveLoadSystem {
     ) where
         F: FnOnce(Option<Arc<dyn Persist>>) -> SaveLoadResult<()> + Send + 'static,
     {
-        let mut remapper = self.pointer_remapper.lock().unwrap();
-        remapper.request_pointer_remap_debug(target_id, callback, file, line);
+        let mut state = self.state.lock();
+        state
+            .pointer_remapper
+            .request_pointer_remap_debug(target_id, callback, file, line);
     }
 
     /// Request ref-counted pointer remapping with debug information (for debug builds)
@@ -641,32 +647,33 @@ impl SaveLoadSystem {
 
     /// Register a subsystem (internal)
     pub fn register_subsystem(&self, subsystem: Arc<dyn SaveLoadSubsystem>) {
-        let mut subsystems = self.subsystems.write().unwrap();
-        subsystems.insert(subsystem.chunk_id(), subsystem);
+        self.state
+            .lock()
+            .subsystems
+            .insert(subsystem.chunk_id(), subsystem);
     }
 
     /// Unregister a subsystem (internal)
     pub fn unregister_subsystem(&self, chunk_id: ChunkId) {
-        let mut subsystems = self.subsystems.write().unwrap();
-        subsystems.remove(&chunk_id);
+        self.state.lock().subsystems.remove(&chunk_id);
     }
 
     /// Register a persist factory (internal)
     pub fn register_persist_factory(&self, factory: Arc<dyn PersistFactory>) {
-        let mut factories = self.factories.write().unwrap();
-        factories.insert(factory.chunk_id(), factory);
+        self.state
+            .lock()
+            .factories
+            .insert(factory.chunk_id(), factory);
     }
 
     /// Unregister a persist factory (internal)
     pub fn unregister_persist_factory(&self, chunk_id: ChunkId) {
-        let mut factories = self.factories.write().unwrap();
-        factories.remove(&chunk_id);
+        self.state.lock().factories.remove(&chunk_id);
     }
 
     /// Find a subsystem by chunk ID (internal)
     pub fn find_subsystem(&self, chunk_id: ChunkId) -> Option<Arc<dyn SaveLoadSubsystem>> {
-        let subsystems = self.subsystems.read().unwrap();
-        subsystems.get(&chunk_id).cloned()
+        self.state.lock().subsystems.get(&chunk_id).cloned()
     }
 
     /// Check if a post-load callback is already registered

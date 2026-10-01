@@ -2572,7 +2572,7 @@ fn live_host_from_named_and_skirmish_conditions_use_inject() {
             ))
             .unwrap();
         let mut evaluator =
-            ScriptConditionEvaluator::new(Arc::new(RwLock::new(ScriptContext::new())));
+            ScriptConditionEvaluator::new(ScriptContext::new());
         assert_eq!(
             evaluator.evaluate_condition(&mut from_named).unwrap(),
             ScriptConditionResult::True

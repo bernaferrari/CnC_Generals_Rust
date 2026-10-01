@@ -15,10 +15,7 @@ impl ScriptActionDispatcher {
     pub(crate) fn do_victory(&mut self) -> Result<ScriptActionResult, ScriptError> {
         log::info!("VICTORY!");
 
-        {
-            let mut ctx = self.context.write().unwrap();
-            ctx.suppress_new_windows = false;
-        }
+        self.context.suppress_new_windows = false;
 
         // C++ ScriptActions.cpp:193-209: closeWindows, TheGameLogic->closeWindows,
         // doDisableInput, winCreateFromScript(Victorious/ObserverQuit),
@@ -46,10 +43,7 @@ impl ScriptActionDispatcher {
     pub(crate) fn do_quick_victory(&mut self) -> Result<ScriptActionResult, ScriptError> {
         log::info!("QUICK VICTORY!");
 
-        {
-            let mut ctx = self.context.write().unwrap();
-            ctx.suppress_new_windows = false;
-        }
+        self.context.suppress_new_windows = false;
 
         // C++ ScriptActions.cpp:171-176: closeWindows + GameLogic::closeWindows,
         // doDisableInput, SetVictorious, startQuickEndGameTimer. No new window.
@@ -70,10 +64,7 @@ impl ScriptActionDispatcher {
     pub(crate) fn do_defeat(&mut self) -> Result<ScriptActionResult, ScriptError> {
         log::info!("DEFEAT!");
 
-        {
-            let mut ctx = self.context.write().unwrap();
-            ctx.suppress_new_windows = false;
-        }
+        self.context.suppress_new_windows = false;
 
         // C++ ScriptActions.cpp:217-233: closeWindows, GameLogic::closeWindows,
         // doDisableInput, winCreateFromScript(Defeat/ObserverQuit),

@@ -23,7 +23,7 @@ pub struct HeightMap {
     pub base: BaseHeightMap,
     pub flat: FlatHeightMap,
     world: Arc<RwLock<WorldHeightMap>>,
-    cached_height: RwLock<CachedHeightSample>,
+    cached_height: CachedHeightSample,
     /// C++ `m_extraBlendTilePositions` packed as `i | (j << 16)`.
     extra_blend_tile_positions: Vec<i32>,
 }
@@ -60,13 +60,9 @@ impl HeightMap {
             base,
             flat,
             world,
-            cached_height: RwLock::new(CachedHeightSample::default()),
+            cached_height: CachedHeightSample::default(),
             extra_blend_tile_positions,
         }
-    }
-
-    pub fn world_map(&self) -> Arc<RwLock<WorldHeightMap>> {
-        Arc::clone(&self.world)
     }
 
     pub fn width(&self) -> i32 {
@@ -77,22 +73,21 @@ impl HeightMap {
         self.world.read().unwrap().get_y_extent()
     }
 
-    pub fn get_height(&self, x: f32, y: f32) -> f32 {
-        if let Ok(cache) = self.cached_height.read() {
-            if cache.valid && cache.world_x == x && cache.world_y == y {
-                return cache.height;
-            }
+    pub fn get_height(&mut self, x: f32, y: f32) -> f32 {
+        if self.cached_height.valid
+            && self.cached_height.world_x == x
+            && self.cached_height.world_y == y
+        {
+            return self.cached_height.height;
         }
 
         let height = self.base.get_height_map_height(x, y, None);
-        if let Ok(mut cache) = self.cached_height.write() {
-            *cache = CachedHeightSample {
-                world_x: x,
-                world_y: y,
-                height,
-                valid: true,
-            };
-        }
+        self.cached_height = CachedHeightSample {
+            world_x: x,
+            world_y: y,
+            height,
+            valid: true,
+        };
         height
     }
 
@@ -123,7 +118,7 @@ impl HeightMap {
         self.base.is_cliff_cell(x, y)
     }
 
-    pub fn create_crater(&self, cx: f32, cy: f32, radius: f32, depth: f32) {
+    pub fn create_crater(&mut self, cx: f32, cy: f32, radius: f32, depth: f32) {
         self.world
             .write()
             .unwrap()
@@ -131,7 +126,7 @@ impl HeightMap {
         self.invalidate_cache();
     }
 
-    pub fn flatten_area(&self, x0: i32, y0: i32, x1: i32, y1: i32) {
+    pub fn flatten_area(&mut self, x0: i32, y0: i32, x1: i32, y1: i32) {
         self.world.write().unwrap().flatten_area(x0, y0, x1, y1);
         self.invalidate_cache();
     }
@@ -140,7 +135,7 @@ impl HeightMap {
         self.world.read().unwrap().snapshot_height_data()
     }
 
-    pub fn restore_height_data(&self, data: &[u8]) -> bool {
+    pub fn restore_height_data(&mut self, data: &[u8]) -> bool {
         let ok = self.world.write().unwrap().restore_height_data(data);
         if ok {
             self.invalidate_cache();
@@ -156,10 +151,8 @@ impl HeightMap {
         self.base.update_view_impassable_areas(false, 0, 0, 0, 0);
     }
 
-    pub fn invalidate_cache(&self) {
-        if let Ok(mut cache) = self.cached_height.write() {
-            cache.valid = false;
-        }
+    pub fn invalidate_cache(&mut self) {
+        self.cached_height.valid = false;
     }
 
     /// Rebuild extra-blend tile positions from the world height map (C++ initHeightData).

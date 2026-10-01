@@ -44,7 +44,7 @@ pub trait EventHandler: Send + Sync {
 pub struct AudioEventManager {
     handlers: Vec<Arc<dyn EventHandler>>,
     event_sender: mpsc::UnboundedSender<AudioEvent>,
-    event_receiver: Arc<tokio::sync::Mutex<mpsc::UnboundedReceiver<AudioEvent>>>,
+    event_receiver: tokio::sync::Mutex<mpsc::UnboundedReceiver<AudioEvent>>,
 }
 
 impl AudioEventManager {
@@ -54,7 +54,7 @@ impl AudioEventManager {
         Self {
             handlers: Vec::new(),
             event_sender: sender,
-            event_receiver: Arc::new(tokio::sync::Mutex::new(receiver)),
+            event_receiver: tokio::sync::Mutex::new(receiver),
         }
     }
 

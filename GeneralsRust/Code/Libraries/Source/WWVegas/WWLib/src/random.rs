@@ -34,7 +34,7 @@
 //! wrap generators in `Arc<Mutex<T>>` or use thread-local instances.
 
 use std::cell::RefCell;
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Mutex, OnceLock};
 
 thread_local! {
     /// Thread-local global random number generator using Random4Class (Mersenne Twister)
@@ -42,10 +42,10 @@ thread_local! {
 }
 
 /// Global thread-safe random number generator
-static SHARED_RNG: OnceLock<Arc<Mutex<Random4Class>>> = OnceLock::new();
+static SHARED_RNG: OnceLock<Mutex<Random4Class>> = OnceLock::new();
 
-fn get_shared_rng() -> &'static Arc<Mutex<Random4Class>> {
-    SHARED_RNG.get_or_init(|| Arc::new(Mutex::new(Random4Class::new(4357))))
+fn get_shared_rng() -> &'static Mutex<Random4Class> {
+    SHARED_RNG.get_or_init(|| Mutex::new(Random4Class::new(4357)))
 }
 
 /// Trait for random number generators that provide basic functionality

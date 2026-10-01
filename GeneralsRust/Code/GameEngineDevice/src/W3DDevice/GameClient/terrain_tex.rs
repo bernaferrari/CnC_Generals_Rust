@@ -825,7 +825,7 @@ impl TerrainTextureClass {
 
     /// Apply texture (C++ lines 405-438)
     /// Sets up D3D texture stage states for terrain rendering
-    pub fn apply(&self, stage: u32) {
+    pub fn apply(&mut self, stage: u32) {
         self.base.apply(stage);
         self.base.set_apply_state(stage, Self::terrain_filter());
     }
@@ -856,7 +856,7 @@ impl AlphaTerrainTextureClass {
     }
 
     /// Apply with alpha blending (C++ lines 475-602)
-    pub fn apply(&self, stage: u32) {
+    pub fn apply(&mut self, stage: u32) {
         self.base.apply(stage);
         self.base
             .set_apply_state(stage, TerrainTextureClass::terrain_filter());
@@ -987,7 +987,7 @@ impl AlphaEdgeTextureClass {
     }
 
     /// Apply edge texture (C++ lines 811-866)
-    pub fn apply(&self, stage: u32) {
+    pub fn apply(&mut self, stage: u32) {
         self.base.apply(stage);
         self.base
             .set_apply_state(stage, TerrainTextureClass::terrain_filter());
@@ -1032,7 +1032,7 @@ impl LightMapTerrainTextureClass {
     }
 
     /// Apply light map (C++ lines 642-704)
-    pub fn apply(&self, stage: u32) {
+    pub fn apply(&mut self, stage: u32) {
         self.base.apply(stage);
     }
 }
@@ -1108,7 +1108,7 @@ impl CloudMapTerrainTextureClass {
     }
 
     /// Restore default texture states (C++ lines 1000-1044)
-    pub fn restore(&self) {
+    pub fn restore(&mut self) {
         self.base.reset_apply_state();
     }
 }
@@ -1135,7 +1135,7 @@ impl ScorchTextureClass {
     }
 
     /// Apply scorch texture (C++ lines 1074-1108)
-    pub fn apply(&self, stage: u32) {
+    pub fn apply(&mut self, stage: u32) {
         self.base.apply(stage);
         self.base
             .set_apply_state(stage, TerrainTextureClass::terrain_filter());
@@ -1262,7 +1262,7 @@ mod tests {
 
     #[test]
     fn test_light_map_apply_preserves_constructor_filter() {
-        let texture = LightMapTerrainTextureClass::new(String::new(), MIP_LEVELS_ALL);
+        let mut texture = LightMapTerrainTextureClass::new(String::new(), MIP_LEVELS_ALL);
         texture.apply(1);
 
         let filter = texture.base.get_filter();
@@ -1320,7 +1320,7 @@ mod tests {
 
     #[test]
     fn test_terrain_texture_apply_tracks_clamp_filtering() {
-        let texture = TerrainTextureClass::new(1024);
+        let mut texture = TerrainTextureClass::new(1024);
         texture.apply(0);
 
         let filter = texture.base.get_filter();

@@ -181,7 +181,7 @@ fn leftover_set_cave_index_drains_onto_live_host() {
     action
         .add_parameter(Parameter::with_int(ParameterType::Int, 2))
         .expect("cave index");
-    let mut dispatcher = ScriptActionDispatcher::new(Arc::new(RwLock::new(ScriptContext::new())));
+    let mut dispatcher = ScriptActionDispatcher::new(ScriptContext::new());
     assert_eq!(
         dispatcher.execute_action(&action).expect("SET_CAVE_INDEX"),
         ScriptActionResult::Success

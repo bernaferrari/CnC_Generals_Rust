@@ -255,7 +255,7 @@ pub trait ShaderRenderer: Send + Sync {
     fn register_mesh(
         &mut self,
         mesh: Arc<MeshGeometry>,
-        shader: Arc<Mutex<dyn ShdInterface>>,
+        shader: Box<dyn ShdInterface>,
     ) -> ShdResult<Arc<Mutex<dyn RenderNode>>>;
 
     /// Flush all registered meshes
@@ -285,7 +285,7 @@ pub trait ShaderRenderer: Send + Sync {
 #[allow(dead_code)] // C++ parity: WW3D default render node
 pub struct DefaultRenderNode {
     mesh: Arc<MeshGeometry>,
-    shader: Arc<Mutex<dyn ShdInterface>>,
+    shader: Box<dyn ShdInterface>,
     vertex_buffers: Vec<VertexBuffer>,
     index_buffer: Option<IndexBuffer>,
     light_environment: LightEnvironment,
@@ -294,10 +294,10 @@ pub struct DefaultRenderNode {
 }
 
 impl DefaultRenderNode {
-    pub fn new(mesh: Arc<MeshGeometry>, shader: Arc<Mutex<dyn ShdInterface>>) -> ShdResult<Self> {
+    pub fn new(mesh: Arc<MeshGeometry>, shader: Box<dyn ShdInterface>) -> ShdResult<Self> {
         let mut node = Self {
             mesh: mesh.clone(),
-            shader: shader.clone(),
+            shader,
             vertex_buffers: Vec::new(),
             index_buffer: None,
             light_environment: LightEnvironment::default(),
@@ -311,17 +311,25 @@ impl DefaultRenderNode {
 
     fn initialize_buffers(&mut self) -> ShdResult<()> {
         // Create vertex buffer
-        let shader = self.shader.lock().unwrap();
-        let stream_count = shader.get_vertex_stream_count();
+        let (stream_count, hardware_vertex_processing) = {
+            let shader = &self.shader;
+            (
+                shader.get_vertex_stream_count(),
+                shader.use_hardware_vertex_processing(),
+            )
+        };
+        let vertex_sizes: Vec<u32> = (0..stream_count)
+            .map(|stream| self.shader.get_vertex_size(stream))
+            .collect();
 
         self.vertex_buffers.clear();
         self.vertex_buffers.reserve(stream_count as usize);
 
         for stream in 0..stream_count {
-            let vertex_size = shader.get_vertex_size(stream);
+            let vertex_size = vertex_sizes[stream as usize];
             let vertex_count = self.mesh.vertices.len() as u32;
 
-            let usage = if shader.use_hardware_vertex_processing() {
+            let usage = if hardware_vertex_processing {
                 VertexBufferUsage::Default
             } else {
                 VertexBufferUsage::SoftwareProcessing
@@ -369,7 +377,7 @@ impl DefaultRenderNode {
                 index_data.extend_from_slice(&triangle.indices);
             }
 
-            let usage = if shader.use_hardware_vertex_processing() {
+            let usage = if hardware_vertex_processing {
                 IndexBufferUsage::Default
             } else {
                 IndexBufferUsage::SoftwareProcessing
@@ -388,7 +396,7 @@ impl DefaultRenderNode {
 
 impl RenderNode for DefaultRenderNode {
     fn get_shaderclass_id(&self) -> u32 {
-        self.shader.lock().unwrap().get_class_id()
+        self.shader.get_class_id()
     }
 
     fn render(&mut self, _pass: u32, render_info: &RenderInfo) -> ShdResult<()> {
@@ -402,10 +410,10 @@ impl RenderNode for DefaultRenderNode {
             return Ok(());
         }
 
-        let mut shader = self.shader.lock().unwrap();
+        let shader = &mut self.shader;
 
         // Apply instance-specific rendering
-        if let Some(ref render_info) = self.render_info {
+        if let Some(render_info) = &self.render_info {
             shader.apply_instance(pass, render_info)?;
         }
 
@@ -418,8 +426,6 @@ impl RenderNode for DefaultRenderNode {
         previous_node: Option<&dyn RenderNode>,
         pass: u32,
     ) -> ShdResult<()> {
-        let mut shader = self.shader.lock().unwrap();
-
         // Check if we need to reset state
         if let Some(prev) = previous_node {
             if prev.get_shaderclass_id() != self.get_shaderclass_id() {
@@ -429,12 +435,12 @@ impl RenderNode for DefaultRenderNode {
         }
 
         let render_info = self.render_info.as_ref().cloned().unwrap_or_default();
-        shader.apply_shared(pass, &render_info)?;
+        self.shader.apply_shared(pass, &render_info)?;
         Ok(())
     }
 
     fn compare_for_sorting(&self, other: &dyn RenderNode, _pass: u32) -> Ordering {
-        let _shader = self.shader.lock().unwrap();
+        let _shader = &self.shader;
         let otherclass_id = other.get_shaderclass_id();
 
         // Compare by shader class ID first
@@ -508,24 +514,17 @@ impl ShaderRenderer for ShdRenderer {
     fn register_mesh(
         &mut self,
         mesh: Arc<MeshGeometry>,
-        shader: Arc<Mutex<dyn ShdInterface>>,
+        shader: Box<dyn ShdInterface>,
     ) -> ShdResult<Arc<Mutex<dyn RenderNode>>> {
-        let node = Arc::new(Mutex::new(DefaultRenderNode::new(mesh, shader.clone())?));
-
-        let class_id = {
-            let shader_guard = shader.lock().unwrap();
-            shader_guard.get_class_id()
-        };
+        let class_id = shader.get_class_id();
+        let pass_count = shader.get_pass_count();
+        let node = Arc::new(Mutex::new(DefaultRenderNode::new(mesh, shader)?));
 
         // Get or create mesh container for this shader class
         let container = self
             .mesh_containers
             .entry(class_id)
             .or_insert_with(|| MeshContainer::new(class_id));
-        let pass_count = {
-            let shader_guard = shader.lock().unwrap();
-            shader_guard.get_pass_count()
-        };
 
         container.register_mesh(node.clone(), pass_count)?;
 
@@ -780,12 +779,12 @@ mod tests {
     #[test]
     fn test_default_render_node_creation() {
         let mesh = create_test_mesh();
-        let shader = Arc::new(Mutex::new(MockShader {
+        let shader = Box::new(MockShader {
             class_id: 100,
             pass_count: 1,
-        }));
+        });
 
-        let node = DefaultRenderNode::new(mesh.clone(), shader.clone());
+        let node = DefaultRenderNode::new(mesh.clone(), shader);
         assert!(node.is_ok());
 
         let node = node.unwrap();
@@ -802,10 +801,10 @@ mod tests {
         assert!(container.visible_nodes.is_empty());
 
         let mesh = create_test_mesh();
-        let shader = Arc::new(Mutex::new(MockShader {
+        let shader = Box::new(MockShader {
             class_id: 200,
             pass_count: 1,
-        }));
+        });
         let node = Arc::new(Mutex::new(DefaultRenderNode::new(mesh, shader).unwrap()));
 
         container.register_renderer(node.clone());
@@ -847,10 +846,10 @@ mod tests {
         renderer.initialize().unwrap();
 
         let mesh = create_test_mesh();
-        let shader = Arc::new(Mutex::new(MockShader {
+        let shader = Box::new(MockShader {
             class_id: 300,
             pass_count: 1,
-        }));
+        });
 
         let node = renderer.register_mesh(mesh, shader);
         assert!(node.is_ok());
@@ -870,10 +869,10 @@ mod tests {
         renderer.initialize().unwrap();
 
         let mesh = create_test_mesh();
-        let shader = Arc::new(Mutex::new(MockShader {
+        let shader = Box::new(MockShader {
             class_id: 400,
             pass_count: 1,
-        }));
+        });
 
         let _node = renderer.register_mesh(mesh, shader).unwrap();
 

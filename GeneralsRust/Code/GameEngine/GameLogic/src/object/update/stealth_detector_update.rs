@@ -30,7 +30,7 @@ use game_engine::common::thing::module::{
     Module, ModuleData, NameKeyType, StealthDetectorControlInterface,
 };
 use log::{debug, trace, warn};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 /// Wave 297: host-only path has no dual-world factory objects.
 #[inline]
@@ -730,7 +730,7 @@ pub enum UpdateSleepTime {
 pub struct StealthDetectorUpdate {
     module_name_key: NameKeyType,
     data: Arc<StealthDetectorUpdateModuleData>,
-    controller: Arc<Mutex<StealthDetectorController>>,
+    controller: StealthDetectorController,
     object_id: ObjectID,
 }
 
@@ -740,10 +740,7 @@ impl StealthDetectorUpdate {
         data: Arc<StealthDetectorUpdateModuleData>,
         object_id: ObjectID,
     ) -> Self {
-        let controller = Arc::new(Mutex::new(StealthDetectorController::new(
-            data.clone(),
-            object_id,
-        )));
+        let controller = StealthDetectorController::new(data.clone(), object_id);
 
         Self {
             module_name_key,
@@ -753,8 +750,8 @@ impl StealthDetectorUpdate {
         }
     }
 
-    pub fn get_controller(&self) -> Arc<Mutex<StealthDetectorController>> {
-        self.controller.clone()
+    pub fn get_controller(&mut self) -> &mut StealthDetectorController {
+        &mut self.controller
     }
 }
 
@@ -795,34 +792,22 @@ impl Module for StealthDetectorUpdate {
 
 impl StealthDetectorControlInterface for StealthDetectorUpdate {
     fn set_sd_enabled(&mut self, enabled: bool) {
-        if let Ok(mut controller) = self.controller.lock() {
-            controller.set_enabled(enabled);
-        }
+        self.controller.set_enabled(enabled);
     }
 }
 
 impl Snapshotable for StealthDetectorUpdate {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let mut enabled = self
-            .controller
-            .lock()
-            .map(|ctrl| ctrl.is_enabled())
-            .unwrap_or(true);
+        let mut enabled = self.controller.is_enabled();
         xfer.xfer_bool(&mut enabled).map_err(|e| e.to_string())?;
         Ok(())
     }
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
         // Matches C++ xfer lines 420-433
-        let mut enabled = self
-            .controller
-            .lock()
-            .map(|ctrl| ctrl.is_enabled())
-            .unwrap_or(true);
+        let mut enabled = self.controller.is_enabled();
         xfer.xfer_bool(&mut enabled).map_err(|e| e.to_string())?;
-        if let Ok(mut ctrl) = self.controller.lock() {
-            ctrl.set_enabled(enabled);
-        }
+        self.controller.set_enabled(enabled);
         Ok(())
     }
 

@@ -2,7 +2,6 @@
 
 use parking_lot::RwLock;
 use std::collections::HashMap;
-use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 /// Profiling event types
@@ -42,9 +41,15 @@ struct ProfileSession {
 /// Audio profiler for performance monitoring
 pub struct AudioProfiler {
     enabled: bool,
-    metrics: Arc<RwLock<HashMap<ProfileEvent, ProfileMetrics>>>,
-    active_sessions: Arc<RwLock<HashMap<u64, ProfileSession>>>,
-    next_session_id: Arc<RwLock<u64>>,
+    /// All mutable profiling state guarded by a single lock
+    state: RwLock<CombinedState>,
+}
+
+/// Metrics, active sessions, and session-id counter (previously three locks)
+struct CombinedState {
+    metrics: HashMap<ProfileEvent, ProfileMetrics>,
+    active_sessions: HashMap<u64, ProfileSession>,
+    next_session_id: u64,
 }
 
 impl AudioProfiler {
@@ -52,9 +57,11 @@ impl AudioProfiler {
     pub fn new(enabled: bool) -> Self {
         Self {
             enabled,
-            metrics: Arc::new(RwLock::new(HashMap::new())),
-            active_sessions: Arc::new(RwLock::new(HashMap::new())),
-            next_session_id: Arc::new(RwLock::new(0)),
+            state: RwLock::new(CombinedState {
+                metrics: HashMap::new(),
+                active_sessions: HashMap::new(),
+                next_session_id: 0,
+            }),
         }
     }
 
@@ -64,18 +71,16 @@ impl AudioProfiler {
             return 0;
         }
 
-        let session_id = {
-            let mut next_id = self.next_session_id.write();
-            *next_id += 1;
-            *next_id
-        };
+        let mut state = self.state.write();
+        state.next_session_id += 1;
+        let session_id = state.next_session_id;
 
         let session = ProfileSession {
             event,
             start_time: Instant::now(),
         };
 
-        self.active_sessions.write().insert(session_id, session);
+        state.active_sessions.insert(session_id, session);
         session_id
     }
 
@@ -85,15 +90,12 @@ impl AudioProfiler {
             return;
         }
 
-        let session = {
-            let mut active = self.active_sessions.write();
-            active.remove(&session_id)
+        let mut state = self.state.write();
+        let Some(session) = state.active_sessions.remove(&session_id) else {
+            return;
         };
-
-        if let Some(session) = session {
-            let duration = session.start_time.elapsed();
-            self.record_event(session.event, duration);
-        }
+        let duration = session.start_time.elapsed();
+        Self::record_event(&mut state, session.event, duration);
     }
 
     /// Record an instant event
@@ -101,23 +103,25 @@ impl AudioProfiler {
         if !self.enabled {
             return;
         }
-        self.record_event(event, Duration::ZERO);
+        let mut state = self.state.write();
+        Self::record_event(&mut state, event, Duration::ZERO);
     }
 
     /// Get metrics for all events
     pub fn get_metrics(&self) -> HashMap<ProfileEvent, ProfileMetrics> {
-        self.metrics.read().clone()
+        self.state.read().metrics.clone()
     }
 
     /// Get metrics for specific event
     pub fn get_event_metrics(&self, event: &ProfileEvent) -> Option<ProfileMetrics> {
-        self.metrics.read().get(event).cloned()
+        self.state.read().metrics.get(event).cloned()
     }
 
     /// Reset all metrics
     pub fn reset(&self) {
-        self.metrics.write().clear();
-        self.active_sessions.write().clear();
+        let mut state = self.state.write();
+        state.metrics.clear();
+        state.active_sessions.clear();
     }
 
     /// Enable/disable profiling
@@ -133,9 +137,9 @@ impl AudioProfiler {
         self.enabled
     }
 
-    fn record_event(&self, event: ProfileEvent, duration: Duration) {
-        let mut metrics = self.metrics.write();
-        let entry = metrics
+    fn record_event(state: &mut CombinedState, event: ProfileEvent, duration: Duration) {
+        let entry = state
+            .metrics
             .entry(event.clone())
             .or_insert_with(|| ProfileMetrics {
                 event,

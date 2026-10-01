@@ -1433,7 +1433,7 @@ mod tech_building_latch_tests {
         crate::object::registry::OBJECT_REGISTRY.clear();
         clear_host_script_query_snapshot();
         let mut evaluator =
-            ScriptConditionEvaluator::new(Arc::new(RwLock::new(ScriptContext::new())));
+            ScriptConditionEvaluator::new(ScriptContext::new());
         let mut condition = tech_condition();
         assert_eq!(
             evaluator.evaluate_condition(&mut condition).unwrap(),
@@ -1457,7 +1457,7 @@ mod tech_building_latch_tests {
         });
         set_host_script_query_snapshot(snap);
         let mut evaluator =
-            ScriptConditionEvaluator::new(Arc::new(RwLock::new(ScriptContext::new())));
+            ScriptConditionEvaluator::new(ScriptContext::new());
         let mut condition = tech_condition();
         assert_eq!(
             evaluator.evaluate_condition(&mut condition).unwrap(),

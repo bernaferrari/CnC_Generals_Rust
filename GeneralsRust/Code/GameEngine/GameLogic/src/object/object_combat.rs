@@ -257,7 +257,7 @@ impl Object {
     }
 
     pub fn notify_subdual_damage(&mut self, amount: Real) {
-        if let Some(helper) = &self.subdual_damage_helper {
+        if self.subdual_damage_helper.is_some() {
             let heal_rate = self
                 .get_body_module()
                 .and_then(|body| {
@@ -266,8 +266,8 @@ impl Object {
                         .map(|guard| guard.get_subdual_damage_heal_rate())
                 })
                 .unwrap_or(0);
-            if let Ok(mut helper_guard) = helper.lock() {
-                helper_guard.notify_subdual_damage(amount, heal_rate);
+            if let Some(helper) = &mut self.subdual_damage_helper {
+                helper.notify_subdual_damage(amount, heal_rate);
             }
         }
 
@@ -287,12 +287,10 @@ impl Object {
     }
 
     pub fn do_status_damage(&mut self, status: ObjectStatusTypes, duration: Real) {
-        let Some(helper) = &self.status_damage_helper else {
+        let Some(helper) = self.status_damage_helper.as_mut() else {
             return;
         };
-        if let Ok(mut helper_guard) = helper.lock() {
-            helper_guard.do_status_damage(status, duration);
-        }
+        helper.do_status_damage(status, duration);
     }
 
     pub fn do_temp_weapon_bonus(
@@ -300,13 +298,11 @@ impl Object {
         status: WeaponBonusConditionType,
         duration: UnsignedInt,
     ) {
-        let Some(helper) = &self.temp_weapon_bonus_helper else {
+        let Some(helper) = self.temp_weapon_bonus_helper.as_mut() else {
             return;
         };
         let current_frame = crate::helpers::TheGameLogic::get_frame();
-        if let Ok(mut helper_guard) = helper.lock() {
-            let _ = helper_guard.do_temp_weapon_bonus(status, duration, current_frame);
-        }
+        let _ = helper.do_temp_weapon_bonus(status, duration, current_frame);
     }
     ///
     /// Matches C++ Object::getWeaponBonusCondition() from Object.h line 541
@@ -1156,10 +1152,11 @@ impl Object {
         }
 
         if !handled {
-            if let Some(tracker) = self.firing_tracker.clone() {
-                if let Ok(mut tracker_guard) = tracker.lock() {
-                    tracker_guard.shot_fired_with_owner(self, weapon, victim_id);
-                }
+            // Taken out because `shot_fired_with_owner` needs `&mut self`
+            // (the owner) at the same time; put straight back.
+            if let Some(mut tracker) = self.firing_tracker.take() {
+                tracker.shot_fired_with_owner(self, weapon, victim_id);
+                self.firing_tracker = Some(tracker);
             }
         }
     }
@@ -2237,9 +2234,7 @@ impl Object {
         }
 
         if let Some(tracker) = &self.firing_tracker {
-            if let Ok(tracker_guard) = tracker.lock() {
-                return tracker_guard.get_last_shot_frame();
-            }
+            return tracker.get_last_shot_frame();
         }
         0
     }
@@ -2423,7 +2418,6 @@ impl Object {
     pub fn get_last_victim_id(&self) -> ObjectID {
         self.firing_tracker
             .as_ref()
-            .and_then(|t| t.lock().ok())
             .map(|t| t.get_last_shot_victim())
             .unwrap_or(INVALID_ID)
     }
@@ -2501,7 +2495,6 @@ impl Object {
         }
         self.firing_tracker
             .as_ref()
-            .and_then(|t| t.lock().ok())
             .map(|t| t.get_num_consecutive_shots_at_victim(victim_id))
             .unwrap_or(0)
     }

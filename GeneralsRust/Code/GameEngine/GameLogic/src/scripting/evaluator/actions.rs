@@ -187,10 +187,10 @@ impl ScriptEvaluator {
             .unwrap_or(false))
     }
 
-    fn make_script_context(&self) -> Arc<RwLock<ScriptContext>> {
+    fn make_script_context(&self) -> ScriptContext {
         let mut context = ScriptContext::new();
         context.current_frame = TheGameLogic::get_frame();
-        Arc::new(RwLock::new(context))
+        context
     }
 
     fn with_action_handler<F>(&self, f: F) -> GameLogicResult<()>

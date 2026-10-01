@@ -129,7 +129,7 @@ fn live_executor_named_team_conditions_use_host_snapshot() {
     }
     logic.inject_host_named_unit_map_into_crate_tracker();
 
-    let mut evaluator = ScriptConditionEvaluator::new(Arc::new(RwLock::new(ScriptContext::new())));
+    let mut evaluator = ScriptConditionEvaluator::new(ScriptContext::new());
 
     let mut created = Condition::new(ConditionType::NamedCreated);
     created
@@ -225,7 +225,7 @@ fn unit_health_injects_leftover_initial_health_not_current_max() {
     );
     assert!((host.health - 80.0).abs() < 1e-4);
 
-    let mut evaluator = ScriptConditionEvaluator::new(Arc::new(RwLock::new(ScriptContext::new())));
+    let mut evaluator = ScriptConditionEvaluator::new(ScriptContext::new());
     let mut ge = Condition::new(ConditionType::UnitHealth);
     ge.add_parameter(Parameter::with_string(
         ParameterType::Unit,

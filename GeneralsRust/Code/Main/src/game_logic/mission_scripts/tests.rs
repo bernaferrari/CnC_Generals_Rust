@@ -579,8 +579,8 @@ mod tests {
 
         // Seed a 5s VO completion (150 frames) as TheAudio would.
         {
-            let mut map = hooks.speech_complete_frame.lock().expect("map");
-            map.insert(
+            let mut queues = hooks.queues.lock().expect("queues");
+            queues.speech_complete_frame.insert(
                 "Briefing".to_string(),
                 10 + speech_frames_from_length_ms(5_000.0),
             );
@@ -600,9 +600,10 @@ mod tests {
         assert!(hooks.is_speech_complete("Briefing", true));
         assert!(
             hooks
-                .speech_complete_frame
+                .queues
                 .lock()
-                .expect("map")
+                .expect("queues")
+                .speech_complete_frame
                 .get("Briefing")
                 .is_none(),
             "flush removes the completed speech tracker"
@@ -620,8 +621,8 @@ mod tests {
 
         // Seed a 5s SFX completion (150 frames) as leftover TheAudio would.
         {
-            let mut map = hooks.audio_complete_frame.lock().expect("map");
-            map.insert(
+            let mut queues = hooks.queues.lock().expect("queues");
+            queues.audio_complete_frame.insert(
                 "Boom".to_string(),
                 10 + speech_frames_from_length_ms(5_000.0),
             );
@@ -641,9 +642,10 @@ mod tests {
         assert!(hooks.is_audio_complete("Boom", true));
         assert!(
             hooks
-                .audio_complete_frame
+                .queues
                 .lock()
-                .expect("map")
+                .expect("queues")
+                .audio_complete_frame
                 .get("Boom")
                 .is_none(),
             "flush removes the completed audio tracker"
