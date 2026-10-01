@@ -1023,20 +1023,19 @@ impl Object {
             obj_guard.apply_team_ai_profile();
         }
 
-        let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(object_id, |obj| {
-            let Some(player_index) = obj.get_controlling_player() else {
-                return;
-            };
-            let plans = crate::player::with_player(player_index, |player| {
-                player.get_num_battle_plans_active()
-            })
-            .unwrap_or(0);
-            if plans > 0 {
-                crate::player::with_player(player_index, |player| {
-                    player.apply_battle_plan_bonuses_for_object(obj);
-                });
+        if let Ok(mut obj_guard) = object.write() {
+            if let Some(player_index) = obj_guard.get_controlling_player() {
+                let plans = crate::player::with_player(player_index, |player| {
+                    player.get_num_battle_plans_active()
+                })
+                .unwrap_or(0);
+                if plans > 0 {
+                    crate::player::with_player(player_index, |player| {
+                        player.apply_battle_plan_bonuses_for_object(&mut obj_guard);
+                    });
+                }
             }
-        });
+        }
 
         Ok(())
     }
