@@ -227,10 +227,10 @@ impl ScriptActionDispatcher {
                     }
                 };
 
-                if let Ok(mut team) = team_arc.write() {
+                let _ = crate::team::with_team_mut(team_arc, |team| {
                     team.add_member(object_id);
                     team.set_active();
-                }
+                });
                 created_any = true;
             }
 
@@ -272,24 +272,19 @@ impl ScriptActionDispatcher {
             (proto, team)
         };
 
-        if let Ok(mut team) = team_arc.write() {
+        let _ = crate::team::with_team_mut(team_arc, |team| {
             if team.get_controlling_player_id().is_none() {
                 let owner_name = team_proto.get_owner_name().to_string();
                 if !owner_name.is_empty() {
-                    if let Some(owner_player) = player_list()
-                        .read()
-                        .ok()
-                        .and_then(|list| list.find_player_by_name(&owner_name))
-                    {
-                        if let Ok(owner_guard) = owner_player.read() {
-                            team.set_controlling_player_id(Some(
-                                owner_guard.get_player_index() as u32
-                            ));
-                        }
+                    if let Some(owner_index) = player_list().read().ok().and_then(|list| {
+                        list.find_player_by_name(&owner_name)
+                            .map(|player| player.get_player_index() as u32)
+                    }) {
+                        team.set_controlling_player_id(Some(owner_index));
                     }
                 }
             }
-        }
+        });
 
         let mut origin = destination;
         let mut need_move_to_destination = false;
@@ -340,9 +335,9 @@ impl ScriptActionDispatcher {
             };
 
             if transport_id != INVALID_ID {
-                if let Ok(mut team) = team_arc.write() {
+                let _ = crate::team::with_team_mut(team_arc, |team| {
                     team.add_member(transport_id);
-                }
+                });
                 primary_transport_id = Some(transport_id);
                 created_any = true;
 
@@ -416,9 +411,9 @@ impl ScriptActionDispatcher {
                     }
                 };
 
-                if let Ok(mut team) = team_arc.write() {
+                let _ = crate::team::with_team_mut(team_arc, |team| {
                     team.add_member(object_id);
-                }
+                });
                 created_any = true;
                 row_spawned_any = true;
 
@@ -444,11 +439,8 @@ impl ScriptActionDispatcher {
         // C++ parity: if TeamStartsFull, pre-load units into transports already in the team
         // (excluding the reinforcement transport created above).
         if team_proto.get_team_starts_full() {
-            let member_ids = if let Ok(team) = team_arc.read() {
-                team.get_members().to_vec()
-            } else {
-                Vec::new()
-            };
+            let member_ids = crate::team::with_team(team_arc, |team| team.get_members().to_vec())
+                .unwrap_or_default();
 
             let mut team_transports: Vec<ObjectID> = Vec::new();
             let mut loadable_units: Vec<ObjectID> = Vec::new();
@@ -514,11 +506,8 @@ impl ScriptActionDispatcher {
         // Load remaining units into reinforcement transport(s), creating additional transports if full.
         if let Some(mut current_transport_id) = primary_transport_id {
             let mut transport_count = 1;
-            let member_ids = if let Ok(team) = team_arc.read() {
-                team.get_members().to_vec()
-            } else {
-                Vec::new()
-            };
+            let member_ids = crate::team::with_team(team_arc, |team| team.get_members().to_vec())
+                .unwrap_or_default();
 
             for member_id in member_ids {
                 {
@@ -591,9 +580,9 @@ impl ScriptActionDispatcher {
                                     let _ = new_transport.set_position(&pos);
                                     let _ = new_transport.set_orientation(0.0);
                                 });
-                                if let Ok(mut team) = team_arc.write() {
+                                let _ = crate::team::with_team_mut(team_arc, |team| {
                                     team.add_member(new_transport_id);
-                                }
+                                });
                                 current_transport_id = new_transport_id;
                                 transport_count += 1;
                                 created_any = true;
@@ -632,9 +621,9 @@ impl ScriptActionDispatcher {
                                         let _ = container.set_position(&container_pos);
                                         let _ = container.set_orientation(0.0);
                                     });
-                                if let Ok(mut team) = team_arc.write() {
+                                let _ = crate::team::with_team_mut(team_arc, |team| {
                                     team.add_member(container_id);
-                                }
+                                });
                                 created_any = true;
                         
                                 let inserted = OBJECT_REGISTRY.with_object(container_id, |container_guard| {
@@ -692,48 +681,32 @@ impl ScriptActionDispatcher {
             }
         }
 
-        if let Ok(mut team) = team_arc.write() {
+        let _ = crate::team::with_team_mut(team_arc, |team| {
             team.set_active();
-        }
+        });
 
         if primary_transport_id.is_some() {
-            let member_ids = if let Ok(team) = team_arc.read() {
-                team.get_members().to_vec()
-            } else {
-                Vec::new()
-            };
+            let member_ids = crate::team::with_team(team_arc, |team| team.get_members().to_vec())
+                .unwrap_or_default();
 
             for member_id in member_ids {
-                let Some((is_transport_template, is_held, ai_arc)) = OBJECT_REGISTRY.with_object(member_id, |member| {
-                    (
-                        transport_template_for_equivalence
-                            .as_ref()
-                            .map(|template| {
-                                member.get_template().is_equivalent_to(template.as_ref())
-                            })
-                            .unwrap_or(false),
-                        member.is_disabled_by_type(crate::common::DisabledType::Held),
-                        member.get_ai_update_interface(),
-                    )
-                }) else {
-                    continue;
-                };
-
-                let Some(ai_arc) = ai_arc else {
-                    continue;
-                };
-
-                if is_transport_template {
-                    if let Ok(mut ai) = ai_arc.lock() {
+                let _ = OBJECT_REGISTRY.with_object_mut(member_id, |member| {
+                    let is_transport_template = transport_template_for_equivalence
+                        .as_ref()
+                        .map(|template| member.get_template().is_equivalent_to(template.as_ref()))
+                        .unwrap_or(false);
+                    let is_held = member.is_disabled_by_type(crate::common::DisabledType::Held);
+                    let Some(ai) = member.get_ai_update_interface_mut() else {
+                        return;
+                    };
+                    if is_transport_template {
                         let mut used_deliver_payload = false;
                         if let Some(dp) = ai.get_deliver_payload_ai_update_interface() {
                             dp.deliver_payload_via_module_data(&destination);
                             used_deliver_payload = true;
                         }
-
                         if !used_deliver_payload {
-                            let _ =
-                                ai.choose_locomotor_set(crate::common::LocomotorSetType::Normal);
+                            let _ = ai.choose_locomotor_set(crate::common::LocomotorSetType::Normal);
                             if team_proto.get_transports_exit() {
                                 let mut params = AiCommandParams::new(
                                     AiCommandType::MoveToPositionAndEvacuateAndExit,
@@ -745,9 +718,7 @@ impl ScriptActionDispatcher {
                                 let _ = ai.ai_move_to_and_evacuate(&destination);
                             }
                         }
-                    }
-                } else if !is_held {
-                    if let Ok(mut ai) = ai_arc.lock() {
+                    } else if !is_held {
                         let _ = ai.choose_locomotor_set(crate::common::LocomotorSetType::Normal);
                         let mut params = AiCommandParams::new(
                             AiCommandType::MoveToPosition,
@@ -756,7 +727,7 @@ impl ScriptActionDispatcher {
                         params.pos = destination;
                         let _ = ai.execute_command(&params);
                     }
-                }
+                });
             }
         } else if created_any && need_move_to_destination {
             if let Ok(group_arc) = self.create_ai_group_from_team(&team_name) {
@@ -798,21 +769,17 @@ impl ScriptActionDispatcher {
         );
 
         let team_arc = self.get_team_by_name(&team_name)?;
-        let members = if let Ok(team) = team_arc.read() {
-            team.get_members().to_vec()
-        } else {
-            return Err(ScriptError::ExecutionFailed(
-                "Failed to read team".to_string(),
-            ));
-        };
+        let members = crate::team::with_team(team_arc, |team| team.get_members().to_vec()).ok_or_else(|| {
+            ScriptError::ExecutionFailed("Failed to read team".to_string())
+        })?;
 
         for member_id in members {
-            let Some((member_pos, ai_arc)) = OBJECT_REGISTRY.with_object(member_id, |member| {
-                (*member.get_position(), member.get_ai_update_interface())
-            }) else {
-                continue;
-            };
-            let Some(ai_arc) = ai_arc else {
+            let Some(member_pos) = OBJECT_REGISTRY.with_object(member_id, |member| {
+                if member.get_ai_update_interface().is_none() {
+                    return None;
+                }
+                Some(*member.get_position())
+            }).flatten() else {
                 continue;
             };
 
@@ -825,13 +792,15 @@ impl ScriptActionDispatcher {
                 return Ok(ScriptActionResult::Success);
             };
 
-            if let Ok(mut ai) = ai_arc.lock() {
-                let _ = ai.choose_locomotor_set(crate::common::LocomotorSetType::Wander);
-                let mut params =
-                    AiCommandParams::new(AiCommandType::Wander, CommandSourceType::FromScript);
-                params.waypoint = Some(waypoint_id);
-                let _ = ai.execute_command(&params);
-            };
+            let _ = OBJECT_REGISTRY.with_object_mut(member_id, |member| {
+                if let Some(ai) = member.get_ai_update_interface_mut() {
+                    let _ = ai.choose_locomotor_set(crate::common::LocomotorSetType::Wander);
+                    let mut params =
+                        AiCommandParams::new(AiCommandType::Wander, CommandSourceType::FromScript);
+                    params.waypoint = Some(waypoint_id);
+                    let _ = ai.execute_command(&params);
+                }
+            });
         }
 
         Ok(ScriptActionResult::Success)
@@ -851,31 +820,21 @@ impl ScriptActionDispatcher {
         log::info!("Team '{}' wandering in place", team_name);
 
         let team_arc = self.get_team_by_name(&team_name)?;
-        let members = if let Ok(team) = team_arc.read() {
-            team.get_members().to_vec()
-        } else {
-            return Err(ScriptError::ExecutionFailed(
-                "Failed to read team".to_string(),
-            ));
-        };
+        let members = crate::team::with_team(team_arc, |team| team.get_members().to_vec()).ok_or_else(|| {
+            ScriptError::ExecutionFailed("Failed to read team".to_string())
+        })?;
 
         for member_id in members {
-            let ai_arc = OBJECT_REGISTRY.with_object(member_id, |member| member.get_ai_update_interface());
-            let Some(ai_arc) = ai_arc else {
-                continue;
-            };
-            let Some(ai_arc) = ai_arc else {
-                continue;
-            };
-
-            if let Ok(mut ai) = ai_arc.lock() {
-                let _ = ai.choose_locomotor_set(crate::common::LocomotorSetType::Wander);
-                let params = AiCommandParams::new(
-                    AiCommandType::WanderInPlace,
-                    CommandSourceType::FromScript,
-                );
-                let _ = ai.execute_command(&params);
-            };
+            let _ = OBJECT_REGISTRY.with_object_mut(member_id, |member| {
+                if let Some(ai) = member.get_ai_update_interface_mut() {
+                    let _ = ai.choose_locomotor_set(crate::common::LocomotorSetType::Wander);
+                    let params = AiCommandParams::new(
+                        AiCommandType::WanderInPlace,
+                        CommandSourceType::FromScript,
+                    );
+                    let _ = ai.execute_command(&params);
+                }
+            });
         }
 
         Ok(ScriptActionResult::Success)
@@ -900,21 +859,17 @@ impl ScriptActionDispatcher {
         );
 
         let team_arc = self.get_team_by_name(&team_name)?;
-        let members = if let Ok(team) = team_arc.read() {
-            team.get_members().to_vec()
-        } else {
-            return Err(ScriptError::ExecutionFailed(
-                "Failed to read team".to_string(),
-            ));
-        };
+        let members = crate::team::with_team(team_arc, |team| team.get_members().to_vec()).ok_or_else(|| {
+            ScriptError::ExecutionFailed("Failed to read team".to_string())
+        })?;
 
         for member_id in members {
-            let Some((member_pos, ai_arc)) = OBJECT_REGISTRY.with_object(member_id, |member| {
-                (*member.get_position(), member.get_ai_update_interface())
-            }) else {
-                continue;
-            };
-            let Some(ai_arc) = ai_arc else {
+            let Some(member_pos) = OBJECT_REGISTRY.with_object(member_id, |member| {
+                if member.get_ai_update_interface().is_none() {
+                    return None;
+                }
+                Some(*member.get_position())
+            }).flatten() else {
                 continue;
             };
 
@@ -927,13 +882,15 @@ impl ScriptActionDispatcher {
                 return Ok(ScriptActionResult::Success);
             };
 
-            if let Ok(mut ai) = ai_arc.lock() {
-                let _ = ai.choose_locomotor_set(crate::common::LocomotorSetType::Panic);
-                let mut params =
-                    AiCommandParams::new(AiCommandType::Panic, CommandSourceType::FromScript);
-                params.waypoint = Some(waypoint_id);
-                let _ = ai.execute_command(&params);
-            };
+            let _ = OBJECT_REGISTRY.with_object_mut(member_id, |member| {
+                if let Some(ai) = member.get_ai_update_interface_mut() {
+                    let _ = ai.choose_locomotor_set(crate::common::LocomotorSetType::Panic);
+                    let mut params =
+                        AiCommandParams::new(AiCommandType::Panic, CommandSourceType::FromScript);
+                    params.waypoint = Some(waypoint_id);
+                    let _ = ai.execute_command(&params);
+                }
+            });
         }
 
         Ok(ScriptActionResult::Success)
@@ -1000,31 +957,29 @@ impl ScriptActionDispatcher {
             let _ = group.ai_do_command(&params);
         }
 
-        let (members, default_team_name) = {
-            let Ok(team_guard) = team_arc.read() else {
-                return Ok(ScriptActionResult::Success);
-            };
-            let default_team_name = team_guard
-                .get_controlling_player_id()
-                .and_then(|player_id| {
-                    player_list()
-                        .read()
-                        .ok()
-                        .and_then(|players| players.get_player(player_id as i32).cloned())
-                })
-                .and_then(|player| player.read().ok().and_then(|p| p.get_default_team()))
-                .and_then(|team| team.read().ok().map(|t| t.get_name().to_string()));
-            (team_guard.get_members().to_vec(), default_team_name)
+        let Some((members, player_id)) = crate::team::with_team(team_arc, |team| {
+            (
+                team.get_members().to_vec(),
+                team.get_controlling_player_id(),
+            )
+        }) else {
+            return Ok(ScriptActionResult::Success);
         };
+        let default_team_name = player_id
+            .and_then(|player_id| {
+                player_list().read().ok().and_then(|players| {
+                    players
+                        .get_player(player_id as i32)
+                        .and_then(|player| player.get_default_team_id())
+                })
+            })
+            .and_then(|id| crate::team::with_team(id, |team| team.get_name().to_string()));
         for object_id in members {
-            let ai_arc = OBJECT_REGISTRY
-                .with_object(object_id, |obj| obj.get_ai_update_interface())
-                .flatten();
-            if let Some(ai_arc) = ai_arc {
-                if let Ok(mut ai) = ai_arc.lock() {
+            let _ = OBJECT_REGISTRY.with_object_mut(object_id, |obj| {
+                if let Some(ai) = obj.get_ai_update_interface_mut() {
                     ai.set_is_recruitable(true);
                 }
-            }
+            });
         }
         if let Some(default_team_name) = default_team_name {
             self.merge_team_into_team(&team_name, &default_team_name)?;
@@ -1047,9 +1002,9 @@ impl ScriptActionDispatcher {
 
         if let Ok(mut factory) = get_team_factory().lock() {
             if let Some(team_arc) = factory.find_team(&team_name) {
-                if let Ok(mut team_guard) = team_arc.write() {
+                let _ = crate::team::with_team_mut(team_arc, |team_guard| {
                     team_guard.set_recruitable(available);
-                }
+                });
             }
         }
 
@@ -1103,14 +1058,11 @@ impl ScriptActionDispatcher {
         else {
             return Ok(());
         };
-        if Arc::ptr_eq(&source_team_arc, &target_team_arc) {
+        if source_team_arc == target_team_arc {
             return Ok(());
         }
 
-        let source_members = source_team_arc
-            .read()
-            .ok()
-            .map(|team| team.get_members().to_vec())
+        let source_members = crate::team::with_team(source_team_arc, |team| team.get_members().to_vec())
             .unwrap_or_default();
 
         for object_id in &source_members {
@@ -1127,18 +1079,18 @@ impl ScriptActionDispatcher {
             }
         }
 
-        if let Ok(mut source_guard) = source_team_arc.write() {
+        let _ = crate::team::with_team_mut(source_team_arc, |source_guard| {
             for object_id in &source_members {
                 source_guard.remove_member(*object_id);
             }
             source_guard.delete_team(false);
-        }
-        if let Ok(mut target_guard) = target_team_arc.write() {
+        });
+        let _ = crate::team::with_team_mut(target_team_arc, |target_guard| {
             for object_id in source_members {
                 target_guard.add_member(object_id);
             }
             target_guard.set_active();
-        }
+        });
 
         Ok(())
     }
