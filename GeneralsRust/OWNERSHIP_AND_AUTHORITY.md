@@ -33,12 +33,13 @@ and engine stores remain separate migration boundaries. GPU upload structures
 use compiler-checked Pod/Zeroable derives; this removes handwritten layout
 assertions without changing their C representations.
 
-The current reduction batches remove 34 synchronization fields and 21
+The current reduction batches remove 37 synchronization fields and 22
 mutable-state/configuration `Arc` allocations across the migrated constructors:
 guard records (13 mutex fields to 3), player timers, collision bookkeeping,
 minefields, ten sabotage/conversion definitions, flight-deck state, three Object
 ctor helpers, the AI crate marker, economy event history, and armor/max-health
-upgrade state, warehouse heal clocks, and the private death-weapon definition.
+upgrade state, warehouse heal clocks, the private death-weapon definition,
+fallback AI controllers, and two immutable upgrade identity records.
 These are constructor/field counts, not process-wide live lock
 counts or a measured frame-rate result. Outer shared interfaces remain.
 Frame FX pose publication now acquires one map write lock rather than one per
@@ -50,6 +51,16 @@ hook queue with synchronization at the shared callback boundary. Fresh admission
 clears reused-ID clocks; temporary removal/reinsertion keeps the same identity.
 The inactive FireWeapon duplicate and its source-only diagnostic machinery were
 retired. Its deletion is excluded from production allocation savings.
+The fallback AI controller belongs to its bridge; it is a Rust fallback rather
+than evidence of C++ AIUpdate equivalence. Passenger-fire and status-bit upgrade
+identity records retain immutable `Arc`/`Weak` sharing without an inner mutex;
+their global registries remain a separate migration dependency.
+
+Object creation, movement notification, and pathfinder destruction cleanup use
+already-borrowed object facts instead of reading the same write-locked object.
+Destruction unregisters updates and queues trigger-area changes through the
+driving GameLogic borrow at the original synchronous phases. Standalone ambient
+adapters and other callback/global dependencies still require migration.
 
 Handwritten unsafe assertions decreased by 34: 26 GPU Pod/Zeroable assertions
 became checked derives, and eight redundant Send/Sync assertions became

@@ -217,17 +217,9 @@ impl AIManager for AIManagerBridge {
             }
 
             let controller = self.ensure_basic_controller(object_id, Arc::clone(&base));
-            match controller.lock() {
-                Ok(mut controller) => {
-                    if controller.move_to(&destination) {
-                        any_success = true;
-                    }
-                }
-                Err(_) => warn!(
-                    "AIManagerBridge::issue_move_order: failed to lock basic controller for {}",
-                    object_id
-                ),
-            };
+            if controller.move_to(&destination) {
+                any_success = true;
+            }
         }
 
         any_success
@@ -275,17 +267,9 @@ impl AIManager for AIManagerBridge {
             }
 
             let controller = self.ensure_basic_controller(object_id, Arc::clone(&base));
-            match controller.lock() {
-                Ok(mut controller) => {
-                    if controller.move_to(&destination) {
-                        any_success = true;
-                    }
-                }
-                Err(_) => warn!(
-                    "AIManagerBridge::issue_waypoint_order: failed to lock basic controller for {}",
-                    object_id
-                ),
-            };
+            if controller.move_to(&destination) {
+                any_success = true;
+            }
         }
 
         any_success
@@ -333,17 +317,9 @@ impl AIManager for AIManagerBridge {
             }
 
             let controller = self.ensure_basic_controller(object_id, Arc::clone(&base));
-            match controller.lock() {
-                Ok(mut controller) => {
-                    if controller.move_to(&destination) {
-                        any_success = true;
-                    }
-                }
-                Err(_) => warn!(
-                    "AIManagerBridge::issue_attack_move_order: failed to lock basic controller for {}",
-                    object_id
-                ),
-            };
+            if controller.move_to(&destination) {
+                any_success = true;
+            }
         }
 
         any_success
@@ -418,17 +394,9 @@ impl AIManager for AIManagerBridge {
             }
 
             let controller = self.ensure_basic_controller(object_id, Arc::clone(&base));
-            match controller.lock() {
-                Ok(mut controller) => {
-                    if controller.attack_position(&target_position) {
-                        any_success = true;
-                    }
-                }
-                Err(_) => warn!(
-                    "AIManagerBridge::issue_attack_order: failed to lock basic controller for {}",
-                    object_id
-                ),
-            };
+            if controller.attack_position(&target_position) {
+                any_success = true;
+            }
         }
 
         any_success
@@ -604,17 +572,9 @@ impl AIManager for AIManagerBridge {
             }
 
             let controller = self.ensure_basic_controller(object_id, Arc::clone(&base));
-            match controller.lock() {
-                Ok(mut controller) => {
-                    if controller.idle() {
-                        any_success = true;
-                    }
-                }
-                Err(_) => warn!(
-                    "AIManagerBridge::issue_stop_order: failed to lock basic controller for {}",
-                    object_id
-                ),
-            };
+            if controller.idle() {
+                any_success = true;
+            }
         }
 
         any_success
@@ -689,17 +649,9 @@ impl AIManager for AIManagerBridge {
 
             if let Some(pos) = target_pos {
                 let controller = self.ensure_basic_controller(object_id, Arc::clone(&base));
-                match controller.lock() {
-                    Ok(mut controller) => {
-                        if controller.move_to(&pos) {
-                            any_success = true;
-                        }
-                    }
-                    Err(_) => warn!(
-                        "AIManagerBridge::issue_targeted_order: failed to lock basic controller for {}",
-                        object_id
-                    ),
-                };
+                if controller.move_to(&pos) {
+                    any_success = true;
+                }
             }
         }
 
@@ -761,17 +713,9 @@ impl AIManager for AIManagerBridge {
             }
 
             let controller = self.ensure_basic_controller(object_id, Arc::clone(&base));
-            match controller.lock() {
-                Ok(mut controller) => {
-                    if controller.move_to(&position) {
-                        any_success = true;
-                    }
-                }
-                Err(_) => warn!(
-                    "AIManagerBridge::issue_guard_position_order: failed to lock basic controller for {}",
-                    object_id
-                ),
-            };
+            if controller.move_to(&position) {
+                any_success = true;
+            }
         }
 
         any_success
@@ -842,17 +786,9 @@ impl AIManager for AIManagerBridge {
 
             if let Some(pos) = target_position {
                 let controller = self.ensure_basic_controller(object_id, Arc::clone(&base));
-                match controller.lock() {
-                    Ok(mut controller) => {
-                        if controller.move_to(&pos) {
-                            any_success = true;
-                        }
-                    }
-                    Err(_) => warn!(
-                        "AIManagerBridge::issue_guard_object_order: failed to lock basic controller for {}",
-                        object_id
-                    ),
-                };
+                if controller.move_to(&pos) {
+                    any_success = true;
+                }
             }
         }
 
@@ -909,5 +845,93 @@ impl BasicAiController {
                 false
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod basic_ai_ownership_tests {
+    use super::*;
+    use crate::common::Coord3D;
+    use crate::object::Object;
+
+    fn bridge() -> AIManagerBridge {
+        AIManagerBridge {
+            object_factory: Arc::new(RwLock::new(ObjectFactory::new())),
+            basic_ai: HashMap::new(),
+        }
+    }
+
+    fn test_object(id: ObjectID) -> Arc<RwLock<Object>> {
+        Arc::new(RwLock::new(Object::new_test(id, 100.0)))
+    }
+
+    #[test]
+    fn basic_controller_is_reused_for_the_same_bridge_id() {
+        let object = test_object(0xA1_001);
+        let replacement = test_object(0xA1_001);
+        let mut bridge = bridge();
+
+        assert!(
+            bridge
+                .ensure_basic_controller(0xA1_001, Arc::clone(&object))
+                .move_to(&Coord3D::new(10.0, 20.0, 0.0))
+        );
+        assert!(
+            bridge
+                .ensure_basic_controller(0xA1_001, replacement)
+                .attack_position(&Coord3D::new(30.0, 40.0, 0.0))
+        );
+
+        let controller = bridge.basic_ai.get(&0xA1_001).expect("controller reused");
+        assert!(Arc::ptr_eq(&controller.object, &object));
+        assert!(matches!(&controller.state, BasicAiState::Attacking(_)));
+        assert_eq!(
+            *object.read().expect("object read").get_position(),
+            Coord3D::new(30.0, 40.0, 0.0)
+        );
+    }
+
+    #[test]
+    fn distinct_bridges_own_independent_same_id_controllers() {
+        let first_object = test_object(0xA1_002);
+        let second_object = test_object(0xA1_002);
+        let mut first = bridge();
+        let mut second = bridge();
+
+        assert!(
+            first
+                .ensure_basic_controller(0xA1_002, Arc::clone(&first_object))
+                .move_to(&Coord3D::new(5.0, 0.0, 0.0))
+        );
+        assert!(
+            second
+                .ensure_basic_controller(0xA1_002, Arc::clone(&second_object))
+                .move_to(&Coord3D::new(0.0, 7.0, 0.0))
+        );
+
+        assert_eq!(first.basic_ai.len(), 1);
+        assert_eq!(second.basic_ai.len(), 1);
+        assert!(Arc::ptr_eq(
+            &first.basic_ai[&0xA1_002].object,
+            &first_object
+        ));
+        assert!(Arc::ptr_eq(
+            &second.basic_ai[&0xA1_002].object,
+            &second_object
+        ));
+        assert_eq!(
+            *first_object
+                .read()
+                .expect("first object read")
+                .get_position(),
+            Coord3D::new(5.0, 0.0, 0.0)
+        );
+        assert_eq!(
+            *second_object
+                .read()
+                .expect("second object read")
+                .get_position(),
+            Coord3D::new(0.0, 7.0, 0.0)
+        );
     }
 }

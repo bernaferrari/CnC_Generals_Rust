@@ -758,15 +758,15 @@ impl Object {
         // that Object so its own template thresholds and level-change effects
         // are used; never apply the sink's returned transition to this source.
         if experience_sink != ExperienceTracker::INVALID_ID {
-            let Some(sink) = crate::helpers::TheGameLogic::find_object_by_id(experience_sink)
-            else {
-                return false;
-            };
-            let Ok(mut sink_guard) = sink.write() else {
-                return false;
-            };
-            return sink_guard
-                .set_experience_and_level_with_side_effects(experience, provide_feedback);
+            if let Some(sink) = crate::helpers::TheGameLogic::find_object_by_id(experience_sink) {
+                let Ok(mut sink_guard) = sink.write() else {
+                    return false;
+                };
+                return sink_guard
+                    .set_experience_and_level_with_side_effects(experience, provide_feedback);
+            }
+            // C++ falls through to this Object's own trainability/reset path
+            // if the configured sink ID no longer resolves to a live Object.
         }
 
         if !trainable {
@@ -2510,15 +2510,21 @@ impl Object {
 #[cfg(test)]
 mod veterancy_side_effect_tests {
     use super::*;
+    use crate::common::DefaultThingTemplate;
     use crate::experience::ExperienceTracker;
 
     fn tracked_object(id: ObjectID) -> Object {
         let mut obj = Object::new_test(id, 100.0);
+        let mut template = DefaultThingTemplate::new(format!("TrainableExperience{id}"));
+        let mut fields = std::collections::HashMap::new();
+        fields.insert("IsTrainable".to_string(), "Yes".to_string());
+        fields.insert(
+            "ExperienceRequired".to_string(),
+            "0 100 300 600".to_string(),
+        );
+        template.parse_object_fields_from_ini(&fields);
+        obj.set_template_for_test(Arc::new(template));
         let tracker = Arc::new(Mutex::new(ExperienceTracker::new(id)));
-        tracker
-            .lock()
-            .expect("tracker")
-            .set_trainable_override(true);
         obj.experience_tracker = Some(tracker);
         obj
     }

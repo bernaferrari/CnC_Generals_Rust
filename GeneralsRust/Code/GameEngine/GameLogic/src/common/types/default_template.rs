@@ -13,6 +13,8 @@ pub struct DefaultThingTemplate {
     kind_of_flags: Vec<KindOf>,
     build_cost: Int,
     build_time: Real,
+    experience_required: [Int; 4],
+    is_trainable: bool,
     threat_value: UnsignedInt,
     crusher_level: u32,
     crushable_level: u32,
@@ -80,6 +82,8 @@ impl DefaultThingTemplate {
             kind_of_flags: Vec::new(),
             build_cost: 0,
             build_time: 0.0,
+            experience_required: [0; 4],
+            is_trainable: false,
             threat_value: 0,
             crusher_level: 0,
             crushable_level: 255,
@@ -336,6 +340,22 @@ impl DefaultThingTemplate {
                         self.build_time = v;
                     }
                 }
+                "ExperienceRequired" => {
+                    for (slot, value) in self
+                        .experience_required
+                        .iter_mut()
+                        .zip(trimmed.split_ascii_whitespace())
+                    {
+                        if let Ok(value) = value.parse::<Int>() {
+                            *slot = value;
+                        }
+                    }
+                }
+                "IsTrainable" => {
+                    if let Ok(value) = game_engine::common::ini::INI::parse_bool(trimmed) {
+                        self.is_trainable = value;
+                    }
+                }
 
                 // --- Combat ---
                 "ThreatValue" => {
@@ -500,6 +520,14 @@ impl ThingTemplate for DefaultThingTemplate {
         self.build_cost
     }
 
+    fn get_experience_required(&self, level: usize) -> Int {
+        self.experience_required.get(level).copied().unwrap_or(0)
+    }
+
+    fn is_trainable(&self) -> bool {
+        self.is_trainable
+    }
+
     fn get_occlusion_delay(&self) -> u32 {
         self.occlusion_delay
     }
@@ -513,9 +541,8 @@ impl ThingTemplate for DefaultThingTemplate {
             crate::object::production::build_cost_calculator::PlayerBuildModifiers::default();
         mods.production_cost_change_percent =
             player.get_production_cost_change_percent(self.get_name().as_str());
-        mods.handicap_cost_multiplier = player
-            .get_handicap()
-            .get_cost_multiplier_for_template(self);
+        mods.handicap_cost_multiplier =
+            player.get_handicap().get_cost_multiplier_for_template(self);
         mods.production_cost_change_by_kind =
             player.get_production_cost_change_based_on_kind_of(self.kind_of_mask());
 
@@ -1225,4 +1252,3 @@ impl ThingTemplate for Arc<dyn ThingTemplate> {
         (**self).get_sound_falling()
     }
 }
-
