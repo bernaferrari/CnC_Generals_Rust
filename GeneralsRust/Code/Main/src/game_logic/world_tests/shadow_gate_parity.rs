@@ -13,10 +13,9 @@
 
 use super::*;
 use crate::gameworld_shadow::{
-    begin_shadow_coupled_tick, clear_active_shadow_for_coupled_tick,
-    eager_apply_all_host_residuals_after_logic, end_shadow_coupled_tick,
-    install_active_shadow_for_coupled_tick, shadow_session_after_host_tick,
-    with_gameworld_authority, GameWorldShadow,
+    GameWorldShadow, begin_shadow_coupled_tick, eager_apply_all_host_residuals_after_logic,
+    end_shadow_coupled_tick, shadow_session_after_host_tick, with_coupled_shadow,
+    with_gameworld_authority,
 };
 
 /// Serialize against tests that mutate `GENERALS_GAMEWORLD_*` env and pin the
@@ -57,13 +56,13 @@ impl Drop for ShadowEnvPin {
 /// `host_run_coupled_fast_forward_loop`.
 fn coupled_frame(shadow: &mut GameWorldShadow, logic: &mut GameLogic) {
     begin_shadow_coupled_tick();
-    install_active_shadow_for_coupled_tick(shadow);
-    let _ = with_gameworld_authority(*logic.gameworld_authority(), || {
-        logic.tick_logic_frame(LOGIC_FRAME_TIMESTEP, None, None);
+    with_coupled_shadow(shadow, || {
+        with_gameworld_authority(*logic.gameworld_authority(), || {
+            logic.tick_logic_frame(LOGIC_FRAME_TIMESTEP, None, None);
+        });
     });
     eager_apply_all_host_residuals_after_logic(shadow, logic);
     let _probe = shadow_session_after_host_tick(shadow, logic);
-    clear_active_shadow_for_coupled_tick();
     end_shadow_coupled_tick();
 }
 

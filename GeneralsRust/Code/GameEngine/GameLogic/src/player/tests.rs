@@ -82,6 +82,78 @@ fn player_xfer_round_trip(mut source: Player, loaded_player_index: PlayerIndex) 
 }
 
 #[test]
+fn shared_special_power_ready_timers_are_owned_per_player() {
+    let mut first = Player::new(0);
+    let mut second = Player::new(1);
+
+    PlayerInterface::express_special_power_ready_frame(&mut first, 77, 10);
+    PlayerInterface::express_special_power_ready_frame(&mut second, 77, 20);
+    assert_eq!(
+        PlayerInterface::get_or_start_special_power_ready_frame(&mut first, 77, 99),
+        10
+    );
+    assert_eq!(
+        PlayerInterface::get_or_start_special_power_ready_frame(&mut second, 77, 99),
+        20
+    );
+
+    PlayerInterface::reset_or_start_special_power_ready_frame(&mut first, 77, 100, 50);
+    assert_eq!(
+        PlayerInterface::get_or_start_special_power_ready_frame(&mut first, 77, 0),
+        150
+    );
+    assert_eq!(
+        PlayerInterface::get_or_start_special_power_ready_frame(&mut second, 77, 0),
+        20
+    );
+
+    // New-map reset clears only the timer list owned by that Player.
+    first.new_map();
+    assert_eq!(
+        PlayerInterface::get_or_start_special_power_ready_frame(&mut first, 77, 200),
+        200
+    );
+    assert_eq!(
+        PlayerInterface::get_or_start_special_power_ready_frame(&mut second, 77, 0),
+        20
+    );
+}
+
+#[test]
+fn player_xfer_preserves_shared_special_power_timer_order_and_replaces_old_list() {
+    let mut source = Player::new(3);
+    PlayerInterface::express_special_power_ready_frame(&mut source, 42, 900);
+    PlayerInterface::express_special_power_ready_frame(&mut source, 17, 250);
+
+    let mut saved = Vec::new();
+    {
+        let cursor = Cursor::new(&mut saved);
+        let mut xfer = XferSave::new(cursor, 1);
+        Snapshotable::xfer(&mut source, &mut xfer).unwrap();
+    }
+
+    let mut loaded = Player::new(3);
+    loaded
+        .special_power_ready_timers
+        .push(SpecialPowerReadyTimer {
+            template_id: 99,
+            ready_frame: 1,
+        });
+    {
+        let cursor = Cursor::new(saved);
+        let mut xfer = XferLoad::new(cursor, 1);
+        Snapshotable::xfer(&mut loaded, &mut xfer).unwrap();
+    }
+
+    let timers = loaded
+        .special_power_ready_timers
+        .iter()
+        .map(|timer| (timer.template_id, timer.ready_frame))
+        .collect::<Vec<_>>();
+    assert_eq!(timers, vec![(42, 900), (17, 250)]);
+}
+
+#[test]
 fn score_keeper_tracks_destroyed_objects_by_victim_player() {
     let mut keeper = ScoreKeeper::new_for_player(2);
     keeper.add_unit_built();

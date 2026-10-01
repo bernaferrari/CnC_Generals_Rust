@@ -3,9 +3,9 @@
 //! Provides dynamic shadow mapping with support for multiple shadow casters,
 //! cascaded shadow maps, and soft shadows.
 
+use glam::{Mat4, Vec3};
 use std::collections::HashMap;
 use std::sync::Arc;
-use glam::{Mat4, Vec3};
 use wgpu::{
     BindGroup, BindGroupLayout, Buffer, BufferUsages, Device, Extent3d, Queue, Sampler,
     SamplerBindingType, Texture, TextureDescriptor, TextureDimension, TextureFormat, TextureUsages,
@@ -650,7 +650,7 @@ impl ShadowSystem {
 
 /// Shadow matrix data for GPU
 #[repr(C)]
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 struct ShadowMatrixData {
     matrix: [[f32; 4]; 4],
     bias: f32,
@@ -658,12 +658,6 @@ struct ShadowMatrixData {
     split_distance: f32,
     _padding: f32,
 }
-
-// SAFETY: `#[repr(C)]` struct of matrix f32 fields plus explicit _padding — no
-// SAFETY: padding holes, any bit pattern valid for raw GPU upload.
-unsafe impl bytemuck::Pod for ShadowMatrixData {}
-// SAFETY: Zero bits decode as valid (degenerate) matrix/scalars; no niches.
-unsafe impl bytemuck::Zeroable for ShadowMatrixData {}
 
 #[cfg(test)]
 mod tests {

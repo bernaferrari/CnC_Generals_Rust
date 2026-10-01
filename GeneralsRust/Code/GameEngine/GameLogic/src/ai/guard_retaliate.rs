@@ -1,7 +1,9 @@
 use crate::action_manager::{CanEnterType, TheActionManager};
-use crate::ai::states::{AIEnterState, AIPickUpCrateState, AttackExitConditionsInterface, AttackStateMachine};
+use crate::ai::states::{
+    AIEnterState, AIPickUpCrateState, AttackExitConditionsInterface, AttackStateMachine,
+};
 use crate::ai::vision_factors;
-use crate::ai::{the_ai, object_registry::get_legacy_object};
+use crate::ai::{object_registry::get_legacy_object, the_ai};
 use crate::attack::{AbleToAttackType, CanAttackResult};
 use crate::common::coord::*;
 use crate::common::vector_ext::Vector3Ext;
@@ -36,14 +38,12 @@ fn retaliate_attack_aggressor_condition(
     } else {
         None
     };
-    owner
-        .as_ref()
-        .is_some_and(has_attacked_me_from_owner)
+    owner.as_ref().is_some_and(has_attacked_me_from_owner)
 }
 
-
 fn get_guard_enemy_scan_rate() -> u32 {
-    let ai_store = the_ai();let Ok(ai_guard) = ai_store.read() else {
+    let ai_store = the_ai();
+    let Ok(ai_guard) = ai_store.read() else {
         return 30;
     };
     let data = ai_guard.get_ai_data();
@@ -54,7 +54,8 @@ fn get_guard_enemy_scan_rate() -> u32 {
 }
 
 fn get_guard_chase_unit_frames() -> u32 {
-    let ai_store = the_ai();let Ok(ai_guard) = ai_store.read() else {
+    let ai_store = the_ai();
+    let Ok(ai_guard) = ai_store.read() else {
         return 0;
     };
     let data = ai_guard.get_ai_data();
@@ -65,7 +66,8 @@ fn get_guard_chase_unit_frames() -> u32 {
 }
 
 fn get_guard_enemy_return_scan_rate() -> u32 {
-    let ai_store = the_ai();let Ok(ai_guard) = ai_store.read() else {
+    let ai_store = the_ai();
+    let Ok(ai_guard) = ai_store.read() else {
         return 60;
     };
     let data = ai_guard.get_ai_data();
@@ -289,13 +291,32 @@ impl AttackExitConditionsInterface for GuardRetaliateExitConditionsHandle {
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct GuardRetaliateSharedState {
     machine: Weak<Mutex<StateMachine>>,
     owner: Weak<RwLock<Object>>,
-    position_to_guard: Mutex<Coord3D>,
-    nemesis_to_attack: Mutex<ObjectID>,
-    pending_state: Mutex<Option<u32>>,
+    fields: Mutex<GuardRetaliateSharedFields>,
+}
+
+#[derive(Debug)]
+struct GuardRetaliateSharedFields {
+    position_to_guard: Coord3D,
+    nemesis_to_attack: ObjectID,
+    pending_state: Option<u32>,
+}
+
+impl Default for GuardRetaliateSharedState {
+    fn default() -> Self {
+        Self {
+            machine: Weak::new(),
+            owner: Weak::new(),
+            fields: Mutex::new(GuardRetaliateSharedFields {
+                position_to_guard: Coord3D::default(),
+                nemesis_to_attack: ObjectID::default(),
+                pending_state: None,
+            }),
+        }
+    }
 }
 
 impl GuardRetaliateSharedState {
@@ -303,9 +324,11 @@ impl GuardRetaliateSharedState {
         Self {
             machine: Arc::downgrade(machine),
             owner,
-            position_to_guard: Mutex::new(Coord3D::new(0.0, 0.0, 0.0)),
-            nemesis_to_attack: Mutex::new(crate::common::INVALID_ID),
-            pending_state: Mutex::new(None),
+            fields: Mutex::new(GuardRetaliateSharedFields {
+                position_to_guard: Coord3D::new(0.0, 0.0, 0.0),
+                nemesis_to_attack: crate::common::INVALID_ID,
+                pending_state: None,
+            }),
         }
     }
 
@@ -314,13 +337,16 @@ impl GuardRetaliateSharedState {
     }
 
     fn request_state(&self, state: u32) {
-        if let Ok(mut pending) = self.pending_state.lock() {
-            *pending = Some(state);
+        if let Ok(mut fields) = self.fields.lock() {
+            fields.pending_state = Some(state);
         }
     }
 
     fn take_pending_state(&self) -> Option<u32> {
-        self.pending_state.lock().ok().and_then(|mut pending| pending.take())
+        self.fields
+            .lock()
+            .ok()
+            .and_then(|mut fields| fields.pending_state.take())
     }
 
     fn with_machine<F, R>(&self, f: F) -> Result<R, String>
@@ -344,28 +370,35 @@ impl GuardRetaliateSharedState {
     }
 
     fn get_position_to_guard(&self) -> Coord3D {
-        self.position_to_guard
+        self.fields
             .lock()
-            .map(|pos| *pos)
+            .map(|fields| fields.position_to_guard)
             .unwrap_or_else(|_| Coord3D::new(0.0, 0.0, 0.0))
     }
 
     fn set_position_to_guard(&self, pos: Coord3D) {
-        if let Ok(mut guard_pos) = self.position_to_guard.lock() {
-            *guard_pos = pos;
+        if let Ok(mut fields) = self.fields.lock() {
+            fields.position_to_guard = pos;
         }
     }
 
     fn get_nemesis_to_attack(&self) -> ObjectID {
-        self.nemesis_to_attack
+        self.fields
             .lock()
-            .map(|id| *id)
+            .map(|fields| fields.nemesis_to_attack)
             .unwrap_or(crate::common::INVALID_ID)
     }
 
     fn set_nemesis_to_attack(&self, id: ObjectID) {
-        if let Ok(mut nemesis) = self.nemesis_to_attack.lock() {
-            *nemesis = id;
+        if let Ok(mut fields) = self.fields.lock() {
+            fields.nemesis_to_attack = id;
+        }
+    }
+
+    fn sync_from_machine(&self, position_to_guard: Coord3D, nemesis_to_attack: ObjectID) {
+        if let Ok(mut fields) = self.fields.lock() {
+            fields.position_to_guard = position_to_guard;
+            fields.nemesis_to_attack = nemesis_to_attack;
         }
     }
 }
@@ -413,6 +446,30 @@ mod tests {
 
         let current = machine.lock().unwrap().get_current_state_id();
         assert_eq!(current, Some(GuardRetaliateStateType::Idle as u32));
+    }
+
+    #[test]
+    fn guard_retaliate_shared_fields_are_isolated_per_instance_and_shared_with_states() {
+        let machine_a = Arc::new(Mutex::new(StateMachine::new(Some(Weak::new()), "retal_a")));
+        let machine_b = Arc::new(Mutex::new(StateMachine::new(Some(Weak::new()), "retal_b")));
+        let shared_a = Arc::new(GuardRetaliateSharedState::new(&machine_a, Weak::new()));
+        let shared_b = Arc::new(GuardRetaliateSharedState::new(&machine_b, Weak::new()));
+        let child_view_a = Arc::clone(&shared_a);
+
+        shared_a.set_nemesis_to_attack(41);
+        shared_a.set_position_to_guard(Coord3D::new(1.0, 2.0, 3.0));
+        shared_b.set_nemesis_to_attack(82);
+
+        assert_eq!(child_view_a.get_nemesis_to_attack(), 41);
+        assert_eq!(
+            child_view_a.get_position_to_guard(),
+            Coord3D::new(1.0, 2.0, 3.0)
+        );
+        assert_eq!(shared_b.get_nemesis_to_attack(), 82);
+        assert_eq!(
+            shared_b.get_position_to_guard(),
+            Coord3D::new(0.0, 0.0, 0.0)
+        );
     }
 }
 
@@ -480,7 +537,11 @@ impl AIGuardRetaliateMachine {
 
         base.define_state(
             GuardRetaliateStateType::Return as u32,
-            Box::new(AIGuardRetaliateReturnState::new(&base_arc, shared.clone(), owner.clone())),
+            Box::new(AIGuardRetaliateReturnState::new(
+                &base_arc,
+                shared.clone(),
+                owner.clone(),
+            )),
             Some(GuardRetaliateStateType::Idle as u32),
             Some(GuardRetaliateStateType::Inner as u32),
             Some(&attack_aggressors),
@@ -488,7 +549,11 @@ impl AIGuardRetaliateMachine {
 
         base.define_state(
             GuardRetaliateStateType::Idle as u32,
-            Box::new(AIGuardRetaliateIdleState::new(&base_arc, shared.clone(), owner)),
+            Box::new(AIGuardRetaliateIdleState::new(
+                &base_arc,
+                shared.clone(),
+                owner,
+            )),
             Some(GuardRetaliateStateType::Inner as u32),
             Some(EXIT_MACHINE_WITH_SUCCESS),
             Some(&attack_aggressors),
@@ -626,7 +691,8 @@ impl AIGuardRetaliateMachine {
     }
 
     pub fn get_std_guard_range(obj_id: ObjectID) -> f32 {
-        let ai_store = the_ai();let ai = ai_store.read().ok();
+        let ai_store = the_ai();
+        let ai = ai_store.read().ok();
         ai.and_then(|ai| {
             ai.get_adjusted_vision_range_for_object(
                 obj_id,
@@ -666,8 +732,8 @@ impl AIGuardRetaliateMachine {
         xfer.xfer_real(&mut self.position_to_guard.z)
             .map_err(|e| format!("Failed to xfer position_to_guard.z: {:?}", e))?;
 
-        self.shared.set_nemesis_to_attack(self.nemesis_to_attack);
-        self.shared.set_position_to_guard(self.position_to_guard);
+        self.shared
+            .sync_from_machine(self.position_to_guard, self.nemesis_to_attack);
 
         Ok(())
     }
@@ -717,7 +783,6 @@ impl GuardRetaliateState {
     fn owner_arc(&self) -> Option<Arc<RwLock<Object>>> {
         self.shared.owner()
     }
-
 
     fn change_state(&self, state: GuardRetaliateStateType) -> Result<(), String> {
         self.shared.change_state(state)
@@ -942,7 +1007,9 @@ impl StateImplementation for AIGuardRetaliateIdleState {
         if let Some(ai) = owner_guard.get_ai_update_interface() {
             if let Ok(ai_guard) = ai.lock() {
                 if ai_guard.get_crate_id() != crate::common::INVALID_ID {
-                    self.base.shared.request_state(GuardRetaliateStateType::GetCrate as u32);
+                    self.base
+                        .shared
+                        .request_state(GuardRetaliateStateType::GetCrate as u32);
                     return StateReturnType::Sleep(self.next_enemy_scan_time.saturating_sub(now));
                 }
             }
@@ -1042,7 +1109,8 @@ impl StateImplementation for AIGuardRetaliateOuterState {
             let owner_id = owner_guard.get_id();
             drop(owner_guard);
 
-            let ai_store = the_ai();let Ok(ai) = ai_store.read() else {
+            let ai_store = the_ai();
+            let Ok(ai) = ai_store.read() else {
                 return StateReturnType::Failure;
             };
             ai.get_adjusted_vision_range_for_object(
@@ -1366,7 +1434,8 @@ impl StateImplementation for AIGuardRetaliateAttackAggressorState {
             let owner_id = owner_guard.get_id();
             drop(owner_guard);
 
-            let ai_store = the_ai();let Ok(ai) = ai_store.read() else {
+            let ai_store = the_ai();
+            let Ok(ai) = ai_store.read() else {
                 return StateReturnType::Failure;
             };
             ai.get_adjusted_vision_range_for_object(
@@ -1448,42 +1517,42 @@ pub fn has_attacked_me_and_i_can_return_fire_retaliate(machine: &StateMachine) -
 fn has_attacked_me_from_owner(owner: &Arc<RwLock<Object>>) -> bool {
     if let Ok(owner_ref) = owner.try_read() {
         if let Some(body_module) = owner_ref.get_body_module() {
-                if let Ok(mut body_guard) = body_module.lock() {
-                    let last_attacker = body_guard.get_clearable_last_attacker();
-                    if last_attacker == crate::common::INVALID_ID {
-                        return false;
-                    }
-
-                    // Clear the attacker to prevent repeated checks
-                    body_guard.clear_last_attacker();
-
-                    let Some(attacker_arc) = get_legacy_object(last_attacker) else {
-                        return false;
-                    };
-                    let Ok(attacker_guard) = attacker_arc.read() else {
-                        return false;
-                    };
-                    if attacker_guard.is_effectively_dead() {
-                        return false;
-                    }
-                    if owner_ref.relationship_to(&*attacker_guard) != Relationship::Enemies {
-                        return false;
-                    }
-                    if !owner_ref.is_able_to_attack() {
-                        return false;
-                    }
-                    let can_attack = owner_ref.get_able_to_attack_specific_object(
-                        AbleToAttackType::NewTarget,
-                        &*attacker_guard,
-                        CommandSourceType::FromAi,
-                    );
-                    matches!(
-                        can_attack,
-                        CanAttackResult::Possible | CanAttackResult::PossibleAfterMoving
-                    )
-                } else {
-                    false
+            if let Ok(mut body_guard) = body_module.lock() {
+                let last_attacker = body_guard.get_clearable_last_attacker();
+                if last_attacker == crate::common::INVALID_ID {
+                    return false;
                 }
+
+                // Clear the attacker to prevent repeated checks
+                body_guard.clear_last_attacker();
+
+                let Some(attacker_arc) = get_legacy_object(last_attacker) else {
+                    return false;
+                };
+                let Ok(attacker_guard) = attacker_arc.read() else {
+                    return false;
+                };
+                if attacker_guard.is_effectively_dead() {
+                    return false;
+                }
+                if owner_ref.relationship_to(&*attacker_guard) != Relationship::Enemies {
+                    return false;
+                }
+                if !owner_ref.is_able_to_attack() {
+                    return false;
+                }
+                let can_attack = owner_ref.get_able_to_attack_specific_object(
+                    AbleToAttackType::NewTarget,
+                    &*attacker_guard,
+                    CommandSourceType::FromAi,
+                );
+                matches!(
+                    can_attack,
+                    CanAttackResult::Possible | CanAttackResult::PossibleAfterMoving
+                )
+            } else {
+                false
+            }
         } else {
             false
         }

@@ -23,10 +23,24 @@ defaults:
     working-directory: GeneralsRust
 
 jobs:
-  quality:
-    name: Non-network format, check, test, and clippy
+  ratchets:
+    name: Rust LOC and unsafe policy ratchets
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Enforce shrinking Rust LOC ratchet
+        run: python3 Code/Main/scripts/check_rust_loc.py
+
+      - name: Enforce unsafe-code safety contract ratchet
+        run: python3 Code/Main/scripts/check_unsafe_contracts.py
+
+  tooling:
+    name: Non-network formatting and parity tooling
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -34,47 +48,13 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          components: rustfmt, clippy
-
-      - name: Install Linux dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            pkg-config \
-            libasound2-dev \
-            libpulse-dev \
-            libudev-dev \
-            libdbus-1-dev \
-            libx11-dev \
-            libxi-dev \
-            libxrandr-dev \
-            libxcursor-dev \
-            libxkbcommon-dev \
-            libwayland-dev \
-            libvulkan-dev
-
-      - name: Cache Cargo
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            GeneralsRust/target
-          key: ${{ runner.os }}-non-network-${{ hashFiles('GeneralsRust/Cargo.lock', 'GeneralsRust/**/Cargo.toml') }}
-          restore-keys: |
-            ${{ runner.os }}-non-network-
+          components: rustfmt
 
       # The legacy production tree has pre-existing rustfmt debt, including in
       # deferred GameNetwork. Keep this required check scoped to the package
       # introduced here instead of making unrelated formatting block parity CI.
       - name: Check attached test formatting
         run: cargo fmt --manifest-path tests/Cargo.toml -- --check
-
-      - name: Enforce shrinking Rust LOC ratchet
-        run: python3 Code/Main/scripts/check_rust_loc.py
-
-      - name: Enforce unsafe-code safety contract ratchet
-        run: python3 Code/Main/scripts/check_unsafe_contracts.py
 
       - name: Set up Python for parity tooling
         uses: actions/setup-python@v5
@@ -104,6 +84,47 @@ jobs:
         run: >-
           python3 GeneralsRust/Code/Main/scripts/generate_port_review_queue.py
           --repo-root . --verify-generated
+
+  correctness:
+    name: Non-network Rust checks, tests, and clippy
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            pkg-config \
+            libasound2-dev \
+            libpulse-dev \
+            libudev-dev \
+            libdbus-1-dev \
+            libx11-dev \
+            libxi-dev \
+            libxrandr-dev \
+            libxcursor-dev \
+            libxkbcommon-dev \
+            libwayland-dev \
+            libvulkan-dev
+
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            GeneralsRust/target
+          key: ${{ runner.os }}-non-network-${{ hashFiles('GeneralsRust/Cargo.lock', 'GeneralsRust/**/Cargo.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-non-network-
 
       - name: Assert the default host graph excludes GameNetwork
         run: |
@@ -155,7 +176,6 @@ jobs:
   behavior:
     name: Non-network headless behavior gates
     runs-on: ubuntu-latest
-    needs: quality
     timeout-minutes: 90
     steps:
       - name: Checkout
@@ -249,12 +269,14 @@ jobs:
   required:
     name: Required non-network CI
     runs-on: ubuntu-latest
-    needs: [quality, behavior, runtime-platforms]
+    needs: [ratchets, tooling, correctness, behavior, runtime-platforms]
     if: always()
     steps:
       - name: Require all supported non-network jobs
         working-directory: .
         run: |
-          test "${{ needs.quality.result }}" = "success"
+          test "${{ needs.ratchets.result }}" = "success"
+          test "${{ needs.tooling.result }}" = "success"
+          test "${{ needs.correctness.result }}" = "success"
           test "${{ needs.behavior.result }}" = "success"
           test "${{ needs.runtime-platforms.result }}" = "success"

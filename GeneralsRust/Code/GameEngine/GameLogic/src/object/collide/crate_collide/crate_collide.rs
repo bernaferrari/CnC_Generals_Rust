@@ -147,8 +147,8 @@ pub struct CrateCollide {
     base_module: CollideModule,
     /// Crate-specific configuration
     module_data: CrateCollideModuleData,
-    /// Thread-safe state
-    state: Arc<Mutex<CrateCollideState>>,
+    /// State owned by this crate collision module.
+    state: CrateCollideState,
     // Identity is object_id only; resolve via registry/TheGameLogic on demand.
 }
 
@@ -165,10 +165,10 @@ impl CrateCollide {
         Self {
             base_module: CollideModule::new(object_id, module_data.base.clone()),
             module_data,
-            state: Arc::new(Mutex::new(CrateCollideState {
+            state: CrateCollideState {
                 is_collected: false,
                 creation_time: TheGameLogic::get_frame() as u64,
-            })),
+            },
         }
     }
 
@@ -188,10 +188,10 @@ impl CrateCollide {
         Self {
             base_module: CollideModule::new(object_id, module_data.base.clone()),
             module_data,
-            state: Arc::new(Mutex::new(CrateCollideState {
+            state: CrateCollideState {
                 is_collected: false,
                 creation_time: TheGameLogic::get_frame() as u64,
-            })),
+            },
         }
     }
 
@@ -219,24 +219,15 @@ impl CrateCollide {
     }
 
     pub fn is_collected(&self) -> Result<bool, CollisionError> {
-        let state = self.state.lock().map_err(|e| {
-            CollisionError::InvalidObject(format!("Failed to acquire state lock: {}", e))
-        })?;
-        Ok(state.is_collected)
+        Ok(self.state.is_collected)
     }
 
     pub fn get_creation_time(&self) -> Result<u64, CollisionError> {
-        let state = self.state.lock().map_err(|e| {
-            CollisionError::InvalidObject(format!("Failed to acquire state lock: {}", e))
-        })?;
-        Ok(state.creation_time)
+        Ok(self.state.creation_time)
     }
 
-    pub fn set_collected(&self, collected: bool) -> Result<(), CollisionError> {
-        let mut state = self.state.lock().map_err(|e| {
-            CollisionError::InvalidObject(format!("Failed to acquire state lock: {}", e))
-        })?;
-        state.is_collected = collected;
+    pub fn set_collected(&mut self, collected: bool) -> Result<(), CollisionError> {
+        self.state.is_collected = collected;
         Ok(())
     }
 
@@ -352,7 +343,7 @@ impl CrateCollide {
 
     /// Execute the standard crate collection sequence
     pub fn execute_standard_collection<T: CrateCollideBehavior>(
-        &self,
+        &mut self,
         behavior: &mut T,
         other: &dyn GameObject,
     ) -> Result<bool, CollisionError> {
@@ -371,7 +362,7 @@ impl CrateCollide {
     /// even if the derived behavior returns false. FX and destruction only happen
     /// on successful behavior execution.
     pub fn finish_execution_attempt(
-        &self,
+        &mut self,
         other: &dyn GameObject,
         succeeded: bool,
     ) -> Result<(), CollisionError> {
@@ -383,7 +374,7 @@ impl CrateCollide {
     }
 
     /// Runs the common C++ post-collection sequence after a derived crate behavior succeeds.
-    pub fn finalize_collection(&self, other: &dyn GameObject) -> Result<(), CollisionError> {
+    pub fn finalize_collection(&mut self, other: &dyn GameObject) -> Result<(), CollisionError> {
         let crate_position = self.get_object_position()?;
 
         if let Some(ref fx_name) = self.module_data.execute_fx {
@@ -699,6 +690,21 @@ mod tests {
         let collide = CrateCollide::new(7, CrateCollideModuleData::default());
 
         assert_eq!(collide.get_creation_time().expect("creation time"), 321);
+    }
+
+    #[test]
+    fn crate_collide_collection_state_updates_on_its_owned_instance() {
+        let _guard = crate_collide_test_guard();
+        let _frame_reset = LogicFrameReset;
+        let mut collide = CrateCollide::new(9, CrateCollideModuleData::default());
+
+        assert!(!collide.is_collected().expect("initial collection state"));
+        collide.set_collected(true).expect("mark collected");
+        assert!(collide.is_collected().expect("collected state"));
+        collide
+            .set_collected(false)
+            .expect("clear collection state");
+        assert!(!collide.is_collected().expect("cleared collection state"));
     }
 
     #[test]

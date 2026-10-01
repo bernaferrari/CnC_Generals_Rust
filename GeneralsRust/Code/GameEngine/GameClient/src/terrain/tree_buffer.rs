@@ -154,19 +154,13 @@ pub struct TreeVertexXyznduv1 {
 
 /// wgpu upload vertex: Y-up position + unpacked doLighting RGB + packed BGRA.
 #[repr(C)]
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct TreeGpuVertex {
     pub position: [f32; 3],
     pub color: [f32; 3],
     pub tex_coords: [f32; 2],
     pub diffuse: u32,
 }
-
-// SAFETY: `#[repr(C)]` f32 arrays plus packed u32 diffuse; no padding holes,
-// SAFETY: contents are opaque bytes once uploaded to the vertex buffer.
-unsafe impl bytemuck::Pod for TreeGpuVertex {}
-// SAFETY: 0.0 / 0u32 are valid field values with no niche.
-unsafe impl bytemuck::Zeroable for TreeGpuVertex {}
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct TreeTypeInfo {
@@ -1809,7 +1803,6 @@ fn read_tree_texture_bytes(path: &str) -> Option<Vec<u8>> {
     read_game_fs_bytes(path)
 }
 
-
 fn probe_tree_tga_header(texture_name: &str) -> Option<TreeTgaHeader> {
     for path in tree_texture_path_candidates(texture_name) {
         let Some(bytes) = read_tree_texture_bytes(&path) else {
@@ -2642,7 +2635,6 @@ mod tests {
         assert_eq!(buffer.atlas_upload_levels()[0], expected[2]);
     }
 }
-
 
 #[cfg(test)]
 mod game_fs_tree_tests {

@@ -8,7 +8,6 @@ use super::{CollisionError, Coord3D, GameObject};
 use crate::common::*;
 use crate::object::behavior::behavior_module::xfer_behavior_module_base_versions;
 use serde::{Deserialize, Serialize};
-use std::sync::{Arc, Mutex};
 
 /// Module data for basic collision modules
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -76,8 +75,8 @@ pub struct CollideModule {
     object_id: ObjectId,
     /// Module configuration data
     module_data: CollideModuleData,
-    /// Thread-safe state for the module
-    state: Arc<Mutex<CollideModuleState>>,
+    /// State owned by this module instance.
+    state: CollideModuleState,
 }
 
 #[derive(Debug)]
@@ -93,10 +92,10 @@ impl CollideModule {
         Self {
             object_id,
             module_data,
-            state: Arc::new(Mutex::new(CollideModuleState {
+            state: CollideModuleState {
                 is_active: true,
                 last_collision_time: 0,
-            })),
+            },
         }
     }
 
@@ -109,51 +108,35 @@ impl CollideModule {
     }
 
     /// Set the active state of this collision module
-    pub fn set_active(&self, active: bool) -> Result<(), CollisionError> {
-        let mut state = self.state.lock().map_err(|e| {
-            CollisionError::InvalidObject(format!("Failed to acquire state lock: {}", e))
-        })?;
-        state.is_active = active;
+    pub fn set_active(&mut self, active: bool) -> Result<(), CollisionError> {
+        self.state.is_active = active;
         Ok(())
     }
 
     /// Check if the module is currently active
     pub fn is_active(&self) -> Result<bool, CollisionError> {
-        let state = self.state.lock().map_err(|e| {
-            CollisionError::InvalidObject(format!("Failed to acquire state lock: {}", e))
-        })?;
-        Ok(state.is_active)
+        Ok(self.state.is_active)
     }
 
     /// Update the last collision time (used for cooldown logic)
-    pub fn update_collision_time(&self, time: u64) -> Result<(), CollisionError> {
-        let mut state = self.state.lock().map_err(|e| {
-            CollisionError::InvalidObject(format!("Failed to acquire state lock: {}", e))
-        })?;
-        state.last_collision_time = time;
+    pub fn update_collision_time(&mut self, time: u64) -> Result<(), CollisionError> {
+        self.state.last_collision_time = time;
         Ok(())
     }
 
     /// Get the time since last collision
     pub fn get_time_since_last_collision(&self, current_time: u64) -> Result<u64, CollisionError> {
-        let state = self.state.lock().map_err(|e| {
-            CollisionError::InvalidObject(format!("Failed to acquire state lock: {}", e))
-        })?;
-        Ok(current_time.saturating_sub(state.last_collision_time))
+        Ok(current_time.saturating_sub(self.state.last_collision_time))
     }
 
     /// Serialization support (equivalent to xfer in C++)
     pub fn serialize(&self) -> Result<Vec<u8>, CollisionError> {
         // Basic serialization - in a real implementation this would use
         // a proper serialization format
-        let state = self.state.lock().map_err(|e| {
-            CollisionError::InvalidObject(format!("Failed to acquire state lock: {}", e))
-        })?;
-
         let mut data = Vec::new();
         data.extend_from_slice(&self.object_id.to_le_bytes());
-        data.push(if state.is_active { 1 } else { 0 });
-        data.extend_from_slice(&state.last_collision_time.to_le_bytes());
+        data.push(if self.state.is_active { 1 } else { 0 });
+        data.extend_from_slice(&self.state.last_collision_time.to_le_bytes());
 
         Ok(data)
     }
@@ -173,11 +156,14 @@ impl CollideModule {
             data[5], data[6], data[7], data[8], data[9], data[10], data[11], data[12],
         ]);
 
-        let module = Self::new(object_id, CollideModuleData::new());
-        module.set_active(is_active)?;
-        module.update_collision_time(last_collision_time)?;
-
-        Ok(module)
+        Ok(Self {
+            object_id,
+            module_data: CollideModuleData::new(),
+            state: CollideModuleState {
+                is_active,
+                last_collision_time,
+            },
+        })
     }
 }
 
@@ -287,9 +273,9 @@ mod tests {
             Ok(())
         }
 
-            // SAFETY: trait contract: the caller guarantees `data` is valid
-            // for `data_size` bytes (or null with size 0). This counting
-            // implementation never dereferences the pointer.
+        // SAFETY: trait contract: the caller guarantees `data` is valid
+        // for `data_size` bytes (or null with size 0). This counting
+        // implementation never dereferences the pointer.
         unsafe fn xfer_implementation(
             &mut self,
             _data: *mut u8,
@@ -302,14 +288,14 @@ mod tests {
 
     #[test]
     fn test_collide_module_creation() {
-        let module = CollideModule::new(123, CollideModuleData::new());
+        let mut module = CollideModule::new(123, CollideModuleData::new());
         assert_eq!(module.get_object_id(), 123);
         assert!(module.is_active().unwrap());
     }
 
     #[test]
     fn test_collide_module_state() {
-        let module = CollideModule::new(123, CollideModuleData::new());
+        let mut module = CollideModule::new(123, CollideModuleData::new());
 
         // Test initial state
         assert!(module.is_active().unwrap());
@@ -324,8 +310,26 @@ mod tests {
     }
 
     #[test]
+    fn same_object_id_collision_state_is_instance_owned_across_restore() {
+        let mut first = CollideModule::new(123, CollideModuleData::new());
+        let mut second = CollideModule::new(123, CollideModuleData::new());
+        first.set_active(false).unwrap();
+        first.update_collision_time(41).unwrap();
+        second.update_collision_time(17).unwrap();
+        assert!(second.is_active().unwrap());
+        let bytes = first.serialize().unwrap();
+        let mut restored = CollideModule::deserialize(&bytes).unwrap();
+        restored.set_active(true).unwrap();
+        restored.update_collision_time(50).unwrap();
+        assert!(!first.is_active().unwrap());
+        assert_eq!(first.get_time_since_last_collision(100).unwrap(), 59);
+        assert_eq!(second.get_time_since_last_collision(100).unwrap(), 83);
+        assert_eq!(restored.get_time_since_last_collision(100).unwrap(), 50);
+    }
+
+    #[test]
     fn test_collision_timing() {
-        let module = CollideModule::new(123, CollideModuleData::new());
+        let mut module = CollideModule::new(123, CollideModuleData::new());
 
         // Test initial time
         assert_eq!(module.get_time_since_last_collision(1000).unwrap(), 1000);
@@ -337,7 +341,7 @@ mod tests {
 
     #[test]
     fn test_serialization() {
-        let module = CollideModule::new(123, CollideModuleData::new());
+        let mut module = CollideModule::new(123, CollideModuleData::new());
         module.set_active(false).unwrap();
         module.update_collision_time(42).unwrap();
 

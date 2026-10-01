@@ -100,10 +100,6 @@
       "constructs": 3,
       "undocumented": 0
     },
-    "Code/GameEngine/Common/src/memory/pool.rs": {
-      "constructs": 2,
-      "undocumented": 0
-    },
     "Code/GameEngine/Common/src/memory/tests.rs": {
       "constructs": 1,
       "undocumented": 0
@@ -148,44 +144,12 @@
       "constructs": 1,
       "undocumented": 0
     },
-    "Code/GameEngine/GameClient/src/effects/ray_effects.rs": {
-      "constructs": 2,
-      "undocumented": 0
-    },
-    "Code/GameEngine/GameClient/src/effects/shadow_system.rs": {
-      "constructs": 2,
-      "undocumented": 0
-    },
     "Code/GameEngine/GameClient/src/gui/gadgets/mod.rs": {
       "constructs": 3,
       "undocumented": 0
     },
     "Code/GameEngine/GameClient/src/gui/game_window/callbacks.rs": {
       "constructs": 1,
-      "undocumented": 0
-    },
-    "Code/GameEngine/GameClient/src/terrain/height_map.rs": {
-      "constructs": 2,
-      "undocumented": 0
-    },
-    "Code/GameEngine/GameClient/src/terrain/terrain_mesh.rs": {
-      "constructs": 2,
-      "undocumented": 0
-    },
-    "Code/GameEngine/GameClient/src/terrain/terrain_visual/traits.rs": {
-      "constructs": 2,
-      "undocumented": 0
-    },
-    "Code/GameEngine/GameClient/src/terrain/tree_buffer.rs": {
-      "constructs": 2,
-      "undocumented": 0
-    },
-    "Code/GameEngine/GameClient/src/terrain/vertex.rs": {
-      "constructs": 2,
-      "undocumented": 0
-    },
-    "Code/GameEngine/GameClient/src/terrain/w3d_overlay_mesh.rs": {
-      "constructs": 4,
       "undocumented": 0
     },
     "Code/GameEngine/GameClient/src/video_stream.rs": {
@@ -238,10 +202,6 @@
     },
     "Code/GameEngine/GameEngineDevice/src/w3_d_device/common/w3_d_function_lexicon.rs": {
       "constructs": 1,
-      "undocumented": 0
-    },
-    "Code/GameEngine/GameEngineDevice/src/w3d/mod.rs": {
-      "constructs": 8,
       "undocumented": 0
     },
     "Code/GameEngine/GameEngineDevice/src/w3d/w3d_c_api/decl.rs": {
@@ -366,10 +326,6 @@
     },
     "Code/GameEngine/GameLogic/src/object/contain/tunnel_contain.rs": {
       "constructs": 7,
-      "undocumented": 0
-    },
-    "Code/GameEngine/GameLogic/src/object/create/create_module.rs": {
-      "constructs": 1,
       "undocumented": 0
     },
     "Code/GameEngine/GameLogic/src/object/object_xfer.rs": {

@@ -10,7 +10,7 @@ pub fn residual_name_index(table: &[&str], name: &str) -> Option<usize> {
 }
 pub const LIVE_HOST_EAGER_DESTROY_UNMAP_HELPER_METHOD_NAMES_WAVE681: &[&str] = &[
     "eager_unmap_host_destroy_if_coupled",
-    "install_active_shadow_for_coupled_tick",
+    "with_coupled_shadow",
     "host_destroy_log::record",
     "Wave 681",
     "playable_claim = false",
@@ -73,7 +73,7 @@ fn shadow_source() -> &'static str {
 pub fn honesty_host_eager_destroy_unmap_helper_method_names_residual_wave681() -> bool {
     let names = LIVE_HOST_EAGER_DESTROY_UNMAP_HELPER_METHOD_NAMES_WAVE681;
     let ok = residual_name_index(names, "eager_unmap_host_destroy_if_coupled").is_some()
-        && residual_name_index(names, "install_active_shadow_for_coupled_tick").is_some()
+        && residual_name_index(names, "with_coupled_shadow").is_some()
         && residual_name_index(names, "host_destroy_log::record").is_some()
         && residual_name_index(names, "Wave 681").is_some()
         && residual_name_index(names, "playable_claim = false").is_some();
@@ -142,9 +142,8 @@ mod tests {
     use super::*;
     use crate::game_logic::{GameLogic, KindOf, ObjectId, Team, ThingTemplate};
     use crate::gameworld_shadow::{
-        GameWorldShadow, begin_shadow_coupled_tick, clear_active_shadow_for_coupled_tick,
-        eager_map_host_spawn_if_coupled, eager_unmap_host_destroy_if_coupled,
-        end_shadow_coupled_tick, install_active_shadow_for_coupled_tick,
+        GameWorldShadow, begin_shadow_coupled_tick, eager_map_host_spawn_if_coupled,
+        eager_unmap_host_destroy_if_coupled, end_shadow_coupled_tick, with_coupled_shadow,
     };
     use glam::Vec3;
 
@@ -195,26 +194,28 @@ mod tests {
             .expect("spawn");
         let mut shadow = GameWorldShadow::new(64);
         begin_shadow_coupled_tick();
-        install_active_shadow_for_coupled_tick(&mut shadow);
-        assert!(eager_map_host_spawn_if_coupled(
-            &logic,
-            &crate::game_logic::host_spawn_log::HostSpawnEvent {
-                id,
-                template: "EagerDestroyUnit".into(),
-                team_ordinal: 0,
-                position: [3.0, 0.0, 4.0],
-            },
-        ));
+        with_coupled_shadow(&mut shadow, || {
+            eager_map_host_spawn_if_coupled(
+                &logic,
+                &crate::game_logic::host_spawn_log::HostSpawnEvent {
+                    id,
+                    template: "EagerDestroyUnit".into(),
+                    team_ordinal: 0,
+                    position: [3.0, 0.0, 4.0],
+                },
+            )
+        });
         assert!(shadow.entity_for_host(id).is_some());
-        let unmapped = eager_unmap_host_destroy_if_coupled(id);
+        let unmapped = with_coupled_shadow(&mut shadow, || eager_unmap_host_destroy_if_coupled(id));
         assert!(unmapped, "eager unmap should queue/apply destroy");
         assert!(
             shadow.entity_for_host(id).is_none(),
             "host map cleared after destroy"
         );
         // Idempotent.
-        assert!(!eager_unmap_host_destroy_if_coupled(id));
-        clear_active_shadow_for_coupled_tick();
+        assert!(!with_coupled_shadow(&mut shadow, || {
+            eager_unmap_host_destroy_if_coupled(id)
+        }));
         end_shadow_coupled_tick();
         let _ = ObjectId;
 

@@ -1,7 +1,7 @@
 use crate::ai::states::{
     AIEnterState, AIPickUpCrateState, AttackExitConditionsInterface, AttackStateMachine,
 };
-use crate::ai::{GuardMode, the_ai, object_registry::get_legacy_object, vision_factors};
+use crate::ai::{GuardMode, object_registry::get_legacy_object, the_ai, vision_factors};
 use crate::attack::{AbleToAttackType, CanAttackResult};
 use crate::common::CommandSourceType;
 use crate::common::coord::*;
@@ -50,9 +50,9 @@ fn clear_attack_state_on_exit(owner: &Arc<RwLock<Object>>) {
     }
 }
 
-
 fn get_guard_chase_unit_frames() -> u32 {
-    let ai_store = the_ai();let Ok(ai_guard) = ai_store.read() else {
+    let ai_store = the_ai();
+    let Ok(ai_guard) = ai_store.read() else {
         return 0;
     };
     let data = ai_guard.get_ai_data();
@@ -63,7 +63,8 @@ fn get_guard_chase_unit_frames() -> u32 {
 }
 
 fn get_guard_enemy_scan_rate() -> u32 {
-    let ai_store = the_ai();let Ok(ai_guard) = ai_store.read() else {
+    let ai_store = the_ai();
+    let Ok(ai_guard) = ai_store.read() else {
         return 30;
     };
     let data = ai_guard.get_ai_data();
@@ -74,7 +75,8 @@ fn get_guard_enemy_scan_rate() -> u32 {
 }
 
 fn get_guard_enemy_return_scan_rate() -> u32 {
-    let ai_store = the_ai();let Ok(ai_guard) = ai_store.read() else {
+    let ai_store = the_ai();
+    let Ok(ai_guard) = ai_store.read() else {
         return 60;
     };
     let data = ai_guard.get_ai_data();
@@ -151,10 +153,15 @@ impl AttackExitConditionsInterface for TunnelNetworkExitConditionsHandle {
 pub struct TnGuardSharedState {
     machine: Weak<Mutex<StateMachine>>,
     owner: Weak<RwLock<Object>>,
-    guard_mode: Mutex<GuardMode>,
-    position_to_guard: Mutex<Coord3D>,
-    nemesis_to_attack: Mutex<ObjectID>,
-    pending_state: Mutex<Option<u32>>,
+    fields: Mutex<TnGuardSharedFields>,
+}
+
+#[derive(Debug)]
+struct TnGuardSharedFields {
+    guard_mode: GuardMode,
+    position_to_guard: Coord3D,
+    nemesis_to_attack: ObjectID,
+    pending_state: Option<u32>,
 }
 
 impl TnGuardSharedState {
@@ -162,10 +169,12 @@ impl TnGuardSharedState {
         Self {
             machine: Arc::downgrade(machine),
             owner,
-            guard_mode: Mutex::new(GuardMode::Normal),
-            position_to_guard: Mutex::new(Coord3D::new(0.0, 0.0, 0.0)),
-            nemesis_to_attack: Mutex::new(crate::common::INVALID_ID),
-            pending_state: Mutex::new(None),
+            fields: Mutex::new(TnGuardSharedFields {
+                guard_mode: GuardMode::Normal,
+                position_to_guard: Coord3D::new(0.0, 0.0, 0.0),
+                nemesis_to_attack: crate::common::INVALID_ID,
+                pending_state: None,
+            }),
         }
     }
 
@@ -174,13 +183,16 @@ impl TnGuardSharedState {
     }
 
     fn request_state(&self, state: u32) {
-        if let Ok(mut pending) = self.pending_state.lock() {
-            *pending = Some(state);
+        if let Ok(mut fields) = self.fields.lock() {
+            fields.pending_state = Some(state);
         }
     }
 
     fn take_pending_state(&self) -> Option<u32> {
-        self.pending_state.lock().ok().and_then(|mut pending| pending.take())
+        self.fields
+            .lock()
+            .ok()
+            .and_then(|mut fields| fields.pending_state.take())
     }
 
     fn with_machine<F, R>(&self, f: F) -> Result<R, String>
@@ -204,41 +216,54 @@ impl TnGuardSharedState {
     }
 
     fn get_guard_mode(&self) -> GuardMode {
-        self.guard_mode
+        self.fields
             .lock()
-            .map(|mode| *mode)
+            .map(|fields| fields.guard_mode)
             .unwrap_or(GuardMode::Normal)
     }
 
     fn set_guard_mode(&self, guard_mode: GuardMode) {
-        if let Ok(mut mode) = self.guard_mode.lock() {
-            *mode = guard_mode;
+        if let Ok(mut fields) = self.fields.lock() {
+            fields.guard_mode = guard_mode;
         }
     }
 
     fn get_position_to_guard(&self) -> Coord3D {
-        self.position_to_guard
+        self.fields
             .lock()
-            .map(|pos| *pos)
+            .map(|fields| fields.position_to_guard)
             .unwrap_or(Coord3D::new(0.0, 0.0, 0.0))
     }
 
     fn set_position_to_guard(&self, pos: Coord3D) {
-        if let Ok(mut guard) = self.position_to_guard.lock() {
-            *guard = pos;
+        if let Ok(mut fields) = self.fields.lock() {
+            fields.position_to_guard = pos;
         }
     }
 
     fn get_nemesis_to_attack(&self) -> ObjectID {
-        self.nemesis_to_attack
+        self.fields
             .lock()
-            .map(|id| *id)
+            .map(|fields| fields.nemesis_to_attack)
             .unwrap_or(crate::common::INVALID_ID)
     }
 
     fn set_nemesis_to_attack(&self, id: ObjectID) {
-        if let Ok(mut guard) = self.nemesis_to_attack.lock() {
-            *guard = id;
+        if let Ok(mut fields) = self.fields.lock() {
+            fields.nemesis_to_attack = id;
+        }
+    }
+
+    fn sync_from_machine(
+        &self,
+        nemesis_to_attack: ObjectID,
+        position_to_guard: Coord3D,
+        guard_mode: GuardMode,
+    ) {
+        if let Ok(mut fields) = self.fields.lock() {
+            fields.nemesis_to_attack = nemesis_to_attack;
+            fields.position_to_guard = position_to_guard;
+            fields.guard_mode = guard_mode;
         }
     }
 }
@@ -286,6 +311,30 @@ mod tests {
 
         let current = machine.lock().unwrap().get_current_state_id();
         assert_eq!(current, Some(TNGuardStateType::Idle as u32));
+    }
+
+    #[test]
+    fn tn_guard_shared_fields_are_isolated_per_instance_and_shared_with_states() {
+        let machine_a = Arc::new(Mutex::new(StateMachine::new(Some(Weak::new()), "tn_a")));
+        let machine_b = Arc::new(Mutex::new(StateMachine::new(Some(Weak::new()), "tn_b")));
+        let shared_a = Arc::new(TnGuardSharedState::new(&machine_a, Weak::new()));
+        let shared_b = Arc::new(TnGuardSharedState::new(&machine_b, Weak::new()));
+        let child_view_a = Arc::clone(&shared_a);
+
+        shared_a.set_nemesis_to_attack(41);
+        shared_a.set_position_to_guard(Coord3D::new(1.0, 2.0, 3.0));
+        shared_b.set_nemesis_to_attack(82);
+
+        assert_eq!(child_view_a.get_nemesis_to_attack(), 41);
+        assert_eq!(
+            child_view_a.get_position_to_guard(),
+            Coord3D::new(1.0, 2.0, 3.0)
+        );
+        assert_eq!(shared_b.get_nemesis_to_attack(), 82);
+        assert_eq!(
+            shared_b.get_position_to_guard(),
+            Coord3D::new(0.0, 0.0, 0.0)
+        );
     }
 }
 
@@ -506,7 +555,8 @@ impl AITNGuardMachine {
 
     /// Get standard guard range
     pub fn get_std_guard_range(obj_id: ObjectID) -> f32 {
-        let ai_store = the_ai();let ai = ai_store.read().ok();
+        let ai_store = the_ai();
+        let ai = ai_store.read().ok();
         ai.and_then(|ai| {
             ai.get_adjusted_vision_range_for_object(
                 obj_id,
@@ -544,9 +594,11 @@ impl AITNGuardMachine {
     }
 
     pub fn load_post_process(&mut self) -> Result<(), String> {
-        self.shared.set_nemesis_to_attack(self.nemesis_to_attack);
-        self.shared.set_position_to_guard(self.position_to_guard);
-        self.shared.set_guard_mode(self.guard_mode);
+        self.shared.sync_from_machine(
+            self.nemesis_to_attack,
+            self.position_to_guard,
+            self.guard_mode,
+        );
         let mut guard = self
             .base
             .lock()
@@ -779,7 +831,6 @@ impl StateImplementation for AITNGuardInnerState {
                 .map(|g| g.get_id())
                 .unwrap_or(crate::common::INVALID_ID);
             if let Some(target_id) = tunnel_network_scan(owner_id) {
-
                 if let Ok(owner_guard) = owner.read() {
                     if let Some(player_arc) = owner_guard.get_controlling_player() {
                         if let Ok(mut player_guard) = player_arc.write() {
@@ -820,9 +871,9 @@ impl StateImplementation for AITNGuardInnerState {
                     true,
                     false,
                 );
-                attack_machine.set_exit_conditions(Box::new(TunnelNetworkExitConditionsHandle::new(
-                    self.exit_conditions.clone(),
-                )));
+                attack_machine.set_exit_conditions(Box::new(
+                    TunnelNetworkExitConditionsHandle::new(self.exit_conditions.clone()),
+                ));
                 attack_machine.set_goal_object(Some(target_id));
                 let return_val = attack_machine.init_default_state();
                 self.is_attacking = matches!(return_val, StateReturnType::Continue);
@@ -855,8 +906,6 @@ impl StateImplementation for AITNGuardInnerState {
         let Some(attack_machine) = self.attack_machine.as_mut() else {
             return StateReturnType::Success;
         };
-
-
 
         attack_machine.update()
     }
@@ -939,7 +988,9 @@ impl StateImplementation for AITNGuardIdleState {
                 if let Ok(mut ai_guard) = ai.lock() {
                     ai_guard.set_goal_object(None);
                     if ai_guard.get_crate_id() != crate::common::INVALID_ID {
-                        self.base.shared.request_state(TNGuardStateType::GetCrate as u32);
+                        self.base
+                            .shared
+                            .request_state(TNGuardStateType::GetCrate as u32);
                         return StateReturnType::Sleep(
                             self.next_enemy_scan_time.saturating_sub(now),
                         );
@@ -967,8 +1018,7 @@ impl StateImplementation for AITNGuardIdleState {
                 }
                 let player_arc = owner_guard.get_controlling_player()?;
                 let player_guard = player_arc.read().ok()?;
-                let best_tunnel_id =
-                    find_best_tunnel(&player_guard, target_guard.get_position())?;
+                let best_tunnel_id = find_best_tunnel(&player_guard, target_guard.get_position())?;
                 let hurry_owner_id = owner_guard.get_id();
                 let Some(best_tunnel) = get_legacy_object(best_tunnel_id) else {
                     return Some(Err(StateReturnType::Sleep(0)));
@@ -1741,44 +1791,44 @@ fn has_attacked_tn_owner(owner: &Arc<RwLock<Object>>) -> bool {
     }
     if let Ok(owner_ref) = owner.try_read() {
         if let Some(body_module) = owner_ref.get_body_module() {
-                if let Ok(mut body_guard) = body_module.lock() {
-                    let last_attacker = body_guard.get_clearable_last_attacker();
-                    if last_attacker == crate::common::INVALID_ID {
-                        return false;
-                    }
-
-                    // Clear the attacker to prevent repeated checks
-                    body_guard.clear_last_attacker();
-
-                    let Some(target_arc) = TheGameLogic::find_object_by_id(last_attacker) else {
-                        return false;
-                    };
-                    let Ok(target_guard) = target_arc.read() else {
-                        return false;
-                    };
-
-                    if owner_ref.relationship_to(&target_guard) != Relationship::Enemies {
-                        return false;
-                    }
-
-                    if target_guard.is_effectively_dead() {
-                        return false;
-                    }
-
-                    matches!(
-                        owner_ref.get_able_to_attack_specific_object(
-                            AbleToAttackType::NewTarget,
-                            &target_guard,
-                            CommandSourceType::FromAi,
-                        ),
-                        CanAttackResult::Possible | CanAttackResult::PossibleAfterMoving
-                    )
-                } else {
-                    false
+            if let Ok(mut body_guard) = body_module.lock() {
+                let last_attacker = body_guard.get_clearable_last_attacker();
+                if last_attacker == crate::common::INVALID_ID {
+                    return false;
                 }
+
+                // Clear the attacker to prevent repeated checks
+                body_guard.clear_last_attacker();
+
+                let Some(target_arc) = TheGameLogic::find_object_by_id(last_attacker) else {
+                    return false;
+                };
+                let Ok(target_guard) = target_arc.read() else {
+                    return false;
+                };
+
+                if owner_ref.relationship_to(&target_guard) != Relationship::Enemies {
+                    return false;
+                }
+
+                if target_guard.is_effectively_dead() {
+                    return false;
+                }
+
+                matches!(
+                    owner_ref.get_able_to_attack_specific_object(
+                        AbleToAttackType::NewTarget,
+                        &target_guard,
+                        CommandSourceType::FromAi,
+                    ),
+                    CanAttackResult::Possible | CanAttackResult::PossibleAfterMoving
+                )
             } else {
                 false
             }
+        } else {
+            false
+        }
     } else {
         false
     }

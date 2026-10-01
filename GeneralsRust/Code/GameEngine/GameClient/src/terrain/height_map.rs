@@ -1722,18 +1722,12 @@ pub enum HeightModOperation {
 
 /// Vertex data for heightmap mesh generation
 #[repr(C)]
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct HeightMapVertex {
     pub position: [f32; 3],
     pub normal: [f32; 3],
     pub tex_coords: [f32; 2],
 }
-
-// SAFETY: `#[repr(C)]` position/normal/tex_coords f32 arrays pack with no hidden
-// SAFETY: padding; vertex data is only read as raw bytes on upload.
-unsafe impl bytemuck::Pod for HeightMapVertex {}
-// SAFETY: All-zero fields are valid f32 values; no invariants imposed.
-unsafe impl bytemuck::Zeroable for HeightMapVertex {}
 
 /// Heightmap statistics
 #[derive(Debug, Clone)]

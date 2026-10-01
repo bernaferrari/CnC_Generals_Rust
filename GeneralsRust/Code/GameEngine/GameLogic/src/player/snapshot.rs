@@ -375,8 +375,10 @@ impl Snapshotable for Player {
             .map_err(|e| e.to_string())?;
 
         // Level up/down (C++ has these, Rust may not track them separately)
-        xfer.xfer_int(&mut self.level_up).map_err(|e| e.to_string())?;
-        xfer.xfer_int(&mut self.level_down).map_err(|e| e.to_string())?;
+        xfer.xfer_int(&mut self.level_up)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_int(&mut self.level_down)
+            .map_err(|e| e.to_string())?;
 
         // General name (C++ Player::xfer writes UnicodeString)
         xfer.xfer_unicode_string(&mut self.general_name)
@@ -584,32 +586,28 @@ impl Snapshotable for Player {
 
         // Version 4+: special power ready timer list
         if version >= 4 {
-            let mut timer_count: u16 = 0;
-            if let Ok(timers) = self.special_power_ready_timers.read() {
-                timer_count = timers.len() as u16;
-            }
+            let mut timer_count = self.special_power_ready_timers.len() as u16;
             xfer.xfer_unsigned_short(&mut timer_count)
                 .map_err(|e| e.to_string())?;
             if xfer.get_xfer_mode() != XferMode::Load {
-                if let Ok(timers) = self.special_power_ready_timers.read() {
-                    for timer in timers.iter() {
-                        let mut template_id = timer.template_id;
-                        let mut ready_frame = timer.ready_frame;
-                        xfer.xfer_u32(&mut template_id).map_err(|e| e.to_string())?;
-                        xfer.xfer_u32(&mut ready_frame).map_err(|e| e.to_string())?;
-                    }
+                for timer in &self.special_power_ready_timers {
+                    let mut template_id = timer.template_id;
+                    let mut ready_frame = timer.ready_frame;
+                    xfer.xfer_u32(&mut template_id).map_err(|e| e.to_string())?;
+                    xfer.xfer_u32(&mut ready_frame).map_err(|e| e.to_string())?;
                 }
-            } else if let Ok(mut timers) = self.special_power_ready_timers.write() {
-                timers.clear();
+            } else {
+                self.special_power_ready_timers.clear();
                 for _ in 0..timer_count {
                     let mut template_id: UnsignedInt = 0;
                     let mut ready_frame: UnsignedInt = 0;
                     xfer.xfer_u32(&mut template_id).map_err(|e| e.to_string())?;
                     xfer.xfer_u32(&mut ready_frame).map_err(|e| e.to_string())?;
-                    timers.push(SpecialPowerReadyTimer {
-                        template_id,
-                        ready_frame,
-                    });
+                    self.special_power_ready_timers
+                        .push(SpecialPowerReadyTimer {
+                            template_id,
+                            ready_frame,
+                        });
                 }
             }
         }
@@ -719,40 +717,35 @@ impl Snapshotable for Player {
 
 impl PlayerInterface for Player {
     fn get_or_start_special_power_ready_frame(
-        &self,
+        &mut self,
         power_id: SpecialPowerID,
         current_frame: FrameCount,
     ) -> FrameCount {
-        if let Ok(mut timers) = self.special_power_ready_timers.write() {
-            for timer in timers.iter_mut() {
-                if timer.template_id == power_id {
-                    return timer.ready_frame;
-                }
+        for timer in &self.special_power_ready_timers {
+            if timer.template_id == power_id {
+                return timer.ready_frame;
             }
-
-            let mut timer = SpecialPowerReadyTimer::new();
-            timer.template_id = power_id;
-            timer.ready_frame = current_frame;
-            timers.push(timer);
         }
 
+        let mut timer = SpecialPowerReadyTimer::new();
+        timer.template_id = power_id;
+        timer.ready_frame = current_frame;
+        self.special_power_ready_timers.push(timer);
         current_frame
     }
 
     fn express_special_power_ready_frame(&mut self, power_id: SpecialPowerID, frame: FrameCount) {
-        if let Ok(mut timers) = self.special_power_ready_timers.write() {
-            for timer in timers.iter_mut() {
-                if timer.template_id == power_id {
-                    timer.ready_frame = frame;
-                    return;
-                }
+        for timer in &mut self.special_power_ready_timers {
+            if timer.template_id == power_id {
+                timer.ready_frame = frame;
+                return;
             }
-
-            let mut timer = SpecialPowerReadyTimer::new();
-            timer.template_id = power_id;
-            timer.ready_frame = frame;
-            timers.push(timer);
         }
+
+        let mut timer = SpecialPowerReadyTimer::new();
+        timer.template_id = power_id;
+        timer.ready_frame = frame;
+        self.special_power_ready_timers.push(timer);
     }
 
     fn reset_or_start_special_power_ready_frame(
@@ -762,19 +755,17 @@ impl PlayerInterface for Player {
         reload_time: FrameCount,
     ) {
         let ready_frame = current_frame.saturating_add(reload_time);
-        if let Ok(mut timers) = self.special_power_ready_timers.write() {
-            for timer in timers.iter_mut() {
-                if timer.template_id == power_id {
-                    timer.ready_frame = ready_frame;
-                    return;
-                }
+        for timer in &mut self.special_power_ready_timers {
+            if timer.template_id == power_id {
+                timer.ready_frame = ready_frame;
+                return;
             }
-
-            let mut timer = SpecialPowerReadyTimer::new();
-            timer.template_id = power_id;
-            timer.ready_frame = ready_frame;
-            timers.push(timer);
         }
+
+        let mut timer = SpecialPowerReadyTimer::new();
+        timer.template_id = power_id;
+        timer.ready_frame = ready_frame;
+        self.special_power_ready_timers.push(timer);
     }
 
     fn has_science(&self, science_name: &str) -> bool {

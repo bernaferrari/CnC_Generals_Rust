@@ -11,7 +11,6 @@ use crate::object::collide::crate_collide::*;
 use crate::player::{PlayerIndex, player_list};
 use crate::upgrade::center::get_upgrade_center;
 use game_engine::common::ini::{FieldParse as IniFieldParse, INI, INIError};
-use std::sync::{Arc, Mutex};
 
 /// Upgrade pair structure for bonus calculations
 #[derive(Debug, Clone, PartialEq)]
@@ -367,8 +366,8 @@ pub struct MoneyCrateCollide {
     base_crate: CrateCollide,
     /// Module-specific configuration
     module_data: MoneyCrateCollideModuleData,
-    /// Thread-safe collection state
-    state: Arc<Mutex<MoneyCollectionState>>,
+    /// Collection state owned by this module instance.
+    state: MoneyCollectionState,
 }
 
 impl MoneyCrateCollide {
@@ -376,12 +375,12 @@ impl MoneyCrateCollide {
         Self {
             base_crate: CrateCollide::new(object_id, module_data.base.clone()),
             module_data,
-            state: Arc::new(Mutex::new(MoneyCollectionState {
+            state: MoneyCollectionState {
                 is_collecting: false,
                 collecting_player_id: None,
                 collection_start_time: 0,
                 last_collection_stats: None,
-            })),
+            },
         }
     }
 
@@ -410,15 +409,13 @@ impl MoneyCrateCollide {
         self.add_money_earned_to_score(player_id, total_money)?;
         self.play_money_audio(other)?;
 
-        if let Ok(mut state) = self.state.lock() {
-            state.is_collecting = false;
-            state.collecting_player_id = Some(player_id);
-            state.last_collection_stats = Some(MoneyCollectionStats::new(
-                base_money,
-                upgrade_bonus,
-                contributing_upgrades,
-            ));
-        }
+        self.state.is_collecting = false;
+        self.state.collecting_player_id = Some(player_id);
+        self.state.last_collection_stats = Some(MoneyCollectionStats::new(
+            base_money,
+            upgrade_bonus,
+            contributing_upgrades,
+        ));
 
         Ok(true)
     }
@@ -457,26 +454,17 @@ impl MoneyCrateCollide {
     pub fn get_last_collection_stats(
         &self,
     ) -> Result<Option<MoneyCollectionStats>, CollisionError> {
-        let state = self.state.lock().map_err(|e| {
-            CollisionError::InvalidObject(format!("Failed to acquire state lock: {}", e))
-        })?;
-        Ok(state.last_collection_stats.clone())
+        Ok(self.state.last_collection_stats.clone())
     }
 
     /// Check if currently collecting money
     pub fn is_collecting(&self) -> Result<bool, CollisionError> {
-        let state = self.state.lock().map_err(|e| {
-            CollisionError::InvalidObject(format!("Failed to acquire state lock: {}", e))
-        })?;
-        Ok(state.is_collecting)
+        Ok(self.state.is_collecting)
     }
 
     /// Get the player currently collecting (if any)
     pub fn get_collecting_player(&self) -> Result<Option<PlayerId>, CollisionError> {
-        let state = self.state.lock().map_err(|e| {
-            CollisionError::InvalidObject(format!("Failed to acquire state lock: {}", e))
-        })?;
-        Ok(state.collecting_player_id)
+        Ok(self.state.collecting_player_id)
     }
 
     /// Calculate the total money this crate would provide to a specific player

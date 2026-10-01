@@ -10,7 +10,7 @@ use glam::Vec3;
 
 /// Vertex layout used by both the terrain chunk generator and the wgpu renderer.
 #[repr(C)]
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct TerrainVertex {
     pub position: [f32; 3],
     pub normal: [f32; 3],
@@ -112,10 +112,3 @@ impl TerrainVertex {
         }
     }
 }
-
-// SAFETY: `#[repr(C)]` blend of f32 arrays, [u16;4] indices, [f32;4] weights/
-// SAFETY: color; layout matches the wgpu VertexBufferLayout offsets above, and
-// SAFETY: the type is only ever copied as bytes into vertex buffers.
-unsafe impl bytemuck::Pod for TerrainVertex {}
-// SAFETY: Zeroed u16s and 0.0 f32s satisfy every field's domain.
-unsafe impl bytemuck::Zeroable for TerrainVertex {}

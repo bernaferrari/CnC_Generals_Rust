@@ -97,7 +97,7 @@ pub trait PlayerInterface: Send + Sync {
     /// Get or start special power ready frame for SharedNSync powers
     /// Matches C++ player->getOrStartSpecialPowerReadyFrame(template)
     fn get_or_start_special_power_ready_frame(
-        &self,
+        &mut self,
         power_id: SpecialPowerID,
         current_frame: FrameCount,
     ) -> FrameCount;

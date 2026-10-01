@@ -490,13 +490,13 @@ pub enum MinePlacementPattern {
     SmartBorder,
 }
 
-/// Thread-safe generate minefield behavior implementation
+/// Per-instance generate minefield behavior implementation
 #[derive(Debug)]
 pub struct GenerateMinefieldBehavior {
     /// Configuration data
     config: GenerateMinefieldBehaviorModuleData,
     /// Internal state
-    state: Arc<RwLock<MinefieldState>>,
+    state: MinefieldState,
     /// Object ID this behavior belongs to
     object_id: ObjectId,
 }
@@ -535,7 +535,7 @@ impl GenerateMinefieldBehavior {
 
         Self {
             config,
-            state: Arc::new(RwLock::new(state)),
+            state,
             object_id,
         }
     }
@@ -560,9 +560,7 @@ impl GenerateMinefieldBehavior {
             return Ok(UpdateSleepTime::Forever);
         }
 
-        let mut state = self.state.write().unwrap();
-
-        if self.config.upgradable && !state.upgraded && state.generated {
+        if self.config.upgradable && !self.state.upgraded && self.state.generated {
             let upgrade_name = self
                 .config
                 .mine_upgrade_trigger
@@ -584,12 +582,10 @@ impl GenerateMinefieldBehavior {
                     .unwrap_or(false);
 
                 if has_upgrade {
-                    let mine_ids = state.mine_list.clone();
-                    state.mine_list.clear();
-                    state.generated = false;
-                    state.upgraded = true;
-                    drop(state);
-
+                    let mine_ids = self.state.mine_list.clone();
+                    self.state.mine_list.clear();
+                    self.state.generated = false;
+                    self.state.upgraded = true;
                     for mine_id in mine_ids {
                         let _ = self.remove_mine(mine_id);
                     }
@@ -602,7 +598,7 @@ impl GenerateMinefieldBehavior {
             return Ok(UpdateSleepTime::None);
         }
 
-        if self.config.upgradable && !state.upgraded {
+        if self.config.upgradable && !self.state.upgraded {
             return Ok(UpdateSleepTime::None);
         }
 
@@ -610,9 +606,8 @@ impl GenerateMinefieldBehavior {
     }
 
     /// Set minefield target position
-    pub fn set_minefield_target(&self, position: Option<Coord3D>) {
-        let mut state = self.state.write().unwrap();
-        state.target = position;
+    pub fn set_minefield_target(&mut self, position: Option<Coord3D>) {
+        self.state.target = position;
     }
 
     /// Get minefield target position
@@ -622,8 +617,7 @@ impl GenerateMinefieldBehavior {
             return None;
         }
 
-        let state = self.state.read().unwrap();
-        if let Some(target) = state.target {
+        if let Some(target) = self.state.target {
             return Some(target);
         }
         crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
@@ -631,22 +625,21 @@ impl GenerateMinefieldBehavior {
     }
 
     /// Place mines in the minefield
-    pub fn place_mines(&self) -> BehaviorResult<()> {
+    pub fn place_mines(&mut self) -> BehaviorResult<()> {
         // Wave 386: empty dual-world → Ok(()).
         if dual_world_registry_unavailable() {
             return Ok(());
         }
 
-        let mut state = self.state.write().unwrap();
-
-        if state.generated {
+        if self.state.generated {
             return Err(BehaviorError::MinefieldAlreadyGenerated);
         }
 
         // Get object geometry information
         let geometry = self.get_object_geometry()?;
-        // Resolve target without calling `get_minefield_target` while holding the write lock.
-        let target = state
+        // Resolve the host-position fallback here so geometry remains the final fallback.
+        let target = self
+            .state
             .target
             .or_else(|| {
                 crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
@@ -657,10 +650,10 @@ impl GenerateMinefieldBehavior {
         placement_geometry.center = target;
 
         // Determine mine template to use
-        let mine_template = if state.upgraded && self.config.mine_name_upgraded.is_some() {
-            self.config.mine_name_upgraded.as_ref().unwrap()
+        let mine_template = if self.state.upgraded && self.config.mine_name_upgraded.is_some() {
+            self.config.mine_name_upgraded.as_ref().unwrap().clone()
         } else {
-            &self.config.mine_name
+            self.config.mine_name.clone()
         };
 
         // Play generation FX if specified
@@ -670,10 +663,10 @@ impl GenerateMinefieldBehavior {
 
         // Place mines based on configuration
         let pattern = self.determine_placement_pattern(&placement_geometry);
-        self.place_mines_with_pattern(&mut state, &placement_geometry, mine_template, pattern)?;
+        self.place_mines_with_pattern(&placement_geometry, &mine_template, pattern)?;
 
-        state.generated = true;
-        state.current_mine_template = mine_template.clone();
+        self.state.generated = true;
+        self.state.current_mine_template = mine_template;
 
         Ok(())
     }
@@ -695,8 +688,7 @@ impl GenerateMinefieldBehavior {
 
     /// Place mines using specified pattern
     fn place_mines_with_pattern(
-        &self,
-        state: &mut MinefieldState,
+        &mut self,
         geometry: &GeometryInfo,
         mine_template: &str,
         pattern: MinePlacementPattern,
@@ -707,7 +699,6 @@ impl GenerateMinefieldBehavior {
             MinePlacementPattern::Circular => {
                 let radius = geometry.major_radius + self.config.distance_around_object;
                 self.place_mines_around_circle(
-                    state,
                     &geometry.center,
                     radius,
                     mine_template,
@@ -716,7 +707,6 @@ impl GenerateMinefieldBehavior {
             }
             MinePlacementPattern::Rectangular => {
                 self.place_mines_around_rect(
-                    state,
                     &geometry.center,
                     geometry.major_radius + self.config.distance_around_object,
                     geometry.minor_radius + self.config.distance_around_object,
@@ -726,10 +716,10 @@ impl GenerateMinefieldBehavior {
                 )?;
             }
             MinePlacementPattern::FootprintBased => {
-                self.place_mines_in_footprint(state, geometry, mine_template, mine_radius)?;
+                self.place_mines_in_footprint(geometry, mine_template, mine_radius)?;
             }
             MinePlacementPattern::SmartBorder => {
-                self.place_mines_smart_border(state, geometry, mine_template)?;
+                self.place_mines_smart_border(geometry, mine_template)?;
             }
         }
         Ok(())
@@ -749,8 +739,7 @@ impl GenerateMinefieldBehavior {
 
     /// Place mines in a circular pattern
     fn place_mines_around_circle(
-        &self,
-        state: &mut MinefieldState,
+        &mut self,
         center: &Coord3D,
         radius: f32,
         mine_template: &str,
@@ -776,7 +765,7 @@ impl GenerateMinefieldBehavior {
 
             if let Ok(mine_id) = self.place_mine_at(&position, mine_template) {
                 if self.config.upgradable {
-                    state.mine_list.push(mine_id);
+                    self.state.mine_list.push(mine_id);
                 }
             }
 
@@ -788,8 +777,7 @@ impl GenerateMinefieldBehavior {
 
     /// Place mines in a rectangular pattern
     fn place_mines_around_rect(
-        &self,
-        state: &mut MinefieldState,
+        &mut self,
         center: &Coord3D,
         major_radius: f32,
         minor_radius: f32,
@@ -799,49 +787,20 @@ impl GenerateMinefieldBehavior {
     ) -> BehaviorResult<()> {
         let corners = rotated_rect_corners(center, major_radius, minor_radius, rotation);
 
-        self.place_mines_along_line(
-            state,
-            &corners[0],
-            &corners[1],
-            mine_template,
-            mine_radius,
-            true,
-        )?;
+        self.place_mines_along_line(&corners[0], &corners[1], mine_template, mine_radius, true)?;
 
-        self.place_mines_along_line(
-            state,
-            &corners[1],
-            &corners[2],
-            mine_template,
-            mine_radius,
-            true,
-        )?;
+        self.place_mines_along_line(&corners[1], &corners[2], mine_template, mine_radius, true)?;
 
-        self.place_mines_along_line(
-            state,
-            &corners[2],
-            &corners[3],
-            mine_template,
-            mine_radius,
-            true,
-        )?;
+        self.place_mines_along_line(&corners[2], &corners[3], mine_template, mine_radius, true)?;
 
-        self.place_mines_along_line(
-            state,
-            &corners[3],
-            &corners[0],
-            mine_template,
-            mine_radius,
-            true,
-        )?;
+        self.place_mines_along_line(&corners[3], &corners[0], mine_template, mine_radius, true)?;
 
         Ok(())
     }
 
     /// Place mines in footprint-based pattern
     fn place_mines_in_footprint(
-        &self,
-        state: &mut MinefieldState,
+        &mut self,
         geometry: &GeometryInfo,
         mine_template: &str,
         mine_radius: f32,
@@ -881,7 +840,7 @@ impl GenerateMinefieldBehavior {
             if let Ok(mine_id) = self.place_mine_at(&position, mine_template) {
                 created_positions.push(position);
                 if self.config.upgradable {
-                    state.mine_list.push(mine_id);
+                    self.state.mine_list.push(mine_id);
                 }
             }
         }
@@ -903,8 +862,7 @@ impl GenerateMinefieldBehavior {
 
     /// Place mines using smart border algorithm
     fn place_mines_smart_border(
-        &self,
-        state: &mut MinefieldState,
+        &mut self,
         geometry: &GeometryInfo,
         mine_template: &str,
     ) -> BehaviorResult<()> {
@@ -921,7 +879,7 @@ impl GenerateMinefieldBehavior {
         } else {
             if let Ok(mine_id) = self.place_mine_at(&geometry.center, mine_template) {
                 if self.config.upgradable {
-                    state.mine_list.push(mine_id);
+                    self.state.mine_list.push(mine_id);
                 }
             }
             GeometryInfo {
@@ -945,7 +903,6 @@ impl GenerateMinefieldBehavior {
         loop {
             if !ring_geometry.is_circular && !self.config.always_circular {
                 self.place_mines_around_rect(
-                    state,
                     &ring_geometry.center,
                     ring_geometry.major_radius,
                     ring_geometry.minor_radius,
@@ -955,7 +912,6 @@ impl GenerateMinefieldBehavior {
                 )?;
             } else {
                 self.place_mines_around_circle(
-                    state,
                     &ring_geometry.center,
                     ring_geometry.major_radius,
                     mine_template,
@@ -974,8 +930,7 @@ impl GenerateMinefieldBehavior {
 
     /// Place mines along a line between two points
     fn place_mines_along_line(
-        &self,
-        state: &mut MinefieldState,
+        &mut self,
         start: &Coord3D,
         end: &Coord3D,
         mine_template: &str,
@@ -1006,7 +961,7 @@ impl GenerateMinefieldBehavior {
 
             if let Ok(mine_id) = self.place_mine_at(&position, mine_template) {
                 if self.config.upgradable {
-                    state.mine_list.push(mine_id);
+                    self.state.mine_list.push(mine_id);
                 }
             }
 
@@ -1192,24 +1147,21 @@ impl GenerateMinefieldBehavior {
     }
 
     /// Upgrade the minefield
-    pub fn upgrade_minefield(&self) -> BehaviorResult<()> {
-        let mut state = self.state.write().unwrap();
-
+    pub fn upgrade_minefield(&mut self) -> BehaviorResult<()> {
         if !self.config.upgradable {
             return Ok(());
         }
 
-        if state.upgraded {
+        if self.state.upgraded {
             return Ok(());
         }
 
         // If mines already exist, replace them with upgraded mines.
-        if state.generated && self.config.mine_name_upgraded.is_some() {
-            let mine_ids = state.mine_list.clone();
-            state.mine_list.clear();
-            state.generated = false;
-            state.upgraded = true;
-            drop(state);
+        if self.state.generated && self.config.mine_name_upgraded.is_some() {
+            let mine_ids = self.state.mine_list.clone();
+            self.state.mine_list.clear();
+            self.state.generated = false;
+            self.state.upgraded = true;
 
             for mine_id in mine_ids {
                 let _ = self.remove_mine(mine_id);
@@ -1219,28 +1171,26 @@ impl GenerateMinefieldBehavior {
             return Ok(());
         }
 
-        if !state.generated {
+        if !self.state.generated {
             // C++ upgradeImplementation() calls placeMines() with m_upgraded still false,
             // so the first placement uses mine_name (not mine_name_upgraded).
-            drop(state);
             self.place_mines()?;
             return Ok(());
         }
 
-        state.upgraded = true;
+        self.state.upgraded = true;
         Ok(())
     }
 
     /// Clear all mines
-    pub fn clear_mines(&self) -> BehaviorResult<()> {
-        let mut state = self.state.write().unwrap();
-
-        for &mine_id in &state.mine_list {
+    pub fn clear_mines(&mut self) -> BehaviorResult<()> {
+        let mine_ids = self.state.mine_list.clone();
+        for mine_id in mine_ids {
             self.remove_mine(mine_id)?;
         }
 
-        state.mine_list.clear();
-        state.generated = false;
+        self.state.mine_list.clear();
+        self.state.generated = false;
 
         Ok(())
     }
@@ -1267,10 +1217,9 @@ impl GenerateMinefieldBehavior {
         Ok(())
     }
 
-    fn on_upgrade_removed(&self) -> BehaviorResult<()> {
-        let mut state = self.state.write().unwrap();
-        state.upgraded = false;
-        state.upgrade_executed = false;
+    fn on_upgrade_removed(&mut self) -> BehaviorResult<()> {
+        self.state.upgraded = false;
+        self.state.upgrade_executed = false;
         Ok(())
     }
 }
@@ -1325,47 +1274,46 @@ impl Snapshotable for GenerateMinefieldBehavior {
         xfer_behavior_module_base_versions(xfer)
             .map_err(|e| format!("GenerateMinefieldBehavior xfer behavior base failed: {}", e))?;
 
-        let mut state = self.state.write().unwrap();
-
         let mut upgrade_mux_version: u8 = 1;
         xfer.xfer_version(&mut upgrade_mux_version, 1)
             .map_err(|e| format!("GenerateMinefieldBehavior xfer upgrade mux failed: {:?}", e))?;
-        xfer.xfer_bool(&mut state.upgrade_executed).map_err(|e| {
-            format!(
-                "GenerateMinefieldBehavior xfer upgrade executed failed: {:?}",
-                e
-            )
-        })?;
+        xfer.xfer_bool(&mut self.state.upgrade_executed)
+            .map_err(|e| {
+                format!(
+                    "GenerateMinefieldBehavior xfer upgrade executed failed: {:?}",
+                    e
+                )
+            })?;
 
-        xfer.xfer_bool(&mut state.generated)
+        xfer.xfer_bool(&mut self.state.generated)
             .map_err(|e| format!("GenerateMinefieldBehavior xfer generated failed: {:?}", e))?;
 
-        let mut has_target = state.target.is_some();
+        let mut has_target = self.state.target.is_some();
         xfer.xfer_bool(&mut has_target)
             .map_err(|e| format!("GenerateMinefieldBehavior xfer target flag failed: {:?}", e))?;
 
-        xfer.xfer_bool(&mut state.upgraded)
+        xfer.xfer_bool(&mut self.state.upgraded)
             .map_err(|e| format!("GenerateMinefieldBehavior xfer upgraded failed: {:?}", e))?;
 
-        let mut target = state.target.unwrap_or_default();
+        let mut target = self.state.target.unwrap_or_default();
         xfer.xfer_coord3d(&mut target);
-        state.target = has_target.then_some(target);
+        self.state.target = has_target.then_some(target);
 
-        let mut mine_count = state.mine_list.len().min(u8::MAX as usize) as u8;
+        let mut mine_count = self.state.mine_list.len().min(u8::MAX as usize) as u8;
         xfer.xfer_unsigned_byte(&mut mine_count)
             .map_err(|e| format!("GenerateMinefieldBehavior xfer mine count failed: {:?}", e))?;
 
         if xfer.is_loading() {
-            state.mine_list.clear();
+            self.state.mine_list.clear();
             for _ in 0..mine_count {
                 let mut id = 0;
                 xfer.xfer_object_id(&mut id).map_err(|e| {
                     format!("GenerateMinefieldBehavior xfer mine id failed: {:?}", e)
                 })?;
-                state.mine_list.push(id);
+                self.state.mine_list.push(id);
             }
         } else {
-            for id in &mut state.mine_list {
+            for id in &mut self.state.mine_list {
                 let mut id_copy = *id;
                 xfer.xfer_object_id(&mut id_copy).map_err(|e| {
                     format!("GenerateMinefieldBehavior xfer mine id failed: {:?}", e)
@@ -1392,9 +1340,7 @@ impl UpgradeModuleInterface for GenerateMinefieldBehavior {
         let applied = self.place_mines().is_ok();
 
         if applied {
-            if let Ok(mut state) = self.state.write() {
-                state.upgrade_executed = true;
-            }
+            self.state.upgrade_executed = true;
         }
 
         applied
@@ -1476,22 +1422,19 @@ impl Module for GenerateMinefieldBehaviorModule {
 /// Get statistics about the minefield
 impl GenerateMinefieldBehavior {
     pub fn get_statistics(&self) -> MinefieldStatistics {
-        let state = self.state.read().unwrap();
-
         MinefieldStatistics {
-            is_generated: state.generated,
-            is_upgraded: state.upgraded,
-            mine_count: state.mine_list.len(),
-            current_mine_template: state.current_mine_template.clone(),
-            has_target: state.target.is_some(),
-            target_position: state.target,
+            is_generated: self.state.generated,
+            is_upgraded: self.state.upgraded,
+            mine_count: self.state.mine_list.len(),
+            current_mine_template: self.state.current_mine_template.clone(),
+            has_target: self.state.target.is_some(),
+            target_position: self.state.target,
         }
     }
 
     /// Get list of mine IDs
     pub fn get_mine_list(&self) -> Vec<ObjectId> {
-        let state = self.state.read().unwrap();
-        state.mine_list.clone()
+        self.state.mine_list.clone()
     }
 }
 
@@ -1613,6 +1556,8 @@ impl GenerateMinefieldBehaviorFactory {
 mod tests {
     use super::*;
     use game_engine::common::ini::ini_game_data::{GlobalData, ensure_global_data};
+    use game_engine::common::system::xfer_load::XferLoad;
+    use game_engine::common::system::xfer_save::XferSave;
     use parking_lot::RwLock;
     use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 
@@ -1676,7 +1621,7 @@ mod tests {
 
     #[test]
     fn test_behavior_creation() {
-        let behavior = create_test_behavior();
+        let mut behavior = create_test_behavior();
         let stats = behavior.get_statistics();
 
         assert!(!stats.is_generated);
@@ -1847,7 +1792,7 @@ mod tests {
 
     #[test]
     fn test_minefield_target() {
-        let behavior = create_test_behavior();
+        let mut behavior = create_test_behavior();
         let target = Coord3D::new(100.0, 200.0, 0.0);
 
         behavior.set_minefield_target(Some(target));
@@ -1860,8 +1805,74 @@ mod tests {
     }
 
     #[test]
+    fn minefield_runtime_state_is_owned_per_behavior_instance() {
+        let mut first = GenerateMinefieldBehaviorBuilder::new()
+            .upgradable(true)
+            .build(71);
+        let mut second = GenerateMinefieldBehaviorBuilder::new()
+            .upgradable(true)
+            .build(71);
+
+        first.set_minefield_target(Some(Coord3D::new(10.0, 20.0, 30.0)));
+        second.set_minefield_target(Some(Coord3D::new(40.0, 50.0, 60.0)));
+        first.state.mine_list.push(u32::MAX);
+        first.state.generated = true;
+        second.state.mine_list.push(u32::MAX - 1);
+        second.state.generated = true;
+
+        first.clear_mines().unwrap();
+
+        assert_eq!(first.get_mine_list(), Vec::<ObjectId>::new());
+        assert!(!first.get_statistics().is_generated);
+        assert_eq!(second.get_mine_list(), vec![u32::MAX - 1]);
+        assert!(second.get_statistics().is_generated);
+        assert_eq!(
+            first.get_statistics().target_position,
+            Some(Coord3D::new(10.0, 20.0, 30.0))
+        );
+        assert_eq!(
+            second.get_statistics().target_position,
+            Some(Coord3D::new(40.0, 50.0, 60.0))
+        );
+    }
+
+    #[test]
+    fn minefield_snapshot_round_trip_preserves_owned_state_and_mine_order() {
+        let mut source = GenerateMinefieldBehaviorBuilder::new()
+            .upgradable(true)
+            .build(72);
+        source.state.target = Some(Coord3D::new(1.0, 2.0, 3.0));
+        source.state.generated = true;
+        source.state.upgraded = true;
+        source.state.upgrade_executed = true;
+        source.state.mine_list = vec![9, 3, 15];
+
+        let mut saved = Vec::new();
+        {
+            let cursor = std::io::Cursor::new(&mut saved);
+            let mut xfer = XferSave::new(cursor, 1);
+            Snapshotable::xfer(&mut source, &mut xfer).unwrap();
+        }
+
+        let mut loaded = GenerateMinefieldBehaviorBuilder::new()
+            .upgradable(true)
+            .build(72);
+        {
+            let cursor = std::io::Cursor::new(saved);
+            let mut xfer = XferLoad::new(cursor, 1);
+            Snapshotable::xfer(&mut loaded, &mut xfer).unwrap();
+        }
+
+        assert_eq!(loaded.state.target, Some(Coord3D::new(1.0, 2.0, 3.0)));
+        assert!(loaded.state.generated);
+        assert!(loaded.state.upgraded);
+        assert!(loaded.state.upgrade_executed);
+        assert_eq!(loaded.get_mine_list(), vec![9, 3, 15]);
+    }
+
+    #[test]
     fn test_mine_placement() {
-        let behavior = create_test_behavior();
+        let mut behavior = create_test_behavior();
 
         let result = behavior.place_mines();
         assert!(result.is_ok());
@@ -1938,7 +1949,7 @@ mod tests {
 
     #[test]
     fn test_mine_clearing() {
-        let behavior = create_test_behavior();
+        let mut behavior = create_test_behavior();
 
         // Generate mines first
         let _ = behavior.place_mines();

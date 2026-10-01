@@ -87,7 +87,6 @@ glam = { workspace = true }
 pollster = { workspace = true }
 
 # System interaction
-winapi = {workspace = true, features = ["winuser", "winreg", "processthreadsapi", "handleapi", "errhandlingapi", "minwinbase", "winbase", "winnt"], optional = true}
 nix = {workspace = true, optional = true}
 sysinfo = { workspace = true, optional = true }
 
@@ -102,7 +101,7 @@ async = ["tokio", "async-trait", "futures"]
 audio = ["cpal", "symphonia", "realfft", "rubato"]
 compression = ["lz4", "zstd"]
 graphics = ["wgpu", "winit"]
-windows = ["winapi"]
+windows = []
 unix = ["nix"]
 sysinfo = ["dep:sysinfo"]
 notify = []
@@ -140,3 +139,7 @@ tokio = { version = "1.53.1", default-features = false, features = ["rt", "sync"
 getrandom_03 = { package = "getrandom", version = "0.3.4", features = ["wasm_js"] }
 getrandom_04 = { package = "getrandom", version = "0.4.2", features = ["wasm_js"] }
 uuid = { workspace = true, features = ["js"] }
+
+# Native Windows URL launching is compiled by target, independently of features.
+[target.'cfg(windows)'.dependencies]
+winapi = {workspace = true, features = ["winuser", "winerror", "winreg", "processthreadsapi", "handleapi", "errhandlingapi", "minwinbase", "winbase", "winnt"]}
