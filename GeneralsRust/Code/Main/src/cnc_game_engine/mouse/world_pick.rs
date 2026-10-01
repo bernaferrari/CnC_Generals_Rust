@@ -496,14 +496,4 @@ impl CnCGameEngine {
     ) {
         // Projectiles render from PresentationFrame (host CombatSystem freeze).
     }
-
-    pub(in crate::cnc_game_engine) fn render_ui(&self, _render_pass: &mut wgpu::RenderPass) {
-        if let Err(err) = self.ui_manager.render() {
-            log::warn!("UI manager render failed: {}", err);
-        }
-        log::trace!(
-            "UI overlay rendered for {} selected units",
-            self.selected_objects.len()
-        );
-    }
 }

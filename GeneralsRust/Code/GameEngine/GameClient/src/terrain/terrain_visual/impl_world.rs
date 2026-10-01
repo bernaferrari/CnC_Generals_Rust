@@ -503,6 +503,22 @@ impl TerrainVisualImpl {
         &mut self.terrain_tracks
     }
 
+    /// Append a tread mark with height sampling borrowed from this terrain.
+    /// C++ W3DTerrainTracks::addEdgeToTrack samples TerrainLogic directly; the
+    /// adapter must not reacquire the terrain owner while mutating its tracks.
+    pub(crate) fn add_track_edge(&mut self, handle: usize, x: f32, y: f32, sync_time: i32) {
+        let ground = TrackGround(self.height_map.as_ref());
+        self.terrain_tracks
+            .add_edge_to_track(handle, &ground, x, y, sync_time);
+    }
+
+    /// Feather the last tread edge, using the same borrowed ground provider.
+    pub(crate) fn add_track_cap(&mut self, handle: usize, x: f32, y: f32, sync_time: i32) {
+        let ground = TrackGround(self.height_map.as_ref());
+        self.terrain_tracks
+            .add_cap_edge_to_track(handle, &ground, x, y, sync_time);
+    }
+
     /// C++ `setTerrainTracksDetail`.
     pub fn set_terrain_tracks_detail(&mut self) {
         self.set_terrain_tracks_detail_with_config(Self::terrain_tracks_config());
@@ -1534,6 +1550,65 @@ fn apply_cpp_visual_heightmap_scale(heightmap: &mut HeightMap) {
     heightmap.scale = game_engine::map_object::MAP_XY_FACTOR;
     if heightmap.border_size == 0 {
         heightmap.border_size = 70;
+    }
+}
+
+/// Only the height map is borrowed, so track mutation and sampling are disjoint.
+struct TrackGround<'a>(Option<&'a HeightMap>);
+impl TerrainTrackHeightProvider for TrackGround<'_> {
+    fn ground_height_and_normal(&self, x: f32, y: f32) -> (f32, Vec3) {
+        self.0.map_or((0.0, Vec3::Z), |map| {
+            (map.get_height_at(x, y), map.get_normal_at(x, y))
+        })
+    }
+}
+
+#[cfg(test)]
+mod track_ground_ownership_tests {
+    use super::*;
+    use crate::terrain::terrain_tracks::MAX_TRACK_EDGE_COUNT;
+
+    fn terrain(height: f32) -> TerrainVisualImpl {
+        let mut terrain = TerrainVisualImpl::new();
+        let mut map = HeightMap::new(16, 16, 100.0, 10.0);
+        map.heights.fill(height / 100.0);
+        terrain.height_map = Some(map);
+        terrain.set_terrain_tracks_detail_with_config(TerrainTracksConfig::default());
+        terrain
+    }
+
+    #[test]
+    fn identical_track_handles_sample_their_own_terrain_without_publication() {
+        let mut first = terrain(10.0);
+        let mut second = terrain(40.0);
+        let a = first
+            .terrain_tracks_mut()
+            .bind_track(4.0, 4.0, "a")
+            .unwrap();
+        let b = second
+            .terrain_tracks_mut()
+            .bind_track(4.0, 4.0, "b")
+            .unwrap();
+        assert_eq!(a, b);
+        for (x, time) in [(0.0, 10), (20.0, 20), (40.0, 30)] {
+            first.add_track_edge(a, x, 0.0, time);
+            second.add_track_edge(b, x, 0.0, time);
+        }
+        first.add_track_cap(a, 60.0, 0.0, 40);
+        for (visual, handle, z, count) in [(&first, a, 10.0, 3), (&second, b, 40.0, 2)] {
+            let track = visual.terrain_tracks().track(handle).unwrap();
+            let edges = track.active_edges(MAX_TRACK_EDGE_COUNT);
+            assert_eq!(edges.len(), count);
+            for edge in edges {
+                for endpoint in edge.endpoint_pos {
+                    // W3DTerrainTracks raises marks by 0.2 * MAP_XY_FACTOR.
+                    let expected = z + 0.2 * game_engine::map_object::MAP_XY_FACTOR;
+                    assert!((endpoint.z - expected).abs() < 0.001);
+                }
+            }
+        }
+        assert!(first.terrain_tracks().track(a).unwrap().have_cap());
+        assert!(!second.terrain_tracks().track(b).unwrap().have_cap());
     }
 }
 

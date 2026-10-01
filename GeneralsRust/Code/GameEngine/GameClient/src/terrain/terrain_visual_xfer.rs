@@ -258,7 +258,7 @@ mod tests {
         }
         let bytes = capture_live_terrain_visual_xfer_bytes().expect("empty capture");
         assert_eq!(
-            &bytes[..12],
+            &bytes[..13],
             &[
                 3, // C++ W3DTerrainVisual xfer version
                 1, // base TerrainVisual xfer version
@@ -269,7 +269,9 @@ mod tests {
                 0, 0, 0, 0, // numTrees
             ]
         );
-        assert_eq!(bytes[12], 1); // W3DPropBuffer xfer version
-        assert_eq!(&bytes[13..17], &[0, 0, 0, 0]); // scorch count
+        assert_eq!(bytes[13], 1); // W3DPropBuffer xfer version
+        // Rust's existing scorch persistence follows the C++ prefix.
+        assert_eq!(&bytes[14..18], &[0, 0, 0, 0]); // scorch count
+        assert_eq!(bytes.len(), 18);
     }
 }

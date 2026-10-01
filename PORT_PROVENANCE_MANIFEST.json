@@ -140959,7 +140959,7 @@
     }
   ],
   "generator": "GeneralsRust/Code/Main/scripts/generate_port_provenance.py",
-  "input_digest": "458f3065b6d26c576f2f70d0c0c1415d3477477cb8d67b27c3f8d57a830f07a3",
+  "input_digest": "ed1bf487f0fc2f886131fefdfaa96b9b4f19c2a9ac6441274978f57f3d248e17",
   "metric_contract": {
     "behavior_requires_explicit_evidence": true,
     "candidate_mapping_is_reviewed": false,
@@ -151673,11 +151673,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 1598,
+        "end_line": 1673,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameClient/src/terrain/terrain_visual/impl_world.rs",
-      "sha256": "fc57fa5149a48a8df092593ffc83d53746f9bb576c0e358466a073107b136c90",
+      "sha256": "8a4a890c55e4414b9ac469a4a8384f05b8f45a0364c5aa872ef34dc733bef37f",
       "symbol_index_status": "indexed",
       "symbols": [
         {
@@ -151837,257 +151837,287 @@
         },
         {
           "kind": "fn",
-          "line": 507,
+          "line": 509,
+          "name": "add_track_edge"
+        },
+        {
+          "kind": "fn",
+          "line": 516,
+          "name": "add_track_cap"
+        },
+        {
+          "kind": "fn",
+          "line": 523,
           "name": "set_terrain_tracks_detail"
         },
         {
           "kind": "fn",
-          "line": 512,
+          "line": 528,
           "name": "set_terrain_tracks_detail_with_config"
         },
         {
           "kind": "fn",
-          "line": 517,
+          "line": 533,
           "name": "add_faction_bib"
         },
         {
           "kind": "fn",
-          "line": 577,
+          "line": 593,
           "name": "remove_faction_bib"
         },
         {
           "kind": "fn",
-          "line": 584,
+          "line": 600,
           "name": "remove_all_bibs"
         },
         {
           "kind": "fn",
-          "line": 590,
+          "line": 606,
           "name": "remove_bib_highlighting"
         },
         {
           "kind": "fn",
-          "line": 602,
+          "line": 618,
           "name": "retain_placement_highlight_bibs"
         },
         {
           "kind": "fn",
-          "line": 618,
+          "line": 634,
           "name": "clear_placement_highlight_bibs"
         },
         {
           "kind": "fn",
-          "line": 631,
+          "line": 647,
           "name": "remove_trees_and_props_for_construction"
         },
         {
           "kind": "fn",
-          "line": 672,
+          "line": 688,
           "name": "add_prop"
         },
         {
           "kind": "fn",
-          "line": 690,
+          "line": 706,
           "name": "point_inside_construction_footprint"
         },
         {
           "kind": "fn",
-          "line": 714,
+          "line": 730,
           "name": "replace_skybox_textures"
         },
         {
           "kind": "fn",
-          "line": 753,
+          "line": 769,
           "name": "initial_skybox_texture_names"
         },
         {
           "kind": "fn",
-          "line": 756,
+          "line": 772,
           "name": "current_skybox_texture_names"
         },
         {
           "kind": "fn",
-          "line": 762,
+          "line": 778,
           "name": "last_skybox_face_bind"
         },
         {
           "kind": "fn",
-          "line": 772,
+          "line": 788,
           "name": "skybox_face_from_yaw_pitch"
         },
         {
           "kind": "const",
-          "line": 773,
+          "line": 789,
           "name": "TOP_LOOK_PITCH"
         },
         {
           "kind": "fn",
-          "line": 789,
+          "line": 805,
           "name": "skybox_face_from_view_matrix"
         },
         {
           "kind": "fn",
-          "line": 826,
+          "line": 842,
           "name": "rebind_skybox_background_for_camera"
         },
         {
           "kind": "fn",
-          "line": 829,
+          "line": 845,
           "name": "skybox_camera_yaw_and_look_pitch"
         },
         {
           "kind": "fn",
-          "line": 844,
+          "line": 860,
           "name": "is_loaded_skybox_face"
         },
         {
           "kind": "fn",
-          "line": 867,
+          "line": 883,
           "name": "resolve_skybox_face_index"
         },
         {
           "kind": "fn",
-          "line": 883,
+          "line": 899,
           "name": "has_skybox_background_bind_group"
         },
         {
           "kind": "fn",
-          "line": 889,
+          "line": 905,
           "name": "skybox_texture_search_candidates"
         },
         {
           "kind": "fn",
-          "line": 892,
+          "line": 908,
           "name": "load_skybox_replacement_textures"
         },
         {
           "kind": "fn",
-          "line": 930,
+          "line": 946,
           "name": "refresh_skybox_background_binding_if_ready"
         },
         {
           "kind": "fn",
-          "line": 937,
+          "line": 953,
           "name": "restore_initial_skybox_textures"
         },
         {
           "kind": "fn",
-          "line": 962,
+          "line": 978,
           "name": "refresh_skybox_background_binding"
         },
         {
           "kind": "fn",
-          "line": 1051,
+          "line": 1067,
           "name": "install_loaded_skybox_faces"
         },
         {
           "kind": "fn",
-          "line": 1065,
+          "line": 1081,
           "name": "ensure_water_ini_skybox_faces_loaded"
         },
         {
           "kind": "fn",
-          "line": 1125,
+          "line": 1141,
           "name": "ensure_skybox_horizon_gradient_texture"
         },
         {
           "kind": "const",
-          "line": 1140,
+          "line": 1156,
           "name": "WIDTH"
         },
         {
           "kind": "const",
-          "line": 1141,
+          "line": 1157,
           "name": "HEIGHT"
         },
         {
           "kind": "fn",
-          "line": 1197,
+          "line": 1213,
           "name": "load_texture_from_path"
         },
         {
           "kind": "fn",
-          "line": 1247,
+          "line": 1263,
           "name": "load_runtime_texture_image"
         },
         {
           "kind": "fn",
-          "line": 1271,
+          "line": 1287,
           "name": "try_load_image_from_filesystem"
         },
         {
           "kind": "fn",
-          "line": 1320,
+          "line": 1336,
           "name": "runtime_texture_candidates"
         },
         {
           "kind": "fn",
-          "line": 1426,
+          "line": 1442,
           "name": "swapped_skybox_texture_extension"
         },
         {
           "kind": "const",
-          "line": 1442,
+          "line": 1458,
           "name": "HORIZON_GRADIENT_BIND"
         },
         {
           "kind": "const",
-          "line": 1444,
+          "line": 1460,
           "name": "FOG_FALLBACK_BIND"
         },
         {
           "kind": "fn",
-          "line": 1445,
+          "line": 1461,
           "name": "is_synthetic_skybox_bind"
         },
         {
           "kind": "static",
-          "line": 1456,
+          "line": 1472,
           "name": "MISSING_SKYBOX_TEXTURES"
         },
         {
           "kind": "fn",
-          "line": 1457,
+          "line": 1473,
           "name": "skybox_texture_known_missing"
         },
         {
           "kind": "fn",
-          "line": 1464,
+          "line": 1480,
           "name": "remember_missing_skybox_texture"
         },
         {
           "kind": "fn",
-          "line": 1472,
+          "line": 1488,
           "name": "water_ini_or_default_skybox_names"
         },
         {
           "kind": "const",
-          "line": 1474,
+          "line": 1490,
           "name": "DEFAULT"
         },
         {
           "kind": "fn",
-          "line": 1499,
+          "line": 1515,
           "name": "horizon_sky_color"
         },
         {
           "kind": "fn",
-          "line": 1533,
+          "line": 1549,
           "name": "apply_cpp_visual_heightmap_scale"
         },
         {
+          "kind": "struct",
+          "line": 1557,
+          "name": "TrackGround"
+        },
+        {
           "kind": "fn",
-          "line": 1545,
+          "line": 1559,
+          "name": "ground_height_and_normal"
+        },
+        {
+          "kind": "fn",
+          "line": 1570,
+          "name": "terrain"
+        },
+        {
+          "kind": "fn",
+          "line": 1581,
+          "name": "identical_track_handles_sample_their_own_terrain_without_publication"
+        },
+        {
+          "kind": "fn",
+          "line": 1620,
           "name": "live_world_size_uses_map_xy_factor_not_playable_over_grid"
         },
         {
           "kind": "fn",
-          "line": 1564,
+          "line": 1639,
           "name": "live_world_size_defaults_zh_alpine_border_when_map_omits"
         },
         {
           "kind": "fn",
-          "line": 1577,
+          "line": 1652,
           "name": "file_world_size_uses_map_xy_factor_not_derived_scale"
         }
       ]

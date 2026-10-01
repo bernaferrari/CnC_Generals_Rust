@@ -373,7 +373,7 @@ mod tests {
     }
 
     #[test]
-    fn flipped_cell_uses_opposite_triangle_winding() {
+    fn cell_flip_selects_cpp_scorch_diagonal_and_index_order() {
         let mut buffer = TerrainScorchBuffer::new();
         buffer.add_scorch([10.0, 10.0, 0.0], 20.0, 0);
         let unflipped = buffer.update_scorches(&MockHeight { flip: false }, 0xFFFFFFFF);
@@ -382,7 +382,11 @@ mod tests {
         assert!(!unflipped.indices.is_empty());
         assert_eq!(unflipped.indices.len(), flipped.indices.len());
         assert_ne!(unflipped.indices, flipped.indices);
-        assert_eq!(flipped.indices[0], unflipped.indices[1]);
+        // BaseHeightMap.cpp:1970-1988, with this fixture's row stride of 4.
+        // Both diagonals preserve winding; the flip selects p1-p3 instead
+        // of p0-p2. Assert both full triangles, not an unrelated index pair.
+        assert_eq!(&unflipped.indices[..6], &[0, 5, 4, 0, 1, 5]);
+        assert_eq!(&flipped.indices[..6], &[1, 4, 0, 1, 5, 4]);
     }
 
     #[test]

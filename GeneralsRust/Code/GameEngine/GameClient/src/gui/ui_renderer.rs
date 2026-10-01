@@ -308,6 +308,65 @@ impl UIFrameBuffers {
     }
 }
 
+/// Per-renderer timing for Main's recovery attempt to materialize the live
+/// ControlBar tree. This is behavioral state, so it follows the UI renderer
+/// that is being flushed instead of being shared by the process.
+#[derive(Default)]
+struct UiLifecycleState {
+    flush_frame: u32,
+    control_bar_retries: u32,
+    last_control_bar_retry_frame: u32,
+    empty_overlay_logs: u8,
+}
+
+impl UiLifecycleState {
+    fn advance_flush_frame(&mut self) -> u32 {
+        self.flush_frame = self.flush_frame.wrapping_add(1);
+        self.flush_frame
+    }
+
+    fn begin_control_bar_retry(&mut self, parent_is_live: bool) -> Option<u32> {
+        if parent_is_live {
+            self.control_bar_retries = 0;
+            return None;
+        }
+
+        let interval = if self.control_bar_retries == 0 {
+            0
+        } else {
+            30u32.saturating_mul(1u32 << self.control_bar_retries.min(4))
+        };
+        if self.control_bar_retries > 0
+            && self
+                .flush_frame
+                .wrapping_sub(self.last_control_bar_retry_frame)
+                < interval
+        {
+            return None;
+        }
+
+        self.last_control_bar_retry_frame = self.flush_frame;
+        Some(self.flush_frame)
+    }
+
+    fn should_log_empty_overlay(&mut self) -> bool {
+        if self.empty_overlay_logs >= 5 {
+            return false;
+        }
+        self.empty_overlay_logs += 1;
+        true
+    }
+
+    fn finish_control_bar_retry(&mut self, loaded: bool) -> u32 {
+        if loaded {
+            self.control_bar_retries = 0;
+        } else {
+            self.control_bar_retries = self.control_bar_retries.saturating_add(1);
+        }
+        self.control_bar_retries
+    }
+}
+
 /// Text alignment options
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TextAlignment {
@@ -389,6 +448,7 @@ pub struct UIRenderer {
 
     // Command batching
     frame_buffers: UIFrameBuffers,
+    lifecycle_state: UiLifecycleState,
 
     // Performance statistics
     last_frame_stats: RenderStats,
@@ -859,6 +919,7 @@ impl UIRenderer {
             view_projection: Mat4::IDENTITY,
             current_time: 0.0,
             frame_buffers: UIFrameBuffers::default(),
+            lifecycle_state: UiLifecycleState::default(),
             last_frame_stats: RenderStats::default(),
         })
     }
@@ -944,6 +1005,26 @@ impl UIRenderer {
     /// drawable UI before the post-scene WND traversal happens.
     pub fn begin_overlay_frame(&mut self) {
         self.frame_buffers.begin_overlay();
+    }
+
+    /// Advance this renderer's UI lifecycle clock once for a Main overlay flush.
+    pub fn advance_lifecycle_flush(&mut self) -> u32 {
+        self.lifecycle_state.advance_flush_frame()
+    }
+
+    /// Reserve a ControlBar recovery attempt using this renderer's own cadence.
+    pub fn begin_control_bar_retry(&mut self, parent_is_live: bool) -> Option<u32> {
+        self.lifecycle_state.begin_control_bar_retry(parent_is_live)
+    }
+
+    /// Record the result of a reserved ControlBar recovery attempt.
+    pub fn finish_control_bar_retry(&mut self, loaded: bool) -> u32 {
+        self.lifecycle_state.finish_control_bar_retry(loaded)
+    }
+
+    /// Bound empty-frame diagnostics independently for each renderer.
+    pub fn should_log_empty_overlay(&mut self) -> bool {
+        self.lifecycle_state.should_log_empty_overlay()
     }
 
     /// Whether a UI frame is currently open and needs cleanup.
@@ -1909,6 +1990,88 @@ impl UIRenderer {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn empty_overlay_diagnostics_do_not_share_a_process_budget() {
+        let mut first = UiLifecycleState::default();
+        let mut second = UiLifecycleState::default();
+        for _ in 0..5 {
+            assert!(first.should_log_empty_overlay());
+        }
+        assert!(!first.should_log_empty_overlay());
+        assert!(second.should_log_empty_overlay());
+    }
+
+    #[test]
+    fn control_bar_retry_cadence_is_independent_per_renderer_and_resets_when_live() {
+        let mut first = UiLifecycleState::default();
+        let mut second = UiLifecycleState::default();
+
+        let first_frame = first.advance_flush_frame();
+        let second_frame = second.advance_flush_frame();
+        assert_eq!(first_frame, 1);
+        assert_eq!(second_frame, 1);
+        assert_eq!(first.begin_control_bar_retry(false), Some(first_frame));
+        assert_eq!(second.begin_control_bar_retry(false), Some(second_frame));
+        assert_eq!(first.finish_control_bar_retry(false), 1);
+        assert_eq!(second.finish_control_bar_retry(false), 1);
+
+        // A live parent resets only its own retry budget. The other renderer
+        // remains in backoff even though both have advanced through the frames.
+        assert_eq!(first.begin_control_bar_retry(true), None);
+        assert_eq!(first.control_bar_retries, 0);
+        assert_eq!(second.control_bar_retries, 1);
+
+        for _ in 0..59 {
+            first.advance_flush_frame();
+            second.advance_flush_frame();
+            assert_eq!(first.begin_control_bar_retry(true), None);
+            assert_eq!(second.begin_control_bar_retry(false), None);
+        }
+
+        let first_frame = first.advance_flush_frame();
+        let second_frame = second.advance_flush_frame();
+        assert_eq!(first_frame, 61);
+        assert_eq!(second_frame, 61);
+        assert_eq!(first.begin_control_bar_retry(false), Some(61));
+        assert_eq!(first.finish_control_bar_retry(true), 0);
+        assert_eq!(second.begin_control_bar_retry(false), Some(61));
+        assert_eq!(second.finish_control_bar_retry(false), 2);
+    }
+
+    #[test]
+    fn control_bar_retry_uses_the_existing_capped_backoff() {
+        let mut state = UiLifecycleState::default();
+        assert_eq!(state.advance_flush_frame(), 1);
+        assert_eq!(state.begin_control_bar_retry(false), Some(1));
+        assert_eq!(state.finish_control_bar_retry(false), 1);
+
+        for (expected_frame, expected_retries) in [(61, 2), (181, 3), (421, 4), (901, 5), (1381, 6)]
+        {
+            while state.advance_flush_frame() < expected_frame {
+                assert_eq!(state.begin_control_bar_retry(false), None);
+            }
+            assert_eq!(state.begin_control_bar_retry(false), Some(expected_frame));
+            assert_eq!(state.finish_control_bar_retry(false), expected_retries);
+        }
+    }
+
+    #[test]
+    fn control_bar_retry_tracks_elapsed_flushes_across_frame_wrap() {
+        let mut state = UiLifecycleState {
+            flush_frame: u32::MAX - 1,
+            ..Default::default()
+        };
+        assert_eq!(state.advance_flush_frame(), u32::MAX);
+        assert_eq!(state.begin_control_bar_retry(false), Some(u32::MAX));
+        state.finish_control_bar_retry(false);
+        for _ in 0..59 {
+            state.advance_flush_frame();
+            assert_eq!(state.begin_control_bar_retry(false), None);
+        }
+        assert_eq!(state.advance_flush_frame(), 59);
+        assert_eq!(state.begin_control_bar_retry(false), Some(59));
+    }
 
     #[test]
     fn glyph_pixels_fill_the_uploaded_text_canvas() {

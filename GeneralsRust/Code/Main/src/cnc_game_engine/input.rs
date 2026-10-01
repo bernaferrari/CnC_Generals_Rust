@@ -65,7 +65,48 @@ fn world_mouse_action(
     }
 }
 
+/// Route host UI keys before C++-style mapped commands.
+fn route_host_ui_key(
+    ui: &mut UIManager,
+    key: crate::ui::KeyCode,
+    chat_open: bool,
+    input_enabled: bool,
+) -> bool {
+    // The host ChatPanel is not a focused WND. Let the existing mapped-key
+    // handler close it before UIManager's global Escape opens the pause menu.
+    // Keep disabled-input OPTIONS/Escape behavior when chat is closed.
+    if chat_open && key == crate::ui::KeyCode::Escape {
+        return false;
+    }
+    if key == crate::ui::KeyCode::Escape
+        && (ui.current_screen() == Some(Screen::PauseMenu)
+            || (ui.current_screen() == Some(Screen::GameHUD)
+                && ui
+                    .game_hud()
+                    .construction_panel
+                    .pending_structure_placement()
+                    .is_none()))
+    {
+        // CommandXlat.cpp:3091-3094 delegates OPTIONS to ToggleQuitMenu;
+        // QuitMenu.cpp owns offline simulation pause/resume. Decline here
+        // so the actual mapped-key route can use that owner, including the
+        // disabled-input OPTIONS exception. A UI-only screen transition
+        // would consume Escape without pausing or resuming the simulation.
+        return false;
+    }
+    ui.handle_key_press_with_hud_input(key, !chat_open && input_enabled)
+}
+
 impl CnCGameEngine {
+    /// The UI manager owns the host's only mutable gameplay HUD.
+    pub(super) fn game_hud(&self) -> &GameHUD {
+        self.ui_manager.game_hud()
+    }
+
+    pub(super) fn game_hud_mut(&mut self) -> &mut GameHUD {
+        self.ui_manager.game_hud_mut()
+    }
+
     pub fn resize(&mut self, new_size: winit::dpi::PhysicalSize<u32>) {
         if new_size.width > 0 && new_size.height > 0 {
             // The swapchain follows the logical window size (C++ TheDisplay
@@ -185,21 +226,15 @@ impl CnCGameEngine {
                         if route_keyboard_to_legacy_ui {
                             if let Some(ui_key) = Self::to_ui_key_code(key) {
                                 if !os_repeat {
-                                    let _ = self.ui_manager.handle_key_press(ui_key);
-                                }
-                                // Dual HUD residual: engine GameHUD owns construction
-                                // cameo hotkeys + placement cancel from presentation path.
-                                // When construction panel consumes a build/cancel key, skip
-                                // global command hotkeys (R repair vs R ranger, etc.).
-                                // Chat (WindowXlat) owns the key first — do not steal
-                                // letters into the control bar while the edit is open.
-                                use crate::ui::Interactive;
-                                if !os_repeat && !chat_open && input_enabled {
-                                    construction_consumed =
-                                        Interactive::handle_key_press(&mut self.game_hud, ui_key);
-                                    for ev in self.game_hud.drain_pending_ui_events() {
-                                        self.ui_manager.queue_event(ev);
-                                    }
+                                    // The UI manager owns the sole gameplay HUD. Keep the
+                                    // legacy global/screen key route, but let WindowXlat's
+                                    // chat editor or disabled input suppress HUD hotkeys.
+                                    construction_consumed = route_host_ui_key(
+                                        &mut self.ui_manager,
+                                        ui_key,
+                                        chat_open,
+                                        input_enabled,
+                                    );
                                 }
                             }
                         }
@@ -313,11 +348,7 @@ impl CnCGameEngine {
                             && matches!(self.current_state, GameState::InGame | GameState::Paused)
                         {
                             if let Some(ui_key) = Self::to_ui_key_code(key) {
-                                if self.game_hud.handle_letter_hotkey(ui_key) {
-                                    for ev in self.game_hud.drain_pending_ui_events() {
-                                        self.ui_manager.queue_event(ev);
-                                    }
-                                }
+                                self.ui_manager.handle_hud_letter_hotkey(ui_key);
                             }
                         }
                     }
@@ -2303,8 +2334,7 @@ impl CnCGameEngine {
                 UIEvent::SettingsChanged => {
                     if let Some(v) = self.ui_manager.options_bool("game.show_health_bars") {
                         self.show_health_bars = v;
-                        self.game_hud.set_show_selection_health(v);
-                        self.ui_manager.game_hud_mut().set_show_selection_health(v);
+                        self.game_hud_mut().set_show_selection_health(v);
                         info!("Settings: show_health_bars={v}");
                     }
                     if let Some(v) = self.ui_manager.options_bool("game.show_fps") {
@@ -2317,10 +2347,7 @@ impl CnCGameEngine {
     }
 
     /// C++ ControlBar production cameo → QueueUnitCreate residual.
-    /// Keep interactive UIManager HUD and engine GameHUD presentation-synced residual.
-    ///
-    /// Clicks route through `ui_manager.game_hud`; resources/selection presentation
-    /// historically only updated `self.game_hud`. Dual-apply closes that gap.
+    /// Route the frozen presentation snapshot to the sole host gameplay HUD.
 
     /// C++ TheEva residual → chat EVA lines when honesty counters advance.
     pub(super) fn sync_eva_messages_from_logic(&mut self) {
@@ -2368,13 +2395,8 @@ impl CnCGameEngine {
     /// Fail-closed: does not dual-write GameLogic mid-frame.
     pub(super) fn host_notify_presentation_ui_message(&mut self, message: &str) {
         // Wave 606: host presentation UI notify residual.
-        self.game_hud
+        self.game_hud_mut()
             .add_radar_message(message, None, crate::ui::RadarPingKind::Generic);
-        self.ui_manager.game_hud_mut().add_radar_message(
-            message,
-            None,
-            crate::ui::RadarPingKind::Generic,
-        );
         let req =
             crate::game_logic::AudioEventRequest::new("GUIMessageReceived").with_priority(150);
         let _ = crate::subsystem_manager::with_subsystem_mut::<
@@ -2460,8 +2482,7 @@ impl CnCGameEngine {
 
             let human = Self::eva_alert_human_message(name);
             self.chat_panel.add_eva_message(&human);
-            self.game_hud.push_info_message(&human);
-            self.ui_manager.game_hud_mut().push_info_message(&human);
+            self.game_hud_mut().push_info_message(&human);
 
             #[cfg(feature = "game_client")]
             {
@@ -2524,10 +2545,11 @@ impl CnCGameEngine {
             self.last_eva_ally_under_attack_count = self.last_eva_ally_under_attack_count.max(ally);
             return;
         }
+        let chat_panel = &mut self.chat_panel;
+        let hud = self.ui_manager.game_hud_mut();
         let mut push = |msg: &str| {
-            self.chat_panel.add_eva_message(msg);
-            self.game_hud.push_info_message(msg);
-            self.ui_manager.game_hud_mut().push_info_message(msg);
+            chat_panel.add_eva_message(msg);
+            hud.push_info_message(msg);
         };
         if low_power > self.last_eva_low_power_count {
             self.last_eva_low_power_count = low_power;
@@ -2564,12 +2586,12 @@ impl CnCGameEngine {
         &mut self,
         pres: &crate::presentation_frame::PresentationFrame,
     ) {
-        // Single rendered GameHUD: only `ui_manager.render()` draws a GameHUD
-        // (ui_manager.rs game_hud.render); engine `self.game_hud` is not drawn,
-        // so fanning out here duplicated every radar event/toast into two HUDs.
+        // One HUD receives each snapshot apply; events are applied once per LogicFrame.
         // Resources/minimap/selection re-sync every render; events apply once
         // per LogicFrame inside apply_events_to_game_hud (same freeze is reused).
-        pres.apply_to_game_hud(self.ui_manager.game_hud_mut());
+        let world_epoch = self.host_direct_visual_world_epoch;
+        self.game_hud_mut().prepare_presentation_world(world_epoch);
+        pres.apply_to_game_hud(self.game_hud_mut());
     }
 }
 
@@ -2578,6 +2600,121 @@ mod tests {
     use super::{CnCGameEngine, WorldMouseAction, world_mouse_action};
     use winit::event::MouseButton;
     use winit::keyboard::{KeyCode, PhysicalKey};
+
+    #[test]
+    fn open_chat_escape_owns_the_key_with_or_without_pending_placement() {
+        use crate::ui::KeyCode as UiKey;
+        use crate::ui::{ChatPanel, Screen, UIManager};
+        for placement_pending in [false, true] {
+            let mut ui = UIManager::new(1024, 768);
+            ui.transition_to_screen(Screen::GameHUD);
+            assert!(matches!(
+                ui.pop_event(),
+                Some(crate::ui::UIEvent::PlaySoundEffectPath(_))
+            ));
+            if placement_pending {
+                ui.game_hud_mut()
+                    .construction_panel
+                    .arm_structure_placement("AmericaBarracks".into());
+            }
+            let mut chat = ChatPanel::new();
+            chat.open();
+            let consumed = super::route_host_ui_key(&mut ui, UiKey::Escape, chat.is_open(), true);
+            // This is the actual host arbitration used before mapped key handling.
+            if !consumed {
+                assert!(chat.press_key(UiKey::Escape));
+            }
+            assert!(
+                !chat.is_open(),
+                "focused chat must close instead of pausing the game"
+            );
+            assert_eq!(ui.current_screen(), Some(Screen::GameHUD));
+            assert!(
+                ui.pop_event().is_none(),
+                "chat Escape must not queue a pause or placement cancel"
+            );
+            assert_eq!(
+                ui.game_hud()
+                    .construction_panel
+                    .pending_structure_placement()
+                    .is_some(),
+                placement_pending
+            );
+        }
+    }
+
+    #[test]
+    fn closed_chat_escape_retains_cpp_disabled_input_options_exception() {
+        use crate::ui::{Screen, UIManager};
+        let mut ui = UIManager::new(1024, 768);
+        ui.transition_to_screen(Screen::GameHUD);
+        assert!(!super::route_host_ui_key(
+            &mut ui,
+            crate::ui::KeyCode::Escape,
+            false,
+            false
+        ));
+        assert_eq!(ui.current_screen(), Some(Screen::GameHUD));
+    }
+
+    #[test]
+    fn escape_keeps_placement_cancel_and_options_back_on_their_ui_owner() {
+        use crate::ui::{KeyCode as UiKey, Screen, UIEvent, UIManager};
+        let mut ui = UIManager::new(1024, 768);
+        ui.transition_to_screen(Screen::GameHUD);
+        while ui.pop_event().is_some() {}
+        ui.game_hud_mut()
+            .construction_panel
+            .arm_structure_placement("AmericaBarracks".into());
+        assert!(super::route_host_ui_key(
+            &mut ui,
+            UiKey::Escape,
+            false,
+            true
+        ));
+        assert_eq!(ui.current_screen(), Some(Screen::GameHUD));
+        assert!(matches!(
+            ui.pop_event(),
+            Some(UIEvent::CancelStructurePlacement)
+        ));
+        assert!(ui.pop_event().is_none());
+
+        for underlying in [Screen::GameHUD, Screen::PauseMenu] {
+            ui.transition_to_screen(underlying);
+            ui.transition_to_screen(Screen::Options);
+            while ui.pop_event().is_some() {}
+            assert!(super::route_host_ui_key(
+                &mut ui,
+                UiKey::Escape,
+                false,
+                true
+            ));
+            assert_eq!(ui.current_screen(), Some(underlying));
+        }
+    }
+
+    #[test]
+    fn ordinary_escape_defers_to_authoritative_options_instead_of_ui_only_pause() {
+        use crate::ui::{KeyCode as UiKey, Screen, UIManager};
+        for screen in [Screen::GameHUD, Screen::PauseMenu] {
+            for input_enabled in [false, true] {
+                let mut ui = UIManager::new(1024, 768);
+                ui.transition_to_screen(screen);
+                while ui.pop_event().is_some() {}
+                // The real OS path calls the mapped OPTIONS handler only
+                // when this arbitration declines the key. C++ QuitMenu,
+                // rather than a UI-only screen change, owns offline pause.
+                assert!(!super::route_host_ui_key(
+                    &mut ui,
+                    UiKey::Escape,
+                    false,
+                    input_enabled,
+                ));
+                assert_eq!(ui.current_screen(), Some(screen));
+                assert!(ui.pop_event().is_none());
+            }
+        }
+    }
 
     #[test]
     fn focus_transitions_release_camera_keys_and_modifiers_for_only_the_owner() {

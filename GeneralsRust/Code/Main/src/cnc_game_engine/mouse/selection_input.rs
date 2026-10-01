@@ -81,11 +81,7 @@ impl CnCGameEngine {
     }
 
     fn apply_structure_placement_angle(&mut self, angle: f32) {
-        self.game_hud
-            .construction_panel
-            .rotate_structure_placement(angle);
-        self.ui_manager
-            .game_hud_mut()
+        self.game_hud_mut()
             .construction_panel
             .rotate_structure_placement(angle);
         game_client::helpers::TheInGameUI::set_placement_angle(angle);
@@ -655,10 +651,7 @@ impl CnCGameEngine {
 
         if similar_units.is_empty() {
             // C++ InGameUI::selectMatchingAcrossScreen/Map: empty seed → GUI:NothingSelected.
-            self.game_hud.push_info_message("GUI:NothingSelected");
-            self.ui_manager
-                .game_hud_mut()
-                .push_info_message("GUI:NothingSelected");
+            self.game_hud_mut().push_info_message("GUI:NothingSelected");
             return;
         }
         let selection = if shift_down {
@@ -673,8 +666,7 @@ impl CnCGameEngine {
         } else {
             "GUI:SelectedAcrossScreen"
         };
-        self.game_hud.push_info_message(msg);
-        self.ui_manager.game_hud_mut().push_info_message(msg);
+        self.game_hud_mut().push_info_message(msg);
         info!(
             "Selected {} similar units ({})",
             self.selected_objects.len(),

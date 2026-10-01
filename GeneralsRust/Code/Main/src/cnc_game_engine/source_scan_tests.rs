@@ -528,12 +528,14 @@ fn ground_marker_circles_overlay_residual() {
 }
 
 #[test]
-fn dual_hud_construction_hotkey_route_residual() {
+fn single_hud_construction_hotkey_route_residual() {
     let src = crate::cnc_game_engine::ENGINE_SRC;
     assert!(
-        src.contains("Interactive::handle_key_press(&mut self.game_hud, ui_key)")
-            && src.contains("drain_pending_ui_events"),
-        "engine GameHUD must receive construction/command hotkeys in InGame"
+        src.contains("handle_key_press_with_hud_input(")
+            && src.contains("construction_consumed = route_host_ui_key(")
+            && src.contains("if chat_open && key == crate::ui::KeyCode::Escape")
+            && !src.contains("Interactive::handle_key_press(&mut self.game_hud"),
+        "the host must route gameplay keys through the UIManager-owned HUD once"
     );
     let um = include_str!("../ui/ui_manager.rs");
     assert!(
@@ -774,9 +776,9 @@ fn auto_dozer_structure_place_residual() {
     let body = &src[start..end];
     assert!(
         body.contains("clear_structure_placement")
-            && body.contains("game_hud.construction_panel")
-            && body.contains("ui_manager"),
-        "legal place must dual-clear both HUD placement ghosts"
+            && body.contains("self.game_hud_mut()")
+            && !include_str!("types.rs").contains("game_hud: GameHUD"),
+        "legal place must clear the sole UIManager-owned placement ghost"
     );
 }
 
@@ -1019,7 +1021,7 @@ fn construction_cameo_hotkey_priority_residual() {
     assert!(
         src.contains("construction_consumed")
             && src.contains("_ if construction_consumed")
-            && src.contains("Interactive::handle_key_press(&mut self.game_hud, ui_key)"),
+            && src.contains("handle_key_press_with_hud_input("),
         "construction panel must consume build keys before global hotkeys residual"
     );
     assert!(

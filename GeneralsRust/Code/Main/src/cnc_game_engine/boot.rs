@@ -569,7 +569,6 @@ impl CnCGameEngine {
             menu_loading_last_tick: Instant::now(),
             diagnostics_overlay: None,
             ui_manager,
-            game_hud: GameHUD::new(),
             pending_structure_placement: None,
             pending_map_command: None,
             prevent_left_click_deselection_in_alternate_mouse_mode_for_one_click: false,
@@ -1064,8 +1063,8 @@ impl CnCGameEngine {
             let _ = game_client::gui::callbacks::control_bar_callbacks::hide_control_bar(true);
         }
         // Soft GameHUD visibility stays paired for construction-ghost residual.
-        if self.game_hud.hud_visible() {
-            self.game_hud.toggle_visibility();
+        if self.game_hud_mut().hud_visible() {
+            self.game_hud_mut().toggle_visibility();
         }
     }
 

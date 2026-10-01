@@ -1394,7 +1394,6 @@ pub struct CnCGameEngine {
 
     // UI system
     pub(crate) ui_manager: UIManager,
-    pub(crate) game_hud: GameHUD,
     /// C++ structure placement template residual (awaiting map click).
     pub(crate) pending_structure_placement: Option<String>,
     /// C++ context command awaiting map click (AttackMove/Guard/SetRally residual).

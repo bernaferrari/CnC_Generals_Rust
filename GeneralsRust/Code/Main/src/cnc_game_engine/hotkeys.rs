@@ -116,7 +116,11 @@ impl CnCGameEngine {
 
     /// C++ `TheInGameUI->getFirstSelectedDrawable()` + `KINDOF_STRUCTURE`.
     fn first_selected_is_structure(&self) -> bool {
-        let Some(first) = self.ui_selected_ids(self.current_player_id).into_iter().next() else {
+        let Some(first) = self
+            .ui_selected_ids(self.current_player_id)
+            .into_iter()
+            .next()
+        else {
             return false;
         };
         let Some(frame) = self.last_presentation_frame.as_ref() else {
@@ -1086,10 +1090,10 @@ impl CnCGameEngine {
                                 true,
                             );
                     }
-                    self.ui_manager.game_hud_mut().toggle_visibility();
+                    self.game_hud_mut().toggle_visibility();
                     info!(
                         "Control bar visibility toggled (visible={})",
-                        self.ui_manager.game_hud().hud_visible()
+                        self.game_hud().hud_visible()
                     );
                 }
             }
@@ -1258,8 +1262,7 @@ impl CnCGameEngine {
                             crate::ui::ChatTarget::Player(_) => "[Whisper]",
                         };
                         let msg = format!("{prefix} {text}");
-                        self.game_hud.push_info_message(&msg);
-                        self.ui_manager.game_hud_mut().push_info_message(&msg);
+                        self.game_hud_mut().push_info_message(&msg);
                     }
                 }
                 return true;
@@ -1299,8 +1302,7 @@ impl CnCGameEngine {
             "GUI:FF_OFF"
         };
         let msg = host_localized_gui_label(key);
-        self.game_hud.push_info_message(&msg);
-        self.ui_manager.game_hud_mut().push_info_message(&msg);
+        self.game_hud_mut().push_info_message(&msg);
         info!("{msg}");
     }
 
@@ -1319,8 +1321,7 @@ impl CnCGameEngine {
                 "GUI:ReturnGraphicsToPreviousSettings"
             };
             let msg = host_localized_gui_label(key);
-            self.game_hud.push_info_message(&msg);
-            self.ui_manager.game_hud_mut().push_info_message(&msg);
+            self.game_hud_mut().push_info_message(&msg);
         }
     }
 
@@ -1473,7 +1474,7 @@ impl CnCGameEngine {
                                 true,
                             );
                     }
-                    self.ui_manager.game_hud_mut().toggle_visibility();
+                    self.game_hud_mut().toggle_visibility();
                     true
                 }
                 "TAKE_SCREENSHOT" => {

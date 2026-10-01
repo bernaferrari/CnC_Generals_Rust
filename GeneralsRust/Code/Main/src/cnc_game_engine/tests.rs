@@ -514,15 +514,14 @@ fn apply_presentation_to_huds_single_rendered_hud() {
     let marker = "fn apply_presentation_to_huds(";
     let i = src.find(marker).expect("HUD apply helper");
     let body = &src[i..src.len().min(i + 900)];
-    // One rendered HUD, one apply: `ui_manager.render()` draws GameHUD; the
-    // engine-instance HUD is never drawn, so applying to it duplicated events.
+    // One engine-owned UIManager contains the sole host gameplay HUD.
     assert!(
-        body.contains("pres.apply_to_game_hud(self.ui_manager.game_hud_mut())"),
-        "must apply presentation freeze to the rendered UIManager GameHUD"
+        body.contains("pres.apply_to_game_hud(self.game_hud_mut())"),
+        "must apply the frozen snapshot to the single host gameplay HUD"
     );
     assert!(
         !body.contains("pres.apply_to_game_hud(&mut self.game_hud)"),
-        "must not fan out to the un-rendered engine GameHUD"
+        "must not fan out to a second HUD field"
     );
     // Body must not recurse into itself (stack overflow residual).
     let after_sig = match body.split_once('{') {
