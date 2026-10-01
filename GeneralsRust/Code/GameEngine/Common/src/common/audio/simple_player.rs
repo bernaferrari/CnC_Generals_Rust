@@ -130,17 +130,16 @@ pub enum PlayerStatus {
 pub struct SimplePlayer {
     ref_count: AtomicUsize,
 
-    status: Arc<Mutex<PlayerStatus>>,
-    url: Arc<Mutex<Option<PathBuf>>>,
-    format: Arc<Mutex<WaveFormat>>,
+    url: Option<PathBuf>,
+    format: WaveFormat,
 
     buffers_outstanding: Arc<AtomicUsize>,
-    audio_buffers: Arc<Mutex<VecDeque<AudioBuffer>>>,
+    audio_buffers: VecDeque<AudioBuffer>,
 
     completion_handler: Arc<Mutex<Option<Box<dyn Fn(HResult) + Send + Sync>>>>,
     event_queue: Arc<Mutex<VecDeque<PlayerEvent>>>,
 
-    playback_thread: Arc<Mutex<Option<thread::JoinHandle<()>>>>,
+    playback_thread: Option<thread::JoinHandle<()>>,
     should_stop: Arc<AtomicBool>,
 
     audio_engine: AudioEngine,
@@ -164,13 +163,13 @@ impl SimplePlayer {
         Ok(SimplePlayer {
             ref_count: AtomicUsize::new(1),
             status: Arc::new(Mutex::new(PlayerStatus::Idle)),
-            url: Arc::new(Mutex::new(None)),
-            format: Arc::new(Mutex::new(WaveFormat::default())),
+            url: None,
+            format: WaveFormat::default(),
             buffers_outstanding: Arc::new(AtomicUsize::new(0)),
-            audio_buffers: Arc::new(Mutex::new(VecDeque::new())),
+            audio_buffers: VecDeque::new(),
             completion_handler: Arc::new(Mutex::new(None)),
             event_queue: Arc::new(Mutex::new(VecDeque::new())),
-            playback_thread: Arc::new(Mutex::new(None)),
+            playback_thread: None,
             should_stop: Arc::new(AtomicBool::new(false)),
             audio_engine: engine,
             current_handle: Arc::new(Mutex::new(None)),
@@ -203,10 +202,7 @@ impl SimplePlayer {
         };
 
         // Store the URL
-        {
-            let mut url_guard = self.url.lock().unwrap();
-            *url_guard = Some(file_path.clone());
-        }
+        self.url = Some(file_path.clone());
 
         // Store completion handler
         {
@@ -235,7 +231,7 @@ impl SimplePlayer {
             let _ = self.audio_engine.stop_source(handle);
         }
 
-        if let Some(handle) = self.playback_thread.lock().unwrap().take() {
+        if let Some(handle) = self.playback_thread.take() {
             let _ = handle.join();
         }
 
@@ -363,10 +359,7 @@ impl SimplePlayer {
             buffers_outstanding.store(0, Ordering::Relaxed);
         });
 
-        {
-            let mut thread_guard = self.playback_thread.lock().unwrap();
-            *thread_guard = Some(thread_handle);
-        }
+        self.playback_thread = Some(thread_handle);
 
         S_OK
     }

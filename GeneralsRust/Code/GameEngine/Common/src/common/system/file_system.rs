@@ -6,7 +6,8 @@
 use std::any::Any;
 use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
-use std::sync::{Arc, Mutex, RwLock};
+use parking_lot::RwLock;
+use std::sync::Mutex;
 use std::time::Duration;
 
 use crate::common::{
@@ -151,7 +152,7 @@ pub struct FileSystem {
     state: SubsystemState,
 
     /// Cache for file existence checks
-    file_exist_cache: Arc<RwLock<HashMap<NameKeyType, bool>>>,
+    file_exist_cache: RwLock<HashMap<NameKeyType, bool>>,
 
     /// Registered file system backends in priority order
     backends: Vec<Box<dyn FileSystemBackend>>,
@@ -167,7 +168,7 @@ impl FileSystem {
         Self {
             name: "FileSystem".to_string(),
             state: SubsystemState::Uninitialized,
-            file_exist_cache: Arc::new(RwLock::new(HashMap::new())),
+            file_exist_cache: RwLock::new(HashMap::new()),
             backends: Vec::new(),
         }
     }
@@ -240,7 +241,7 @@ impl FileSystem {
 
         // Check cache first
         {
-            let cache = self.file_exist_cache.read().unwrap();
+            let cache = self.file_exist_cache.read();
             if let Some(&exists) = cache.get(&key) {
                 return exists;
             }
@@ -254,7 +255,7 @@ impl FileSystem {
 
         // Update cache
         {
-            let mut cache = self.file_exist_cache.write().unwrap();
+            let mut cache = self.file_exist_cache.write();
             cache.insert(key, exists);
         }
 
@@ -309,7 +310,7 @@ impl FileSystem {
 
     /// Clear the file existence cache
     pub fn clear_cache(&self) {
-        let mut cache = self.file_exist_cache.write().unwrap();
+        let mut cache = self.file_exist_cache.write();
         cache.clear();
     }
 
@@ -403,12 +404,12 @@ impl Default for FileSystem {
 
 // Global file system instance (matches TheFileSystem singleton in C++)
 lazy_static::lazy_static! {
-    pub static ref THE_FILE_SYSTEM: Arc<Mutex<FileSystem>> = Arc::new(Mutex::new(FileSystem::new()));
+    pub static ref THE_FILE_SYSTEM: Mutex<FileSystem> = Mutex::new(FileSystem::new());
 }
 
 /// Convenience function to access the global file system
-pub fn get_file_system() -> Arc<Mutex<FileSystem>> {
-    THE_FILE_SYSTEM.clone()
+pub fn get_file_system() -> &'static Mutex<FileSystem> {
+    &THE_FILE_SYSTEM
 }
 
 /// C++ `FileSystem::areMusicFilesOnCD` (does not require a live `FileSystem` instance).

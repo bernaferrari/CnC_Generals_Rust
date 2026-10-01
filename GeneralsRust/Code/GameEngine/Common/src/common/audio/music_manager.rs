@@ -8,7 +8,8 @@
 use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver, Sender};
-use std::sync::{Arc, Mutex, RwLock};
+use parking_lot::Mutex;
+use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -21,7 +22,7 @@ use crate::common::audio::{
 };
 
 /// Music playback state
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum MusicState {
     Stopped,
     Playing,
@@ -270,7 +271,7 @@ impl Playlist {
 #[derive(Debug)]
 struct PlayingMusic {
     track: MusicTrack,
-    sink: Arc<Mutex<Sink>>,
+    sink: Sink,
     handle: AudioHandle,
     start_time: Instant,
     fade_start: Option<Instant>,
@@ -279,41 +280,49 @@ struct PlayingMusic {
     current_volume: Real,
 }
 
+/// State shared between the `MusicManager` and its background audio thread.
+///
+/// The manager talks to a real thread (rule: keep the boundary lock), but the
+/// many former per-field `Arc<Mutex<..>>`/`Arc<RwLock<..>>` handles are
+/// consolidated into this single `Mutex`-protected struct so there is exactly
+/// one boundary lock. Event send order is unchanged: events are still emitted
+/// sequentially by the background thread in the same places as before.
+#[derive(Debug)]
+struct SharedMusicState {
+    state: MusicState,
+    current_music: Option<PlayingMusic>,
+    playlist: Playlist,
+    master_volume: Real,
+    crossfade_duration: Real,
+    current_category: MusicCategory,
+    tracks_played: u64,
+    total_play_time: Duration,
+    track_completion_counts: HashMap<String, u32>,
+    /// Event callback; cloned under the lock and sent to from outside it.
+    event_sender: Option<Sender<MusicEvent>>,
+}
+
 /// Main Music Manager implementation
 pub struct MusicManager {
     // Audio system
     stream_handle: OutputStreamHandle,
 
-    // Current state
-    state: Arc<RwLock<MusicState>>,
-    current_music: Arc<Mutex<Option<PlayingMusic>>>,
-    playlist: Arc<Mutex<Playlist>>,
-
-    // Settings
-    master_volume: Arc<RwLock<Real>>,
-    crossfade_duration: Arc<RwLock<Real>>,
-    current_category: Arc<RwLock<MusicCategory>>,
+    // State shared with the background thread (single boundary lock)
+    shared: Arc<Mutex<SharedMusicState>>,
 
     // Communication
     command_sender: Sender<MusicCommand>,
     command_receiver: Arc<Mutex<Receiver<MusicCommand>>>,
-    event_sender: Arc<Mutex<Option<Sender<MusicEvent>>>>,
 
-    // Handle pool
-    next_handle: Arc<Mutex<AudioHandle>>,
+    // Main-thread-only state (owned; never touched by the background thread)
+    /// Handle pool
+    next_handle: AudioHandle,
 
-    // Track registry
-    track_registry: Arc<RwLock<HashMap<String, MusicTrack>>>,
+    /// Track registry
+    track_registry: HashMap<String, MusicTrack>,
 
     // Search paths for music files
-    search_paths: Arc<RwLock<Vec<PathBuf>>>,
-
-    // Statistics
-    tracks_played: Arc<RwLock<u64>>,
-    total_play_time: Arc<RwLock<Duration>>,
-
-    // Track completion tracking (matches C++ audio callback system)
-    track_completion_counts: Arc<RwLock<HashMap<String, u32>>>,
+    search_paths: Vec<PathBuf>,
 }
 
 impl MusicManager {
@@ -323,25 +332,27 @@ impl MusicManager {
 
         Ok(Self {
             stream_handle,
-            state: Arc::new(RwLock::new(MusicState::Stopped)),
-            current_music: Arc::new(Mutex::new(None)),
-            playlist: Arc::new(Mutex::new(Playlist::new())),
-            master_volume: Arc::new(RwLock::new(1.0)),
-            crossfade_duration: Arc::new(RwLock::new(3.0)), // 3 second default crossfade
-            current_category: Arc::new(RwLock::new(MusicCategory::Ambient)),
+            shared: Arc::new(Mutex::new(SharedMusicState {
+                state: MusicState::Stopped,
+                current_music: None,
+                playlist: Playlist::new(),
+                master_volume: 1.0,
+                crossfade_duration: 3.0, // 3 second default crossfade
+                current_category: MusicCategory::Ambient,
+                tracks_played: 0,
+                total_play_time: Duration::ZERO,
+                track_completion_counts: HashMap::new(),
+                event_sender: None,
+            })),
             command_sender,
             command_receiver: Arc::new(Mutex::new(command_receiver)),
-            event_sender: Arc::new(Mutex::new(None)),
-            next_handle: Arc::new(Mutex::new(10000)), // Start music handles at 10000
-            track_registry: Arc::new(RwLock::new(HashMap::new())),
-            search_paths: Arc::new(RwLock::new(vec![
+            next_handle: 10000, // Start music handles at 10000
+            track_registry: HashMap::new(),
+            search_paths: vec![
                 PathBuf::from("./data/audio/music/"),
                 PathBuf::from("./assets/audio/music/"),
                 PathBuf::from("./music/"),
-            ])),
-            tracks_played: Arc::new(RwLock::new(0)),
-            total_play_time: Arc::new(RwLock::new(Duration::ZERO)),
-            track_completion_counts: Arc::new(RwLock::new(HashMap::new())),
+            ],
         })
     }
 
@@ -353,30 +364,26 @@ impl MusicManager {
 
     /// Set event callback for music notifications
     pub fn set_event_callback(&self, sender: Sender<MusicEvent>) {
-        let mut event_sender = self.event_sender.lock().unwrap();
-        *event_sender = Some(sender);
+        self.shared.lock().event_sender = Some(sender);
     }
 
     /// Add search path for music files
-    pub fn add_search_path<P: AsRef<Path>>(&self, path: P) {
-        let mut search_paths = self.search_paths.write().unwrap();
-        search_paths.push(path.as_ref().to_path_buf());
+    pub fn add_search_path<P: AsRef<Path>>(&mut self, path: P) {
+        self.search_paths.push(path.as_ref().to_path_buf());
     }
 
     /// Register a music track
-    pub fn register_track(&self, track: MusicTrack) {
-        let mut registry = self.track_registry.write().unwrap();
-        registry.insert(track.name.clone(), track);
+    pub fn register_track(&mut self, track: MusicTrack) {
+        self.track_registry.insert(track.name.clone(), track);
     }
 
     /// Get registered track by name
     pub fn get_track(&self, name: &str) -> Option<MusicTrack> {
-        let registry = self.track_registry.read().unwrap();
-        registry.get(name).cloned()
+        self.track_registry.get(name).cloned()
     }
 
     /// Play a specific music track
-    pub fn play_track(&self, track_name: &str) -> Result<AudioHandle, String> {
+    pub fn play_track(&mut self, track_name: &str) -> Result<AudioHandle, String> {
         let track = self
             .get_track(track_name)
             .ok_or_else(|| format!("Track '{}' not found", track_name))?;
@@ -386,9 +393,8 @@ impl MusicManager {
             .map_err(|_| "Failed to send play command")?;
 
         // Return a handle (in real implementation, this would be returned from the background thread)
-        let mut next_handle = self.next_handle.lock().unwrap();
-        let handle = *next_handle;
-        *next_handle += 1;
+        let handle = self.next_handle;
+        self.next_handle += 1;
         Ok(handle)
     }
 
@@ -429,7 +435,7 @@ impl MusicManager {
 
     /// Get current music volume
     pub fn get_volume(&self) -> Real {
-        *self.master_volume.read().unwrap()
+        self.shared.lock().master_volume
     }
 
     /// Go to next track in playlist
@@ -490,7 +496,7 @@ impl MusicManager {
 
     /// Get current music state
     pub fn get_state(&self) -> MusicState {
-        *self.state.read().unwrap()
+        self.shared.lock().state
     }
 
     /// Check if music is currently playing
@@ -505,27 +511,29 @@ impl MusicManager {
 
     /// Get currently playing track name
     pub fn get_current_track_name(&self) -> Option<String> {
-        let current = self.current_music.lock().unwrap();
-        current.as_ref().map(|music| music.track.name.clone())
+        let shared = self.shared.lock();
+        shared.current_music.as_ref().map(|music| music.track.name.clone())
     }
 
     /// Get current playlist length
     pub fn get_playlist_length(&self) -> usize {
-        let playlist = self.playlist.lock().unwrap();
-        playlist.len()
+        self.shared.lock().playlist.len()
     }
 
     /// Check if a specific track has completed playing
     pub fn has_track_completed(&self, track_name: &str, times: Int) -> bool {
-        let counts = self.track_completion_counts.read().unwrap();
-        counts.get(track_name).copied().unwrap_or(0) >= times as u32
+        let shared = self.shared.lock();
+        shared
+            .track_completion_counts
+            .get(track_name)
+            .copied()
+            .unwrap_or(0) >= times as u32
     }
 
     /// Get statistics
     pub fn get_statistics(&self) -> (u64, Duration) {
-        let tracks_played = *self.tracks_played.read().unwrap();
-        let total_play_time = *self.total_play_time.read().unwrap();
-        (tracks_played, total_play_time)
+        let shared = self.shared.lock();
+        (shared.tracks_played, shared.total_play_time)
     }
 
     /// Shutdown the music manager
@@ -539,18 +547,7 @@ impl MusicManager {
     /// Start the background processing thread
     fn start_background_thread(&self) {
         let command_receiver = Arc::clone(&self.command_receiver);
-        let state = Arc::clone(&self.state);
-        let current_music = Arc::clone(&self.current_music);
-        let playlist = Arc::clone(&self.playlist);
-        let master_volume = Arc::clone(&self.master_volume);
-        let crossfade_duration = Arc::clone(&self.crossfade_duration);
-        let current_category = Arc::clone(&self.current_category);
-        let event_sender = Arc::clone(&self.event_sender);
-        let track_registry = Arc::clone(&self.track_registry);
-        let search_paths = Arc::clone(&self.search_paths);
-        let tracks_played = Arc::clone(&self.tracks_played);
-        let total_play_time = Arc::clone(&self.total_play_time);
-        let track_completion_counts = Arc::clone(&self.track_completion_counts);
+        let shared = Arc::clone(&self.shared);
         let stream_handle = self.stream_handle.clone();
 
         thread::spawn(move || {
@@ -558,95 +555,56 @@ impl MusicManager {
 
             while !should_shutdown {
                 // Process commands
-                if let Ok(command) = command_receiver.lock().unwrap().try_recv() {
+                if let Ok(command) = command_receiver.lock().try_recv() {
                     match command {
                         MusicCommand::Play { track } => {
-                            Self::handle_play_command(
-                                &stream_handle,
-                                &state,
-                                &current_music,
-                                &master_volume,
-                                &event_sender,
-                                &tracks_played,
-                                track,
-                            );
+                            Self::handle_play_command(&stream_handle, &shared, track, true);
                         }
                         MusicCommand::Stop { fade_out } => {
-                            Self::handle_stop_command(&current_music, &state, fade_out);
+                            Self::handle_stop_command(&shared, fade_out);
                         }
                         MusicCommand::Pause => {
-                            Self::handle_pause_command(&current_music, &state);
+                            Self::handle_pause_command(&shared);
                         }
                         MusicCommand::Resume => {
-                            Self::handle_resume_command(&current_music, &state);
+                            Self::handle_resume_command(&shared);
                         }
                         MusicCommand::SetVolume { volume } => {
-                            Self::handle_volume_command(
-                                &master_volume,
-                                &current_music,
-                                &event_sender,
-                                volume,
-                            );
+                            Self::handle_volume_command(&shared, volume);
                         }
                         MusicCommand::NextTrack => {
-                            Self::handle_next_track_command(
-                                &stream_handle,
-                                &playlist,
-                                &state,
-                                &current_music,
-                                &master_volume,
-                                &event_sender,
-                                &tracks_played,
-                            );
+                            Self::handle_next_track_command(&stream_handle, &shared);
                         }
                         MusicCommand::PreviousTrack => {
-                            Self::handle_previous_track_command(
-                                &stream_handle,
-                                &playlist,
-                                &state,
-                                &current_music,
-                                &master_volume,
-                                &event_sender,
-                                &tracks_played,
-                            );
+                            Self::handle_previous_track_command(&stream_handle, &shared);
                         }
                         MusicCommand::SetPlaylist { tracks } => {
-                            Self::handle_set_playlist_command(&playlist, tracks);
+                            Self::handle_set_playlist_command(&shared, tracks);
                         }
                         MusicCommand::AddTrack { track } => {
-                            Self::handle_add_track_command(&playlist, track);
+                            Self::handle_add_track_command(&shared, track);
                         }
                         MusicCommand::RemoveTrack { name } => {
-                            Self::handle_remove_track_command(&playlist, &name);
+                            Self::handle_remove_track_command(&shared, &name);
                         }
                         MusicCommand::SetCrossfadeDuration { duration } => {
-                            *crossfade_duration.write().unwrap() = duration;
+                            shared.lock().crossfade_duration = duration;
                         }
                         MusicCommand::SetCategory { category } => {
-                            *current_category.write().unwrap() = category;
+                            shared.lock().current_category = category;
                         }
                         MusicCommand::Shutdown => {
                             should_shutdown = true;
-                            Self::handle_stop_command(&current_music, &state, false);
+                            Self::handle_stop_command(&shared, false);
                         }
                     }
                 }
 
                 // Update fading music
-                Self::update_fading_music(&current_music, &state);
+                Self::update_fading_music(&shared);
 
                 // Check for finished tracks
-                Self::check_finished_tracks(
-                    &stream_handle,
-                    &playlist,
-                    &current_music,
-                    &state,
-                    &master_volume,
-                    &event_sender,
-                    &tracks_played,
-                    &total_play_time,
-                    &track_completion_counts,
-                );
+                Self::check_finished_tracks(&stream_handle, &shared);
 
                 // Small sleep to prevent busy waiting
                 thread::sleep(Duration::from_millis(50));
@@ -657,32 +615,36 @@ impl MusicManager {
 
 // Background thread handlers
 impl MusicManager {
+    /// Handle a play command.
+    ///
+    /// `update_current` mirrors the original code's ability to pass a dummy
+    /// `current_music` slot when advancing the playlist from
+    /// `check_finished_tracks`: when false, the currently-playing slot is left
+    /// untouched (neither stopped nor replaced), exactly as before.
     fn handle_play_command(
         stream_handle: &OutputStreamHandle,
-        state: &Arc<RwLock<MusicState>>,
-        current_music: &Arc<Mutex<Option<PlayingMusic>>>,
-        master_volume: &Arc<RwLock<Real>>,
-        event_sender: &Arc<Mutex<Option<Sender<MusicEvent>>>>,
-        tracks_played: &Arc<RwLock<u64>>,
+        shared: &Arc<Mutex<SharedMusicState>>,
         track: MusicTrack,
+        update_current: bool,
     ) {
         // Stop current music if any
-        {
-            let mut current = current_music.lock().unwrap();
-            if let Some(playing) = current.take() {
-                let sink = playing.sink.lock().unwrap();
-                sink.stop();
+        let master_volume = {
+            let mut s = shared.lock();
+            if update_current {
+                if let Some(playing) = s.current_music.take() {
+                    playing.sink.stop();
+                }
             }
-        }
+            s.state = MusicState::Loading;
+            s.master_volume
+        };
 
-        *state.write().unwrap() = MusicState::Loading;
-
-        // Try to load and play the track
-        match Self::load_and_play_track(stream_handle, &track, *master_volume.read().unwrap()) {
+        // Try to load and play the track (outside the lock, as before)
+        match Self::load_and_play_track(stream_handle, &track, master_volume) {
             Ok((sink, handle)) => {
                 let playing = PlayingMusic {
                     track: track.clone(),
-                    sink: Arc::new(Mutex::new(sink)),
+                    sink,
                     handle,
                     start_time: Instant::now(),
                     fade_start: if track.fade_in_duration > 0.0 {
@@ -699,30 +661,35 @@ impl MusicManager {
                     },
                 };
 
-                *current_music.lock().unwrap() = Some(playing);
-                *state.write().unwrap() = MusicState::Playing;
+                {
+                    let mut s = shared.lock();
+                    if update_current {
+                        s.current_music = Some(playing);
+                    }
+                    s.state = MusicState::Playing;
 
-                // Update statistics
-                *tracks_played.write().unwrap() += 1;
+                    // Update statistics
+                    s.tracks_played += 1;
+                }
 
-                // Send event
+                // Send events
                 Self::send_event(
-                    event_sender,
+                    shared,
                     MusicEvent::TrackStarted {
                         name: track.name.clone(),
                     },
                 );
                 Self::send_event(
-                    event_sender,
+                    shared,
                     MusicEvent::StateChanged {
                         state: MusicState::Playing,
                     },
                 );
             }
             Err(error) => {
-                *state.write().unwrap() = MusicState::Error;
+                shared.lock().state = MusicState::Error;
                 Self::send_event(
-                    event_sender,
+                    shared,
                     MusicEvent::TrackFailed {
                         name: track.name.clone(),
                         error,
@@ -732,148 +699,102 @@ impl MusicManager {
         }
     }
 
-    fn handle_stop_command(
-        current_music: &Arc<Mutex<Option<PlayingMusic>>>,
-        state: &Arc<RwLock<MusicState>>,
-        fade_out: bool,
-    ) {
-        let mut current = current_music.lock().unwrap();
-        if let Some(mut playing) = current.take() {
+    fn handle_stop_command(shared: &Arc<Mutex<SharedMusicState>>, fade_out: bool) {
+        let mut s = shared.lock();
+        if let Some(mut playing) = s.current_music.take() {
             if fade_out && playing.track.fade_out_duration > 0.0 {
                 // Start fade out
                 playing.fade_start = Some(Instant::now());
                 playing.fade_duration = playing.track.fade_out_duration;
                 playing.target_volume = 0.0;
-                *current = Some(playing);
-                *state.write().unwrap() = MusicState::Fading;
+                s.current_music = Some(playing);
+                s.state = MusicState::Fading;
             } else {
                 // Stop immediately
-                let sink = playing.sink.lock().unwrap();
-                sink.stop();
-                *state.write().unwrap() = MusicState::Stopped;
+                playing.sink.stop();
+                s.state = MusicState::Stopped;
             }
         }
     }
 
-    fn handle_pause_command(
-        current_music: &Arc<Mutex<Option<PlayingMusic>>>,
-        state: &Arc<RwLock<MusicState>>,
-    ) {
-        let current = current_music.lock().unwrap();
-        if let Some(playing) = current.as_ref() {
-            let sink = playing.sink.lock().unwrap();
-            sink.pause();
-            *state.write().unwrap() = MusicState::Paused;
+    fn handle_pause_command(shared: &Arc<Mutex<SharedMusicState>>) {
+        let mut s = shared.lock();
+        if let Some(playing) = s.current_music.as_ref() {
+            playing.sink.pause();
+            s.state = MusicState::Paused;
         }
     }
 
-    fn handle_resume_command(
-        current_music: &Arc<Mutex<Option<PlayingMusic>>>,
-        state: &Arc<RwLock<MusicState>>,
-    ) {
-        let current = current_music.lock().unwrap();
-        if let Some(playing) = current.as_ref() {
-            let sink = playing.sink.lock().unwrap();
-            sink.play();
-            *state.write().unwrap() = MusicState::Playing;
+    fn handle_resume_command(shared: &Arc<Mutex<SharedMusicState>>) {
+        let mut s = shared.lock();
+        if let Some(playing) = s.current_music.as_ref() {
+            playing.sink.play();
+            s.state = MusicState::Playing;
         }
     }
 
-    fn handle_volume_command(
-        master_volume: &Arc<RwLock<Real>>,
-        current_music: &Arc<Mutex<Option<PlayingMusic>>>,
-        event_sender: &Arc<Mutex<Option<Sender<MusicEvent>>>>,
-        volume: Real,
-    ) {
-        *master_volume.write().unwrap() = volume;
+    fn handle_volume_command(shared: &Arc<Mutex<SharedMusicState>>, volume: Real) {
+        {
+            let mut s = shared.lock();
+            s.master_volume = volume;
 
-        let current = current_music.lock().unwrap();
-        if let Some(playing) = current.as_ref() {
-            let sink = playing.sink.lock().unwrap();
-            sink.set_volume(volume * playing.track.volume);
+            if let Some(playing) = s.current_music.as_ref() {
+                playing.sink.set_volume(volume * playing.track.volume);
+            }
         }
 
-        Self::send_event(event_sender, MusicEvent::VolumeChanged { volume });
+        Self::send_event(shared, MusicEvent::VolumeChanged { volume });
     }
 
     fn handle_next_track_command(
         stream_handle: &OutputStreamHandle,
-        playlist: &Arc<Mutex<Playlist>>,
-        state: &Arc<RwLock<MusicState>>,
-        current_music: &Arc<Mutex<Option<PlayingMusic>>>,
-        master_volume: &Arc<RwLock<Real>>,
-        event_sender: &Arc<Mutex<Option<Sender<MusicEvent>>>>,
-        tracks_played: &Arc<RwLock<u64>>,
+        shared: &Arc<Mutex<SharedMusicState>>,
     ) {
-        let mut playlist_guard = playlist.lock().unwrap();
-        if let Some(track) = playlist_guard.next_track() {
-            let track = track.clone();
-            drop(playlist_guard);
+        let next = {
+            let mut s = shared.lock();
+            s.playlist.next_track().cloned()
+        };
 
-            Self::handle_play_command(
-                stream_handle,
-                state,
-                current_music,
-                master_volume,
-                event_sender,
-                tracks_played,
-                track,
-            );
+        if let Some(track) = next {
+            Self::handle_play_command(stream_handle, shared, track, true);
         } else {
-            Self::send_event(event_sender, MusicEvent::PlaylistFinished);
+            Self::send_event(shared, MusicEvent::PlaylistFinished);
         }
     }
 
     fn handle_previous_track_command(
         stream_handle: &OutputStreamHandle,
-        playlist: &Arc<Mutex<Playlist>>,
-        state: &Arc<RwLock<MusicState>>,
-        current_music: &Arc<Mutex<Option<PlayingMusic>>>,
-        master_volume: &Arc<RwLock<Real>>,
-        event_sender: &Arc<Mutex<Option<Sender<MusicEvent>>>>,
-        tracks_played: &Arc<RwLock<u64>>,
+        shared: &Arc<Mutex<SharedMusicState>>,
     ) {
-        let mut playlist_guard = playlist.lock().unwrap();
-        if let Some(track) = playlist_guard.previous_track() {
-            let track = track.clone();
-            drop(playlist_guard);
+        let previous = {
+            let mut s = shared.lock();
+            s.playlist.previous_track().cloned()
+        };
 
-            Self::handle_play_command(
-                stream_handle,
-                state,
-                current_music,
-                master_volume,
-                event_sender,
-                tracks_played,
-                track,
-            );
+        if let Some(track) = previous {
+            Self::handle_play_command(stream_handle, shared, track, true);
         }
     }
 
-    fn handle_set_playlist_command(playlist: &Arc<Mutex<Playlist>>, tracks: Vec<MusicTrack>) {
-        let mut playlist_guard = playlist.lock().unwrap();
-        *playlist_guard = Playlist::new();
+    fn handle_set_playlist_command(shared: &Arc<Mutex<SharedMusicState>>, tracks: Vec<MusicTrack>) {
+        let mut s = shared.lock();
+        s.playlist = Playlist::new();
         for track in tracks {
-            playlist_guard.add_track(track);
+            s.playlist.add_track(track);
         }
     }
 
-    fn handle_add_track_command(playlist: &Arc<Mutex<Playlist>>, track: MusicTrack) {
-        let mut playlist_guard = playlist.lock().unwrap();
-        playlist_guard.add_track(track);
+    fn handle_add_track_command(shared: &Arc<Mutex<SharedMusicState>>, track: MusicTrack) {
+        shared.lock().playlist.add_track(track);
     }
 
-    fn handle_remove_track_command(playlist: &Arc<Mutex<Playlist>>, name: &str) {
-        let mut playlist_guard = playlist.lock().unwrap();
-        playlist_guard.remove_track(name);
+    fn handle_remove_track_command(shared: &Arc<Mutex<SharedMusicState>>, name: &str) {
+        shared.lock().playlist.remove_track(name);
     }
 
-    fn update_fading_music(
-        current_music: &Arc<Mutex<Option<PlayingMusic>>>,
-        state: &Arc<RwLock<MusicState>>,
-    ) {
-        let mut current = current_music.lock().unwrap();
-        if let Some(playing) = current.as_mut() {
+    fn update_fading_music(shared: &Arc<Mutex<SharedMusicState>>) {
+        let mut s = shared.lock();
+        if let Some(playing) = s.current_music.as_mut() {
             if let Some(fade_start) = playing.fade_start {
                 let elapsed = fade_start.elapsed().as_secs_f32();
                 if elapsed >= playing.fade_duration {
@@ -883,13 +804,12 @@ impl MusicManager {
 
                     if playing.target_volume == 0.0 {
                         // Fade out complete - stop the music
-                        let sink = playing.sink.lock().unwrap();
-                        sink.stop();
-                        *current = None;
-                        *state.write().unwrap() = MusicState::Stopped;
+                        playing.sink.stop();
+                        s.current_music = None;
+                        s.state = MusicState::Stopped;
                         return;
                     } else {
-                        *state.write().unwrap() = MusicState::Playing;
+                        s.state = MusicState::Playing;
                     }
                 } else {
                     // Update fade volume
@@ -904,67 +824,55 @@ impl MusicManager {
                 }
 
                 // Apply volume to sink
-                let sink = playing.sink.lock().unwrap();
-                sink.set_volume(playing.current_volume);
+                playing.sink.set_volume(playing.current_volume);
             }
         }
     }
 
     fn check_finished_tracks(
         stream_handle: &OutputStreamHandle,
-        playlist: &Arc<Mutex<Playlist>>,
-        current_music: &Arc<Mutex<Option<PlayingMusic>>>,
-        state: &Arc<RwLock<MusicState>>,
-        master_volume: &Arc<RwLock<Real>>,
-        event_sender: &Arc<Mutex<Option<Sender<MusicEvent>>>>,
-        tracks_played: &Arc<RwLock<u64>>,
-        total_play_time: &Arc<RwLock<Duration>>,
-        track_completion_counts: &Arc<RwLock<HashMap<String, u32>>>,
+        shared: &Arc<Mutex<SharedMusicState>>,
     ) {
-        let mut current = current_music.lock().unwrap();
-        if let Some(playing) = current.as_ref() {
-            let sink = playing.sink.lock().unwrap();
-
-            if sink.empty() {
-                // Track finished
-                let track_name = playing.track.name.clone();
-                let play_duration = playing.start_time.elapsed();
-
-                drop(sink);
-                drop(current);
-
-                // Update total play time
-                *total_play_time.write().unwrap() += play_duration;
-
-                // Increment completion count for this track
-                {
-                    let mut counts = track_completion_counts.write().unwrap();
-                    *counts.entry(track_name.clone()).or_insert(0) += 1;
-                }
-
-                // Send finished event
-                Self::send_event(event_sender, MusicEvent::TrackFinished { name: track_name });
-
-                // Try to play next track from playlist
-                let mut playlist_guard = playlist.lock().unwrap();
-                if let Some(next_track) = playlist_guard.next_track() {
-                    let next_track = next_track.clone();
-                    drop(playlist_guard);
-
-                    Self::handle_play_command(
-                        stream_handle,
-                        state,
-                        &Arc::new(Mutex::new(None)),
-                        master_volume,
-                        event_sender,
-                        tracks_played,
-                        next_track,
-                    );
+        let finished = {
+            let s = shared.lock();
+            if let Some(playing) = s.current_music.as_ref() {
+                if playing.sink.empty() {
+                    // Track finished (the playing slot is deliberately left in
+                    // place, matching the original drop-without-take behavior)
+                    Some((playing.track.name.clone(), playing.start_time.elapsed()))
                 } else {
-                    *current_music.lock().unwrap() = None;
-                    *state.write().unwrap() = MusicState::Stopped;
-                    Self::send_event(event_sender, MusicEvent::PlaylistFinished);
+                    None
                 }
+            } else {
+                None
+            }
+        };
+
+        if let Some((track_name, play_duration)) = finished {
+            // Update total play time and increment completion count for this track
+            {
+                let mut s = shared.lock();
+                s.total_play_time += play_duration;
+                *s.track_completion_counts.entry(track_name.clone()).or_insert(0) += 1;
+            }
+
+            // Send finished event
+            Self::send_event(shared, MusicEvent::TrackFinished { name: track_name });
+
+            // Try to play next track from playlist
+            let next = {
+                let mut s = shared.lock();
+                s.playlist.next_track().cloned()
+            };
+            if let Some(next_track) = next {
+                Self::handle_play_command(stream_handle, shared, next_track, false);
+            } else {
+                {
+                    let mut s = shared.lock();
+                    s.current_music = None;
+                    s.state = MusicState::Stopped;
+                }
+                Self::send_event(shared, MusicEvent::PlaylistFinished);
             }
         }
     }
@@ -1004,8 +912,10 @@ impl MusicManager {
         Ok((sink, handle))
     }
 
-    fn send_event(event_sender: &Arc<Mutex<Option<Sender<MusicEvent>>>>, event: MusicEvent) {
-        if let Some(sender) = event_sender.lock().unwrap().as_ref() {
+    fn send_event(shared: &Arc<Mutex<SharedMusicState>>, event: MusicEvent) {
+        // Clone the sender under the lock, then send outside it so callers
+        // never hold the shared lock while sending (send order unchanged).
+        if let Some(sender) = shared.lock().event_sender.clone() {
             let _ = sender.send(event);
         }
     }

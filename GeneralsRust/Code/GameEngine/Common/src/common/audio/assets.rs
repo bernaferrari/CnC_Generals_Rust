@@ -9,7 +9,7 @@
 //! - Memory-mapped file support for large assets
 
 use dashmap::DashMap;
-use parking_lot::{Mutex, RwLock};
+use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::fs::{File, metadata};
 use std::io::{BufReader, Read, Seek, SeekFrom};
@@ -363,7 +363,7 @@ impl std::fmt::Debug for LoadingTask {
 /// Audio asset manager with caching and streaming support
 pub struct AudioAssetManager {
     /// Main asset cache
-    cache: DashMap<String, Arc<RwLock<CacheEntry>>>,
+    cache: DashMap<String, CacheEntry>,
     /// Maximum cache size in bytes
     max_cache_size: usize,
     /// Current cache size in bytes
@@ -510,7 +510,7 @@ impl AudioAssetManager {
     /// Remove an asset from the cache
     pub fn unload_asset(&self, asset_name: &str) {
         if let Some((_, entry)) = self.cache.remove(asset_name) {
-            let size = entry.read().data.memory_usage();
+            let size = entry.data.memory_usage();
             self.current_cache_size
                 .fetch_sub(size, std::sync::atomic::Ordering::Relaxed);
         }
@@ -543,7 +543,7 @@ impl AudioAssetManager {
         let now = Instant::now();
 
         for entry in self.cache.iter() {
-            let cache_entry = entry.value().read();
+            let cache_entry = entry.value();
 
             // Check if entry has expired and has no references
             if now.duration_since(cache_entry.last_accessed) > CACHE_TTL
@@ -559,7 +559,7 @@ impl AudioAssetManager {
 
         for key in to_remove {
             if let Some((_, entry)) = self.cache.remove(&key) {
-                let size = entry.read().data.memory_usage();
+                let size = entry.data.memory_usage();
                 self.current_cache_size
                     .fetch_sub(size, std::sync::atomic::Ordering::Relaxed);
             }
@@ -867,8 +867,8 @@ impl AudioAssetManager {
 
     /// Get audio data from cache
     fn get_from_cache(&self, asset_name: &str) -> Option<AudioData> {
-        if let Some(entry) = self.cache.get(asset_name) {
-            let mut cache_entry = entry.value().write();
+        if let Some(mut entry) = self.cache.get_mut(asset_name) {
+            let cache_entry = entry.value_mut();
             cache_entry.last_accessed = Instant::now();
             cache_entry
                 .reference_count
@@ -898,7 +898,7 @@ impl AudioAssetManager {
             priority: CachePriority::Normal,
         };
 
-        self.cache.insert(asset_name, Arc::new(RwLock::new(entry)));
+        self.cache.insert(asset_name, entry);
         self.current_cache_size
             .fetch_add(size, std::sync::atomic::Ordering::Relaxed);
     }
@@ -913,7 +913,7 @@ impl AudioAssetManager {
             .cache
             .iter()
             .filter_map(|entry| {
-                let cache_entry = entry.value().read();
+                let cache_entry = entry.value();
                 if cache_entry
                     .reference_count
                     .load(std::sync::atomic::Ordering::Relaxed)

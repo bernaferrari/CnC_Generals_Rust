@@ -6,7 +6,7 @@
 use std::any::Any;
 use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
-use std::sync::{Arc, Mutex};
+use std::sync::Mutex;
 use std::time::Duration;
 
 use crate::common::{
@@ -366,13 +366,13 @@ impl Default for FunctionLexicon {
 
 // Global function lexicon instance (mirrors TheFunctionLexicon singleton)
 lazy_static::lazy_static! {
-    pub static ref THE_FUNCTION_LEXICON: Arc<Mutex<FunctionLexicon>> =
-        Arc::new(Mutex::new(FunctionLexicon::new()));
+    pub static ref THE_FUNCTION_LEXICON: Mutex<FunctionLexicon> =
+        Mutex::new(FunctionLexicon::new());
 }
 
 /// Convenience function to access the global function lexicon
-pub fn get_function_lexicon() -> Arc<Mutex<FunctionLexicon>> {
-    THE_FUNCTION_LEXICON.clone()
+pub fn get_function_lexicon() -> &'static Mutex<FunctionLexicon> {
+    &THE_FUNCTION_LEXICON
 }
 
 /// Macro for creating function table entries

@@ -805,22 +805,22 @@ impl StreamDecoder for SymphoniaDecoder {
 /// Stream manager for handling multiple concurrent streams
 pub struct StreamManager {
     /// Active streams
-    streams: Arc<RwLock<HashMap<AudioHandle, Arc<AudioStreamer>>>>,
+    streams: RwLock<HashMap<AudioHandle, Arc<AudioStreamer>>>,
     /// Next handle
-    next_handle: Arc<Mutex<AudioHandle>>,
+    next_handle: Mutex<AudioHandle>,
     /// Maximum concurrent streams
     max_streams: usize,
     /// Stream quality setting
-    quality: Arc<RwLock<StreamQuality>>,
+    quality: RwLock<StreamQuality>,
 }
 
 impl StreamManager {
     pub fn new(max_streams: usize) -> Self {
         Self {
-            streams: Arc::new(RwLock::new(HashMap::new())),
-            next_handle: Arc::new(Mutex::new(1)),
+            streams: RwLock::new(HashMap::new()),
+            next_handle: Mutex::new(1),
             max_streams,
-            quality: Arc::new(RwLock::new(StreamQuality::Medium)),
+            quality: RwLock::new(StreamQuality::Medium),
         }
     }
 

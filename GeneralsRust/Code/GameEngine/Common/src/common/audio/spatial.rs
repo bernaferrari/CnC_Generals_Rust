@@ -315,7 +315,7 @@ pub struct HRTFProcessor {
     profile: HRTFProfile,
     /// FFT planner for efficient convolution
     #[cfg(feature = "audio")]
-    fft_planner: Arc<Mutex<RealFftPlanner<f32>>>,
+    fft_planner: Mutex<RealFftPlanner<f32>>,
 }
 
 impl HRTFProcessor {
@@ -324,7 +324,7 @@ impl HRTFProcessor {
             responses: HashMap::new(),
             profile,
             #[cfg(feature = "audio")]
-            fft_planner: Arc::new(Mutex::new(RealFftPlanner::new())),
+            fft_planner: Mutex::new(RealFftPlanner::new()),
         };
 
         processor.generate_hrtf_responses();
@@ -582,11 +582,11 @@ pub struct SpatialAudioProcessor {
     /// HRTF processor for each profile
     hrtf_processors: HashMap<HRTFProfile, HRTFProcessor>,
     /// Active spatial sources
-    sources: Arc<RwLock<HashMap<AudioHandle, SpatialSource>>>,
+    sources: RwLock<HashMap<AudioHandle, SpatialSource>>,
     /// Audio listener
-    listener: Arc<RwLock<SpatialListener>>,
+    listener: RwLock<SpatialListener>,
     /// Environmental parameters
-    environment: Arc<RwLock<EnvironmentalAudio>>,
+    environment: RwLock<EnvironmentalAudio>,
 }
 
 impl SpatialAudioProcessor {
@@ -607,9 +607,9 @@ impl SpatialAudioProcessor {
 
         Self {
             hrtf_processors,
-            sources: Arc::new(RwLock::new(HashMap::new())),
-            listener: Arc::new(RwLock::new(SpatialListener::new())),
-            environment: Arc::new(RwLock::new(EnvironmentalAudio::new())),
+            sources: RwLock::new(HashMap::new()),
+            listener: RwLock::new(SpatialListener::new()),
+            environment: RwLock::new(EnvironmentalAudio::new()),
         }
     }
 

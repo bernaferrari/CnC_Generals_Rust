@@ -334,7 +334,7 @@ pub struct AudioEngine {
     /// Currently active audio sources
     sources: Arc<ParkingRwLock<HashMap<AudioHandle, AudioSource>>>,
     /// Next available handle
-    next_handle: Arc<ParkingMutex<AudioHandle>>,
+    next_handle: ParkingMutex<AudioHandle>,
     /// Audio listener parameters
     listener: Arc<ParkingRwLock<AudioListener>>,
     /// Master volume controls
@@ -379,7 +379,7 @@ impl AudioEngine {
         let engine = Self {
             config,
             sources: Arc::new(ParkingRwLock::new(HashMap::new())),
-            next_handle: Arc::new(ParkingMutex::new(1)),
+            next_handle: ParkingMutex::new(1),
             listener: Arc::new(ParkingRwLock::new(AudioListener::default())),
             master_volumes: Arc::new(ParkingRwLock::new(master_volumes)),
             command_sender: Some(command_sender),

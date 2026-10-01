@@ -12,7 +12,7 @@
 use crate::common::game_common::ObjectShroudStatus;
 use crate::common::system::{Snapshotable, Xfer, XferMode, XferVersion};
 use std::sync::OnceLock;
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, LazyLock, RwLock};
 
 mod draw_events;
 mod map_source;
@@ -2601,22 +2601,15 @@ impl Default for RadarSystem {
 }
 
 /// Global radar system singleton
-static RADAR_SYSTEM: RwLock<Option<Arc<RwLock<RadarSystem>>>> = RwLock::new(None);
+static RADAR_SYSTEM: LazyLock<Arc<RwLock<RadarSystem>>> =
+    LazyLock::new(|| Arc::new(RwLock::new(RadarSystem::new())));
 
 /// Get global radar system
 pub fn get_radar_system() -> Arc<RwLock<RadarSystem>> {
-    let created = {
-        let mut guard = RADAR_SYSTEM.write().unwrap();
-        if guard.is_none() {
-            *guard = Some(Arc::new(RwLock::new(RadarSystem::new())));
-            true
-        } else {
-            false
-        }
-    };
-    if created {
+    let already_initialized = RADAR_SYSTEM.initialized();
+    let system = Arc::clone(&RADAR_SYSTEM);
+    if !already_initialized {
         snapshot::ensure_the_radar_snapshot_block();
     }
-    let guard = RADAR_SYSTEM.read().unwrap();
-    guard.as_ref().unwrap().clone()
+    system
 }

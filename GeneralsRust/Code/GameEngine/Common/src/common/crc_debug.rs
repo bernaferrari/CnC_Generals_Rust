@@ -113,7 +113,7 @@ impl Default for CrcDebugBuffer {
 #[cfg(feature = "debug_crc")]
 #[derive(Debug)]
 struct CrcDebugState {
-    config: Arc<RwLock<CrcDebugConfig>>,
+    config: RwLock<CrcDebugConfig>,
     buffer: Mutex<CrcDebugBuffer>,
 }
 
@@ -123,12 +123,12 @@ impl CrcDebugState {
         let mut config = CrcDebugConfig::default();
         config.apply_env_overrides();
         Self {
-            config: Arc::new(RwLock::new(config)),
+            config: RwLock::new(config),
             buffer: Mutex::new(CrcDebugBuffer::default()),
         }
     }
 
-    fn config(&self) -> &Arc<RwLock<CrcDebugConfig>> {
+    fn config(&self) -> &RwLock<CrcDebugConfig> {
         &self.config
     }
 

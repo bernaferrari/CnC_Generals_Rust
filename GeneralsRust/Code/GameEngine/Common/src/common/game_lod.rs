@@ -4,7 +4,7 @@
 use std::collections::HashMap;
 use std::fs;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{OnceLock, RwLock};
+use std::sync::{LazyLock, Mutex, OnceLock};
 
 use crate::common::ini::ini_game_data::{GlobalData, get_global_data};
 use crate::common::ini::ini_game_lod::{
@@ -93,56 +93,40 @@ impl GameLod {
     }
 }
 
-static DYNAMIC_LOD_NAME: OnceLock<RwLock<String>> = OnceLock::new();
-static DYNAMIC_LOD_SLOW_DEATH: OnceLock<RwLock<HashMap<String, f32>>> = OnceLock::new();
-static STATIC_LOD_NAME: OnceLock<RwLock<String>> = OnceLock::new();
-static CURRENT_STATIC_LOD_NAME: OnceLock<RwLock<String>> = OnceLock::new();
-static IDEAL_STATIC_LOD_NAME: OnceLock<RwLock<String>> = OnceLock::new();
-static MEM_PASSED_OVERRIDE: OnceLock<RwLock<Option<bool>>> = OnceLock::new();
-static CPU_FREQ_MHZ_OVERRIDE: OnceLock<RwLock<Option<i32>>> = OnceLock::new();
-static CPU_TYPE_OVERRIDE: OnceLock<RwLock<Option<CpuType>>> = OnceLock::new();
-static VIDEO_CHIP_OVERRIDE: OnceLock<RwLock<Option<ChipsetType>>> = OnceLock::new();
-static RAM_MB_OVERRIDE: OnceLock<RwLock<Option<i32>>> = OnceLock::new();
 static SKIP_OPTIONS_PERSIST: AtomicBool = AtomicBool::new(false);
-
-fn dynamic_lod_name() -> &'static RwLock<String> {
-    DYNAMIC_LOD_NAME.get_or_init(|| RwLock::new("High".to_string()))
+/// Combined mutable LOD state, previously ten separate global `RwLock`s.
+struct LodState {
+    dynamic_lod_name: String,
+    dynamic_lod_slow_death: HashMap<String, f32>,
+    static_lod_name: String,
+    current_static_lod_name: String,
+    ideal_static_lod_name: String,
+    mem_passed_override: Option<bool>,
+    cpu_freq_mhz_override: Option<i32>,
+    cpu_type_override: Option<CpuType>,
+    video_chip_override: Option<ChipsetType>,
+    ram_mb_override: Option<i32>,
 }
 
-fn dynamic_lod_slow_death() -> &'static RwLock<HashMap<String, f32>> {
-    DYNAMIC_LOD_SLOW_DEATH.get_or_init(|| RwLock::new(HashMap::new()))
-}
+static LOD_STATE: LazyLock<Mutex<LodState>> = LazyLock::new(|| {
+    Mutex::new(LodState {
+        dynamic_lod_name: "High".to_string(),
+        dynamic_lod_slow_death: HashMap::new(),
+        static_lod_name: "Medium".to_string(),
+        current_static_lod_name: "Unknown".to_string(),
+        ideal_static_lod_name: "Unknown".to_string(),
+        mem_passed_override: None,
+        cpu_freq_mhz_override: None,
+        cpu_type_override: None,
+        video_chip_override: None,
+        ram_mb_override: None,
+    })
+});
 
-fn static_lod_name() -> &'static RwLock<String> {
-    STATIC_LOD_NAME.get_or_init(|| RwLock::new("Medium".to_string()))
-}
-
-fn current_static_lod_name() -> &'static RwLock<String> {
-    CURRENT_STATIC_LOD_NAME.get_or_init(|| RwLock::new("Unknown".to_string()))
-}
-
-fn ideal_static_lod_name() -> &'static RwLock<String> {
-    IDEAL_STATIC_LOD_NAME.get_or_init(|| RwLock::new("Unknown".to_string()))
-}
-
-fn mem_passed_override() -> &'static RwLock<Option<bool>> {
-    MEM_PASSED_OVERRIDE.get_or_init(|| RwLock::new(None))
-}
-
-fn cpu_freq_mhz_override() -> &'static RwLock<Option<i32>> {
-    CPU_FREQ_MHZ_OVERRIDE.get_or_init(|| RwLock::new(None))
-}
-
-fn cpu_type_override() -> &'static RwLock<Option<CpuType>> {
-    CPU_TYPE_OVERRIDE.get_or_init(|| RwLock::new(None))
-}
-
-fn video_chip_override() -> &'static RwLock<Option<ChipsetType>> {
-    VIDEO_CHIP_OVERRIDE.get_or_init(|| RwLock::new(None))
-}
-
-fn ram_mb_override() -> &'static RwLock<Option<i32>> {
-    RAM_MB_OVERRIDE.get_or_init(|| RwLock::new(None))
+/// Run `f` against the combined LOD state; on a poisoned lock return `default`
+/// (matching the previous per-field `.unwrap_or(...)` fallbacks).
+fn with_lod_state<T>(default: T, f: impl FnOnce(&mut LodState) -> T) -> T {
+    LOD_STATE.lock().map(|mut state| f(&mut state)).unwrap_or(default)
 }
 
 fn canonical_static_lod_name(value: &str) -> Option<&'static str> {
@@ -215,9 +199,7 @@ fn detected_cpu_frequency_mhz() -> Option<i32> {
 }
 
 pub fn set_dynamic_lod(name: &str) {
-    if let Ok(mut guard) = dynamic_lod_name().write() {
-        *guard = name.to_string();
-    }
+    with_lod_state((), |state| state.dynamic_lod_name = name.to_string());
 }
 
 pub fn set_dynamic_lod_from_string(value: &str) {
@@ -239,32 +221,22 @@ pub fn set_dynamic_lod_from_string(value: &str) {
 }
 
 pub fn get_dynamic_lod() -> String {
-    dynamic_lod_name()
-        .read()
-        .map(|guard| guard.clone())
-        .unwrap_or_else(|_| "High".to_string())
+    with_lod_state("High".to_string(), |state| state.dynamic_lod_name.clone())
 }
 
 pub fn set_static_lod_from_string(value: &str) {
     let Some(mapped) = canonical_static_lod_name(value) else {
         return;
     };
-    if let Ok(mut guard) = static_lod_name().write() {
-        *guard = mapped.to_string();
-    }
+    with_lod_state((), |state| state.static_lod_name = mapped.to_string());
     if mapped != "Custom"
-        && current_static_lod_name()
-            .read()
-            .map(|guard| guard.as_str() == mapped)
-            .unwrap_or(false)
+        && with_lod_state(false, |state| state.current_static_lod_name.as_str() == mapped)
     {
         return;
     }
     apply_static_lod_level(mapped);
     if mapped != "Unknown" {
-        if let Ok(mut guard) = current_static_lod_name().write() {
-            *guard = mapped.to_string();
-        }
+        with_lod_state((), |state| state.current_static_lod_name = mapped.to_string());
     }
 }
 
@@ -424,26 +396,18 @@ fn refresh_custom_static_lod_info_from_global(
 }
 
 pub fn get_static_lod() -> String {
-    static_lod_name()
-        .read()
-        .map(|guard| guard.clone())
-        .unwrap_or_else(|_| "Medium".to_string())
+    with_lod_state("Medium".to_string(), |state| state.static_lod_name.clone())
 }
 
 pub fn set_ideal_static_lod_from_string(value: &str) {
     let Some(mapped) = canonical_static_lod_name(value) else {
         return;
     };
-    if let Ok(mut guard) = ideal_static_lod_name().write() {
-        *guard = mapped.to_string();
-    }
+    with_lod_state((), |state| state.ideal_static_lod_name = mapped.to_string());
 }
 
 pub fn get_ideal_static_lod() -> String {
-    ideal_static_lod_name()
-        .read()
-        .map(|guard| guard.clone())
-        .unwrap_or_else(|_| "Unknown".to_string())
+    with_lod_state("Unknown".to_string(), |state| state.ideal_static_lod_name.clone())
 }
 
 /// Matches C++ GameLODManager::didMemPass.
@@ -453,7 +417,7 @@ pub fn get_ideal_static_lod() -> String {
 /// detection is unavailable so low-level load-screen code does not trigger
 /// graphics/display probing.
 pub fn did_mem_pass() -> bool {
-    if let Some(value) = mem_passed_override().read().ok().and_then(|guard| *guard) {
+    if let Some(value) = with_lod_state(None, |state| state.mem_passed_override) {
         return value;
     }
 
@@ -465,10 +429,7 @@ pub fn did_mem_pass() -> bool {
 }
 
 pub fn is_really_low_mhz() -> bool {
-    let Some(cpu_freq_mhz) = cpu_freq_mhz_override()
-        .read()
-        .ok()
-        .and_then(|guard| *guard)
+    let Some(cpu_freq_mhz) = with_lod_state(None, |state| state.cpu_freq_mhz_override)
         .or_else(detected_cpu_frequency_mhz)
     else {
         return false;
@@ -479,36 +440,28 @@ pub fn is_really_low_mhz() -> bool {
 
 #[doc(hidden)]
 pub fn set_mem_passed_override_for_tests(value: Option<bool>) {
-    if let Ok(mut guard) = mem_passed_override().write() {
-        *guard = value;
-    }
+    with_lod_state((), |state| state.mem_passed_override = value);
 }
 
 #[doc(hidden)]
 pub fn set_cpu_freq_mhz_override_for_tests(value: Option<i32>) {
-    if let Ok(mut guard) = cpu_freq_mhz_override().write() {
-        *guard = value;
-    }
+    with_lod_state((), |state| state.cpu_freq_mhz_override = value);
 }
 
 #[doc(hidden)]
 pub fn reset_static_lod_state_for_tests() {
     SKIP_OPTIONS_PERSIST.store(true, Ordering::Relaxed);
-    if let Ok(mut guard) = static_lod_name().write() {
-        *guard = "Medium".to_string();
-    }
-    if let Ok(mut guard) = current_static_lod_name().write() {
-        *guard = "Unknown".to_string();
-    }
-    if let Ok(mut guard) = ideal_static_lod_name().write() {
-        *guard = "Unknown".to_string();
-    }
+    with_lod_state((), |state| {
+        state.static_lod_name = "Medium".to_string();
+        state.current_static_lod_name = "Unknown".to_string();
+        state.ideal_static_lod_name = "Unknown".to_string();
+    });
     set_mem_passed_override_for_tests(None);
     set_hardware_overrides_for_tests(None, None, None, None);
 }
 
 fn probe_cpu_type() -> CpuType {
-    if let Some(value) = cpu_type_override().read().ok().and_then(|guard| *guard) {
+    if let Some(value) = with_lod_state(None, |state| state.cpu_type_override) {
         return value;
     }
     // Presets only name P3/P4/K7. Modern hardware is treated as P4 so the
@@ -517,7 +470,7 @@ fn probe_cpu_type() -> CpuType {
 }
 
 fn probe_video_chip() -> ChipsetType {
-    if let Some(value) = video_chip_override().read().ok().and_then(|guard| *guard) {
+    if let Some(value) = with_lod_state(None, |state| state.video_chip_override) {
         return value;
     }
     // C++ unknown video becomes TNT2. Modern wgpu/Metal is at least R300.
@@ -525,7 +478,7 @@ fn probe_video_chip() -> ChipsetType {
 }
 
 fn probe_ram_mb() -> i32 {
-    if let Some(value) = ram_mb_override().read().ok().and_then(|guard| *guard) {
+    if let Some(value) = with_lod_state(None, |state| state.ram_mb_override) {
         return value;
     }
     detected_physical_memory_bytes()
@@ -534,10 +487,7 @@ fn probe_ram_mb() -> i32 {
 }
 
 fn probe_cpu_mhz() -> i32 {
-    cpu_freq_mhz_override()
-        .read()
-        .ok()
-        .and_then(|guard| *guard)
+    with_lod_state(None, |state| state.cpu_freq_mhz_override)
         .or_else(detected_cpu_frequency_mhz)
         .unwrap_or(2000)
 }
@@ -575,15 +525,13 @@ pub fn find_static_lod_level() -> String {
     let name = matched.to_str();
     set_ideal_static_lod_from_string(name);
 
-    let current_unknown = current_static_lod_name()
-        .read()
-        .map(|guard| guard.eq_ignore_ascii_case("Unknown"))
-        .unwrap_or(true);
+    let current_unknown = with_lod_state(
+        true,
+        |state| state.current_static_lod_name.eq_ignore_ascii_case("Unknown"),
+    );
     persist_recommended_static_lod(name, current_unknown);
     if current_unknown {
-        if let Ok(mut guard) = static_lod_name().write() {
-            *guard = name.to_string();
-        }
+        with_lod_state((), |state| state.static_lod_name = name.to_string());
     }
     name.to_string()
 }
@@ -591,10 +539,10 @@ pub fn find_static_lod_level() -> String {
 /// C++ W3DDisplay::init / Options first-open: if static LOD is still
 /// UNKNOWN, apply `findStaticLODLevel()`.
 pub fn ensure_static_lod_applied() {
-    let unknown = current_static_lod_name()
-        .read()
-        .map(|guard| guard.eq_ignore_ascii_case("Unknown"))
-        .unwrap_or(true);
+    let unknown = with_lod_state(
+        true,
+        |state| state.current_static_lod_name.eq_ignore_ascii_case("Unknown"),
+    );
     if unknown {
         let level = find_static_lod_level();
         set_static_lod_from_string(&level);
@@ -608,16 +556,12 @@ pub fn set_hardware_overrides_for_tests(
     video: Option<ChipsetType>,
     ram_mb: Option<i32>,
 ) {
-    if let Ok(mut guard) = cpu_type_override().write() {
-        *guard = cpu;
-    }
+    with_lod_state((), |state| {
+        state.cpu_type_override = cpu;
+        state.video_chip_override = video;
+        state.ram_mb_override = ram_mb;
+    });
     set_cpu_freq_mhz_override_for_tests(mhz);
-    if let Ok(mut guard) = video_chip_override().write() {
-        *guard = video;
-    }
-    if let Ok(mut guard) = ram_mb_override().write() {
-        *guard = ram_mb;
-    }
 }
 
 pub fn prefers_low_res_movies() -> bool {
@@ -630,11 +574,11 @@ pub fn prefers_low_res_movies() -> bool {
 fn ensure_game_lod_loaded() {
     load_game_lod_ini_presets_and_options();
 
-    let mut map_guard = match dynamic_lod_slow_death().write() {
+    let mut state_guard = match LOD_STATE.lock() {
         Ok(guard) => guard,
         Err(_) => return,
     };
-    if !map_guard.is_empty() {
+    if !state_guard.dynamic_lod_slow_death.is_empty() {
         return;
     }
 
@@ -650,7 +594,7 @@ fn ensure_game_lod_loaded() {
 
     for path in files {
         if let Ok(contents) = fs::read_to_string(&path) {
-            parse_game_lod_ini(&contents, &mut map_guard);
+            parse_game_lod_ini(&contents, &mut state_guard.dynamic_lod_slow_death);
         }
     }
 }

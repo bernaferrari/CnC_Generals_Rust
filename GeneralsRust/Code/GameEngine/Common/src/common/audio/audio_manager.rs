@@ -159,11 +159,10 @@ pub struct MiscAudio {
 }
 
 /// Audio source state for tracking playing audio
-#[derive(Debug, Clone)]
 pub struct PlayingAudioSource {
     pub handle: AudioHandle,
     pub audio_event: AudioEventRts,
-    pub sink: Arc<Mutex<Sink>>,
+    pub sink: Sink,
     pub start_time: Instant,
     pub is_looping: bool,
     pub is_3d: bool,
@@ -175,33 +174,38 @@ pub struct PlayingAudioSource {
 /// Audio file cache entry
 #[derive(Debug)]
 pub struct AudioFileCache {
-    cache: RwLock<HashMap<String, Arc<Vec<u8>>>>,
-    current_size: RwLock<usize>,
+    state: parking_lot::RwLock<AudioFileCacheState>,
     max_size: usize,
-    access_order: RwLock<VecDeque<String>>,
+}
+
+struct AudioFileCacheState {
+    cache: HashMap<String, Arc<Vec<u8>>>,
+    current_size: usize,
+    access_order: VecDeque<String>,
 }
 
 impl AudioFileCache {
     pub fn new(max_size: usize) -> Self {
         Self {
-            cache: RwLock::new(HashMap::new()),
-            current_size: RwLock::new(0),
+            state: parking_lot::RwLock::new(AudioFileCacheState {
+                cache: HashMap::new(),
+                current_size: 0,
+                access_order: VecDeque::new(),
+            }),
             max_size,
-            access_order: RwLock::new(VecDeque::new()),
         }
     }
 
     pub fn get_or_load(&self, file_path: &str) -> Option<Arc<Vec<u8>>> {
         // First, check if already cached
         {
-            let cache = self.cache.read().unwrap();
-            if let Some(data) = cache.get(file_path) {
+            let mut state = self.state.write();
+            if let Some(data) = state.cache.get(file_path) {
                 // Update access order
-                let mut access_order = self.access_order.write().unwrap();
-                if let Some(pos) = access_order.iter().position(|x| x == file_path) {
-                    access_order.remove(pos);
+                if let Some(pos) = state.access_order.iter().position(|x| x == file_path) {
+                    state.access_order.remove(pos);
                 }
-                access_order.push_back(file_path.to_string());
+                state.access_order.push_back(file_path.to_string());
                 return Some(data.clone());
             }
         }
@@ -216,14 +220,10 @@ impl AudioFileCache {
                 self.ensure_space(data_size);
 
                 // Add to cache
-                let mut cache = self.cache.write().unwrap();
-                cache.insert(file_path.to_string(), data_arc.clone());
-
-                let mut current_size = self.current_size.write().unwrap();
-                *current_size += data_size;
-
-                let mut access_order = self.access_order.write().unwrap();
-                access_order.push_back(file_path.to_string());
+                let mut state = self.state.write();
+                state.cache.insert(file_path.to_string(), data_arc.clone());
+                state.current_size += data_size;
+                state.access_order.push_back(file_path.to_string());
 
                 Some(data_arc)
             }
@@ -236,14 +236,14 @@ impl AudioFileCache {
             return; // Can't fit anyway
         }
 
-        let mut current_size = self.current_size.write().unwrap();
-        let mut cache = self.cache.write().unwrap();
-        let mut access_order = self.access_order.write().unwrap();
+        let mut state = self.state.write();
 
-        while *current_size + needed_size > self.max_size && !access_order.is_empty() {
-            if let Some(oldest) = access_order.pop_front() {
-                if let Some(data) = cache.remove(&oldest) {
-                    *current_size -= data.len();
+        while state.current_size + needed_size > self.max_size
+            && !state.access_order.is_empty()
+        {
+            if let Some(oldest) = state.access_order.pop_front() {
+                if let Some(data) = state.cache.remove(&oldest) {
+                    state.current_size -= data.len();
                 }
             }
         }
@@ -309,7 +309,7 @@ pub struct AudioManager {
     silent_audio_event: AudioEventRts,
 
     // Audio file cache
-    audio_cache: Arc<AudioFileCache>,
+    audio_cache: AudioFileCache,
 
     // Provider information (for compatibility)
     provider_count: UnsignedInt,
@@ -324,7 +324,7 @@ impl AudioManager {
             OutputStream::try_default().expect("Failed to create audio output stream");
 
         let audio_settings = AudioSettings::default();
-        let audio_cache = Arc::new(AudioFileCache::new(audio_settings.max_cache_size as usize));
+        let audio_cache = AudioFileCache::new(audio_settings.max_cache_size as usize);
 
         if let Err(err) = initialize_animated_sound_mgr::<&str>(None) {
             log::debug!("Animated sound metadata not available: {err:?}");
@@ -562,16 +562,14 @@ impl AudioManager {
     /// Kill audio event immediately without fade
     pub fn kill_audio_event_immediately(&mut self, audio_event: AudioHandle) {
         if let Some(source) = self.playing_sources.remove(&audio_event) {
-            let sink = source.sink.lock().unwrap();
-            sink.stop();
+            source.sink.stop();
         }
     }
 
     /// Fade out an audio event before stopping (matches C++ fade behavior)
     pub fn fade_out_audio_event(&mut self, audio_event: AudioHandle) {
         if let Some(source) = self.playing_sources.get(&audio_event) {
-            let sink = source.sink.lock().unwrap();
-            sink.set_volume(0.0);
+            source.sink.set_volume(0.0);
         }
         self.playing_sources.remove(&audio_event);
     }
@@ -588,8 +586,7 @@ impl AudioManager {
     /// Check if audio is currently playing
     pub fn is_currently_playing(&self, handle: AudioHandle) -> Bool {
         if let Some(source) = self.playing_sources.get(&handle) {
-            let sink = source.sink.lock().unwrap();
-            !sink.empty()
+            !source.sink.empty()
         } else {
             false
         }
@@ -746,8 +743,7 @@ impl AudioManager {
             };
 
             if should_pause {
-                let sink = source.sink.lock().unwrap();
-                sink.pause();
+                source.sink.pause();
             }
         }
     }
@@ -767,8 +763,7 @@ impl AudioManager {
             };
 
             if should_resume {
-                let sink = source.sink.lock().unwrap();
-                sink.play();
+                source.sink.play();
             }
         }
     }
@@ -880,8 +875,7 @@ impl AudioManager {
         for source in self.playing_sources.values() {
             if let Some(info) = source.audio_event.get_audio_event_info() {
                 if info.sound_type == AudioType::Music {
-                    let sink = source.sink.lock().unwrap();
-                    if !sink.empty() {
+                    if !source.sink.empty() {
                         return true;
                     }
                 }
@@ -1003,7 +997,7 @@ impl AudioManager {
         let playing_source = PlayingAudioSource {
             handle,
             audio_event: event.clone(),
-            sink: Arc::new(Mutex::new(sink)),
+            sink,
             start_time: Instant::now(),
             is_looping: true,
             is_3d: false,
@@ -1070,7 +1064,7 @@ impl AudioManager {
         let playing_source = PlayingAudioSource {
             handle,
             audio_event: event.clone(),
-            sink: Arc::new(Mutex::new(sink)),
+            sink,
             start_time: Instant::now(),
             is_looping: false, // Would check AudioEventInfo
             is_3d,
@@ -1117,7 +1111,7 @@ impl AudioManager {
         let playing_source = PlayingAudioSource {
             handle,
             audio_event: event.clone(),
-            sink: Arc::new(Mutex::new(sink)),
+            sink,
             start_time: Instant::now(),
             is_looping: false,
             is_3d: false,
@@ -1227,14 +1221,12 @@ impl AudioManager {
                 }
                 RequestType::Pause => {
                     if let Some(source) = self.playing_sources.get(&request.handle_to_interact_on) {
-                        let sink = source.sink.lock().unwrap();
-                        sink.pause();
+                        source.sink.pause();
                     }
                 }
                 RequestType::Resume => {
                     if let Some(source) = self.playing_sources.get(&request.handle_to_interact_on) {
-                        let sink = source.sink.lock().unwrap();
-                        sink.play();
+                        source.sink.play();
                     }
                 }
                 _ => {}
@@ -1248,8 +1240,7 @@ impl AudioManager {
             .playing_sources
             .iter()
             .filter(|(_, source)| {
-                let sink = source.sink.lock().unwrap();
-                sink.empty()
+                source.sink.empty()
             })
             .map(|(&handle, _)| handle)
             .collect();
@@ -1348,9 +1339,7 @@ impl AudioManager {
                 let desired_volume =
                     source.audio_event.get_volume() * source.audio_event.get_volume_shift();
                 source.volume = desired_volume;
-                if let Ok(sink) = source.sink.lock() {
-                    sink.set_volume(desired_volume);
-                }
+                source.sink.set_volume(desired_volume);
             }
         }
     }
@@ -1619,8 +1608,7 @@ impl AudioManager {
                 let distance_volume = self.calculate_3d_volume_falloff(position);
                 let final_volume = source.volume * distance_volume;
 
-                let sink = source.sink.lock().unwrap();
-                sink.set_volume(final_volume);
+                source.sink.set_volume(final_volume);
             }
         }
     }
@@ -1634,8 +1622,7 @@ impl AudioManager {
     /// Set volume for a specific audio event
     pub fn set_audio_event_volume(&self, handle: AudioHandle, volume: Real) {
         if let Some(source) = self.playing_sources.get(&handle) {
-            let sink = source.sink.lock().unwrap();
-            sink.set_volume(volume);
+            source.sink.set_volume(volume);
         }
     }
 
@@ -1647,8 +1634,7 @@ impl AudioManager {
             let distance_volume = self.calculate_3d_volume_falloff(&position);
             let final_volume = source.volume * distance_volume;
 
-            let sink = source.sink.lock().unwrap();
-            sink.set_volume(final_volume);
+            source.sink.set_volume(final_volume);
         }
     }
 
@@ -1696,8 +1682,7 @@ impl AudioManager {
                 source.audio_event.get_event_info().sound_type,
                 AudioType::Music
             ) {
-                let sink = source.sink.lock().unwrap();
-                sink.pause();
+                source.sink.pause();
             }
         }
     }
@@ -1710,8 +1695,7 @@ impl AudioManager {
                 source.audio_event.get_event_info().sound_type,
                 AudioType::Music
             ) {
-                let sink = source.sink.lock().unwrap();
-                sink.play();
+                source.sink.play();
             }
         }
     }

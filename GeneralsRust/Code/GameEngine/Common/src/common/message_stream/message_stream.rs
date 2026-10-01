@@ -299,18 +299,22 @@ impl MessageStream {
         for translator_idx in 0..self.translators.len() {
             let translator = self.translators[translator_idx].translator.clone();
             let translator_id = self.translators[translator_idx].id;
+            // The pump is single-threaded; hold the translator for the whole
+            // pass instead of re-acquiring per message. C++ parity: the
+            // translator pointer is stable across its pass (MessageStream.cpp:1054).
+            let mut translator_guard = match translator.write() {
+                Ok(translator) => translator,
+                Err(e) => {
+                    error!("Failed to acquire translator lock: {}", e);
+                    continue;
+                }
+            };
             let mut idx = 0usize;
             while idx < self.base.message_count() {
                 let Some(message) = self.base.messages.iter().nth(idx).cloned() else {
                     break;
                 };
-                let disposition = match translator.write() {
-                    Ok(mut translator) => translator.translate_game_message(&message),
-                    Err(e) => {
-                        error!("Failed to acquire translator lock: {}", e);
-                        GameMessageDisposition::KeepMessage
-                    }
-                };
+                let disposition = translator_guard.translate_game_message(&message);
 
                 let emitted = take_emitted_messages();
                 if !emitted.is_empty() {

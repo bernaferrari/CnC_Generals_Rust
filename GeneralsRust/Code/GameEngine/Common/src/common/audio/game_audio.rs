@@ -2776,14 +2776,19 @@ impl RodioVoice {
 
 #[cfg(not(target_arch = "wasm32"))]
 struct RodioPlaybackHook {
-    sinks: Mutex<HashMap<AudioHandle, RodioSinkState>>,
-    listener_position: Mutex<Coord3D>,
-    listener_orientation: Mutex<Coord3D>,
+    state: parking_lot::Mutex<RodioPlaybackState>,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+struct RodioPlaybackState {
+    sinks: HashMap<AudioHandle, RodioSinkState>,
+    listener_position: Coord3D,
+    listener_orientation: Coord3D,
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 struct RodioSinkState {
-    sink: Arc<Mutex<RodioVoice>>,
+    sink: RodioVoice,
     base_volume: Real,
     position: Option<Coord3D>,
     min_distance: Real,
@@ -2798,12 +2803,14 @@ impl RodioPlaybackHook {
     fn new() -> Self {
         let _ = get_rodio_stream_handle();
         Self {
-            sinks: Mutex::new(HashMap::new()),
-            listener_position: Mutex::new(Coord3D::ZERO),
-            listener_orientation: Mutex::new(Coord3D {
-                x: 0.0,
-                y: 1.0,
-                z: 0.0,
+            state: parking_lot::Mutex::new(RodioPlaybackState {
+                sinks: HashMap::new(),
+                listener_position: Coord3D::ZERO,
+                listener_orientation: Coord3D {
+                    x: 0.0,
+                    y: 1.0,
+                    z: 0.0,
+                },
             }),
         }
     }
@@ -2876,17 +2883,11 @@ impl RodioPlaybackHook {
     }
 
     fn calculate_3d_volume_falloff(
-        &self,
+        listener: &Coord3D,
         position: &Coord3D,
         min_distance: Real,
         max_distance: Real,
     ) -> Real {
-        let listener = self
-            .listener_position
-            .lock()
-            .ok()
-            .map(|l| *l)
-            .unwrap_or_else(|| Coord3D::ZERO);
         let dx = position.x - listener.x;
         let dy = position.y - listener.y;
         let dz = position.z - listener.z;
@@ -2894,50 +2895,36 @@ impl RodioPlaybackHook {
         miles_positional_gain(distance, min_distance, max_distance)
     }
 
-    fn effective_volume(&self, state: &RodioSinkState) -> Real {
+    fn effective_volume(listener: &Coord3D, state: &RodioSinkState) -> Real {
         let base = state.base_volume.clamp(0.0, 1.0);
         if let Some(pos) = state.position.as_ref() {
-            base * self.calculate_3d_volume_falloff(pos, state.min_distance, state.max_distance)
+            base
+                * Self::calculate_3d_volume_falloff(
+                    listener,
+                    pos,
+                    state.min_distance,
+                    state.max_distance,
+                )
         } else {
             base
         }
     }
 
-    fn refresh_sink_volume(&self, state: &RodioSinkState) {
-        if let Ok(sink) = state.sink.lock() {
-            sink.set_volume(self.effective_volume(state));
-        }
+    fn refresh_sink_volume(listener: &Coord3D, state: &RodioSinkState) {
+        state.sink.set_volume(Self::effective_volume(listener, state));
     }
 
     fn listener_pose(&self) -> (Coord3D, Coord3D) {
-        let position = self
-            .listener_position
-            .lock()
-            .ok()
-            .map(|l| *l)
-            .unwrap_or(Coord3D::ZERO);
-        let orientation = self
-            .listener_orientation
-            .lock()
-            .ok()
-            .map(|l| *l)
-            .unwrap_or(Coord3D {
-                x: 0.0,
-                y: 1.0,
-                z: 0.0,
-            });
-        (position, orientation)
+        let state = self.state.lock();
+        (state.listener_position, state.listener_orientation)
     }
 
-    fn refresh_positional_pan(&self, state: &RodioSinkState) {
+    fn refresh_positional_pan(listener: &Coord3D, orientation: &Coord3D, state: &RodioSinkState) {
         let Some(source) = state.position else {
             return;
         };
-        let (listener, orientation) = self.listener_pose();
-        let pan = stereo_pan(&listener, orientation.x, orientation.y, &source);
-        if let Ok(sink) = state.sink.lock() {
-            sink.set_stereo_pan(pan);
-        }
+        let pan = stereo_pan(listener, orientation.x, orientation.y, &source);
+        state.sink.set_stereo_pan(pan);
     }
 }
 
@@ -3041,7 +3028,7 @@ impl SoundPlaybackHook for RodioPlaybackHook {
             sliders.global_max_range,
         );
         let state = RodioSinkState {
-            sink: Arc::new(Mutex::new(voice)),
+            sink: voice,
             base_volume: volume,
             position,
             min_distance,
@@ -3050,72 +3037,64 @@ impl SoundPlaybackHook for RodioPlaybackHook {
             started_at: Instant::now(),
             duration_ms,
         };
-        self.refresh_sink_volume(&state);
-        self.sinks.lock().unwrap().insert(handle, state);
+        Self::refresh_sink_volume(&listener, &state);
+        Self::refresh_positional_pan(&listener, &orientation, &state);
+        self.state.lock().sinks.insert(handle, state);
         Ok(())
     }
 
     fn stop(&self, handle: AudioHandle) {
-        if let Some(state) = self.sinks.lock().unwrap().remove(&handle) {
-            let s = state.sink.lock().unwrap();
-            s.stop();
+        if let Some(state) = self.state.lock().sinks.remove(&handle) {
+            state.sink.stop();
         }
     }
 
     fn pause(&self, handle: AudioHandle) {
-        if let Some(state) = self.sinks.lock().unwrap().get(&handle) {
-            let s = state.sink.lock().unwrap();
-            s.pause();
+        if let Some(state) = self.state.lock().sinks.get(&handle) {
+            state.sink.pause();
         }
     }
     fn set_listener_position(&self, position: &Coord3D) {
-        if let Ok(mut listener) = self.listener_position.lock() {
-            *listener = *position;
-        }
-        if let Ok(sinks) = self.sinks.lock() {
-            for state in sinks.values() {
-                if state.position.is_some() {
-                    self.refresh_sink_volume(state);
-                    self.refresh_positional_pan(state);
-                }
+        let mut state = self.state.lock();
+        state.listener_position = *position;
+        let listener = state.listener_position;
+        let orientation = state.listener_orientation;
+        for sink_state in state.sinks.values() {
+            if sink_state.position.is_some() {
+                Self::refresh_sink_volume(&listener, sink_state);
+                Self::refresh_positional_pan(&listener, &orientation, sink_state);
             }
         }
     }
 
     fn set_listener_orientation(&self, orientation: &Coord3D) {
-        if let Ok(mut stored) = self.listener_orientation.lock() {
-            *stored = *orientation;
-        }
-        if let Ok(sinks) = self.sinks.lock() {
-            for state in sinks.values() {
-                if state.position.is_some() {
-                    self.refresh_positional_pan(state);
-                }
+        let mut state = self.state.lock();
+        state.listener_orientation = *orientation;
+        let listener = state.listener_position;
+        let orientation = state.listener_orientation;
+        for sink_state in state.sinks.values() {
+            if sink_state.position.is_some() {
+                Self::refresh_positional_pan(&listener, &orientation, sink_state);
             }
         }
     }
 
     fn resume(&self, handle: AudioHandle) {
-        if let Some(state) = self.sinks.lock().unwrap().get(&handle) {
-            let s = state.sink.lock().unwrap();
-            s.play();
+        if let Some(state) = self.state.lock().sinks.get(&handle) {
+            state.sink.play();
         }
     }
 
     fn is_playing(&self, handle: AudioHandle) -> bool {
-        let mut sinks = self.sinks.lock().unwrap();
-        let Some(state) = sinks.get(&handle) else {
+        let mut state = self.state.lock();
+        let Some(sink_state) = state.sinks.get(&handle) else {
             return false;
         };
 
-        let is_playing = if let Ok(s) = state.sink.lock() {
-            !s.empty()
-        } else {
-            false
-        };
+        let is_playing = !sink_state.sink.empty();
 
         if !is_playing {
-            sinks.remove(&handle);
+            state.sinks.remove(&handle);
         }
 
         is_playing
@@ -3123,53 +3102,54 @@ impl SoundPlaybackHook for RodioPlaybackHook {
 
     fn set_event_volume(&self, event: &AudioEventRts) {
         let handle = event.get_playing_handle();
-        let mut sinks = self.sinks.lock().unwrap();
-        let Some(state) = sinks.get_mut(&handle) else {
-            return;
-        };
-
         let sliders = get_global_audio_manager()
             .and_then(|manager| manager.try_lock().ok().map(|m| m.miles_volume_sliders()))
             .unwrap_or_default();
-        state.base_volume = miles_slider_volume(event, &sliders);
+        let mut state = self.state.lock();
+        let listener = state.listener_position;
+        let orientation = state.listener_orientation;
+        let Some(sink_state) = state.sinks.get_mut(&handle) else {
+            return;
+        };
+
+        sink_state.base_volume = miles_slider_volume(event, &sliders);
         if event.is_positional_audio() {
-            state.position = Some(miles_event_world_position(event));
+            sink_state.position = Some(miles_event_world_position(event));
         }
-        self.refresh_sink_volume(state);
-        self.refresh_positional_pan(state);
+        Self::refresh_sink_volume(&listener, sink_state);
+        Self::refresh_positional_pan(&listener, &orientation, sink_state);
     }
 
     fn set_sink_volume(&self, handle: AudioHandle, volume: Real) {
-        let mut sinks = self.sinks.lock().unwrap();
-        let Some(state) = sinks.get_mut(&handle) else {
+        let mut state = self.state.lock();
+        let Some(sink_state) = state.sinks.get_mut(&handle) else {
             return;
         };
-        state.base_volume = volume.clamp(0.0, 1.0);
-        if let Ok(sink) = state.sink.lock() {
-            sink.set_volume(state.base_volume);
-        }
+        sink_state.base_volume = volume.clamp(0.0, 1.0);
+        sink_state.sink.set_volume(sink_state.base_volume);
     }
 
     fn music_loop_count(&self, handle: AudioHandle) -> Int {
-        let sinks = self.sinks.lock().unwrap();
-        let Some(state) = sinks.get(&handle) else {
+        let state = self.state.lock();
+        let Some(sink_state) = state.sinks.get(&handle) else {
             return 0;
         };
-        if !state.is_music {
+        if !sink_state.is_music {
             return 0;
         }
-        let Some(duration) = state.duration_ms.filter(|ms| *ms > 0.0) else {
+        let Some(duration) = sink_state.duration_ms.filter(|ms| *ms > 0.0) else {
             return 0;
         };
-        let elapsed_ms = state.started_at.elapsed().as_secs_f32() * 1000.0;
+        let elapsed_ms = sink_state.started_at.elapsed().as_secs_f32() * 1000.0;
         (elapsed_ms / duration) as Int
     }
 
     fn is_sink_paused(&self, handle: AudioHandle) -> bool {
-        let sinks = self.sinks.lock().unwrap();
-        sinks
+        self.state
+            .lock()
+            .sinks
             .get(&handle)
-            .and_then(|state| state.sink.lock().ok().map(|sink| sink.is_paused()))
+            .map(|state| state.sink.is_paused())
             .unwrap_or(false)
     }
 }

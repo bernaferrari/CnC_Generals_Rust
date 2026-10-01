@@ -194,7 +194,7 @@ pub struct INI {
     /// stays strict — only asset loaders that opt in get recovery.
     tolerant_blocks: bool,
     /// C++ parity: INI.cpp line 48 - static Xfer *s_xfer
-    xfer: Option<std::sync::Mutex<XferCRC<XferLoad<Cursor<Vec<u8>>>>>>,
+    xfer: Option<Box<XferCRC<XferLoad<Cursor<Vec<u8>>>>>>,
     #[cfg(debug_assertions)]
     cur_block_start: String,
 }
@@ -1199,14 +1199,14 @@ impl INI {
 
     /// C++ parity: INI.cpp line 48, 331
     pub fn set_xfer(&mut self, xfer: XferCRC<XferLoad<Cursor<Vec<u8>>>>) {
-        self.xfer = Some(std::sync::Mutex::new(xfer));
+        self.xfer = Some(Box::new(xfer));
     }
 
     pub fn clear_xfer(&mut self) {
         self.xfer = None;
     }
 
-    pub fn take_xfer(&mut self) -> Option<std::sync::Mutex<XferCRC<XferLoad<Cursor<Vec<u8>>>>>> {
+    pub fn take_xfer(&mut self) -> Option<Box<XferCRC<XferLoad<Cursor<Vec<u8>>>>>> {
         self.xfer.take()
     }
 
@@ -1564,11 +1564,9 @@ impl INI {
 
         // C++ parity: INI.cpp lines 458-463
         // if (s_xfer) { s_xfer->xferUser(m_buffer, sizeof(char) * strlen(m_buffer)); }
-        if let Some(ref xfer_mutex) = self.xfer {
-            if let Ok(mut xfer) = xfer_mutex.lock() {
-                let mut bytes = self.buffer.as_bytes().to_vec();
-                let _ = xfer.xfer_user_bytes(&mut bytes);
-            }
+        if let Some(xfer) = self.xfer.as_deref_mut() {
+            let mut bytes = self.buffer.as_bytes().to_vec();
+            let _ = xfer.xfer_user_bytes(&mut bytes);
         }
 
         Ok(())

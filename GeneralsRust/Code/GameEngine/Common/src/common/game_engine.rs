@@ -86,9 +86,9 @@ pub trait GameClientInterface: Send + Sync {
 type GameClientFactory =
     dyn Fn() -> SubsystemResult<Box<dyn GameClientInterface>> + Send + Sync + 'static;
 
-static GAME_CLIENT_FACTORY: OnceLock<Mutex<Option<Arc<GameClientFactory>>>> = OnceLock::new();
+static GAME_CLIENT_FACTORY: OnceLock<Mutex<Option<Box<GameClientFactory>>>> = OnceLock::new();
 
-fn game_client_factory_slot() -> &'static Mutex<Option<Arc<GameClientFactory>>> {
+fn game_client_factory_slot() -> &'static Mutex<Option<Box<GameClientFactory>>> {
     GAME_CLIENT_FACTORY.get_or_init(|| Mutex::new(None))
 }
 
@@ -97,7 +97,7 @@ pub fn register_game_client_factory(
     factory: impl Fn() -> SubsystemResult<Box<dyn GameClientInterface>> + Send + Sync + 'static,
 ) {
     let mut slot = game_client_factory_slot().lock();
-    *slot = Some(Arc::new(factory));
+    *slot = Some(Box::new(factory));
 }
 
 /// Clear the runtime game-client factory.
@@ -107,8 +107,8 @@ pub fn clear_game_client_factory() {
 }
 
 fn create_registered_game_client() -> Option<SubsystemResult<Box<dyn GameClientInterface>>> {
-    let factory = game_client_factory_slot().lock().clone()?;
-    Some(factory())
+    let factory = game_client_factory_slot().lock();
+    factory.as_ref().map(|factory| factory())
 }
 
 // ---------------------------------------------------------------------------

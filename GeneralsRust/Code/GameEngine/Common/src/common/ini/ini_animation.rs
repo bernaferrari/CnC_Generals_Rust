@@ -49,7 +49,7 @@ impl Anim2DMode {
 /// 2D animation template definition (mirrors GameClient/Anim2DTemplate).
 #[derive(Debug)]
 pub struct Anim2DTemplate {
-    next_template: Option<Arc<RwLock<Anim2DTemplate>>>,
+    next_template: Option<Arc<Anim2DTemplate>>,
     name: AsciiString,
     images: Vec<Option<String>>,
     num_frames: u16,
@@ -91,11 +91,11 @@ impl Anim2DTemplate {
         self.randomize_start_frame
     }
 
-    pub fn get_next_template(&self) -> Option<Arc<RwLock<Anim2DTemplate>>> {
+    pub fn get_next_template(&self) -> Option<Arc<Anim2DTemplate>> {
         self.next_template.clone()
     }
 
-    pub fn set_next_template(&mut self, next: Option<Arc<RwLock<Anim2DTemplate>>>) {
+    pub fn set_next_template(&mut self, next: Option<Arc<Anim2DTemplate>>) {
         self.next_template = next;
     }
 
@@ -252,7 +252,7 @@ const ANIM_2D_FIELD_PARSE_TABLE: &[FieldParse<Anim2DTemplate>] = &[
 /// Animation template collection (mirrors Anim2DCollection template list).
 #[derive(Debug, Default)]
 pub struct Anim2DCollection {
-    template_head: Option<Arc<RwLock<Anim2DTemplate>>>,
+    template_head: Option<Arc<Anim2DTemplate>>,
 }
 
 impl Anim2DCollection {
@@ -262,33 +262,32 @@ impl Anim2DCollection {
         }
     }
 
-    pub fn get_template_head(&self) -> Option<Arc<RwLock<Anim2DTemplate>>> {
+    pub fn get_template_head(&self) -> Option<Arc<Anim2DTemplate>> {
         self.template_head.clone()
     }
 
     pub fn get_next_template(
         &self,
-        template: &Arc<RwLock<Anim2DTemplate>>,
-    ) -> Option<Arc<RwLock<Anim2DTemplate>>> {
-        template.read().get_next_template()
+        template: &Arc<Anim2DTemplate>,
+    ) -> Option<Arc<Anim2DTemplate>> {
+        template.get_next_template()
     }
 
-    pub fn find_template(&self, name: &AsciiString) -> Option<Arc<RwLock<Anim2DTemplate>>> {
+    pub fn find_template(&self, name: &AsciiString) -> Option<Arc<Anim2DTemplate>> {
         let mut current = self.template_head.clone();
         while let Some(node) = current {
-            if node.read().get_name() == name {
+            if node.get_name() == name {
                 return Some(node);
             }
-            current = node.read().get_next_template();
+            current = node.get_next_template();
         }
         None
     }
 
-    pub fn new_template(&mut self, name: AsciiString) -> Arc<RwLock<Anim2DTemplate>> {
-        let template = Arc::new(RwLock::new(Anim2DTemplate::new(name)));
-        template
-            .write()
-            .set_next_template(self.template_head.clone());
+    pub fn new_template(&mut self, name: AsciiString) -> Arc<Anim2DTemplate> {
+        let mut template = Anim2DTemplate::new(name);
+        template.set_next_template(self.template_head.clone());
+        let template = Arc::new(template);
         self.template_head = Some(template.clone());
         template
     }
@@ -327,10 +326,15 @@ pub fn parse_anim2d_definition(ini: &mut INI) -> INIResult<()> {
         return Err(INIError::InvalidData);
     }
 
-    let template = collection.new_template(name);
-    let mut template_guard = template.write();
-    ini.init_from_ini_with_fields(&mut *template_guard, Anim2DTemplate::get_field_parse())?;
-    Ok(())
+    // C++ inserts the template (newTemplate) before field parsing, so a field
+    // error still leaves the partially parsed template registered. Templates
+    // are immutable once shared, so parse into a local value and publish at
+    // the head afterwards either way to keep that behavior.
+    let mut template = Anim2DTemplate::new(name);
+    let result = ini.init_from_ini_with_fields(&mut template, Anim2DTemplate::get_field_parse());
+    template.set_next_template(collection.template_head.clone());
+    collection.template_head = Some(Arc::new(template));
+    result
 }
 
 #[cfg(test)]
@@ -351,13 +355,13 @@ mod tests {
         let second = collection.new_template(AsciiString::from("Second"));
 
         let head = collection.get_template_head().unwrap();
-        assert_eq!(head.read().get_name().as_str(), "Second");
+        assert_eq!(head.get_name().as_str(), "Second");
         let next = collection.get_next_template(&head).unwrap();
-        assert_eq!(next.read().get_name().as_str(), "First");
+        assert_eq!(next.get_name().as_str(), "First");
 
         let found = collection
             .find_template(&AsciiString::from("First"))
             .unwrap();
-        assert_eq!(found.read().get_name().as_str(), "First");
+        assert_eq!(found.get_name().as_str(), "First");
     }
 }

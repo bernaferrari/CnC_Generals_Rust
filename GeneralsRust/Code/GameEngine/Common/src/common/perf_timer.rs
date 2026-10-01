@@ -8,7 +8,6 @@
 // John McDonald
 // July 2002
 
-#[cfg(feature = "perf_timers")]
 use parking_lot::Mutex as PerfMutex;
 use std::collections::HashMap;
 #[cfg(feature = "perf_timers")]
@@ -17,7 +16,7 @@ use std::fs::File;
 use std::io::Write;
 #[cfg(feature = "perf_timers")]
 use std::sync::Arc;
-use std::sync::{Mutex, OnceLock};
+use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 #[cfg(feature = "perf_timers")]
 use tracing::span::EnteredSpan;
@@ -524,14 +523,14 @@ impl Default for PerfMetricsOutput {
 
 // Global performance metrics instance
 lazy_static::lazy_static! {
-    static ref PERF_METRICS: Mutex<PerfMetricsOutput> = Mutex::new(PerfMetricsOutput {
+    static ref PERF_METRICS: PerfMutex<PerfMetricsOutput> = PerfMutex::new(PerfMetricsOutput {
         output_stats: HashMap::new(),
     });
 }
 
 /// Get global performance metrics
-pub fn get_perf_metrics() -> std::sync::MutexGuard<'static, PerfMetricsOutput> {
-    PERF_METRICS.lock().unwrap()
+pub fn get_perf_metrics() -> parking_lot::MutexGuard<'static, PerfMetricsOutput> {
+    PERF_METRICS.lock()
 }
 
 /// Macros for performance timing (enabled only with perf_timers feature)

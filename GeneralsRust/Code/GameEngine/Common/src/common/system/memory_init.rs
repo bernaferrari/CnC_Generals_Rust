@@ -6,7 +6,7 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::Mutex;
 
 /// Pool initialization record structure
 #[derive(Debug, Clone)]
@@ -845,8 +845,8 @@ impl Default for MemoryPoolManager {
 
 // Global memory pool manager instance
 lazy_static::lazy_static! {
-    pub static ref MEMORY_POOL_MANAGER: Arc<Mutex<MemoryPoolManager>> =
-        Arc::new(Mutex::new(MemoryPoolManager::new()));
+    pub static ref MEMORY_POOL_MANAGER: Mutex<MemoryPoolManager> =
+        Mutex::new(MemoryPoolManager::new());
 }
 
 /// Initialize memory pools
@@ -858,8 +858,8 @@ pub fn init_memory_pools() {
 }
 
 /// Get memory pool manager instance
-pub fn get_memory_pool_manager() -> Arc<Mutex<MemoryPoolManager>> {
-    MEMORY_POOL_MANAGER.clone()
+pub fn get_memory_pool_manager() -> &'static Mutex<MemoryPoolManager> {
+    &MEMORY_POOL_MANAGER
 }
 
 /// User memory manager DMA parameters callback

@@ -14,7 +14,7 @@
 use once_cell::sync::OnceCell;
 use std::collections::VecDeque;
 use std::fmt;
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, Mutex, MutexGuard, RwLock};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 /// Debug message severity levels
@@ -134,7 +134,7 @@ impl DebugHandler for FileHandler {
 
 /// Memory debug handler (keeps messages in memory)
 pub struct MemoryHandler {
-    messages: Arc<RwLock<VecDeque<DebugMessage>>>,
+    messages: RwLock<VecDeque<DebugMessage>>,
     max_messages: usize,
     min_level: DebugLevel,
 }
@@ -142,7 +142,7 @@ pub struct MemoryHandler {
 impl MemoryHandler {
     pub fn new(min_level: DebugLevel, max_messages: usize) -> Self {
         Self {
-            messages: Arc::new(RwLock::new(VecDeque::with_capacity(max_messages))),
+            messages: RwLock::new(VecDeque::with_capacity(max_messages)),
             max_messages,
             min_level,
         }
@@ -347,10 +347,8 @@ impl Drop for ProfilerTimer {
 pub fn debug_assert_impl(condition: bool, message: &str, file: &str, line: u32) {
     if !condition {
         let debug_message = format!("Assertion failed: {}", message);
-        if let Some(system) = get_debug_system() {
-            if let Ok(debug_system) = system.lock() {
-                debug_system.log(DebugLevel::Fatal, debug_message, file.to_string(), line);
-            }
+        if let Some(debug_system) = get_debug_system() {
+            debug_system.log(DebugLevel::Fatal, debug_message, file.to_string(), line);
         }
 
         // In debug builds, panic
@@ -360,12 +358,12 @@ pub fn debug_assert_impl(condition: bool, message: &str, file: &str, line: u32) 
 }
 
 /// Global debug system instance
-static DEBUG_SYSTEM: OnceCell<Arc<Mutex<DebugSystem>>> = OnceCell::new();
+static DEBUG_SYSTEM: OnceCell<Mutex<DebugSystem>> = OnceCell::new();
 
 /// Initialize the global debug system
 pub fn init_debug_system() {
     if DEBUG_SYSTEM.get().is_none() {
-        let _ = DEBUG_SYSTEM.set(Arc::new(Mutex::new(DebugSystem::default())));
+        let _ = DEBUG_SYSTEM.set(Mutex::new(DebugSystem::default()));
     } else if let Some(system) = DEBUG_SYSTEM.get() {
         if let Ok(mut guard) = system.lock() {
             *guard = DebugSystem::default();
@@ -374,25 +372,25 @@ pub fn init_debug_system() {
 }
 
 /// Get reference to the global debug system
-pub fn get_debug_system() -> Option<Arc<Mutex<DebugSystem>>> {
-    DEBUG_SYSTEM.get().cloned()
+pub fn get_debug_system() -> Option<MutexGuard<'static, DebugSystem>> {
+    DEBUG_SYSTEM.get().and_then(|system| system.lock().ok())
 }
 
 /// Global profiler instance
-static PROFILER: OnceCell<Arc<Profiler>> = OnceCell::new();
+static PROFILER: OnceCell<Profiler> = OnceCell::new();
 
 /// Initialize the global profiler
 pub fn init_profiler() {
     if PROFILER.get().is_none() {
-        let _ = PROFILER.set(Arc::new(Profiler::new()));
+        let _ = PROFILER.set(Profiler::new());
     } else if let Some(profiler) = PROFILER.get() {
         profiler.clear_timings();
     }
 }
 
 /// Get reference to the global profiler
-pub fn get_profiler() -> Option<Arc<Profiler>> {
-    PROFILER.get().cloned()
+pub fn get_profiler() -> Option<&'static Profiler> {
+    PROFILER.get()
 }
 
 /// Convenience macros for debug logging
@@ -400,14 +398,12 @@ pub fn get_profiler() -> Option<Arc<Profiler>> {
 macro_rules! debug_trace {
     ($($arg:tt)*) => {
         if let Some(system) = $crate::common::system::debug::get_debug_system() {
-            if let Ok(system) = system.lock() {
-                system.log(
-                    $crate::common::system::debug::DebugLevel::Trace,
-                    format!($($arg)*),
-                    file!().to_string(),
-                    line!()
-                );
-            }
+            system.log(
+                $crate::common::system::debug::DebugLevel::Trace,
+                format!($($arg)*),
+                file!().to_string(),
+                line!()
+            );
         }
     };
 }
@@ -416,14 +412,12 @@ macro_rules! debug_trace {
 macro_rules! debug_info {
     ($($arg:tt)*) => {
         if let Some(system) = $crate::common::system::debug::get_debug_system() {
-            if let Ok(system) = system.lock() {
-                system.log(
-                    $crate::common::system::debug::DebugLevel::Info,
-                    format!($($arg)*),
-                    file!().to_string(),
-                    line!()
-                );
-            }
+            system.log(
+                $crate::common::system::debug::DebugLevel::Info,
+                format!($($arg)*),
+                file!().to_string(),
+                line!()
+            );
         }
     };
 }
@@ -432,14 +426,12 @@ macro_rules! debug_info {
 macro_rules! debug_warn {
     ($($arg:tt)*) => {
         if let Some(system) = $crate::common::system::debug::get_debug_system() {
-            if let Ok(system) = system.lock() {
-                system.log(
-                    $crate::common::system::debug::DebugLevel::Warning,
-                    format!($($arg)*),
-                    file!().to_string(),
-                    line!()
-                );
-            }
+            system.log(
+                $crate::common::system::debug::DebugLevel::Warning,
+                format!($($arg)*),
+                file!().to_string(),
+                line!()
+            );
         }
     };
 }
@@ -448,14 +440,12 @@ macro_rules! debug_warn {
 macro_rules! debug_error {
     ($($arg:tt)*) => {
         if let Some(system) = $crate::common::system::debug::get_debug_system() {
-            if let Ok(system) = system.lock() {
-                system.log(
-                    $crate::common::system::debug::DebugLevel::Error,
-                    format!($($arg)*),
-                    file!().to_string(),
-                    line!()
-                );
-            }
+            system.log(
+                $crate::common::system::debug::DebugLevel::Error,
+                format!($($arg)*),
+                file!().to_string(),
+                line!()
+            );
         }
     };
 }

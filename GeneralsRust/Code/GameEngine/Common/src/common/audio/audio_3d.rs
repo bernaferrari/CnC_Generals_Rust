@@ -487,14 +487,17 @@ impl Default for OcclusionData {
     }
 }
 
-/// Main 3D audio processor
 pub struct SpatialAudioProcessor {
-    listener: RwLock<SpatialListener>,
-    sources: RwLock<HashMap<AudioHandle, SpatialSource>>,
-    zones: RwLock<HashMap<u32, AudioZone>>,
-    current_zone: RwLock<Option<u32>>,
-    occlusion_cache: RwLock<HashMap<AudioHandle, OcclusionData>>,
-    global_3d_settings: RwLock<Global3DSettings>,
+    state: RwLock<SpatialProcessorState>,
+}
+
+struct SpatialProcessorState {
+    listener: SpatialListener,
+    sources: HashMap<AudioHandle, SpatialSource>,
+    zones: HashMap<u32, AudioZone>,
+    current_zone: Option<u32>,
+    occlusion_cache: HashMap<AudioHandle, OcclusionData>,
+    global_3d_settings: Global3DSettings,
 }
 
 #[derive(Debug, Clone)]
@@ -523,40 +526,39 @@ impl Default for Global3DSettings {
 impl SpatialAudioProcessor {
     pub fn new() -> Self {
         Self {
-            listener: RwLock::new(SpatialListener::new()),
-            sources: RwLock::new(HashMap::new()),
-            zones: RwLock::new(HashMap::new()),
-            current_zone: RwLock::new(None),
-            occlusion_cache: RwLock::new(HashMap::new()),
-            global_3d_settings: RwLock::new(Global3DSettings::default()),
+            state: RwLock::new(SpatialProcessorState {
+                listener: SpatialListener::new(),
+                sources: HashMap::new(),
+                zones: HashMap::new(),
+                current_zone: None,
+                occlusion_cache: HashMap::new(),
+                global_3d_settings: Global3DSettings::default(),
+            }),
         }
     }
-
     /// Update listener position and orientation
     pub fn update_listener(&self, listener: SpatialListener) {
-        *self.listener.write().unwrap() = listener;
+        self.state.write().unwrap().listener = listener;
         self.update_current_zone();
     }
 
     /// Add or update a 3D audio source
     pub fn add_source(&self, source: SpatialSource) {
-        let mut sources = self.sources.write().unwrap();
-        sources.insert(source.handle, source);
+        let mut state = self.state.write().unwrap();
+        state.sources.insert(source.handle, source);
     }
 
     /// Remove a 3D audio source
     pub fn remove_source(&self, handle: AudioHandle) -> bool {
-        let mut sources = self.sources.write().unwrap();
-        let mut occlusion_cache = self.occlusion_cache.write().unwrap();
-
-        occlusion_cache.remove(&handle);
-        sources.remove(&handle).is_some()
+        let mut state = self.state.write().unwrap();
+        state.occlusion_cache.remove(&handle);
+        state.sources.remove(&handle).is_some()
     }
 
     /// Update source position
     pub fn update_source_position(&self, handle: AudioHandle, position: Position3D) -> bool {
-        let mut sources = self.sources.write().unwrap();
-        if let Some(source) = sources.get_mut(&handle) {
+        let mut state = self.state.write().unwrap();
+        if let Some(source) = state.sources.get_mut(&handle) {
             source.position = position;
             true
         } else {
@@ -566,8 +568,8 @@ impl SpatialAudioProcessor {
 
     /// Update source velocity
     pub fn update_source_velocity(&self, handle: AudioHandle, velocity: Velocity3D) -> bool {
-        let mut sources = self.sources.write().unwrap();
-        if let Some(source) = sources.get_mut(&handle) {
+        let mut state = self.state.write().unwrap();
+        if let Some(source) = state.sources.get_mut(&handle) {
             source.velocity = velocity;
             true
         } else {
@@ -577,43 +579,40 @@ impl SpatialAudioProcessor {
 
     /// Add environmental audio zone
     pub fn add_audio_zone(&self, zone: AudioZone) {
-        let mut zones = self.zones.write().unwrap();
-        zones.insert(zone.id, zone);
+        let mut state = self.state.write().unwrap();
+        state.zones.insert(zone.id, zone);
     }
 
     /// Remove environmental audio zone
     pub fn remove_audio_zone(&self, zone_id: u32) -> bool {
-        let mut zones = self.zones.write().unwrap();
-        zones.remove(&zone_id).is_some()
+        self.state.write().unwrap().zones.remove(&zone_id).is_some()
     }
 
     /// Calculate 3D audio parameters for a source
     pub fn calculate_3d_audio_params(&self, handle: AudioHandle) -> Option<Audio3DParams> {
-        let sources = self.sources.read().unwrap();
-        let listener = self.listener.read().unwrap();
-        let global_settings = self.global_3d_settings.read().unwrap();
+        let state = self.state.read().unwrap();
 
-        let source = sources.get(&handle)?;
+        let source = state.sources.get(&handle)?;
+        let listener = &state.listener;
 
         let distance = listener.position.distance_to(&source.position);
         let distance_attenuation = source.calculate_distance_attenuation(distance);
         let cone_attenuation = source.calculate_cone_attenuation(&listener.position);
-        let doppler_shift = source.calculate_doppler_shift(&listener);
+        let doppler_shift = source.calculate_doppler_shift(listener);
         let pan = listener.calculate_pan(&source.position);
 
         // Get occlusion data
-        let occlusion_cache = self.occlusion_cache.read().unwrap();
-        let occlusion = occlusion_cache.get(&handle).cloned().unwrap_or_default();
+        let occlusion = state.occlusion_cache.get(&handle).cloned().unwrap_or_default();
 
         // Calculate final volume with all attenuations
-        let final_volume = source.gain * 
-                          distance_attenuation * 
-                          cone_attenuation * 
+        let final_volume = source.gain *
+                          distance_attenuation *
+                          cone_attenuation *
                           (1.0 - occlusion.occlusion_factor * 0.8) * // Occlusion reduces volume
                           (1.0 - occlusion.obstruction_factor * 0.6); // Obstruction reduces volume less
 
         // Calculate environmental reverb mix
-        let reverb_mix = self.calculate_reverb_mix(&source.position);
+        let reverb_mix = Self::calculate_reverb_mix(&state.zones, &source.position);
 
         Some(Audio3DParams {
             volume: final_volume.clamp(0.0, 1.0),
@@ -628,37 +627,43 @@ impl SpatialAudioProcessor {
 
     /// Get all currently tracked sources
     pub fn get_all_sources(&self) -> Vec<SpatialSource> {
-        let sources = self.sources.read().unwrap();
-        sources.values().cloned().collect()
+        self.state
+            .read()
+            .unwrap()
+            .sources
+            .values()
+            .cloned()
+            .collect()
     }
 
     /// Get current listener position
     pub fn get_listener_position(&self) -> Position3D {
-        self.listener.read().unwrap().position
+        self.state.read().unwrap().listener.position
     }
 
     /// Set occlusion data for a source
     pub fn set_occlusion(&self, handle: AudioHandle, occlusion: OcclusionData) {
-        let mut occlusion_cache = self.occlusion_cache.write().unwrap();
-        occlusion_cache.insert(handle, occlusion);
+        self.state
+            .write()
+            .unwrap()
+            .occlusion_cache
+            .insert(handle, occlusion);
     }
 
     /// Update global 3D settings
     pub fn set_global_settings(&self, settings: Global3DSettings) {
-        *self.global_3d_settings.write().unwrap() = settings;
+        self.state.write().unwrap().global_3d_settings = settings;
     }
 
     /// Get statistics about 3D audio processing
     pub fn get_statistics(&self) -> SpatialAudioStats {
-        let sources = self.sources.read().unwrap();
-        let zones = self.zones.read().unwrap();
-        let listener = self.listener.read().unwrap();
+        let state = self.state.read().unwrap();
 
         let mut audible_sources = 0;
         let mut total_distance = 0.0;
 
-        for source in sources.values() {
-            let distance = listener.position.distance_to(&source.position);
+        for source in state.sources.values() {
+            let distance = state.listener.position.distance_to(&source.position);
             total_distance += distance;
 
             if distance <= source.max_distance {
@@ -666,25 +671,23 @@ impl SpatialAudioProcessor {
             }
         }
 
-        let avg_distance = if sources.len() > 0 {
-            total_distance / sources.len() as Real
+        let avg_distance = if state.sources.len() > 0 {
+            total_distance / state.sources.len() as Real
         } else {
             0.0
         };
 
         SpatialAudioStats {
-            total_sources: sources.len(),
+            total_sources: state.sources.len(),
             audible_sources,
-            audio_zones: zones.len(),
+            audio_zones: state.zones.len(),
             average_distance: avg_distance,
-            current_zone: *self.current_zone.read().unwrap(),
+            current_zone: state.current_zone,
         }
     }
 
     /// Calculate reverb mix based on environmental zones
-    fn calculate_reverb_mix(&self, position: &Position3D) -> Real {
-        let zones = self.zones.read().unwrap();
-
+    fn calculate_reverb_mix(zones: &HashMap<u32, AudioZone>, position: &Position3D) -> Real {
         let mut total_influence = 0.0;
         let mut weighted_reverb = 0.0;
 
@@ -713,15 +716,13 @@ impl SpatialAudioProcessor {
 
     /// Update which audio zone the listener is currently in
     fn update_current_zone(&self) {
-        let listener = self.listener.read().unwrap();
-        let zones = self.zones.read().unwrap();
-        let mut current_zone = self.current_zone.write().unwrap();
+        let mut state = self.state.write().unwrap();
 
         let mut best_zone_id = None;
         let mut best_priority = Int::MIN;
 
-        for zone in zones.values() {
-            if zone.contains_point(&listener.position) {
+        for zone in state.zones.values() {
+            if zone.contains_point(&state.listener.position) {
                 if zone.priority > best_priority {
                     best_priority = zone.priority;
                     best_zone_id = Some(zone.id);
@@ -729,7 +730,7 @@ impl SpatialAudioProcessor {
             }
         }
 
-        *current_zone = best_zone_id;
+        state.current_zone = best_zone_id;
     }
 }
 

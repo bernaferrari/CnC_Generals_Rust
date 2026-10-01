@@ -8,7 +8,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::Arc;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use crate::common::audio::audio_event_rts::{AudioEventInfo, AudioEventRts};
@@ -141,20 +141,23 @@ impl CacheStats {
 /// - Thread-safe access
 /// - Comprehensive statistics
 pub struct AudioFileCache {
-    /// Map of file paths to cached audio files
-    cache: RwLock<HashMap<PathBuf, OpenAudioFile>>,
-    /// Current total size of cached data
-    current_size: RwLock<usize>,
+    /// Consolidated mutable cache state behind one lock.
+    state: parking_lot::RwLock<AudioCacheState>,
     /// Maximum allowed cache size
     max_size: usize,
+}
+
+struct AudioCacheState {
+    /// Map of file paths to cached audio files
+    cache: HashMap<PathBuf, OpenAudioFile>,
+    /// Current total size of cached data
+    current_size: usize,
     /// LRU access order queue
-    access_order: RwLock<VecDeque<PathBuf>>,
+    access_order: VecDeque<PathBuf>,
     /// Cache statistics
-    stats: RwLock<CacheStats>,
-    /// Thread synchronization for cache operations
-    operation_lock: Mutex<()>,
+    stats: CacheStats,
     /// Search paths for audio files
-    search_paths: RwLock<Vec<PathBuf>>,
+    search_paths: Vec<PathBuf>,
     /// Session-lifetime tombstones for keys whose loader already returned
     /// `None`. C++ parity anchor: `AudioFileCache::openFile`
     /// (MilesAudioManager.cpp:3102-3136) looks `m_openFiles` up by filename
@@ -163,51 +166,50 @@ pub struct AudioFileCache {
     /// previously playing, so a miss cannot spin. The Rust live host
     /// re-queues failed ambient loops, so misses must be remembered here or
     /// every failing play re-probes the VFS per frame.
-    negative_cache: parking_lot::RwLock<HashSet<PathBuf>>,
+    negative_cache: HashSet<PathBuf>,
 }
 
 impl AudioFileCache {
     /// Create a new audio file cache with specified maximum size
     pub fn new(max_size: usize) -> Self {
         Self {
-            cache: RwLock::new(HashMap::new()),
-            current_size: RwLock::new(0),
-            max_size,
-            access_order: RwLock::new(VecDeque::new()),
-            stats: RwLock::new(CacheStats {
+            state: parking_lot::RwLock::new(AudioCacheState {
+                cache: HashMap::new(),
                 current_size: 0,
-                max_size,
-                entry_count: 0,
-                hit_count: 0,
-                miss_count: 0,
-                eviction_count: 0,
-                total_requests: 0,
+                access_order: VecDeque::new(),
+                stats: CacheStats {
+                    current_size: 0,
+                    max_size,
+                    entry_count: 0,
+                    hit_count: 0,
+                    miss_count: 0,
+                    eviction_count: 0,
+                    total_requests: 0,
+                },
+                search_paths: vec![
+                    PathBuf::from("./data/audio/"),
+                    PathBuf::from("./assets/audio/"),
+                    PathBuf::from("./audio/"),
+                ],
+                negative_cache: HashSet::new(),
             }),
-            operation_lock: Mutex::new(()),
-            search_paths: RwLock::new(vec![
-                PathBuf::from("./data/audio/"),
-                PathBuf::from("./assets/audio/"),
-                PathBuf::from("./audio/"),
-            ]),
-            negative_cache: parking_lot::RwLock::new(HashSet::new()),
+            max_size,
         }
     }
 
     /// Add a search path for audio files
     pub fn add_search_path<P: AsRef<Path>>(&self, path: P) {
-        let mut search_paths = self.search_paths.write().unwrap();
-        search_paths.push(path.as_ref().to_path_buf());
+        self.state.write().search_paths.push(path.as_ref().to_path_buf());
     }
 
     /// Clear all search paths
     pub fn clear_search_paths(&self) {
-        let mut search_paths = self.search_paths.write().unwrap();
-        search_paths.clear();
+        self.state.write().search_paths.clear();
     }
 
     /// Set maximum cache size
     pub fn set_max_size(&self, max_size: usize) {
-        let _lock = self.operation_lock.lock().unwrap();
+        let mut state = self.state.write();
 
         let old_max_size = self.max_size;
         // We can't actually change max_size because it's not mutable
@@ -215,35 +217,30 @@ impl AudioFileCache {
 
         // For now, just trigger cleanup if new size is smaller
         if max_size < old_max_size {
-            self.ensure_space_available(0); // Force cleanup
+            Self::ensure_space_available(&mut state, self.max_size, 0); // Force cleanup
         }
 
         // Update stats
-        let mut stats = self.stats.write().unwrap();
-        stats.max_size = max_size;
+        state.stats.max_size = max_size;
     }
 
     /// Open/load an audio file - main entry point
     pub fn open_file(&self, event: &AudioEventRts) -> Option<Arc<Vec<u8>>> {
-        let _lock = self.operation_lock.lock().unwrap();
-
         let file_path = self.resolve_file_path(event)?;
 
+        let mut state = self.state.write();
+
         // Update stats
-        {
-            let mut stats = self.stats.write().unwrap();
-            stats.total_requests += 1;
-        }
+        state.stats.total_requests += 1;
 
         // Check if already cached
-        if let Some(data) = self.get_cached_file(&file_path) {
-            let mut stats = self.stats.write().unwrap();
-            stats.hit_count += 1;
+        if let Some(data) = Self::get_cached_file(&mut state, &file_path) {
+            state.stats.hit_count += 1;
             return Some(data);
         }
 
         // Cache miss - load the file
-        self.load_and_cache_file(file_path)
+        Self::load_and_cache_file(&mut state, self.max_size, file_path)
     }
 
     /// C++ `AudioFileCache::openFile` hit path: refcount an already-loaded buffer
@@ -255,16 +252,12 @@ impl AudioFileCache {
         loader: impl FnOnce() -> Option<Vec<u8>>,
     ) -> Option<Arc<Vec<u8>>> {
         let path = PathBuf::from(key);
-        let _lock = self.operation_lock.lock().unwrap();
+        let mut state = self.state.write();
 
-        {
-            let mut stats = self.stats.write().unwrap();
-            stats.total_requests += 1;
-        }
+        state.stats.total_requests += 1;
 
-        if let Some(data) = self.get_cached_file(&path) {
-            let mut stats = self.stats.write().unwrap();
-            stats.hit_count += 1;
+        if let Some(data) = Self::get_cached_file(&mut state, &path) {
+            state.stats.hit_count += 1;
             return Some(data);
         }
 
@@ -272,9 +265,8 @@ impl AudioFileCache {
         // returned None must not re-probe. Without this, a missing sample
         // re-runs the loader (~8 path candidates + fs reads) on every play
         // attempt while a failing loop re-queues per frame.
-        if self.negative_cache.read().contains(&path) {
-            let mut stats = self.stats.write().unwrap();
-            stats.miss_count += 1;
+        if state.negative_cache.contains(&path) {
+            state.stats.miss_count += 1;
             return None;
         }
 
@@ -282,32 +274,27 @@ impl AudioFileCache {
             // Tombstone the miss for the cache's lifetime (session): the
             // sample is absent, so the next open of this name is an
             // immediate miss instead of another VFS probe.
-            self.negative_cache.write().insert(path.clone());
-            let mut stats = self.stats.write().unwrap();
-            stats.miss_count += 1;
+            state.negative_cache.insert(path.clone());
+            state.stats.miss_count += 1;
             return None;
         };
         let file_size = data.len();
-        if !self.ensure_space_available(file_size) {
-            let mut stats = self.stats.write().unwrap();
-            stats.miss_count += 1;
+        if !Self::ensure_space_available(&mut state, self.max_size, file_size) {
+            state.stats.miss_count += 1;
             return None;
         }
 
-        let sound_info = self.analyze_audio_file(&data);
+        let sound_info = Self::analyze_audio_file(&data);
         let open_file = OpenAudioFile::new(path.clone(), data, sound_info);
         let result_data = open_file.file_data.clone();
 
-        let mut cache = self.cache.write().unwrap();
-        let mut current_size = self.current_size.write().unwrap();
-        cache.insert(path.clone(), open_file);
-        *current_size += file_size;
-        self.update_access_order(&path);
+        state.cache.insert(path.clone(), open_file);
+        state.current_size += file_size;
+        Self::update_access_order(&mut state, &path);
 
-        let mut stats = self.stats.write().unwrap();
-        stats.miss_count += 1;
-        stats.entry_count = cache.len();
-        stats.current_size = *current_size;
+        state.stats.miss_count += 1;
+        state.stats.entry_count = state.cache.len();
+        state.stats.current_size = state.current_size;
         Some(result_data)
     }
 
@@ -318,10 +305,8 @@ impl AudioFileCache {
 
     /// Close/release a file (decrement reference count)
     pub fn close_file(&self, file_path: &Path) {
-        let _lock = self.operation_lock.lock().unwrap();
-
-        let mut cache = self.cache.write().unwrap();
-        if let Some(open_file) = cache.get_mut(file_path) {
+        let mut state = self.state.write();
+        if let Some(open_file) = state.cache.get_mut(file_path) {
             if !open_file.release_ref() {
                 // Reference count reached zero, but we keep it in cache for potential reuse
                 // Actual removal will happen during cache pressure or cleanup
@@ -331,13 +316,10 @@ impl AudioFileCache {
 
     /// Force removal of files using a specific file handle (for when files are deleted externally)
     pub fn close_any_samples_using_file(&self, file_data: &Vec<u8>) {
-        let _lock = self.operation_lock.lock().unwrap();
+        let mut state = self.state.write();
 
-        let mut cache = self.cache.write().unwrap();
-        let mut current_size = self.current_size.write().unwrap();
-        let mut access_order = self.access_order.write().unwrap();
-
-        let files_to_remove: Vec<PathBuf> = cache
+        let files_to_remove: Vec<PathBuf> = state
+            .cache
             .iter()
             .filter(|(_, open_file)| {
                 Arc::ptr_eq(&open_file.file_data, &Arc::new(file_data.clone()))
@@ -346,67 +328,57 @@ impl AudioFileCache {
             .collect();
 
         for file_path in files_to_remove {
-            if let Some(open_file) = cache.remove(&file_path) {
-                *current_size -= open_file.file_size as usize;
+            if let Some(open_file) = state.cache.remove(&file_path) {
+                state.current_size -= open_file.file_size as usize;
 
                 // Remove from access order
-                if let Some(pos) = access_order.iter().position(|p| p == &file_path) {
-                    access_order.remove(pos);
+                if let Some(pos) = state.access_order.iter().position(|p| p == &file_path) {
+                    state.access_order.remove(pos);
                 }
             }
         }
 
         // Update stats
-        let mut stats = self.stats.write().unwrap();
-        stats.entry_count = cache.len();
-        stats.current_size = *current_size;
+        state.stats.entry_count = state.cache.len();
+        state.stats.current_size = state.current_size;
     }
 
     /// Get current cache statistics
     pub fn get_statistics(&self) -> CacheStats {
-        self.stats.read().unwrap().clone()
+        self.state.read().stats.clone()
     }
 
     /// Get current cache size and entry count
     pub fn cache_info(&self) -> (usize, usize, usize) {
-        let current_size = *self.current_size.read().unwrap();
-        let cache = self.cache.read().unwrap();
-        (current_size, self.max_size, cache.len())
+        let state = self.state.read();
+        (state.current_size, self.max_size, state.cache.len())
     }
 
     /// Clear all cached files
     pub fn clear_cache(&self) {
-        let _lock = self.operation_lock.lock().unwrap();
+        let mut state = self.state.write();
 
-        let mut cache = self.cache.write().unwrap();
-        let mut current_size = self.current_size.write().unwrap();
-        let mut access_order = self.access_order.write().unwrap();
-
-        cache.clear();
-        *current_size = 0;
-        access_order.clear();
+        state.cache.clear();
+        state.current_size = 0;
+        state.access_order.clear();
         // Miss tombstones are session state keyed to the cache contents;
         // a full clear re-arms probing for every name.
-        self.negative_cache.write().clear();
+        state.negative_cache.clear();
 
-        let mut stats = self.stats.write().unwrap();
-        stats.entry_count = 0;
-        stats.current_size = 0;
+        state.stats.entry_count = 0;
+        state.stats.current_size = 0;
     }
 
     /// Perform maintenance - remove unused files, update stats
     pub fn maintenance(&self) {
-        let _lock = self.operation_lock.lock().unwrap();
-
         // Remove files with zero reference count that are old
-        let mut cache = self.cache.write().unwrap();
-        let mut current_size = self.current_size.write().unwrap();
-        let mut access_order = self.access_order.write().unwrap();
+        let mut state = self.state.write();
 
         let now = SystemTime::now();
         let max_age_seconds = 300; // 5 minutes
 
-        let files_to_remove: Vec<PathBuf> = cache
+        let files_to_remove: Vec<PathBuf> = state
+            .cache
             .iter()
             .filter(|(_, open_file)| {
                 open_file.open_count == 0
@@ -420,31 +392,28 @@ impl AudioFileCache {
             .collect();
 
         for file_path in files_to_remove {
-            if let Some(open_file) = cache.remove(&file_path) {
-                *current_size -= open_file.file_size as usize;
+            if let Some(open_file) = state.cache.remove(&file_path) {
+                state.current_size -= open_file.file_size as usize;
 
-                if let Some(pos) = access_order.iter().position(|p| p == &file_path) {
-                    access_order.remove(pos);
+                if let Some(pos) = state.access_order.iter().position(|p| p == &file_path) {
+                    state.access_order.remove(pos);
                 }
             }
         }
 
         // Update stats
-        let mut stats = self.stats.write().unwrap();
-        stats.entry_count = cache.len();
-        stats.current_size = *current_size;
+        state.stats.entry_count = state.cache.len();
+        state.stats.current_size = state.current_size;
     }
 }
 
 // Private helper methods
 impl AudioFileCache {
     /// Get cached file if available
-    fn get_cached_file(&self, file_path: &Path) -> Option<Arc<Vec<u8>>> {
-        let mut cache = self.cache.write().unwrap();
-
-        if let Some(open_file) = cache.get_mut(file_path) {
+    fn get_cached_file(state: &mut AudioCacheState, file_path: &Path) -> Option<Arc<Vec<u8>>> {
+        if let Some(open_file) = state.cache.get_mut(file_path) {
             open_file.add_ref();
-            self.update_access_order(file_path);
+            Self::update_access_order(state, file_path);
             return Some(open_file.file_data.clone());
         }
 
@@ -452,14 +421,17 @@ impl AudioFileCache {
     }
 
     /// Load file from disk and add to cache
-    fn load_and_cache_file(&self, file_path: PathBuf) -> Option<Arc<Vec<u8>>> {
+    fn load_and_cache_file(
+        state: &mut AudioCacheState,
+        max_size: usize,
+        file_path: PathBuf,
+    ) -> Option<Arc<Vec<u8>>> {
         // Try to load the file
-        let file_data = match self.load_audio_file(&file_path) {
+        let file_data = match Self::load_audio_file(&file_path) {
             Ok(data) => data,
             Err(e) => {
                 eprintln!("Failed to load audio file {:?}: {}", file_path, e);
-                let mut stats = self.stats.write().unwrap();
-                stats.miss_count += 1;
+                state.stats.miss_count += 1;
                 return None;
             }
         };
@@ -467,43 +439,38 @@ impl AudioFileCache {
         let file_size = file_data.len();
 
         // Ensure we have space
-        if !self.ensure_space_available(file_size) {
+        if !Self::ensure_space_available(state, max_size, file_size) {
             eprintln!(
                 "Not enough cache space for file {:?} (size: {})",
                 file_path, file_size
             );
-            let mut stats = self.stats.write().unwrap();
-            stats.miss_count += 1;
+            state.stats.miss_count += 1;
             return None;
         }
 
         // Create sound info (in a real implementation, we'd parse the audio file headers)
-        let sound_info = self.analyze_audio_file(&file_data);
+        let sound_info = Self::analyze_audio_file(&file_data);
 
         // Create cache entry
         let open_file = OpenAudioFile::new(file_path.clone(), file_data, sound_info);
         let result_data = open_file.file_data.clone();
 
         // Add to cache
-        let mut cache = self.cache.write().unwrap();
-        let mut current_size = self.current_size.write().unwrap();
+        state.cache.insert(file_path.clone(), open_file);
+        state.current_size += file_size;
 
-        cache.insert(file_path.clone(), open_file);
-        *current_size += file_size;
-
-        self.update_access_order(&file_path);
+        Self::update_access_order(state, &file_path);
 
         // Update stats
-        let mut stats = self.stats.write().unwrap();
-        stats.miss_count += 1;
-        stats.entry_count = cache.len();
-        stats.current_size = *current_size;
+        state.stats.miss_count += 1;
+        state.stats.entry_count = state.cache.len();
+        state.stats.current_size = state.current_size;
 
         Some(result_data)
     }
 
     /// Load audio file from disk
-    fn load_audio_file(&self, file_path: &Path) -> Result<Vec<u8>, std::io::Error> {
+    fn load_audio_file(file_path: &Path) -> Result<Vec<u8>, std::io::Error> {
         let mut file = File::open(file_path)?;
         let mut data = Vec::new();
         file.read_to_end(&mut data)?;
@@ -511,7 +478,7 @@ impl AudioFileCache {
     }
 
     /// Analyze audio file to extract basic information
-    fn analyze_audio_file(&self, data: &[u8]) -> SoundInfo {
+    fn analyze_audio_file(data: &[u8]) -> SoundInfo {
         // In a real implementation, we'd parse WAV, MP3, OGG headers
         // For now, return default values
         let mut sound_info = SoundInfo::default();
@@ -549,7 +516,7 @@ impl AudioFileCache {
         };
 
         // Try each search path
-        let search_paths = self.search_paths.read().unwrap();
+        let search_paths = self.state.read().search_paths.clone();
         for base_path in search_paths.iter() {
             let full_path = base_path.join(filename);
             if full_path.exists() {
@@ -570,25 +537,22 @@ impl AudioFileCache {
     }
 
     /// Ensure enough space is available for a new file
-    fn ensure_space_available(&self, needed_size: usize) -> bool {
-        if needed_size > self.max_size {
+    fn ensure_space_available(
+        state: &mut AudioCacheState,
+        max_size: usize,
+        needed_size: usize,
+    ) -> bool {
+        if needed_size > max_size {
             return false; // File too large for cache
         }
 
-        let mut current_size = self.current_size.write().unwrap();
-
-        if *current_size + needed_size <= self.max_size {
+        if state.current_size + needed_size <= max_size {
             return true; // Already enough space
         }
 
-        // Need to free some space
-        let mut cache = self.cache.write().unwrap();
-        let mut access_order = self.access_order.write().unwrap();
-        let mut stats = self.stats.write().unwrap();
-
         // First, try to remove unused files (ref count = 0)
         let mut files_to_remove = Vec::new();
-        for (path, open_file) in cache.iter() {
+        for (path, open_file) in state.cache.iter() {
             if open_file.open_count == 0 {
                 files_to_remove.push((
                     path.clone(),
@@ -603,46 +567,44 @@ impl AudioFileCache {
 
         // Remove files until we have enough space
         for (path, file_size, _) in files_to_remove {
-            if *current_size + needed_size <= self.max_size {
+            if state.current_size + needed_size <= max_size {
                 break;
             }
 
-            cache.remove(&path);
-            *current_size -= file_size;
-            stats.eviction_count += 1;
+            state.cache.remove(&path);
+            state.current_size -= file_size;
+            state.stats.eviction_count += 1;
 
             // Remove from access order
-            if let Some(pos) = access_order.iter().position(|p| p == &path) {
-                access_order.remove(pos);
+            if let Some(pos) = state.access_order.iter().position(|p| p == &path) {
+                state.access_order.remove(pos);
             }
         }
 
         // If still not enough space, we can't cache this file
-        let result = *current_size + needed_size <= self.max_size;
+        let result = state.current_size + needed_size <= max_size;
 
         // Update stats
-        stats.entry_count = cache.len();
-        stats.current_size = *current_size;
+        state.stats.entry_count = state.cache.len();
+        state.stats.current_size = state.current_size;
 
         result
     }
 
     /// Update access order for LRU
-    fn update_access_order(&self, file_path: &Path) {
-        let mut access_order = self.access_order.write().unwrap();
-
+    fn update_access_order(state: &mut AudioCacheState, file_path: &Path) {
         // Remove if already present
-        if let Some(pos) = access_order.iter().position(|p| p == file_path) {
-            access_order.remove(pos);
+        if let Some(pos) = state.access_order.iter().position(|p| p == file_path) {
+            state.access_order.remove(pos);
         }
 
         // Add to end (most recent)
-        access_order.push_back(file_path.to_path_buf());
+        state.access_order.push_back(file_path.to_path_buf());
 
         // Limit access order size
         const MAX_ACCESS_HISTORY: usize = 1000;
-        while access_order.len() > MAX_ACCESS_HISTORY {
-            access_order.pop_front();
+        while state.access_order.len() > MAX_ACCESS_HISTORY {
+            state.access_order.pop_front();
         }
     }
 }
@@ -692,15 +654,16 @@ impl Default for AudioFileCacheBuilder {
 impl AudioFileCache {
     /// Get memory usage information
     pub fn memory_info(&self) -> (usize, usize, f64) {
-        let current_size = *self.current_size.read().unwrap();
+        let current_size = self.state.read().current_size;
         let usage_percent = (current_size as f64 / self.max_size as f64) * 100.0;
         (current_size, self.max_size, usage_percent)
     }
 
     /// Get list of currently cached files
     pub fn get_cached_files(&self) -> Vec<(PathBuf, usize, u32)> {
-        let cache = self.cache.read().unwrap();
-        cache
+        let state = self.state.read();
+        state
+            .cache
             .iter()
             .map(|(path, open_file)| {
                 (
@@ -714,37 +677,31 @@ impl AudioFileCache {
 
     /// Check if a specific file is cached
     pub fn is_cached(&self, file_path: &Path) -> bool {
-        let cache = self.cache.read().unwrap();
-        cache.contains_key(file_path)
+        self.state.read().cache.contains_key(file_path)
     }
 
     /// Preload a file into cache (if space available)
     pub fn preload_file(&self, file_path: &Path) -> bool {
-        let _lock = self.operation_lock.lock().unwrap();
-
         if self.is_cached(file_path) {
             return true; // Already cached
         }
 
-        match self.load_audio_file(file_path) {
+        match Self::load_audio_file(file_path) {
             Ok(data) => {
                 let file_size = data.len();
-                if self.ensure_space_available(file_size) {
-                    let sound_info = self.analyze_audio_file(&data);
+                let mut state = self.state.write();
+                if Self::ensure_space_available(&mut state, self.max_size, file_size) {
+                    let sound_info = Self::analyze_audio_file(&data);
                     let open_file = OpenAudioFile::new(file_path.to_path_buf(), data, sound_info);
 
-                    let mut cache = self.cache.write().unwrap();
-                    let mut current_size = self.current_size.write().unwrap();
+                    state.cache.insert(file_path.to_path_buf(), open_file);
+                    state.current_size += file_size;
 
-                    cache.insert(file_path.to_path_buf(), open_file);
-                    *current_size += file_size;
-
-                    self.update_access_order(file_path);
+                    Self::update_access_order(&mut state, file_path);
 
                     // Update stats
-                    let mut stats = self.stats.write().unwrap();
-                    stats.entry_count = cache.len();
-                    stats.current_size = *current_size;
+                    state.stats.entry_count = state.cache.len();
+                    state.stats.current_size = state.current_size;
 
                     true
                 } else {
@@ -757,24 +714,19 @@ impl AudioFileCache {
 
     /// Remove a specific file from cache
     pub fn remove_file(&self, file_path: &Path) -> bool {
-        let _lock = self.operation_lock.lock().unwrap();
+        let mut state = self.state.write();
 
-        let mut cache = self.cache.write().unwrap();
-        let mut current_size = self.current_size.write().unwrap();
-        let mut access_order = self.access_order.write().unwrap();
+        if let Some(open_file) = state.cache.remove(file_path) {
+            state.current_size -= open_file.file_size as usize;
 
-        if let Some(open_file) = cache.remove(file_path) {
-            *current_size -= open_file.file_size as usize;
-
-            if let Some(pos) = access_order.iter().position(|p| p == file_path) {
-                access_order.remove(pos);
+            if let Some(pos) = state.access_order.iter().position(|p| p == file_path) {
+                state.access_order.remove(pos);
             }
 
             // Update stats
-            let mut stats = self.stats.write().unwrap();
-            stats.entry_count = cache.len();
-            stats.current_size = *current_size;
-            stats.eviction_count += 1;
+            state.stats.entry_count = state.cache.len();
+            state.stats.current_size = state.current_size;
+            state.stats.eviction_count += 1;
 
             true
         } else {

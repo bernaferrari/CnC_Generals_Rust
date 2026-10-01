@@ -703,7 +703,7 @@ pub struct AudioMixer {
     /// Master bus ID
     master_bus_id: UnsignedInt,
     /// Next available bus ID
-    next_bus_id: Arc<Mutex<UnsignedInt>>,
+    next_bus_id: Mutex<UnsignedInt>,
     /// Audio quality setting
     quality: RwLock<AudioQuality>,
     /// Sample rate
@@ -711,7 +711,7 @@ pub struct AudioMixer {
     /// Processing buffer size
     buffer_size: usize,
     /// Master limiter
-    limiter: Arc<Mutex<Compressor>>,
+    limiter: Mutex<Compressor>,
     /// Mix matrix for routing
     mix_matrix: RwLock<HashMap<(UnsignedInt, UnsignedInt), f32>>,
 }
@@ -721,11 +721,11 @@ impl AudioMixer {
         let mixer = Self {
             buses: RwLock::new(HashMap::new()),
             master_bus_id: 0,
-            next_bus_id: Arc::new(Mutex::new(1)),
+            next_bus_id: Mutex::new(1),
             quality: RwLock::new(AudioQuality::Medium),
             sample_rate,
             buffer_size: EFFECT_BUFFER_SIZE,
-            limiter: Arc::new(Mutex::new(Compressor::new(999, sample_rate))),
+            limiter: Mutex::new(Compressor::new(999, sample_rate)),
             mix_matrix: RwLock::new(HashMap::new()),
         };
 

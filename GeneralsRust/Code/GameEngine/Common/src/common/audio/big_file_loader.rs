@@ -261,20 +261,28 @@ impl BigFileReader {
 
 /// BIG File Audio Manager for handling multiple BIG archives
 pub struct BigFileAudioManager {
-    big_files: RwLock<HashMap<String, Arc<BigFileReader>>>,
-    search_order: RwLock<Vec<String>>, // Order in which to search BIG files
-    file_cache: RwLock<HashMap<String, (String, Vec<u8>)>>, // filename -> (big_file_name, data)
-    cache_size: RwLock<usize>,
+    state: RwLock<BigFileState>,
     max_cache_size: usize,
+}
+
+struct BigFileState {
+    big_files: HashMap<String, Arc<BigFileReader>>,
+    /// Order in which to search BIG files
+    search_order: Vec<String>,
+    /// filename -> (big_file_name, data)
+    file_cache: HashMap<String, (String, Vec<u8>)>,
+    cache_size: usize,
 }
 
 impl BigFileAudioManager {
     pub fn new(max_cache_size: usize) -> Self {
         Self {
-            big_files: RwLock::new(HashMap::new()),
-            search_order: RwLock::new(Vec::new()),
-            file_cache: RwLock::new(HashMap::new()),
-            cache_size: RwLock::new(0),
+            state: RwLock::new(BigFileState {
+                big_files: HashMap::new(),
+                search_order: Vec::new(),
+                file_cache: HashMap::new(),
+                cache_size: 0,
+            }),
             max_cache_size,
         }
     }
@@ -282,16 +290,12 @@ impl BigFileAudioManager {
     /// Load a BIG file and add it to the manager
     pub fn load_big_file<P: AsRef<Path>>(&self, name: String, file_path: P) -> Result<(), String> {
         let reader = Arc::new(BigFileReader::open(file_path)?);
-        
-        {
-            let mut big_files = self.big_files.write().unwrap();
-            big_files.insert(name.clone(), reader);
-        }
 
         {
-            let mut search_order = self.search_order.write().unwrap();
-            if !search_order.contains(&name) {
-                search_order.push(name);
+            let mut state = self.state.write().unwrap();
+            state.big_files.insert(name.clone(), reader);
+            if !state.search_order.contains(&name) {
+                state.search_order.push(name);
             }
         }
 
@@ -342,11 +346,10 @@ impl BigFileAudioManager {
 
     /// Search for an audio file across all loaded BIG files
     pub fn find_audio_file(&self, filename: &str) -> Option<String> {
-        let big_files = self.big_files.read().unwrap();
-        let search_order = self.search_order.read().unwrap();
+        let state = self.state.read().unwrap();
 
-        for big_name in search_order.iter() {
-            if let Some(big_file) = big_files.get(big_name) {
+        for big_name in state.search_order.iter() {
+            if let Some(big_file) = state.big_files.get(big_name) {
                 if big_file.contains_file(filename) {
                     return Some(big_name.clone());
                 }
@@ -360,8 +363,8 @@ impl BigFileAudioManager {
     pub fn load_audio_file(&self, filename: &str) -> Result<Vec<u8>, String> {
         // Check cache first
         {
-            let file_cache = self.file_cache.read().unwrap();
-            if let Some((_, data)) = file_cache.get(filename) {
+            let state = self.state.read().unwrap();
+            if let Some((_, data)) = state.file_cache.get(filename) {
                 return Ok(data.clone());
             }
         }
@@ -372,10 +375,10 @@ impl BigFileAudioManager {
 
         // Load from the appropriate BIG file
         let data = {
-            let big_files = self.big_files.read().unwrap();
-            let big_file = big_files.get(&big_file_name)
+            let state = self.state.read().unwrap();
+            let big_file = state.big_files.get(&big_file_name)
                 .ok_or_else(|| format!("BIG file '{}' not loaded", big_file_name))?;
-            
+
             big_file.extract_file(filename)?
         };
 
@@ -393,10 +396,10 @@ impl BigFileAudioManager {
 
     /// Get list of all audio files across all BIG archives
     pub fn list_all_audio_files(&self) -> Vec<String> {
-        let big_files = self.big_files.read().unwrap();
+        let state = self.state.read().unwrap();
         let mut all_files = Vec::new();
 
-        for big_file in big_files.values() {
+        for big_file in state.big_files.values() {
             let audio_files = big_file.list_audio_files();
             for file in audio_files {
                 if !all_files.contains(&file) {
@@ -411,17 +414,17 @@ impl BigFileAudioManager {
 
     /// Search for audio files matching a pattern
     pub fn search_audio_files(&self, pattern: &str) -> Vec<String> {
-        let big_files = self.big_files.read().unwrap();
+        let state = self.state.read().unwrap();
         let mut matching_files = Vec::new();
 
-        for big_file in big_files.values() {
+        for big_file in state.big_files.values() {
             let matches = big_file.search_files(pattern);
             for file in matches {
                 let file_lower = file.to_lowercase();
-                if (file_lower.ends_with(".wav") || 
-                    file_lower.ends_with(".mp3") || 
+                if (file_lower.ends_with(".wav") ||
+                    file_lower.ends_with(".mp3") ||
                     file_lower.ends_with(".ogg") ||
-                    file_lower.ends_with(".wma")) && 
+                    file_lower.ends_with(".wma")) &&
                    !matching_files.contains(&file) {
                     matching_files.push(file);
                 }
@@ -435,8 +438,8 @@ impl BigFileAudioManager {
     /// Get file size without loading the entire file
     pub fn get_file_size(&self, filename: &str) -> Option<u32> {
         if let Some(big_file_name) = self.find_audio_file(filename) {
-            let big_files = self.big_files.read().unwrap();
-            if let Some(big_file) = big_files.get(&big_file_name) {
+            let state = self.state.read().unwrap();
+            if let Some(big_file) = state.big_files.get(&big_file_name) {
                 return big_file.get_file_size(filename);
             }
         }
@@ -445,22 +448,21 @@ impl BigFileAudioManager {
 
     /// Clear the file cache
     pub fn clear_cache(&self) {
-        let mut file_cache = self.file_cache.write().unwrap();
-        file_cache.clear();
-        *self.cache_size.write().unwrap() = 0;
+        let mut state = self.state.write().unwrap();
+        state.file_cache.clear();
+        state.cache_size = 0;
     }
 
     /// Get cache statistics
     pub fn get_cache_stats(&self) -> (usize, usize, usize) {
-        let file_cache = self.file_cache.read().unwrap();
-        let cache_size = *self.cache_size.read().unwrap();
-        (cache_size, self.max_cache_size, file_cache.len())
+        let state = self.state.read().unwrap();
+        (state.cache_size, self.max_cache_size, state.file_cache.len())
     }
 
     /// Get information about loaded BIG files
     pub fn get_big_file_info(&self) -> Vec<(String, usize, u64)> {
-        let big_files = self.big_files.read().unwrap();
-        big_files.iter()
+        let state = self.state.read().unwrap();
+        state.big_files.iter()
             .map(|(name, reader)| {
                 (name.clone(), reader.get_file_count(), reader.get_archive_size())
             })
@@ -470,33 +472,32 @@ impl BigFileAudioManager {
     /// Cache a loaded file
     fn cache_file(&self, filename: String, big_file_name: String, data: Vec<u8>) {
         let data_size = data.len();
-        
+
         // Don't cache files that are too large
         if data_size > self.max_cache_size / 4 {
             return;
         }
 
-        let mut file_cache = self.file_cache.write().unwrap();
-        let mut cache_size = self.cache_size.write().unwrap();
+        let mut state = self.state.write().unwrap();
 
         // Make room if necessary
-        while *cache_size + data_size > self.max_cache_size && !file_cache.is_empty() {
+        while state.cache_size + data_size > self.max_cache_size && !state.file_cache.is_empty() {
             // Remove oldest entry (simple FIFO for now)
-            if let Some((old_filename, (_, old_data))) = file_cache.iter().next() {
+            if let Some((old_filename, (_, old_data))) = state.file_cache.iter().next() {
                 let old_size = old_data.len();
                 let old_filename = old_filename.clone();
                 drop(old_data); // Make sure we don't hold references
-                file_cache.remove(&old_filename);
-                *cache_size -= old_size;
+                state.file_cache.remove(&old_filename);
+                state.cache_size -= old_size;
             } else {
                 break;
             }
         }
 
         // Add new file to cache
-        if *cache_size + data_size <= self.max_cache_size {
-            file_cache.insert(filename, (big_file_name, data));
-            *cache_size += data_size;
+        if state.cache_size + data_size <= self.max_cache_size {
+            state.file_cache.insert(filename, (big_file_name, data));
+            state.cache_size += data_size;
         }
     }
 }

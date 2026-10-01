@@ -6,7 +6,7 @@
 use std::any::Any;
 use std::fs;
 use std::path::{Component, Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::Mutex;
 
 use crate::common::ascii_string::AsciiString;
 use crate::common::system::{
@@ -519,13 +519,13 @@ impl SubsystemInterface for LocalFileSystem {
 
 // Global local file system instance (mirrors TheLocalFileSystem singleton)
 lazy_static::lazy_static! {
-    pub static ref THE_LOCAL_FILE_SYSTEM: Arc<Mutex<LocalFileSystem>> =
-        Arc::new(Mutex::new(LocalFileSystem::new()));
+    pub static ref THE_LOCAL_FILE_SYSTEM: Mutex<LocalFileSystem> =
+        Mutex::new(LocalFileSystem::new());
 }
 
 /// Convenience function to access the global local file system
-pub fn get_local_file_system() -> Arc<Mutex<LocalFileSystem>> {
-    THE_LOCAL_FILE_SYSTEM.clone()
+pub fn get_local_file_system() -> &'static Mutex<LocalFileSystem> {
+    &THE_LOCAL_FILE_SYSTEM
 }
 
 #[cfg(test)]
