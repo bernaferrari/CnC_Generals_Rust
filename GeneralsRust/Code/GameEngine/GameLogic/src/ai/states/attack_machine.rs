@@ -1265,10 +1265,9 @@ pub(crate) fn attack_can_pursue(source: &Object, weapon: &Weapon, victim: &Objec
         let is_computer = source
             .get_controlling_player()
             .and_then(|player| {
-                player
-                    .read()
-                    .ok()
-                    .map(|player_guard| player_guard.get_player_type() == PlayerType::Computer)
+                crate::player::with_player(player, |player_guard| {
+                    player_guard.get_player_type() == PlayerType::Computer
+                })
             })
             .unwrap_or(false);
         if is_computer && source.get_crusher_level() > 0 && victim.is_kind_of(KindOf::Infantry) {
@@ -1287,12 +1286,7 @@ pub(crate) fn attack_can_pursue(source: &Object, weapon: &Weapon, victim: &Objec
 
     let victim_speed = victim
         .get_physics()
-        .and_then(|physics| {
-            physics
-                .lock()
-                .ok()
-                .map(|guard| guard.get_forward_speed_2d())
-        })
+        .map(|physics| physics.get_forward_speed_2d())
         .unwrap_or(0.0);
 
     if victim_speed >= our_max_speed {
@@ -1493,61 +1487,61 @@ impl AIAttackPursueTargetState {
             return Ok(StateReturnType::Success);
         }
 
-        let __owner_checkout = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner, |owner_guard| {
-        let victim_guard = victim
-            .read()
-            .map_err(|_| "attack pursue victim lock poisoned".to_string())?;
+        let __owner_checkout = crate::object::registry::OBJECT_REGISTRY.with_object_mut(
+            owner,
+            |owner_guard| -> Result<StateReturnType, String> {
+                // C++ AttackPursueGoalState::update: victim borrowed from the
+                // registry while the owner stays checked out (different ids).
+                let __victim_checkout = crate::object::registry::OBJECT_REGISTRY
+                    .with_object(victim_id, |victim_guard| -> Result<StateReturnType, String> {
+                        let Some((weapon, _slot)) = owner_guard.get_current_weapon() else {
+                            return Ok(StateReturnType::Failure);
+                        };
+                        let turret = owner_guard.ai_fire_which_turret;
+                        if turret == TurretType::Invalid {
+                            return Ok(StateReturnType::Success);
+                        }
 
-        let Some((weapon, _slot)) = owner_guard.get_current_weapon() else {
-            return Ok(StateReturnType::Failure);
-        };
-        let turret = owner_guard.ai_fire_which_turret;
-        if turret == TurretType::Invalid {
-            return Ok(StateReturnType::Success);
-        }
+                        let view_blocked = attack_view_blocked(
+                            owner_guard,
+                            Some(victim_guard),
+                            victim_guard.get_position(),
+                        );
+                        if !view_blocked
+                            && weapon.is_within_attack_range(
+                                owner_guard.get_id(),
+                                Some(victim_guard.get_id()),
+                                None,
+                            )
+                        {
+                            owner_guard.ai_pending_turret_objects.push((
+                                turret,
+                                Some(victim_guard.get_id()),
+                                self.force_attacking,
+                            ));
+                            self.is_initial_approach = false;
 
-        let view_blocked = attack_view_blocked(
-            &owner_guard,
-            Some(&victim_guard),
-            victim_guard.get_position(),
+                            let mut desired_speed = victim_guard
+                                .get_physics()
+                                .map(|physics| physics.get_forward_speed_2d())
+                                .unwrap_or(FAST_AS_POSSIBLE);
+                            desired_speed *= 0.95;
+                            if owner_guard.can_crush_or_squish(
+                                victim_guard,
+                                CrushSquishTestType::TestCrushOrSquish,
+                            ) {
+                                desired_speed = FAST_AS_POSSIBLE;
+                            }
+                            owner_guard.ai_pending_desired_speed = Some(desired_speed.max(0.0));
+                        } else {
+                            owner_guard.ai_pending_desired_speed = Some(FAST_AS_POSSIBLE);
+                        }
+
+                        Ok(code)
+                    });
+                __victim_checkout.unwrap_or_else(|| Ok(StateReturnType::Failure))
+            },
         );
-        let victim_id = victim_guard.get_id();
-        if !view_blocked
-            && weapon.is_within_attack_range(
-                owner_guard.get_id(),
-                Some(victim_id),
-                None,
-            )
-        {
-            owner_guard.ai_pending_turret_objects.push((
-                turret,
-                Some(victim_id),
-                self.force_attacking,
-            ));
-            self.is_initial_approach = false;
-
-            let mut desired_speed = victim_guard
-                .get_physics()
-                .and_then(|physics| {
-                    physics
-                        .lock()
-                        .ok()
-                        .map(|guard| guard.get_forward_speed_2d())
-                })
-                .unwrap_or(FAST_AS_POSSIBLE);
-            desired_speed *= 0.95;
-            if owner_guard
-                .can_crush_or_squish(&victim_guard, CrushSquishTestType::TestCrushOrSquish)
-            {
-                desired_speed = FAST_AS_POSSIBLE;
-            }
-            owner_guard.ai_pending_desired_speed = Some(desired_speed.max(0.0));
-        } else {
-            owner_guard.ai_pending_desired_speed = Some(FAST_AS_POSSIBLE);
-        }
-
-        Ok(code)
-        });
         return __owner_checkout.ok_or_else(|| "attack pursue owner lock poisoned".to_string())?;
     }
 }
@@ -1862,7 +1856,7 @@ impl AIAttackApproachTargetState {
                 .get_center_position(victim_guard.get_position());
             owner_guard.ai_pending_attack_path = Some((victim_guard.get_id(), victim_center));
             self.stop_if_in_range = false;
-            return Ok(true);
+            Ok(true)
             }) {
                 if let Some(step) = __victim_step {
                     return step;

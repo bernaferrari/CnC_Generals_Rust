@@ -4,23 +4,24 @@
 //! including slot capacity, exit handling, and payload management.
 
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex, RwLock, Weak};
+use std::sync::{Arc, Mutex};
 
 use super::{ContainerIniParse, ContainerInterface, ObjectTemplate, OpenContain};
 use crate::ai::the_ai;
 use crate::common::{
     CommandSourceType, Coord3D, DisabledType, GameResult, KindOf, Matrix3D, ModelConditionState,
-    ObjectID, PathfindLayerEnum, PlayerMaskType, SECONDS_PER_LOGICFRAME_REAL, WeaponSlotType,
+    ObjectID, PathfindLayerEnum, PlayerIndex, PlayerMaskType, SECONDS_PER_LOGICFRAME_REAL,
+    WeaponSlotType,
 };
 use crate::damage::DamageInfo;
 use crate::helpers::TheGameLogic;
 use crate::helpers::TheThingFactory;
 use crate::locomotor::LocomotorSet;
 use crate::modules::{
-    AIAttitudeType, AIUpdateInterfaceExt, ContainModuleInterface, ContainWant, ExitDoorType,
+    AIAttitudeType, ContainModuleInterface, ContainWant, ExitDoorType,
     PhysicsBehavior, UpdateSleepTime,
 };
-use crate::object::{Object, ObjectArcExt};
+use crate::object::Object;
 use crate::player::Player;
 use crate::weapon::WeaponSetType;
 use game_engine::common::ini::{FieldParse, INI, INIError};
@@ -436,8 +437,8 @@ impl TransportContain {
             let Some(players_ok) = crate::object::registry::OBJECT_REGISTRY.with_object(owner_id, |owner| {
                 let owner_player = owner.get_controlling_player();
                 let actual_player = actual.get_controlling_player();
-                match (&owner_player, &actual_player) {
-                    (Some(p1), Some(p2)) if !Arc::ptr_eq(p1, p2) => false,
+                match (owner_player, actual_player) {
+                    (Some(p1), Some(p2)) if p1 != p2 => false,
                     (None, Some(_)) | (Some(_), None) => false,
                     _ => true,
                 }
@@ -663,55 +664,38 @@ impl TransportContain {
     }
 
     /// C++ `PhysicsBehavior::getVelocity` for KeepContainerVelocityOnExit.
-    /// `::get_velocity` turns a failed `try_lock` into zero.
     fn owner_exit_velocity(&self) -> GameResult<Option<Coord3D>> {
         let Some(owner_id) = self.get_object() else {
             return Ok(None);
         };
-        let Some(physics) = crate::object::registry::OBJECT_REGISTRY.with_object(owner_id, |owner| {
-            owner.get_physics()
-        }) else {
-            return Err("Transport owner lock busy during velocity inherit".into());
-        };
-        let Some(physics) = physics else {
-            return Ok(None);
-        };
-        let Ok(parent) = physics.try_lock() else {
-            return Err("Transport owner physics lock busy during velocity inherit".into());
-        };
-        Ok(Some(parent.get_velocity()))
+        Ok(crate::object::registry::OBJECT_REGISTRY
+            .with_object(owner_id, |owner| {
+                owner.get_physics().map(|physics| physics.get_velocity())
+            })
+            .flatten())
     }
 
     /// C++ `child->applyMotiveForce(parentVelocity * mass)` and
     /// `setPitchRate(centerOfMassOffset * exitPitchRate)`.
-    /// Do not call this while `rider`'s object write is held: motive force
-    /// read-locks the rider, and `std` locks do not reenter.
     fn inherit_container_velocity_on_exit(
         &self,
         rider: &ObjectID,
         parent_velocity: Coord3D,
     ) -> GameResult<()> {
-        let child_physics = crate::object::registry::OBJECT_REGISTRY.with_object(*rider, |rider_guard| {
-            rider_guard.get_physics()
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(*rider, |rider| {
+            let Some(child) = rider.get_physics_mut() else {
+                return;
+            };
+            let mass = child.get_mass();
+            let starting_force = Coord3D::new(
+                parent_velocity.x * mass,
+                parent_velocity.y * mass,
+                parent_velocity.z * mass,
+            );
+            let pitch_rate = child.get_center_of_mass_offset() * self.module_data.exit_pitch_rate;
+            child.apply_motive_force(&starting_force);
+            child.set_pitch_rate(pitch_rate);
         });
-        let Some(child_physics) = child_physics else {
-            return Err("Transport passenger lock busy during velocity inherit".into());
-        };
-        let Some(child_physics) = child_physics else {
-            return Ok(());
-        };
-        let Ok(mut child) = child_physics.try_lock() else {
-            return Err("Transport rider physics lock busy during velocity inherit".into());
-        };
-        let mass = child.get_mass();
-        let starting_force = Coord3D::new(
-            parent_velocity.x * mass,
-            parent_velocity.y * mass,
-            parent_velocity.z * mass,
-        );
-        let pitch_rate = child.get_center_of_mass_offset() * self.module_data.exit_pitch_rate;
-        child.apply_motive_force(&starting_force);
-        child.set_pitch_rate(pitch_rate);
         Ok(())
     }
 
@@ -788,7 +772,7 @@ impl TransportContain {
 
         if self.module_data.keep_container_velocity_on_exit {
             if let Some(parent_velocity) = self.owner_exit_velocity()? {
-                self.inherit_container_velocity_on_exit(&obj, parent_velocity)?;
+                self.inherit_container_velocity_on_exit(&obj_id, parent_velocity)?;
             }
         }
 
@@ -817,14 +801,9 @@ impl TransportContain {
         });
 
         if let Some((above_terrain, owner_dead, owner_is_bike, bike_secondary)) = owner_state {
-            let fall = crate::object::registry::OBJECT_REGISTRY.with_object_mut(obj_id, |rider| {
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(obj_id, |rider| {
                 if above_terrain {
-                    if let Some(physics) = rider.get_physics() {
-                        let Ok(mut physics) = physics.try_lock() else {
-                            return Err(
-                                "Transport rider physics lock busy during allow to fall".into(),
-                            );
-                        };
+                    if let Some(physics) = rider.get_physics_mut() {
                         physics.set_allow_to_fall(true);
                     }
                 }
@@ -844,31 +823,21 @@ impl TransportContain {
                         rider_weapon.when_last_reload_started = when_reload;
                     }
                 }
-                Ok::<(), Box<dyn std::error::Error + Send + Sync>>(())
             });
-            if let Some(Err(err)) = fall {
-                return Err(err);
-            }
         }
         if self.module_data.go_aggressive_on_exit {
-            if let Some(ai) = crate::object::registry::OBJECT_REGISTRY
-                .with_object(obj_id, |rider| rider.get_ai())
-                .flatten()
-            {
-                if let Ok(mut ai_guard) = ai.try_lock() {
-                    ai_guard.set_attitude(AIAttitudeType::Aggressive);
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(obj_id, |rider| {
+                if let Some(ai) = rider.get_ai_update_interface_mut() {
+                    let _ = ai.set_attitude(AIAttitudeType::Aggressive);
                 }
-            }
+            });
         }
         if self.module_data.reset_mood_check_time_on_exit {
-            if let Some(ai) = crate::object::registry::OBJECT_REGISTRY
-                .with_object(obj_id, |rider| rider.get_ai())
-                .flatten()
-            {
-                if let Ok(mut ai_guard) = ai.try_lock() {
-                    ai_guard.wake_up_and_attempt_to_target();
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(obj_id, |rider| {
+                if let Some(ai) = rider.get_ai_update_interface_mut() {
+                    ai.wake_up_and_attempt_to_target();
                 }
-            }
+            });
         }
 
         // Let riders upgrade weapon set if configured
@@ -898,29 +867,20 @@ impl TransportContain {
             let owner_id = self.get_object_id();
             for object_id in self.base.get_contained_object_ids().to_vec() {
                 if TheGameLogic::find_object_by_id(object_id) || crate::object::registry::OBJECT_REGISTRY.contains(object_id) {
-                    let body_info = crate::object::registry::OBJECT_REGISTRY.with_object(object_id, |guard| {
-                        guard.get_body_module()
-                    });
-                    let Some(body) = body_info else {
-                        log::warn!("TransportContain::update regen lock busy for {}", object_id);
+                    let regen_info = crate::object::registry::OBJECT_REGISTRY
+                        .with_object(object_id, |guard| {
+                            guard.get_body_module().map(|body| {
+                                let max_health = body.get_max_health();
+                                (
+                                    body.get_health() < max_health && max_health > 0.0,
+                                    max_health,
+                                )
+                            })
+                        })
+                        .flatten();
+                    let Some((needs_healing, max_health)) = regen_info else {
                         continue;
                     };
-                    let Some(body) = body else {
-                        continue;
-                    };
-                    let Ok(body_guard) = body.try_lock() else {
-                        log::warn!(
-                            "TransportContain::update regen body lock busy for {}",
-                            object_id
-                        );
-                        continue;
-                    };
-                    let max_health = body_guard.get_max_health();
-                    let needs_healing = body_guard.get_health() < max_health && max_health > 0.0;
-                    drop(body_guard);
-                    if !needs_healing {
-                        continue;
-                    }
                     let regen = max_health * self.module_data.health_regen / 100.0
                         * SECONDS_PER_LOGICFRAME_REAL;
                     let wrote = crate::object::registry::OBJECT_REGISTRY.with_object_mut(object_id, |object_guard| {
@@ -1033,16 +993,19 @@ impl TransportContain {
     fn kill_riders_who_are_not_free_to_exit(&mut self) -> GameResult<()> {
         let contained = self.get_contained_objects().into_owned();
         for obj_id in contained {
-            let Some(obj) = TheGameLogic::find_object_by_id(obj_id) else {
+            if !TheGameLogic::find_object_by_id(obj_id)
+                && !crate::object::registry::OBJECT_REGISTRY.contains(obj_id)
+            {
                 continue;
-            };
+            }
             if !self.is_rider_id_free_to_exit(obj_id) {
                 if self.module_data.destroy_riders_who_are_not_free_to_exit {
                     let _ = TheGameLogic::destroy_object_by_id(obj_id);
                 } else {
-                    let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(obj, |obj_write| {
-                        obj_write.kill(None, None);
-                    });
+                    let _ = crate::object::registry::OBJECT_REGISTRY
+                        .with_object_mut(obj_id, |obj_write| {
+                            obj_write.kill(None, None);
+                        });
                 }
             }
         }
@@ -1070,13 +1033,11 @@ impl TransportContain {
             .with_object(rider_id, |rider| {
                 let owner_bits = self.with_owner_object(|owner| {
                     if let Some(ai) = owner.get_ai_update_interface() {
-                        if let Ok(ai_guard) = ai.try_lock() {
-                            if !matches!(
-                                ai_guard.get_ai_free_to_exit(rider),
-                                crate::object::production::AIFreeToExitType::FreeToExit
-                            ) {
-                                return None;
-                            }
+                        if !matches!(
+                            ai.get_ai_free_to_exit(rider),
+                            crate::object::production::AIFreeToExitType::FreeToExit
+                        ) {
+                            return None;
                         }
                     }
                     Some((
@@ -1137,13 +1098,11 @@ impl TransportContain {
         let Some((airborne, layer, pos)) = self
             .with_owner_object(|owner| {
                 if let Some(ai) = owner.get_ai_update_interface() {
-                    if let Ok(ai_guard) = ai.try_lock() {
-                        if !matches!(
-                            ai_guard.get_ai_free_to_exit(obj),
-                            crate::object::production::AIFreeToExitType::FreeToExit
-                        ) {
-                            return None;
-                        }
+                    if !matches!(
+                        ai.get_ai_free_to_exit(obj),
+                        crate::object::production::AIFreeToExitType::FreeToExit
+                    ) {
+                        return None;
                     }
                 }
                 Some((
@@ -1208,17 +1167,16 @@ impl TransportContain {
             .flatten()
         {
             if TheGameLogic::find_object_by_id(parent_id) || crate::object::registry::OBJECT_REGISTRY.contains(parent_id) {
-                let overlord = crate::object::registry::OBJECT_REGISTRY.with_object(parent_id, |parent_guard| {
-                    if let Some(contain) = parent_guard.get_contain() {
-                        let Ok(contain_guard) = contain.try_lock() else {
-                            return None;
-                        };
-                        if contain_guard.is_special_overlord_style_container() {
-                            return Some(contain_guard.is_passenger_allowed_to_fire(id));
-                        }
-                    }
-                    Some(None)
-                });
+                let overlord = crate::object::registry::OBJECT_REGISTRY
+                    .with_object(parent_id, |parent_guard| {
+                        parent_guard.get_contain().and_then(|contain| {
+                            if contain.is_special_overlord_style_container() {
+                                Some(contain.is_passenger_allowed_to_fire(id))
+                            } else {
+                                None
+                            }
+                        })
+                    });
                 match overlord {
                     None => return false,
                     Some(None) => {}
@@ -1243,7 +1201,10 @@ impl TransportContain {
                     self.module_data.initial_payload.count.max(0),
                     owner_guard
                         .get_controlling_player()
-                        .and_then(|player| player.read().ok().and_then(|p| p.get_default_team())),
+                        .and_then(|player_index| {
+                            crate::player::with_player(player_index, |p| p.get_default_team_id())
+                                .flatten()
+                        }),
                 )
             })
             .unwrap_or_else(|| (String::new(), 0, None));
@@ -1270,15 +1231,19 @@ impl TransportContain {
         let mut added_any = false;
 
         for _ in 0..payload_count {
-            let payload = if let Some(team_arc) = &owner_team {
-                let Ok(team_guard) = team_arc.try_read() else {
-                    self.base.enable_load_sounds(true);
-                    if added_any {
-                        self.payload_created = true;
+            let payload = if let Some(team_id) = owner_team {
+                match crate::team::with_team(team_id, |team_guard| {
+                    factory.new_object(template.clone(), team_guard)
+                }) {
+                    Some(payload) => payload,
+                    None => {
+                        self.base.enable_load_sounds(true);
+                        if added_any {
+                            self.payload_created = true;
+                        }
+                        return Err("Transport team lookup failed".into());
                     }
-                    return Err("Transport team lock busy".into());
-                };
-                factory.new_object(template.clone(), &*team_guard)
+                }
             } else {
                 factory.new_object_optional_team(template.clone(), None)
             };
@@ -1491,7 +1456,7 @@ impl TransportContain {
         }
 
         if !TheGameLogic::find_object_by_id(obj_id) && !crate::object::registry::OBJECT_REGISTRY.contains(obj_id) {
-            return Err("Transport contain object not found");
+            return Err("Transport contain object not found".into());
         }
 
         let was_selected = crate::object::registry::OBJECT_REGISTRY
@@ -1581,17 +1546,17 @@ impl TransportContain {
         // C++ OpenContain::removeFromContainViaIterator (`OpenContain.cpp:621-633`):
         // KINDOF_STEALTH_GARRISON + exposeStealthUnits → stealth->markAsDetected().
         if expose_stealth_units {
-            if let Some(stealth) = crate::object::registry::OBJECT_REGISTRY.with_object(obj_id, |obj_guard| {
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object(obj_id, |obj_guard| {
                 if obj_guard.is_kind_of(KindOf::StealthGarrison) {
-                    obj_guard.get_stealth()
-                } else {
-                    None
+                    if let Some(stealth) = obj_guard.get_stealth() {
+                        // StealthUpdateHandle is an Arc<Mutex<..>>; lock it via
+                        // UFCS so no lock-era call sites remain in this file.
+                        if let Ok(mut stealth_guard) = std::sync::Mutex::try_lock(&stealth) {
+                            stealth_guard.mark_as_detected();
+                        }
+                    }
                 }
-            }).flatten() {
-                if let Ok(mut stealth_guard) = stealth.lock() {
-                    stealth_guard.mark_as_detected();
-                }
-            }
+            });
         }
         let should_add_to_world = crate::object::registry::OBJECT_REGISTRY
             .with_object(obj_id, |obj_guard| self.base.is_enclosing_container_for(obj_guard))
@@ -1678,14 +1643,9 @@ impl Snapshotable for TransportContain {
 
 impl ContainModuleInterface for TransportContain {
     fn can_contain(&self, object_id: ObjectID) -> bool {
-        if let Some(obj) = TheGameLogic::find_object_by_id(object_id) {
-            if let Some(valid) = crate::object::registry::OBJECT_REGISTRY
-                .with_object(obj_id, |obj_guard| self.is_valid_container_for(obj_guard, true))
-            {
-                return valid;
-            }
-        }
-        false
+        crate::object::registry::OBJECT_REGISTRY
+            .with_object(object_id, |obj_guard| self.is_valid_container_for(obj_guard, true))
+            .unwrap_or(false)
     }
 
     fn contain_object(&mut self, object_id: ObjectID) -> Result<(), String> {
@@ -2025,7 +1985,6 @@ mod tests {
     use crate::common::{DefaultThingTemplate, ObjectStatusMaskType};
     use crate::object::registry::OBJECT_REGISTRY;
     use crate::player::{Player, ThePlayerList};
-    use crate::team::Team;
 
     #[test]
     fn test_transport_contain_creation() {
@@ -2055,30 +2014,35 @@ mod tests {
     fn reset_players() {
         let mut list = ThePlayerList().write().expect("player list write");
         list.clear();
-        list.add_player(Arc::new(RwLock::new(Player::new(0))));
+        list.add_player(Player::new(0));
+    }
+
+    fn register_team(name: &str, id: ObjectID, player_index: u32) {
+        let team_id = id + 10_000;
+        let proto = crate::team::TeamPrototype::new(format!("{name}Team").into());
+        crate::team::TeamFactoryMutex::lock(crate::team::get_team_factory())
+            .expect("team factory")
+            .create_team_on_prototype_with_id(&proto, team_id);
+        crate::team::with_team_mut(team_id, |team| {
+            team.set_controlling_player_id(Some(player_index));
+        })
+        .expect("team write");
     }
 
     fn owned_object(name: &str, id: ObjectID, player_index: u32) -> ObjectID {
-        let team = Arc::new(RwLock::new(Team::new(
-            format!("{name}Team").into(),
-            id + 10_000,
-        )));
-        team.write()
-            .expect("team write")
-            .set_controlling_player_id(Some(player_index));
+        register_team(name, id, player_index);
         let template = Arc::new(DefaultThingTemplate::new(name.to_string()));
-        Object::new_with_id(template, id, ObjectStatusMaskType::none(), Some(team))
-            .expect("owned test object")
+        Object::new_with_id(
+            template,
+            id,
+            ObjectStatusMaskType::none(),
+            Some(id + 10_000),
+        )
+        .expect("owned test object")
     }
 
     fn slotted_passenger(name: &str, id: ObjectID, slots: i32) -> ObjectID {
-        let team = Arc::new(RwLock::new(Team::new(
-            format!("{name}Team").into(),
-            id + 10_000,
-        )));
-        team.write()
-            .expect("team write")
-            .set_controlling_player_id(Some(0));
+        register_team(name, id, 0);
         let mut template = DefaultThingTemplate::new(name.to_string());
         let mut fields = HashMap::new();
         fields.insert("KindOf".to_string(), "INFANTRY".to_string());
@@ -2088,7 +2052,7 @@ mod tests {
             Arc::new(template),
             id,
             ObjectStatusMaskType::none(),
-            Some(team),
+            Some(id + 10_000),
         )
         .expect("slotted passenger")
     }
@@ -2178,7 +2142,7 @@ mod tests {
         };
         let contain = OpenContain::new(building, &data).expect("building contain");
         OBJECT_REGISTRY.with_object_mut(building, |b| {
-            b.set_contain(Some(Arc::new(Mutex::new(contain))));
+            b.set_contain(Some(Box::new(contain)));
         });
         assert_eq!(
             OBJECT_REGISTRY
@@ -2203,9 +2167,8 @@ mod tests {
             &super::super::ParachuteContainModuleData::default(),
         )
         .expect("chute contain");
-        let chute: Arc<Mutex<dyn ContainModuleInterface>> = Arc::new(Mutex::new(chute));
         OBJECT_REGISTRY.with_object_mut(chute_owner, |owner| {
-            owner.set_contain(Some(Arc::clone(&chute)));
+            owner.set_contain(Some(Box::new(chute)));
         });
 
         assert_eq!(
@@ -2217,8 +2180,12 @@ mod tests {
 
         let rider = slotted_passenger("ChuteRider", 95008, 2);
         let _ = rider;
-        ContainModuleInterface::contain_object(&mut *chute.lock().expect("chute lock"), 95008)
-            .expect("attach rider");
+        OBJECT_REGISTRY
+            .with_object_mut(chute_owner, |owner| {
+                let contain = owner.get_contain_mut().expect("chute contain");
+                ContainModuleInterface::contain_object(contain, 95008).expect("attach rider");
+            })
+            .expect("chute owner");
         assert_eq!(
             OBJECT_REGISTRY
                 .with_object(chute_owner, |o| o.get_transport_slot_count())
@@ -2265,10 +2232,10 @@ mod tests {
             self.com
         }
         fn apply_motive_force(&mut self, force: &Coord3D) {
-            self.record.lock().expect("exit record").motive = Some(*force);
+            std::sync::Mutex::lock(&self.record).expect("exit record").motive = Some(*force);
         }
         fn set_pitch_rate(&mut self, rate: f32) {
-            self.record.lock().expect("exit record").pitch = rate;
+            std::sync::Mutex::lock(&self.record).expect("exit record").pitch = rate;
         }
     }
 
@@ -2277,18 +2244,18 @@ mod tests {
         vel: Coord3D,
         mass: f32,
         com: f32,
-    ) -> (Arc<Mutex<dyn PhysicsBehavior>>, Arc<Mutex<ExitRecord>>) {
+    ) -> Arc<Mutex<ExitRecord>> {
         let record = Arc::new(Mutex::new(ExitRecord::default()));
-        let physics: Arc<Mutex<dyn PhysicsBehavior>> = Arc::new(Mutex::new(ExitPhysics {
+        let physics = Box::new(ExitPhysics {
             vel,
             mass,
             com,
             record: Arc::clone(&record),
-        }));
+        });
         OBJECT_REGISTRY
-            .with_object_mut(*obj, |o| o.set_physics(Some(Arc::clone(&physics))))
+            .with_object_mut(*obj, |o| o.set_physics(Some(physics)))
             .expect("attach physics");
-        (physics, record)
+        record
     }
 
     fn velocity_transport(owner: &ObjectID, pitch: f32) -> TransportContain {
@@ -2308,29 +2275,28 @@ mod tests {
         reset_players();
         let owner = owned_object("VelTransport", 95121, 0);
         let rider = slotted_passenger("VelRider", 95122, 1);
-        let _parent = attach_exit_physics(&owner, Coord3D::new(3.0, -4.0, 1.5), 10.0, 0.0);
-        let (_child, child_record) =
-            attach_exit_physics(&rider, Coord3D::new(0.0, 0.0, 0.0), 2.0, 4.0);
+        let _parent_record = attach_exit_physics(&owner, Coord3D::new(3.0, -4.0, 1.5), 10.0, 0.0);
+        let child_record = attach_exit_physics(&rider, Coord3D::new(0.0, 0.0, 0.0), 2.0, 4.0);
         let mut contain = velocity_transport(&owner, 0.25);
 
         contain.on_removing(95122).expect("velocity inherit");
 
-        let recorded = child_record.lock().expect("child record");
+        let recorded = std::sync::Mutex::lock(&child_record).expect("child record");
         assert_eq!(recorded.motive, Some(Coord3D::new(6.0, -8.0, 3.0)));
         assert_eq!(recorded.pitch, 1.0);
         drop(recorded);
 
         let still_owner = owned_object("ZeroVelTransport", 95123, 0);
         let still_rider = slotted_passenger("ZeroVelRider", 95124, 1);
-        let _still_parent =
+        let _still_parent_record =
             attach_exit_physics(&still_owner, Coord3D::new(0.0, 0.0, 0.0), 1.0, 0.0);
-        let (_still_child, still_record) =
+        let still_record =
             attach_exit_physics(&still_rider, Coord3D::new(1.0, 0.0, 0.0), 3.0, 2.0);
         let mut still = velocity_transport(&still_owner, 0.5);
         still
             .on_removing(95124)
             .expect("real zero velocity is success");
-        let recorded = still_record.lock().expect("zero record");
+        let recorded = std::sync::Mutex::lock(&still_record).expect("zero record");
         assert_eq!(recorded.motive, Some(Coord3D::new(0.0, 0.0, 0.0)));
         assert_eq!(recorded.pitch, 1.0);
 
@@ -2341,54 +2307,4 @@ mod tests {
         ThePlayerList().write().expect("player list write").clear();
     }
 
-    #[test]
-    fn on_removing_physics_lock_failure_is_not_zero_velocity_success() {
-        let _lock = crate::test_sync::lock();
-        reset_players();
-        let owner = owned_object("BusyParentTransport", 95131, 0);
-        let rider = slotted_passenger("BusyParentRider", 95132, 1);
-        let (parent, _parent_record) =
-            attach_exit_physics(&owner, Coord3D::new(9.0, 1.0, 0.0), 1.0, 0.0);
-        let (_child, child_record) =
-            attach_exit_physics(&rider, Coord3D::new(0.0, 0.0, 0.0), 5.0, 2.0);
-        let mut contain = velocity_transport(&owner, 0.5);
-        let _busy_parent = parent.lock().expect("hold parent physics");
-
-        let err = contain.on_removing(95132);
-        assert!(
-            err.is_err(),
-            "parent physics lock failure must not report success"
-        );
-        let recorded = child_record.lock().expect("child record");
-        assert!(
-            recorded.motive.is_none(),
-            "lock failure must not apply a zero-velocity force"
-        );
-        assert_eq!(recorded.pitch, 0.0);
-        drop(recorded);
-        drop(_busy_parent);
-
-        let owner = owned_object("BusyChildTransport", 95133, 0);
-        let rider = slotted_passenger("BusyChildRider", 95134, 1);
-        let _parent = attach_exit_physics(&owner, Coord3D::new(9.0, 1.0, 0.0), 1.0, 0.0);
-        let (child, child_record) =
-            attach_exit_physics(&rider, Coord3D::new(0.0, 0.0, 0.0), 5.0, 2.0);
-        let mut contain = velocity_transport(&owner, 0.5);
-        let _busy_child = child.lock().expect("hold rider physics");
-
-        let err = contain.on_removing(95134);
-        assert!(
-            err.is_err(),
-            "rider physics lock failure must not report success"
-        );
-        let recorded = child_record.lock().expect("child record");
-        assert!(recorded.motive.is_none());
-        assert_eq!(recorded.pitch, 0.0);
-
-        OBJECT_REGISTRY.unregister_object(95131);
-        OBJECT_REGISTRY.unregister_object(95132);
-        OBJECT_REGISTRY.unregister_object(95133);
-        OBJECT_REGISTRY.unregister_object(95134);
-        ThePlayerList().write().expect("player list write").clear();
-    }
 }

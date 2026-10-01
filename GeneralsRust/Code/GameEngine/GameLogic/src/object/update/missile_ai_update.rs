@@ -663,10 +663,7 @@ impl MissileAIUpdate {
         }
 
         let Some(contained_ids) = OBJECT_REGISTRY.with_object(other_id, |other_guard| {
-            let Some(contain_handle) = other_guard.get_contain() else {
-                return None;
-            };
-            let Ok(contain_guard) = contain_handle.lock() else {
+            let Some(contain_guard) = other_guard.get_contain() else {
                 return None;
             };
             let immune = other_guard
@@ -720,7 +717,7 @@ impl MissileAIUpdate {
         }
 
         if let Some(fx) = &self.data.garrison_hit_kill_fx {
-            let _ = fx.do_fx_obj(&other_arc, None);
+            let _ = fx.do_fx_obj_ids(other_id, None, None);
         }
         let _ = TheGameLogic::destroy_object_by_id(self.object_id);
         true
@@ -1036,9 +1033,7 @@ impl MissileAIUpdate {
 
         if distance_to_target_sq < lock_distance * lock_distance {
             if !self.is_tracking_target {
-                if let Some(ai) = self.current_ai_interface() {
-                    ai.ai_move_to_position(&self.original_target_pos, false, CMD_FROM_AI);
-                }
+                let _ = self.with_current_ai(|ai| ai.ai_move_to_position(&self.original_target_pos));
             }
             self.switch_to_state(MissileState::Kill, current_frame);
             return true;
@@ -1051,23 +1046,25 @@ impl MissileAIUpdate {
         if self.data.dive_distance <= 0.0 {
             return;
         }
-        let Some(ai) = self.current_ai_interface() else {
-            return;
-        };
-        let mut has_loco = false;
-        ai.with_cur_locomotor(&mut |_| has_loco = true);
-        if !has_loco {
-            return;
-        }
+        // C++ MissileAIUpdate::handleDiveDistance: precise-Z when diving range
+        // reached. Distance is computed OUTSIDE the AI callback — it also uses
+        // with_current_ai internally and must not reenter the same checkout.
         let Some(distance_to_target_sq) = self.distance_to_goal_position_2d_squared() else {
             return;
         };
-        ai.with_cur_locomotor(&mut |loco| {
-            if loco.preferred_height > 0.0
-                && distance_to_target_sq < self.data.dive_distance * self.data.dive_distance
-            {
-                loco.set_precise_z_pos(true);
+        let _ = self.with_current_ai(|ai| {
+            let mut has_loco = false;
+            ai.with_cur_locomotor(&mut |_| has_loco = true);
+            if !has_loco {
+                return;
             }
+            ai.with_cur_locomotor(&mut |loco| {
+                if loco.preferred_height > 0.0
+                    && distance_to_target_sq < self.data.dive_distance * self.data.dive_distance
+                {
+                    loco.set_precise_z_pos(true);
+                }
+            });
         });
     }
 
@@ -1078,8 +1075,8 @@ impl MissileAIUpdate {
                 OBJECT_REGISTRY.with_object(goal, |guard| *guard.get_position())
             })
         } else {
-            self.current_ai_interface()
-                .and_then(|ai| ai.get_path_destination())
+            self.with_current_ai(|ai| ai.get_path_destination())
+                .flatten()
                 .or(Some(self.original_target_pos))
         }?;
 
@@ -1091,8 +1088,8 @@ impl MissileAIUpdate {
     fn distance_to_goal_position_2d_squared(&self) -> Option<Real> {
         let missile_pos = self.current_object_position()?;
         let goal_pos = self
-            .current_ai_interface()
-            .and_then(|ai| ai.get_path_destination())
+            .with_current_ai(|ai| ai.get_path_destination())
+            .flatten()
             .or(Some(self.original_target_pos))?;
         let dx = missile_pos.x - goal_pos.x;
         let dy = missile_pos.y - goal_pos.y;
@@ -1100,8 +1097,8 @@ impl MissileAIUpdate {
     }
 
     fn current_goal_position(&self) -> Coord3D {
-        self.current_ai_interface()
-            .and_then(|ai| ai.get_path_destination())
+        self.with_current_ai(|ai| ai.get_path_destination())
+            .flatten()
             .unwrap_or(self.original_target_pos)
     }
 
@@ -1136,15 +1133,19 @@ impl MissileAIUpdate {
         self.last_known_pos
     }
 
-    fn current_ai_interface(
+    fn with_current_ai<R>(
         &self,
-    ) -> Option<Arc<std::sync::Mutex<dyn crate::modules::AIUpdateInterface>>> {
+        f: impl for<'a> FnOnce(&'a mut (dyn crate::modules::AIUpdateInterface + 'static)) -> R,
+    ) -> Option<R> {
         // Wave 350: empty dual-world → None.
         if dual_world_registry_unavailable() {
             return None;
         }
 
-        OBJECT_REGISTRY.with_object(self.object_id, |guard| guard.get_ai_update_interface())
+        OBJECT_REGISTRY
+            .with_object_mut(self.object_id, |guard| {
+                guard.get_ai_update_interface_mut().map(f)
+            })
             .flatten()
     }
 
@@ -1154,8 +1155,7 @@ impl MissileAIUpdate {
             return None;
         }
 
-        let ai = self.current_ai_interface()?;
-        let goal_id = ai.lock().ok()?.get_goal_object_id();
+        let goal_id = self.with_current_ai(|ai| ai.get_goal_object_id())?;
         if goal_id == crate::common::INVALID_ID {
             return None;
         }
@@ -1167,22 +1167,23 @@ impl MissileAIUpdate {
     }
 
     fn set_locomotor_acceleration_and_turn(&self, acceleration: Real, turn_rate: Real) {
-        let Some(ai) = self.current_ai_interface() else {
-            return;
-        };
-        ai.with_cur_locomotor(&mut |loco| {
-            loco.set_max_acceleration(acceleration);
-            loco.set_max_turn_rate(turn_rate);
+        let _ = self.with_current_ai(|ai| {
+            ai.with_cur_locomotor(&mut |loco| {
+                loco.set_max_acceleration(acceleration);
+                loco.set_max_turn_rate(turn_rate);
+            });
         });
     }
 
     fn current_locomotor_pristine_speed(&self) -> Option<Real> {
-        let ai = self.current_ai_interface()?;
-        let mut speed = None;
-        ai.with_cur_locomotor(&mut |loco| {
-            speed = Some(loco.get_max_speed_for_condition(BodyDamageType::Pristine));
-        });
-        speed
+        self.with_current_ai(|ai| {
+            let mut speed = None;
+            ai.with_cur_locomotor(&mut |loco| {
+                speed = Some(loco.get_max_speed_for_condition(BodyDamageType::Pristine));
+            });
+            speed
+        })
+        .flatten()
     }
 
     /// Kill state: precise terminal guidance to target
@@ -1211,11 +1212,7 @@ impl MissileAIUpdate {
 
         self.set_locomotor_acceleration_and_turn(self.max_accel, BIGNUM);
 
-        if self
-            .current_ai_interface()
-            .map(|ai| ai.is_idle())
-            .unwrap_or(false)
-        {
+        if self.with_current_ai(|ai| ai.is_idle()).unwrap_or(false) {
             if let Some(goal) = self.current_goal_object() {
                 let close_enough = self.current_locomotor_pristine_speed().unwrap_or(1.0);
                 if self.distance_to_goal_bounding_sphere_3d_squared(goal)
@@ -1229,8 +1226,8 @@ impl MissileAIUpdate {
                         });
                     }
                     self.detonate();
-                } else if let Some(ai) = self.current_ai_interface() {
-                    ai.ai_move_to_object(goal, CMD_FROM_AI);
+                } else {
+                    let _ = self.with_current_ai(|ai| ai.ai_move_to_object(goal, CMD_FROM_AI));
                 }
             } else {
                 self.detonate();
@@ -1364,9 +1361,7 @@ impl MissileAIUpdate {
                 terrain.get_layer_height(target_position.x, target_position.y, layer);
         }
 
-        if let Some(ai) = self.current_ai_interface() {
-            ai.ai_move_to_position(&target_position, false, CMD_FROM_AI);
-        }
+        let _ = self.with_current_ai(|ai| ai.ai_move_to_position(&target_position));
 
         self.is_tracking_target = false;
         self.original_target_pos = target_position;
@@ -1445,18 +1440,18 @@ impl MissileAIUpdateBehavior {
                 .with_object(projectile_id, |obj| obj.get_position().clone())
                 .unwrap_or_else(|| Coord3D::new(0.0, 0.0, 0.0));
 
-            let _ = OBJECT_REGISTRY.with_object(projectile_id, |obj_guard| {
-                if let Some(ai) = obj_guard.get_ai_update_interface() {
+            let _ = OBJECT_REGISTRY.with_object_mut(projectile_id, |obj_guard| {
+                if let Some(ai) = obj_guard.get_ai_update_interface_mut() {
                     if let Some(victim_id) = victim {
                         if self.module_data.try_to_follow_target {
-                            ai.ai_move_to_object(victim_id, CMD_FROM_AI);
+                            let _ = ai.ai_move_to_object(victim_id, CMD_FROM_AI);
                         }
                     } else {
                         let mut initial_pos = *victim_pos;
                         if self.module_data.lock_distance > 0.0 {
                             initial_pos.z += APPROACH_HEIGHT;
                         }
-                        ai.ai_move_to_position(&initial_pos, false, CMD_FROM_AI);
+                        let _ = ai.ai_move_to_position(&initial_pos);
                     }
                 }
             });
@@ -1467,14 +1462,12 @@ impl MissileAIUpdateBehavior {
                     initial_vel = weapon.get_projectile_speed();
                 }
             }
-            let _ = OBJECT_REGISTRY.with_object(projectile_id, |obj_guard| {
-                if let Some(ai) = obj_guard.get_ai_update_interface() {
-                    if let Ok(ai_guard) = ai.try_lock() {
-                        ai_guard.with_cur_locomotor(&mut |loco| {
-                            loco.set_max_speed(initial_vel);
-                            loco.set_max_acceleration(initial_vel);
-                        });
-                    }
+            let _ = OBJECT_REGISTRY.with_object_mut(projectile_id, |obj_guard| {
+                if let Some(ai) = obj_guard.get_ai_update_interface_mut() {
+                    ai.with_cur_locomotor(&mut |loco| {
+                        loco.set_max_speed(initial_vel);
+                        loco.set_max_acceleration(initial_vel);
+                    });
                 }
             });
             let _ = OBJECT_REGISTRY.with_object_mut(projectile_id, |obj_guard| {

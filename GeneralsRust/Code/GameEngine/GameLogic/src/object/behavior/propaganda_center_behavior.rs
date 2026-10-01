@@ -143,7 +143,7 @@ impl PropagandaCenterBehavior {
         module_data: Arc<PropagandaCenterBehaviorModuleData>,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
         let prison_behavior =
-            PrisonBehavior::new(Arc::clone(&object), Arc::new(module_data.base.clone()))?;
+            PrisonBehavior::new(object_id, Arc::new(module_data.base.clone()))?;
         Ok(Self {
             object_id: object_id,
             module_data,

@@ -5,24 +5,20 @@
 
 use crate::common::ObjectID;
 use serde::{Deserialize, Serialize};
-use std::sync::{Arc, RwLock};
 
-fn resolve_crate_object(
-    id: ObjectID,
-) -> Option<std::sync::Arc<std::sync::RwLock<crate::object::Object>>> {
+fn resolve_crate_object(id: ObjectID) -> Option<ObjectID> {
     if id == crate::common::INVALID_ID {
         return None;
     }
-    (if crate::helpers::TheGameLogic::find_object_by_id(id) || crate::object::registry::OBJECT_REGISTRY.contains(id) { Some(id) } else { None })
+    crate::object::registry::OBJECT_REGISTRY.contains(id).then_some(id)
 }
 
 use crate::common::{
-    CommandSourceType, FieldParse, KindOf, ObjectStatusMaskType, ObjectStatusTypes,
+    FieldParse, GameError, KindOf, ObjectStatusMaskType, ObjectStatusTypes, Relationship,
     kindof_from_name,
 };
 use crate::helpers::{EvaEvent, TheAudio, TheEva, TheGameLogic, TheRadar};
-use crate::modules::AIUpdateInterfaceExt;
-use crate::object::Object;
+use crate::modules::{AIUpdateInterface, BehaviorModuleInterface};
 use crate::object::collide::COLLISION_MANAGER;
 use crate::object::collide::Coord3D as CollideCoord3D;
 use crate::object::collide::LegacyCollideAdapter;
@@ -31,9 +27,11 @@ use crate::object::collide::crate_collide::crate_collide::{
 };
 use crate::object::collide::crate_collide::*;
 use crate::object::drawable::DrawableArcExt;
+use crate::object::registry::OBJECT_REGISTRY;
 use crate::object::update::ai_update::dozer_ai_update::DozerTask;
 use crate::scripting::engine::transfer_object_name;
 use game_engine::common::ini::{FieldParse as IniFieldParse, INI, INIError};
+use game_engine::common::thing::module::Module;
 
 /// Module data for hijacked vehicle conversion.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -268,117 +266,114 @@ impl ConvertToHijackedVehicleCrateCollide {
             return Ok(false);
         };
 
-        if !self.base.is_valid_to_execute(&other) {
-            return Ok(false);
-        }
-
-        let other_lock = other.read().map_err(|_| GameError::LockError)?;
-        if other_lock.is_effectively_dead() {
-            return Ok(false);
-        }
-
-        if other_lock.is_kind_of(KindOf::ImmuneToCapture)
-            || other_lock.is_kind_of(KindOf::Aircraft)
-            || other_lock.is_kind_of(KindOf::Boat)
-            || other_lock.is_kind_of(KindOf::Drone)
-        {
-            return Ok(false);
-        }
-
-        if other_lock.test_status(ObjectStatusTypes::Hijacked) {
-            return Ok(false);
-        }
-
-        // Only hijack enemy objects.
-        let hijacker = self.base.get_object().map_err(GameError::from)?;
-        let hijacker_lock = hijacker.read().map_err(|_| GameError::LockError)?;
-        if hijacker_lock.relationship_to(&other_lock) != Relationship::Enemies {
-            return Ok(false);
-        }
-
-        // Empty transports only.
-        if other_lock.is_kind_of(KindOf::Transport) {
-            if let Some(contain) = other_lock.get_contain() {
-                if let Ok(contain_guard) = contain.lock() {
-                    if contain_guard.get_contained_count() > 0 {
-                        return Ok(false);
-                    }
+        Ok(OBJECT_REGISTRY
+            .with_object(other, |other| {
+                if !self.base.is_valid_to_execute(other) {
+                    return false;
                 }
-            }
-        }
 
-        Ok(true)
+                if other.is_effectively_dead() {
+                    return false;
+                }
+
+                if other.is_kind_of(KindOf::ImmuneToCapture)
+                    || other.is_kind_of(KindOf::Aircraft)
+                    || other.is_kind_of(KindOf::Boat)
+                    || other.is_kind_of(KindOf::Drone)
+                {
+                    return false;
+                }
+
+                if other.test_status(ObjectStatusTypes::Hijacked) {
+                    return false;
+                }
+
+                // Only hijack enemy objects.
+                let Ok(hijacker_id) = self.base.get_object() else {
+                    return false;
+                };
+                let enemies = OBJECT_REGISTRY
+                    .with_object(hijacker_id, |hijacker| {
+                        hijacker.relationship_to(other) != Relationship::Enemies
+                    })
+                    .unwrap_or(false);
+                if !enemies {
+                    return false;
+                }
+
+                // Empty transports only.
+                if other.is_kind_of(KindOf::Transport)
+                    && other
+                        .get_contain()
+                        .is_some_and(|contain| contain.get_contained_count() > 0)
+                {
+                    return false;
+                }
+
+                true
+            })
+            .unwrap_or(false))
     }
 
     fn execute_crate_behavior(&mut self, other_id: ObjectID) -> Result<bool, GameError> {
-        let Some(other) = resolve_crate_object(other_id) else {
+        if resolve_crate_object(other_id).is_none() {
             return Ok(false);
-        };
+        }
 
-        let hijacker = self.base.get_object().map_err(GameError::from)?;
-        let hijacker_lock = hijacker.read().map_err(|_| GameError::LockError)?;
-        let hijacker_id = hijacker_lock.get_id();
-        let other_id = other.read().map_err(|_| GameError::LockError)?.get_id();
+        let hijacker_id = self.base.get_object().map_err(GameError::from)?;
 
         // Require AI goal match to avoid accidental hijack.
-        if let Some(ai) = hijacker_lock.get_ai_update_interface() {
-            let goal_id = ai.lock().ok().map(|ai_guard| ai_guard.get_goal_object_id());
-            if goal_id != Some(other_id) {
-                return Ok(false);
-            }
+        let goal_id = OBJECT_REGISTRY
+            .with_object(hijacker_id, |hijacker| {
+                hijacker
+                    .get_ai_update_interface()
+                    .map(|ai| ai.get_goal_object_id())
+            })
+            .flatten();
+        if goal_id != Some(other_id) {
+            return Ok(false);
         }
-
-        drop(hijacker_lock);
 
         // C++ feedback calls are void side effects; hijack still completes if they fail.
-        let _ = TheRadar::try_infiltration_event(other.clone());
-        {
-            if let Ok(other_lock) = other.read() {
-                if other_lock.is_locally_controlled() {
-                    let _ = TheEva::set_should_play(EvaEvent::VehicleStolen);
-                }
+        let _ = OBJECT_REGISTRY.with_object(other_id, |other| {
+            let _ = TheRadar::try_infiltration_event(other);
+            if other.is_locally_controlled() {
+                let _ = TheEva::set_should_play(EvaEvent::VehicleStolen);
             }
-        }
+        });
 
         // Transfer ownership to hijacker's team.
-        {
-            let new_team = hijacker.read().ok().and_then(|hijacker_guard| {
-                hijacker_guard.get_controlling_player().and_then(|player_arc| {
-                    player_arc.read().ok().and_then(|player_guard| player_guard.get_default_team())
-                })
+        let new_team = OBJECT_REGISTRY
+            .with_object(hijacker_id, |hijacker| hijacker.get_controlling_player())
+            .flatten()
+            .and_then(|player| {
+                crate::player::with_player(player, |p| p.get_default_team_id())
+            })
+            .flatten();
+        if let Some(team) = new_team {
+            let _ = OBJECT_REGISTRY.with_object_mut(other_id, |other| {
+                other.set_team(Some(team))
             });
-
-            if let Some(team) = new_team {
-                if let Ok(mut other_guard) = other.write() {
-                    let _ = other_guard.set_team(Some(team));
-                }
-            }
         }
 
         // Mark target as hijacked.
-        {
-            if let Ok(mut other_guard) = other.write() {
-                other_guard.set_status(ObjectStatusMaskType::HIJACKED, true);
-            }
-        }
+        let _ = OBJECT_REGISTRY.with_object_mut(other_id, |other| {
+            other.set_status(ObjectStatusMaskType::HIJACKED, true);
+        });
 
         // Stop any AI activity on target.
-        {
-            if let Ok(other_lock) = other.read() {
-                if let Some(ai) = other_lock.get_ai_update_interface() {
-                    let pos = *other_lock.get_position();
-                    ai.ai_move_to_position(&pos, false, CommandSourceType::FromAI);
-                    ai.ai_idle(CommandSourceType::FromAI);
-                    if let Ok(mut ai_guard) = ai.lock() {
-                        if let Some(dozer_ai) = ai_guard.get_dozer_ai_update_interface_mut() {
-                            for task in [DozerTask::Build, DozerTask::Repair, DozerTask::Fortify] {
-                                dozer_ai.cancel_task(task);
-                            }
-                        }
+        let _ = OBJECT_REGISTRY.with_object_mut(other_id, |other| {
+            let pos = *other.get_position();
+            if let Some(ai) = other.get_ai_update_interface_mut() {
+                let _ = ai.ai_move_to_position(&pos);
+                let _ = ai.ai_idle();
+                if let Some(dozer_ai) = ai.get_dozer_ai_update_interface_mut() {
+                    for task in [DozerTask::Build, DozerTask::Repair, DozerTask::Fortify] {
+                        dozer_ai.cancel_task(task);
                     }
                 }
             }
-        }
+        });
 
         // Play hijack driver audio (event name from C++ data).
         if let Some(audio) = TheAudio::get() {
@@ -388,49 +383,36 @@ impl ConvertToHijackedVehicleCrateCollide {
         }
 
         // Transfer script name and veterancy to target (highest wins).
-        {
-            if let Ok(hijacker_guard) = hijacker.read() {
-                let hijacker_name = hijacker_guard.get_name().clone();
-                let hijacker_tracker = hijacker_guard.get_experience_tracker();
-                drop(hijacker_guard);
-
-                if !hijacker_name.is_empty() {
-                    transfer_object_name(&hijacker_name, other_id).ok();
-                }
-
-                let target_tracker = other.read().ok().and_then(|guard| guard.get_experience_tracker());
-                if let (Some(target_tracker), Some(hijacker_tracker)) =
-                    (target_tracker, hijacker_tracker)
-                {
-                    let target_level = target_tracker.lock().ok().map(|guard| guard.get_veterancy_level());
-                    let hijacker_level = hijacker_tracker.lock().ok().map(|guard| guard.get_veterancy_level());
-                    if let (Some(target_level), Some(hijacker_level)) = (target_level, hijacker_level) {
-                        let highest_level = target_level.max(hijacker_level);
-                        if let Ok(mut hijacker_guard) = hijacker.write() {
-                            hijacker_guard.set_veterancy_level_with_side_effects(highest_level, false);
-                        }
-                        if let Ok(mut target_guard) = other.write() {
-                            target_guard.set_veterancy_level_with_side_effects(highest_level, false);
-                        }
-                    }
-                }
-            }
+        let hijacker_name = OBJECT_REGISTRY
+            .with_object(hijacker_id, |hijacker| hijacker.get_name().clone())
+            .unwrap_or_default();
+        if !hijacker_name.is_empty() {
+            let _ = transfer_object_name(&hijacker_name, other_id);
         }
 
-        // Only a definite "cannot eject" destroys the hijacker. A lock error keeps the rider.
+        if let (Some(target_level), Some(hijacker_level)) = (
+            OBJECT_REGISTRY.with_object(other_id, |other| other.get_veterancy_level()),
+            OBJECT_REGISTRY.with_object(hijacker_id, |hijacker| hijacker.get_veterancy_level()),
+        ) {
+            let highest_level = target_level.max(hijacker_level);
+            let _ = OBJECT_REGISTRY.with_object_mut(hijacker_id, |hijacker| {
+                hijacker.set_veterancy_level_with_side_effects(highest_level, false);
+            });
+            let _ = OBJECT_REGISTRY.with_object_mut(other_id, |other| {
+                other.set_veterancy_level_with_side_effects(highest_level, false);
+            });
+        }
+
+        // Only a definite "cannot eject" destroys the hijacker. A missing object keeps the rider.
         if self.target_supports_eject_pilot(other_id) == Ok(false) {
             let _ = TheGameLogic::destroy_object_by_id(hijacker_id);
             return Ok(true);
         }
 
-        let target_id = other
-            .read()
-            .ok()
-            .map(|guard| guard.get_id())
-            .unwrap_or(crate::common::INVALID_ID);
+        let target_id = other_id;
         let mut configured = false;
-        if let Ok(hijacker_guard) = hijacker.read() {
-            configured = hijacker_guard
+        let _ = OBJECT_REGISTRY.with_object_mut(hijacker_id, |hijacker| {
+            configured = hijacker
                 .find_update_module("HijackerUpdate")
                 .is_some_and(|module| {
                     module.with_module(|module| {
@@ -443,10 +425,7 @@ impl ConvertToHijackedVehicleCrateCollide {
                     })
                 });
             if !configured {
-                for behavior in hijacker_guard.get_behavior_modules() {
-                    let Ok(mut behavior) = behavior.lock() else {
-                        continue;
-                    };
+                for behavior in hijacker.get_behavior_modules_mut() {
                     let Some(hijacker_update) = behavior.get_hijacker_control_interface() else {
                         continue;
                     };
@@ -455,59 +434,54 @@ impl ConvertToHijackedVehicleCrateCollide {
                     break;
                 }
             }
-        }
+        });
 
         if configured {
-            if let Ok(mut hijacker_guard) = hijacker.write() {
-                let _ = hijacker_guard.on_contained_by(target_id);
-                hijacker_guard.set_status(ObjectStatusMaskType::NO_COLLISIONS, true);
-                hijacker_guard.set_status(ObjectStatusMaskType::MASKED, true);
-                hijacker_guard.set_status(ObjectStatusMaskType::UNSELECTABLE, true);
-            }
+            let _ = OBJECT_REGISTRY.with_object_mut(hijacker_id, |hijacker| {
+                let _ = hijacker.on_contained_by(target_id);
+                hijacker.set_status(ObjectStatusMaskType::NO_COLLISIONS, true);
+                hijacker.set_status(ObjectStatusMaskType::MASKED, true);
+                hijacker.set_status(ObjectStatusMaskType::UNSELECTABLE, true);
+            });
         }
 
-        if let Ok(mut hijacker_guard) = hijacker.write() {
-            hijacker_guard.leave_group();
-            if let Some(ai) = hijacker_guard.get_ai_update_interface() {
-                ai.ai_idle(CommandSourceType::FromAI);
+        let _ = OBJECT_REGISTRY.with_object_mut(hijacker_id, |hijacker| {
+            hijacker.leave_group();
+            if let Some(ai) = hijacker.get_ai_update_interface_mut() {
+                let _ = ai.ai_idle();
             }
             let _ = COLLISION_MANAGER.unregister_object(hijacker_id);
-            if let Some(drawable) = hijacker_guard.get_drawable() {
+            if let Some(drawable) = hijacker.get_drawable() {
                 let _ = drawable.set_drawable_hidden(true);
             }
-        }
+        });
 
-        if let Ok(hijacker_guard) = hijacker.read() {
-            let vision = hijacker_guard.get_vision_range();
-            let shroud = hijacker_guard.get_shroud_clearing_range();
-            drop(hijacker_guard);
-            if let Ok(mut other_guard) = other.write() {
-                other_guard.set_vision_range(vision);
-                other_guard.set_shroud_clearing_range(shroud);
-            }
-        }
+        let _ = OBJECT_REGISTRY.with_object(hijacker_id, |hijacker| {
+            let vision = hijacker.get_vision_range();
+            let shroud = hijacker.get_shroud_clearing_range();
+            OBJECT_REGISTRY.with_object_mut(other_id, |other| {
+                other.set_vision_range(vision);
+                other.set_shroud_clearing_range(shroud);
+            });
+        });
 
         // By returning FALSE, we will not remove the object (Hijacker).
         Ok(false)
     }
 
     fn target_supports_eject_pilot(&self, other_id: ObjectID) -> Result<bool, GameError> {
-        let Some(other) = resolve_crate_object(other_id) else {
+        if resolve_crate_object(other_id).is_none() {
             return Ok(false);
-        };
-
-        let behavior_modules = other
-            .read()
-            .map_err(|_| GameError::LockError)?
-            .get_behavior_modules();
-        for module in behavior_modules {
-            if let Ok(mut guard) = module.lock() {
-                if guard.get_eject_pilot_die_interface().is_some() {
-                    return Ok(true);
-                }
-            }
         }
-        Ok(false)
+
+        Ok(OBJECT_REGISTRY
+            .with_object_mut(other_id, |other| {
+                other
+                    .get_behavior_modules_mut()
+                    .into_iter()
+                    .any(|module| module.get_eject_pilot_die_interface().is_some())
+            })
+            .unwrap_or(false))
     }
 }
 
@@ -523,12 +497,9 @@ impl LegacyCollideAdapter for ConvertToHijackedVehicleCrateCollide {
         if ConvertToHijackedVehicleCrateCollide::is_valid_to_execute(self, other_id)? {
             let success =
                 ConvertToHijackedVehicleCrateCollide::execute_crate_behavior(self, other_id)?;
-            if let Some(other) = (if crate::helpers::TheGameLogic::find_object_by_id(other_id) || crate::object::registry::OBJECT_REGISTRY.contains(other_id) { Some(other_id) } else { None })
-            {
-                self.base
-                    .finish_execution_attempt(&other, success)
-                    .map_err(GameError::from)?;
-            }
+            let _ = OBJECT_REGISTRY.with_object(other_id, |other| {
+                self.base.finish_execution_attempt(other, success)
+            });
         }
 
         Ok(())
@@ -548,18 +519,10 @@ impl LegacyCollideAdapter for ConvertToHijackedVehicleCrateCollide {
 
 impl CrateCollideModule for ConvertToHijackedVehicleCrateCollide {
     fn is_valid_to_execute(&self, other_id: ObjectID) -> Result<bool, GameError> {
-        let Some(other) = resolve_crate_object(other_id) else {
-            return Ok(false);
-        };
-
         ConvertToHijackedVehicleCrateCollide::is_valid_to_execute(self, other_id)
     }
 
     fn execute_crate_behavior(&mut self, other_id: ObjectID) -> Result<bool, GameError> {
-        let Some(other) = resolve_crate_object(other_id) else {
-            return Ok(false);
-        };
-
         ConvertToHijackedVehicleCrateCollide::execute_crate_behavior(self, other_id)
     }
 
@@ -625,9 +588,9 @@ mod tests {
 
     #[test]
     fn hijacked_vehicle_crate_collide_identifies_like_cpp() {
-        let object = Arc::new(RwLock::new(Object::new_test(77_200, 100.0)));
+        let object_id: ObjectID = 77_200;
         let module = ConvertToHijackedVehicleCrateCollide::new(
-            &object,
+            &object_id,
             ConvertToHijackedVehicleCrateCollideModuleData::default(),
         );
 

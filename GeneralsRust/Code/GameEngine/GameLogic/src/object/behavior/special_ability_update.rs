@@ -892,7 +892,10 @@ impl SpecialAbilityUpdate {
                     .is_some()
                 {
                     if let Some(ai) = obj_guard.get_ai_update_interface_mut() {
-                        ai.ignore_obstacle(Some(target_id));
+                        let _ = crate::modules::AIUpdateInterface::ignore_obstacle(
+                            ai,
+                            Some(target_id),
+                        );
                         ai.ai_move_to_object(target_id, CMD_FROM_AI);
                         return true;
                     }
@@ -998,7 +1001,7 @@ impl SpecialAbilityUpdate {
                                 });
                         });
                     }
-                    let _ = TheRadar::try_infiltration_event(target);
+                    let _ = TheRadar::try_infiltration_event_id(self.target_id);
                 }
             }
             _ => {
@@ -1046,17 +1049,23 @@ impl SpecialAbilityUpdate {
         match template.get_special_power_type() {
             crate::object::special_power_types::SpecialPowerType::MissileDefenderLaserGuidedMissiles
             | crate::object::special_power_types::SpecialPowerType::BlackLotusDisableVehicleHack => {
+                // C++ SpecialAbilityUpdate.cpp:1131-1134: target dead, stop.
                 if !TheGameLogic::find_object_by_id(self.target_id) {
                     return false;
                 }
-                let allies = crate::object::registry::OBJECT_REGISTRY.with_object(self.target_id, |target_guard| {
-                    self.with_object(|o| o.relationship_to(target_guard))
-                        == Some(Relationship::Allies)
-                });
+                // C++ SpecialAbilityUpdate.cpp:1136-1140: captured by a colleague, cancel.
+                let allies = crate::object::registry::OBJECT_REGISTRY.with_object(
+                    self.target_id,
+                    |target_guard| {
+                        self.with_object(|o| o.relationship_to(target_guard))
+                            == Some(Relationship::Allies)
+                    },
+                );
                 if allies == Some(true) {
                     return false;
                 }
 
+                // C++ SpecialAbilityUpdate.cpp:1142-1151: keep re-initializing lasers.
                 let special_ids = self.special_object_id_list.clone();
                 for id in special_ids {
                     if !self.init_laser(id, Some(self.target_id)) {
@@ -1066,89 +1075,197 @@ impl SpecialAbilityUpdate {
             }
             crate::object::special_power_types::SpecialPowerType::InfantryCaptureBuilding
             | crate::object::special_power_types::SpecialPowerType::BlackLotusCaptureBuilding => {
-                if !TheGameLogic::find_object_by_id(self.target_id) { return; }
-                let owner_id = self.get_object_id();
-                if owner_id == INVALID_ID { return; }
-                let pre = crate::object::registry::OBJECT_REGISTRY.with_object(self.target_id, |target_guard| {
-                    (
-                        target_guard.check_and_detonate_booby_trap_for_victim_id(Some(owner_id)),
-                        target_guard.is_effectively_dead(),
-                        self.with_object(|owner_guard| owner_guard.relationship_to(target_guard) == Relationship::Allies) == Some(true),
-                    )
-                });
-                let Some((detonated, dead, allies)) = pre else { return; };
-                if detonated {
-                    let owner_dead = self.with_object(|o| o.is_effectively_dead()).unwrap_or(true);
-                    if dead || owner_dead { return; }
+                // C++ SpecialAbilityUpdate.cpp:1160-1171: target dead / ally, cancel.
+                if !TheGameLogic::find_object_by_id(self.target_id) {
+                    return false;
                 }
-                if allies { return; }
-                let team = self.with_object(|owner_guard| owner_guard.get_team()).flatten();
-                let garrisoned = crate::object::registry::OBJECT_REGISTRY.with_object_mut(self.target_id, |target_guard| {
-                    if let Some(contain) = target_guard.get_contain_mut() {
-                        if contain.is_garrisonable() {
-                            let _ = contain.remove_all_contained(true);
-                            return true;
+                let allies = crate::object::registry::OBJECT_REGISTRY.with_object(
+                    self.target_id,
+                    |target_guard| {
+                        self.with_object(|o| o.relationship_to(target_guard))
+                            == Some(Relationship::Allies)
+                    },
+                );
+                if allies == Some(true) {
+                    return false;
+                }
+
+                // C++ SpecialAbilityUpdate.cpp:1173-1211: PROCESS THE FLASHING WHILE
+                // GETTING CAPTURED FX HERE.
+                if self.module_data.do_capture_fx {
+                    let last_phase = (self.capture_flash_phase as i32) & 1;
+                    let denom = self.module_data.preparation_frames.max(1) as Real;
+                    let increment = 1.0 - (self.prep_frames as Real / denom);
+                    self.capture_flash_phase += increment / 3.0;
+                    let this_phase = (self.capture_flash_phase as i32) & 1;
+                    if last_phase == 1 && this_phase == 0 {
+                        let house = self
+                            .with_object(|o| o.get_indicator_color())
+                            .unwrap_or(Color::white());
+                        let saturation = game_engine::common::ini::get_global_data()
+                            .map(|data| data.read().selection_flash_saturation_factor)
+                            .unwrap_or(0.5);
+                        let half = saturation * 0.5;
+                        let flash = Color::new(
+                            ((house.r as Real / 255.0 * saturation - half) * 255.0)
+                                .clamp(0.0, 255.0) as u8,
+                            ((house.g as Real / 255.0 * saturation - half) * 255.0)
+                                .clamp(0.0, 255.0) as u8,
+                            ((house.b as Real / 255.0 * saturation - half) * 255.0)
+                                .clamp(0.0, 255.0) as u8,
+                            255,
+                        );
+                        let _ = crate::object::registry::OBJECT_REGISTRY.with_object(
+                            self.target_id,
+                            |target_guard| {
+                                if let Some(drawable) = target_guard.get_drawable() {
+                                    if let Ok(mut draw_guard) = drawable.write() {
+                                        draw_guard.flash_as_selected_with_color(flash);
+                                    }
+                                }
+                            },
+                        );
+                        if let Some(audio) = TheAudio::get() {
+                            if let Some(misc_audio) =
+                                game_engine::common::ini::ini_misc_audio::get_misc_audio()
+                            {
+                                let misc_audio = misc_audio.read();
+                                let sound_name = misc_audio
+                                    .defector_timer_tick_sound
+                                    .playable_event_name()
+                                    .to_string();
+                                if !sound_name.is_empty() {
+                                    let mut event = AudioEventRts::new(sound_name);
+                                    event.set_object_id(self.target_id);
+                                    audio.add_audio_event(&event);
+                                }
+                            }
                         }
                     }
-                    target_guard.defect(team, 1);
-                    false
-                });
-                if garrisoned == Some(true) { return; }
-            }
-            crate::object::special_power_types::SpecialPowerType::BlackLotusStealCashHack => {
-                if !TheGameLogic::find_object_by_id(self.target_id) { return; }
-                if self.get_object_id() == INVALID_ID { return; }
-                let snap = crate::object::registry::OBJECT_REGISTRY.with_object(self.target_id, |target_guard| {
-                    let player = target_guard.get_controlling_player();
-                    let money = player.and_then(|idx| crate::player::with_player(idx, |g| g.get_money().get_money()));
-                    (player, money.map(|m| m.clamp(0, 1000) as u32).unwrap_or(0), *target_guard.get_position())
-                });
-                let Some((target_player, cash, mut tpos)) = snap else { return; };
-                if cash > 0 {
-                    if let Some(target_player) = target_player {
-                        let _ = crate::player::with_player_mut(target_player, |p| p.get_money_mut().withdraw(cash));
-                    }
-                    if let Some(owner_player) = self.with_object(|o| o.get_controlling_player()).flatten() {
-                        let _ = crate::player::with_player_mut(owner_player, |p| p.get_money_mut().deposit(cash));
-                    }
-                    if let Some(mut pos) = self.with_object(|o| *o.get_position()) {
-                        pos.z += 20.0;
-                        let text = TheGameText::fetch("GUI:AddCash");
-                        let _ = TheInGameUI::add_floating_text(&format!("{} {}", text, cash), &pos, Color::rgb(0, 255, 0));
-                    }
-                    tpos.z += 30.0;
-                    let text = TheGameText::fetch("GUI:LoseCash");
-                    let _ = TheInGameUI::add_floating_text(&format!("{} {}", text, cash), &tpos, Color::rgb(255, 0, 0));
+                }
+
+                // C++ SpecialAbilityUpdate.cpp:1228-1233: these keep resetting the
+                // recharge timer while in use. (srj) // only for infantry capture, not
+                // black lotus which resets in triggerAbilityEffect()
+                if template.get_special_power_type()
+                    == crate::object::special_power_types::SpecialPowerType::InfantryCaptureBuilding
+                {
+                    let _ = self.with_spm(|spm| spm.start_power_recharge());
                 }
             }
-            crate::object::special_power_types::SpecialPowerType::RemoteCharges => {
+            _ => {
+                log::debug!("SpecialAbilityUpdate::continue_preparation: unhandled power type {:?}", template.get_special_power_type());
+            }
+        }
+
+        true
+    }
+
+    fn trigger_ability_effect(&mut self) {
+        let template = match self.get_template() {
+            Some(t) => t,
+            None => return,
+        };
+
+        // C++ SpecialAbilityUpdate.cpp:1251-1254: award experience for triggering.
+        let _ = self.with_object_mut(|obj_guard| {
+            if self.module_data.award_xp_for_triggering > 0 {
+                obj_guard.add_experience_points_with_side_effects(
+                    self.module_data.award_xp_for_triggering,
+                    true,
+                );
+            }
+            let skill_points = if self.module_data.skill_points_for_triggering != -1 {
+                self.module_data.skill_points_for_triggering
+            } else {
+                self.module_data.award_xp_for_triggering
+            };
+            if skill_points > 0 {
+                if let Some(player_idx) = obj_guard.get_controlling_player() {
+                    let _ = crate::player::with_player_mut(player_idx, |p| {
+                        p.add_skill_points(skill_points);
+                    });
+                }
+            }
+        });
+
+        if let Some(sound) = self.module_data.trigger_sound.as_ref() {
+            if let Some(audio) = TheAudio::get() {
+                let object_id = self.get_object_id();
+                if object_id != INVALID_ID {
+                    let mut event = sound.clone();
+                    event.set_object_id(object_id);
+                    audio.add_audio_event(&event);
+                }
+            }
+        }
+
+        let mut ok_to_lose_stealth = true;
+
+        match template.get_special_power_type() {
+            crate::object::special_power_types::SpecialPowerType::MissileDefenderLaserGuidedMissiles => {
+                // C++ SpecialAbilityUpdate.cpp:1275-1291: lock secondary weapon and attack.
                 if TheGameLogic::find_object_by_id(self.target_id) {
-                    let owner_id_now = self.get_object_id();
-                    let trap = crate::object::registry::OBJECT_REGISTRY.with_object(self.target_id, |t| {
-                        (t.check_and_detonate_booby_trap_for_victim_id(Some(owner_id_now)), t.is_effectively_dead())
-                    }).unwrap_or((false, false));
-                    if trap.0 {
-                        let owner_dead = self.with_object(|o| o.is_effectively_dead()).unwrap_or(true);
-                        if trap.1 || owner_dead { return; }
+                    let target_id = self.target_id;
+                    let _ = self.with_object_mut(|obj_guard| {
+                        obj_guard.set_weapon_lock(
+                            WeaponSlotType::Secondary,
+                            WeaponLockType::LockedTemporarily,
+                        );
+                        if let Some(ai) = obj_guard.get_ai_update_interface_mut() {
+                            ai.ai_attack_object(
+                                target_id,
+                                crate::weapon::NO_MAX_SHOTS_LIMIT,
+                                CMD_FROM_AI,
+                            );
+                        }
+                    });
+                }
+            }
+            crate::object::special_power_types::SpecialPowerType::HelixNapalmBomb => {
+                // C++ SpecialAbilityUpdate.cpp:1293-1296: the special object is the bomb.
+                let _ = self.create_special_object();
+            }
+            crate::object::special_power_types::SpecialPowerType::TankHunterTntAttack
+            | crate::object::special_power_types::SpecialPowerType::TimedCharges
+            | crate::object::special_power_types::SpecialPowerType::BoobyTrap => {
+                // C++ SpecialAbilityUpdate.cpp:1298-1345: place new tnt.
+                if !TheGameLogic::find_object_by_id(self.target_id) {
+                    return;
+                }
+                let owner_id = self.get_object_id();
+                let trap = crate::object::registry::OBJECT_REGISTRY
+                    .with_object(self.target_id, |t| {
+                        (
+                            t.check_and_detonate_booby_trap_for_victim_id(Some(owner_id)),
+                            t.is_effectively_dead(),
+                            t.test_status(ObjectStatusTypes::BoobyTrapped),
+                        )
+                    })
+                    .unwrap_or((false, false, false));
+                if trap.0 {
+                    let owner_dead = self
+                        .with_object(|o| o.is_effectively_dead())
+                        .unwrap_or(true);
+                    if trap.1 || owner_dead {
+                        return;
                     }
                 }
-                if self.target_id == INVALID_ID && self.target_pos.x == 0.0 && self.target_pos.y == 0.0 && self.target_pos.z == 0.0 {
-                    for id in self.special_object_id_list.clone() {
-                        let _ = crate::object::registry::OBJECT_REGISTRY.with_object(id, |guard| {
-                            if let Some(module) = guard.find_update_module("StickyBombUpdate") {
-                                module.with_module(|module| {
-                                    if let Some(sticky_bomb) = module.get_sticky_bomb_control_interface() {
-                                        sticky_bomb.detonate();
-                                        ok_to_lose_stealth = false;
-                                    }
-                                });
-                            }
-                        });
-                    }
-                } else if let Some(charge_id) = self.create_special_object() {
-                    let module = crate::object::registry::OBJECT_REGISTRY.with_object(charge_id, |guard| {
-                        guard.find_update_module("StickyBombUpdate")
-                    }).flatten();
+                if template.get_special_power_type()
+                    == crate::object::special_power_types::SpecialPowerType::BoobyTrap
+                    && trap.2
+                {
+                    // The only way it can be booby trapped after a detonate would be
+                    // if it is an allied booby trap; can't double booby trap.
+                    return;
+                }
+
+                if let Some(charge_id) = self.create_special_object() {
+                    let module = crate::object::registry::OBJECT_REGISTRY
+                        .with_object(charge_id, |guard| {
+                            guard.find_update_module("StickyBombUpdate")
+                        })
+                        .flatten();
                     if let Some(module) = module {
                         let target_id = self.target_id;
                         let owner_id = self.get_object_id();
@@ -1159,21 +1276,299 @@ impl SpecialAbilityUpdate {
                         });
                     } else {
                         self.kill_special_objects();
+                    }
+                }
+            }
+            crate::object::special_power_types::SpecialPowerType::HackerDisableBuilding
+            | crate::object::special_power_types::SpecialPowerType::BlackLotusDisableVehicleHack => {
+                // C++ SpecialAbilityUpdate.cpp:1348-1400: disable the target temporarily.
+                if !TheGameLogic::find_object_by_id(self.target_id) {
+                    return;
+                }
+                let allies = crate::object::registry::OBJECT_REGISTRY.with_object(
+                    self.target_id,
+                    |target_guard| {
+                        self.with_object(|obj_guard| {
+                            obj_guard.relationship_to(target_guard) == Relationship::Allies
+                        })
+                    },
+                );
+                if allies == Some(true) {
+                    return;
+                }
+
+                let small_structure = crate::object::registry::OBJECT_REGISTRY
+                    .with_object_mut(self.target_id, |target_guard| {
+                        target_guard.set_disabled_until(
+                            crate::common::DisabledType::DisabledHacked,
+                            TheGameLogic::get_frame() + self.module_data.effect_duration,
+                        );
+                        target_guard.get_geometry_info().get_footprint_area() < 300.0
+                            && target_guard.is_kind_of(crate::common::KindOf::Structure)
+                    })
+                    .unwrap_or(false);
+                if small_structure {
+                    self.do_disable_fx_particles = !self.do_disable_fx_particles; // toggle if small building
+                }
+
+                if self.do_disable_fx_particles {
+                    if let Some(manager) = TheParticleSystemManager::get() {
+                        if let Some(tmpl) = self.module_data.disable_fx_particle_system.as_ref() {
+                            if let Some(system_id) =
+                                manager.create_particle_system(Some(tmpl.name.as_str()))
+                            {
+                                let _ = crate::object::registry::OBJECT_REGISTRY.with_object(
+                                    self.target_id,
+                                    |target_guard| {
+                                        manager.attach_particle_system_to_object(
+                                            system_id,
+                                            target_guard.get_id(),
+                                        );
+                                    },
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+            crate::object::special_power_types::SpecialPowerType::InfantryCaptureBuilding
+            | crate::object::special_power_types::SpecialPowerType::BlackLotusCaptureBuilding => {
+                // C++ SpecialAbilityUpdate.cpp:1403-1444: capture the building.
+                if !TheGameLogic::find_object_by_id(self.target_id) {
+                    return;
+                }
+                if self.get_object_id() == INVALID_ID {
+                    return;
+                }
+                let owner_id = self.get_object_id();
+                let pre = crate::object::registry::OBJECT_REGISTRY.with_object(
+                    self.target_id,
+                    |target_guard| {
+                        (
+                            target_guard
+                                .check_and_detonate_booby_trap_for_victim_id(Some(owner_id)),
+                            target_guard.is_effectively_dead(),
+                        )
+                    },
+                );
+                let Some((detonated, dead)) = pre else { return; };
+                if detonated {
+                    let owner_dead = self
+                        .with_object(|o| o.is_effectively_dead())
+                        .unwrap_or(true);
+                    if dead || owner_dead {
                         return;
+                    }
+                }
+                let allies = crate::object::registry::OBJECT_REGISTRY.with_object(
+                    self.target_id,
+                    |target_guard| {
+                        self.with_object(|owner_guard| {
+                            owner_guard.relationship_to(target_guard) == Relationship::Allies
+                        })
+                    },
+                );
+                if allies == Some(true) {
+                    return;
+                }
+
+                // Just in case we are capturing a building which is already garrisoned
+                // by others.
+                let garrisoned = crate::object::registry::OBJECT_REGISTRY
+                    .with_object_mut(self.target_id, |target_guard| {
+                        if let Some(contain) = target_guard.get_contain_mut() {
+                            if contain.is_garrisonable() {
+                                let _ = contain.remove_all_contained(true);
+                                return true;
+                            }
+                        }
+                        false
+                    })
+                    .unwrap_or(false);
+                if garrisoned {
+                    return;
+                }
+
+                // C++ SpecialAbilityUpdate.cpp:1438: target->defect(
+                // object->getControllingPlayer()->getDefaultTeam(), 1 ); one frame of flash!
+                let team_id = self.with_object(|owner_guard| owner_guard.get_team()).flatten();
+                let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(
+                    self.target_id,
+                    |target_guard| {
+                        target_guard.defect(team_id, 1);
+                    },
+                );
+
+                // C++ SpecialAbilityUpdate.cpp:1446-1450: only for black lotus, not
+                // infantry capture which resets in continuePreparation().
+                if template.get_special_power_type()
+                    == crate::object::special_power_types::SpecialPowerType::BlackLotusCaptureBuilding
+                {
+                    let _ = self.with_spm(|spm| spm.start_power_recharge());
+                }
+            }
+            crate::object::special_power_types::SpecialPowerType::BlackLotusStealCashHack => {
+                // C++ SpecialAbilityUpdate.cpp:1452-1512: steal a thousand cash.
+                if !TheGameLogic::find_object_by_id(self.target_id) {
+                    return;
+                }
+                if self.get_object_id() == INVALID_ID {
+                    return;
+                }
+                let snap = crate::object::registry::OBJECT_REGISTRY.with_object(
+                    self.target_id,
+                    |target_guard| {
+                        let player = target_guard.get_controlling_player();
+                        let money = player.and_then(|idx| {
+                            crate::player::with_player(idx, |g| g.get_money().get_money())
+                        });
+                        (
+                            player,
+                            money.map(|m| m.clamp(0, 1000) as u32).unwrap_or(0),
+                            *target_guard.get_position(),
+                        )
+                    },
+                );
+                let Some((target_player, cash, mut tpos)) = snap else { return; };
+                if cash > 0 {
+                    if let Some(target_player) = target_player {
+                        let _ = crate::player::with_player_mut(target_player, |p| {
+                            p.get_money_mut().withdraw(cash)
+                        });
+                    }
+                    if let Some(owner_player) =
+                        self.with_object(|o| o.get_controlling_player()).flatten()
+                    {
+                        let _ = crate::player::with_player_mut(owner_player, |p| {
+                            p.get_money_mut().deposit(cash)
+                        });
+                    }
+
+                    // Display cash income floating over the black lotus.
+                    if let Some(mut pos) =
+                        self.with_object(|owner_guard| *owner_guard.get_position())
+                    {
+                        pos.z += 20.0; // add a little z to make it show above the unit.
+                        let text = TheGameText::fetch("GUI:AddCash");
+                        let _ = TheInGameUI::add_floating_text(
+                            &format!("{} {}", text, cash),
+                            &pos,
+                            Color::rgb(0, 255, 0),
+                        );
+                    }
+
+                    // Display cash lost floating over the target.
+                    tpos.z += 30.0;
+                    let text = TheGameText::fetch("GUI:LoseCash");
+                    let _ = TheInGameUI::add_floating_text(
+                        &format!("{} {}", text, cash),
+                        &tpos,
+                        Color::rgb(255, 0, 0),
+                    );
+                }
+            }
+            crate::object::special_power_types::SpecialPowerType::RemoteCharges => {
+                // C++ SpecialAbilityUpdate.cpp:1514-1585: detonate existing charges or
+                // place a new one.
+                if TheGameLogic::find_object_by_id(self.target_id) {
+                    let owner_id_now = self.get_object_id();
+                    let trap = crate::object::registry::OBJECT_REGISTRY
+                        .with_object(self.target_id, |t| {
+                            (
+                                t.check_and_detonate_booby_trap_for_victim_id(Some(owner_id_now)),
+                                t.is_effectively_dead(),
+                            )
+                        })
+                        .unwrap_or((false, false));
+                    if trap.0 {
+                        let owner_dead = self
+                            .with_object(|o| o.is_effectively_dead())
+                            .unwrap_or(true);
+                        if trap.1 || owner_dead {
+                            return;
+                        }
+                    }
+                }
+                if self.target_id == INVALID_ID
+                    && self.target_pos.x == 0.0
+                    && self.target_pos.y == 0.0
+                    && self.target_pos.z == 0.0
+                {
+                    // If there is no target object nor position, then we are
+                    // detonating the existing charges.
+                    for id in self.special_object_id_list.clone() {
+                        let detonated = crate::object::registry::OBJECT_REGISTRY.with_object(
+                            id,
+                            |guard| {
+                                if let Some(module) = guard.find_update_module("StickyBombUpdate")
+                                {
+                                    module.with_module(|module| {
+                                        if let Some(sticky_bomb) =
+                                            module.get_sticky_bomb_control_interface()
+                                        {
+                                            sticky_bomb.detonate();
+                                            true
+                                        } else {
+                                            false
+                                        }
+                                    })
+                                } else {
+                                    false
+                                }
+                            },
+                        );
+                        if detonated == Some(true) {
+                            ok_to_lose_stealth = false;
+                        }
+                    }
+                } else {
+                    // Place a new charge.
+                    if !TheGameLogic::find_object_by_id(self.target_id) {
+                        return;
+                    }
+                    if let Some(charge_id) = self.create_special_object() {
+                        let module = crate::object::registry::OBJECT_REGISTRY
+                            .with_object(charge_id, |guard| {
+                                guard.find_update_module("StickyBombUpdate")
+                            })
+                            .flatten();
+                        if let Some(module) = module {
+                            let target_id = self.target_id;
+                            let owner_id = self.get_object_id();
+                            module.with_module(|module| {
+                                if let Some(sticky_bomb) =
+                                    module.get_sticky_bomb_control_interface()
+                                {
+                                    sticky_bomb.init_sticky_bomb(target_id, owner_id);
+                                }
+                            });
+                        } else {
+                            self.kill_special_objects();
+                            return;
+                        }
                     }
                 }
             }
             crate::object::special_power_types::SpecialPowerType::DisguiseAsVehicle => {
-                if !TheGameLogic::find_object_by_id(self.target_id) { return; }
-                let template_name = crate::object::registry::OBJECT_REGISTRY.with_object(self.target_id, |g| {
-                    g.get_template().get_name().to_string()
-                });
+                // C++ SpecialAbilityUpdate.cpp:1587-1609: disguise as the target.
+                if !TheGameLogic::find_object_by_id(self.target_id) {
+                    return;
+                }
+                let template_name = crate::object::registry::OBJECT_REGISTRY.with_object(
+                    self.target_id,
+                    |g| g.get_template().get_name().to_string(),
+                );
                 if let Some(template_name) = template_name {
                     let _ = self.with_object(|obj_guard| {
                         if let Some(module) = obj_guard.find_update_module("StealthUpdate") {
                             module.with_module(|module| {
-                                if let Some(disguise) = module.get_stealth_disguise_control_interface() {
-                                    disguise.disguise_as_template(Some(template_name), TheGameLogic::get_frame());
+                                if let Some(disguise) =
+                                    module.get_stealth_disguise_control_interface()
+                                {
+                                    disguise.disguise_as_template(
+                                        Some(template_name),
+                                        TheGameLogic::get_frame(),
+                                    );
                                 }
                             });
                         }
@@ -1190,10 +1585,13 @@ impl SpecialAbilityUpdate {
                 .with_object(|obj_guard| obj_guard.get_stealth())
                 .flatten()
             {
-                { let _ = stealth.try_lock().map(|mut g| g.mark_as_detected()); }
+                if let Ok(mut stealth_guard) = stealth.try_lock() {
+                    stealth_guard.mark_as_detected();
+                }
             }
         }
     }
+
 
     fn create_special_object(&mut self) -> Option<ObjectID> {
         if self.special_object_id_list.len() as UnsignedInt == self.module_data.max_special_objects
@@ -1246,7 +1644,10 @@ impl SpecialAbilityUpdate {
 
     fn is_facing(&mut self) -> bool {
         let Some(ai_is_idle) = self
-            .with_object(|g| g.get_ai_update_interface().map(|ai| ai.is_idle()))
+            .with_object(|g| {
+                g.get_ai_update_interface()
+                    .map(|ai| crate::modules::AIUpdateInterface::is_idle(ai))
+            })
             .flatten()
         else {
             return true;
@@ -1308,7 +1709,10 @@ impl SpecialAbilityUpdate {
                 let angle = dy.atan2(dx);
                 let _ = obj_guard.set_orientation(angle);
                 if let Some(ai) = obj_guard.get_ai_update_interface_mut() {
-                    ai.set_locomotor_goal_orientation(angle);
+                    crate::modules::AIUpdateInterface::set_locomotor_goal_orientation(
+                        ai,
+                        angle,
+                    );
                 }
             });
         }
@@ -1515,7 +1919,10 @@ impl SpecialAbilityUpdate {
                     }
                     ai.ai_move_to_position(&pos, false, CMD_FROM_AI);
                     if target_id != INVALID_ID {
-                        let _ = ai.ignore_obstacle(Some(target_id));
+                        let _ = crate::modules::AIUpdateInterface::ignore_obstacle(
+                            ai,
+                            Some(target_id),
+                        );
                     }
                 }
             });
@@ -1532,7 +1939,7 @@ impl SpecialAbilityUpdate {
 
     fn validate_special_objects(&mut self) {
         self.special_object_id_list
-            .retain(|id| TheGameLogic::find_object_by_id(*id).is_some());
+            .retain(|id| TheGameLogic::find_object_by_id(*id));
     }
 
     fn kill_special_objects(&mut self) {
@@ -1584,7 +1991,12 @@ impl UpdateModuleInterface for SpecialAbilityUpdate {
         let Some((last_command_source, ai_is_moving)) = self
             .with_object(|obj_guard| obj_guard
                 .get_ai_update_interface()
-                .map(|ai| (ai.get_last_command_source(), ai.is_moving())))
+                .map(|ai| {
+                    (
+                        crate::modules::AIUpdateInterface::get_last_command_source(ai),
+                        crate::modules::AIUpdateInterface::is_moving(ai),
+                    )
+                }))
         else {
             self.on_exit(false);
             return Ok(self.calc_sleep_time());
@@ -1755,7 +2167,11 @@ impl UpdateModuleInterface for SpecialAbilityUpdate {
                 }
             }
         } else if self
-            .with_object(|obj_guard| obj_guard.get_ai_update_interface().map(|ai| ai.is_idle()))
+            .with_object(|obj_guard| {
+                obj_guard
+                    .get_ai_update_interface()
+                    .map(|ai| crate::modules::AIUpdateInterface::is_idle(ai))
+            })
             .flatten()
             .unwrap_or(false)
         {

@@ -32,13 +32,13 @@ fn retaliate_attack_aggressor_condition(
 ) -> bool {
     // Update already holds the machine mutex. Do not lock it again.
     let owner = if let Some(idle) = state.as_any().downcast_ref::<AIGuardRetaliateIdleState>() {
-        idle.owner.upgrade()
+        Some(idle.owner_id)
     } else if let Some(ret) = state.as_any().downcast_ref::<AIGuardRetaliateReturnState>() {
-        ret.owner.upgrade()
+        Some(ret.owner_id)
     } else {
         None
     };
-    owner.as_ref().is_some_and(has_attacked_me_from_owner)
+    owner.is_some_and(has_attacked_me_from_owner)
 }
 
 fn get_guard_enemy_scan_rate() -> u32 {
@@ -144,7 +144,8 @@ fn scan_guard_retaliate_inner_target(
             CanAttackResult::Possible | CanAttackResult::PossibleAfterMoving
         )
     })
-    });
+    })
+    .flatten();
 }
 
 /// Guard retaliate state enumeration
@@ -806,8 +807,8 @@ impl StateImplementation for AIGuardRetaliateInnerState {
             );
         }
 
-        let mut attack_machine = AttackStateMachine::with_owner_id(
-            owner_id,
+        let mut attack_machine = AttackStateMachine::new(
+            owner,
             "AIGuardRetaliateAttackMachine",
             false,
             true,
@@ -1038,8 +1039,8 @@ impl StateImplementation for AIGuardRetaliateOuterState {
             );
         }
 
-        let mut attack_machine = AttackStateMachine::with_owner_id(
-            owner_id,
+        let mut attack_machine = AttackStateMachine::new(
+            owner,
             "AIGuardRetaliateAttackMachine",
             false,
             true,
@@ -1146,7 +1147,7 @@ impl StateImplementation for AIGuardRetaliateReturnState {
                 if ai.is_doing_ground_movement() {
                     let _ = ai.adjust_destination(&mut self.goal_position);
                 }
-                ai.ai_move_to_position(&goal, false, CommandSourceType::FromAi);
+                let _ = ai.ai_move_to_position(&goal);
             }
         });
         StateReturnType::Continue
@@ -1347,8 +1348,8 @@ impl StateImplementation for AIGuardRetaliateAttackAggressorState {
             );
         }
 
-        let mut attack_machine = AttackStateMachine::with_owner_id(
-            owner_id,
+        let mut attack_machine = AttackStateMachine::new(
+            owner,
             "AIGuardRetaliateAttackMachine",
             false,
             true,

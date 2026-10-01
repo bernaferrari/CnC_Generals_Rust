@@ -11,7 +11,7 @@ use std::sync::{Arc, RwLock, Weak};
 use crate::common::xfer::XferExt;
 use crate::common::{
     AsciiString, Bool, DisabledMaskType, KindOf, LOGICFRAMES_PER_SECOND, ModuleData, ObjectID,
-    ObjectStatusTypes, Real, Relationship, UnsignedInt, WeaponBonusConditionFlags,
+    ObjectStatusTypes, PlayerIndex, Real, Relationship, UnsignedInt, WeaponBonusConditionFlags,
     WeaponBonusConditionType,
 };
 use crate::effects::FXList;
@@ -279,11 +279,9 @@ impl PropagandaTowerBehavior {
         }
 
         for id in self.inside_list.iter().copied() {
-            if let Some(obj) = TheGameLogic::find_object_by_id(id) {
-                if let Ok(mut guard) = obj.write() {
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(id, |guard| {
                     self.effect_logic(tower, &mut guard, false);
-                }
-            }
+            });
         }
         self.inside_list.clear();
     }
@@ -296,15 +294,15 @@ impl PropagandaTowerBehavior {
 
         match upgrade.get_upgrade_type() {
             UpgradeType::Player => {
-                if let Some(player) = tower.get_controlling_player() {
-                    if let Ok(player_guard) = player.read() {
-                        player_guard.has_upgrade_complete(upgrade)
-                    } else {
-                        false
-                    }
-                } else {
-                    false
-                }
+                tower
+                    .get_controlling_player()
+                    .map(|player| {
+                        crate::player::with_player(player, |player_guard| {
+                            player_guard.has_upgrade_complete(upgrade)
+                        })
+                    })
+                    .flatten()
+                    .unwrap_or(false)
             }
             UpgradeType::Object => tower.has_upgrade(upgrade),
             _ => false,
@@ -317,15 +315,13 @@ impl PropagandaTowerBehavior {
             return false;
         }
 
-        let local_player = player_list()
+        let local_index = player_list()
             .read()
             .ok()
-            .and_then(|list| list.get_local_player().cloned());
-        let controlling_player = tower.get_controlling_player();
-        let is_local_owner = match (&controlling_player, &local_player) {
-            (Some(owner), Some(local)) => Arc::ptr_eq(owner, local),
-            _ => false,
-        };
+            .and_then(|list| list.get_local_player().map(|lp| lp.get_player_index()));
+        let is_local_owner = tower.get_controlling_player().map_or(false, |owner| {
+            local_index.map_or(false, |li| li == owner)
+        });
 
         if let Some(container_id) = tower.get_contained_by() {
             if let Some(container) = TheGameLogic::find_object_by_id(container_id) {
@@ -456,11 +452,9 @@ impl PropagandaTowerBehavior {
 
         for id in self.inside_list.iter().copied() {
             if !new_inside.iter().any(|next_id| *next_id == id) {
-                if let Some(obj) = TheGameLogic::find_object_by_id(id) {
-                    if let Ok(mut guard) = obj.write() {
+                let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(id, |guard| {
                         self.effect_logic(tower, &mut guard, false);
-                    }
-                }
+                });
             }
         }
 

@@ -71,6 +71,22 @@ use crate::common::INVALID_ID;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock, Weak};
 
+/// Run `f` with the frame's AIUpdateInterface: the externally borrowed one when
+/// present, otherwise the machine owner's module through a mutable registry
+/// checkout. None when neither is available.
+fn with_frame_ai<R>(
+    owner: crate::common::ObjectID,
+    borrowed: &mut Option<&mut dyn crate::modules::AIUpdateInterface>,
+    f: &mut dyn FnMut(&mut dyn crate::modules::AIUpdateInterface) -> R,
+) -> Option<R> {
+    if let Some(ai) = borrowed.as_deref_mut() {
+        return Some(f(ai));
+    }
+    crate::object::registry::OBJECT_REGISTRY
+        .with_object_mut(owner, |obj| obj.get_ai_update_interface_mut().map(f))
+        .flatten()
+}
+
 /// Attack move-to state (attack while moving)
 #[derive(Debug)]
 pub struct AIAttackMoveToState {
@@ -167,7 +183,7 @@ impl StateImplementation for AIAttackMoveToState {
                 }
                 if let Some(target) = ai.get_next_mood_target(!force_retarget_this_frame, false) {
                     ai.friend_ending_move();
-                    machine.set_goal_object_by_id(target.read().ok().map(|g| g.get_id()));
+                    machine.set_goal_object_by_id(Some(target));
                     let _ = machine.set_state(AIStateType::AttackObject);
                     ai.set_last_command_source(CommandSourceType::FromAi);
                     return StateReturnType::Continue;
@@ -193,16 +209,18 @@ impl StateImplementation for AIAttackMoveToState {
             if self.retry_count < 1 {
                 return ret;
             }
-            let _ = crate::object::registry::OBJECT_REGISTRY.with_object(owner, |owner_guard| {
-                let dx = owner_guard.get_position().x - self.base.path_goal_position.x;
-                let dy = owner_guard.get_position().y - self.base.path_goal_position.y;
-                let dist_sqr = dx * dx + dy * dy;
-                let close_enough =
-                    (ATTACK_CLOSE_ENOUGH_CELLS as f32 * PATHFIND_CELL_SIZE_F).powi(2);
-                if dist_sqr < close_enough {
-                    return ret;
-                }
-            });
+            let close_enough =
+                (ATTACK_CLOSE_ENOUGH_CELLS as f32 * PATHFIND_CELL_SIZE_F).powi(2);
+            let close_enough_to_goal = crate::object::registry::OBJECT_REGISTRY
+                .with_object(owner, |owner_guard| {
+                    let dx = owner_guard.get_position().x - self.base.path_goal_position.x;
+                    let dy = owner_guard.get_position().y - self.base.path_goal_position.y;
+                    (dx * dx + dy * dy) < close_enough
+                })
+                .unwrap_or(false);
+            if close_enough_to_goal {
+                return ret;
+            }
             ret = StateReturnType::Continue;
             self.retry_count -= 1;
             self.frame_to_sleep_until = current_frame + 3 * LOGICFRAMES_PER_SECOND;
@@ -299,39 +317,42 @@ impl AIAttackMoveToState {
             .get_machine_owner()
             .ok_or_else(|| "attack move-to missing machine owner".to_string())?;
         let crate_id = crate::object::registry::OBJECT_REGISTRY.with_object(owner, |guard| guard.ai_fire_crate_id).unwrap_or(crate::common::INVALID_ID);
-        let ai_arc;
-        let mut locked_ai;
         let has_ai = borrowed.is_some();
-        let ai_guard: &mut dyn crate::modules::AIUpdateInterface = if let Some(ai) = borrowed.as_mut()
-        {
-            *ai
-        } else {
-            ai_arc = crate::object::registry::OBJECT_REGISTRY
-                .with_object(owner, |guard| guard.get_ai_update_interface())
-                .flatten()
-                .ok_or_else(|| "attack move-to missing AIUpdateInterface".to_string())?;
-            locked_ai = ai_arc
-                .lock()
-                .map_err(|_| "attack move-to AI lock poisoned".to_string())?;
-            &mut *locked_ai
-        };
+        if !has_ai {
+            match crate::object::registry::OBJECT_REGISTRY
+                .with_object(owner, |guard| guard.get_ai_update_interface().is_some())
+            {
+                Some(true) => {}
+                Some(false) => {
+                    return Err("attack move-to missing AIUpdateInterface".to_string());
+                }
+                None => return Err("attack move-to missing machine owner".to_string()),
+            }
+        }
         let mut force_retarget_this_frame = false;
         let mut should_repath_this_frame = false;
         if let Some(machine) = self.attack_move_machine.as_mut() {
             if !machine.is_in_idle_state() {
-                ai_guard.set_locomotor_goal_none();
+                let _ = with_frame_ai(owner, &mut borrowed, &mut |ai| ai.set_locomotor_goal_none());
                 let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner, |owner_guard| {
                     owner_guard.clear_model_condition_state(ModelConditionFlags::MOVING);
                 });
                 let _ = if has_ai {
-                    machine.update_with_ai(ai_guard)
+                    match with_frame_ai(owner, &mut borrowed, &mut |ai| machine.update_with_ai(ai))
+                    {
+                        Some(r) => r,
+                        None => machine.update(),
+                    }
                 } else {
                     machine.update()
                 };
                 if machine.is_in_idle_state() {
                     force_retarget_this_frame = true;
                     should_repath_this_frame = true;
-                    ai_guard.set_last_command_source(self.command_src);
+                    let _ =
+                        with_frame_ai(owner, &mut borrowed, &mut |ai| {
+                            ai.set_last_command_source(self.command_src)
+                        });
                 } else {
                     return Ok(StateReturnType::Continue);
                 }
@@ -344,13 +365,17 @@ impl AIAttackMoveToState {
                     let _ = machine.set_state(AIStateType::PickUpCrate);
                     return Ok(StateReturnType::Continue);
                 }
-                if let Some(target) =
-                    ai_guard.get_next_mood_target(!force_retarget_this_frame, false)
-                {
-                    ai_guard.friend_ending_move();
-                    machine.set_goal_object_by_id(target.read().ok().map(|g| g.get_id()));
+                let target = with_frame_ai(owner, &mut borrowed, &mut |ai| {
+                    ai.get_next_mood_target(!force_retarget_this_frame, false)
+                })
+                .flatten();
+                if let Some(target) = target {
+                    let _ = with_frame_ai(owner, &mut borrowed, &mut |ai| ai.friend_ending_move());
+                    machine.set_goal_object_by_id(Some(target));
                     let _ = machine.set_state(AIStateType::AttackObject);
-                    ai_guard.set_last_command_source(CommandSourceType::FromAi);
+                    let _ = with_frame_ai(owner, &mut borrowed, &mut |ai| {
+                        ai.set_last_command_source(CommandSourceType::FromAi)
+                    });
                     return Ok(StateReturnType::Continue);
                 }
             }
@@ -363,14 +388,19 @@ impl AIAttackMoveToState {
         }
         if should_repath_this_frame {
             if has_ai {
-                let _ = self.base.classic_on_enter_with_ai(ai_guard);
+                let _ = with_frame_ai(owner, &mut borrowed, &mut |ai| self.base.classic_on_enter_with_ai(ai));
             } else {
                 let _ = self.base.classic_on_enter();
             }
             self.base.force_repath();
         }
         let mut ret = if has_ai {
-            self.base.classic_on_update_with_ai(ai_guard)?
+            match with_frame_ai(owner, &mut borrowed, &mut |ai| {
+                self.base.classic_on_update_with_ai(ai)
+            }) {
+                Some(r) => r?,
+                None => return Err("attack move-to missing AIUpdateInterface".to_string()),
+            }
         } else {
             self.base.classic_on_update()?
         };
@@ -378,16 +408,18 @@ impl AIAttackMoveToState {
             if self.retry_count < 1 {
                 return Ok(ret);
             }
-            let _ = crate::object::registry::OBJECT_REGISTRY.with_object(owner, |owner_guard| {
-                let dx = owner_guard.get_position().x - self.base.path_goal_position.x;
-                let dy = owner_guard.get_position().y - self.base.path_goal_position.y;
-                let dist_sqr = dx * dx + dy * dy;
-                let close_enough =
-                    (ATTACK_CLOSE_ENOUGH_CELLS as f32 * PATHFIND_CELL_SIZE_F).powi(2);
-                if dist_sqr < close_enough {
-                    return Ok(ret);
-                }
-            });
+            let close_enough =
+                (ATTACK_CLOSE_ENOUGH_CELLS as f32 * PATHFIND_CELL_SIZE_F).powi(2);
+            let close_enough_to_goal = crate::object::registry::OBJECT_REGISTRY
+                .with_object(owner, |owner_guard| {
+                    let dx = owner_guard.get_position().x - self.base.path_goal_position.x;
+                    let dy = owner_guard.get_position().y - self.base.path_goal_position.y;
+                    (dx * dx + dy * dy) < close_enough
+                })
+                .unwrap_or(false);
+            if close_enough_to_goal {
+                return Ok(ret);
+            }
             ret = StateReturnType::Continue;
             self.retry_count -= 1;
             self.frame_to_sleep_until = current_frame + 3 * LOGICFRAMES_PER_SECOND;
@@ -478,29 +510,29 @@ impl StateImplementation for AIAttackFollowWaypointPathAsTeamState {
                     return StateReturnType::Continue;
                 }
                 if let Some(target) = ai.get_next_mood_target(!force_retarget_this_frame, false) {
-                    machine.set_goal_object_by_id(target.read().ok().map(|g| g.get_id()));
+                    machine.set_goal_object_by_id(Some(target));
                     let _ = machine.set_state(AIStateType::AttackObject);
                     return StateReturnType::Continue;
                 }
             }
         }
         if should_repath_this_frame {
-            let _ = crate::object::registry::OBJECT_REGISTRY.with_object(owner, |owner_guard| {
-                if self
-                    .base
-                    .core
-                    .compute_goal(
-                        &self.base.base,
-                        &owner_guard,
-                        ai,
-                        self.base.core.move_as_group,
-                    )
-                    .is_err()
-                    || self.base.core.compute_path(ai).is_err()
-                {
-                    return StateReturnType::Failure;
-                }
-            });
+            let repath_failed = crate::object::registry::OBJECT_REGISTRY
+                .with_object(owner, |owner_guard| {
+                    self.base
+                        .core
+                        .compute_goal(
+                            &self.base.base,
+                            owner_guard,
+                            ai,
+                            self.base.core.move_as_group,
+                        )
+                        .is_err()
+                        || self.base.core.compute_path(ai).is_err()
+                });
+            if repath_failed == Some(true) {
+                return StateReturnType::Failure;
+            }
         }
         self.base.update_with_ai(ai)
     }
@@ -592,32 +624,32 @@ impl AIAttackFollowWaypointPathAsTeamState {
             .get_machine_owner()
             .ok_or_else(|| "attack follow path missing machine owner".to_string())?;
         let crate_id = crate::object::registry::OBJECT_REGISTRY.with_object(owner, |guard| guard.ai_fire_crate_id).unwrap_or(crate::common::INVALID_ID);
-        let ai_arc;
-        let mut locked_ai;
         let has_ai = borrowed.is_some();
-        let ai_guard: &mut dyn crate::modules::AIUpdateInterface = if let Some(ai) = borrowed.as_mut()
-        {
-            *ai
-        } else {
-            ai_arc = crate::object::registry::OBJECT_REGISTRY
-                .with_object(owner, |guard| guard.get_ai_update_interface())
-                .flatten()
-                .ok_or_else(|| "attack follow path missing AIUpdateInterface".to_string())?;
-            locked_ai = ai_arc
-                .lock()
-                .map_err(|_| "attack follow path AI lock poisoned".to_string())?;
-            &mut *locked_ai
-        };
+        if !has_ai {
+            match crate::object::registry::OBJECT_REGISTRY
+                .with_object(owner, |guard| guard.get_ai_update_interface().is_some())
+            {
+                Some(true) => {}
+                Some(false) => {
+                    return Err("attack follow path missing AIUpdateInterface".to_string());
+                }
+                None => return Err("attack follow path missing machine owner".to_string()),
+            }
+        }
         let mut force_retarget_this_frame = false;
         let mut should_repath_this_frame = false;
         if let Some(machine) = self.attack_follow_machine.as_mut() {
             if !machine.is_in_idle_state() {
-                ai_guard.set_locomotor_goal_none();
+                let _ = with_frame_ai(owner, &mut borrowed, &mut |ai| ai.set_locomotor_goal_none());
                 let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner, |owner_guard| {
                     owner_guard.clear_model_condition_state(ModelConditionFlags::MOVING);
                 });
                 let _ = if has_ai {
-                    machine.update_with_ai(ai_guard)
+                    match with_frame_ai(owner, &mut borrowed, &mut |ai| machine.update_with_ai(ai))
+                    {
+                        Some(r) => r,
+                        None => machine.update(),
+                    }
                 } else {
                     machine.update()
                 };
@@ -636,28 +668,52 @@ impl AIAttackFollowWaypointPathAsTeamState {
                     let _ = machine.set_state(AIStateType::PickUpCrate);
                     return Ok(StateReturnType::Continue);
                 }
-                if let Some(target) =
-                    ai_guard.get_next_mood_target(!force_retarget_this_frame, false)
-                {
-                    machine.set_goal_object_by_id(target.read().ok().map(|g| g.get_id()));
+                let target = with_frame_ai(owner, &mut borrowed, &mut |ai| {
+                    ai.get_next_mood_target(!force_retarget_this_frame, false)
+                })
+                .flatten();
+                if let Some(target) = target {
+                    machine.set_goal_object_by_id(Some(target));
                     let _ = machine.set_state(AIStateType::AttackObject);
                     return Ok(StateReturnType::Continue);
                 }
             }
         }
         if should_repath_this_frame {
-            let _ = crate::object::registry::OBJECT_REGISTRY.with_object(owner, |owner_guard| {
-                self.base.core.compute_goal(
-                    &self.base.base,
-                    &owner_guard,
-                    &mut *ai_guard,
-                    self.base.core.move_as_group,
-                )?;
-                self.base.core.compute_path(&mut *ai_guard)?;
-            });
+            if let Some(ai) = borrowed.as_deref_mut() {
+                let repath = crate::object::registry::OBJECT_REGISTRY
+                    .with_object(owner, |owner_guard| {
+                        self.base.core.compute_goal(
+                            &self.base.base,
+                            owner_guard,
+                            ai,
+                            self.base.core.move_as_group,
+                        )
+                        .and_then(|_| self.base.core.compute_path(ai))
+                    });
+                if let Some(Err(e)) = repath {
+                    return Err(e);
+                }
+            } else {
+                // Classic path: the owner's AI module is only reachable through
+                // the same mutable checkout that owns the object, and
+                // compute_goal pairs the owner with an externally borrowed AI,
+                // so apply the AI-side path update through that checkout.
+                let _ = crate::object::registry::OBJECT_REGISTRY
+                    .with_object_mut(owner, |owner_guard| {
+                        if let Some(ai) = owner_guard.get_ai_update_interface_mut() {
+                            let _ = self.base.core.compute_path(ai);
+                        }
+                    });
+            }
         }
         if has_ai {
-            self.base.classic_on_update_with_ai(ai_guard)
+            match with_frame_ai(owner, &mut borrowed, &mut |ai| {
+                self.base.classic_on_update_with_ai(ai)
+            }) {
+                Some(r) => r,
+                None => Err("attack follow path missing AIUpdateInterface".to_string()),
+            }
         } else {
             self.base.classic_on_update()
         }
@@ -742,24 +798,24 @@ impl StateImplementation for AIAttackFollowWaypointPathAsIndividualsState {
                     return StateReturnType::Continue;
                 }
                 if let Some(target) = ai.get_next_mood_target(!force_retarget_this_frame, false) {
-                    machine.set_goal_object_by_id(target.read().ok().map(|g| g.get_id()));
+                    machine.set_goal_object_by_id(Some(target));
                     let _ = machine.set_state(AIStateType::AttackObject);
                     return StateReturnType::Continue;
                 }
             }
         }
         if should_repath_this_frame {
-            let _ = crate::object::registry::OBJECT_REGISTRY.with_object(owner, |owner_guard| {
-                if self
-                    .base
-                    .core
-                    .compute_goal(&self.base.base, &owner_guard, ai, false)
-                    .is_err()
-                    || self.base.core.compute_path(ai).is_err()
-                {
-                    return StateReturnType::Failure;
-                }
-            });
+            let repath_failed = crate::object::registry::OBJECT_REGISTRY
+                .with_object(owner, |owner_guard| {
+                    self.base
+                        .core
+                        .compute_goal(&self.base.base, owner_guard, ai, false)
+                        .is_err()
+                        || self.base.core.compute_path(ai).is_err()
+                });
+            if repath_failed == Some(true) {
+                return StateReturnType::Failure;
+            }
         }
         self.base.update_with_ai(ai)
     }
@@ -852,31 +908,31 @@ impl AIAttackFollowWaypointPathAsIndividualsState {
             .ok_or_else(|| "attack follow path missing machine owner".to_string())?;
         let crate_id = crate::object::registry::OBJECT_REGISTRY.with_object(owner, |guard| guard.ai_fire_crate_id).unwrap_or(crate::common::INVALID_ID);
         let has_ai = borrowed.is_some();
-        let ai_arc;
-        let mut locked_ai;
-        let ai_guard: &mut dyn crate::modules::AIUpdateInterface = if let Some(ai) = borrowed.as_mut()
-        {
-            *ai
-        } else {
-            ai_arc = crate::object::registry::OBJECT_REGISTRY
-                .with_object(owner, |guard| guard.get_ai_update_interface())
-                .flatten()
-                .ok_or_else(|| "attack follow path missing AIUpdateInterface".to_string())?;
-            locked_ai = ai_arc
-                .lock()
-                .map_err(|_| "attack follow path AI lock poisoned".to_string())?;
-            &mut *locked_ai
-        };
+        if !has_ai {
+            match crate::object::registry::OBJECT_REGISTRY
+                .with_object(owner, |guard| guard.get_ai_update_interface().is_some())
+            {
+                Some(true) => {}
+                Some(false) => {
+                    return Err("attack follow path missing AIUpdateInterface".to_string());
+                }
+                None => return Err("attack follow path missing machine owner".to_string()),
+            }
+        }
         let mut force_retarget_this_frame = false;
         let mut should_repath_this_frame = false;
         if let Some(machine) = self.attack_follow_machine.as_mut() {
             if !machine.is_in_idle_state() {
-                ai_guard.set_locomotor_goal_none();
+                let _ = with_frame_ai(owner, &mut borrowed, &mut |ai| ai.set_locomotor_goal_none());
                 let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner, |owner_guard| {
                     owner_guard.clear_model_condition_state(ModelConditionFlags::MOVING);
                 });
                 let _ = if has_ai {
-                    machine.update_with_ai(ai_guard)
+                    match with_frame_ai(owner, &mut borrowed, &mut |ai| machine.update_with_ai(ai))
+                    {
+                        Some(r) => r,
+                        None => machine.update(),
+                    }
                 } else {
                     machine.update()
                 };
@@ -895,23 +951,49 @@ impl AIAttackFollowWaypointPathAsIndividualsState {
                     let _ = machine.set_state(AIStateType::PickUpCrate);
                     return Ok(StateReturnType::Continue);
                 }
-                if let Some(target) =
-                    ai_guard.get_next_mood_target(!force_retarget_this_frame, false)
-                {
-                    machine.set_goal_object_by_id(target.read().ok().map(|g| g.get_id()));
+                let target = with_frame_ai(owner, &mut borrowed, &mut |ai| {
+                    ai.get_next_mood_target(!force_retarget_this_frame, false)
+                })
+                .flatten();
+                if let Some(target) = target {
+                    machine.set_goal_object_by_id(Some(target));
                     let _ = machine.set_state(AIStateType::AttackObject);
                     return Ok(StateReturnType::Continue);
                 }
             }
         }
         if should_repath_this_frame {
-            let _ = crate::object::registry::OBJECT_REGISTRY.with_object(owner, |owner_guard| {
-                self.base.core.compute_goal(&self.base.base, &owner_guard, &mut *ai_guard, false)?;
-                self.base.core.compute_path(&mut *ai_guard)?;
-            });
+            if let Some(ai) = borrowed.as_deref_mut() {
+                let repath = crate::object::registry::OBJECT_REGISTRY
+                    .with_object(owner, |owner_guard| {
+                        self.base
+                            .core
+                            .compute_goal(&self.base.base, owner_guard, ai, false)
+                            .and_then(|_| self.base.core.compute_path(ai))
+                    });
+                if let Some(Err(e)) = repath {
+                    return Err(e);
+                }
+            } else {
+                // Classic path: the owner's AI module is only reachable through
+                // the same mutable checkout that owns the object, and
+                // compute_goal pairs the owner with an externally borrowed AI,
+                // so apply the AI-side path update through that checkout.
+                let _ = crate::object::registry::OBJECT_REGISTRY
+                    .with_object_mut(owner, |owner_guard| {
+                        if let Some(ai) = owner_guard.get_ai_update_interface_mut() {
+                            let _ = self.base.core.compute_path(ai);
+                        }
+                    });
+            }
         }
         if has_ai {
-            self.base.classic_on_update_with_ai(ai_guard)
+            match with_frame_ai(owner, &mut borrowed, &mut |ai| {
+                self.base.classic_on_update_with_ai(ai)
+            }) {
+                Some(r) => r,
+                None => Err("attack follow path missing AIUpdateInterface".to_string()),
+            }
         } else {
             self.base.classic_on_update()
         }
@@ -1125,41 +1207,50 @@ impl ClassicState for AIAttackObjectState {
         };
 
         {
-            let target_guard = target.read().map_err(|_| "lock poisoned".to_string())?;
-            let stop = crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner, |owner_guard| {
+            let stop = crate::object::registry::OBJECT_REGISTRY.with_object(target_id, |target_guard| {
+                crate::object::registry::OBJECT_REGISTRY
+                    .with_object_mut(owner, |owner_guard| {
                         let weapon_found = owner_guard.choose_best_weapon_for_target(
-                &*target_guard,
-                WeaponChoiceCriteria::PreferMostDamage,
-                cmd_source,
-            );
-            if !weapon_found {
-                return Some(StateReturnType::Failure);
-            }
+                            target_guard,
+                            WeaponChoiceCriteria::PreferMostDamage,
+                            cmd_source,
+                        );
+                        if !weapon_found {
+                            return Some(StateReturnType::Failure);
+                        }
 
-            // C++ lines 5529-5536: Set max shots and stealth check
-            if let Some((weapon, _slot)) = owner_guard.get_current_weapon() {
-                let continue_attack_range = weapon.get_continue_attack_range();
-                owner_guard.set_current_weapon_max_shot_count(NO_MAX_SHOTS_LIMIT);
-                if continue_attack_range > 0.0 {
-                    owner_guard.set_status(
-                        ObjectStatusMaskType::from_status(ObjectStatusTypes::IgnoringStealth),
-                        true,
-                    );
-                }
-            }
+                        // C++ lines 5529-5536: Set max shots and stealth check
+                        if let Some((weapon, _slot)) = owner_guard.get_current_weapon() {
+                            let continue_attack_range = weapon.get_continue_attack_range();
+                            owner_guard.set_current_weapon_max_shot_count(NO_MAX_SHOTS_LIMIT);
+                            if continue_attack_range > 0.0 {
+                                owner_guard.set_status(
+                                    ObjectStatusMaskType::from_status(
+                                        ObjectStatusTypes::IgnoringStealth,
+                                    ),
+                                    true,
+                                );
+                            }
+                        }
 
-            // C++ line 5538: m_lockedWeaponOnEnter = source->isCurWeaponLocked() ? curWeapon : NULL
-            if owner_guard.is_cur_weapon_locked() {
-                if let Some((_weapon, slot)) = owner_guard.get_current_weapon() {
-                    self.locked_weapon_on_enter = Some(slot);
+                        // C++ line 5538: m_lockedWeaponOnEnter = source->isCurWeaponLocked() ? curWeapon : NULL
+                        if owner_guard.is_cur_weapon_locked() {
+                            if let Some((_weapon, slot)) = owner_guard.get_current_weapon() {
+                                self.locked_weapon_on_enter = Some(slot);
+                            }
+                        } else {
+                            self.locked_weapon_on_enter = None;
+                        }
+                        None
+                    })
+                    .flatten()
+            });
+            match stop {
+                Some(Some(code)) => return Ok(code),
+                Some(None) => {}
+                None => {
+                    return Err("attack object state missing goal object".to_string());
                 }
-            } else {
-                self.locked_weapon_on_enter = None;
-            }
-        None
-            }).ok_or_else(|| "lock poisoned".to_string())?;
-            if let Some(code) = stop {
-                return Ok(code);
             }
         }
 
@@ -1171,7 +1262,7 @@ impl ClassicState for AIAttackObjectState {
             true,
             self.force_attack,
         );
-        attack_machine.set_goal_object(target.read().ok().map(|g| g.get_id()));
+        attack_machine.set_goal_object(Some(target_id));
         attack_machine.set_goal_position(self.original_victim_pos);
 
         // C++ lines 5540-5545: Init default state and set attacking status
@@ -1298,10 +1389,7 @@ impl AIAttackObjectState {
                     let relationship = owner_guard.relationship_to(target_guard);
                     let empty_garrison = !target_guard.test_status(ObjectStatusTypes::CanAttack)
                         && target_guard.get_contain().is_some_and(|contain| {
-                            Ok(contain).ok().is_some_and(|contain_guard| {
-                                contain_guard.is_garrisonable()
-                                    && contain_guard.get_contained_count() == 0
-                            })
+                            contain.is_garrisonable() && contain.get_contained_count() == 0
                         })
                         && relationship == Relationship::Neutral;
                     let stop = empty_garrison || relationship != Relationship::Enemies;
@@ -1911,11 +1999,8 @@ impl AIAttackSquadState {
             }
             let mut difficulty = owner_guard
                 .get_controlling_player()
-                .and_then(|player| {
-                    player
-                        .read()
-                        .ok()
-                        .map(|player| player.get_player_difficulty())
+                .and_then(|player_index| {
+                    crate::player::with_player(player_index, |player| player.get_player_difficulty())
                 })
                 .unwrap_or(crate::player::GameDifficulty::Normal);
             if owner_guard.ai_fire_last_command_source == CommandSourceType::FromPlayer {
@@ -2221,11 +2306,12 @@ impl ClassicState for AIAttackAreaState {
                 .get_machine_owner()
                 .ok_or_else(|| "attack area missing owner".to_string())?;
 
-            let _ = crate::object::registry::OBJECT_REGISTRY.with_object(owner, |owner_guard| {
-                if owner_guard.is_out_of_ammo() && !owner_guard.is_kind_of(KindOf::Projectile) {
-                    return Ok(StateReturnType::Failure);
-                }
+            let out = crate::object::registry::OBJECT_REGISTRY.with_object(owner, |owner_guard| {
+                owner_guard.is_out_of_ammo() && !owner_guard.is_kind_of(KindOf::Projectile)
             });
+            if out == Some(true) {
+                return Ok(StateReturnType::Failure);
+            }
 
             self.next_enemy_scan_time = now + ENEMY_SCAN_RATE;
             if self.base.get_machine_goal_polygon().is_none() {
