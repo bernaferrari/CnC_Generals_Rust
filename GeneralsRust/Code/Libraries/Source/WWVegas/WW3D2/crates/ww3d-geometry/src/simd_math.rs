@@ -13,6 +13,30 @@ use std::arch::x86_64::*;
 pub mod vector_ops {
     use super::*;
 
+    pub(super) fn vec3_dot_scalar_batch(a: &[Vec3], b: &[Vec3], output: &mut [f32]) {
+        assert_eq!(a.len(), b.len());
+        assert_eq!(a.len(), output.len());
+
+        for i in 0..a.len() {
+            output[i] = a[i].dot(b[i]);
+        }
+    }
+
+    pub(super) fn vec3_cross_scalar_batch(a: &[Vec3], b: &[Vec3], output: &mut [Vec3]) {
+        assert_eq!(a.len(), b.len());
+        assert_eq!(a.len(), output.len());
+
+        for i in 0..a.len() {
+            output[i] = a[i].cross(b[i]);
+        }
+    }
+
+    pub(super) fn vec3_normalize_scalar_batch(vectors: &mut [Vec3]) {
+        for vector in vectors {
+            *vector = vector.normalize_or_zero();
+        }
+    }
+
     /// Compute dot products for multiple vector pairs using SIMD
     /// Processes 4 vector pairs per SIMD operation (SSE)
     #[cfg(target_arch = "x86_64")]
@@ -68,9 +92,7 @@ pub mod vector_ops {
     /// Fallback for non-x86_64 platforms
     #[cfg(not(target_arch = "x86_64"))]
     pub fn vec3_dot_simd_batch(a: &[Vec3], b: &[Vec3], output: &mut [f32]) {
-        for i in 0..a.len() {
-            output[i] = a[i].dot(b[i]);
-        }
+        vec3_dot_scalar_batch(a, b, output);
     }
 
     /// Compute cross products for multiple vector pairs using SIMD
@@ -130,9 +152,7 @@ pub mod vector_ops {
     /// Fallback for non-x86_64 platforms
     #[cfg(not(target_arch = "x86_64"))]
     pub fn vec3_cross_simd_batch(a: &[Vec3], b: &[Vec3], output: &mut [Vec3]) {
-        for i in 0..a.len() {
-            output[i] = a[i].cross(b[i]);
-        }
+        vec3_cross_scalar_batch(a, b, output);
     }
 
     /// Normalize multiple vectors using SIMD
@@ -205,9 +225,7 @@ pub mod vector_ops {
     /// Fallback for non-x86_64 platforms
     #[cfg(not(target_arch = "x86_64"))]
     pub fn vec3_normalize_simd_batch(vectors: &mut [Vec3]) {
-        for v in vectors {
-            *v = v.normalize_or_zero();
-        }
+        vec3_normalize_scalar_batch(vectors);
     }
 
     /// Safe wrapper for SIMD dot product
@@ -222,7 +240,7 @@ pub mod vector_ops {
                     vec3_dot_simd_batch(a, b, output);
                 }
             } else {
-                vec3_dot_simd_batch(a, b, output);
+                vec3_dot_scalar_batch(a, b, output);
             }
         }
 
@@ -243,7 +261,7 @@ pub mod vector_ops {
                     vec3_cross_simd_batch(a, b, output);
                 }
             } else {
-                vec3_cross_simd_batch(a, b, output);
+                vec3_cross_scalar_batch(a, b, output);
             }
         }
 
@@ -264,7 +282,7 @@ pub mod vector_ops {
                     vec3_normalize_simd_batch(vectors);
                 }
             } else {
-                vec3_normalize_simd_batch(vectors);
+                vec3_normalize_scalar_batch(vectors);
             }
         }
 
@@ -434,6 +452,35 @@ pub mod skinning {
         pub bone_weights: [f32; 4],
     }
 
+    pub(super) fn skin_vertices_scalar(
+        vertices: &[SkinnedVertex],
+        bone_matrices: &[Mat4],
+        output_positions: &mut [Vec3],
+        output_normals: &mut [Vec3],
+    ) {
+        assert_eq!(vertices.len(), output_positions.len());
+        assert_eq!(vertices.len(), output_normals.len());
+
+        for (i, vertex) in vertices.iter().enumerate() {
+            let mut final_pos = Vec3::ZERO;
+            let mut final_normal = Vec3::ZERO;
+
+            for j in 0..4 {
+                let bone_idx = vertex.bone_indices[j] as usize;
+                let weight = vertex.bone_weights[j];
+
+                if weight > 0.0001 && bone_idx < bone_matrices.len() {
+                    let matrix = &bone_matrices[bone_idx];
+                    final_pos += matrix.transform_point3(vertex.position) * weight;
+                    final_normal += matrix.transform_vector3(vertex.normal) * weight;
+                }
+            }
+
+            output_positions[i] = final_pos;
+            output_normals[i] = final_normal.normalize_or_zero();
+        }
+    }
+
     /// Transform vertices by bone matrices using SIMD
     #[cfg(target_arch = "x86_64")]
     #[target_feature(enable = "sse4.1")]
@@ -486,24 +533,7 @@ pub mod skinning {
         output_positions: &mut [Vec3],
         output_normals: &mut [Vec3],
     ) {
-        for (i, vertex) in vertices.iter().enumerate() {
-            let mut final_pos = Vec3::ZERO;
-            let mut final_normal = Vec3::ZERO;
-
-            for j in 0..4 {
-                let bone_idx = vertex.bone_indices[j] as usize;
-                let weight = vertex.bone_weights[j];
-
-                if weight > 0.0001 && bone_idx < bone_matrices.len() {
-                    let matrix = &bone_matrices[bone_idx];
-                    final_pos += matrix.transform_point3(vertex.position) * weight;
-                    final_normal += matrix.transform_vector3(vertex.normal) * weight;
-                }
-            }
-
-            output_positions[i] = final_pos;
-            output_normals[i] = final_normal.normalize_or_zero();
-        }
+        skin_vertices_scalar(vertices, bone_matrices, output_positions, output_normals);
     }
 
     /// Safe wrapper for vertex skinning
@@ -522,7 +552,7 @@ pub mod skinning {
                     skin_vertices_simd(vertices, bone_matrices, output_positions, output_normals);
                 }
             } else {
-                skin_vertices_simd(vertices, bone_matrices, output_positions, output_normals);
+                skin_vertices_scalar(vertices, bone_matrices, output_positions, output_normals);
             }
         }
 
@@ -536,6 +566,48 @@ pub mod skinning {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn scalar_vector_fallback_matches_production_dispatch() {
+        let a = [
+            Vec3::new(1.0, 2.0, 3.0),
+            Vec3::new(-4.0, 0.5, 2.0),
+            Vec3::new(1.0, 0.0, 1.0),
+            Vec3::new(0.25, 0.75, -1.5),
+            Vec3::ZERO,
+        ];
+        let b = [
+            Vec3::new(3.0, -2.0, 1.0),
+            Vec3::new(0.25, 4.0, -0.5),
+            Vec3::new(1.0, 1.0, 1.0),
+            Vec3::new(-2.0, 0.5, 2.0),
+            Vec3::new(0.5, 1.0, -2.0),
+        ];
+
+        let mut scalar_dots = [0.0; 5];
+        let mut simd_dots = [0.0; 5];
+        vector_ops::vec3_dot_scalar_batch(&a, &b, &mut scalar_dots);
+        vector_ops::batch_dot_product(&a, &b, &mut simd_dots);
+        for (scalar, simd) in scalar_dots.iter().zip(simd_dots) {
+            assert!((*scalar - simd).abs() < 1e-5);
+        }
+
+        let mut scalar_crosses = [Vec3::ZERO; 5];
+        let mut simd_crosses = [Vec3::ZERO; 5];
+        vector_ops::vec3_cross_scalar_batch(&a, &b, &mut scalar_crosses);
+        vector_ops::batch_cross_product(&a, &b, &mut simd_crosses);
+        for (scalar, simd) in scalar_crosses.iter().zip(simd_crosses) {
+            assert!((*scalar - simd).length() < 1e-5);
+        }
+
+        let mut scalar_normalized = a;
+        let mut simd_normalized = a;
+        vector_ops::vec3_normalize_scalar_batch(&mut scalar_normalized);
+        vector_ops::batch_normalize(&mut simd_normalized);
+        for (scalar, simd) in scalar_normalized.iter().zip(simd_normalized) {
+            assert!((*scalar - simd).length() < 1e-3);
+        }
+    }
 
     #[test]
     fn test_batch_dot_product() {
@@ -597,5 +669,42 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn scalar_skinning_fallback_matches_production_dispatch() {
+        let vertices = [
+            skinning::SkinnedVertex {
+                position: Vec3::new(1.0, 2.0, 3.0),
+                normal: Vec3::Y,
+                bone_indices: [0, 1, 9, 0],
+                bone_weights: [0.25, 0.75, 1.0, 0.00001],
+            },
+            skinning::SkinnedVertex {
+                position: Vec3::new(-2.0, 0.5, 4.0),
+                normal: Vec3::new(1.0, 1.0, 0.0),
+                bone_indices: [1, 0, 0, 0],
+                bone_weights: [0.5, 0.5, 0.0, 0.0],
+            },
+        ];
+        let bones = [
+            Mat4::from_translation(Vec3::new(2.0, 0.0, -1.0)),
+            Mat4::from_scale(Vec3::new(2.0, 1.0, 0.5)),
+        ];
+        let mut scalar_positions = [Vec3::ZERO; 2];
+        let mut scalar_normals = [Vec3::ZERO; 2];
+        let mut simd_positions = [Vec3::ZERO; 2];
+        let mut simd_normals = [Vec3::ZERO; 2];
+
+        skinning::skin_vertices_scalar(
+            &vertices,
+            &bones,
+            &mut scalar_positions,
+            &mut scalar_normals,
+        );
+        skinning::skin_vertices(&vertices, &bones, &mut simd_positions, &mut simd_normals);
+
+        assert_eq!(scalar_positions, simd_positions);
+        assert_eq!(scalar_normals, simd_normals);
     }
 }

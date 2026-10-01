@@ -188,11 +188,14 @@ struct AStarNode {
     g_score: u32, // Cost from start
     f_score: u32, // g_score + h_score
     parent: Option<SearchKey>,
+    /// FIFO position assigned at enqueue time. CPP inserts after existing
+    /// nodes with the same total cost.
+    enqueue_order: u64,
 }
 
 impl PartialEq for AStarNode {
     fn eq(&self, other: &Self) -> bool {
-        self.coord == other.coord && self.layer == other.layer
+        self.f_score == other.f_score && self.enqueue_order == other.enqueue_order
     }
 }
 
@@ -205,17 +208,70 @@ impl PartialOrd for AStarNode {
 }
 
 impl Ord for AStarNode {
-    /// Min-heap based on f_score, then g_score, then coordinates
-    /// Matches C++ PathfindCell::putOnSortedOpenList() behavior
+    /// Min-heap by total cost, then stable enqueue order.
+    /// Matches CPP PathfindCell::putOnSortedOpenList()'s insertion-after-equals.
     fn cmp(&self, other: &Self) -> Ordering {
-        // Reverse for min-heap behavior
         other
             .f_score
             .cmp(&self.f_score)
-            .then_with(|| other.g_score.cmp(&self.g_score))
-            .then_with(|| other.coord.x.cmp(&self.coord.x))
-            .then_with(|| other.coord.y.cmp(&self.coord.y))
-            .then_with(|| (other.layer as u8).cmp(&(self.layer as u8)))
+            .then_with(|| other.enqueue_order.cmp(&self.enqueue_order))
+    }
+}
+
+/// Open-list storage preserving CPP's stable insertion order for equal costs.
+/// Decreased nodes are enqueued as new generations; callers reject stale
+/// generations against their current membership and g-score tables.
+struct OpenSet {
+    nodes: BinaryHeap<AStarNode>,
+    next_enqueue_order: u64,
+}
+
+impl OpenSet {
+    fn new() -> Self {
+        Self {
+            nodes: BinaryHeap::new(),
+            next_enqueue_order: 0,
+        }
+    }
+
+    fn push(&mut self, mut node: AStarNode) {
+        if self.next_enqueue_order == u64::MAX {
+            self.rebase_enqueue_order();
+        }
+        node.enqueue_order = self.next_enqueue_order;
+        self.next_enqueue_order += 1;
+        self.nodes.push(node);
+    }
+
+    /// Rebase before counter overflow while preserving the chronological order
+    /// of every queued generation, including stale entries not yet drained.
+    fn rebase_enqueue_order(&mut self) {
+        let mut nodes = self.nodes.drain().collect::<Vec<_>>();
+        nodes.sort_by_key(|node| node.enqueue_order);
+        for (order, node) in nodes.iter_mut().enumerate() {
+            node.enqueue_order = u64::try_from(order)
+                .expect("resident A* open set must fit the enqueue-order counter");
+        }
+        self.next_enqueue_order = u64::try_from(nodes.len())
+            .expect("resident A* open set must fit the enqueue-order counter");
+        self.nodes = BinaryHeap::from(nodes);
+    }
+
+    fn pop_live(&mut self, mut is_live: impl FnMut(&AStarNode) -> bool) -> Option<AStarNode> {
+        while let Some(node) = self.nodes.pop() {
+            if is_live(&node) {
+                return Some(node);
+            }
+        }
+        None
+    }
+
+    fn is_empty(&self) -> bool {
+        self.nodes.is_empty()
+    }
+
+    fn len(&self) -> usize {
+        self.nodes.len()
     }
 }
 
@@ -1124,7 +1180,7 @@ impl AStarPathfinder {
     ) -> Option<(Vec<(GridCoord, PathfindLayerEnum)>, usize)> {
         // Initialize open and closed sets
         // Matches C++ at AIPathfind.cpp:6575-6581
-        let mut open_set = BinaryHeap::new();
+        let mut open_set = OpenSet::new();
         let mut open_members: HashSet<SearchKey> = HashSet::new();
         let mut closed_set: HashSet<SearchKey> = HashSet::new();
         let mut came_from: HashMap<SearchKey, SearchKey> = HashMap::new();
@@ -1170,6 +1226,7 @@ impl AStarPathfinder {
             g_score: 0,
             f_score: h_score,
             parent: None,
+            enqueue_order: 0,
         };
 
         open_set.push(start_node);
@@ -1183,18 +1240,15 @@ impl AStarPathfinder {
 
         // Main A* loop
         // Matches C++ while loop at AIPathfind.cpp:6589-6633
-        while let Some(current) = open_set.pop() {
+        while let Some(current) = open_set.pop_live(|node| {
+            let key = (node.coord, node.layer);
+            open_members.contains(&key)
+                && g_scores
+                    .get(&key)
+                    .map(|&best_g| node.g_score <= best_g)
+                    .unwrap_or(true)
+        }) {
             let current_key: SearchKey = (current.coord, current.layer);
-            // Stale BinaryHeap entry after examine_cells_toward_goal reopen.
-            if !open_members.contains(&current_key) {
-                continue;
-            }
-            if let Some(&best_g) = g_scores.get(&current_key) {
-                if current.g_score > best_g {
-                    continue;
-                }
-            }
-
             iterations += 1;
             if iterations > max_iterations {
                 // Prevent infinite loops
@@ -1451,6 +1505,7 @@ impl AStarPathfinder {
                     g_score: tentative_g,
                     f_score,
                     parent: Some(current_key),
+                    enqueue_order: 0,
                 };
 
                 open_set.push(neighbor_node);
@@ -1484,7 +1539,7 @@ impl AStarPathfinder {
         force_passable: Option<&dyn Fn(GridCoord) -> bool>,
         line_cell_ok: Option<&dyn Fn(GridCoord) -> bool>,
         cell_allowed: Option<&dyn Fn(GridCoord) -> bool>,
-        open_set: &mut BinaryHeap<AStarNode>,
+        open_set: &mut OpenSet,
         open_members: &mut HashSet<SearchKey>,
         closed_set: &mut HashSet<SearchKey>,
         came_from: &mut HashMap<SearchKey, SearchKey>,
@@ -1602,6 +1657,7 @@ impl AStarPathfinder {
                 g_score: new_g,
                 f_score: new_g.saturating_add(h_score),
                 parent: Some((from, layer)),
+                enqueue_order: 0,
             });
 
             from = to;
@@ -1658,7 +1714,7 @@ impl AStarPathfinder {
         current_layer: PathfindLayerEnum,
         parent_g: u32,
         parent_f: u32,
-        open_set: &mut BinaryHeap<AStarNode>,
+        open_set: &mut OpenSet,
         open_members: &mut HashSet<SearchKey>,
         closed_set: &HashSet<SearchKey>,
         came_from: &mut HashMap<SearchKey, SearchKey>,
@@ -1698,6 +1754,7 @@ impl AStarPathfinder {
             g_score: parent_g,
             f_score: parent_f,
             parent: Some(parent_key),
+            enqueue_order: 0,
         });
         true
     }

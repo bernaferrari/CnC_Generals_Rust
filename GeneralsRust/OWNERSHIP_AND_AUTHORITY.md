@@ -4,17 +4,38 @@
 
 Preserve C++ **behavior**. Do not preserve C++ **pointer ownership**.
 
-## Authoritative simulation (production surface, 2026-08-02)
+## Current production ownership (2026-09-30)
+
+The default Main host owns its objects and player runtime. The eleven authority
+switches in `Code/Main/src/game_logic/game_logic/gameworld_authority.rs` default
+to false. Enabling them is an experimental ownership change, not a completed
+migration. The shadow still receives host events and maintains copied state;
+its coupling and remaining writeback paths are migration dependencies.
 
 ```
-OS input → normalized commands → Main GameLogic (30 Hz host sim)
-  → host_* logs (damage/economy/spawn/destroy/attack)
-  → GameWorldShadow session (always-on) → WorldMutations last-writer
-  → host writeback (HP/cash/pose/targets)
-  → PresentationFrame built from host, then shadow overlay (HP/pose/economy/power)
-  → GameClient / audio / renderer  (draw path is presentation-only; no live &GameLogic)
+OS input → normalized commands → Main GameLogic (30 Hz host simulation)
+  → host event logs → scoped GameWorldShadow integration
+  → completed PresentationFrame → GameClient / audio / renderer
 ```
 
+The renderer consumes completed presentation data. The scoped shadow callback
+is a temporary synchronous bridge: it exclusively borrows the owner, restores
+the previous scope on return/unwind, and rejects reentrant ambient borrows.
+There is no safe API for returning an installation guard or publishing a raw
+shadow pointer after the owner's borrow ends. Run
+`python3 Code/Main/scripts/verify_shadow_coupling_miri.py` for the extracted
+production mechanism's lifetime/aliasing audit. Its small owner adapter does
+not prove whole-game isolation or C++ behavioral parity.
+
+Player special-power timers and base/crate collision bookkeeping are owned
+runtime values, with explicit mutable access. Shared module interface wrappers
+and engine stores remain separate migration boundaries. GPU upload structures
+use compiler-checked Pod/Zeroable derives; this removes handwritten layout
+assertions without changing their C representations.
+
+The table below describes current defaults. Later wave logs record historical
+experiments and feature-gated configurations; descriptions of GameWorld as
+last writer do not override the current all-false default authority policy.
 
 ## Host object access idiom (Wave 955–961)
 
@@ -119,7 +140,7 @@ Production enqueue records `host_production_log (enqueue + complete)`; completio
 
 When `PresentationFrame` is set, engine passes `game_logic: None` into `RenderPipeline::execute`. `collect_render_items` drives the main unit mesh pass from `unit_render_inputs` only. Minimap base / map roads / runtime heightmap helpers take `Option<&GameLogic>` and prefer `PresentationWorldEnv` (bounds, height samples, road segments) when the frame is set (`debug_last_live_unit_identity_reads == 0`). Live `game_logic.get_objects()` remains only for boot/loading frames without a snapshot. Terrain/prewarm prefer frozen `PresentationWorldEnv` and fall back to live map metadata if absent.
 
-## GameWorld last-writer surface (current)
+## Historical and opt-in GameWorld last-writer surface
 
 | Concern | Last writer | Host still executes |
 |---------|-------------|---------------------|

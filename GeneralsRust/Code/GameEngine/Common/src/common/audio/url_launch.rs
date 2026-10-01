@@ -12,7 +12,7 @@ use std::os::windows::ffi::{OsStrExt, OsStringExt};
 use std::ptr;
 
 #[cfg(windows)]
-use winapi::shared::minwindef::DWORD;
+use winapi::shared::minwindef::{DWORD, HKEY};
 #[cfg(windows)]
 use winapi::shared::winerror::ERROR_SUCCESS;
 #[cfg(windows)]
@@ -20,13 +20,11 @@ use winapi::um::errhandlingapi::GetLastError;
 #[cfg(windows)]
 use winapi::um::handleapi::CloseHandle;
 #[cfg(windows)]
-use winapi::um::minwinbase::STARTUPINFOW;
+use winapi::um::processthreadsapi::{CreateProcessW, PROCESS_INFORMATION, STARTUPINFOW};
 #[cfg(windows)]
-use winapi::um::processthreadsapi::{CreateProcessW, PROCESS_INFORMATION};
+use winapi::um::winnt::{KEY_READ, LPCWSTR};
 #[cfg(windows)]
-use winapi::um::winnt::{KEY_READ, LPCWSTR, LPWSTR};
-#[cfg(windows)]
-use winapi::um::winreg::{HKEY, HKEY_CLASSES_ROOT, RegCloseKey, RegOpenKeyExW, RegQueryValueExW};
+use winapi::um::winreg::{HKEY_CLASSES_ROOT, RegCloseKey, RegOpenKeyExW, RegQueryValueExW};
 
 // Type aliases for compatibility
 pub type HResult = i32;
@@ -139,9 +137,9 @@ fn launch_url_windows(url: &str) -> HResult {
     let exe_w = to_wide(&exe);
     let mut cmd_w = to_wide(&launch_command);
 
-        // SAFETY: winapi CreateProcessW with zeroed PROCESS_INFORMATION/
-        // STARTUPINFOW (cb sized), wide buffers built locally; handles are
-        // closed on success below.
+    // SAFETY: winapi CreateProcessW with zeroed PROCESS_INFORMATION/
+    // STARTUPINFOW (cb sized), wide buffers built locally; handles are
+    // closed on success below.
     unsafe {
         let mut proc_info: PROCESS_INFORMATION = std::mem::zeroed();
         let mut startup: STARTUPINFOW = std::mem::zeroed();
@@ -333,13 +331,13 @@ fn read_registry_string(
     let path_wide = to_wide(path);
     let value_wide = value_name.map(to_wide);
 
-        // SAFETY: RegOpenKeyExW/RegQueryValueExW receive wide buffers from
-        // to_wide and a valid HKEY out-param; key is closed after query.
+    // SAFETY: RegOpenKeyExW/RegQueryValueExW receive wide buffers from
+    // to_wide and a valid HKEY out-param; key is closed after query.
     unsafe {
         let mut key: HKEY = std::mem::zeroed();
         let result = RegOpenKeyExW(hkey, path_wide.as_ptr(), 0, KEY_READ, &mut key);
-        if result != ERROR_SUCCESS {
-            return Err(hresult_from_win32(result));
+        if result as DWORD != ERROR_SUCCESS {
+            return Err(hresult_from_win32(result as DWORD));
         }
 
         let mut data_type: DWORD = 0;
@@ -356,9 +354,9 @@ fn read_registry_string(
             &mut data_size,
         );
 
-        if result != ERROR_SUCCESS {
+        if result as DWORD != ERROR_SUCCESS {
             RegCloseKey(key);
-            return Err(hresult_from_win32(result));
+            return Err(hresult_from_win32(result as DWORD));
         }
 
         let mut buffer: Vec<u8> = vec![0u8; data_size as usize];
@@ -375,8 +373,8 @@ fn read_registry_string(
         );
 
         RegCloseKey(key);
-        if result != ERROR_SUCCESS {
-            return Err(hresult_from_win32(result));
+        if result as DWORD != ERROR_SUCCESS {
+            return Err(hresult_from_win32(result as DWORD));
         }
 
         let wide: Vec<u16> = buffer

@@ -2,11 +2,11 @@
 
 use crate::game_logic::object::{decode_lifecycle_snapshot_block, encode_lifecycle_snapshot_block};
 use crate::game_logic::{GameLogic, ObjectId, railroad_registry_reset};
+use crate::gameworld_shadow::GameWorldShadow;
 use crate::save_load::{SaveLoadError, SaveLoadResult};
 use gamelogic::world::entities::EntityId;
 use gamelogic::world::entities::EntityLifecycleEnvelope;
 use gamelogic::world::entity_fixup::{ContainFixup, ProducerFixup};
-use crate::gameworld_shadow::GameWorldShadow;
 use gamelogic::world::entity_generation::EntityHandle;
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -120,14 +120,12 @@ pub fn capture_lifecycle_tail(game_logic: &GameLogic) -> LifecycleTail {
     // shadow session (remaining gap; deliberately not plumbed wrong here).
     let mut generation_fallbacks = 0usize;
     let mut generation_for = |host: ObjectId| {
-        crate::gameworld_shadow::with_active_shadow(|shadow| {
-            shadow_generation_for(shadow, host)
-        })
-        .flatten()
-        .unwrap_or_else(|| {
-            generation_fallbacks += 1;
-            1
-        })
+        crate::gameworld_shadow::with_active_shadow(|shadow| shadow_generation_for(shadow, host))
+            .flatten()
+            .unwrap_or_else(|| {
+                generation_fallbacks += 1;
+                1
+            })
     };
     for object in game_logic.host_objects().values() {
         tail.envelopes.push(object.entity_lifecycle_envelope());
@@ -430,11 +428,12 @@ mod tests {
             Some(2)
         );
 
-        crate::gameworld_shadow::begin_shadow_coupled_tick();
-        crate::gameworld_shadow::install_active_shadow_for_coupled_tick(&mut shadow);
-        let tail = capture_lifecycle_tail(&logic);
-        crate::gameworld_shadow::clear_active_shadow_for_coupled_tick();
-        crate::gameworld_shadow::end_shadow_coupled_tick();
+        let tail = {
+            let _tick = crate::gameworld_shadow::CoupledTickGuard::enter();
+            crate::gameworld_shadow::with_coupled_shadow(&mut shadow, || {
+                capture_lifecycle_tail(&logic)
+            })
+        };
 
         match prev {
             Some(v) => crate::env_compat::set_var("GENERALS_GAMEWORLD_SHADOW", v),

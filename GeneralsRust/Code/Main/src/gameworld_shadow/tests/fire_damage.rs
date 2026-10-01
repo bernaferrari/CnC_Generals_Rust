@@ -555,11 +555,11 @@ fn damage_authority_writeback_is_last_writer() {
     assert!(gameworld_damage_authority_enabled());
     // Wave 758: couple for damage_authority_live.
     let _couple = ShadowCoupleGuard::enter();
-    install_active_shadow_for_coupled_tick(&mut shadow);
-    if let Some(obj) = logic.host_object_mut(id) {
-        let _ = obj.take_damage(25.0);
-    }
-    clear_active_shadow_for_coupled_tick();
+    with_coupled_shadow(&mut shadow, || {
+        if let Some(obj) = logic.host_object_mut(id) {
+            let _ = obj.take_damage(25.0);
+        }
+    });
     drop(_couple);
     let host_mid = logic.host_objects().get(&id).unwrap().health.current;
     // C++ ActiveBody::internalChangeHealth writes HP the same frame.
@@ -752,7 +752,7 @@ fn host_damage_log_feeds_shadow_mutation_channel() {
     let queued = apply_logged_damage_channel_parity(&mut logic, &mut shadow, &[(id, 40.0)])
         .expect("channel");
     assert!(queued >= 1, "expected queued mutations");
-    assert!(shadow.entity_for_host(id).is_some());
+    assert!(with_active_shadow(|shadow| shadow.entity_for_host(id).is_some()).unwrap_or(false));
 }
 
 #[test]
@@ -775,7 +775,7 @@ fn host_construction_log_maps_completed_structure_in_shadow() {
     let n = shadow.apply_host_construction_events(&events, &logic);
     assert!(n >= 1, "construction apply mapped {n}");
     assert!(
-        shadow.entity_for_host(id).is_some(),
+        with_active_shadow(|shadow| shadow.entity_for_host(id).is_some()).unwrap_or(false),
         "completed structure must be mapped in shadow"
     );
 }

@@ -74,12 +74,10 @@ fn damage_authority_defers_host_hp_until_writeback() {
     let before = logic.host_objects().get(&oid).expect("o").health.current;
     host_damage_log::clear();
     let _couple = ShadowCoupleGuard::enter();
-    install_active_shadow_for_coupled_tick(&mut shadow);
-    {
+    with_coupled_shadow(&mut shadow, || {
         let o = logic.host_object_mut(oid).expect("o");
         let _ = o.take_damage(25.0);
-    }
-    clear_active_shadow_for_coupled_tick();
+    });
     drop(_couple);
     // C++ ActiveBody::internalChangeHealth writes HP the same frame.
     let mid = logic.host_objects().get(&oid).expect("o").health.current;
@@ -136,12 +134,10 @@ fn heal_authority_defers_host_hp_until_writeback() {
     shadow.sync_from_host(&logic);
     host_heal_log::clear();
     let _couple = ShadowCoupleGuard::enter();
-    install_active_shadow_for_coupled_tick(&mut shadow);
-    {
+    with_coupled_shadow(&mut shadow, || {
         let o = logic.host_object_mut(oid).expect("o");
         o.heal(30.0);
-    }
-    clear_active_shadow_for_coupled_tick();
+    });
     drop(_couple);
     let mid = logic.host_objects().get(&oid).expect("o").health.current;
     assert!((mid - 40.0).abs() < 1e-5, "host heal deferred mid={mid}");
@@ -197,12 +193,10 @@ fn experience_authority_defers_host_xp_until_writeback() {
     // Wave 757: damage_authority_live requires coupled shadow tick depth
     // (host-only tests fail-open to host mutate). Enter couple for defer.
     let _couple = ShadowCoupleGuard::enter();
-    install_active_shadow_for_coupled_tick(&mut shadow);
-    {
+    with_coupled_shadow(&mut shadow, || {
         let o = logic.host_object_mut(oid).expect("o");
         o.gain_experience(50.0);
-    }
-    clear_active_shadow_for_coupled_tick();
+    });
     drop(_couple);
     let mid = logic
         .host_objects()
@@ -225,12 +219,10 @@ fn experience_authority_defers_host_xp_until_writeback() {
     host_experience_log::clear();
     {
         let _couple = ShadowCoupleGuard::enter();
-        install_active_shadow_for_coupled_tick(&mut shadow);
-        {
+        with_coupled_shadow(&mut shadow, || {
             let o = logic.host_object_mut(oid).expect("o");
             o.gain_experience(50.0);
-        }
-        clear_active_shadow_for_coupled_tick();
+        });
     }
     let _ = shadow_session_after_host_tick(&mut shadow, &mut logic);
     let after = logic
@@ -1390,15 +1382,15 @@ fn host_damage_move_write_appears_in_gameworld_single_hp() {
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
     let _couple = ShadowCoupleGuard::enter();
-    install_active_shadow_for_coupled_tick(&mut shadow);
-
     let before_gw = {
         let eid = shadow.entity_for_host(oid).expect("map");
         shadow.world().entity(eid).expect("e").health
     };
-    logic.with_host_object_mut(oid, |o| {
-        o.health.current = (o.health.current - 25.0).max(0.0);
-        o.move_to(glam::Vec3::new(40.0, 0.0, 0.0));
+    with_coupled_shadow(&mut shadow, || {
+        logic.with_host_object_mut(oid, |o| {
+            o.health.current = (o.health.current - 25.0).max(0.0);
+            o.move_to(glam::Vec3::new(40.0, 0.0, 0.0));
+        });
     });
 
     let eid = shadow.entity_for_host(oid).expect("map");
@@ -1407,12 +1399,16 @@ fn host_damage_move_write_appears_in_gameworld_single_hp() {
         (gw_hp - before_gw).abs() < 0.01,
         "coupled read-view HashMap HP poke must not last-write GameWorld; gw={gw_hp} before={before_gw}"
     );
-    let auth_hp = logic.host_authoritative_health(oid).expect("hp");
+    let auth_hp = with_coupled_shadow(&mut shadow, || {
+        logic.host_authoritative_health(oid).expect("hp")
+    });
     assert!(
         (auth_hp - gw_hp).abs() < 1e-4,
         "authoritative HP must be GameWorld, not a second number; auth={auth_hp} gw={gw_hp}"
     );
-    let auth_pose = logic.host_authoritative_pose(oid).expect("pose");
+    let auth_pose = with_coupled_shadow(&mut shadow, || {
+        logic.host_authoritative_pose(oid).expect("pose")
+    });
     let gw_pose = {
         let p = shadow.world().entity(eid).expect("e").transform.position;
         [p.x, p.y, p.z]
@@ -1422,7 +1418,6 @@ fn host_damage_move_write_appears_in_gameworld_single_hp() {
         "authoritative pose must match GameWorld"
     );
 
-    clear_active_shadow_for_coupled_tick();
     drop(_couple);
     let _ = shadow.writeback_health_to_host(&mut logic);
     let _ = shadow.writeback_transforms_to_host(&mut logic);
@@ -1450,34 +1445,35 @@ fn host_object_mut_overlays_and_commits_view_to_gameworld() {
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
     let _couple = ShadowCoupleGuard::enter();
-    install_active_shadow_for_coupled_tick(&mut shadow);
-
     let eid = shadow.entity_for_host(oid).expect("map");
-    let _ = crate::gameworld_shadow::push_coupled_world_mutation(
-        gamelogic::world::WorldMutation::SetHealth {
-            target: eid,
-            health: 40.0,
-        },
-    );
-    {
-        let o = logic.host_object_mut(oid).expect("view");
-        assert!(
-            (o.health.current - 40.0).abs() < 1e-3,
-            "host_object_mut must overlay GameWorld HP; got {}",
-            o.health.current
+    with_coupled_shadow(&mut shadow, || {
+        let _ = crate::gameworld_shadow::push_coupled_world_mutation(
+            gamelogic::world::WorldMutation::SetHealth {
+                target: eid,
+                health: 40.0,
+            },
         );
-        o.health.current = 33.0;
-    }
-    logic.commit_dirty_host_objects_to_gameworld();
+        {
+            let o = logic.host_object_mut(oid).expect("view");
+            assert!(
+                (o.health.current - 40.0).abs() < 1e-3,
+                "host_object_mut must overlay GameWorld HP; got {}",
+                o.health.current
+            );
+            o.health.current = 33.0;
+        }
+        logic.commit_dirty_host_objects_to_gameworld();
+    });
     let gw_hp = shadow.world().entity(eid).expect("e").health;
     assert!(
         (gw_hp - 40.0).abs() < 1e-3,
         "coupled read-view must not last-write HashMap HP into GameWorld; gw={gw_hp}"
     );
-    let auth = logic.host_authoritative_health(oid).expect("auth");
+    let auth = with_coupled_shadow(&mut shadow, || {
+        logic.host_authoritative_health(oid).expect("auth")
+    });
     assert!((auth - 40.0).abs() < 1e-4);
 
-    clear_active_shadow_for_coupled_tick();
     drop(_couple);
 }
 
@@ -1517,30 +1513,33 @@ fn host_fat_fields_write_through_to_gameworld() {
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
     let _couple = ShadowCoupleGuard::enter();
-    install_active_shadow_for_coupled_tick(&mut shadow);
+    with_coupled_shadow(&mut shadow, || {
+        logic.with_host_object_mut(carrier, |o| {
+            let mut w = crate::game_logic::Weapon::default();
+            w.clip_size = 8;
+            w.ammo = Some(5);
+            o.weapon = Some(w);
+            o.occupants = vec![pax];
+            o.movement.target_position = Some(glam::Vec3::new(30.0, 0.0, 4.0));
+            o.movement.path = vec![
+                glam::Vec3::new(10.0, 0.0, 0.0),
+                glam::Vec3::new(30.0, 0.0, 4.0),
+            ];
+            o.movement.current_path_index = 1;
+        });
 
-    logic.with_host_object_mut(carrier, |o| {
-        let mut w = crate::game_logic::Weapon::default();
-        w.clip_size = 8;
-        w.ammo = Some(5);
-        o.weapon = Some(w);
-        o.occupants = vec![pax];
-        o.movement.target_position = Some(glam::Vec3::new(30.0, 0.0, 4.0));
-        o.movement.path = vec![
-            glam::Vec3::new(10.0, 0.0, 0.0),
-            glam::Vec3::new(30.0, 0.0, 4.0),
-        ];
-        o.movement.current_path_index = 1;
+        let frame = logic
+            .host_stamp_attack_substate_at_frame(
+                carrier,
+                crate::game_logic::AttackSubState::FireWeapon,
+            )
+            .expect("split-borrow stamp");
+        assert_eq!(
+            frame, logic.frame,
+            "stamp must read logic frame while mutating the object map field"
+        );
+        logic.commit_dirty_host_objects_to_gameworld();
     });
-
-    let frame = logic
-        .host_stamp_attack_substate_at_frame(carrier, crate::game_logic::AttackSubState::FireWeapon)
-        .expect("split-borrow stamp");
-    assert_eq!(
-        frame, logic.frame,
-        "stamp must read logic frame while mutating the object map field"
-    );
-    logic.commit_dirty_host_objects_to_gameworld();
 
     let eid = shadow.entity_for_host(carrier).expect("map");
     let ent = shadow.world().entity(eid).expect("e");
@@ -1558,53 +1557,58 @@ fn host_fat_fields_write_through_to_gameworld() {
     assert_eq!(ent.move_target, None);
     assert!(ent.path_waypoints.is_empty());
 
-    logic
-        .with_host_object_mut(carrier, |o| {
-            o.movement.target_position = None;
-        })
-        .expect("clear dest");
+    with_coupled_shadow(&mut shadow, || {
+        logic
+            .with_host_object_mut(carrier, |o| {
+                o.movement.target_position = None;
+            })
+            .expect("clear dest");
+    });
     let ent = shadow.world().entity(eid).expect("e");
     assert_eq!(
         ent.move_target, None,
         "read-view clear dest must not invent a GameWorld move target"
     );
     assert_eq!(
-        logic.host_authoritative_move_dest(carrier),
+        with_coupled_shadow(&mut shadow, || logic.host_authoritative_move_dest(carrier)),
         None,
         "authoritative dest is None after clear, not the HashMap leftover"
     );
-    if let Some(o) = logic.host_object_mut(carrier) {
-        o.movement.target_position = Some(glam::Vec3::new(77.0, 0.0, 1.0));
-    }
+    with_coupled_shadow(&mut shadow, || {
+        if let Some(o) = logic.host_object_mut(carrier) {
+            o.movement.target_position = Some(glam::Vec3::new(77.0, 0.0, 1.0));
+        }
+    });
     assert_eq!(
         shadow.world().entity(eid).expect("e").move_target,
         None,
         "poking HashMap dest without commit must not change GameWorld"
     );
     assert_eq!(
-        logic.host_authoritative_move_dest(carrier),
+        with_coupled_shadow(&mut shadow, || logic.host_authoritative_move_dest(carrier)),
         None,
         "authoritative dest stays None until write-through"
     );
 
     // Host HashMap may still hold a copy; authoritative APIs must not treat a
     // disagreeing host-only value as truth.
-    if let Some(o) = logic.host_object_mut(carrier) {
-        o.movement.target_position = Some(glam::Vec3::new(99.0, 0.0, 99.0));
-        o.attack_substate = crate::game_logic::AttackSubState::AimAtTarget;
-    }
+    with_coupled_shadow(&mut shadow, || {
+        if let Some(o) = logic.host_object_mut(carrier) {
+            o.movement.target_position = Some(glam::Vec3::new(99.0, 0.0, 99.0));
+            o.attack_substate = crate::game_logic::AttackSubState::AimAtTarget;
+        }
+    });
     let ent = shadow.world().entity(eid).expect("e");
     assert_eq!(
         ent.move_target, None,
         "poking HashMap without commit must not change GameWorld dest"
     );
     assert_eq!(
-        logic.host_authoritative_move_dest(carrier),
+        with_coupled_shadow(&mut shadow, || logic.host_authoritative_move_dest(carrier)),
         None,
         "authoritative dest stays GameWorld"
     );
 
-    clear_active_shadow_for_coupled_tick();
     drop(_couple);
 }
 
@@ -1664,26 +1668,26 @@ fn host_object_store_hashmap_poke_is_not_authoritative_truth() {
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
     let _couple = ShadowCoupleGuard::enter();
-    install_active_shadow_for_coupled_tick(&mut shadow);
+    with_coupled_shadow(&mut shadow, || {
+        logic
+            .with_host_object_mut(oid, |o| {
+                o.health.current = 60.0;
+                let mut w = crate::game_logic::Weapon::default();
+                w.clip_size = 6;
+                w.ammo = Some(4);
+                o.weapon = Some(w);
+                o.movement.target_position = Some(glam::Vec3::new(11.0, 0.0, 5.0));
+                o.target = Some(victim);
+            })
+            .expect("shipped mutate");
+        let stamped = logic
+            .host_stamp_attack_substate_at_frame(oid, crate::game_logic::AttackSubState::FireWeapon)
+            .expect("split-borrow store + frame");
+        assert_eq!(stamped, logic.frame);
+        logic.commit_dirty_host_objects_to_gameworld();
+    });
 
-    logic
-        .with_host_object_mut(oid, |o| {
-            o.health.current = 60.0;
-            let mut w = crate::game_logic::Weapon::default();
-            w.clip_size = 6;
-            w.ammo = Some(4);
-            o.weapon = Some(w);
-            o.movement.target_position = Some(glam::Vec3::new(11.0, 0.0, 5.0));
-            o.target = Some(victim);
-        })
-        .expect("shipped mutate");
-    let stamped = logic
-        .host_stamp_attack_substate_at_frame(oid, crate::game_logic::AttackSubState::FireWeapon)
-        .expect("split-borrow store + frame");
-    assert_eq!(stamped, logic.frame);
-    logic.commit_dirty_host_objects_to_gameworld();
-
-    let spawn_hp = logic.host_authoritative_health(oid);
+    let spawn_hp = with_coupled_shadow(&mut shadow, || logic.host_authoritative_health(oid));
     assert_ne!(
         spawn_hp,
         Some(60.0),
@@ -1704,7 +1708,7 @@ fn host_object_store_hashmap_poke_is_not_authoritative_truth() {
         o.target = Some(ObjectId(9999));
     }
     assert_eq!(
-        logic.host_authoritative_health(oid),
+        with_coupled_shadow(&mut shadow, || logic.host_authoritative_health(oid)),
         spawn_hp,
         "HashMap health poke must not be truth"
     );
@@ -1716,7 +1720,6 @@ fn host_object_store_hashmap_poke_is_not_authoritative_truth() {
     obj.attack_substate = crate::game_logic::AttackSubState::AimAtTarget;
     assert_eq!(frame, logic.frame);
 
-    clear_active_shadow_for_coupled_tick();
     drop(_couple);
 }
 
@@ -1739,8 +1742,6 @@ fn is_alive_uses_coupled_gameworld_health() {
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
     let _couple = ShadowCoupleGuard::enter();
-    install_active_shadow_for_coupled_tick(&mut shadow);
-
     {
         let eid = shadow.entity_for_host(oid).expect("map");
         if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
@@ -1748,21 +1749,22 @@ fn is_alive_uses_coupled_gameworld_health() {
         }
     }
     // HashMap still shows a living unit.
-    assert!(
-        logic
-            .host_object(oid)
-            .is_some_and(|o| o.health.current > 0.0)
-    );
-    assert!(
-        !logic.host_object(oid).expect("obj").is_alive(),
-        "shipped is_alive must follow GameWorld HP (C++ BodyModule), not HashMap"
-    );
-    assert!(
-        (logic.host_object(oid).expect("obj").get_health_percentage() - 0.0).abs() < 1e-5,
-        "shipped get_health_percentage must follow GameWorld HP"
-    );
+    with_coupled_shadow(&mut shadow, || {
+        assert!(
+            logic
+                .host_object(oid)
+                .is_some_and(|o| o.health.current > 0.0)
+        );
+        assert!(
+            !logic.host_object(oid).expect("obj").is_alive(),
+            "shipped is_alive must follow GameWorld HP (C++ BodyModule), not HashMap"
+        );
+        assert!(
+            (logic.host_object(oid).expect("obj").get_health_percentage() - 0.0).abs() < 1e-5,
+            "shipped get_health_percentage must follow GameWorld HP"
+        );
+    });
 
-    clear_active_shadow_for_coupled_tick();
     drop(_couple);
 }
 
@@ -1783,8 +1785,6 @@ fn snapshot_builder_uses_authoritative_health() {
     let mut shadow = GameWorldShadow::new(64);
     shadow.sync_from_host(&logic);
     let _couple = ShadowCoupleGuard::enter();
-    install_active_shadow_for_coupled_tick(&mut shadow);
-
     {
         let eid = shadow.entity_for_host(oid).expect("map");
         if let Some(e) = shadow.world_mut().world_mut().entity_mut(eid) {
@@ -1795,9 +1795,11 @@ fn snapshot_builder_uses_authoritative_health() {
         o.health.current = 99.0;
     }
 
-    let snap = crate::save_load::snapshot::SnapshotBuilder::new()
-        .create_world_snapshot(&logic)
-        .expect("snapshot");
+    let snap = with_coupled_shadow(&mut shadow, || {
+        crate::save_load::snapshot::SnapshotBuilder::new()
+            .create_world_snapshot(&logic)
+            .expect("snapshot")
+    });
     let obj_snap = snap.objects.get(&oid).expect("snap obj");
     assert!(
         (obj_snap.health.current - 37.0).abs() < 1e-4,
@@ -1805,6 +1807,5 @@ fn snapshot_builder_uses_authoritative_health() {
         obj_snap.health.current
     );
 
-    clear_active_shadow_for_coupled_tick();
     drop(_couple);
 }

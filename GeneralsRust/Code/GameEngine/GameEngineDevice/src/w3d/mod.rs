@@ -559,6 +559,7 @@ impl Camera {
 /// W3D vertex data for GPU upload
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
+#[cfg_attr(feature = "w3d", derive(bytemuck::Pod, bytemuck::Zeroable))]
 pub struct W3DVertex {
     pub position: [f32; 3],
     pub normal: [f32; 3],
@@ -566,19 +567,10 @@ pub struct W3DVertex {
     pub color: [f32; 4],
 }
 
-#[cfg(feature = "w3d")]
-// SAFETY: W3DVertex is `#[repr(C)]` over plain f32 fields ([f32;3], [f32;2],
-// SAFETY: [f32;4]) with no padding, so any bit pattern is valid and it can be
-// SAFETY: zeroed — the bytemuck Pod/Zeroable contract.
-unsafe impl bytemuck::Pod for W3DVertex {}
-#[cfg(feature = "w3d")]
-// SAFETY: All-zero f32 bits are valid (0.0) for every field of repr(C)
-// SAFETY: W3DVertex; no invariants, pointers, or niches.
-unsafe impl bytemuck::Zeroable for W3DVertex {}
-
 /// W3D uniform data for shaders
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
+#[cfg_attr(feature = "w3d", derive(bytemuck::Pod, bytemuck::Zeroable))]
 pub struct W3DUniformData {
     pub model_matrix: [[f32; 4]; 4],
     pub view_matrix: [[f32; 4]; 4],
@@ -586,19 +578,10 @@ pub struct W3DUniformData {
     pub normal_matrix: [[f32; 3]; 3],
 }
 
-#[cfg(feature = "w3d")]
-// SAFETY: W3DUniformData is `#[repr(C)]` over fixed-size [[f32;4];4]/[[f32;3];3]
-// SAFETY: matrices; any bit pattern is a valid (possibly non-finite) matrix and
-// SAFETY: GPU upload only reads it as raw bytes.
-unsafe impl bytemuck::Pod for W3DUniformData {}
-#[cfg(feature = "w3d")]
-// SAFETY: Zero bits decode as identity-ish zero matrices; no invalid states
-// SAFETY: exist for this all-f32 repr(C) struct.
-unsafe impl bytemuck::Zeroable for W3DUniformData {}
-
 /// W3D light data for lighting calculations
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
+#[cfg_attr(feature = "w3d", derive(bytemuck::Pod, bytemuck::Zeroable))]
 pub struct W3DLightData {
     pub position: [f32; 3],
     pub direction: [f32; 3],
@@ -607,34 +590,16 @@ pub struct W3DLightData {
     pub light_type: u32, // 0=directional, 1=point, 2=spot
 }
 
-#[cfg(feature = "w3d")]
-// SAFETY: W3DLightData is `#[repr(C)]` f32 fields plus u32 discriminant; every
-// SAFETY: bit pattern round-trips through the GPU upload path uninterpreted.
-unsafe impl bytemuck::Pod for W3DLightData {}
-#[cfg(feature = "w3d")]
-// SAFETY: light_type 0 is a defined value (directional) and 0.0 f32s are valid;
-// SAFETY: the zeroed instance satisfies all type invariants.
-unsafe impl bytemuck::Zeroable for W3DLightData {}
-
 /// W3D material data for PBR rendering
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
+#[cfg_attr(feature = "w3d", derive(bytemuck::Pod, bytemuck::Zeroable))]
 pub struct W3DMaterialData {
     pub albedo: [f32; 4],
     pub metallic: f32,
     pub roughness: f32,
     pub emission: [f32; 3],
 }
-
-#[cfg(feature = "w3d")]
-// SAFETY: W3DMaterialData is `#[repr(C)]` over [f32;4] + three scalar f32
-// SAFETY: fields; PBR parameters accept any finite-or-not bit pattern because the
-// SAFETY: shader clamps.
-unsafe impl bytemuck::Pod for W3DMaterialData {}
-#[cfg(feature = "w3d")]
-// SAFETY: All-zero bits yield albedo 0 / metallic 0 / roughness 0 — valid,
-// SAFETY: if degenerate, material inputs; no niche or pointer fields.
-unsafe impl bytemuck::Zeroable for W3DMaterialData {}
 
 /// GPU-uploaded mesh data
 #[derive(Debug)]

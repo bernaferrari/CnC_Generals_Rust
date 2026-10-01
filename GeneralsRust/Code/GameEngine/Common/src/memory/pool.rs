@@ -345,15 +345,6 @@ impl<T> ObjectPool<T> {
     }
 }
 
-// ObjectPool is Send + Sync because RwLock<PoolAllocator<T>> is Send + Sync
-// when T is Send + Sync
-// SAFETY: ObjectPool wraps RwLock<PoolAllocator<T>>; Send holds iff
-// T: Send because all access goes through the lock.
-unsafe impl<T: Send> Send for ObjectPool<T> {}
-// SAFETY: Sync requires &self access to be data-race free iff T: Send+Sync;
-// the inner RwLock serializes every allocator mutation.
-unsafe impl<T: Send + Sync> Sync for ObjectPool<T> {}
-
 impl<T> Drop for ObjectPool<T> {
     fn drop(&mut self) {
         #[cfg(debug_assertions)]
@@ -648,6 +639,15 @@ mod tests {
     use super::*;
     #[cfg(test)]
     use crate::memory::generation::Generation;
+
+    #[test]
+    fn object_pool_auto_traits_follow_allocator_value_bounds() {
+        fn assert_send_sync<T: Send + Sync>() {}
+        fn assert_send<T: Send>() {}
+
+        assert_send_sync::<ObjectPool<String>>();
+        assert_send::<ObjectPool<std::cell::Cell<u32>>>();
+    }
 
     #[test]
     fn test_pool_creation() {

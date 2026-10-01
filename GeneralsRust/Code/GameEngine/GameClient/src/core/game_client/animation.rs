@@ -8,9 +8,10 @@ struct AnimationDurationResolver {
 }
 
 #[cfg(target_arch = "wasm32")]
-unsafe impl Send for AnimationDurationResolver {}
-#[cfg(target_arch = "wasm32")]
-unsafe impl Sync for AnimationDurationResolver {}
+const _: fn() = {
+    fn assert_send_sync<T: Send + Sync>() {}
+    assert_send_sync::<AnimationDurationResolver>
+};
 
 impl AnimationDurationResolver {
     fn new(asset_manager: Arc<AssetManager>) -> Self {

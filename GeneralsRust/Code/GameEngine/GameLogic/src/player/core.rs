@@ -60,7 +60,7 @@ pub struct Player {
     pub(super) battle_plan_bonuses: Option<BattlePlanBonuses>,
 
     // Special powers
-    pub(super) special_power_ready_timers: RwLock<Vec<SpecialPowerReadyTimer>>,
+    pub(super) special_power_ready_timers: Vec<SpecialPowerReadyTimer>,
 
     // Statistics and tracking
     pub(super) academy_stats: AcademyStats,
@@ -167,7 +167,7 @@ impl Player {
             search_and_destroy_battle_plans: 0,
             battle_plan_bonuses: None,
 
-            special_power_ready_timers: RwLock::new(Vec::new()),
+            special_power_ready_timers: Vec::new(),
 
             academy_stats: AcademyStats::new(),
             score_keeper: ScoreKeeper::new_for_player(player_index),
@@ -559,9 +559,7 @@ impl Player {
     pub fn new_map(&mut self) {
         // Reset transient state for new map
         self.radar_count = 0;
-        if let Ok(mut timers) = self.special_power_ready_timers.write() {
-            timers.clear();
-        }
+        self.special_power_ready_timers.clear();
         self.attacked_by = [false; MAX_PLAYER_COUNT];
         self.attacked_frame = 0;
     }
@@ -574,9 +572,7 @@ impl Player {
         let mut timer = SpecialPowerReadyTimer::new();
         timer.template_id = template.get_id();
         timer.ready_frame = frame;
-        if let Ok(mut timers) = self.special_power_ready_timers.write() {
-            timers.push(timer);
-        }
+        self.special_power_ready_timers.push(timer);
     }
 
     pub fn reset_or_start_special_power_ready_frame(&mut self, template: &SpecialPowerTemplate) {
@@ -584,13 +580,11 @@ impl Player {
         let lookup_id = template.get_id();
         let mut needs_insert = true;
 
-        if let Ok(mut timers) = self.special_power_ready_timers.write() {
-            for timer in timers.iter_mut() {
-                if timer.template_id == lookup_id {
-                    timer.ready_frame = now + template.get_reload_time();
-                    needs_insert = false;
-                    break;
-                }
+        for timer in &mut self.special_power_ready_timers {
+            if timer.template_id == lookup_id {
+                timer.ready_frame = now + template.get_reload_time();
+                needs_insert = false;
+                break;
             }
         }
 
@@ -606,13 +600,11 @@ impl Player {
     ) {
         let lookup_id = template.get_id();
         let mut needs_insert = true;
-        if let Ok(mut timers) = self.special_power_ready_timers.write() {
-            for timer in timers.iter_mut() {
-                if timer.template_id == lookup_id {
-                    timer.ready_frame = frame;
-                    needs_insert = false;
-                    break;
-                }
+        for timer in &mut self.special_power_ready_timers {
+            if timer.template_id == lookup_id {
+                timer.ready_frame = frame;
+                needs_insert = false;
+                break;
             }
         }
 
@@ -627,23 +619,14 @@ impl Player {
     ) -> UnsignedInt {
         let now = TheGameLogic::get_frame();
         let lookup_id = template.get_id();
-        let mut ready_frame = None;
-
-        if let Ok(mut timers) = self.special_power_ready_timers.write() {
-            for timer in timers.iter_mut() {
-                if timer.template_id == lookup_id {
-                    ready_frame = Some(timer.ready_frame);
-                    break;
-                }
+        for timer in &self.special_power_ready_timers {
+            if timer.template_id == lookup_id {
+                return timer.ready_frame;
             }
         }
 
-        if let Some(frame) = ready_frame {
-            frame
-        } else {
-            self.add_new_shared_special_power_timer(template, now);
-            now
-        }
+        self.add_new_shared_special_power_timer(template, now);
+        now
     }
 
     pub fn set_display_name<S: Into<String>>(&mut self, name: S) {

@@ -1,6 +1,6 @@
 use crate::action_manager::{CanEnterType, TheActionManager};
 use crate::ai::states::{AIAttackObjectState, AIEnterState, AIPickUpCrateState};
-use crate::ai::{GuardMode, the_ai, object_registry::get_legacy_object, vision_factors};
+use crate::ai::{GuardMode, object_registry::get_legacy_object, the_ai, vision_factors};
 use crate::attack::{AbleToAttackType, CanAttackResult};
 use crate::common::coord::*;
 use crate::common::vector_ext::Vector3Ext;
@@ -23,7 +23,10 @@ fn dual_world_registry_unavailable() -> bool {
     crate::object::registry::OBJECT_REGISTRY.is_empty()
 }
 
-fn guard_attack_should_exit(exit_conditions: &Arc<Mutex<ExitConditions>>, goal_id: ObjectID) -> bool {
+fn guard_attack_should_exit(
+    exit_conditions: &Arc<Mutex<ExitConditions>>,
+    goal_id: ObjectID,
+) -> bool {
     let Ok(exit_guard) = exit_conditions.lock() else {
         return false;
     };
@@ -70,7 +73,8 @@ fn last_damage_overrides_nemesis(
 }
 
 fn get_guard_enemy_scan_rate() -> u32 {
-    let ai_store = the_ai();let Ok(ai_guard) = ai_store.read() else {
+    let ai_store = the_ai();
+    let Ok(ai_guard) = ai_store.read() else {
         return 30;
     };
     let data = ai_guard.get_ai_data();
@@ -81,7 +85,8 @@ fn get_guard_enemy_scan_rate() -> u32 {
 }
 
 fn get_guard_chase_unit_frames() -> u32 {
-    let ai_store = the_ai();let Ok(ai_guard) = ai_store.read() else {
+    let ai_store = the_ai();
+    let Ok(ai_guard) = ai_store.read() else {
         return 0;
     };
     let data = ai_guard.get_ai_data();
@@ -92,7 +97,8 @@ fn get_guard_chase_unit_frames() -> u32 {
 }
 
 fn get_guard_enemy_return_scan_rate() -> u32 {
-    let ai_store = the_ai();let Ok(ai_guard) = ai_store.read() else {
+    let ai_store = the_ai();
+    let Ok(ai_guard) = ai_store.read() else {
         return 60;
     };
     let data = ai_guard.get_ai_data();
@@ -230,12 +236,19 @@ pub struct ExitConditions {
 pub struct GuardSharedState {
     machine: Weak<Mutex<StateMachine>>,
     owner: Weak<RwLock<Object>>,
-    target_to_guard: Mutex<ObjectID>,
-    nemesis_to_attack: Mutex<ObjectID>,
-    position_to_guard: Mutex<Coord3D>,
-    area_to_guard: Mutex<Option<Arc<PolygonTrigger>>>,
-    guard_mode: Mutex<GuardMode>,
-    pending_state: Mutex<Option<u32>>,
+    // One cell keeps the machine configuration and deferred transition request coherent across
+    // the contained state views that hold an Arc to this record.
+    fields: Mutex<GuardSharedFields>,
+}
+
+#[derive(Debug)]
+struct GuardSharedFields {
+    target_to_guard: ObjectID,
+    nemesis_to_attack: ObjectID,
+    position_to_guard: Coord3D,
+    area_to_guard: Option<Arc<PolygonTrigger>>,
+    guard_mode: GuardMode,
+    pending_state: Option<u32>,
 }
 
 impl GuardSharedState {
@@ -243,12 +256,14 @@ impl GuardSharedState {
         Self {
             machine: Arc::downgrade(machine),
             owner,
-            target_to_guard: Mutex::new(crate::common::INVALID_ID),
-            nemesis_to_attack: Mutex::new(crate::common::INVALID_ID),
-            position_to_guard: Mutex::new(Coord3D::new(0.0, 0.0, 0.0)),
-            area_to_guard: Mutex::new(None),
-            guard_mode: Mutex::new(GuardMode::Normal),
-            pending_state: Mutex::new(None),
+            fields: Mutex::new(GuardSharedFields {
+                target_to_guard: crate::common::INVALID_ID,
+                nemesis_to_attack: crate::common::INVALID_ID,
+                position_to_guard: Coord3D::new(0.0, 0.0, 0.0),
+                area_to_guard: None,
+                guard_mode: GuardMode::Normal,
+                pending_state: None,
+            }),
         }
     }
 
@@ -257,13 +272,16 @@ impl GuardSharedState {
     }
 
     fn request_state(&self, state: u32) {
-        if let Ok(mut pending) = self.pending_state.lock() {
-            *pending = Some(state);
+        if let Ok(mut fields) = self.fields.lock() {
+            fields.pending_state = Some(state);
         }
     }
 
     fn take_pending_state(&self) -> Option<u32> {
-        self.pending_state.lock().ok().and_then(|mut pending| pending.take())
+        self.fields
+            .lock()
+            .ok()
+            .and_then(|mut fields| fields.pending_state.take())
     }
 
     fn with_machine<F, R>(&self, f: F) -> Result<R, String>
@@ -287,67 +305,84 @@ impl GuardSharedState {
     }
 
     fn get_target_to_guard(&self) -> ObjectID {
-        self.target_to_guard
+        self.fields
             .lock()
-            .map(|id| *id)
+            .map(|fields| fields.target_to_guard)
             .unwrap_or(crate::common::INVALID_ID)
     }
 
     fn set_target_to_guard(&self, id: ObjectID) {
-        if let Ok(mut target) = self.target_to_guard.lock() {
-            *target = id;
+        if let Ok(mut fields) = self.fields.lock() {
+            fields.target_to_guard = id;
         }
     }
 
     fn get_nemesis_to_attack(&self) -> ObjectID {
-        self.nemesis_to_attack
+        self.fields
             .lock()
-            .map(|id| *id)
+            .map(|fields| fields.nemesis_to_attack)
             .unwrap_or(crate::common::INVALID_ID)
     }
 
     fn set_nemesis_to_attack(&self, id: ObjectID) {
-        if let Ok(mut nemesis) = self.nemesis_to_attack.lock() {
-            *nemesis = id;
+        if let Ok(mut fields) = self.fields.lock() {
+            fields.nemesis_to_attack = id;
         }
     }
 
     fn get_position_to_guard(&self) -> Coord3D {
-        self.position_to_guard
+        self.fields
             .lock()
-            .map(|pos| *pos)
+            .map(|fields| fields.position_to_guard)
             .unwrap_or_else(|_| Coord3D::new(0.0, 0.0, 0.0))
     }
 
     fn set_position_to_guard(&self, pos: Coord3D) {
-        if let Ok(mut guard_pos) = self.position_to_guard.lock() {
-            *guard_pos = pos;
+        if let Ok(mut fields) = self.fields.lock() {
+            fields.position_to_guard = pos;
         }
     }
 
     fn get_guard_mode(&self) -> GuardMode {
-        self.guard_mode
+        self.fields
             .lock()
-            .map(|mode| *mode)
+            .map(|fields| fields.guard_mode)
             .unwrap_or(GuardMode::Normal)
     }
 
     fn get_area_to_guard(&self) -> Option<Arc<PolygonTrigger>> {
-        self.area_to_guard
+        self.fields
             .lock()
             .ok()
-            .and_then(|area| area.as_ref().map(Arc::clone))
+            .and_then(|fields| fields.area_to_guard.as_ref().map(Arc::clone))
     }
 
     fn set_area_to_guard(&self, area: Option<Arc<PolygonTrigger>>) {
-        if let Ok(mut current) = self.area_to_guard.lock() {
-            *current = area;
+        if let Ok(mut fields) = self.fields.lock() {
+            fields.area_to_guard = area;
         }
     }
 
     fn set_guard_mode(&self, guard_mode: GuardMode) {
-        if let Ok(mut mode) = self.guard_mode.lock() {
-            *mode = guard_mode;
+        if let Ok(mut fields) = self.fields.lock() {
+            fields.guard_mode = guard_mode;
+        }
+    }
+
+    fn sync_from_machine(
+        &self,
+        target_to_guard: ObjectID,
+        nemesis_to_attack: ObjectID,
+        position_to_guard: Coord3D,
+        area_to_guard: Option<Arc<PolygonTrigger>>,
+        guard_mode: GuardMode,
+    ) {
+        if let Ok(mut fields) = self.fields.lock() {
+            fields.target_to_guard = target_to_guard;
+            fields.nemesis_to_attack = nemesis_to_attack;
+            fields.position_to_guard = position_to_guard;
+            fields.area_to_guard = area_to_guard;
+            fields.guard_mode = guard_mode;
         }
     }
 
@@ -357,14 +392,57 @@ impl GuardSharedState {
     }
 }
 
+fn update_machine_then_apply_pending_state(
+    machine: &mut StateMachine,
+    shared: &GuardSharedState,
+) -> StateReturnType {
+    // Child states request transitions while this machine is already borrowed. Apply the request
+    // only after the child update returns, preserving the legacy guard callback order.
+    let result = machine.update();
+    if let Some(state_id) = shared.take_pending_state() {
+        let _ = machine.set_current_state(state_id);
+    }
+    result
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::{AtomicBool, Ordering};
 
     #[derive(Debug)]
     struct DummyState;
 
     impl StateImplementation for DummyState {
+        fn update(&mut self) -> StateReturnType {
+            StateReturnType::Continue
+        }
+    }
+
+    #[derive(Debug)]
+    struct QueueGuardTransition {
+        shared: Arc<GuardSharedState>,
+        update_finished: Arc<AtomicBool>,
+        destination: u32,
+    }
+
+    impl StateImplementation for QueueGuardTransition {
+        fn update(&mut self) -> StateReturnType {
+            self.shared.request_state(self.destination);
+            self.update_finished.store(true, Ordering::SeqCst);
+            StateReturnType::Continue
+        }
+    }
+
+    #[derive(Debug)]
+    struct CheckGuardTransitionOrder(Arc<AtomicBool>);
+
+    impl StateImplementation for CheckGuardTransitionOrder {
+        fn on_enter(&mut self) -> StateReturnType {
+            assert!(self.0.load(Ordering::SeqCst));
+            StateReturnType::Continue
+        }
+
         fn update(&mut self) -> StateReturnType {
             StateReturnType::Continue
         }
@@ -400,6 +478,65 @@ mod tests {
 
         let current = machine.lock().unwrap().get_current_state_id();
         assert_eq!(current, Some(GuardStateType::Outer as u32));
+    }
+
+    #[test]
+    fn guard_shared_fields_are_visible_across_state_handles_but_isolated_per_machine() {
+        let owner_a = Arc::new(RwLock::new(Object::new_test(77, 100.0)));
+        let owner_b = Arc::new(RwLock::new(Object::new_test(77, 100.0)));
+        let machine_a = Arc::new(Mutex::new(StateMachine::new(Some(Weak::new()), "guard_a")));
+        let machine_b = Arc::new(Mutex::new(StateMachine::new(Some(Weak::new()), "guard_b")));
+        let shared_a = Arc::new(GuardSharedState::new(&machine_a, Arc::downgrade(&owner_a)));
+        let shared_b = Arc::new(GuardSharedState::new(&machine_b, Arc::downgrade(&owner_b)));
+        let child_view_a = Arc::clone(&shared_a);
+
+        shared_a.set_nemesis_to_attack(101);
+        shared_b.set_nemesis_to_attack(202);
+        child_view_a.set_target_to_guard(303);
+
+        assert_eq!(child_view_a.get_nemesis_to_attack(), 101);
+        assert_eq!(shared_b.get_nemesis_to_attack(), 202);
+        assert_eq!(shared_a.get_target_to_guard(), 303);
+        assert_eq!(shared_b.get_target_to_guard(), crate::common::INVALID_ID);
+    }
+
+    #[test]
+    fn guard_pending_state_applies_only_after_child_update_returns() {
+        let machine = Arc::new(Mutex::new(StateMachine::new(
+            Some(Weak::new()),
+            "test_guard_pending_order",
+        )));
+        let shared = Arc::new(GuardSharedState::new(&machine, Weak::new()));
+        let update_finished = Arc::new(AtomicBool::new(false));
+        let destination = GuardStateType::Outer as u32;
+        {
+            let mut locked = machine.lock().unwrap();
+            locked.define_state(
+                GuardStateType::Inner as u32,
+                Box::new(QueueGuardTransition {
+                    shared: Arc::clone(&shared),
+                    update_finished: Arc::clone(&update_finished),
+                    destination,
+                }),
+                None,
+                None,
+                None,
+            );
+            locked.define_state(
+                destination,
+                Box::new(CheckGuardTransitionOrder(Arc::clone(&update_finished))),
+                None,
+                None,
+                None,
+            );
+            locked.init_default_state();
+            assert_eq!(
+                update_machine_then_apply_pending_state(&mut locked, &shared),
+                StateReturnType::Continue
+            );
+            assert_eq!(locked.get_current_state_id(), Some(destination));
+        }
+        assert!(update_finished.load(Ordering::SeqCst));
     }
 
     #[test]
@@ -540,7 +677,8 @@ impl ExitConditions {
             return false;
         }
         if goal_object_id == crate::common::INVALID_ID {
-            return (self.conditions_to_consider & exit_conditions::ATTACK_EXIT_IF_NO_UNIT_FOUND) != 0;
+            return (self.conditions_to_consider & exit_conditions::ATTACK_EXIT_IF_NO_UNIT_FOUND)
+                != 0;
         }
         if (self.conditions_to_consider & exit_conditions::ATTACK_EXIT_IF_EXPIRED_DURATION) != 0
             && frame >= self.attack_give_up_frame
@@ -798,11 +936,7 @@ impl AIGuardMachine {
         let Ok(mut guard) = self.base.lock() else {
             return StateReturnType::Failure;
         };
-        let result = guard.update();
-        if let Some(state_id) = self.shared.take_pending_state() {
-            let _ = guard.set_current_state(state_id);
-        }
-        result
+        update_machine_then_apply_pending_state(&mut guard, &self.shared)
     }
 
     pub fn look_for_inner_target(&mut self) -> bool {
@@ -858,7 +992,8 @@ impl AIGuardMachine {
     }
 
     pub fn get_std_guard_range(obj_id: ObjectID) -> f32 {
-        let ai_store = the_ai();let ai = ai_store.read().ok();
+        let ai_store = the_ai();
+        let ai = ai_store.read().ok();
         ai.and_then(|ai| {
             ai.get_adjusted_vision_range_for_object(
                 obj_id,
@@ -918,11 +1053,13 @@ impl AIGuardMachine {
             }
         }
 
-        self.shared.set_target_to_guard(self.target_to_guard);
-        self.shared.set_nemesis_to_attack(self.nemesis_to_attack);
-        self.shared.set_position_to_guard(self.position_to_guard);
-        self.shared.set_area_to_guard(self.area_to_guard.clone());
-        self.shared.set_guard_mode(self.guard_mode);
+        self.shared.sync_from_machine(
+            self.target_to_guard,
+            self.nemesis_to_attack,
+            self.position_to_guard,
+            self.area_to_guard.clone(),
+            self.guard_mode,
+        );
 
         Ok(())
     }
@@ -1123,7 +1260,6 @@ impl ClassicState for AIGuardInnerState {
             );
         }
 
-
         let nemesis_id = nemesis
             .read()
             .ok()
@@ -1270,7 +1406,9 @@ impl ClassicState for AIGuardIdleState {
         if let Some(ai) = owner_guard.get_ai_update_interface() {
             if let Ok(ai_guard) = ai.lock() {
                 if ai_guard.get_crate_id() != crate::common::INVALID_ID {
-                    self.base.shared.request_state(GuardStateType::GetCrate as u32);
+                    self.base
+                        .shared
+                        .request_state(GuardStateType::GetCrate as u32);
                     return Ok(StateReturnType::Sleep(
                         self.next_enemy_scan_time.saturating_sub(now),
                     ));
@@ -1427,7 +1565,8 @@ impl ClassicState for AIGuardOuterState {
         }
 
         let mut range = {
-            let ai_store = the_ai();let ai = ai_store
+            let ai_store = the_ai();
+            let ai = ai_store
                 .read()
                 .map_err(|_| "guard outer AI lock poisoned".to_string())?;
             ai.get_adjusted_vision_range_for_object(
@@ -1466,15 +1605,12 @@ impl ClassicState for AIGuardOuterState {
             );
         }
 
-
-
         let nemesis_id = nemesis
             .read()
             .ok()
             .map(|g| g.get_id())
             .unwrap_or(nemesis_id);
-        let (attack_state, result) =
-            start_guard_attack_object(&owner, nemesis_id, false, false)?;
+        let (attack_state, result) = start_guard_attack_object(&owner, nemesis_id, false, false)?;
         self.is_attacking = matches!(result, StateReturnType::Continue);
         self.attack_state = Some(attack_state);
 
@@ -1915,16 +2051,13 @@ impl ClassicState for AIGuardAttackAggressorState {
             );
         }
 
-
-
         let nemesis_id = nemesis
             .read()
             .ok()
             .map(|g| g.get_id())
             .unwrap_or(nemesis_id);
         // C++ AIGuard.cpp:815 — AIAttackState(machine, follow=true, attackingObject, !force)
-        let (attack_state, result) =
-            start_guard_attack_object(&owner, nemesis_id, true, false)?;
+        let (attack_state, result) = start_guard_attack_object(&owner, nemesis_id, true, false)?;
         self.is_attacking = matches!(result, StateReturnType::Continue);
         self.attack_state = Some(attack_state);
 

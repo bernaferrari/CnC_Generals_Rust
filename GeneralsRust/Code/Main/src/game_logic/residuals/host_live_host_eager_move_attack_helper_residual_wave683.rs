@@ -149,9 +149,8 @@ mod tests {
     use crate::game_logic::host_move_log;
     use crate::game_logic::{GameLogic, KindOf, ObjectId, Team, ThingTemplate};
     use crate::gameworld_shadow::{
-        GameWorldShadow, begin_shadow_coupled_tick, clear_active_shadow_for_coupled_tick,
-        eager_apply_host_move_attack_after_logic, eager_map_host_spawn_if_coupled,
-        end_shadow_coupled_tick, install_active_shadow_for_coupled_tick,
+        GameWorldShadow, begin_shadow_coupled_tick, eager_apply_host_move_attack_after_logic,
+        eager_map_host_spawn_if_coupled, end_shadow_coupled_tick, with_coupled_shadow,
     };
     use glam::Vec3;
 
@@ -209,37 +208,36 @@ mod tests {
 
         let mut shadow = GameWorldShadow::new(64);
         begin_shadow_coupled_tick();
-        install_active_shadow_for_coupled_tick(&mut shadow);
-        assert!(eager_map_host_spawn_if_coupled(
-            &logic,
-            &crate::game_logic::host_spawn_log::HostSpawnEvent {
-                id: unit,
-                template: "EagerMaUnit".into(),
-                team_ordinal: 0,
-                position: [0.0, 0.0, 0.0],
-            },
-        ));
-        assert!(eager_map_host_spawn_if_coupled(
-            &logic,
-            &crate::game_logic::host_spawn_log::HostSpawnEvent {
-                id: target,
-                template: "EagerMaTarget".into(),
-                team_ordinal: 2,
-                position: [30.0, 0.0, 0.0],
-            },
-        ));
-        host_move_log::record(unit, Some([10.0, 0.0, 5.0]));
-        host_attack_log::record(unit, Some(target));
-        assert_eq!(host_move_log::len(), 1);
-        assert_eq!(host_attack_log::len(), 1);
-
+        with_coupled_shadow(&mut shadow, || {
+            assert!(eager_map_host_spawn_if_coupled(
+                &logic,
+                &crate::game_logic::host_spawn_log::HostSpawnEvent {
+                    id: unit,
+                    template: "EagerMaUnit".into(),
+                    team_ordinal: 0,
+                    position: [0.0, 0.0, 0.0],
+                },
+            ));
+            assert!(eager_map_host_spawn_if_coupled(
+                &logic,
+                &crate::game_logic::host_spawn_log::HostSpawnEvent {
+                    id: target,
+                    template: "EagerMaTarget".into(),
+                    team_ordinal: 2,
+                    position: [30.0, 0.0, 0.0],
+                },
+            ));
+            host_move_log::record(unit, Some([10.0, 0.0, 5.0]));
+            host_attack_log::record(unit, Some(target));
+            assert_eq!(host_move_log::len(), 1);
+            assert_eq!(host_attack_log::len(), 1);
+        });
         let (a, m) = eager_apply_host_move_attack_after_logic(&mut shadow, &logic);
         assert!(a >= 1 && m >= 1, "expected attack={a} move={m}");
         assert!(host_move_log::drain().is_empty());
         assert!(host_attack_log::drain().is_empty());
         let (a2, m2) = eager_apply_host_move_attack_after_logic(&mut shadow, &logic);
         assert_eq!((a2, m2), (0, 0));
-        clear_active_shadow_for_coupled_tick();
         end_shadow_coupled_tick();
         let _ = ObjectId;
 

@@ -51,9 +51,11 @@ fn local_player_id(logic: &GameLogic) -> u32 {
 
 fn coupled_session(shadow: &mut GameWorldShadow, logic: &mut GameLogic) {
     begin_shadow_coupled_tick();
-    install_active_shadow_for_coupled_tick(shadow);
-    let _ = crate::gameworld_shadow::shadow_session_after_host_tick(shadow, logic);
-    clear_active_shadow_for_coupled_tick();
+    crate::gameworld_shadow::with_coupled_shadow(shadow, || {
+        let _ = crate::gameworld_shadow::with_active_shadow_mut(|active_shadow| {
+            crate::gameworld_shadow::shadow_session_after_host_tick(active_shadow, logic)
+        });
+    });
     end_shadow_coupled_tick();
 }
 

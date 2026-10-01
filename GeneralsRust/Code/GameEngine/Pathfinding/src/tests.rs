@@ -615,6 +615,128 @@ fn examine_neighbors_on_list_never_reopens_or_recosts() {
 }
 
 #[test]
+fn cpp_open_list_equal_total_cost_nodes_pop_in_neighbor_insertion_order() {
+    // CPP AIPathfind.cpp:6125-6129 visits right before down. Its sorted list
+    // inserts after existing equal total costs, so these equal-cost entries
+    // must pop in enqueue order even though coordinates sort the other way.
+    let right = GridCoord::new(2, 1);
+    let down = GridCoord::new(1, 2);
+    let mut open = OpenSet::new();
+    for coord in [right, down] {
+        open.push(AStarNode {
+            coord,
+            layer: PathfindLayerEnum::Ground,
+            g_score: 10,
+            f_score: 20,
+            parent: None,
+            enqueue_order: 0,
+        });
+    }
+
+    assert_eq!(open.pop_live(|_| true).map(|node| node.coord), Some(right));
+    assert_eq!(open.pop_live(|_| true).map(|node| node.coord), Some(down));
+}
+
+#[test]
+fn cpp_open_list_sequence_rebases_without_changing_fifo_order() {
+    let mut open = OpenSet::new();
+    let a = GridCoord::new(1, 0);
+    let b = GridCoord::new(0, 1);
+    let c = GridCoord::new(2, 0);
+    let node = |coord| AStarNode {
+        coord,
+        layer: PathfindLayerEnum::Ground,
+        g_score: 1,
+        f_score: 10,
+        parent: None,
+        enqueue_order: 0,
+    };
+    open.push(node(a));
+    open.push(node(b));
+    open.next_enqueue_order = u64::MAX;
+    open.push(node(c));
+
+    assert_eq!(open.pop_live(|_| true).map(|node| node.coord), Some(a));
+    assert_eq!(open.pop_live(|_| true).map(|node| node.coord), Some(b));
+    assert_eq!(open.pop_live(|_| true).map(|node| node.coord), Some(c));
+}
+
+#[test]
+fn cpp_open_list_cheaper_line_seed_reinserts_after_peer_and_skips_stale_entry() {
+    // CPP AIPathfind.cpp:6063-6088 decreases an open cell's cost by removing
+    // and reinserting that same cell. When the new total ties an existing
+    // peer, stable insertion places the peer first; the old heap generation
+    // must not produce a second expansion.
+    let mut pathfinder = AStarPathfinder::new(5, 3);
+    let parent = GridCoord::new(1, 1);
+    let target = GridCoord::new(2, 1);
+    let goal = GridCoord::new(3, 1);
+    let peer = GridCoord::new(2, 2);
+    let target_key = (target, PathfindLayerEnum::Ground);
+    let peer_key = (peer, PathfindLayerEnum::Ground);
+    let mut open = OpenSet::new();
+    let mut open_members = HashSet::from([target_key, peer_key]);
+    let mut closed = HashSet::new();
+    let mut came_from = HashMap::new();
+    let mut g_scores = HashMap::from([(target_key, 20), (peer_key, 10)]);
+
+    // Existing target has total 30. The line callback improves it to g=5,
+    // h=10, total 15, equal to the peer already waiting at total 15.
+    open.push(AStarNode {
+        coord: target,
+        layer: PathfindLayerEnum::Ground,
+        g_score: 20,
+        f_score: 30,
+        parent: None,
+        enqueue_order: 0,
+    });
+    open.push(AStarNode {
+        coord: peer,
+        layer: PathfindLayerEnum::Ground,
+        g_score: 10,
+        f_score: 15,
+        parent: None,
+        enqueue_order: 0,
+    });
+
+    let only_target_on_line = |cell| cell != goal;
+    pathfinder.examine_cells_toward_goal(
+        parent,
+        PathfindLayerEnum::Ground,
+        0,
+        goal,
+        SURFACE_GROUND,
+        false,
+        None,
+        None,
+        Some(&only_target_on_line),
+        None,
+        &mut open,
+        &mut open_members,
+        &mut closed,
+        &mut came_from,
+        &mut g_scores,
+    );
+
+    assert_eq!(g_scores.get(&target_key), Some(&5));
+    assert_eq!(open.len(), 3, "old and replacement heap entries coexist");
+    let mut expanded = Vec::new();
+    while let Some(node) = open.pop_live(|node| {
+        let key = (node.coord, node.layer);
+        open_members.contains(&key)
+            && g_scores
+                .get(&key)
+                .map(|&best_g| node.g_score <= best_g)
+                .unwrap_or(true)
+    }) {
+        let key = (node.coord, node.layer);
+        open_members.remove(&key);
+        expanded.push(node.coord);
+    }
+    assert_eq!(expanded, vec![peer, target]);
+}
+
+#[test]
 fn dozer_hack_obstacle_and_no_diagonal_squeeze() {
     // C++ AIPathfind.cpp:6207-6226:
     // dozerHack lets dozers step on non-enemy CELL_OBSTACLE;
@@ -714,7 +836,7 @@ fn check_change_layers_enqueues_same_xy_at_parent_cost() {
     pf.set_cell_type_on_layer(start, PathfindLayerEnum::Top, PathfindCellType::Clear);
     pf.set_cell_connect_layer(start, PathfindLayerEnum::Top);
 
-    let mut open_set = BinaryHeap::new();
+    let mut open_set = OpenSet::new();
     let mut open_members = HashSet::new();
     let mut closed_set = HashSet::new();
     closed_set.insert((start, PathfindLayerEnum::Ground));
@@ -738,7 +860,9 @@ fn check_change_layers_enqueues_same_xy_at_parent_cost() {
     let key = (start, PathfindLayerEnum::Top);
     assert!(open_members.contains(&key));
     assert_eq!(g_scores.get(&key).copied(), Some(40));
-    let node = open_set.pop().expect("layered node on open heap");
+    let node = open_set
+        .pop_live(|_| true)
+        .expect("layered node on open set");
     assert_eq!(node.coord, start);
     assert_eq!(node.layer, PathfindLayerEnum::Top);
     assert_eq!(node.g_score, 40);
@@ -792,7 +916,7 @@ fn check_change_layers_missing_top_falls_back_to_closed_ground() {
     let start = GridCoord::new(1, 1);
     pf.set_cell_connect_layer(start, PathfindLayerEnum::Top);
 
-    let mut open_set = BinaryHeap::new();
+    let mut open_set = OpenSet::new();
     let mut open_members = HashSet::new();
     let mut closed_set = HashSet::new();
     closed_set.insert((start, PathfindLayerEnum::Ground));

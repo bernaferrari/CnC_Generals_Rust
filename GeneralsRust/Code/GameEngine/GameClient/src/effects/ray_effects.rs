@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
 use super::{EffectsError, EffectsLOD};
-use glam::{Vec3};
+use glam::Vec3;
 
 /// Unique identifier for ray effects
 pub type RayEffectId = u64;
@@ -324,13 +324,9 @@ impl RayEffect {
                         let noise = (t * 20.0 + time * 10.0).sin() * self.config.noise_amount * 0.1;
                         // Perpendicular offset
                         let perpendicular = if normalized_dir.y.abs() < 0.9 {
-                            Vec3::new(0.0, 1.0, 0.0)
-                                .cross(normalized_dir)
-                                .normalize()
+                            Vec3::new(0.0, 1.0, 0.0).cross(normalized_dir).normalize()
                         } else {
-                            Vec3::new(1.0, 0.0, 0.0)
-                                .cross(normalized_dir)
-                                .normalize()
+                            Vec3::new(1.0, 0.0, 0.0).cross(normalized_dir).normalize()
                         };
                         perpendicular * noise
                     }
@@ -458,7 +454,7 @@ impl Default for RayEffectManager {
 
 /// Ray effect rendering data for GPU
 #[repr(C)]
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct RayRenderData {
     pub start: [f32; 3],
     pub width: f32,
@@ -498,13 +494,6 @@ impl RayRenderData {
         }
     }
 }
-
-// Ensure proper alignment for GPU buffers
-// SAFETY: RayRenderData is `#[repr(C)]` all-f32 (with explicit _padding), so any
-// SAFETY: bit pattern is a valid value and GPU upload treats it as raw bytes.
-unsafe impl bytemuck::Pod for RayRenderData {}
-// SAFETY: All-zero f32 bits are valid values; no pointers, niches, or invariants.
-unsafe impl bytemuck::Zeroable for RayRenderData {}
 
 #[cfg(test)]
 mod tests {
@@ -565,8 +554,7 @@ mod tests {
 
     #[test]
     fn test_beam_point_generation() {
-        let config =
-            RayEffectConfig::default().between(Vec3::ZERO, Vec3::new(0.0, 0.0, 10.0));
+        let config = RayEffectConfig::default().between(Vec3::ZERO, Vec3::new(0.0, 0.0, 10.0));
         let effect = RayEffect::new(1, config);
 
         let points = effect.generate_beam_points(0.0);

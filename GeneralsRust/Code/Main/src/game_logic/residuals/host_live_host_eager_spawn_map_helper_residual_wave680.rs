@@ -10,7 +10,7 @@ pub fn residual_name_index(table: &[&str], name: &str) -> Option<usize> {
 }
 pub const LIVE_HOST_EAGER_SPAWN_MAP_HELPER_METHOD_NAMES_WAVE680: &[&str] = &[
     "eager_map_host_spawn_if_coupled",
-    "install_active_shadow_for_coupled_tick",
+    "with_coupled_shadow",
     "clear_active_shadow_for_coupled_tick",
     "host_spawn_log::record",
     "Wave 680",
@@ -76,7 +76,7 @@ fn shadow_source() -> &'static str {
 pub fn honesty_host_eager_spawn_map_helper_method_names_residual_wave680() -> bool {
     let names = LIVE_HOST_EAGER_SPAWN_MAP_HELPER_METHOD_NAMES_WAVE680;
     let ok = residual_name_index(names, "eager_map_host_spawn_if_coupled").is_some()
-        && residual_name_index(names, "install_active_shadow_for_coupled_tick").is_some()
+        && residual_name_index(names, "with_coupled_shadow").is_some()
         && residual_name_index(names, "clear_active_shadow_for_coupled_tick").is_some()
         && residual_name_index(names, "Wave 680").is_some()
         && residual_name_index(names, "playable_claim = false").is_some();
@@ -88,7 +88,7 @@ pub fn honesty_host_eager_spawn_map_helper_source_markers_residual_wave680() -> 
     let eng = eng_source();
     let sh = shadow_source();
     let api_ok = sh.contains("pub fn eager_map_host_spawn_if_coupled")
-        && sh.contains("pub fn install_active_shadow_for_coupled_tick")
+        && sh.contains("pub fn with_coupled_shadow")
         && sh.contains("pub fn clear_active_shadow_for_coupled_tick")
         && sh.contains("Wave 680");
     // 2026-08-15: engine uses CoupledTickGuard::enter + eager_apply_all dispatcher.
@@ -154,9 +154,8 @@ mod tests {
     use super::*;
     use crate::game_logic::{GameLogic, KindOf, ObjectId, Team, ThingTemplate};
     use crate::gameworld_shadow::{
-        GameWorldShadow, begin_shadow_coupled_tick, clear_active_shadow_for_coupled_tick,
-        eager_map_host_spawn_if_coupled, end_shadow_coupled_tick,
-        install_active_shadow_for_coupled_tick,
+        GameWorldShadow, begin_shadow_coupled_tick, eager_map_host_spawn_if_coupled,
+        end_shadow_coupled_tick, with_coupled_shadow,
     };
     use glam::Vec3;
 
@@ -207,33 +206,35 @@ mod tests {
             .expect("spawn");
         let mut shadow = GameWorldShadow::new(64);
         begin_shadow_coupled_tick();
-        install_active_shadow_for_coupled_tick(&mut shadow);
-        let mapped = eager_map_host_spawn_if_coupled(
-            &logic,
-            &crate::game_logic::host_spawn_log::HostSpawnEvent {
-                id,
-                template: "EagerMapUnit".into(),
-                team_ordinal: 0,
-                position: [1.0, 0.0, 2.0],
-            },
-        );
+        let mapped = with_coupled_shadow(&mut shadow, || {
+            eager_map_host_spawn_if_coupled(
+                &logic,
+                &crate::game_logic::host_spawn_log::HostSpawnEvent {
+                    id,
+                    template: "EagerMapUnit".into(),
+                    team_ordinal: 0,
+                    position: [1.0, 0.0, 2.0],
+                },
+            )
+        });
         assert!(
             mapped,
             "eager map should insert host→entity under coupled tick"
         );
         assert!(shadow.entity_for_host(id).is_some());
         // Idempotent second map.
-        let again = eager_map_host_spawn_if_coupled(
-            &logic,
-            &crate::game_logic::host_spawn_log::HostSpawnEvent {
-                id,
-                template: "EagerMapUnit".into(),
-                team_ordinal: 0,
-                position: [1.0, 0.0, 2.0],
-            },
-        );
+        let again = with_coupled_shadow(&mut shadow, || {
+            eager_map_host_spawn_if_coupled(
+                &logic,
+                &crate::game_logic::host_spawn_log::HostSpawnEvent {
+                    id,
+                    template: "EagerMapUnit".into(),
+                    team_ordinal: 0,
+                    position: [1.0, 0.0, 2.0],
+                },
+            )
+        });
         assert!(!again, "already mapped host id should not double-spawn");
-        clear_active_shadow_for_coupled_tick();
         end_shadow_coupled_tick();
         let _ = ObjectId; // silence unused in some cfgs
 

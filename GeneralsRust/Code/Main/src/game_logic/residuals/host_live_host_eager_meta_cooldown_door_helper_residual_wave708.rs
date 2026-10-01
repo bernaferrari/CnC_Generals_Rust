@@ -163,11 +163,10 @@ mod tests {
     use crate::game_logic::host_production_door_log;
     use crate::game_logic::{GameLogic, KindOf, ObjectId, Team, ThingTemplate};
     use crate::gameworld_shadow::{
-        GameWorldShadow, begin_shadow_coupled_tick, clear_active_shadow_for_coupled_tick,
-        eager_apply_host_player_cooldown_after_logic, eager_apply_host_player_meta_after_logic,
-        eager_apply_host_production_door_after_logic, eager_map_host_spawn_if_coupled,
-        end_shadow_coupled_tick, install_active_shadow_for_coupled_tick,
-        shadow_session_after_host_tick,
+        GameWorldShadow, begin_shadow_coupled_tick, eager_apply_host_player_cooldown_after_logic,
+        eager_apply_host_player_meta_after_logic, eager_apply_host_production_door_after_logic,
+        eager_map_host_spawn_if_coupled, end_shadow_coupled_tick, shadow_session_after_host_tick,
+        with_coupled_shadow,
     };
     use glam::Vec3;
 
@@ -232,16 +231,17 @@ mod tests {
 
         let mut shadow = GameWorldShadow::new(64);
         begin_shadow_coupled_tick();
-        install_active_shadow_for_coupled_tick(&mut shadow);
-        assert!(eager_map_host_spawn_if_coupled(
-            &logic,
-            &crate::game_logic::host_spawn_log::HostSpawnEvent {
-                id,
-                template: "EagerMcdUnit".into(),
-                team_ordinal: 0,
-                position: [0.0, 0.0, 0.0],
-            },
-        ));
+        with_coupled_shadow(&mut shadow, || {
+            assert!(eager_map_host_spawn_if_coupled(
+                &logic,
+                &crate::game_logic::host_spawn_log::HostSpawnEvent {
+                    id,
+                    template: "EagerMcdUnit".into(),
+                    team_ordinal: 0,
+                    position: [0.0, 0.0, 0.0],
+                },
+            ));
+        });
         let _ = eager_apply_host_player_meta_after_logic(&mut shadow, &logic);
         let _ = eager_apply_host_player_cooldown_after_logic(&mut shadow, &logic);
         assert!(eager_apply_host_production_door_after_logic(&mut shadow, &logic) >= 1);
@@ -249,7 +249,6 @@ mod tests {
         assert!(host_player_cooldown_log::drain().is_empty());
         assert!(host_production_door_log::drain().is_empty());
         let _probe = shadow_session_after_host_tick(&mut shadow, &mut logic);
-        clear_active_shadow_for_coupled_tick();
         end_shadow_coupled_tick();
         let _ = ObjectId;
 

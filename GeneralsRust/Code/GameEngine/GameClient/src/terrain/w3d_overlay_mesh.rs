@@ -956,7 +956,7 @@ pub fn unpack_bgra_rgba(diffuse: u32) -> [f32; 4] {
 
 /// Shipped wgpu water overlay vertex. `packed_c` is C++ `SEA_PATCH_VERTEX.c`.
 #[repr(C)]
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct WaterGpuVertex {
     pub position: [f32; 3],
     pub color: [f32; 3],
@@ -964,12 +964,6 @@ pub struct WaterGpuVertex {
     pub alpha: f32,
     pub packed_c: u32,
 }
-
-// SAFETY: `#[repr(C)]` water vertex of f32 arrays + packed_c u32; byte-exact
-// SAFETY: layout documented against C++ SEA_PATCH_VERTEX, uploaded as raw bytes.
-unsafe impl bytemuck::Pod for WaterGpuVertex {}
-// SAFETY: All-zero fields are valid values; alpha 0.0 is meaningful, not UB.
-unsafe impl bytemuck::Zeroable for WaterGpuVertex {}
 
 impl WaterGpuVertex {
     #[must_use]
@@ -1029,7 +1023,7 @@ pub fn fill_water_gpu_upload_vertices(cpu: &[SeaPatchVertex]) -> Vec<WaterGpuVer
 
 /// Shipped wgpu overlay vertex: Y-up + unpacked doLighting/do_road_dynamic_light + packed BGRA.
 #[repr(C)]
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct OverlayGpuVertex {
     pub position: [f32; 3],
     pub color: [f32; 3],
@@ -1037,12 +1031,6 @@ pub struct OverlayGpuVertex {
     pub road_width: f32,
     pub diffuse: u32,
 }
-
-// SAFETY: `#[repr(C)]` overlay vertex of f32 arrays + diffuse u32, no padding
-// SAFETY: holes; consumed only as raw vertex-buffer bytes.
-unsafe impl bytemuck::Pod for OverlayGpuVertex {}
-// SAFETY: Zeroed fields are valid defaults; no pointer or niche members.
-unsafe impl bytemuck::Zeroable for OverlayGpuVertex {}
 
 impl OverlayGpuVertex {
     #[must_use]
