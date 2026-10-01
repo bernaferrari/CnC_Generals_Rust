@@ -611,12 +611,8 @@ impl ScriptConditionEvaluator {
                 !census.has_any_objects
             } else if let Ok(players) = player_list().read() {
                 if let Some(player_arc) = players.find_player_by_name(&player_name) {
-                    if let Ok(player) = Ok(player_arc) {
-                        // C++: player is all destroyed if Player::hasAnyObjects() is false.
-                        !player.has_any_objects()
-                    } else {
-                        true
-                    }
+                    // C++: player is all destroyed if Player::hasAnyObjects() is false.
+                    !player_arc.has_any_objects()
                 } else {
                     true
                 }
@@ -648,10 +644,9 @@ impl ScriptConditionEvaluator {
         // Look up the player and check if they have any build facilities
         if let Ok(players) = player_list().read() {
             if let Some(player_arc) = players.find_player_by_name(&player_name) {
-                if let Ok(player) = Ok(player_arc) {
-                    // All build facilities are destroyed if player has none
-                    return Ok(bool_result(!player.has_any_build_facility()));
-                }
+                let player = player_arc;
+                // All build facilities are destroyed if player has none
+                return Ok(bool_result(!player.has_any_build_facility()));
             }
         }
         // Player not found - consider build facilities as destroyed
@@ -685,9 +680,7 @@ impl ScriptConditionEvaluator {
                 let Some(player_arc) = players.find_player_by_name(&player_name) else {
                     return Ok(ScriptConditionResult::False);
                 };
-                let Ok(player) = Ok(player_arc) else {
-                    return Ok(ScriptConditionResult::False);
-                };
+                let player = player_arc;
                 player.get_money().get_money()
             };
 
@@ -726,9 +719,7 @@ impl ScriptConditionEvaluator {
                 let Some(player_arc) = players.find_player_by_name(&player_name) else {
                     return Ok(ScriptConditionResult::False);
                 };
-                let Ok(player) = Ok(player_arc) else {
-                    return Ok(ScriptConditionResult::False);
-                };
+                let player = player_arc;
                 player.count_buildings()
             };
 
@@ -749,10 +740,9 @@ impl ScriptConditionEvaluator {
         // Look up the player and check their power status
         if let Ok(players) = player_list().read() {
             if let Some(player_arc) = players.find_player_by_name(&player_name) {
-                if let Ok(player) = Ok(player_arc) {
-                    // C++ parity: Energy::hasSufficientPower
-                    return Ok(bool_result(player.get_energy().has_sufficient_power()));
-                }
+                let player = player_arc;
+                // C++ parity: Energy::hasSufficientPower
+                return Ok(bool_result(player.get_energy().has_sufficient_power()));
             }
         }
         // If player doesn't exist, default to no power
@@ -798,9 +788,7 @@ impl ScriptConditionEvaluator {
                 let Some(player_arc) = players.find_player_by_name(&player_name) else {
                     return Ok(ScriptConditionResult::False);
                 };
-                let Ok(player) = Ok(player_arc) else {
-                    return Ok(ScriptConditionResult::False);
-                };
+                let player = player_arc;
                 let mask = crate::common::KindOf::Structure.cpp_mask()
                     | crate::common::KindOf::CountsForVictory.cpp_mask();
                 player.count_objects_by_kindof(mask, crate::common::KIND_OF_MASK_NONE)
@@ -833,9 +821,7 @@ impl ScriptConditionEvaluator {
                 let Some(player_arc) = players.find_player_by_name(&player_name) else {
                     return Ok(ScriptConditionResult::False);
                 };
-                let Ok(player) = Ok(player_arc) else {
-                    return Ok(ScriptConditionResult::False);
-                };
+                let player = player_arc;
                 player.get_energy().supply_ratio()
             };
         let test_ratio = percent as f32 / 100.0;
@@ -870,9 +856,7 @@ impl ScriptConditionEvaluator {
                 let Some(player_arc) = players.find_player_by_name(&player_name) else {
                     return Ok(ScriptConditionResult::False);
                 };
-                let Ok(player) = Ok(player_arc) else {
-                    return Ok(ScriptConditionResult::False);
-                };
+                let player = player_arc;
                 let energy = player.get_energy();
                 energy.production() - energy.consumption()
             };
@@ -1021,10 +1005,9 @@ impl ScriptConditionEvaluator {
 
         if let Ok(players) = player_list().read() {
             if let Some(player_arc) = players.find_player_by_name(&player_name) {
-                if let Ok(player) = Ok(player_arc) {
-                    if player.is_capable_of_purchasing_science(science) {
-                        return Ok(ScriptConditionResult::True);
-                    }
+                let player = player_arc;
+                if player.is_capable_of_purchasing_science(science) {
+                    return Ok(ScriptConditionResult::True);
                 }
             }
         }
@@ -1099,9 +1082,7 @@ impl ScriptConditionEvaluator {
         let Some(player_arc) = players.find_player_by_name(&player_name) else {
             return Ok(ScriptConditionResult::False);
         };
-        let Ok(player) = Ok(player_arc) else {
-            return Ok(ScriptConditionResult::False);
-        };
+        let player = player_arc;
 
         let types = self.resolve_object_types_param(&object_type);
         let (templates, mut counts) = types.prep_for_player_counting();
@@ -1209,9 +1190,7 @@ impl ScriptConditionEvaluator {
             let Some(player_arc) = players.find_player_by_name(&player_name) else {
                 return Ok(ScriptConditionResult::False);
             };
-            let Ok(player) = Ok(player_arc) else {
-                return Ok(ScriptConditionResult::False);
-            };
+            let player = player_arc;
 
             let types = self.resolve_object_types_param(&object_type);
             let (templates, mut counts) = types.prep_for_player_counting();
@@ -1428,9 +1407,7 @@ impl ScriptConditionEvaluator {
         let Some(victim_player) = players.find_player_by_name(&player_name) else {
             return Ok(ScriptConditionResult::False);
         };
-        let Ok(victim_guard) = Ok(victim_player) else {
-            return Ok(ScriptConditionResult::False);
-        };
+        let victim_guard = victim_player;
         let victim_index = victim_guard.get_player_index();
 
         let Some(team_arc) = self.lookup_condition_team(&team_name) else {
@@ -1447,9 +1424,7 @@ impl ScriptConditionEvaluator {
                     let Some(body) = obj.get_body_module() else {
                         return _ObjFlow::Cont;
                     };
-                    let Ok(body_guard) = Ok(body) else {
-                        return _ObjFlow::Cont;
-                    };
+                    let body_guard = body;
                     let Some(last) = body_guard.get_last_damage_info() else {
                         return _ObjFlow::Cont;
                     };
@@ -1529,9 +1504,7 @@ impl ScriptConditionEvaluator {
         let Some(player_arc) = players.find_player_by_name(&player_name) else {
             return Ok(ScriptConditionResult::False);
         };
-        let Ok(player) = Ok(player_arc) else {
-            return Ok(ScriptConditionResult::False);
-        };
+        let player = player_arc;
         let player_index = player.get_player_index();
 
         let Some(team_arc) = self.lookup_condition_team(&team_name) else {
@@ -1582,17 +1555,16 @@ impl ScriptConditionEvaluator {
                             if let Some(player_arc) =
                                 players.get_player(controlling_player_id as i32)
                             {
-                                if let Ok(player) = Ok(player_arc) {
-                                    return Ok(
-                                        if player.get_player_name_key()
-                                            == NameKeyGenerator::name_to_key(&player_name)
-                                        {
-                                            ScriptConditionResult::True
-                                        } else {
-                                            ScriptConditionResult::False
-                                        },
-                                    );
-                                }
+                let player = player_arc;
+                return Ok(
+                    if player.get_player_name_key()
+                        == NameKeyGenerator::name_to_key(&player_name)
+                    {
+                        ScriptConditionResult::True
+                    } else {
+                        ScriptConditionResult::False
+                    },
+                );
                             }
                         }
                 }
@@ -1649,9 +1621,7 @@ impl ScriptConditionEvaluator {
                         // C++: no AI -> continue (e.g. rocks/trees in team)
                         return _ObjFlow::Cont;
                     };
-                    let Ok(ai) = Ok(ai_arc) else {
-                        return _ObjFlow::Cont;
-                    };
+                    let ai = ai_arc;
                     let Some(completed_waypoint_id) = ai.get_completed_waypoint_id() else {
                         return _ObjFlow::Cont;
                     };
@@ -2190,7 +2160,7 @@ struct TeamInsideCounts {
 
 fn member_counts_for_team_area(obj: &crate::object::Object, which_to_consider: u32) -> bool {
     let surfaces = if let Some(ai) = obj.get_ai() {
-        if let Ok(ai_guard) = Ok(ai) {
+        if let Some(ai_guard) = Some(ai) {
             ai_guard
                 .get_locomotor_set_clone()
                 .map(|set| set.get_valid_surfaces())
@@ -2223,9 +2193,7 @@ fn last_damage_matches_object_types(
             let Some(body) = obj.get_body_module() else {
                 return _ObjFlow::Ret(false);
             };
-            let Ok(body_guard) = Ok(body) else {
-                return _ObjFlow::Ret(false);
-            };
+            let body_guard = body;
             let Some(last) = body_guard.get_last_damage_info() else {
                 return _ObjFlow::Ret(false);
             };
