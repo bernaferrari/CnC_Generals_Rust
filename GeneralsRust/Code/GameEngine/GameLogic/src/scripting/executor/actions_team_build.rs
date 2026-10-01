@@ -476,18 +476,26 @@ impl ScriptActionDispatcher {
                     let _flow = OBJECT_REGISTRY.with_object(unit_id, |unit_guard| {
                         
                         for transport_id in &team_transports {
-                            let contain_arc = OBJECT_REGISTRY
-                                .with_object(*transport_id, |t| t.get_contain())
+                            if *transport_id == unit_id {
+                                continue;
+                            }
+                            let loaded = OBJECT_REGISTRY
+                                .with_object_mut(*transport_id, |transport| {
+                                    let Some(contain) = transport.get_contain_mut() else {
+                                        return None;
+                                    };
+                                    if contain.is_valid_container_for(unit_guard, true) {
+                                        let _ = contain.add_to_contain(unit_guard);
+                                        Some(true)
+                                    } else {
+                                        Some(false)
+                                    }
+                                })
                                 .flatten();
-                            let Some(contain_arc) = contain_arc else {
-                                return _ObjFlow::Cont;
-                            };
-                            let Ok(mut contain_guard) = contain_arc.lock() else {
-                                return _ObjFlow::Cont;
-                            };
-                            if contain_guard.is_valid_container_for(&unit_guard, true) {
-                                let _ = contain_guard.add_to_contain(&unit_guard);
-                                break;
+                            match loaded {
+                                None => return _ObjFlow::Cont,
+                                Some(true) => break,
+                                Some(false) => {}
                             }
                         }
                         _ObjFlow::Fall
@@ -526,13 +534,12 @@ impl ScriptActionDispatcher {
                             return _ObjFlow::Cont;
                         }
                         
-                        let Some((contains, full, transport_radius)) = OBJECT_REGISTRY.with_object(current_transport_id, |transport_guard| {
+                        let Some((contains, full, transport_radius)) = OBJECT_REGISTRY.with_object_mut(current_transport_id, |transport_guard| {
                             let transport_radius = transport_guard.get_geometry_info().get_major_radius();
-                            let contain_arc = transport_guard.get_contain()?;
-                            let contain_guard = contain_arc.lock().ok()?;
+                            let contain = transport_guard.get_contain_mut()?;
                             Some((
-                                contain_guard.is_valid_container_for(&member_guard, false),
-                                contain_guard.is_valid_container_for(&member_guard, true),
+                                contain.is_valid_container_for(member_guard, false),
+                                contain.is_valid_container_for(member_guard, true),
                                 transport_radius,
                             ))
                         }).flatten() else {
@@ -626,16 +633,16 @@ impl ScriptActionDispatcher {
                                 });
                                 created_any = true;
                         
-                                let inserted = OBJECT_REGISTRY.with_object(container_id, |container_guard| {
-                                    let container_contain = container_guard.get_contain()?;
-                                    let mut container_contain_guard = container_contain.lock().ok()?;
-                                    if container_contain_guard.is_valid_container_for(&member_guard, true) {
-                                        let _ = container_contain_guard.add_to_contain(&member_guard);
-                                        Some(true)
+                                let inserted = OBJECT_REGISTRY.with_object_mut(container_id, |container_guard| {
+                                    let Some(contain) = container_guard.get_contain_mut() else {
+                                        return false;
+                                    };
+                                    if contain.is_valid_container_for(member_guard, true) {
+                                        contain.add_to_contain(member_guard).is_ok()
                                     } else {
-                                        Some(false)
+                                        false
                                     }
-                                }).flatten().unwrap_or(false);
+                                }).unwrap_or(false);
                         
                                 if inserted {
                                     payload_object_id = container_id;
@@ -643,34 +650,32 @@ impl ScriptActionDispatcher {
                             }
                         }
                         
-                        {
-                            enum _ObjFlow<T> { Cont, Ret(T), Fall }
-                            let _flow = OBJECT_REGISTRY.with_object(payload_object_id, |payload_guard| {
-                                
-                                let contain_arc = OBJECT_REGISTRY
-                                    .with_object(current_transport_id, |transport| transport.get_contain())
-                                    .flatten();
-                                if contain_arc.is_none() && OBJECT_REGISTRY.with_object(current_transport_id, |_| ()).is_none() {
-                                    return _ObjFlow::Ret(_ObjFlow::Cont);
-                                }
-                                let Some(contain_arc) = contain_arc else {
-                                    return _ObjFlow::Ret(_ObjFlow::Cont);
-                                };
-                                let Ok(mut contain_guard) = contain_arc.lock() else {
-                                    return _ObjFlow::Ret(_ObjFlow::Cont);
-                                };
-                                let _ = contain_guard.add_to_contain(&payload_guard);
-                                _ObjFlow::Fall
-                            });
-                            match _flow {
-                                None => {
-                                    return _ObjFlow::Cont;
-                                }
-                                Some(_ObjFlow::Cont) => continue,
-                                Some(_ObjFlow::Ret(v)) => return v,
-                                Some(_ObjFlow::Fall) => {}
-                            }
+                        if current_transport_id == payload_object_id {
+                            return _ObjFlow::Cont;
                         }
+                        let attempted = if payload_object_id == member_id {
+                            OBJECT_REGISTRY.with_object_mut(current_transport_id, |transport| {
+                                let Some(contain) = transport.get_contain_mut() else {
+                                    return false;
+                                };
+                                let _ = contain.add_to_contain(member_guard);
+                                true
+                            })
+                        } else {
+                            OBJECT_REGISTRY.with_object(payload_object_id, |payload| {
+                                OBJECT_REGISTRY.with_object_mut(current_transport_id, |transport| {
+                                    let Some(contain) = transport.get_contain_mut() else {
+                                        return false;
+                                    };
+                                    let _ = contain.add_to_contain(payload);
+                                    true
+                                })
+                            }).flatten()
+                        };
+                        if attempted != Some(true) {
+                            return _ObjFlow::Cont;
+                        }
+                        _ObjFlow::Fall
                     });
                     match _flow {
                         None | Some(_ObjFlow::Cont) => continue,
@@ -715,7 +720,12 @@ impl ScriptActionDispatcher {
                                 params.pos = destination;
                                 let _ = ai.execute_command(&params);
                             } else {
-                                let _ = ai.ai_move_to_and_evacuate(&destination);
+                                let mut params = AiCommandParams::new(
+                                    AiCommandType::MoveToPositionAndEvacuate,
+                                    CommandSourceType::FromScript,
+                                );
+                                params.pos = destination;
+                                let _ = ai.execute_command(&params);
                             }
                         }
                     } else if !is_held {
@@ -1066,29 +1076,15 @@ impl ScriptActionDispatcher {
             .unwrap_or_default();
 
         for object_id in &source_members {
-            {
-                enum _ObjFlow<T> { Cont, Ret(T), Fall }
-                let _flow = OBJECT_REGISTRY.with_object_mut(*object_id, |mut object_guard| {
-                    _ObjFlow::Fall
-                });
-                match _flow {
-                    None | Some(_ObjFlow::Cont) => continue,
-                    Some(_ObjFlow::Ret(v)) => return v,
-                    Some(_ObjFlow::Fall) => {}
-                }
-            }
+            let _ = OBJECT_REGISTRY.with_object_mut(*object_id, |object| {
+                let _ = object.set_team(Some(target_team_arc));
+            });
         }
 
         let _ = crate::team::with_team_mut(source_team_arc, |source_guard| {
-            for object_id in &source_members {
-                source_guard.remove_member(*object_id);
-            }
             source_guard.delete_team(false);
         });
         let _ = crate::team::with_team_mut(target_team_arc, |target_guard| {
-            for object_id in source_members {
-                target_guard.add_member(object_id);
-            }
             target_guard.set_active();
         });
 
