@@ -12,7 +12,6 @@ use glam::Vec3;
 use image::{DynamicImage, ImageBuffer, Luma};
 
 use super::textures::{BlendTileInfo, FLIPPED_MASK, INVERTED_MASK, TileData};
-use super::utils::calculate_normal;
 use super::{TerrainError, TerrainResult};
 
 pub const K_MIN_HEIGHT: u8 = 0;
@@ -542,20 +541,99 @@ impl HeightMap {
         }
     }
 
-    /// Get surface normal at world coordinates.
-    /// Neighbor samples go through `get_height_at`, so off-map taps clamp to
-    /// the edge cell instead of inventing a 0.0 cliff.
+    /// Get the smoothed terrain normal at world coordinates.
+    ///
+    /// Matches C++ `BaseHeightMapRenderObjClass::getHeightMapHeight`
+    /// (`BaseHeightMap.cpp:828-970`): its twelve height taps, interpolation
+    /// order, and sample-range fallback are observable. In particular, the
+    /// X3 delta intentionally repeats X1 in the source implementation.
     pub fn get_normal_at(&self, world_x: f32, world_y: f32) -> Vec3 {
-        let step = self.scale;
+        if self.width == 0
+            || self.height == 0
+            || self.scale <= f32::EPSILON
+            || !self.scale.is_finite()
+            || !world_x.is_finite()
+            || !world_y.is_finite()
+            || !self.height_range.is_finite()
+            || self.heights.len() < (self.width as usize).saturating_mul(self.height as usize)
+        {
+            return Vec3::Z;
+        }
 
-        // Sample heights at neighboring points
-        let center = self.get_height_at(world_x, world_y);
-        let left = self.get_height_at(world_x - step, world_y);
-        let right = self.get_height_at(world_x + step, world_y);
-        let up = self.get_height_at(world_x, world_y - step);
-        let down = self.get_height_at(world_x, world_y + step);
+        // CPP floors in heightmap coordinates, then adds the authored border.
+        // Keep the unclamped indices: its smoothing neighborhood falls back
+        // to +Z when any of these base coordinates are outside the valid
+        // [1, extent-3] range.
+        let x_grid = world_x / self.scale;
+        let y_grid = world_y / self.scale;
+        if !x_grid.is_finite() || !y_grid.is_finite() {
+            return Vec3::Z;
+        }
+        let x_floor = x_grid.floor();
+        let y_floor = y_grid.floor();
+        let ix = (x_floor as i64).saturating_add(self.border_size as i64);
+        let iy = (y_floor as i64).saturating_add(self.border_size as i64);
+        let x_extent = self.width as i64;
+        let y_extent = self.height as i64;
+        if ix < 1 || iy < 1 || ix > x_extent - 3 || iy > y_extent - 3 {
+            return Vec3::Z;
+        }
 
-        calculate_normal(center, left, right, up, down, step)
+        let fx = x_grid - x_floor;
+        let fy = y_grid - y_floor;
+        let ix = ix as u32;
+        let iy = iy as u32;
+        let height =
+            |x: u32, y: u32| self.min_height + self.get_height_at_index(x, y) * self.height_range;
+
+        let d0 = height(ix, iy);
+        let d1 = height(ix + 1, iy);
+        let d2 = height(ix + 1, iy + 1);
+        let d3 = height(ix, iy + 1);
+        let d4 = height(ix, iy - 1);
+        let d5 = height(ix + 1, iy - 1);
+        let d6 = height(ix + 2, iy);
+        let d7 = height(ix + 2, iy + 1);
+        let d8 = height(ix + 1, iy + 2);
+        let d9 = height(ix, iy + 2);
+        let d11 = height(ix - 1, iy);
+        if [d0, d1, d2, d3, d4, d5, d6, d7, d8, d9, d11]
+            .into_iter()
+            .any(|sample| !sample.is_finite())
+        {
+            return Vec3::Z;
+        }
+
+        // C++ BaseHeightMap.cpp:942-950. X3's d6-d0 is intentionally the
+        // same expression as X1, rather than d7-d3.
+        let delta_x0 = d1 - d11;
+        let delta_x1 = d6 - d0;
+        let delta_x2 = d7 - d3;
+        let delta_x3 = d6 - d0;
+        let delta_y0 = d3 - d4;
+        let delta_y1 = d2 - d5;
+        let delta_y2 = d8 - d1;
+        let delta_y3 = d9 - d0;
+
+        // Preserve CPP's staged interpolation grouping (BaseHeightMap.cpp:953-964).
+        let delta_x_left = delta_x0 * (1.0 - fx) + fx * delta_x3;
+        let delta_x_right = delta_x1 * (1.0 - fx) + fx * delta_x2;
+        let delta_x = delta_x_left * (1.0 - fy) + fy * delta_x_right;
+        let delta_y_left = delta_y0 * (1.0 - fx) + fx * delta_y3;
+        let delta_y_right = delta_y1 * (1.0 - fx) + fx * delta_y2;
+        let delta_y = delta_y_left * (1.0 - fy) + fy * delta_y_right;
+
+        // CPP cross-products (2*MAP_XY_FACTOR/MAP_HEIGHT_SCALE, 0, deltaX)
+        // and (0, 2*MAP_XY_FACTOR/MAP_HEIGHT_SCALE, deltaY). Here samples
+        // are already in world-height units, so the equivalent horizontal
+        // edge length is 2*self.scale. The common scaling cancels on normalize.
+        let edge = 2.0 * self.scale;
+        let normal = Vec3::new(-edge * delta_x, -edge * delta_y, edge * edge);
+        if !normal.is_finite() || normal.length_squared() <= f32::EPSILON {
+            Vec3::Z
+        } else {
+            normal.normalize()
+        }
     }
 
     /// Intersect ray with terrain heightmap
@@ -1991,6 +2069,94 @@ mod tests {
 
         // Should be normalized
         assert!((normal.length() - 1.0).abs() < 0.001);
+    }
+
+    #[test]
+    fn normal_matches_linear_x_and_y_slopes_at_multiple_sample_scales() {
+        for scale in [1.0, 10.0] {
+            let mut x_ramp = HeightMap::new(9, 9, 100.0, scale);
+            let mut y_ramp = HeightMap::new(9, 9, 100.0, scale);
+            let normalized_step = 0.5 * scale / 100.0;
+            for y in 0..9 {
+                for x in 0..9 {
+                    x_ramp.set_height_at_index(x, y, x as f32 * normalized_step);
+                    y_ramp.set_height_at_index(x, y, y as f32 * normalized_step);
+                }
+            }
+
+            let sample = 4.0 * scale;
+            let x_normal = x_ramp.get_normal_at(sample, sample);
+            let y_normal = y_ramp.get_normal_at(sample, sample);
+            let expected_x = Vec3::new(-0.5, 0.0, 1.0).normalize();
+            let expected_y = Vec3::new(0.0, -0.5, 1.0).normalize();
+
+            assert!(
+                (x_normal - expected_x).length() < 0.001,
+                "x ramp at sample scale {scale}: got {x_normal:?}, expected {expected_x:?}"
+            );
+            assert!(
+                (y_normal - expected_y).length() < 0.001,
+                "y ramp at sample scale {scale}: got {y_normal:?}, expected {expected_y:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn normal_matches_cpp_smoothed_asymmetric_twelve_sample_fixture() {
+        let mut heightmap = HeightMap::new(7, 7, 100.0, 10.0);
+        // CPP BaseHeightMap.cpp:914-964 samples around (ix=2, iy=2), then
+        // interpolates with fx=0.25, fy=0.6. Values are literal CPP height
+        // bytes converted to world units by MAP_HEIGHT_SCALE.
+        for (x, y, height) in [
+            (2, 2, 20.0), // d0
+            (3, 2, 24.0), // d1
+            (3, 3, 29.0), // d2
+            (2, 3, 25.0), // d3
+            (2, 1, 16.0), // d4
+            (3, 1, 22.0), // d5
+            (4, 2, 35.0), // d6
+            (4, 3, 31.0), // d7
+            (3, 4, 38.0), // d8
+            (2, 4, 27.0), // d9
+            (1, 3, 19.0), // d10
+            (1, 2, 18.0), // d11
+        ] {
+            heightmap.set_height_at_index(x, y, height * MAP_HEIGHT_SCALE / 100.0);
+        }
+
+        // CPP's unusual deltaZ_X3 = d6-d0 is retained in the fixture:
+        // deltaX=10.95, deltaY=8.65. Cross((32,0,deltaX),(0,32,deltaY)).
+        let expected = Vec3::new(-10.95 / 32.0, -8.65 / 32.0, 1.0).normalize();
+        let normal = heightmap.get_normal_at(22.5, 26.0);
+        assert!(
+            (normal - expected).length() < 0.001,
+            "got {normal:?}, expected CPP smoothed normal {expected:?}"
+        );
+    }
+
+    #[test]
+    fn normal_uses_authored_border_and_cpp_out_of_range_default() {
+        let mut heightmap = HeightMap::new(9, 9, 100.0, 10.0);
+        heightmap.border_size = 2;
+        for y in 0..9 {
+            for x in 0..9 {
+                // Five world-height units per cell gives a 0.5 slope at
+                // MAP_XY_FACTOR=10. The playable origin samples index 2.
+                heightmap.set_height_at_index(x, y, x as f32 * 0.05);
+            }
+        }
+
+        let at_playable_origin = heightmap.get_normal_at(0.0, 0.0);
+        let expected_slope = Vec3::new(-0.5, 0.0, 1.0).normalize();
+        assert!(
+            (at_playable_origin - expected_slope).length() < 0.001,
+            "authored border should place playable origin on the interior ramp: {at_playable_origin:?}"
+        );
+
+        // C++ BaseHeightMap.cpp:871-894 returns the up normal when the
+        // computed map index is outside the smoothed-normal sampling range.
+        let outside_map = heightmap.get_normal_at(-20.0, 0.0);
+        assert_eq!(outside_map, Vec3::Z);
     }
 
     #[test]

@@ -458,21 +458,6 @@ pub mod utils {
         h0 * (1.0 - v) + h1 * v // Final interpolation
     }
 
-    /// Calculate terrain normal from heights
-    pub fn calculate_normal(
-        center_height: f32,
-        left_height: f32,
-        right_height: f32,
-        up_height: f32,
-        down_height: f32,
-        scale: f32,
-    ) -> Vec3 {
-        let dx = (right_height - left_height) * scale;
-        let dy = (up_height - down_height) * scale;
-
-        Vec3::new(-dx, -dy, 2.0).normalize()
-    }
-
     /// Apply falloff curve to terrain modification
     pub fn apply_falloff(distance: f32, radius: f32, falloff: f32) -> f32 {
         if distance >= radius {
@@ -555,17 +540,6 @@ mod tests {
         // Test center (should be average)
         let center = bilinear_interpolate(&heights, 0.5, 0.5);
         assert!((center - 7.5).abs() < 0.001);
-    }
-
-    #[test]
-    fn test_normal_calculation() {
-        let normal = calculate_normal(5.0, 3.0, 7.0, 6.0, 4.0, 1.0);
-
-        // Normal should point generally upward
-        assert!(normal.z > 0.0);
-
-        // Normal should be normalized
-        assert!((normal.length() - 1.0).abs() < 0.001);
     }
 
     #[test]

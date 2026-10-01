@@ -203,7 +203,6 @@ fn closer_presentation_pick_along_ray(
     }
 }
 
-
 fn project_world_to_screen(
     view_projection: glam::Mat4,
     position: glam::Vec3,
@@ -428,8 +427,9 @@ impl CnCGameEngine {
         // Lead the snapshot poses to the live logic frame so a click lands
         // where the unit is, not where the stamp left it (velocity ×
         // elapsed frames; see pick_ray::extrapolated_pick_position).
-        let now_logic_frame =
-            u32::try_from(self.game_logic.get_current_frame()).unwrap_or(u32::MAX).max(frame.frame.0);
+        let now_logic_frame = u32::try_from(self.game_logic.get_current_frame())
+            .unwrap_or(u32::MAX)
+            .max(frame.frame.0);
         let (view_w, view_h) = self.tactical_viewport_size();
         let (ray_start, ray_end) = super::mouse::unproject_mouse_ray(
             self.view_matrix,
@@ -1020,7 +1020,7 @@ impl CnCGameEngine {
     /// Cycle construction panel tab residual (`[` / `]`).
     pub(super) fn cycle_construction_tab(&mut self, delta: i32) {
         use crate::ui::ConstructionTab;
-        if !self.game_hud.construction_panel.is_visible() {
+        if !self.game_hud_mut().construction_panel.is_visible() {
             return;
         }
         let tabs = [
@@ -1029,12 +1029,12 @@ impl CnCGameEngine {
             ConstructionTab::Vehicles,
             ConstructionTab::Aircraft,
         ];
-        let cur = self.game_hud.construction_panel.current_tab();
+        let cur = self.game_hud_mut().construction_panel.current_tab();
         let idx = tabs.iter().position(|t| *t == cur).unwrap_or(0) as i32;
         let n = tabs.len() as i32;
         let next = (((idx + delta) % n) + n) % n;
         let tab = tabs[next as usize];
-        self.game_hud.construction_panel.force_tab(tab);
+        self.game_hud_mut().construction_panel.force_tab(tab);
     }
 
     /// Select friendly units near camera (on-screen residual, Ctrl+Alt+A).
@@ -1687,8 +1687,7 @@ impl CnCGameEngine {
             }
         };
         if added.is_empty() && msg == "GUI:NothingSelected" {
-            self.game_hud.push_info_message(msg);
-            self.ui_manager.game_hud_mut().push_info_message(msg);
+            self.game_hud_mut().push_info_message(msg);
             return;
         }
         for id in added {
@@ -1700,8 +1699,7 @@ impl CnCGameEngine {
         if !self.selected_objects.is_empty() {
             self.play_sound_effect(SoundType::Select);
         }
-        self.game_hud.push_info_message(msg);
-        self.ui_manager.game_hud_mut().push_info_message(msg);
+        self.game_hud_mut().push_info_message(msg);
     }
 
     /// Retail SELECT_ALL_AIRCRAFT (KEY_W) residual.
@@ -1794,8 +1792,7 @@ impl CnCGameEngine {
             self.host_set_selection(self.current_player_id, selection);
         }
         if let Some(msg) = plan.message {
-            self.game_hud.push_info_message(msg);
-            self.ui_manager.game_hud_mut().push_info_message(msg);
+            self.game_hud_mut().push_info_message(msg);
         }
     }
 }

@@ -548,9 +548,7 @@ impl CnCGameEngine {
 
     pub(super) fn cancel_structure_placement_from_ui(&mut self) {
         self.pending_structure_placement = None;
-        self.game_hud.construction_panel.clear_structure_placement();
-        self.ui_manager
-            .game_hud_mut()
+        self.game_hud_mut()
             .construction_panel
             .clear_structure_placement();
         game_client::helpers::TheInGameUI::place_build_available(None, None);
@@ -755,19 +753,13 @@ impl CnCGameEngine {
         let mut ov = RadiusCursorOverlay::new(cursor_type, r);
         let loc = self.mouse_world_position;
         ov.centre = (loc.x, loc.z);
-        self.game_hud
-            .construction_panel
-            .set_radius_overlay(Some(ov.clone()));
-        self.ui_manager
-            .game_hud_mut()
+        self.game_hud_mut()
             .construction_panel
             .set_radius_overlay(Some(ov));
     }
 
     pub(super) fn clear_radius_cursor_overlays(&mut self) {
-        self.game_hud.construction_panel.clear_radius_overlay();
-        self.ui_manager
-            .game_hud_mut()
+        self.game_hud_mut()
             .construction_panel
             .clear_radius_overlay();
     }
@@ -791,15 +783,16 @@ impl CnCGameEngine {
             PendingMapCommand::UnitAbility(_) => "OFFENSIVE_SPECIALPOWER",
         };
         // Ensure overlay exists (re-arm if missing).
-        if self.game_hud.construction_panel.radius_overlay().is_none() {
+        if self
+            .game_hud()
+            .construction_panel
+            .radius_overlay()
+            .is_none()
+        {
             self.arm_radius_cursor_for_pending(cursor);
         }
         let loc = self.mouse_world_position;
-        self.game_hud
-            .construction_panel
-            .sync_radius_overlay_cursor(loc.x, loc.z);
-        self.ui_manager
-            .game_hud_mut()
+        self.game_hud_mut()
             .construction_panel
             .sync_radius_overlay_cursor(loc.x, loc.z);
     }
@@ -820,10 +813,8 @@ impl CnCGameEngine {
         // Preview: IGNORE_STEALTHED so unseen stealthed units do not redden the ghost.
         let code = self.host_legal_build_code_at_for_preview(team, loc, &template, builder_id);
         let legal = code == crate::game_logic::host_production_buildable_command_residual::LBC_OK;
-        // Single rendered GameHUD: only ui_manager.render() draws a GameHUD;
-        // engine self.game_hud is never drawn (see apply_presentation_to_huds).
-        self.ui_manager
-            .game_hud_mut()
+        // Keep the placement cursor on the same HUD used by gameplay input.
+        self.game_hud_mut()
             .construction_panel
             .sync_structure_placement_cursor(loc.x, loc.z, legal);
     }
@@ -833,8 +824,7 @@ impl CnCGameEngine {
             return;
         }
         self.pending_structure_placement = Some(template_name.to_string());
-        self.ui_manager
-            .game_hud_mut()
+        self.game_hud_mut()
             .construction_panel
             .arm_structure_placement(template_name.to_string());
         // C++ ControlBar::enterTargetingMode / placeBuildAvailable stores the
@@ -975,7 +965,7 @@ impl CnCGameEngine {
         if !ok {
             return false;
         }
-        let panel = &mut self.game_hud.construction_panel;
+        let panel = &mut self.game_hud_mut().construction_panel;
         if let Some(idx) = panel
             .building_queue
             .iter()
@@ -1033,8 +1023,7 @@ impl CnCGameEngine {
             if !self.displayed_max_selection_warning {
                 self.displayed_max_selection_warning = true;
                 let msg = format_max_selection_size_message(max);
-                self.game_hud.push_info_message(&msg);
-                self.ui_manager.game_hud_mut().push_info_message(&msg);
+                self.game_hud_mut().push_info_message(&msg);
             }
         } else if max > 0 {
             self.displayed_max_selection_warning = false;
@@ -1849,9 +1838,7 @@ impl CnCGameEngine {
             log::info!("PlaceStructureAt {template_name} canceled — no construct builder");
             self.runtime_host_last_gameplay_cmd = "construct_fail_no_dozer".into();
             self.pending_structure_placement = None;
-            self.game_hud.construction_panel.clear_structure_placement();
-            self.ui_manager
-                .game_hud_mut()
+            self.game_hud_mut()
                 .construction_panel
                 .clear_structure_placement();
             game_client::helpers::TheInGameUI::place_build_available(None, None);
@@ -1866,9 +1853,7 @@ impl CnCGameEngine {
             if let Some(pending) = game_client::helpers::TheInGameUI::get_pending_special_power() {
                 if pending.source_object_id == id.0 {
                     self.pending_structure_placement = None;
-                    self.game_hud.construction_panel.clear_structure_placement();
-                    self.ui_manager
-                        .game_hud_mut()
+                    self.game_hud_mut()
                         .construction_panel
                         .clear_structure_placement();
                     let placement_angle = game_client::helpers::TheInGameUI::get_placement_angle();
@@ -1930,11 +1915,7 @@ impl CnCGameEngine {
 
         if lbc != LBC_OK {
             self.pending_structure_placement = Some(template_name.to_string());
-            self.game_hud
-                .construction_panel
-                .arm_structure_placement(template_name.to_string());
-            self.ui_manager
-                .game_hud_mut()
+            self.game_hud_mut()
                 .construction_panel
                 .arm_structure_placement(template_name.to_string());
             // C++ InGameUI::displayCantBuildMessage — leftover map_cant_build_message.
@@ -1948,8 +1929,7 @@ impl CnCGameEngine {
                 _ => "GUI:CantBuildThere",
             };
             let msg = game_client::helpers::map_cant_build_message(cpp_key);
-            self.game_hud.push_info_message(&msg);
-            self.ui_manager.game_hud_mut().push_info_message(&msg);
+            self.game_hud_mut().push_info_message(&msg);
             if let Some(id) = builder_id {
                 play_host_illegal_place_feedback(self, id);
             }
@@ -1962,9 +1942,7 @@ impl CnCGameEngine {
         // protects the next alternate-mouse blank LMB from deselecting.
         self.host_set_prevent_left_click_deselection(true);
 
-        self.game_hud.construction_panel.clear_structure_placement();
-        self.ui_manager
-            .game_hud_mut()
+        self.game_hud_mut()
             .construction_panel
             .clear_structure_placement();
         self.play_sound_effect(SoundType::Command);
@@ -1974,7 +1952,7 @@ impl CnCGameEngine {
                 template_name: template,
                 location,
                 orientation: self
-                    .game_hud
+                    .game_hud()
                     .construction_panel
                     .placement_preview()
                     .facing_radians,
@@ -2120,7 +2098,7 @@ impl CnCGameEngine {
         }
         if any {
             self.play_sound_effect(SoundType::Command);
-            let panel = &mut self.game_hud.construction_panel;
+            let panel = &mut self.game_hud_mut().construction_panel;
             if let Some(idx) = panel
                 .building_queue
                 .iter()
@@ -2167,7 +2145,7 @@ impl CnCGameEngine {
                 modifier_keys: crate::command_system::ModifierKeys::default(),
             });
         }
-        let panel = &mut self.game_hud.construction_panel;
+        let panel = &mut self.game_hud_mut().construction_panel;
         if let Some(idx) = panel.building_queue.iter().position(|q| {
             q.is_upgrade && q.production_id == production_id && q.queue_index == queue_index
         }) {

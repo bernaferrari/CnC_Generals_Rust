@@ -4,18 +4,16 @@
 //! between different UI components like menus, HUD, and dialogs.
 
 use super::{
-    FactionSelectionScreen, FontManager, GameHUD, Interactive, KeyCode, MainMenu, MouseButton,
-    PauseMenu, Renderable, SaveLoadMenu, SaveLoadMode, Screen, SkirmishMenu, TextureManager,
-    UIRenderContext, VictoryScreen, animations, sound_files,
+    FactionSelectionScreen, GameHUD, Interactive, KeyCode, MainMenu, MouseButton, PauseMenu,
+    SaveLoadMenu, SaveLoadMode, Screen, SkirmishMenu, VictoryScreen, animations, sound_files,
 };
 use crate::{
     game_logic::{GameMode, victory::VictorySummary},
     localization,
     subsystem_manager::initialize_shell_ui_schemes,
 };
-use log::{debug, info, trace};
+use log::info;
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 /// Current UI state
@@ -134,11 +132,6 @@ pub struct UIManager {
     /// In-game / shell options residual.
     options_menu: crate::ui::OptionsMenu,
 
-    /// Font manager
-    font_manager: Arc<Mutex<FontManager>>,
-    /// Texture manager
-    texture_manager: Arc<Mutex<TextureManager>>,
-
     /// Event queue
     event_queue: Vec<UIEvent>,
     /// Input state
@@ -154,17 +147,11 @@ pub struct UIManager {
     debug_mode: bool,
     /// Quick-start preserves the legacy startup flow while suppressing shell-map animation.
     quick_start_enabled: bool,
-
-    /// Most recent delta time passed to `update` (used by render-time animations).
-    last_delta_time: f32,
 }
 
 impl UIManager {
     /// Create new UI manager
     pub fn new(screen_width: u32, screen_height: u32) -> Self {
-        let font_manager = Arc::new(Mutex::new(FontManager::new()));
-        let texture_manager = Arc::new(Mutex::new(TextureManager::new()));
-
         Self {
             current_state: UIState::Loading,
             current_screen: None,
@@ -181,9 +168,6 @@ impl UIManager {
             save_load_menu: SaveLoadMenu::new(SaveLoadMode::Load),
             options_menu: crate::ui::OptionsMenu::new(),
 
-            font_manager: font_manager.clone(),
-            texture_manager: texture_manager.clone(),
-
             event_queue: Vec::new(),
             mouse_position: (0, 0),
             keys_pressed: HashMap::new(),
@@ -192,8 +176,6 @@ impl UIManager {
             ui_scale: 1.0,
             debug_mode: false,
             quick_start_enabled: false,
-            // C++ gameplay logic advances at 30 logic frames/second.
-            last_delta_time: 1.0 / 30.0,
         }
     }
 
@@ -205,32 +187,6 @@ impl UIManager {
     /// Initialize the UI system
     pub fn initialize(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         initialize_shell_ui_schemes();
-
-        #[cfg(not(feature = "game_client"))]
-        {
-            let mut font_manager = self.font_manager.lock().unwrap_or_else(|e| e.into_inner());
-            font_manager.load_font("title", "fonts/generals_title.ttf", 36.0)?;
-            font_manager.load_font("menu", "fonts/generals_menu.ttf", 24.0)?;
-            font_manager.load_font("button", "fonts/generals_button.ttf", 18.0)?;
-            font_manager.load_font("hud", "fonts/generals_hud.ttf", 16.0)?;
-        }
-
-        // C++ parity: startup/menu visuals come from the shell window system
-        // (WindowZH + mapped images + draw callbacks), not from a second Rust-local
-        // texture pack. Keep the temporary UI layer textureless when the shell
-        // path is compiled in so startup does not depend on fake asset names.
-        #[cfg(not(feature = "game_client"))]
-        {
-            let mut texture_manager = self
-                .texture_manager
-                .lock()
-                .unwrap_or_else(|e| e.into_inner());
-            texture_manager.load_texture("background", "textures/menu_background.tga")?;
-            texture_manager.load_texture("button_normal", "textures/button_normal.tga")?;
-            texture_manager.load_texture("button_hover", "textures/button_hover.tga")?;
-            texture_manager.load_texture("button_pressed", "textures/button_pressed.tga")?;
-            texture_manager.load_texture("logo", "textures/generals_logo.tga")?;
-        }
 
         // Initialize individual UI components
         self.main_menu.initialize()?;
@@ -258,7 +214,6 @@ impl UIManager {
 
     /// Update UI system
     pub fn update(&mut self, delta_time: f32) -> Result<(), Box<dyn std::error::Error>> {
-        self.last_delta_time = delta_time;
         // Process events
         self.process_events();
 
@@ -307,68 +262,6 @@ impl UIManager {
         }
 
         self.drain_screen_pending_events();
-        Ok(())
-    }
-
-    /// Render UI system
-    pub fn render(&self) -> Result<(), Box<dyn std::error::Error>> {
-        let mut context = UIRenderContext {
-            screen_size: self.screen_size,
-            delta_time: self.last_delta_time,
-            mouse_position: self.mouse_position,
-            font_manager: self.font_manager.clone(),
-            texture_manager: self.texture_manager.clone(),
-            draw_commands: Vec::new(),
-        };
-
-        // Render current screen
-        match self.current_screen {
-            Some(Screen::Title) => {
-                self.render_title_screen(&mut context)?;
-            }
-            Some(Screen::MainMenu) => {
-                self.main_menu.render(&mut context);
-            }
-            Some(Screen::FactionSelection) => {
-                self.faction_selection.render(&mut context);
-            }
-            Some(Screen::GameHUD) => {
-                self.game_hud.render(&mut context);
-            }
-            Some(Screen::PauseMenu) => {
-                // Also render game HUD in background (dimmed)
-                self.render_dimmed_background(&mut context)?;
-                self.pause_menu.render(&mut context);
-            }
-            Some(Screen::Victory) => {
-                self.victory_screen.render(&mut context);
-            }
-            Some(Screen::Skirmish) => {
-                self.skirmish_menu.render(&mut context);
-            }
-            Some(Screen::LoadGame) | Some(Screen::SaveGame) => {
-                self.save_load_menu.render(&mut context);
-            }
-            Some(Screen::Options) => {
-                // Dim game/pause background when opened mid-match.
-                if matches!(self.current_state, UIState::Paused | UIState::InGame) {
-                    self.render_dimmed_background(&mut context)?;
-                }
-                self.options_menu.render(&mut context);
-            }
-            _ => {}
-        }
-
-        // Render transition effects
-        if self.transitioning {
-            self.render_transition_effect(&mut context)?;
-        }
-
-        // Render debug info if enabled
-        if self.debug_mode {
-            self.render_debug_info(&mut context)?;
-        }
-
         Ok(())
     }
 
@@ -510,6 +403,12 @@ impl UIManager {
 
     /// Handle key presses
     pub fn handle_key_press(&mut self, key: KeyCode) -> bool {
+        self.handle_key_press_with_hud_input(key, true)
+    }
+
+    /// Handle host key routing while allowing the caller to suppress gameplay-HUD
+    /// hotkeys when a WND text editor or other input owner has the key.
+    pub fn handle_key_press_with_hud_input(&mut self, key: KeyCode, allow_hud_input: bool) -> bool {
         self.keys_pressed.insert(key, true);
 
         // Global key handlers
@@ -561,7 +460,7 @@ impl UIManager {
         let handled = match self.current_screen {
             Some(Screen::MainMenu) => self.main_menu.handle_key_press(key),
             Some(Screen::FactionSelection) => self.faction_selection.handle_key_press(key),
-            Some(Screen::GameHUD) => {
+            Some(Screen::GameHUD) if allow_hud_input => {
                 let handled = self.game_hud.handle_key_press(key);
                 for ev in self.game_hud.drain_pending_ui_events() {
                     self.queue_event(ev);
@@ -586,6 +485,18 @@ impl UIManager {
         };
 
         self.drain_screen_pending_events();
+        handled
+    }
+
+    /// Retail HotKeyTranslator letter bindings run on key-up. Keep their event
+    /// drain beside the single HUD owner so host and HUD cannot emit duplicates.
+    pub fn handle_hud_letter_hotkey(&mut self, key: KeyCode) -> bool {
+        let handled = self.game_hud.handle_letter_hotkey(key);
+        if handled {
+            for event in self.game_hud.drain_pending_ui_events() {
+                self.queue_event(event);
+            }
+        }
         handled
     }
 
@@ -960,93 +871,6 @@ impl UIManager {
             }
         }
     }
-
-    /// Render title screen
-    fn render_title_screen(
-        &self,
-        context: &mut UIRenderContext,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        // Title screen uses menu backdrop/logo rendering path to match classic flow.
-        self.main_menu.render(context);
-        info!(
-            "{}",
-            localization::localize("ui_manager.log.render_title", "Rendering title screen")
-        );
-        Ok(())
-    }
-
-    /// Render dimmed background (for pause menu)
-    fn render_dimmed_background(
-        &self,
-        context: &mut UIRenderContext,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        // Render the active HUD beneath pause/victory overlays.
-        self.game_hud.render(context);
-        trace!(
-            "{}",
-            localization::localize(
-                "ui_manager.log.render_dimmed_background",
-                "Rendering dimmed gameplay background"
-            )
-        );
-        Ok(())
-    }
-
-    /// Render transition effects
-    fn render_transition_effect(
-        &self,
-        _context: &mut UIRenderContext,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        if self.transitioning {
-            let progress =
-                (self.transition_elapsed / self.transition_duration.as_secs_f32()).min(1.0);
-
-            // Until full shader-driven UI transitions are wired, keep deterministic timing and
-            // expose alpha for render diagnostics.
-            let alpha = 1.0 - progress;
-            debug!(
-                "{}",
-                localization::localize_with_args(
-                    "ui_manager.log.transition_progress_with_alpha",
-                    "Transition progress: {percent} alpha: {alpha}",
-                    &[
-                        ("percent", format!("{:.2}", progress).as_str()),
-                        ("alpha", format!("{:.2}", alpha).as_str()),
-                    ],
-                )
-            );
-        }
-        Ok(())
-    }
-
-    /// Render debug information
-    fn render_debug_info(
-        &self,
-        context: &mut UIRenderContext,
-    ) -> Result<(), Box<dyn std::error::Error>> {
-        let fps = if context.delta_time > f32::EPSILON {
-            1.0 / context.delta_time
-        } else {
-            0.0
-        };
-        let state_label = format!("{:?}", self.current_state);
-        let screen_label = format!("{:?}", self.current_screen);
-        let mouse_label = format!("{:?}", self.mouse_position);
-        debug!(
-            "{}",
-            localization::localize_with_args(
-                "ui_manager.log.debug_state_with_fps",
-                "Debug: State={state}, Screen={screen}, Mouse={mouse}, FPS={fps}",
-                &[
-                    ("state", state_label.as_str()),
-                    ("screen", screen_label.as_str()),
-                    ("mouse", mouse_label.as_str()),
-                    ("fps", format!("{fps:.1}").as_str()),
-                ],
-            )
-        );
-        Ok(())
-    }
 }
 
 #[cfg(test)]
@@ -1066,6 +890,131 @@ mod tests {
         manager.transition_to_screen(Screen::MainMenu);
         assert_eq!(manager.current_screen, Some(Screen::MainMenu));
         assert_eq!(manager.get_state(), UIState::MainMenu);
+    }
+
+    #[test]
+    fn host_key_and_mouse_routes_share_one_hud_and_emit_one_command_each() {
+        let mut ui = UIManager::new(1024, 768);
+        ui.transition_to_screen(Screen::GameHUD);
+        // Consume the unrelated screen-entry sound before routing gameplay input.
+        assert!(matches!(
+            ui.pop_event(),
+            Some(UIEvent::PlaySoundEffectPath(_))
+        ));
+        assert!(ui.pop_event().is_none());
+        ui.game_hud_mut().initialize().expect("initialize HUD");
+        ui.game_hud_mut()
+            .construction_panel
+            .arm_structure_placement("AmericaBarracks".into());
+
+        // Keyboard Escape cancels the active command on the sole HUD.
+        assert!(ui.handle_key_press_with_hud_input(KeyCode::Escape, true));
+        assert!(matches!(
+            ui.pop_event(),
+            Some(UIEvent::CancelStructurePlacement)
+        ));
+        assert_eq!(
+            ui.game_hud()
+                .construction_panel
+                .pending_structure_placement(),
+            None,
+            "key route mutated the sole gameplay HUD once"
+        );
+        assert!(
+            ui.pop_event().is_none(),
+            "key route emitted exactly one command"
+        );
+        assert_eq!(ui.current_screen(), Some(Screen::GameHUD));
+        assert_eq!(ui.get_state(), UIState::InGame);
+
+        // Right mouse cancellation uses the same HUD and emits one command.
+        ui.game_hud_mut()
+            .construction_panel
+            .arm_structure_placement("AmericaBarracks".into());
+        assert!(ui.handle_mouse_click(20, 20, MouseButton::Right));
+        assert!(matches!(
+            ui.pop_event(),
+            Some(UIEvent::CancelStructurePlacement)
+        ));
+        assert!(
+            ui.pop_event().is_none(),
+            "mouse route emitted exactly one command"
+        );
+        assert_eq!(
+            ui.game_hud()
+                .construction_panel
+                .pending_structure_placement(),
+            None,
+            "mouse route mutated the same HUD once"
+        );
+    }
+
+    #[test]
+    fn chat_escape_keeps_pending_placement_armed_but_hud_escape_cancels_once() {
+        let mut ui = UIManager::new(1024, 768);
+        ui.transition_to_screen(Screen::GameHUD);
+        // Consume the unrelated screen-entry sound before routing gameplay input.
+        assert!(matches!(
+            ui.pop_event(),
+            Some(UIEvent::PlaySoundEffectPath(_))
+        ));
+        assert!(ui.pop_event().is_none());
+        ui.game_hud_mut()
+            .construction_panel
+            .arm_structure_placement("AmericaBarracks".into());
+        let mut chat = crate::ui::ChatPanel::new();
+        assert!(chat.open());
+
+        // Host input suppresses HUD handling while the chat editor owns Escape.
+        assert!(!ui.handle_key_press_with_hud_input(KeyCode::Escape, false));
+        assert!(chat.press_key(KeyCode::Escape));
+        assert!(!chat.is_open());
+        assert_eq!(
+            ui.game_hud()
+                .construction_panel
+                .pending_structure_placement(),
+            Some("AmericaBarracks")
+        );
+        assert_eq!(ui.current_screen(), Some(Screen::GameHUD));
+        assert_eq!(ui.get_state(), UIState::InGame);
+        assert!(ui.pop_event().is_none());
+
+        // Once HUD owns the key, placement cancellation occurs exactly once.
+        assert!(ui.handle_key_press_with_hud_input(KeyCode::Escape, true));
+        assert!(matches!(
+            ui.pop_event(),
+            Some(UIEvent::CancelStructurePlacement)
+        ));
+        assert!(ui.pop_event().is_none());
+        assert_eq!(
+            ui.game_hud()
+                .construction_panel
+                .pending_structure_placement(),
+            None
+        );
+        assert_eq!(ui.current_screen(), Some(Screen::GameHUD));
+        assert_eq!(ui.get_state(), UIState::InGame);
+    }
+
+    #[test]
+    fn options_escape_restores_the_screen_it_overlaid() {
+        let mut ui = UIManager::new(1024, 768);
+
+        ui.transition_to_screen(Screen::GameHUD);
+        ui.transition_to_screen(Screen::Options);
+        assert_eq!(ui.current_screen(), Some(Screen::Options));
+        assert_eq!(ui.get_state(), UIState::InGame);
+        assert!(ui.handle_key_press_with_hud_input(KeyCode::Escape, true));
+        assert_eq!(ui.current_screen(), Some(Screen::GameHUD));
+        assert_eq!(ui.get_state(), UIState::InGame);
+
+        ui.transition_to_screen(Screen::PauseMenu);
+        ui.transition_to_screen(Screen::Options);
+        assert_eq!(ui.current_screen(), Some(Screen::Options));
+        assert_eq!(ui.get_state(), UIState::Paused);
+        assert!(ui.handle_key_press_with_hud_input(KeyCode::Escape, true));
+        assert_eq!(ui.current_screen(), Some(Screen::PauseMenu));
+        assert_eq!(ui.get_state(), UIState::Paused);
     }
 
     #[test]

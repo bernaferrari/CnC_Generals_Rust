@@ -11,20 +11,13 @@
 use log::{error, info, trace, warn};
 use ww3d_renderer_3d::RendererResult;
 
-use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, RwLock, RwLockWriteGuard};
 
 use game_client::gui::ui_renderer::UIRenderer;
 
-static UI_FLUSH_CALL_COUNT: AtomicU32 = AtomicU32::new(0);
-static UI_FLUSH_ZERO_CMD_LOGGED: AtomicU32 = AtomicU32::new(0);
-static UI_FLUSH_POISON_RECOVERY_COUNT: AtomicU32 = AtomicU32::new(0);
-static CONTROL_BAR_RETRY_COUNT: AtomicU32 = AtomicU32::new(0);
-static CONTROL_BAR_LAST_RETRY_FLUSH: AtomicU32 = AtomicU32::new(0);
-
 /// Acquire the UI lock without permanently bricking presentation after a
 /// caught callback panic.  The caller must reset/discard any open UI frame
-/// before rendering again; the recovery is logged and counted rather than
+/// before rendering again; the recovery is logged rather than
 /// silently treating a poisoned renderer as healthy.
 fn write_or_recover_ui_lock<'a, T>(
     lock: &'a RwLock<T>,
@@ -33,9 +26,8 @@ fn write_or_recover_ui_lock<'a, T>(
     match lock.write() {
         Ok(guard) => (guard, false),
         Err(poisoned) => {
-            let recovery = UI_FLUSH_POISON_RECOVERY_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
             error!(
-                "UI renderer lock was poisoned {stage}; recovering and resetting the affected UI frame (recovery #{recovery})"
+                "UI renderer lock was poisoned {stage}; recovering and resetting the affected UI frame"
             );
             let guard = poisoned.into_inner();
             lock.clear_poison();
@@ -127,62 +119,49 @@ fn unhide_control_bar_parent_while_ingame(
 /// C++ `winRepaint` always has the ControlBar tree (`InGameUI::createControlBar`
 /// + `ShowControlBar`). The Rust InGame enter load can miss; retry on the live
 /// `TheWindowManager` with backoff so a later flush can emit draw commands.
-fn retry_missing_control_bar_parent_while_ingame() {
-    if game_client::gui::get_shell().is_shell_active() {
+fn retry_missing_control_bar_parent_while_ingame(
+    renderer_arc: &Arc<RwLock<UIRenderer>>,
+    attempt_frame: Option<u32>,
+) {
+    let Some(attempt_frame) = attempt_frame else {
         return;
-    }
-    if crate::gameplay_layout::control_bar_parent_is_live() {
-        CONTROL_BAR_RETRY_COUNT.store(0, Ordering::Relaxed);
-        return;
-    }
-    let call = UI_FLUSH_CALL_COUNT.load(Ordering::Relaxed);
-    let retries = CONTROL_BAR_RETRY_COUNT.load(Ordering::Relaxed);
-    let last = CONTROL_BAR_LAST_RETRY_FLUSH.load(Ordering::Relaxed);
-    // First miss retries immediately; then 30, 60, 120, 240, 480 frames.
-    let interval = if retries == 0 {
-        0
-    } else {
-        30u32.saturating_mul(1u32 << retries.min(4))
     };
-    if retries > 0 && call.saturating_sub(last) < interval {
-        return;
-    }
-    CONTROL_BAR_LAST_RETRY_FLUSH.store(call, Ordering::Relaxed);
+
+    // Materialization reaches WindowManager and callbacks, so never invoke it
+    // while holding the renderer write guard.
     let loaded = crate::gameplay_layout::materialise_live_control_bar();
+    let retries = {
+        let mut renderer = renderer_arc
+            .write()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        renderer.finish_control_bar_retry(loaded)
+    };
     if loaded {
-        CONTROL_BAR_RETRY_COUNT.store(0, Ordering::Relaxed);
         info!(
-            "flush_ui_to_frame: ControlBarParent missing after InGame enter; retry load succeeded (flush #{call})"
+            "flush_ui_to_frame: ControlBarParent missing after InGame enter; retry load succeeded (renderer flush #{attempt_frame})"
         );
-    } else {
-        let n = CONTROL_BAR_RETRY_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
-        if n <= 8 {
-            error!(
-                "flush_ui_to_frame: ControlBarParent missing on live WindowManager (retry #{n}, flush #{call}); searched {:?}",
-                crate::gameplay_layout::CONTROL_BAR_CANDIDATES
-            );
-        }
+    } else if retries <= 8 {
+        error!(
+            "flush_ui_to_frame: ControlBarParent missing on live WindowManager (retry #{retries}, renderer flush #{attempt_frame}); searched {:?}",
+            crate::gameplay_layout::CONTROL_BAR_CANDIDATES
+        );
     }
 }
 
 pub fn flush_ui_to_frame(frame: &mut ww3d_engine::RenderFrame) -> RendererResult<()> {
-    let call = UI_FLUSH_CALL_COUNT.fetch_add(1, Ordering::Relaxed);
-    if call < 8 {
-        warn!("flush_ui_to_frame #{call} entered");
-    }
-
     let renderer_arc = match game_client::gui::ui_globals::with_ui_renderer(|r| r.clone()) {
         Some(arc) => arc,
         None => {
-            if call < 5 {
-                warn!(
-                    "flush_ui_to_frame: no UI renderer available (call #{})",
-                    call
-                );
-            }
+            trace!("flush_ui_to_frame: no UI renderer available");
             return Ok(());
         }
     };
+
+    // Query external window state before borrowing the renderer. Reserve a
+    // recovery attempt in the ordinary begin-frame borrow, so a healthy
+    // ControlBar does not require an additional renderer lock each frame.
+    let shell_active = game_client::gui::get_shell().is_shell_active();
+    let parent_is_live = !shell_active && crate::gameplay_layout::control_bar_parent_is_live();
 
     // Begin Main's overlay frame, then **drop** the write guard before gadget
     // draw.  Presentation-shell UI may already have queued commands before
@@ -190,17 +169,28 @@ pub fn flush_ui_to_frame(frame: &mut ww3d_engine::RenderFrame) -> RendererResult
     // WND callbacks submit through `with_ui_renderer_mut`; they must be able
     // to `try_write()` this same renderer. Holding the guard (or setting the
     // in-draw flag) used to discard those nested ops — menus drew nothing.
-    {
+    let (screen_size, retry_attempt_frame, call) = {
         let (mut renderer, _) = write_or_recover_ui_lock(&renderer_arc, "before WND draw");
         renderer.begin_overlay_frame();
-        let (sw, sh) = renderer.screen_size();
-        if sw > 0 && sh > 0 {
-            game_client::gui::window_manager::with_window_manager(|wm| {
-                wm.set_screen_size(sw as i32, sh as i32);
-            });
-        }
+        let call = renderer.advance_lifecycle_flush().wrapping_sub(1);
+        let retry_attempt = if shell_active {
+            None
+        } else {
+            renderer.begin_control_bar_retry(parent_is_live)
+        };
+        (renderer.screen_size(), retry_attempt, call)
+    };
+    let mut frame_cleanup = UiFrameCleanup::new(renderer_arc.clone());
+    if call < 8 {
+        warn!("flush_ui_to_frame #{call} entered");
     }
-    retry_missing_control_bar_parent_while_ingame();
+    let (sw, sh) = screen_size;
+    if sw > 0 && sh > 0 {
+        game_client::gui::window_manager::with_window_manager(|wm| {
+            wm.set_screen_size(sw as i32, sh as i32);
+        });
+    }
+    retry_missing_control_bar_parent_while_ingame(&renderer_arc, retry_attempt_frame);
     // C++ W3DCommandBarBackgroundDraw is on BackgroundMarker. Rust only
     // assigns that callback from ControlBar::update; if update never ticks,
     // draw_all has SEE_THRU markers and queues nothing. Assign here.
@@ -215,8 +205,6 @@ pub fn flush_ui_to_frame(frame: &mut ww3d_engine::RenderFrame) -> RendererResult
             let _ = game_client::gui::callbacks::control_bar_callbacks::show_control_bar(true);
         }
     }
-
-    let mut frame_cleanup = UiFrameCleanup::new(renderer_arc.clone());
 
     // C++ W3DInGameUI::draw (W3DInGameUI.cpp:379-415) renders move/attack
     // hint markers after the scene and before TheWindowManager->winRepaint.
@@ -262,7 +250,7 @@ pub fn flush_ui_to_frame(frame: &mut ww3d_engine::RenderFrame) -> RendererResult
     }
 
     if had_draw_commands == 0 {
-        if UI_FLUSH_ZERO_CMD_LOGGED.fetch_add(1, Ordering::Relaxed) < 5 {
+        if renderer.should_log_empty_overlay() {
             info!(
                 "flush_ui_to_frame: zero draw commands (root_windows={}) — gadget draws queued nothing",
                 root_count
@@ -272,8 +260,6 @@ pub fn flush_ui_to_frame(frame: &mut ww3d_engine::RenderFrame) -> RendererResult
         frame_cleanup.disarm();
         return Ok(());
     }
-
-
 
     let render_result = {
         let color_view = frame.color_view_arc();

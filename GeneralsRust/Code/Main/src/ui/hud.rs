@@ -617,6 +617,7 @@ pub struct GameHUD {
     /// Last PresentationFrame::frame whose events were enqueued on this HUD.
     /// `apply_to_game_hud` re-runs every render on the same freeze; events apply once.
     applied_presentation_event_frame: Option<u32>,
+    presentation_world_epoch: Option<u64>,
 }
 
 #[derive(Debug, Clone)]
@@ -829,6 +830,7 @@ impl GameHUD {
             beacon_events: Vec::new(),
             game_time: Duration::from_secs(0),
             applied_presentation_event_frame: None,
+            presentation_world_epoch: None,
         }
     }
 
@@ -1224,6 +1226,14 @@ impl GameHUD {
         self.messages.len()
     }
 
+    /// Reset the frame dedup key when a new host world reuses logic-frame IDs.
+    pub fn prepare_presentation_world(&mut self, world_epoch: u64) {
+        if self.presentation_world_epoch != Some(world_epoch) {
+            self.presentation_world_epoch = Some(world_epoch);
+            self.applied_presentation_event_frame = None;
+        }
+    }
+
     /// True when this HUD has not yet applied `logic_frame`'s frozen events.
     pub fn begin_presentation_event_apply(&mut self, logic_frame: u32) -> bool {
         if self.applied_presentation_event_frame == Some(logic_frame) {
@@ -1286,7 +1296,8 @@ impl GameHUD {
         let (minimap_x, minimap_y) = minimap_position(width, height);
         self.minimap.position = (minimap_x, minimap_y);
         self.minimap.set_size(minimap_w, minimap_h);
-        self.minimap_panel.set_screen_pos(minimap_x as f32, minimap_y as f32);
+        self.minimap_panel
+            .set_screen_pos(minimap_x as f32, minimap_y as f32);
         self.minimap_panel.width = minimap_w as f32;
         self.minimap_panel.height = minimap_h as f32;
 
@@ -1724,6 +1735,18 @@ impl Renderable for GameHUD {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn presentation_event_dedup_resets_when_world_epoch_changes() {
+        let mut hud = GameHUD::new();
+        hud.prepare_presentation_world(1);
+        assert!(hud.begin_presentation_event_apply(0));
+        assert!(!hud.begin_presentation_event_apply(0));
+
+        hud.prepare_presentation_world(2);
+        assert!(hud.begin_presentation_event_apply(0));
+        assert!(!hud.begin_presentation_event_apply(0));
+    }
     use crate::ui::UIEvent;
 
     #[test]

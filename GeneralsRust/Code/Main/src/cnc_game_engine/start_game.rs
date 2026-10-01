@@ -1893,7 +1893,7 @@ impl CnCGameEngine {
         self.submit_structure_placement_model_ghost();
 
         // Special-power / AttackMove / Guard radius cursor residual.
-        if let Some(ov) = self.game_hud.construction_panel.radius_overlay() {
+        if let Some(ov) = self.game_hud().construction_panel.radius_overlay() {
             if ov.radius > 0.0 {
                 let color = if ov.is_legal {
                     [ov.color.0, ov.color.1, ov.color.2, ov.color.3.max(0.35)]
@@ -1935,7 +1935,7 @@ impl CnCGameEngine {
     /// spawn the building model at `placementOpacity` 0.45, red-tint when
     /// `isLegalBuildLocation` fails, and add/remove faction bibs.
     fn submit_structure_placement_model_ghost(&self) {
-        let placement = self.game_hud.construction_panel.placement_preview();
+        let placement = self.game_hud().construction_panel.placement_preview();
         if !placement.is_active() {
             self.sync_structure_placement_faction_bibs(None);
             return;
@@ -2325,9 +2325,9 @@ impl CnCGameEngine {
         self.frame_clock = FrameClock::new();
         NetworkClock::clear_override();
 
-        self.game_hud = GameHUD::new();
+        *self.game_hud_mut() = GameHUD::new();
         let (hud_w, hud_h) = super::types::render_surface_extent(&self.window);
-        self.game_hud.resize(hud_w, hud_h);
+        self.game_hud_mut().resize(hud_w, hud_h);
 
         self.camera_position = Vec3::new(0.0, 200.0, 200.0);
         self.camera_target = Vec3::new(0.0, 0.0, 0.0);

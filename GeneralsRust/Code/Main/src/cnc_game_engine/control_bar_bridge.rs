@@ -1600,12 +1600,10 @@ mod tests {
         let clear = &ui_commands[clear_start..clear_end];
         assert!(
             clear.contains("self.pending_structure_placement = None;")
-                && clear.contains("self.game_hud.construction_panel.clear_structure_placement();")
-                && clear.contains("self.ui_manager")
-                && clear.contains(".game_hud_mut()")
+                && clear.contains("self.game_hud_mut()")
                 && clear.contains(".construction_panel")
                 && clear.contains(".clear_structure_placement();"),
-            "the host cancel must clear Main's pending placement and both HUD ghosts"
+            "the host cancel must clear Main's pending placement and sole HUD ghost"
         );
         assert!(
             !clear.contains("pending_map_command"),

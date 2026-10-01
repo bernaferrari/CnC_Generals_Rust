@@ -68,7 +68,7 @@ impl CnCGameEngine {
         // available for keyboard/UI; do not steal the wheel from zoom.
         if self.pending_structure_placement.is_some() {
             let _facing_radians = self
-                .game_hud
+                .game_hud()
                 .construction_panel
                 .placement_preview()
                 .facing_radians;
@@ -741,7 +741,7 @@ impl CnCGameEngine {
         // Placement mode residual.
         if self.pending_structure_placement.is_some() {
             let legal = self
-                .game_hud
+                .game_hud()
                 .construction_panel
                 .placement_preview()
                 .is_legal;
@@ -1408,8 +1408,7 @@ impl CnCGameEngine {
             look_at_host_modes().views[slot] = Some(loc);
             self.camera_view_bookmarks[slot] = Some(loc.pos);
             let msg = lookat_bookmark_message(slot + 1);
-            self.game_hud.push_info_message(&msg);
-            self.ui_manager.game_hud_mut().push_info_message(&msg);
+            self.game_hud_mut().push_info_message(&msg);
         } else if let Some(loc) = look_at_host_modes().views[slot] {
             let clamped = self.clamp_to_world_bounds(loc.pos);
             self.camera_target = clamped;

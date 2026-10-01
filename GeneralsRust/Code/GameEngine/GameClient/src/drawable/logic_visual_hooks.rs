@@ -6,79 +6,99 @@
 
 use crate::radius_decal::{ShadowHandle, ShadowTypeInfo, get_projected_shadow_manager};
 use crate::render_bridge::THE_RENDER_BRIDGE;
-use crate::terrain::TerrainVisual;
-use crate::terrain::terrain_tracks::TerrainTrackHeightProvider;
 use crate::terrain::terrain_visual::THE_TERRAIN_VISUAL;
 use gamelogic::common::{Coord3D, Matrix3D, ObjectID, Real};
 use gamelogic::helpers::TheGameLogic;
 use gamelogic::object::draw::{
-    TerrainDecalClient, TerrainDecalDesc, TerrainTrackClient, register_preload_asset_hook,
-    register_pristine_bone_lookup_hook, register_sub_object_name_hook, register_model_bounds_hook,
-    register_terrain_decal_client,
-    register_terrain_track_client, register_texture_aspect_hook,
+    TerrainDecalClient, TerrainDecalDesc, TerrainTrackClient, register_model_bounds_hook,
+    register_preload_asset_hook, register_pristine_bone_lookup_hook, register_sub_object_name_hook,
+    register_terrain_decal_client, register_terrain_track_client, register_texture_aspect_hook,
 };
 use glam::{Mat4, Vec3};
 use parking_lot::Mutex;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::{Arc, Once};
 use ww3d_assets::prototypes::{BoxPrototype, HlodPrototype};
 
-struct TerrainHeight;
-impl TerrainTrackHeightProvider for TerrainHeight {
-    fn ground_height_and_normal(&self, x: f32, y: f32) -> (f32, Vec3) {
-        if let Ok(guard) = THE_TERRAIN_VISUAL.lock() {
-            if let Some(terrain) = guard.as_ref() {
-                if let Ok(h) = terrain.get_height_at(x, y) {
-                    return (h, Vec3::Z);
-                }
-            }
-        }
-        (0.0, Vec3::Z)
-    }
+#[derive(Default)]
+struct ProjectedDecalState {
+    /// C++ `m_terrainDecal` visual resource.
+    decal: Option<ShadowHandle>,
+    /// C++ `m_shadow`, not `m_terrainDecal`.
+    blob: Option<ShadowHandle>,
+    /// Last decal opacity (0-255); drawable fade state remains elsewhere.
+    opacity: i32,
+    /// Objects whose decals and blobs are hidden by shroud.
+    shrouded: bool,
+    /// C++ `enableShadowRender(false)` for the terrain decal.
+    shadow_disabled: bool,
+    /// Blob `enableShadowRender(false)`, independent of the decal.
+    blob_render_off: bool,
 }
 
+#[derive(Default)]
 struct ProjectedDecalClient {
-    handles: Mutex<HashMap<ObjectID, ShadowHandle>>,
-    /// C++ `m_shadow`, not `m_terrainDecal`.
-    blobs: Mutex<HashMap<ObjectID, ShadowHandle>>,
-    /// Last decal opacity (0-255) per object; the source of truth for what a
-    /// visible decal shows (the drawable fades `decal_opacity` independently).
-    opacities: Mutex<HashMap<ObjectID, i32>>,
-    /// Objects whose decal is hidden because it is fully obscured by shroud.
-    shrouded: Mutex<HashSet<ObjectID>>,
-    /// Objects with shadow render disabled (C++ `enableShadowRender(false)`).
-    shadow_disabled: Mutex<HashSet<ObjectID>>,
-    /// Blob `enableShadowRender(false)`. Independent of the decal set and of shroud.
-    blob_render_off: Mutex<HashSet<ObjectID>>,
+    /// Decal and blob lifecycle is keyed by the owning ObjectID. Keeping the
+    /// related state together makes visibility updates one atomic bookkeeping
+    /// operation. Lock order is state -> ShadowHandle's private decal mutex;
+    /// ShadowHandle setters/release are closed field writes with no callbacks.
+    state: Mutex<HashMap<ObjectID, ProjectedDecalState>>,
 }
 
 impl ProjectedDecalClient {
-    /// Push the tracked decal opacity to the handle, gated by shroud and
-    /// shadow-render visibility. C++ fades `m_decalOpacity` regardless; shroud
-    /// culling and `enableShadowRender` only gate whether the decal renders.
-    fn sync_opacity(&self, object_id: ObjectID) {
-        let handles = self.handles.lock();
-        let Some(handle) = handles.get(&object_id) else {
-            return;
-        };
-        let opacity = if self.shrouded.lock().contains(&object_id)
-            || self.shadow_disabled.lock().contains(&object_id)
-        {
+    fn install_decal(
+        &self,
+        object_id: ObjectID,
+        handle: ShadowHandle,
+        opacity: i32,
+        shrouded: bool,
+        shadow_enabled: bool,
+    ) {
+        let mut state = self.state.lock();
+        let entry = state.entry(object_id).or_default();
+        entry.opacity = opacity;
+        entry.shrouded = shrouded;
+        entry.shadow_disabled = !shadow_enabled;
+        let opacity = if entry.shrouded || entry.shadow_disabled {
             0
         } else {
-            self.opacities.lock().get(&object_id).copied().unwrap_or(0)
+            entry.opacity
         };
-        handle.set_opacity(opacity);
+        let previous = entry.decal.replace(handle);
+        if let Some(previous) = previous {
+            previous.release();
+        }
+        entry
+            .decal
+            .as_ref()
+            .expect("just installed decal")
+            .set_opacity(opacity);
     }
 
-    fn sync_blob_opacity(&self, object_id: ObjectID) {
-        let blobs = self.blobs.lock();
-        let Some(handle) = blobs.get(&object_id) else {
-            return;
-        };
-        let hidden = self.shrouded.lock().contains(&object_id)
-            || self.blob_render_off.lock().contains(&object_id);
-        handle.set_opacity(if hidden { 0 } else { 255 });
+    fn install_blob(&self, object_id: ObjectID, handle: ShadowHandle, shrouded: bool) {
+        let mut state = self.state.lock();
+        let entry = state.entry(object_id).or_default();
+        if shrouded {
+            entry.shrouded = true;
+        }
+        let previous = entry.blob.replace(handle);
+        if let Some(previous) = previous {
+            previous.release();
+        }
+    }
+
+    fn prune_empty_entry(state: &mut HashMap<ObjectID, ProjectedDecalState>, object_id: ObjectID) {
+        let empty = state.get(&object_id).is_some_and(|entry| {
+            entry.decal.is_none()
+                && entry.blob.is_none()
+                && entry.opacity == 0
+                && !entry.shrouded
+                && !entry.shadow_disabled
+                && !entry.blob_render_off
+        });
+        if empty {
+            state.remove(&object_id);
+        }
     }
 }
 
@@ -106,76 +126,94 @@ impl TerrainDecalClient for ProjectedDecalClient {
 
         handle.set_position(desc.position.x, desc.position.y, desc.position.z);
         handle.set_angle(desc.angle);
-        self.opacities
-            .lock()
-            .insert(desc.object_id, (desc.opacity.clamp(0.0, 1.0) * 255.0) as i32);
-        if desc.shrouded {
-            self.shrouded.lock().insert(desc.object_id);
-        } else {
-            self.shrouded.lock().remove(&desc.object_id);
-        }
-        if desc.shadow_enabled {
-            self.shadow_disabled.lock().remove(&desc.object_id);
-        } else {
-            self.shadow_disabled.lock().insert(desc.object_id);
-        }
-        if let Some(prev) = self.handles.lock().insert(desc.object_id, handle) {
-            prev.release();
-        }
-        self.sync_opacity(desc.object_id);
+        self.install_decal(
+            desc.object_id,
+            handle,
+            (desc.opacity.clamp(0.0, 1.0) * 255.0) as i32,
+            desc.shrouded,
+            desc.shadow_enabled,
+        );
     }
 
     fn set_size(&self, object_id: ObjectID, x: Real, y: Real) {
-        if let Some(handle) = self.handles.lock().get(&object_id) {
+        let state = self.state.lock();
+        if let Some(handle) = state.get(&object_id).and_then(|entry| entry.decal.as_ref()) {
             handle.set_size(x, y);
         }
     }
 
     fn set_opacity(&self, object_id: ObjectID, opacity: Real) {
-        self.opacities
-            .lock()
-            .insert(object_id, (opacity.clamp(0.0, 1.0) * 255.0) as i32);
-        self.sync_opacity(object_id);
+        let mut state = self.state.lock();
+        let entry = state.entry(object_id).or_default();
+        entry.opacity = (opacity.clamp(0.0, 1.0) * 255.0) as i32;
+        if let Some(handle) = &entry.decal {
+            handle.set_opacity(if entry.shrouded || entry.shadow_disabled {
+                0
+            } else {
+                entry.opacity
+            });
+        }
     }
 
     fn set_pose(&self, object_id: ObjectID, position: Coord3D, angle: Real) {
-        if let Some(handle) = self.handles.lock().get(&object_id) {
+        let state = self.state.lock();
+        let Some(entry) = state.get(&object_id) else {
+            return;
+        };
+        if let Some(handle) = &entry.decal {
             handle.set_position(position.x, position.y, position.z);
             handle.set_angle(angle);
         }
-        if let Some(handle) = self.blobs.lock().get(&object_id) {
+        if let Some(handle) = &entry.blob {
             handle.set_position(position.x, position.y, position.z);
             handle.set_angle(angle);
         }
     }
 
     fn set_shrouded(&self, object_id: ObjectID, shrouded: bool) {
-        if shrouded {
-            self.shrouded.lock().insert(object_id);
-        } else {
-            self.shrouded.lock().remove(&object_id);
+        let mut state = self.state.lock();
+        let entry = state.entry(object_id).or_default();
+        entry.shrouded = shrouded;
+        if let Some(handle) = &entry.decal {
+            handle.set_opacity(if entry.shadow_disabled || shrouded {
+                0
+            } else {
+                entry.opacity
+            });
         }
-        self.sync_opacity(object_id);
-        self.sync_blob_opacity(object_id);
+        if let Some(handle) = &entry.blob {
+            handle.set_opacity(if shrouded || entry.blob_render_off {
+                0
+            } else {
+                255
+            });
+        }
     }
 
     fn set_shadow_enabled(&self, object_id: ObjectID, enabled: bool) {
-        if enabled {
-            self.shadow_disabled.lock().remove(&object_id);
-        } else {
-            self.shadow_disabled.lock().insert(object_id);
+        let mut state = self.state.lock();
+        let entry = state.entry(object_id).or_default();
+        entry.shadow_disabled = !enabled;
+        entry.blob_render_off = !enabled;
+        if let Some(handle) = &entry.decal {
+            handle.set_opacity(if entry.shrouded || !enabled {
+                0
+            } else {
+                entry.opacity
+            });
         }
-        self.sync_opacity(object_id);
-        self.set_blob_render(object_id, enabled);
+        if let Some(handle) = &entry.blob {
+            handle.set_opacity(if entry.shrouded || !enabled { 0 } else { 255 });
+        }
     }
 
     fn set_blob_render(&self, object_id: ObjectID, enabled: bool) {
-        if enabled {
-            self.blob_render_off.lock().remove(&object_id);
-        } else {
-            self.blob_render_off.lock().insert(object_id);
+        let mut state = self.state.lock();
+        let entry = state.entry(object_id).or_default();
+        entry.blob_render_off = !enabled;
+        if let Some(handle) = &entry.blob {
+            handle.set_opacity(if entry.shrouded || !enabled { 0 } else { 255 });
         }
-        self.sync_blob_opacity(object_id);
     }
 
     fn add_unit_shadow(&self, desc: &TerrainDecalDesc) {
@@ -206,28 +244,31 @@ impl TerrainDecalClient for ProjectedDecalClient {
         drop(manager);
         handle.set_position(desc.position.x, desc.position.y, desc.position.z);
         handle.set_angle(desc.angle);
-        if let Some(prev) = self.blobs.lock().insert(desc.object_id, handle) {
-            prev.release();
-        }
-        if desc.shrouded {
-            self.shrouded.lock().insert(desc.object_id);
-        }
+        self.install_blob(desc.object_id, handle, desc.shrouded);
         self.set_blob_render(desc.object_id, desc.shadow_enabled && !desc.hidden);
     }
 
     fn release_unit_shadow(&self, object_id: ObjectID) {
-        if let Some(handle) = self.blobs.lock().remove(&object_id) {
-            handle.release();
+        let mut state = self.state.lock();
+        if let Some(entry) = state.get_mut(&object_id) {
+            if let Some(handle) = entry.blob.take() {
+                handle.release();
+            }
         }
+        Self::prune_empty_entry(&mut state, object_id);
     }
 
     fn release(&self, object_id: ObjectID) {
-        self.opacities.lock().remove(&object_id);
-        self.shrouded.lock().remove(&object_id);
-        self.shadow_disabled.lock().remove(&object_id);
-        if let Some(handle) = self.handles.lock().remove(&object_id) {
-            handle.release();
+        let mut state = self.state.lock();
+        if let Some(entry) = state.get_mut(&object_id) {
+            entry.opacity = 0;
+            entry.shrouded = false;
+            entry.shadow_disabled = false;
+            if let Some(handle) = entry.decal.take() {
+                handle.release();
+            }
         }
+        Self::prune_empty_entry(&mut state, object_id);
     }
 }
 
@@ -258,13 +299,7 @@ impl TerrainTrackClient for TrackClient {
     fn add_edge(&self, handle: u32, x: Real, y: Real, sync_time: u32) {
         if let Ok(mut visual) = THE_TERRAIN_VISUAL.lock() {
             if let Some(terrain) = visual.as_mut() {
-                terrain.terrain_tracks_mut().add_edge_to_track(
-                    handle as usize,
-                    &TerrainHeight,
-                    x,
-                    y,
-                    sync_time as i32,
-                );
+                terrain.add_track_edge(handle as usize, x, y, sync_time as i32);
             }
         }
     }
@@ -272,13 +307,7 @@ impl TerrainTrackClient for TrackClient {
     fn add_cap(&self, handle: u32, x: Real, y: Real, sync_time: u32) {
         if let Ok(mut visual) = THE_TERRAIN_VISUAL.lock() {
             if let Some(terrain) = visual.as_mut() {
-                terrain.terrain_tracks_mut().add_cap_edge_to_track(
-                    handle as usize,
-                    &TerrainHeight,
-                    x,
-                    y,
-                    sync_time as i32,
-                );
+                terrain.add_track_cap(handle as usize, x, y, sync_time as i32);
             }
         }
     }
@@ -370,7 +399,10 @@ fn lookup_sub_object_names(model: &str) -> Vec<String> {
     let Some(bridge) = guard.as_ref() else {
         return Vec::new();
     };
-    let Some(hlod) = bridge.asset_manager().get_prototype_as::<HlodPrototype>(model) else {
+    let Some(hlod) = bridge
+        .asset_manager()
+        .get_prototype_as::<HlodPrototype>(model)
+    else {
         return Vec::new();
     };
     hlod.lods
@@ -406,7 +438,12 @@ fn lookup_model_obj_bounds(model: &str) -> Option<([f32; 3], [f32; 3])> {
     let extent = glam::Vec3::new(obbox.extent.x, obbox.extent.y, obbox.extent.z);
     let bind = assets
         .get_hierarchy_prototype(&proto.hierarchy_name)
-        .and_then(|hierarchy| hierarchy.bind_transforms.get(child.bone_index as usize).copied())
+        .and_then(|hierarchy| {
+            hierarchy
+                .bind_transforms
+                .get(child.bone_index as usize)
+                .copied()
+        })
         .unwrap_or(glam::Mat4::IDENTITY);
     let placed = bind.transform_point3(center);
     let placed_extent = bind.x_axis.truncate().abs() * extent.x
@@ -423,14 +460,7 @@ fn preload_asset(name: &str) {
 pub fn ensure_logic_draw_hooks() {
     static ONCE: Once = Once::new();
     ONCE.call_once(|| {
-        register_terrain_decal_client(Arc::new(ProjectedDecalClient {
-            handles: Mutex::new(HashMap::new()),
-            blobs: Mutex::new(HashMap::new()),
-            opacities: Mutex::new(HashMap::new()),
-            shrouded: Mutex::new(HashSet::new()),
-            shadow_disabled: Mutex::new(HashSet::new()),
-            blob_render_off: Mutex::new(HashSet::new()),
-        }));
+        register_terrain_decal_client(Arc::new(ProjectedDecalClient::default()));
         register_terrain_track_client(Arc::new(TrackClient {
             by_object: Mutex::new(HashMap::new()),
         }));
@@ -441,4 +471,157 @@ pub fn ensure_logic_draw_hooks() {
         register_model_bounds_hook(Some(Arc::new(lookup_model_obj_bounds)));
         let _ = TheGameLogic::get_frame();
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::radius_decal::ProjectedShadowManager;
+    use gamelogic::common::SHADOW_ALPHA_DECAL;
+
+    fn decal(manager: &mut ProjectedShadowManager, name: &str) -> ShadowHandle {
+        manager
+            .add_decal(&ShadowTypeInfo {
+                allow_updates: false,
+                allow_world_align: true,
+                shadow_type: SHADOW_ALPHA_DECAL,
+                shadow_name: gamelogic::common::AsciiString::from(name),
+                size_x: 10.0,
+                size_y: 8.0,
+                offset_x: 0.0,
+                offset_y: 0.0,
+            })
+            .expect("valid test decal")
+    }
+
+    fn only_item(manager: &ProjectedShadowManager) -> crate::effects::decals::DecalRenderItem {
+        let items = manager.collect_render_items();
+        assert_eq!(items.len(), 1);
+        items.into_iter().next().unwrap()
+    }
+
+    #[test]
+    fn track_callbacks_sample_ground_without_relocking_the_terrain_owner() {
+        use crate::terrain::terrain_tracks::{MAX_TRACK_EDGE_COUNT, TerrainTracksConfig};
+        use crate::terrain::terrain_visual::TerrainVisualImpl;
+
+        // This is the actual GameLogic -> GameClient adapter, not a mock height
+        // provider. The old callback locks this owner again and never returns.
+        let mut visual = TerrainVisualImpl::new();
+        visual.set_terrain_tracks_detail_with_config(TerrainTracksConfig::default());
+        let handle = visual
+            .terrain_tracks_mut()
+            .bind_track(4.0, 4.0, "track")
+            .unwrap() as u32;
+        let previous = THE_TERRAIN_VISUAL.lock().unwrap().replace(visual);
+        struct RestoreTerrain(Option<TerrainVisualImpl>);
+        impl Drop for RestoreTerrain {
+            fn drop(&mut self) {
+                *THE_TERRAIN_VISUAL.lock().unwrap() = self.0.take();
+            }
+        }
+        let _restore = RestoreTerrain(previous);
+        let client = TrackClient {
+            by_object: Mutex::new(HashMap::new()),
+        };
+        client.add_edge(handle, 0.0, 0.0, 10);
+        client.add_edge(handle, 20.0, 0.0, 20);
+        client.add_edge(handle, 40.0, 0.0, 30);
+        client.add_cap(handle, 60.0, 0.0, 40);
+        let owner = THE_TERRAIN_VISUAL.lock().unwrap();
+        let track = owner
+            .as_ref()
+            .unwrap()
+            .terrain_tracks()
+            .track(handle as usize)
+            .unwrap();
+        let edges = track.active_edges(MAX_TRACK_EDGE_COUNT);
+        assert_eq!(edges.len(), 3);
+        assert_eq!(
+            edges.iter().map(|edge| edge.time_added).collect::<Vec<_>>(),
+            [20, 30, 40]
+        );
+        assert!(track.have_cap());
+        assert!(!track.have_anchor());
+        assert_eq!(edges.last().unwrap().alpha, 0.0);
+    }
+
+    #[test]
+    fn decal_state_updates_visibility_pose_and_releases_replaced_handles() {
+        let object_id = 71;
+        let mut manager = ProjectedShadowManager::new();
+        let client = ProjectedDecalClient::default();
+        let first = decal(&mut manager, "first");
+
+        client.install_decal(object_id, first, 204, false, true);
+        let item = only_item(&manager);
+        assert_eq!(item.color[3], 204.0 / 255.0);
+
+        client.set_size(object_id, 12.0, 9.0);
+        client.set_opacity(object_id, 0.5);
+        assert_eq!(only_item(&manager).size_x, 12.0);
+        assert_eq!(only_item(&manager).color[3], 127.0 / 255.0);
+
+        client.set_pose(object_id, Coord3D::new(3.0, 4.0, 5.0), 0.75);
+        client.set_shrouded(object_id, true);
+        assert!(manager.collect_render_items().is_empty());
+
+        client.set_shrouded(object_id, false);
+        client.set_shadow_enabled(object_id, false);
+        assert!(manager.collect_render_items().is_empty());
+        client.set_shadow_enabled(object_id, true);
+
+        let item = only_item(&manager);
+        assert_eq!(item.position, Vec3::new(3.0, 4.0, 5.0));
+        assert_eq!(item.rotation, 0.75);
+
+        let replacement = decal(&mut manager, "replacement");
+        client.install_decal(object_id, replacement, 128, false, true);
+        let item = only_item(&manager);
+        assert_eq!(item.texture_name, "replacement");
+        assert_eq!(item.color[3], 128.0 / 255.0);
+
+        client.release(object_id);
+        assert!(manager.collect_render_items().is_empty());
+        assert!(!client.state.lock().contains_key(&object_id));
+    }
+
+    #[test]
+    fn independent_clients_keep_same_object_id_handles_and_pose_separate() {
+        let object_id = 9;
+        let mut manager_a = ProjectedShadowManager::new();
+        let mut manager_b = ProjectedShadowManager::new();
+        let client_a = ProjectedDecalClient::default();
+        let client_b = ProjectedDecalClient::default();
+
+        client_a.install_decal(object_id, decal(&mut manager_a, "a"), 255, false, true);
+        client_b.install_decal(object_id, decal(&mut manager_b, "b"), 255, false, true);
+        client_a.set_pose(object_id, Coord3D::new(11.0, 12.0, 13.0), 0.25);
+
+        let item_a = only_item(&manager_a);
+        let item_b = only_item(&manager_b);
+        assert_eq!(item_a.texture_name, "a");
+        assert_eq!(item_a.position, Vec3::new(11.0, 12.0, 13.0));
+        assert_eq!(item_b.texture_name, "b");
+        assert_eq!(item_b.position, Vec3::ZERO);
+
+        client_a.release(object_id);
+        assert!(manager_a.collect_render_items().is_empty());
+        assert!(!client_a.state.lock().contains_key(&object_id));
+        assert_eq!(only_item(&manager_b).texture_name, "b");
+    }
+
+    #[test]
+    fn teardown_keeps_pending_blob_disable_until_explicitly_cleared() {
+        let object_id = 18;
+        let client = ProjectedDecalClient::default();
+
+        client.set_blob_render(object_id, false);
+        client.release(object_id);
+        assert!(client.state.lock()[&object_id].blob_render_off);
+
+        client.set_blob_render(object_id, true);
+        client.release_unit_shadow(object_id);
+        assert!(!client.state.lock().contains_key(&object_id));
+    }
 }

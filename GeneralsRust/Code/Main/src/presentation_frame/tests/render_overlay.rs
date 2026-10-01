@@ -1539,6 +1539,37 @@ fn upgrade_complete_freezes_into_presentation_events() {
 }
 
 #[test]
+fn radar_delivery_is_once_per_hud_world_and_logic_frame() {
+    let logic = crate::game_logic::GameLogic::new();
+    let mut frame = PresentationFrame::build_from_logic(&logic, 0);
+    frame.events = vec![PresentationEvent::RadarMessage {
+        team: crate::game_logic::Team::Neutral,
+        text: "test radar".into(),
+        position: glam::Vec3::ZERO,
+        kind: 1,
+    }];
+    let mut first = crate::ui::GameHUD::new();
+    let mut second = crate::ui::GameHUD::new();
+    first.prepare_presentation_world(1);
+    second.prepare_presentation_world(2);
+    frame.apply_events_to_game_hud(&mut first);
+    frame.apply_events_to_game_hud(&mut second);
+    assert_eq!(first.message_count_for_test(), 1);
+    assert_eq!(second.message_count_for_test(), 1);
+    frame.apply_events_to_game_hud(&mut first);
+    frame.apply_events_to_game_hud(&mut second);
+    assert_eq!(first.message_count_for_test(), 1);
+    assert_eq!(second.message_count_for_test(), 1);
+
+    // Restoring/replacing a world may reuse the old logic-frame number.
+    first.prepare_presentation_world(3);
+    frame.apply_events_to_game_hud(&mut first);
+    frame.apply_events_to_game_hud(&mut second);
+    assert_eq!(first.message_count_for_test(), 2);
+    assert_eq!(second.message_count_for_test(), 1);
+}
+
+#[test]
 fn apply_events_routes_upgrade_and_owner_to_hud() {
     let mut logic = crate::game_logic::GameLogic::new();
     let _ = logic
