@@ -3,7 +3,7 @@
 // Split from `modules.rs` for module-size parity.
 // Observable behavior is unchanged.
 //
-// The former `BodyModuleInterfaceExt` / `BodyModuleGuardExt` / `BehaviorModuleExt`
+// The former body/contain/physics extension traits for `Arc<Mutex<dyn ..>>`
 // impls targeted `Arc<Mutex<dyn ..>>` / `MutexGuard<dyn ..>` and were pure
 // delegation with silent try_lock-failure fallbacks. The module containers are
 // owned values now, so callers invoke `BodyModuleInterface` /

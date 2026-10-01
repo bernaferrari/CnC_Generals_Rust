@@ -696,7 +696,7 @@ impl StealthController {
                 }
                 let _ = OBJECT_REGISTRY.with_object_mut(self.object_id, |obj| {
                     if let Some(physics) = obj.get_physics() {
-                        crate::modules::PhysicsBehaviorExt::reset_dynamic_physics(&physics);
+                        crate::modules::::reset_dynamic_physics(&physics);
                     }
                     let _ = obj.set_position(&pos);
                 });

@@ -18,7 +18,7 @@ use crate::helpers::{
     TheThingFactory, get_game_logic_random_value, get_game_logic_random_value_real,
 };
 use crate::modules::{
-    AIUpdateInterface, AIUpdateInterfaceExt, ContainModuleInterfaceExt, SupplyTruckAIInterface,
+    AIUpdateInterface, AIUpdateInterfaceExt, SupplyTruckAIInterface,
 };
 use crate::object::Object;
 use crate::object::draw::draw_module::RGBColor;

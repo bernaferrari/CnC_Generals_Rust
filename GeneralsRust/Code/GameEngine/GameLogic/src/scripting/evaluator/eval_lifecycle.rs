@@ -1,4 +1,3 @@
-use crate::object::registry::OBJECT_REGISTRY;
 // Destroyed, created, and team-state condition evaluators
 //
 // Split from `scripting/evaluator.rs` for module-size parity.

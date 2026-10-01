@@ -665,7 +665,7 @@ impl TransportContain {
     }
 
     /// C++ `PhysicsBehavior::getVelocity` for KeepContainerVelocityOnExit.
-    /// `PhysicsBehaviorExt::get_velocity` turns a failed `try_lock` into zero.
+    /// `::get_velocity` turns a failed `try_lock` into zero.
     fn owner_exit_velocity(&self) -> GameResult<Option<Coord3D>> {
         let Some(owner_id) = self.get_object() else {
             return Ok(None);

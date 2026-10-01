@@ -12,7 +12,7 @@ use crate::effects::FXList;
 use crate::helpers::{TheFXListStore, TheGameLogic, TheThingFactory};
 use crate::modules::UpdateSleepTime;
 use crate::modules::{
-    BehaviorModuleInterface, CollideModuleInterface, PhysicsBehaviorExt, ToppleControlInterface,
+    BehaviorModuleInterface, CollideModuleInterface, ToppleControlInterface,
     UpdateModuleInterface,
 };
 use crate::object::DrawableArcExt;

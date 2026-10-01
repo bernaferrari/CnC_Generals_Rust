@@ -21,7 +21,7 @@ use crate::common::{
 use crate::damage::{DamageInfo, DamageType, DeathType};
 use crate::effects::FXList;
 use crate::helpers::{TheGameLogic, TheVictoryConditions};
-use crate::modules::{AIUpdateInterfaceExt, ContainModuleInterfaceExt};
+use crate::modules::{AIUpdateInterfaceExt};
 use crate::object::object_factory::{GameObjectInstance, get_object_factory};
 use crate::object::registry::OBJECT_REGISTRY;
 use crate::object::special_power_template::find_or_create_special_power_template;

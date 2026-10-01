@@ -1,4 +1,3 @@
-use crate::object::registry::OBJECT_REGISTRY;
 // ScriptEngine xfer helpers and snapshot leftover
 //
 // Split from `scripting/engine.rs` for module-size parity.

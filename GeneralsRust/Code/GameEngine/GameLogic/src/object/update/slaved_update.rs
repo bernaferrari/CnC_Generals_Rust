@@ -17,7 +17,7 @@ use crate::helpers::{
     TheAudio, TheGameLogic, TheParticleSystemManager, ThePartitionManager, TheTerrainLogic,
 };
 use crate::modules::{
-    AIUpdateInterfaceExt, BehaviorModuleInterface, BodyModuleInterfaceExt, SlavedUpdateInterface,
+    AIUpdateInterfaceExt, BehaviorModuleInterface, SlavedUpdateInterface,
     StealthControllerExt, UpdateModuleInterface, UpdateSleepTime,
 };
 use crate::object::Object as GameObject;

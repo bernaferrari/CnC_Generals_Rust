@@ -37,21 +37,12 @@ impl ScriptEvaluator {
             return Ok(false);
         };
 
-        {
-            enum _ObjFlow<T> { Cont, Ret(T), Fall }
-            let _flow = OBJECT_REGISTRY.with_object(object_id, |obj_guard| {
-                
+        return OBJECT_REGISTRY
+            .with_object(object_id, |obj_guard| {
                 // C++ ScriptConditions.cpp:397-415 has no dead/inert filter.
                 Ok(Self::is_object_inside_trigger(&obj_guard, &trigger))
-                _ObjFlow::Fall
-            });
-            match _flow {
-                None => { return Ok(false); }
-                Some(_ObjFlow::Cont) => continue,
-                Some(_ObjFlow::Ret(v)) => return v,
-                Some(_ObjFlow::Fall) => {}
-            }
-        }
+            })
+            .unwrap_or(Ok(false));
     }
 
     fn evaluate_named_outside_area_condition(

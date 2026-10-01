@@ -32,18 +32,16 @@ impl ScriptEvaluator {
         let Some(object_id) = tracker.get_object_id(unit_name).ok().flatten() else {
             return Ok(false);
         };
-        {
-            enum _ObjFlow<T> { Cont, Ret(T), Fall }
-            let _flow = OBJECT_REGISTRY.with_object(object_id, |obj_guard| {
-                
+        return OBJECT_REGISTRY
+            .with_object(object_id, |obj_guard| {
                 let max_health = obj_guard.get_max_health();
                 if max_health <= f32::EPSILON {
-                    return _ObjFlow::Ret(Ok(false));
+                    return Ok(false);
                 }
                 let cur_health = obj_guard.get_health();
                 let cur_percent = ((cur_health * 100.0) + (max_health / 2.0)) / max_health;
                 let cur_percent = cur_percent.round() as i64;
-                
+
                 match comparison {
                     0 => Ok(cur_percent < target_percent),  // LessThan
                     1 => Ok(cur_percent <= target_percent), // LessEqual
@@ -56,15 +54,8 @@ impl ScriptEvaluator {
                         comparison
                     ))),
                 }
-                _ObjFlow::Fall
-            });
-            match _flow {
-                None => { return Ok(false); }
-                Some(_ObjFlow::Cont) => continue,
-                Some(_ObjFlow::Ret(v)) => return v,
-                Some(_ObjFlow::Fall) => {}
-            }
-        }
+            })
+            .unwrap_or(Ok(false));
     }
 
     fn evaluate_unit_has_object_status_condition(
@@ -94,20 +85,11 @@ impl ScriptEvaluator {
         let Some(object_id) = tracker.get_object_id(unit_name).ok().flatten() else {
             return Ok(false);
         };
-        {
-            enum _ObjFlow<T> { Cont, Ret(T), Fall }
-            let _flow = OBJECT_REGISTRY.with_object(object_id, |obj_guard| {
-                
+        return OBJECT_REGISTRY
+            .with_object(object_id, |obj_guard| {
                 Ok(obj_guard.get_status_bits().intersects(status_mask))
-                _ObjFlow::Fall
-            });
-            match _flow {
-                None => { return Ok(false); }
-                Some(_ObjFlow::Cont) => continue,
-                Some(_ObjFlow::Ret(v)) => return v,
-                Some(_ObjFlow::Fall) => {}
-            }
-        }
+            })
+            .unwrap_or(Ok(false));
     }
 
     fn evaluate_team_has_object_status_condition(
@@ -145,24 +127,18 @@ impl ScriptEvaluator {
             };
 
             for &member_id in team_guard.get_members() {
-                {
-                    enum _ObjFlow<T> { Cont, Ret(T), Fall }
-                    let _flow = OBJECT_REGISTRY.with_object(member_id, |obj_guard| {
-                        
-                        let has_status = obj_guard.get_status_bits().intersects(status_mask);
-                        if entire_team && !has_status {
-                            return _ObjFlow::Ret(Ok(false));
-                        } else if !entire_team && has_status {
-                            return _ObjFlow::Ret(Ok(true));
-                        }
-                        _ObjFlow::Fall
-                    });
-                    match _flow {
-                        None => { return Ok(false); }
-                        Some(_ObjFlow::Cont) => continue,
-                        Some(_ObjFlow::Ret(v)) => return v,
-                        Some(_ObjFlow::Fall) => {}
+                let early = OBJECT_REGISTRY.with_object(member_id, |obj_guard| {
+                    let has_status = obj_guard.get_status_bits().intersects(status_mask);
+                    if entire_team && !has_status {
+                        Some(Ok(false))
+                    } else if !entire_team && has_status {
+                        Some(Ok(true))
+                    } else {
+                        None
                     }
+                });
+                if let Some(v) = early.flatten() {
+                    return v;
                 }
             }
         }
@@ -378,22 +354,14 @@ impl ScriptEvaluator {
             return Ok(false);
         };
 
-        {
-            enum _ObjFlow<T> { Cont, Ret(T), Fall }
-            let _flow = OBJECT_REGISTRY.with_object(object_id, |obj_guard| {
+        return OBJECT_REGISTRY
+            .with_object(object_id, |obj_guard| {
                 let Some(contain) = obj_guard.get_contain() else {
-                    return _ObjFlow::Ret(Ok(false));
+                    return Ok(false);
                 };
                 Ok(contain.get_contained_count() < contain.get_max_capacity())
-                _ObjFlow::Fall
-            });
-            match _flow {
-                None => { return Ok(false); }
-                Some(_ObjFlow::Cont) => continue,
-                Some(_ObjFlow::Ret(v)) => return v,
-                Some(_ObjFlow::Fall) => {}
-            }
-        }
+            })
+            .unwrap_or(Ok(false));
     }
 
     fn evaluate_unit_emptied_condition(&self, condition: &Condition) -> GameLogicResult<bool> {

@@ -419,17 +419,11 @@ impl ScriptActionDispatcher {
         solver.solve();
 
         for (unit_id, transport_id) in solver.get_solution() {
-            {
-                enum _ObjFlow<T> { Cont, Ret(T), Fall }
-                let _flow = OBJECT_REGISTRY.with_object(*unit_id, |unit_guard| {
-                    _ObjFlow::Fall
-                });
-                match _flow {
-                    None | Some(_ObjFlow::Cont) => continue,
-                    Some(_ObjFlow::Ret(v)) => return v,
-                    Some(_ObjFlow::Fall) => {}
+            let _ = OBJECT_REGISTRY.with_object(*unit_id, |unit_guard| {
+                if let Some(ai) = unit_guard.get_ai_update_interface() {
+                    ai.ai_enter(*transport_id, crate::ai::CommandSourceType::FromScript);
                 }
-            }
+            });
         }
 
         Ok(ScriptActionResult::Success)
@@ -602,17 +596,18 @@ impl ScriptActionDispatcher {
             .unwrap_or_default();
 
         for member_id in members {
-            {
-                enum _ObjFlow<T> { Cont, Ret(T), Fall }
-                let _flow = OBJECT_REGISTRY.with_object_mut(member_id, |mut member_guard| {
-                    _ObjFlow::Fall
-                });
-                match _flow {
-                    None | Some(_ObjFlow::Cont) => continue,
-                    Some(_ObjFlow::Ret(v)) => return v,
-                    Some(_ObjFlow::Fall) => {}
+            let _ = OBJECT_REGISTRY.with_object_mut(member_id, |member_guard| {
+                if member_guard.get_ai_update_interface().is_none() {
+                    return;
                 }
-            }
+                member_guard.leave_group();
+                if let Some(ai) = member_guard.get_ai_update_interface_mut() {
+                    let _ = ai.choose_locomotor_set(crate::common::LocomotorSetType::Normal);
+                    let params =
+                        AiCommandParams::new(AiCommandType::Exit, CommandSourceType::FromScript);
+                    let _ = ai.execute_command(&params);
+                }
+            });
         }
 
         Ok(ScriptActionResult::Success)

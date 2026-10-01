@@ -30,46 +30,28 @@ impl ScriptEvaluator {
             return Ok(false);
         };
 
-        {
-            enum _ObjFlow<T> { Cont, Ret(T), Fall }
-            let _flow = OBJECT_REGISTRY.with_object(object_id, |obj_guard| {
+        return OBJECT_REGISTRY
+            .with_object(object_id, |obj_guard| {
                 let Some(body) = obj_guard.get_body_module() else {
-                    return _ObjFlow::Ret(Ok(false));
+                    return Ok(false);
                 };
                 let Some(last) = body.get_last_damage_info() else {
-                    return _ObjFlow::Ret(Ok(false));
+                    return Ok(false);
                 };
-                
+
                 let types = self.resolve_object_types(type_param);
                 if let Some(template) = last.input.source_template.as_deref() {
-                    return _ObjFlow::Ret(Ok(types.contains_template(Some(template))));
+                    return Ok(types.contains_template(Some(template)));
                 }
-                
+
                 let attacker_id = last.input.source_id;
-                {
-                    enum _ObjFlow<T> { Cont, Ret(T), Fall }
-                    let _flow = OBJECT_REGISTRY.with_object(attacker_id, |attacker_guard| {
+                OBJECT_REGISTRY
+                    .with_object(attacker_id, |attacker_guard| {
                         Ok(types.contains_template(Some(attacker_guard.get_template())))
-                        _ObjFlow::Fall
-                        _ObjFlow::Fall
-                    });
-                    match _flow {
-                        None => {
-                            return _ObjFlow::Ret(Ok(false));
-                        }
-                        Some(_ObjFlow::Cont) => continue,
-                        Some(_ObjFlow::Ret(v)) => return v,
-                        Some(_ObjFlow::Fall) => {}
-                    }
-                }
-            });
-            match _flow {
-                None => { return Ok(false); }
-                Some(_ObjFlow::Cont) => continue,
-                Some(_ObjFlow::Ret(v)) => return v,
-                Some(_ObjFlow::Fall) => {}
-            }
-        }
+                    })
+                    .unwrap_or(Ok(false))
+            })
+            .unwrap_or(Ok(false));
     }
 
     fn evaluate_team_attacked_by_object_type_condition(
@@ -100,48 +82,27 @@ impl ScriptEvaluator {
                 continue;
             };
             for member_id in team_guard.get_members() {
-                {
-                    enum _ObjFlow<T> { Cont, Ret(T), Fall }
-                    let _flow = OBJECT_REGISTRY.with_object(*member_id, |member_guard| {
-                        let Some(body) = member_guard.get_body_module() else {
-                            return _ObjFlow::Cont;
-                        };
-                        let Some(last) = body.get_last_damage_info() else {
-                            return _ObjFlow::Cont;
-                        };
-                        
-                        if let Some(template) = last.input.source_template.as_deref() {
-                            if types.contains_template(Some(template)) {
-                                return _ObjFlow::Ret(Ok(true));
-                            }
-                            return _ObjFlow::Cont;
-                        }
-                        
-                        let attacker_id = last.input.source_id;
-                        {
-                            enum _ObjFlow<T> { Cont, Ret(T), Fall }
-                            let _flow = OBJECT_REGISTRY.with_object(attacker_id, |attacker_guard| {
-                                if types.contains_template(Some(attacker_guard.get_template())) {
-                                    return _ObjFlow::Ret(_ObjFlow::Ret(Ok(true)));
-                                }
-                                _ObjFlow::Fall
-                                _ObjFlow::Fall
-                            });
-                            match _flow {
-                                None => {
-                                    return _ObjFlow::Cont;
-                                }
-                                Some(_ObjFlow::Cont) => continue,
-                                Some(_ObjFlow::Ret(v)) => return v,
-                                Some(_ObjFlow::Fall) => {}
-                            }
-                        }
-                    });
-                    match _flow {
-                        None | Some(_ObjFlow::Cont) => continue,
-                        Some(_ObjFlow::Ret(v)) => return v,
-                        Some(_ObjFlow::Fall) => {}
+                let hit = OBJECT_REGISTRY.with_object(*member_id, |member_guard| {
+                    let Some(body) = member_guard.get_body_module() else {
+                        return false;
+                    };
+                    let Some(last) = body.get_last_damage_info() else {
+                        return false;
+                    };
+
+                    if let Some(template) = last.input.source_template.as_deref() {
+                        return types.contains_template(Some(template));
                     }
+
+                    let attacker_id = last.input.source_id;
+                    OBJECT_REGISTRY
+                        .with_object(attacker_id, |attacker_guard| {
+                            types.contains_template(Some(attacker_guard.get_template()))
+                        })
+                        .unwrap_or(false)
+                });
+                if hit == Some(true) {
+                    return Ok(true);
                 }
             }
         }
@@ -175,21 +136,20 @@ impl ScriptEvaluator {
             return Ok(false);
         };
 
-        {
-            enum _ObjFlow<T> { Cont, Ret(T), Fall }
-            let _flow = OBJECT_REGISTRY.with_object(object_id, |obj_guard| {
+        return OBJECT_REGISTRY
+            .with_object(object_id, |obj_guard| {
                 let Some(body) = obj_guard.get_body_module() else {
-                    return _ObjFlow::Ret(Ok(false));
+                    return Ok(false);
                 };
                 let Some(last) = body.get_last_damage_info() else {
-                    return _ObjFlow::Ret(Ok(false));
+                    return Ok(false);
                 };
-                
+
                 let target_player = self.resolve_player_from_param(player_param);
                 if target_player.is_none() {
-                    return _ObjFlow::Ret(Ok(false));
+                    return Ok(false);
                 }
-                
+
                 if last.input.source_player_mask != PlayerMaskType::none() {
                     if let Some(target_player) = target_player.as_ref() {
                         if let Ok(target_guard) = target_player.read() {
@@ -198,43 +158,26 @@ impl ScriptEvaluator {
                                 .source_player_mask
                                 .intersects(target_guard.get_player_mask())
                             {
-                                return _ObjFlow::Ret(Ok(true));
+                                return Ok(true);
                             }
                         }
                     }
                 }
-                
+
                 let attacker_id = last.input.source_id;
-                {
-                    enum _ObjFlow<T> { Cont, Ret(T), Fall }
-                    let _flow = OBJECT_REGISTRY.with_object(attacker_id, |attacker_guard| {
+                OBJECT_REGISTRY
+                    .with_object(attacker_id, |attacker_guard| {
                         let Some(attacker_player) = attacker_guard.get_controlling_player() else {
-                            return _ObjFlow::Ret(_ObjFlow::Ret(Ok(false)));
+                            return Ok(false);
                         };
                         let Some(target_player) = target_player else {
-                            return _ObjFlow::Ret(_ObjFlow::Ret(Ok(false)));
+                            return Ok(false);
                         };
                         Ok(Arc::ptr_eq(&attacker_player, &target_player))
-                        _ObjFlow::Fall
-                        _ObjFlow::Fall
-                    });
-                    match _flow {
-                        None => {
-                            return _ObjFlow::Ret(Ok(false));
-                        }
-                        Some(_ObjFlow::Cont) => continue,
-                        Some(_ObjFlow::Ret(v)) => return v,
-                        Some(_ObjFlow::Fall) => {}
-                    }
-                }
-            });
-            match _flow {
-                None => { return Ok(false); }
-                Some(_ObjFlow::Cont) => continue,
-                Some(_ObjFlow::Ret(v)) => return v,
-                Some(_ObjFlow::Fall) => {}
-            }
-        }
+                    })
+                    .unwrap_or(Ok(false))
+            })
+            .unwrap_or(Ok(false));
     }
 
     fn evaluate_team_attacked_by_player_condition(
@@ -268,46 +211,28 @@ impl ScriptEvaluator {
                 continue;
             };
             for member_id in team_guard.get_members() {
-                {
-                    enum _ObjFlow<T> { Cont, Ret(T), Fall }
-                    let _flow = OBJECT_REGISTRY.with_object(*member_id, |member_guard| {
-                        let Some(body) = member_guard.get_body_module() else {
-                            return _ObjFlow::Cont;
-                        };
-                        let Some(last) = body.get_last_damage_info() else {
-                            return _ObjFlow::Cont;
-                        };
-                        let attacker_id = last.input.source_id;
-                        {
-                            enum _ObjFlow<T> { Cont, Ret(T), Fall }
-                            let _flow = OBJECT_REGISTRY.with_object(attacker_id, |attacker_guard| {
-                                let Some(attacker_player) = attacker_guard.get_controlling_player() else {
-                                    return _ObjFlow::Ret(_ObjFlow::Cont);
-                                };
-                                if Arc::ptr_eq(
-                                    &attacker_player,
-                                    target_player.as_ref().expect("checked above"),
-                                ) {
-                                    return _ObjFlow::Ret(_ObjFlow::Ret(Ok(true)));
-                                }
-                                _ObjFlow::Fall
-                                _ObjFlow::Fall
-                            });
-                            match _flow {
-                                None => {
-                                    return _ObjFlow::Cont;
-                                }
-                                Some(_ObjFlow::Cont) => continue,
-                                Some(_ObjFlow::Ret(v)) => return v,
-                                Some(_ObjFlow::Fall) => {}
-                            }
-                        }
-                    });
-                    match _flow {
-                        None | Some(_ObjFlow::Cont) => continue,
-                        Some(_ObjFlow::Ret(v)) => return v,
-                        Some(_ObjFlow::Fall) => {}
-                    }
+                let hit = OBJECT_REGISTRY.with_object(*member_id, |member_guard| {
+                    let Some(body) = member_guard.get_body_module() else {
+                        return false;
+                    };
+                    let Some(last) = body.get_last_damage_info() else {
+                        return false;
+                    };
+                    let attacker_id = last.input.source_id;
+                    OBJECT_REGISTRY
+                        .with_object(attacker_id, |attacker_guard| {
+                            let Some(attacker_player) = attacker_guard.get_controlling_player() else {
+                                return false;
+                            };
+                            Arc::ptr_eq(
+                                &attacker_player,
+                                target_player.as_ref().expect("checked above"),
+                            )
+                        })
+                        .unwrap_or(false)
+                });
+                if hit == Some(true) {
+                    return Ok(true);
                 }
             }
         }

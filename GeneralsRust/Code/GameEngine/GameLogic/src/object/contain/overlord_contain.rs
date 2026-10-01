@@ -16,7 +16,7 @@ use crate::common::{Coord3D, GameResult, KindOf, Matrix3D, ObjectID, PlayerMaskT
 use crate::damage::DamageInfo;
 use crate::helpers::{TheGameLogic, TheThingFactory};
 use crate::modules::{
-    BodyModuleGuardExt, BodyModuleInterfaceExt, ContainModuleInterface, ContainModuleInterfaceExt,
+    BodyModuleGuardExt, ContainModuleInterface,
     ExperienceTrackerExt, UpdateSleepTime,
 };
 use crate::object::{Object, ObjectId};

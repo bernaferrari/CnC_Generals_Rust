@@ -986,20 +986,33 @@ impl ScriptActionDispatcher {
         let Ok(Some(building_id)) = tracker.get_object_id(&building_name) else {
             return Ok(ScriptActionResult::Success);
         };
-        {
-            enum _ObjFlow<T> { Cont, Ret(T), Fall }
-            let _flow = OBJECT_REGISTRY.with_object_mut(building_id, |mut building_guard| {
-                
-                Ok(ScriptActionResult::Success)
-                _ObjFlow::Fall
-            });
-            match _flow {
-                None => { return Ok(ScriptActionResult::Success); }
-                Some(_ObjFlow::Cont) => continue,
-                Some(_ObjFlow::Ret(v)) => return v,
-                Some(_ObjFlow::Fall) => {}
+        let outcome = OBJECT_REGISTRY.with_object_mut(building_id, |building_guard| {
+            if !building_guard.is_kind_of(crate::common::KindOf::Structure) {
+                return true;
             }
+            if building_guard.get_ai_update_interface().is_some() {
+                let _ = building_guard.leave_group();
+                if let Some(ai) = building_guard.get_ai_update_interface_mut() {
+                    let _ = ai.choose_locomotor_set(crate::common::LocomotorSetType::Normal);
+                    let params = AiCommandParams::new(
+                        AiCommandType::Evacuate,
+                        CommandSourceType::FromScript,
+                    );
+                    let _ = ai.execute_command(&params);
+                }
+                return true;
+            }
+            if let Some(contain) = building_guard.get_contain() {
+                if let Ok(mut contain_guard) = contain.lock() {
+                    let _ = contain_guard.remove_all_contained(false);
+                }
+            }
+            false
+        });
+        if outcome.is_none() {
+            return Ok(ScriptActionResult::Success);
         }
+        Ok(ScriptActionResult::Success)
     }
 
     pub(crate) fn do_enable_scoring(&mut self) -> Result<ScriptActionResult, ScriptError> {

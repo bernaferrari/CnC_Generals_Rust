@@ -19,7 +19,7 @@ use crate::formation::{
     FormationCommand, FormationGroup, FormationManager, FormationSettings, FormationType,
 };
 use crate::helpers::TheGameLogic;
-use crate::modules::{AIAttitudeType, AIUpdateInterfaceExt, ContainModuleInterfaceExt};
+use crate::modules::{AIAttitudeType, AIUpdateInterfaceExt};
 use crate::object::registry::OBJECT_REGISTRY;
 use crate::object::special_power_module::SpecialPowerCommandOptions;
 use crate::object::special_power_template::get_special_power_store;

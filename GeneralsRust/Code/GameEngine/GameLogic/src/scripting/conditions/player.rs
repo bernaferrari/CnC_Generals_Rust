@@ -1912,11 +1912,10 @@ impl ScriptCondition for PlayerLostObjectTypeCondition {
                     .all_object_ids()
                     .into_iter()
                     .filter(|object_id| {
-                        {
-                            enum _ObjFlow<T> { Cont, Ret(T), Fall }
-                            let _flow = OBJECT_REGISTRY.with_object(*object_id, |obj_guard| {
+                        OBJECT_REGISTRY
+                            .with_object(*object_id, |obj_guard| {
                                 if obj_guard.is_destroyed() {
-                                    return _ObjFlow::Ret(false);
+                                    return false;
                                 }
                                 let owner = {
                                     let player = obj_guard.get_controlling_player();
@@ -1925,22 +1924,15 @@ impl ScriptCondition for PlayerLostObjectTypeCondition {
                                         .unwrap_or(-1)
                                 };
                                 if owner != player_index {
-                                    return _ObjFlow::Ret(false);
+                                    return false;
                                 }
                                 obj_guard
                                     .template
                                     .as_ref()
                                     .map(|template| template.get_name() == object_type.as_str())
                                     .unwrap_or(false)
-                                _ObjFlow::Fall
-                            });
-                            match _flow {
-                                None => { return false; }
-                                Some(_ObjFlow::Cont) => continue,
-                                Some(_ObjFlow::Ret(v)) => return v,
-                                Some(_ObjFlow::Fall) => {}
-                            }
-                        }
+                            })
+                            .unwrap_or(false)
                     })
                     .count() as i32
             })

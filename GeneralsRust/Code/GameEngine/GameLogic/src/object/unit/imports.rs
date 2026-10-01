@@ -32,8 +32,8 @@ pub(super) use crate::locomotor::{
     PathFollowingState, SURFACE_AIR, update_movement_with_pathfinding,
 };
 pub(super) use crate::modules::{
-    AIAttitudeType, AIUpdateInterface, AIUpdateInterfaceExt, ContainModuleInterfaceExt,
-    FAST_AS_POSSIBLE, PhysicsBehaviorExt, UPDATE_SLEEP_NONE,
+    AIAttitudeType, AIUpdateInterface, AIUpdateInterfaceExt,
+    FAST_AS_POSSIBLE, UPDATE_SLEEP_NONE,
 };
 pub(super) use crate::object::draw::TerrainDecalType;
 pub(super) use crate::object::object_factory::{GameObjectInstance, get_object_factory};

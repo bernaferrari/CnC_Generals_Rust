@@ -46,8 +46,8 @@ use crate::damage::DamageInfo;
 use crate::helpers::{TheAudio, TheGameLogic, ThePartitionManager, get_game_logic_random_value};
 use crate::locomotor::LocomotorAppearance;
 use crate::modules::{
-    AIUpdateInterface, AIUpdateInterfaceExt, BodyModuleInterfaceExt, ContainModuleInterfaceExt,
-    ContainWant, ExitDoorType, FAST_AS_POSSIBLE, PhysicsBehaviorExt,
+    AIUpdateInterface, AIUpdateInterfaceExt,
+    ContainWant, ExitDoorType, FAST_AS_POSSIBLE,
 };
 use crate::object::production::AIFreeToExitType;
 use crate::object::registry::OBJECT_REGISTRY;

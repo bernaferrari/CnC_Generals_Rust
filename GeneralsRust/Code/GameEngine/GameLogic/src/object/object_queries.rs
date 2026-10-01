@@ -859,7 +859,7 @@ impl Object {
         }
 
         use crate::common::types::ObjectStatusMaskType;
-        use crate::modules::ContainModuleInterfaceExt;
+        use crate::modules::;
 
         self.set_status(ObjectStatusMaskType::UNSELECTABLE, true);
         let is_enclosing = if container_id != INVALID_ID {

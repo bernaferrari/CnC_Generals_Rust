@@ -686,20 +686,23 @@ impl ScriptActionDispatcher {
         let Ok(Some(unit_id)) = tracker.get_object_id(&unit_name) else {
             return Ok(ScriptActionResult::Success);
         };
-        {
-            enum _ObjFlow<T> { Cont, Ret(T), Fall }
-            let _flow = OBJECT_REGISTRY.with_object_mut(unit_id, |mut unit_guard| {
-                
-                Ok(ScriptActionResult::Success)
-                _ObjFlow::Fall
-            });
-            match _flow {
-                None => { return Ok(ScriptActionResult::Success); }
-                Some(_ObjFlow::Cont) => continue,
-                Some(_ObjFlow::Ret(v)) => return v,
-                Some(_ObjFlow::Fall) => {}
+        let issued = OBJECT_REGISTRY.with_object_mut(unit_id, |unit_guard| {
+            if unit_guard.get_ai_update_interface().is_none() {
+                return false;
             }
+            unit_guard.leave_group();
+            if let Some(ai) = unit_guard.get_ai_update_interface_mut() {
+                let _ = ai.choose_locomotor_set(crate::common::LocomotorSetType::Normal);
+                let params =
+                    AiCommandParams::new(AiCommandType::Exit, CommandSourceType::FromScript);
+                let _ = ai.execute_command(&params);
+            }
+            true
+        });
+        if issued.is_none() || issued == Some(false) {
+            return Ok(ScriptActionResult::Success);
         }
+        Ok(ScriptActionResult::Success)
     }
 
     pub(crate) fn do_named_set_stopping_distance(
@@ -1151,20 +1154,23 @@ impl ScriptActionDispatcher {
         else {
             return Ok(ScriptActionResult::Success);
         };
-        {
-            enum _ObjFlow<T> { Cont, Ret(T), Fall }
-            let _flow = OBJECT_REGISTRY.with_object_mut(projectile_id, |mut projectile_guard| {
-                
-                Ok(ScriptActionResult::Success)
-                _ObjFlow::Fall
-            });
-            match _flow {
-                None => { return Ok(ScriptActionResult::Success); }
-                Some(_ObjFlow::Cont) => continue,
-                Some(_ObjFlow::Ret(v)) => return v,
-                Some(_ObjFlow::Fall) => {}
+        let ai = OBJECT_REGISTRY.with_object_mut(projectile_id, |projectile_guard| {
+            let ai = projectile_guard.get_ai_update_interface();
+            projectile_guard.leave_group();
+            ai
+        });
+        if let Some(ai_arc) = ai.flatten() {
+            if let Ok(mut ai_guard) = ai_arc.lock() {
+                let _ = ai_guard.choose_locomotor_set(crate::common::LocomotorSetType::Normal);
+                let mut params = AiCommandParams::new(
+                    AiCommandType::FollowWaypointPath,
+                    CommandSourceType::FromScript,
+                );
+                params.waypoint = Some(waypoint.id);
+                let _ = ai_guard.execute_command(&params);
             }
         }
+        Ok(ScriptActionResult::Success)
     }
 
     pub(crate) fn do_named_use_command_button_on_named(
@@ -1804,18 +1810,11 @@ impl ScriptActionDispatcher {
     }
 
     pub(crate) fn mark_object_unmanned(&self, object_id: ObjectID) {
-        {
-            enum _ObjFlow<T> { Cont, Ret(T), Fall }
-            let _flow = OBJECT_REGISTRY.with_object_mut(object_id, |mut obj_guard| {
-                _ObjFlow::Fall
-            });
-            match _flow {
-                None => { return; }
-                Some(_ObjFlow::Cont) => continue,
-                Some(_ObjFlow::Ret(v)) => return v,
-                Some(_ObjFlow::Fall) => {}
-            }
-        }
+        let _ = OBJECT_REGISTRY.with_object_mut(object_id, |obj_guard| {
+            obj_guard.set_disabled_unmanned();
+            let _ = TheGameLogic::deselect_object(&*obj_guard, crate::common::PLAYERMASK_ALL, true);
+            obj_guard.set_team_to_neutral();
+        });
     }
 
     pub(crate) fn attach_boobytrap_to_object(
@@ -2227,16 +2226,16 @@ impl ScriptActionDispatcher {
                     let _ = ai.execute_command(&params);
                 }
                 
-                Ok(ScriptActionResult::Success)
-                _ObjFlow::Fall
+                _ObjFlow::Ret(Ok(ScriptActionResult::Success))
             });
             match _flow {
                 None => { return Ok(ScriptActionResult::Success); }
-                Some(_ObjFlow::Cont) => continue,
+                Some(_ObjFlow::Cont) => return Ok(ScriptActionResult::Success),
                 Some(_ObjFlow::Ret(v)) => return v,
                 Some(_ObjFlow::Fall) => {}
             }
         }
+        Ok(ScriptActionResult::Success)
     }
 
     pub(crate) fn do_unit_affect_object_panel_flags(
@@ -2262,17 +2261,16 @@ impl ScriptActionDispatcher {
         {
             enum _ObjFlow<T> { Cont, Ret(T), Fall }
             let _flow = OBJECT_REGISTRY.with_object_mut(object_id, |mut obj| {
-                
-                Ok(ScriptActionResult::Success)
-                _ObjFlow::Fall
+                _ObjFlow::Ret(Ok(ScriptActionResult::Success))
             });
             match _flow {
                 None => { return Ok(ScriptActionResult::Success); }
-                Some(_ObjFlow::Cont) => continue,
+                Some(_ObjFlow::Cont) => return Ok(ScriptActionResult::Success),
                 Some(_ObjFlow::Ret(v)) => return v,
                 Some(_ObjFlow::Fall) => {}
             }
         }
+        Ok(ScriptActionResult::Success)
     }
 
     pub(crate) fn do_unit_spawn_named_location_orientation(

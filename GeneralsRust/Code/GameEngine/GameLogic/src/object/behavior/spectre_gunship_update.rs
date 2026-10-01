@@ -21,7 +21,7 @@ use crate::helpers::{
     TheGameLogic, TheParticleSystemManager, ThePartitionManager, TheTerrainLogic,
 };
 use crate::modules::{
-    AIUpdateInterfaceExt, BehaviorModuleInterface, ContainModuleInterfaceExt,
+    AIUpdateInterfaceExt, BehaviorModuleInterface,
     SpecialPowerCommandOptions, SpecialPowerModuleInterface, SpecialPowerUpdateInterface,
     UpdateModuleInterface, UpdateSleepTime,
 };

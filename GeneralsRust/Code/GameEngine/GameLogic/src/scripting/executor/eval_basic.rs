@@ -1458,27 +1458,18 @@ impl ScriptConditionEvaluator {
                     };
                     
                     let attacker_id = last.input.source_id;
-                    {
-                        enum _ObjFlow<T> { Cont, Ret(T), Fall }
-                        let _flow = OBJECT_REGISTRY.with_object(attacker_id, |attacker| {
-                            let Some(attacker_owner) = attacker.get_controlling_player_id() else {
-                                return _ObjFlow::Ret(_ObjFlow::Cont);
-                            };
-                            
-                            if attacker_owner as i32 == victim_index {
-                                return _ObjFlow::Ret(_ObjFlow::Ret(Ok(ScriptConditionResult::True)));
-                            }
-                            _ObjFlow::Fall
-                            _ObjFlow::Fall
-                        });
-                        match _flow {
-                            None => {
-                                return _ObjFlow::Cont;
-                            }
-                            Some(_ObjFlow::Cont) => continue,
-                            Some(_ObjFlow::Ret(v)) => return v,
-                            Some(_ObjFlow::Fall) => {}
+                    let nested = OBJECT_REGISTRY.with_object(attacker_id, |attacker| {
+                        let Some(attacker_owner) = attacker.get_controlling_player_id() else {
+                            return _ObjFlow::Cont;
+                        };
+                        if attacker_owner as i32 == victim_index {
+                            return _ObjFlow::Ret(Ok(ScriptConditionResult::True));
                         }
+                        _ObjFlow::Fall
+                    });
+                    match nested {
+                        None => return _ObjFlow::Cont,
+                        Some(v) => return v,
                     }
                 });
                 match _flow {
@@ -2247,27 +2238,27 @@ fn last_damage_matches_object_types(
             {
                 enum _ObjFlow<T> { Cont, Ret(T), Fall }
                 let _flow = OBJECT_REGISTRY.with_object(last.input.source_id, |attacker| {
-                    types.contains_template(Some(attacker.get_template().as_ref()))
-                    _ObjFlow::Fall
-                    _ObjFlow::Fall
+                    _ObjFlow::Ret(types.contains_template(Some(attacker.get_template().as_ref())))
                 });
                 match _flow {
                     None => {
                         return _ObjFlow::Ret(false);
                     }
-                    Some(_ObjFlow::Cont) => continue,
+                    Some(_ObjFlow::Cont) => return _ObjFlow::Ret(false),
                     Some(_ObjFlow::Ret(v)) => return v,
                     Some(_ObjFlow::Fall) => {}
                 }
             }
+            _ObjFlow::Ret(false)
         });
         match _flow {
             None => { return false; }
-            Some(_ObjFlow::Cont) => continue,
+            Some(_ObjFlow::Cont) => return false,
             Some(_ObjFlow::Ret(v)) => return v,
             Some(_ObjFlow::Fall) => {}
         }
     }
+    false
 }
 
 fn object_is_discovered_by_player(obj: &crate::object::Object, player_index: i32) -> bool {

@@ -77,27 +77,35 @@ impl ScriptAction for NamedAttackAction {
             return Ok(ScriptResult::Success(None));
         };
 
-        {
-            enum _ObjFlow<T> { Cont, Ret(T), Fall }
-            let _flow = OBJECT_REGISTRY.with_object_mut(attacker_id, |mut obj_guard| {
-                
-                Ok(ScriptResult::Success(None))
-                _ObjFlow::Fall
-            });
-            match _flow {
-                None => {
-                    log::warn!(
-                    "NamedAttackAction: attacker '{}' (ID {}) not found in registry",
-                    attacker_name,
-                    attacker_id
+        if OBJECT_REGISTRY
+            .with_object_mut(attacker_id, |mut obj_guard| {
+                obj_guard.leave_group();
+                if let Some(ai) = obj_guard.get_ai_update_interface_mut() {
+                    let _ = ai.choose_locomotor_set(LocomotorSetType::Normal);
+                    let mut params = AiCommandParams::new(
+                        AiCommandType::ForceAttackObject,
+                        CommandSourceType::FromScript,
                     );
-                    return Ok(ScriptResult::Success(None));
+                    params.obj = Some(target_id);
+                    params.int_value = -1; // NO_MAX_SHOTS_LIMIT
+                    let _ = ai.execute_command(&params);
+                } else {
+                    log::warn!(
+                        "NamedAttackAction: attacker '{}' has no AI update interface",
+                        attacker_name
+                    );
                 }
-                Some(_ObjFlow::Cont) => continue,
-                Some(_ObjFlow::Ret(v)) => return v,
-                Some(_ObjFlow::Fall) => {}
-            }
+            })
+            .is_none()
+        {
+            log::warn!(
+                "NamedAttackAction: attacker '{}' (ID {}) not found in registry",
+                attacker_name, attacker_id
+            );
+            return Ok(ScriptResult::Success(None));
         }
+
+        Ok(ScriptResult::Success(None))
     }
 
     fn name(&self) -> &str {
@@ -148,27 +156,35 @@ impl ScriptAction for NamedAttackTeamAction {
             return Ok(ScriptResult::Success(None));
         }
 
-        {
-            enum _ObjFlow<T> { Cont, Ret(T), Fall }
-            let _flow = OBJECT_REGISTRY.with_object_mut(object_id, |mut obj_guard| {
-                
-                Ok(ScriptResult::Success(None))
-                _ObjFlow::Fall
-            });
-            match _flow {
-                None => {
-                    log::warn!(
-                    "NamedAttackTeamAction: unit '{}' (ID {}) not found in registry",
-                    unit_name,
-                    object_id
+        if OBJECT_REGISTRY
+            .with_object_mut(object_id, |mut obj_guard| {
+                obj_guard.leave_group();
+                if let Some(ai) = obj_guard.get_ai_update_interface_mut() {
+                    let _ = ai.choose_locomotor_set(LocomotorSetType::Normal);
+                    let mut params = AiCommandParams::new(
+                        AiCommandType::AttackTeam,
+                        CommandSourceType::FromScript,
                     );
-                    return Ok(ScriptResult::Success(None));
+                    params.team = Some(resolved_team.clone());
+                    params.int_value = -1; // NO_MAX_SHOTS_LIMIT
+                    let _ = ai.execute_command(&params);
+                } else {
+                    log::warn!(
+                        "NamedAttackTeamAction: unit '{}' has no AI update interface",
+                        unit_name
+                    );
                 }
-                Some(_ObjFlow::Cont) => continue,
-                Some(_ObjFlow::Ret(v)) => return v,
-                Some(_ObjFlow::Fall) => {}
-            }
+            })
+            .is_none()
+        {
+            log::warn!(
+                "NamedAttackTeamAction: unit '{}' (ID {}) not found in registry",
+                unit_name, object_id
+            );
+            return Ok(ScriptResult::Success(None));
         }
+
+        Ok(ScriptResult::Success(None))
     }
 
     fn name(&self) -> &str {
@@ -220,27 +236,35 @@ impl ScriptAction for NamedAttackAreaAction {
             return Ok(ScriptResult::Success(None));
         };
 
-        {
-            enum _ObjFlow<T> { Cont, Ret(T), Fall }
-            let _flow = OBJECT_REGISTRY.with_object_mut(object_id, |mut obj_guard| {
-                
-                Ok(ScriptResult::Success(None))
-                _ObjFlow::Fall
-            });
-            match _flow {
-                None => {
-                    log::warn!(
-                    "NamedAttackAreaAction: unit '{}' (ID {}) not found in registry",
-                    unit_name,
-                    object_id
+        if OBJECT_REGISTRY
+            .with_object_mut(object_id, |mut obj_guard| {
+                obj_guard.leave_group();
+                if let Some(ai) = obj_guard.get_ai_update_interface_mut() {
+                    let _ = ai.choose_locomotor_set(LocomotorSetType::Normal);
+                    let mut params = AiCommandParams::new(
+                        AiCommandType::AttackArea,
+                        CommandSourceType::FromScript,
                     );
-                    return Ok(ScriptResult::Success(None));
+                    params.pos = center;
+                    params.polygon = Some(trigger_id);
+                    let _ = ai.execute_command(&params);
+                } else {
+                    log::warn!(
+                        "NamedAttackAreaAction: unit '{}' has no AI update interface",
+                        unit_name
+                    );
                 }
-                Some(_ObjFlow::Cont) => continue,
-                Some(_ObjFlow::Ret(v)) => return v,
-                Some(_ObjFlow::Fall) => {}
-            }
+            })
+            .is_none()
+        {
+            log::warn!(
+                "NamedAttackAreaAction: unit '{}' (ID {}) not found in registry",
+                unit_name, object_id
+            );
+            return Ok(ScriptResult::Success(None));
         }
+
+        Ok(ScriptResult::Success(None))
     }
 
     fn name(&self) -> &str {
@@ -510,25 +534,28 @@ impl ScriptAction for NamedGuardAction {
             return Ok(ScriptResult::Success(None));
         };
 
+        if OBJECT_REGISTRY
+            .with_object_mut(object_id, |mut obj_guard| {
+                let pos = *obj_guard.get_position();
+                if let Some(ai) = obj_guard.get_ai_update_interface_mut() {
+                    ai.ai_guard_position(&pos, GuardMode::Normal, CommandSourceType::FromScript);
+                } else {
+                    log::warn!(
+                        "NamedGuardAction: unit '{}' has no AI update interface",
+                        unit_name
+                    );
+                }
+            })
+            .is_none()
         {
-            enum _ObjFlow<T> { Cont, Ret(T), Fall }
-            let _flow = OBJECT_REGISTRY.with_object_mut(object_id, |mut obj_guard| {
-                
-                Ok(ScriptResult::Success(None))
-                _ObjFlow::Fall
-            });
-            match _flow {
-                None => { log::warn!(
+            log::warn!(
                 "NamedGuardAction: unit '{}' (ID {}) not found in registry",
-                unit_name,
-                object_id
+                unit_name, object_id
             );
-            return Ok(ScriptResult::Success(None)); }
-                Some(_ObjFlow::Cont) => continue,
-                Some(_ObjFlow::Ret(v)) => return v,
-                Some(_ObjFlow::Fall) => {}
-            }
+            return Ok(ScriptResult::Success(None));
         }
+
+        Ok(ScriptResult::Success(None))
     }
 
     fn name(&self) -> &str {
@@ -574,25 +601,28 @@ impl ScriptAction for NamedHuntAction {
             return Ok(ScriptResult::Success(None));
         };
 
+        if OBJECT_REGISTRY
+            .with_object_mut(object_id, |mut obj_guard| {
+                if let Some(ai) = obj_guard.get_ai_update_interface_mut() {
+                    let _ = ai.choose_locomotor_set(LocomotorSetType::Normal);
+                    ai.ai_hunt(CommandSourceType::FromScript);
+                } else {
+                    log::warn!(
+                        "NamedHuntAction: unit '{}' has no AI update interface",
+                        unit_name
+                    );
+                }
+            })
+            .is_none()
         {
-            enum _ObjFlow<T> { Cont, Ret(T), Fall }
-            let _flow = OBJECT_REGISTRY.with_object_mut(object_id, |mut obj_guard| {
-                
-                Ok(ScriptResult::Success(None))
-                _ObjFlow::Fall
-            });
-            match _flow {
-                None => { log::warn!(
+            log::warn!(
                 "NamedHuntAction: unit '{}' (ID {}) not found in registry",
-                unit_name,
-                object_id
+                unit_name, object_id
             );
-            return Ok(ScriptResult::Success(None)); }
-                Some(_ObjFlow::Cont) => continue,
-                Some(_ObjFlow::Ret(v)) => return v,
-                Some(_ObjFlow::Fall) => {}
-            }
+            return Ok(ScriptResult::Success(None));
         }
+
+        Ok(ScriptResult::Success(None))
     }
 
     fn name(&self) -> &str {
@@ -638,35 +668,28 @@ impl ScriptAction for NamedDeleteAction {
             return Ok(ScriptResult::Success(None));
         };
 
+        if OBJECT_REGISTRY
+            .with_object_mut(object_id, |mut obj_guard| {
+                obj_guard.kill(Some(DamageType::Unresistable), Some(DeathType::Normal));
+            })
+            .is_none()
         {
-            enum _ObjFlow<T> { Cont, Ret(T), Fall }
-            let _flow = OBJECT_REGISTRY.with_object_mut(object_id, |mut obj_guard| {
-                
-                let tracker = get_named_object_tracker();
-                if let Err(err) = tracker.unregister_object(object_id) {
-                    log::warn!(
-                        "NamedDeleteAction: failed to unregister '{}' (ID {}): {}",
-                        unit_name,
-                        object_id,
-                        err
-                    );
-                }
-                
-                Ok(ScriptResult::Success(None))
-                _ObjFlow::Fall
-            });
-            match _flow {
-                None => { log::warn!(
+            log::warn!(
                 "NamedDeleteAction: unit '{}' (ID {}) not found in registry",
-                unit_name,
-                object_id
+                unit_name, object_id
             );
-            return Ok(ScriptResult::Success(None)); }
-                Some(_ObjFlow::Cont) => continue,
-                Some(_ObjFlow::Ret(v)) => return v,
-                Some(_ObjFlow::Fall) => {}
-            }
+            return Ok(ScriptResult::Success(None));
         }
+
+        let tracker = get_named_object_tracker();
+        if let Err(err) = tracker.unregister_object(object_id) {
+            log::warn!(
+                "NamedDeleteAction: failed to unregister '{}' (ID {}): {}",
+                unit_name, object_id, err
+            );
+        }
+
+        Ok(ScriptResult::Success(None))
     }
 
     fn name(&self) -> &str {

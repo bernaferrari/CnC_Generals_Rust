@@ -19,7 +19,7 @@ use crate::helpers::{
     TheAudio, TheGameLogic, ThePartitionManager, TheTerrainLogic, get_game_logic_random_value_real,
 };
 use crate::modules::{
-    AIUpdateInterfaceExt, ContainModuleInterface, ContainWant, PhysicsBehaviorExt, UpdateSleepTime,
+    AIUpdateInterfaceExt, ContainModuleInterface, ContainWant, UpdateSleepTime,
 };
 use crate::object::Object;
 use crate::object::contain::OpenContain;

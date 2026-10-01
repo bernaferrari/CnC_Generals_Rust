@@ -16,7 +16,7 @@ use crate::helpers::{
     TheAudio, TheGameLogic, ThePartitionManager, TheTerrainLogic, TheThingFactory,
 };
 use crate::modules::{
-    BehaviorModuleInterface, CollideModuleInterface, ContainModuleInterfaceExt, PhysicsBehavior,
+    BehaviorModuleInterface, CollideModuleInterface, PhysicsBehavior,
     UPDATE_SLEEP_NONE, UpdateModuleInterface, UpdateSleepTime,
 };
 use crate::object::Object as GameObject;

@@ -9,7 +9,7 @@ use crate::common::{Bool, INVALID_ID};
 use crate::damage::{DamageInfo, DamageType};
 use crate::helpers::TheGameLogic;
 use crate::helpers::TheObjectCreationListStore;
-use crate::modules::{AIUpdateInterface, BodyModuleInterface, BodyModuleInterfaceExt};
+use crate::modules::{AIUpdateInterface, BodyModuleInterface};
 use crate::object::Object;
 use crate::object::die::{
     parse_die_mux_death_types, parse_die_mux_exempt_status, parse_die_mux_required_status,

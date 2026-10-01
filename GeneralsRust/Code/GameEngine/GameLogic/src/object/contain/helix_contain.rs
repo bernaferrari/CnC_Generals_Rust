@@ -13,7 +13,7 @@ use crate::common::{
 use crate::damage::DamageInfo;
 use crate::helpers::{TheGameLogic, TheThingFactory};
 use crate::modules::{
-    ContainModuleInterface, ContainModuleInterfaceExt, ContainWant, UpdateSleepTime,
+    ContainModuleInterface, ContainWant, UpdateSleepTime,
 };
 use crate::object::registry::OBJECT_REGISTRY;
 use crate::object::Object;

@@ -12,7 +12,7 @@
 use super::nuggets::{ObjectCreationNugget, calc_random_force};
 use super::{CreationContext, CreationResult};
 use crate::common::*;
-use crate::modules::{AIUpdateInterfaceExt, ContainModuleInterfaceExt, PhysicsBehaviorExt};
+use crate::modules::{AIUpdateInterfaceExt};
 use crate::object::registry::OBJECT_REGISTRY;
 use crate::object::update::DeliverPayloadData;
 use crate::object::{Object, ObjectScriptStatusBit};

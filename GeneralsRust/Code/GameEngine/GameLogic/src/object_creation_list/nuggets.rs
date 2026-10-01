@@ -24,7 +24,7 @@ use crate::helpers::{
     FPF_USE_HIGHEST_LAYER, FindPositionOptions, TheGameLogic, ThePartitionManager,
 };
 use crate::modules::{
-    BodyModuleInterfaceExt, ContainModuleInterfaceExt, PhysicsBehavior, PhysicsBehaviorExt,
+    PhysicsBehavior,
 };
 use crate::object::Object;
 use crate::object::registry::OBJECT_REGISTRY;
@@ -362,18 +362,17 @@ impl GenericObjectCreationNugget {
             if let Some(container_tmpl) = ctx.thing_factory.find_template(&self.put_in_container) {
                 if let Some(ref team_arc) = debris_owner {
                     if let Ok(team_guard) = team_arc.read() {
-                        if let Ok(obj) = ctx.thing_factory.new_object(container_tmpl, &*team_guard)
-                        {
+                        if let Ok(obj) = ctx.thing_factory.new_object(container_tmpl, &*team_guard) {
                             if let Some(src) = source_obj {
                                 let _ = OBJECT_REGISTRY.with_object_mut(obj, |obj_guard| {
                                     obj_guard.set_producer(Some(src));
+                                });
                             }
                             container = Some(obj);
                         }
                     }
                 }
             }
-                                });
         }
 
         let mut first_object: Option<ObjectID> = None;
@@ -425,6 +424,7 @@ impl GenericObjectCreationNugget {
                     if layer != PathfindLayerEnum::Ground {
                         let _ = OBJECT_REGISTRY.with_object_mut(debris, |debris_guard| {
                             debris_guard.set_layer(layer);
+                        });
                     }
                 }
             }
@@ -471,7 +471,6 @@ impl GenericObjectCreationNugget {
             );
 
             self.apply_fade_to_object(debris, source_obj);
-                        });
         }
 
         if let Some(cont) = container {

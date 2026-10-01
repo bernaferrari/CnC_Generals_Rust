@@ -1,4 +1,3 @@
-use crate::object::registry::OBJECT_REGISTRY;
 // Evaluator action execution paths and leftover special/upgrade eval
 //
 // Split from `scripting/evaluator.rs` for module-size parity.

@@ -32,7 +32,7 @@ use crate::helpers::{
     TheAudio, TheEva, TheGameLogic, TheGameText, TheInGameUI, TheTerrainLogic, TheThingFactory,
 };
 use crate::modules::{
-    AIUpdateInterfaceExt, ContainModuleInterfaceExt,
+    AIUpdateInterfaceExt,
     SpecialPowerModuleInterface as EngineSpecialPowerModuleInterface,
     SpecialPowerUpdateInterface as EngineSpecialPowerUpdateInterface,
 };

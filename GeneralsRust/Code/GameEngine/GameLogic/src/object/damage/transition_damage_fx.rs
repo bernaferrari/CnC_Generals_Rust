@@ -11,7 +11,7 @@ use crate::common::{
 };
 use crate::damage::{BodyDamageType, DamageInfo, DamageType, get_damage_type_flag};
 use crate::helpers::{TheGameLogic, TheParticleSystemManager};
-use crate::modules::{BehaviorModuleInterface, BodyModuleInterfaceExt, DamageModuleInterface};
+use crate::modules::{BehaviorModuleInterface, DamageModuleInterface};
 use crate::object::Object as GameObject;
 use crate::object::body::body_module::is_condition_worse;
 use crate::object::drawable::Drawable;

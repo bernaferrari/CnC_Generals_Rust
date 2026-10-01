@@ -1,4 +1,3 @@
-use crate::object::registry::OBJECT_REGISTRY;
 // ScriptEngine update, side-script execution, and sequential progress
 //
 // Split from `scripting/engine.rs` for module-size parity.

@@ -86,6 +86,7 @@ struct SupplyTruckBusyState {
     base: State,
 }
 
+impl SupplyTruckBusyState {
     fn new(machine: &StateMachine) -> Self {
         Self {
             base: State::new(machine, "SupplyTruckBusyState"),

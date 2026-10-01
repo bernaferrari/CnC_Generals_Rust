@@ -17,7 +17,7 @@ use crate::helpers::{
     get_game_logic_random_value_real,
 };
 use crate::modules::{
-    AIUpdateInterface, AIUpdateInterfaceExt, ContainModuleInterfaceExt,
+    AIUpdateInterface, AIUpdateInterfaceExt,
     DeliverPayloadAIUpdateInterface,
 };
 use crate::object::drawable::DrawableArcExt;

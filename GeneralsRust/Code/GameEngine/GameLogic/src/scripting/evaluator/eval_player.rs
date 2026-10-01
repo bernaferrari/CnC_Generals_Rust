@@ -118,15 +118,12 @@ impl ScriptEvaluator {
                 let Some(contain) = obj_guard.get_contain() else {
                     return _ObjFlow::Ret(Ok(false));
                 };
-                Ok(contain.get_contained_count() == 0)
-                _ObjFlow::Fall
+                return _ObjFlow::Ret(Ok(contain.get_contained_count() == 0));
             });
-            match _flow {
-                None => { return Ok(false); }
-                Some(_ObjFlow::Cont) => continue,
-                Some(_ObjFlow::Ret(v)) => return v,
-                Some(_ObjFlow::Fall) => {}
-            }
+            return match _flow {
+                Some(_ObjFlow::Ret(v)) => v,
+                _ => Ok(false),
+            };
         }
     }
 
@@ -190,15 +187,12 @@ impl ScriptEvaluator {
                 let Ok(player_guard) = player_arc.read() else {
                     return _ObjFlow::Ret(Ok(false));
                 };
-                Ok(player_mask.intersects(player_guard.get_player_mask()))
-                _ObjFlow::Fall
+                return _ObjFlow::Ret(Ok(player_mask.intersects(player_guard.get_player_mask())));
             });
-            match _flow {
-                None => { return Ok(false); }
-                Some(_ObjFlow::Cont) => continue,
-                Some(_ObjFlow::Ret(v)) => return v,
-                Some(_ObjFlow::Fall) => {}
-            }
+            return match _flow {
+                Some(_ObjFlow::Ret(v)) => v,
+                _ => Ok(false),
+            };
         }
     }
 
@@ -224,15 +218,12 @@ impl ScriptEvaluator {
         {
             enum _ObjFlow<T> { Cont, Ret(T), Fall }
             let _flow = OBJECT_REGISTRY.with_object(object_id, |obj| {
-                Ok(!obj.is_effectively_dead())
-                _ObjFlow::Fall
+                return _ObjFlow::Ret(Ok(!obj.is_effectively_dead()));
             });
-            match _flow {
-                None => { return Ok(false); }
-                Some(_ObjFlow::Cont) => continue,
-                Some(_ObjFlow::Ret(v)) => return v,
-                Some(_ObjFlow::Fall) => {}
-            }
+            return match _flow {
+                Some(_ObjFlow::Ret(v)) => v,
+                _ => Ok(false),
+            };
         }
     }
 
@@ -284,18 +275,15 @@ impl ScriptEvaluator {
                 }
                 
                 let shroud = obj_guard.get_shrouded_status(player_index as i32);
-                Ok(matches!(
+                return _ObjFlow::Ret(Ok(matches!(
                     shroud,
                     ObjectShroudStatus::Clear | ObjectShroudStatus::PartialClear
-                ))
-                _ObjFlow::Fall
+                )));
             });
-            match _flow {
-                None => { return Ok(false); }
-                Some(_ObjFlow::Cont) => continue,
-                Some(_ObjFlow::Ret(v)) => return v,
-                Some(_ObjFlow::Fall) => {}
-            }
+            return match _flow {
+                Some(_ObjFlow::Ret(v)) => v,
+                _ => Ok(false),
+            };
         }
     }
 
@@ -510,15 +498,12 @@ impl ScriptEvaluator {
             enum _ObjFlow<T> { Cont, Ret(T), Fall }
             let _flow = OBJECT_REGISTRY.with_object(object_id, |obj_guard| {
                 
-                Ok(Some(player_id) == obj_guard.get_controlling_player_id())
-                _ObjFlow::Fall
+                return _ObjFlow::Ret(Ok(Some(player_id) == obj_guard.get_controlling_player_id()));
             });
-            match _flow {
-                None => { return Ok(false); }
-                Some(_ObjFlow::Cont) => continue,
-                Some(_ObjFlow::Ret(v)) => return v,
-                Some(_ObjFlow::Fall) => {}
-            }
+            return match _flow {
+                Some(_ObjFlow::Ret(v)) => v,
+                _ => Ok(false),
+            };
         }
     }
 

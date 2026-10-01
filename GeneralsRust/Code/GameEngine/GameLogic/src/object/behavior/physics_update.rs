@@ -21,7 +21,7 @@ use crate::damage::{DamageInfo, DamageType, DeathType};
 use crate::helpers::{TheGameLogic, TheTerrainLogic};
 use crate::modules::{
     BehaviorModuleInterface, CollideModuleInterface, PhysicsBehavior as PhysicsBehaviorTrait,
-    PhysicsBehaviorExt, SleepyUpdatePhase, UPDATE_SLEEP_FOREVER, UPDATE_SLEEP_NONE,
+    SleepyUpdatePhase, UPDATE_SLEEP_FOREVER, UPDATE_SLEEP_NONE,
     UpdateModuleInterface, UpdateSleepTime,
 };
 use crate::object::Object as GameObject;
@@ -80,7 +80,7 @@ fn contained_items_mass(obj: &GameObject) -> Real {
         if let Some(cargo) = find_object(id) {
             if let Ok(cargo) = cargo.try_read() {
                 if let Some(phys) = cargo.get_physics() {
-                    mass += PhysicsBehaviorExt::get_mass(&phys);
+                    mass += ::get_mass(&phys);
                 }
             }
         }

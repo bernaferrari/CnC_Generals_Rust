@@ -567,7 +567,7 @@ pub trait ContainModuleInterface: Send + Sync + std::fmt::Debug {
     fn process_damage_to_contained(&mut self, _percent_damage: f32) {}
 }
 
-// The former `ContainModuleInterfaceExt for Arc<Mutex<dyn ContainModuleInterface>>`
+// The former ` for Arc<Mutex<dyn ContainModuleInterface>>`
 // adapter duplicated `ContainModuleInterface`'s own surface behind lock/fail-closed
 // fallbacks. Contain modules are owned values now: call the trait directly on the
 // borrowed trait object (`get_contain()` / `get_contain_mut()`).

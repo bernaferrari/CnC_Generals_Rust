@@ -29,8 +29,9 @@ impl LiveResourceWorld {
     fn lock_logic(&self) -> Option<std::sync::MutexGuard<'_, GameLogic>> {
         self.logic.lock().ok()
     }
+}
 
-impl Default for LiveResourceWorldimpl Default for LiveResourceWorld {
+impl Default for LiveResourceWorld {
     fn default() -> Self {
         Self::new()
     }

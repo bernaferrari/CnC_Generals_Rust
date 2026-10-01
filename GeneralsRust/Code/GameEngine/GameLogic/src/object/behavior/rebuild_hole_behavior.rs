@@ -17,7 +17,7 @@ use crate::common::{
 use crate::damage::{DamageInfo, DamageType, DeathType};
 use crate::helpers::{TheGameLogic, TheThingFactory};
 use crate::modules::{
-    BehaviorModuleInterface, BodyModuleInterfaceExt, UpdateModuleInterface, UpdateSleepTime,
+    BehaviorModuleInterface, UpdateModuleInterface, UpdateSleepTime,
 };
 use crate::object::Object;
 use crate::object::behavior::behavior_module::{

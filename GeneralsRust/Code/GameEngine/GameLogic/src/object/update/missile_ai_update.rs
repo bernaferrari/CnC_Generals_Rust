@@ -21,7 +21,7 @@ use crate::helpers::{
 use crate::locomotor::BodyDamageType;
 use crate::modules::{
     AIUpdateInterface, AIUpdateInterfaceExt, BehaviorModuleInterface, ContainModuleInterface,
-    PhysicsBehaviorExt, ProjectileUpdateInterface, UPDATE_SLEEP_NONE, UpdateModuleInterface,
+    ProjectileUpdateInterface, UPDATE_SLEEP_NONE, UpdateModuleInterface,
     UpdateSleepTime,
 };
 use crate::object::Object;

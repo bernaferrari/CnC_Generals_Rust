@@ -1273,20 +1273,18 @@ impl ScriptActionDispatcher {
         let Some(warehouse_id) = tracker.get_object_id(&warehouse_name).ok().flatten() else {
             return Ok(ScriptActionResult::Success);
         };
-        {
-            enum _ObjFlow<T> { Cont, Ret(T), Fall }
-            let _flow = OBJECT_REGISTRY.with_object(warehouse_id, |warehouse_guard| {
-                
-                Ok(ScriptActionResult::Success)
-                _ObjFlow::Fall
+        let _ = OBJECT_REGISTRY.with_object(warehouse_id, |warehouse_guard| {
+            let Some(module) = warehouse_guard.find_update_module("SupplyWarehouseDockUpdate")
+            else {
+                return;
+            };
+            module.with_module(|module| {
+                if let Some(warehouse) = module.get_supply_warehouse_dock_interface() {
+                    warehouse.set_cash_value(value);
+                }
             });
-            match _flow {
-                None => { return Ok(ScriptActionResult::Success); }
-                Some(_ObjFlow::Cont) => continue,
-                Some(_ObjFlow::Ret(v)) => return v,
-                Some(_ObjFlow::Fall) => {}
-            }
-        }
+        });
+        Ok(ScriptActionResult::Success)
     }
 
     pub(crate) fn do_command_bar_remove_button_object_type(

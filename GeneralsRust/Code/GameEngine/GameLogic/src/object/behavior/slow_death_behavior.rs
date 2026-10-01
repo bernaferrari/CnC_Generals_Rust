@@ -35,7 +35,7 @@ use crate::effects::{FXList, ObjectCreationList};
 use crate::modules::{
     AIUpdateInterface, AIUpdateInterfaceExt, BehaviorModule, BehaviorModuleInterface,
     BodyModuleInterface, DieModuleInterface, MODULEINTERFACE_DIE, MODULEINTERFACE_UPDATE,
-    ModuleInterface, PhysicsBehavior, PhysicsBehaviorExt, SlavedUpdateInterface,
+    ModuleInterface, PhysicsBehavior, SlavedUpdateInterface,
     SlowDeathBehaviorInterface as ModuleSlowDeathBehaviorInterface, UPDATE_SLEEP,
     UPDATE_SLEEP_FOREVER, UPDATE_SLEEP_NONE, UpdateModule, UpdateModuleInterface, UpdateModulePtr,
     UpdateSleepTime,

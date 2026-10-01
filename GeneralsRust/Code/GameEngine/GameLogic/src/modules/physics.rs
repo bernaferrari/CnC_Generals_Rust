@@ -290,7 +290,7 @@ pub fn signed_forward_speed_3d(
 }
 
 
-// The former `PhysicsBehaviorExt for Arc<Mutex<dyn PhysicsBehavior>>` adapter
+// The former ` for Arc<Mutex<dyn PhysicsBehavior>>` adapter
 // duplicated this trait's own surface through `with_physics_ref`/`with_physics_mut`
 // lock helpers. Physics modules are owned values now: call `PhysicsBehavior`
 // methods directly on the borrowed trait object.

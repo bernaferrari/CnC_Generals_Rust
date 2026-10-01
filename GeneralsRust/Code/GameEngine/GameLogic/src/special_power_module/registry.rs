@@ -77,10 +77,9 @@ impl SpecialPowerRegistry {
             .or_insert_with(Vec::new)
             .push(power_id);
 
-        log::info!(
-            "Registered special power ID {} ({:?})",
-            power_id,
-            power_kind
+        log::info!("Registered special power ID {} ({:?})", power_id, power_kind);
+    }
+
     /// Get a power by ID
     pub fn get_power(&self, power_id: SpecialPowerID) -> Option<&dyn SpecialPowerModuleInterface> {
         self.powers.get(&power_id).map(|p| p.as_ref())

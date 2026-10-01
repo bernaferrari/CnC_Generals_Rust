@@ -328,23 +328,22 @@ impl ScriptEvaluator {
                 let Some(object_id) = tracker.get_object_id(unit_name).ok().flatten() else {
                     return Ok(false);
                 };
-                {
-                    enum _ObjFlow<T> { Cont, Ret(T), Fall }
-                    let _flow = OBJECT_REGISTRY.with_object(object_id, |obj_guard| {
+                return OBJECT_REGISTRY
+                    .with_object(object_id, |obj_guard| {
                         let Some(ai) = obj_guard.get_ai_update_interface() else {
-                            return _ObjFlow::Ret(Ok(false));
+                            return Ok(false);
                         };
                         let Some(completed_id) = ai.get_completed_waypoint_id() else {
-                            return _ObjFlow::Ret(Ok(false));
+                            return Ok(false);
                         };
-                        
+
                         // C++ uses AsciiString::operator== here, which is a case-sensitive
                         // strcmp.  `Waypoint::matches_path_label` intentionally serves other
                         // terrain lookups with case-insensitive matching, so this script path
                         // must compare the three labels directly.
                         let waypoint_path_name = waypoint_param.get_string();
                         let Ok(terrain) = get_terrain_logic().read() else {
-                            return _ObjFlow::Ret(Ok(false));
+                            return Ok(false);
                         };
                         let matches = terrain
                             .get_waypoint_by_id(completed_id)
@@ -354,15 +353,8 @@ impl ScriptEvaluator {
                                     || waypoint.get_path_label3().as_str() == waypoint_path_name
                             });
                         Ok(matches)
-                        _ObjFlow::Fall
-                    });
-                    match _flow {
-                        None => { return Ok(false); }
-                        Some(_ObjFlow::Cont) => continue,
-                        Some(_ObjFlow::Ret(v)) => return v,
-                        Some(_ObjFlow::Fall) => {}
-                    }
-                }
+                    })
+                    .unwrap_or(Ok(false));
             }
 
             // Team reached end of waypoint path (any member)

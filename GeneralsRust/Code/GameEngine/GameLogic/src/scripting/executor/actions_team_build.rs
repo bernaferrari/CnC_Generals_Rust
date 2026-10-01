@@ -672,7 +672,6 @@ impl ScriptActionDispatcher {
                                 };
                                 let _ = contain_guard.add_to_contain(&payload_guard);
                                 _ObjFlow::Fall
-                                _ObjFlow::Fall
                             });
                             match _flow {
                                 None => {

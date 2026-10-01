@@ -26,7 +26,7 @@ const UPDATE_SLEEP_NONE: UpdateSleepTime = crate::modules::UPDATE_SLEEP_NONE;
 
 use crate::common::xfer::Xfer;
 use crate::modules::{
-    BehaviorModuleInterface, PhysicsBehaviorExt, SpecialPowerCommandOptions,
+    BehaviorModuleInterface, SpecialPowerCommandOptions,
     SpecialPowerModuleInterface, SpecialPowerUpdateInterface, UpdateModuleInterface,
 };
 use crate::object::behavior::behavior_module::BehaviorModuleData;

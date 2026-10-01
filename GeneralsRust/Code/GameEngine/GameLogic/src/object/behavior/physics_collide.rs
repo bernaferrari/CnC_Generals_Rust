@@ -11,7 +11,7 @@ use crate::common::{
     Coord3D, DisabledType, KindOf, LOGICFRAMES_PER_SECOND, ObjectID, ObjectStatusTypes, Real,
 };
 use crate::helpers::{TheGameLogic, TheWeaponStore};
-use crate::modules::PhysicsBehaviorExt;
+use crate::modules::;
 use crate::object::Object as GameObject;
 use crate::object::behavior::dumb_projectile_behavior::dispatch_dumb_projectile_handle_collision;
 use game_engine::common::global_data;
@@ -215,7 +215,7 @@ pub(super) fn on_collide(
                     let _ = bounce.set_position(&tmp);
                     if bounce_id == object_id {
                         // `handle` already is this object's physics mutex.
-                        // PhysicsBehaviorExt would lock that same Arc again.
+                        //  would lock that same Arc again.
                         crate::modules::PhysicsBehavior::scrub_velocity_2d(handle, 0.0);
                     } else if let Some(phys) = bounce.get_physics() {
                         phys.scrub_velocity_2d(0.0);

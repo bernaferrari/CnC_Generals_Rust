@@ -834,18 +834,37 @@ impl ScriptActionDispatcher {
                     return Ok(ScriptActionResult::Success);
                 }
 
-                {
-                    enum _ObjFlow<T> { Cont, Ret(T), Fall }
-                    let _flow = OBJECT_REGISTRY.with_object_mut(attacker, |mut obj_guard| {
-                        _ObjFlow::Fall
-                    });
-                    match _flow {
-                        None => { log::warn!("Attacker '{}' not found in object registry", attacker_name);
-                    return Ok(ScriptActionResult::Success); }
-                        Some(_ObjFlow::Cont) => continue,
-                        Some(_ObjFlow::Ret(v)) => return v,
-                        Some(_ObjFlow::Fall) => {}
+                let attacked = OBJECT_REGISTRY.with_object_mut(attacker, |obj_guard| {
+                    if obj_guard.get_ai_update_interface().is_none() {
+                        return false;
                     }
+                    obj_guard.leave_group();
+                    if let Some(ai) = obj_guard.get_ai_update_interface_mut() {
+                        let _ = ai.choose_locomotor_set(crate::common::LocomotorSetType::Normal);
+                        let mut params = AiCommandParams::new(
+                            AiCommandType::ForceAttackObject,
+                            CommandSourceType::FromScript,
+                        );
+                        params.obj = Some(target);
+                        params.int_value = -1;
+                        let _ = ai.execute_command(&params);
+                        log::info!(
+                            "Named unit '{}' (ID: {}) force attacking '{}' (ID: {})",
+                            attacker_name,
+                            attacker,
+                            victim_name,
+                            target
+                        );
+                    }
+                    true
+                });
+                if attacked.is_none() {
+                    log::warn!("Attacker '{}' not found in object registry", attacker_name);
+                    return Ok(ScriptActionResult::Success);
+                }
+                if attacked == Some(false) {
+                    log::warn!("Attacker '{}' has no AI update interface", attacker_name);
+                    return Ok(ScriptActionResult::Success);
                 }
             }
             (None, _) => {

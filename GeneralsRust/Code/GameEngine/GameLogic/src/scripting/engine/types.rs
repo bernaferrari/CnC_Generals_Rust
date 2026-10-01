@@ -1,4 +1,3 @@
-use crate::object::registry::OBJECT_REGISTRY;
 // Script-engine types, RefCell inner state, and re-entrancy accessors.
 //
 // Included into `engine/mod.rs` so private fields and the current

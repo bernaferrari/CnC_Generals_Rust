@@ -18,7 +18,7 @@ use crate::damage::{DamageInfo, DamageType, DeathType};
 use crate::helpers::TheGameLogic;
 use crate::helpers::get_game_logic_random_value_real;
 use crate::modules::{
-    ContainModuleInterface, ContainModuleInterfaceExt, ContainWant, DISABLED_HELD, UpdateSleepTime,
+    ContainModuleInterface, ContainWant, DISABLED_HELD, UpdateSleepTime,
 };
 use crate::object::contain::OpenContain;
 use crate::object::contain::open_contain::ObjectRelationship;

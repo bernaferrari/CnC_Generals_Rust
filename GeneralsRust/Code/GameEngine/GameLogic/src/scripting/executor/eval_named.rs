@@ -166,23 +166,14 @@ impl ScriptConditionEvaluator {
         let Ok(Some(object_id)) = tracker.get_object_id(&object_name) else {
             return Ok(ScriptConditionResult::False);
         };
-        {
-            enum _ObjFlow<T> { Cont, Ret(T), Fall }
-            let _flow = OBJECT_REGISTRY.with_object(object_id, |obj| {
-                Ok(if obj.is_effectively_dead() {
-                    ScriptConditionResult::False
-                } else {
-                    ScriptConditionResult::True
-                })
-                _ObjFlow::Fall
-            });
-            match _flow {
-                None => { return Ok(ScriptConditionResult::False); }
-                Some(_ObjFlow::Cont) => continue,
-                Some(_ObjFlow::Ret(v)) => return v,
-                Some(_ObjFlow::Fall) => {}
+        let alive = OBJECT_REGISTRY.with_object(object_id, |obj| {
+            if obj.is_effectively_dead() {
+                ScriptConditionResult::False
+            } else {
+                ScriptConditionResult::True
             }
-        }
+        });
+        Ok(alive.unwrap_or(ScriptConditionResult::False))
     }
 
     pub(crate) fn eval_named_attacked_by_object_type(
@@ -297,37 +288,22 @@ impl ScriptConditionEvaluator {
                 
                 // Fallback to attacker object controlling player.
                 let attacker_id = last.input.source_id;
-                {
-                    enum _ObjFlow<T> { Cont, Ret(T), Fall }
-                    let _flow = OBJECT_REGISTRY.with_object(attacker_id, |attacker| {
-                        let Some(attacker_owner) = attacker.get_controlling_player_id() else {
-                            return _ObjFlow::Ret(_ObjFlow::Ret(Ok(ScriptConditionResult::False)));
-                        };
-                        
-                        Ok(if attacker_owner as i32 == victim_index {
-                            ScriptConditionResult::True
-                        } else {
-                            ScriptConditionResult::False
-                        })
-                        _ObjFlow::Fall
-                        _ObjFlow::Fall
-                    });
-                    match _flow {
-                        None => {
-                            return _ObjFlow::Ret(Ok(ScriptConditionResult::False));
-                        }
-                        Some(_ObjFlow::Cont) => continue,
-                        Some(_ObjFlow::Ret(v)) => return v,
-                        Some(_ObjFlow::Fall) => {}
-                    }
-                }
+                let nested = OBJECT_REGISTRY.with_object(attacker_id, |attacker| {
+                    let Some(attacker_owner) = attacker.get_controlling_player_id() else {
+                        return Ok(ScriptConditionResult::False);
+                    };
+                    Ok(if attacker_owner as i32 == victim_index {
+                        ScriptConditionResult::True
+                    } else {
+                        ScriptConditionResult::False
+                    })
+                });
+                return _ObjFlow::Ret(nested.unwrap_or(Ok(ScriptConditionResult::False)));
             });
-            match _flow {
-                None => { return Ok(ScriptConditionResult::False); }
-                Some(_ObjFlow::Cont) => continue,
-                Some(_ObjFlow::Ret(v)) => return v,
-                Some(_ObjFlow::Fall) => {}
-            }
+            return match _flow {
+                Some(_ObjFlow::Ret(v)) => v,
+                _ => Ok(ScriptConditionResult::False),
+            };
         }
     }
 
@@ -403,22 +379,10 @@ impl ScriptConditionEvaluator {
         };
         let player_index = player.get_player_index();
 
-        {
-            enum _ObjFlow<T> { Cont, Ret(T), Fall }
-            let _flow = OBJECT_REGISTRY.with_object(object_id, |obj| {
-                
-                Ok(Self::bool_result(
-                    self.object_is_discovered_by_player(&obj, player_index),
-                ))
-                _ObjFlow::Fall
-            });
-            match _flow {
-                None => { return Ok(ScriptConditionResult::False); }
-                Some(_ObjFlow::Cont) => continue,
-                Some(_ObjFlow::Ret(v)) => return v,
-                Some(_ObjFlow::Fall) => {}
-            }
-        }
+        let discovered = OBJECT_REGISTRY.with_object(object_id, |obj| {
+            Self::bool_result(self.object_is_discovered_by_player(&obj, player_index))
+        });
+        Ok(discovered.unwrap_or(ScriptConditionResult::False))
     }
 
     pub(crate) fn eval_named_owned_by_player(
@@ -495,43 +459,32 @@ impl ScriptConditionEvaluator {
         let Ok(Some(object_id)) = tracker.get_object_id(&object_name) else {
             return Ok(ScriptConditionResult::False);
         };
-        {
-            enum _ObjFlow<T> { Cont, Ret(T), Fall }
-            let _flow = OBJECT_REGISTRY.with_object(object_id, |obj| {
-                let Some(ai_arc) = obj.get_ai_update_interface() else {
-                    return _ObjFlow::Ret(Ok(ScriptConditionResult::False));
-                };
-                let Ok(ai) = ai_arc.lock() else {
-                    return _ObjFlow::Ret(Ok(ScriptConditionResult::False));
-                };
-                let Some(completed_waypoint_id) = ai.get_completed_waypoint_id() else {
-                    return _ObjFlow::Ret(Ok(ScriptConditionResult::False));
-                };
-                
-                let Ok(terrain) = crate::terrain::get_terrain_logic().read() else {
-                    return _ObjFlow::Ret(Ok(ScriptConditionResult::False));
-                };
-                let Some(target_waypoint) = terrain.get_waypoint_by_id(completed_waypoint_id) else {
-                    return _ObjFlow::Ret(Ok(ScriptConditionResult::False));
-                };
-                
-                let reached = target_waypoint.get_path_label1().as_str() == waypoint_path
-                    || target_waypoint.get_path_label2().as_str() == waypoint_path
-                    || target_waypoint.get_path_label3().as_str() == waypoint_path;
-                Ok(if reached {
-                    ScriptConditionResult::True
-                } else {
-                    ScriptConditionResult::False
-                })
-                _ObjFlow::Fall
-            });
-            match _flow {
-                None => { return Ok(ScriptConditionResult::False); }
-                Some(_ObjFlow::Cont) => continue,
-                Some(_ObjFlow::Ret(v)) => return v,
-                Some(_ObjFlow::Fall) => {}
-            }
-        }
+        let reached = OBJECT_REGISTRY.with_object(object_id, |obj| {
+            let Some(ai_arc) = obj.get_ai_update_interface() else {
+                return Ok(ScriptConditionResult::False);
+            };
+            let Ok(ai) = ai_arc.lock() else {
+                return Ok(ScriptConditionResult::False);
+            };
+            let Some(completed_waypoint_id) = ai.get_completed_waypoint_id() else {
+                return Ok(ScriptConditionResult::False);
+            };
+            let Ok(terrain) = crate::terrain::get_terrain_logic().read() else {
+                return Ok(ScriptConditionResult::False);
+            };
+            let Some(target_waypoint) = terrain.get_waypoint_by_id(completed_waypoint_id) else {
+                return Ok(ScriptConditionResult::False);
+            };
+            let reached = target_waypoint.get_path_label1().as_str() == waypoint_path
+                || target_waypoint.get_path_label2().as_str() == waypoint_path
+                || target_waypoint.get_path_label3().as_str() == waypoint_path;
+            Ok(if reached {
+                ScriptConditionResult::True
+            } else {
+                ScriptConditionResult::False
+            })
+        });
+        reached.unwrap_or(Ok(ScriptConditionResult::False))
     }
 
     pub(crate) fn eval_named_selected(
@@ -849,22 +802,22 @@ impl ScriptConditionEvaluator {
                     return _ObjFlow::Ret(Ok(ScriptConditionResult::False));
                 };
                 
-                Ok(
+                _ObjFlow::Ret(Ok(
                     if contain.get_contained_count() < contain.get_max_capacity() {
                         ScriptConditionResult::True
                     } else {
                         ScriptConditionResult::False
                     },
-                )
-                _ObjFlow::Fall
+                ))
             });
             match _flow {
                 None => { return Ok(ScriptConditionResult::False); }
-                Some(_ObjFlow::Cont) => continue,
+                Some(_ObjFlow::Cont) => return Ok(ScriptConditionResult::False),
                 Some(_ObjFlow::Ret(v)) => return v,
                 Some(_ObjFlow::Fall) => {}
             }
         }
+        Ok(ScriptConditionResult::False)
     }
 
     // ============================================================================
@@ -921,20 +874,20 @@ impl ScriptConditionEvaluator {
                 }
                 // C++ ScriptConditions.cpp:934 (curHealth*100 + initialHealth/2)/initialHealth
                 let health_percent = ((cur_health * 100.0 + initial_health / 2.0) / initial_health) as i32;
-                Ok(Self::bool_result(Self::compare_i32(
+                _ObjFlow::Ret(Ok(Self::bool_result(Self::compare_i32(
                     comparison,
                     health_percent,
                     target_health,
-                )))
-                _ObjFlow::Fall
+                ))))
             });
             match _flow {
                 None => { return Ok(ScriptConditionResult::False); }
-                Some(_ObjFlow::Cont) => continue,
+                Some(_ObjFlow::Cont) => return Ok(ScriptConditionResult::False),
                 Some(_ObjFlow::Ret(v)) => return v,
                 Some(_ObjFlow::Fall) => {}
             }
         }
+        Ok(ScriptConditionResult::False)
     }
 
     pub(crate) fn eval_unit_completed_sequential_execution(
@@ -999,16 +952,16 @@ impl ScriptConditionEvaluator {
                 }
                 
                 *entry = (frame, num_peeps);
-                Ok(ScriptConditionResult::False)
-                _ObjFlow::Fall
+                _ObjFlow::Ret(Ok(ScriptConditionResult::False))
             });
             match _flow {
                 None => { return Ok(ScriptConditionResult::False); }
-                Some(_ObjFlow::Cont) => continue,
+                Some(_ObjFlow::Cont) => return Ok(ScriptConditionResult::False),
                 Some(_ObjFlow::Ret(v)) => return v,
                 Some(_ObjFlow::Fall) => {}
             }
         }
+        Ok(ScriptConditionResult::False)
     }
 
     pub(crate) fn eval_unit_has_object_status(
@@ -1045,20 +998,20 @@ impl ScriptConditionEvaluator {
             enum _ObjFlow<T> { Cont, Ret(T), Fall }
             let _flow = OBJECT_REGISTRY.with_object(object_id, |obj| {
                 
-                Ok(if obj.get_status_bits().intersects(status_mask) {
+                _ObjFlow::Ret(Ok(if obj.get_status_bits().intersects(status_mask) {
                     ScriptConditionResult::True
                 } else {
                     ScriptConditionResult::False
-                })
-                _ObjFlow::Fall
+                }))
             });
             match _flow {
                 None => { return Ok(ScriptConditionResult::False); }
-                Some(_ObjFlow::Cont) => continue,
+                Some(_ObjFlow::Cont) => return Ok(ScriptConditionResult::False),
                 Some(_ObjFlow::Ret(v)) => return v,
                 Some(_ObjFlow::Fall) => {}
             }
         }
+        Ok(ScriptConditionResult::False)
     }
 
     // ============================================================================
@@ -1211,20 +1164,20 @@ impl ScriptConditionEvaluator {
                     return _ObjFlow::Ret(Ok(ScriptConditionResult::False));
                 };
                 
-                Ok(if entered_mask == player.get_player_mask() {
+                _ObjFlow::Ret(Ok(if entered_mask == player.get_player_mask() {
                     ScriptConditionResult::True
                 } else {
                     ScriptConditionResult::False
-                })
-                _ObjFlow::Fall
+                }))
             });
             match _flow {
                 None => { return Ok(ScriptConditionResult::False); }
-                Some(_ObjFlow::Cont) => continue,
+                Some(_ObjFlow::Cont) => return Ok(ScriptConditionResult::False),
                 Some(_ObjFlow::Ret(v)) => return v,
                 Some(_ObjFlow::Fall) => {}
             }
         }
+        Ok(ScriptConditionResult::False)
     }
 
     pub(crate) fn eval_bridge_repaired(
@@ -1865,16 +1818,16 @@ impl ScriptConditionEvaluator {
                     }
                 }
                 
-                Ok(ScriptConditionResult::False)
-                _ObjFlow::Fall
+                _ObjFlow::Ret(Ok(ScriptConditionResult::False))
             });
             match _flow {
                 None => { return Ok(ScriptConditionResult::False); }
-                Some(_ObjFlow::Cont) => continue,
+                Some(_ObjFlow::Cont) => return Ok(ScriptConditionResult::False),
                 Some(_ObjFlow::Ret(v)) => return v,
                 Some(_ObjFlow::Fall) => {}
             }
         }
+        Ok(ScriptConditionResult::False)
     }
 
     pub(crate) fn eval_type_sighted(
@@ -1963,7 +1916,6 @@ impl ScriptConditionEvaluator {
                                 return _ObjFlow::Ret(_ObjFlow::Cont);
                             }
                             return _ObjFlow::Ret(_ObjFlow::Ret(Ok(ScriptConditionResult::True)));
-                            _ObjFlow::Fall
                         });
                         match _flow {
                             None => {
@@ -1976,16 +1928,16 @@ impl ScriptConditionEvaluator {
                     }
                 }
                 
-                Ok(ScriptConditionResult::False)
-                _ObjFlow::Fall
+                _ObjFlow::Ret(Ok(ScriptConditionResult::False))
             });
             match _flow {
                 None => { return Ok(ScriptConditionResult::False); }
-                Some(_ObjFlow::Cont) => continue,
+                Some(_ObjFlow::Cont) => return Ok(ScriptConditionResult::False),
                 Some(_ObjFlow::Ret(v)) => return v,
                 Some(_ObjFlow::Fall) => {}
             }
         }
+        Ok(ScriptConditionResult::False)
     }
 
     pub(crate) fn eval_mission_attempts(
