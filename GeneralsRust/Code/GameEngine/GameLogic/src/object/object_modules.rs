@@ -18,12 +18,12 @@ impl Object {
         self.get_body_module()
     }
 
-    pub fn get_body_module_mut(&mut self) -> Option<&mut dyn BodyModuleInterface> {
+    pub fn get_body_module_mut(&mut self) -> Option<&mut (dyn BodyModuleInterface + 'static)> {
         self.body.as_deref_mut()
     }
 
     /// Mutable compatibility alias mirroring C++ Object API.
-    pub fn get_body_mut(&mut self) -> Option<&mut dyn BodyModuleInterface> {
+    pub fn get_body_mut(&mut self) -> Option<&mut (dyn BodyModuleInterface + 'static)> {
         self.get_body_module_mut()
     }
 
@@ -35,7 +35,7 @@ impl Object {
         self.contain.as_deref()
     }
 
-    pub fn get_contain_mut(&mut self) -> Option<&mut dyn ContainModuleInterface> {
+    pub fn get_contain_mut(&mut self) -> Option<&mut (dyn ContainModuleInterface + 'static)> {
         self.contain.as_deref_mut()
     }
 
@@ -78,7 +78,7 @@ impl Object {
         self.ai.as_deref()
     }
 
-    pub fn get_ai_update_interface_mut(&mut self) -> Option<&mut dyn AIUpdateInterface> {
+    pub fn get_ai_update_interface_mut(&mut self) -> Option<&mut (dyn AIUpdateInterface + 'static)> {
         self.ai.as_deref_mut()
     }
 
@@ -86,7 +86,7 @@ impl Object {
         self.get_ai_update_interface()
     }
 
-    pub fn get_ai_mut(&mut self) -> Option<&mut dyn AIUpdateInterface> {
+    pub fn get_ai_mut(&mut self) -> Option<&mut (dyn AIUpdateInterface + 'static)> {
         self.get_ai_update_interface_mut()
     }
 
@@ -707,7 +707,7 @@ impl Object {
     }
 
     /// Mutable access to the owned physics behavior.
-    pub fn get_physics_mut(&mut self) -> Option<&mut dyn PhysicsBehavior> {
+    pub fn get_physics_mut(&mut self) -> Option<&mut (dyn PhysicsBehavior + 'static)> {
         self.physics.as_deref_mut()
     }
 

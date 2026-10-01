@@ -204,7 +204,7 @@ struct ModuleExitInterfaceProxy {
 /// borrow of this object's owned contain module.
 pub enum ObjectExitInterface<'a> {
     Module(ModuleExitInterfaceProxy),
-    Contain(&'a mut dyn ContainModuleInterface),
+    Contain(&'a mut (dyn ContainModuleInterface + 'static)),
 }
 
 enum ProductionBehaviorModuleKindMut<'a> {
