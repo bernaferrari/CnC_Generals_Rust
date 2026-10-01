@@ -404,24 +404,21 @@ impl ScriptConditionEvaluator {
         // Look up the named object
         let tracker = get_named_object_tracker();
         if let Ok(Some(object_id)) = tracker.get_object_id(&object_name) {
-            let _ = crate::object::registry::OBJECT_REGISTRY.with_object(object_id, |obj| {
-                    // Get controlling player and compare display name
-                    if let Some(controlling_player) = obj.get_controlling_player() {
-                        if let Some(name_key) = crate::player::with_player(controlling_player, |player| {
+            // C++ NamedOwnedByPlayer: compare the owner's display name key.
+            let name_key = crate::object::registry::OBJECT_REGISTRY
+                .with_object(object_id, |obj| {
+                    obj.get_controlling_player().and_then(|controlling_player| {
+                        crate::player::with_player(controlling_player, |player| {
                             player.get_player_name_key()
-                        }) {
-                            return Ok(
-                                if name_key
-                                    == NameKeyGenerator::name_to_key(&player_name)
-                                {
-                                    ScriptConditionResult::True
-                                } else {
-                                    ScriptConditionResult::False
-                                },
-                            );
-                        }
-                    }
-                });
+                        })
+                    })
+                })
+                .flatten();
+            return Ok(if name_key == Some(NameKeyGenerator::name_to_key(&player_name)) {
+                ScriptConditionResult::True
+            } else {
+                ScriptConditionResult::False
+            });
         }
         // Object not found or has no owner - condition is false
         Ok(ScriptConditionResult::False)

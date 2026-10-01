@@ -36,8 +36,10 @@ impl ScriptConditionEvaluator {
                     player_list()
                         .read()
                         .ok()
-                        .and_then(|list| list.get_local_player())
-                        .and_then(|p| NameKeyGenerator::key_to_name(p.get_player_name_key()))
+                        .and_then(|list| {
+                            list.get_local_player()
+                                .and_then(|p| NameKeyGenerator::key_to_name(p.get_player_name_key()))
+                        })
                         .unwrap_or_else(|| raw.to_string())
                 }
             }
@@ -47,8 +49,10 @@ impl ScriptConditionEvaluator {
             LOCAL_PLAYER => player_list()
                 .read()
                 .ok()
-                .and_then(|list| list.get_local_player())
-                .and_then(|p| NameKeyGenerator::key_to_name(p.get_player_name_key()))
+                .and_then(|list| {
+                    list.get_local_player()
+                        .and_then(|p| NameKeyGenerator::key_to_name(p.get_player_name_key()))
+                })
                 .unwrap_or_else(|| raw.to_string()),
             THIS_TEAM => with_script_engine_ref(|engine| {
                 engine

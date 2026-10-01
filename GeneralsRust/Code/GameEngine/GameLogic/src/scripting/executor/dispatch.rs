@@ -1566,10 +1566,10 @@ impl ScriptActionDispatcher {
         for obj_id in members {
             {
                 enum _ObjFlow<T> { Cont, Ret(T), Fall }
-                let _flow = OBJECT_REGISTRY.with_object(obj_id, |obj_guard| {
+                let _flow = OBJECT_REGISTRY.with_object_mut(obj_id, |obj_guard| {
                     
                     let Some(is_ready) = super::eval_skirmish::leftover_command_button_ready_for_object(
-                        &obj_guard,
+                        obj_guard,
                         command_button,
                     ) else {
                         return _ObjFlow::Cont;

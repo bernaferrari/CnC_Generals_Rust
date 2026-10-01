@@ -234,13 +234,11 @@ impl ScriptConditionEvaluator {
             return Ok(ScriptConditionResult::False);
         }
 
-        let player_arc = player_list()
-            .read()
-            .ok()
+        let players = player_list().read().ok();
+        let player_guard = players
+            .as_ref()
             .and_then(|list| list.find_player_by_name(&player_name))
             .ok_or_else(|| ScriptError::PlayerNotFound(player_name.clone()))?;
-        let player_guard = Ok(player_arc)
-            .map_err(|_| ScriptError::ExecutionFailed("Failed to read player".to_string()))?;
 
         let trigger = self.get_trigger_area(&area_name)?;
         let center = trigger.get_center_point();
@@ -262,12 +260,14 @@ impl ScriptConditionEvaluator {
                         if let Some(owner_id) = obj_guard.get_controlling_player_id() {
                             if owner_id == player_guard.get_player_index() as u32 {
                                 true
-                            } else if let Some(owner_arc) = player_list()
-                                .read()
-                                .ok()
-                                .and_then(|list| list.get_player(owner_id as i32))
-                            {
-                                player_guard.get_relationship(owner_arc) == Relationship::Neutral
+                            } else if let Some(players) = player_list().read().ok() {
+                                match players.get_player(owner_id as i32) {
+                                    Some(owner_arc) => {
+                                        player_guard.get_relationship(owner_arc)
+                                            == Relationship::Neutral
+                                    }
+                                    None => false,
+                                }
                             } else {
                                 false
                             }
@@ -306,9 +306,9 @@ impl ScriptConditionEvaluator {
         condition: &mut Condition,
     ) -> Result<ScriptConditionResult, ScriptError> {
         let player_name = self.get_condition_string_param(condition, 0)?;
-        let leftover_player = player_list()
-            .read()
-            .ok()
+        let players = player_list().read().ok();
+        let leftover_player = players
+            .as_ref()
             .and_then(|list| list.find_player_by_name(&player_name));
 
         // C++ playerFromParam: missing player is false without latch.
@@ -347,8 +347,7 @@ impl ScriptConditionEvaluator {
 
         let player_arc =
             leftover_player.ok_or_else(|| ScriptError::PlayerNotFound(player_name.clone()))?;
-        let player_guard = Ok(player_arc)
-            .map_err(|_| ScriptError::ExecutionFailed("Failed to read player".to_string()))?;
+        let player_guard = player_arc;
 
         let trigger = self.get_trigger_area(&area_name)?;
         let center = trigger.get_center_point();
@@ -370,15 +369,12 @@ impl ScriptConditionEvaluator {
                     if owner_id == player_guard.get_player_index() as u32 {
                         return false;
                     }
-                    if let Some(owner_arc) = player_list()
-                        .read()
-                        .ok()
-                        .and_then(|list| list.get_player(owner_id as i32))
-                    {
-                        let owner_guard = owner_arc;
-                        let rel = player_guard.get_relationship(&owner_guard);
-                        if matches!(rel, Relationship::Allies) {
-                            return false;
+                    if let Some(players) = player_list().read().ok() {
+                        if let Some(owner_guard) = players.get_player(owner_id as i32) {
+                            let rel = player_guard.get_relationship(&owner_guard);
+                            if matches!(rel, Relationship::Allies) {
+                                return false;
+                            }
                         }
                     }
                     true
@@ -461,9 +457,9 @@ impl ScriptConditionEvaluator {
         for obj_id in members {
             {
                 enum _ObjFlow<T> { Cont, Ret(T), Fall }
-                let _flow = OBJECT_REGISTRY.with_object(obj_id, |obj_guard| {
+                let _flow = OBJECT_REGISTRY.with_object_mut(obj_id, |obj_guard| {
                     
-                    let Some(is_ready) = self.command_button_ready_for_object(&obj_guard, command_button)
+                    let Some(is_ready) = self.command_button_ready_for_object(obj_guard, command_button)
                     else {
                         return _ObjFlow::Cont;
                     };
@@ -490,7 +486,7 @@ impl ScriptConditionEvaluator {
 
     pub(crate) fn command_button_ready_for_object(
         &self,
-        obj: &crate::object::Object,
+        obj: &mut crate::object::Object,
         command_button: &crate::command_button::CommandButton,
     ) -> Option<bool> {
         leftover_command_button_ready_for_object(obj, command_button)
@@ -514,14 +510,13 @@ impl ScriptConditionEvaluator {
             }
         }
 
-        let neutral_player = player_list()
-            .read()
-            .ok()
+        let players = player_list().read().ok();
+        let neutral_guard = players
+            .as_ref()
             .and_then(|list| list.get_neutral_player())
-            .ok_or_else(|| ScriptError::ExecutionFailed("Neutral player not found".to_string()))?;
-        let neutral_guard = Ok(neutral_player).map_err(|_| {
-            ScriptError::ExecutionFailed("Failed to read neutral player".to_string())
-        })?;
+            .ok_or_else(|| {
+                ScriptError::ExecutionFailed("Neutral player not found".to_string())
+            })?;
         let neutral_id = neutral_guard.get_player_index() as u32;
 
         let mut count = 0;
@@ -590,13 +585,11 @@ impl ScriptConditionEvaluator {
                 });
             }
         }
-        let player_arc = player_list()
-            .read()
-            .ok()
+        let players = player_list().read().ok();
+        let player_guard = players
+            .as_ref()
             .and_then(|list| list.find_player_by_name(&player_name))
             .ok_or_else(|| ScriptError::PlayerNotFound(player_name.clone()))?;
-        let player_guard = Ok(player_arc)
-            .map_err(|_| ScriptError::ExecutionFailed("Failed to read player".to_string()))?;
 
         let mut types = crate::object::object_types::ObjectTypes::new();
         let type_name = object_type.get_string();
@@ -638,13 +631,11 @@ impl ScriptConditionEvaluator {
             }
         }
 
-        let player_arc = player_list()
-            .read()
-            .ok()
+        let players = player_list().read().ok();
+        let player_guard = players
+            .as_ref()
             .and_then(|list| list.find_player_by_name(&player_name))
             .ok_or_else(|| ScriptError::PlayerNotFound(player_name.clone()))?;
-        let player_guard = Ok(player_arc)
-            .map_err(|_| ScriptError::ExecutionFailed("Failed to read player".to_string()))?;
         let player_id = player_guard.get_player_index() as u32;
 
         let mut count = 0;
@@ -714,13 +705,11 @@ impl ScriptConditionEvaluator {
             }
         }
 
-        let player_arc = player_list()
-            .read()
-            .ok()
+        let players = player_list().read().ok();
+        let player_guard = players
+            .as_ref()
             .and_then(|list| list.find_player_by_name(&player_name))
             .ok_or_else(|| ScriptError::PlayerNotFound(player_name.clone()))?;
-        let player_guard = Ok(player_arc)
-            .map_err(|_| ScriptError::ExecutionFailed("Failed to read player".to_string()))?;
         let player_id = player_guard.get_player_index() as u32;
 
         let mut count = 0;
@@ -1358,7 +1347,7 @@ impl ScriptConditionEvaluator {
 }
 
 pub(crate) fn leftover_command_button_ready_for_object(
-    obj: &crate::object::Object,
+    obj: &mut crate::object::Object,
     command_button: &crate::command_button::CommandButton,
 ) -> Option<bool> {
     if let Some(template) = command_button.get_special_power_template() {
@@ -1387,11 +1376,10 @@ pub(crate) fn leftover_command_button_ready_for_object(
     }
 
     let player_id = obj.get_controlling_player_id()?;
-    let player_arc = {
-        let list = player_list().read().ok()?;
-        list.get_player(player_id as i32)?
-    };
-    let player_guard = Ok(player_arc).ok()?;
+    let player_list_guard = player_list().read().ok()?;
+    let player_guard = player_list_guard
+        .get_player(player_id as i32)?;
+
 
     if player_guard.has_upgrade_complete(upgrade) || player_guard.has_upgrade_in_production(upgrade)
     {
