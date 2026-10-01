@@ -233,32 +233,24 @@ impl ScriptActionDispatcher {
         }
 
         let team_arc = self.get_team_by_name(&team_name)?;
-        let members = team_arc
-            .read()
-            .map_err(|e| ScriptError::ExecutionFailed(format!("Failed to read team: {}", e)))?
-            .get_members()
-            .to_vec();
+        let members = crate::team::with_team(team_arc, |team| team.get_members().to_vec())
+            .unwrap_or_default();
 
         for object_id in members {
             {
                 enum _ObjFlow<T> { Cont, Ret(T), Fall }
-                let _flow = OBJECT_REGISTRY.with_object(object_id, |obj| {
-                    
+                let _flow = OBJECT_REGISTRY.with_object_mut(object_id, |obj| {
                     let position = *obj.get_position();
-                    let Some(ai_arc) = obj.get_ai_update_interface() else {
+                    let Some(ai) = obj.get_ai_update_interface_mut() else {
                         return _ObjFlow::Cont;
                     };
-                    drop(obj);
-                    
-                    if let Ok(mut ai) = ai_arc.lock() {
-                        let mut params = AiCommandParams::new(
-                            AiCommandType::GuardPosition,
-                            CommandSourceType::FromScript,
-                        );
-                        params.pos = position;
-                        params.int_value = GuardMode::Normal.as_i32();
-                        let _ = ai.execute_command(&params);
-                    };
+                    let mut params = AiCommandParams::new(
+                        AiCommandType::GuardPosition,
+                        CommandSourceType::FromScript,
+                    );
+                    params.pos = position;
+                    params.int_value = GuardMode::Normal.as_i32();
+                    let _ = ai.execute_command(&params);
                     _ObjFlow::Fall
                 });
                 match _flow {
@@ -290,16 +282,18 @@ impl ScriptActionDispatcher {
             return Ok(ScriptActionResult::Success);
         }
 
-        // C++ parity: TeamDelete delegates to Team::deleteTeam(ignoreDead=false).
         let factory = get_team_factory();
+        // C++ parity: TeamDelete delegates to Team::deleteTeam(ignoreDead=false).
         if let Ok(mut factory_guard) = factory.lock() {
-            if let Some(team_arc) = factory_guard.find_team(&team_name) {
-                if let Ok(mut team_guard) = team_arc.write() {
-                    team_guard.delete_team(false);
+            match factory_guard.find_team(&team_name) {
+                Some(team_id) => {
+                    let _ =
+                        crate::team::with_team_mut(team_id, |team| team.delete_team(false));
                     log::info!("Team '{}' deleted successfully", team_name);
                 }
-            } else {
-                log::warn!("Team '{}' not found for deletion", team_name);
+                None => {
+                    log::warn!("Team '{}' not found for deletion", team_name);
+                }
             }
         }
 
@@ -321,17 +315,18 @@ impl ScriptActionDispatcher {
             return Ok(ScriptActionResult::Success);
         }
 
-        // Get team by name and kill all members
         let factory = get_team_factory();
+        // Get team by name and kill all members
         if let Ok(mut factory_guard) = factory.lock() {
-            if let Some(team_arc) = factory_guard.find_team(&team_name) {
-                if let Ok(mut team_guard) = team_arc.write() {
+            match factory_guard.find_team(&team_name) {
+                Some(team_id) => {
                     // Kill all team members (with death effects)
-                    team_guard.kill_team();
+                    let _ = crate::team::with_team_mut(team_id, |team| team.kill_team());
                     log::info!("Team '{}' killed successfully", team_name);
                 }
-            } else {
-                log::warn!("Team '{}' not found for kill", team_name);
+                None => {
+                    log::warn!("Team '{}' not found for kill", team_name);
+                }
             }
         }
 
@@ -361,7 +356,9 @@ impl ScriptActionDispatcher {
             .lock()
             .ok()
             .and_then(|mut factory| factory.find_team(&team_name))
-            .and_then(|team| team.read().ok().map(|team| team.get_members().to_vec()))
+            .and_then(|team_id| {
+                crate::team::with_team(team_id, |team| team.get_members().to_vec())
+            })
             .unwrap_or_default();
         if members.is_empty() {
             log::warn!("Team '{}' not found for damage", team_name);
@@ -409,16 +406,19 @@ impl ScriptActionDispatcher {
 
         log::info!("Setting team '{}' state to '{}'", team_name, state_name);
 
-        // Get team by name and set its state
         let factory = get_team_factory();
+        // Get team by name and set its state
         if let Ok(mut factory_guard) = factory.lock() {
-            if let Some(team_arc) = factory_guard.find_team(&team_name) {
-                if let Ok(mut team_guard) = team_arc.write() {
-                    team_guard.set_state(state_name.clone().into());
+            match factory_guard.find_team(&team_name) {
+                Some(team_id) => {
+                    let _ = crate::team::with_team_mut(team_id, |team| {
+                        team.set_state(state_name.clone().into())
+                    });
                     log::info!("Team '{}' state set to '{}'", team_name, state_name);
                 }
-            } else {
-                log::warn!("Team '{}' not found for state change", team_name);
+                None => {
+                    log::warn!("Team '{}' not found for state change", team_name);
+                }
             }
         }
 
@@ -456,7 +456,7 @@ impl ScriptActionDispatcher {
 
         let team_arc = self.get_team_by_name(&team_name)?;
         let Some(team_center) = self
-            .compute_team_center_and_first(&team_arc)
+            .compute_team_center_and_first(team_arc)
             .map(|(center, _)| center)
         else {
             return Ok(ScriptActionResult::Success);
@@ -559,10 +559,10 @@ impl ScriptActionDispatcher {
             }
         };
 
-        if let Some(team_arc) = &team_arc {
-            if let Ok(mut team) = team_arc.write() {
+        if let Some(team_id) = team_arc {
+            let _ = crate::team::with_team_mut(team_id, |team| {
                 team.add_member(object_id);
-            }
+            });
         }
 
         let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(object_id, |obj| {
@@ -771,11 +771,11 @@ impl ScriptActionDispatcher {
         };
 
         let moved = OBJECT_REGISTRY.with_object_mut(object_id, |obj_guard| {
-            let Some(ai_arc) = obj_guard.get_ai_update_interface() else {
+            obj_guard.leave_group();
+            let Some(ai_guard) = obj_guard.get_ai_update_interface_mut() else {
                 return false;
             };
-            obj_guard.leave_group();
-            if let Ok(mut ai_guard) = ai_arc.lock() {
+            {
                 // C++ ScriptActions.cpp:433-436 clearWaypointQueue first.
                 ai_guard.clear_waypoint_queue();
                 let _ = ai_guard.choose_locomotor_set(crate::common::LocomotorSetType::Normal);
@@ -898,9 +898,8 @@ impl ScriptActionDispatcher {
 
         if let Some(object_id) = object_id_opt {
             // Get the object and issue hunt command via AI interface
-            let hunted = OBJECT_REGISTRY.with_object(object_id, |obj| {
-                let ai_arc = obj.get_ai_update_interface()?;
-                if let Ok(mut ai) = ai_arc.lock() {
+            let hunted = OBJECT_REGISTRY.with_object_mut(object_id, |obj| {
+                let ai = obj.get_ai_update_interface_mut()?;
                     let _ = ai.choose_locomotor_set(crate::common::LocomotorSetType::Normal);
                     let hunt_params = AiCommandParams::new(
                         AiCommandType::Hunt,
@@ -912,7 +911,6 @@ impl ScriptActionDispatcher {
                         unit_name,
                         object_id
                     );
-                }
                 Some(())
             });
             match hunted {
@@ -949,9 +947,9 @@ impl ScriptActionDispatcher {
             // Get the object and issue guard command via AI interface
             let guarded = OBJECT_REGISTRY.with_object_mut(object_id, |obj_guard| {
                 let position = *obj_guard.get_position();
-                let ai_arc = obj_guard.get_ai_update_interface()?;
                 obj_guard.leave_group();
-                if let Ok(mut ai) = ai_arc.lock() {
+                let ai = obj_guard.get_ai_update_interface_mut()?;
+                {
                     let _ = ai.choose_locomotor_set(crate::common::LocomotorSetType::Normal);
                     let mut guard_params = AiCommandParams::new(
                         AiCommandType::GuardPosition,
@@ -998,9 +996,9 @@ impl ScriptActionDispatcher {
         let object_id_opt = tracker.get_object_id(&unit_name).ok().flatten();
 
         if let Some(object_id) = object_id_opt {
-            let stopped = OBJECT_REGISTRY.with_object(object_id, |obj| {
-                let ai_arc = obj.get_ai_update_interface()?;
-                if let Ok(mut ai) = ai_arc.lock() {
+            let stopped = OBJECT_REGISTRY.with_object_mut(object_id, |obj| {
+                let ai = obj.get_ai_update_interface_mut()?;
+                {
                     let params = AiCommandParams::new(
                         AiCommandType::Idle,
                         CommandSourceType::FromScript,

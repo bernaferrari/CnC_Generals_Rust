@@ -202,7 +202,7 @@ impl ScriptActionDispatcher {
         let Ok(Some(target_id)) = tracker.get_object_id(&target_name) else {
             return Ok(ScriptActionResult::Success);
         };
-        let can_use = crate::object::registry::OBJECT_REGISTRY.with_object(source_obj, |src_guard| {
+        let can_use = crate::object::registry::OBJECT_REGISTRY.with_object_mut(source_obj, |src_guard| {
             crate::object::registry::OBJECT_REGISTRY.with_object(target_id, |target_guard| {
                 command_button.is_valid_to_use_on(
                     src_guard,
@@ -676,9 +676,9 @@ impl ScriptActionDispatcher {
         for member_id in members {
             {
                 enum _ObjFlow<T> { Cont, Ret(T), Fall }
-                let _flow = OBJECT_REGISTRY.with_object(member_id, |obj_guard| {
+                let _flow = OBJECT_REGISTRY.with_object_mut(member_id, |obj_guard| {
                     if command_button.is_valid_to_use_on(
-                        &obj_guard,
+                        obj_guard,
                         None,
                         None,
                         CommandSourceType::FromScript,
@@ -940,7 +940,7 @@ impl ScriptActionDispatcher {
                 return false;
             }
             crate::object::registry::OBJECT_REGISTRY
-                .with_object(source_id, |source_guard| {
+                .with_object_mut(source_id, |source_guard| {
                     if !extra_filter(source_guard, candidate) {
                         return false;
                     }

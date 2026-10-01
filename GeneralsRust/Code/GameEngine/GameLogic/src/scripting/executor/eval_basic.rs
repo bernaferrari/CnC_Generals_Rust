@@ -37,11 +37,7 @@ impl ScriptConditionEvaluator {
                         .read()
                         .ok()
                         .and_then(|list| list.get_local_player())
-                        .and_then(|p| {
-                            Ok(p).ok().and_then(|p| {
-                                NameKeyGenerator::key_to_name(p.get_player_name_key())
-                            })
-                        })
+                        .and_then(|p| NameKeyGenerator::key_to_name(p.get_player_name_key()))
                         .unwrap_or_else(|| raw.to_string())
                 }
             }
@@ -52,11 +48,7 @@ impl ScriptConditionEvaluator {
                 .read()
                 .ok()
                 .and_then(|list| list.get_local_player())
-                .and_then(|p| {
-                    Ok(p)
-                        .ok()
-                        .and_then(|p| NameKeyGenerator::key_to_name(p.get_player_name_key()))
-                })
+                .and_then(|p| NameKeyGenerator::key_to_name(p.get_player_name_key()))
                 .unwrap_or_else(|| raw.to_string()),
             THIS_TEAM => with_script_engine_ref(|engine| {
                 engine
@@ -893,7 +885,7 @@ impl ScriptConditionEvaluator {
         let player_index = if let Ok(players) = player_list().read() {
             players
                 .find_player_by_name(&player_name)
-                .and_then(|arc| Ok(arc).ok().map(|p| p.get_player_index() as usize))
+                .map(|p| p.get_player_index() as usize)
         } else {
             None
         };
@@ -960,8 +952,7 @@ impl ScriptConditionEvaluator {
                 .or_else(|| {
                     let players = player_list().read().ok()?;
                     let player_arc = players.find_player_by_name(&player_name)?;
-                    Ok(player_arc)
-                        .ok()
+                    player_arc
                         .map(|p| p.get_science_purchase_points())
                 })
                 .unwrap_or(0);
@@ -1059,7 +1050,7 @@ impl ScriptConditionEvaluator {
         let leftover_player = player_list().read().ok().and_then(|players| {
             players
                 .find_player_by_name(&player_name)
-                .and_then(|arc| Ok(arc).ok().map(|p| p.get_player_index()))
+                .map(|p| p.get_player_index())
         });
 
         if let Some(sum_of_objs) =
@@ -1139,9 +1130,7 @@ impl ScriptConditionEvaluator {
         let Some(opponent_arc) = players.find_player_by_name(&opponent_name) else {
             return Ok(ScriptConditionResult::False);
         };
-        if Ok(player_arc).is_err() || Ok(opponent_arc).is_err() {
-            return Ok(ScriptConditionResult::False);
-        }
+
 
         Ok(ScriptConditionResult::False)
     }

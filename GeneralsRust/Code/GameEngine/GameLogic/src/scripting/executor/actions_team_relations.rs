@@ -1623,25 +1623,25 @@ impl ScriptActionDispatcher {
         let mut source_off_map = false;
         let mut source_pos = estimate_team_pos.unwrap_or(Coord3D::new(0.0, 0.0, 0.0));
         for &member_id in &members {
-            {
-                enum _ObjFlow<T> { Cont, Ret(T), Fall }
-                let _flow = OBJECT_REGISTRY.with_object(member_id, |obj| {
-                    if obj.get_ai_update_interface().is_some() {
-                        source_object_id = member_id;
-                        source_off_map = obj.is_off_map();
-                        if estimate_team_pos.is_none() {
-                            source_pos = *obj.get_position();
-                        }
-                        break;
-                    }
-                    _ObjFlow::Fall
-                });
-                match _flow {
-                    None | Some(_ObjFlow::Cont) => continue,
-                    Some(_ObjFlow::Ret(v)) => return v,
-                    Some(_ObjFlow::Fall) => {}
+            // C++ picks the first team member with an AI update (scan, then
+            // break); the snapshot keeps the break outside the checkout.
+            let Some((off_map, position)) = OBJECT_REGISTRY.with_object(member_id, |obj| {
+                if obj.get_ai_update_interface().is_some() {
+                    Some((obj.is_off_map(), *obj.get_position()))
+                } else {
+                    None
                 }
+            })
+            .flatten()
+            else {
+                continue;
+            };
+            source_object_id = member_id;
+            source_off_map = off_map;
+            if estimate_team_pos.is_none() {
+                source_pos = position;
             }
+            break;
         }
         if source_object_id == INVALID_ID {
             return Ok(ScriptActionResult::Success);

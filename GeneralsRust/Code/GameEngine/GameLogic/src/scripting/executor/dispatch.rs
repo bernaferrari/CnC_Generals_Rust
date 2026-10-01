@@ -16,12 +16,11 @@ impl ScriptActionDispatcher {
                     player_list()
                         .read()
                         .ok()
-                        .and_then(|list| list.get_local_player().cloned())
-                        .and_then(|p| {
-                            p.read().ok().and_then(|p| {
-                                NameKeyGenerator::key_to_name(p.get_player_name_key())
-                            })
+                    .and_then(|list| {
+                        list.get_local_player().and_then(|p| {
+                            NameKeyGenerator::key_to_name(p.get_player_name_key())
                         })
+                    })
                         .unwrap_or_else(|| raw.to_string())
                 }
             }
@@ -31,11 +30,10 @@ impl ScriptActionDispatcher {
             LOCAL_PLAYER => player_list()
                 .read()
                 .ok()
-                .and_then(|list| list.get_local_player().cloned())
-                .and_then(|p| {
-                    p.read()
-                        .ok()
-                        .and_then(|p| NameKeyGenerator::key_to_name(p.get_player_name_key()))
+                .and_then(|list| {
+                    list.get_local_player().and_then(|p| {
+                        NameKeyGenerator::key_to_name(p.get_player_name_key())
+                    })
                 })
                 .unwrap_or_else(|| raw.to_string()),
             _ => raw.to_string(),
@@ -59,9 +57,13 @@ impl ScriptActionDispatcher {
                 player_list()
                     .read()
                     .ok()
-                    .and_then(|list| list.get_local_player().cloned())
-                    .and_then(|p| p.read().ok().and_then(|p| p.get_default_team()))
-                    .and_then(|team| team.read().ok().map(|t| t.get_name().to_string()))
+                    .and_then(|list| {
+                        list.get_local_player()
+                            .and_then(|p| p.get_default_team_id())
+                    })
+                    .and_then(|team_id| {
+                        crate::team::with_team(team_id, |t| t.get_name().to_string())
+                    })
                     .unwrap_or_else(|| raw.to_string())
             }
             _ => raw.to_string(),
@@ -974,7 +976,7 @@ impl ScriptActionDispatcher {
         let mut count = 0.0;
         let mut first_unit: Option<crate::common::ObjectID> = None;
 
-        for &member_id in members {
+        for member_id in members {
             let Some(pos) = OBJECT_REGISTRY.with_object(member_id, |obj| *obj.get_position()) else {
                 continue;
             };
@@ -983,7 +985,7 @@ impl ScriptActionDispatcher {
             sum.z += pos.z;
             count += 1.0;
             if first_unit.is_none() {
-                first_unit = Some(member_id);
+                first_unit = Some(*member_id);
             }
         }
 
@@ -1558,10 +1560,8 @@ impl ScriptActionDispatcher {
             return Ok(false);
         };
 
-        let members = team_arc
-            .read()
-            .map(|team| team.get_members().to_vec())
-            .map_err(|_| ScriptError::ExecutionFailed("Failed to read team".to_string()))?;
+        let members = crate::team::with_team(team_arc, |team| team.get_members().to_vec())
+            .ok_or_else(|| ScriptError::ExecutionFailed("Failed to read team".to_string()))?;
 
         for obj_id in members {
             {
