@@ -519,8 +519,9 @@ impl GenericObjectCreationNugget {
         lifetime_frames: UnsignedInt,
     ) {
         // Lock the object for reading (most operations are reads)
-        let Ok(obj_read) = obj.read() else {
-            return; // Failed to lock, skip this object
+        let mut obj_read = match obj.read() {
+            Ok(guard) => guard,
+            Err(_) => return, // Failed to lock, skip this object
         };
 
         // C++ ObjectCreationList.cpp:918-934 — LifetimeUpdate override when the module exists.
@@ -578,18 +579,24 @@ impl GenericObjectCreationNugget {
         // Matches C++ lines 996-1006
         if self.inherit_veterancy {
             if let Some(src) = source_obj {
-                if let Some(exp_tracker) = obj_read.get_experience_tracker() {
-                    if let Ok(mut tracker_guard) = exp_tracker.lock() {
+                drop(obj_read);
+                if let Ok(mut obj_write) = obj.write() {
+                    let object_id = obj_write.get_id();
+                    let _ = obj_write.with_experience_tracker_mut(|tracker_guard| {
                         if tracker_guard.is_trainable() {
                             let level = src.get_veterancy_level();
                             tracker_guard.set_veterancy_level(level);
                             // C++ TheScriptEngine->transferObjectName(sourceObj->getName(), obj)
                             let _ = crate::scripting::engine::transfer_object_name(
                                 src.get_name(),
-                                obj_read.get_id(),
+                                object_id,
                             );
                         }
-                    }
+                    });
+                }
+                match obj.read() {
+                    Ok(guard) => obj_read = guard,
+                    Err(_) => return,
                 }
             }
         }

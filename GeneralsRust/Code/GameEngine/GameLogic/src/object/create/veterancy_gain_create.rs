@@ -100,7 +100,7 @@ impl CreateInterface for VeterancyGainCreate {
         };
 
         let promotion = {
-            let Ok(object_guard) = object_arc.read() else {
+            let Ok(mut object_guard) = object_arc.write() else {
                 return;
             };
             let Some(player) = object_guard.get_controlling_player() else {
@@ -116,27 +116,21 @@ impl CreateInterface for VeterancyGainCreate {
             }
             drop(player_guard);
 
-            if let Some(exp_tracker) = object_guard.get_experience_tracker() {
-                if let Ok(mut tracker_guard) = exp_tracker.lock() {
-                    if tracker_guard.is_trainable() {
-                        tracker_guard
-                            .set_min_veterancy_level(
-                                self.module_data.starting_level,
-                                &ExperienceTracker::DEFAULT_EXPERIENCE_REQUIRED,
-                            )
-                            .map(|old_level| (old_level, tracker_guard.get_veterancy_level()))
-                    } else {
-                        None
-                    }
+            object_guard.with_experience_tracker_mut(|tracker_guard| {
+                if tracker_guard.is_trainable() {
+                    tracker_guard
+                        .set_min_veterancy_level(
+                            self.module_data.starting_level,
+                            &ExperienceTracker::DEFAULT_EXPERIENCE_REQUIRED,
+                        )
+                        .map(|old_level| (old_level, tracker_guard.get_veterancy_level()))
                 } else {
                     None
                 }
-            } else {
-                None
-            }
+            })
         };
 
-        if let Some((old_level, new_level)) = promotion {
+        if let Some((old_level, new_level)) = promotion.flatten() {
             if let Ok(mut object_guard) = object_arc.write() {
                 object_guard.on_veterancy_level_changed(old_level, new_level, true);
             }

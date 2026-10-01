@@ -17,7 +17,7 @@ use crate::damage::DamageInfo;
 use crate::helpers::{TheGameLogic, TheThingFactory};
 use crate::modules::{
     BodyModuleGuardExt, BodyModuleInterfaceExt, ContainModuleInterface, ContainModuleInterfaceExt,
-    ExperienceTrackerExt, UpdateSleepTime,
+    UpdateSleepTime,
 };
 use crate::object::{Object, ObjectId};
 use crate::player::Player;
@@ -380,10 +380,9 @@ impl OverlordContain {
             if self.module_data.experience_sink_for_rider {
                 let owner_id = self.get_object_id();
                 if owner_id != crate::common::INVALID_ID {
-                    if let Ok(obj_guard) = obj.read() {
-                        if let Some(tracker) = obj_guard.get_experience_tracker() {
-                            tracker.set_experience_sink(owner_id);
-                        }
+                    if let Ok(mut obj_guard) = obj.write() {
+                        let _ = obj_guard
+                            .with_experience_tracker_mut(|t| t.set_experience_sink(owner_id));
                     }
                 }
             }

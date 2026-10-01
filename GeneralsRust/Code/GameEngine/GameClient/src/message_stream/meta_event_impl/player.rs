@@ -83,22 +83,20 @@ fn adjust_local_selection_veterancy(delta: i32) {
         let Ok(mut object) = object_arc.write() else {
             continue;
         };
-        let Some(tracker_arc) = object.get_experience_tracker() else {
+        let promoted = object.with_experience_tracker_mut(|tracker| {
+            if !tracker.is_trainable() {
+                return None;
+            }
+            let old_level = tracker.get_veterancy_level();
+            let new_level = old_level.saturating_add_levels(delta);
+            tracker
+                .set_veterancy_level(new_level)
+                .map(|_| (old_level, new_level))
+        });
+        let Some((old_level, new_level)) = promoted.flatten() else {
             continue;
         };
-        let Ok(mut tracker) = tracker_arc.lock() else {
-            continue;
-        };
-        if !tracker.is_trainable() {
-            continue;
-        }
-
-        let old_level = tracker.get_veterancy_level();
-        let new_level = old_level.saturating_add_levels(delta);
-        if tracker.set_veterancy_level(new_level).is_some() {
-            drop(tracker);
-            object.on_veterancy_level_changed(old_level, new_level, true);
-        }
+        object.on_veterancy_level_changed(old_level, new_level, true);
     }
 }
 

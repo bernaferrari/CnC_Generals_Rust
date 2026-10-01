@@ -956,7 +956,7 @@ impl Object {
                 }
             }
 
-            guard.experience_tracker = Some(Arc::new(Mutex::new(ExperienceTracker::new(guard.id))));
+            guard.experience_tracker = Some(Box::new(ExperienceTracker::new(guard.id)));
             // C++ Object.cpp:454-456 — starting rank from Player::getProductionVeterancyLevel.
             let production_level = {
                 let template_name = guard.get_template_name().to_string();
@@ -969,14 +969,15 @@ impl Object {
                     })
                     .unwrap_or(crate::common::types::VeterancyLevel::Regular)
             };
-            if let Some(tracker) = guard.experience_tracker.clone() {
-                if let Ok(mut tracker_guard) = tracker.lock() {
-                    if let Some(old_level) = tracker_guard.set_veterancy_level(production_level) {
-                        let new_level = tracker_guard.get_veterancy_level();
-                        drop(tracker_guard);
-                        guard.on_veterancy_level_changed(old_level, new_level, true);
-                    }
-                }
+            if let Some((old_level, new_level)) = guard
+                .with_experience_tracker_mut(|tracker_guard| {
+                    tracker_guard
+                        .set_veterancy_level(production_level)
+                        .map(|old_level| (old_level, tracker_guard.get_veterancy_level()))
+                })
+                .flatten()
+            {
+                guard.on_veterancy_level_changed(old_level, new_level, true);
             }
 
             let object_id = guard.id;

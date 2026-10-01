@@ -424,9 +424,7 @@ impl game_engine::common::rts::player::SkillPointObject for Object {
     fn get_veterancy_level(&self) -> i32 {
         // Get veterancy level from experience tracker if available
         if let Some(tracker) = &self.experience_tracker {
-            if let Ok(tracker_guard) = tracker.lock() {
-                return tracker_guard.get_veterancy_level() as i32;
-            }
+            return tracker.get_veterancy_level() as i32;
         }
         0
     }

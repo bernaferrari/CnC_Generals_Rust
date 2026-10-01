@@ -282,27 +282,26 @@ impl ExperienceTracker {
     ) -> Option<VeterancyLevel> {
         if self.experience_sink != Self::INVALID_ID {
             if let Some(sink) = TheGameLogic::find_object_by_id(self.experience_sink) {
-                if let Ok(sink_guard) = sink.read() {
-                    if let Some(tracker) = sink_guard.get_experience_tracker() {
-                        if let Ok(mut tracker_guard) = tracker.lock() {
-                            let forwarded_experience_gain =
-                                (experience_gain as f32 * self.experience_scalar) as i32;
+                if let Ok(mut sink_guard) = sink.write() {
+                    let forwarded_experience_gain =
+                        (experience_gain as f32 * self.experience_scalar) as i32;
+                    let transition = sink_guard
+                        .with_experience_tracker_mut(|tracker_guard| {
                             let promoted = tracker_guard.add_experience_points(
                                 forwarded_experience_gain,
                                 can_scale_for_bonus,
                                 experience_required,
                             );
                             let new_level = tracker_guard.get_veterancy_level();
-                            drop(tracker_guard);
-                            drop(sink_guard);
-                            if let Some(old_level) = promoted {
-                                if let Ok(mut sink_mut) = sink.write() {
-                                    sink_mut.on_veterancy_level_changed(old_level, new_level, true);
-                                }
-                            }
-                            return None;
-                        }
+                            (promoted, new_level)
+                        })
+                        .and_then(|(promoted, new_level)| {
+                            promoted.map(|old_level| (old_level, new_level))
+                        });
+                    if let Some((old_level, new_level)) = transition {
+                        sink_guard.on_veterancy_level_changed(old_level, new_level, true);
                     }
+                    return None;
                 }
                 return None;
             }
@@ -328,27 +327,26 @@ impl ExperienceTracker {
     ) -> Option<VeterancyLevel> {
         if self.experience_sink != Self::INVALID_ID {
             if let Some(sink) = TheGameLogic::find_object_by_id(self.experience_sink) {
-                if let Ok(sink_guard) = sink.read() {
-                    if let Some(tracker) = sink_guard.get_experience_tracker() {
-                        if let Ok(mut tracker_guard) = tracker.lock() {
-                            let forwarded =
-                                (experience_gain as f32 * self.experience_scalar) as i32;
+                if let Ok(mut sink_guard) = sink.write() {
+                    let forwarded_experience_gain =
+                        (experience_gain as f32 * self.experience_scalar) as i32;
+                    let transition = sink_guard
+                        .with_experience_tracker_mut(|tracker_guard| {
                             let promoted = tracker_guard.add_experience_points(
-                                forwarded,
+                                forwarded_experience_gain,
                                 can_scale_for_bonus,
                                 experience_required,
                             );
                             let new_level = tracker_guard.get_veterancy_level();
-                            drop(tracker_guard);
-                            drop(sink_guard);
-                            if let Some(old_level) = promoted {
-                                if let Ok(mut sink_mut) = sink.write() {
-                                    sink_mut.on_veterancy_level_changed(old_level, new_level, true);
-                                }
-                            }
-                            return None;
-                        }
+                            (promoted, new_level)
+                        })
+                        .and_then(|(promoted, new_level)| {
+                            promoted.map(|old_level| (old_level, new_level))
+                        });
+                    if let Some((old_level, new_level)) = transition {
+                        sink_guard.on_veterancy_level_changed(old_level, new_level, true);
                     }
+                    return None;
                 }
                 return None;
             }
@@ -451,12 +449,11 @@ impl ExperienceTracker {
     ) -> Option<VeterancyLevel> {
         if self.experience_sink != Self::INVALID_ID {
             if let Some(sink) = TheGameLogic::find_object_by_id(self.experience_sink) {
-                if let Ok(sink_guard) = sink.read() {
-                    if let Some(tracker) = sink_guard.get_experience_tracker() {
-                        if let Ok(mut tracker_guard) = tracker.lock() {
-                            return tracker_guard
-                                .set_experience_and_level(experience, experience_required);
-                        }
+                if let Ok(mut sink_guard) = sink.write() {
+                    if let Some(promoted) = sink_guard.with_experience_tracker_mut(|guard| {
+                        guard.set_experience_and_level(experience, experience_required)
+                    }) {
+                        return promoted;
                     }
                 }
                 return None;

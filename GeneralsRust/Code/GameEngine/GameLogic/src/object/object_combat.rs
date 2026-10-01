@@ -438,39 +438,31 @@ impl Object {
         }
 
         // Now handle experience, if we can gain any
-        let template_trainable = self.get_template().is_trainable();
-        let promotion = if let Some(tracker) = &self.experience_tracker {
-            if let Ok(mut tracker_guard) = tracker.lock() {
-                let accepting = template_trainable || tracker_guard.has_experience_sink();
-                if accepting {
-                    // srj sez: per dustin, no experience (et al) for killing things under construction.
-                    if !victim.test_status(ObjectStatusTypes::UnderConstruction) {
-                        let level = victim
-                            .experience_tracker
-                            .as_ref()
-                            .and_then(|tracker| tracker.lock().ok())
-                            .map(|guard| guard.get_veterancy_level() as usize)
-                            .unwrap_or(0);
-                        // C++ ExperienceTracker::getExperienceValue: ally → 0,
-                        // else template table at the victim's current level.
-                        // score_the_kill has already required Enemies.
-                        let experience_value = victim.get_template().get_experience_value(level);
-                        let required = [
-                            self.get_template().get_experience_required(0),
-                            self.get_template().get_experience_required(1),
-                            self.get_template().get_experience_required(2),
-                            self.get_template().get_experience_required(3),
-                        ];
-                        tracker_guard
-                            .add_experience_points_already_accepted(
-                                experience_value,
-                                true,
-                                &required,
-                            )
-                            .map(|old_level| (old_level, tracker_guard.get_veterancy_level()))
-                    } else {
-                        None
-                    }
+        let template = self.get_template();
+        let template_trainable = template.is_trainable();
+        let required = [
+            template.get_experience_required(0),
+            template.get_experience_required(1),
+            template.get_experience_required(2),
+            template.get_experience_required(3),
+        ];
+        let victim_level = victim
+            .experience_tracker
+            .as_ref()
+            .map(|tracker| tracker.get_veterancy_level() as usize)
+            .unwrap_or(0);
+        // C++ ExperienceTracker::getExperienceValue: ally → 0,
+        // else template table at the victim's current level.
+        // score_the_kill has already required Enemies.
+        let experience_value = victim.get_template().get_experience_value(victim_level);
+        let promotion = if let Some(tracker) = &mut self.experience_tracker {
+            let accepting = template_trainable || tracker.has_experience_sink();
+            if accepting {
+                // srj sez: per dustin, no experience (et al) for killing things under construction.
+                if !victim.test_status(ObjectStatusTypes::UnderConstruction) {
+                    tracker
+                        .add_experience_points_already_accepted(experience_value, true, &required)
+                        .map(|old_level| (old_level, tracker.get_veterancy_level()))
                 } else {
                     None
                 }
@@ -677,15 +669,29 @@ impl Object {
         }
     }
 
-    pub fn get_experience_tracker(&self) -> Option<Arc<Mutex<ExperienceTracker>>> {
-        self.experience_tracker.clone()
+    /// Run `f` with shared access to this object's experience tracker.
+    ///
+    /// Returns `None` when the object has no tracker. Replaces the former
+    /// Arc-cloning `get_experience_tracker`, so no caller can retain a
+    /// lockable handle to per-object state.
+    pub fn with_experience_tracker<R>(
+        &self,
+        f: impl FnOnce(&ExperienceTracker) -> R,
+    ) -> Option<R> {
+        self.experience_tracker.as_deref().map(f)
+    }
+
+    /// Run `f` with exclusive access to this object's experience tracker.
+    pub fn with_experience_tracker_mut<R>(
+        &mut self,
+        f: impl FnOnce(&mut ExperienceTracker) -> R,
+    ) -> Option<R> {
+        self.experience_tracker.as_deref_mut().map(f)
     }
 
     pub fn get_veterancy_level(&self) -> VeterancyLevel {
         if let Some(tracker) = &self.experience_tracker {
-            if let Ok(tracker_guard) = tracker.lock() {
-                return tracker_guard.get_veterancy_level();
-            }
+            return tracker.get_veterancy_level();
         }
         VeterancyLevel::Regular
     }
@@ -705,13 +711,9 @@ impl Object {
         new_level: VeterancyLevel,
         provide_feedback: bool,
     ) -> bool {
-        let Some(tracker) = &self.experience_tracker else {
-            return false;
-        };
-        let old_level = match tracker.lock() {
-            Ok(mut tracker_guard) => tracker_guard.set_veterancy_level(new_level),
-            Err(_) => return false,
-        };
+        let old_level = self
+            .with_experience_tracker_mut(|tracker| tracker.set_veterancy_level(new_level))
+            .flatten();
         let Some(old_level) = old_level else {
             return false;
         };
@@ -727,7 +729,9 @@ impl Object {
         experience: i32,
         provide_feedback: bool,
     ) -> bool {
-        let Some(tracker) = &self.experience_tracker else {
+        let Some(experience_sink) = self.with_experience_tracker(|tracker| {
+            tracker.get_experience_sink()
+        }) else {
             return false;
         };
 
@@ -735,13 +739,9 @@ impl Object {
         // template. Looking the owner up through ExperienceTracker while this
         // Object is write-locked would fail that self-read and silently skip
         // the reset. Resolve the owned facts directly, as addExperience does.
-        let (experience_sink, trainable, experience_required) = {
-            let Ok(tracker_guard) = tracker.lock() else {
-                return false;
-            };
+        let (trainable, experience_required) = {
             let template = self.get_template();
             (
-                tracker_guard.get_experience_sink(),
                 template.is_trainable(),
                 [
                     template.get_experience_required(0),
@@ -771,11 +771,12 @@ impl Object {
             return false;
         }
 
-        let old_level = match tracker.lock() {
-            Ok(mut tracker_guard) => tracker_guard
-                .set_experience_and_level_already_accepted(experience, &experience_required),
-            Err(_) => return false,
-        };
+        let old_level = self
+            .with_experience_tracker_mut(|tracker_guard| {
+                tracker_guard
+                    .set_experience_and_level_already_accepted(experience, &experience_required)
+            })
+            .flatten();
         let Some(old_level) = old_level else {
             return false;
         };
@@ -792,9 +793,6 @@ impl Object {
         experience_gain: i32,
         can_scale_for_bonus: bool,
     ) -> bool {
-        let Some(tracker) = &self.experience_tracker else {
-            return false;
-        };
         let template_trainable = self.get_template().is_trainable();
         let required = [
             self.get_template().get_experience_required(0),
@@ -802,19 +800,18 @@ impl Object {
             self.get_template().get_experience_required(2),
             self.get_template().get_experience_required(3),
         ];
-        let old_level = match tracker.lock() {
-            Ok(mut tracker_guard) => {
+        let old_level = self
+            .with_experience_tracker_mut(|tracker_guard| {
                 if !template_trainable && !tracker_guard.has_experience_sink() {
-                    return false;
+                    return None;
                 }
                 tracker_guard.add_experience_points_already_accepted(
                     experience_gain,
                     can_scale_for_bonus,
                     &required,
                 )
-            }
-            Err(_) => return false,
-        };
+            })
+            .flatten();
         let Some(old_level) = old_level else {
             return false;
         };
@@ -2516,8 +2513,7 @@ mod veterancy_side_effect_tests {
         );
         template.parse_object_fields_from_ini(&fields);
         obj.set_template_for_test(Arc::new(template));
-        let tracker = Arc::new(Mutex::new(ExperienceTracker::new(id)));
-        obj.experience_tracker = Some(tracker);
+        obj.experience_tracker = Some(Box::new(ExperienceTracker::new(id)));
         obj
     }
 
@@ -2528,8 +2524,8 @@ mod veterancy_side_effect_tests {
         // promotion (ExperienceTracker.cpp:158-164): 50 XP × scalar 2.0 = 100,
         // the DEFAULT_EXPERIENCE_REQUIRED Veteran threshold.
         let mut obj = tracked_object(4242);
-        if let Some(tracker) = &obj.experience_tracker {
-            tracker.lock().expect("tracker").set_experience_scalar(2.0);
+        if let Some(tracker) = &mut obj.experience_tracker {
+            tracker.set_experience_scalar(2.0);
         }
 
         assert!(obj.add_experience_points_with_side_effects(50, true));

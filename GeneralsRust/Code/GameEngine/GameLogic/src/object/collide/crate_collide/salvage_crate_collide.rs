@@ -409,25 +409,19 @@ impl SalvageCrateCollide {
             return Ok(false);
         };
 
-        let tracker = {
-            let guard = other
-                .read()
-                .map_err(|_| CollisionError::InvalidObject("object lock poisoned".into()))?;
-            match guard.get_experience_tracker() {
-                Some(tracker) => tracker,
-                None => return Ok(false),
-            }
-        };
+        let guard = other
+            .read()
+            .map_err(|_| CollisionError::InvalidObject("object lock poisoned".into()))?;
 
-        let tracker = tracker.lock().map_err(|_| {
-            CollisionError::InvalidObject("experience tracker lock poisoned".into())
-        })?;
-
-        if tracker.get_veterancy_level() == VeterancyLevel::Heroic {
-            return Ok(false);
+        match guard.with_experience_tracker(|tracker| {
+            (
+                tracker.get_veterancy_level() != VeterancyLevel::Heroic,
+                tracker.is_trainable(),
+            )
+        }) {
+            Some((not_heroic, trainable)) => Ok(not_heroic && trainable),
+            None => Ok(false),
         }
-
-        Ok(tracker.is_trainable())
     }
 
     fn test_weapon_chance(&self) -> bool {
@@ -490,28 +484,22 @@ impl SalvageCrateCollide {
             return Ok(());
         };
 
-        let tracker = {
-            let guard = other
-                .read()
-                .map_err(|_| CollisionError::InvalidObject("object lock poisoned".into()))?;
-            match guard.get_experience_tracker() {
-                Some(tracker) => tracker,
-                None => return Ok(()),
-            }
-        };
+        let mut guard = other
+            .write()
+            .map_err(|_| CollisionError::InvalidObject("object lock poisoned".into()))?;
 
-        let mut tracker = tracker.lock().map_err(|_| {
-            CollisionError::InvalidObject("experience tracker lock poisoned".into())
-        })?;
-        let old_level = tracker.get_veterancy_level();
-        if tracker.gain_exp_for_level(1, true, &ExperienceTracker::DEFAULT_EXPERIENCE_REQUIRED) {
-            let new_level = tracker.get_veterancy_level();
-            drop(tracker);
+        let promoted = guard.with_experience_tracker_mut(|tracker| {
+            let old_level = tracker.get_veterancy_level();
+            if tracker.gain_exp_for_level(1, true, &ExperienceTracker::DEFAULT_EXPERIENCE_REQUIRED)
+            {
+                Some((old_level, tracker.get_veterancy_level()))
+            } else {
+                None
+            }
+        });
+        if let Some((old_level, new_level)) = promoted.flatten() {
             if old_level != new_level {
-                other
-                    .write()
-                    .map_err(|_| CollisionError::InvalidObject("object lock poisoned".into()))?
-                    .on_veterancy_level_changed(old_level, new_level, true);
+                guard.on_veterancy_level_changed(old_level, new_level, true);
             }
         }
         Ok(())
