@@ -221,20 +221,24 @@ impl SpecialPowerModule {
         if self.paused_count == 0 {
             if let Some(template) = &self.module_data.special_power_template {
                 if template.is_shared_n_sync() && template.has_public_timer() && is_structure {
-                    if let Some(owner) = TheGameLogic::find_object_by_id(self.owner_object_id) {
-                        if let Ok(owner_guard) = owner.read() {
-                            if let Some(player) = owner_guard.get_controlling_player() {
-                                if let Ok(player_guard) = player.read() {
-                                    let player_index = player_guard.get_player_index();
-                                    TheInGameUI::add_superweapon(
-                                        player_index,
-                                        self.get_power_name(),
-                                        self.owner_object_id,
-                                        template,
-                                    );
-                                }
-                            }
-                        }
+                    if let Some(player_index) =
+                        crate::object::registry::OBJECT_REGISTRY
+                            .with_object(self.owner_object_id, |owner_guard| {
+                                owner_guard.get_controlling_player().map(|player| {
+                                    crate::player::with_player(player, |player_guard| {
+                                        player_guard.get_player_index()
+                                    })
+                                })
+                            })
+                            .flatten()
+                            .flatten()
+                    {
+                        TheInGameUI::add_superweapon(
+                            player_index,
+                            self.get_power_name(),
+                            self.owner_object_id,
+                            template,
+                        );
                     }
                 }
             }
@@ -510,33 +514,33 @@ impl SpecialPowerModule {
                 return;
             };
 
-            let Some(owner) = TheGameLogic::find_object_by_id(self.owner_object_id) else {
-                return;
-            };
-            let Ok(owner_guard) = owner.read() else {
-                return;
-            };
-            let Some(player) = owner_guard.get_controlling_player() else {
-                return;
-            };
-            let Ok(player_guard) = player.read() else {
-                return;
-            };
-            let Some(team) = player_guard.get_default_team() else {
-                return;
-            };
-            let Ok(team_guard) = team.read() else {
+            let Some(team_id) = crate::object::registry::OBJECT_REGISTRY
+                .with_object(self.owner_object_id, |owner_guard| {
+                    owner_guard
+                        .get_controlling_player()
+                        .and_then(|player| {
+                            crate::player::with_player(player, |player_guard| {
+                                player_guard.get_default_team_id()
+                            })
+                        })
+                        .flatten()
+                })
+                .flatten()
+            else {
                 return;
             };
 
             let Ok(factory) = TheThingFactory::get() else {
                 return;
             };
-            let Ok(view_object) = factory.new_object(view_object_template, &team_guard) else {
+            let view_object = crate::team::with_team(team_id, |team_guard| {
+                factory.new_object(view_object_template, team_guard)
+            });
+            let Some(Ok(view_object)) = view_object else {
                 return;
             };
 
-            if let Ok(mut view_guard) = view_object.write() {
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(view_object, |view_guard| {
                 let _ = view_guard.set_position(pos);
                 view_guard.set_shroud_clearing_range(vision_range);
 
@@ -551,7 +555,7 @@ impl SpecialPowerModule {
                         deletion.set_lifetime_range(vision_duration, vision_duration);
                     }
                 }
-            };
+            });
         }
     }
 
