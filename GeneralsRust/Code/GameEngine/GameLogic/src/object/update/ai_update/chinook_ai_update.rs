@@ -18,7 +18,7 @@ use crate::helpers::{
     TheThingFactory, get_game_logic_random_value, get_game_logic_random_value_real,
 };
 use crate::modules::{
-    AIUpdateInterface, AIUpdateInterfaceExt, SupplyTruckAIInterface,
+    AIUpdateInterface, AIUpdateInterfaceExt, ExitInterface, SupplyTruckAIInterface,
 };
 use crate::object::Object;
 use crate::object::draw::draw_module::RGBColor;
@@ -805,16 +805,17 @@ impl ChinookAIUpdate {
             return None;
         }
 
-        let contained = crate::object::registry::OBJECT_REGISTRY.with_object(self.object_id, |owner_guard| {
-            owner_guard
-                .get_contain()
-                .map(|contain| contain.get_contained_objects())
-                .unwrap_or_default()
-        });
+        let contained = crate::object::registry::OBJECT_REGISTRY
+            .with_object(self.object_id, |owner_guard| {
+                owner_guard
+                    .get_contain()
+                    .map(|contain| contain.get_contained_objects().to_vec())
+                    .unwrap_or_default()
+            });
         let Some(contained) = contained else {
             return None;
         };
-        for object_id in contained {
+        for object_id in contained.iter().copied() {
             let is_rappeller = crate::object::registry::OBJECT_REGISTRY
                 .with_object(object_id, |obj_guard| obj_guard.is_kind_of(KindOf::CanRappel))
                 .unwrap_or(false);
@@ -1013,37 +1014,35 @@ impl ChinookAIUpdate {
                     let rappel_speed = self.data.rappel_speed;
                     let combat_target = self.combat_drop_target;
                     let combat_pos = self.combat_drop_pos;
-                    let prepared = crate::object::registry::OBJECT_REGISTRY.with_object(
-                        self.object_id,
-                        |owner_guard| {
-                            crate::object::registry::OBJECT_REGISTRY.with_object(
-                                rappeller_id,
-                                |rappeller_guard| {
-                                    let exit_interface = owner_guard.get_object_exit_interface();
-                                    let exit_door = exit_interface
-                                        .as_ref()
-                                        .and_then(|exit| {
-                                            exit.lock().ok().map(|mut guard| {
-                                                guard.reserve_door_for_exit(
-                                                    Some(&*owner_guard),
-                                                    Some(&*rappeller_guard),
-                                                )
-                                            })
+                    // Reserve the door while both objects are checked out;
+                    // only the Copy door token escapes, then the exit runs
+                    // under a fresh owner checkout.
+                    let exit_door = crate::object::registry::OBJECT_REGISTRY
+                        .with_object_mut(self.object_id, |owner_guard| {
+                            crate::object::registry::OBJECT_REGISTRY
+                                .with_object(rappeller_id, |rappeller_guard| {
+                                    owner_guard
+                                        .get_object_exit_interface()
+                                        .as_mut()
+                                        .map(|exit| {
+                                            exit.reserve_door_for_exit(None, None)
                                         })
-                                        .unwrap_or(crate::modules::DOOR_NONE_AVAILABLE);
-                                    (exit_interface, exit_door)
-                                },
-                            )
-                        },
-                    );
-                    if let Some(Some((exit_interface, exit_door))) = prepared {
-                        if exit_door != crate::modules::DOOR_NONE_AVAILABLE {
-                            if let Some(exit) = exit_interface {
-                                let _ = exit.lock().ok().map(|mut guard| {
-                                    guard.exit_object_via_door(rappeller_id, exit_door)
-                                });
-                            }
-                        }
+                                        .unwrap_or(crate::modules::DOOR_NONE_AVAILABLE)
+                                })
+                                .unwrap_or(crate::modules::DOOR_NONE_AVAILABLE)
+                        })
+                        .unwrap_or(crate::modules::DOOR_NONE_AVAILABLE);
+                    if exit_door != crate::modules::DOOR_NONE_AVAILABLE {
+                        let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(
+                            self.object_id,
+                            |owner_guard| {
+                                if let Some(exit) =
+                                    owner_guard.get_object_exit_interface().as_mut()
+                                {
+                                    let _ = exit.exit_object_via_door(rappeller_id, exit_door);
+                                }
+                            },
+                        );
                     }
 
                     let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(
@@ -1053,13 +1052,11 @@ impl ChinookAIUpdate {
                         },
                     );
 
-                    let _ = crate::object::registry::OBJECT_REGISTRY.with_object(
+                    let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(
                         rappeller_id,
                         |rappeller_guard| {
-                            if let Some(ai) = rappeller_guard.get_ai_update_interface() {
-                                if let Ok(mut ai_guard) = ai.lock() {
-                                    ai_guard.set_desired_speed(rappel_speed);
-                                }
+                            if let Some(ai) = rappeller_guard.get_ai_update_interface_mut() {
+                                ai.set_desired_speed(rappel_speed);
                                 let mut params = AiCommandParams::new(
                                     AiCommandType::RappelInto,
                                     CommandSourceType::FromAi,
@@ -1116,9 +1113,9 @@ impl ChinookAIUpdate {
             if let Some(state) = self.combat_drop_state.as_ref() {
                 for rope in &state.ropes {
                     for rappeller_id in &rope.rappeller_ids {
-                        let _ = crate::object::registry::OBJECT_REGISTRY.with_object(*rappeller_id, |rappeller_guard| {
-                            if let Some(ai) = rappeller_guard.get_ai_update_interface() {
-                                ai.ai_idle(CommandSourceType::FromAi);
+                        let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(*rappeller_id, |rappeller_guard| {
+                            if let Some(ai) = rappeller_guard.get_ai_update_interface_mut() {
+                                let _ = ai.ai_idle();
                             }
                         });
                     }
@@ -1168,7 +1165,7 @@ impl ChinookAIUpdate {
         }
 
         if self.airfield_for_healing != INVALID_ID && self.airfield_for_healing != id {
-            let _ = crate::object::registry::OBJECT_REGISTRY.with_object(self.airfield_for_healing, |guard| {
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(self.airfield_for_healing, |guard| {
                 let _ = guard.with_parking_place_behavior(|pp| {
                     pp.set_healee(Some(self.object_id), false);
                 });
@@ -1273,18 +1270,19 @@ impl ChinookAIUpdate {
 
     /// C++ `ChinookEvacuateState::onEnter`: `removeAllContained(FALSE)` + `team->setActive()`.
     fn enter_evacuate(&mut self) {
-        let _ = crate::object::registry::OBJECT_REGISTRY.with_object(self.object_id, |owner_guard| {
-            if let Some(contain) = owner_guard.get_contain() {
-                if let Ok(mut contain_guard) = contain.lock() {
-                    let _ = contain_guard.remove_all_contained(false);
-                }
-            }
-            if let Some(team) = owner_guard.get_team() {
-                if let Ok(mut team_guard) = team.write() {
-                    team_guard.set_active();
-                }
+        let team_id = crate::object::registry::OBJECT_REGISTRY
+            .with_object(self.object_id, |owner_guard| owner_guard.get_team())
+            .flatten();
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(self.object_id, |owner_guard| {
+            if let Some(contain) = owner_guard.get_contain_mut() {
+                let _ = contain.remove_all_contained(false);
             }
         });
+        if let Some(team_id) = team_id {
+            let _ = crate::team::with_team_mut(team_id, |team_guard| {
+                team_guard.set_active();
+            });
+        }
     }
 
     /// C++ `ChinookHeadOffMapState::onEnter`.
@@ -1317,10 +1315,8 @@ impl ChinookAIUpdate {
             chinook_dump_owner_crate_visuals(owner_guard, self.base.get_max_boxes());
         }
 
-        if let Some(physics) = owner_guard.get_physics() {
-            if let Ok(mut physics_guard) = physics.lock() {
-                physics_guard.scrub_velocity_2d(0.0);
-            }
+        if let Some(physics) = owner_guard.get_physics_mut() {
+            physics.scrub_velocity_2d(0.0);
         }
 
         let mut dest = *owner_guard.get_position();
@@ -1673,10 +1669,9 @@ impl ChinookAIUpdate {
             let player_has = player_list()
                 .read()
                 .ok()
-                .and_then(|list| list.get_player(player_id as i32).cloned())
-                .and_then(|player| {
-                    let guard = player.read().ok()?;
-                    Some(guard.has_upgrade_complete(&upgrade))
+                .and_then(|list| {
+                    list.get_player(player_id as i32)
+                        .map(|guard| guard.has_upgrade_complete(&upgrade))
                 })
                 .unwrap_or(false);
             if player_has {
@@ -1802,9 +1797,9 @@ impl ChinookAIUpdate {
             guard.get_contain().and_then(|contain| contain.friend_get_rider())
         }).flatten();
         if let Some(rider_id) = rider_id {
-            let _ = crate::object::registry::OBJECT_REGISTRY.with_object(rider_id, |rider_guard| {
-                if let Some(ai) = rider_guard.get_ai_update_interface() {
-                    ai.ai_idle(cmd_source);
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(rider_id, |rider_guard| {
+                if let Some(ai) = rider_guard.get_ai_update_interface_mut() {
+                    let _ = ai.ai_idle();
                 }
             });
         }
@@ -1837,11 +1832,11 @@ impl ChinookAIUpdate {
                         CommandSourceType::FromPlayer | CommandSourceType::FromScript
                     ) {
                         let passengers = contain.get_contained_objects();
-                        for passenger_id in passengers {
+                        for passenger_id in passengers.iter().copied() {
                             if !contain.is_passenger_allowed_to_fire(Some(passenger_id)) {
                                 continue;
                             }
-                            let _ = crate::object::registry::OBJECT_REGISTRY.with_object(passenger_id, |pass_guard| {
+                            let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(passenger_id, |pass_guard| {
                             if !pass_guard.is_kind_of(KindOf::Infantry) {
                                 return;
                             }
@@ -1859,7 +1854,7 @@ impl ChinookAIUpdate {
                             {
                                 return;
                             }
-                            if let Some(ai) = pass_guard.get_ai_update_interface() {
+                            if let Some(ai) = pass_guard.get_ai_update_interface_mut() {
                                 ai.ai_attack_object_id(victim_id, max_shots_to_fire, cmd_source);
                             }
                             });
@@ -1897,11 +1892,11 @@ impl ChinookAIUpdate {
                         CommandSourceType::FromPlayer | CommandSourceType::FromScript
                     ) {
                         let passengers = contain.get_contained_objects();
-                        for passenger_id in passengers {
+                        for passenger_id in passengers.iter().copied() {
                             if !contain.is_passenger_allowed_to_fire(Some(passenger_id)) {
                                 continue;
                             }
-                            let _ = crate::object::registry::OBJECT_REGISTRY.with_object(passenger_id, |pass_guard| {
+                            let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(passenger_id, |pass_guard| {
                             if !pass_guard.is_kind_of(KindOf::Infantry) {
                                 return;
                             }
@@ -1919,7 +1914,7 @@ impl ChinookAIUpdate {
                             {
                                 return;
                             }
-                            if let Some(ai) = pass_guard.get_ai_update_interface() {
+                            if let Some(ai) = pass_guard.get_ai_update_interface_mut() {
                                 ai.ai_force_attack_object(victim_id, max_shots_to_fire, cmd_source);
                             }
                             });
@@ -1930,7 +1925,7 @@ impl ChinookAIUpdate {
                         CommandSourceType::FromPlayer | CommandSourceType::FromScript
                     ) {
                         if let Some(rider_id) = contain.friend_get_rider() {
-                            let _ = crate::object::registry::OBJECT_REGISTRY.with_object(rider_id, |rider_guard| {
+                            let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(rider_id, |rider_guard| {
                                     if rider_guard.is_kind_of(KindOf::PortableStructure)
                                         && !rider_guard.is_disabled_by_type(
                                             crate::common::DisabledType::DisabledHacked,
@@ -1945,7 +1940,7 @@ impl ChinookAIUpdate {
                                             crate::common::DisabledType::Paralyzed,
                                         )
                                     {
-                                        if let Some(ai) = rider_guard.get_ai_update_interface() {
+                                        if let Some(ai) = rider_guard.get_ai_update_interface_mut() {
                                             ai.ai_force_attack_object(
                                                 victim_id,
                                                 max_shots_to_fire,
@@ -1981,11 +1976,11 @@ impl ChinookAIUpdate {
                         CommandSourceType::FromPlayer | CommandSourceType::FromScript
                     ) {
                         let passengers = contain.get_contained_objects();
-                        for passenger_id in passengers {
+                        for passenger_id in passengers.iter().copied() {
                             if !contain.is_passenger_allowed_to_fire(Some(passenger_id)) {
                                 continue;
                             }
-                            let _ = crate::object::registry::OBJECT_REGISTRY.with_object(passenger_id, |pass_guard| {
+                            let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(passenger_id, |pass_guard| {
                             if !pass_guard.is_kind_of(KindOf::Infantry) {
                                 return;
                             }
@@ -2003,7 +1998,7 @@ impl ChinookAIUpdate {
                             {
                                 return;
                             }
-                            if let Some(ai) = pass_guard.get_ai_update_interface() {
+                            if let Some(ai) = pass_guard.get_ai_update_interface_mut() {
                                 ai.ai_attack_position(pos, max_shots_to_fire, cmd_source);
                             }
                             });
@@ -2014,7 +2009,7 @@ impl ChinookAIUpdate {
                         CommandSourceType::FromPlayer | CommandSourceType::FromScript
                     ) {
                         if let Some(rider_id) = contain.friend_get_rider() {
-                            let _ = crate::object::registry::OBJECT_REGISTRY.with_object(rider_id, |rider_guard| {
+                            let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(rider_id, |rider_guard| {
                                     if rider_guard.is_kind_of(KindOf::PortableStructure)
                                         && !rider_guard.is_disabled_by_type(
                                             crate::common::DisabledType::DisabledHacked,
@@ -2029,7 +2024,7 @@ impl ChinookAIUpdate {
                                             crate::common::DisabledType::Paralyzed,
                                         )
                                     {
-                                        if let Some(ai) = rider_guard.get_ai_update_interface() {
+                                        if let Some(ai) = rider_guard.get_ai_update_interface_mut() {
                                             ai.ai_attack_position(
                                                 pos,
                                                 max_shots_to_fire,
@@ -2055,35 +2050,30 @@ impl ChinookAIUpdate {
             return;
         }
 
-        let _ = crate::object::registry::OBJECT_REGISTRY.with_object(self.object_id, |guard| {
-                if let Some(contain) = guard.get_contain() {
-                    if let Some(rider_id) = contain.friend_get_rider() {
-                        let _ = crate::object::registry::OBJECT_REGISTRY.with_object(rider_id, |rider_guard| {
-                                if rider_guard.is_kind_of(KindOf::PortableStructure)
-                                    && !rider_guard.is_disabled_by_type(
-                                        crate::common::DisabledType::DisabledHacked,
-                                    )
-                                    && !rider_guard.is_disabled_by_type(
-                                        crate::common::DisabledType::DisabledEmp,
-                                    )
-                                    && !rider_guard.is_disabled_by_type(
-                                        crate::common::DisabledType::DisabledSubdued,
-                                    )
-                                    && !rider_guard
-                                        .is_disabled_by_type(crate::common::DisabledType::Paralyzed)
-                                {
-                                    if let Some(ai) = rider_guard.get_ai_update_interface() {
-                                        ai.ai_attack_object_id(
-                                            victim_id,
-                                            max_shots_to_fire,
-                                            cmd_source,
-                                        );
-                                    }
-                                }
-                            });
-                    }
+        let rider_id = crate::object::registry::OBJECT_REGISTRY
+            .with_object(self.object_id, |guard| {
+                guard
+                    .get_contain()
+                    .and_then(|contain| contain.friend_get_rider())
+            })
+            .flatten();
+        let Some(rider_id) = rider_id else {
+            return;
+        };
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(rider_id, |rider_guard| {
+            if rider_guard.is_kind_of(KindOf::PortableStructure)
+                && !rider_guard.is_disabled_by_type(
+                    crate::common::DisabledType::DisabledHacked,
+                )
+                && !rider_guard.is_disabled_by_type(crate::common::DisabledType::DisabledEmp)
+                && !rider_guard.is_disabled_by_type(crate::common::DisabledType::DisabledSubdued)
+                && !rider_guard.is_disabled_by_type(crate::common::DisabledType::Paralyzed)
+            {
+                if let Some(ai) = rider_guard.get_ai_update_interface_mut() {
+                    ai.ai_attack_object_id(victim_id, max_shots_to_fire, cmd_source);
                 }
-            });
+            }
+        });
     }
 
     pub fn private_get_repaired(
@@ -2206,7 +2196,7 @@ impl ChinookAIUpdate {
             return;
         }
 
-        let Some(wash) = crate::object::registry::OBJECT_REGISTRY.with_object(self.object_id, |owner_guard| {
+        let wash = crate::object::registry::OBJECT_REGISTRY.with_object(self.object_id, |owner_guard| {
         let local_index = player_list()
             .read()
             .ok()
@@ -2237,7 +2227,7 @@ impl ChinookAIUpdate {
         if crate::helpers::game_client_random_value_real(0.0, chopper_elevation) < 5.0 {
             if let Some(ps_manager) = TheParticleSystemManager::get() {
                 let template = if self.data.rotor_wash_particle_system.is_empty() {
-                    None
+                    None::<&str>
                 } else {
                     Some(self.data.rotor_wash_particle_system.as_str())
                 };
@@ -2247,10 +2237,7 @@ impl ChinookAIUpdate {
             }
         }
         Some(())
-        }) else {
-            return None;
-        };
-        let _ = wash;
+        });
     }
 
     pub fn update(
@@ -2272,9 +2259,7 @@ impl ChinookAIUpdate {
                     crate::object::registry::OBJECT_REGISTRY
                         .with_object(self.object_id, |owner_guard| {
                             if let Some(body) = owner_guard.get_body_module() {
-                                if let Ok(body_guard) = body.lock() {
-                                    return body_guard.get_health() >= body_guard.get_max_health();
-                                }
+                                return body.get_health() >= body.get_max_health();
                             }
                             false
                         })
@@ -2282,7 +2267,7 @@ impl ChinookAIUpdate {
                 } else {
                     false
                 };
-                let _ = crate::object::registry::OBJECT_REGISTRY.with_object(self.airfield_for_healing, |airfield_guard| {
+                let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(self.airfield_for_healing, |airfield_guard| {
                     if healed {
                         let _ = airfield_guard.with_parking_place_behavior(|pp| {
                             pp.set_healee(Some(self.object_id), false);
@@ -2330,28 +2315,37 @@ impl ChinookAIUpdate {
                     }
 
                     if TheGameLogic::get_frame() % 10 == 1 {
-                        if let Some(ai_update) = guard.get_ai_update_interface() {
-                            if let Ok(ai_guard) = ai_update.lock() {
-                                if let Some(victim_id) = ai_guard.get_current_victim() {
-                                    if contain.is_passenger_allowed_to_fire(None) {
-                                        let passengers = contain.get_contained_objects();
-                                        for passenger_id in passengers {
-                                            let _ = crate::object::registry::OBJECT_REGISTRY.with_object(passenger_id, |pass_guard| {
-                                                if let Some(pass_ai) = pass_guard.get_ai_update_interface() {
-                                                    if chinook_passenger_should_follow_attack(
-                                                        pass_ai.get_current_victim().is_some(),
-                                                    ) {
-                                                        pass_ai.ai_attack_object_id(
-                                                            victim_id,
-                                                            999,
-                                                            CommandSourceType::FromAi,
-                                                        );
-                                                    }
+                        // C++ ChinookAIUpdate: passengers follow the driver's
+                        // attack target (AIUpdate.cpp passenger-fire logic).
+                        let follow_attack = (|| {
+                            let ai_update = guard.get_ai_update_interface()?;
+                            let victim_id = ai_update.get_current_victim()?;
+                            if !contain.is_passenger_allowed_to_fire(None) {
+                                return None;
+                            }
+                            Some((victim_id, contain.get_contained_objects().to_vec()))
+                        })();
+                        if let Some((victim_id, passengers)) = follow_attack {
+                            for passenger_id in passengers.iter().copied() {
+                                let _ =
+                                    crate::object::registry::OBJECT_REGISTRY.with_object_mut(
+                                        passenger_id,
+                                        |pass_guard| {
+                                            if let Some(pass_ai) =
+                                                pass_guard.get_ai_update_interface_mut()
+                                            {
+                                                if chinook_passenger_should_follow_attack(
+                                                    pass_ai.get_current_victim().is_some(),
+                                                ) {
+                                                    pass_ai.ai_attack_object_id(
+                                                        victim_id,
+                                                        999,
+                                                        CommandSourceType::FromAi,
+                                                    );
                                                 }
-                                            });
-                                        }
-                                    }
-                                }
+                                            }
+                                        },
+                                    );
                             }
                         }
                     }
