@@ -507,15 +507,24 @@ impl Object {
 
     /// C++ Object.cpp:458-462 — call onObjectCreated in m_behaviors list order
     /// after helpers + template modules are all installed.
-    pub(super) fn invoke_on_object_created_after_install(&mut self) {
-        #[cfg(test)]
-        {
+    pub(super) fn invoke_on_object_created_after_install(
+        object: &Arc<RwLock<Self>>,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        // C++ callbacks can resolve and mutate their owner. Snapshot only the
+        // installed module handles, releasing the owner before entering them.
+        let modules = {
+            let owner = object
+                .read()
+                .map_err(|_| "object lock poisoned before creation callbacks")?;
+            #[cfg(test)]
             LAST_ON_CREATED_SIBLING_COUNT
-                .store(self.behaviors.len(), std::sync::atomic::Ordering::Relaxed);
-        }
-        for entry in &self.modules {
+                .store(owner.behaviors.len(), std::sync::atomic::Ordering::Relaxed);
+            owner.modules.clone()
+        };
+        for entry in &modules {
             entry.with_module(|module| module.on_object_created());
         }
+        Ok(())
     }
 
     /// `get_behavior_modules()` == C++ Object.cpp:299-384 helper order, then template modules.
@@ -1069,10 +1078,15 @@ impl Object {
 
             // Helpers first on m_behaviors, then template modules (Object.cpp:299-437).
             guard.install_ctor_helpers();
-            // C++ Object.cpp:458-471 — inter-module resolution after the full list exists.
-            guard.invoke_on_object_created_after_install();
-            guard.modules_ready = true;
         }
+
+        // C++ Object.cpp:458-471 — inter-module resolution after the full list
+        // exists and before modulesReady, without recursively locking Object.
+        Self::invoke_on_object_created_after_install(object)?;
+        object
+            .write()
+            .map_err(|_| "object lock poisoned after creation callbacks")?
+            .modules_ready = true;
 
         // C++ parity: after AI module construction, seed attitude from the team
         // prototype, then apply battle plan bonuses (Object::onObjectCreated

@@ -1106,7 +1106,7 @@ impl Snapshot for Object {
 
         if let Some(drawable) = &self.drawable {
             if let Ok(mut drawable_guard) = drawable.write() {
-                drawable_guard.load_post_process();
+                drawable_guard.load_post_process_with_owner(Some(self));
             }
         }
     }
