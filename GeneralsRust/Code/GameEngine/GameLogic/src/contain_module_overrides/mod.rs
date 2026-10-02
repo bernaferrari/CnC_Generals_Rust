@@ -411,9 +411,12 @@ mod production;
 mod template_locomotor;
 mod update_modules;
 
+#[cfg(test)]
+mod registration_tests;
+
 pub use contain::{ContainModuleDataAdapter, ContainModuleDataKind};
 pub(crate) use helpers::ActiveBehaviorModule;
-pub use install::ensure_module_overrides_installed;
+pub use install::{ensure_module_overrides_installed, register_module_overrides};
 
 /// Factory fixtures reset the global factory on their own test thread. Register
 /// the real body callbacks there without relying on the process-wide installer.
