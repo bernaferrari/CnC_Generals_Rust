@@ -551,7 +551,7 @@ impl GameLogic {
             pending_special_abilities: HashMap::new(),
             selected_objects: Vec::new(),
             partition_manager: PartitionManager::new(),
-            radar_notifications: radar_notifications::global_radar_notifications(),
+            radar_notifications: RadarNotifications::new(),
             last_radar_kind_time: [-10.0; 3],
             last_radar_audio_time: -10.0,
             last_radar_event: None,
@@ -1203,6 +1203,7 @@ impl GameLogic {
         self.pending_special_abilities.clear();
         self.mission_objectives = Self::seed_sample_objectives();
         self.rebuild_objective_lookup();
+        self.radar_notifications.clear(); // C++ InGameUI::reset/freeMessageResources.
         self.last_radar_event = None;
         self.under_attack_event_history.clear();
         self.under_attack_events = 0;
