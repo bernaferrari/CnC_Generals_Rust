@@ -1,12 +1,12 @@
 //! Mechanical split from `game_logic/game_logic.rs`. No behavior change.
 #![allow(non_snake_case, unused_imports, dead_code)]
+use super::HostHeliTakeoffOrLanding;
 use super::authority::*;
 use super::construct::*;
 use super::crate_tick::*;
 use super::player::*;
 use super::prelude::*;
 use super::script_camera::*;
-use super::HostHeliTakeoffOrLanding;
 use super::*;
 
 pub struct GameLogic {
@@ -1137,7 +1137,7 @@ pub struct GameLogic {
     pub selected_objects: Vec<ObjectId>,
 
     pub(super) partition_manager: PartitionManager,
-    pub(super) radar_notifications: &'static RadarNotifications,
+    pub(super) radar_notifications: RadarNotifications,
     pub(super) last_radar_kind_time: [f32; 3],
     pub(super) last_radar_audio_time: f32,
     pub(super) last_radar_event: Option<RadarEntry>,

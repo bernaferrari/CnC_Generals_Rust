@@ -17,6 +17,7 @@ mod phase3_produce;
 mod pilots_and_movement;
 mod production_and_mobs;
 mod projectiles_air;
+mod radar_owner;
 mod scatter_and_chain;
 mod science_and_upgrades;
 mod shadow_gate_parity;
