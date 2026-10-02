@@ -317,7 +317,6 @@ impl<'a, T> ScopedHandle<'a, T> {
 mod tests {
     use super::*;
     use crate::memory::PoolConfig;
-    use std::thread;
 
     // ============================================================================
     // WEEK 1 PRIORITY 3: HANDLE DEREF SAFETY TESTS (30+ tests for safe access)
@@ -643,26 +642,19 @@ mod tests {
     }
 
     #[test]
-    fn test_concurrent_handle_access() {
-        // Handles should be safe to access from multiple threads
+    fn test_repeated_handle_access() {
+        // The pool is single-owner (C++ thread model): repeated access from
+        // the owning thread. (Previously this spawned threads against the
+        // pool's RwLock — no game system accesses handles cross-thread.)
         let pool = ObjectPool::<u64>::new(PoolConfig::new("Test")).unwrap();
-        let handle = Arc::new(pool.alloc(777).unwrap());
+        let handle = pool.alloc(777).unwrap();
 
-        let mut threads = vec![];
         for _ in 0..5 {
-            let handle = Arc::clone(&handle);
-            let thread = thread::spawn(move || {
-                if let Some(val) = handle.try_get() {
-                    *val
-                } else {
-                    0
-                }
-            });
-            threads.push(thread);
-        }
-
-        for thread in threads {
-            let result = thread.join().expect("Thread panicked");
+            let result = if let Some(val) = handle.try_get() {
+                *val
+            } else {
+                0
+            };
             assert_eq!(result, 777);
         }
     }

@@ -386,20 +386,14 @@ impl UnitAIUpdate {
         force_attacking: bool,
     ) {
         if let Some(machine) = self.ensure_turret_machine(turret) {
-            if let Some(turret_ai) = machine.get_turret_ai() {
-                if let Ok(mut guard) = turret_ai.lock() {
-                    guard.set_current_target_with_force(target_id, force_attacking);
-                }
-            }
+            machine
+                .turret_mut()
+                .set_current_target_with_force(target_id, force_attacking);
         }
     }
     pub(super) fn set_turret_target_position(&mut self, turret: TurretType, pos: &Coord3D) {
         if let Some(machine) = self.ensure_turret_machine(turret) {
-            if let Some(turret_ai) = machine.get_turret_ai() {
-                if let Ok(mut guard) = turret_ai.lock() {
-                    guard.set_target_position(Some(*pos));
-                }
-            }
+            machine.turret_mut().set_target_position(Some(*pos));
         }
     }
     pub(super) fn is_out_of_special_reload_ammo(&self) -> bool {
@@ -1843,26 +1837,26 @@ impl UnitAIUpdate {
         }
 
         for turret in [TurretType::Primary, TurretType::Secondary] {
-            let turret_ai = match turret {
+            let needs_transfer = match turret {
                 TurretType::Primary => self
                     .turret_primary_machine
-                    .as_ref()
-                    .and_then(|m| m.get_turret_ai()),
+                    .as_mut()
+                    .map(|machine| {
+                        // transferAttack passes FALSE, so a dead goal is kept and still compared.
+                        let (kind, id, _) = machine.turret_mut().friend_get_turret_target(false);
+                        kind == crate::ai::turret::TurretTargetKind::Object && id == Some(from_id)
+                    })
+                    .unwrap_or(false),
                 TurretType::Secondary => self
                     .turret_secondary_machine
-                    .as_ref()
-                    .and_then(|m| m.get_turret_ai()),
+                    .as_mut()
+                    .map(|machine| {
+                        // transferAttack passes FALSE, so a dead goal is kept and still compared.
+                        let (kind, id, _) = machine.turret_mut().friend_get_turret_target(false);
+                        kind == crate::ai::turret::TurretTargetKind::Object && id == Some(from_id)
+                    })
+                    .unwrap_or(false),
                 _ => continue,
-            };
-            let Some(turret_ai) = turret_ai else {
-                continue;
-            };
-            let needs_transfer = if let Ok(mut ai_guard) = turret_ai.lock() {
-                // transferAttack passes FALSE, so a dead goal is kept and still compared.
-                let (kind, id, _) = ai_guard.friend_get_turret_target(false);
-                kind == crate::ai::turret::TurretTargetKind::Object && id == Some(from_id)
-            } else {
-                false
             };
             if needs_transfer {
                 self.set_turret_target_object(

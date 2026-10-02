@@ -161,6 +161,16 @@ pub struct FireSpreadUpdate {
     next_call_frame_and_phase: UnsignedInt,
 }
 
+/// Per-frame interface for the sleepy-update proxy. `FireSpreadUpdate` owns an
+/// inherent `update_simple()` (it predates the shared trait), so the trait
+/// impl forwards to it instead of the trait's `update()` default — identical to
+/// what the former `downcast_mut::<FireSpreadUpdateModule>()` branch called.
+impl game_engine::common::thing::update_module::UpdateModuleInterface for FireSpreadUpdate {
+    fn update_simple(&mut self) -> game_engine::common::thing::update_module::UpdateSleepTime {
+        FireSpreadUpdate::update_simple(self)
+    }
+}
+
 impl FireSpreadUpdate {
     /// Create new FireSpreadUpdate module
     /// Matches C++ FireSpreadUpdate.cpp:80-83
@@ -418,6 +428,16 @@ impl Module for FireSpreadUpdateModule {
 
     fn get_fire_spread_control_interface(&mut self) -> Option<&mut dyn FireSpreadControlInterface> {
         Some(self)
+    }
+
+    /// C++ `UpdateModule : Module` interface query
+    /// (`Module::DynamicInterfaceCast(ModuleInterfaceType::UPDATE)`): forwards
+    /// to the wrapped behavior's per-frame hooks. Replaces the former
+    /// `as_any().downcast_mut::<Self>()` branch in `ModuleUpdateProxy`.
+    fn get_update_module_interface(
+        &mut self,
+    ) -> Option<&mut dyn game_engine::common::thing::update_module::UpdateModuleInterface> {
+        Some(&mut self.behavior)
     }
 }
 

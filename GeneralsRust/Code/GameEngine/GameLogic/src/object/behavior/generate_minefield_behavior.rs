@@ -1427,6 +1427,16 @@ impl Module for GenerateMinefieldBehaviorModule {
     ) -> Option<&mut dyn PayloadTargetControlInterface> {
         Some(&mut self.behavior)
     }
+
+    /// C++ `UpdateModule : Module` interface query
+    /// (`Module::DynamicInterfaceCast(ModuleInterfaceType::UPDATE)`): forwards
+    /// to the wrapped behavior's per-frame hooks. Replaces the former
+    /// `as_any().downcast_mut::<Self>()` branch in `ModuleUpdateProxy`.
+    fn get_update_module_interface(
+        &mut self,
+    ) -> Option<&mut dyn game_engine::common::thing::update_module::UpdateModuleInterface> {
+        Some(self.behavior_mut())
+    }
 }
 
 /// Get statistics about the minefield

@@ -45,18 +45,8 @@ pub struct UpdateModuleDummy;
 impl UpdateModuleInterface for UpdateModuleDummy {}
 
 /// Phase ordering for sleepy updates (mirrors C++ SleepyUpdatePhase).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-#[repr(u8)]
-pub enum SleepyUpdatePhase {
-    Initial = 0,
-    Physics = 1,
-    Normal = 2,
-    Final = 3,
-}
-
-impl Default for SleepyUpdatePhase {
-    fn default() -> Self {
-        SleepyUpdatePhase::Normal
-    }
-}
+///
+/// Hoisted into `Common` (re-exported here) so the Common `Module` trait can
+/// expose the typed `get_update_module_interface()` accessor.
+pub use game_engine::common::thing::update_module::SleepyUpdatePhase;
 

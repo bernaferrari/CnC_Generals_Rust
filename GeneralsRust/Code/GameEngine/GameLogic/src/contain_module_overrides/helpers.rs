@@ -148,6 +148,20 @@ impl<T: BehaviorModuleInterface + Snapshotable + 'static> Module for ActiveBehav
     fn get_deletion_lifetime_interface(&mut self) -> Option<&mut dyn DeletionLifetimeInterface> {
         self.behavior.get_deletion_lifetime_interface()
     }
+
+    /// Sleepy-update dispatch delegates to the inner behavior's explicit
+    /// opt-in, so only the wrapper instantiations that the previous type-test
+    /// table listed take part (C++: only classes deriving `UpdateModule`
+    /// answer the `DynamicInterfaceCast(UPDATE)` query).
+    fn get_update_module_interface(
+        &mut self,
+    ) -> Option<&mut dyn game_engine::common::thing::update_module::UpdateModuleInterface> {
+        self.behavior.get_sleepy_update_interface()
+    }
+
+    fn get_initial_wake_frame(&mut self) -> Option<u32> {
+        self.behavior.behavior_initial_wake_frame()
+    }
 }
 
 impl<T: BehaviorModuleInterface + Snapshotable + 'static> Snapshotable for ActiveBehaviorModule<T> {

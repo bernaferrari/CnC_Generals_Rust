@@ -118,6 +118,47 @@ pub trait BehaviorModuleInterface: Send + Sync + AsAny + Any + 'static {
     fn get_update(&mut self) -> Option<&mut dyn UpdateModuleInterface> {
         None
     }
+    /// Explicit sleepy-update opt-in for behaviors hosted by the generic
+    /// `ActiveBehaviorModule<T>` wrapper.
+    ///
+    /// C++ picks update dispatch by class inheritance (only classes deriving
+    /// `UpdateModule` respond to the cast), which has no Rust equivalent for a
+    /// generic container: overriding the container for all `T` would silently
+    /// enrol every instantiation. Each instantiation opts in here instead, so
+    /// the sleepy-update dispatch set stays identical to the previous
+    /// type-test table.
+    fn get_sleepy_update_interface(&mut self) -> Option<&mut dyn UpdateModuleInterface> {
+        None
+    }
+
+    /// C++ `DynamicInterfaceCast`-style typed accessor for the production
+    /// queue family (`ProductionUpdate` / `ProductionUpdateComplete` /
+    /// `ProductionUpdateBehavior`). Replaces the former
+    /// `as_any().downcast_mut::<T>()` chain in
+    /// `behavior_production_queue_kind`.
+    fn as_production_queue_kind(
+        &mut self,
+    ) -> Option<crate::object::ProductionBehaviorQueueKindMut<'_>> {
+        None
+    }
+
+    /// Same query for the production exit / rally-point family
+    /// (`QueueProductionExitBehavior`, `DefaultProductionExitBehavior`,
+    /// `SupplyCenterProductionExitBehavior`, `ParkingPlaceBehavior`,
+    /// `FlightDeckBehavior`).
+    fn as_production_rally_kind(
+        &mut self,
+    ) -> Option<crate::object::ProductionBehaviorRallyKindMut<'_>> {
+        None
+    }
+
+    /// Initial wake frame for behaviors hosted by the generic
+    /// `ActiveBehaviorModule<T>` wrapper. Opt-in for the same reason as
+    /// `get_sleepy_update_interface`: only instantiations listed by the
+    /// previous `initial_update_wake_frame` type-test chain participate.
+    fn behavior_initial_wake_frame(&mut self) -> Option<u32> {
+        None
+    }
     /// Optional flammability hook used by fire/ignite systems.
     /// PARITY_NOTE: C++ default is no-op; subclasses override when flammable.
     fn try_to_ignite_flammable(&mut self) {

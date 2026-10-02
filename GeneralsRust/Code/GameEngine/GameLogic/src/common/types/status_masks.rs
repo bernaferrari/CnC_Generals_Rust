@@ -223,102 +223,13 @@ impl SpecialPowerMaskType {
     }
 }
 
-bitflags! {
-    /// Disabled mask (matching C++ DisabledMaskType)
-    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct DisabledMaskType: u32 {
-        const DISABLED_DEFAULT = 1 << 0;
-        const DISABLED_HACKED = 1 << 1;
-        const DISABLED_EMP = 1 << 2;
-        const HELD = 1 << 3;
-        const PARALYZED = 1 << 4;
-        const DISABLED_UNMANNED = 1 << 5;
-        const DISABLED_UNDERPOWERED = 1 << 6;
-        const DISABLED_FREEFALL = 1 << 7;
-        const DISABLED_AWESTRUCK = 1 << 8;
-        const DISABLED_BRAINWASHED = 1 << 9;
-        const DISABLED_SUBDUED = 1 << 10;
-        const DISABLED_SCRIPT_DISABLED = 1 << 11;
-        const DISABLED_SCRIPT_UNDERPOWERED = 1 << 12;
-    }
-}
-
-impl DisabledMaskType {
-    pub fn none() -> Self {
-        Self::empty()
-    }
-
-    pub fn any(&self) -> bool {
-        !self.is_empty()
-    }
-
-    pub fn test(&self, disabled_type: DisabledType) -> bool {
-        match disabled_type {
-            DisabledType::DisabledDefault => self.contains(Self::DISABLED_DEFAULT),
-            DisabledType::DisabledHacked => self.contains(Self::DISABLED_HACKED),
-            DisabledType::DisabledEmp => self.contains(Self::DISABLED_EMP),
-            DisabledType::Held => self.contains(Self::HELD),
-            DisabledType::Paralyzed => self.contains(Self::PARALYZED),
-            DisabledType::DisabledSubdued => self.contains(Self::DISABLED_SUBDUED),
-            DisabledType::DisabledUnmanned | DisabledType::Unmanned => {
-                self.contains(Self::DISABLED_UNMANNED)
-            }
-            DisabledType::DisabledUnderpowered => self.contains(Self::DISABLED_UNDERPOWERED),
-            DisabledType::DisabledFreefall => self.contains(Self::DISABLED_FREEFALL),
-            DisabledType::DisabledAwestruck => self.contains(Self::DISABLED_AWESTRUCK),
-            DisabledType::DisabledBrainwashed => self.contains(Self::DISABLED_BRAINWASHED),
-            DisabledType::DisabledScriptDisabled => self.contains(Self::DISABLED_SCRIPT_DISABLED),
-            DisabledType::DisabledScriptUnderpowered => {
-                self.contains(Self::DISABLED_SCRIPT_UNDERPOWERED)
-            }
-            DisabledType::DisabledAny => self.any(),
-        }
-    }
-
-    pub fn set_disabled(&mut self, disabled_type: DisabledType) {
-        match disabled_type {
-            DisabledType::DisabledDefault => *self |= Self::DISABLED_DEFAULT,
-            DisabledType::DisabledHacked => *self |= Self::DISABLED_HACKED,
-            DisabledType::DisabledEmp => *self |= Self::DISABLED_EMP,
-            DisabledType::Held => *self |= Self::HELD,
-            DisabledType::Paralyzed => *self |= Self::PARALYZED,
-            DisabledType::DisabledSubdued => *self |= Self::DISABLED_SUBDUED,
-            DisabledType::DisabledUnmanned | DisabledType::Unmanned => {
-                *self |= Self::DISABLED_UNMANNED
-            }
-            DisabledType::DisabledUnderpowered => *self |= Self::DISABLED_UNDERPOWERED,
-            DisabledType::DisabledFreefall => *self |= Self::DISABLED_FREEFALL,
-            DisabledType::DisabledAwestruck => *self |= Self::DISABLED_AWESTRUCK,
-            DisabledType::DisabledBrainwashed => *self |= Self::DISABLED_BRAINWASHED,
-            DisabledType::DisabledScriptDisabled => *self |= Self::DISABLED_SCRIPT_DISABLED,
-            DisabledType::DisabledScriptUnderpowered => *self |= Self::DISABLED_SCRIPT_UNDERPOWERED,
-            DisabledType::DisabledAny => {} // No-op for aggregated state
-        }
-    }
-
-    pub fn clear(&mut self, disabled_type: DisabledType) {
-        match disabled_type {
-            DisabledType::DisabledDefault => *self &= !Self::DISABLED_DEFAULT,
-            DisabledType::DisabledHacked => *self &= !Self::DISABLED_HACKED,
-            DisabledType::DisabledEmp => *self &= !Self::DISABLED_EMP,
-            DisabledType::Held => *self &= !Self::HELD,
-            DisabledType::Paralyzed => *self &= !Self::PARALYZED,
-            DisabledType::DisabledSubdued => *self &= !Self::DISABLED_SUBDUED,
-            DisabledType::DisabledUnmanned | DisabledType::Unmanned => {
-                *self &= !Self::DISABLED_UNMANNED
-            }
-            DisabledType::DisabledUnderpowered => *self &= !Self::DISABLED_UNDERPOWERED,
-            DisabledType::DisabledFreefall => *self &= !Self::DISABLED_FREEFALL,
-            DisabledType::DisabledAwestruck => *self &= !Self::DISABLED_AWESTRUCK,
-            DisabledType::DisabledBrainwashed => *self &= !Self::DISABLED_BRAINWASHED,
-            DisabledType::DisabledScriptDisabled => *self &= !Self::DISABLED_SCRIPT_DISABLED,
-            DisabledType::DisabledScriptUnderpowered => {
-                *self &= !Self::DISABLED_SCRIPT_UNDERPOWERED
-            }
-            DisabledType::DisabledAny => *self = Self::empty(),
-        }
-    }
-}
+/// Disabled mask (matching C++ DisabledMaskType).
+///
+/// Definition and inherent helpers hoisted into `Common`
+/// (`common::thing::update_module`) and re-exported here so the Common
+/// `Module` trait can expose the typed `get_update_module_interface()`
+/// accessor. Path kept stable for the existing call sites.
+pub use game_engine::common::thing::update_module::DisabledMaskType;
 
 /// Type alias for backward compatibility with C++ naming
 pub type DisabledMask = DisabledMaskType;

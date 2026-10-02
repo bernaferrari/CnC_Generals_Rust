@@ -37,50 +37,11 @@ pub use status_damage_helper::{StatusDamageHelper, StatusDamageHelperModuleData}
 pub use subdual_damage_helper::{SubdualDamageHelper, SubdualDamageHelperModuleData};
 pub use temp_weapon_bonus_helper::{TempWeaponBonusHelper, TempWeaponBonusHelperModuleData};
 
-/// Update sleep time returned by helper modules
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum UpdateSleepTime {
-    /// Update every frame
-    None,
-    /// Update after N frames
-    Frames(u32),
-    /// Never update again
-    Forever,
-}
-
-impl UpdateSleepTime {
-    pub const FOREVER: UpdateSleepTime = UpdateSleepTime::Forever;
-    pub const NONE: UpdateSleepTime = UpdateSleepTime::None;
-
-    pub fn frames(n: u32) -> Self {
-        UpdateSleepTime::Frames(n)
-    }
-
-    /// Convert from u32 representation (for compatibility)
-    /// 0 = None, u32::MAX = Forever, other = Frames(n)
-    pub fn from_u32(value: u32) -> Self {
-        match value {
-            0 => UpdateSleepTime::None,
-            u32::MAX => UpdateSleepTime::Forever,
-            n => UpdateSleepTime::Frames(n),
-        }
-    }
-
-    /// Convert to u32 representation (for compatibility)
-    /// None = 0, Forever = u32::MAX, Frames(n) = n
-    pub fn to_u32(self) -> u32 {
-        match self {
-            UpdateSleepTime::None => 0,
-            UpdateSleepTime::Forever => u32::MAX,
-            UpdateSleepTime::Frames(n) => n,
-        }
-    }
-
-    /// Get the maximum of two sleep times
-    pub fn max(self, other: Self) -> Self {
-        if self > other { self } else { other }
-    }
-}
+/// Update sleep time returned by helper modules.
+///
+/// Hoisted into `Common` (re-exported here) so the Common `Module` trait can
+/// expose the typed `get_update_module_interface()` accessor.
+pub use game_engine::common::thing::update_module::UpdateSleepTime;
 
 /// Base trait for all object helper modules
 ///

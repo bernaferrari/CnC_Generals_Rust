@@ -1,27 +1,42 @@
 //! Object Pool Implementation
 //!
-//! The main pool type that combines the allocator with thread-safe
-//! access, statistics tracking, and handle management.
+//! The main pool type that combines the allocator with statistics
+//! tracking and handle management.
+//!
+//! Threading model: the C++ original (`WWLib/mempool.h` `ObjectPoolClass`)
+//! is a free-list pool of plain statics that only ever runs on the owning
+//! subsystem's thread; its `FastCriticalSectionClass` is defensive spinlock
+//! coding, not a real cross-thread boundary. This port is single-owner:
+//! the allocator sits behind a `RefCell`, which enforces the same
+//! single-thread discipline dynamically (panic on re-entrant misuse)
+//! instead of paying for a lock.
 
 use super::allocator::PoolAllocator;
 use super::config::{PoolConfig, PoolConfigBuilder};
 use super::generation::GenerationalIndex;
 use super::handle::{PoolAccessError, PoolHandle};
 use super::stats::PoolStats;
+use std::cell::RefCell;
 use std::sync::Arc;
-use std::sync::RwLock;
 use std::time::{Duration, Instant};
 
-/// Thread-safe object pool with generational indices.
+/// Single-owner object pool with generational indices.
 ///
 /// This is the main type users interact with. It provides:
-/// - Thread-safe allocation and deallocation
 /// - Generational indices for safe handles
 /// - Statistics tracking
 /// - Configurable growth and alignment
+///
+/// The pool is `Send` (when `T: Send`) but deliberately not `Sync`: like the
+/// C++ pool it belongs to one thread. Concurrent access from several threads
+/// is not supported and will panic on a `RefCell` double-borrow rather than
+/// race.
 pub struct ObjectPool<T> {
-    /// The underlying allocator (protected by RwLock).
-    allocator: RwLock<PoolAllocator<T>>,
+    /// The underlying allocator (single-owner; see module docs).
+    /// THREAD: not a cross-thread boundary — no game system touches this
+    /// pool from another thread (verified: callers are this module, the
+    /// registry below, and the demo/tests, all single-threaded).
+    allocator: RefCell<PoolAllocator<T>>,
     /// Statistics tracking.
     stats: PoolStats,
     /// Configuration.
@@ -40,7 +55,7 @@ impl<T> ObjectPool<T> {
         let allocator = PoolAllocator::new(config.clone())?;
 
         let pool = Arc::new(Self {
-            allocator: RwLock::new(allocator),
+            allocator: RefCell::new(allocator),
             stats: PoolStats::new(name),
             config,
             #[cfg(debug_assertions)]
@@ -48,8 +63,8 @@ impl<T> ObjectPool<T> {
         });
 
         // Initialize stats with initial capacity
-        let capacity = pool.allocator.read().unwrap().capacity();
-        let bytes = pool.allocator.read().unwrap().memory_usage();
+        let capacity = pool.allocator.borrow().capacity();
+        let bytes = pool.allocator.borrow().memory_usage();
         pool.stats.record_growth(capacity, bytes);
 
         Ok(pool)
@@ -59,7 +74,7 @@ impl<T> ObjectPool<T> {
     pub fn alloc(self: &Arc<Self>, value: T) -> Result<PoolHandle<T>, String> {
         let start = Instant::now();
 
-        let mut allocator = self.allocator.write().unwrap();
+        let mut allocator = self.allocator.borrow_mut();
         let index = allocator.alloc(value)?;
 
         let generation = allocator
@@ -83,7 +98,7 @@ impl<T> ObjectPool<T> {
     pub(crate) fn remove(&self, index: GenerationalIndex) -> Result<T, PoolAccessError> {
         let start = Instant::now();
 
-        let mut allocator = self.allocator.write().unwrap();
+        let mut allocator = self.allocator.borrow_mut();
 
         // Check generation
         let current_gen = allocator
@@ -130,7 +145,7 @@ impl<T> ObjectPool<T> {
     where
         F: FnOnce(&T) -> R,
     {
-        let allocator = self.allocator.read().unwrap();
+        let allocator = self.allocator.borrow();
 
         // Check generation
         let current_gen = allocator
@@ -152,7 +167,7 @@ impl<T> ObjectPool<T> {
     where
         F: FnOnce(&mut T) -> R,
     {
-        let mut allocator = self.allocator.write().unwrap();
+        let mut allocator = self.allocator.borrow_mut();
 
         // Check generation
         let current_gen = allocator
@@ -173,7 +188,7 @@ impl<T> ObjectPool<T> {
 
     /// Check if an index is valid.
     pub fn is_valid(&self, index: GenerationalIndex) -> bool {
-        let allocator = self.allocator.read().unwrap();
+        let allocator = self.allocator.borrow();
         if let Some(current_gen) = allocator.generation(index.index()) {
             current_gen == index.generation()
         } else {
@@ -183,7 +198,7 @@ impl<T> ObjectPool<T> {
 
     /// Get the number of allocated objects.
     pub fn len(&self) -> usize {
-        self.allocator.read().unwrap().len()
+        self.allocator.borrow().len()
     }
 
     /// Check if the pool is empty.
@@ -193,12 +208,12 @@ impl<T> ObjectPool<T> {
 
     /// Get the total capacity.
     pub fn capacity(&self) -> usize {
-        self.allocator.read().unwrap().capacity()
+        self.allocator.borrow().capacity()
     }
 
     /// Get memory usage in bytes.
     pub fn memory_usage(&self) -> usize {
-        self.allocator.read().unwrap().memory_usage()
+        self.allocator.borrow().memory_usage()
     }
 
     /// Get pool statistics.
@@ -215,7 +230,7 @@ impl<T> ObjectPool<T> {
     pub fn clear(&self) {
         let start = Instant::now();
         let cleared = {
-            let mut allocator = self.allocator.write().unwrap();
+            let mut allocator = self.allocator.borrow_mut();
             allocator.clear()
         };
 
@@ -247,7 +262,7 @@ impl<T> ObjectPool<T> {
     ///
     /// References C++ mempool.h:154-169 (destructor logic)
     pub fn shrink_to_fit(&self) {
-        let mut allocator = self.allocator.write().unwrap();
+        let mut allocator = self.allocator.borrow_mut();
 
         // Don't shrink below initial capacity (C++ always keeps blocks until destruction)
         let min_capacity = self.config.initial_capacity;
@@ -297,7 +312,7 @@ impl<T> ObjectPool<T> {
     ///
     /// References C++ mempool.h:231-260 (allocation and block linking)
     pub fn reserve(&self, additional: usize) -> Result<(), String> {
-        let mut allocator = self.allocator.write().unwrap();
+        let mut allocator = self.allocator.borrow_mut();
 
         // Calculate how much free capacity we currently have
         let current_capacity = allocator.capacity();
@@ -380,7 +395,7 @@ impl PoolFactory {
     ///
     /// Equivalent to C++'s ObjectPoolClass with BLOCK_SIZE=64 (default).
     /// References C++ mempool.h:32 (template default parameter)
-    pub fn for_small_objects<T: Send + Sync + 'static>(
+    pub fn for_small_objects<T: Send + 'static>(
         name: impl Into<String>,
     ) -> Result<Arc<ObjectPool<T>>, String> {
         let config = PoolConfig::for_small_objects(name);
@@ -391,7 +406,7 @@ impl PoolFactory {
     ///
     /// This matches the typical usage pattern in C++ Generals where
     /// game objects are pooled with moderate initial capacity.
-    pub fn for_game_objects<T: Send + Sync + 'static>(
+    pub fn for_game_objects<T: Send + 'static>(
         name: impl Into<String>,
     ) -> Result<Arc<ObjectPool<T>>, String> {
         let config = PoolConfig::for_game_objects(name);
@@ -402,7 +417,7 @@ impl PoolFactory {
     ///
     /// Modules in Generals are behavior components attached to game objects.
     /// They're allocated frequently but have moderate lifetimes.
-    pub fn for_modules<T: Send + Sync + 'static>(
+    pub fn for_modules<T: Send + 'static>(
         name: impl Into<String>,
     ) -> Result<Arc<ObjectPool<T>>, String> {
         let config = PoolConfig::for_modules(name);
@@ -413,7 +428,7 @@ impl PoolFactory {
     ///
     /// Projectiles have very short lifetimes and high allocation/deallocation
     /// frequency, so we use smaller capacity with strict limits.
-    pub fn for_projectiles<T: Send + Sync + 'static>(
+    pub fn for_projectiles<T: Send + 'static>(
         name: impl Into<String>,
     ) -> Result<Arc<ObjectPool<T>>, String> {
         let config = PoolConfig::for_projectiles(name);
@@ -423,7 +438,7 @@ impl PoolFactory {
     /// Create a custom pool with explicit configuration.
     ///
     /// For cases where the presets don't fit your needs.
-    pub fn with_config<T: Send + Sync + 'static>(
+    pub fn with_config<T: Send + 'static>(
         config: PoolConfig,
     ) -> Result<Arc<ObjectPool<T>>, String> {
         ObjectPool::new(config)
@@ -440,7 +455,7 @@ impl PoolFactory {
     /// * `block_size` - Equivalent to C++ BLOCK_SIZE template parameter
     ///
     /// References C++ mempool.h:32-54 (ObjectPoolClass template)
-    pub fn from_cpp_params<T: Send + Sync + 'static>(
+    pub fn from_cpp_params<T: Send + 'static>(
         name: impl Into<String>,
         block_size: usize,
     ) -> Result<Arc<ObjectPool<T>>, String> {
@@ -467,7 +482,8 @@ impl PoolFactory {
 #[derive(Debug)]
 pub struct DebugTracker {
     /// Map from allocation index to allocation metadata.
-    allocations: std::sync::Mutex<std::collections::HashMap<u32, AllocationInfo>>,
+    /// THREAD: same single-owner discipline as the pool itself — one thread.
+    allocations: RefCell<std::collections::HashMap<u32, AllocationInfo>>,
     /// Pool name for error messages.
     pool_name: String,
 }
@@ -489,7 +505,7 @@ impl DebugTracker {
     /// Create a new debug tracker.
     pub fn new(pool_name: String) -> Self {
         Self {
-            allocations: std::sync::Mutex::new(std::collections::HashMap::new()),
+            allocations: RefCell::new(std::collections::HashMap::new()),
             pool_name,
         }
     }
@@ -503,12 +519,12 @@ impl DebugTracker {
             type_name: std::any::type_name::<T>(),
         };
 
-        self.allocations.lock().unwrap().insert(index, info);
+        self.allocations.borrow_mut().insert(index, info);
     }
 
     /// Record a deallocation.
     pub fn track_dealloc(&self, index: u32) {
-        self.allocations.lock().unwrap().remove(&index);
+        self.allocations.borrow_mut().remove(&index);
     }
 
     /// Check for memory leaks.
@@ -518,7 +534,7 @@ impl DebugTracker {
     ///
     /// References C++ mempool.h:158
     pub fn check_leaks(&self) -> Vec<LeakInfo> {
-        let allocations = self.allocations.lock().unwrap();
+        let allocations = self.allocations.borrow();
         let mut leaks = Vec::new();
 
         for (&index, info) in allocations.iter() {
@@ -536,12 +552,12 @@ impl DebugTracker {
 
     /// Get the number of tracked allocations.
     pub fn active_count(&self) -> usize {
-        self.allocations.lock().unwrap().len()
+        self.allocations.borrow().len()
     }
 
     /// Clear all tracked allocations.
     pub fn clear(&self) {
-        self.allocations.lock().unwrap().clear();
+        self.allocations.borrow_mut().clear();
     }
 
     /// Print a leak report to stderr.
@@ -642,10 +658,11 @@ mod tests {
 
     #[test]
     fn object_pool_auto_traits_follow_allocator_value_bounds() {
-        fn assert_send_sync<T: Send + Sync>() {}
+        // The pool is single-owner (RefCell) matching the C++ thread model:
+        // Send when T: Send, deliberately never Sync.
         fn assert_send<T: Send>() {}
 
-        assert_send_sync::<ObjectPool<String>>();
+        assert_send::<ObjectPool<String>>();
         assert_send::<ObjectPool<std::cell::Cell<u32>>>();
     }
 
@@ -706,21 +723,15 @@ mod tests {
     }
 
     #[test]
-    fn test_thread_safety() {
-        use std::thread;
-
+    fn test_sequential_allocations_single_owner() {
+        // The pool is single-owner like the C++ statics it ports; allocation
+        // is exercised from one thread. (Previously this spawned threads
+        // against an RwLock — no game system does that.)
         let pool = ObjectPool::<u64>::new(PoolConfig::new("Test")).unwrap();
 
-        let handles: Vec<_> = (0..100)
-            .map(|i| {
-                let pool = Arc::clone(&pool);
-                thread::spawn(move || pool.alloc(i).unwrap())
-            })
-            .collect();
+        let handles: Vec<_> = (0..100).map(|i| pool.alloc(i).unwrap()).collect();
 
-        let results: Vec<_> = handles.into_iter().map(|h| h.join().unwrap()).collect();
-
-        assert_eq!(results.len(), 100);
+        assert_eq!(handles.len(), 100);
         assert_eq!(pool.len(), 100);
     }
 
@@ -1010,22 +1021,14 @@ mod tests {
     }
 
     #[test]
-    fn test_concurrent_reads_same_object() {
-        // Multiple threads should be able to read the same object
-        use std::thread;
-
+    fn test_repeated_reads_same_object() {
+        // Repeated shared reads of one object stay valid on the owning
+        // thread (formerly a multi-threaded read test against the RwLock).
         let pool = ObjectPool::<u64>::new(PoolConfig::new("Test")).unwrap();
-        let handle = Arc::new(pool.alloc(777).unwrap());
+        let handle = pool.alloc(777).unwrap();
 
-        let mut threads = vec![];
         for _ in 0..5 {
-            let h = Arc::clone(&handle);
-            let t = thread::spawn(move || h.with(|v| *v).unwrap());
-            threads.push(t);
-        }
-
-        for t in threads {
-            let result = t.join().unwrap();
+            let result = handle.with(|v| *v).unwrap();
             assert_eq!(result, 777);
         }
     }

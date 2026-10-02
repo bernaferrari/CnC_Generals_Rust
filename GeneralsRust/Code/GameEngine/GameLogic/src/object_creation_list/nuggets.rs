@@ -2373,11 +2373,10 @@ End
         let mut source = Object::new_test(70_100, 100.0);
         source.attach_experience_tracker_for_test(true);
         source
-            .get_experience_tracker()
-            .unwrap()
-            .lock()
-            .unwrap()
-            .set_veterancy_level(VeterancyLevel::Elite);
+            .with_experience_tracker_mut(|tracker| {
+                tracker.set_veterancy_level(VeterancyLevel::Elite);
+            })
+            .expect("source must carry the attached tracker");
         source.set_name(AsciiString::from("NamedPilot"));
         let pos = *source.get_position();
         let created = nugget
@@ -2385,11 +2384,8 @@ End
             .expect("created");
         let obj = created.read().unwrap();
         let level = obj
-            .get_experience_tracker()
-            .unwrap()
-            .lock()
-            .unwrap()
-            .get_veterancy_level();
+            .with_experience_tracker(|tracker| tracker.get_veterancy_level())
+            .expect("created object must have an experience tracker");
         assert_eq!(level, VeterancyLevel::Regular);
         assert!(obj.get_name().is_empty());
     }
@@ -2411,11 +2407,10 @@ End
         let mut source = Object::new_test(70_101, 100.0);
         source.attach_experience_tracker_for_test(true);
         source
-            .get_experience_tracker()
-            .unwrap()
-            .lock()
-            .unwrap()
-            .set_veterancy_level(VeterancyLevel::Elite);
+            .with_experience_tracker_mut(|tracker| {
+                tracker.set_veterancy_level(VeterancyLevel::Elite);
+            })
+            .expect("source must carry the attached tracker");
         source.set_name(AsciiString::from("NamedPilot"));
         let pos = *source.get_position();
         let created = nugget
@@ -2423,11 +2418,8 @@ End
             .expect("created");
         let obj = created.read().unwrap();
         let level = obj
-            .get_experience_tracker()
-            .unwrap()
-            .lock()
-            .unwrap()
-            .get_veterancy_level();
+            .with_experience_tracker(|tracker| tracker.get_veterancy_level())
+            .expect("created object must have an experience tracker");
         assert_eq!(level, VeterancyLevel::Elite);
         assert_eq!(obj.get_name().as_str(), "NamedPilot");
     }

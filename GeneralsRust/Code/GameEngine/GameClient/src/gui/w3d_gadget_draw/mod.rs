@@ -6,7 +6,7 @@ pub(in crate::gui::w3d_gadget_draw) use crate::display::image::{
     ensure_client_mapped_image, get_mapped_image_collection,
 };
 pub(in crate::gui::w3d_gadget_draw) use crate::display::view::{IPoint2, with_tactical_view_ref};
-pub(in crate::gui::w3d_gadget_draw) use crate::gui::callbacks::get_menu_manager;
+pub(in crate::gui::w3d_gadget_draw) use crate::gui::callbacks::with_credits_menu;
 pub(in crate::gui::w3d_gadget_draw) use crate::gui::display_string::DisplayString;
 pub(in crate::gui::w3d_gadget_draw) use crate::gui::font::{FontDesc, get_font_library};
 pub(in crate::gui::w3d_gadget_draw) use crate::gui::gadgets::tabcontrol::{

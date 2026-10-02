@@ -57,7 +57,7 @@ use crate::gui::callbacks::{
     difficulty_select_system, download_menu_init, download_menu_input, download_menu_shutdown,
     download_menu_system, download_menu_update, game_info_window_init, game_info_window_system,
     generals_exp_points_input, generals_exp_points_system, get_control_bar_system,
-    get_diplomacy_system, get_ingame_ui_system, get_menu_manager, get_message_box_system,
+    get_diplomacy_system, get_ingame_ui_system, get_message_box_system,
     ime_candidate_main_draw, ime_candidate_text_area_draw, ime_candidate_window_input,
     ime_candidate_window_system, in_game_popup_message_init, in_game_popup_message_input,
     in_game_popup_message_system, keyboard_options_menu_init, keyboard_options_menu_input,

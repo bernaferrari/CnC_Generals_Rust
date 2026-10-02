@@ -580,6 +580,15 @@ impl Module for OCLUpdateModule {
     fn get_ocl_update_control_interface(&mut self) -> Option<&mut dyn OclUpdateControlInterface> {
         Some(self)
     }
+
+    /// C++ `DynamicInterfaceCast(UPDATE)`: the wrapped `OCLUpdate` answers the
+    /// update query; its `update()` is `tick()`, matching the previous
+    /// type-test dispatch exactly.
+    fn get_update_module_interface(
+        &mut self,
+    ) -> Option<&mut dyn game_engine::common::thing::update_module::UpdateModuleInterface> {
+        Some(&mut self.update)
+    }
 }
 
 impl OclUpdateControlInterface for OCLUpdateModule {

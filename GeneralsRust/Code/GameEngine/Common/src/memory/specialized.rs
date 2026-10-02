@@ -3,34 +3,36 @@
 //! Provides pre-configured pools for common game engine types.
 
 use super::{ObjectPool, PoolConfig};
-use once_cell::sync::Lazy;
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::sync::RwLock;
 
 /// Registry for game object pools.
 ///
 /// This maintains pre-configured pools for different object types
 /// (Units, Structures, Projectiles, etc.) with optimized settings.
+///
+/// Single-owner like the pools it holds; the process-wide instances are
+/// thread-locals (see below). THREAD: no cross-thread boundary, no lock.
 pub struct ObjectPoolRegistry {
-    pools: RwLock<HashMap<String, Arc<dyn std::any::Any + Send + Sync>>>,
+    pools: RefCell<HashMap<String, Arc<dyn std::any::Any>>>,
 }
 
 impl ObjectPoolRegistry {
     /// Create a new object pool registry.
     pub fn new() -> Self {
         Self {
-            pools: RwLock::new(HashMap::new()),
+            pools: RefCell::new(HashMap::new()),
         }
     }
 
     /// Get or create a pool for a specific type.
-    pub fn get_or_create<T: 'static + Send + Sync>(
+    pub fn get_or_create<T: 'static + Send>(
         &self,
         name: &str,
         config_fn: impl FnOnce() -> PoolConfig,
     ) -> Result<Arc<ObjectPool<T>>, String> {
-        let mut pools = self.pools.write().unwrap();
+        let mut pools = self.pools.borrow_mut();
 
         if let Some(pool) = pools.get(name) {
             return pool
@@ -43,7 +45,7 @@ impl ObjectPoolRegistry {
         let pool = ObjectPool::<T>::new(config)?;
         pools.insert(
             name.to_string(),
-            Arc::new(pool.clone()) as Arc<dyn std::any::Any + Send + Sync>,
+            Arc::new(pool.clone()) as Arc<dyn std::any::Any>,
         );
 
         Ok(pool)
@@ -52,17 +54,16 @@ impl ObjectPoolRegistry {
     /// Get an existing pool.
     pub fn get<T: 'static>(&self, name: &str) -> Option<Arc<ObjectPool<T>>> {
         self.pools
-            .read()
-            .unwrap()
+            .borrow()
             .get(name)
             .and_then(|p| p.downcast_ref::<Arc<ObjectPool<T>>>().map(Arc::clone))
     }
 
     /// Register a pre-created pool.
-    pub fn register<T: 'static + Send + Sync>(&self, name: &str, pool: Arc<ObjectPool<T>>) {
-        self.pools.write().unwrap().insert(
+    pub fn register<T: 'static + Send>(&self, name: &str, pool: Arc<ObjectPool<T>>) {
+        self.pools.borrow_mut().insert(
             name.to_string(),
-            Arc::new(pool) as Arc<dyn std::any::Any + Send + Sync>,
+            Arc::new(pool) as Arc<dyn std::any::Any>,
         );
     }
 }
@@ -78,23 +79,23 @@ impl Default for ObjectPoolRegistry {
 /// Modules are components attached to game objects. This registry
 /// manages pools for all module types.
 pub struct ModulePoolRegistry {
-    pools: RwLock<HashMap<String, Arc<dyn std::any::Any + Send + Sync>>>,
+    pools: RefCell<HashMap<String, Arc<dyn std::any::Any>>>,
 }
 
 impl ModulePoolRegistry {
     /// Create a new module pool registry.
     pub fn new() -> Self {
         Self {
-            pools: RwLock::new(HashMap::new()),
+            pools: RefCell::new(HashMap::new()),
         }
     }
 
     /// Get or create a module pool.
-    pub fn get_or_create<T: 'static + Send + Sync>(
+    pub fn get_or_create<T: 'static + Send>(
         &self,
         module_name: &str,
     ) -> Result<Arc<ObjectPool<T>>, String> {
-        let mut pools = self.pools.write().unwrap();
+        let mut pools = self.pools.borrow_mut();
 
         if let Some(pool) = pools.get(module_name) {
             return pool
@@ -108,7 +109,7 @@ impl ModulePoolRegistry {
         let pool = ObjectPool::<T>::new(config)?;
         pools.insert(
             module_name.to_string(),
-            Arc::new(pool.clone()) as Arc<dyn std::any::Any + Send + Sync>,
+            Arc::new(pool.clone()) as Arc<dyn std::any::Any>,
         );
 
         Ok(pool)
@@ -117,8 +118,7 @@ impl ModulePoolRegistry {
     /// Get an existing module pool.
     pub fn get<T: 'static>(&self, module_name: &str) -> Option<Arc<ObjectPool<T>>> {
         self.pools
-            .read()
-            .unwrap()
+            .borrow()
             .get(module_name)
             .and_then(|p| p.downcast_ref::<Arc<ObjectPool<T>>>().map(Arc::clone))
     }
@@ -131,13 +131,20 @@ impl Default for ModulePoolRegistry {
 }
 
 /// Global object pool registry.
-pub static OBJECT_POOLS: Lazy<ObjectPoolRegistry> = Lazy::new(ObjectPoolRegistry::new);
+///
+/// Thread-local to match the C++ thread model: plain statics driven by one
+/// thread, not a shared lock.
+thread_local! {
+    pub static OBJECT_POOLS: ObjectPoolRegistry = ObjectPoolRegistry::new();
+}
 
 /// Global module pool registry.
-pub static MODULE_POOLS: Lazy<ModulePoolRegistry> = Lazy::new(ModulePoolRegistry::new);
+thread_local! {
+    pub static MODULE_POOLS: ModulePoolRegistry = ModulePoolRegistry::new();
+}
 
 /// Helper function to create game object pool with appropriate settings.
-pub fn create_game_object_pool<T: 'static + Send + Sync>(
+pub fn create_game_object_pool<T: 'static + Send>(
     name: &str,
 ) -> Result<Arc<ObjectPool<T>>, String> {
     let config = PoolConfig::for_game_objects(name);
@@ -145,7 +152,7 @@ pub fn create_game_object_pool<T: 'static + Send + Sync>(
 }
 
 /// Helper function to create projectile pool with appropriate settings.
-pub fn create_projectile_pool<T: 'static + Send + Sync>(
+pub fn create_projectile_pool<T: 'static + Send>(
     name: &str,
 ) -> Result<Arc<ObjectPool<T>>, String> {
     let config = PoolConfig::for_projectiles(name);
@@ -153,7 +160,7 @@ pub fn create_projectile_pool<T: 'static + Send + Sync>(
 }
 
 /// Helper function to create small object pool (particles, etc).
-pub fn create_small_object_pool<T: 'static + Send + Sync>(
+pub fn create_small_object_pool<T: 'static + Send>(
     name: &str,
 ) -> Result<Arc<ObjectPool<T>>, String> {
     let config = PoolConfig::for_small_objects(name);
@@ -167,8 +174,10 @@ pub fn create_small_object_pool<T: 'static + Send + Sync>(
 macro_rules! game_object_pool {
     ($ty:ty, $name:expr) => {{
         use $crate::memory::specialized::OBJECT_POOLS;
-        OBJECT_POOLS.get_or_create::<$ty>($name, || {
-            $crate::memory::PoolConfig::for_game_objects($name)
+        OBJECT_POOLS.with(|pools| {
+            pools.get_or_create::<$ty>($name, || {
+                $crate::memory::PoolConfig::for_game_objects($name)
+            })
         })
     }};
 }
@@ -178,7 +187,7 @@ macro_rules! game_object_pool {
 macro_rules! module_pool {
     ($ty:ty, $name:expr) => {{
         use $crate::memory::specialized::MODULE_POOLS;
-        MODULE_POOLS.get_or_create::<$ty>($name)
+        MODULE_POOLS.with(|pools| pools.get_or_create::<$ty>($name))
     }};
 }
 

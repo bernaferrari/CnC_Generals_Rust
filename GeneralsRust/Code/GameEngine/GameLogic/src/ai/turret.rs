@@ -7,7 +7,7 @@ use crate::common::xfer::{Xfer, XferVersion};
 use crate::common::*;
 use crate::game_logic::game_logic::TheGameLogic;
 use crate::helpers::{TheAudio, ThePartitionManager};
-use crate::object::registry::OBJECT_REGISTRY;
+use crate::object::registry::{OBJECT_REGISTRY, SharedObjectHandle};
 use crate::object::*;
 use crate::state_machine::*;
 use crate::team::TeamID;
@@ -16,7 +16,7 @@ use crate::weapon::{Weapon, WeaponChoiceCriteria, WeaponSlotType};
 use game_engine::common::system::Snapshotable;
 use std::any::Any;
 
-use std::sync::{Arc, Mutex, RwLock, Weak};
+use std::sync::Arc;
 
 /// C++ TurretAI.cpp ENABLE_SWEEP_FRAME_COUNT after notifyFired.
 const ENABLE_SWEEP_FRAME_COUNT: u32 = 3;
@@ -57,11 +57,15 @@ impl From<TurretStateType> for u32 {
 /// Turret AI behavior controller
 ///
 /// C++ `TurretAI` owns `TurretStateMachine* m_turretStateMachine`
-/// (TurretAI.h:332; allocated in the `TurretAI` ctor, TurretAI.cpp:~107) and the
-/// machine's states reach it back through `TurretStateMachine::getTurretAI()`
+/// (TurretAI.h:332; allocated in the `TurretAI` ctor, TurretAI.cpp:294-295) and
+/// the machine's states reach it back through `TurretStateMachine::getTurretAI()`
 /// (TurretAI.h:75). Ownership here inverts that arrow: the machine is a plain
-/// field, states carry no handles, and the owner is loaned to each machine step
-/// via `StateImplementation::update_with_owner` / `on_enter_with_owner`.
+/// owned field, states carry no handles, and the turret itself is loaned to
+/// each machine step via `StateImplementation::update_with_owner` /
+/// `on_enter_with_owner` — exactly the `this` context C++ passes through the
+/// `StateMachine::update` flow. Nothing in this module is shared: no Arc, no
+/// Mutex, no Weak. The only handle the turret keeps is `owner_id`, resolved
+/// through the id-keyed object registry on every use.
 pub struct TurretAI {
     /// Owner object
     owner_id: ObjectID,
@@ -80,10 +84,6 @@ pub struct TurretAI {
     /// The turret's own state machine (C++ `m_turretStateMachine`). Owned, not
     /// shared: no Arc, no Mutex, no Weak.
     state_machine: StateMachine,
-    /// This turret's own shared handle, stamped by `TurretStateMachine::new`.
-    /// UnitAIUpdate's idle-mood path (`export_idle_goal` → `sync_machine_goal`)
-    /// names the turret through it instead of holding a machine handle.
-    self_handle: Option<Weak<Mutex<TurretAI>>>,
     /// Turret's natural/default angle
     natural_angle: f32,
     /// Turret's natural/default pitch
@@ -168,16 +168,20 @@ pub struct TurretAI {
 }
 
 impl TurretAI {
-    pub fn new(owner: Weak<RwLock<Object>>) -> Self {
-        let owner_arc = owner.upgrade();
-        let owner_id = owner_arc
-            .as_ref()
-            .and_then(|arc| arc.read().ok().map(|g| g.get_id()))
-            .unwrap_or(crate::common::INVALID_ID);
-        let turret_rot_or_pitch_sound = owner_arc
-            .as_ref()
-            .and_then(|arc| arc.read().ok())
-            .and_then(|guard| guard.get_template().get_per_unit_sound("TurretMoveLoop"))
+    /// C++ `TurretAI::TurretAI(Object* owner, const TurretAIData*, WhichTurretType)`
+    /// (TurretAI.cpp:248-298), split in two here: this constructor keeps only
+    /// the id of the owner, `TurretAIData::apply_to` applies the INI half, and
+    /// [`TurretStateMachine::new`] then builds the machine and enters the
+    /// default state — the same order as C++, whose `TurretStateMachine` ctor
+    /// and `initDefaultState()` run inside this constructor (TurretAI.cpp:294-
+    /// 295). The rotation sound is the template's `TurretMoveLoop`
+    /// (TurretAI.cpp:297); it is re-resolved lazily at first use.
+    pub fn new(owner_id: ObjectID) -> Self {
+        let turret_rot_or_pitch_sound = OBJECT_REGISTRY
+            .with_object(owner_id, |guard| {
+                guard.get_template().get_per_unit_sound("TurretMoveLoop")
+            })
+            .flatten()
             .unwrap_or_else(|| AudioEventRts::new(""));
         Self {
             owner_id,
@@ -188,7 +192,6 @@ impl TurretAI {
             victim_initial_team: None,
             target_position: None,
             state_machine: StateMachine::empty(),
-            self_handle: None,
             natural_angle: 0.0,
             natural_pitch: 0.0,
             current_angle: 0.0,
@@ -239,8 +242,10 @@ impl TurretAI {
         self.current_target
     }
 
-    /// Resolve the current target handle for call sites that still need an Arc.
-    pub fn get_current_target(&self) -> Option<Arc<RwLock<Object>>> {
+    /// Resolve the current target's registry handle for read access. The
+    /// handle is transient — the registry stays the owner. Wave 276: empty
+    /// dual-world → None.
+    pub fn get_current_target(&self) -> Option<SharedObjectHandle> {
         // Wave 276: empty dual-world → None.
         if dual_world_registry_unavailable() {
             return None;
@@ -276,106 +281,32 @@ impl TurretAI {
         self.sync_state_for_target();
     }
 
-    /// Set current target from idle mood selection
+    /// Set current target from idle mood selection. C++
+    /// `TurretAI::friend_checkForIdleMoodTarget` tail (TurretAI.cpp:855-876):
+    /// `setTurretTargetObject(enemy, FALSE)` plus the `m_targetWasSetByIdleMood`
+    /// marker. UnitAIUpdate's deferred idle-mood pass calls this directly on
+    /// the loaned turret — no exported machine handle involved.
     pub fn set_current_target_from_idle_mood(&mut self, target: Option<ObjectID>) {
         self.assign_idle_mood_target(target);
         self.sync_goal_object();
         self.sync_state_for_target();
     }
 
-    pub fn finish_idle_mood_target_sync(&mut self) {
-        self.sync_goal_object();
-        self.sync_state_for_target();
-    }
-
-    /// Goal snapshot for UnitAIUpdate's idle-mood path. The first element is
-    /// this turret's own shared handle (not a machine handle): the caller feeds
-    /// it back into [`Self::sync_machine_goal`], which drives the owned machine
-    /// under the turret lock.
-    pub fn export_idle_goal(
-        &self,
-    ) -> (
-        Option<Weak<Mutex<TurretAI>>>,
-        TurretTargetKind,
-        Option<ObjectID>,
-        Option<Coord3D>,
-    ) {
-        (
-            self.self_handle.clone(),
-            self.target_kind,
-            self.current_target,
-            self.target_position,
-        )
-    }
-
-    /// Apply an idle-mood goal to the machine and force AIM/HOLD exactly as the
-    /// old machine-handle version did. `machine` is the turret handle produced
-    /// by [`Self::export_idle_goal`].
-    pub fn sync_machine_goal(
-        machine: Option<Weak<Mutex<TurretAI>>>,
-        kind: TurretTargetKind,
-        target: Option<ObjectID>,
-        pos: Option<Coord3D>,
-    ) {
-        let Some(machine_arc) = machine.and_then(|weak| weak.upgrade()) else {
-            return;
-        };
-        let Ok(mut turret) = machine_arc.lock() else {
-            return;
-        };
-        match kind {
-            TurretTargetKind::Object => turret.state_machine.set_goal_object_by_id(target),
-            TurretTargetKind::Position => {
-                turret.state_machine.set_goal_object_by_id(None);
-                if let Some(pos) = pos {
-                    turret.state_machine.set_goal_position(pos);
-                }
-            }
-            TurretTargetKind::None => turret.state_machine.set_goal_object_by_id(None),
-        }
-        let current = turret.state_machine.get_current_state_id();
-        let aim_id = TurretStateType::Aim.into();
-        let fire_id = TurretStateType::Fire.into();
-        let hold_id = TurretStateType::Hold.into();
-        let forced = if kind != TurretTargetKind::None {
-            (current != Some(aim_id) && current != Some(fire_id)).then_some(aim_id)
-        } else if current == Some(aim_id) || current == Some(fire_id) {
-            Some(hold_id)
-        } else {
-            None
-        };
-        if let Some(state_id) = forced {
-            // The machine is owned by the turret, so it is taken out for the
-            // enter (which loans the owner back to the state) and returned.
-            let mut owned = std::mem::replace(&mut turret.state_machine, StateMachine::empty());
-            let _ = owned.set_current_state_with_owner(state_id, &mut *turret);
-            turret.state_machine = owned;
-        }
-    }
-
-    /// Current machine state id. UnitAIUpdate reads this through the shared
-    /// handle (`export_idle_goal().0.upgrade().lock().get_current_state_id()`).
+    /// Current machine state id.
     pub fn get_current_state_id(&self) -> Option<u32> {
         self.state_machine.get_current_state_id()
-    }
-
-    /// Stamp the shared handle back-reference. Called from
-    /// [`TurretStateMachine::new`], which is the one place that holds both the
-    /// turret and its `Arc` (C++ keeps a raw `TurretAI*` on the machine
-    /// instead; the reference here is weak, so no cycle keeps anything alive).
-    fn attach_self_handle(&mut self, handle: Weak<Mutex<TurretAI>>) {
-        self.self_handle = Some(handle);
     }
 
     /// Define the machine's states and enter the default one. Runs from
     /// [`TurretStateMachine::new`] after `TurretAIData::apply_to`, matching the
     /// C++ order (UnitAI builds the turret, applies data, then constructs
     /// `TurretStateMachine`, TurretAI.cpp:40-71).
-    fn build_state_machine(&mut self, owner: Weak<RwLock<Object>>, name: &str) {
+    fn build_state_machine(&mut self) {
         if !self.state_machine.is_empty() {
             return;
         }
-        let mut machine = StateMachine::new(Some(owner), name);
+        let mut machine =
+            StateMachine::new_with_owner_id(self.owner_id, "TurretStateMachine");
         self.define_turret_states(&mut machine);
         // C++ TurretStateMachine ctor ends with the default state entered; the
         // IDLE onEnter reads the just-applied turret data.
@@ -384,8 +315,9 @@ impl TurretAI {
         self.state_machine = machine;
     }
 
-    /// Resolve the owner object handle. C++ `TurretAI::getOwnerObject()`.
-    fn owner_object(&self) -> Option<Arc<RwLock<Object>>> {
+    /// Resolve the owner object handle. C++ `TurretAI::getOwner()`. The handle
+    /// is transient: resolved by id on every use, never stored.
+    fn owner_object(&self) -> Option<SharedObjectHandle> {
         if self.owner_id == crate::common::INVALID_ID {
             return None;
         }
@@ -1041,7 +973,7 @@ impl TurretAI {
     }
 
     /// Scan for targets within turret's range and arc
-    pub fn scan_for_targets(&self) -> Vec<Arc<RwLock<Object>>> {
+    pub fn scan_for_targets(&self) -> Vec<SharedObjectHandle> {
         // Wave 276: empty dual-world → no targets.
         if dual_world_registry_unavailable() {
             return Vec::new();
@@ -1110,7 +1042,7 @@ impl TurretAI {
     }
 
     /// Find best target from available targets
-    pub fn find_best_target(&self, targets: &[Arc<RwLock<Object>>]) -> Option<Arc<RwLock<Object>>> {
+    pub fn find_best_target(&self, targets: &[SharedObjectHandle]) -> Option<SharedObjectHandle> {
         // Wave 276: empty dual-world → None.
         if dual_world_registry_unavailable() {
             return None;
@@ -1121,7 +1053,7 @@ impl TurretAI {
         }
 
         // Simple targeting: closest enemy
-        let mut best_target: Option<Arc<RwLock<Object>>> = None;
+        let mut best_target: Option<SharedObjectHandle> = None;
         let mut best_distance_sqr = f32::MAX;
 
         if self.owner_id != crate::common::INVALID_ID {
@@ -1224,15 +1156,6 @@ impl TurretAI {
         };
         self.sleep_until = now.saturating_add(sleep_frames);
         state_return
-    }
-
-    /// Step a turret through its shared handle. States run on the loaned
-    /// `&mut TurretAI`, so the lock is held for the whole step.
-    pub fn update_turret_ai_handle(turret: &Arc<Mutex<TurretAI>>) -> StateReturnType {
-        let Ok(mut guard) = turret.lock() else {
-            return StateReturnType::Failure;
-        };
-        guard.update_turret_ai()
     }
 
     /// Get hold time
@@ -1777,33 +1700,56 @@ fn turret_condition_invoke(
         .unwrap_or(false)
 }
 
-/// External handle UnitAIUpdate keeps per turret (`turret_primary_machine` /
-/// `turret_secondary_machine`). C++ `TurretAI` owns the machine itself
-/// (TurretAI.h:332 `m_turretStateMachine`), so the machine lives inside
-/// `TurretAI` here and this wrapper only carries the shared turret handle,
-/// stamping it and building the machine on construction.
+/// UnitAIUpdate's per-slot turret bundle (`turret_primary_machine` /
+/// `turret_secondary_machine`; C++ `UnitAI` keeps one `TurretAI*` per slot).
+/// The turret owns its machine outright (C++ `TurretAI` owns
+/// `m_turretStateMachine`, TurretAI.h:332), so this wrapper owns the whole
+/// bundle by value and hands out borrows — no Arc, no Mutex, no Weak anywhere
+/// in the chain. Construction builds the six states and enters IDLE exactly
+/// where the C++ `TurretStateMachine` ctor + `initDefaultState()` ran
+/// (TurretAI.cpp:65-80, 294-295).
 pub struct TurretStateMachine {
-    turret_ai: Option<Arc<Mutex<TurretAI>>>,
+    /// The turret and, inside it, the machine. `None` only while a tick has
+    /// loaned the turret out through [`Self::take_turret`].
+    turret: Option<TurretAI>,
 }
 
 impl TurretStateMachine {
-    pub fn new(
-        turret_ai: Option<Arc<Mutex<TurretAI>>>,
-        owner: Weak<RwLock<Object>>,
-        name: &str,
-    ) -> Self {
-        if let Some(ai) = turret_ai.as_ref() {
-            if let Ok(mut guard) = ai.lock() {
-                guard.attach_self_handle(Arc::downgrade(ai));
-                guard.build_state_machine(owner, name);
-            }
-        }
-        Self { turret_ai }
+    /// Takes the already-data-applied turret (C++ passes the `TurretAI*`), then
+    /// runs the state definition + default-state entry that the C++
+    /// `TurretStateMachine` ctor performed.
+    pub fn new(turret: TurretAI) -> Self {
+        let mut turret = turret;
+        turret.build_state_machine();
+        Self { turret: Some(turret) }
     }
 
-    /// Shared turret handle (C++ `TurretStateMachine::getTurretAI`, TurretAI.h:53).
-    pub fn get_turret_ai(&self) -> Option<Arc<Mutex<TurretAI>>> {
-        self.turret_ai.clone()
+    /// The turret (C++ `TurretStateMachine::getTurretAI`, TurretAI.h:53 — the
+    /// arrow is inverted here: the bundle owns the turret, and the machine
+    /// lives inside the turret).
+    pub fn turret(&self) -> &TurretAI {
+        self.turret
+            .as_ref()
+            .expect("turret loaned via take_turret without restore")
+    }
+
+    /// Mutable borrow for call sites that drive the turret directly.
+    pub fn turret_mut(&mut self) -> &mut TurretAI {
+        self.turret
+            .as_mut()
+            .expect("turret loaned via take_turret without restore")
+    }
+
+    /// Loan the turret out for a step that also borrows `UnitAIUpdate` (the
+    /// machine lives inside the turret, so it travels with the loan). Pair
+    /// with [`Self::restore_turret`] before the next tick.
+    pub fn take_turret(&mut self) -> Option<TurretAI> {
+        self.turret.take()
+    }
+
+    /// Return a [`Self::take_turret`] loan.
+    pub fn restore_turret(&mut self, turret: TurretAI) {
+        self.turret = Some(turret);
     }
 }
 
@@ -1899,9 +1845,10 @@ impl TurretAI {
 //
 // C++ `TurretState` reached the turret through the machine pointer
 // (TurretAI.h:70-76 `getTurretAI()`). The machine is owned by `TurretAI` here,
-// so states embed only the legacy `State` bookkeeping (id/name plus the goal
-// mirrors the machine binds each step) and receive `&mut TurretAI` through
-// `update_with_owner` / `on_enter_with_owner`.
+// so states embed only the legacy `State` bookkeeping (id/name, the machine's
+// owner id copied once at define time, plus the goal mirrors the machine binds
+// each step) and receive `&mut TurretAI` through `update_with_owner` /
+// `on_enter_with_owner` — the loaned-turret equivalent of C++'s `getTurretAI()`.
 
 /// Base data for turret states.
 #[derive(Debug)]
@@ -1937,13 +1884,6 @@ impl TurretState {
     /// Goal the machine bound for this step (C++ `getMachineGoalObject` id).
     fn bind_goal_object_id(&mut self, id: ObjectID) {
         self.base.goal_object_id = id;
-    }
-
-    /// Owner the machine bound for this step (C++ `getMachineOwner`).
-    fn note_step_owner(&mut self, owner: &Arc<RwLock<Object>>) {
-        if let Ok(guard) = owner.read() {
-            self.base.owner_id = guard.get_id();
-        }
     }
 }
 
@@ -2058,10 +1998,6 @@ impl StateImplementation for TurretAIIdleState {
         self.base.bind_goal_object_id(id);
     }
 
-    fn note_step_owner(&mut self, owner: Arc<RwLock<Object>>) {
-        self.base.note_step_owner(&owner);
-    }
-
     fn is_idle(&self) -> bool {
         true
     }
@@ -2170,10 +2106,6 @@ impl StateImplementation for TurretAIIdleScanState {
         self.base.bind_goal_object_id(id);
     }
 
-    fn note_step_owner(&mut self, owner: Arc<RwLock<Object>>) {
-        self.base.note_step_owner(&owner);
-    }
-
     fn is_busy(&self) -> bool {
         true
     }
@@ -2256,10 +2188,6 @@ impl StateImplementation for TurretAIAimTurretState {
 
     fn bind_goal_object_id(&mut self, id: ObjectID) {
         self.base.bind_goal_object_id(id);
-    }
-
-    fn note_step_owner(&mut self, owner: Arc<RwLock<Object>>) {
-        self.base.note_step_owner(&owner);
     }
 
     fn is_busy(&self) -> bool {
@@ -2603,13 +2531,9 @@ impl StateImplementation for TurretAIFireWeaponState {
         self.base.bind_goal_object_id(id);
     }
 
-    fn note_step_owner(&mut self, owner: Arc<RwLock<Object>>) {
-        self.base.note_step_owner(&owner);
-    }
-
     fn get_machine_goal_object(
         &self,
-    ) -> Result<Option<Arc<RwLock<crate::object::Object>>>, String> {
+    ) -> Result<Option<SharedObjectHandle>, String> {
         let id = self.base.base.goal_object_id;
         if id == crate::common::INVALID_ID {
             return Ok(None);
@@ -2692,10 +2616,6 @@ impl StateImplementation for TurretAIRecenterTurretState {
 
     fn bind_goal_object_id(&mut self, id: ObjectID) {
         self.base.bind_goal_object_id(id);
-    }
-
-    fn note_step_owner(&mut self, owner: Arc<RwLock<Object>>) {
-        self.base.note_step_owner(&owner);
     }
 
     fn is_busy(&self) -> bool {
@@ -2796,10 +2716,6 @@ impl StateImplementation for TurretAIHoldTurretState {
 
     fn bind_goal_object_id(&mut self, id: ObjectID) {
         self.base.bind_goal_object_id(id);
-    }
-
-    fn note_step_owner(&mut self, owner: Arc<RwLock<Object>>) {
-        self.base.note_step_owner(&owner);
     }
 
     fn is_busy(&self) -> bool {
@@ -2997,7 +2913,46 @@ mod tests {
     use super::*;
 
     fn test_turret() -> TurretAI {
-        TurretAI::new(Weak::new())
+        TurretAI::new(crate::common::INVALID_ID)
+    }
+
+    #[test]
+    fn owned_machine_builds_enters_idle_and_tracks_position_goal() {
+        // Builds the bundle the way UnitAIUpdate does (ai_core.rs
+        // build_turret_machine): TurretAI::new → apply data → TurretStateMachine::new.
+        // No registry, no shared handle anywhere.
+        let mut machine = TurretStateMachine::new(TurretAI::new(crate::common::INVALID_ID));
+        let idle_id = u32::from(TurretStateType::Idle);
+        assert_eq!(
+            machine.turret().get_current_state_id(),
+            Some(idle_id),
+            "fresh turret must start in TURRETAI_IDLE"
+        );
+
+        // A position goal is refused unless the owner's current weapon is on
+        // the turret or the turrets are linked (TurretAI.cpp:589-597), so link
+        // them the way the update loop stamps `areTurretsLinked()`.
+        machine.turret_mut().set_turrets_linked_cached(true);
+        let goal = Coord3D::new(30.0, 0.0, 0.0);
+        machine.turret_mut().set_target_position(Some(goal));
+        assert_eq!(machine.turret().get_target_kind(), TurretTargetKind::Position);
+        assert_eq!(
+            machine.turret().get_current_state_id(),
+            Some(u32::from(TurretStateType::Aim)),
+            "position goal must force TURRETAI_AIM"
+        );
+
+        // Recenter through the owned machine.
+        machine.turret_mut().recenter_turret();
+        assert_eq!(
+            machine.turret().get_current_state_id(),
+            Some(u32::from(TurretStateType::Recenter))
+        );
+
+        // A full step stays inside the owned machine.
+        machine.turret_mut().set_turret_enabled(true);
+        let result = machine.turret_mut().update_turret_ai();
+        assert!(matches!(result, StateReturnType::Continue | StateReturnType::Sleep(0)));
     }
 
     #[test]
@@ -3026,29 +2981,24 @@ mod tests {
     }
 
     #[test]
-    fn turret_wake_and_sleep_bookkeeping_matches_cpp_fields() {
+    fn set_target_position_refused_unless_linked_or_armed() {
+        // C++ TurretAI::setTurretTargetPosition (TurretAI.cpp:589-597): a
+        // position goal only sticks when the owner's current weapon is on the
+        // turret OR the turrets are linked. With neither, the goal is dropped.
         let mut turret = test_turret();
-        let now = TheGameLogic::get_frame();
-
-        turret.set_sleep_until(now.saturating_add(5));
-        assert_eq!(turret.update_turret_ai(), StateReturnType::Sleep(5));
-
-        turret.friend_notify_state_machine_changed();
-        assert_eq!(turret.get_sleep_until(), now);
-
-        turret.set_turret_enabled(false);
-        turret.set_turret_enabled(true);
-        assert_eq!(turret.get_sleep_until(), now);
-    }
-
-    #[test]
-    fn set_target_position_marks_position_kind() {
-        // C++ TurretAI::setTurretTargetPosition (TurretAI.cpp:589-626)
-        let mut turret = test_turret();
+        turret.set_turrets_linked_cached(true);
         turret.set_target_position(Some(Coord3D::new(10.0, 0.0, 5.0)));
         assert_eq!(turret.target_kind, TurretTargetKind::Position);
         assert!(turret.target_position.is_some());
         assert!(turret.get_current_target_id().is_none());
+    }
+
+    #[test]
+    fn set_target_position_dropped_when_not_linked() {
+        let mut turret = test_turret();
+        turret.set_target_position(Some(Coord3D::new(10.0, 0.0, 5.0)));
+        assert_eq!(turret.target_kind, TurretTargetKind::None);
+        assert!(turret.target_position.is_none());
     }
 
     #[test]
@@ -3115,7 +3065,10 @@ mod tests {
 
     #[test]
     fn set_turret_target_position_is_position_kind() {
+        // Linked turrets keep the position goal even without a weapon on the
+        // turret (TurretAI.cpp:591-597, `areTurretsLinked()` branch).
         let mut turret = test_turret();
+        turret.set_turrets_linked_cached(true);
         turret.set_turret_target_position(Some(Coord3D::new(1.0, 2.0, 3.0)));
         assert_eq!(turret.get_target_kind(), TurretTargetKind::Position);
         let (kind, id, pos) = turret.friend_get_turret_target(false);

@@ -333,15 +333,10 @@ pub fn w3d_shell_menu_scheme_draw(_window: &GameWindow, _inst_data: &WindowInsta
 }
 
 pub fn w3d_credits_menu_draw(_window: &GameWindow, _inst_data: &WindowInstanceData) {
-    let manager = get_menu_manager();
-    let Ok(manager) = manager.read() else {
-        return;
-    };
-    let menu = manager.get_credits_menu();
-    let Ok(mut menu) = menu.write() else {
-        return;
-    };
-    menu.draw();
+    // THREAD: the credits menu is owned by the GUI-thread menu manager, so the
+    // draw simply borrows it mutably — a draw that re-entered a live lifecycle
+    // borrow would panic on the RefCell instead of wedging a std RwLock.
+    with_credits_menu(|menu| menu.draw());
 }
 
 /// C++ W3DControlBar.cpp:661-667 — `W3DNoDraw` has an EMPTY body (the

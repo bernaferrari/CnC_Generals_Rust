@@ -22,7 +22,7 @@ use gamelogic::scripting::engine::ScriptActionHandler;
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicI32, Ordering};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex};
 
 thread_local! {
     static SCRIPT_DISPLAY: RefCell<Option<Arc<Mutex<GraphicsDisplay>>>> = const { RefCell::new(None) };
@@ -279,76 +279,60 @@ pub fn script_camera_motion_blur_end_follow() {
 }
 
 pub fn script_cameo_flash(command_button_name: &str, flash_count: i32) {
-    if let Ok(mut state) = script_ui_state_slot().lock() {
+    with_script_runtime(|state| {
         state
+            .ui
             .cameo_flash_count
             .insert(command_button_name.to_string(), flash_count.max(0));
-    }
+    });
 }
 
 pub fn script_add_named_timer(name: &str, text: &str, countdown: bool) {
     crate::gui::ingame_ui::add_named_timer(name, text, countdown);
-    if let Ok(mut state) = script_ui_state_slot().lock() {
+    with_script_runtime(|state| {
         state
+            .ui
             .named_timers
             .insert(name.to_string(), (text.to_string(), countdown));
-    }
+    });
 }
 
 pub fn script_remove_named_timer(name: &str) {
     crate::gui::ingame_ui::remove_named_timer(name);
-    if let Ok(mut state) = script_ui_state_slot().lock() {
-        state.named_timers.remove(name);
-    }
+    with_script_runtime(|state| {
+        state.ui.named_timers.remove(name);
+    });
 }
 
 pub fn script_show_named_timer_display(show: bool) {
     crate::gui::ingame_ui::show_named_timer_display(show);
-    if let Ok(mut state) = script_ui_state_slot().lock() {
-        state.named_timer_display_shown = show;
-    }
+    with_script_runtime(|state| {
+        state.ui.named_timer_display_shown = show;
+    });
 }
 
 pub fn script_set_superweapon_display_enabled(enabled: bool) {
-    if let Ok(mut state) = script_ui_state_slot().lock() {
-        state.superweapon_display_enabled = enabled;
-    }
+    with_script_runtime(|state| {
+        state.ui.superweapon_display_enabled = enabled;
+    });
 }
 
 pub fn script_hide_object_superweapon_display(object_id: ObjectID) {
-    if let Ok(mut state) = script_ui_state_slot().lock() {
-        state.superweapon_hidden_objects.insert(object_id);
-    }
+    with_script_runtime(|state| {
+        state.ui.superweapon_hidden_objects.insert(object_id);
+    });
 }
 
 pub fn script_show_object_superweapon_display(object_id: ObjectID) {
-    if let Ok(mut state) = script_ui_state_slot().lock() {
-        state.superweapon_hidden_objects.remove(&object_id);
-    }
+    with_script_runtime(|state| {
+        state.ui.superweapon_hidden_objects.remove(&object_id);
+    });
 }
 
 pub fn reset_script_action_runtime_state() {
-    if let Ok(mut pending) = fullscreen_movie_wait_slot().lock() {
-        pending.clear();
-    }
-    if let Ok(mut pending) = radar_movie_wait_slot().lock() {
-        pending.clear();
-    }
-    if let Ok(mut pending) = audio_wait_slot().lock() {
-        pending.clear();
-    }
-    if let Ok(mut pending) = speech_wait_slot().lock() {
-        pending.clear();
-    }
-    if let Ok(mut pending) = music_wait_slot().lock() {
-        pending.clear();
-    }
-    if let Ok(mut completed) = music_completed_slot().lock() {
-        completed.clear();
-    }
-    if let Ok(mut state) = script_ui_state_slot().lock() {
-        *state = ScriptUiState::default();
-    }
+    with_script_runtime(|state| {
+        *state = ScriptRuntimeState::default();
+    });
     clear_script_display_border_shroud_level();
     game_engine::common::global_data::write().writable.wireframe = false;
     with_tactical_view(|view| view.reset_3d_wireframe_mode());
@@ -419,46 +403,42 @@ pub fn take_look_at_reset_modes() -> bool {
     LOOK_AT_RESET.swap(false, std::sync::atomic::Ordering::Relaxed)
 }
 
-fn fullscreen_movie_wait_slot() -> &'static Mutex<HashSet<String>> {
-    static SLOT: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
-    SLOT.get_or_init(|| Mutex::new(HashSet::new()))
+/// Script-owned runtime handoff state (C++ `ScriptActions` members).
+///
+/// THREAD: single game thread. Script actions play media and queue the wait
+/// entries, the `is_*_complete` script conditions drain them, and the
+/// GameClient init/reset/shutdown paths clear them — all on the same thread
+/// (C++ runs logic and client from one loop), so this is single-owner state
+/// and carries no lock.
+#[derive(Default)]
+struct ScriptRuntimeState {
+    fullscreen_movie_waits: HashSet<String>,
+    radar_movie_waits: HashSet<String>,
+    audio_waits: HashMap<String, Vec<u32>>,
+    speech_waits: HashMap<String, Vec<u32>>,
+    music_waits: HashMap<String, Vec<u32>>,
+    ui: ScriptUiState,
 }
 
-fn radar_movie_wait_slot() -> &'static Mutex<HashSet<String>> {
-    static SLOT: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
-    SLOT.get_or_init(|| Mutex::new(HashSet::new()))
+thread_local! {
+    static SCRIPT_RUNTIME_STATE: RefCell<ScriptRuntimeState> =
+        RefCell::new(ScriptRuntimeState::default());
+}
+
+fn with_script_runtime<R>(f: impl FnOnce(&mut ScriptRuntimeState) -> R) -> R {
+    SCRIPT_RUNTIME_STATE.with(|state| f(&mut state.borrow_mut()))
 }
 
 fn clear_pending_fullscreen_movie_key(key: &str) {
-    if let Ok(mut pending) = fullscreen_movie_wait_slot().lock() {
-        pending.remove(key);
-    }
+    with_script_runtime(|state| {
+        state.fullscreen_movie_waits.remove(key);
+    });
 }
 
 fn clear_pending_radar_movie_key(key: &str) {
-    if let Ok(mut pending) = radar_movie_wait_slot().lock() {
-        pending.remove(key);
-    }
-}
-
-fn audio_wait_slot() -> &'static Mutex<HashMap<String, Vec<u32>>> {
-    static SLOT: OnceLock<Mutex<HashMap<String, Vec<u32>>>> = OnceLock::new();
-    SLOT.get_or_init(|| Mutex::new(HashMap::new()))
-}
-
-fn speech_wait_slot() -> &'static Mutex<HashMap<String, Vec<u32>>> {
-    static SLOT: OnceLock<Mutex<HashMap<String, Vec<u32>>>> = OnceLock::new();
-    SLOT.get_or_init(|| Mutex::new(HashMap::new()))
-}
-
-fn music_wait_slot() -> &'static Mutex<HashMap<String, Vec<u32>>> {
-    static SLOT: OnceLock<Mutex<HashMap<String, Vec<u32>>>> = OnceLock::new();
-    SLOT.get_or_init(|| Mutex::new(HashMap::new()))
-}
-
-fn music_completed_slot() -> &'static Mutex<HashMap<String, i32>> {
-    static SLOT: OnceLock<Mutex<HashMap<String, i32>>> = OnceLock::new();
-    SLOT.get_or_init(|| Mutex::new(HashMap::new()))
+    with_script_runtime(|state| {
+        state.radar_movie_waits.remove(key);
+    });
 }
 
 #[derive(Default)]
@@ -468,11 +448,6 @@ struct ScriptUiState {
     superweapon_display_enabled: bool,
     superweapon_hidden_objects: HashSet<ObjectID>,
     cameo_flash_count: HashMap<String, i32>,
-}
-
-fn script_ui_state_slot() -> &'static Mutex<ScriptUiState> {
-    static SLOT: OnceLock<Mutex<ScriptUiState>> = OnceLock::new();
-    SLOT.get_or_init(|| Mutex::new(ScriptUiState::default()))
 }
 
 fn normalize_media_name(name: &str) -> String {
@@ -504,7 +479,7 @@ fn find_object_by_template_name(template_name: &str) -> Option<ObjectID> {
     None
 }
 
-fn track_audio_handle(slot: &Mutex<HashMap<String, Vec<u32>>>, name: &str, handle: u32) {
+fn track_audio_handle(wait_map: &mut HashMap<String, Vec<u32>>, name: &str, handle: u32) {
     if handle == 0 {
         return;
     }
@@ -512,13 +487,11 @@ fn track_audio_handle(slot: &Mutex<HashMap<String, Vec<u32>>>, name: &str, handl
     if key.is_empty() {
         return;
     }
-    if let Ok(mut wait_map) = slot.lock() {
-        wait_map.entry(key).or_default().push(handle);
-    }
+    wait_map.entry(key).or_default().push(handle);
 }
 
 fn is_named_audio_complete(
-    slot: &Mutex<HashMap<String, Vec<u32>>>,
+    wait_map: &mut HashMap<String, Vec<u32>>,
     name: &str,
     flush: bool,
 ) -> bool {
@@ -527,19 +500,15 @@ fn is_named_audio_complete(
         return false;
     }
 
-    let Ok(mut wait_map) = slot.lock() else {
-        return true;
-    };
     let Some(handles) = wait_map.get_mut(&key) else {
         return false;
     };
 
     let Some(audio) = TheAudio::get() else {
-        let completed = true;
-        if completed && flush {
+        if flush {
             wait_map.remove(&key);
         }
-        return completed;
+        return true;
     };
 
     handles.retain(|h| audio.is_currently_playing(*h));
@@ -688,42 +657,6 @@ impl GameClientScriptActionHandler {
         }
         TheInGameUI::military_subtitle(&subtitle_label, SUBTITLE_DURATION_MS);
     }
-
-    fn music_completed_count_for(track_key: &str) -> i32 {
-        let Some(audio) = TheAudio::get() else {
-            return music_completed_slot()
-                .lock()
-                .ok()
-                .and_then(|counts| counts.get(track_key).copied())
-                .unwrap_or(0);
-        };
-
-        let completed_now = if let Ok(mut wait_map) = music_wait_slot().lock() {
-            let mut completed_now = 0_i32;
-            let mut remove_entry = false;
-            if let Some(handles) = wait_map.get_mut(track_key) {
-                let before = handles.len();
-                handles.retain(|h| audio.is_currently_playing(*h));
-                completed_now = before.saturating_sub(handles.len()) as i32;
-                remove_entry = handles.is_empty();
-            }
-            if remove_entry {
-                wait_map.remove(track_key);
-            }
-            completed_now
-        } else {
-            0
-        };
-
-        let mut total = 0_i32;
-        if let Ok(mut completed_map) = music_completed_slot().lock() {
-            if completed_now > 0 {
-                *completed_map.entry(track_key.to_string()).or_default() += completed_now;
-            }
-            total = completed_map.get(track_key).copied().unwrap_or(0);
-        }
-        total
-    }
 }
 
 impl ScriptActionHandler for GameClientScriptActionHandler {
@@ -764,7 +697,7 @@ impl ScriptActionHandler for GameClientScriptActionHandler {
                 event.set_player_index(player_index);
             }
             let handle = audio.add_audio_event(&event);
-            track_audio_handle(audio_wait_slot(), name, handle);
+            with_script_runtime(|state| track_audio_handle(&mut state.audio_waits, name, handle));
         }
         Ok(())
     }
@@ -778,7 +711,7 @@ impl ScriptActionHandler for GameClientScriptActionHandler {
                 event.set_player_index(player_index);
             }
             let handle = audio.add_audio_event(&event);
-            track_audio_handle(audio_wait_slot(), name, handle);
+            with_script_runtime(|state| track_audio_handle(&mut state.audio_waits, name, handle));
         }
         Ok(())
     }
@@ -1238,7 +1171,7 @@ impl ScriptActionHandler for GameClientScriptActionHandler {
                 event.set_player_index(player_index);
             }
             let handle = audio.add_audio_event(&event);
-            track_audio_handle(speech_wait_slot(), name, handle);
+            with_script_runtime(|state| track_audio_handle(&mut state.speech_waits, name, handle));
         }
         Self::maybe_show_speech_subtitle(name);
         Ok(())
@@ -1259,7 +1192,7 @@ impl ScriptActionHandler for GameClientScriptActionHandler {
             event.set_object_id(object_id);
             event.set_is_logical_audio(true);
             let handle = audio.add_audio_event(&event);
-            track_audio_handle(audio_wait_slot(), sound, handle);
+            with_script_runtime(|state| track_audio_handle(&mut state.audio_waits, sound, handle));
         }
         Ok(())
     }
@@ -1303,17 +1236,17 @@ impl ScriptActionHandler for GameClientScriptActionHandler {
                 event.set_player_index(player_index);
             }
             let handle = audio.add_audio_event(&event);
-            track_audio_handle(music_wait_slot(), track, handle);
+            with_script_runtime(|state| track_audio_handle(&mut state.music_waits, track, handle));
         }
         Ok(())
     }
 
     fn is_speech_complete(&self, name: &str, flush: bool) -> bool {
-        is_named_audio_complete(speech_wait_slot(), name, flush)
+        with_script_runtime(|state| is_named_audio_complete(&mut state.speech_waits, name, flush))
     }
 
     fn is_audio_complete(&self, name: &str, flush: bool) -> bool {
-        is_named_audio_complete(audio_wait_slot(), name, flush)
+        with_script_runtime(|state| is_named_audio_complete(&mut state.audio_waits, name, flush))
     }
 
     fn has_music_track_completed(&self, track: &str, param: i32) -> bool {
@@ -1343,9 +1276,9 @@ impl ScriptActionHandler for GameClientScriptActionHandler {
         clear_pending_fullscreen_movie_key(&media_name);
         let started = play_script_display_movie(filename);
         if started {
-            if let Ok(mut pending) = fullscreen_movie_wait_slot().lock() {
-                pending.insert(media_name);
-            }
+            with_script_runtime(|state| {
+                state.fullscreen_movie_waits.insert(media_name);
+            });
         }
         TheGameLogic::set_intro_movie_playing(started);
         Ok(())
@@ -1360,9 +1293,9 @@ impl ScriptActionHandler for GameClientScriptActionHandler {
         clear_pending_radar_movie_key(&media_name);
         let started = TheInGameUI::play_movie(filename);
         if started {
-            if let Ok(mut pending) = radar_movie_wait_slot().lock() {
-                pending.insert(media_name);
-            }
+            with_script_runtime(|state| {
+                state.radar_movie_waits.insert(media_name);
+            });
         }
         Ok(())
     }
@@ -1376,60 +1309,62 @@ impl ScriptActionHandler for GameClientScriptActionHandler {
         let display_playing =
             with_script_display(|display| display.is_movie_playing()).unwrap_or(false);
         let ui_playing = TheInGameUI::is_movie_playing(name);
-        let Ok(mut fullscreen_pending) = fullscreen_movie_wait_slot().lock() else {
-            return false;
-        };
-        let Ok(mut radar_pending) = radar_movie_wait_slot().lock() else {
-            return false;
-        };
+        // The leftover engine list is independent of the wait lanes; read it
+        // before taking the runtime state borrow.
+        let engine_complete = TheScriptEngine::is_video_complete(&key, flush);
 
-        if TheScriptEngine::is_video_complete(&key, flush) {
-            if flush {
-                fullscreen_pending.remove(&key);
-                radar_pending.remove(&key);
-            }
-            if fullscreen_pending.is_empty() && !display_playing {
-                TheGameLogic::set_intro_movie_playing(false);
-            }
-            return true;
-        }
+        with_script_runtime(|state| {
+            let fullscreen_pending = &mut state.fullscreen_movie_waits;
+            let radar_pending = &mut state.radar_movie_waits;
 
-        if fullscreen_pending.contains(&key) {
+            if engine_complete {
+                if flush {
+                    fullscreen_pending.remove(&key);
+                    radar_pending.remove(&key);
+                }
+                if fullscreen_pending.is_empty() && !display_playing {
+                    TheGameLogic::set_intro_movie_playing(false);
+                }
+                return true;
+            }
+
+            if fullscreen_pending.contains(&key) {
+                if display_playing {
+                    TheGameLogic::set_intro_movie_playing(true);
+                    return false;
+                }
+
+                if flush {
+                    fullscreen_pending.remove(&key);
+                }
+
+                if fullscreen_pending.is_empty() {
+                    TheGameLogic::set_intro_movie_playing(false);
+                }
+                return true;
+            }
+
+            if radar_pending.contains(&key) {
+                if ui_playing {
+                    return false;
+                }
+
+                if flush {
+                    radar_pending.remove(&key);
+                }
+                return true;
+            }
+
             if display_playing {
                 TheGameLogic::set_intro_movie_playing(true);
                 return false;
             }
 
-            if flush {
-                fullscreen_pending.remove(&key);
-            }
-
             if fullscreen_pending.is_empty() {
                 TheGameLogic::set_intro_movie_playing(false);
             }
-            return true;
-        }
-
-        if radar_pending.contains(&key) {
-            if ui_playing {
-                return false;
-            }
-
-            if flush {
-                radar_pending.remove(&key);
-            }
-            return true;
-        }
-
-        if display_playing {
-            TheGameLogic::set_intro_movie_playing(true);
-            return false;
-        }
-
-        if fullscreen_pending.is_empty() {
-            TheGameLogic::set_intro_movie_playing(false);
-        }
-        false
+            false
+        })
     }
 
     fn freeze_time(&self) -> GameLogicResult<()> {
@@ -1606,41 +1541,43 @@ impl ScriptActionHandler for GameClientScriptActionHandler {
     }
 
     fn cameo_flash(&self, command_button_name: &str, flash_count: i32) -> GameLogicResult<()> {
-        if let Ok(mut state) = script_ui_state_slot().lock() {
+        with_script_runtime(|state| {
             state
+                .ui
                 .cameo_flash_count
                 .insert(command_button_name.to_string(), flash_count.max(0));
-        }
+        });
         Ok(())
     }
 
     fn add_named_timer(&self, name: &str, text: &str, countdown: bool) -> GameLogicResult<()> {
-        if let Ok(mut state) = script_ui_state_slot().lock() {
+        with_script_runtime(|state| {
             state
+                .ui
                 .named_timers
                 .insert(name.to_string(), (text.to_string(), countdown));
-        }
+        });
         Ok(())
     }
 
     fn remove_named_timer(&self, name: &str) -> GameLogicResult<()> {
-        if let Ok(mut state) = script_ui_state_slot().lock() {
-            state.named_timers.remove(name);
-        }
+        with_script_runtime(|state| {
+            state.ui.named_timers.remove(name);
+        });
         Ok(())
     }
 
     fn show_named_timer_display(&self, show: bool) -> GameLogicResult<()> {
-        if let Ok(mut state) = script_ui_state_slot().lock() {
-            state.named_timer_display_shown = show;
-        }
+        with_script_runtime(|state| {
+            state.ui.named_timer_display_shown = show;
+        });
         Ok(())
     }
 
     fn set_superweapon_display_enabled_by_script(&self, enabled: bool) -> GameLogicResult<()> {
-        if let Ok(mut state) = script_ui_state_slot().lock() {
-            state.superweapon_display_enabled = enabled;
-        }
+        with_script_runtime(|state| {
+            state.ui.superweapon_display_enabled = enabled;
+        });
         Ok(())
     }
 
@@ -1648,9 +1585,9 @@ impl ScriptActionHandler for GameClientScriptActionHandler {
         &self,
         object_id: ObjectID,
     ) -> GameLogicResult<()> {
-        if let Ok(mut state) = script_ui_state_slot().lock() {
-            state.superweapon_hidden_objects.insert(object_id);
-        }
+        with_script_runtime(|state| {
+            state.ui.superweapon_hidden_objects.insert(object_id);
+        });
         Ok(())
     }
 
@@ -1658,9 +1595,9 @@ impl ScriptActionHandler for GameClientScriptActionHandler {
         &self,
         object_id: ObjectID,
     ) -> GameLogicResult<()> {
-        if let Ok(mut state) = script_ui_state_slot().lock() {
-            state.superweapon_hidden_objects.remove(&object_id);
-        }
+        with_script_runtime(|state| {
+            state.ui.superweapon_hidden_objects.remove(&object_id);
+        });
         Ok(())
     }
 
@@ -1732,139 +1669,97 @@ mod tests {
     use gamelogic::helpers::TheGameLogic;
 
     fn clear_movie_wait_slots() {
-        fullscreen_movie_wait_slot()
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .clear();
-        radar_movie_wait_slot()
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .clear();
+        with_script_runtime(|state| {
+            state.fullscreen_movie_waits.clear();
+            state.radar_movie_waits.clear();
+        });
     }
 
     #[test]
     fn fullscreen_movie_wait_completion_clears_intro_state_when_not_playing() {
         clear_movie_wait_slots();
         TheGameLogic::set_intro_movie_playing(true);
-        fullscreen_movie_wait_slot()
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .insert("intro".to_string());
+        with_script_runtime(|state| {
+            state.fullscreen_movie_waits.insert("intro".to_string());
+        });
 
         let handler = GameClientScriptActionHandler::new();
         assert!(handler.is_video_complete("intro", true));
         assert!(!TheGameLogic::is_intro_movie_playing());
-        assert!(
-            !fullscreen_movie_wait_slot()
-                .lock()
-                .unwrap()
-                .contains("intro")
-        );
+        assert!(!with_script_runtime(|state| state
+            .fullscreen_movie_waits
+            .contains("intro")));
     }
 
     #[test]
     fn radar_movie_wait_completion_does_not_clear_intro_state() {
         clear_movie_wait_slots();
         TheGameLogic::set_intro_movie_playing(true);
-        radar_movie_wait_slot()
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .insert("radar".to_string());
+        with_script_runtime(|state| {
+            state.radar_movie_waits.insert("radar".to_string());
+        });
 
         let handler = GameClientScriptActionHandler::new();
         assert!(handler.is_video_complete("radar", true));
         assert!(TheGameLogic::is_intro_movie_playing());
-        assert!(
-            !radar_movie_wait_slot()
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .contains("radar")
-        );
+        assert!(!with_script_runtime(|state| state
+            .radar_movie_waits
+            .contains("radar")));
     }
 
     #[test]
     fn reset_script_action_runtime_state_clears_movie_waits_and_intro_state() {
-        fullscreen_movie_wait_slot()
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .insert("intro".to_string());
-        radar_movie_wait_slot()
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .insert("radar".to_string());
+        with_script_runtime(|state| {
+            state.fullscreen_movie_waits.insert("intro".to_string());
+            state.radar_movie_waits.insert("radar".to_string());
+        });
         TheGameLogic::set_intro_movie_playing(true);
 
         reset_script_action_runtime_state();
 
-        assert!(
-            fullscreen_movie_wait_slot()
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .is_empty()
-        );
-        assert!(
-            radar_movie_wait_slot()
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .is_empty()
-        );
+        assert!(with_script_runtime(|state| state
+            .fullscreen_movie_waits
+            .is_empty()));
+        assert!(with_script_runtime(|state| state
+            .radar_movie_waits
+            .is_empty()));
         assert!(!TheGameLogic::is_intro_movie_playing());
     }
 
     #[test]
     fn clear_pending_fullscreen_movie_key_preserves_radar_wait_lane() {
         clear_movie_wait_slots();
-        fullscreen_movie_wait_slot()
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .insert("shared".to_string());
-        radar_movie_wait_slot()
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .insert("shared".to_string());
+        with_script_runtime(|state| {
+            state.fullscreen_movie_waits.insert("shared".to_string());
+            state.radar_movie_waits.insert("shared".to_string());
+        });
 
         clear_pending_fullscreen_movie_key("shared");
 
-        assert!(
-            !fullscreen_movie_wait_slot()
-                .lock()
-                .unwrap()
-                .contains("shared")
-        );
-        assert!(
-            radar_movie_wait_slot()
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .contains("shared")
-        );
+        assert!(!with_script_runtime(|state| state
+            .fullscreen_movie_waits
+            .contains("shared")));
+        assert!(with_script_runtime(|state| state
+            .radar_movie_waits
+            .contains("shared")));
     }
 
     #[test]
     fn clear_pending_radar_movie_key_preserves_fullscreen_wait_lane() {
         clear_movie_wait_slots();
-        fullscreen_movie_wait_slot()
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .insert("shared".to_string());
-        radar_movie_wait_slot()
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .insert("shared".to_string());
+        with_script_runtime(|state| {
+            state.fullscreen_movie_waits.insert("shared".to_string());
+            state.radar_movie_waits.insert("shared".to_string());
+        });
 
         clear_pending_radar_movie_key("shared");
 
-        assert!(
-            fullscreen_movie_wait_slot()
-                .lock()
-                .unwrap()
-                .contains("shared")
-        );
-        assert!(
-            !radar_movie_wait_slot()
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .contains("shared")
-        );
+        assert!(with_script_runtime(|state| state
+            .fullscreen_movie_waits
+            .contains("shared")));
+        assert!(!with_script_runtime(|state| state
+            .radar_movie_waits
+            .contains("shared")));
     }
 
     #[test]

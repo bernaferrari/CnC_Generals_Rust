@@ -402,6 +402,13 @@ impl EngineModule for PoisonedBehaviorModule {
     fn get_module_data(&self) -> &dyn EngineModuleData {
         self.module_data.as_ref()
     }
+
+    /// C++ `UpdateModule` initial wake frame, reached through the typed
+    /// `Module::get_initial_wake_frame()` accessor instead of the former
+    /// `as_any().downcast_ref::<Self>()` chain in `initial_update_wake_frame`.
+    fn get_initial_wake_frame(&mut self) -> Option<u32> {
+        Some(self.initial_wake_frame())
+    }
 }
 
 impl Snapshotable for PoisonedBehaviorModule {

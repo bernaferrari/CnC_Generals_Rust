@@ -1262,7 +1262,7 @@ impl Object {
     pub fn attach_experience_tracker_for_test(&mut self, trainable: bool) {
         let mut tracker = crate::experience::ExperienceTracker::new(self.id);
         tracker.set_trainable_override(trainable);
-        self.experience_tracker = Some(Arc::new(Mutex::new(tracker)));
+        self.experience_tracker = Some(Box::new(tracker));
     }
 }
 

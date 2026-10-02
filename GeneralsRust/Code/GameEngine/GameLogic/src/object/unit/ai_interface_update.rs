@@ -32,10 +32,12 @@ impl UnitAIUpdate {
         }
     }
 
-    fn apply_deferred_idle_mood_target(
-        &mut self,
-        turret: &std::sync::Arc<std::sync::Mutex<crate::ai::turret::TurretAI>>,
-    ) {
+    /// UnitAIUpdate's deferred idle-mood pass. The turret is loaned here by
+    /// [`TurretStateMachine::take_turret`], so the borrow never aliases `self`.
+    /// C++ `TurretAI::friend_checkForIdleMoodTarget` tail (TurretAI.cpp:855-876)
+    /// runs as `set_current_target_from_idle_mood`, and the still-idle sleep
+    /// clamp keeps the machine from out-sleeping the next mood check.
+    fn apply_deferred_idle_mood_target(&mut self, turret: &mut crate::ai::turret::TurretAI) {
         let adjustment = self.get_mood_matrix_action_adjustment(crate::ai::MoodMatrixAction::Idle);
         if (adjustment & crate::ai::mood_matrix_adjustment::AFFECT_RANGE_IGNORE_ALL) != 0 {
             return;
@@ -57,35 +59,45 @@ impl UnitAIUpdate {
             }
         }
         let enemy_id = enemy.read().ok().map(|guard| guard.get_id());
-        let parts = turret.lock().ok().map(|mut guard| {
-            guard.assign_idle_mood_target(enemy_id);
-            guard.set_next_mood_check_cached(self.get_next_mood_check_time());
-            guard.export_idle_goal()
-        });
-        if let Some((machine, kind, target, pos)) = parts {
-            crate::ai::turret::TurretAI::sync_machine_goal(machine, kind, target, pos);
-        }
+        turret.set_current_target_from_idle_mood(enemy_id);
+        turret.set_next_mood_check_cached(self.get_next_mood_check_time());
         let idle_id = crate::ai::turret::TurretStateType::Idle.into();
-        let still_idle = turret
-            .lock()
-            .ok()
-            .and_then(|guard| guard.export_idle_goal().0)
-            .and_then(|weak| weak.upgrade())
-            .and_then(|machine| {
-                machine
-                    .lock()
-                    .ok()
-                    .and_then(|guard| guard.get_current_state_id())
-            })
-            == Some(idle_id);
+        let still_idle = turret.get_current_state_id() == Some(idle_id);
         if still_idle {
-            if let Ok(mut guard) = turret.lock() {
-                let next = guard.get_sleep_until().min(self.get_next_mood_check_time());
-                guard.set_sleep_until(next);
-            }
-        } else if let Ok(mut guard) = turret.lock() {
-            guard.set_sleep_until(0);
+            let next = turret.get_sleep_until().min(self.get_next_mood_check_time());
+            turret.set_sleep_until(next);
+        } else {
+            turret.set_sleep_until(0);
         }
+    }
+
+    /// One turret's tick (C++ `AIUpdate::update()` turret tail): stamp the
+    /// per-tick UnitAI context, run the turret's owned machine, then drain the
+    /// flags the step raised back into UnitAI. `turret` comes from
+    /// [`TurretStateMachine::take_turret`], so the two borrows never alias.
+    fn update_single_turret(unit_ai: &mut UnitAIUpdate, turret: &mut TurretAI) {
+        turret.set_turrets_linked_cached(unit_ai.are_turrets_linked());
+        let adjust =
+            unit_ai.get_mood_matrix_action_adjustment(crate::ai::MoodMatrixAction::Attack);
+        turret.set_attack_ok_cached(
+            (adjust & crate::ai::mood_matrix_adjustment::ACTION_OK) != 0,
+        );
+        turret.set_goal_object_id_cached(unit_ai.get_goal_object_id());
+        turret.set_last_command_source_cached(unit_ai.get_last_command_source());
+        turret.set_next_mood_check_cached(unit_ai.get_next_mood_check_time());
+        let _ = turret.update_turret_ai();
+        if turret.take_reset_mood_check() {
+            unit_ai.reset_next_mood_check_time();
+        }
+        if let Some(which) = turret.take_clear_turret_sync() {
+            if unit_ai.friend_get_turret_sync() == which {
+                unit_ai.friend_set_turret_sync(crate::common::TurretType::Invalid);
+            }
+        }
+        if turret.take_idle_mood_check() {
+            unit_ai.apply_deferred_idle_mood_target(turret);
+        }
+        unit_ai.apply_pending_assaults();
     }
 
     pub(super) fn xfer_ai_update_state(&mut self, xfer: &mut dyn Xfer) -> Result<bool, String> {
@@ -273,10 +285,10 @@ impl UnitAIUpdate {
             .map_err(|e| e.to_string())?;
         xfer_unit_coord3d(xfer, &mut self.locomotor_goal_data)?;
 
-        if let Some(machine) = self.turret_primary_machine.as_ref() {
+        if let Some(machine) = self.turret_primary_machine.as_mut() {
             Self::xfer_turret_ai(machine, xfer)?;
         }
-        if let Some(machine) = self.turret_secondary_machine.as_ref() {
+        if let Some(machine) = self.turret_secondary_machine.as_mut() {
             Self::xfer_turret_ai(machine, xfer)?;
         }
 
@@ -994,67 +1006,29 @@ impl UnitAIUpdate {
             .unwrap_or(false);
 
         if update_turrets {
-            if let Some(machine) = self.turret_primary_machine.as_ref() {
-                if let Some(turret) = machine.get_turret_ai() {
-                    if let Ok(mut guard) = turret.lock() {
-                        guard.set_turrets_linked_cached(self.are_turrets_linked());
-                        let adjust = self
-                            .get_mood_matrix_action_adjustment(crate::ai::MoodMatrixAction::Attack);
-                        guard.set_attack_ok_cached(
-                            (adjust & crate::ai::mood_matrix_adjustment::ACTION_OK) != 0,
-                        );
-                        guard.set_goal_object_id_cached(self.get_goal_object_id());
-                        guard.set_last_command_source_cached(self.get_last_command_source());
-                        guard.set_next_mood_check_cached(self.get_next_mood_check_time());
-                    }
-                    let _ = TurretAI::update_turret_ai_handle(&turret);
-                    if let Ok(mut guard) = turret.lock() {
-                        if guard.take_reset_mood_check() {
-                            self.reset_next_mood_check_time();
-                        }
-                        if let Some(which) = guard.take_clear_turret_sync() {
-                            if self.friend_get_turret_sync() == which {
-                                self.friend_set_turret_sync(crate::common::TurretType::Invalid);
-                            }
-                        }
-                        if guard.take_idle_mood_check() {
-                            drop(guard);
-                            self.apply_deferred_idle_mood_target(&turret);
-                        }
-                    }
-                    self.apply_pending_assaults();
-                }
+            if self.turret_primary_machine.is_some() {
+                let mut turret = self
+                    .turret_primary_machine
+                    .as_mut()
+                    .and_then(TurretStateMachine::take_turret)
+                    .expect("primary turret present");
+                Self::update_single_turret(self, &mut turret);
+                self.turret_primary_machine
+                    .as_mut()
+                    .expect("primary turret slot")
+                    .restore_turret(turret);
             }
-            if let Some(machine) = self.turret_secondary_machine.as_ref() {
-                if let Some(turret) = machine.get_turret_ai() {
-                    if let Ok(mut guard) = turret.lock() {
-                        guard.set_turrets_linked_cached(self.are_turrets_linked());
-                        let adjust = self
-                            .get_mood_matrix_action_adjustment(crate::ai::MoodMatrixAction::Attack);
-                        guard.set_attack_ok_cached(
-                            (adjust & crate::ai::mood_matrix_adjustment::ACTION_OK) != 0,
-                        );
-                        guard.set_goal_object_id_cached(self.get_goal_object_id());
-                        guard.set_last_command_source_cached(self.get_last_command_source());
-                        guard.set_next_mood_check_cached(self.get_next_mood_check_time());
-                    }
-                    let _ = TurretAI::update_turret_ai_handle(&turret);
-                    if let Ok(mut guard) = turret.lock() {
-                        if guard.take_reset_mood_check() {
-                            self.reset_next_mood_check_time();
-                        }
-                        if let Some(which) = guard.take_clear_turret_sync() {
-                            if self.friend_get_turret_sync() == which {
-                                self.friend_set_turret_sync(crate::common::TurretType::Invalid);
-                            }
-                        }
-                        if guard.take_idle_mood_check() {
-                            drop(guard);
-                            self.apply_deferred_idle_mood_target(&turret);
-                        }
-                    }
-                    self.apply_pending_assaults();
-                }
+            if self.turret_secondary_machine.is_some() {
+                let mut turret = self
+                    .turret_secondary_machine
+                    .as_mut()
+                    .and_then(TurretStateMachine::take_turret)
+                    .expect("secondary turret present");
+                Self::update_single_turret(self, &mut turret);
+                self.turret_secondary_machine
+                    .as_mut()
+                    .expect("secondary turret slot")
+                    .restore_turret(turret);
             }
         }
 
@@ -1245,27 +1219,13 @@ impl UnitAIUpdate {
     }
     pub(super) fn get_which_turret_for_cur_weapon(&self) -> TurretType {
         if let Some(machine) = self.turret_primary_machine.as_ref() {
-            if let Some(ai) = machine.get_turret_ai() {
-                if ai
-                    .lock()
-                    .ok()
-                    .map(|guard| guard.is_owners_cur_weapon_on_turret())
-                    .unwrap_or(false)
-                {
-                    return TurretType::Primary;
-                }
+            if machine.turret().is_owners_cur_weapon_on_turret() {
+                return TurretType::Primary;
             }
         }
         if let Some(machine) = self.turret_secondary_machine.as_ref() {
-            if let Some(ai) = machine.get_turret_ai() {
-                if ai
-                    .lock()
-                    .ok()
-                    .map(|guard| guard.is_owners_cur_weapon_on_turret())
-                    .unwrap_or(false)
-                {
-                    return TurretType::Secondary;
-                }
+            if machine.turret().is_owners_cur_weapon_on_turret() {
+                return TurretType::Secondary;
             }
         }
         TurretType::Invalid
@@ -1277,34 +1237,19 @@ impl UnitAIUpdate {
             TurretType::Invalid => None,
         };
         machine
-            .and_then(|machine| machine.get_turret_ai())
-            .and_then(|ai| ai.lock().ok().map(|guard| guard.get_turn_rate()))
+            .map(|machine| machine.turret().get_turn_rate())
             .unwrap_or(0.0)
     }
 
     pub(super) fn get_which_turret_for_weapon_slot(&self, slot: WeaponSlotType) -> TurretType {
         if let Some(machine) = self.turret_primary_machine.as_ref() {
-            if let Some(ai) = machine.get_turret_ai() {
-                if ai
-                    .lock()
-                    .ok()
-                    .map(|guard| guard.is_weapon_slot_on_turret(slot))
-                    .unwrap_or(false)
-                {
-                    return TurretType::Primary;
-                }
+            if machine.turret().is_weapon_slot_on_turret(slot) {
+                return TurretType::Primary;
             }
         }
         if let Some(machine) = self.turret_secondary_machine.as_ref() {
-            if let Some(ai) = machine.get_turret_ai() {
-                if ai
-                    .lock()
-                    .ok()
-                    .map(|guard| guard.is_weapon_slot_on_turret(slot))
-                    .unwrap_or(false)
-                {
-                    return TurretType::Secondary;
-                }
+            if machine.turret().is_weapon_slot_on_turret(slot) {
+                return TurretType::Secondary;
             }
         }
         TurretType::Invalid
@@ -1313,41 +1258,25 @@ impl UnitAIUpdate {
         match turret {
             TurretType::Primary => {
                 self.turret_primary_enabled = enabled;
-                if let Some(machine) = self.turret_primary_machine.as_ref() {
-                    if let Some(ai) = machine.get_turret_ai() {
-                        if let Ok(mut guard) = ai.lock() {
-                            guard.set_turret_enabled(enabled);
-                        }
-                    }
+                if let Some(machine) = self.turret_primary_machine.as_mut() {
+                    machine.turret_mut().set_turret_enabled(enabled);
                 }
                 if self.turrets_linked {
                     self.turret_secondary_enabled = enabled;
-                    if let Some(machine) = self.turret_secondary_machine.as_ref() {
-                        if let Some(ai) = machine.get_turret_ai() {
-                            if let Ok(mut guard) = ai.lock() {
-                                guard.set_turret_enabled(enabled);
-                            }
-                        }
+                    if let Some(machine) = self.turret_secondary_machine.as_mut() {
+                        machine.turret_mut().set_turret_enabled(enabled);
                     }
                 }
             }
             TurretType::Secondary => {
                 self.turret_secondary_enabled = enabled;
-                if let Some(machine) = self.turret_secondary_machine.as_ref() {
-                    if let Some(ai) = machine.get_turret_ai() {
-                        if let Ok(mut guard) = ai.lock() {
-                            guard.set_turret_enabled(enabled);
-                        }
-                    }
+                if let Some(machine) = self.turret_secondary_machine.as_mut() {
+                    machine.turret_mut().set_turret_enabled(enabled);
                 }
                 if self.turrets_linked {
                     self.turret_primary_enabled = enabled;
-                    if let Some(machine) = self.turret_primary_machine.as_ref() {
-                        if let Some(ai) = machine.get_turret_ai() {
-                            if let Ok(mut guard) = ai.lock() {
-                                guard.set_turret_enabled(enabled);
-                            }
-                        }
+                    if let Some(machine) = self.turret_primary_machine.as_mut() {
+                        machine.turret_mut().set_turret_enabled(enabled);
                     }
                 }
             }
@@ -1358,41 +1287,25 @@ impl UnitAIUpdate {
         match turret {
             TurretType::Primary => {
                 self.turret_primary_natural = true;
-                if let Some(machine) = self.turret_primary_machine.as_ref() {
-                    if let Some(ai) = machine.get_turret_ai() {
-                        if let Ok(mut guard) = ai.lock() {
-                            guard.recenter_turret();
-                        }
-                    }
+                if let Some(machine) = self.turret_primary_machine.as_mut() {
+                    machine.turret_mut().recenter_turret();
                 }
                 if self.turrets_linked {
                     self.turret_secondary_natural = true;
-                    if let Some(machine) = self.turret_secondary_machine.as_ref() {
-                        if let Some(ai) = machine.get_turret_ai() {
-                            if let Ok(mut guard) = ai.lock() {
-                                guard.recenter_turret();
-                            }
-                        }
+                    if let Some(machine) = self.turret_secondary_machine.as_mut() {
+                        machine.turret_mut().recenter_turret();
                     }
                 }
             }
             TurretType::Secondary => {
                 self.turret_secondary_natural = true;
-                if let Some(machine) = self.turret_secondary_machine.as_ref() {
-                    if let Some(ai) = machine.get_turret_ai() {
-                        if let Ok(mut guard) = ai.lock() {
-                            guard.recenter_turret();
-                        }
-                    }
+                if let Some(machine) = self.turret_secondary_machine.as_mut() {
+                    machine.turret_mut().recenter_turret();
                 }
                 if self.turrets_linked {
                     self.turret_primary_natural = true;
-                    if let Some(machine) = self.turret_primary_machine.as_ref() {
-                        if let Some(ai) = machine.get_turret_ai() {
-                            if let Ok(mut guard) = ai.lock() {
-                                guard.recenter_turret();
-                            }
-                        }
+                    if let Some(machine) = self.turret_primary_machine.as_mut() {
+                        machine.turret_mut().recenter_turret();
                     }
                 }
             }
@@ -1404,22 +1317,12 @@ impl UnitAIUpdate {
             TurretType::Primary => self
                 .turret_primary_machine
                 .as_ref()
-                .and_then(|machine| machine.get_turret_ai())
-                .and_then(|ai| {
-                    ai.lock()
-                        .ok()
-                        .map(|guard| guard.is_turret_in_natural_position())
-                })
+                .map(|machine| machine.turret().is_turret_in_natural_position())
                 .unwrap_or(false),
             TurretType::Secondary => self
                 .turret_secondary_machine
                 .as_ref()
-                .and_then(|machine| machine.get_turret_ai())
-                .and_then(|ai| {
-                    ai.lock()
-                        .ok()
-                        .map(|guard| guard.is_turret_in_natural_position())
-                })
+                .map(|machine| machine.turret().is_turret_in_natural_position())
                 .unwrap_or(false),
             TurretType::Invalid => false,
         }
@@ -1429,14 +1332,12 @@ impl UnitAIUpdate {
             TurretType::Primary => self
                 .turret_primary_machine
                 .as_ref()
-                .and_then(|machine| machine.get_turret_ai())
-                .and_then(|ai| ai.lock().ok().map(|guard| guard.is_turret_enabled()))
+                .map(|machine| machine.turret().is_turret_enabled())
                 .unwrap_or(false),
             TurretType::Secondary => self
                 .turret_secondary_machine
                 .as_ref()
-                .and_then(|machine| machine.get_turret_ai())
-                .and_then(|ai| ai.lock().ok().map(|guard| guard.is_turret_enabled()))
+                .map(|machine| machine.turret().is_turret_enabled())
                 .unwrap_or(false),
             TurretType::Invalid => false,
         }
@@ -1446,20 +1347,16 @@ impl UnitAIUpdate {
             TurretType::Primary => self
                 .turret_primary_machine
                 .as_ref()
-                .and_then(|machine| machine.get_turret_ai())
-                .and_then(|ai| {
-                    ai.lock()
-                        .ok()
-                        .map(|guard| (guard.get_turret_angle(), guard.get_turret_pitch()))
+                .map(|machine| {
+                    let turret = machine.turret();
+                    (turret.get_turret_angle(), turret.get_turret_pitch())
                 }),
             TurretType::Secondary => self
                 .turret_secondary_machine
                 .as_ref()
-                .and_then(|machine| machine.get_turret_ai())
-                .and_then(|ai| {
-                    ai.lock()
-                        .ok()
-                        .map(|guard| (guard.get_turret_angle(), guard.get_turret_pitch()))
+                .map(|machine| {
+                    let turret = machine.turret();
+                    (turret.get_turret_angle(), turret.get_turret_pitch())
                 }),
             TurretType::Invalid => None,
         }
@@ -1480,33 +1377,15 @@ impl UnitAIUpdate {
         target: ObjectID,
     ) -> bool {
         if let Some(machine) = self.turret_primary_machine.as_ref() {
-            if let Some(ai) = machine.get_turret_ai() {
-                if ai
-                    .lock()
-                    .ok()
-                    .map(|guard| {
-                        guard.is_weapon_slot_on_turret(slot)
-                            && guard.is_trying_to_aim_at_target(target)
-                    })
-                    .unwrap_or(false)
-                {
-                    return true;
-                }
+            let turret = machine.turret();
+            if turret.is_weapon_slot_on_turret(slot) && turret.is_trying_to_aim_at_target(target) {
+                return true;
             }
         }
         if let Some(machine) = self.turret_secondary_machine.as_ref() {
-            if let Some(ai) = machine.get_turret_ai() {
-                if ai
-                    .lock()
-                    .ok()
-                    .map(|guard| {
-                        guard.is_weapon_slot_on_turret(slot)
-                            && guard.is_trying_to_aim_at_target(target)
-                    })
-                    .unwrap_or(false)
-                {
-                    return true;
-                }
+            let turret = machine.turret();
+            if turret.is_weapon_slot_on_turret(slot) && turret.is_trying_to_aim_at_target(target) {
+                return true;
             }
         }
         false

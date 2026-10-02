@@ -5,39 +5,42 @@
 
 use super::pool::ObjectPool;
 use super::stats::{AllocationStats, MemoryStats};
-use once_cell::sync::Lazy;
 use std::any::TypeId;
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::sync::RwLock;
 
 /// Global registry of all pools.
+///
+/// Single-owner like the pools it tracks: the C++ original is a set of
+/// plain per-type statics (`AutoPoolClass::Allocator`) driven by one thread.
+/// THREAD: the process-wide instance lives in a `thread_local!` below —
+/// no cross-thread boundary, so no lock.
 pub struct PoolRegistry {
     /// Map from (TypeId, name) to pool.
-    pools: RwLock<HashMap<(TypeId, String), Arc<dyn PoolHandle>>>,
+    pools: RefCell<HashMap<(TypeId, String), Arc<dyn PoolHandle>>>,
 }
 
 impl PoolRegistry {
     /// Create a new registry.
     pub fn new() -> Self {
         Self {
-            pools: RwLock::new(HashMap::new()),
+            pools: RefCell::new(HashMap::new()),
         }
     }
 
     /// Register a pool.
-    pub fn register<T: 'static + Send + Sync>(&self, name: String, pool: Arc<ObjectPool<T>>) {
+    pub fn register<T: 'static + Send>(&self, name: String, pool: Arc<ObjectPool<T>>) {
         let key = (TypeId::of::<T>(), name);
         self.pools
-            .write()
-            .unwrap()
+            .borrow_mut()
             .insert(key, Arc::new(TypedPoolHandle { pool }));
     }
 
     /// Get a pool by type and name.
-    pub fn get<T: 'static + Send + Sync>(&self, name: &str) -> Option<Arc<ObjectPool<T>>> {
+    pub fn get<T: 'static + Send>(&self, name: &str) -> Option<Arc<ObjectPool<T>>> {
         let key = (TypeId::of::<T>(), name.to_string());
-        self.pools.read().unwrap().get(&key).and_then(|handle| {
+        self.pools.borrow().get(&key).and_then(|handle| {
             handle
                 .as_any()
                 .downcast_ref::<TypedPoolHandle<T>>()
@@ -47,7 +50,7 @@ impl PoolRegistry {
 
     /// Get global memory statistics.
     pub fn memory_stats(&self) -> MemoryStats {
-        let pools = self.pools.read().unwrap();
+        let pools = self.pools.borrow();
         let mut total_allocations = 0;
         let mut total_bytes_allocated = 0;
         let mut total_bytes_in_use = 0;
@@ -86,8 +89,7 @@ impl PoolRegistry {
     /// Get list of all pool names.
     pub fn pool_names(&self) -> Vec<String> {
         self.pools
-            .read()
-            .unwrap()
+            .borrow()
             .keys()
             .map(|(_, name)| name.clone())
             .collect()
@@ -95,7 +97,7 @@ impl PoolRegistry {
 
     /// Clear all pools (dangerous!).
     pub fn clear_all(&self) {
-        for handle in self.pools.read().unwrap().values() {
+        for handle in self.pools.borrow().values() {
             handle.clear();
         }
     }
@@ -108,7 +110,10 @@ impl Default for PoolRegistry {
 }
 
 /// Trait for type-erased pool handles.
-trait PoolHandle: Send + Sync {
+///
+/// The registry is thread-local (single-owner), so no Send/Sync bound:
+/// handles never cross a thread boundary.
+trait PoolHandle {
     fn as_any(&self) -> &dyn std::any::Any;
     fn get_stats(&self) -> AllocationStats;
     fn clear(&self);
@@ -119,7 +124,7 @@ struct TypedPoolHandle<T> {
     pool: Arc<ObjectPool<T>>,
 }
 
-impl<T: 'static + Send + Sync> PoolHandle for TypedPoolHandle<T> {
+impl<T: 'static + Send> PoolHandle for TypedPoolHandle<T> {
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }
@@ -134,13 +139,21 @@ impl<T: 'static + Send + Sync> PoolHandle for TypedPoolHandle<T> {
 }
 
 /// Global pool registry singleton.
-pub static POOL_REGISTRY: Lazy<PoolRegistry> = Lazy::new(PoolRegistry::new);
+///
+/// Thread-local to match the C++ thread model: the registry is a plain
+/// static driven by one thread, so each thread gets its own instance
+/// instead of sharing a lock.
+thread_local! {
+    pub static POOL_REGISTRY: PoolRegistry = PoolRegistry::new();
+}
 
 /// Convenience macro for registering a pool.
 #[macro_export]
 macro_rules! register_pool {
     ($name:expr, $pool:expr) => {
-        $crate::memory::POOL_REGISTRY.register($name.to_string(), $pool)
+        $crate::memory::POOL_REGISTRY.with(|registry| {
+            registry.register($name.to_string(), $pool)
+        })
     };
 }
 
@@ -148,7 +161,7 @@ macro_rules! register_pool {
 #[macro_export]
 macro_rules! get_pool {
     ($ty:ty, $name:expr) => {
-        $crate::memory::POOL_REGISTRY.get::<$ty>($name)
+        $crate::memory::POOL_REGISTRY.with(|registry| registry.get::<$ty>($name))
     };
 }
 

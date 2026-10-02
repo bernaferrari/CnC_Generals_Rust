@@ -31,14 +31,15 @@ fn kira_amplitude(amp: f64) -> Decibels {
     }
 }
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
 use std::io::{Cursor, Read};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
 use thiserror::Error;
 
-use super::{AssetError, AssetHandle, AssetPriority};
+use super::{AssetError, AssetHandle};
 
 /// Audio loading and processing errors
 #[derive(Error, Debug)]
@@ -261,32 +262,6 @@ pub enum AudioAssetPriority {
     Lowest = 4,   // Optional background audio
 }
 
-/// Audio loading request
-struct AudioLoadRequest {
-    handle: AssetHandle,
-    path: PathBuf,
-    data: Vec<u8>,
-    priority: AssetPriority,
-    settings: AudioLoadSettings,
-    callback: Option<Box<dyn FnOnce(Result<AssetHandle, AudioError>) + Send + Sync>>,
-}
-
-impl std::fmt::Debug for AudioLoadRequest {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("AudioLoadRequest")
-            .field("handle", &self.handle)
-            .field("path", &self.path)
-            .field("data_len", &self.data.len())
-            .field("priority", &self.priority)
-            .field("settings", &self.settings)
-            .field(
-                "has_callback",
-                &self.callback.as_ref().map(|_| true).unwrap_or(false),
-            )
-            .finish()
-    }
-}
-
 /// Audio loading settings
 #[derive(Debug, Clone)]
 pub struct AudioLoadSettings {
@@ -350,47 +325,167 @@ impl std::fmt::Debug for AudioInstance {
     }
 }
 
+/// Kira mixer handles owned outright by the loader.
+///
+/// Kira types every handle mutator as `&mut self` even though the handles are
+/// command writers into the audio thread — the `&mut` is the API's aliasing
+/// convention, not a real mutation — so these handles cannot be shared as
+/// `&TrackHandle`. They are grouped under the loader's single mixer lock
+/// instead of one lock per handle.
+struct Mixer {
+    /// Keeps the audio backend alive: kira stops output when the manager is
+    /// dropped. Playback goes through the track handles below.
+    _audio_manager: AudioManager,
+    music_track: TrackHandle,
+    sfx_track: TrackHandle,
+    voice_track: TrackHandle,
+    ui_track: TrackHandle,
+    sfx_low_pass: FilterHandle,
+    sfx_high_pass: FilterHandle,
+    sfx_reverb: ReverbHandle,
+    spatial_listener: ListenerHandle,
+}
+
+impl Mixer {
+    fn track_mut(&mut self, asset_type: AudioAssetType) -> &mut TrackHandle {
+        match asset_type {
+            AudioAssetType::Music => &mut self.music_track,
+            AudioAssetType::Voice => &mut self.voice_track,
+            AudioAssetType::UI => &mut self.ui_track,
+            _ => &mut self.sfx_track,
+        }
+    }
+
+    /// Play decoded audio on the mixer track for `asset_type`.
+    fn play(
+        &mut self,
+        asset_type: AudioAssetType,
+        sound_data: StaticSoundData,
+    ) -> Result<StaticSoundHandle, AudioError> {
+        self.track_mut(asset_type)
+            .play(sound_data)
+            .map_err(|e| AudioError::EngineError(format!("Failed to play sound: {}", e)))
+    }
+
+    /// Play decoded audio on a fresh spatial track under the main mix.
+    fn play_spatial(
+        &mut self,
+        sound_data: StaticSoundData,
+        position: Vec3,
+        min_distance: f32,
+        max_distance: f32,
+    ) -> Result<(StaticSoundHandle, SpatialTrackHandle), AudioError> {
+        let listener_id = self.spatial_listener.id();
+        let mut spatial = self
+            ._audio_manager
+            .add_spatial_sub_track(
+                listener_id,
+                mint::Vector3 {
+                    x: position.x,
+                    y: position.y,
+                    z: position.z,
+                },
+                SpatialTrackBuilder::new()
+                    .distances((min_distance, max_distance))
+                    .persist_until_sounds_finish(true),
+            )
+            .map_err(|e| {
+                AudioError::EngineError(format!("Failed to create spatial track: {}", e))
+            })?;
+        let handle = spatial
+            .play(sound_data)
+            .map_err(|e| AudioError::EngineError(format!("Failed to play sound: {}", e)))?;
+        Ok((handle, spatial))
+    }
+
+    fn set_track_volume(&mut self, asset_type: AudioAssetType, volume: f32, master: f32) {
+        self.track_mut(asset_type)
+            .set_volume(kira_amplitude((volume * master) as f64), Tween::default());
+    }
+
+    fn apply_environment(&mut self, environment: &AudioEnvironment) {
+        let low_cutoff = environment.low_pass_cutoff.clamp(20.0, 20000.0);
+        let high_cutoff = environment.high_pass_cutoff.clamp(20.0, 20000.0);
+        let low_mix = if low_cutoff < 19950.0 { 1.0 } else { 0.0 };
+        let high_mix = if high_cutoff > 25.0 { 1.0 } else { 0.0 };
+
+        let _ = self
+            .sfx_low_pass
+            .set_cutoff(low_cutoff as f64, Tween::default());
+        let _ = self.sfx_low_pass.set_mix(low_mix, Tween::default());
+        let _ = self
+            .sfx_high_pass
+            .set_cutoff(high_cutoff as f64, Tween::default());
+        let _ = self.sfx_high_pass.set_mix(high_mix, Tween::default());
+
+        let feedback = (environment.reverb_time / 5.0).clamp(0.0, 0.95);
+        let damping = environment.reverb_decay.clamp(0.0, 1.0);
+        let mix = environment.reverb_density.clamp(0.0, 1.0);
+        let _ = self
+            .sfx_reverb
+            .set_feedback(feedback as f64, Tween::default());
+        let _ = self
+            .sfx_reverb
+            .set_damping(damping as f64, Tween::default());
+        let _ = self.sfx_reverb.set_mix(mix, Tween::default());
+    }
+}
+
+/// Loaded audio: asset metadata, the path index used for cache hits, and the
+/// decoded samples playback consumes. One cell so a load publishes all three
+/// maps together.
+struct AudioStore {
+    assets: HashMap<AssetHandle, Arc<AudioAsset>>,
+    index: HashMap<PathBuf, AssetHandle>,
+    sound_data: HashMap<AssetHandle, StaticSoundData>,
+}
+
+impl AudioStore {
+    fn new() -> Self {
+        Self {
+            assets: HashMap::new(),
+            index: HashMap::new(),
+            sound_data: HashMap::new(),
+        }
+    }
+}
+
 /// Complete Audio System
 pub struct AudioLoader {
-    // Core audio engine
-    audio_manager: Arc<Mutex<AudioManager>>,
+    /// Kira mixer handles (tracks, filter/reverb effects, spatial listener and
+    /// the backend itself).
+    // THREAD: audio work runs on tokio worker threads — assets/audio_bridge
+    // spawns one task per sound on the process runtime — while the game thread
+    // polls `is_sound_playing` (audio_bridge `is_playing`) and load tasks
+    // publish decoded assets. Those tasks are the only genuinely concurrent
+    // users of this struct, and this is the one lock they must share.
+    mixer: Mutex<Mixer>,
 
-    // Asset storage
-    audio_assets: Arc<RwLock<HashMap<AssetHandle, Arc<AudioAsset>>>>,
-    asset_index: Arc<RwLock<HashMap<PathBuf, AssetHandle>>>,
+    /// Loaded assets: metadata, path index and decoded sound data.
+    // THREAD: producer→consumer handoff — load tasks write, play tasks read.
+    store: RwLock<AudioStore>,
 
-    // Sound data storage - holds actual decoded audio for playback
-    sound_data_cache: Arc<RwLock<HashMap<AssetHandle, StaticSoundData>>>,
+    /// Live playback instances keyed by instance id.
+    // THREAD: play/stop/pause run on tokio audio tasks, `is_sound_playing` is
+    // polled on the game thread.
+    active_instances: RwLock<HashMap<u64, AudioInstance>>,
 
-    // Playback management
-    active_instances: Arc<RwLock<HashMap<u64, AudioInstance>>>,
-    instance_counter: Arc<Mutex<u64>>,
+    /// Cumulative telemetry counters.
+    // THREAD: incremented by concurrent load/play tasks, read by `get_stats`.
+    stats: RwLock<AudioStats>,
 
-    // 3D audio system
-    listener: Arc<RwLock<AudioListener>>,
-    spatial_listener: Arc<Mutex<ListenerHandle>>,
+    /// Monotonic instance-id source (`fetch_add` — no lock needed).
+    instance_counter: AtomicU64,
+
+    // 3D audio system — kira's own `ListenerHandle` is the live copy.
+    listener: AudioListener,
 
     // Environmental effects
-    current_environment: Arc<RwLock<AudioEnvironment>>,
+    current_environment: AudioEnvironment,
     environments: HashMap<String, AudioEnvironment>,
-
-    // Audio tracks for mixing
-    music_track: Arc<Mutex<Option<TrackHandle>>>,
-    sfx_track: Arc<Mutex<Option<TrackHandle>>>,
-    voice_track: Arc<Mutex<Option<TrackHandle>>>,
-    ui_track: Arc<Mutex<Option<TrackHandle>>>,
-    sfx_low_pass: Arc<Mutex<Option<FilterHandle>>>,
-    sfx_high_pass: Arc<Mutex<Option<FilterHandle>>>,
-    sfx_reverb: Arc<Mutex<Option<ReverbHandle>>>,
-
-    // Loading system
-    load_queue: Arc<Mutex<VecDeque<AudioLoadRequest>>>,
 
     // Configuration
     config: AudioConfig,
-
-    // Statistics
-    stats: Arc<RwLock<AudioStats>>,
 }
 
 /// Audio system configuration
@@ -535,26 +630,25 @@ impl AudioLoader {
         );
 
         Ok(Self {
-            audio_manager: Arc::new(Mutex::new(audio_manager)),
-            audio_assets: Arc::new(RwLock::new(HashMap::new())),
-            asset_index: Arc::new(RwLock::new(HashMap::new())),
-            sound_data_cache: Arc::new(RwLock::new(HashMap::new())),
-            active_instances: Arc::new(RwLock::new(HashMap::new())),
-            instance_counter: Arc::new(Mutex::new(1)),
-            listener: Arc::new(RwLock::new(AudioListener::default())),
-            spatial_listener: Arc::new(Mutex::new(spatial_listener)),
-            current_environment: Arc::new(RwLock::new(AudioEnvironment::default())),
+            mixer: Mutex::new(Mixer {
+                _audio_manager: audio_manager,
+                music_track,
+                sfx_track,
+                voice_track,
+                ui_track,
+                sfx_low_pass,
+                sfx_high_pass,
+                sfx_reverb,
+                spatial_listener,
+            }),
+            store: RwLock::new(AudioStore::new()),
+            active_instances: RwLock::new(HashMap::new()),
+            stats: RwLock::new(AudioStats::default()),
+            instance_counter: AtomicU64::new(1),
+            listener: AudioListener::default(),
+            current_environment: AudioEnvironment::default(),
             environments,
-            music_track: Arc::new(Mutex::new(Some(music_track))),
-            sfx_track: Arc::new(Mutex::new(Some(sfx_track))),
-            voice_track: Arc::new(Mutex::new(Some(voice_track))),
-            ui_track: Arc::new(Mutex::new(Some(ui_track))),
-            sfx_low_pass: Arc::new(Mutex::new(Some(sfx_low_pass))),
-            sfx_high_pass: Arc::new(Mutex::new(Some(sfx_high_pass))),
-            sfx_reverb: Arc::new(Mutex::new(Some(sfx_reverb))),
-            load_queue: Arc::new(Mutex::new(VecDeque::new())),
             config,
-            stats: Arc::new(RwLock::new(AudioStats::default())),
         })
     }
 
@@ -569,15 +663,13 @@ impl AudioLoader {
         let handle = AssetHandle::new();
 
         // Check cache
-        if let Some(cached_handle) = self
-            .asset_index
-            .read()
-            .unwrap_or_else(|e| e.into_inner())
-            .get(path)
-        {
+        if let Some(cached_handle) = {
+            let store = self.store.read().unwrap_or_else(|e| e.into_inner());
+            store.index.get(path).copied()
+        } {
             let mut stats = self.stats.write().unwrap_or_else(|e| e.into_inner());
             stats.cache_hits += 1;
-            return Ok(*cached_handle);
+            return Ok(cached_handle);
         }
 
         log::info!("Loading audio asset: {}", path.display());
@@ -631,21 +723,13 @@ impl AudioLoader {
 
         let asset_arc = Arc::new(audio_asset);
 
-        // Store in cache
-        self.audio_assets
-            .write()
-            .unwrap()
-            .insert(handle, asset_arc.clone());
-        self.asset_index
-            .write()
-            .unwrap()
-            .insert(path.to_path_buf(), handle);
-
-        // Store the sound data for playback
-        self.sound_data_cache
-            .write()
-            .unwrap()
-            .insert(handle, sound_data);
+        // Publish metadata, path index and decoded data as one step.
+        {
+            let mut store = self.store.write().unwrap_or_else(|e| e.into_inner());
+            store.assets.insert(handle, asset_arc);
+            store.index.insert(path.to_path_buf(), handle);
+            store.sound_data.insert(handle, sound_data);
+        }
 
         // Update statistics
         {
@@ -765,32 +849,25 @@ impl AudioLoader {
         pitch: Option<f32>,
         position: Option<Vec3>,
     ) -> Result<u64, AudioError> {
-        let asset = self
-            .audio_assets
-            .read()
-            .unwrap_or_else(|e| e.into_inner())
-            .get(&asset_handle)
-            .cloned()
-            .ok_or_else(|| AudioError::EngineError("Asset not found".to_string()))?;
+        // Look the asset and its decoded data up in one pass.
+        let (asset, sound_data, instance_id) = {
+            let store = self.store.read().unwrap_or_else(|e| e.into_inner());
+            let asset = store
+                .assets
+                .get(&asset_handle)
+                .cloned()
+                .ok_or_else(|| AudioError::EngineError("Asset not found".to_string()))?;
 
-        // Generate instance ID
-        let instance_id = {
-            let mut counter = self
-                .instance_counter
-                .lock()
-                .unwrap_or_else(|e| e.into_inner());
-            *counter += 1;
-            *counter
+            // Generate instance ID
+            let instance_id = self.instance_counter.fetch_add(1, Ordering::Relaxed) + 1;
+
+            let sound_data = store
+                .sound_data
+                .get(&asset_handle)
+                .cloned()
+                .ok_or_else(|| AudioError::EngineError("Sound data not found".to_string()))?;
+            (asset, sound_data, instance_id)
         };
-
-        // Get sound data from cache and play it through Kira
-        let sound_data = self
-            .sound_data_cache
-            .read()
-            .unwrap_or_else(|e| e.into_inner())
-            .get(&asset_handle)
-            .cloned()
-            .ok_or_else(|| AudioError::EngineError("Sound data not found".to_string()))?;
 
         // Apply volume and play
         let final_volume = volume.unwrap_or(asset.volume) * self.config.master_volume;
@@ -803,52 +880,14 @@ impl AudioLoader {
             let spatial_settings = asset.spatial_settings.clone().unwrap_or_default();
             let min_distance = spatial_settings.min_distance.max(1.0);
             let max_distance = spatial_settings.max_distance.max(min_distance);
-            let listener_id = self
-                .spatial_listener
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .id();
-            let mut manager = self.audio_manager.lock().unwrap_or_else(|e| e.into_inner());
-            let mut spatial = manager
-                .add_spatial_sub_track(
-                    listener_id,
-                    mint::Vector3 {
-                        x: position.x,
-                        y: position.y,
-                        z: position.z,
-                    },
-                    SpatialTrackBuilder::new()
-                        .distances((min_distance, max_distance))
-                        .persist_until_sounds_finish(true),
-                )
-                .map_err(|e| {
-                    AudioError::EngineError(format!("Failed to create spatial track: {}", e))
-                })?;
-            let handle = spatial
-                .play(sound_data)
-                .map_err(|e| AudioError::EngineError(format!("Failed to play sound: {}", e)))?;
-            (handle, Some(spatial))
+            let mut mixer = self.mixer.lock().unwrap_or_else(|e| e.into_inner());
+            mixer
+                .play_spatial(sound_data, position, min_distance, max_distance)
+                .map(|(handle, emitter)| (handle, Some(emitter)))?
         } else {
-            let track_slot = match asset.asset_type {
-                AudioAssetType::Music => &self.music_track,
-                AudioAssetType::Voice => &self.voice_track,
-                AudioAssetType::UI => &self.ui_track,
-                _ => &self.sfx_track,
-            };
-            let mut track_guard = track_slot.lock().unwrap_or_else(|e| e.into_inner());
-            let handle = if let Some(track) = track_guard.as_mut() {
-                track
-                    .play(sound_data)
-                    .map_err(|e| AudioError::EngineError(format!("Failed to play sound: {}", e)))?
-            } else {
-                drop(track_guard);
-                self.audio_manager
-                    .lock()
-                    .unwrap_or_else(|e| e.into_inner())
-                    .play(sound_data)
-                    .map_err(|e| AudioError::EngineError(format!("Failed to play sound: {}", e)))?
-            };
-            (handle, None)
+            let asset_type = asset.asset_type;
+            let mut mixer = self.mixer.lock().unwrap_or_else(|e| e.into_inner());
+            (mixer.play(asset_type, sound_data)?, None)
         };
 
         let instance = AudioInstance {
@@ -868,7 +907,7 @@ impl AudioLoader {
         // Store the instance
         self.active_instances
             .write()
-            .unwrap()
+            .unwrap_or_else(|e| e.into_inner())
             .insert(instance_id, instance);
 
         // Update statistics
@@ -988,14 +1027,15 @@ impl AudioLoader {
     }
 
     /// Update 3D listener position
-    pub fn update_listener(&self, position: Vec3, forward: Vec3, up: Vec3) {
-        let mut listener = self.listener.write().unwrap_or_else(|e| e.into_inner());
-        listener.position = position;
-        listener.forward = forward;
-        listener.up = up;
+    pub fn update_listener(&mut self, position: Vec3, forward: Vec3, up: Vec3) {
+        self.listener.position = position;
+        self.listener.forward = forward;
+        self.listener.up = up;
 
-        if let Ok(mut handle) = self.spatial_listener.lock() {
-            let _ = handle.set_position(
+        // THREAD: kira's `ListenerHandle` is only reachable behind the mixer
+        // lock; the listener may also be moved from a tokio audio task.
+        if let Ok(mut mixer) = self.mixer.lock() {
+            let _ = mixer.spatial_listener.set_position(
                 mint::Vector3 {
                     x: position.x,
                     y: position.y,
@@ -1004,7 +1044,9 @@ impl AudioLoader {
                 Tween::default(),
             );
             if let Some(orientation) = Self::listener_orientation(forward, up) {
-                let _ = handle.set_orientation(orientation, Tween::default());
+                let _ = mixer
+                    .spatial_listener
+                    .set_orientation(orientation, Tween::default());
             }
         }
     }
@@ -1042,22 +1084,23 @@ impl AudioLoader {
     }
 
     /// Set environmental audio effects
-    pub fn set_environment(&self, environment_name: &str) -> Result<(), AudioError> {
-        if let Some(environment) = self.environments.get(environment_name) {
-            *self
-                .current_environment
-                .write()
-                .unwrap_or_else(|e| e.into_inner()) = environment.clone();
-
-            self.apply_environment_effects(environment);
-            log::info!("Set audio environment: {}", environment_name);
-            Ok(())
-        } else {
-            Err(AudioError::EffectFailed {
+    pub fn set_environment(&mut self, environment_name: &str) -> Result<(), AudioError> {
+        let Some(environment) = self.environments.get(environment_name).cloned() else {
+            return Err(AudioError::EffectFailed {
                 effect: environment_name.to_string(),
                 error: "Environment not found".to_string(),
-            })
+            });
+        };
+
+        self.current_environment = environment.clone();
+
+        // THREAD: the effect handles live behind the mixer lock (see
+        // `Self::mixer`) because play tasks read the same block.
+        if let Ok(mut mixer) = self.mixer.lock() {
+            mixer.apply_environment(&environment);
         }
+        log::info!("Set audio environment: {}", environment_name);
+        Ok(())
     }
 
     /// Update audio system (call every frame)
@@ -1133,59 +1176,27 @@ impl AudioLoader {
         })
     }
 
-    fn apply_track_volume(
-        &self,
-        track: &Arc<Mutex<Option<TrackHandle>>>,
-        volume: f32,
-        master: f32,
-    ) {
-        if let Ok(mut guard) = track.lock() {
-            if let Some(track) = guard.as_mut() {
-                track.set_volume(kira_amplitude((volume * master) as f64), Tween::default());
-            }
-        }
-    }
+    /// Push the configured category volumes onto the mixer tracks.
+    fn apply_track_volumes(&self) {
+        let master = self.config.master_volume;
+        let music = self.config.music_volume;
+        let sfx = self.config.sfx_volume;
+        let voice = self.config.voice_volume;
+        let ui = self.config.ui_volume;
 
-    fn apply_environment_effects(&self, environment: &AudioEnvironment) {
-        let low_cutoff = environment.low_pass_cutoff.clamp(20.0, 20000.0);
-        let high_cutoff = environment.high_pass_cutoff.clamp(20.0, 20000.0);
-        let low_mix = if low_cutoff < 19950.0 { 1.0 } else { 0.0 };
-        let high_mix = if high_cutoff > 25.0 { 1.0 } else { 0.0 };
-
-        if let Ok(mut handle) = self.sfx_low_pass.lock() {
-            if let Some(handle) = handle.as_mut() {
-                let _ = handle.set_cutoff(low_cutoff as f64, Tween::default());
-                let _ = handle.set_mix(low_mix, Tween::default());
-            }
-        }
-
-        if let Ok(mut handle) = self.sfx_high_pass.lock() {
-            if let Some(handle) = handle.as_mut() {
-                let _ = handle.set_cutoff(high_cutoff as f64, Tween::default());
-                let _ = handle.set_mix(high_mix, Tween::default());
-            }
-        }
-
-        let feedback = (environment.reverb_time / 5.0).clamp(0.0, 0.95);
-        let damping = environment.reverb_decay.clamp(0.0, 1.0);
-        let mix = environment.reverb_density.clamp(0.0, 1.0);
-        if let Ok(mut handle) = self.sfx_reverb.lock() {
-            if let Some(handle) = handle.as_mut() {
-                let _ = handle.set_feedback(feedback as f64, Tween::default());
-                let _ = handle.set_damping(damping as f64, Tween::default());
-                let _ = handle.set_mix(mix, Tween::default());
-            }
+        // THREAD: track handles live behind the mixer lock (see `Self::mixer`).
+        if let Ok(mut mixer) = self.mixer.lock() {
+            mixer.set_track_volume(AudioAssetType::Music, music, master);
+            mixer.set_track_volume(AudioAssetType::SoundEffect, sfx, master);
+            mixer.set_track_volume(AudioAssetType::Voice, voice, master);
+            mixer.set_track_volume(AudioAssetType::UI, ui, master);
         }
     }
 
     /// Set master volume
     pub fn set_master_volume(&mut self, volume: f32) {
         self.config.master_volume = volume.clamp(0.0, 1.0);
-        let master = self.config.master_volume;
-        self.apply_track_volume(&self.music_track, self.config.music_volume, master);
-        self.apply_track_volume(&self.sfx_track, self.config.sfx_volume, master);
-        self.apply_track_volume(&self.voice_track, self.config.voice_volume, master);
-        self.apply_track_volume(&self.ui_track, self.config.ui_volume, master);
+        self.apply_track_volumes();
     }
 
     /// Set category volumes
@@ -1200,17 +1211,16 @@ impl AudioLoader {
         }
 
         let master = self.config.master_volume;
-        match category {
-            AudioAssetType::Music => {
-                self.apply_track_volume(&self.music_track, self.config.music_volume, master)
-            }
-            AudioAssetType::Voice => {
-                self.apply_track_volume(&self.voice_track, self.config.voice_volume, master)
-            }
-            AudioAssetType::UI => {
-                self.apply_track_volume(&self.ui_track, self.config.ui_volume, master)
-            }
-            _ => self.apply_track_volume(&self.sfx_track, self.config.sfx_volume, master),
+        let category_volume = match category {
+            AudioAssetType::Music => self.config.music_volume,
+            AudioAssetType::Voice => self.config.voice_volume,
+            AudioAssetType::UI => self.config.ui_volume,
+            _ => self.config.sfx_volume,
+        };
+
+        // THREAD: track handles live behind the mixer lock (see `Self::mixer`).
+        if let Ok(mut mixer) = self.mixer.lock() {
+            mixer.set_track_volume(category, category_volume, master);
         }
     }
 
@@ -1229,18 +1239,12 @@ impl AudioLoader {
         }
 
         // Clear all caches including sound data
-        self.audio_assets
-            .write()
-            .unwrap_or_else(|e| e.into_inner())
-            .clear();
-        self.asset_index
-            .write()
-            .unwrap_or_else(|e| e.into_inner())
-            .clear();
-        self.sound_data_cache
-            .write()
-            .unwrap_or_else(|e| e.into_inner())
-            .clear();
+        {
+            let mut store = self.store.write().unwrap_or_else(|e| e.into_inner());
+            store.assets.clear();
+            store.index.clear();
+            store.sound_data.clear();
+        }
 
         log::info!("Audio system cleanup complete");
     }

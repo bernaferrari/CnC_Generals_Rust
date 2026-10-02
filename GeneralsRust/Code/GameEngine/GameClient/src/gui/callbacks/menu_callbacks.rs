@@ -39,7 +39,6 @@ use gamelogic::system::game_logic::{GAME_SHELL, GAME_SINGLE_PLAYER};
 use log::{debug, error, info, warn};
 use std::cell::RefCell;
 use std::rc::Rc;
-use std::sync::{Arc, RwLock};
 
 #[cfg(feature = "online_ui")]
 use crate::gamespy_overlay::{GameSpyOverlayType, close_overlay, is_overlay_open};
@@ -247,9 +246,9 @@ impl MenuCallbacks for SinglePlayerMenu {
         with_window_manager(|manager| {
             self.parent = manager.get_window_by_id(self.parent_id);
             // Focus is deferred below: an inline set_focus sends InputFocus to
-            // this same window, whose "SinglePlayerMenuSystem" callback
-            // re-takes the menu RwLock this init dispatch still holds (std
-            // RwLocks are not re-entrant — sampled wedge, credits probe).
+            // this same window, whose "SinglePlayerMenuSystem" callback would
+            // re-enter this init dispatch's menu borrow (RefCell disallows
+            // that — it used to re-take a non-re-entrant std RwLock and wedge).
             if let Some(parent) = self.parent.clone() {
                 queue_window_manager_op_deferred(move |manager| {
                     let _ = manager.set_focus(Some(&parent));
@@ -1375,7 +1374,7 @@ impl MenuCallbacks for OptionsMenu {
             self.parent = manager.get_window_by_id(self.parent_id);
             // Modal bookkeeping dispatches no messages — safe inline. Focus is
             // deferred (see SinglePlayerMenu::init): an inline set_focus would
-            // re-enter the menu RwLock held by this init dispatch.
+            // re-enter the menu borrow held by this init dispatch.
             if let Some(parent) = self.parent.as_ref() {
                 let _ = manager.set_modal(parent.clone());
             }
@@ -1766,7 +1765,7 @@ impl MenuCallbacks for MapSelectMenu {
             self.parent = manager.get_window_by_id(self.parent_id);
             self.listbox_map = manager.get_window_by_id(self.listbox_map_id);
             // Focus is deferred (see SinglePlayerMenu::init): an inline
-            // set_focus would re-enter the menu RwLock held by this init
+            // set_focus would re-enter the menu borrow held by this init
             // dispatch via the window's system callback.
             if let Some(parent) = self.parent.clone() {
                 queue_window_manager_op_deferred(move |manager| {
@@ -2045,9 +2044,9 @@ impl MenuCallbacks for CreditsMenu {
             self.parent = manager.get_window_by_id(self.parent_id);
             // Focus is deferred (see SinglePlayerMenu::init): an inline
             // set_focus sends InputFocus to this same window, whose
-            // "CreditsMenuSystem" callback re-takes the menu RwLock this init
-            // dispatch still holds (std RwLocks are not re-entrant — this was
-            // the sampled CreditsMenu push wedge).
+            // "CreditsMenuSystem" callback would re-enter this init dispatch's
+            // menu borrow (RefCell forbids that; the std RwLock it replaced
+            // was not re-entrant and this was the sampled CreditsMenu wedge).
             if let Some(parent) = self.parent.clone() {
                 queue_window_manager_op_deferred(move |manager| {
                     let _ = manager.set_focus(Some(&parent));
@@ -2071,10 +2070,9 @@ impl MenuCallbacks for CreditsMenu {
         _layout: &WindowLayout,
         _user_data: Option<&mut dyn std::any::Any>,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        // Deferred for the same reason as in init: this update runs under the
-        // menu RwLock write guard taken by the CreditsMenuUpdate dispatch, and
-        // an inline set_focus re-enters that lock via the InputFocus system
-        // callback.
+        // Deferred for the same reason as in init: this update runs inside the
+        // menu borrow taken by the CreditsMenuUpdate dispatch, and an inline
+        // set_focus re-enters it via the InputFocus system callback.
         if let Some(parent) = self.parent.clone() {
             queue_window_manager_op_deferred(move |manager| {
                 let _ = manager.set_focus(Some(&parent));
@@ -2227,50 +2225,61 @@ impl MenuCallbacks for LanLobbyMenu {
     }
 }
 
-/// Menu manager to handle all menu instances
+/// Menu manager to handle all menu instances.
+///
+/// THREAD: shell menus are GUI-thread state — C++ kept the same objects as raw
+/// singletons behind no synchronization at all. The manager therefore lives in
+/// a thread-local and hands out plain `&mut` borrows through the `with_*`
+/// accessors below; there is no `Arc`, no `RwLock`, and nothing for another
+/// thread to reach. Callers dispatch into a menu by closure, so the old
+/// "clone the `Arc<RwLock<_>>` out, drop the manager guard, then re-lock the
+/// menu" dance (and its sampled non-re-entrant `RwLock` wedges: the
+/// CreditsMenuInit → InputFocus → CreditsMenuSystem park) is structurally
+/// impossible. A nested dispatch into the same menu is now a `RefCell` borrow
+/// bug that panics with a backtrace instead of hanging the main thread.
 pub struct MenuManager {
-    main_menu: Arc<RwLock<MainMenu>>,
-    single_player_menu: Arc<RwLock<SinglePlayerMenu>>,
-    options_menu: Arc<RwLock<OptionsMenu>>,
-    map_select_menu: Arc<RwLock<MapSelectMenu>>,
-    credits_menu: Arc<RwLock<CreditsMenu>>,
-    lan_lobby_menu: Arc<RwLock<LanLobbyMenu>>,
+    main_menu: MainMenu,
+    single_player_menu: SinglePlayerMenu,
+    options_menu: OptionsMenu,
+    map_select_menu: MapSelectMenu,
+    credits_menu: CreditsMenu,
+    lan_lobby_menu: LanLobbyMenu,
 }
 
 impl MenuManager {
     pub fn new() -> Self {
         Self {
-            main_menu: Arc::new(RwLock::new(MainMenu::new())),
-            single_player_menu: Arc::new(RwLock::new(SinglePlayerMenu::new())),
-            options_menu: Arc::new(RwLock::new(OptionsMenu::new())),
-            map_select_menu: Arc::new(RwLock::new(MapSelectMenu::new())),
-            credits_menu: Arc::new(RwLock::new(CreditsMenu::new())),
-            lan_lobby_menu: Arc::new(RwLock::new(LanLobbyMenu::new())),
+            main_menu: MainMenu::new(),
+            single_player_menu: SinglePlayerMenu::new(),
+            options_menu: OptionsMenu::new(),
+            map_select_menu: MapSelectMenu::new(),
+            credits_menu: CreditsMenu::new(),
+            lan_lobby_menu: LanLobbyMenu::new(),
         }
     }
 
-    pub fn get_main_menu(&self) -> Arc<RwLock<MainMenu>> {
-        self.main_menu.clone()
+    pub fn main_menu_mut(&mut self) -> &mut MainMenu {
+        &mut self.main_menu
     }
 
-    pub fn get_single_player_menu(&self) -> Arc<RwLock<SinglePlayerMenu>> {
-        self.single_player_menu.clone()
+    pub fn single_player_menu_mut(&mut self) -> &mut SinglePlayerMenu {
+        &mut self.single_player_menu
     }
 
-    pub fn get_options_menu(&self) -> Arc<RwLock<OptionsMenu>> {
-        self.options_menu.clone()
+    pub fn options_menu_mut(&mut self) -> &mut OptionsMenu {
+        &mut self.options_menu
     }
 
-    pub fn get_map_select_menu(&self) -> Arc<RwLock<MapSelectMenu>> {
-        self.map_select_menu.clone()
+    pub fn map_select_menu_mut(&mut self) -> &mut MapSelectMenu {
+        &mut self.map_select_menu
     }
 
-    pub fn get_credits_menu(&self) -> Arc<RwLock<CreditsMenu>> {
-        self.credits_menu.clone()
+    pub fn credits_menu_mut(&mut self) -> &mut CreditsMenu {
+        &mut self.credits_menu
     }
 
-    pub fn get_lan_lobby_menu(&self) -> Arc<RwLock<LanLobbyMenu>> {
-        self.lan_lobby_menu.clone()
+    pub fn lan_lobby_menu_mut(&mut self) -> &mut LanLobbyMenu {
+        &mut self.lan_lobby_menu
     }
 }
 
@@ -2281,13 +2290,42 @@ impl Default for MenuManager {
 }
 
 thread_local! {
-    static THE_MENU_MANAGER: Arc<RwLock<MenuManager>> =
-        Arc::new(RwLock::new(MenuManager::new()));
+    static THE_MENU_MANAGER: RefCell<MenuManager> = RefCell::new(MenuManager::new());
 }
 
-/// Helper function to get the global menu manager
-pub fn get_menu_manager() -> Arc<RwLock<MenuManager>> {
-    THE_MENU_MANAGER.with(|manager| manager.clone())
+/// Run `f` with exclusive access to the global menu manager (GUI thread).
+pub fn with_menu_manager<R>(f: impl FnOnce(&mut MenuManager) -> R) -> R {
+    THE_MENU_MANAGER.with(|manager| f(&mut manager.borrow_mut()))
+}
+
+/// Run `f` with exclusive access to one shell menu (GUI thread).
+pub fn with_main_menu<R>(f: impl FnOnce(&mut MainMenu) -> R) -> R {
+    with_menu_manager(|manager| f(manager.main_menu_mut()))
+}
+
+/// Run `f` with exclusive access to one shell menu (GUI thread).
+pub fn with_single_player_menu<R>(f: impl FnOnce(&mut SinglePlayerMenu) -> R) -> R {
+    with_menu_manager(|manager| f(manager.single_player_menu_mut()))
+}
+
+/// Run `f` with exclusive access to one shell menu (GUI thread).
+pub fn with_options_menu<R>(f: impl FnOnce(&mut OptionsMenu) -> R) -> R {
+    with_menu_manager(|manager| f(manager.options_menu_mut()))
+}
+
+/// Run `f` with exclusive access to one shell menu (GUI thread).
+pub fn with_map_select_menu<R>(f: impl FnOnce(&mut MapSelectMenu) -> R) -> R {
+    with_menu_manager(|manager| f(manager.map_select_menu_mut()))
+}
+
+/// Run `f` with exclusive access to one shell menu (GUI thread).
+pub fn with_credits_menu<R>(f: impl FnOnce(&mut CreditsMenu) -> R) -> R {
+    with_menu_manager(|manager| f(manager.credits_menu_mut()))
+}
+
+/// Run `f` with exclusive access to one shell menu (GUI thread).
+pub fn with_lan_lobby_menu<R>(f: impl FnOnce(&mut LanLobbyMenu) -> R) -> R {
+    with_menu_manager(|manager| f(manager.lan_lobby_menu_mut()))
 }
 
 /// Residual: last OptionsMenu action requested by residual peels.
@@ -2418,13 +2456,7 @@ pub fn apply_options_from_host(apply: HostOptionsApply) -> bool {
 }
 
 fn with_options_menu_mut<R>(f: impl FnOnce(&mut OptionsMenu) -> R) -> R {
-    let menu = {
-        let manager = get_menu_manager();
-        let guard = manager.read().unwrap_or_else(|e| e.into_inner());
-        guard.get_options_menu()
-    };
-    let mut menu = menu.write().unwrap_or_else(|e| e.into_inner());
-    f(&mut menu)
+    with_options_menu(f)
 }
 
 /// Residual: bind OptionsMenu control IDs (no layout load / populate required).
@@ -2786,13 +2818,7 @@ pub fn residual_credits_menu_is_active() -> bool {
 }
 
 fn with_credits_menu_mut<R>(f: impl FnOnce(&mut CreditsMenu) -> R) -> R {
-    let menu = {
-        let manager = get_menu_manager();
-        let guard = manager.read().unwrap_or_else(|e| e.into_inner());
-        guard.get_credits_menu()
-    };
-    let mut menu = menu.write().unwrap_or_else(|e| e.into_inner());
-    f(&mut menu)
+    with_credits_menu(f)
 }
 
 /// Residual: bind CreditsMenu parent control ID (no INI/audio/layout load).
@@ -2968,13 +2994,7 @@ pub fn residual_single_player_menu_button_pushed() -> bool {
 }
 
 fn with_single_player_menu_mut<R>(f: impl FnOnce(&mut SinglePlayerMenu) -> R) -> R {
-    let menu = {
-        let manager = get_menu_manager();
-        let guard = manager.read().unwrap_or_else(|e| e.into_inner());
-        guard.get_single_player_menu()
-    };
-    let mut menu = menu.write().unwrap_or_else(|e| e.into_inner());
-    f(&mut menu)
+    with_single_player_menu(f)
 }
 
 /// Residual: bind SinglePlayerMenu control IDs (no layout load).
@@ -3109,7 +3129,12 @@ static RESIDUAL_MAP_SELECT_ACTION: std::sync::atomic::AtomicU8 =
     std::sync::atomic::AtomicU8::new(0);
 static RESIDUAL_MAP_SELECT_DIFFICULTY: std::sync::atomic::AtomicI32 =
     std::sync::atomic::AtomicI32::new(1);
-static RESIDUAL_MAP_SELECT_MAP: std::sync::Mutex<String> = std::sync::Mutex::new(String::new());
+// THREAD: residual latches are read/written only from the GUI thread's menu
+// dispatch; only the small scalar action/difficulty counters stay atomic so
+// parallel residual tests observe their own thread's manager boundaries.
+thread_local! {
+    static RESIDUAL_MAP_SELECT_MAP: RefCell<String> = RefCell::new(String::new());
+}
 
 fn residual_map_select_action_store(action: ResidualMapSelectMenuAction) {
     RESIDUAL_MAP_SELECT_ACTION.store(action as u8, std::sync::atomic::Ordering::Relaxed);
@@ -3139,21 +3164,12 @@ pub fn residual_map_select_menu_difficulty() -> i32 {
 
 /// Residual: last selected map path/name.
 pub fn residual_map_select_menu_selected_map() -> Option<String> {
-    let name = RESIDUAL_MAP_SELECT_MAP
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .clone();
+    let name = RESIDUAL_MAP_SELECT_MAP.with(|slot| slot.borrow().clone());
     if name.is_empty() { None } else { Some(name) }
 }
 
 fn with_map_select_menu_mut<R>(f: impl FnOnce(&mut MapSelectMenu) -> R) -> R {
-    let menu = {
-        let manager = get_menu_manager();
-        let guard = manager.read().unwrap_or_else(|e| e.into_inner());
-        guard.get_map_select_menu()
-    };
-    let mut menu = menu.write().unwrap_or_else(|e| e.into_inner());
-    f(&mut menu)
+    with_map_select_menu(f)
 }
 
 fn ensure_map_select_control_ids(menu: &mut MapSelectMenu) {
@@ -3220,9 +3236,7 @@ pub fn simulate_map_select_menu_select_map(map_path: &str) -> bool {
     with_map_select_menu_mut(|menu| {
         ensure_map_select_control_ids(menu);
         menu.selected_map = Some(map_path.to_string());
-        *RESIDUAL_MAP_SELECT_MAP
-            .lock()
-            .unwrap_or_else(|e| e.into_inner()) = map_path.to_string();
+        RESIDUAL_MAP_SELECT_MAP.with(|slot| *slot.borrow_mut() = map_path.to_string());
         residual_map_select_action_store(ResidualMapSelectMenuAction::SelectMap);
         residual_map_select_menu_selected_map().as_deref() == Some(map_path)
     })
@@ -3379,24 +3393,24 @@ mod tests {
 
     #[test]
     fn test_menu_manager() {
-        let manager = MenuManager::new();
+        let mut manager = MenuManager::new();
 
-        // Test that all menus are accessible
-        assert!(manager.get_main_menu().read().is_ok());
-        assert!(manager.get_single_player_menu().read().is_ok());
-        assert!(manager.get_options_menu().read().is_ok());
-        assert!(manager.get_map_select_menu().read().is_ok());
-        assert!(manager.get_credits_menu().read().is_ok());
-        assert!(manager.get_lan_lobby_menu().read().is_ok());
+        // Test that all menus are accessible as owned fields
+        let _ = manager.main_menu_mut();
+        let _ = manager.single_player_menu_mut();
+        let _ = manager.options_menu_mut();
+        let _ = manager.map_select_menu_mut();
+        let _ = manager.credits_menu_mut();
+        let _ = manager.lan_lobby_menu_mut();
     }
 
     #[test]
     fn test_global_menu_manager() {
-        let manager1 = get_menu_manager();
-        let manager2 = get_menu_manager();
+        let manager1 = with_menu_manager(|manager| std::ptr::from_mut(manager) as usize);
+        let manager2 = with_menu_manager(|manager| std::ptr::from_mut(manager) as usize);
 
-        // Both should point to the same instance
-        assert!(Arc::ptr_eq(&manager1, &manager2));
+        // Both should point to the same thread-local instance
+        assert_eq!(manager1, manager2);
     }
 
     #[test]
@@ -3674,10 +3688,15 @@ mod menu_callbacks_shell_borrow_residual_tests {
             src.contains("queue_shell_reverse_animate_window();"),
             "reverse_animate_window must queue at the shell lifecycle boundary"
         );
+        // concat! keeps these needles out of this file's own text — the
+        // include_str! above would otherwise always match itself.
+        let direct_shell_calls = [
+            concat!("get_shell", "().pop()"),
+            concat!("get_shell", "().push("),
+            concat!("get_shell", "().reverse_animate_window()"),
+        ];
         assert!(
-            !src.contains("get_shell().pop()")
-                && !src.contains("get_shell().push(")
-                && !src.contains("get_shell().reverse_animate_window()"),
+            direct_shell_calls.iter().all(|needle| !src.contains(needle)),
             "menu_callbacks must not call get_shell() for push/pop/reverse during nested shell"
         );
     }

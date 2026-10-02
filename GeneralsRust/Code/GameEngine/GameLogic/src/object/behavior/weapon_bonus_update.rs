@@ -260,6 +260,16 @@ impl Module for WeaponBonusUpdateModule {
     fn get_module_data(&self) -> &dyn EngineModuleData {
         self.module_data.as_ref()
     }
+
+    /// C++ `UpdateModule : Module` interface query
+    /// (`Module::DynamicInterfaceCast(ModuleInterfaceType::UPDATE)`): forwards
+    /// to the wrapped behavior's per-frame hooks. Replaces the former
+    /// `as_any().downcast_mut::<Self>()` branch in `ModuleUpdateProxy`.
+    fn get_update_module_interface(
+        &mut self,
+    ) -> Option<&mut dyn game_engine::common::thing::update_module::UpdateModuleInterface> {
+        Some(self.behavior_mut())
+    }
 }
 
 pub struct WeaponBonusUpdateFactory;

@@ -3,15 +3,13 @@
 //! This example demonstrates the key features of the memory pooling system:
 //! - Object allocation and deallocation
 //! - Generational index safety
-//! - Thread-safe concurrent access
+//! - Single-owner batched access (the C++ thread model)
 //! - Statistics and monitoring
 //! - Integration patterns
 //!
 //! Run with: cargo run --example memory_pool_demo
 
 use game_engine::memory::*;
-use std::sync::Arc;
-use std::thread;
 
 /// Example game object
 #[derive(Debug, Clone)]
@@ -62,7 +60,7 @@ fn main() {
     demo_generational_indices();
 
     // Demo 3: Concurrent access
-    demo_concurrent_access();
+    demo_batched_access();
 
     // Demo 4: Statistics and monitoring
     demo_statistics();
@@ -140,59 +138,35 @@ fn demo_generational_indices() {
     println!();
 }
 
-fn demo_concurrent_access() {
-    println!("═══ Demo 3: Concurrent Access ═══");
+fn demo_batched_access() {
+    println!("═══ Demo 3: Batched Access ═══");
 
     let config = PoolConfig::for_game_objects("Units");
     let pool = ObjectPool::<Unit>::new(config).unwrap();
 
-    // Allocate units from multiple threads
-    let handles: Vec<_> = (0..8)
-        .map(|t| {
-            let pool = Arc::clone(&pool);
-            thread::spawn(move || {
-                let mut thread_units = Vec::new();
-                for i in 0..10 {
-                    let id = t * 10 + i;
-                    let unit = pool.alloc(Unit::new(id, "ThreadUnit")).unwrap();
-                    thread_units.push(unit);
-                }
-                thread_units
-            })
-        })
-        .collect();
-
-    // Wait for all threads
-    let all_units: Vec<_> = handles
-        .into_iter()
-        .flat_map(|h| h.join().unwrap())
-        .collect();
-
-    println!("✓ Allocated {} units from 8 threads", all_units.len());
-    println!("  Pool size: {}/{}", pool.len(), pool.capacity());
-
-    // Update all units concurrently (read-only)
-    let update_handles: Vec<_> = all_units
-        .chunks(10)
-        .map(|chunk| {
-            let chunk = chunk.to_vec();
-            thread::spawn(move || {
-                for unit in chunk {
-                    unit.with(|u| {
-                        // Simulate read-only operations
-                        let _ = u.is_alive();
-                    })
-                    .unwrap();
-                }
-            })
-        })
-        .collect();
-
-    for handle in update_handles {
-        handle.join().unwrap();
+    // The pool is single-owner like the C++ statics it ports, so the former
+    // 8-thread demo allocates the same count in sequential batches.
+    let mut all_units = Vec::new();
+    for t in 0..8u32 {
+        for i in 0..10u32 {
+            let id = t * 10 + i;
+            all_units.push(pool.alloc(Unit::new(id, "BatchUnit")).unwrap());
+        }
     }
 
-    println!("  Updated all units concurrently ✓");
+    println!("✓ Allocated {} units in 8 batches", all_units.len());
+    println!("  Pool size: {}/{}", pool.len(), pool.capacity());
+
+    // Read every unit (read-only pass)
+    for unit in &all_units {
+        unit.with(|u| {
+            // Simulate read-only operations
+            let _ = u.is_alive();
+        })
+        .unwrap();
+    }
+
+    println!("  Read all units ✓");
     println!();
 }
 
@@ -271,9 +245,10 @@ fn demo_configurations() {
 fn demo_global_registry() {
     println!("═══ Demo 6: Global Registry ═══");
 
-    // Create and register pools
+    // Create and register pools (registry is a thread-local, like the C++
+    // plain statics it ports)
     let unit_pool = ObjectPool::<Unit>::new(PoolConfig::for_game_objects("Units")).unwrap();
-    POOL_REGISTRY.register("Units".to_string(), unit_pool.clone());
+    POOL_REGISTRY.with(|registry| registry.register("Units".to_string(), unit_pool.clone()));
 
     println!("✓ Registered 'Units' pool");
 
@@ -281,11 +256,12 @@ fn demo_global_registry() {
     let _unit = unit_pool.alloc(Unit::new(1, "Tank")).unwrap();
 
     // Retrieve from registry
-    let _retrieved_pool = POOL_REGISTRY.get::<Unit>("Units").unwrap();
+    let _retrieved_pool =
+        POOL_REGISTRY.with(|registry| registry.get::<Unit>("Units")).unwrap();
     println!("  Retrieved pool from registry ✓");
 
     // Get global stats
-    let global_stats = POOL_REGISTRY.memory_stats();
+    let global_stats = POOL_REGISTRY.with(|registry| registry.memory_stats());
     println!("  Total pools:       {}", global_stats.total_pools);
     println!("  Total allocations: {}", global_stats.total_allocations);
 

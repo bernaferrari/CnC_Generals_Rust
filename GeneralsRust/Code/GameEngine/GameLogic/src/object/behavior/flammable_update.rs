@@ -609,6 +609,10 @@ impl BehaviorModuleInterface for FlammableUpdate {
     fn get_update(&mut self) -> Option<&mut dyn UpdateModuleInterface> {
         Some(self)
     }
+    /// Sleepy-update table participant (see `ActiveBehaviorModule`).
+    fn get_sleepy_update_interface(&mut self) -> Option<&mut dyn UpdateModuleInterface> {
+        Some(self)
+    }
 
     fn get_damage(&mut self) -> Option<&mut dyn crate::modules::DamageModuleInterface> {
         Some(self)

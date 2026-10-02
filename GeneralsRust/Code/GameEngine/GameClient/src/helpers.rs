@@ -41,8 +41,8 @@ use gamelogic::helpers::{
 use log::info;
 use std::cell::RefCell;
 use std::rc::Rc;
-use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
+use std::sync::{Arc, Mutex};
 
 /// Trait implemented by the real in-game UI layer so the legacy
 /// `TheInGameUI::*` entry points can forward requests to the modern
@@ -136,29 +136,35 @@ pub trait InGameUiHooks: Send + Sync {
     fn trigger_double_click_attack_move_guard_hint(&self) {}
 }
 
-fn backend_slot() -> &'static Mutex<Option<Arc<dyn InGameUiHooks>>> {
-    static BACKEND: OnceLock<Mutex<Option<Arc<dyn InGameUiHooks>>>> = OnceLock::new();
-    BACKEND.get_or_init(|| Mutex::new(None))
+// THREAD: main thread only. The in-game UI backend is registered during
+// client init and read from WND/logic dispatch on the same thread (GameClient
+// is main-thread-only; see core/mod.rs and the WindowManager thread_local in
+// gui/window_manager/reentry.rs).
+thread_local! {
+    static IN_GAME_UI_BACKEND: RefCell<Option<Arc<dyn InGameUiHooks>>> =
+        const { RefCell::new(None) };
 }
 
 pub fn register_in_game_ui_backend(hooks: Arc<dyn InGameUiHooks>) {
-    let mut slot = backend_slot().lock().unwrap_or_else(|e| e.into_inner());
-    *slot = Some(hooks);
+    IN_GAME_UI_BACKEND.with(|slot| *slot.borrow_mut() = Some(hooks));
+}
+
+/// Snapshot the registered backend (cheap `Arc` clone) so the callback never
+/// runs while the slot itself is borrowed — backends may re-enter helpers.
+fn in_game_ui_backend() -> Option<Arc<dyn InGameUiHooks>> {
+    IN_GAME_UI_BACKEND.with(|slot| slot.borrow().clone())
 }
 
 fn with_backend<F>(f: F) -> bool
 where
     F: FnOnce(&dyn InGameUiHooks),
 {
-    let backend = {
-        let slot = backend_slot().lock().unwrap_or_else(|e| e.into_inner());
-        slot.clone()
-    };
-    if let Some(handler) = backend {
-        f(handler.as_ref());
-        true
-    } else {
-        false
+    match in_game_ui_backend() {
+        Some(handler) => {
+            f(handler.as_ref());
+            true
+        }
+        None => false,
     }
 }
 
@@ -166,42 +172,31 @@ fn with_backend_result<R, F>(f: F) -> Option<R>
 where
     F: FnOnce(&dyn InGameUiHooks) -> R,
 {
-    let backend = {
-        let slot = backend_slot().lock().unwrap_or_else(|e| e.into_inner());
-        slot.clone()
-    };
-    backend.map(|handler| f(handler.as_ref()))
+    in_game_ui_backend().map(|handler| f(handler.as_ref()))
 }
 
-fn mouse_backend_slot() -> &'static Mutex<Option<Arc<Mutex<Mouse>>>> {
-    static BACKEND: OnceLock<Mutex<Option<Arc<Mutex<Mouse>>>>> = OnceLock::new();
-    BACKEND.get_or_init(|| Mutex::new(None))
+// THREAD: main thread only. The inner `Arc<Mutex<Mouse>>` is the shared
+// `the_mouse()` handle owned by `input::mouse`; this slot only remembers
+// whether the backend was registered.
+thread_local! {
+    static MOUSE_BACKEND: RefCell<Option<Arc<Mutex<Mouse>>>> = const { RefCell::new(None) };
 }
 
 static MOUSE_CURSOR_VISIBLE: AtomicBool = AtomicBool::new(true);
 
 pub fn register_mouse_backend(mouse: Arc<Mutex<Mouse>>) {
     let visible = MOUSE_CURSOR_VISIBLE.load(Ordering::Relaxed);
-    let mut slot = mouse_backend_slot()
-        .lock()
-        .unwrap_or_else(|e| e.into_inner());
-    *slot = Some(mouse);
-
-    if let Some(mouse) = slot.as_ref() {
+    MOUSE_BACKEND.with(|slot| {
+        *slot.borrow_mut() = Some(Arc::clone(&mouse));
         if let Ok(mut mouse) = mouse.lock() {
             mouse.set_cursor_visible(visible);
         }
-    }
+    });
 }
 
 pub fn set_mouse_cursor_visibility(visible: bool) {
     MOUSE_CURSOR_VISIBLE.store(visible, Ordering::Relaxed);
-    let backend = {
-        let slot = mouse_backend_slot()
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        slot.clone()
-    };
+    let backend = MOUSE_BACKEND.with(|slot| slot.borrow().clone());
 
     if let Some(mouse) = backend {
         if let Ok(mut mouse) = mouse.lock() {
@@ -211,12 +206,7 @@ pub fn set_mouse_cursor_visibility(visible: bool) {
 }
 
 pub fn is_mouse_cursor_visible() -> bool {
-    let backend = {
-        let slot = mouse_backend_slot()
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        slot.clone()
-    };
+    let backend = MOUSE_BACKEND.with(|slot| slot.borrow().clone());
 
     if let Some(mouse) = backend {
         if let Ok(mouse) = mouse.lock() {
@@ -243,16 +233,18 @@ pub trait ControlBarHooks: Send + Sync {
     fn get_observer_look_at_player_index(&self) -> Option<i32>;
 }
 
-fn control_bar_backend_slot() -> &'static Mutex<Option<Arc<dyn ControlBarHooks>>> {
-    static BACKEND: OnceLock<Mutex<Option<Arc<dyn ControlBarHooks>>>> = OnceLock::new();
-    BACKEND.get_or_init(|| Mutex::new(None))
+// THREAD: main thread only (same lifecycle as the in-game UI backend).
+thread_local! {
+    static CONTROL_BAR_BACKEND: RefCell<Option<Arc<dyn ControlBarHooks>>> =
+        const { RefCell::new(None) };
+}
+
+fn control_bar_backend() -> Option<Arc<dyn ControlBarHooks>> {
+    CONTROL_BAR_BACKEND.with(|slot| slot.borrow().clone())
 }
 
 pub fn register_control_bar_backend(hooks: Arc<dyn ControlBarHooks>) {
-    let mut slot = control_bar_backend_slot()
-        .lock()
-        .unwrap_or_else(|e| e.into_inner());
-    *slot = Some(hooks);
+    CONTROL_BAR_BACKEND.with(|slot| *slot.borrow_mut() = Some(hooks));
 }
 
 /// A WND click awaiting the live Control Bar tick.
@@ -297,43 +289,51 @@ pub struct LiveControlBarEvents {
     pub set_scheme_by_player: Option<String>,
 }
 
+#[derive(Debug)]
 struct LiveControlBarPending {
-    ui_dirty: AtomicBool,
-    observer_look_at: AtomicI32,
-    events: Mutex<LiveControlBarEvents>,
+    ui_dirty: bool,
+    observer_look_at: i32,
+    events: LiveControlBarEvents,
 }
 
-fn live_control_bar_pending() -> &'static LiveControlBarPending {
-    static PENDING: OnceLock<LiveControlBarPending> = OnceLock::new();
-    PENDING.get_or_init(|| LiveControlBarPending {
-        ui_dirty: AtomicBool::new(false),
-        observer_look_at: AtomicI32::new(-1),
-        events: Mutex::new(LiveControlBarEvents::default()),
-    })
+impl Default for LiveControlBarPending {
+    fn default() -> Self {
+        Self {
+            ui_dirty: false,
+            observer_look_at: -1,
+            events: LiveControlBarEvents::default(),
+        }
+    }
+}
+
+// THREAD: main thread only. Producers are WND callbacks and the GameLogic
+// `mark_ui_dirty` hook; the consumer is the live `ControlBar` tick — all on
+// the main thread, so the pending state is plain main-thread data.
+thread_local! {
+    static LIVE_CONTROL_BAR_PENDING: RefCell<LiveControlBarPending> =
+        RefCell::new(LiveControlBarPending::default());
 }
 
 fn with_live_control_bar_events<R>(f: impl FnOnce(&mut LiveControlBarEvents) -> R) -> R {
-    let mut guard = live_control_bar_pending()
-        .events
-        .lock()
-        .unwrap_or_else(|e| e.into_inner());
-    f(&mut guard)
+    LIVE_CONTROL_BAR_PENDING.with(|pending| f(&mut pending.borrow_mut().events))
 }
 
 /// Drain queued ControlBar hook events for the live UI tick.
 pub fn drain_live_control_bar_events() -> LiveControlBarEvents {
-    let pending = live_control_bar_pending();
-    let ui_dirty = pending.ui_dirty.swap(false, Ordering::SeqCst);
-    let mut events = with_live_control_bar_events(std::mem::take);
-    events.ui_dirty |= ui_dirty;
-    events
+    LIVE_CONTROL_BAR_PENDING.with(|pending| {
+        let mut pending = pending.borrow_mut();
+        let mut events = std::mem::take(&mut pending.events);
+        events.ui_dirty |= pending.ui_dirty;
+        pending.ui_dirty = false;
+        events
+    })
 }
 
 /// Stamp observer look-at residual for audio locality hooks.
 pub fn set_live_control_bar_observer_look_at(index: Option<i32>) {
-    live_control_bar_pending()
-        .observer_look_at
-        .store(index.unwrap_or(-1), Ordering::Relaxed);
+    LIVE_CONTROL_BAR_PENDING.with(|pending| {
+        pending.borrow_mut().observer_look_at = index.unwrap_or(-1);
+    });
 }
 
 struct LiveControlBarBackend;
@@ -390,9 +390,7 @@ impl ControlBarHooks for LiveControlBarBackend {
     }
 
     fn get_observer_look_at_player_index(&self) -> Option<i32> {
-        let index = live_control_bar_pending()
-            .observer_look_at
-            .load(Ordering::Relaxed);
+        let index = LIVE_CONTROL_BAR_PENDING.with(|pending| pending.borrow().observer_look_at);
         (index >= 0).then_some(index)
     }
 }
@@ -401,10 +399,11 @@ struct LiveControlBarUiHooks;
 
 impl gamelogic::control_bar::ControlBarUiHooks for LiveControlBarUiHooks {
     fn mark_ui_dirty(&self) {
-        live_control_bar_pending()
-            .ui_dirty
-            .store(true, Ordering::SeqCst);
-        with_live_control_bar_events(|events| events.ui_dirty = true);
+        LIVE_CONTROL_BAR_PENDING.with(|pending| {
+            let mut pending = pending.borrow_mut();
+            pending.ui_dirty = true;
+            pending.events.ui_dirty = true;
+        });
     }
 
     fn on_player_science_purchase_points_changed(&self, _player_id: i32, _points: i32) {
@@ -460,17 +459,12 @@ fn with_control_bar_backend<F>(f: F) -> bool
 where
     F: FnOnce(&dyn ControlBarHooks),
 {
-    let backend = {
-        let slot = control_bar_backend_slot()
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        slot.clone()
-    };
-    if let Some(handler) = backend {
-        f(handler.as_ref());
-        true
-    } else {
-        false
+    match control_bar_backend() {
+        Some(handler) => {
+            f(handler.as_ref());
+            true
+        }
+        None => false,
     }
 }
 
@@ -478,24 +472,14 @@ fn with_control_bar_backend_result<R, F>(f: F) -> Option<R>
 where
     F: FnOnce(&dyn ControlBarHooks) -> R,
 {
-    let backend = {
-        let slot = control_bar_backend_slot()
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        slot.clone()
-    };
-    backend.map(|handler| f(handler.as_ref()))
+    control_bar_backend().map(|handler| f(handler.as_ref()))
 }
 
 struct GameClientPrepareNewGameHooks;
 
 impl gamelogic::helpers::PrepareNewGameHooks for GameClientPrepareNewGameHooks {
     fn ensure_background_window(&self) {
-        let layout_slot = background_layout_slot();
-        let existing = layout_slot
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .clone();
+        let existing = BACKGROUND_LAYOUT_SLOT.with(|slot| slot.borrow().clone());
         if let Some(layout) = existing {
             layout.borrow_mut().hide(false);
             layout.borrow_mut().bring_forward();
@@ -516,8 +500,7 @@ impl gamelogic::helpers::PrepareNewGameHooks for GameClientPrepareNewGameHooks {
             if let Some(window) = layout.borrow().get_first_window() {
                 window.borrow_mut().clear_status(WindowStatus::IMAGE);
             }
-            let mut slot = layout_slot.lock().unwrap_or_else(|e| e.into_inner());
-            *slot = Some(layout);
+            BACKGROUND_LAYOUT_SLOT.with(|slot| *slot.borrow_mut() = Some(layout));
         }
     }
 
@@ -526,20 +509,25 @@ impl gamelogic::helpers::PrepareNewGameHooks for GameClientPrepareNewGameHooks {
     }
 }
 
+// THREAD: main thread only. The layout is an `Rc` window-manager object
+// (`!Send` by construction), so the previous `Arc<Mutex<...>>` wrapper could
+// never have crossed a thread boundary anyway.
 thread_local! {
-    static BACKGROUND_LAYOUT_SLOT: Arc<Mutex<Option<Rc<RefCell<WindowLayout>>>>> =
-        Arc::new(Mutex::new(None));
-}
-
-fn background_layout_slot() -> Arc<Mutex<Option<Rc<RefCell<WindowLayout>>>>> {
-    BACKGROUND_LAYOUT_SLOT.with(|slot| slot.clone())
+    static BACKGROUND_LAYOUT_SLOT: RefCell<Option<Rc<RefCell<WindowLayout>>>> =
+        const { RefCell::new(None) };
 }
 
 pub fn register_prepare_new_game_hooks() {
     let _ = gamelogic::helpers::register_prepare_new_game_hooks(Arc::new(
         GameClientPrepareNewGameHooks,
     ));
-    let _ = register_game_pause_hooks(Arc::new(GameClientPauseHooks));
+    let _ = register_game_pause_hooks(Arc::new(GameClientPauseHooks {
+        // THREAD: gamelogic hook objects must be `Send + Sync`; only the
+        // main-thread logic tick drives pause transitions, so plain atomics
+        // carry the restore memories (C++ `InGameUI` member state).
+        input_enabled_memory: AtomicBool::new(true),
+        mouse_visible_memory: AtomicBool::new(true),
+    }));
 }
 
 pub fn register_load_screen_hooks() {
@@ -548,9 +536,53 @@ pub fn register_load_screen_hooks() {
 
 struct GameClientObserverAudioLocalityHooks;
 
+/// Sentinel packed into the load-screen atomics for "no value".
+const NO_LOAD_SCREEN_VALUE: i64 = i64::MIN;
+
+/// Pack an active load screen into one atomic word:
+/// low 32 bits = `LoadScreenKind` index, high 32 bits = game mode.
+fn pack_active_load_screen(kind: LoadScreenKind, game_mode: i32) -> i64 {
+    (load_screen_kind_index(kind) as i64) | ((game_mode as i32 as i64) << 32)
+}
+
+fn unpack_active_load_screen(packed: i64) -> Option<ActiveLoadScreen> {
+    if packed == NO_LOAD_SCREEN_VALUE {
+        return None;
+    }
+    let kind = load_screen_kind_from_index((packed & 0xFFFF_FFFF) as u32)?;
+    let game_mode = (packed >> 32) as i32;
+    Some(ActiveLoadScreen { kind, game_mode })
+}
+
+fn load_screen_kind_index(kind: LoadScreenKind) -> u32 {
+    match kind {
+        LoadScreenKind::ShellGame => 0,
+        LoadScreenKind::SinglePlayer => 1,
+        LoadScreenKind::Challenge => 2,
+        LoadScreenKind::Multiplayer => 3,
+        LoadScreenKind::GameSpy => 4,
+        LoadScreenKind::MapTransfer => 5,
+    }
+}
+
+fn load_screen_kind_from_index(index: u32) -> Option<LoadScreenKind> {
+    match index {
+        0 => Some(LoadScreenKind::ShellGame),
+        1 => Some(LoadScreenKind::SinglePlayer),
+        2 => Some(LoadScreenKind::Challenge),
+        3 => Some(LoadScreenKind::Multiplayer),
+        4 => Some(LoadScreenKind::GameSpy),
+        5 => Some(LoadScreenKind::MapTransfer),
+        _ => None,
+    }
+}
+
 struct GameClientLoadScreenHooks {
-    active_load_screen: Mutex<Option<ActiveLoadScreen>>,
-    pending_game_mode: Mutex<Option<i32>>,
+    // THREAD: gamelogic's `LoadScreenHooks` requires `Send + Sync`, but every
+    // call site runs on the main thread; two packed atomics replace the old
+    // mutexes without adding a synchronization boundary.
+    active_load_screen: AtomicI64,
+    pending_game_mode: AtomicI64,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -565,18 +597,38 @@ const LOAD_SCREEN_COMPLETION_TRANSITION_MAX_FRAMES: usize = 180;
 impl GameClientLoadScreenHooks {
     fn new() -> Self {
         Self {
-            active_load_screen: Mutex::new(None),
-            pending_game_mode: Mutex::new(None),
+            active_load_screen: AtomicI64::new(NO_LOAD_SCREEN_VALUE),
+            pending_game_mode: AtomicI64::new(NO_LOAD_SCREEN_VALUE),
         }
     }
 
     fn set_active_load_screen(&self, kind: LoadScreenKind, game_mode: i32) {
         set_mouse_cursor_visibility(false);
-        let mut active_load_screen = self
+        self.active_load_screen
+            .store(pack_active_load_screen(kind, game_mode), Ordering::Relaxed);
+    }
+
+    fn take_active_load_screen(&self) -> Option<ActiveLoadScreen> {
+        let packed = self
             .active_load_screen
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        *active_load_screen = Some(ActiveLoadScreen { kind, game_mode });
+            .swap(NO_LOAD_SCREEN_VALUE, Ordering::Relaxed);
+        unpack_active_load_screen(packed)
+    }
+
+    fn peek_active_load_screen(&self) -> Option<ActiveLoadScreen> {
+        unpack_active_load_screen(self.active_load_screen.load(Ordering::Relaxed))
+    }
+
+    fn set_pending_game_mode(&self, game_mode: i32) {
+        self.pending_game_mode
+            .store(game_mode as i64, Ordering::Relaxed);
+    }
+
+    fn take_pending_game_mode(&self) -> Option<i32> {
+        let packed = self
+            .pending_game_mode
+            .swap(NO_LOAD_SCREEN_VALUE, Ordering::Relaxed);
+        (packed != NO_LOAD_SCREEN_VALUE).then_some(packed as i32)
     }
 
     fn reveal_shell_main_menu_after_start(&self, game_mode: i32) {
@@ -616,18 +668,11 @@ impl gamelogic::helpers::LoadScreenHooks for GameClientLoadScreenHooks {
             current_campaign_is_challenge,
         };
 
-        let old_kind = self
-            .active_load_screen
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .take();
+        let old_kind = self.take_active_load_screen();
         if let Some(active) = old_kind {
             reset_load_screen(active.kind);
         }
-        *self
-            .pending_game_mode
-            .lock()
-            .unwrap_or_else(|e| e.into_inner()) = Some(game_mode);
+        self.set_pending_game_mode(game_mode);
 
         let Some(kind) = select_load_screen(request) else {
             return;
@@ -643,11 +688,7 @@ impl gamelogic::helpers::LoadScreenHooks for GameClientLoadScreenHooks {
     }
 
     fn update_load_screen(&self, progress: i32) {
-        let active = *self
-            .active_load_screen
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        if let Some(active) = active {
+        if let Some(active) = self.peek_active_load_screen() {
             update_game_load_screen(active.kind, progress as f32);
         }
     }
@@ -672,16 +713,8 @@ impl gamelogic::helpers::LoadScreenHooks for GameClientLoadScreenHooks {
     }
 
     fn end_load_screen(&self) {
-        let active = self
-            .active_load_screen
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .take();
-        let pending_game_mode = self
-            .pending_game_mode
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .take();
+        let active = self.take_active_load_screen();
+        let pending_game_mode = self.take_pending_game_mode();
         let game_mode = active.map(|active| active.game_mode).or(pending_game_mode);
 
         if let Some(active) = active {
@@ -736,13 +769,10 @@ mod load_screen_hook_tests {
         set_mouse_cursor_visibility(false);
 
         let hooks = GameClientLoadScreenHooks::new();
-        *hooks
-            .active_load_screen
-            .lock()
-            .unwrap_or_else(|e| e.into_inner()) = Some(ActiveLoadScreen {
-            kind: LoadScreenKind::ShellGame,
-            game_mode: gamelogic::system::game_logic::GAME_NONE,
-        });
+        hooks.set_active_load_screen(
+            LoadScreenKind::ShellGame,
+            gamelogic::system::game_logic::GAME_NONE,
+        );
 
         hooks.end_load_screen();
 
@@ -828,40 +858,24 @@ pub fn register_observer_audio_view_hooks() {
     ));
 }
 
-#[derive(Debug, Clone, Copy)]
-struct PauseTransitionState {
-    input_enabled_memory: bool,
-    mouse_visible_memory: bool,
+struct GameClientPauseHooks {
+    // THREAD: gamelogic's `GamePauseHooks` requires `Send + Sync`; only the
+    // main-thread logic tick invokes pause transitions, so plain atomics
+    // carry the restore memories (no cross-thread handoff exists).
+    input_enabled_memory: AtomicBool,
+    mouse_visible_memory: AtomicBool,
 }
-
-impl Default for PauseTransitionState {
-    fn default() -> Self {
-        Self {
-            input_enabled_memory: true,
-            mouse_visible_memory: true,
-        }
-    }
-}
-
-fn pause_transition_state() -> &'static Mutex<PauseTransitionState> {
-    static STATE: OnceLock<Mutex<PauseTransitionState>> = OnceLock::new();
-    STATE.get_or_init(|| Mutex::new(PauseTransitionState::default()))
-}
-
-struct GameClientPauseHooks;
 
 impl GamePauseHooks for GameClientPauseHooks {
     fn on_game_pause_state_changed(&self, paused: bool) {
-        let (input_enabled_memory, mouse_visible_memory) = {
-            let mut state = pause_transition_state()
-                .lock()
-                .unwrap_or_else(|e| e.into_inner());
-            if paused {
-                state.input_enabled_memory = TheInGameUI::get_input_enabled();
-                state.mouse_visible_memory = is_mouse_cursor_visible();
-            }
-            (state.input_enabled_memory, state.mouse_visible_memory)
-        };
+        if paused {
+            self.input_enabled_memory
+                .store(TheInGameUI::get_input_enabled(), Ordering::Relaxed);
+            self.mouse_visible_memory
+                .store(is_mouse_cursor_visible(), Ordering::Relaxed);
+        }
+        let input_enabled_memory = self.input_enabled_memory.load(Ordering::Relaxed);
+        let mouse_visible_memory = self.mouse_visible_memory.load(Ordering::Relaxed);
 
         if paused {
             set_mouse_cursor_visibility(true);
@@ -959,27 +973,21 @@ pub struct PopupMessageData {
     pub layout: Option<Rc<RefCell<WindowLayout>>>,
 }
 
-#[derive(Default)]
-struct PopupMessageState {
-    data: Option<PopupMessageData>,
+// THREAD: main thread only. `PopupMessageData` owns `Rc` window layouts
+// (`!Send` by construction), so the old `Arc<Mutex<...>>` wrapper could never
+// have crossed a thread boundary anyway.
+thread_local! {
+    static POPUP_MESSAGE_DATA: RefCell<Option<PopupMessageData>> = const { RefCell::new(None) };
 }
 
 thread_local! {
-    static POPUP_MESSAGE_STATE: Arc<Mutex<PopupMessageState>> =
-        Arc::new(Mutex::new(PopupMessageState::default()));
+    // THREAD: main thread only — hints are queued by input/logic ticks and
+    // consumed by the renderer on the same thread.
+    static HINT_DATA: RefCell<Vec<HintData>> = RefCell::new(Vec::new());
 }
 
-fn popup_message_state() -> Arc<Mutex<PopupMessageState>> {
-    POPUP_MESSAGE_STATE.with(|state| state.clone())
-}
-
-thread_local! {
-    static HINT_DATA: Arc<Mutex<Vec<HintData>>> =
-        Arc::new(Mutex::new(Vec::new()));
-}
-
-fn hint_state() -> Arc<Mutex<Vec<HintData>>> {
-    HINT_DATA.with(|state| state.clone())
+fn with_hints<R>(f: impl FnOnce(&mut Vec<HintData>) -> R) -> R {
+    HINT_DATA.with(|state| f(&mut state.borrow_mut()))
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -1058,14 +1066,27 @@ impl Default for InGameUIStatusState {
     }
 }
 
-fn in_game_ui_status_state() -> &'static Mutex<InGameUIStatusState> {
-    static STATE: OnceLock<Mutex<InGameUIStatusState>> = OnceLock::new();
-    STATE.get_or_init(|| Mutex::new(InGameUIStatusState::default()))
+// THREAD: main thread only. `TheInGameUI` mirrors the C++ main-thread
+// singleton `TheInGameUI`; every accessor is reached from WND dispatch, the
+// message stream, the logic tick, or the renderer — all the main thread.
+thread_local! {
+    static IN_GAME_UI_STATUS: RefCell<InGameUIStatusState> =
+        RefCell::new(InGameUIStatusState::default());
 }
 
-fn fallback_placement_state() -> &'static Mutex<InGameUIPlacementState> {
-    static STATE: OnceLock<Mutex<InGameUIPlacementState>> = OnceLock::new();
-    STATE.get_or_init(|| Mutex::new(InGameUIPlacementState::default()))
+fn with_status<R>(f: impl FnOnce(&mut InGameUIStatusState) -> R) -> R {
+    IN_GAME_UI_STATUS.with(|state| f(&mut state.borrow_mut()))
+}
+
+// THREAD: main thread only — fallback state for when no in-game UI backend is
+// registered (headless/tools paths), same single thread as the backend slot.
+thread_local! {
+    static IN_GAME_UI_PLACEMENT: RefCell<InGameUIPlacementState> =
+        RefCell::new(InGameUIPlacementState::default());
+}
+
+fn with_placement<R>(f: impl FnOnce(&mut InGameUIPlacementState) -> R) -> R {
+    IN_GAME_UI_PLACEMENT.with(|state| f(&mut state.borrow_mut()))
 }
 
 /// C++ `InGameUI::displayCantBuildMessage` label map (`GUI:CantBuild*`).
@@ -1109,10 +1130,7 @@ pub struct TheInGameUI;
 
 impl TheInGameUI {
     fn set_cursor(cursor: CursorType) {
-        let mut guard = in_game_ui_status_state()
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        guard.cursor = cursor;
+        with_status(|guard| guard.cursor = cursor);
     }
 
     fn cursor_from_name(name: &str) -> CursorType {
@@ -1221,31 +1239,20 @@ impl TheInGameUI {
     }
 
     pub fn set_quit_menu_visible(visible: bool) {
-        let mut guard = in_game_ui_status_state()
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        guard.quit_menu_visible = visible;
+        with_status(|guard| guard.quit_menu_visible = visible);
     }
 
     pub fn is_quit_menu_visible() -> bool {
-        let guard = in_game_ui_status_state()
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        guard.quit_menu_visible
+        with_status(|guard| guard.quit_menu_visible)
     }
 
     pub fn get_input_enabled() -> bool {
-        let guard = in_game_ui_status_state()
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        guard.input_enabled && gamelogic::helpers::TheGameLogic::is_input_enabled()
+        with_status(|guard| guard.input_enabled)
+            && gamelogic::helpers::TheGameLogic::is_input_enabled()
     }
 
     pub fn set_input_enabled(enabled: bool) {
-        let was_enabled = {
-            let mut guard = in_game_ui_status_state()
-                .lock()
-                .unwrap_or_else(|e| e.into_inner());
+        let was_enabled = with_status(|guard| {
             if !enabled {
                 guard.selecting = false;
                 guard.scrolling = false;
@@ -1255,7 +1262,7 @@ impl TheInGameUI {
             let was_enabled = guard.input_enabled;
             guard.input_enabled = enabled;
             was_enabled
-        };
+        });
         if was_enabled && !enabled {
             // C++ InGameUI::setInputEnabled falling edge (InGameUI.cpp:3391-3408)
             Self::set_force_attack_mode(false);
@@ -1271,38 +1278,31 @@ impl TheInGameUI {
     }
 
     pub fn is_selecting() -> bool {
-        let guard = in_game_ui_status_state()
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        guard.selecting
+        with_status(|guard| guard.selecting)
     }
 
     pub fn set_selecting(selecting: bool) {
-        let mut guard = in_game_ui_status_state()
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        guard.selecting = selecting;
+        with_status(|guard| guard.selecting = selecting);
     }
 
     pub fn set_scrolling(scrolling: bool) {
-        let mut guard = in_game_ui_status_state()
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        let changed = guard.scrolling != scrolling;
-        guard.scrolling = scrolling;
-        if !scrolling {
-            guard.scroll_amount_x = 0.0;
-            guard.scroll_amount_y = 0.0;
-        }
-        if changed {
-            // C++ InGameUI.cpp:2797 / 2805 setMouseCursor(SCROLL/ARROW).
-            guard.mouse_cursor = if scrolling {
-                MouseCursor::Scroll
-            } else {
-                MouseCursor::Arrow
-            };
-        }
-        drop(guard);
+        let changed = with_status(|guard| {
+            let changed = guard.scrolling != scrolling;
+            guard.scrolling = scrolling;
+            if !scrolling {
+                guard.scroll_amount_x = 0.0;
+                guard.scroll_amount_y = 0.0;
+            }
+            if changed {
+                // C++ InGameUI.cpp:2797 / 2805 setMouseCursor(SCROLL/ARROW).
+                guard.mouse_cursor = if scrolling {
+                    MouseCursor::Scroll
+                } else {
+                    MouseCursor::Arrow
+                };
+            }
+            changed
+        });
         if changed && scrolling {
             // C++ InGameUI.cpp:2799-2801 break any camera locks.
             with_tactical_view(|view| {
@@ -1313,54 +1313,37 @@ impl TheInGameUI {
     }
 
     pub fn is_scrolling() -> bool {
-        let guard = in_game_ui_status_state()
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        guard.scrolling
+        with_status(|guard| guard.scrolling)
     }
 
     pub fn set_scroll_amount(x: f32, y: f32) {
-        let mut guard = in_game_ui_status_state()
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        guard.scroll_amount_x = x;
-        guard.scroll_amount_y = y;
+        with_status(|guard| {
+            guard.scroll_amount_x = x;
+            guard.scroll_amount_y = y;
+        });
     }
 
     pub fn get_scroll_amount() -> (f32, f32) {
-        let guard = in_game_ui_status_state()
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        (guard.scroll_amount_x, guard.scroll_amount_y)
+        with_status(|guard| (guard.scroll_amount_x, guard.scroll_amount_y))
     }
 
     pub fn set_client_quiet(quiet: bool) {
-        let mut guard = in_game_ui_status_state()
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        guard.client_quiet = quiet;
+        with_status(|guard| guard.client_quiet = quiet);
     }
 
     pub fn is_client_quiet() -> bool {
-        let guard = in_game_ui_status_state()
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        guard.client_quiet
+        with_status(|guard| guard.client_quiet)
     }
 
     pub fn toggle_messages() -> bool {
-        let mut guard = in_game_ui_status_state()
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        guard.messages_on = !guard.messages_on;
-        guard.messages_on
+        with_status(|guard| {
+            guard.messages_on = !guard.messages_on;
+            guard.messages_on
+        })
     }
 
     pub fn is_messages_on() -> bool {
-        let guard = in_game_ui_status_state()
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        guard.messages_on
+        with_status(|guard| guard.messages_on)
     }
 
     pub fn set_prevent_left_click_deselection_in_alternate_mouse_mode_for_one_click(enabled: bool) {
@@ -1370,10 +1353,9 @@ impl TheInGameUI {
         }) {
             return;
         }
-        let mut guard = in_game_ui_status_state()
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        guard.prevent_left_click_deselection_in_alternate_mouse_mode_for_one_click = enabled;
+        with_status(|guard| {
+            guard.prevent_left_click_deselection_in_alternate_mouse_mode_for_one_click = enabled
+        });
     }
 
     pub fn get_prevent_left_click_deselection_in_alternate_mouse_mode_for_one_click() -> bool {
@@ -1382,70 +1364,51 @@ impl TheInGameUI {
         }) {
             return value;
         }
-        let guard = in_game_ui_status_state()
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        guard.prevent_left_click_deselection_in_alternate_mouse_mode_for_one_click
+        with_status(|guard| {
+            guard.prevent_left_click_deselection_in_alternate_mouse_mode_for_one_click
+        })
     }
 
     pub fn set_draw_rmb_scroll_anchor(enabled: bool) {
         if with_backend(|backend| backend.set_draw_rmb_scroll_anchor(enabled)) {
             return;
         }
-        let mut guard = in_game_ui_status_state()
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        guard.draw_rmb_scroll_anchor = enabled;
+        with_status(|guard| guard.draw_rmb_scroll_anchor = enabled);
     }
 
     pub fn get_draw_rmb_scroll_anchor() -> bool {
         if let Some(value) = with_backend_result(|backend| backend.get_draw_rmb_scroll_anchor()) {
             return value;
         }
-        let guard = in_game_ui_status_state()
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        guard.draw_rmb_scroll_anchor
+        with_status(|guard| guard.draw_rmb_scroll_anchor)
     }
 
     pub fn set_move_rmb_scroll_anchor(enabled: bool) {
         if with_backend(|backend| backend.set_move_rmb_scroll_anchor(enabled)) {
             return;
         }
-        let mut guard = in_game_ui_status_state()
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        guard.move_rmb_scroll_anchor = enabled;
+        with_status(|guard| guard.move_rmb_scroll_anchor = enabled);
     }
 
     pub fn get_move_rmb_scroll_anchor() -> bool {
         if let Some(value) = with_backend_result(|backend| backend.get_move_rmb_scroll_anchor()) {
             return value;
         }
-        let guard = in_game_ui_status_state()
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        guard.move_rmb_scroll_anchor
+        with_status(|guard| guard.move_rmb_scroll_anchor)
     }
 
     pub fn set_max_select_count(max_select_count: i32) {
         if with_backend(|backend| backend.set_max_select_count(max_select_count)) {
             return;
         }
-        let mut guard = in_game_ui_status_state()
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        guard.max_select_count = max_select_count;
+        with_status(|guard| guard.max_select_count = max_select_count);
     }
 
     pub fn get_max_select_count() -> i32 {
         if let Some(value) = with_backend_result(|backend| backend.get_max_select_count()) {
             return value;
         }
-        let guard = in_game_ui_status_state()
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        guard.max_select_count
+        with_status(|guard| guard.max_select_count)
     }
 
     pub fn set_cursor_arrow() {
@@ -1457,21 +1420,17 @@ impl TheInGameUI {
     }
 
     pub fn get_cursor_name() -> &'static str {
-        let guard = in_game_ui_status_state()
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        Self::cursor_name(guard.cursor)
+        with_status(|guard| Self::cursor_name(guard.cursor))
     }
 
     pub fn set_radius_cursor_active() {
         if with_backend(|backend| backend.set_radius_cursor_active(None)) {
             return;
         }
-        let mut guard = fallback_placement_state()
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        guard.radius_cursor_active = true;
-        guard.radius_cursor_type.clear();
+        with_placement(|guard| {
+            guard.radius_cursor_active = true;
+            guard.radius_cursor_type.clear();
+        });
     }
 
     pub fn set_radius_cursor_active_with_type(radius_cursor_type: &str) {
@@ -1480,23 +1439,19 @@ impl TheInGameUI {
         }) {
             return;
         }
-        let mut guard = fallback_placement_state()
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        let radius_type = radius_cursor_type.trim();
-        guard.radius_cursor_active =
-            !radius_type.is_empty() && !radius_type.eq_ignore_ascii_case("NONE");
-        guard.radius_cursor_type = radius_type.to_string();
+        with_placement(|guard| {
+            let radius_type = radius_cursor_type.trim();
+            guard.radius_cursor_active =
+                !radius_type.is_empty() && !radius_type.eq_ignore_ascii_case("NONE");
+            guard.radius_cursor_type = radius_type.to_string();
+        });
     }
 
     pub fn get_pending_place_template() -> Option<String> {
         if let Some(value) = with_backend_result(|backend| backend.get_pending_place_template()) {
             return value;
         }
-        let guard = fallback_placement_state()
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        guard.pending_template.clone()
+        with_placement(|guard| guard.pending_template.clone())
     }
 
     pub fn get_pending_place_source_object_id() -> u32 {
@@ -1505,10 +1460,7 @@ impl TheInGameUI {
         {
             return value;
         }
-        let guard = fallback_placement_state()
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        guard.pending_source_object_id
+        with_placement(|guard| guard.pending_source_object_id)
     }
 
     pub fn place_build_available(template_name: Option<String>, source_object_id: Option<u32>) {
@@ -1517,24 +1469,20 @@ impl TheInGameUI {
         }) {
             return;
         }
-        let mut guard = fallback_placement_state()
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        guard.pending_template = template_name;
-        guard.pending_source_object_id = source_object_id.unwrap_or(0);
-        guard.placement_start = None;
-        guard.placement_end = None;
-        guard.placement_angle = 0.0;
+        with_placement(|guard| {
+            guard.pending_template = template_name;
+            guard.pending_source_object_id = source_object_id.unwrap_or(0);
+            guard.placement_start = None;
+            guard.placement_end = None;
+            guard.placement_angle = 0.0;
+        });
     }
 
     pub fn get_pending_special_power() -> Option<PendingSpecialPower> {
         if let Some(value) = with_backend_result(|backend| backend.get_pending_special_power()) {
             return value;
         }
-        let guard = fallback_placement_state()
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        guard.pending_special_power.clone()
+        with_placement(|guard| guard.pending_special_power.clone())
     }
 
     pub fn set_pending_special_power(power_id: u32, options: u32, source_object_id: u32) {
@@ -1546,30 +1494,21 @@ impl TheInGameUI {
         if with_backend(|backend| backend.set_pending_special_power(Some(pending.clone()))) {
             return;
         }
-        let mut guard = fallback_placement_state()
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        guard.pending_special_power = Some(pending);
+        with_placement(|guard| guard.pending_special_power = Some(pending));
     }
 
     pub fn clear_pending_special_power() {
         if with_backend(|backend| backend.clear_pending_special_power()) {
             return;
         }
-        let mut guard = fallback_placement_state()
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        guard.pending_special_power = None;
+        with_placement(|guard| guard.pending_special_power = None);
     }
 
     pub fn get_pending_command() -> Option<PendingCommand> {
         if let Some(value) = with_backend_result(|backend| backend.get_pending_command()) {
             return value;
         }
-        let guard = fallback_placement_state()
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        guard.pending_command.clone()
+        with_placement(|guard| guard.pending_command.clone())
     }
 
     pub fn command_option_need_target(options: u32) -> bool {
@@ -1601,10 +1540,7 @@ impl TheInGameUI {
         } else {
             Self::set_radius_cursor_none();
         }
-        let mut guard = in_game_ui_status_state()
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        guard.mouse_mode_cursor = MouseCursor::Arrow;
+        with_status(|guard| guard.mouse_mode_cursor = MouseCursor::Arrow);
     }
 
     fn restore_default_mouse_mode_after_gui_command() {
@@ -1634,10 +1570,7 @@ impl TheInGameUI {
             return;
         }
         if !with_backend(|backend| backend.set_pending_command(Some(pending.clone()))) {
-            let mut guard = fallback_placement_state()
-                .lock()
-                .unwrap_or_else(|e| e.into_inner());
-            guard.pending_command = Some(pending.clone());
+            with_placement(|guard| guard.pending_command = Some(pending.clone()));
         }
         Self::arm_gui_command_mouse_mode(&pending);
     }
@@ -1666,20 +1599,14 @@ impl TheInGameUI {
             return;
         }
         if !with_backend(|backend| backend.set_pending_command(Some(pending.clone()))) {
-            let mut guard = fallback_placement_state()
-                .lock()
-                .unwrap_or_else(|e| e.into_inner());
-            guard.pending_command = Some(pending.clone());
+            with_placement(|guard| guard.pending_command = Some(pending.clone()));
         }
         Self::arm_gui_command_mouse_mode(&pending);
     }
 
     pub fn clear_pending_command() {
         if !with_backend(|backend| backend.clear_pending_command()) {
-            let mut guard = fallback_placement_state()
-                .lock()
-                .unwrap_or_else(|e| e.into_inner());
-            guard.pending_command = None;
+            with_placement(|guard| guard.pending_command = None);
         }
         Self::restore_default_mouse_mode_after_gui_command();
     }
@@ -1688,78 +1615,63 @@ impl TheInGameUI {
         if let Some(value) = with_backend_result(|backend| backend.is_placement_anchored()) {
             return value;
         }
-        let guard = fallback_placement_state()
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        guard.placement_start.is_some()
+        with_placement(|guard| guard.placement_start.is_some())
     }
 
     pub fn set_placement_start(start: Option<ICoord2D>) {
         if with_backend(|backend| backend.set_placement_start(start.clone())) {
             return;
         }
-        let mut guard = fallback_placement_state()
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        guard.placement_start = start.clone();
-        if start.is_none() {
-            guard.placement_end = None;
-        } else if guard.placement_end.is_none() {
-            guard.placement_end = start;
-        }
+        with_placement(|guard| {
+            guard.placement_start = start.clone();
+            if start.is_none() {
+                guard.placement_end = None;
+            } else if guard.placement_end.is_none() {
+                guard.placement_end = start;
+            }
+        });
     }
 
     pub fn set_placement_end(end: Option<ICoord2D>) {
         if with_backend(|backend| backend.set_placement_end(end.clone())) {
             return;
         }
-        let mut guard = fallback_placement_state()
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        guard.placement_end = end;
+        with_placement(|guard| guard.placement_end = end);
     }
 
     pub fn get_placement_points() -> Option<(ICoord2D, ICoord2D)> {
         if let Some(value) = with_backend_result(|backend| backend.get_placement_points()) {
             return value;
         }
-        let guard = fallback_placement_state()
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        let start = guard.placement_start.clone()?;
-        let end = guard.placement_end.clone().unwrap_or_else(|| start.clone());
-        Some((start, end))
+        with_placement(|guard| {
+            let start = guard.placement_start.clone()?;
+            let end = guard.placement_end.clone().unwrap_or_else(|| start.clone());
+            Some((start, end))
+        })
     }
 
     pub fn get_placement_angle() -> f32 {
         if let Some(value) = with_backend_result(|backend| backend.get_placement_angle()) {
             return value;
         }
-        let guard = fallback_placement_state()
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        guard.placement_angle
+        with_placement(|guard| guard.placement_angle)
     }
 
     pub fn set_placement_angle(angle: f32) {
         if with_backend(|backend| backend.set_placement_angle(angle)) {
             return;
         }
-        let mut guard = fallback_placement_state()
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        guard.placement_angle = angle;
+        with_placement(|guard| guard.placement_angle = angle);
     }
 
     pub fn set_radius_cursor_none() {
         if with_backend(|backend| backend.set_radius_cursor_none()) {
             return;
         }
-        let mut guard = fallback_placement_state()
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        guard.radius_cursor_active = false;
-        guard.radius_cursor_type.clear();
+        with_placement(|guard| {
+            guard.radius_cursor_active = false;
+            guard.radius_cursor_type.clear();
+        });
     }
 
     pub fn display_cant_build_message(message: &str) {
@@ -1828,30 +1740,21 @@ impl TheInGameUI {
         if with_backend(|backend| backend.clear_attack_move_to_mode()) {
             return;
         }
-        let mut guard = fallback_placement_state()
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        guard.attack_move_to_mode = false;
+        with_placement(|guard| guard.attack_move_to_mode = false);
     }
 
     pub fn is_in_attack_move_to_mode() -> bool {
         if let Some(value) = with_backend_result(|backend| backend.is_in_attack_move_to_mode()) {
             return value;
         }
-        let guard = fallback_placement_state()
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        guard.attack_move_to_mode
+        with_placement(|guard| guard.attack_move_to_mode)
     }
 
     pub fn set_attack_move_to_mode(enabled: bool) {
         if with_backend(|backend| backend.set_attack_move_to_mode(enabled)) {
             return;
         }
-        let mut guard = fallback_placement_state()
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        guard.attack_move_to_mode = enabled;
+        with_placement(|guard| guard.attack_move_to_mode = enabled);
     }
 
     pub fn toggle_attack_move_to_mode() -> bool {
@@ -1864,60 +1767,42 @@ impl TheInGameUI {
         if let Some(value) = with_backend_result(|backend| backend.is_in_force_attack_mode()) {
             return value;
         }
-        let guard = fallback_placement_state()
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        guard.force_attack_mode
+        with_placement(|guard| guard.force_attack_mode)
     }
 
     pub fn is_in_force_move_to_mode() -> bool {
         if let Some(value) = with_backend_result(|backend| backend.is_in_force_move_to_mode()) {
             return value;
         }
-        let guard = fallback_placement_state()
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        guard.force_move_to_mode
+        with_placement(|guard| guard.force_move_to_mode)
     }
 
     pub fn is_in_prefer_selection_mode() -> bool {
         if let Some(value) = with_backend_result(|backend| backend.is_in_prefer_selection_mode()) {
             return value;
         }
-        let guard = fallback_placement_state()
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        guard.prefer_selection_mode
+        with_placement(|guard| guard.prefer_selection_mode)
     }
 
     pub fn set_force_attack_mode(enabled: bool) {
         if with_backend(|backend| backend.set_force_attack_mode(enabled)) {
             return;
         }
-        let mut guard = fallback_placement_state()
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        guard.force_attack_mode = enabled;
+        with_placement(|guard| guard.force_attack_mode = enabled);
     }
 
     pub fn set_force_move_to_mode(enabled: bool) {
         if with_backend(|backend| backend.set_force_move_to_mode(enabled)) {
             return;
         }
-        let mut guard = fallback_placement_state()
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        guard.force_move_to_mode = enabled;
+        with_placement(|guard| guard.force_move_to_mode = enabled);
     }
 
     pub fn set_prefer_selection_mode(enabled: bool) {
         if with_backend(|backend| backend.set_prefer_selection_mode(enabled)) {
             return;
         }
-        let mut guard = fallback_placement_state()
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        guard.prefer_selection_mode = enabled;
+        with_placement(|guard| guard.prefer_selection_mode = enabled);
     }
 
     pub fn popup_message(
@@ -2032,11 +1917,7 @@ impl TheInGameUI {
             layout: layout.clone(),
         };
 
-        {
-            let state_handle = popup_message_state();
-            let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
-            state.data = Some(data);
-        }
+        POPUP_MESSAGE_DATA.with(|state| *state.borrow_mut() = Some(data));
 
         if let Some(layout) = layout {
             layout.borrow().run_init(None);
@@ -2044,21 +1925,13 @@ impl TheInGameUI {
     }
 
     pub fn get_popup_message_data() -> Option<PopupMessageData> {
-        let state_handle = popup_message_state();
-        state_handle
-            .lock()
-            .ok()
-            .and_then(|state| state.data.clone())
+        POPUP_MESSAGE_DATA.with(|state| state.borrow().clone())
     }
 
     pub fn clear_popup_message_data() {
         gamelogic::helpers::TheInGameUI::consume_popup_clear_request();
 
-        let data = {
-            let state_handle = popup_message_state();
-            let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
-            state.data.take()
-        };
+        let data = POPUP_MESSAGE_DATA.with(|state| state.borrow_mut().take());
 
         let Some(data) = data else {
             return;
@@ -2080,55 +1953,36 @@ impl TheInGameUI {
     }
 
     pub fn set_mouse_cursor(cursor: MouseCursor) {
-        let mut guard = in_game_ui_status_state()
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        guard.mouse_cursor = cursor;
+        with_status(|guard| guard.mouse_cursor = cursor);
     }
 
     pub fn get_mouse_cursor() -> MouseCursor {
-        let guard = in_game_ui_status_state()
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        guard.mouse_cursor
+        with_status(|guard| guard.mouse_cursor)
     }
 
     pub fn set_mouse_mode(mode: MouseMode) {
-        let mut guard = in_game_ui_status_state()
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        guard.mouse_mode = mode;
-        if mode != MouseMode::GuiCommand {
-            guard.mouse_mode_cursor = MouseCursor::Arrow;
-        }
+        with_status(|guard| {
+            guard.mouse_mode = mode;
+            if mode != MouseMode::GuiCommand {
+                guard.mouse_mode_cursor = MouseCursor::Arrow;
+            }
+        });
     }
 
     pub fn get_mouse_mode() -> MouseMode {
-        let guard = in_game_ui_status_state()
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        guard.mouse_mode
+        with_status(|guard| guard.mouse_mode)
     }
 
     pub fn get_mouse_mode_cursor() -> MouseCursor {
-        let guard = in_game_ui_status_state()
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        guard.mouse_mode_cursor
+        with_status(|guard| guard.mouse_mode_cursor)
     }
 
     pub fn set_moused_over_drawable_id(id: u32) {
-        let mut guard = in_game_ui_status_state()
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        guard.moused_over_drawable_id = id;
+        with_status(|guard| guard.moused_over_drawable_id = id);
     }
 
     pub fn get_moused_over_drawable_id() -> u32 {
-        let guard = in_game_ui_status_state()
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        guard.moused_over_drawable_id
+        with_status(|guard| guard.moused_over_drawable_id)
     }
 
     pub fn create_move_hint(
@@ -2146,15 +2000,15 @@ impl TheInGameUI {
             source_id,
             lifetime_frames: 41,
         };
-        let state = hint_state();
-        let mut guard = state.lock().unwrap_or_else(|e| e.into_inner());
-        guard.retain(|h| !(h.hint_type == HintType::Move && h.source_id == source_id));
-        if guard.len() >= 256 {
-            if let Some(pos) = guard.iter().position(|h| h.hint_type == HintType::Move) {
-                guard.remove(pos);
+        with_hints(|guard| {
+            guard.retain(|h| !(h.hint_type == HintType::Move && h.source_id == source_id));
+            if guard.len() >= 256 {
+                if let Some(pos) = guard.iter().position(|h| h.hint_type == HintType::Move) {
+                    guard.remove(pos);
+                }
             }
-        }
-        guard.push(hint);
+            guard.push(hint);
+        });
     }
 
     pub fn create_attack_hint(
@@ -2172,14 +2026,14 @@ impl TheInGameUI {
             source_id,
             lifetime_frames: 41,
         };
-        let state = hint_state();
-        let mut guard = state.lock().unwrap_or_else(|e| e.into_inner());
-        if guard.len() >= 256 {
-            if let Some(pos) = guard.iter().position(|h| h.hint_type == HintType::Attack) {
-                guard.remove(pos);
+        with_hints(|guard| {
+            if guard.len() >= 256 {
+                if let Some(pos) = guard.iter().position(|h| h.hint_type == HintType::Attack) {
+                    guard.remove(pos);
+                }
             }
-        }
-        guard.push(hint);
+            guard.push(hint);
+        });
     }
 
     pub fn begin_area_select_hint() {
@@ -2191,158 +2045,114 @@ impl TheInGameUI {
             source_id: 0,
             lifetime_frames: 300,
         };
-        let state = hint_state();
-        let mut guard = state.lock().unwrap_or_else(|e| e.into_inner());
-        guard.push(hint);
+        with_hints(|guard| guard.push(hint));
     }
 
     pub fn end_area_select_hint() {
-        let state = hint_state();
-        let mut guard = state.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some(pos) = guard
-            .iter()
-            .rposition(|h| h.hint_type == HintType::AreaSelect)
-        {
-            guard.remove(pos);
-        }
+        with_hints(|guard| {
+            if let Some(pos) = guard
+                .iter()
+                .rposition(|h| h.hint_type == HintType::AreaSelect)
+            {
+                guard.remove(pos);
+            }
+        });
     }
 
     pub fn expire_hints(current_frame: u32) {
-        let state = hint_state();
-        let mut guard = state.lock().unwrap_or_else(|e| e.into_inner());
-        guard.retain(|h| current_frame < h.creation_frame + h.lifetime_frames);
+        with_hints(|guard| guard.retain(|h| current_frame < h.creation_frame + h.lifetime_frames));
     }
 
     pub fn clear_hints() {
-        let state = hint_state();
-        let mut guard = state.lock().unwrap_or_else(|e| e.into_inner());
-        guard.clear();
+        with_hints(|guard| guard.clear());
     }
 
     pub fn get_hints() -> Vec<HintData> {
-        let state = hint_state();
-        let guard = state.lock().unwrap_or_else(|e| e.into_inner());
-        guard.clone()
+        with_hints(|guard| guard.clone())
     }
 
     pub fn is_in_waypoint_mode() -> bool {
         if let Some(value) = with_backend_result(|backend| backend.is_in_waypoint_mode()) {
             return value;
         }
-        let guard = fallback_placement_state()
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        guard.waypoint_mode
+        with_placement(|guard| guard.waypoint_mode)
     }
 
     pub fn set_waypoint_mode(enabled: bool) {
         if with_backend(|backend| backend.set_waypoint_mode(enabled)) {
             return;
         }
-        let mut guard = fallback_placement_state()
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        guard.waypoint_mode = enabled;
+        with_placement(|guard| guard.waypoint_mode = enabled);
     }
 
     pub fn is_camera_rotating_left() -> bool {
         if let Some(value) = with_backend_result(|backend| backend.is_camera_rotating_left()) {
             return value;
         }
-        let guard = fallback_placement_state()
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        guard.camera_rotating_left
+        with_placement(|guard| guard.camera_rotating_left)
     }
 
     pub fn set_camera_rotate_left(set: bool) {
         if with_backend(|backend| backend.set_camera_rotate_left(set)) {
             return;
         }
-        let mut guard = fallback_placement_state()
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        guard.camera_rotating_left = set;
+        with_placement(|guard| guard.camera_rotating_left = set);
     }
 
     pub fn is_camera_rotating_right() -> bool {
         if let Some(value) = with_backend_result(|backend| backend.is_camera_rotating_right()) {
             return value;
         }
-        let guard = fallback_placement_state()
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        guard.camera_rotating_right
+        with_placement(|guard| guard.camera_rotating_right)
     }
 
     pub fn set_camera_rotate_right(set: bool) {
         if with_backend(|backend| backend.set_camera_rotate_right(set)) {
             return;
         }
-        let mut guard = fallback_placement_state()
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        guard.camera_rotating_right = set;
+        with_placement(|guard| guard.camera_rotating_right = set);
     }
 
     pub fn is_camera_zooming_in() -> bool {
         if let Some(value) = with_backend_result(|backend| backend.is_camera_zooming_in()) {
             return value;
         }
-        let guard = fallback_placement_state()
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        guard.camera_zooming_in
+        with_placement(|guard| guard.camera_zooming_in)
     }
 
     pub fn set_camera_zoom_in(set: bool) {
         if with_backend(|backend| backend.set_camera_zoom_in(set)) {
             return;
         }
-        let mut guard = fallback_placement_state()
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        guard.camera_zooming_in = set;
+        with_placement(|guard| guard.camera_zooming_in = set);
     }
 
     pub fn is_camera_zooming_out() -> bool {
         if let Some(value) = with_backend_result(|backend| backend.is_camera_zooming_out()) {
             return value;
         }
-        let guard = fallback_placement_state()
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        guard.camera_zooming_out
+        with_placement(|guard| guard.camera_zooming_out)
     }
 
     pub fn set_camera_zoom_out(set: bool) {
         if with_backend(|backend| backend.set_camera_zoom_out(set)) {
             return;
         }
-        let mut guard = fallback_placement_state()
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        guard.camera_zooming_out = set;
+        with_placement(|guard| guard.camera_zooming_out = set);
     }
 
     pub fn is_camera_tracking_drawable() -> bool {
         if let Some(value) = with_backend_result(|backend| backend.is_camera_tracking_drawable()) {
             return value;
         }
-        let guard = fallback_placement_state()
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        guard.camera_tracking_drawable
+        with_placement(|guard| guard.camera_tracking_drawable)
     }
 
     pub fn set_camera_tracking_drawable(set: bool) {
         if with_backend(|backend| backend.set_camera_tracking_drawable(set)) {
             return;
         }
-        let mut guard = fallback_placement_state()
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        guard.camera_tracking_drawable = set;
+        with_placement(|guard| guard.camera_tracking_drawable = set);
     }
 
     pub fn get_frame_selection_changed() -> u32 {
@@ -2353,11 +2163,10 @@ impl TheInGameUI {
     }
 
     pub fn arm_double_click_attack_move_guard_hint(x: f32, y: f32, z: f32) {
-        let mut guard = in_game_ui_status_state()
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        guard.double_click_attack_move_guard_timer = 11;
-        guard.guard_hint_stashed_position = (x, y, z);
+        with_status(|guard| {
+            guard.double_click_attack_move_guard_timer = 11;
+            guard.guard_hint_stashed_position = (x, y, z);
+        });
     }
 
     pub fn trigger_double_click_attack_move_guard_hint() {
@@ -2376,28 +2185,21 @@ impl TheInGameUI {
     }
 
     pub fn consume_double_click_attack_move_guard_hint() -> bool {
-        let mut guard = in_game_ui_status_state()
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        if guard.double_click_attack_move_guard_timer == 0 {
-            return false;
-        }
-        guard.double_click_attack_move_guard_timer -= 1;
-        guard.double_click_attack_move_guard_timer > 0
+        with_status(|guard| {
+            if guard.double_click_attack_move_guard_timer == 0 {
+                return false;
+            }
+            guard.double_click_attack_move_guard_timer -= 1;
+            guard.double_click_attack_move_guard_timer > 0
+        })
     }
 
     pub fn double_click_attack_move_guard_timer() -> u32 {
-        let guard = in_game_ui_status_state()
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        guard.double_click_attack_move_guard_timer
+        with_status(|guard| guard.double_click_attack_move_guard_timer)
     }
 
     pub fn guard_hint_stashed_position() -> (f32, f32, f32) {
-        let guard = in_game_ui_status_state()
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        guard.guard_hint_stashed_position
+        with_status(|guard| guard.guard_hint_stashed_position)
     }
 }
 
