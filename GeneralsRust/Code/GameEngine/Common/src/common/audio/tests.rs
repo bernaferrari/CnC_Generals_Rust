@@ -884,3 +884,316 @@ fn borrowed_owner_submission_keeps_object_identity_in_the_queued_sound() {
     assert_eq!(queued.get_object_id(), 9091);
     assert_eq!(event.get_object_id(), 9091);
 }
+
+#[derive(Clone, Copy)]
+struct SubmissionLocalityPlayers {
+    local: Option<Int>,
+    active: Bool,
+    observer: Option<Int>,
+    existing: &'static [Int],
+    teams: &'static [Int],
+    relationship: AudioLocalityRelationship,
+}
+
+impl AudioLocalityResolver for SubmissionLocalityPlayers {
+    fn get_local_player_index(&self) -> Option<Int> {
+        self.local
+    }
+    fn get_observer_look_at_player_index(&self) -> Option<Int> {
+        self.observer
+    }
+    fn is_player_active(&self, _: Int) -> Bool {
+        self.active
+    }
+    fn player_exists(&self, index: Int) -> Bool {
+        self.existing.contains(&index)
+    }
+    fn has_default_team(&self, index: Int) -> Bool {
+        self.teams.contains(&index)
+    }
+    fn get_relationship_to_local_team(&self, _: Int, local: Int) -> AudioLocalityRelationship {
+        assert_eq!(
+            local,
+            if self.active {
+                self.local
+            } else {
+                self.observer.or(self.local)
+            }
+            .unwrap()
+        );
+        self.relationship
+    }
+}
+
+#[test]
+fn explicit_locality_admits_registered_events_with_complete_cpp_player_facts() {
+    let active = SubmissionLocalityPlayers {
+        local: Some(3),
+        active: true,
+        observer: None,
+        existing: &[3, 4],
+        teams: &[3, 4],
+        relationship: AudioLocalityRelationship::Allies,
+    };
+    let observing = SubmissionLocalityPlayers {
+        active: false,
+        observer: Some(4),
+        teams: &[4],
+        ..active
+    };
+    let absent = SubmissionLocalityPlayers {
+        local: None,
+        existing: &[],
+        teams: &[],
+        ..active
+    };
+    let cases = [
+        (
+            "owner",
+            active,
+            3,
+            ST_PLAYER,
+            AudioType::SoundEffect,
+            false,
+            true,
+        ),
+        (
+            "other",
+            active,
+            4,
+            ST_PLAYER,
+            AudioType::SoundEffect,
+            false,
+            false,
+        ),
+        (
+            "ally",
+            active,
+            4,
+            ST_ALLIES,
+            AudioType::SoundEffect,
+            false,
+            true,
+        ),
+        (
+            "ally excludes owner",
+            active,
+            3,
+            ST_ALLIES,
+            AudioType::SoundEffect,
+            false,
+            false,
+        ),
+        (
+            "neutral",
+            SubmissionLocalityPlayers {
+                relationship: AudioLocalityRelationship::Neutral,
+                ..active
+            },
+            4,
+            ST_ALLIES,
+            AudioType::SoundEffect,
+            false,
+            false,
+        ),
+        (
+            "enemy",
+            SubmissionLocalityPlayers {
+                relationship: AudioLocalityRelationship::Enemies,
+                ..active
+            },
+            4,
+            ST_ENEMIES,
+            AudioType::SoundEffect,
+            false,
+            true,
+        ),
+        (
+            "enemy excludes ally",
+            active,
+            4,
+            ST_ENEMIES,
+            AudioType::SoundEffect,
+            false,
+            false,
+        ),
+        (
+            "player precedes allies",
+            active,
+            4,
+            ST_PLAYER | ST_ALLIES,
+            AudioType::SoundEffect,
+            false,
+            false,
+        ),
+        (
+            "observer owner",
+            observing,
+            4,
+            ST_PLAYER,
+            AudioType::SoundEffect,
+            false,
+            true,
+        ),
+        (
+            "dead original owner",
+            observing,
+            3,
+            ST_PLAYER,
+            AudioType::SoundEffect,
+            false,
+            false,
+        ),
+        (
+            "no observer",
+            SubmissionLocalityPlayers {
+                active: false,
+                ..active
+            },
+            3,
+            ST_PLAYER,
+            AudioType::SoundEffect,
+            false,
+            false,
+        ),
+        (
+            "no observed team",
+            SubmissionLocalityPlayers {
+                teams: &[3],
+                ..observing
+            },
+            4,
+            ST_PLAYER,
+            AudioType::SoundEffect,
+            false,
+            false,
+        ),
+        (
+            "no observed player",
+            SubmissionLocalityPlayers {
+                existing: &[3],
+                ..observing
+            },
+            3,
+            ST_PLAYER,
+            AudioType::SoundEffect,
+            false,
+            false,
+        ),
+        (
+            "no local",
+            SubmissionLocalityPlayers {
+                local: None,
+                ..active
+            },
+            3,
+            ST_PLAYER,
+            AudioType::SoundEffect,
+            false,
+            false,
+        ),
+        (
+            "no owner",
+            active,
+            99,
+            ST_PLAYER,
+            AudioType::SoundEffect,
+            false,
+            false,
+        ),
+        (
+            "ownerless UI",
+            absent,
+            99,
+            ST_PLAYER | ST_UI,
+            AudioType::SoundEffect,
+            false,
+            true,
+        ),
+        (
+            "no restrictions",
+            absent,
+            99,
+            0,
+            AudioType::SoundEffect,
+            false,
+            true,
+        ),
+        (
+            "everyone",
+            absent,
+            99,
+            ST_EVERYONE,
+            AudioType::SoundEffect,
+            false,
+            true,
+        ),
+        (
+            "music",
+            absent,
+            99,
+            ST_PLAYER,
+            AudioType::Music,
+            false,
+            true,
+        ),
+        (
+            "uninterruptable",
+            absent,
+            99,
+            ST_PLAYER,
+            AudioType::Streaming,
+            true,
+            true,
+        ),
+    ];
+    for (name, players, source, flags, sound_type, uninterruptable, expected) in cases {
+        let mut manager = AudioManager::new();
+        manager.init();
+        let mut info = test_info(name, sound_type, 0, 0);
+        info.type_field = flags;
+        manager.register_audio_event_info(info.clone());
+        let mut event = AudioEventRts::with_event_name(name);
+        event.set_object_id(9092);
+        event.set_player_index(99);
+        event.set_uninterruptable(uninterruptable);
+        let resolver_result =
+            manager.should_play_locally_with_resolver(&event, &info, &players, Some(source));
+        assert_eq!(
+            resolver_result || uninterruptable,
+            expected,
+            "{name}: resolver oracle"
+        );
+        let facts = AudioSubmissionLocality::from_resolver(source, &players);
+        let next_handle = manager.audio_handle_pool;
+        let handle = manager.add_audio_event_with_locality(&event, &facts);
+        assert_eq!(
+            manager.audio_handle_pool,
+            next_handle + 1,
+            "{name}: allocation precedes locality"
+        );
+        assert_eq!(
+            manager.audio_requests.len(),
+            usize::from(expected),
+            "{name}: admission"
+        );
+        if expected {
+            assert_eq!(handle, next_handle, "{name}");
+            let queued = manager
+                .audio_requests
+                .last()
+                .unwrap()
+                .get_pending_event()
+                .unwrap();
+            assert_eq!(queued.get_object_id(), 9092, "{name}: object identity");
+            assert_eq!(queued.player_index, 99, "{name}: event identity");
+            assert_eq!(
+                queued.get_playing_audio_index(),
+                event.get_playing_audio_index(),
+                "{name}: selected sound is written back"
+            );
+        } else {
+            assert_eq!(handle, AHSV_NOT_FOR_LOCAL, "{name}");
+        }
+    }
+}

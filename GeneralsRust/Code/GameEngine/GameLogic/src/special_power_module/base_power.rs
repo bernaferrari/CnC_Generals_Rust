@@ -260,7 +260,11 @@ impl SpecialPowerModule {
             return false;
         };
 
-        if !player_guard.get_money_mut().subtract_money(self.data.cost) {
+        let facts = crate::helpers::capture_player_audio_locality(&player_guard, &list_guard);
+        if !player_guard
+            .get_money_mut_with_locality(facts)
+            .subtract_money(self.data.cost)
+        {
             return false;
         }
 

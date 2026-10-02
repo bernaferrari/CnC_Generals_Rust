@@ -97,6 +97,74 @@ pub trait AudioLocalityResolver: Send + Sync {
     ) -> AudioLocalityRelationship;
 }
 
+/// Player facts frozen by the driving instance before audio submission.
+/// No player or object lookup is needed while the audio manager admits the event.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AudioSubmissionLocality {
+    owning_player_index: Int,
+    owning_player_exists: Bool,
+    local_player_index: Option<Int>,
+    local_player_active: Bool,
+    observer_look_at: Option<Int>,
+    local_exists_and_has_team: Bool,
+    relationship_to_local: AudioLocalityRelationship,
+}
+
+impl AudioSubmissionLocality {
+    pub fn from_resolver(owning_player_index: Int, resolver: &dyn AudioLocalityResolver) -> Self {
+        let owning_player_exists = resolver.player_exists(owning_player_index);
+        let Some(mut local_player_index) = resolver.get_local_player_index() else {
+            return Self {
+                owning_player_index,
+                owning_player_exists,
+                local_player_index: None,
+                local_player_active: false,
+                observer_look_at: resolver.get_observer_look_at_player_index(),
+                local_exists_and_has_team: false,
+                relationship_to_local: AudioLocalityRelationship::Neutral,
+            };
+        };
+        let local_player_active = resolver.is_player_active(local_player_index);
+        if !local_player_active {
+            if let Some(observer) = resolver.get_observer_look_at_player_index() {
+                local_player_index = observer;
+            }
+        }
+        let local_exists_and_has_team = resolver.player_exists(local_player_index)
+            && resolver.has_default_team(local_player_index);
+        let relationship_to_local =
+            resolver.get_relationship_to_local_team(owning_player_index, local_player_index);
+        Self {
+            owning_player_index,
+            owning_player_exists,
+            local_player_index: Some(local_player_index),
+            local_player_active,
+            observer_look_at: resolver.get_observer_look_at_player_index(),
+            local_exists_and_has_team,
+            relationship_to_local,
+        }
+    }
+
+    fn should_play_locally(&self, event_info: &AudioEventInfo) -> Bool {
+        should_play_locally_for_players(
+            event_info.type_field,
+            event_info.sound_type == AudioType::Music,
+            self.owning_player_index,
+            self.owning_player_exists,
+            self.local_player_index,
+            self.local_player_active,
+            self.observer_look_at,
+            self.local_exists_and_has_team,
+            self.relationship_to_local,
+        )
+    }
+}
+
+enum AudioSubmission<'a> {
+    Ambient(Option<Int>),
+    Explicit(&'a AudioSubmissionLocality),
+}
+
 static AUDIO_LOCALITY_RESOLVER: OnceLock<Arc<dyn AudioLocalityResolver>> = OnceLock::new();
 
 /// Resolver for C++ TheTacticalView and TheTerrainLogic access needed by AudioManager::update().
@@ -789,7 +857,7 @@ impl AudioManager {
 
     /// Add an audio event to be played
     pub fn add_audio_event(&mut self, event_to_add: &AudioEventRts) -> AudioHandle {
-        self.add_audio_event_with_player(event_to_add, None)
+        self.add_audio_event_with_submission(event_to_add, AudioSubmission::Ambient(None))
     }
 
     /// Submit from an already-borrowed object. C++ reads the owner's player
@@ -801,13 +869,26 @@ impl AudioManager {
         event_to_add: &AudioEventRts,
         owner_player_index: Int,
     ) -> AudioHandle {
-        self.add_audio_event_with_player(event_to_add, Some(owner_player_index))
+        self.add_audio_event_with_submission(
+            event_to_add,
+            AudioSubmission::Ambient(Some(owner_player_index)),
+        )
     }
 
-    fn add_audio_event_with_player(
+    /// Admit an event using facts already captured from its driving instance.
+    /// The queued event retains its original object and player identity.
+    pub fn add_audio_event_with_locality(
         &mut self,
         event_to_add: &AudioEventRts,
-        owner_player_index: Option<Int>,
+        locality: &AudioSubmissionLocality,
+    ) -> AudioHandle {
+        self.add_audio_event_with_submission(event_to_add, AudioSubmission::Explicit(locality))
+    }
+
+    fn add_audio_event_with_submission(
+        &mut self,
+        event_to_add: &AudioEventRts,
+        submission: AudioSubmission<'_>,
     ) -> AudioHandle {
         if event_to_add.get_event_name().is_empty() || event_to_add.get_event_name() == "NoSound" {
             return AHSV_NO_SOUND;
@@ -872,7 +953,12 @@ impl AudioManager {
         }
 
         if !audio_event.get_uninterruptable()
-            && !self.should_play_locally_for_player(&audio_event, owner_player_index)
+            && !match submission {
+                AudioSubmission::Ambient(owner_player_index) => {
+                    self.should_play_locally_for_player(&audio_event, owner_player_index)
+                }
+                AudioSubmission::Explicit(locality) => locality.should_play_locally(&resolved_info),
+            }
         {
             return AHSV_NOT_FOR_LOCAL;
         }
@@ -2055,48 +2141,8 @@ impl AudioManager {
     ) -> Bool {
         let owning_player_index =
             owner_player_index.unwrap_or_else(|| audio_event.get_player_index());
-        let owning_player_exists = resolver.player_exists(owning_player_index);
-
-        let mut local_player_index = match resolver.get_local_player_index() {
-            Some(index) => index,
-            None => {
-                return should_play_locally_for_players(
-                    event_info.type_field,
-                    event_info.sound_type == AudioType::Music,
-                    owning_player_index,
-                    owning_player_exists,
-                    None,
-                    false,
-                    resolver.get_observer_look_at_player_index(),
-                    false,
-                    AudioLocalityRelationship::Neutral,
-                );
-            }
-        };
-
-        let local_player_active = resolver.is_player_active(local_player_index);
-        if !local_player_active {
-            if let Some(observer) = resolver.get_observer_look_at_player_index() {
-                local_player_index = observer;
-            }
-        }
-
-        let local_exists_and_has_team = resolver.player_exists(local_player_index)
-            && resolver.has_default_team(local_player_index);
-        let relationship =
-            resolver.get_relationship_to_local_team(owning_player_index, local_player_index);
-
-        should_play_locally_for_players(
-            event_info.type_field,
-            event_info.sound_type == AudioType::Music,
-            owning_player_index,
-            owning_player_exists,
-            Some(local_player_index),
-            local_player_active,
-            resolver.get_observer_look_at_player_index(),
-            local_exists_and_has_team,
-            relationship,
-        )
+        AudioSubmissionLocality::from_resolver(owning_player_index, resolver)
+            .should_play_locally(event_info)
     }
 
     // C++ parity methods used by SoundManager for audio culling

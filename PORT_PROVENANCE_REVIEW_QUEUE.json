@@ -89876,17 +89876,12 @@
         },
         {
           "blockers": [
+            "missing_mapping",
             "no_reachable_implementation",
             "unreviewed_mapping",
             "unreviewed_symbol_ownership"
           ],
-          "candidate_destinations": [
-            {
-              "cargo_reachable": false,
-              "classification": "implementation",
-              "path": "GeneralsRust/Code/Libraries/Source/WWVegas/WWAudio/src/aud_cache.rs"
-            }
-          ],
+          "candidate_destinations": [],
           "entry_id": "libraries:Source/WPAudio/AUD_Cache.cpp",
           "source": {
             "path": "GeneralsMD/Code/Libraries/Source/WPAudio/AUD_Cache.cpp",
@@ -90707,17 +90702,12 @@
         },
         {
           "blockers": [
+            "missing_mapping",
             "no_reachable_implementation",
             "unreviewed_mapping",
             "unreviewed_symbol_ownership"
           ],
-          "candidate_destinations": [
-            {
-              "cargo_reachable": false,
-              "classification": "implementation",
-              "path": "GeneralsRust/Code/Libraries/Source/WWVegas/WWAudio/src/aud_events.rs"
-            }
-          ],
+          "candidate_destinations": [],
           "entry_id": "libraries:Source/WPAudio/AUD_Events.cpp",
           "source": {
             "path": "GeneralsMD/Code/Libraries/Source/WPAudio/AUD_Events.cpp",
@@ -91353,17 +91343,12 @@
         },
         {
           "blockers": [
+            "missing_mapping",
             "no_reachable_implementation",
             "unreviewed_mapping",
             "unreviewed_symbol_ownership"
           ],
-          "candidate_destinations": [
-            {
-              "cargo_reachable": false,
-              "classification": "implementation",
-              "path": "GeneralsRust/Code/Libraries/Source/WWVegas/WWAudio/src/aud_lock.rs"
-            }
-          ],
+          "candidate_destinations": [],
           "entry_id": "libraries:Source/WPAudio/AUD_Lock.cpp",
           "source": {
             "path": "GeneralsMD/Code/Libraries/Source/WPAudio/AUD_Lock.cpp",
@@ -91531,17 +91516,12 @@
         },
         {
           "blockers": [
+            "missing_mapping",
             "no_reachable_implementation",
             "unreviewed_mapping",
             "unreviewed_symbol_ownership"
           ],
-          "candidate_destinations": [
-            {
-              "cargo_reachable": false,
-              "classification": "implementation",
-              "path": "GeneralsRust/Code/Libraries/Source/WWVegas/WWAudio/src/aud_profiler.rs"
-            }
-          ],
+          "candidate_destinations": [],
           "entry_id": "libraries:Source/WPAudio/AUD_Profiler.cpp",
           "source": {
             "path": "GeneralsMD/Code/Libraries/Source/WPAudio/AUD_Profiler.cpp",
@@ -183382,7 +183362,7 @@
       ]
     }
   ],
-  "provenance_input_digest": "db2673ca58b7e301aa2e55dcd0ec50cce04794a4eb23aefb041e8063d10a393d",
+  "provenance_input_digest": "565cc25bc5635b677dd91126802d1e7e88e8e8446fc25115d6f092f697afecca",
   "schema_version": 1,
   "summary": {
     "maximum_packet_size": 15,

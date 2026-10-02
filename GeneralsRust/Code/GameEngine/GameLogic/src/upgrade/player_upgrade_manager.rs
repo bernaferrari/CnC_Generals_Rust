@@ -69,9 +69,9 @@ impl PlayerUpgradeManager {
     }
 
     /// Check if player has upgrade by mask
-    /// Matches C++ Player::hasUpgradeMask(mask)
+    /// Matches C++ Player::hasUpgradeComplete(mask), Player.cpp:2988-2990.
     pub fn has_upgrade_mask(&self, mask: UpgradeMask) -> bool {
-        self.active_upgrades.test_for_any(mask)
+        self.active_upgrades.test_for_all(mask)
     }
 
     /// Check if upgrade is in progress
@@ -103,7 +103,7 @@ impl PlayerUpgradeManager {
 
         // Check if can afford
         let cost = template.calc_cost_to_build(player);
-        let money = player.get_money_mut();
+        let mut money = player.get_money_mut();
         if money.get_money() < cost {
             return Err(UpgradeError::CannotAfford(template.get_name().to_string()));
         }
@@ -353,7 +353,6 @@ impl Snapshotable for PlayerUpgradeManager {
         Ok(())
     }
 
-
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
         let mut version = 1u8;
         xfer.xfer_version(&mut version, 1)
@@ -497,13 +496,41 @@ mod tests {
         let mut manager = PlayerUpgradeManager::new(1);
         let mut player = Player::new(1);
 
-        let template = UpgradeTemplate::new(AsciiString::from("TestUpgrade"));
-        let template = Arc::new(template);
+        // C++ Upgrade.cpp:338-358 assigns masks through newUpgrade; a bare
+        // UpgradeTemplate has no allocated bit and cannot exercise grant masks.
+        let mut center = crate::upgrade::UpgradeCenter::new();
+        let template = center.new_upgrade(AsciiString::from("UpgradeGrantMaskParity"));
+        let other = center.new_upgrade(AsciiString::from("UpgradeGrantOtherMaskParity"));
+        let both = template.get_mask() | other.get_mask();
+        assert!(template.get_mask().any());
+        assert!(other.get_mask().any());
+        assert!(!template.get_mask().test_for_any(other.get_mask()));
+        assert!(!manager.has_upgrade(template.get_name_key()));
+        assert!(!manager.has_upgrade_mask(template.get_mask()));
 
         manager.grant_upgrade(template.clone(), &mut player);
 
         assert!(manager.has_upgrade(template.get_name_key()));
         assert!(manager.has_upgrade_mask(template.get_mask()));
+        assert_eq!(manager.get_active_upgrades(), template.get_mask());
+        assert!(!manager.has_upgrade(other.get_name_key()));
+        assert!(!manager.has_upgrade_mask(other.get_mask()));
+        assert!(
+            !manager.has_upgrade_mask(both),
+            "C++ requires every requested bit"
+        );
+
+        // C++ Player::addUpgrade reuses an existing entry for repeated grants.
+        manager.grant_upgrade(template.clone(), &mut player);
+        assert_eq!(manager.completed_upgrades.len(), 1);
+        assert_eq!(manager.get_active_upgrades(), template.get_mask());
+
+        manager.grant_upgrade(other.clone(), &mut player);
+        assert!(manager.has_upgrade(other.get_name_key()));
+        assert!(manager.has_upgrade_mask(both));
+        assert_eq!(manager.get_active_upgrades(), both);
+        assert_eq!(manager.completed_upgrades.len(), 2);
+        assert!(manager.has_upgrade_mask(UpgradeMask::none()));
     }
 
     #[test]

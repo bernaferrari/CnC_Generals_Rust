@@ -3,6 +3,8 @@
 // Split from `helpers.rs` for module-size parity.
 // Observable behavior is unchanged.
 
+use game_engine::common::audio::AudioSubmissionLocality;
+
 /// Minimal misc-audio descriptor providing stable handles for crate events.
 #[derive(Clone)]
 pub struct MiscAudioEvents {
@@ -247,6 +249,89 @@ impl AudioLocalityResolver for GameLogicAudioLocalityResolver {
     }
 }
 
+/// The source Player is already borrowed by its driving operation. Read that
+/// same value directly while resolving the other players from the supplied list.
+struct BorrowedPlayerAudioLocalityResolver<'a> {
+    player: &'a crate::player::Player,
+    list: &'a crate::player::PlayerList,
+}
+
+impl BorrowedPlayerAudioLocalityResolver<'_> {
+    fn with_player<R>(&self, index: Int, f: impl FnOnce(&crate::player::Player) -> R) -> Option<R> {
+        let admitted = self.list.get_player(index)?;
+        if index == self.player.get_player_index() {
+            return Some(f(self.player));
+        }
+        let player = admitted.read().ok()?;
+        Some(f(&player))
+    }
+}
+
+impl AudioLocalityResolver for BorrowedPlayerAudioLocalityResolver<'_> {
+    fn get_local_player_index(&self) -> Option<Int> {
+        self.with_player(self.list.get_local_player_index(), |player| {
+            player.get_player_index()
+        })
+    }
+
+    fn is_player_active(&self, index: Int) -> Bool {
+        self.with_player(index, |player| player.is_player_active())
+            .unwrap_or(false)
+    }
+
+    fn player_exists(&self, index: Int) -> Bool {
+        self.list.get_player(index).is_some()
+    }
+
+    fn has_default_team(&self, index: Int) -> Bool {
+        self.with_player(index, |player| player.get_default_team())
+            .flatten()
+            .is_some()
+    }
+
+    fn get_observer_look_at_player_index(&self) -> Option<Int> {
+        observer_audio_locality_hooks().and_then(|hooks| hooks.get_observer_look_at_player_index())
+    }
+
+    fn get_relationship_to_local_team(
+        &self,
+        source_index: Int,
+        local_index: Int,
+    ) -> AudioLocalityRelationship {
+        let Some(local_team) = self
+            .with_player(local_index, |player| player.get_default_team())
+            .flatten()
+        else {
+            return AudioLocalityRelationship::Neutral;
+        };
+        let Ok(local_team) = local_team.read() else {
+            return AudioLocalityRelationship::Neutral;
+        };
+        match self.with_player(source_index, |player| {
+            player.get_relationship_with_team(&local_team)
+        }) {
+            Some(Relationship::Allies) => AudioLocalityRelationship::Allies,
+            Some(Relationship::Enemies) => AudioLocalityRelationship::Enemies,
+            _ => AudioLocalityRelationship::Neutral,
+        }
+    }
+}
+
+pub(crate) fn capture_player_audio_locality(
+    player: &crate::player::Player,
+    list: &crate::player::PlayerList,
+) -> AudioSubmissionLocality {
+    AudioSubmissionLocality::from_resolver(
+        player.get_player_index(),
+        &BorrowedPlayerAudioLocalityResolver { player, list },
+    )
+}
+
+enum LogicAudioSubmission<'a> {
+    Ambient(Option<Int>),
+    Explicit(&'a AudioSubmissionLocality),
+}
+
 /// Resolver that provides camera/terrain view information for 3D audio positioning.
 ///
 /// C++ equivalent: TheTacticalView and TheTerrainLogic access in AudioManager::update().
@@ -421,7 +506,7 @@ impl TheAudio {
     }
 
     pub fn add_audio_event(&self, event: &AudioEventRts) -> u32 {
-        self.add_audio_event_with_player(event, None)
+        self.add_audio_event_with_submission(event, LogicAudioSubmission::Ambient(None))
     }
 
     /// The caller already owns this Object's borrow. Resolve submission
@@ -431,10 +516,25 @@ impl TheAudio {
             .with_controlling_player(|player| player.get_player_index())
             .or_else(|| event.player_index.map(|index| index as Int))
             .unwrap_or(-1);
-        self.add_audio_event_with_player(event, Some(player_index))
+        self.add_audio_event_with_submission(
+            event,
+            LogicAudioSubmission::Ambient(Some(player_index)),
+        )
     }
 
-    fn add_audio_event_with_player(&self, event: &AudioEventRts, player_index: Option<Int>) -> u32 {
+    pub(crate) fn add_audio_event_with_locality(
+        &self,
+        event: &AudioEventRts,
+        locality: &AudioSubmissionLocality,
+    ) -> u32 {
+        self.add_audio_event_with_submission(event, LogicAudioSubmission::Explicit(locality))
+    }
+
+    fn add_audio_event_with_submission(
+        &self,
+        event: &AudioEventRts,
+        submission: LogicAudioSubmission<'_>,
+    ) -> u32 {
         #[cfg(test)]
         if !AUDIO_EVENTS_ENABLED_FOR_TESTS.load(std::sync::atomic::Ordering::SeqCst) {
             return 0;
@@ -454,9 +554,14 @@ impl TheAudio {
         // when the name is missing. Do not invent a blank SoundEffect via newAudioEventInfo.
         // generatePlayInfo does not overwrite a caller setVolume (default -1 uses INI).
 
-        match player_index {
-            Some(index) => manager.add_audio_event_for_player(&engine_event, index),
-            None => manager.add_audio_event(&engine_event),
+        match submission {
+            LogicAudioSubmission::Ambient(Some(index)) => {
+                manager.add_audio_event_for_player(&engine_event, index)
+            }
+            LogicAudioSubmission::Ambient(None) => manager.add_audio_event(&engine_event),
+            LogicAudioSubmission::Explicit(locality) => {
+                manager.add_audio_event_with_locality(&engine_event, locality)
+            }
         }
     }
 

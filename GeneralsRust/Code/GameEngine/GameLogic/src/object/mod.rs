@@ -492,7 +492,9 @@ impl<'a> ProductionQueueModuleKindMut<'a> {
                     if let Ok(list) = player_list().read() {
                         if let Some(player_arc) = list.get_player(player_id as i32) {
                             if let Ok(mut player) = player_arc.write() {
-                                player.get_money_mut().add_money(credits);
+                                let facts =
+                                    crate::helpers::capture_player_audio_locality(&player, &list);
+                                player.get_money_mut_with_locality(facts).add_money(credits);
                             }
                         }
                     }
@@ -515,7 +517,9 @@ impl<'a> ProductionQueueModuleKindMut<'a> {
                     if let Ok(list) = player_list().read() {
                         if let Some(player_arc) = list.get_player(player_id as i32) {
                             if let Ok(mut player) = player_arc.write() {
-                                player.get_money_mut().add_money(credits);
+                                let facts =
+                                    crate::helpers::capture_player_audio_locality(&player, &list);
+                                player.get_money_mut_with_locality(facts).add_money(credits);
                             }
                         }
                     }
@@ -538,7 +542,9 @@ impl<'a> ProductionQueueModuleKindMut<'a> {
                     if let Ok(list) = player_list().read() {
                         if let Some(player_arc) = list.get_player(player_id as i32) {
                             if let Ok(mut player) = player_arc.write() {
-                                player.get_money_mut().add_money(credits);
+                                let facts =
+                                    crate::helpers::capture_player_audio_locality(&player, &list);
+                                player.get_money_mut_with_locality(facts).add_money(credits);
                             }
                         }
                     }
@@ -573,7 +579,9 @@ impl<'a> ProductionQueueModuleKindMut<'a> {
                     if let Ok(list) = player_list().read() {
                         if let Some(player_arc) = list.get_player(player_id as i32) {
                             if let Ok(mut player) = player_arc.write() {
-                                player.get_money_mut().add_money(credits);
+                                let facts =
+                                    crate::helpers::capture_player_audio_locality(&player, &list);
+                                player.get_money_mut_with_locality(facts).add_money(credits);
                             }
                         }
                     }
@@ -736,7 +744,9 @@ impl<'a> ProductionBehaviorQueueKindMut<'a> {
                     if let Ok(list) = player_list().read() {
                         if let Some(player_arc) = list.get_player(player_id as i32) {
                             if let Ok(mut player) = player_arc.write() {
-                                player.get_money_mut().add_money(credits);
+                                let facts =
+                                    crate::helpers::capture_player_audio_locality(&player, &list);
+                                player.get_money_mut_with_locality(facts).add_money(credits);
                             }
                         }
                     }
@@ -760,7 +770,9 @@ impl<'a> ProductionBehaviorQueueKindMut<'a> {
                     if let Ok(list) = player_list().read() {
                         if let Some(player_arc) = list.get_player(player_id as i32) {
                             if let Ok(mut player) = player_arc.write() {
-                                player.get_money_mut().add_money(credits);
+                                let facts =
+                                    crate::helpers::capture_player_audio_locality(&player, &list);
+                                player.get_money_mut_with_locality(facts).add_money(credits);
                             }
                         }
                     }
@@ -784,7 +796,9 @@ impl<'a> ProductionBehaviorQueueKindMut<'a> {
                     if let Ok(list) = player_list().read() {
                         if let Some(player_arc) = list.get_player(player_id as i32) {
                             if let Ok(mut player) = player_arc.write() {
-                                player.get_money_mut().add_money(credits);
+                                let facts =
+                                    crate::helpers::capture_player_audio_locality(&player, &list);
+                                player.get_money_mut_with_locality(facts).add_money(credits);
                             }
                         }
                     }

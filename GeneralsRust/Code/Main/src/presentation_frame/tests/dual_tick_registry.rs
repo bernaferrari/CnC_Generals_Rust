@@ -1652,11 +1652,17 @@ fn ai_stealth_helpers_registry_empty() {
                 || ai.matches("dual_world_registry_unavailable()").count() >= 3),
         "AI player dual-world supply/hole scans must gate on empty registry"
     );
-    let ap = include_str!("../../../../GameEngine/GameLogic/src/ai/async_player.rs");
+    // The undeclared async-player archive was retired. Only compiled classic
+    // AI modules can own the registry scans checked above.
+    let ai_root = include_str!("../../../../GameEngine/GameLogic/src/ai/mod.rs");
     assert!(
-        ap.matches("OBJECT_REGISTRY.is_empty()").count() >= 2
-            || ap.matches("dual_world_registry_unavailable()").count() >= 2,
-        "async AI snapshot scans must gate on empty registry"
+        ai_root
+            .lines()
+            .any(|line| line.trim().starts_with("pub mod ai_player;"))
+            && !ai_root.lines().any(|line| {
+                matches!(line.trim(), "pub mod async_player;" | "mod async_player;")
+            }),
+        "compiled classic AI owns AIPlayer; the retired async archive must stay undeclared"
     );
     let det = include_str!("../../../../GameEngine/GameLogic/src/stealth/detector.rs");
     assert!(

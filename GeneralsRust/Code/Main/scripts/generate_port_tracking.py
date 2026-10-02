@@ -54,6 +54,7 @@ MANUAL_CPP_TO_RUST: dict[tuple[str, str], str] = {
         "Source",
         "GameLogic/AI/AI.cpp",
     ): "GameLogic/src/ai/mod.rs",
+    ("Include", "GameLogic/AI.h"): "GameLogic/src/ai/mod.rs",
     (
         "Source",
         "GameLogic/AI/AIGroup.cpp",

@@ -20,7 +20,6 @@ use super::prerequisite_checker::{
 use super::queue::{BuildQueue, BuildQueueEntry, ProductionType};
 use super::rally_point::RallyPointManager;
 use crate::common::xfer::XferExt;
-use crate::object::ProductionBehaviorQueueKindMut;
 use crate::common::*;
 use crate::common::{
     MODELCONDITION_ACTIVELY_CONSTRUCTING, MODELCONDITION_DOOR_1_CLOSING,
@@ -37,6 +36,7 @@ use crate::modules::{
     MODULEINTERFACE_UPDATE, ProductionUpdateInterface, UPDATE_SLEEP_NONE, UpdateModuleInterface,
     UpdateSleepTime,
 };
+use crate::object::ProductionBehaviorQueueKindMut;
 use crate::object::behavior::behavior_module::{BehaviorModuleData, xfer_update_module_base_state};
 use crate::system::game_logic;
 use crate::upgrade::UpgradeStatus;
@@ -480,7 +480,7 @@ impl ProductionUpdateComplete {
             } else {
                 guard.clear_model_condition_state(MODELCONDITION_ACTIVELY_CONSTRUCTING);
             }
-            });
+        });
     }
 
     fn set_hold_door_open(&mut self, exit_door: usize, hold_it: bool) {
@@ -504,8 +504,9 @@ impl ProductionUpdateComplete {
             && door.door_closed_frame == 0
         {
             door.door_opened_frame = game_logic::current_frame();
-            let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(self.owner_id, |guard| {
-                guard.set_model_condition_state(OPENING_FLAGS[exit_door]);
+            let _ =
+                crate::object::registry::OBJECT_REGISTRY.with_object_mut(self.owner_id, |guard| {
+                    guard.set_model_condition_state(OPENING_FLAGS[exit_door]);
                 });
         }
     }
@@ -902,10 +903,13 @@ impl ProductionUpdateComplete {
                 if elapsed > self.data.door_opening_time {
                     door.door_opened_frame = 0;
                     door.door_wait_open_frame = current_frame;
-                    let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(self.owner_id, |guard| {
-                        guard.clear_model_condition_state(OPENING_FLAGS[door_idx]);
-                        guard.set_model_condition_state(WAITING_OPEN_FLAGS[door_idx]);
-                        });
+                    let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(
+                        self.owner_id,
+                        |guard| {
+                            guard.clear_model_condition_state(OPENING_FLAGS[door_idx]);
+                            guard.set_model_condition_state(WAITING_OPEN_FLAGS[door_idx]);
+                        },
+                    );
                 }
             }
             // Door wait open -> closing transition
@@ -914,10 +918,13 @@ impl ProductionUpdateComplete {
                 if elapsed > self.data.door_wait_open_time {
                     door.door_wait_open_frame = 0;
                     door.door_closed_frame = current_frame;
-                    let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(self.owner_id, |guard| {
-                        guard.clear_model_condition_state(WAITING_OPEN_FLAGS[door_idx]);
-                        guard.set_model_condition_state(CLOSING_FLAGS[door_idx]);
-                        });
+                    let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(
+                        self.owner_id,
+                        |guard| {
+                            guard.clear_model_condition_state(WAITING_OPEN_FLAGS[door_idx]);
+                            guard.set_model_condition_state(CLOSING_FLAGS[door_idx]);
+                        },
+                    );
                 }
             }
             // Door closing -> closed transition
@@ -925,9 +932,12 @@ impl ProductionUpdateComplete {
                 let elapsed = current_frame - door.door_closed_frame;
                 if elapsed > self.data.door_closing_time {
                     door.door_closed_frame = 0;
-                    let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(self.owner_id, |guard| {
-                        guard.clear_model_condition_state(CLOSING_FLAGS[door_idx]);
-                        });
+                    let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(
+                        self.owner_id,
+                        |guard| {
+                            guard.clear_model_condition_state(CLOSING_FLAGS[door_idx]);
+                        },
+                    );
                 }
             }
         }
@@ -945,11 +955,14 @@ impl ProductionUpdateComplete {
             let elapsed = current_frame - self.construction_complete_frame;
             if elapsed > self.data.construction_complete_duration {
                 self.construction_complete_frame = 0;
-                let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(self.owner_id, |guard| {
-                    guard.clear_model_condition_state(
-                        ModelConditionFlags::CONSTRUCTION_COMPLETE,
-                    );
-                    });
+                let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(
+                    self.owner_id,
+                    |guard| {
+                        guard.clear_model_condition_state(
+                            ModelConditionFlags::CONSTRUCTION_COMPLETE,
+                        );
+                    },
+                );
             }
         }
     }
@@ -1069,14 +1082,16 @@ impl ProductionUpdateComplete {
         let Some(template) = TheThingFactory::find_template(template_name) else {
             return Ok(-1);
         };
-        let Some((needs, exit)) = crate::object::registry::OBJECT_REGISTRY.with_object(self.owner_id, |guard| {
-            let needs = guard
-                .with_parking_place_behavior(|parking_place| {
-                    parking_place.should_reserve_door_when_queued(template.as_ref())
-                })
-                .unwrap_or(false);
-            (needs, guard.get_object_exit_interface())
-        }) else {
+        let Some((needs, exit)) =
+            crate::object::registry::OBJECT_REGISTRY.with_object(self.owner_id, |guard| {
+                let needs = guard
+                    .with_parking_place_behavior(|parking_place| {
+                        parking_place.should_reserve_door_when_queued(template.as_ref())
+                    })
+                    .unwrap_or(false);
+                (needs, guard.get_object_exit_interface())
+            })
+        else {
             return Ok(-1);
         };
         if !needs {
@@ -1101,9 +1116,10 @@ impl ProductionUpdateComplete {
         if exit_door < 0 || dual_world_registry_unavailable() {
             return;
         }
-        let Some(exit) = crate::object::registry::OBJECT_REGISTRY.with_object(self.owner_id, |guard| {
-            guard.get_object_exit_interface()
-        }).flatten() else {
+        let Some(exit) = crate::object::registry::OBJECT_REGISTRY
+            .with_object(self.owner_id, |guard| guard.get_object_exit_interface())
+            .flatten()
+        else {
             return;
         };
         if let Ok(mut exit_guard) = exit.lock() {
@@ -1141,7 +1157,8 @@ impl ProductionUpdateComplete {
             if let Ok(list) = crate::player::player_list().read() {
                 if let Some(player_arc) = list.get_player(player_id as i32) {
                     if let Ok(mut player) = player_arc.write() {
-                        player.get_money_mut().add_money(credits);
+                        let facts = crate::helpers::capture_player_audio_locality(&player, &list);
+                        player.get_money_mut_with_locality(facts).add_money(credits);
                     }
                 }
             }
@@ -1202,9 +1219,7 @@ impl ProductionUpdateComplete {
                         template.is_kind_of(crate::common::KindOf::ProducedAtHelipad)
                     });
                 let has_parking = owner.read().ok().is_some_and(|guard| {
-                    guard
-                        .with_parking_place_behavior(|_| true)
-                        .unwrap_or(false)
+                    guard.with_parking_place_behavior(|_| true).unwrap_or(false)
                 });
                 if produced_at_helipad && has_parking {
                     prod.exit_door = -2;
@@ -1685,9 +1700,7 @@ impl ProductionUpdateInterface for ProductionUpdateComplete {
         if let Some(template) = TheThingFactory::find_template(template_name.as_str()) {
             base_cost = template.get_build_cost();
             let seconds = template.get_build_time().max(0.0);
-            base_time_frames = (seconds * LOGICFRAMES_PER_SECOND as f32)
-                .round()
-                .max(1.0) as u32;
+            base_time_frames = (seconds * LOGICFRAMES_PER_SECOND as f32).round().max(1.0) as u32;
         }
 
         let player_mods = self.build_player_modifiers(Some(template_name.as_str()));
@@ -1714,7 +1727,8 @@ impl ProductionUpdateInterface for ProductionUpdateComplete {
             if let Ok(list) = crate::player::player_list().read() {
                 if let Some(player_arc) = list.get_player(player_id as i32) {
                     if let Ok(mut player) = player_arc.write() {
-                        player.get_money_mut().add_money(credits);
+                        let facts = crate::helpers::capture_player_audio_locality(&player, &list);
+                        player.get_money_mut_with_locality(facts).add_money(credits);
                     }
                 }
             }

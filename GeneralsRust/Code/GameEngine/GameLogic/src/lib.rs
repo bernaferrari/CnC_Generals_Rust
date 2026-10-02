@@ -377,20 +377,19 @@ mod tests {
     /// C++ `W3DModuleFactory.cpp:39-48` registers `W3DModelDraw` /
     /// `W3DProjectileStreamDraw`. There is no `W3DProjectileDraw` in GeneralsMD.
     #[test]
-    fn live_and_archival_factories_omit_invented_w3d_projectile_draw() {
+    fn live_factories_omit_invented_w3d_projectile_draw() {
         const LIVE: &str = crate::contain_module_overrides::CONTAIN_OVERRIDES_SRC;
-        const ARCHIVAL: &str = include_str!("module_overrides/install.rs");
         assert!(
             !LIVE.contains("W3DProjectileDraw"),
             "live contain_module_overrides must not register invented W3DProjectileDraw"
         );
         assert!(
-            LIVE.contains("W3DProjectileStreamDraw"),
-            "live factory must keep C++ W3DProjectileStreamDraw"
+            LIVE.contains("register_module_override(\n        \"W3DModelDraw\""),
+            "live factory must keep C++ W3DModelDraw"
         );
         assert!(
-            !ARCHIVAL.contains("register_module_override(\n        \"W3DProjectileDraw\""),
-            "archival install.rs must not register W3DProjectileDraw"
+            LIVE.contains("register_module_override(\n        \"W3DProjectileStreamDraw\""),
+            "live factory must keep C++ W3DProjectileStreamDraw"
         );
     }
 
