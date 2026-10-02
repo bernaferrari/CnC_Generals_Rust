@@ -688,18 +688,13 @@ impl AIPlayer {
     /// C++ `AIPlayer::onUnitProduced` (AIPlayer.cpp).
     ///
     /// Match work order by factoryID + incomplete + template equivalent; complete
-    /// one unit; setTeam; clear factoryID; dozer/repair shortcuts; always
-    /// `teamDelay = 0`.
+    /// one unit; setTeam; clear factoryID; dozer/repair shortcuts; wake team
+    /// scheduling when a factory is present.
     pub fn on_unit_produced(
         &mut self,
         factory_id: ObjectID,
         unit_id: ObjectID,
     ) -> Result<(), AiError> {
-        // Wave 255: empty dual-world → no-op success.
-        if dual_world_registry_unavailable() {
-            return Ok(());
-        }
-
         // C++: factory could be NULL at start of game.
         if factory_id == INVALID_ID {
             return Ok(());
@@ -857,11 +852,6 @@ impl AIPlayer {
         _factory_id: ObjectID,
         structure_id: ObjectID,
     ) -> Result<(), AiError> {
-        // Wave 255: empty dual-world → no-op success.
-        if dual_world_registry_unavailable() {
-            return Ok(());
-        }
-
         // C++: m_teamDelay = 0; m_buildDelay = 0; (no frameLastBuildingBuilt here)
         self.team_delay = 0;
         self.build_delay = 0;
