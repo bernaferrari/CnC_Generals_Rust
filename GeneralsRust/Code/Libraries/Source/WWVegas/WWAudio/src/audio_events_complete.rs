@@ -16,7 +16,7 @@ use log::{debug, trace};
 use std::{
     collections::HashMap,
     sync::{
-        Arc, Mutex,
+        Arc,
         atomic::{AtomicU64, Ordering},
     },
     time::{Duration, Instant},
@@ -258,18 +258,22 @@ impl AudioBus {
 }
 
 /// Complete audio event and volume management system
+///
+/// Plain owned state: the system is driven from the game loop
+/// (`fire_event`, `update`, volume setters) and only forwards volume
+/// commands to the shared mixer, so its tables need no lock.
 pub struct AudioEventSystem {
     mixer: Arc<AudioMixer>,
     next_callback_id: AtomicU64,
-    callbacks: Arc<Mutex<HashMap<u64, AudioEventCallback>>>,
-    event_queue: Arc<Mutex<Vec<AudioEvent>>>,
+    callbacks: HashMap<u64, AudioEventCallback>,
+    event_queue: Vec<AudioEvent>,
 
     // Volume and bus management
-    buses: Arc<Mutex<HashMap<AudioCategory, AudioBus>>>,
-    master_volume: Arc<Mutex<CategoryVolume>>,
+    buses: HashMap<AudioCategory, AudioBus>,
+    master_volume: CategoryVolume,
 
     // Voice to bus mapping
-    voice_to_bus: Arc<Mutex<HashMap<VoiceHandle, AudioCategory>>>,
+    voice_to_bus: HashMap<VoiceHandle, AudioCategory>,
 }
 
 impl AudioEventSystem {
@@ -291,50 +295,49 @@ impl AudioEventSystem {
         Self {
             mixer,
             next_callback_id: AtomicU64::new(1),
-            callbacks: Arc::new(Mutex::new(HashMap::new())),
-            event_queue: Arc::new(Mutex::new(Vec::new())),
-            buses: Arc::new(Mutex::new(buses)),
-            master_volume: Arc::new(Mutex::new(CategoryVolume::new(1.0))),
-            voice_to_bus: Arc::new(Mutex::new(HashMap::new())),
+            callbacks: HashMap::new(),
+            event_queue: Vec::new(),
+            buses,
+            master_volume: CategoryVolume::new(1.0),
+            voice_to_bus: HashMap::new(),
         }
     }
 
     /// Register an event callback
-    pub fn register_callback(&self, callback: AudioEventCallback) -> u64 {
+    pub fn register_callback(&mut self, callback: AudioEventCallback) -> u64 {
         let id = self.next_callback_id.fetch_add(1, Ordering::Relaxed);
-        self.callbacks.lock().unwrap().insert(id, callback);
+        self.callbacks.insert(id, callback);
         debug!("Registered audio event callback {}", id);
         id
     }
 
     /// Unregister an event callback
-    pub fn unregister_callback(&self, callback_id: u64) {
-        self.callbacks.lock().unwrap().remove(&callback_id);
+    pub fn unregister_callback(&mut self, callback_id: u64) {
+        self.callbacks.remove(&callback_id);
         debug!("Unregistered audio event callback {}", callback_id);
     }
 
     /// Fire an audio event
-    pub fn fire_event(&self, event: AudioEvent) {
+    pub fn fire_event(&mut self, event: AudioEvent) {
         trace!("Firing audio event: {:?}", event);
 
         // Add to event queue
-        self.event_queue.lock().unwrap().push(event.clone());
+        self.event_queue.push(event.clone());
 
         // Call all registered callbacks
-        let callbacks = self.callbacks.lock().unwrap();
-        for callback in callbacks.values() {
+        for callback in self.callbacks.values() {
             callback(&event);
         }
     }
 
     /// Drain pending events
-    pub fn drain_events(&self) -> Vec<AudioEvent> {
-        self.event_queue.lock().unwrap().drain(..).collect()
+    pub fn drain_events(&mut self) -> Vec<AudioEvent> {
+        std::mem::take(&mut self.event_queue)
     }
 
     /// Set master volume (affects all audio)
-    pub fn set_master_volume(&self, volume: f32) {
-        self.master_volume.lock().unwrap().set_immediate(volume);
+    pub fn set_master_volume(&mut self, volume: f32) {
+        self.master_volume.set_immediate(volume);
         self.fire_event(AudioEvent::VolumeChanged {
             category: AudioCategory::Master,
             new_volume: volume,
@@ -342,21 +345,18 @@ impl AudioEventSystem {
     }
 
     /// Fade master volume over duration
-    pub fn fade_master_volume(&self, volume: f32, duration: Duration) {
-        self.master_volume
-            .lock()
-            .unwrap()
-            .set_with_fade(volume, duration);
+    pub fn fade_master_volume(&mut self, volume: f32, duration: Duration) {
+        self.master_volume.set_with_fade(volume, duration);
     }
 
     /// Get current master volume
     pub fn master_volume(&self) -> f32 {
-        self.master_volume.lock().unwrap().current
+        self.master_volume.current
     }
 
     /// Set volume for a category
-    pub fn set_category_volume(&self, category: AudioCategory, volume: f32) {
-        if let Some(bus) = self.buses.lock().unwrap().get_mut(&category) {
+    pub fn set_category_volume(&mut self, category: AudioCategory, volume: f32) {
+        if let Some(bus) = self.buses.get_mut(&category) {
             bus.set_volume(volume);
             self.fire_event(AudioEvent::VolumeChanged {
                 category,
@@ -369,8 +369,8 @@ impl AudioEventSystem {
     }
 
     /// Fade category volume over duration
-    pub fn fade_category_volume(&self, category: AudioCategory, volume: f32, duration: Duration) {
-        if let Some(bus) = self.buses.lock().unwrap().get_mut(&category) {
+    pub fn fade_category_volume(&mut self, category: AudioCategory, volume: f32, duration: Duration) {
+        if let Some(bus) = self.buses.get_mut(&category) {
             bus.fade_volume(volume, duration);
         }
     }
@@ -378,16 +378,14 @@ impl AudioEventSystem {
     /// Get volume for a category
     pub fn category_volume(&self, category: AudioCategory) -> f32 {
         self.buses
-            .lock()
-            .unwrap()
             .get(&category)
             .map(|bus| bus.volume())
             .unwrap_or(1.0)
     }
 
     /// Mute/unmute a category
-    pub fn set_category_mute(&self, category: AudioCategory, mute: bool) {
-        if let Some(bus) = self.buses.lock().unwrap().get_mut(&category) {
+    pub fn set_category_mute(&mut self, category: AudioCategory, mute: bool) {
+        if let Some(bus) = self.buses.get_mut(&category) {
             bus.set_mute(mute);
             self.update_bus_voices(category);
         }
@@ -396,18 +394,16 @@ impl AudioEventSystem {
     /// Check if category is muted
     pub fn is_category_muted(&self, category: AudioCategory) -> bool {
         self.buses
-            .lock()
-            .unwrap()
             .get(&category)
             .map(|bus| bus.is_muted())
             .unwrap_or(false)
     }
 
     /// Assign a voice to a bus/category
-    pub fn assign_voice(&self, handle: VoiceHandle, category: AudioCategory) {
-        self.voice_to_bus.lock().unwrap().insert(handle, category);
+    pub fn assign_voice(&mut self, handle: VoiceHandle, category: AudioCategory) {
+        self.voice_to_bus.insert(handle, category);
 
-        if let Some(bus) = self.buses.lock().unwrap().get_mut(&category) {
+        if let Some(bus) = self.buses.get_mut(&category) {
             bus.add_voice(handle);
         }
 
@@ -416,34 +412,32 @@ impl AudioEventSystem {
     }
 
     /// Remove voice from its bus
-    pub fn unassign_voice(&self, handle: VoiceHandle) {
-        if let Some(category) = self.voice_to_bus.lock().unwrap().remove(&handle) {
-            if let Some(bus) = self.buses.lock().unwrap().get_mut(&category) {
+    pub fn unassign_voice(&mut self, handle: VoiceHandle) {
+        if let Some(category) = self.voice_to_bus.remove(&handle) {
+            if let Some(bus) = self.buses.get_mut(&category) {
                 bus.remove_voice(handle);
             }
         }
     }
 
     /// Update system (call from game loop)
-    pub fn update(&self, _delta: Duration) {
+    pub fn update(&mut self, _delta: Duration) {
         // Update master volume fade
-        self.master_volume.lock().unwrap().update();
+        self.master_volume.update();
 
         // Update all bus volume fades
         // First collect categories that completed fading
-        let completed_categories: Vec<AudioCategory> = {
-            let mut buses = self.buses.lock().unwrap();
-            buses
-                .values_mut()
-                .filter_map(|bus| {
-                    if bus.update() {
-                        Some(bus.category())
-                    } else {
-                        None
-                    }
-                })
-                .collect()
-        };
+        let completed_categories: Vec<AudioCategory> = self
+            .buses
+            .values_mut()
+            .filter_map(|bus| {
+                if bus.update() {
+                    Some(bus.category())
+                } else {
+                    None
+                }
+            })
+            .collect();
 
         // Then update voices for completed categories
         for category in completed_categories {
@@ -453,9 +447,9 @@ impl AudioEventSystem {
 
     /// Get calculated volume for a voice (master * category)
     pub fn get_voice_volume(&self, handle: VoiceHandle) -> f32 {
-        let master = self.master_volume.lock().unwrap().current;
+        let master = self.master_volume.current;
 
-        if let Some(category) = self.voice_to_bus.lock().unwrap().get(&handle) {
+        if let Some(category) = self.voice_to_bus.get(&handle) {
             let category_vol = self.category_volume(*category);
             master * category_vol
         } else {
@@ -466,12 +460,8 @@ impl AudioEventSystem {
     // Internal methods
 
     fn update_bus_voices(&self, category: AudioCategory) {
-        let buses = self.buses.lock().unwrap();
-        if let Some(bus) = buses.get(&category) {
-            let voices: Vec<_> = bus.voices().to_vec();
-            drop(buses);
-
-            for handle in voices {
+        if let Some(bus) = self.buses.get(&category) {
+            for handle in bus.voices().to_vec() {
                 self.update_voice_volume(handle, category);
             }
         }

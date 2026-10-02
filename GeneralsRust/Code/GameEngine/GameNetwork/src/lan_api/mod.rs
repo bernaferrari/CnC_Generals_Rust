@@ -63,12 +63,14 @@ use crate::nat::NatBinding;
 use crate::security::SecurityManager;
 use crate::time::NetworkInstant;
 use chrono::Utc;
+use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, LazyLock};
 use std::time::Duration;
-use tokio::sync::{Mutex, RwLock, broadcast, watch};
+use tokio::sync::{RwLock, broadcast, watch};
 use tracing::{debug, error, info, warn};
 
 pub mod bus;
@@ -223,13 +225,32 @@ impl std::fmt::Display for LanResult {
 }
 
 /// Current action being performed
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 enum PendingAction {
+    #[default]
     None,
     Join,
     JoinDirectConnect,
     Leave,
     CreateGame,
+}
+
+/// Pending-action bookkeeping: what we are waiting for and when it times out.
+#[derive(Debug, Default)]
+struct PendingActionState {
+    action: PendingAction,
+    expires_at: Option<NetworkInstant>,
+}
+
+/// Session tables mirrored from the subsystems for the public getters.
+#[derive(Default)]
+struct SessionTables {
+    /// Currently discovered games.
+    games: HashMap<String, LanGameInfo>,
+    /// Players seen in the lobby / current game.
+    lobby_players: HashMap<IpAddr, LanPlayer>,
+    /// The game we are currently in (if any).
+    current_game: Option<LanGameInfo>,
 }
 
 /// Main LAN API interface
@@ -238,37 +259,39 @@ pub struct LanApi {
     config: LanConfig,
     /// Game discovery service
     discovery: Arc<GameDiscovery>,
-    /// Current lobby state
+    /// THREAD: the lobby is shared between the owning task (which serialises
+    /// user-facing calls behind `THE_LAN`) and the background bridge task spawned
+    /// in [`LanApi::start_background_task`]; the lobby's own receiver/timer tasks
+    /// only talk to it through the bridge bus. One async lock covers the whole
+    /// lobby because its handlers await network IO while holding the guard.
     lobby: Arc<RwLock<LanLobby>>,
-    /// Chat system
-    chat: Arc<RwLock<LanChat>>,
+    /// Chat subsystem: owned exclusively by this instance and only touched from
+    /// [`LanApi::init`], [`LanApi::update`] and [`LanApi::shutdown`].
+    chat: LanChat,
     /// Event broadcaster
     event_tx: broadcast::Sender<LanEvent>,
     /// Event receiver for external consumers
     event_rx: broadcast::Receiver<LanEvent>,
     /// Internal bridge used by subsystems to relay events into the API
     bridge_tx: LanEventSender,
-    bridge_rx: Arc<Mutex<LanEventReceiver>>,
-    /// Currently discovered games
-    games: Arc<RwLock<HashMap<String, LanGameInfo>>>,
-    /// Current lobby players
-    lobby_players: Arc<RwLock<HashMap<IpAddr, LanPlayer>>>,
-    /// Current game we're in
-    current_game: Arc<RwLock<Option<LanGameInfo>>>,
-    /// Local IP address
-    local_ip: Arc<RwLock<Option<IpAddr>>>,
-    /// Whether we're currently hosting
-    is_host: Arc<RwLock<bool>>,
-    /// Current pending action
-    pending_action: Arc<RwLock<PendingAction>>,
-    /// Action expiration time
-    action_expiration: Arc<RwLock<Option<NetworkInstant>>>,
-    /// Whether the application is currently active
-    is_active: Arc<RwLock<bool>>,
-    /// Background task handle
-    bg_task: Arc<RwLock<Option<tokio::task::JoinHandle<()>>>>,
-    /// NAT binding watch task handle
-    nat_task: Arc<RwLock<Option<tokio::task::JoinHandle<()>>>>,
+    /// THREAD: bus receiver, taken (moved) by the background bridge task when it
+    /// is spawned; never touched elsewhere afterwards.
+    bridge_rx: Option<LanEventReceiver>,
+    /// THREAD: game/player tables shared with the background bridge task, which
+    /// keeps them in sync with lobby and discovery events.
+    tables: Arc<Mutex<SessionTables>>,
+    /// THREAD: pending action + deadline shared with the background bridge task,
+    /// whose 100ms tick expires stale join/create requests.
+    pending_action: Arc<Mutex<PendingActionState>>,
+    /// THREAD: host flag flipped by the owner (`request_game_create`) and by the
+    /// background bridge task (`JoinAccept` / `GameCreated` handling).
+    is_host: Arc<AtomicBool>,
+    /// Local IP address (owner task only)
+    local_ip: Option<IpAddr>,
+    /// Background task handle (owner task only)
+    bg_task: Option<tokio::task::JoinHandle<()>>,
+    /// NAT binding watch task handle (owner task only)
+    nat_task: Option<tokio::task::JoinHandle<()>>,
 }
 
 impl LanApi {
@@ -332,16 +355,14 @@ impl LanApi {
         ));
 
         // Initialize chat
-        let chat = Arc::new(RwLock::new(
-            LanChat::with_dependencies(
-                config.max_chat_length,
-                config.base_port,
-                bridge_tx.clone(),
-                security.clone(),
-                connections,
-            )
-            .await?,
-        ));
+        let chat = LanChat::with_dependencies(
+            config.max_chat_length,
+            config.base_port,
+            bridge_tx.clone(),
+            security.clone(),
+            connections,
+        )
+        .await?;
 
         Ok(Self {
             config,
@@ -351,17 +372,13 @@ impl LanApi {
             event_tx,
             event_rx,
             bridge_tx,
-            bridge_rx: Arc::new(Mutex::new(bridge_rx)),
-            games: Arc::new(RwLock::new(HashMap::new())),
-            lobby_players: Arc::new(RwLock::new(HashMap::new())),
-            current_game: Arc::new(RwLock::new(None)),
-            local_ip: Arc::new(RwLock::new(None)),
-            is_host: Arc::new(RwLock::new(false)),
-            pending_action: Arc::new(RwLock::new(PendingAction::None)),
-            action_expiration: Arc::new(RwLock::new(None)),
-            is_active: Arc::new(RwLock::new(true)),
-            bg_task: Arc::new(RwLock::new(None)),
-            nat_task: Arc::new(RwLock::new(None)),
+            bridge_rx: Some(bridge_rx),
+            tables: Arc::new(Mutex::new(SessionTables::default())),
+            pending_action: Arc::new(Mutex::new(PendingActionState::default())),
+            is_host: Arc::new(AtomicBool::new(false)),
+            local_ip: None,
+            bg_task: None,
+            nat_task: None,
         })
     }
 
@@ -379,10 +396,7 @@ impl LanApi {
         }
 
         // Initialize chat
-        {
-            let mut chat = self.chat.write().await;
-            chat.init().await?;
-        }
+        self.chat.init().await?;
 
         // Start background task
         self.start_background_task().await;
@@ -393,7 +407,7 @@ impl LanApi {
 
     /// Attach NAT binding updates so public announcements stay in sync with external reachability.
     pub async fn attach_nat_updates(
-        &self,
+        &mut self,
         mut updates: watch::Receiver<Option<NatBinding>>,
     ) -> NetworkResult<()> {
         Self::apply_nat_binding(

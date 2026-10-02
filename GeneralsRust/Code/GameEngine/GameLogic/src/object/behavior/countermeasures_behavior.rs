@@ -564,8 +564,8 @@ impl CountermeasuresBehavior {
                 let pos = *obj_guard.get_position();
                 let angle_base = obj_guard.get_orientation();
                 let team = obj_guard
-                    .get_controlling_player()
-                    .and_then(|player| player.read().ok()?.get_default_team())
+                    .with_controlling_player(|player| player.get_default_team())
+                    .flatten()
                     .or_else(|| obj_guard.get_team());
                 let unit_dir = obj_guard.get_unit_direction_vector_2d();
                 let velocity = obj_guard

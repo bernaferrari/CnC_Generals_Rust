@@ -532,7 +532,7 @@ impl AudioSystem {
         self.fading_audio.clear();
         self.stopped_audio.clear();
         self.sound_scene.flush_scene();
-        if let Err(err) = self.source_cache.clear().await {
+        if let Err(err) = self.source_cache.clear() {
             warn!("Failed to clear audio cache during shutdown: {err:?}");
         }
         self.cpal_output = None;
@@ -693,18 +693,17 @@ impl AudioSystem {
     }
 
     /// Load an audio source from file, leveraging the internal cache for reuse
-    pub async fn load_source(&self, path: &str) -> Result<AudioSource> {
+    pub async fn load_source(&mut self, path: &str) -> Result<AudioSource> {
         info!("Loading audio source from: {}", path);
 
-        if let Some(cached) = self.source_cache.get(path).await? {
+        if let Some(cached) = self.source_cache.get(path)? {
             return Ok((*cached).clone());
         }
 
         let source = AudioSource::from_file(path).await?;
         let hosted = Arc::new(source.clone());
         self.source_cache
-            .put(path.to_string(), hosted, Priority::Normal)
-            .await?;
+            .put(path.to_string(), hosted, Priority::Normal)?;
 
         Ok(source)
     }
@@ -1876,14 +1875,13 @@ impl AudioSystem {
                 identifier.to_string(),
                 std::sync::Arc::new(source.clone()),
                 priority,
-            )
-            .await?;
+            )?;
         channel.play_source(source, false)
     }
 
     /// Check if a sound is currently cached
-    pub async fn is_sound_cached(&self, identifier: &str) -> Result<bool> {
-        Ok(self.source_cache.get(identifier).await?.is_some())
+    pub async fn is_sound_cached(&mut self, identifier: &str) -> Result<bool> {
+        Ok(self.source_cache.get(identifier)?.is_some())
     }
 
     /// Create a sound effect from a file path (stub for parity)
@@ -2018,8 +2016,8 @@ impl AudioSystem {
     }
 
     /// Flush the entire sound cache
-    pub async fn flush_cache(&self) -> Result<()> {
-        self.source_cache.clear().await
+    pub async fn flush_cache(&mut self) -> Result<()> {
+        self.source_cache.clear()
     }
 
     pub fn drain_mixer_events(&mut self) -> Vec<MixerEvent> {

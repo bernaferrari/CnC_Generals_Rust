@@ -122,13 +122,17 @@ pub struct AudThread {
     handle: Option<HANDLE>,
     #[cfg(target_os = "windows")]
     thread_id: u32,
+    // THREAD: game thread sets/clears the context, audio service thread consumes it
     data: Mutex<*mut std::ffi::c_void>,
     callback: Arc<Box<AudThreadCallback>>,
     #[cfg(target_os = "windows")]
+    // THREAD: game thread enters the section, audio service thread enters it too
     critical_section: Mutex<CRITICAL_SECTION>,
     #[cfg(not(target_os = "windows"))]
     critical_section: Mutex<()>,
+    // THREAD: audio service thread publishes service info, game thread reads it
     update: Mutex<AudioServiceInfo>,
+    // THREAD: audio service thread samples the CPU profile, game thread reads it
     cpu_profile: Mutex<ProfileCPU>,
 }
 
@@ -272,6 +276,7 @@ pub struct ExtendedAudioFormat {
 }
 
 /// Global window handle for DirectSound cooperation
+// THREAD: game thread sets the window handle, audio service thread reads it
 static AUDIO_MAIN_WINDOW_HANDLE: Mutex<Option<isize>> = Mutex::new(None);
 
 impl AudThread {

@@ -26,10 +26,11 @@ use crate::common::{
 use log::{debug, info, warn};
 use std::{
     any::Any,
+    cell::RefCell,
     collections::{BTreeSet, HashMap, HashSet},
     env, fs,
     path::{Path, PathBuf},
-    sync::{Arc, LazyLock, Mutex, RwLock},
+    sync::{Arc, Mutex},
 };
 
 /// Template hash size constant
@@ -103,19 +104,22 @@ pub trait DrawableCreator: Send + Sync {
     ) -> Result<Box<dyn Drawable>, ThingCreationError>;
 }
 
-static OBJECT_CREATOR: Mutex<Option<Arc<dyn ObjectCreator>>> = Mutex::new(None);
-static DRAWABLE_CREATOR: Mutex<Option<Arc<dyn DrawableCreator>>> = Mutex::new(None);
+// THREAD: C++ plain statics; driven only by the single game/client thread.
+thread_local! {
+    static OBJECT_CREATOR: RefCell<Option<Arc<dyn ObjectCreator>>> = const { RefCell::new(None) };
+    static DRAWABLE_CREATOR: RefCell<Option<Arc<dyn DrawableCreator>>> = const { RefCell::new(None) };
+}
 
 pub fn set_object_creator(creator: Option<Arc<dyn ObjectCreator>>) {
-    if let Ok(mut guard) = OBJECT_CREATOR.lock() {
-        *guard = creator;
-    }
+    OBJECT_CREATOR.with_borrow_mut(|slot| {
+        *slot = creator;
+    });
 }
 
 pub fn set_drawable_creator(creator: Option<Arc<dyn DrawableCreator>>) {
-    if let Ok(mut guard) = DRAWABLE_CREATOR.lock() {
-        *guard = creator;
-    }
+    DRAWABLE_CREATOR.with_borrow_mut(|slot| {
+        *slot = creator;
+    });
 }
 
 /// Map.ini / solo.ini `Object` CREATE_OVERRIDES captured from leftover
@@ -131,27 +135,25 @@ pub struct ObjectCreateOverride {
 pub type ObjectCreateOverridesLiveOverlay =
     fn(name: &str, reskin_from: &str, properties: &HashMap<String, String>);
 
-static OBJECT_CREATE_OVERRIDES: LazyLock<RwLock<Vec<ObjectCreateOverride>>> =
-    LazyLock::new(|| RwLock::new(Vec::new()));
-static OBJECT_CREATE_OVERRIDES_LIVE_OVERLAY: LazyLock<
-    RwLock<Option<ObjectCreateOverridesLiveOverlay>>,
-> = LazyLock::new(|| RwLock::new(None));
+// THREAD: C++ plain statics; driven only by the single game/client thread.
+thread_local! {
+    static OBJECT_CREATE_OVERRIDES: RefCell<Vec<ObjectCreateOverride>> = RefCell::new(Vec::new());
+    static OBJECT_CREATE_OVERRIDES_LIVE_OVERLAY: RefCell<Option<ObjectCreateOverridesLiveOverlay>> =
+        const { RefCell::new(None) };
+}
 
 pub fn register_object_create_overrides_live_overlay(overlay: ObjectCreateOverridesLiveOverlay) {
-    if let Ok(mut guard) = OBJECT_CREATE_OVERRIDES_LIVE_OVERLAY.write() {
+    OBJECT_CREATE_OVERRIDES_LIVE_OVERLAY.with_borrow_mut(|guard| {
         *guard = Some(overlay);
-    }
+    });
 }
 
 pub fn leftover_object_create_overrides() -> Vec<ObjectCreateOverride> {
-    OBJECT_CREATE_OVERRIDES
-        .read()
-        .map(|guard| guard.clone())
-        .unwrap_or_default()
+    OBJECT_CREATE_OVERRIDES.with_borrow(|guard| guard.clone())
 }
 
 pub fn leftover_object_create_override(name: &str) -> Option<ObjectCreateOverride> {
-    OBJECT_CREATE_OVERRIDES.read().ok().and_then(|guard| {
+    OBJECT_CREATE_OVERRIDES.with_borrow(|guard| {
         guard
             .iter()
             .rev()
@@ -161,9 +163,7 @@ pub fn leftover_object_create_override(name: &str) -> Option<ObjectCreateOverrid
 }
 
 pub fn clear_object_create_overrides() {
-    if let Ok(mut guard) = OBJECT_CREATE_OVERRIDES.write() {
-        guard.clear();
-    }
+    OBJECT_CREATE_OVERRIDES.with_borrow_mut(|guard| guard.clear());
 }
 
 fn record_object_create_override(
@@ -171,7 +171,7 @@ fn record_object_create_override(
     reskin_from: &str,
     properties: &HashMap<String, String>,
 ) {
-    if let Ok(mut guard) = OBJECT_CREATE_OVERRIDES.write() {
+    OBJECT_CREATE_OVERRIDES.with_borrow_mut(|guard| {
         if let Some(existing) = guard
             .iter_mut()
             .find(|entry| entry.name.eq_ignore_ascii_case(name))
@@ -185,11 +185,12 @@ fn record_object_create_override(
                 properties: properties.clone(),
             });
         }
-    }
-    if let Ok(guard) = OBJECT_CREATE_OVERRIDES_LIVE_OVERLAY.read() {
-        if let Some(overlay) = *guard {
-            overlay(name, reskin_from, properties);
-        }
+    });
+    // The overlay may re-enter the override store, so release the store borrow
+    // above before invoking it.
+    let overlay = OBJECT_CREATE_OVERRIDES_LIVE_OVERLAY.with_borrow(|guard| *guard);
+    if let Some(overlay) = overlay {
+        overlay(name, reskin_from, properties);
     }
 }
 
@@ -852,9 +853,7 @@ impl ThingFactory {
         _team: Option<Arc<dyn Team>>,
     ) -> Result<Box<dyn Object>, ThingCreationError> {
         let creator = OBJECT_CREATOR
-            .lock()
-            .ok()
-            .and_then(|guard| guard.clone())
+            .with_borrow(|slot| slot.clone())
             .ok_or_else(|| {
                 ThingCreationError::CreationFailed("Object creator not registered".to_string())
             })?;
@@ -868,9 +867,7 @@ impl ThingFactory {
         _status_bits: DrawableStatus,
     ) -> Result<Box<dyn Drawable>, ThingCreationError> {
         let creator = DRAWABLE_CREATOR
-            .lock()
-            .ok()
-            .and_then(|guard| guard.clone())
+            .with_borrow(|slot| slot.clone())
             .ok_or_else(|| {
                 ThingCreationError::CreationFailed("Drawable creator not registered".to_string())
             })?;

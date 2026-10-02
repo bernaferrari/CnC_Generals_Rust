@@ -1825,7 +1825,7 @@ mod tests {
         nugget.requires_live_player = true;
         let source = source_with_live_player(true);
         assert!(
-            source.get_controlling_player().is_some(),
+            source.with_controlling_player(|_| ()).is_some(),
             "test setup must attach a controlling player"
         );
         let pos = *source.get_position();

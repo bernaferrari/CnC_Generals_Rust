@@ -9,12 +9,13 @@
 //! - Compressed audio streaming
 
 use crossbeam_channel::{Receiver, Sender, bounded, unbounded};
-use parking_lot::{Mutex, RwLock};
+use parking_lot::RwLock;
 use std::collections::{HashMap, VecDeque};
 use std::fs::File;
 use std::io::{BufRead, BufReader, Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Weak};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
@@ -180,6 +181,7 @@ pub struct AudioStreamer {
     /// Audio metadata
     metadata: AudioMetadata,
     /// Current stream state
+    // THREAD: kept locked - written by the streaming worker thread spawned in `new()`.
     state: Arc<RwLock<StreamState>>,
     /// Stream quality
     quality: StreamQuality,
@@ -188,9 +190,12 @@ pub struct AudioStreamer {
         crossbeam_channel::Receiver<f32>,
     )>,
     /// Stream buffers
+    // THREAD: kept locked - filled by the streaming worker thread spawned in `new()`.
     buffers: Arc<RwLock<VecDeque<StreamBuffer>>>,
     /// Current playback position in samples
-    position: Arc<RwLock<u64>>,
+    // THREAD: written by the streaming worker thread spawned in `new()`;
+    // an atomic replaces the RwLock (single writer, relaxed reads).
+    position: Arc<AtomicU64>,
     /// Loop flag
     looping: bool,
     /// Loop start position
@@ -277,7 +282,7 @@ impl AudioStreamer {
 
         let buffers = Arc::new(RwLock::new(VecDeque::with_capacity(STREAM_BUFFER_COUNT)));
         let state = Arc::new(RwLock::new(StreamState::Initializing));
-        let position = Arc::new(RwLock::new(0));
+        let position = Arc::new(AtomicU64::new(0));
 
         let ring_buffer = {
             let buffer_size = quality.get_buffer_size();
@@ -342,7 +347,7 @@ impl AudioStreamer {
 
     /// Get current playback position in samples
     pub fn position(&self) -> u64 {
-        *self.position.read()
+        self.position.load(Ordering::Relaxed)
     }
 
     /// Get playback position in seconds
@@ -479,7 +484,7 @@ impl AudioStreamer {
         quality: StreamQuality,
         buffers: Arc<RwLock<VecDeque<StreamBuffer>>>,
         state: Arc<RwLock<StreamState>>,
-        position: Arc<RwLock<u64>>,
+        position: Arc<AtomicU64>,
     ) {
         let mut decoder = match Self::create_decoder(&source, &metadata) {
             Ok(decoder) => decoder,
@@ -532,7 +537,7 @@ impl AudioStreamer {
                             let _ = status_sender
                                 .send(StreamStatus::Error(format!("Seek failed: {}", e)));
                         } else {
-                            *position.write() = samples;
+                            position.store(samples, Ordering::Relaxed);
                             let _ = status_sender.send(StreamStatus::PositionUpdate(samples));
                         }
 
@@ -566,12 +571,13 @@ impl AudioStreamer {
                         Ok(frames_read) => {
                             if frames_read > 0 {
                                 buffer.frame_count = frames_read;
-                                buffer.timestamp = *position.read();
+                                buffer.timestamp = position.load(Ordering::Relaxed);
                                 buffers.write().push_back(buffer);
 
                                 // Update position
-                                let new_position = *position.read() + frames_read as u64;
-                                *position.write() = new_position;
+                                let new_position =
+                                    position.load(Ordering::Relaxed) + frames_read as u64;
+                                position.store(new_position, Ordering::Relaxed);
                                 let _ =
                                     status_sender.send(StreamStatus::PositionUpdate(new_position));
 
@@ -585,7 +591,7 @@ impl AudioStreamer {
                                                     format!("Loop seek failed: {}", e),
                                                 ));
                                             } else {
-                                                *position.write() = loop_start;
+                                                position.store(loop_start, Ordering::Relaxed);
                                                 let _ = status_sender
                                                     .send(StreamStatus::PositionUpdate(loop_start));
                                             }
@@ -603,7 +609,7 @@ impl AudioStreamer {
                                         )));
                                         break;
                                     } else {
-                                        *position.write() = loop_start;
+                                        position.store(loop_start, Ordering::Relaxed);
                                         let _ = status_sender
                                             .send(StreamStatus::PositionUpdate(loop_start));
                                     }
@@ -803,80 +809,80 @@ impl StreamDecoder for SymphoniaDecoder {
 }
 
 /// Stream manager for handling multiple concurrent streams
+///
+/// THREAD: spawns no worker of its own (each `AudioStreamer` owns its thread and
+/// talks back through channels) and is only touched from the owning thread, so
+/// the `Arc<RwLock>`/`Arc<Mutex>` wrappers became plain fields.
 pub struct StreamManager {
     /// Active streams
-    streams: Arc<RwLock<HashMap<AudioHandle, Arc<AudioStreamer>>>>,
+    streams: HashMap<AudioHandle, Arc<AudioStreamer>>,
     /// Next handle
-    next_handle: Arc<Mutex<AudioHandle>>,
+    next_handle: AudioHandle,
     /// Maximum concurrent streams
     max_streams: usize,
     /// Stream quality setting
-    quality: Arc<RwLock<StreamQuality>>,
+    quality: StreamQuality,
 }
 
 impl StreamManager {
     pub fn new(max_streams: usize) -> Self {
         Self {
-            streams: Arc::new(RwLock::new(HashMap::new())),
-            next_handle: Arc::new(Mutex::new(1)),
+            streams: HashMap::new(),
+            next_handle: 1,
             max_streams,
-            quality: Arc::new(RwLock::new(StreamQuality::Medium)),
+            quality: StreamQuality::Medium,
         }
     }
 
     /// Create a new stream
     pub fn create_stream(
-        &self,
+        &mut self,
         source: StreamSource,
         metadata: AudioMetadata,
     ) -> Result<Arc<AudioStreamer>, AudioLoadError> {
-        let streams_count = self.streams.read().len();
+        let streams_count = self.streams.len();
         if streams_count >= self.max_streams {
             return Err(AudioLoadError::InvalidData);
         }
 
-        let handle = {
-            let mut next = self.next_handle.lock();
-            let handle = *next;
-            *next += 1;
-            handle
-        };
+        let handle = self.next_handle;
+        self.next_handle += 1;
 
-        let quality = *self.quality.read();
+        let quality = self.quality;
         let streamer = Arc::new(AudioStreamer::new(
             handle, source, metadata, quality, 44100, // Target sample rate
             2,     // Target channels
         )?);
 
-        self.streams.write().insert(handle, streamer.clone());
+        self.streams.insert(handle, streamer.clone());
         Ok(streamer)
     }
 
     /// Remove a stream
-    pub fn remove_stream(&self, handle: AudioHandle) {
-        self.streams.write().remove(&handle);
+    pub fn remove_stream(&mut self, handle: AudioHandle) {
+        self.streams.remove(&handle);
     }
 
     /// Get a stream by handle
     pub fn get_stream(&self, handle: AudioHandle) -> Option<Arc<AudioStreamer>> {
-        self.streams.read().get(&handle).cloned()
+        self.streams.get(&handle).cloned()
     }
 
     /// Set global stream quality
-    pub fn set_quality(&self, quality: StreamQuality) {
-        *self.quality.write() = quality;
+    pub fn set_quality(&mut self, quality: StreamQuality) {
+        self.quality = quality;
 
         // Update existing streams
-        for stream in self.streams.read().values() {
+        for stream in self.streams.values() {
             let _ = stream.set_quality(quality);
         }
     }
 
     /// Update all streams
-    pub fn update(&self) {
+    pub fn update(&mut self) {
         let mut to_remove = Vec::new();
 
-        for (handle, stream) in self.streams.read().iter() {
+        for (handle, stream) in self.streams.iter() {
             let updates = stream.update();
 
             for update in updates {
@@ -938,6 +944,6 @@ mod tests {
     fn test_stream_manager() {
         let manager = StreamManager::new(10);
         assert_eq!(manager.max_streams, 10);
-        assert!(manager.streams.read().is_empty());
+        assert!(manager.streams.is_empty());
     }
 }

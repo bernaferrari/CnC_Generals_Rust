@@ -45,6 +45,7 @@ impl AudioTask {
 }
 
 struct TaskQueue {
+    // THREAD: game thread submits tasks, pool workers pop them
     inner: Mutex<Vec<AudioTask>>,
     condvar: Condvar,
     shutdown: AtomicBool,
@@ -199,8 +200,11 @@ fn worker_loop(worker_id: usize, queue: Arc<TaskQueue>) {
 }
 
 struct DelayedReleaseWorker {
+    // THREAD: game thread queues delayed releases, the release worker drains them
     queue: Arc<(Mutex<Vec<DelayedTask>>, Condvar)>,
     shutdown: Arc<AtomicBool>,
+    // THREAD: the global pool is shared as &'static, so the shutdown join
+    // handle needs interior mutability from whichever thread tears it down
     thread: Mutex<Option<thread::JoinHandle<()>>>,
 }
 

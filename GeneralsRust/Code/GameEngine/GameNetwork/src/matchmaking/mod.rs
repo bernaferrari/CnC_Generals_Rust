@@ -7,8 +7,7 @@ use crate::error::{NetworkError, NetworkResult};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::sync::Arc;
-use tokio::sync::RwLock;
+use std::sync::{Arc, Mutex};
 use tracing::info;
 use uuid::Uuid;
 
@@ -280,6 +279,10 @@ pub struct MatchmakingQueue {
     pub region_preference: String,
 }
 
+/// Handle to the lobby/queue tables shared with the background tasks
+/// (see `MatchmakingShared`).
+type SharedMatchmakingState = Arc<Mutex<MatchmakingShared>>;
+
 /// Matchmaking service events
 #[derive(Debug, Clone)]
 pub enum MatchmakingEvent {
@@ -312,19 +315,37 @@ pub enum MatchmakingEvent {
     },
 }
 
+/// Lobby and queue tables that are shared with the matchmaking background
+/// tasks.
+///
+/// Both tables are only ever needed together (the processor matches players
+/// out of the queues into lobbies), so they ride behind this single handle
+/// instead of one lock per field.
+#[derive(Debug, Default)]
+struct MatchmakingShared {
+    /// Active lobbies
+    lobbies: HashMap<Uuid, GameLobby>,
+    /// Matchmaking queues per game mode
+    queues: HashMap<GameMode, Vec<MatchmakingQueue>>,
+}
+
 /// Matchmaking service implementation
 pub struct MatchmakingService {
     /// Configuration
     config: MatchmakingConfig,
 
-    /// Active lobbies
-    lobbies: Arc<RwLock<HashMap<Uuid, GameLobby>>>,
-
-    /// Matchmaking queues
-    queues: Arc<RwLock<HashMap<GameMode, Vec<MatchmakingQueue>>>>,
+    /// Active lobbies + matchmaking queues.
+    ///
+    /// THREAD: the `MatchmakingService` owner mutates it from the public
+    /// lobby/queue methods, while the two detached tasks spawned by
+    /// `start_background_tasks` -- `matchmaking_processor_task` (every 5s) and
+    /// `lobby_cleanup_task` (every 60s) -- mutate/inspect it on the tokio
+    /// runtime.  That is the real cross-task boundary; every critical section
+    /// below is await-free, hence a plain `std` mutex.
+    shared: SharedMatchmakingState,
 
     /// Online players
-    online_players: Arc<RwLock<HashMap<Uuid, MatchmakingPlayer>>>,
+    online_players: HashMap<Uuid, MatchmakingPlayer>,
 
     /// Event callbacks
     event_callback: Option<Arc<dyn MatchmakingEventCallback + Send + Sync>>,
@@ -349,9 +370,8 @@ impl MatchmakingService {
     pub fn with_config(config: MatchmakingConfig) -> Self {
         Self {
             config,
-            lobbies: Arc::new(RwLock::new(HashMap::new())),
-            queues: Arc::new(RwLock::new(HashMap::new())),
-            online_players: Arc::new(RwLock::new(HashMap::new())),
+            shared: Arc::new(Mutex::new(MatchmakingShared::default())),
+            online_players: HashMap::new(),
             event_callback: None,
             task_handles: Vec::new(),
         }
@@ -378,21 +398,20 @@ impl MatchmakingService {
     /// Start background processing tasks
     async fn start_background_tasks(&mut self) -> NetworkResult<()> {
         // Matchmaking processor task
-        let queues = self.queues.clone();
-        let lobbies = self.lobbies.clone();
+        let shared = self.shared.clone();
         let config = self.config.clone();
         let event_callback = self.event_callback.clone();
 
         let matchmaking_task = tokio::spawn(async move {
-            Self::matchmaking_processor_task(queues, lobbies, config, event_callback).await;
+            Self::matchmaking_processor_task(shared, config, event_callback).await;
         });
 
         self.task_handles.push(matchmaking_task);
 
         // Lobby cleanup task
-        let lobbies_cleanup = self.lobbies.clone();
+        let shared_cleanup = self.shared.clone();
         let cleanup_task = tokio::spawn(async move {
-            Self::lobby_cleanup_task(lobbies_cleanup).await;
+            Self::lobby_cleanup_task(shared_cleanup).await;
         });
 
         self.task_handles.push(cleanup_task);
@@ -401,36 +420,29 @@ impl MatchmakingService {
     }
 
     /// Register player online
-    pub async fn register_player(&self, player: MatchmakingPlayer) -> NetworkResult<()> {
-        let mut online_players = self.online_players.write().await;
-        online_players.insert(player.player_id, player.clone());
+    pub async fn register_player(&mut self, player: MatchmakingPlayer) -> NetworkResult<()> {
+        self.online_players.insert(player.player_id, player.clone());
 
         info!("Player {} registered online", player.display_name);
         Ok(())
     }
 
     /// Unregister player (going offline)
-    pub async fn unregister_player(&self, player_id: Uuid) -> NetworkResult<()> {
+    pub async fn unregister_player(&mut self, player_id: Uuid) -> NetworkResult<()> {
         // Remove from online players
-        {
-            let mut online_players = self.online_players.write().await;
-            online_players.remove(&player_id);
-        }
+        self.online_players.remove(&player_id);
 
-        // Remove from any queues
+        // Remove from any queues and lobbies
         {
-            let mut queues = self.queues.write().await;
-            for queue_list in queues.values_mut() {
+            let mut shared = self.shared.lock().expect("matchmaking state poisoned");
+
+            for queue_list in shared.queues.values_mut() {
                 queue_list.retain(|entry| entry.player.player_id != player_id);
             }
-        }
 
-        // Remove from lobbies
-        {
-            let mut lobbies = self.lobbies.write().await;
             let mut lobbies_to_remove = Vec::new();
 
-            for (lobby_id, lobby) in lobbies.iter_mut() {
+            for (lobby_id, lobby) in shared.lobbies.iter_mut() {
                 // Remove player from lobby
                 lobby.players.retain(|p| p.player_id != player_id);
                 lobby.spectators.retain(|&id| id != player_id);
@@ -452,7 +464,7 @@ impl MatchmakingService {
 
             // Remove empty lobbies
             for lobby_id in lobbies_to_remove {
-                lobbies.remove(&lobby_id);
+                shared.lobbies.remove(&lobby_id);
             }
         }
 
@@ -462,19 +474,17 @@ impl MatchmakingService {
 
     /// Queue player for matchmaking
     pub async fn queue_for_matchmaking(
-        &self,
+        &mut self,
         player_id: Uuid,
         game_mode: GameMode,
         map_preferences: Vec<String>,
     ) -> NetworkResult<()> {
         // Get player info
-        let player = {
-            let online_players = self.online_players.read().await;
-            online_players
-                .get(&player_id)
-                .cloned()
-                .ok_or_else(|| NetworkError::matchmaking("player not online"))?
-        };
+        let player = self
+            .online_players
+            .get(&player_id)
+            .cloned()
+            .ok_or_else(|| NetworkError::matchmaking("player not online"))?;
 
         // Create queue entry
         let queue_entry = MatchmakingQueue {
@@ -491,17 +501,14 @@ impl MatchmakingService {
 
         // Add to queue
         {
-            let mut queues = self.queues.write().await;
-            let queue_list = queues.entry(game_mode).or_insert_with(Vec::new);
+            let mut shared = self.shared.lock().expect("matchmaking state poisoned");
+            let queue_list = shared.queues.entry(game_mode).or_insert_with(Vec::new);
             queue_list.push(queue_entry);
         }
 
         // Update player status
-        {
-            let mut online_players = self.online_players.write().await;
-            if let Some(player_entry) = online_players.get_mut(&player_id) {
-                player_entry.status = PlayerStatus::Matchmaking;
-            }
+        if let Some(player_entry) = self.online_players.get_mut(&player_id) {
+            player_entry.status = PlayerStatus::Matchmaking;
         }
 
         // Fire event
@@ -520,21 +527,18 @@ impl MatchmakingService {
     }
 
     /// Remove player from matchmaking queue
-    pub async fn leave_queue(&self, player_id: Uuid, reason: String) -> NetworkResult<()> {
+    pub async fn leave_queue(&mut self, player_id: Uuid, reason: String) -> NetworkResult<()> {
         // Remove from all queues
         {
-            let mut queues = self.queues.write().await;
-            for queue_list in queues.values_mut() {
+            let mut shared = self.shared.lock().expect("matchmaking state poisoned");
+            for queue_list in shared.queues.values_mut() {
                 queue_list.retain(|entry| entry.player.player_id != player_id);
             }
         }
 
         // Update player status
-        {
-            let mut online_players = self.online_players.write().await;
-            if let Some(player) = online_players.get_mut(&player_id) {
-                player.status = PlayerStatus::Online;
-            }
+        if let Some(player) = self.online_players.get_mut(&player_id) {
+            player.status = PlayerStatus::Online;
         }
 
         // Fire event
@@ -551,7 +555,7 @@ impl MatchmakingService {
 
     /// Create custom lobby
     pub async fn create_lobby(
-        &self,
+        &mut self,
         host_id: Uuid,
         name: String,
         game_mode: GameMode,
@@ -565,13 +569,11 @@ impl MatchmakingService {
         }
 
         // Get host player info
-        let host_player = {
-            let online_players = self.online_players.read().await;
-            online_players
-                .get(&host_id)
-                .cloned()
-                .ok_or_else(|| NetworkError::matchmaking("host player not online"))?
-        };
+        let host_player = self
+            .online_players
+            .get(&host_id)
+            .cloned()
+            .ok_or_else(|| NetworkError::matchmaking("host player not online"))?;
 
         // Create lobby
         let lobby_id = Uuid::new_v4();
@@ -594,16 +596,13 @@ impl MatchmakingService {
 
         // Store lobby
         {
-            let mut lobbies = self.lobbies.write().await;
-            lobbies.insert(lobby_id, lobby);
+            let mut shared = self.shared.lock().expect("matchmaking state poisoned");
+            shared.lobbies.insert(lobby_id, lobby);
         }
 
         // Update host status
-        {
-            let mut online_players = self.online_players.write().await;
-            if let Some(player) = online_players.get_mut(&host_id) {
-                player.status = PlayerStatus::InLobby;
-            }
+        if let Some(player) = self.online_players.get_mut(&host_id) {
+            player.status = PlayerStatus::InLobby;
         }
 
         // Fire event
@@ -617,24 +616,23 @@ impl MatchmakingService {
 
     /// Join lobby
     pub async fn join_lobby(
-        &self,
+        &mut self,
         player_id: Uuid,
         lobby_id: Uuid,
         password: Option<String>,
     ) -> NetworkResult<()> {
         // Get player info
-        let player = {
-            let online_players = self.online_players.read().await;
-            online_players
-                .get(&player_id)
-                .cloned()
-                .ok_or_else(|| NetworkError::matchmaking("player not online"))?
-        };
+        let player = self
+            .online_players
+            .get(&player_id)
+            .cloned()
+            .ok_or_else(|| NetworkError::matchmaking("player not online"))?;
 
         // Add to lobby
         {
-            let mut lobbies = self.lobbies.write().await;
-            let lobby = lobbies
+            let mut shared = self.shared.lock().expect("matchmaking state poisoned");
+            let lobby = shared
+                .lobbies
                 .get_mut(&lobby_id)
                 .ok_or_else(|| NetworkError::matchmaking("lobby not found"))?;
 
@@ -663,11 +661,8 @@ impl MatchmakingService {
         }
 
         // Update player status
-        {
-            let mut online_players = self.online_players.write().await;
-            if let Some(player_entry) = online_players.get_mut(&player_id) {
-                player_entry.status = PlayerStatus::InLobby;
-            }
+        if let Some(player_entry) = self.online_players.get_mut(&player_id) {
+            player_entry.status = PlayerStatus::InLobby;
         }
 
         // Fire event
@@ -684,14 +679,14 @@ impl MatchmakingService {
 
     /// Leave lobby
     pub async fn leave_lobby(
-        &self,
+        &mut self,
         player_id: Uuid,
         lobby_id: Uuid,
         reason: String,
     ) -> NetworkResult<()> {
         {
-            let mut lobbies = self.lobbies.write().await;
-            if let Some(lobby) = lobbies.get_mut(&lobby_id) {
+            let mut shared = self.shared.lock().expect("matchmaking state poisoned");
+            if let Some(lobby) = shared.lobbies.get_mut(&lobby_id) {
                 // Remove player
                 lobby.players.retain(|p| p.player_id != player_id);
                 lobby.spectators.retain(|&id| id != player_id);
@@ -713,11 +708,8 @@ impl MatchmakingService {
         }
 
         // Update player status
-        {
-            let mut online_players = self.online_players.write().await;
-            if let Some(player) = online_players.get_mut(&player_id) {
-                player.status = PlayerStatus::Online;
-            }
+        if let Some(player) = self.online_players.get_mut(&player_id) {
+            player.status = PlayerStatus::Online;
         }
 
         // Fire event
@@ -735,9 +727,10 @@ impl MatchmakingService {
 
     /// Get lobby list
     pub async fn get_lobbies(&self, filter: LobbyFilter) -> Vec<GameLobby> {
-        let lobbies = self.lobbies.read().await;
+        let shared = self.shared.lock().expect("matchmaking state poisoned");
 
-        lobbies
+        shared
+            .lobbies
             .values()
             .filter(|lobby| filter.matches(lobby))
             .cloned()
@@ -746,14 +739,12 @@ impl MatchmakingService {
 
     /// Get online players count
     pub async fn get_online_players_count(&self) -> usize {
-        let online_players = self.online_players.read().await;
-        online_players.len()
+        self.online_players.len()
     }
 
     /// Matchmaking processor background task
     async fn matchmaking_processor_task(
-        queues: Arc<RwLock<HashMap<GameMode, Vec<MatchmakingQueue>>>>,
-        lobbies: Arc<RwLock<HashMap<Uuid, GameLobby>>>,
+        shared: SharedMatchmakingState,
         config: MatchmakingConfig,
         event_callback: Option<Arc<dyn MatchmakingEventCallback + Send + Sync>>,
     ) {
@@ -762,11 +753,14 @@ impl MatchmakingService {
         loop {
             interval.tick().await;
 
-            // Process matchmaking for each game mode
-            let mut queues_lock = queues.write().await;
-            let mut lobbies_lock = lobbies.write().await;
+            // Process matchmaking for each game mode.  The guard is dropped at
+            // the end of this iteration, before the next `tick().await`.
+            //
+            // Reborrow the guarded state once so the queue list and the lobby
+            // table can be borrowed as disjoint fields inside the loop below.
+            let shared: &mut MatchmakingShared = &mut shared.lock().expect("matchmaking state poisoned");
 
-            for (game_mode, queue_list) in queues_lock.iter_mut() {
+            for (game_mode, queue_list) in shared.queues.iter_mut() {
                 if queue_list.len() >= 2 {
                     // Try to match players
                     if let Some(matched_players) = Self::find_match(queue_list) {
@@ -794,7 +788,7 @@ impl MatchmakingService {
                             region: config.preferred_region.clone(),
                         };
 
-                        lobbies_lock.insert(lobby_id, lobby);
+                        shared.lobbies.insert(lobby_id, lobby);
 
                         // Remove matched players from queue
                         for player in &matched_players {
@@ -855,17 +849,19 @@ impl MatchmakingService {
     }
 
     /// Lobby cleanup background task
-    async fn lobby_cleanup_task(lobbies: Arc<RwLock<HashMap<Uuid, GameLobby>>>) {
+    async fn lobby_cleanup_task(shared: SharedMatchmakingState) {
         let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(60));
 
         loop {
             interval.tick().await;
 
-            let mut lobbies_lock = lobbies.write().await;
+            // The guard is dropped at the end of this iteration, before the
+            // next `tick().await`.
+            let mut shared = shared.lock().expect("matchmaking state poisoned");
             let now = Utc::now();
 
             // Remove old/empty lobbies
-            lobbies_lock.retain(|_, lobby| {
+            shared.lobbies.retain(|_, lobby| {
                 let age_minutes = now.signed_duration_since(lobby.created_at).num_minutes();
 
                 // Keep lobbies that are:
@@ -928,13 +924,13 @@ mod tests {
 
     #[tokio::test]
     async fn test_matchmaking_service_creation() {
-        let service = MatchmakingService::new();
+        let mut service = MatchmakingService::new();
         assert_eq!(service.get_online_players_count().await, 0);
     }
 
     #[tokio::test]
     async fn test_player_registration() {
-        let service = MatchmakingService::new();
+        let mut service = MatchmakingService::new();
 
         let player = MatchmakingPlayer {
             player_id: Uuid::new_v4(),
@@ -960,7 +956,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_lobby_creation() {
-        let service = MatchmakingService::new();
+        let mut service = MatchmakingService::new();
 
         let host_id = Uuid::new_v4();
         let player = MatchmakingPlayer {

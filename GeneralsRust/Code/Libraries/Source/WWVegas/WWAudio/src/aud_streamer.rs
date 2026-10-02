@@ -210,36 +210,40 @@ pub struct StreamStatus {
 }
 
 /// Audio streamer for large files and real-time playback
+///
+/// The streamer is shared as `Arc<AudioStreamer>` between the task that
+/// drives playback commands and the task that services/fills the stream on a
+/// tokio worker thread, so its mutable fields stay behind shared locks.
 pub struct AudioStreamer {
     /// Stream configuration
     config: StreamConfig,
-    /// Current stream state
+    // THREAD: game task reads state, stream servicing task writes it
     state: Arc<RwLock<StreamState>>,
-    /// Stream control flags
+    // THREAD: game task sets flags, stream servicing task reads/clears them
     flags: Arc<Mutex<StreamFlags>>,
     /// Associated audio device
     _device: Weak<AudioDevice>,
-    /// Associated audio channel
+    // THREAD: stream task and handle owners share one playback channel
     channel: Option<Arc<Mutex<AudioChannel>>>,
-    /// Current audio format
+    // THREAD: game task writes on open, stream servicing task reads
     format: Arc<RwLock<EnhancedAudioFormat>>,
-    /// Audio sample for playback
+    // THREAD: stream servicing task fills the sample, game task reads it
     sample: Arc<Mutex<AudioSample>>,
-    /// Current file handle
+    // THREAD: game task opens/closes, stream servicing task reads
     file: Arc<Mutex<Option<File>>>,
-    /// File metadata
+    // THREAD: game task seeks, stream servicing task advances it
     file_info: Arc<Mutex<FileInfo>>,
-    /// Stream timing information
+    // THREAD: stream servicing task updates timing, game task reads it
     timing: Arc<Mutex<StreamTiming>>,
-    /// Stream name for debugging
+    // THREAD: game task renames the stream, other tasks read it
     name: Arc<RwLock<String>>,
-    /// Volume control
+    // THREAD: game task sets volume, other tasks read it
     volume: Arc<Mutex<Volume>>,
-    /// Pause control mutex
+    // THREAD: pause holds this lock, resume on another task releases it
     pause_lock: Arc<tokio::sync::Mutex<()>>,
-    /// Stream lock for thread safety
+    // THREAD: serialises open/start/stop between concurrent tasks
     stream_lock: Arc<tokio::sync::Mutex<()>>,
-    /// Stream buffering manager
+    // THREAD: stream servicing task fills buffers, game task reads fill stats
     stream_buffer: Arc<Mutex<StreamBuffering>>,
 }
 
@@ -300,8 +304,10 @@ impl Default for StreamTiming {
 /// Global stream manager for handling multiple streams
 pub struct StreamManager {
     /// Map of active streams
+    // THREAD: game task registers/unregisters, stream tasks walk the map
     pub(crate) streams: Arc<RwLock<HashMap<u64, Arc<AudioStreamer>>>>,
     /// Next stream ID
+    // THREAD: game task allocates IDs from any task that registers a stream
     next_stream_id: Arc<Mutex<u64>>,
 }
 
@@ -433,9 +439,6 @@ impl AudioStreamer {
             .map_err(|_| Error::Channel(ChannelError::AllocationFailed))?;
 
         let stream_buffer = Arc::new(Mutex::new(StreamBuffering::new()));
-        if let Ok(mut buffer_guard) = stream_buffer.lock() {
-            buffer_guard.set_self_reference(&stream_buffer);
-        }
 
         let streamer = Arc::new(Self {
             config: config.clone(),

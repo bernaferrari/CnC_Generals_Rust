@@ -24,7 +24,8 @@ use crate::sync::frame_buffer::FrameBuffer;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
-use tokio::sync::{Mutex, Notify, mpsc};
+use std::sync::{Mutex, MutexGuard};
+use tokio::sync::{Notify, mpsc};
 use tracing::{debug, info, warn};
 
 // ---------------------------------------------------------------------------
@@ -263,6 +264,37 @@ pub trait FrameDispatch {
 // Game Synchronizer
 // ---------------------------------------------------------------------------
 
+/// Mutable synchronizer state, guarded as one bundle.
+struct SyncCore {
+    /// Per-player command receiver channels.
+    command_inputs: HashMap<u8, mpsc::UnboundedReceiver<NetCommand>>,
+    /// Outgoing commands to send to peers (player_id -> sender).
+    command_outputs: HashMap<u8, mpsc::UnboundedSender<NetCommand>>,
+    /// Command buffer.
+    command_buffer: CommandBuffer,
+    /// Frame history buffer.
+    frame_buffer: FrameBuffer,
+    /// Desync manager.
+    desync_manager: DesyncManager,
+    /// Metrics.
+    metrics: SyncMetrics,
+}
+
+impl Default for SyncCore {
+    fn default() -> Self {
+        Self {
+            command_inputs: HashMap::new(),
+            command_outputs: HashMap::new(),
+            command_buffer: CommandBuffer::new(),
+            frame_buffer: FrameBuffer::new(),
+            desync_manager: DesyncManager::new(
+                10, // default max desyncs
+            ),
+            metrics: SyncMetrics::default(),
+        }
+    }
+}
+
 /// Deterministic lockstep game synchronizer.
 ///
 /// Collects commands from local input and remote peers, orders them by frame
@@ -273,18 +305,13 @@ pub struct GameSynchronizer {
     config: SyncConfig,
     /// Current state.
     state: AtomicSyncState,
-    /// Per-player command receiver channels.
-    command_inputs: Mutex<HashMap<u8, mpsc::UnboundedReceiver<NetCommand>>>,
-    /// Outgoing commands to send to peers (player_id -> sender).
-    command_outputs: Mutex<HashMap<u8, mpsc::UnboundedSender<NetCommand>>>,
-    /// Command buffer.
-    command_buffer: Mutex<CommandBuffer>,
-    /// Frame history buffer.
-    frame_buffer: Mutex<FrameBuffer>,
-    /// Desync manager.
-    desync_manager: Mutex<DesyncManager>,
-    /// Metrics.
-    metrics: Mutex<SyncMetrics>,
+    /// THREAD: single bundle for all mutable sync state (channel registries,
+    /// command/frame buffers, desync manager and metrics). The synchronizer's
+    /// `&self` methods are called from the transport ingest path, the game-loop
+    /// tick and CRC verification on arbitrary tasks; this lock serializes those
+    /// short synchronous sections. It is never held across an `.await` or across
+    /// the `FrameDispatch` callback.
+    core: Mutex<SyncCore>,
     /// Current frame counter.
     current_frame: AtomicU32,
     /// Number of players expected.
@@ -325,19 +352,18 @@ impl GameSynchronizer {
         Self {
             config,
             state: AtomicSyncState::new(SyncState::Connecting),
-            command_inputs: Mutex::new(HashMap::new()),
-            command_outputs: Mutex::new(HashMap::new()),
-            command_buffer: Mutex::new(CommandBuffer::new()),
-            frame_buffer: Mutex::new(FrameBuffer::new()),
-            desync_manager: Mutex::new(DesyncManager::new(
-                10, // default max desyncs
-            )),
-            metrics: Mutex::new(SyncMetrics::default()),
+            core: Mutex::new(SyncCore::default()),
             current_frame: AtomicU32::new(0),
             num_players: AtomicU32::new(0),
             tick_notify: Notify::new(),
             running: AtomicBool::new(false),
         }
+    }
+
+    fn lock_core(&self) -> MutexGuard<'_, SyncCore> {
+        self.core
+            .lock()
+            .expect("GameSynchronizer core lock poisoned")
     }
 
     /// Register a player's command input channel.
@@ -352,13 +378,14 @@ impl GameSynchronizer {
             return Err(NetworkError::player("invalid player index"));
         }
 
-        let mut inputs = self.command_inputs.lock().await;
-        if inputs.contains_key(&player_id) {
+        let mut core = self.lock_core();
+        if core.command_inputs.contains_key(&player_id) {
             return Err(NetworkError::player("player already registered"));
         }
 
         let (tx, rx) = mpsc::unbounded_channel();
-        inputs.insert(player_id, rx);
+        core.command_inputs.insert(player_id, rx);
+        drop(core);
 
         self.num_players.fetch_add(1, Ordering::SeqCst);
         info!("Registered player {} in synchronizer", player_id);
@@ -367,7 +394,7 @@ impl GameSynchronizer {
 
     /// Unregister a player (e.g. on disconnect).
     pub async fn unregister_player(&self, player_id: u8) {
-        self.command_inputs.lock().await.remove(&player_id);
+        self.lock_core().command_inputs.remove(&player_id);
         self.num_players.fetch_max(0, Ordering::SeqCst);
         info!("Unregistered player {} from synchronizer", player_id);
     }
@@ -377,12 +404,11 @@ impl GameSynchronizer {
     /// The command will be queued for the target frame and forwarded to
     /// all remote peers.
     pub async fn submit_local_command(&self, cmd: NetCommand) -> NetworkResult<()> {
-        // Buffer locally.
-        self.command_buffer.lock().await.insert(cmd.clone());
+        // Buffer locally, then forward to all remote peers.
+        let mut core = self.lock_core();
+        core.command_buffer.insert(cmd.clone());
 
-        // Forward to all remote peers.
-        let outputs = self.command_outputs.lock().await;
-        for (&player_id, sender) in outputs.iter() {
+        for (&player_id, sender) in core.command_outputs.iter() {
             // Don't echo back to the sender.
             if player_id != cmd.player_id {
                 if sender.send(cmd.clone()).is_err() {
@@ -411,7 +437,7 @@ impl GameSynchronizer {
             )));
         }
 
-        self.command_buffer.lock().await.insert(cmd);
+        self.lock_core().command_buffer.insert(cmd);
         Ok(())
     }
 
@@ -421,12 +447,14 @@ impl GameSynchronizer {
         player_id: u8,
         sender: mpsc::UnboundedSender<NetCommand>,
     ) {
-        self.command_outputs.lock().await.insert(player_id, sender);
+        self.lock_core()
+            .command_outputs
+            .insert(player_id, sender);
     }
 
     /// Disconnect an output channel.
     pub async fn disconnect_player_output(&self, player_id: u8) {
-        self.command_outputs.lock().await.remove(&player_id);
+        self.lock_core().command_outputs.remove(&player_id);
     }
 
     /// Transition to a new state.
@@ -450,7 +478,7 @@ impl GameSynchronizer {
 
     /// Get a snapshot of sync metrics.
     pub async fn metrics(&self) -> SyncMetrics {
-        self.metrics.lock().await.clone()
+        self.lock_core().metrics.clone()
     }
 
     /// Set the number of expected players.
@@ -474,20 +502,23 @@ impl GameSynchronizer {
         }
 
         // Drain incoming commands from all player channels into the buffer.
-        self.drain_input_channels().await;
+        self.drain_input_channels();
 
         let current = self.current_frame.load(Ordering::SeqCst);
         let num_players = self.num_players.load(Ordering::SeqCst) as u8;
-        let runahead = self.command_buffer.lock().await.runahead();
 
         // Check if we should try to execute `current` frame.
         // Frame is ready when we have commands from all expected players
         // or the frame has been pending long enough (timeout).
         let target_frame = current;
-        let ready = {
-            let buf = self.command_buffer.lock().await;
-            buf.has_frame_ready(target_frame, num_players)
-                || buf.lowest_frame() == Some(target_frame)
+        let (runahead, ready) = {
+            let core = self.lock_core();
+            let buf = &core.command_buffer;
+            (
+                buf.runahead(),
+                buf.has_frame_ready(target_frame, num_players)
+                    || buf.lowest_frame() == Some(target_frame),
+            )
         };
 
         if !ready {
@@ -496,32 +527,29 @@ impl GameSynchronizer {
 
         // Extract commands for this frame.
         let commands = self
+            .lock_core()
             .command_buffer
-            .lock()
-            .await
             .take_frame_commands(target_frame);
         let command_count = commands.len();
 
         // Execute through the dispatch handler.
         let state_crc = dispatch.on_frame_commands(target_frame, &commands);
 
-        // Record in frame buffer.
         {
-            let mut fb = self.frame_buffer.lock().await;
-            fb.record_frame(
+            let mut core = self.lock_core();
+
+            // Record in frame buffer.
+            core.frame_buffer.record_frame(
                 target_frame,
                 state_crc,
                 command_count as u16,
                 target_frame as u64,
             );
-        }
 
-        // Update metrics.
-        {
-            let mut metrics = self.metrics.lock().await;
-            metrics.frames_executed += 1;
-            metrics.commands_processed += command_count as u64;
-            metrics.current_runahead = runahead;
+            // Update metrics.
+            core.metrics.frames_executed += 1;
+            core.metrics.commands_processed += command_count as u64;
+            core.metrics.current_runahead = runahead;
         }
 
         // Advance frame counter.
@@ -530,8 +558,9 @@ impl GameSynchronizer {
         // Prune old commands.
         let new_current = self.current_frame.load(Ordering::SeqCst);
         {
-            let mut buf = self.command_buffer.lock().await;
-            buf.prune(new_current.saturating_sub(self.config.max_runahead));
+            let mut core = self.lock_core();
+            core.command_buffer
+                .prune(new_current.saturating_sub(self.config.max_runahead));
         }
 
         Ok(Some((target_frame, commands)))
@@ -548,8 +577,11 @@ impl GameSynchronizer {
         remote_player_id: u8,
     ) -> NetworkResult<bool> {
         let local_crc = {
-            let fb = self.frame_buffer.lock().await;
-            fb.get_frame(frame).map(|e| e.state_crc).unwrap_or(0)
+            let core = self.lock_core();
+            core.frame_buffer
+                .get_frame(frame)
+                .map(|e| e.state_crc)
+                .unwrap_or(0)
         };
 
         if local_crc == remote_crc {
@@ -562,20 +594,19 @@ impl GameSynchronizer {
             frame, local_crc, remote_player_id, remote_crc
         );
 
-        let mut dm = self.desync_manager.lock().await;
-        dm.check_frame_crc(frame, local_crc, remote_crc, remote_player_id)?;
+        let mut core = self.lock_core();
+        core.desync_manager
+            .check_frame_crc(frame, local_crc, remote_crc, remote_player_id)?;
 
-        {
-            let mut metrics = self.metrics.lock().await;
-            metrics.crc_mismatches += 1;
-        }
+        core.metrics.crc_mismatches += 1;
 
         Ok(false)
     }
 
     /// Determine the recommended recovery action for the current desync state.
     pub async fn recovery_action(&self) -> DesyncRecoveryAction {
-        let dm = self.desync_manager.lock().await;
+        let core = self.lock_core();
+        let dm = &core.desync_manager;
         if dm.is_in_recovery_mode() {
             // Already in recovery; request frame resend.
             DesyncRecoveryAction::RequestFrameResend
@@ -588,20 +619,14 @@ impl GameSynchronizer {
 
     /// Enter recovery mode: roll back to the last known-good frame.
     pub async fn enter_recovery(&self) -> NetworkResult<u32> {
-        let last_good = {
-            let dm = self.desync_manager.lock().await;
-            dm.last_known_good_frame()
-        };
+        let last_good = self.lock_core().desync_manager.last_known_good_frame();
 
         self.state.store(SyncState::Recovering);
         {
-            let mut dm = self.desync_manager.lock().await;
-            dm.enter_recovery_mode(last_good);
+            let mut core = self.lock_core();
+            core.desync_manager.enter_recovery_mode(last_good);
         }
-        {
-            let mut metrics = self.metrics.lock().await;
-            metrics.recovery_count += 1;
-        }
+        self.lock_core().metrics.recovery_count += 1;
 
         info!("Entering recovery mode at frame {}", last_good);
         Ok(last_good)
@@ -610,8 +635,9 @@ impl GameSynchronizer {
     /// Exit recovery mode after successful resynchronization.
     pub async fn exit_recovery(&self) {
         self.state.store(SyncState::Running);
-        let mut dm = self.desync_manager.lock().await;
-        dm.exit_recovery_mode();
+        self.lock_core()
+            .desync_manager
+            .exit_recovery_mode();
         info!("Exited recovery mode");
     }
 
@@ -620,17 +646,19 @@ impl GameSynchronizer {
         self.state.store(SyncState::Connecting);
         self.current_frame.store(0, Ordering::SeqCst);
         self.num_players.store(0, Ordering::SeqCst);
-        self.command_buffer.lock().await.clear();
-        self.frame_buffer.lock().await.reset();
-        self.desync_manager.lock().await.reset();
-        *self.metrics.lock().await = SyncMetrics::default();
+
+        let mut core = self.lock_core();
+        core.command_buffer.clear();
+        core.frame_buffer.reset();
+        core.desync_manager.reset();
+        core.metrics = SyncMetrics::default();
         info!("Synchronizer reset");
     }
 
     /// Get the run-ahead buffer depth (how many frames we are currently ahead).
     pub async fn runahead_depth(&self) -> u32 {
-        let buf = self.command_buffer.lock().await;
-        let highest = buf.highest_frame().unwrap_or(0);
+        let core = self.lock_core();
+        let highest = core.command_buffer.highest_frame().unwrap_or(0);
         let current = self.current_frame.load(Ordering::SeqCst);
         highest.saturating_sub(current)
     }
@@ -641,18 +669,24 @@ impl GameSynchronizer {
     /// is available.
     pub async fn adjust_runahead(&self, new_runahead: u32) {
         let clamped = new_runahead.clamp(self.config.min_runahead, self.config.max_runahead);
-        self.command_buffer.lock().await.set_runahead(clamped);
+        self.lock_core().command_buffer.set_runahead(clamped);
         debug!("Run-ahead adjusted to {}", clamped);
     }
 
     /// Drain all player input channels into the command buffer.
-    async fn drain_input_channels(&self) {
-        let mut inputs = self.command_inputs.lock().await;
-        for (&player_id, rx) in inputs.iter_mut() {
+    fn drain_input_channels(&self) {
+        let mut core = self.lock_core();
+
+        let mut drained = Vec::new();
+        for rx in core.command_inputs.values_mut() {
             // Drain all pending commands.
             while let Ok(cmd) = rx.try_recv() {
-                self.command_buffer.lock().await.insert(cmd);
+                drained.push(cmd);
             }
+        }
+
+        for cmd in drained {
+            core.command_buffer.insert(cmd);
         }
     }
 }
@@ -792,14 +826,14 @@ mod tests {
     async fn test_runahead_adjustment() {
         let sync = GameSynchronizer::new(test_config());
         sync.adjust_runahead(5).await;
-        assert_eq!(sync.command_buffer.lock().await.runahead(), 5);
+        assert_eq!(sync.lock_core().command_buffer.runahead(), 5);
 
         // Clamped to max.
         sync.adjust_runahead(100).await;
-        assert_eq!(sync.command_buffer.lock().await.runahead(), 10);
+        assert_eq!(sync.lock_core().command_buffer.runahead(), 10);
 
         // Clamped to min.
         sync.adjust_runahead(0).await;
-        assert_eq!(sync.command_buffer.lock().await.runahead(), 2);
+        assert_eq!(sync.lock_core().command_buffer.runahead(), 2);
     }
 }

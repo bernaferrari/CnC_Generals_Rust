@@ -171,15 +171,21 @@ impl GameSpyBuddyMessageQueue {
     }
 }
 
-static THE_GAMESPY_BUDDY_QUEUE: OnceLock<Arc<Mutex<GameSpyBuddyMessageQueue>>> = OnceLock::new();
+/// THREAD: C++-parity global buddy message queue. Game/GUI threads push
+/// requests and drain responses while the buddy worker drains requests and
+/// pushes responses; this single mutex is the only cross-thread handoff and is
+/// never held across an `.await`.
+type SharedBuddyQueue = Arc<Mutex<GameSpyBuddyMessageQueue>>;
 
-pub fn init_buddy_message_queue() -> Arc<Mutex<GameSpyBuddyMessageQueue>> {
+static THE_GAMESPY_BUDDY_QUEUE: OnceLock<SharedBuddyQueue> = OnceLock::new();
+
+pub fn init_buddy_message_queue() -> SharedBuddyQueue {
     THE_GAMESPY_BUDDY_QUEUE
         .get_or_init(|| Arc::new(Mutex::new(GameSpyBuddyMessageQueue::default())))
         .clone()
 }
 
-pub fn get_buddy_message_queue() -> Option<Arc<Mutex<GameSpyBuddyMessageQueue>>> {
+pub fn get_buddy_message_queue() -> Option<SharedBuddyQueue> {
     THE_GAMESPY_BUDDY_QUEUE.get().cloned()
 }
 

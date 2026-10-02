@@ -7,9 +7,8 @@
 //! - Operating system details
 //! - Display information
 
-use once_cell::sync::OnceCell;
 use serde::{Deserialize, Serialize};
-use std::sync::Mutex;
+use std::cell::RefCell;
 
 /// CPU vendor type
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -510,24 +509,26 @@ impl SystemInfo {
     }
 }
 
-/// Global system information instance
-static SYSTEM_INFO: OnceCell<Mutex<SystemInfo>> = OnceCell::new();
+// Global system information instance
+// THREAD: C++ plain static; driven only by the single game/client thread.
+thread_local! {
+    static SYSTEM_INFO: RefCell<Option<SystemInfo>> = const { RefCell::new(None) };
+}
 
 /// Get the global system information instance
 pub fn get_system_info() -> SystemInfo {
-    SYSTEM_INFO
-        .get_or_init(|| Mutex::new(SystemInfo::detect()))
-        .lock()
-        .unwrap()
-        .clone()
+    SYSTEM_INFO.with_borrow_mut(|slot| {
+        slot.get_or_insert_with(SystemInfo::detect).clone()
+    })
 }
 
 /// Refresh the global system information
 pub fn refresh_system_info() {
-    if let Some(info) = SYSTEM_INFO.get() {
-        let mut guard = info.lock().unwrap();
-        *guard = SystemInfo::detect();
-    }
+    SYSTEM_INFO.with_borrow_mut(|slot| {
+        if slot.is_some() {
+            *slot = Some(SystemInfo::detect());
+        }
+    });
 }
 
 #[cfg(test)]

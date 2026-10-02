@@ -328,7 +328,7 @@ impl SabotageFakeBuildingCrateCollide {
         }
 
         let (should_damage, max_health) = match other.read() {
-            Ok(other_lock) if other_lock.get_controlling_player().is_some() => {
+            Ok(other_lock) if other_lock.with_controlling_player(|_| true).unwrap_or(false) => {
                 match other_lock.get_body_module() {
                     Some(body) => match body.lock() {
                         Ok(body_guard) => (true, body_guard.get_max_health()),

@@ -14,6 +14,9 @@ use super::base_handle::{BaseSoundHandle, miles_to_volume, volume_to_miles};
 /// 2D sound handle implementation mirroring `Sound2DHandleClass`
 pub struct Sound2DHandle {
     pub base: BaseSoundHandle,
+    // THREAD: handle clones alias one channel on the game thread, and the
+    // last clone is dropped on a thread-pool worker by the delayed-release
+    // queue, so the shared channel keeps its shared, locked handle
     channel: Arc<Mutex<AudioChannel>>,
     mixer: Arc<AudioMixer>,
 }

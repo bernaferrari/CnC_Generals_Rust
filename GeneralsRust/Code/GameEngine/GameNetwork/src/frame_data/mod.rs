@@ -20,8 +20,7 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap, VecDeque};
-use std::sync::Arc;
-use tokio::sync::RwLock;
+use std::sync::{Arc, Mutex, MutexGuard};
 use tracing::{error, info, trace, warn};
 
 pub mod buffer;
@@ -226,26 +225,41 @@ pub struct FrameStats {
     pub timestamp: DateTime<Utc>,
 }
 
+/// Mutable frame-tracking state, guarded as one bundle.
+#[derive(Debug, Default)]
+struct FrameManagerState {
+    /// Current game frame
+    current_frame: u32,
+
+    /// Frame data storage (frame_number -> FrameData)
+    frames: BTreeMap<u32, FrameData>,
+
+    /// Expected players for frame synchronization
+    expected_players: Vec<u8>,
+
+    /// Frame execution queue
+    execution_queue: VecDeque<u32>,
+
+    /// Statistics
+    stats: FrameManagerStats,
+
+    /// Timestamp of the last executed frame
+    last_frame_exec: Option<NetworkInstant>,
+}
+
 /// Frame data manager handles frame synchronization and execution
 pub struct FrameDataManager {
     /// Configuration
     config: FrameManagerConfig,
 
-    /// Current game frame
-    current_frame: Arc<RwLock<u32>>,
-
-    /// Frame data storage (frame_number -> FrameData)
-    frames: Arc<RwLock<BTreeMap<u32, FrameData>>>,
-
-    /// Expected players for frame synchronization
-    expected_players: Arc<RwLock<Vec<u8>>>,
-
-    /// Frame execution queue
-    execution_queue: Arc<RwLock<VecDeque<u32>>>,
-
-    /// Statistics
-    stats: Arc<RwLock<FrameManagerStats>>,
-    last_frame_exec: Arc<RwLock<Option<NetworkInstant>>>,
+    /// THREAD: single bundle for all mutable frame-tracking state. The manager is
+    /// published behind the frozen shared-wrapper spelling used by
+    /// `connection/mod.rs`, so several tasks can hold the outer read guard and
+    /// call the `&self` methods concurrently; this lock serializes those short,
+    /// synchronous critical sections. It is never held across an `.await` —
+    /// frame execution drops the guard before invoking the executor and
+    /// re-locks afterwards.
+    state: Mutex<FrameManagerState>,
 
     /// Callback for frame execution
     frame_executor: Option<Arc<dyn FrameExecutor + Send + Sync>>,
@@ -322,25 +336,29 @@ impl FrameDataManager {
 
         Self {
             config,
-            current_frame: Arc::new(RwLock::new(0)),
-            frames: Arc::new(RwLock::new(BTreeMap::new())),
-            expected_players: Arc::new(RwLock::new(Vec::new())),
-            execution_queue: Arc::new(RwLock::new(VecDeque::new())),
-            stats: Arc::new(RwLock::new(FrameManagerStats::default())),
-            last_frame_exec: Arc::new(RwLock::new(None)),
+            state: Mutex::new(FrameManagerState::default()),
             frame_executor: None,
             execution_task: None,
         }
+    }
+
+    fn lock_state(&self) -> MutexGuard<'_, FrameManagerState> {
+        self.state
+            .lock()
+            .expect("FrameDataManager state lock poisoned")
     }
 
     /// Reset all frame tracking state
     pub async fn reset(&mut self) -> NetworkResult<()> {
         info!("Resetting frame data manager");
 
-        self.frames.write().await.clear();
-        self.execution_queue.write().await.clear();
-        *self.current_frame.write().await = 0;
-        *self.stats.write().await = FrameManagerStats::default();
+        {
+            let mut state = self.lock_state();
+            state.frames.clear();
+            state.execution_queue.clear();
+            state.current_frame = 0;
+            state.stats = FrameManagerStats::default();
+        }
 
         if let Some(handle) = self.execution_task.take() {
             if !handle.is_finished() {
@@ -363,8 +381,9 @@ impl FrameDataManager {
 
     /// Ensure a frame record exists for the provided number.
     pub async fn ensure_frame(&self, frame_number: u32) {
-        let mut frames = self.frames.write().await;
-        frames
+        let mut state = self.lock_state();
+        state
+            .frames
             .entry(frame_number)
             .or_insert_with(|| FrameData::new(frame_number));
     }
@@ -375,18 +394,21 @@ impl FrameDataManager {
             return;
         }
 
-        let mut frames = self.frames.write().await;
+        let mut state = self.lock_state();
         for frame in start..=end {
-            frames.entry(frame).or_insert_with(|| FrameData::new(frame));
+            state
+                .frames
+                .entry(frame)
+                .or_insert_with(|| FrameData::new(frame));
         }
     }
 
     /// Set expected players
     pub async fn set_expected_players(&self, players: Vec<u8>) {
         let player_count = players.len();
-        let mut expected = self.expected_players.write().await;
-        *expected = players;
-        info!("Set expected players: {:?}", *expected);
+        let mut state = self.lock_state();
+        state.expected_players = players;
+        info!("Set expected players: {:?}", state.expected_players);
         if let Some(telemetry) = telemetry() {
             telemetry.set_active_players(player_count);
         }
@@ -396,8 +418,10 @@ impl FrameDataManager {
     pub async fn add_command(&self, command: NetCommand) -> NetworkResult<()> {
         let frame_number = command.execution_frame;
 
+        let mut state = self.lock_state();
+
         // Validate frame number
-        let current_frame = *self.current_frame.read().await;
+        let current_frame = state.current_frame;
         if frame_number < current_frame {
             return Err(NetworkError::frame_sync(format!(
                 "command frame {} is in the past (current: {})",
@@ -414,25 +438,32 @@ impl FrameDataManager {
         }
 
         // Get or create frame data
+        state
+            .frames
+            .entry(frame_number)
+            .or_insert_with(|| FrameData::new(frame_number));
+
+        let mut queue_frame = false;
         {
-            let mut frames = self.frames.write().await;
-            let frame_data = frames
-                .entry(frame_number)
-                .or_insert_with(|| FrameData::new(frame_number));
+            let expected_players = state.expected_players.clone();
+            let frame_data = state
+                .frames
+                .get_mut(&frame_number)
+                .expect("frame entry was just inserted");
 
             frame_data.add_command(command)?;
 
             // Check if frame is now ready for execution
-            let expected_players = self.expected_players.read().await;
             if frame_data.is_ready_for_execution(&expected_players) && !frame_data.is_complete {
                 frame_data.mark_complete();
 
                 // Add to execution queue if it's the next frame to execute
-                if frame_number == current_frame {
-                    let mut queue = self.execution_queue.write().await;
-                    queue.push_back(frame_number);
-                }
+                queue_frame = frame_number == current_frame;
             }
+        }
+
+        if queue_frame {
+            state.execution_queue.push_back(frame_number);
         }
 
         trace!("Added command to frame {}", frame_number);
@@ -441,14 +472,14 @@ impl FrameDataManager {
 
     /// Return true when at least one frame is queued for execution.
     pub async fn has_ready_frame(&self) -> bool {
-        let queue = self.execution_queue.read().await;
-        !queue.is_empty()
+        let state = self.lock_state();
+        !state.execution_queue.is_empty()
     }
 
     /// Get frame data
     pub async fn get_frame(&self, frame_number: u32) -> Option<FrameData> {
-        let frames = self.frames.read().await;
-        frames.get(&frame_number).cloned()
+        let state = self.lock_state();
+        state.frames.get(&frame_number).cloned()
     }
 
     /// Update frame manager (call regularly)
@@ -470,17 +501,11 @@ impl FrameDataManager {
         let mut executed_count = 0;
 
         loop {
-            let frame_to_execute = {
-                let queue = self.execution_queue.read().await;
-                queue.front().cloned()
-            };
+            let frame_to_execute = self.lock_state().execution_queue.front().cloned();
 
             if let Some(frame_number) = frame_to_execute {
                 // Get frame data
-                let frame_data = {
-                    let frames = self.frames.read().await;
-                    frames.get(&frame_number).cloned()
-                };
+                let frame_data = self.lock_state().frames.get(&frame_number).cloned();
 
                 if let Some(mut frame_data) = frame_data {
                     if frame_data.is_complete && !frame_data.is_executed {
@@ -494,47 +519,37 @@ impl FrameDataManager {
                                     }
                                     frame_data.mark_executed();
 
+                                    let mut state = self.lock_state();
+
                                     // Update frame data in storage
-                                    {
-                                        let mut frames = self.frames.write().await;
-                                        frames.insert(frame_number, frame_data);
-                                    }
+                                    state.frames.insert(frame_number, frame_data);
 
                                     // Remove from execution queue
-                                    {
-                                        let mut queue = self.execution_queue.write().await;
-                                        queue.pop_front();
-                                    }
+                                    state.execution_queue.pop_front();
 
                                     // Update current frame
-                                    {
-                                        let mut current = self.current_frame.write().await;
-                                        *current = frame_number + 1;
-                                    }
+                                    state.current_frame = frame_number + 1;
 
-                                    {
-                                        let elapsed_ms =
-                                            execute_start.elapsed().as_secs_f64() * 1000.0;
-                                        let mut stats = self.stats.write().await;
-                                        stats.frames_processed += 1;
-                                        let processed = stats.frames_processed as f64;
-                                        stats.avg_frame_time_ms = if processed <= 1.0 {
-                                            elapsed_ms
-                                        } else {
-                                            ((stats.avg_frame_time_ms * (processed - 1.0))
-                                                + elapsed_ms)
-                                                / processed
-                                        };
-                                        let now = NetworkInstant::now();
-                                        let mut last_exec = self.last_frame_exec.write().await;
-                                        if let Some(prev) = *last_exec {
-                                            let delta = now.duration_since(prev).as_secs_f64();
-                                            if delta > 0.0 {
-                                                stats.current_fps = 1.0 / delta;
-                                            }
+                                    let elapsed_ms =
+                                        execute_start.elapsed().as_secs_f64() * 1000.0;
+                                    state.stats.frames_processed += 1;
+                                    let processed = state.stats.frames_processed as f64;
+                                    state.stats.avg_frame_time_ms = if processed <= 1.0 {
+                                        elapsed_ms
+                                    } else {
+                                        ((state.stats.avg_frame_time_ms * (processed - 1.0))
+                                            + elapsed_ms)
+                                            / processed
+                                    };
+                                    let now = NetworkInstant::now();
+                                    let prev_exec = state.last_frame_exec;
+                                    if let Some(prev) = prev_exec {
+                                        let delta = now.duration_since(prev).as_secs_f64();
+                                        if delta > 0.0 {
+                                            state.stats.current_fps = 1.0 / delta;
                                         }
-                                        *last_exec = Some(now);
                                     }
+                                    state.last_frame_exec = Some(now);
 
                                     executed_count += 1;
                                     trace!("Executed frame {}", frame_number);
@@ -544,10 +559,7 @@ impl FrameDataManager {
                                     executor.handle_frame_error(frame_number, e).await;
 
                                     // Remove failed frame from queue
-                                    {
-                                        let mut queue = self.execution_queue.write().await;
-                                        queue.pop_front();
-                                    }
+                                    self.lock_state().execution_queue.pop_front();
                                 }
                             }
                         } else {
@@ -562,10 +574,7 @@ impl FrameDataManager {
                     error!("Frame {} not found for execution", frame_number);
 
                     // Remove missing frame from queue
-                    {
-                        let mut queue = self.execution_queue.write().await;
-                        queue.pop_front();
-                    }
+                    self.lock_state().execution_queue.pop_front();
                 }
             } else {
                 // No frames to execute
@@ -583,57 +592,58 @@ impl FrameDataManager {
 
     /// Clean up old frame data
     async fn cleanup_old_frames(&self) {
-        let current_frame = *self.current_frame.read().await;
-        let cutoff_frame = current_frame.saturating_sub(self.config.max_frame_history);
+        let mut state = self.lock_state();
+        let cutoff_frame = state
+            .current_frame
+            .saturating_sub(self.config.max_frame_history);
 
-        let mut frames = self.frames.write().await;
-        frames.retain(|&frame_number, _| frame_number >= cutoff_frame);
+        state
+            .frames
+            .retain(|&frame_number, _| frame_number >= cutoff_frame);
     }
 
     /// Update statistics
     async fn update_statistics(&self) {
-        let mut stats = self.stats.write().await;
+        let mut state = self.lock_state();
 
         // Update pending frames count
-        let execution_queue = self.execution_queue.read().await;
-        stats.pending_frames = execution_queue.len();
+        state.stats.pending_frames = state.execution_queue.len();
     }
 
     /// Force frame execution (for timeout situations)
     pub async fn force_execute_frame(&self, frame_number: u32) -> NetworkResult<()> {
         warn!("Force executing frame {} due to timeout", frame_number);
 
-        {
-            let mut frames = self.frames.write().await;
-            if let Some(frame_data) = frames.get_mut(&frame_number) {
-                if !frame_data.is_complete {
-                    frame_data.mark_complete();
+        let mut state = self.lock_state();
 
-                    // Add to execution queue
-                    let mut queue = self.execution_queue.write().await;
-                    queue.push_back(frame_number);
-                }
+        let mut queue_frame = false;
+        if let Some(frame_data) = state.frames.get_mut(&frame_number) {
+            if !frame_data.is_complete {
+                frame_data.mark_complete();
+                queue_frame = true;
             }
         }
 
-        // Update statistics
-        {
-            let mut stats = self.stats.write().await;
-            stats.frames_skipped += 1;
+        if queue_frame {
+            // Add to execution queue
+            state.execution_queue.push_back(frame_number);
         }
+
+        // Update statistics
+        state.stats.frames_skipped += 1;
 
         Ok(())
     }
 
     /// Get current frame number
     pub async fn get_current_frame(&self) -> u32 {
-        *self.current_frame.read().await
+        self.lock_state().current_frame
     }
 
     /// Snapshot command count and checksum for a specific frame, if present.
     pub async fn frame_info(&self, frame_number: u32) -> Option<(u16, u32)> {
-        let frames = self.frames.read().await;
-        frames.get(&frame_number).map(|frame| {
+        let state = self.lock_state();
+        state.frames.get(&frame_number).map(|frame| {
             let command_count = frame.total_commands.min(u16::MAX as usize) as u16;
             (command_count, frame.checksum)
         })
@@ -641,24 +651,23 @@ impl FrameDataManager {
 
     /// Current measured frames-per-second value.
     pub async fn current_fps(&self) -> f64 {
-        let stats = self.stats.read().await;
-        stats.current_fps
+        self.lock_state().stats.current_fps
     }
 
     /// Get frame manager statistics
     pub async fn get_stats(&self) -> FrameManagerStats {
-        self.stats.read().await.clone()
+        self.lock_state().stats.clone()
     }
 
     /// Get frame history for debugging
     pub async fn get_frame_history(&self, count: usize) -> Vec<FrameStats> {
-        let frames = self.frames.read().await;
-        let current_frame = *self.current_frame.read().await;
+        let state = self.lock_state();
+        let current_frame = state.current_frame;
 
         let mut history = Vec::new();
         for i in 0..count {
             let frame_number = current_frame.saturating_sub(i as u32);
-            if let Some(frame_data) = frames.get(&frame_number) {
+            if let Some(frame_data) = state.frames.get(&frame_number) {
                 history.push(frame_data.get_stats());
             }
         }
@@ -672,13 +681,13 @@ impl FrameDataManager {
             return Ok(());
         }
 
-        let frames = self.frames.read().await;
-        let current_frame = *self.current_frame.read().await;
+        let state = self.lock_state();
+        let current_frame = state.current_frame;
 
         // Validate recent frames
         for i in 0..10 {
             let frame_number = current_frame.saturating_sub(i);
-            if let Some(frame_data) = frames.get(&frame_number) {
+            if let Some(frame_data) = state.frames.get(&frame_number) {
                 if frame_data.is_complete && !frame_data.validate_checksum() {
                     return Err(NetworkError::frame_sync(format!(
                         "checksum validation failed for frame {}",

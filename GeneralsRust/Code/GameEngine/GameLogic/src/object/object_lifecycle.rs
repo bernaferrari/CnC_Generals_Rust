@@ -983,8 +983,9 @@ impl Object {
 
     /// Call OnDie hooks on all modules that support the die interface
     pub(super) fn call_on_die_hooks(&mut self, damage_info: Option<&DamageInfo>) {
-        // Collect die module handles
-        let die_modules: Vec<Arc<ModuleEntry>> = self.die_module_handles.clone();
+        // Collect die module handles (resolved from the index list into `modules`)
+        let die_modules: Vec<Arc<ModuleEntry>> =
+            self.interface_entry_snapshots(&self.die_module_handles);
 
         for module_entry in die_modules {
             module_entry.with_module(|module| {

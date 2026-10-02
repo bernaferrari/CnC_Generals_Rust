@@ -241,19 +241,13 @@ impl HealCrateCollide {
         let Some(other_handle) = other.as_object_handle() else {
             return Ok(false);
         };
-        let Some(player) = other_handle
+        let healed = other_handle
             .read()
             .map_err(|_| CollisionError::InvalidObject("Failed to lock collector".to_string()))?
-            .get_controlling_player()
-        else {
+            .with_controlling_player_mut(|player_guard| player_guard.heal_all_objects());
+        if healed.is_none() {
             return Ok(false);
-        };
-
-        let Ok(mut player_guard) = player.write() else {
-            return Ok(false);
-        };
-        player_guard.heal_all_objects();
-        drop(player_guard);
+        }
 
         self.play_heal_audio(&other.get_position());
         Ok(true)

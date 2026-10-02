@@ -285,7 +285,6 @@ pub struct MeshRenderManager {
     gpu_texture_views: HashMap<String, Arc<wgpu::TextureView>>,
     stats: MeshRenderStats,
     pipeline_mgr: WgpuPipelineManager,
-    asset_manager: Option<Arc<Mutex<AssetManager>>>,
     pass_texture_provider: Option<MeshPassTextureProvider>,
     color_format: wgpu::TextureFormat,
     depth_format: Option<wgpu::TextureFormat>,
@@ -356,7 +355,6 @@ impl MeshRenderManager {
             fallback_bind_warnings: HashMap::new(),
             stats: MeshRenderStats::default(),
             pipeline_mgr,
-            asset_manager: None,
             pass_texture_provider: None,
             color_format: wgpu::TextureFormat::Bgra8UnormSrgb,
             depth_format: Some(wgpu::TextureFormat::Depth32Float),
@@ -414,13 +412,6 @@ impl MeshRenderManager {
             .clone())
     }
 
-    pub fn set_asset_manager(
-        &mut self,
-        asset_manager: Arc<Mutex<AssetManager>>,
-    ) -> RendererResult<()> {
-        self.asset_manager = Some(asset_manager);
-        Ok(())
-    }
     /// Install the host's archive-backed pass-texture resolver (C++
     /// `WW3DAssetManager::Get_Texture` parity). Called once at renderer
     /// initialization; the mesh manager consults it only for W3D pass

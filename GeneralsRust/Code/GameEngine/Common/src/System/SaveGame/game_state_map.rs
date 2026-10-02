@@ -586,12 +586,18 @@ mod tests {
     use crate::System::{XferLoad, XferSave};
     use crate::common::ini::ini_game_data::{get_global_data, init_global_data};
     use std::fs;
-    use std::sync::{Arc, Mutex, OnceLock};
+    use std::cell::RefCell;
+    use std::rc::Rc;
+    use std::sync::{Arc, Mutex};
     use std::time::{SystemTime, UNIX_EPOCH};
 
-    fn test_guard() -> &'static Mutex<()> {
-        static TEST_GUARD: OnceLock<Mutex<()>> = OnceLock::new();
-        TEST_GUARD.get_or_init(|| Mutex::new(()))
+    // THREAD: test-local guard; the repo convention runs tests with
+    // `--test-threads=1`, so a per-thread cell replaces the old process mutex.
+    fn test_guard() -> Rc<RefCell<()>> {
+        thread_local! {
+            static TEST_GUARD: Rc<RefCell<()>> = Rc::new(RefCell::new(()));
+        }
+        TEST_GUARD.with(Rc::clone)
     }
 
     fn unique_temp_save_dir(label: &str) -> PathBuf {
@@ -621,7 +627,7 @@ mod tests {
 
     #[test]
     fn load_refreshes_new_game_after_skirmish_payload() {
-        let _guard = test_guard().lock().expect("test lock");
+        let _guard = test_guard().borrow();
         let save_dir = unique_temp_save_dir("load_refresh");
         let map_path = save_dir.join("FrozenValley.map");
         fs::write(&map_path, b"dummy map payload").expect("write dummy map");

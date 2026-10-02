@@ -762,24 +762,16 @@ impl DefaultCommandHandler {
             }
 
             if !guard.test_status(ObjectStatusTypes::Reconstructing) {
-                let refund = if let Some(player_arc) = guard.get_controlling_player() {
-                    if let Ok(player_guard) = player_arc.read() {
-                        guard
-                            .get_template()
-                            .calc_cost_to_build(Some(&*player_guard))
-                    } else {
-                        guard.get_template().calc_cost_to_build(None)
-                    }
-                } else {
-                    guard.get_template().calc_cost_to_build(None)
-                };
+                let refund = guard
+                    .with_controlling_player(|player_guard| {
+                        guard.get_template().calc_cost_to_build(Some(player_guard))
+                    })
+                    .unwrap_or_else(|| guard.get_template().calc_cost_to_build(None));
 
                 if refund > 0 {
-                    if let Some(player_arc) = guard.get_controlling_player() {
-                        if let Ok(mut player) = player_arc.write() {
-                            player.get_money_mut().add_money(refund);
-                        }
-                    }
+                    guard.with_controlling_player_mut(|player| {
+                        player.get_money_mut().add_money(refund);
+                    });
                 }
             }
 

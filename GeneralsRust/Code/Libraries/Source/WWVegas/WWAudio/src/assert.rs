@@ -13,7 +13,6 @@ pub enum AssertResult {
 }
 
 use parking_lot::Mutex;
-use std::sync::OnceLock;
 
 /// Audio assertion handler trait
 pub trait AssertHandler {
@@ -34,24 +33,26 @@ impl AssertHandler for DefaultAssertHandler {
     }
 }
 
-/// Global assertion handler store
-static ASSERT_HANDLER: OnceLock<Mutex<Box<dyn AssertHandler + Send + Sync>>> = OnceLock::new();
-
-fn handler_cell() -> &'static Mutex<Box<dyn AssertHandler + Send + Sync>> {
-    ASSERT_HANDLER.get_or_init(|| Mutex::new(Box::new(DefaultAssertHandler)))
-}
+/// Global assertion handler store (`None` means `DefaultAssertHandler`).
+// THREAD: asserts can fire from any thread (game thread and the audio
+// callback thread), while the handler can be swapped from the game thread,
+// so this process-global slot stays a mutex.
+static ASSERT_HANDLER: Mutex<Option<Box<dyn AssertHandler + Send + Sync>>> = Mutex::new(None);
 
 /// Set custom assertion handler
 pub fn set_assert_handler(handler: Box<dyn AssertHandler + Send + Sync>) {
-    *handler_cell().lock() = handler;
+    *ASSERT_HANDLER.lock() = Some(handler);
 }
 
 /// Internal assertion function
 #[doc(hidden)]
 pub fn assert_internal(condition: bool, message: &str, file: &str, line: u32) {
     if !condition {
-        let handler = handler_cell().lock();
-        handler.handle_assertion(message, file, line);
+        let guard = ASSERT_HANDLER.lock();
+        match guard.as_deref() {
+            Some(handler) => handler.handle_assertion(message, file, line),
+            None => DefaultAssertHandler.handle_assertion(message, file, line),
+        }
     }
 }
 

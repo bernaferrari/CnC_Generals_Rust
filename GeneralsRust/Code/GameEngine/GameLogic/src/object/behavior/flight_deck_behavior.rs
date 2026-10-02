@@ -779,27 +779,25 @@ impl FlightDeckBehavior {
 
                 let mut object_id = INVALID_OBJECT_ID;
                 if let (Some(template), true) = (&self.thing_template, create_units) {
-                    if let Some(player_arc) = owner_guard.get_controlling_player() {
-                        if let Ok(player_guard) = player_arc.read() {
-                            if let Some(team_arc) = player_guard.get_default_team() {
-                                if let Ok(team_guard) = team_arc.read() {
-                                    if let Ok(factory) = TheThingFactory::get() {
-                                        if let Ok(jet_arc) =
-                                            factory.new_object(Arc::clone(template), &*team_guard)
-                                        {
-                                            if let Ok(mut jet_guard) = jet_arc.write() {
-                                                jet_guard.set_producer(Some(&owner_guard));
-                                                if self.config.landing_deck_height_offset != 0.0 {
-                                                    jet_guard.set_status(
-                                                        ObjectStatusMaskType::DECK_HEIGHT_OFFSET,
-                                                        true,
-                                                    );
-                                                }
-                                                let _ = jet_guard.set_position(&prep);
-                                                let _ = jet_guard.set_orientation(orient);
-                                                object_id = jet_guard.get_id();
-                                            }
+                    if let Some(team_arc) = owner_guard
+                        .with_controlling_player(|player_guard| player_guard.get_default_team())
+                    {
+                        if let Ok(team_guard) = team_arc.read() {
+                            if let Ok(factory) = TheThingFactory::get() {
+                                if let Ok(jet_arc) =
+                                    factory.new_object(Arc::clone(template), &*team_guard)
+                                {
+                                    if let Ok(mut jet_guard) = jet_arc.write() {
+                                        jet_guard.set_producer(Some(&owner_guard));
+                                        if self.config.landing_deck_height_offset != 0.0 {
+                                            jet_guard.set_status(
+                                                ObjectStatusMaskType::DECK_HEIGHT_OFFSET,
+                                                true,
+                                            );
                                         }
+                                        let _ = jet_guard.set_position(&prep);
+                                        let _ = jet_guard.set_orientation(orient);
+                                        object_id = jet_guard.get_id();
                                     }
                                 }
                             }

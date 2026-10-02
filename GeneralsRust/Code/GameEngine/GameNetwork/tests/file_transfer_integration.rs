@@ -86,57 +86,63 @@ async fn verify_file_pattern(path: &PathBuf, expected_size: usize) -> bool {
     offset == expected_size
 }
 
+/// Progress events recorded by the tracker. The file-transfer machinery keeps
+/// the registered `ProgressCallback` and fires it from its transfer tasks while
+/// the test thread reads the same vectors, so one mutex guards the whole bundle.
+#[derive(Default)]
+struct TransferEvents {
+    started: Vec<Uuid>,
+    progress: Vec<(Uuid, u64)>,
+    completed: Vec<Uuid>,
+    failed: Vec<Uuid>,
+}
+
 struct TestProgressTracker {
-    started: Arc<Mutex<Vec<Uuid>>>,
-    progress: Arc<Mutex<Vec<(Uuid, u64)>>>,
-    completed: Arc<Mutex<Vec<Uuid>>>,
-    failed: Arc<Mutex<Vec<Uuid>>>,
+    events: Arc<Mutex<TransferEvents>>,
 }
 
 impl TestProgressTracker {
     fn new() -> Arc<Self> {
         Arc::new(Self {
-            started: Arc::new(Mutex::new(Vec::new())),
-            progress: Arc::new(Mutex::new(Vec::new())),
-            completed: Arc::new(Mutex::new(Vec::new())),
-            failed: Arc::new(Mutex::new(Vec::new())),
+            events: Arc::new(Mutex::new(TransferEvents::default())),
         })
     }
 
     fn was_started(&self, id: Uuid) -> bool {
-        self.started.lock().contains(&id)
+        self.events.lock().started.contains(&id)
     }
 
     fn was_completed(&self, id: Uuid) -> bool {
-        self.completed.lock().contains(&id)
+        self.events.lock().completed.contains(&id)
     }
 
     fn was_failed(&self, id: Uuid) -> bool {
-        self.failed.lock().contains(&id)
+        self.events.lock().failed.contains(&id)
     }
 
     fn progress_count(&self) -> usize {
-        self.progress.lock().len()
+        self.events.lock().progress.len()
     }
 }
 
 impl ProgressCallback for TestProgressTracker {
     fn on_started(&self, progress: &TransferProgress) {
-        self.started.lock().push(progress.transfer_id);
+        self.events.lock().started.push(progress.transfer_id);
     }
 
     fn on_progress(&self, progress: &TransferProgress) {
-        self.progress
+        self.events
             .lock()
+            .progress
             .push((progress.transfer_id, progress.bytes_transferred));
     }
 
     fn on_completed(&self, progress: &TransferProgress) {
-        self.completed.lock().push(progress.transfer_id);
+        self.events.lock().completed.push(progress.transfer_id);
     }
 
     fn on_failed(&self, progress: &TransferProgress, _error: &game_network::error::NetworkError) {
-        self.failed.lock().push(progress.transfer_id);
+        self.events.lock().failed.push(progress.transfer_id);
     }
 }
 

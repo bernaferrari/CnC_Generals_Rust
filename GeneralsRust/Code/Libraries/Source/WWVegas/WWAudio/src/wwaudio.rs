@@ -2,7 +2,7 @@
 //! High-level WWAudio wrapper closely mirroring the original C++ `WWAudioClass` API.
 
 use std::io::{Read, Seek, Write};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::Arc;
 
 use crate::{
     AudioResult, AudioSystem, AudioSystemConfig, Driver2DKind, MixerEvent, Priority,
@@ -145,7 +145,13 @@ impl Default for WWAudioClass {
     }
 }
 
-static WW_AUDIO_INSTANCE: OnceLock<Mutex<WWAudioClass>> = OnceLock::new();
+thread_local! {
+    /// Process-lifetime audio singleton, matching the C++ static
+    /// `WWAudioClass` instance. Only the game thread drives this object, so
+    /// it is a thread-local `RefCell` rather than a shared mutex.
+    static WW_AUDIO_INSTANCE: std::cell::RefCell<WWAudioClass> =
+        std::cell::RefCell::new(WWAudioClass::default());
+}
 
 impl WWAudioClass {
     fn queue_handle_release(handle: WWHandle) {
@@ -170,14 +176,14 @@ impl WWAudioClass {
         }
     }
 
-    /// Retrieve the singleton instance (equivalent to `Get_Instance`)
-    pub fn instance() -> &'static Mutex<WWAudioClass> {
-        WW_AUDIO_INSTANCE.get_or_init(|| Mutex::new(WWAudioClass::default()))
-    }
-
-    /// Alias matching the legacy static accessor name
-    pub fn Get_Instance() -> &'static Mutex<WWAudioClass> {
-        Self::instance()
+    /// Run `f` against the process-lifetime singleton
+    /// (equivalent to the C++ `Get_Instance`, which handed out a pointer).
+    ///
+    /// The borrow is exclusive for the duration of `f`, mirroring how the
+    /// game thread used the C++ singleton; re-entering from inside `f`
+    /// panics instead of silently aliasing.
+    pub fn with_instance<R>(f: impl FnOnce(&mut WWAudioClass) -> R) -> R {
+        WW_AUDIO_INSTANCE.with(|cell| f(&mut cell.borrow_mut()))
     }
 
     /// Create a new WWAudio wrapper without touching the singleton
@@ -610,8 +616,8 @@ impl WWAudioClass {
     }
 
     /// Port of `Is_Sound_Cached`
-    pub async fn Is_Sound_Cached(&self, identifier: &str) -> AudioResult<bool> {
-        if let Some(system) = self.audio_system.as_ref() {
+    pub async fn Is_Sound_Cached(&mut self, identifier: &str) -> AudioResult<bool> {
+        if let Some(system) = self.audio_system.as_mut() {
             system.is_sound_cached(identifier).await
         } else {
             Ok(false)
@@ -766,8 +772,8 @@ impl WWAudioClass {
             .unwrap_or(0)
     }
 
-    pub async fn Flush_Cache(&self) -> AudioResult<()> {
-        if let Some(system) = self.audio_system.as_ref() {
+    pub async fn Flush_Cache(&mut self) -> AudioResult<()> {
+        if let Some(system) = self.audio_system.as_mut() {
             system.flush_cache().await
         } else {
             Ok(())

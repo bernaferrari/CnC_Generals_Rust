@@ -219,6 +219,10 @@ impl DownloadManager {
     }
 }
 
+/// THREAD: C++-parity global slot. GameClient UI code (download menu, main
+/// menu) locks it on the GUI thread to install, poll, and clear the manager;
+/// the manager's own tokio download task never touches this mutex — it
+/// reports back through the `DownloadEvent` channel instead.
 static THE_DOWNLOAD_MANAGER: OnceLock<Mutex<Option<DownloadManager>>> = OnceLock::new();
 
 pub fn download_manager() -> &'static Mutex<Option<DownloadManager>> {

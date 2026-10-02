@@ -13,8 +13,9 @@ use std::collections::HashMap;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4, UdpSocket};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Mutex;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
-use tokio::sync::{Mutex, RwLock, broadcast, mpsc};
+use tokio::sync::{broadcast, mpsc};
 use tokio::task::JoinHandle;
 use tokio::time;
 use tracing::{debug, error, info, warn};
@@ -171,6 +172,10 @@ pub enum GameListSort {
 // Matchmaker
 // ---------------------------------------------------------------------------
 
+/// Handle to the discovered-game cache shared with the listener task
+/// (see `Matchmaker::games`).
+type SharedGameCache = Arc<Mutex<HashMap<SocketAddr, DiscoveredGame>>>;
+
 /// LAN / direct-IP matchmaker.
 ///
 /// Discovers games on the local network via periodic UDP broadcast and
@@ -178,7 +183,13 @@ pub enum GameListSort {
 /// user-space -- no GameSpy dependency.
 pub struct Matchmaker {
     /// Shared game cache (read by callers, updated by background task).
-    games: Arc<RwLock<HashMap<SocketAddr, DiscoveredGame>>>,
+    ///
+    /// THREAD: written by the detached listener task spawned in
+    /// `start_discovery` (every received discovery datagram) and by the
+    /// `Matchmaker` owner (`add_game`/`remove_game`/`announce_hosted_game`,
+    /// plus the `game_list` snapshots).  That is the real cross-task boundary;
+    /// every critical section below is await-free, hence a plain `std` mutex.
+    games: SharedGameCache,
 
     /// Event broadcast channel.
     event_tx: broadcast::Sender<MatchmakerEvent>,
@@ -187,10 +198,10 @@ pub struct Matchmaker {
     running: Arc<AtomicBool>,
 
     /// Handle to the broadcast task.
-    broadcast_handle: Mutex<Option<JoinHandle<()>>>,
+    broadcast_handle: Option<JoinHandle<()>>,
 
     /// Handle to the listener task.
-    listener_handle: Mutex<Option<JoinHandle<()>>>,
+    listener_handle: Option<JoinHandle<()>>,
 
     /// Local protocol version to advertise and filter by.
     protocol_version: u32,
@@ -215,11 +226,11 @@ impl Matchmaker {
         let (shutdown_tx, _) = broadcast::channel(1);
 
         Self {
-            games: Arc::new(RwLock::new(HashMap::new())),
+            games: Arc::new(Mutex::new(HashMap::new())),
             event_tx,
             running: Arc::new(AtomicBool::new(false)),
-            broadcast_handle: Mutex::new(None),
-            listener_handle: Mutex::new(None),
+            broadcast_handle: None,
+            listener_handle: None,
             protocol_version,
             broadcast_port: NETWORK_BASE_PORT_NUMBER + 1, // 8089
             local_player_name,
@@ -228,7 +239,7 @@ impl Matchmaker {
     }
 
     /// Start LAN discovery (broadcast + listen).
-    pub async fn start_discovery(&self) -> NetworkResult<()> {
+    pub async fn start_discovery(&mut self) -> NetworkResult<()> {
         if self.running.load(Ordering::SeqCst) {
             return Ok(());
         }
@@ -253,7 +264,7 @@ impl Matchmaker {
             )
             .await;
         });
-        *self.listener_handle.lock().await = Some(listener);
+        self.listener_handle = Some(listener);
 
         // Spawn broadcaster task (for hosting -- announces our game).
         let shutdown_rx_bcast = shutdown_rx;
@@ -265,7 +276,7 @@ impl Matchmaker {
         let broadcaster = tokio::spawn(async move {
             Self::broadcast_task(name, proto, bcast_port, running_bcast, shutdown_rx_bcast).await;
         });
-        *self.broadcast_handle.lock().await = Some(broadcaster);
+        self.broadcast_handle = Some(broadcaster);
 
         info!(
             "Matchmaker discovery started on UDP port {}",
@@ -275,17 +286,17 @@ impl Matchmaker {
     }
 
     /// Stop LAN discovery and all background tasks.
-    pub async fn stop_discovery(&self) -> NetworkResult<()> {
+    pub async fn stop_discovery(&mut self) -> NetworkResult<()> {
         if !self.running.load(Ordering::SeqCst) {
             return Ok(());
         }
         self.running.store(false, Ordering::SeqCst);
         let _ = self.shutdown_tx.send(());
 
-        if let Some(handle) = self.broadcast_handle.lock().await.take() {
+        if let Some(handle) = self.broadcast_handle.take() {
             handle.abort();
         }
-        if let Some(handle) = self.listener_handle.lock().await.take() {
+        if let Some(handle) = self.listener_handle.take() {
             handle.abort();
         }
 
@@ -300,7 +311,7 @@ impl Matchmaker {
 
     /// Get a snapshot of all currently known games.
     pub async fn game_list(&self) -> Vec<DiscoveredGame> {
-        let games = self.games.read().await;
+        let games = self.games.lock().expect("game cache poisoned");
         games.values().cloned().filter(|g| g.is_fresh()).collect()
     }
 
@@ -310,14 +321,14 @@ impl Matchmaker {
         filter: &GameListFilter,
         sort: GameListSort,
     ) -> Vec<DiscoveredGame> {
-        let mut games: Vec<DiscoveredGame> = self
-            .games
-            .read()
-            .await
-            .values()
-            .cloned()
-            .filter(|g| g.is_fresh() && filter.matches(g))
-            .collect();
+        let mut games: Vec<DiscoveredGame> = {
+            let games = self.games.lock().expect("game cache poisoned");
+            games
+                .values()
+                .cloned()
+                .filter(|g| g.is_fresh() && filter.matches(g))
+                .collect()
+        };
 
         match sort {
             GameListSort::Name => {
@@ -336,8 +347,12 @@ impl Matchmaker {
     /// Manually add / refresh a game entry (used when receiving game info
     /// through the transport layer from a known peer).
     pub async fn add_game(&self, game: DiscoveredGame) {
-        let is_new = !self.games.read().await.contains_key(&game.address);
-        self.games.write().await.insert(game.address, game.clone());
+        let is_new = {
+            let mut games = self.games.lock().expect("game cache poisoned");
+            let is_new = !games.contains_key(&game.address);
+            games.insert(game.address, game.clone());
+            is_new
+        };
 
         let _ = self.event_tx.send(if is_new {
             MatchmakerEvent::GameDiscovered(game)
@@ -348,7 +363,12 @@ impl Matchmaker {
 
     /// Remove a game entry (e.g. host disconnected).
     pub async fn remove_game(&self, addr: SocketAddr) {
-        if self.games.write().await.remove(&addr).is_some() {
+        let removed = {
+            let mut games = self.games.lock().expect("game cache poisoned");
+            games.remove(&addr).is_some()
+        };
+
+        if removed {
             let _ = self.event_tx.send(MatchmakerEvent::GameExpired(addr));
         }
     }
@@ -443,7 +463,10 @@ impl Matchmaker {
         };
 
         // Store locally so listeners see it.
-        self.games.write().await.insert(game.address, game);
+        self.games
+            .lock()
+            .expect("game cache poisoned")
+            .insert(game.address, game);
         Ok(())
     }
 
@@ -488,7 +511,7 @@ impl Matchmaker {
 
     /// Background listener: receives broadcast packets and updates game list.
     async fn listener_task(
-        games: Arc<RwLock<HashMap<SocketAddr, DiscoveredGame>>>,
+        games: SharedGameCache,
         event_tx: broadcast::Sender<MatchmakerEvent>,
         port: u16,
         running: Arc<AtomicBool>,
@@ -535,8 +558,8 @@ impl Matchmaker {
                                     .unwrap_or_default()
                                     .as_secs();
 
-                                let is_new = !games.read().await.contains_key(&src);
-                                let mut games_lock = games.write().await;
+                                let mut games_lock = games.lock().expect("game cache poisoned");
+                                let is_new = !games_lock.contains_key(&src);
                                 let entry = games_lock.entry(src).or_insert_with(|| {
                                     DiscoveredGame {
                                         address: src,

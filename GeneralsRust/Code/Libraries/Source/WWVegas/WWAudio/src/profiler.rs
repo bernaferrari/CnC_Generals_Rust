@@ -1,8 +1,6 @@
 //! Performance profiling and monitoring for audio operations.
 
-use parking_lot::RwLock;
 use std::collections::HashMap;
-use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 /// Profiling event types
@@ -40,11 +38,14 @@ struct ProfileSession {
 }
 
 /// Audio profiler for performance monitoring
+///
+/// Plain owned state: the profiler is driven by a single owner (the thread
+/// that instruments the audio paths), so no shared lock is required.
 pub struct AudioProfiler {
     enabled: bool,
-    metrics: Arc<RwLock<HashMap<ProfileEvent, ProfileMetrics>>>,
-    active_sessions: Arc<RwLock<HashMap<u64, ProfileSession>>>,
-    next_session_id: Arc<RwLock<u64>>,
+    metrics: HashMap<ProfileEvent, ProfileMetrics>,
+    active_sessions: HashMap<u64, ProfileSession>,
+    next_session_id: u64,
 }
 
 impl AudioProfiler {
@@ -52,43 +53,37 @@ impl AudioProfiler {
     pub fn new(enabled: bool) -> Self {
         Self {
             enabled,
-            metrics: Arc::new(RwLock::new(HashMap::new())),
-            active_sessions: Arc::new(RwLock::new(HashMap::new())),
-            next_session_id: Arc::new(RwLock::new(0)),
+            metrics: HashMap::new(),
+            active_sessions: HashMap::new(),
+            next_session_id: 0,
         }
     }
 
     /// Start profiling an event
-    pub fn start_event(&self, event: ProfileEvent) -> u64 {
+    pub fn start_event(&mut self, event: ProfileEvent) -> u64 {
         if !self.enabled {
             return 0;
         }
 
-        let session_id = {
-            let mut next_id = self.next_session_id.write();
-            *next_id += 1;
-            *next_id
-        };
+        self.next_session_id += 1;
+        let session_id = self.next_session_id;
 
         let session = ProfileSession {
             event,
             start_time: Instant::now(),
         };
 
-        self.active_sessions.write().insert(session_id, session);
+        self.active_sessions.insert(session_id, session);
         session_id
     }
 
     /// End profiling an event
-    pub fn end_event(&self, session_id: u64) {
+    pub fn end_event(&mut self, session_id: u64) {
         if !self.enabled || session_id == 0 {
             return;
         }
 
-        let session = {
-            let mut active = self.active_sessions.write();
-            active.remove(&session_id)
-        };
+        let session = self.active_sessions.remove(&session_id);
 
         if let Some(session) = session {
             let duration = session.start_time.elapsed();
@@ -97,7 +92,7 @@ impl AudioProfiler {
     }
 
     /// Record an instant event
-    pub fn record_instant(&self, event: ProfileEvent) {
+    pub fn record_instant(&mut self, event: ProfileEvent) {
         if !self.enabled {
             return;
         }
@@ -106,18 +101,18 @@ impl AudioProfiler {
 
     /// Get metrics for all events
     pub fn get_metrics(&self) -> HashMap<ProfileEvent, ProfileMetrics> {
-        self.metrics.read().clone()
+        self.metrics.clone()
     }
 
     /// Get metrics for specific event
     pub fn get_event_metrics(&self, event: &ProfileEvent) -> Option<ProfileMetrics> {
-        self.metrics.read().get(event).cloned()
+        self.metrics.get(event).cloned()
     }
 
     /// Reset all metrics
-    pub fn reset(&self) {
-        self.metrics.write().clear();
-        self.active_sessions.write().clear();
+    pub fn reset(&mut self) {
+        self.metrics.clear();
+        self.active_sessions.clear();
     }
 
     /// Enable/disable profiling
@@ -133,8 +128,8 @@ impl AudioProfiler {
         self.enabled
     }
 
-    fn record_event(&self, event: ProfileEvent, duration: Duration) {
-        let mut metrics = self.metrics.write();
+    fn record_event(&mut self, event: ProfileEvent, duration: Duration) {
+        let metrics = &mut self.metrics;
         let entry = metrics
             .entry(event.clone())
             .or_insert_with(|| ProfileMetrics {
@@ -158,13 +153,13 @@ impl AudioProfiler {
 
 /// RAII profiling guard that automatically ends profiling on drop
 pub struct ProfileGuard<'a> {
-    profiler: &'a AudioProfiler,
+    profiler: &'a mut AudioProfiler,
     session_id: u64,
 }
 
 impl<'a> ProfileGuard<'a> {
     /// Create new profile guard
-    pub fn new(profiler: &'a AudioProfiler, event: ProfileEvent) -> Self {
+    pub fn new(profiler: &'a mut AudioProfiler, event: ProfileEvent) -> Self {
         let session_id = profiler.start_event(event);
         Self {
             profiler,

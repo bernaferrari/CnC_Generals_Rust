@@ -8,8 +8,7 @@
 // John McDonald
 // July 2002
 
-#[cfg(feature = "perf_timers")]
-use parking_lot::Mutex as PerfMutex;
+use std::cell::RefCell;
 use std::collections::HashMap;
 #[cfg(feature = "perf_timers")]
 use std::fs::File;
@@ -17,7 +16,7 @@ use std::fs::File;
 use std::io::Write;
 #[cfg(feature = "perf_timers")]
 use std::sync::Arc;
-use std::sync::{Mutex, OnceLock};
+use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 #[cfg(feature = "perf_timers")]
 use tracing::span::EnteredSpan;
@@ -81,6 +80,33 @@ struct PerfGatherState {
 }
 
 #[cfg(feature = "perf_timers")]
+impl PerfGatherState {
+    /// Fold a finished sample into the running totals (mirrors the C++
+    /// `PerfGather::finalizeSample` accumulation order).
+    fn finalize(&mut self, elapsed: PrecisionTime, ignored: bool) -> PerfSample {
+        let mut sample = PerfSample {
+            elapsed_ns: elapsed,
+            running_time_gross: self.running_time_gross,
+            running_time_net: self.running_time_net,
+            call_count: self.call_count,
+            ignored,
+        };
+
+        if !ignored {
+            self.running_time_gross = self.running_time_gross.saturating_add(elapsed);
+            self.running_time_net = self.running_time_net.saturating_add(elapsed);
+            self.call_count = self.call_count.saturating_add(1);
+
+            sample.running_time_gross = self.running_time_gross;
+            sample.running_time_net = self.running_time_net;
+            sample.call_count = self.call_count;
+        }
+
+        sample
+    }
+}
+
+#[cfg(feature = "perf_timers")]
 #[derive(Clone, Debug)]
 struct PerfSample {
     elapsed_ns: PrecisionTime,
@@ -104,7 +130,7 @@ struct PerfSnapshot {
 pub struct PerfGather {
     identifier: Arc<str>,
     net_time_only: bool,
-    state: PerfMutex<PerfGatherState>,
+    state: RefCell<PerfGatherState>,
 }
 
 #[cfg(feature = "perf_timers")]
@@ -123,7 +149,7 @@ impl PerfGather {
         Arc::new(Self {
             identifier: Arc::<str>::from(identifier),
             net_time_only: net_only,
-            state: PerfMutex::new(PerfGatherState::default()),
+            state: RefCell::new(PerfGatherState::default()),
         })
     }
 
@@ -140,26 +166,7 @@ impl PerfGather {
         let end_time = PrecisionTimer::get_time();
         let elapsed = end_time.saturating_sub(start_time);
 
-        let mut state = self.state.lock();
-        let mut sample = PerfSample {
-            elapsed_ns: elapsed,
-            running_time_gross: state.running_time_gross,
-            running_time_net: state.running_time_net,
-            call_count: state.call_count,
-            ignored,
-        };
-
-        if !ignored {
-            state.running_time_gross = state.running_time_gross.saturating_add(elapsed);
-            state.running_time_net = state.running_time_net.saturating_add(elapsed);
-            state.call_count = state.call_count.saturating_add(1);
-
-            sample.running_time_gross = state.running_time_gross;
-            sample.running_time_net = state.running_time_net;
-            sample.call_count = state.call_count;
-        }
-
-        sample
+        self.state.borrow_mut().finalize(elapsed, ignored)
     }
 
     fn emit_tracing_sample(&self, sample: &PerfSample) {
@@ -179,7 +186,7 @@ impl PerfGather {
     }
 
     fn snapshot(&self) -> PerfSnapshot {
-        let state = self.state.lock();
+        let state = self.state.borrow();
         PerfSnapshot {
             identifier: self.identifier.clone(),
             running_time_gross: state.running_time_gross,
@@ -189,23 +196,22 @@ impl PerfGather {
     }
 
     fn reset(&self) {
-        let mut state = self.state.lock();
-        *state = PerfGatherState::default();
+        *self.state.borrow_mut() = PerfGatherState::default();
     }
 
     /// Reset all registered PerfGather instances
     pub fn reset_all() {
-        perf_registry().reset_all();
+        with_perf_registry(|registry| registry.reset_all());
     }
 
     /// Dump all performance data into the tracing pipeline (and stdout for legacy parity)
     pub fn dump_all(frame: u32) {
-        perf_registry().export_to_tracing(Some(frame));
+        with_perf_registry(|registry| registry.export_to_tracing(Some(frame)));
     }
 
     /// Display the current performance graph snapshot via tracing events
     pub fn display_graph(frame: u32) {
-        perf_registry().export_to_tracing(Some(frame));
+        with_perf_registry(|registry| registry.export_to_tracing(Some(frame)));
     }
 }
 
@@ -248,13 +254,13 @@ impl Drop for AutoPerfGather {
 #[cfg(feature = "perf_timers")]
 #[derive(Default)]
 struct PerfGatherRegistry {
-    timers: PerfMutex<Vec<Arc<PerfGather>>>,
+    timers: RefCell<Vec<Arc<PerfGather>>>,
 }
 
 #[cfg(feature = "perf_timers")]
 impl PerfGatherRegistry {
     fn register(&self, gather: Arc<PerfGather>) -> Arc<PerfGather> {
-        let mut timers = self.timers.lock();
+        let mut timers = self.timers.borrow_mut();
         if timers
             .iter()
             .any(|existing| existing.identifier().eq(gather.identifier()))
@@ -267,14 +273,14 @@ impl PerfGatherRegistry {
     }
 
     fn reset_all(&self) {
-        for timer in self.timers.lock().iter() {
+        for timer in self.timers.borrow().iter() {
             timer.reset();
         }
         event!(target: "perf_timers", Level::DEBUG, "reset_all_perf_timers");
     }
 
     fn snapshot(&self) -> Vec<Arc<PerfGather>> {
-        self.timers.lock().clone()
+        self.timers.borrow().clone()
     }
 
     fn export_to_tracing(&self, frame: Option<u32>) {
@@ -316,17 +322,21 @@ impl PerfGatherRegistry {
 }
 
 #[cfg(feature = "perf_timers")]
-static PERF_GATHER_REGISTRY: OnceLock<PerfGatherRegistry> = OnceLock::new();
+// THREAD: C++ plain static; driven only by the single game/client thread.
+thread_local! {
+    static PERF_GATHER_REGISTRY: RefCell<PerfGatherRegistry> =
+        RefCell::new(PerfGatherRegistry::default());
+}
 
 #[cfg(feature = "perf_timers")]
-fn perf_registry() -> &'static PerfGatherRegistry {
-    PERF_GATHER_REGISTRY.get_or_init(PerfGatherRegistry::default)
+fn with_perf_registry<R>(f: impl FnOnce(&PerfGatherRegistry) -> R) -> R {
+    PERF_GATHER_REGISTRY.with_borrow(f)
 }
 
 #[cfg(feature = "perf_timers")]
 pub fn register_perf_timer(identifier: &str, net_only: bool) -> Arc<PerfGather> {
     let gather = PerfGather::new(identifier, net_only);
-    perf_registry().register(gather.clone())
+    with_perf_registry(|registry| registry.register(gather.clone()))
 }
 
 /// Performance timer for detailed analysis
@@ -523,15 +533,16 @@ impl Default for PerfMetricsOutput {
 }
 
 // Global performance metrics instance
-lazy_static::lazy_static! {
-    static ref PERF_METRICS: Mutex<PerfMetricsOutput> = Mutex::new(PerfMetricsOutput {
+// THREAD: C++ plain static; driven only by the single game/client thread.
+thread_local! {
+    static PERF_METRICS: RefCell<PerfMetricsOutput> = RefCell::new(PerfMetricsOutput {
         output_stats: HashMap::new(),
     });
 }
 
-/// Get global performance metrics
-pub fn get_perf_metrics() -> std::sync::MutexGuard<'static, PerfMetricsOutput> {
-    PERF_METRICS.lock().unwrap()
+/// Run `f` with the global performance metrics.
+pub fn with_perf_metrics<R>(f: impl FnOnce(&mut PerfMetricsOutput) -> R) -> R {
+    PERF_METRICS.with_borrow_mut(f)
 }
 
 /// Macros for performance timing (enabled only with perf_timers feature)

@@ -178,11 +178,9 @@ impl UpgradeModuleInterface for GrantScienceUpgrade {
         let science = self.science_type;
         if OBJECT_REGISTRY
             .with_object(self.object_id, |object_guard| {
-                if let Some(player) = object_guard.get_controlling_player() {
-                    if let Ok(mut player_guard) = player.write() {
-                        player_guard.grant_science(science);
-                    }
-                }
+                object_guard.with_controlling_player_mut(|player_guard| {
+                    player_guard.grant_science(science);
+                });
             })
             .is_none()
         {

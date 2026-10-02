@@ -52,18 +52,38 @@ impl Object {
         list.get_player(player_index).cloned()
     }
 
+    /// Run `f` with shared access to this object's controlling player.
+    ///
+    /// Mirrors C++ `Object::getControllingPlayer()` scoped usage: gameplay
+    /// resolves the player by id, uses it, and never stores the pointer.
+    /// Returns `None` when the object has no controlling player or the
+    /// player's lock is poisoned.
+    pub fn with_controlling_player<R>(&self, f: impl FnOnce(&Player) -> R) -> Option<R> {
+        crate::player::with_player(
+            self.get_controlling_player_id()? as Int,
+            f,
+        )
+    }
+
+    /// Run `f` with exclusive access to this object's controlling player.
+    ///
+    /// Scoped counterpart of [`Object::with_controlling_player`]; see that
+    /// method for the C++ mapping.
+    pub fn with_controlling_player_mut<R>(&self, f: impl FnOnce(&mut Player) -> R) -> Option<R> {
+        crate::player::with_player_mut(
+            self.get_controlling_player_id()? as Int,
+            f,
+        )
+    }
+
     pub fn get_player_id(&self) -> Option<PlayerId> {
         self.get_controlling_player_id()
             .and_then(|raw| PlayerId::new(raw as u8))
     }
 
     pub fn is_neutral_controlled(&self) -> bool {
-        if let Some(player) = self.get_controlling_player() {
-            if let Ok(guard) = player.read() {
-                return guard.get_player_type() == PlayerType::Neutral;
-            }
-        }
-        false
+        self.with_controlling_player(|guard| guard.get_player_type() == PlayerType::Neutral)
+            .unwrap_or(false)
     }
 
     pub fn relationship_to(&self, other: &Object) -> Relationship {
@@ -489,12 +509,8 @@ impl Object {
     }
 
     pub fn is_locally_controlled(&self) -> bool {
-        if let Some(player) = self.get_controlling_player() {
-            if let Ok(guard) = player.read() {
-                return guard.is_local_player();
-            }
-        }
-        false
+        self.with_controlling_player(|guard| guard.is_local_player())
+            .unwrap_or(false)
     }
 
     /// Check if object is detected (for stealth mechanics)
@@ -669,19 +685,16 @@ impl Object {
     /// The optional amount is a Rust-side helper extension for callers that want
     /// to test a prospective drain before applying it.
     pub fn has_sufficient_power(&self, amount: f32) -> bool {
-        let Some(player) = self.get_controlling_player() else {
-            return false;
-        };
-        let Ok(player_guard) = player.read() else {
-            return false;
-        };
-        let energy = player_guard.get_energy();
-        if energy.is_power_sabotaged() {
-            return false;
-        }
+        self.with_controlling_player(|player_guard| {
+            let energy = player_guard.get_energy();
+            if energy.is_power_sabotaged() {
+                return false;
+            }
 
-        let requested = amount.max(0.0).ceil() as Int;
-        energy.get_power() >= requested
+            let requested = amount.max(0.0).ceil() as Int;
+            energy.get_power() >= requested
+        })
+        .unwrap_or(false)
     }
 
     /// Drain power
@@ -693,14 +706,8 @@ impl Object {
             return false;
         }
 
-        let Some(player) = self.get_controlling_player() else {
-            return false;
-        };
-        let Ok(mut player_guard) = player.write() else {
-            return false;
-        };
-        player_guard.adjust_power(-amount, true);
-        true
+        self.with_controlling_player_mut(|player_guard| player_guard.adjust_power(-amount, true))
+            .is_some()
     }
 
     /// Enable/disable stealth capability.
@@ -742,16 +749,13 @@ impl Object {
 
     /// Set radar visibility
     pub async fn set_radar_visibility(&mut self, visible: bool) -> Result<(), String> {
-        if let Some(player) = self.get_controlling_player() {
-            let mut guard = player
-                .write()
-                .map_err(|_| "Failed to lock controlling player".to_string())?;
+        self.with_controlling_player_mut(|guard| {
             if visible {
                 guard.add_radar(false);
             } else {
                 guard.remove_radar(false);
             }
-        }
+        });
         Ok(())
     }
 
@@ -1041,8 +1045,7 @@ impl Object {
             return self.indicator_color;
         }
 
-        self.get_controlling_player()
-            .and_then(|player| player.read().ok().map(|guard| guard.get_player_color()))
+        self.with_controlling_player(|guard| guard.get_player_color())
             .unwrap_or(Color::black())
     }
 
@@ -1051,13 +1054,7 @@ impl Object {
             return self.indicator_color;
         }
 
-        self.get_controlling_player()
-            .and_then(|player| {
-                player
-                    .read()
-                    .ok()
-                    .map(|guard| guard.get_player_night_color())
-            })
+        self.with_controlling_player(|guard| guard.get_player_night_color())
             .unwrap_or(Color::black())
     }
 

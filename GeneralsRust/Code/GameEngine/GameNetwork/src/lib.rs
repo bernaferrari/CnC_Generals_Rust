@@ -318,11 +318,9 @@ pub struct NetworkInterface {
     security_manager: Option<Arc<SecManager>>,
     firewall: Option<Arc<FwHelper>>,
     disconnect_voting: Arc<AsyncMutex<DisconnectVotingCoordinator>>,
-    player_names: Arc<AsyncMutex<HashMap<u8, String>>>,
-    player_load_progress: Arc<AsyncMutex<HashMap<u8, u8>>>,
-    file_transfer_map: Arc<AsyncMutex<HashMap<u16, Vec<(u8, Uuid)>>>>,
-    file_announcements: Arc<AsyncMutex<HashMap<u16, connection::FileAnnouncementState>>>,
-    file_progress: Arc<AsyncMutex<HashMap<u16, connection::FileProgressState>>>,
+    /// THREAD: see `connection::CommandProcessorState` - the same bundle is shared
+    /// with the connection manager's routing task, which executes incoming commands.
+    command_state: Arc<AsyncMutex<connection::CommandProcessorState>>,
     load_progress_watch: watch::Sender<HashMap<u8, u8>>,
     file_announcement_tx: broadcast::Sender<FileAnnouncementEvent>,
     file_progress_tx: broadcast::Sender<connection::FileProgressEvent>,
@@ -894,13 +892,8 @@ impl NetworkInterface {
     ) -> NetResult<Self> {
         info!("Initializing GameNetwork with config: {:?}", config);
 
-        let player_names = Arc::new(AsyncMutex::new(HashMap::new()));
-        let player_load_progress = Arc::new(AsyncMutex::new(HashMap::new()));
-        let file_transfer_map = Arc::new(AsyncMutex::new(HashMap::new()));
-        let file_announcements = Arc::new(AsyncMutex::new(HashMap::new()));
-        let file_progress = Arc::new(AsyncMutex::new(HashMap::new()));
-        let wrapper_reassembler = Arc::new(AsyncMutex::new(
-            crate::commands::wrapper::WrapperReassembler::new(),
+        let command_state = Arc::new(AsyncMutex::new(
+            connection::CommandProcessorState::default(),
         ));
         let (load_progress_watch, _) = watch::channel(HashMap::new());
         let (file_announcement_tx, _) = broadcast::channel(64);
@@ -929,14 +922,9 @@ impl NetworkInterface {
             manager.set_command_context(connection::CommandProcessorContext {
                 local_player_id: config.player_id,
                 connection_manager: connection_manager.clone(),
-                wrapper_reassembler: wrapper_reassembler.clone(),
-                player_names: player_names.clone(),
-                player_load_progress: player_load_progress.clone(),
-                file_announcements: file_announcements.clone(),
-                file_transfer_map: file_transfer_map.clone(),
+                state: command_state.clone(),
                 load_progress_tx: load_progress_watch.clone(),
                 file_announcement_tx: file_announcement_tx.clone(),
-                file_progress: file_progress.clone(),
                 file_progress_tx: file_progress_tx.clone(),
                 chat_tx: chat_tx.clone(),
                 timeout_tx: timeout_tx.clone(),
@@ -1006,11 +994,7 @@ impl NetworkInterface {
             security_manager,
             firewall: firewall_helper,
             disconnect_voting,
-            player_names: player_names.clone(),
-            player_load_progress: player_load_progress.clone(),
-            file_transfer_map: file_transfer_map.clone(),
-            file_announcements: file_announcements.clone(),
-            file_progress: file_progress.clone(),
+            command_state: command_state.clone(),
             load_progress_watch: load_progress_watch.clone(),
             file_announcement_tx: file_announcement_tx.clone(),
             file_progress_tx: file_progress_tx.clone(),
@@ -1024,16 +1008,14 @@ impl NetworkInterface {
         };
 
         {
-            let mut names = player_names.lock().await;
-            names.insert(
+            let mut state = command_state.lock().await;
+            state.player_names.insert(
                 interface.local_player_id,
                 format!("Player{}", interface.local_player_id),
             );
-        }
-
-        {
-            let mut progress = player_load_progress.lock().await;
-            progress.insert(interface.local_player_id, 0);
+            state
+                .player_load_progress
+                .insert(interface.local_player_id, 0);
         }
 
         interface.spawn_nat_monitor();
@@ -1214,14 +1196,15 @@ impl NetworkInterface {
         *self.load_progress.lock() = Some(0);
 
         {
-            let mut progress = self.player_load_progress.lock().await;
-            progress.clear();
-            progress.insert(self.local_player_id, 0);
+            let mut state = self.command_state.lock().await;
+            state.player_load_progress.clear();
+            state
+                .player_load_progress
+                .insert(self.local_player_id, 0);
+            state.file_transfer_map.clear();
+            state.file_announcements.clear();
+            state.file_progress.clear();
         }
-
-        self.file_transfer_map.lock().await.clear();
-        self.file_announcements.lock().await.clear();
-        self.file_progress.lock().await.clear();
 
         if let Some(telemetry) = telemetry() {
             telemetry.set_load_progress(0);
@@ -1247,7 +1230,8 @@ impl NetworkInterface {
     pub async fn parse_user_list(&self, players: &[PlayerEndpoint]) -> NetResult<()> {
         let mut discovered: HashSet<u8> = HashSet::new();
         {
-            let mut names = self.player_names.lock().await;
+            let mut state = self.command_state.lock().await;
+            let names = &mut state.player_names;
             for endpoint in players.iter() {
                 discovered.insert(endpoint.player_id);
                 if let Some(name) = &endpoint.display_name {
@@ -1263,7 +1247,8 @@ impl NetworkInterface {
         }
 
         {
-            let mut progress = self.player_load_progress.lock().await;
+            let mut state = self.command_state.lock().await;
+            let progress = &mut state.player_load_progress;
             for player_id in discovered.iter().copied() {
                 if player_id == self.local_player_id {
                     continue;
@@ -1325,8 +1310,9 @@ impl NetworkInterface {
 
     /// Resolve a stored display name for the given player.
     pub async fn player_name(&self, player_id: u8) -> String {
-        let names = self.player_names.lock().await;
-        names
+        let state = self.command_state.lock().await;
+        state
+            .player_names
             .get(&player_id)
             .cloned()
             .unwrap_or_else(|| format!("Player{}", player_id))
@@ -1347,37 +1333,39 @@ impl NetworkInterface {
 
     /// Retrieve the last reported loading progress for a player, if known.
     pub async fn player_load_progress(&self, player_id: u8) -> Option<u8> {
-        let progress = self.player_load_progress.lock().await;
-        progress.get(&player_id).copied()
+        let state = self.command_state.lock().await;
+        state.player_load_progress.get(&player_id).copied()
     }
 
     /// Retrieve transfer identifiers associated with a command id.
     pub async fn file_transfers_for_command(&self, command_id: u16) -> Option<Vec<(u8, Uuid)>> {
-        let mapping = self.file_transfer_map.lock().await;
-        mapping.get(&command_id).cloned()
+        let state = self.command_state.lock().await;
+        state.file_transfer_map.get(&command_id).cloned()
     }
 
     /// Retrieve announced metadata for a given command id.
     pub async fn file_metadata_for_command(&self, command_id: u16) -> Option<FileMetadata> {
-        let announcements = self.file_announcements.lock().await;
-        announcements
+        let state = self.command_state.lock().await;
+        state
+            .file_announcements
             .get(&command_id)
-            .map(|state| state.metadata.clone())
+            .map(|entry| entry.metadata.clone())
     }
 
     /// Snapshot the current file progress (percentage per player) keyed by command id.
     pub async fn file_progress_snapshot(&self) -> HashMap<u16, HashMap<u8, u8>> {
-        let progress = self.file_progress.lock().await;
-        progress
+        let state = self.command_state.lock().await;
+        state
+            .file_progress
             .iter()
-            .map(|(command_id, state)| (*command_id, state.progress.clone()))
+            .map(|(command_id, entry)| (*command_id, entry.progress.clone()))
             .collect()
     }
 
     /// Assign a display name to a player slot.
     pub async fn set_player_name(&self, player_id: u8, name: impl Into<String>) {
-        let mut names = self.player_names.lock().await;
-        names.insert(player_id, name.into());
+        let mut state = self.command_state.lock().await;
+        state.player_names.insert(player_id, name.into());
     }
 
     /// Total number of players in the current session including the local player.
@@ -1396,8 +1384,8 @@ impl NetworkInterface {
         };
 
         {
-            let mut progress = self.player_load_progress.lock().await;
-            progress.insert(self.local_player_id, clamped);
+            let mut state = self.command_state.lock().await;
+            state.player_load_progress.insert(self.local_player_id, clamped);
         }
 
         if let Some(telemetry) = telemetry() {
@@ -1417,8 +1405,10 @@ impl NetworkInterface {
     pub async fn load_progress_complete(&self) {
         *self.load_progress.lock() = Some(100);
         {
-            let mut progress = self.player_load_progress.lock().await;
-            progress.insert(self.local_player_id, 100);
+            let mut state = self.command_state.lock().await;
+            state
+                .player_load_progress
+                .insert(self.local_player_id, 100);
         }
         if let Some(telemetry) = telemetry() {
             telemetry.set_load_progress(100);
@@ -1469,8 +1459,8 @@ impl NetworkInterface {
         };
 
         {
-            let mut announcements = self.file_announcements.lock().await;
-            announcements.insert(
+            let mut state = self.command_state.lock().await;
+            state.file_announcements.insert(
                 command_id,
                 FileAnnouncementState {
                     metadata: file_metadata.clone(),
@@ -1480,8 +1470,8 @@ impl NetworkInterface {
         }
 
         {
-            let mut progress = self.file_progress.lock().await;
-            let entry = progress.entry(command_id).or_default();
+            let mut state = self.command_state.lock().await;
+            let entry = state.file_progress.entry(command_id).or_default();
             entry.progress.clear();
             entry.failures.clear();
 
@@ -1720,13 +1710,13 @@ impl NetworkInterface {
             .map(|name| name.to_ascii_lowercase());
 
         let announcements_snapshot = {
-            let announcements = self.file_announcements.lock().await;
-            announcements.clone()
+            let state = self.command_state.lock().await;
+            state.file_announcements.clone()
         };
 
         {
-            let progress = self.file_progress.lock().await;
-            for (command_id, state) in progress.iter() {
+            let state = self.command_state.lock().await;
+            for (command_id, entry) in state.file_progress.iter() {
                 if let Some(announcement) = announcements_snapshot.get(command_id) {
                     let metadata_name = announcement.metadata.filename.to_ascii_lowercase();
                     if let Some(target_name) = &file_name {
@@ -1738,7 +1728,7 @@ impl NetworkInterface {
                         continue;
                     }
 
-                    if let Some(reason) = state.failures.get(&player_id) {
+                    if let Some(reason) = entry.failures.get(&player_id) {
                         warn!(
                             "File transfer command {} failed for player {}: {}",
                             command_id, player_id, reason
@@ -1746,7 +1736,7 @@ impl NetworkInterface {
                         return -1;
                     }
 
-                    if let Some(progress_value) = state.progress.get(&player_id) {
+                    if let Some(progress_value) = entry.progress.get(&player_id) {
                         return *progress_value as i32;
                     }
                 }
@@ -2049,17 +2039,16 @@ impl NetworkInterface {
         // Shutdown transport
         self.transport.shutdown().await?;
 
-        {
-            let mut names = self.player_names.lock().await;
-            names.retain(|player, _| *player == self.local_player_id);
-        }
-        {
-            let mut progress = self.player_load_progress.lock().await;
-            progress.retain(|player, _| *player == self.local_player_id);
-        }
-        self.file_transfer_map.lock().await.clear();
-        self.file_announcements.lock().await.clear();
-        self.file_progress.lock().await.clear();
+        let mut state = self.command_state.lock().await;
+        state
+            .player_names
+            .retain(|player, _| *player == self.local_player_id);
+        state
+            .player_load_progress
+            .retain(|player, _| *player == self.local_player_id);
+        state.file_transfer_map.clear();
+        state.file_announcements.clear();
+        state.file_progress.clear();
 
         {
             let mut coordinator = self.disconnect_voting.lock().await;

@@ -87,9 +87,7 @@ impl AudioEventOwnerResolver for GameLogicAudioEventOwnerResolver {
     fn resolve_object_player_index(&self, object_id: ObjectID) -> Option<Int> {
         let object = TheGameLogic::find_object_by_id(object_id)?;
         let guard = object.read().ok()?;
-        let player = guard.get_controlling_player()?;
-        let player_guard = player.read().ok()?;
-        Some(player_guard.get_player_index())
+        guard.with_controlling_player(|player_guard| player_guard.get_player_index())
     }
 
     fn resolve_drawable_player_index(&self, drawable_id: u32) -> Option<Int> {

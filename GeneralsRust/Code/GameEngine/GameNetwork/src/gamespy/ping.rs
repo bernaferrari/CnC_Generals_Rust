@@ -4,17 +4,18 @@
 
 use crate::error::NetworkResult;
 use std::collections::HashMap;
-use tokio::sync::RwLock;
 use tracing::info;
 
+/// Ping cache owned by the GameSpy interface. Only the owning task's methods
+/// touch it, so it is a plain field with no shared lock.
 pub struct PingService {
-    servers: RwLock<HashMap<String, u32>>,
+    servers: HashMap<String, u32>,
 }
 
 impl PingService {
     pub async fn new() -> NetworkResult<Self> {
         Ok(Self {
-            servers: RwLock::new(HashMap::new()),
+            servers: HashMap::new(),
         })
     }
 

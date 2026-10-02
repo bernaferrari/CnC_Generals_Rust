@@ -1,8 +1,6 @@
 //! Memory management for audio buffers and resources.
 
 use crate::error::Result;
-use parking_lot::Mutex;
-use std::sync::Arc;
 
 /// Memory allocation strategy
 #[derive(Debug, Clone, Copy)]
@@ -20,15 +18,18 @@ pub struct MemoryPool {
     _strategy: AllocationStrategy,
     pool_size: usize,
     _block_size: usize,
-    _allocated_blocks: Arc<Mutex<Vec<*mut u8>>>,
+    _allocated_blocks: Vec<*mut u8>,
 }
 
 /// Audio memory manager
+///
+/// Plain owned accounting state; the manager is driven from a single owner
+/// (the audio load path on the game thread), so no lock is needed.
 pub struct AudioMemoryManager {
     pools: Vec<MemoryPool>,
-    total_allocated: Arc<Mutex<usize>>,
-    peak_usage: Arc<Mutex<usize>>,
-    active_allocations: Arc<Mutex<usize>>,
+    total_allocated: usize,
+    peak_usage: usize,
+    active_allocations: usize,
 }
 
 impl AudioMemoryManager {
@@ -36,59 +37,43 @@ impl AudioMemoryManager {
     pub fn new() -> Self {
         Self {
             pools: Vec::new(),
-            total_allocated: Arc::new(Mutex::new(0)),
-            peak_usage: Arc::new(Mutex::new(0)),
-            active_allocations: Arc::new(Mutex::new(0)),
+            total_allocated: 0,
+            peak_usage: 0,
+            active_allocations: 0,
         }
     }
 
     /// Allocate audio buffer
-    pub fn allocate(&self, size: usize) -> Result<Vec<u8>> {
+    pub fn allocate(&mut self, size: usize) -> Result<Vec<u8>> {
         if size == 0 {
             return Ok(Vec::new());
         }
 
-        {
-            let mut total = self.total_allocated.lock();
-            *total = total.saturating_add(size);
-
-            let mut peak = self.peak_usage.lock();
-            if *total > *peak {
-                *peak = *total;
-            }
+        self.total_allocated = self.total_allocated.saturating_add(size);
+        if self.total_allocated > self.peak_usage {
+            self.peak_usage = self.total_allocated;
         }
-
-        {
-            let mut active = self.active_allocations.lock();
-            *active = active.saturating_add(1);
-        }
+        self.active_allocations = self.active_allocations.saturating_add(1);
 
         Ok(vec![0u8; size])
     }
 
     /// Deallocate audio buffer
-    pub fn deallocate(&self, buffer: Vec<u8>) -> Result<()> {
+    pub fn deallocate(&mut self, buffer: Vec<u8>) -> Result<()> {
         let size = buffer.len();
         drop(buffer);
 
-        {
-            let mut total = self.total_allocated.lock();
-            *total = total.saturating_sub(size);
-        }
-
-        {
-            let mut active = self.active_allocations.lock();
-            *active = active.saturating_sub(1);
-        }
+        self.total_allocated = self.total_allocated.saturating_sub(size);
+        self.active_allocations = self.active_allocations.saturating_sub(1);
 
         Ok(())
     }
 
     /// Get memory statistics
     pub fn stats(&self) -> MemoryStats {
-        let total_allocated = *self.total_allocated.lock();
-        let peak_usage = *self.peak_usage.lock();
-        let active_allocations = *self.active_allocations.lock();
+        let total_allocated = self.total_allocated;
+        let peak_usage = self.peak_usage;
+        let active_allocations = self.active_allocations;
 
         let pool_capacity: usize = self.pools.iter().map(|pool| pool.pool_size).sum();
         let pool_utilization = if pool_capacity == 0 {
@@ -122,7 +107,7 @@ impl MemoryPool {
             _strategy: strategy,
             pool_size,
             _block_size: block_size,
-            _allocated_blocks: Arc::new(Mutex::new(Vec::new())),
+            _allocated_blocks: Vec::new(),
         }
     }
 }
@@ -133,13 +118,12 @@ impl Default for AudioMemoryManager {
     }
 }
 
-// Safety: MemoryPool is thread-safe through internal synchronization
-// SAFETY: The only non-`Copy` field, `_allocated_blocks`, is an
-// `Arc<Mutex<Vec<*mut u8>>>`; the stored raw pointers are never
+// SAFETY: The only non-`Copy` field, `_allocated_blocks`, is an owned
+// `Vec<*mut u8>` private to this type; the stored raw pointers are never
 // dereferenced through this type (the pool performs no allocation itself),
 // so moving a MemoryPool across threads is sound.
 unsafe impl Send for MemoryPool {}
-// SAFETY: Same reasoning as the Send impl: the raw pointers inside
-// `_allocated_blocks` are never dereferenced through this type, so sharing
-// `&MemoryPool` across threads is sound.
+// SAFETY: Same reasoning as the Send impl: the raw pointers inside the
+// owned `_allocated_blocks` Vec are never dereferenced through this type, so
+// sharing `&MemoryPool` across threads is sound.
 unsafe impl Sync for MemoryPool {}

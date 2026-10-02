@@ -409,8 +409,7 @@ impl TheRadar {
 
         let position = *target.get_position();
         let player_index = target
-            .get_controlling_player()
-            .and_then(|player| player.read().ok().map(|guard| guard.get_player_index()))
+            .with_controlling_player(|guard| guard.get_player_index())
             .unwrap_or(-1);
         let victim = game_engine::common::system::radar::RadarVictimInfo {
             is_local_player: true,
@@ -461,8 +460,7 @@ impl TheRadar {
         }
         let position = *target.get_position();
         let player_index = target
-            .get_controlling_player()
-            .and_then(|player| player.read().ok().map(|guard| guard.get_player_index()))
+            .with_controlling_player(|guard| guard.get_player_index())
             .unwrap_or(-1);
         let victim = game_engine::common::system::radar::RadarVictimInfo {
             is_infantry: target.is_kind_of(KindOf::Infantry),

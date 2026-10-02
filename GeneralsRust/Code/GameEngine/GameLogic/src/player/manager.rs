@@ -455,13 +455,7 @@ impl AIManager for AIManagerBridge {
             }
 
             let player_index = builder_guard
-                .get_controlling_player()
-                .and_then(|player| {
-                    player
-                        .read()
-                        .ok()
-                        .map(|player_guard| player_guard.get_player_index() as u32)
-                })
+                .with_controlling_player(|player_guard| player_guard.get_player_index() as u32)
                 .unwrap_or(0);
 
             (

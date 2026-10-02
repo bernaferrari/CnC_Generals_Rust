@@ -185,15 +185,11 @@ pub(crate) fn want_to_squish_target_state(base: &State) -> Result<bool, String> 
         return Ok(false);
     }
 
-    let is_computer = if let Some(player) = owner_guard.get_controlling_player() {
-        if let Ok(player_guard) = player.read() {
+    let is_computer = owner_guard
+        .with_controlling_player(|player_guard| {
             player_guard.get_player_type() == PlayerType::Computer
-        } else {
-            false
-        }
-    } else {
-        false
-    };
+        })
+        .unwrap_or(false);
     if !is_computer {
         return Ok(false);
     }
@@ -1287,12 +1283,8 @@ pub(crate) fn attack_can_pursue(source: &Object, weapon: &Weapon, victim: &Objec
         .unwrap_or(true);
     if ai_crushes_infantry {
         let is_computer = source
-            .get_controlling_player()
-            .and_then(|player| {
-                player
-                    .read()
-                    .ok()
-                    .map(|player_guard| player_guard.get_player_type() == PlayerType::Computer)
+            .with_controlling_player(|player_guard| {
+                player_guard.get_player_type() == PlayerType::Computer
             })
             .unwrap_or(false);
         if is_computer && source.get_crusher_level() > 0 && victim.is_kind_of(KindOf::Infantry) {
@@ -1687,11 +1679,8 @@ impl ClassicState for AIAttackPursueTargetState {
 
         if owner_guard.ai_fire_state_id != Some(AIStateType::GuardRetaliate as u32) {
             let is_human = owner_guard
-                .get_controlling_player()
-                .and_then(|player| {
-                    player.read().ok().map(|player_guard| {
-                        player_guard.get_player_type() == PlayerType::Human
-                    })
+                .with_controlling_player(|player_guard| {
+                    player_guard.get_player_type() == PlayerType::Human
                 })
                 .unwrap_or(false);
             if is_human
@@ -1954,11 +1943,8 @@ impl AIAttackApproachTargetState {
                     .read()
                     .map_err(|_| "attack approach victim lock poisoned".to_string())?;
                 if owner_guard
-                    .get_controlling_player()
-                    .and_then(|player| {
-                        player.read().ok().map(|player_guard| {
-                            player_guard.get_player_type() == PlayerType::Computer
-                        })
+                    .with_controlling_player(|player_guard| {
+                        player_guard.get_player_type() == PlayerType::Computer
                     })
                     .unwrap_or(false)
                 {
@@ -2200,11 +2186,8 @@ impl ClassicState for AIAttackApproachTargetState {
 
             if owner_guard.ai_fire_state_id != Some(AIStateType::GuardRetaliate as u32) {
                 let is_human = owner_guard
-                    .get_controlling_player()
-                    .and_then(|player| {
-                        player.read().ok().map(|player_guard| {
-                            player_guard.get_player_type() == PlayerType::Human
-                        })
+                    .with_controlling_player(|player_guard| {
+                        player_guard.get_player_type() == PlayerType::Human
                     })
                     .unwrap_or(false);
                 if is_human
@@ -2215,11 +2198,8 @@ impl ClassicState for AIAttackApproachTargetState {
                 }
 
                 let is_computer = owner_guard
-                    .get_controlling_player()
-                    .and_then(|player| {
-                        player.read().ok().map(|player_guard| {
-                            player_guard.get_player_type() == PlayerType::Computer
-                        })
+                    .with_controlling_player(|player_guard| {
+                        player_guard.get_player_type() == PlayerType::Computer
                     })
                     .unwrap_or(false);
                 if is_computer

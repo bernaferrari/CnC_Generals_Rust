@@ -36,10 +36,8 @@ use rand::Rng;
 use rand::rand_core::UnwrapErr;
 use rand::rngs::SysRng;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
-use std::sync::Arc;
 use std::time::Duration;
 use tokio::net::UdpSocket;
-use tokio::sync::RwLock;
 use tokio::time::timeout;
 use tracing::{debug, info, warn};
 
@@ -141,13 +139,17 @@ pub struct StunClient {
     socket: Option<UdpSocket>,
 
     /// Cached public address from last successful discovery.
-    public_address: Arc<RwLock<Option<SocketAddr>>>,
+    ///
+    /// THREAD: owned by the `StunClient` value itself — only this struct's
+    /// methods touch it and the client is never cloned into a spawned task,
+    /// so no lock or `Arc` is required.
+    public_address: Option<SocketAddr>,
 
     /// Detected NAT type from last analysis.
-    nat_type: Arc<RwLock<Option<StunNatType>>>,
+    nat_type: Option<StunNatType>,
 
     /// Timestamp of last successful discovery.
-    last_discovery: Arc<RwLock<Option<NetworkInstant>>>,
+    last_discovery: Option<NetworkInstant>,
 }
 
 impl StunClient {
@@ -156,9 +158,9 @@ impl StunClient {
         Self {
             config,
             socket: None,
-            public_address: Arc::new(RwLock::new(None)),
-            nat_type: Arc::new(RwLock::new(None)),
-            last_discovery: Arc::new(RwLock::new(None)),
+            public_address: None,
+            nat_type: None,
+            last_discovery: None,
         }
     }
 
@@ -207,8 +209,8 @@ impl StunClient {
                     info!("Discovered public address {} via {}", addr, server);
 
                     // Cache the result
-                    *self.public_address.write().await = Some(addr);
-                    *self.last_discovery.write().await = Some(NetworkInstant::now());
+                    self.public_address = Some(addr);
+                    self.last_discovery = Some(NetworkInstant::now());
 
                     return Ok(addr);
                 }
@@ -242,7 +244,7 @@ impl StunClient {
         let public_addr = match self.discover_public_address().await {
             Ok(addr) => addr,
             Err(_) => {
-                *self.nat_type.write().await = Some(StunNatType::Unknown);
+                self.nat_type = Some(StunNatType::Unknown);
                 return Ok(StunNatType::Unknown);
             }
         };
@@ -280,23 +282,23 @@ impl StunClient {
         };
 
         info!("Detected NAT type: {:?}", detected_type);
-        *self.nat_type.write().await = Some(detected_type);
+        self.nat_type = Some(detected_type);
         Ok(detected_type)
     }
 
     /// Get the cached public address from the last successful discovery.
     pub async fn get_public_address(&self) -> Option<SocketAddr> {
-        *self.public_address.read().await
+        self.public_address
     }
 
     /// Get the cached NAT type from the last detection.
     pub async fn get_nat_type(&self) -> Option<StunNatType> {
-        *self.nat_type.read().await
+        self.nat_type
     }
 
     /// Check if we appear to be behind NAT.
     pub async fn is_behind_nat(&self) -> bool {
-        match *self.nat_type.read().await {
+        match self.nat_type {
             Some(StunNatType::Open) | None => false,
             Some(_) => true,
         }
@@ -304,7 +306,7 @@ impl StunClient {
 
     /// Check if direct peer-to-peer connections are likely possible.
     pub async fn can_direct_connect(&self) -> bool {
-        match *self.nat_type.read().await {
+        match self.nat_type {
             Some(nat_type) => nat_type.allows_direct_connection(),
             None => false,
         }
@@ -317,9 +319,9 @@ impl StunClient {
         debug!("Refreshing STUN discovery");
 
         // Clear cache
-        *self.public_address.write().await = None;
-        *self.nat_type.write().await = None;
-        *self.last_discovery.write().await = None;
+        self.public_address = None;
+        self.nat_type = None;
+        self.last_discovery = None;
 
         // Perform new discovery
         self.discover_public_address().await?;
@@ -328,10 +330,7 @@ impl StunClient {
 
     /// Get the time elapsed since the last successful discovery.
     pub async fn discovery_age(&self) -> Option<Duration> {
-        self.last_discovery
-            .read()
-            .await
-            .map(|instant| instant.elapsed())
+        self.last_discovery.map(|instant| instant.elapsed())
     }
 
     /// Query a specific STUN server with retries.
@@ -770,8 +769,8 @@ mod tests {
 
         // Manually set a cached value
         let test_addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(1, 2, 3, 4)), 5678);
-        *client.public_address.write().await = Some(test_addr);
-        *client.last_discovery.write().await = Some(NetworkInstant::now());
+        client.public_address = Some(test_addr);
+        client.last_discovery = Some(NetworkInstant::now());
 
         // Should be cached
         assert_eq!(client.get_public_address().await, Some(test_addr));
@@ -787,11 +786,11 @@ mod tests {
         assert!(!client.is_behind_nat().await);
 
         // Set to Open
-        *client.nat_type.write().await = Some(StunNatType::Open);
+        client.nat_type = Some(StunNatType::Open);
         assert!(!client.is_behind_nat().await);
 
         // Set to FullCone
-        *client.nat_type.write().await = Some(StunNatType::FullCone);
+        client.nat_type = Some(StunNatType::FullCone);
         assert!(client.is_behind_nat().await);
     }
 
@@ -804,11 +803,11 @@ mod tests {
         assert!(!client.can_direct_connect().await);
 
         // Open allows direct
-        *client.nat_type.write().await = Some(StunNatType::Open);
+        client.nat_type = Some(StunNatType::Open);
         assert!(client.can_direct_connect().await);
 
         // Symmetric doesn't allow direct
-        *client.nat_type.write().await = Some(StunNatType::Symmetric);
+        client.nat_type = Some(StunNatType::Symmetric);
         assert!(!client.can_direct_connect().await);
     }
 }

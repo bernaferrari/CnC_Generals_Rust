@@ -402,14 +402,9 @@ impl StickyBombUpdate {
                         template.get_primary_damage_radius(&bonus) + bounding_circle;
                     let secondary_range =
                         template.get_secondary_damage_radius(&bonus) + bounding_circle;
-                    let source_player_mask = match obj.get_controlling_player() {
-                        Some(player_arc) => player_arc
-                            .read()
-                            .ok()
-                            .map(|player| player.get_player_mask())
-                            .unwrap_or(PlayerMaskType::none()),
-                        None => PlayerMaskType::none(),
-                    };
+                    let source_player_mask = obj
+                        .with_controlling_player(|player| player.get_player_mask())
+                        .unwrap_or(PlayerMaskType::none());
                     let mut damage_info = DamageInfo::new();
                     damage_info.input.source_id = obj.get_id();
                     damage_info.input.source_player_mask = source_player_mask;

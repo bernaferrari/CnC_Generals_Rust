@@ -5,9 +5,8 @@
 //! implementation exactly.
 
 use super::game_state::{CRCValue, EntitySnapshot, FrameNumber, GameState, ResourceState};
-use crate::error::{NetworkError, NetworkResult};
+use crate::error::NetworkResult;
 use std::collections::BTreeMap;
-use std::sync::{Arc, Mutex};
 use tracing::{debug, warn};
 
 /// CRC computer using bit-rotation algorithm
@@ -89,26 +88,25 @@ impl Default for CRCComputer {
 /// Game state CRC validator
 ///
 /// Computes and validates CRCs for game state to detect desynchronization.
-pub struct GameStateCRCValidator<G: GameState> {
-    game_state: Arc<Mutex<G>>,
+/// The validator owns only its CRC history: the game state is passed in by the
+/// caller (which owns it) on every call, so no shared lock is required.
+pub struct GameStateCRCValidator {
     crc_history: BTreeMap<FrameNumber, CRCValue>,
     max_history: usize,
 }
 
-impl<G: GameState> GameStateCRCValidator<G> {
+impl GameStateCRCValidator {
     /// Create a new CRC validator
-    pub fn new(game_state: Arc<Mutex<G>>) -> Self {
+    pub fn new() -> Self {
         Self {
-            game_state,
             crc_history: BTreeMap::new(),
             max_history: 100, // Keep last 100 frames
         }
     }
 
     /// Create a CRC validator with custom history size
-    pub fn with_history_size(game_state: Arc<Mutex<G>>, max_history: usize) -> Self {
+    pub fn with_history_size(max_history: usize) -> Self {
         Self {
-            game_state,
             crc_history: BTreeMap::new(),
             max_history,
         }
@@ -121,12 +119,7 @@ impl<G: GameState> GameStateCRCValidator<G> {
     /// 2. All entities (sorted by ID)
     /// 3. All resources (sorted by player ID)
     /// 4. Random seed
-    pub fn compute_crc(&self, frame: FrameNumber) -> NetworkResult<CRCValue> {
-        let game = self
-            .game_state
-            .lock()
-            .map_err(|e| NetworkError::generic(format!("Failed to lock game state: {}", e)))?;
-
+    pub fn compute_crc<G: GameState>(&self, game: &G, frame: FrameNumber) -> NetworkResult<CRCValue> {
         let mut crc = CRCComputer::new();
 
         // Add frame number
@@ -164,8 +157,13 @@ impl<G: GameState> GameStateCRCValidator<G> {
     ///
     /// Returns Ok(true) if CRCs match, Ok(false) if they don't match.
     /// Returns Err if CRC computation fails.
-    pub fn validate(&mut self, frame: FrameNumber, remote_crc: CRCValue) -> NetworkResult<bool> {
-        let local_crc = self.compute_crc(frame)?;
+    pub fn validate<G: GameState>(
+        &mut self,
+        game: &mut G,
+        frame: FrameNumber,
+        remote_crc: CRCValue,
+    ) -> NetworkResult<bool> {
+        let local_crc = self.compute_crc(game, frame)?;
 
         // Store in history
         self.store_crc(frame, local_crc);
@@ -177,11 +175,6 @@ impl<G: GameState> GameStateCRCValidator<G> {
             );
 
             // Handle desync in game state
-            let mut game = self
-                .game_state
-                .lock()
-                .map_err(|e| NetworkError::generic(format!("Failed to lock game state: {}", e)))?;
-
             game.handle_desync(frame, local_crc, remote_crc);
 
             Ok(false)
@@ -221,6 +214,12 @@ impl<G: GameState> GameStateCRCValidator<G> {
     /// Get number of CRCs stored in history
     pub fn history_size(&self) -> usize {
         self.crc_history.len()
+    }
+}
+
+impl Default for GameStateCRCValidator {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -369,10 +368,10 @@ mod tests {
 
     #[test]
     fn test_crc_validator_empty_state() {
-        let game_state = Arc::new(Mutex::new(MockGameState::new()));
-        let validator = GameStateCRCValidator::new(game_state);
+        let game_state = MockGameState::new();
+        let validator = GameStateCRCValidator::new();
 
-        let crc = validator.compute_crc(0).unwrap();
+        let crc = validator.compute_crc(&game_state, 0).unwrap();
         assert_ne!(crc, 0); // Should have non-zero CRC due to frame number and random seed
     }
 
@@ -388,10 +387,9 @@ mod tests {
             state: 1,
         });
 
-        let game_state = Arc::new(Mutex::new(mock));
-        let validator = GameStateCRCValidator::new(game_state);
+        let validator = GameStateCRCValidator::new();
 
-        let crc = validator.compute_crc(0).unwrap();
+        let crc = validator.compute_crc(&mock, 0).unwrap();
         assert_ne!(crc, 0);
     }
 
@@ -407,48 +405,47 @@ mod tests {
             state: 1,
         });
 
-        let game_state = Arc::new(Mutex::new(mock));
-        let validator = GameStateCRCValidator::new(game_state);
+        let validator = GameStateCRCValidator::new();
 
-        let crc1 = validator.compute_crc(0).unwrap();
-        let crc2 = validator.compute_crc(0).unwrap();
+        let crc1 = validator.compute_crc(&mock, 0).unwrap();
+        let crc2 = validator.compute_crc(&mock, 0).unwrap();
 
         assert_eq!(crc1, crc2);
     }
 
     #[test]
     fn test_crc_validation_match() {
-        let game_state = Arc::new(Mutex::new(MockGameState::new()));
-        let mut validator = GameStateCRCValidator::new(game_state.clone());
+        let mut game_state = MockGameState::new();
+        let mut validator = GameStateCRCValidator::new();
 
-        let local_crc = validator.compute_crc(0).unwrap();
-        let result = validator.validate(0, local_crc).unwrap();
+        let local_crc = validator.compute_crc(&game_state, 0).unwrap();
+        let result = validator.validate(&mut game_state, 0, local_crc).unwrap();
 
         assert!(result);
     }
 
     #[test]
     fn test_crc_validation_mismatch() {
-        let game_state = Arc::new(Mutex::new(MockGameState::new()));
-        let mut validator = GameStateCRCValidator::new(game_state);
+        let mut game_state = MockGameState::new();
+        let mut validator = GameStateCRCValidator::new();
 
-        let local_crc = validator.compute_crc(0).unwrap();
+        let local_crc = validator.compute_crc(&game_state, 0).unwrap();
         let wrong_crc = local_crc.wrapping_add(1);
 
-        let result = validator.validate(0, wrong_crc).unwrap();
+        let result = validator.validate(&mut game_state, 0, wrong_crc).unwrap();
 
         assert!(!result);
     }
 
     #[test]
     fn test_crc_history() {
-        let game_state = Arc::new(Mutex::new(MockGameState::new()));
-        let mut validator = GameStateCRCValidator::with_history_size(game_state, 5);
+        let mut game_state = MockGameState::new();
+        let mut validator = GameStateCRCValidator::with_history_size(5);
 
         // Compute CRCs for frames 0-9
         for frame in 0..10 {
-            let local_crc = validator.compute_crc(frame).unwrap();
-            validator.validate(frame, local_crc).unwrap();
+            let local_crc = validator.compute_crc(&game_state, frame).unwrap();
+            validator.validate(&mut game_state, frame, local_crc).unwrap();
         }
 
         // Should only keep last 5 frames

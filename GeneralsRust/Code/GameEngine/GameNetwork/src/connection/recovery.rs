@@ -359,25 +359,36 @@ impl CircuitBreaker {
     }
 }
 
+/// Recovery bookkeeping shared between the coordinator's public accessors and its
+/// two background tasks (health monitoring, recovery processing).
+///
+/// THREAD: one lock for the bundle instead of one per map - the game thread
+/// reports errors and queries health while the background tasks update the same
+/// per-player tables. All critical sections are short and none of them nest.
+#[derive(Default)]
+struct RecoveryState {
+    /// Active recovery attempts
+    active_recoveries: HashMap<u8, RecoveryAttempt>,
+    /// Connection health tracking
+    connection_health: HashMap<u8, ConnectionHealth>,
+    /// Circuit breakers per connection
+    circuit_breakers: HashMap<u8, CircuitBreaker>,
+}
+
 /// Connection recovery coordinator
 pub struct ConnectionRecoveryCoordinator {
     /// Configuration
     config: RecoveryConfig,
 
-    /// Active recovery attempts
-    active_recoveries: Arc<RwLock<HashMap<u8, RecoveryAttempt>>>,
-
-    /// Connection health tracking
-    connection_health: Arc<RwLock<HashMap<u8, ConnectionHealth>>>,
-
-    /// Circuit breakers per connection
-    circuit_breakers: Arc<RwLock<HashMap<u8, CircuitBreaker>>>,
+    /// THREAD: see [`RecoveryState`].
+    state: Arc<RwLock<RecoveryState>>,
 
     /// Recovery event notifications
     recovery_events_tx: broadcast::Sender<RecoveryEvent>,
 
-    /// Background task handles
-    background_tasks: Arc<RwLock<Vec<JoinHandle<()>>>>,
+    /// Background task handles. Owned by the coordinator; only the thread that
+    /// starts the tasks pushes to or drains it.
+    background_tasks: Vec<JoinHandle<()>>,
 
     /// Shutdown coordination
     shutdown_tx: broadcast::Sender<()>,
@@ -430,11 +441,9 @@ impl ConnectionRecoveryCoordinator {
 
         Self {
             config,
-            active_recoveries: Arc::new(RwLock::new(HashMap::new())),
-            connection_health: Arc::new(RwLock::new(HashMap::new())),
-            circuit_breakers: Arc::new(RwLock::new(HashMap::new())),
+            state: Arc::new(RwLock::new(RecoveryState::default())),
             recovery_events_tx,
-            background_tasks: Arc::new(RwLock::new(Vec::new())),
+            background_tasks: Vec::new(),
             shutdown_tx,
         }
     }
@@ -456,13 +465,13 @@ impl ConnectionRecoveryCoordinator {
     /// Add connection for monitoring
     pub async fn add_connection(&self, player_id: u8) {
         {
-            let mut health_map = self.connection_health.write().await;
-            health_map.insert(player_id, ConnectionHealth::default());
-        }
-
-        {
-            let mut circuit_breaker_map = self.circuit_breakers.write().await;
-            circuit_breaker_map.insert(player_id, CircuitBreaker::new(self.config.clone()));
+            let mut state = self.state.write().await;
+            state
+                .connection_health
+                .insert(player_id, ConnectionHealth::default());
+            state
+                .circuit_breakers
+                .insert(player_id, CircuitBreaker::new(self.config.clone()));
         }
 
         debug!("Added connection {} to recovery coordinator", player_id);
@@ -470,22 +479,14 @@ impl ConnectionRecoveryCoordinator {
 
     /// Remove connection from monitoring
     pub async fn remove_connection(&self, player_id: u8) {
-        // Cancel any active recovery
         {
-            let mut recoveries = self.active_recoveries.write().await;
-            if let Some(mut recovery) = recoveries.remove(&player_id) {
+            let mut state = self.state.write().await;
+            // Cancel any active recovery
+            if let Some(mut recovery) = state.active_recoveries.remove(&player_id) {
                 recovery.status = RecoveryStatus::Cancelled;
             }
-        }
-
-        {
-            let mut health_map = self.connection_health.write().await;
-            health_map.remove(&player_id);
-        }
-
-        {
-            let mut circuit_breakers = self.circuit_breakers.write().await;
-            circuit_breakers.remove(&player_id);
+            state.connection_health.remove(&player_id);
+            state.circuit_breakers.remove(&player_id);
         }
 
         debug!("Removed connection {} from recovery coordinator", player_id);
@@ -499,17 +500,17 @@ impl ConnectionRecoveryCoordinator {
     ) -> NetworkResult<()> {
         debug!("Reported error for player {}: {:?}", player_id, error);
 
-        // Update circuit breaker
         {
-            let mut circuit_breakers = self.circuit_breakers.write().await;
-            if let Some(breaker) = circuit_breakers.get_mut(&player_id) {
+            let mut state = self.state.write().await;
+            // Update circuit breaker
+            if let Some(breaker) = state.circuit_breakers.get_mut(&player_id) {
                 breaker.record_failure();
             }
         }
 
         // Update connection health
         {
-            let mut health_map = self.connection_health.write().await;
+            let mut health_map = self.state.write().await.connection_health;
             if let Some(health) = health_map.get_mut(&player_id) {
                 health.recent_error_count += 1;
                 health.messages_failed += 1;
@@ -547,7 +548,7 @@ impl ConnectionRecoveryCoordinator {
     pub async fn report_success(&self, player_id: u8) {
         // Update circuit breaker
         {
-            let mut circuit_breakers = self.circuit_breakers.write().await;
+            let mut circuit_breakers = self.state.write().await.circuit_breakers;
             if let Some(breaker) = circuit_breakers.get_mut(&player_id) {
                 breaker.record_success();
             }
@@ -555,7 +556,7 @@ impl ConnectionRecoveryCoordinator {
 
         // Update connection health
         {
-            let mut health_map = self.connection_health.write().await;
+            let mut health_map = self.state.write().await.connection_health;
             if let Some(health) = health_map.get_mut(&player_id) {
                 health.messages_sent += 1;
                 health.last_successful_ping = Some(NetworkInstant::now());
@@ -601,7 +602,7 @@ impl ConnectionRecoveryCoordinator {
 
         // Store active recovery
         {
-            let mut recoveries = self.active_recoveries.write().await;
+            let mut recoveries = self.state.write().await.active_recoveries;
             recoveries.insert(player_id, recovery);
         }
 
@@ -618,19 +619,19 @@ impl ConnectionRecoveryCoordinator {
 
     /// Check if recovery is active for connection
     async fn is_recovery_active(&self, player_id: u8) -> bool {
-        let recoveries = self.active_recoveries.read().await;
+        let recoveries = self.state.read().await.active_recoveries;
         recoveries.contains_key(&player_id)
     }
 
     /// Get connection health
     pub async fn get_connection_health(&self, player_id: u8) -> Option<ConnectionHealth> {
-        let health_map = self.connection_health.read().await;
+        let health_map = self.state.read().await.connection_health;
         health_map.get(&player_id).cloned()
     }
 
     /// Check if operation is allowed (circuit breaker)
     pub async fn is_operation_allowed(&self, player_id: u8) -> bool {
-        let mut circuit_breakers = self.circuit_breakers.write().await;
+        let mut circuit_breakers = self.state.write().await.circuit_breakers;
         if let Some(breaker) = circuit_breakers.get_mut(&player_id) {
             breaker.is_operation_allowed()
         } else {
@@ -645,7 +646,7 @@ impl ConnectionRecoveryCoordinator {
 
     /// Start health monitoring background task
     async fn start_health_monitoring(&mut self) -> NetworkResult<()> {
-        let connection_health = self.connection_health.clone();
+        let state = self.state.clone();
         let recovery_events_tx = self.recovery_events_tx.clone();
         let config = self.config.clone();
         let mut shutdown_rx = self.shutdown_tx.subscribe();
@@ -659,8 +660,8 @@ impl ConnectionRecoveryCoordinator {
                         let mut health_changes = Vec::new();
 
                         {
-                            let mut health_map = connection_health.write().await;
-                            
+                            let mut health_map = state.write().await.connection_health;
+
                             for (&player_id, health) in health_map.iter_mut() {
                                 let old_score = health.health_score();
                                 
@@ -703,17 +704,14 @@ impl ConnectionRecoveryCoordinator {
             }
         });
 
-        {
-            let mut tasks = self.background_tasks.write().await;
-            tasks.push(handle);
-        }
+        self.background_tasks.push(handle);
 
         Ok(())
     }
 
     /// Start recovery processing background task
     async fn start_recovery_processing(&mut self) -> NetworkResult<()> {
-        let active_recoveries = self.active_recoveries.clone();
+        let state = self.state.clone();
         let recovery_events_tx = self.recovery_events_tx.clone();
         let config = self.config.clone();
         let mut shutdown_rx = self.shutdown_tx.subscribe();
@@ -727,7 +725,7 @@ impl ConnectionRecoveryCoordinator {
                         let mut completed_recoveries = Vec::new();
 
                         {
-                            let mut recoveries = active_recoveries.write().await;
+                            let mut recoveries = state.write().await.active_recoveries;
                             
                             for (&player_id, recovery) in recoveries.iter_mut() {
                                 // Check for timeout
@@ -808,10 +806,7 @@ impl ConnectionRecoveryCoordinator {
             }
         });
 
-        {
-            let mut tasks = self.background_tasks.write().await;
-            tasks.push(handle);
-        }
+        self.background_tasks.push(handle);
 
         Ok(())
     }
@@ -824,17 +819,14 @@ impl ConnectionRecoveryCoordinator {
         let _ = self.shutdown_tx.send(());
 
         // Wait for background tasks
-        {
-            let mut tasks = self.background_tasks.write().await;
-            for handle in tasks.drain(..) {
-                handle.abort();
-                let _ = handle.await;
-            }
+        for handle in self.background_tasks.drain(..) {
+            handle.abort();
+            let _ = handle.await;
         }
 
         // Cancel all active recoveries
         {
-            let mut recoveries = self.active_recoveries.write().await;
+            let mut recoveries = self.state.write().await.active_recoveries;
             for (_, mut recovery) in recoveries.drain() {
                 recovery.status = RecoveryStatus::Cancelled;
             }

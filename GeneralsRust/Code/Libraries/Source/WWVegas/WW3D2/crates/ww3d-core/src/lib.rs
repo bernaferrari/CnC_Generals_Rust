@@ -63,7 +63,8 @@ pub use animation::{
     HierarchyAnimation, Pivot,
 };
 pub use asset_manager::{
-    AssetHandle, AssetLoader, AssetManager, AssetStatus, global_asset_manager,
+    AssetHandle, AssetLoader, AssetManager, AssetStatus, with_global_asset_manager,
+    with_global_asset_manager_ref,
 };
 pub use lighting::{Attenuation, Light, LightEnvironment, LightType};
 pub use material::{

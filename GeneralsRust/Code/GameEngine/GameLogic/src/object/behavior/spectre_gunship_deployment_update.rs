@@ -425,18 +425,16 @@ impl SpecialPowerUpdateInterface for SpectreGunshipDeploymentUpdate {
                 );
             }
 
-            if let Some(player_arc) = obj.get_controlling_player() {
-                if let Ok(player) = player_arc.read() {
-                    if let Ok(gunship) = gunship_arc.read() {
-                        let _ = TheGameLogic::select_object(
-                            &*gunship,
-                            true,
-                            player.get_player_mask(),
-                            true,
-                        );
-                    }
+            obj.with_controlling_player(|player| {
+                if let Ok(gunship) = gunship_arc.read() {
+                    let _ = TheGameLogic::select_object(
+                        &*gunship,
+                        true,
+                        player.get_player_mask(),
+                        true,
+                    );
                 }
-            }
+            });
         } else {
             self.gunship_id = crate::common::INVALID_ID;
         }

@@ -111,6 +111,12 @@ pub struct DrawableState {
     pub laser_growth_frames: Option<i32>,
     pub laser_growth_start_frame: Option<UnsignedInt>,
     pub projectile_stream: Option<ProjectileStreamState>,
+    /// Registry-owned strong handle. This map is the authoritative owner of
+    /// `Drawable`s (including objectless ones); `Object::drawable` holds a
+    /// clone. Read live at render time by the presentation frame
+    /// (`Main/src/presentation_frame/queries.rs`) and particle effects
+    /// (`GameClient/src/effects/particle_system.rs`), so it cannot collapse
+    /// into `Object`-owned state.
     pub drawable: Option<Arc<RwLock<Drawable>>>,
     pub expiration_frame: Option<UnsignedInt>,
 }

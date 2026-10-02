@@ -36,13 +36,13 @@ impl CreateInterface for PreorderCreate {
             return;
         }
 
-        if let Some(player) = obj.get_controlling_player() {
-            if let Ok(player_guard) = player.read() {
-                if player_guard.did_player_preorder() {
-                    obj.set_model_condition_state(ModelConditionFlags::PREORDER);
-                } else {
-                    let _ = obj.clear_model_condition_flags(ModelConditionFlags::PREORDER);
-                }
+        if let Some(preordered) =
+            obj.with_controlling_player(|player_guard| player_guard.did_player_preorder())
+        {
+            if preordered {
+                obj.set_model_condition_state(ModelConditionFlags::PREORDER);
+            } else {
+                let _ = obj.clear_model_condition_flags(ModelConditionFlags::PREORDER);
             }
         }
     }

@@ -5,8 +5,7 @@
 use crate::error::{NetworkError, NetworkResult};
 use crate::network_chat::{ChatChannel, UnifiedChatMessage};
 use std::collections::HashMap;
-use std::sync::Arc;
-use tokio::sync::{mpsc, RwLock};
+use tokio::sync::mpsc;
 use tracing::{debug, trace};
 
 /// Player relationship information
@@ -23,43 +22,42 @@ pub struct PlayerRelationship {
 }
 
 /// Chat router for message distribution
+///
+/// Single-owner state: no handle is ever handed to another task, so the
+/// routing tables are plain fields and mutators take `&mut self`.
 pub struct ChatRouter {
     /// Player relationships
-    relationships: Arc<RwLock<HashMap<u32, PlayerRelationship>>>,
+    relationships: HashMap<u32, PlayerRelationship>,
     /// Channel subscribers
-    channel_subscribers: Arc<RwLock<HashMap<ChatChannel, Vec<u32>>>>,
+    channel_subscribers: HashMap<ChatChannel, Vec<u32>>,
     /// Message sender for each player
-    player_senders: Arc<RwLock<HashMap<u32, mpsc::UnboundedSender<UnifiedChatMessage>>>>,
+    player_senders: HashMap<u32, mpsc::UnboundedSender<UnifiedChatMessage>>,
 }
 
 impl ChatRouter {
     /// Create new chat router
     pub fn new() -> Self {
         Self {
-            relationships: Arc::new(RwLock::new(HashMap::new())),
-            channel_subscribers: Arc::new(RwLock::new(HashMap::new())),
-            player_senders: Arc::new(RwLock::new(HashMap::new())),
+            relationships: HashMap::new(),
+            channel_subscribers: HashMap::new(),
+            player_senders: HashMap::new(),
         }
     }
 
     /// Add or update player relationship
-    pub async fn update_relationship(&self, relationship: PlayerRelationship) {
-        let mut relationships = self.relationships.write().await;
-        relationships.insert(relationship.player_id, relationship);
+    pub async fn update_relationship(&mut self, relationship: PlayerRelationship) {
+        self.relationships
+            .insert(relationship.player_id, relationship);
         trace!("Updated relationship for player {}", relationship.player_id);
     }
 
     /// Remove player
-    pub async fn remove_player(&self, player_id: u32) {
-        let mut relationships = self.relationships.write().await;
-        relationships.remove(&player_id);
-
-        let mut senders = self.player_senders.write().await;
-        senders.remove(&player_id);
+    pub async fn remove_player(&mut self, player_id: u32) {
+        self.relationships.remove(&player_id);
+        self.player_senders.remove(&player_id);
 
         // Remove from channel subscriptions
-        let mut subscribers = self.channel_subscribers.write().await;
-        for subscribers_list in subscribers.values_mut() {
+        for subscribers_list in self.channel_subscribers.values_mut() {
             subscribers_list.retain(|&id| id != player_id);
         }
 
@@ -67,44 +65,43 @@ impl ChatRouter {
     }
 
     /// Subscribe player to channel
-    pub async fn subscribe_channel(&self, player_id: u32, channel: ChatChannel) {
-        let mut subscribers = self.channel_subscribers.write().await;
-        subscribers.entry(channel).or_insert_with(Vec::new).push(player_id);
+    pub async fn subscribe_channel(&mut self, player_id: u32, channel: ChatChannel) {
+        self.channel_subscribers
+            .entry(channel)
+            .or_insert_with(Vec::new)
+            .push(player_id);
         debug!("Player {} subscribed to channel {:?}", player_id, channel);
     }
 
     /// Unsubscribe player from channel
-    pub async fn unsubscribe_channel(&self, player_id: u32, channel: &ChatChannel) {
-        let mut subscribers = self.channel_subscribers.write().await;
-        if let Some(subscribers_list) = subscribers.get_mut(channel) {
+    pub async fn unsubscribe_channel(&mut self, player_id: u32, channel: &ChatChannel) {
+        if let Some(subscribers_list) = self.channel_subscribers.get_mut(channel) {
             subscribers_list.retain(|id: &u32| *id != player_id);
         }
         debug!("Player {} unsubscribed from channel {:?}", player_id, channel);
     }
 
     /// Register player message sender
-    pub async fn register_sender(&self, player_id: u32, sender: mpsc::UnboundedSender<UnifiedChatMessage>) {
-        let mut senders = self.player_senders.write().await;
-        senders.insert(player_id, sender);
+    pub async fn register_sender(&mut self, player_id: u32, sender: mpsc::UnboundedSender<UnifiedChatMessage>) {
+        self.player_senders.insert(player_id, sender);
         debug!("Registered message sender for player {}", player_id);
     }
 
     /// Route message to appropriate recipients
     pub async fn route_message(&self, message: UnifiedChatMessage) -> NetworkResult<()> {
-        let recipients = self.calculate_recipients(&message).await?;
+        let recipients = self.calculate_recipients(&message)?;
 
         debug!("Routing message to {} recipients", recipients.len());
 
         for player_id in recipients {
-            self.send_to_player(player_id, message.clone()).await?;
+            self.send_to_player(player_id, message.clone())?;
         }
 
         Ok(())
     }
 
     /// Calculate which players should receive a message
-    async fn calculate_recipients(&self, message: &UnifiedChatMessage) -> NetworkResult<Vec<u32>> {
-        let relationships = self.relationships.read().await;
+    fn calculate_recipients(&self, message: &UnifiedChatMessage) -> NetworkResult<Vec<u32>> {
         let mut recipients = Vec::new();
 
         match message.channel {
@@ -154,10 +151,8 @@ impl ChatRouter {
     }
 
     /// Send message to specific player
-    async fn send_to_player(&self, player_id: u32, message: UnifiedChatMessage) -> NetworkResult<()> {
-        let senders = self.player_senders.read().await;
-
-        if let Some(sender) = senders.get(&player_id) {
+    fn send_to_player(&self, player_id: u32, message: UnifiedChatMessage) -> NetworkResult<()> {
+        if let Some(sender) = self.player_senders.get(&player_id) {
             sender.send(message)
                 .map_err(|e| NetworkError::transport(format!("Failed to send to player {}: {}", player_id, e)))?;
         } else {
@@ -169,20 +164,19 @@ impl ChatRouter {
 
     /// Get players in channel
     pub async fn get_channel_players(&self, channel: ChatChannel) -> Vec<u32> {
-        let subscribers = self.channel_subscribers.read().await;
-        subscribers.get(&channel).cloned().unwrap_or_default()
+        self.channel_subscribers.get(&channel).cloned().unwrap_or_default()
     }
 
     /// Get player relationships
     pub async fn get_relationships(&self) -> HashMap<u32, PlayerRelationship> {
-        self.relationships.read().await.clone()
+        self.relationships.clone()
     }
 
     /// Clear all routing data
-    pub async fn clear(&self) {
-        self.relationships.write().await.clear();
-        self.channel_subscribers.write().await.clear();
-        self.player_senders.write().await.clear();
+    pub async fn clear(&mut self) {
+        self.relationships.clear();
+        self.channel_subscribers.clear();
+        self.player_senders.clear();
         debug!("Cleared chat router");
     }
 }
@@ -199,14 +193,14 @@ mod tests {
 
     #[tokio::test]
     async fn test_router_creation() {
-        let router = ChatRouter::new();
+        let mut router = ChatRouter::new();
         let relationships = router.get_relationships().await;
         assert!(relationships.is_empty());
     }
 
     #[tokio::test]
     async fn test_relationship_update() {
-        let router = ChatRouter::new();
+        let mut router = ChatRouter::new();
 
         let rel = PlayerRelationship {
             player_id: 1,
@@ -224,7 +218,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_channel_subscription() {
-        let router = ChatRouter::new();
+        let mut router = ChatRouter::new();
 
         router.subscribe_channel(1, ChatChannel::Global).await;
         router.subscribe_channel(1, ChatChannel::Allies).await;
@@ -239,7 +233,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_player_removal() {
-        let router = ChatRouter::new();
+        let mut router = ChatRouter::new();
 
         router.subscribe_channel(1, ChatChannel::Global).await;
         router.remove_player(1).await;
@@ -250,7 +244,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_global_routing() {
-        let router = ChatRouter::new();
+        let mut router = ChatRouter::new();
 
         // Add players
         for i in 1..=3 {

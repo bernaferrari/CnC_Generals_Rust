@@ -1898,13 +1898,7 @@ impl AIAttackSquadState {
         }
 
         let mut difficulty = owner_guard
-            .get_controlling_player()
-            .and_then(|player| {
-                player
-                    .read()
-                    .ok()
-                    .map(|player| player.get_player_difficulty())
-            })
+            .with_controlling_player(|player| player.get_player_difficulty())
             .unwrap_or(crate::player::GameDifficulty::Normal);
 
         if owner_guard.ai_fire_last_command_source == CommandSourceType::FromPlayer {

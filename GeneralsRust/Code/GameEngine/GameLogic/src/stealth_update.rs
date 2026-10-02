@@ -1342,47 +1342,46 @@ impl StealthController {
             return false;
         }
 
-        let Some(player) = owner.get_controlling_player() else {
-            return false;
-        };
+        owner
+            .with_controlling_player(|player_guard| {
+                let mut has_black_market = false;
+                let _ = player_guard.iterate_object_ids(|object_id| {
+                    if has_black_market {
+                        return Ok(());
+                    }
 
-        let mut has_black_market = false;
-        if let Ok(player_guard) = player.read() {
-            let _ = player_guard.iterate_object_ids(|object_id| {
-                if has_black_market {
-                    return Ok(());
-                }
-
-                let object_arc = match crate::helpers::TheGameLogic::find_object_by_id(object_id)
+                    let object_arc = match crate::helpers::TheGameLogic::find_object_by_id(
+                        object_id,
+                    )
                     .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(object_id))
-                {
-                    Some(a) => a,
-                    None => return Ok(()),
-                };
-                let Ok(object_guard) = object_arc.read() else {
-                    return Ok(());
-                };
+                    {
+                        Some(a) => a,
+                        None => return Ok(()),
+                    };
+                    let Ok(object_guard) = object_arc.read() else {
+                        return Ok(());
+                    };
 
-                if object_guard.is_effectively_dead() {
-                    return Ok(());
-                }
-                let status = object_guard.get_status_bits();
-                if status.contains(ObjectStatusMaskType::UNDER_CONSTRUCTION)
-                    || status.contains(ObjectStatusMaskType::SOLD)
-                {
-                    return Ok(());
-                }
+                    if object_guard.is_effectively_dead() {
+                        return Ok(());
+                    }
+                    let status = object_guard.get_status_bits();
+                    if status.contains(ObjectStatusMaskType::UNDER_CONSTRUCTION)
+                        || status.contains(ObjectStatusMaskType::SOLD)
+                    {
+                        return Ok(());
+                    }
 
-                // C++ StealthUpdate.cpp:157-175 isBlackMarket — KindOf, not name.
-                if object_guard.is_kind_of(KindOf::FsBlackMarket) {
-                    has_black_market = true;
-                }
+                    // C++ StealthUpdate.cpp:157-175 isBlackMarket — KindOf, not name.
+                    if object_guard.is_kind_of(KindOf::FsBlackMarket) {
+                        has_black_market = true;
+                    }
 
-                Ok(())
-            });
-        }
-
-        has_black_market
+                    Ok(())
+                });
+                has_black_market
+            })
+            .unwrap_or(false)
     }
 }
 

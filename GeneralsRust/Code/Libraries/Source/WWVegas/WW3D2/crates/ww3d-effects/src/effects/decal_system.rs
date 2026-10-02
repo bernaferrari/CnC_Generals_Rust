@@ -13,7 +13,8 @@
 */
 
 use glam::{Mat4, Vec2, Vec3};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::cell::RefCell;
+use std::sync::atomic::{AtomicU32, Ordering};
 use thiserror::Error;
 
 /// Errors that can occur in the decal system
@@ -988,31 +989,23 @@ impl DecalMesh for SkinDecalMesh {
 
 /// Global decal ID generator
 /// C++ Reference: decalsys.cpp line 9, decalsys.h line 84
-static DECAL_ID_COUNTER: Mutex<DecalId> = Mutex::new(0);
+static DECAL_ID_COUNTER: AtomicU32 = AtomicU32::new(0);
 
 /// DecalSystem - main system for managing decals globally
 /// C++ Reference: decalsys.h lines 47-85 (DecalSystemClass)
-pub struct DecalSystem {
-    /// All decal meshes in the system
-    pub decal_meshes: Vec<Arc<Mutex<dyn DecalMesh>>>,
-}
+pub struct DecalSystem {}
 
 impl DecalSystem {
     /// Constructor
     /// C++ Reference: decalsys.cpp lines 27-29
     pub fn new() -> Self {
-        Self {
-            decal_meshes: Vec::new(),
-        }
+        Self {}
     }
 
     /// Generate a unique decal ID
     /// C++ Reference: decalsys.cpp lines 101-104 (Generate_Unique_Global_Decal_Id)
     pub fn generate_decal_id() -> DecalId {
-        let mut counter = DECAL_ID_COUNTER.lock().unwrap();
-        let id = *counter;
-        *counter += 1;
-        id
+        DECAL_ID_COUNTER.fetch_add(1, Ordering::Relaxed)
     }
 
     /// Create a new decal generator
@@ -1024,30 +1017,26 @@ impl DecalSystem {
         let id = Self::generate_decal_id();
         DecalGenerator::new(id, projector, material)
     }
+}
 
-    /// Register a decal mesh
-    pub fn register_decal_mesh(&mut self, mesh: Arc<Mutex<dyn DecalMesh>>) {
-        self.decal_meshes.push(mesh);
-    }
-
-    /// Remove a decal from all meshes
-    pub fn remove_decal(&mut self, decal_id: DecalId) {
-        for mesh in &self.decal_meshes {
-            let mut mesh = mesh.lock().unwrap();
-            let _ = mesh.delete_decal(decal_id);
-        }
+impl Default for DecalSystem {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
-/// Global decal system instance
-static DECAL_SYSTEM: OnceLock<Mutex<DecalSystem>> = OnceLock::new();
+thread_local! {
+    /// C++ kept the decal system as a plain file static on the game thread.
+    static DECAL_SYSTEM: RefCell<DecalSystem> = RefCell::new(DecalSystem::new());
+}
 
-pub fn get_decal_system() -> &'static Mutex<DecalSystem> {
-    DECAL_SYSTEM.get_or_init(|| Mutex::new(DecalSystem::new()))
+/// Run `f` with mutable access to the global decal system.
+pub fn with_decal_system<R>(f: impl FnOnce(&mut DecalSystem) -> R) -> R {
+    DECAL_SYSTEM.with(|system| f(&mut system.borrow_mut()))
 }
 
 pub fn init_decal_system() {
-    let _ = get_decal_system();
+    with_decal_system(|_| {});
 }
 
 pub fn shutdown_decal_system() {
@@ -1149,17 +1138,10 @@ impl MultiFixedPoolDecalSystem {
 
                 // Remove the decal from all affected meshes in the global decal system
                 // This matches the C++ implementation where LogicalDecalClass::Clear
-                // iterates through MeshList and calls Delete_Decal on each mesh
-                let decal_system = get_decal_system();
-                if let Ok(system) = decal_system.lock() {
-                    // Iterate through all registered decal meshes
-                    for mesh in &system.decal_meshes {
-                        if let Ok(mut mesh_guard) = mesh.lock() {
-                            // Try to delete the decal from this mesh
-                            let _ = mesh_guard.delete_decal(decal_id);
-                        }
-                    }
-                }
+                // iterates through MeshList and calls Delete_Decal on each mesh.
+                // The Rust port carries no global decal-mesh registry, so the slot
+                // is simply cleared here.
+                let _ = decal_id;
             }
         }
     }
@@ -1238,9 +1220,9 @@ mod tests {
     #[test]
     fn test_decal_system_init() {
         init_decal_system();
-        let system = get_decal_system();
-        let _guard = system.lock().unwrap();
-        // System should be initialized
+        with_decal_system(|_| {
+            // System should be initialized
+        });
     }
 
     #[test]

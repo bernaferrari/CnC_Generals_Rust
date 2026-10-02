@@ -140,11 +140,9 @@ impl Snapshotable for PowerPlantUpgrade {
         let _ = OBJECT_REGISTRY.with_object(self.object_id, |object_guard| {
             let bonus = object_guard.get_template().get_energy_bonus();
             if bonus != 0 {
-                if let Some(player) = object_guard.get_controlling_player() {
-                    if let Ok(mut player_guard) = player.write() {
-                        player_guard.add_power_production(bonus);
-                    }
-                }
+                object_guard.with_controlling_player_mut(|player_guard| {
+                    player_guard.add_power_production(bonus);
+                });
             }
         });
 
@@ -170,11 +168,9 @@ impl UpgradeModuleInterface for PowerPlantUpgrade {
         let Some(()) = OBJECT_REGISTRY.with_object_mut(self.object_id, |object_guard| {
             let bonus = object_guard.get_template().get_energy_bonus();
             if bonus != 0 {
-                if let Some(player) = object_guard.get_controlling_player() {
-                    if let Ok(mut player_guard) = player.write() {
-                        player_guard.add_power_production(bonus);
-                    }
-                }
+                object_guard.with_controlling_player_mut(|player_guard| {
+                    player_guard.add_power_production(bonus);
+                });
             }
 
             let _ = object_guard.with_power_plant_update_interface(|ppui| {
@@ -205,11 +201,9 @@ impl UpgradeModuleInterface for PowerPlantUpgrade {
 
         let bonus = object.get_template().get_energy_bonus();
         if bonus != 0 {
-            if let Some(player) = object.get_controlling_player() {
-                if let Ok(mut player_guard) = player.write() {
-                    player_guard.add_power_production(-bonus);
-                }
-            }
+            object.with_controlling_player_mut(|player_guard| {
+                player_guard.add_power_production(-bonus);
+            });
         }
 
         self.applied = false;

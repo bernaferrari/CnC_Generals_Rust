@@ -12,7 +12,6 @@ use serde::{Deserialize, Serialize};
 use std::net::{Ipv4Addr, SocketAddrV4};
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
 use tokio::time::sleep;
 use tracing::{debug, info, warn};
@@ -62,12 +61,24 @@ impl ActiveMapping {
     }
 }
 
+/// Discovered gateway plus the currently installed port mapping.
+#[derive(Clone, Default)]
+struct SharedMappingState {
+    gateway: Option<Arc<Gateway>>,
+    active_mapping: Option<ActiveMapping>,
+}
+
 /// Modern firewall helper that mirrors the behaviour of the original
 /// FirewallHelper by acquiring and refreshing external port mappings.
 pub struct FirewallHelper {
     config: FirewallConfig,
-    gateway: Arc<Mutex<Option<Arc<Gateway>>>>,
-    active_mapping: Arc<Mutex<Option<ActiveMapping>>>,
+    /// THREAD: gateway and active mapping are read both by the helper's public
+    /// methods and by the spawned refresh task, which owns a cloned `Arc` of this
+    /// lock and re-applies the mapping every `refresh_interval`. Guards are dropped
+    /// before any router I/O is awaited.
+    shared: Arc<SyncMutex<SharedMappingState>>,
+    /// THREAD: handle of the refresh task; installed by `spawn_refresh_task` and
+    /// taken/aborted by `remove_mapping` on the controlling thread.
     refresh_task: SyncMutex<Option<JoinHandle<()>>>,
 }
 
@@ -76,8 +87,7 @@ impl FirewallHelper {
     pub fn new(config: FirewallConfig) -> Self {
         Self {
             config,
-            gateway: Arc::new(Mutex::new(None)),
-            active_mapping: Arc::new(Mutex::new(None)),
+            shared: Arc::new(SyncMutex::new(SharedMappingState::default())),
             refresh_task: SyncMutex::new(None),
         }
     }
@@ -139,8 +149,8 @@ impl FirewallHelper {
         );
 
         {
-            let mut guard = self.active_mapping.lock().await;
-            *guard = Some(mapping.clone());
+            let mut shared = self.shared.lock();
+            shared.active_mapping = Some(mapping.clone());
         }
 
         self.spawn_refresh_task();
@@ -156,14 +166,11 @@ impl FirewallHelper {
             handle.abort();
         }
 
-        let mapping = {
-            let mut guard = self.active_mapping.lock().await;
-            guard.take()
-        };
-
-        let gateway = {
-            let guard = self.gateway.lock().await;
-            guard.clone()
+        let (mapping, gateway) = {
+            let mut shared = self.shared.lock();
+            let mapping = shared.active_mapping.take();
+            let gateway = shared.gateway.clone();
+            (mapping, gateway)
         };
 
         if let (Some(mapping), Some(gateway)) = (mapping, gateway) {
@@ -183,32 +190,26 @@ impl FirewallHelper {
             }
         }
 
-        {
-            let mut gw = self.gateway.lock().await;
-            *gw = None;
-        }
+        self.shared.lock().gateway = None;
     }
 
     /// Get current mapping status.
     pub async fn current_mapping(&self) -> Option<(u16, String)> {
-        self.active_mapping
+        self.shared
             .lock()
-            .await
+            .active_mapping
             .as_ref()
             .map(|m| (m.external_port, m.protocol_as_str().to_string()))
     }
 
     /// Check if mapping is currently active.
     pub async fn is_active(&self) -> bool {
-        self.active_mapping.lock().await.is_some()
+        self.shared.lock().active_mapping.is_some()
     }
 
     async fn gateway(&self) -> NetworkResult<Arc<Gateway>> {
-        {
-            let guard = self.gateway.lock().await;
-            if let Some(gateway) = &*guard {
-                return Ok(gateway.clone());
-            }
+        if let Some(gateway) = self.shared.lock().gateway.clone() {
+            return Ok(gateway);
         }
 
         let discovered = search_gateway(Default::default())
@@ -216,10 +217,7 @@ impl FirewallHelper {
             .map_err(|err| NetworkError::generic(format!("Gateway discovery failed: {}", err)))?;
 
         let gateway = Arc::new(discovered);
-        {
-            let mut guard = self.gateway.lock().await;
-            *guard = Some(gateway.clone());
-        }
+        self.shared.lock().gateway = Some(gateway.clone());
         Ok(gateway)
     }
 
@@ -229,8 +227,7 @@ impl FirewallHelper {
             return;
         }
 
-        let gateway_ref = Arc::clone(&self.gateway);
-        let mapping_state = Arc::clone(&self.active_mapping);
+        let shared_state = Arc::clone(&self.shared);
         let lease = self.config.lease_duration;
         let refresh_interval = self.config.refresh_interval;
 
@@ -238,14 +235,9 @@ impl FirewallHelper {
             loop {
                 sleep(refresh_interval).await;
 
-                let mapping = {
-                    let guard = mapping_state.lock().await;
-                    guard.clone()
-                };
-
-                let gateway = {
-                    let guard = gateway_ref.lock().await;
-                    guard.clone()
+                let (mapping, gateway) = {
+                    let shared = shared_state.lock();
+                    (shared.active_mapping.clone(), shared.gateway.clone())
                 };
 
                 match (mapping, gateway) {

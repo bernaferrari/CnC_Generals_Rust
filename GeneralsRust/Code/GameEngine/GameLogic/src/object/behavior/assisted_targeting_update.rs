@@ -128,8 +128,8 @@ impl AssistedTargetingUpdate {
             me_arc
                 .read()
                 .ok()
-                .and_then(|me| me.get_controlling_player())
-                .and_then(|player| player.read().ok().and_then(|p| p.get_default_team()))
+                .and_then(|me| me.with_controlling_player(|p| p.get_default_team()))
+                .flatten()
         } else {
             None
         };

@@ -11,10 +11,10 @@
 //!
 //! Rust conversion: 2025
 
-use once_cell::sync::OnceCell;
+use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::hash::Hash;
-use std::sync::Mutex;
+use std::rc::Rc;
 
 use crate::common::ascii_string::AsciiString;
 
@@ -374,19 +374,21 @@ impl DisabledTypesStatistics {
     }
 }
 
-/// Global disabled types manager
-static DISABLED_TYPES_MANAGER: OnceCell<Mutex<DisabledTypesManager>> = OnceCell::new();
+// THREAD: C++ plain static; driven only by the single game/client thread.
+thread_local! {
+    static DISABLED_TYPES_MANAGER: RefCell<Option<Rc<RefCell<DisabledTypesManager>>>> =
+        const { RefCell::new(None) };
+}
 
 /// Initialize the global disabled types manager
 pub fn init_disabled_types_manager() {
-    let manager = DisabledTypesManager::new();
-    if DISABLED_TYPES_MANAGER.set(Mutex::new(manager)).is_err() {
-        if let Some(existing) = DISABLED_TYPES_MANAGER.get() {
-            if let Ok(mut guard) = existing.lock() {
-                *guard = DisabledTypesManager::new();
-            }
+    DISABLED_TYPES_MANAGER.with_borrow_mut(|existing| {
+        if existing.is_none() {
+            *existing = Some(Rc::new(RefCell::new(DisabledTypesManager::new())));
+        } else if let Some(cell) = existing {
+            *cell.borrow_mut() = DisabledTypesManager::new();
         }
-    }
+    });
 }
 
 /// C++ parity entrypoint for startup mask initialization (`initDisabledMasks`).
@@ -399,48 +401,41 @@ pub fn init_disabled_masks() {
 }
 
 /// Get reference to the global disabled types manager
-pub fn get_disabled_types_manager() -> Option<std::sync::MutexGuard<'static, DisabledTypesManager>>
-{
-    DISABLED_TYPES_MANAGER
-        .get()
-        .and_then(|manager| manager.lock().ok())
+pub fn get_disabled_types_manager() -> Option<Rc<RefCell<DisabledTypesManager>>> {
+    DISABLED_TYPES_MANAGER.with_borrow(|manager| manager.clone())
 }
 
 /// Convenience functions for checking disabled status
 pub fn is_unit_disabled(name: &str) -> bool {
-    if let Some(manager) = get_disabled_types_manager() {
-        let ascii_name = AsciiString::from(name);
-        manager.is_type_disabled(DisableableType::Unit, &ascii_name)
-    } else {
-        false
-    }
+    let ascii_name = AsciiString::from(name);
+    get_disabled_types_manager()
+        .map(|manager| manager.borrow().is_type_disabled(DisableableType::Unit, &ascii_name))
+        .unwrap_or(false)
 }
 
 pub fn is_building_disabled(name: &str) -> bool {
-    if let Some(manager) = get_disabled_types_manager() {
-        let ascii_name = AsciiString::from(name);
-        manager.is_type_disabled(DisableableType::Building, &ascii_name)
-    } else {
-        false
-    }
+    let ascii_name = AsciiString::from(name);
+    get_disabled_types_manager()
+        .map(|manager| manager.borrow().is_type_disabled(DisableableType::Building, &ascii_name))
+        .unwrap_or(false)
 }
 
 pub fn is_upgrade_disabled(name: &str) -> bool {
-    if let Some(manager) = get_disabled_types_manager() {
-        let ascii_name = AsciiString::from(name);
-        manager.is_type_disabled(DisableableType::Upgrade, &ascii_name)
-    } else {
-        false
-    }
+    let ascii_name = AsciiString::from(name);
+    get_disabled_types_manager()
+        .map(|manager| manager.borrow().is_type_disabled(DisableableType::Upgrade, &ascii_name))
+        .unwrap_or(false)
 }
 
 pub fn is_special_power_disabled(name: &str) -> bool {
-    if let Some(manager) = get_disabled_types_manager() {
-        let ascii_name = AsciiString::from(name);
-        manager.is_type_disabled(DisableableType::SpecialPower, &ascii_name)
-    } else {
-        false
-    }
+    let ascii_name = AsciiString::from(name);
+    get_disabled_types_manager()
+        .map(|manager| {
+            manager
+                .borrow()
+                .is_type_disabled(DisableableType::SpecialPower, &ascii_name)
+        })
+        .unwrap_or(false)
 }
 
 #[cfg(test)]

@@ -9,17 +9,13 @@
 // Author: Matthew D. Campbell, June 2002
 
 #[cfg(feature = "debug_crc")]
-use once_cell::sync::OnceCell;
-#[cfg(feature = "debug_crc")]
-use parking_lot::{Mutex, RwLock};
+use std::cell::RefCell;
 #[cfg(feature = "debug_crc")]
 use std::env;
 #[cfg(feature = "debug_crc")]
 use std::fs::File;
 #[cfg(feature = "debug_crc")]
 use std::io::Write;
-#[cfg(feature = "debug_crc")]
-use std::sync::Arc;
 #[cfg(not(feature = "debug_crc"))]
 use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 #[cfg(feature = "debug_crc")]
@@ -113,8 +109,8 @@ impl Default for CrcDebugBuffer {
 #[cfg(feature = "debug_crc")]
 #[derive(Debug)]
 struct CrcDebugState {
-    config: Arc<RwLock<CrcDebugConfig>>,
-    buffer: Mutex<CrcDebugBuffer>,
+    config: RefCell<CrcDebugConfig>,
+    buffer: RefCell<CrcDebugBuffer>,
 }
 
 #[cfg(feature = "debug_crc")]
@@ -123,16 +119,16 @@ impl CrcDebugState {
         let mut config = CrcDebugConfig::default();
         config.apply_env_overrides();
         Self {
-            config: Arc::new(RwLock::new(config)),
-            buffer: Mutex::new(CrcDebugBuffer::default()),
+            config: RefCell::new(config),
+            buffer: RefCell::new(CrcDebugBuffer::default()),
         }
     }
 
-    fn config(&self) -> &Arc<RwLock<CrcDebugConfig>> {
+    fn config(&self) -> &RefCell<CrcDebugConfig> {
         &self.config
     }
 
-    fn buffer(&self) -> &Mutex<CrcDebugBuffer> {
+    fn buffer(&self) -> &RefCell<CrcDebugBuffer> {
         &self.buffer
     }
 
@@ -140,26 +136,29 @@ impl CrcDebugState {
     where
         F: FnMut(&mut CrcDebugConfig),
     {
-        let mut guard = self.config.write();
-        let before = guard.clone();
-        update(&mut guard);
-        let after = guard.clone();
-        drop(guard);
+        let (before, after) = {
+            let mut guard = self.config.borrow_mut();
+            let before = guard.clone();
+            update(&mut guard);
+            let after = guard.clone();
+            (before, after)
+        };
         self.after_config_change(&before, &after);
     }
 
     fn set_config(&self, new_config: CrcDebugConfig) {
-        let mut guard = self.config.write();
-        let before = guard.clone();
-        *guard = new_config.clone();
-        drop(guard);
+        let before = {
+            let mut guard = self.config.borrow_mut();
+            let before = guard.clone();
+            *guard = new_config.clone();
+            before
+        };
         self.after_config_change(&before, &new_config);
     }
 
     fn after_config_change(&self, before: &CrcDebugConfig, after: &CrcDebugConfig) {
         if before.enabled != after.enabled {
-            let mut buffer = self.buffer.lock();
-            buffer.reset_for_enable(after.enabled);
+            self.buffer.borrow_mut().reset_for_enable(after.enabled);
         }
 
         event!(
@@ -298,24 +297,29 @@ impl CrcDebugBuffer {
 }
 
 #[cfg(feature = "debug_crc")]
-fn crc_state() -> &'static Arc<CrcDebugState> {
-    static CRC_DEBUG_STATE: OnceCell<Arc<CrcDebugState>> = OnceCell::new();
-    CRC_DEBUG_STATE.get_or_init(|| Arc::new(CrcDebugState::new()))
+// THREAD: C++ plain static; driven only by the single game/client thread.
+thread_local! {
+    static CRC_DEBUG_STATE: RefCell<CrcDebugState> = RefCell::new(CrcDebugState::new());
+}
+
+#[cfg(feature = "debug_crc")]
+fn with_crc_state<R>(f: impl FnOnce(&CrcDebugState) -> R) -> R {
+    CRC_DEBUG_STATE.with_borrow(f)
 }
 
 #[cfg(feature = "debug_crc")]
 pub fn current_crc_debug_config() -> CrcDebugConfig {
-    crc_state().config().read().clone()
+    with_crc_state(|state| state.config().borrow().clone())
 }
 
 #[cfg(feature = "debug_crc")]
 pub fn set_crc_debug_config(config: CrcDebugConfig) {
-    crc_state().set_config(config);
+    with_crc_state(|state| state.set_config(config));
 }
 
 #[cfg(feature = "debug_crc")]
 pub fn apply_command_line_settings(settings: &CrcDebugSettings) {
-    crc_state().update_config(|config| {
+    with_crc_state(|state| state.update_config(|config| {
         config.first_frame_to_log = settings.first_frame_to_log;
         config.last_frame_to_log = settings.last_frame_to_log;
         config.keep_crc_saves = settings.keep_crc_saves;
@@ -327,7 +331,7 @@ pub fn apply_command_line_settings(settings: &CrcDebugSettings) {
         config.net_crc_interval = settings.net_crc_interval;
         config.replay_crc_interval = settings.replay_crc_interval;
         config.enabled = settings.first_frame_to_log >= 0;
-    });
+    }));
 }
 
 #[cfg(feature = "debug_crc")]
@@ -487,11 +491,13 @@ where
         }
 
         let update_to_apply = update.clone();
-        crc_state().update_config(move |config| {
-            update_to_apply.apply(config);
-            if config.first_frame_to_log >= 0 {
-                config.enabled = true;
-            }
+        with_crc_state(|state| {
+            state.update_config(move |config| {
+                update_to_apply.apply(config);
+                if config.first_frame_to_log >= 0 {
+                    config.enabled = true;
+                }
+            });
         });
     }
 }
@@ -571,21 +577,22 @@ impl CrcVerification {
 /// Check if current frame is ok to log
 #[cfg(feature = "debug_crc")]
 fn is_frame_ok_to_log() -> bool {
-    let state = crc_state();
-    let config = state.config().read();
+    with_crc_state(|state| {
+        let config = state.config().borrow();
 
-    if !config.enabled {
-        return false;
-    }
+        if !config.enabled {
+            return false;
+        }
 
-    let current_frame = get_current_frame();
+        let current_frame = get_current_frame();
 
-    is_in_game()
-        && !is_in_shell_game()
-        && !config.debug_ignore_sync_errors
-        && config.first_frame_to_log >= 0
-        && config.first_frame_to_log <= current_frame
-        && current_frame <= config.last_frame_to_log as i32
+        is_in_game()
+            && !is_in_shell_game()
+            && !config.debug_ignore_sync_errors
+            && config.first_frame_to_log >= 0
+            && config.first_frame_to_log <= current_frame
+            && current_frame <= config.last_frame_to_log as i32
+    })
 }
 
 /// Placeholder functions that would be implemented elsewhere
@@ -627,58 +634,60 @@ fn get_machine_name() -> String {
 /// Output CRC debug lines to file
 #[cfg(feature = "debug_crc")]
 pub fn output_crc_debug_lines() {
-    let state = crc_state();
-    let mut buffer = state.buffer().lock();
+    with_crc_state(|state| {
+        let mut buffer = state.buffer().borrow_mut();
 
-    if buffer.dumped {
-        return;
-    }
-    buffer.dumped = true;
-
-    let machine_name = get_machine_name();
-    let filename = format!("crcDebug{}.txt", machine_name);
-
-    if let Ok(mut file) = File::create(&filename) {
-        let start = if buffer.num_debug_strings >= MAX_STRINGS {
-            buffer.next_debug_string.wrapping_sub(MAX_STRINGS)
-        } else {
-            0
-        };
-        let end = buffer.next_debug_string;
-
-        for i in start..end {
-            let index = (i + MAX_STRINGS) % MAX_STRINGS;
-            let line = &buffer.debug_strings[index];
-            println!("{}", line);
-            writeln!(file, "{}", line).ok();
+        if buffer.dumped {
+            return;
         }
-    }
+        buffer.dumped = true;
+
+        let machine_name = get_machine_name();
+        let filename = format!("crcDebug{}.txt", machine_name);
+
+        if let Ok(mut file) = File::create(&filename) {
+            let start = if buffer.num_debug_strings >= MAX_STRINGS {
+                buffer.next_debug_string.wrapping_sub(MAX_STRINGS)
+            } else {
+                0
+            };
+            let end = buffer.next_debug_string;
+
+            for i in start..end {
+                let index = (i + MAX_STRINGS) % MAX_STRINGS;
+                let line = &buffer.debug_strings[index];
+                println!("{}", line);
+                writeln!(file, "{}", line).ok();
+            }
+        }
+    });
 }
 
 /// Output CRC dump lines — iterates the dump buffer and logs each entry.
 /// Mirrors the commented-out C++ `outputCRCDumpLines()` body.
 #[cfg(feature = "debug_crc")]
 pub fn output_crc_dump_lines() {
-    let state = crc_state();
-    let buffer = state.buffer().lock();
+    with_crc_state(|state| {
+        let buffer = state.buffer().borrow();
 
-    let start = if buffer.num_dump_strings >= MAX_STRINGS {
-        buffer.next_dump_string.wrapping_sub(MAX_STRINGS)
-    } else {
-        0
-    };
-    let end = buffer.next_dump_string;
+        let start = if buffer.num_dump_strings >= MAX_STRINGS {
+            buffer.next_dump_string.wrapping_sub(MAX_STRINGS)
+        } else {
+            0
+        };
+        let end = buffer.next_dump_string;
 
-    for i in start..end {
-        let index = (i + MAX_STRINGS) % MAX_STRINGS;
-        let line = &buffer.dump_strings[index];
-        event!(
-            target: "crc_debug",
-            Level::DEBUG,
-            line = line.as_str(),
-            "crc_dump"
-        );
-    }
+        for i in start..end {
+            let index = (i + MAX_STRINGS) % MAX_STRINGS;
+            let line = &buffer.dump_strings[index];
+            event!(
+                target: "crc_debug",
+                Level::DEBUG,
+                line = line.as_str(),
+                "crc_dump"
+            );
+        }
+    });
 }
 
 /// Get filename from full path
@@ -694,37 +703,37 @@ fn get_fname(path: &str) -> &str {
 /// Add CRC debug line
 #[cfg(feature = "debug_crc")]
 pub fn add_crc_debug_line(message: &str) {
-    let state = crc_state();
-
     if !is_frame_ok_to_log() {
         return;
     }
 
-    let mut buffer = state.buffer().lock();
+    with_crc_state(|state| {
+        let mut buffer = state.buffer().borrow_mut();
 
-    if buffer.dumped {
-        return;
-    }
+        if buffer.dumped {
+            return;
+        }
 
-    let current_frame = get_current_frame();
-    if buffer.last_crc_debug_frame != current_frame {
-        buffer.last_crc_debug_frame = current_frame;
-        buffer.last_crc_debug_index = 0;
-    }
+        let current_frame = get_current_frame();
+        if buffer.last_crc_debug_frame != current_frame {
+            buffer.last_crc_debug_frame = current_frame;
+            buffer.last_crc_debug_index = 0;
+        }
 
-    let formatted_message = format!(
-        "{}:{} {}",
-        current_frame, buffer.last_crc_debug_index, message
-    );
-    buffer.last_crc_debug_index += 1;
+        let formatted_message = format!(
+            "{}:{} {}",
+            current_frame, buffer.last_crc_debug_index, message
+        );
+        buffer.last_crc_debug_index += 1;
 
-    // Clean up newlines and carriage returns
-    let cleaned_message = formatted_message.replace('\r', " ").replace('\n', " ");
+        // Clean up newlines and carriage returns
+        let cleaned_message = formatted_message.replace('\r', " ").replace('\n', " ");
 
-    let index = buffer.next_debug_string;
-    buffer.debug_strings[index] = cleaned_message;
-    buffer.next_debug_string = (index + 1) % MAX_STRINGS;
-    buffer.num_debug_strings = buffer.num_debug_strings.saturating_add(1);
+        let index = buffer.next_debug_string;
+        buffer.debug_strings[index] = cleaned_message;
+        buffer.next_debug_string = (index + 1) % MAX_STRINGS;
+        buffer.num_debug_strings = buffer.num_debug_strings.saturating_add(1);
+    });
 }
 
 /// Add CRC generation line
@@ -741,23 +750,23 @@ pub fn add_crc_gen_line(message: &str) {
 /// Mirrors the commented-out C++ `addCRCDumpLine()` body.
 #[cfg(feature = "debug_crc")]
 pub fn add_crc_dump_line(message: &str) {
-    let state = crc_state();
-
     if !is_frame_ok_to_log() {
         return;
     }
 
-    let mut buffer = state.buffer().lock();
+    with_crc_state(|state| {
+        let mut buffer = state.buffer().borrow_mut();
 
-    if buffer.dumped {
-        return;
-    }
+        if buffer.dumped {
+            return;
+        }
 
-    let cleaned = message.replace('\r', " ").replace('\n', " ");
-    let index = buffer.next_dump_string;
-    buffer.dump_strings[index] = cleaned;
-    buffer.next_dump_string = (index + 1) % MAX_STRINGS;
-    buffer.num_dump_strings = buffer.num_dump_strings.saturating_add(1);
+        let cleaned = message.replace('\r', " ").replace('\n', " ");
+        let index = buffer.next_dump_string;
+        buffer.dump_strings[index] = cleaned;
+        buffer.next_dump_string = (index + 1) % MAX_STRINGS;
+        buffer.num_dump_strings = buffer.num_dump_strings.saturating_add(1);
+    });
 }
 
 /// Dump Vector3 for CRC debugging
@@ -992,8 +1001,10 @@ pub static REPLAY_CRC_INTERVAL: AtomicI32 = AtomicI32::new(100);
 
 #[cfg(feature = "debug_crc")]
 pub fn set_debug_ignore_sync_errors(enabled: bool) {
-    crc_state().update_config(|config| {
-        config.debug_ignore_sync_errors = enabled;
+    with_crc_state(|state| {
+        state.update_config(|config| {
+            config.debug_ignore_sync_errors = enabled;
+        });
     });
 }
 
@@ -1005,7 +1016,7 @@ pub fn set_debug_ignore_sync_errors(enabled: bool) {
 
 #[cfg(feature = "debug_crc")]
 pub fn debug_ignore_sync_errors() -> bool {
-    crc_state().config().read().debug_ignore_sync_errors
+    with_crc_state(|state| state.config().borrow().debug_ignore_sync_errors)
 }
 
 #[cfg(not(feature = "debug_crc"))]
@@ -1016,8 +1027,10 @@ pub fn debug_ignore_sync_errors() -> bool {
 
 #[cfg(feature = "debug_crc")]
 pub fn set_net_crc_interval(interval: i32) {
-    crc_state().update_config(|config| {
-        config.net_crc_interval = interval;
+    with_crc_state(|state| {
+        state.update_config(|config| {
+            config.net_crc_interval = interval;
+        });
     });
 }
 
@@ -1029,7 +1042,7 @@ pub fn set_net_crc_interval(interval: i32) {
 
 #[cfg(feature = "debug_crc")]
 pub fn net_crc_interval() -> i32 {
-    crc_state().config().read().net_crc_interval
+    with_crc_state(|state| state.config().borrow().net_crc_interval)
 }
 
 #[cfg(not(feature = "debug_crc"))]
@@ -1040,8 +1053,10 @@ pub fn net_crc_interval() -> i32 {
 
 #[cfg(feature = "debug_crc")]
 pub fn set_replay_crc_interval(interval: i32) {
-    crc_state().update_config(|config| {
-        config.replay_crc_interval = interval;
+    with_crc_state(|state| {
+        state.update_config(|config| {
+            config.replay_crc_interval = interval;
+        });
     });
 }
 
@@ -1053,7 +1068,7 @@ pub fn set_replay_crc_interval(interval: i32) {
 
 #[cfg(feature = "debug_crc")]
 pub fn replay_crc_interval() -> i32 {
-    crc_state().config().read().replay_crc_interval
+    with_crc_state(|state| state.config().borrow().replay_crc_interval)
 }
 
 #[cfg(not(feature = "debug_crc"))]

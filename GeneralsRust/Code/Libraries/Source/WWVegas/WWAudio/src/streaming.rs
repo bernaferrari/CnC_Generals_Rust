@@ -109,6 +109,7 @@ pub struct StreamHandle {
     stream_id: u64,
     command_tx: Sender<StreamCommand>,
     event_rx: Receiver<StreamEvent>,
+    // THREAD: game thread reads the handle state, streaming thread writes it
     state: Arc<Mutex<StreamState>>,
     position: Arc<AtomicU64>,
     duration: Arc<AtomicU64>,

@@ -9,16 +9,20 @@ use tracing::warn;
 
 #[cfg(test)]
 use std::collections::HashMap;
-#[cfg(test)]
-use tokio::sync::Mutex;
 
 /// Helper that encapsulates LAN message encryption/decryption using the shared security manager.
 #[derive(Clone, Default)]
 pub struct LanCrypto {
     security: Option<Arc<SecurityManager>>,
+    /// THREAD: frozen repo-wide spelling — the connection manager is shared with the
+    /// wider network stack and read (address -> player lookup) from whatever task is
+    /// encrypting/decrypting LAN datagrams.
     connections: Option<Weak<RwLock<ConnectionManager>>>,
+    /// THREAD: test-only override table; `LanCrypto` clones are moved into spawned
+    /// socket receiver tasks, so the map is shared by address via an Arc so those
+    /// clones observe overrides registered by tests.
     #[cfg(test)]
-    overrides: Arc<Mutex<HashMap<SocketAddr, u8>>>,
+    overrides: Arc<std::sync::Mutex<HashMap<SocketAddr, u8>>>,
 }
 
 impl LanCrypto {
@@ -28,10 +32,9 @@ impl LanCrypto {
         connections: Option<Arc<RwLock<ConnectionManager>>>,
     ) -> Self {
         Self {
-            security,
             connections: connections.map(|arc| Arc::downgrade(&arc)),
             #[cfg(test)]
-            overrides: Arc::new(Mutex::new(HashMap::new())),
+            overrides: Arc::new(std::sync::Mutex::new(HashMap::new())),
         }
     }
 
@@ -329,10 +332,10 @@ mod tests {
 #[cfg(test)]
 impl LanCrypto {
     pub async fn register_override(&self, addr: SocketAddr, player_id: u8) {
-        self.overrides.lock().await.insert(addr, player_id);
+        self.overrides.lock().unwrap().insert(addr, player_id);
     }
 
     async fn test_override_player(&self, addr: SocketAddr) -> Option<u8> {
-        self.overrides.lock().await.get(&addr).copied()
+        self.overrides.lock().unwrap().get(&addr).copied()
     }
 }

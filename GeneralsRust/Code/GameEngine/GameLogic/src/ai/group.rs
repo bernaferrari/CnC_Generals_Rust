@@ -1102,10 +1102,7 @@ impl AIGroup {
                 .with_object(member_id, |obj_ref| {
                     if required_science != SCIENCE_INVALID {
                         let has_science = obj_ref
-                            .get_controlling_player()
-                            .and_then(|player| {
-                                player.read().ok().map(|p| p.has_science(required_science))
-                            })
+                            .with_controlling_player(|p| p.has_science(required_science))
                             .unwrap_or(false);
                         if !has_science {
                             return false;
@@ -1880,19 +1877,16 @@ impl AIGroup {
                             return false;
                         }
                     }
-                    let Some(player) = obj_ref.get_controlling_player() else {
-                        return false;
-                    };
-                    let Ok(player_guard) = player.read() else {
-                        return false;
-                    };
-                    upgrade_center
-                        .read()
-                        .ok()
-                        .map(|center| {
-                            center.can_afford_upgrade(&player_guard, upgrade.as_ref(), false)
-                        })
-                        .unwrap_or(false)
+                    let affordable = obj_ref.with_controlling_player(|player_guard| {
+                        upgrade_center
+                            .read()
+                            .ok()
+                            .map(|center| {
+                                center.can_afford_upgrade(player_guard, upgrade.as_ref(), false)
+                            })
+                            .unwrap_or(false)
+                    });
+                    affordable.unwrap_or(false)
                 })
                 .unwrap_or(false);
             if !can_queue {

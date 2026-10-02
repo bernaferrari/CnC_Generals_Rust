@@ -26,7 +26,7 @@ fn main() {
 
     // Create event system for callbacks and volume control
     println!("2. Setting up event system and volume control...");
-    let event_system = AudioEventSystem::new(Arc::clone(&mixer));
+    let mut event_system = AudioEventSystem::new(Arc::clone(&mixer));
 
     // Register event callback
     let event_callback = Arc::new(|event: &AudioEvent| match event {

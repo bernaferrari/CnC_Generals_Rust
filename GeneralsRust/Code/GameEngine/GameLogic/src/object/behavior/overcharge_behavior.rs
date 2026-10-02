@@ -227,35 +227,21 @@ impl OverchargeBehavior {
     }
 
     fn add_power_bonus(&self) {
-        let Some((player, object_id)) = self
-            .with_object(|obj_guard| {
-                obj_guard
-                    .get_controlling_player()
-                    .map(|player| (player, obj_guard.get_id()))
+        self.with_object(|obj_guard| {
+            let object_id = obj_guard.get_id();
+            obj_guard.with_controlling_player_mut(|player_guard| {
+                player_guard.add_power_bonus(object_id);
             })
-            .flatten()
-        else {
-            return;
-        };
-        if let Ok(mut player_guard) = player.write() {
-            player_guard.add_power_bonus(object_id);
-        };
+        });
     }
 
     fn remove_power_bonus(&self) {
-        let Some((player, object_id)) = self
-            .with_object(|obj_guard| {
-                obj_guard
-                    .get_controlling_player()
-                    .map(|player| (player, obj_guard.get_id()))
+        self.with_object(|obj_guard| {
+            let object_id = obj_guard.get_id();
+            obj_guard.with_controlling_player_mut(|player_guard| {
+                player_guard.remove_power_bonus(object_id);
             })
-            .flatten()
-        else {
-            return;
-        };
-        if let Ok(mut player_guard) = player.write() {
-            player_guard.remove_power_bonus(object_id);
-        };
+        });
     }
 
     pub fn on_delete(&mut self) {

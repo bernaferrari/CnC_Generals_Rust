@@ -157,11 +157,9 @@ impl UpgradeModuleInterface for CostModifierUpgrade {
         let kind = self.data.kind_of();
         let percentage = self.data.percentage();
         let Some(()) = OBJECT_REGISTRY.with_object(self.object_id, |object_guard| {
-            if let Some(player) = object_guard.get_controlling_player() {
-                if let Ok(mut player_guard) = player.write() {
-                    player_guard.add_kind_of_production_cost_change(kind, percentage);
-                }
-            }
+            object_guard.with_controlling_player_mut(|player_guard| {
+                player_guard.add_kind_of_production_cost_change(kind, percentage);
+            });
         }) else {
             log::warn!("CostModifierUpgrade: Object {} not found", self.object_id);
             return false;
@@ -185,14 +183,12 @@ impl UpgradeModuleInterface for CostModifierUpgrade {
             return;
         }
 
-        if let Some(player) = object.get_controlling_player() {
-            if let Ok(mut player_guard) = player.write() {
-                player_guard.remove_kind_of_production_cost_change(
-                    self.data.kind_of(),
-                    self.data.percentage(),
-                );
-            }
-        }
+        object.with_controlling_player_mut(|player_guard| {
+            player_guard.remove_kind_of_production_cost_change(
+                self.data.kind_of(),
+                self.data.percentage(),
+            );
+        });
 
         self.applied = false;
     }

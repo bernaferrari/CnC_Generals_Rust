@@ -215,19 +215,15 @@ impl TargetValidator {
                 let Ok(local_guard) = local_player.read() else {
                     return false;
                 };
-                let relationship = if let Some(target_player) = obj_guard.get_controlling_player() {
-                    if let Ok(target_guard) = target_player.read() {
+                let relationship = obj_guard
+                    .with_controlling_player(|target_guard| {
                         if target_guard.get_player_index() == local_guard.get_player_index() {
                             Relationship::Allies
                         } else {
                             local_guard.get_relationship(&target_guard)
                         }
-                    } else {
-                        Relationship::Neutral
-                    }
-                } else {
-                    Relationship::Neutral
-                };
+                    })
+                    .unwrap_or(Relationship::Neutral);
 
                 #[allow(unreachable_patterns)]
                 let allowed = match relationship {

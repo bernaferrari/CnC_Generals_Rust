@@ -1,8 +1,7 @@
 //! Game statistics collector for tracking gameplay and performance metrics.
 
-use once_cell::sync::OnceCell;
+use std::cell::RefCell;
 use std::collections::HashMap;
-use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 /// Game statistic types
@@ -344,16 +343,21 @@ impl StatsCollector {
     }
 }
 
-static GLOBAL_STATS_COLLECTOR: OnceCell<Mutex<StatsCollector>> = OnceCell::new();
+// THREAD: C++ plain static; driven only by the single game/client thread.
+thread_local! {
+    static GLOBAL_STATS_COLLECTOR: RefCell<Option<StatsCollector>> = const { RefCell::new(None) };
+}
 
-/// Initialise and obtain the global stats collector.
-pub fn init_stats_collector() -> &'static Mutex<StatsCollector> {
-    GLOBAL_STATS_COLLECTOR.get_or_init(|| Mutex::new(StatsCollector::new()))
+/// Initialise the global stats collector.
+pub fn init_stats_collector() {
+    GLOBAL_STATS_COLLECTOR.with_borrow_mut(|slot| {
+        if slot.is_none() {
+            *slot = Some(StatsCollector::new());
+        }
+    });
 }
 
 /// Execute a closure with a mutable reference to the global stats collector.
 pub fn with_stats_collector_mut<R>(f: impl FnOnce(&mut StatsCollector) -> R) -> Option<R> {
-    GLOBAL_STATS_COLLECTOR
-        .get()
-        .and_then(|collector| collector.lock().ok().map(|mut guard| f(&mut *guard)))
+    GLOBAL_STATS_COLLECTOR.with_borrow_mut(|slot| slot.as_mut().map(f))
 }

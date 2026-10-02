@@ -9,7 +9,8 @@
 
 use glam::{Mat4, Vec2, Vec3, Vec4};
 use std::sync::atomic::{AtomicU32, Ordering};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::cell::RefCell;
+use std::sync::Arc;
 use ww3d_core::{
     WW3D,
     errors::W3DError,
@@ -1024,26 +1025,24 @@ impl RingManager {
     }
 }
 
-fn ring_manager_store() -> &'static Mutex<Option<RingManager>> {
-    static STORE: OnceLock<Mutex<Option<RingManager>>> = OnceLock::new();
-    STORE.get_or_init(|| Mutex::new(None))
+thread_local! {
+    /// C++ kept the ring manager as a plain file static on the game thread.
+    static RING_MANAGER_SLOT: RefCell<Option<RingManager>> = const { RefCell::new(None) };
 }
 
 fn with_ring_manager_mut<R, F>(f: F) -> Option<R>
 where
     F: FnOnce(&mut RingManager) -> R,
 {
-    let mut slot = ring_manager_store().lock().ok()?;
-    let manager = slot.as_mut()?;
-    Some(f(manager))
+    RING_MANAGER_SLOT.with_borrow_mut(|slot| {
+        let manager = slot.as_mut()?;
+        Some(f(manager))
+    })
 }
 
 /// Initialize global ring manager
 pub fn init_global_ring_manager(device: &wgpu::Device, queue: &wgpu::Queue) -> Result<()> {
-    let mut slot = ring_manager_store()
-        .lock()
-        .expect("ring manager lock poisoned");
-    *slot = Some(RingManager::new(device, queue));
+    RING_MANAGER_SLOT.with_borrow_mut(|slot| *slot = Some(RingManager::new(device, queue)));
     RingManager::init_ring_render_system()?;
     Ok(())
 }
@@ -1059,9 +1058,7 @@ where
 /// Shutdown global ring manager
 pub fn shutdown_global_ring_manager() {
     RingManager::shutdown_ring_render_system();
-    if let Ok(mut slot) = ring_manager_store().lock() {
-        *slot = None;
-    }
+    RING_MANAGER_SLOT.with_borrow_mut(|slot| *slot = None);
 }
 
 /// Quick ring functions

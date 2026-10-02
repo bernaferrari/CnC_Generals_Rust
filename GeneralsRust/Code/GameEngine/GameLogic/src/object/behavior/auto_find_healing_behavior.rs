@@ -136,16 +136,11 @@ impl UpdateModuleInterface for AutoFindHealingUpdate {
         };
 
         // Only process AI-controlled units. Matches C++ lines 82-84
-        if let Some(player) = obj_read.get_controlling_player() {
-            let player_read = match player.read() {
-                Ok(guard) => guard,
-                Err(_) => return 0,
-            };
-
-            // Human players handle healing manually
-            if player_read.is_human() {
-                return 0; // UPDATE_SLEEP_NONE
-            }
+        if obj_read
+            .with_controlling_player(|player_read| player_read.is_human())
+            .unwrap_or(false)
+        {
+            return 0; // UPDATE_SLEEP_NONE — human players handle healing manually
         }
 
         // Countdown timer optimization. Matches C++ lines 88-93

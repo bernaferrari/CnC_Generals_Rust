@@ -160,44 +160,44 @@ where
     SOUND_PLAYBACK_HOOK.get().map(|hook| f(hook.as_ref()))
 }
 
-/// Session-wide play-failure reports (event name -> reason).
-///
-/// C++ surfaced missing audio with `DEBUG_ASSERTLOG("Missing Audio File:
-/// '%s'")` at `AudioFileCache::openFile` (MilesAudioManager.cpp:3134). The
-/// Rust play path previously discarded `hook.play` Err strings and unresolved
-/// addAudioEvent handles, so a fully mute game was log-identical to a working
-/// one. Each failing event name logs once per session (rate limit) instead of
-/// once per frame.
-static PLAY_FAILURE_REPORTS: LazyLock<Mutex<HashMap<AsciiString, AsciiString>>> =
-    LazyLock::new(|| Mutex::new(HashMap::new()));
+// Session-wide play-failure reports (event name -> reason).
+//
+// C++ surfaced missing audio with `DEBUG_ASSERTLOG("Missing Audio File:
+// '%s'")` at `AudioFileCache::openFile` (MilesAudioManager.cpp:3134). The
+// Rust play path previously discarded `hook.play` Err strings and unresolved
+// addAudioEvent handles, so a fully mute game was log-identical to a working
+// one. Each failing event name logs once per session (rate limit) instead of
+// once per frame.
+//
+// THREAD: plain static in C++, touched only from the single GameLogic/client
+// thread, so this is a thread-local RefCell instead of a Mutex.
+thread_local! {
+    static PLAY_FAILURE_REPORTS: RefCell<HashMap<AsciiString, AsciiString>> =
+        RefCell::new(HashMap::new());
+}
 
 /// Report a TheAudio play failure for `event_name`, rate-limited to one
 /// `warn!` per event name per session. Returns true when this call logged.
 fn report_play_failure_once(event_name: &str, reason: &str) -> Bool {
-    let Ok(mut reports) = PLAY_FAILURE_REPORTS.lock() else {
-        return false;
-    };
-    if reports.contains_key(event_name) {
-        return false;
-    }
-    reports.insert(event_name.to_string(), reason.to_string());
-    log::warn!("TheAudio play failed {event_name}: {reason}");
-    true
+    PLAY_FAILURE_REPORTS.with(|reports| {
+        let mut reports = reports.borrow_mut();
+        if reports.contains_key(event_name) {
+            return false;
+        }
+        reports.insert(event_name.to_string(), reason.to_string());
+        log::warn!("TheAudio play failed {event_name}: {reason}");
+        true
+    })
 }
 
 #[cfg(test)]
 fn reset_play_failure_reports_for_tests() {
-    if let Ok(mut reports) = PLAY_FAILURE_REPORTS.lock() {
-        reports.clear();
-    }
+    PLAY_FAILURE_REPORTS.with(|reports| reports.borrow_mut().clear());
 }
 
 #[cfg(test)]
 fn play_failure_report_reason_for_tests(event_name: &str) -> Option<AsciiString> {
-    PLAY_FAILURE_REPORTS
-        .lock()
-        .ok()
-        .and_then(|reports| reports.get(event_name).cloned())
+    PLAY_FAILURE_REPORTS.with(|reports| reports.borrow().get(event_name).cloned())
 }
 
 fn with_audio_locality_resolver<F, R>(f: F) -> Option<R>
@@ -980,22 +980,26 @@ impl AudioManager {
             return 0.0;
         }
 
-        static FILE_LENGTH_CACHE: OnceLock<Mutex<HashMap<AsciiString, Real>>> = OnceLock::new();
-        let cache = FILE_LENGTH_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+        // THREAD: plain function-local static in C++, read/written only from
+        // the single GameLogic/client thread; RefCell instead of Mutex.
+        thread_local! {
+            static FILE_LENGTH_CACHE: RefCell<HashMap<AsciiString, Real>> =
+                RefCell::new(HashMap::new());
+        }
 
-        if let Ok(guard) = cache.lock() {
-            if let Some(length) = guard.get(normalized) {
-                return *length;
-            }
+        if let Some(length) =
+            FILE_LENGTH_CACHE.with(|cache| cache.borrow().get(normalized).copied())
+        {
+            return length;
         }
 
         let length = Self::read_audio_file_bytes(normalized)
             .and_then(|bytes| Self::duration_ms_from_audio_data(&bytes))
             .unwrap_or(0.0);
 
-        if let Ok(mut guard) = cache.lock() {
-            guard.insert(normalized.to_string(), length);
-        }
+        FILE_LENGTH_CACHE.with(|cache| {
+            cache.borrow_mut().insert(normalized.to_string(), length);
+        });
 
         length
     }
@@ -2776,6 +2780,8 @@ impl RodioVoice {
 
 #[cfg(not(target_arch = "wasm32"))]
 struct RodioPlaybackHook {
+    // THREAD: kept as Mutex - the hook is published as `Arc<dyn SoundPlaybackHook>`
+    // (Send + Sync) and is reachable from the rodio callback thread.
     sinks: Mutex<HashMap<AudioHandle, RodioSinkState>>,
     listener_position: Mutex<Coord3D>,
     listener_orientation: Mutex<Coord3D>,
@@ -2783,6 +2789,7 @@ struct RodioPlaybackHook {
 
 #[cfg(not(target_arch = "wasm32"))]
 struct RodioSinkState {
+    // THREAD: kept locked - rodio voice handle shared with the audio thread.
     sink: Arc<Mutex<RodioVoice>>,
     base_volume: Real,
     position: Option<Coord3D>,
@@ -3210,10 +3217,14 @@ pub const AHSV_STOP_THE_MUSIC: AudioHandle = 0xFFFF_FFF0;
 pub const AHSV_STOP_THE_MUSIC_FADE: AudioHandle = 0xFFFF_FFF1;
 const AHSV_FIRST_HANDLE: AudioHandle = 1000;
 
+// THREAD: kept locked - the public handle handed out by
+// `get_global_audio_manager`/`initialize_global_audio_manager` (dozens of
+// callers across GameLogic/GameClient/Main) and reached from the hook paths.
 static THE_AUDIO: OnceLock<Arc<Mutex<AudioManager>>> = OnceLock::new();
 
 struct AnimatedSoundBridge {
     audio: Arc<Mutex<AudioManager>>,
+    // THREAD: kept as Mutex - published as `Arc<dyn SoundLibraryBridge>` (Send + Sync).
     active_handles: Mutex<HashMap<String, Vec<AudioHandle>>>,
 }
 

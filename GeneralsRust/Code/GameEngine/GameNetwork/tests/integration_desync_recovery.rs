@@ -772,12 +772,9 @@ async fn test_multi_player_crc_validation() {
 async fn test_desync_handler_strategies() {
     println!("\n=== Test: Desync Handler Strategies ===\n");
 
-    let game_state = Arc::new(Mutex::new(TestGameState::new()));
-
     // Test LogOnly strategy
     {
-        let mut handler =
-            DesyncHandler::with_settings(game_state.clone(), DesyncStrategy::LogOnly, None);
+        let mut handler = DesyncHandler::with_settings(DesyncStrategy::LogOnly, None);
 
         let mut remote_crcs = HashMap::new();
         remote_crcs.insert(1, 0xDEADBEEF);
@@ -801,8 +798,7 @@ async fn test_desync_handler_strategies() {
 
     // Test DisconnectVote strategy
     {
-        let mut handler =
-            DesyncHandler::with_settings(game_state.clone(), DesyncStrategy::DisconnectVote, None);
+        let mut handler = DesyncHandler::with_settings(DesyncStrategy::DisconnectVote, None);
 
         let mut remote_crcs = HashMap::new();
         remote_crcs.insert(2, 0x99999999);
@@ -881,9 +877,7 @@ async fn test_desync_metrics_tracking() {
 async fn test_comprehensive_desync_scenario() {
     println!("\n=== Comprehensive Desync Scenario Test ===\n");
 
-    let states: Vec<Arc<Mutex<TestGameState>>> = (0..4)
-        .map(|_| Arc::new(Mutex::new(TestGameState::new())))
-        .collect();
+    let mut states: Vec<TestGameState> = (0..4).map(|_| TestGameState::new()).collect();
 
     let mut desync_manager = DesyncManager::new(10);
     let mut total_recoveries = 0;
@@ -892,16 +886,15 @@ async fn test_comprehensive_desync_scenario() {
 
     for frame in 0..=60 {
         // Advance all players
-        for state in &states {
-            state.lock().unwrap().advance();
+        for state in &mut states {
+            state.advance();
         }
 
         // Introduce controlled desyncs
         if frame == 15 {
             println!("Frame 15: Player 1 desync (resource mod)");
-            let mut s = states[1].lock().unwrap();
             intentional_desync(
-                &mut s,
+                &mut states[1],
                 DesyncType::ExtraResources {
                     player_id: 0,
                     amount: 500,
@@ -909,15 +902,11 @@ async fn test_comprehensive_desync_scenario() {
             );
         } else if frame == 35 {
             println!("Frame 35: Player 3 desync (seed mod)");
-            let mut s = states[3].lock().unwrap();
-            intentional_desync(&mut s, DesyncType::ModifyRandomSeed { new_seed: 7777 });
+            intentional_desync(&mut states[3], DesyncType::ModifyRandomSeed { new_seed: 7777 });
         }
 
         // Compute CRCs
-        let crcs: Vec<u32> = states
-            .iter()
-            .map(|s| s.lock().unwrap().compute_crc())
-            .collect();
+        let crcs: Vec<u32> = states.iter().map(|s| s.compute_crc()).collect();
 
         // Check for desyncs
         let reference_crc = crcs[0];
@@ -930,8 +919,8 @@ async fn test_comprehensive_desync_scenario() {
 
                 // Immediate recovery
                 println!("  Recovery: Syncing player {} from reference", player_id);
-                let reference_state = states[0].lock().unwrap().clone();
-                *states[player_id].lock().unwrap() = reference_state;
+                let reference_state = states[0].clone();
+                states[player_id] = reference_state;
                 total_recoveries += 1;
             }
         }
@@ -947,10 +936,7 @@ async fn test_comprehensive_desync_scenario() {
     println!("Total frames: 61");
 
     // Verify all players synchronized at end
-    let final_crcs: Vec<u32> = states
-        .iter()
-        .map(|s| s.lock().unwrap().compute_crc())
-        .collect();
+    let final_crcs: Vec<u32> = states.iter().map(|s| s.compute_crc()).collect();
     assert!(
         verify_all_match(&final_crcs),
         "All players should be synchronized at end"

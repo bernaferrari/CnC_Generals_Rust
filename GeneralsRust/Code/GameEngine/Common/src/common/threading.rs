@@ -8,6 +8,7 @@
 
 use parking_lot::{Mutex, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 use std::time::Duration;
 
@@ -244,38 +245,38 @@ impl Default for Once {
 }
 
 /// Atomic flag for simple boolean signaling between threads
+///
+/// A plain [`AtomicBool`] does everything this needs, so no mutex is involved.
 pub struct AtomicFlag {
-    flag: Arc<parking_lot::Mutex<bool>>,
+    flag: Arc<AtomicBool>,
 }
 
 impl AtomicFlag {
     /// Create a new atomic flag with initial value
     pub fn new(initial: bool) -> Self {
         Self {
-            flag: Arc::new(parking_lot::Mutex::new(initial)),
+            flag: Arc::new(AtomicBool::new(initial)),
         }
     }
 
     /// Set the flag to true
     pub fn set(&self) {
-        *self.flag.lock() = true;
+        self.flag.store(true, Ordering::SeqCst);
     }
 
     /// Clear the flag to false
     pub fn clear(&self) {
-        *self.flag.lock() = false;
+        self.flag.store(false, Ordering::SeqCst);
     }
 
     /// Check if the flag is set
     pub fn is_set(&self) -> bool {
-        *self.flag.lock()
+        self.flag.load(Ordering::SeqCst)
     }
 
     /// Toggle the flag and return the new value
     pub fn toggle(&self) -> bool {
-        let mut flag = self.flag.lock();
-        *flag = !*flag;
-        *flag
+        !self.flag.fetch_xor(true, Ordering::SeqCst)
     }
 }
 

@@ -3,12 +3,13 @@
 //! This module provides object pools to minimize allocation overhead for frequently
 //! created/destroyed objects. Matches C++ RenderObjectRecycler patterns.
 
-use std::sync::{Arc, Mutex};
+use std::cell::RefCell;
+use std::rc::Rc;
 
 /// Handle to a pooled object that returns to pool on drop
 pub struct PoolHandle<T> {
     object: Option<T>,
-    pool: Arc<Mutex<ObjectPool<T>>>,
+    pool: Rc<RefCell<ObjectPool<T>>>,
 }
 
 impl<T> PoolHandle<T> {
@@ -26,9 +27,7 @@ impl<T> PoolHandle<T> {
 impl<T> Drop for PoolHandle<T> {
     fn drop(&mut self) {
         if let Some(obj) = self.object.take() {
-            if let Ok(mut pool) = self.pool.lock() {
-                pool.return_to_pool(obj);
-            }
+            self.pool.borrow_mut().return_to_pool(obj);
         }
     }
 }
@@ -136,51 +135,54 @@ impl<T: Default> ObjectPool<T> {
     }
 }
 
-/// Thread-safe object pool wrapper
+/// Shared game-thread object pool wrapper.
+///
+/// C++ pooled render objects through plain members on the game thread; the port
+/// keeps the same single-owner model with `Rc<RefCell<..>>` instead of a mutex.
 pub struct ThreadSafePool<T> {
-    pool: Arc<Mutex<ObjectPool<T>>>,
+    pool: Rc<RefCell<ObjectPool<T>>>,
 }
 
 impl<T> Clone for ThreadSafePool<T> {
     fn clone(&self) -> Self {
         Self {
-            pool: Arc::clone(&self.pool),
+            pool: Rc::clone(&self.pool),
         }
     }
 }
 
 impl<T> ThreadSafePool<T> {
-    /// Create a new thread-safe pool
+    /// Create a new shared pool
     pub fn new(initial_capacity: usize, max_size: usize) -> Self {
         Self {
-            pool: Arc::new(Mutex::new(ObjectPool::new(initial_capacity, max_size))),
+            pool: Rc::new(RefCell::new(ObjectPool::new(initial_capacity, max_size))),
         }
     }
 
     /// Get pool statistics
     pub fn stats(&self) -> PoolStats {
-        self.pool.lock().unwrap().stats()
+        self.pool.borrow().stats()
     }
 
     /// Clear the pool
     pub fn clear(&self) {
-        self.pool.lock().unwrap().clear();
+        self.pool.borrow_mut().clear();
     }
 }
 
 impl<T: Default> ThreadSafePool<T> {
     /// Acquire an object with automatic return on drop
     pub fn acquire(&self) -> PoolHandle<T> {
-        let obj = self.pool.lock().unwrap().acquire();
+        let obj = self.pool.borrow_mut().acquire();
         PoolHandle {
             object: Some(obj),
-            pool: Arc::clone(&self.pool),
+            pool: Rc::clone(&self.pool),
         }
     }
 
     /// Preallocate objects
     pub fn preallocate(&self, count: usize) {
-        self.pool.lock().unwrap().preallocate(count);
+        self.pool.borrow_mut().preallocate(count);
     }
 }
 

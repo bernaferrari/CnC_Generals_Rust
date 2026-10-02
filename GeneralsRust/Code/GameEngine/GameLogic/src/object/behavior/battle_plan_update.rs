@@ -752,18 +752,17 @@ impl BattlePlanUpdate {
         }
 
         if self.plan_affecting_army != BattlePlanStatus::None {
-            let Some(player) = self.with_object(|object| object.get_controlling_player()) else {
-                return;
+            let plan_type = match self.plan_affecting_army {
+                BattlePlanStatus::Bombardment => BattlePlanType::Bombard,
+                BattlePlanStatus::HoldTheLine => BattlePlanType::HoldTheLine,
+                BattlePlanStatus::SearchAndDestroy => BattlePlanType::SearchAndDestroy,
+                BattlePlanStatus::None => unreachable!(),
             };
-            if let Some(player) = player {
-                let plan_type = match self.plan_affecting_army {
-                    BattlePlanStatus::Bombardment => BattlePlanType::Bombard,
-                    BattlePlanStatus::HoldTheLine => BattlePlanType::HoldTheLine,
-                    BattlePlanStatus::SearchAndDestroy => BattlePlanType::SearchAndDestroy,
-                    BattlePlanStatus::None => unreachable!(),
-                };
-                player.change_battle_plan(plan_type, -1, &self.bonuses);
-            }
+            self.with_object(|object| {
+                object.with_controlling_player_mut(|player| {
+                    player.change_battle_plan(plan_type, -1, &self.bonuses);
+                })
+            });
         }
     }
 
@@ -1057,14 +1056,11 @@ impl SpecialPowerUpdateInterface for BattlePlanUpdate {
             return false;
         }
 
-        if let Some(player) = self
-            .with_object(|object| object.get_controlling_player())
-            .flatten()
-        {
-            if let Ok(mut player) = player.write() {
+        self.with_object(|object| {
+            object.with_controlling_player_mut(|player| {
                 player.get_academy_stats_mut().record_battle_plan_selected();
-            }
-        }
+            })
+        });
 
         true
     }

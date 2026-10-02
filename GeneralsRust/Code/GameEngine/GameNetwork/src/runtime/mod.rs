@@ -8,10 +8,10 @@
 //! - Tokio Console integration for debugging
 
 use std::future::Future;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
-use tokio::sync::{broadcast, mpsc, RwLock, Semaphore};
-use tokio::task::{JoinHandle, JoinSet};
+use tokio::sync::{broadcast, Semaphore};
+use tokio::task::JoinSet;
 use tokio::time::{sleep, timeout};
 use crate::error::{NetworkError, NetworkResult};
 use crate::time::NetworkInstant;
@@ -80,32 +80,37 @@ impl Default for ResourceLimits {
 
 /// Structured concurrency scope for guaranteed cleanup
 pub struct AsyncScope {
-    tasks: Arc<RwLock<JoinSet<NetworkResult<()>>>>,
+    /// Task set: only the owning scope touches it (`spawn` registers, `join_all`
+    /// drains), so it stays a plain field.
+    tasks: JoinSet<NetworkResult<()>>,
     shutdown: broadcast::Sender<()>,
     semaphore: Arc<Semaphore>,
-    active_tasks: Arc<RwLock<Vec<TaskMetadata>>>,
+    /// THREAD: pushed by the thread calling [`AsyncScope::spawn`] and, for the
+    /// duration of the task, owned by the spawned tokio task itself, which
+    /// removes its own entry when it completes; one mutex covers the whole list.
+    active_tasks: Arc<Mutex<Vec<TaskMetadata>>>,
 }
 
 impl AsyncScope {
     /// Create a new async scope with resource limits
     pub fn new(max_concurrent: usize) -> Self {
         let (shutdown, _) = broadcast::channel(1);
-        
+
         Self {
-            tasks: Arc::new(RwLock::new(JoinSet::new())),
+            tasks: JoinSet::new(),
             shutdown,
             semaphore: Arc::new(Semaphore::new(max_concurrent)),
-            active_tasks: Arc::new(RwLock::new(Vec::new())),
+            active_tasks: Arc::new(Mutex::new(Vec::new())),
         }
     }
     
     /// Spawn a task with metadata and resource management
     #[cfg(feature = "metrics")]
     #[instrument(skip(self, future))]
-    pub async fn spawn<F, Fut>(&self, 
-        metadata: TaskMetadata, 
+    pub async fn spawn<F, Fut>(&mut self,
+        metadata: TaskMetadata,
         future: F
-    ) -> NetworkResult<()> 
+    ) -> NetworkResult<()>
     where
         F: FnOnce() -> Fut + Send + 'static,
         Fut: Future<Output = NetworkResult<()>> + Send + 'static,
@@ -123,7 +128,7 @@ impl AsyncScope {
         
         // Add to active tasks
         {
-            let mut tasks = active_tasks.write().await;
+            let mut tasks = active_tasks.lock().expect("active task list poisoned");
             tasks.push(metadata);
         }
         
@@ -142,9 +147,9 @@ impl AsyncScope {
             };
             
             // Remove from active tasks on completion
-            let mut tasks = active_tasks.write().await;
+            let mut tasks = active_tasks.lock().expect("active task list poisoned");
             tasks.retain(|t| t.name != task_name_for_closure);
-            
+
             result
         }.instrument(tracing::info_span!("async_task", task = %task_name));
         
@@ -162,22 +167,19 @@ impl AsyncScope {
         let handle = tokio::spawn(cancellable_future);
         
         // Add to task set
-        {
-            let mut tasks = self.tasks.write().await;
-            tasks.spawn(async move {
-                handle.await
-                    .map_err(|e| NetworkError::generic(format!("Task join failed: {}", e)))?
-            });
-        }
-        
+        self.tasks.spawn(async move {
+            handle.await
+                .map_err(|e| NetworkError::generic(format!("Task join failed: {}", e)))?
+        });
+
         Ok(())
     }
-    
+
     #[cfg(not(feature = "metrics"))]
-    pub async fn spawn<F, Fut>(&self, 
-        metadata: TaskMetadata, 
+    pub async fn spawn<F, Fut>(&mut self,
+        metadata: TaskMetadata,
         future: F
-    ) -> NetworkResult<()> 
+    ) -> NetworkResult<()>
     where
         F: FnOnce() -> Fut + Send + 'static,
         Fut: Future<Output = NetworkResult<()>> + Send + 'static,
@@ -192,23 +194,23 @@ impl AsyncScope {
         let active_tasks = self.active_tasks.clone();
         
         {
-            let mut tasks = active_tasks.write().await;
+            let mut tasks = active_tasks.lock().expect("active task list poisoned");
             tasks.push(metadata);
         }
-        
+
         let task_future = async move {
             let _permit = permit;
-            
+
             let result = if let Some(duration) = max_duration {
                 timeout(duration, future()).await
                     .map_err(|_| NetworkError::generic("Task timeout exceeded".to_string()))?
             } else {
                 future().await
             };
-            
-            let mut tasks = active_tasks.write().await;
+
+            let mut tasks = active_tasks.lock().expect("active task list poisoned");
             tasks.retain(|t| t.name != task_name);
-            
+
             result
         };
         
@@ -223,23 +225,19 @@ impl AsyncScope {
         };
         
         let handle = tokio::spawn(cancellable_future);
-        
-        {
-            let mut tasks = self.tasks.write().await;
-            tasks.spawn(async move {
-                handle.await
-                    .map_err(|e| NetworkError::generic(format!("Task join failed: {}", e)))?
-            });
-        }
-        
+
+        // Add to task set
+        self.tasks.spawn(async move {
+            handle.await
+                .map_err(|e| NetworkError::generic(format!("Task join failed: {}", e)))?
+        });
+
         Ok(())
     }
-    
+
     /// Wait for all tasks to complete or timeout
     pub async fn join_all(self, timeout_duration: Duration) -> NetworkResult<()> {
-        let mut tasks = Arc::try_unwrap(self.tasks)
-            .map_err(|_| NetworkError::generic("Cannot unwrap Arc - still has references".to_string()))?
-            .into_inner();
+        let mut tasks = self.tasks;
         
         let join_future = async move {
             let mut results = Vec::new();
@@ -276,36 +274,38 @@ impl AsyncScope {
         let start = NetworkInstant::now();
 
         while start.elapsed() < shutdown_timeout {
-            let active_count = {
-                let tasks = self.active_tasks.read().await;
-                tasks.len()
-            };
-            
+            let active_count = self
+                .active_tasks
+                .lock()
+                .expect("active task list poisoned")
+                .len();
+
             if active_count == 0 {
                 break;
             }
-            
+
             debug!("Waiting for {} tasks to shutdown", active_count);
             sleep(Duration::from_millis(100)).await;
         }
-        
-        let final_count = {
-            let tasks = self.active_tasks.read().await;
-            tasks.len()
-        };
-        
+
+        let final_count = self
+            .active_tasks
+            .lock()
+            .expect("active task list poisoned")
+            .len();
+
         if final_count > 0 {
             warn!("Force-terminating {} remaining tasks", final_count);
         }
-        
+
         info!("Structured concurrency shutdown complete");
         Ok(())
     }
-    
+
     /// Get current task statistics
     pub async fn get_stats(&self) -> ScopeStats {
-        let tasks = self.active_tasks.read().await;
-        
+        let tasks = self.active_tasks.lock().expect("active task list poisoned");
+
         let mut stats = ScopeStats {
             active_tasks: tasks.len(),
             total_spawned: 0, // Would need to track this
@@ -348,7 +348,7 @@ pub struct AdvancedRuntime {
     network_scope: AsyncScope,
     game_scope: AsyncScope,
     background_scope: AsyncScope,
-    
+
     /// Global shutdown coordination
     shutdown_coordinator: Arc<ShutdownCoordinator>,
 }
@@ -357,19 +357,19 @@ impl AdvancedRuntime {
     /// Create a new advanced runtime with optimized resource allocation
     pub fn new() -> Self {
         info!("Initializing ultra-modern async runtime");
-        
+
         Self {
             main_scope: AsyncScope::new(100),      // Main application tasks
             network_scope: AsyncScope::new(50),    // Network I/O tasks
-            game_scope: AsyncScope::new(25),       // Game logic tasks  
+            game_scope: AsyncScope::new(25),       // Game logic tasks
             background_scope: AsyncScope::new(10), // Background maintenance
             shutdown_coordinator: Arc::new(ShutdownCoordinator::new()),
         }
     }
-    
+
     /// Spawn a task in the appropriate scope based on priority
-    pub async fn spawn_task<F, Fut>(&self, 
-        metadata: TaskMetadata, 
+    pub async fn spawn_task<F, Fut>(&mut self,
+        metadata: TaskMetadata,
         future: F
     ) -> NetworkResult<()>
     where
@@ -431,7 +431,9 @@ pub struct RuntimeStats {
 /// Advanced shutdown coordination
 pub struct ShutdownCoordinator {
     shutdown_phases: Vec<ShutdownPhase>,
-    current_phase: RwLock<usize>,
+    /// Index into `shutdown_phases` for the phase currently being executed;
+    /// only the shutdown driver owning the coordinator advances it.
+    current_phase: usize,
 }
 
 #[derive(Debug)]
@@ -461,7 +463,7 @@ impl ShutdownCoordinator {
                     critical: true,
                 },
             ],
-            current_phase: RwLock::new(0),
+            current_phase: 0,
         }
     }
 }
@@ -478,8 +480,8 @@ mod tests {
     
     #[tokio::test]
     async fn test_async_scope() {
-        let scope = AsyncScope::new(5);
-        
+        let mut scope = AsyncScope::new(5);
+
         // Spawn a simple task
         let metadata = TaskMetadata {
             name: "test_task".to_string(),
@@ -488,24 +490,24 @@ mod tests {
             max_duration: Some(Duration::from_secs(1)),
             resource_limits: ResourceLimits::default(),
         };
-        
+
         scope.spawn(metadata, || async {
             tokio::time::sleep(Duration::from_millis(100)).await;
             Ok(())
         }).await.unwrap();
-        
+
         // Test stats
         let stats = scope.get_stats().await;
         assert!(stats.active_tasks <= 1); // Task might have completed
-        
+
         // Shutdown
         scope.shutdown().await.unwrap();
     }
-    
+
     #[tokio::test]
     async fn test_advanced_runtime() {
-        let runtime = AdvancedRuntime::new();
-        
+        let mut runtime = AdvancedRuntime::new();
+
         // Spawn tasks with different priorities
         let high_priority_task = TaskMetadata {
             name: "high_priority".to_string(),
@@ -514,15 +516,15 @@ mod tests {
             max_duration: None,
             resource_limits: ResourceLimits::default(),
         };
-        
+
         runtime.spawn_task(high_priority_task, || async {
             Ok(())
         }).await.unwrap();
-        
+
         // Get stats
         let stats = runtime.get_runtime_stats().await;
         assert!(stats.total_active_tasks >= 0);
-        
+
         // Shutdown
         runtime.shutdown().await.unwrap();
     }

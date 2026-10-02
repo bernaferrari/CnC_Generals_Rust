@@ -143,15 +143,15 @@ impl SubObjectsUpgradeHandle {
                 return false;
             }
 
-            if let Some(player) = object_guard.get_controlling_player() {
-                if let Ok(player_guard) = player.read() {
-                    if player_guard
+            if object_guard
+                .with_controlling_player(|player_guard| {
+                    player_guard
                         .get_completed_upgrade_mask()
                         .intersects(conflicting_bits)
-                    {
-                        return false;
-                    }
-                }
+                })
+                == Some(true)
+            {
+                return false;
             }
 
             mux_data.perform_upgrade_fx(object_guard);
@@ -372,15 +372,15 @@ impl UpgradeModuleInterface for SubObjectsUpgrade {
                 return false;
             }
 
-            if let Some(player) = object_guard.get_controlling_player() {
-                if let Ok(player_guard) = player.read() {
-                    if player_guard
+            if object_guard
+                .with_controlling_player(|player_guard| {
+                    player_guard
                         .get_completed_upgrade_mask()
                         .intersects(conflicting_bits)
-                    {
-                        return false;
-                    }
-                }
+                })
+                == Some(true)
+            {
+                return false;
             }
 
             mux_data.perform_upgrade_fx(object_guard);

@@ -81,6 +81,10 @@ struct Detection {
     tries: u32,
 }
 
+/// THREAD: the single detection bundle, mirroring the C++ `TheFirewallHelper`
+/// global. `behavior_detection_update` runs on the game loop thread (holding the
+/// lock across its blocking mangler probes, as in C++), while other threads poll
+/// `firewall_detection_done` / `get_firewall_behavior`.
 static DETECTION: Mutex<Detection> = Mutex::new(Detection {
     state: FirewallDetectionState::Idle,
     behavior: FirewallBehavior::UNKNOWN,

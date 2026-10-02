@@ -11,18 +11,18 @@ use crate::error::{NetworkError, NetworkResult};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::net::SocketAddr;
-use std::sync::Arc;
-use tokio::sync::RwLock;
 use tracing::{debug, info, instrument, warn};
 
-/// Peer networking system
+/// Peer networking system. All state is owned by the GameSpy interface task;
+/// no handle escapes into a spawned task, so the fields are plain values and
+/// mutation goes through `&mut self` accessors.
 pub struct PeerSystem {
     /// Active peer connections
-    peers: Arc<RwLock<HashMap<String, PeerConnection>>>,
+    peers: HashMap<String, PeerConnection>,
     /// NAT traversal manager
-    nat_traversal: Arc<RwLock<NatTraversal>>,
+    nat_traversal: NatTraversal,
     /// Peer discovery
-    discovery: Arc<RwLock<PeerDiscovery>>,
+    discovery: PeerDiscovery,
 }
 
 /// Peer connection
@@ -110,9 +110,9 @@ impl PeerSystem {
     /// Create new peer system
     pub async fn new() -> NetworkResult<Self> {
         Ok(Self {
-            peers: Arc::new(RwLock::new(HashMap::new())),
-            nat_traversal: Arc::new(RwLock::new(NatTraversal::new())),
-            discovery: Arc::new(RwLock::new(PeerDiscovery::new())),
+            peers: HashMap::new(),
+            nat_traversal: NatTraversal::new(),
+            discovery: PeerDiscovery::new(),
         })
     }
 
@@ -132,7 +132,11 @@ impl PeerSystem {
 
     /// Connect to peer
     #[instrument(skip(self))]
-    pub async fn connect_to_peer(&self, peer_id: String, address: SocketAddr) -> NetworkResult<()> {
+    pub async fn connect_to_peer(
+        &mut self,
+        peer_id: String,
+        address: SocketAddr,
+    ) -> NetworkResult<()> {
         info!("Connecting to peer: {} at {}", peer_id, address);
 
         let connection = PeerConnection {
@@ -146,19 +150,17 @@ impl PeerSystem {
             },
         };
 
-        let mut peers = self.peers.write().await;
-        peers.insert(peer_id, connection);
+        self.peers.insert(peer_id, connection);
 
         Ok(())
     }
 
     /// Disconnect from peer
     #[instrument(skip(self))]
-    pub async fn disconnect_from_peer(&self, peer_id: String) -> NetworkResult<()> {
+    pub async fn disconnect_from_peer(&mut self, peer_id: String) -> NetworkResult<()> {
         info!("Disconnecting from peer: {}", peer_id);
 
-        let mut peers = self.peers.write().await;
-        if let Some(peer) = peers.get_mut(&peer_id) {
+        if let Some(peer) = self.peers.get_mut(&peer_id) {
             peer.state = PeerConnectionState::Disconnected;
         }
 
@@ -175,14 +177,12 @@ impl PeerSystem {
 
     /// Get peer connection
     pub async fn get_peer(&self, peer_id: &str) -> Option<PeerConnection> {
-        let peers = self.peers.read().await;
-        peers.get(peer_id).cloned()
+        self.peers.get(peer_id).cloned()
     }
 
     /// Get all connected peers
     pub async fn get_connected_peers(&self) -> Vec<PeerConnection> {
-        let peers = self.peers.read().await;
-        peers
+        self.peers
             .values()
             .filter(|p| matches!(p.state, PeerConnectionState::Connected))
             .cloned()

@@ -44,20 +44,18 @@ fn is_object_shrouded_for_action(
     target: &Object,
     command_source: CommandSourceType,
 ) -> bool {
-    let Some(player) = source.get_controlling_player() else {
-        return false;
-    };
-    let Ok(player_guard) = player.read() else {
-        return false;
-    };
-    if player_guard.get_player_type() != PlayerType::Human {
-        return false;
-    }
-    if command_source == CommandSourceType::FromScript {
-        return false;
-    }
-    let shroud = target.get_shrouded_status(player_guard.get_player_index());
-    (shroud as u8) >= (ObjectShroudStatus::Fogged as u8)
+    source
+        .with_controlling_player(|player_guard| {
+            if player_guard.get_player_type() != PlayerType::Human {
+                return false;
+            }
+            if command_source == CommandSourceType::FromScript {
+                return false;
+            }
+            let shroud = target.get_shrouded_status(player_guard.get_player_index());
+            (shroud as u8) >= (ObjectShroudStatus::Fogged as u8)
+        })
+        .unwrap_or(false)
 }
 
 fn is_faction_structure(obj: &Object) -> bool {
@@ -75,8 +73,7 @@ fn is_point_on_map(pos: &crate::common::Coord3D) -> bool {
 
 fn controlling_player_index(source: &Object) -> crate::common::Int {
     source
-        .get_controlling_player()
-        .and_then(|player| player.read().ok().map(|guard| guard.get_player_index()))
+        .with_controlling_player(|guard| guard.get_player_index())
         .or_else(|| {
             source
                 .get_controlling_player_id()
@@ -402,15 +399,9 @@ fn appears_to_contain_friendlies(obj: &Object, other: &Object) -> bool {
     let Ok(contain_guard) = contain.lock() else {
         return false;
     };
-    let Some(observer) = obj.get_controlling_player() else {
-        return false;
-    };
-    let Ok(observer_guard) = observer.read() else {
-        return false;
-    };
-    let Some(apparent_player) =
-        contain_guard.get_apparent_controlling_player(Some(&observer_guard))
-    else {
+    let Some(apparent_player) = obj.with_controlling_player(|observer_guard| {
+        contain_guard.get_apparent_controlling_player(Some(observer_guard))
+    }) else {
         return false;
     };
     let Ok(apparent_guard) = apparent_player.read() else {
@@ -897,15 +888,13 @@ impl TheActionManager {
             return false;
         }
 
-        if let Some(player) = obj.get_controlling_player() {
-            if let Ok(player_guard) = player.read() {
-                if player_guard.get_player_type() == PlayerType::Human
-                    && transfer_dest.get_shrouded_status(player_guard.get_player_index())
-                        == ObjectShroudStatus::Shrouded
-                {
-                    return false;
-                }
-            }
+        let shrouded_for_human = obj.with_controlling_player(|player_guard| {
+            player_guard.get_player_type() == PlayerType::Human
+                && transfer_dest.get_shrouded_status(player_guard.get_player_index())
+                    == ObjectShroudStatus::Shrouded
+        });
+        if shrouded_for_human.unwrap_or(false) {
+            return false;
         }
 
         true
@@ -1799,19 +1788,18 @@ impl TheActionManager {
         }
 
         // C++ ActionManager.cpp:2016 — player->getRelationship(target->getTeam()) == NEUTRAL
-        if let Some(player) = obj.get_controlling_player() {
-            if let Ok(player_guard) = player.read() {
-                if let Some(target_team) = target.get_team() {
-                    if let Ok(target_team_guard) = target_team.read() {
-                        if player_guard.get_relationship_with_team(&*target_team_guard)
-                            == Relationship::Neutral
-                        {
-                            return contain_guard.get_contained_count() == 0
-                                && contain_guard.is_valid_container_for(obj, true);
-                        }
-                    }
-                }
-            }
+        let neutral_to_target = obj.with_controlling_player(|player_guard| {
+            target
+                .get_team()
+                .and_then(|target_team| target_team.read().ok())
+                .is_some_and(|target_team_guard| {
+                    player_guard.get_relationship_with_team(&target_team_guard)
+                        == Relationship::Neutral
+                })
+        });
+        if neutral_to_target.unwrap_or(false) {
+            return contain_guard.get_contained_count() == 0
+                && contain_guard.is_valid_container_for(obj, true);
         }
 
         false
@@ -1841,22 +1829,23 @@ impl TheActionManager {
             return false;
         }
 
-        if let Some(target_player) = target.get_controlling_player() {
-            if let Ok(target_guard) = target_player.read() {
-                if std::ptr::eq(player, &*target_guard) {
-                    return true;
-                }
+        let same_player = target
+            .with_controlling_player(|target_guard| std::ptr::eq(player, target_guard))
+            .unwrap_or(false);
+        if same_player {
+            return true;
+        }
 
-                if let Some(target_team) = target_guard.get_default_team() {
-                    if let Ok(target_team_guard) = target_team.read() {
-                        if player.get_relationship_with_team(&*target_team_guard)
-                            == Relationship::Neutral
-                        {
-                            return contain_guard.get_contained_count() == 0;
-                        }
-                    }
-                }
-            }
+        let neutral_to_target = target.with_controlling_player(|target_guard| {
+            target_guard
+                .get_default_team()
+                .and_then(|target_team| target_team.read().ok())
+                .is_some_and(|target_team_guard| {
+                    player.get_relationship_with_team(&target_team_guard) == Relationship::Neutral
+                })
+        });
+        if neutral_to_target.unwrap_or(false) {
+            return contain_guard.get_contained_count() == 0;
         }
 
         false
@@ -1882,8 +1871,7 @@ impl TheActionManager {
         //      != CELLSHROUD_SHROUDED
         // Missing player is treated as an invalid index, which C++ maps to shrouded.
         let player_index = obj
-            .get_controlling_player()
-            .and_then(|player| player.read().ok().map(|guard| guard.get_player_index()))
+            .with_controlling_player(|guard| guard.get_player_index())
             .or_else(|| {
                 obj.get_controlling_player_id()
                     .map(|player_id| player_id as crate::common::Int)

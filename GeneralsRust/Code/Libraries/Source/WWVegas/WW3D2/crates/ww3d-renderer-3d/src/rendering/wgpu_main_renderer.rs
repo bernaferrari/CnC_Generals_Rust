@@ -8,6 +8,8 @@ use crate::rendering::shadow_system::shadow_map::ShadowCasterSubmission;
 use crate::rendering::wgpu_renderer::wgpu_wrapper::{self, WgpuWrapper};
 use glam::Vec4;
 use std::any::Any;
+use std::cell::RefCell;
+use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -60,7 +62,13 @@ pub struct MainRendererStats {
 /// Primary high level renderer coordinating frame lifetime and delegating the actual draw work to
 /// the [`WgpuWrapper`] compatibility layer.
 pub struct WgpuMainRenderer {
-    backend: Option<Arc<Mutex<WgpuWrapper>>>,
+    /// The legacy DX8-parity backend. Owned outright: C++ kept it as the
+    /// renderer's own member, and no caller needs a shared handle to it.
+    backend: Option<WgpuWrapper>,
+    /// THREAD: game thread (this renderer's frame loop) vs. the host frame pump
+    /// (`Renderer::with_active_mut` / Code/Main `forward_render.rs`), which
+    /// queue meshes into the same renderer through this handle and therefore
+    /// meet here.
     renderer: Arc<Mutex<Renderer>>,
     config: WgpuMainRendererConfig,
     stats: MainRendererStats,
@@ -68,26 +76,12 @@ pub struct WgpuMainRenderer {
     last_fps_update: Instant,
     frame_accumulator: Duration,
     frame_counter: u32,
-    frame_stats_bridge: Arc<Mutex<FrameStats>>,
+    frame_stats_bridge: Rc<RefCell<FrameStats>>,
     ready_flag: Arc<AtomicBool>,
     registered_with_ww3d: bool,
     pending_frame: Option<ww3d_engine::RenderFrame>,
-    #[cfg(not(target_arch = "wasm32"))]
-    pre_scene_callbacks: Mutex<
-        Vec<Box<dyn FnOnce(&mut ww3d_engine::RenderFrame) -> RendererResult<()> + Send>>,
-    >,
-    #[cfg(target_arch = "wasm32")]
-    pre_scene_callbacks: std::cell::RefCell<
-        Vec<Box<dyn FnOnce(&mut ww3d_engine::RenderFrame) -> RendererResult<()>>>,
-    >,
-    #[cfg(not(target_arch = "wasm32"))]
-    post_frame_callbacks: Mutex<
-        Vec<Box<dyn FnOnce(&mut ww3d_engine::RenderFrame) -> RendererResult<()> + Send>>,
-    >,
-    #[cfg(target_arch = "wasm32")]
-    post_frame_callbacks: std::cell::RefCell<
-        Vec<Box<dyn FnOnce(&mut ww3d_engine::RenderFrame) -> RendererResult<()>>>,
-    >,
+    pre_scene_callbacks: Vec<Box<dyn FnOnce(&mut ww3d_engine::RenderFrame) -> RendererResult<()>>>,
+    post_frame_callbacks: Vec<Box<dyn FnOnce(&mut ww3d_engine::RenderFrame) -> RendererResult<()>>>,
     legacy_frame_clock: LegacyFrameClock,
     shadow_caster_submissions: Vec<ShadowCasterSubmission>,
     shadow_caster_count_hint: u32,
@@ -169,18 +163,15 @@ impl WgpuMainRenderer {
     }
 
     /// Construct the renderer from an existing [`WgpuWrapper`] backend.
-    pub fn from_backend(backend: Arc<Mutex<WgpuWrapper>>, config: WgpuMainRendererConfig) -> Self {
+    pub fn from_backend(mut backend: WgpuWrapper, config: WgpuMainRendererConfig) -> Self {
         let msaa_samples = if config.anti_aliasing { 4 } else { 1 };
-        let (device, queue, surface_config, surface_handle) = {
-            let mut backend_guard = backend.lock().expect("WGPU backend poisoned");
-            backend_guard.set_msaa_samples(msaa_samples);
-            (
-                backend_guard.device(),
-                backend_guard.queue(),
-                backend_guard.surface_config().clone(),
-                backend_guard.surface(),
-            )
-        };
+        backend.set_msaa_samples(msaa_samples);
+        let (device, queue, surface_config, surface_handle) = (
+            backend.device(),
+            backend.queue(),
+            backend.surface_config().clone(),
+            backend.surface(),
+        );
 
         let gpu_device = Arc::new(GpuDevice::from_shared(device, queue));
         let renderer = Arc::new(Mutex::new(Renderer::new(gpu_device)));
@@ -204,7 +195,7 @@ impl WgpuMainRenderer {
             }
         }
 
-        let frame_stats_bridge = Arc::new(Mutex::new(FrameStats::default()));
+        let frame_stats_bridge = Rc::new(RefCell::new(FrameStats::default()));
         let ready_flag = Arc::new(AtomicBool::new(true));
         let mut registered_with_ww3d = WW3D::register_renderer(WgpuCoreBridge::new(
             frame_stats_bridge.clone(),
@@ -233,26 +224,8 @@ impl WgpuMainRenderer {
             ready_flag,
             registered_with_ww3d,
             pending_frame: None,
-            pre_scene_callbacks: {
-                #[cfg(not(target_arch = "wasm32"))]
-                {
-                    Mutex::new(Vec::new())
-                }
-                #[cfg(target_arch = "wasm32")]
-                {
-                    std::cell::RefCell::new(Vec::new())
-                }
-            },
-            post_frame_callbacks: {
-                #[cfg(not(target_arch = "wasm32"))]
-                {
-                    Mutex::new(Vec::new())
-                }
-                #[cfg(target_arch = "wasm32")]
-                {
-                    std::cell::RefCell::new(Vec::new())
-                }
-            },
+            pre_scene_callbacks: Vec::new(),
+            post_frame_callbacks: Vec::new(),
             legacy_frame_clock: LegacyFrameClock::new(),
             shadow_caster_submissions: Vec::new(),
             shadow_caster_count_hint: 0,
@@ -266,14 +239,14 @@ impl WgpuMainRenderer {
         surface: Option<Arc<Surface<'static>>>,
         surface_config: SurfaceConfiguration,
     ) -> RendererResult<Self> {
-        let backend = Arc::new(Mutex::new(wgpu_wrapper::WgpuWrapper::from_parts(
+        let backend = wgpu_wrapper::WgpuWrapper::from_parts(
             device,
             queue,
             surface,
             surface_config,
             None,
             None,
-        )?));
+        )?;
 
         Ok(Self::from_backend(
             backend,
@@ -298,7 +271,7 @@ impl WgpuMainRenderer {
             guard.set_camera(CameraClass::new());
         }
 
-        let frame_stats_bridge = Arc::new(Mutex::new(FrameStats::default()));
+        let frame_stats_bridge = Rc::new(RefCell::new(FrameStats::default()));
         let ready_flag = Arc::new(AtomicBool::new(true));
         let mut registered_with_ww3d = WW3D::register_renderer(WgpuCoreBridge::new(
             frame_stats_bridge.clone(),
@@ -327,35 +300,12 @@ impl WgpuMainRenderer {
             ready_flag,
             registered_with_ww3d,
             pending_frame: None,
-            pre_scene_callbacks: {
-                #[cfg(not(target_arch = "wasm32"))]
-                {
-                    Mutex::new(Vec::new())
-                }
-                #[cfg(target_arch = "wasm32")]
-                {
-                    std::cell::RefCell::new(Vec::new())
-                }
-            },
-            post_frame_callbacks: {
-                #[cfg(not(target_arch = "wasm32"))]
-                {
-                    Mutex::new(Vec::new())
-                }
-                #[cfg(target_arch = "wasm32")]
-                {
-                    std::cell::RefCell::new(Vec::new())
-                }
-            },
+            pre_scene_callbacks: Vec::new(),
+            post_frame_callbacks: Vec::new(),
             legacy_frame_clock: LegacyFrameClock::new(),
             shadow_caster_submissions: Vec::new(),
             shadow_caster_count_hint: 0,
         })
-    }
-
-    /// Access the underlying legacy backend, when available.
-    pub fn backend(&self) -> Option<Arc<Mutex<WgpuWrapper>>> {
-        self.backend.as_ref().map(Arc::clone)
     }
 
     /// Access the renderer configuration.
@@ -376,16 +326,6 @@ impl WgpuMainRenderer {
     /// Expose the renderer handle for scene integration.
     pub fn renderer_handle(&self) -> Arc<Mutex<Renderer>> {
         Arc::clone(&self.renderer)
-    }
-
-    /// Allow external systems to install an asset manager.
-    pub fn set_asset_manager(&self, asset_manager: Arc<Mutex<AssetManager>>) -> RendererResult<()> {
-        let mut renderer = self
-            .renderer
-            .lock()
-            .map_err(|_| RendererError::InvalidOperation("renderer mutex poisoned".into()))?;
-        renderer.set_asset_manager(asset_manager)?;
-        Ok(())
     }
 
     /// Install the host's archive-backed pass-texture resolver on the scene
@@ -440,25 +380,17 @@ impl WgpuMainRenderer {
                 Ok(())
             }
             Err(EngineError::NotInitialised) => {
-                let backend = self.backend.clone().ok_or_else(|| {
+                let backend = self.backend.as_mut().ok_or_else(|| {
                     RendererError::NotInitialized(
                         "WW3D engine not initialised and no legacy backend configured".into(),
                     )
                 })?;
 
-                {
-                    let mut backend = backend.lock().map_err(|_| {
-                        RendererError::InvalidOperation("backend mutex poisoned".into())
-                    })?;
-                    backend.begin_scene()?;
-                    let clear = self.config.clear_color;
-                    backend.clear(true, true, clear.truncate(), clear.w, 1.0, 0);
-                }
+                backend.begin_scene()?;
+                let clear = self.config.clear_color;
+                backend.clear(true, true, clear.truncate(), clear.w, 1.0, 0);
 
                 if let Err(err) = Self::prepare_renderer_frame(&self.renderer) {
-                    let mut backend = backend.lock().map_err(|_| {
-                        RendererError::InvalidOperation("backend mutex poisoned".into())
-                    })?;
                     if let Err(end_err) = backend.end_scene(false) {
                         eprintln!(
                             "Failed to abort legacy backend frame after renderer init error: {end_err:?}"
@@ -491,14 +423,7 @@ impl WgpuMainRenderer {
             let frame_timing = frame.timing;
             WW3D::sync(frame_timing.total_time.as_millis() as u32);
             let frame_work_result: RendererResult<_> = (|| {
-                #[cfg(not(target_arch = "wasm32"))]
-                let had_pre_scene_callbacks = self
-                    .pre_scene_callbacks
-                    .lock()
-                    .map(|callbacks| !callbacks.is_empty())
-                    .unwrap_or(false);
-                #[cfg(target_arch = "wasm32")]
-                let had_pre_scene_callbacks = !self.pre_scene_callbacks.borrow().is_empty();
+                let had_pre_scene_callbacks = !self.pre_scene_callbacks.is_empty();
                 if had_pre_scene_callbacks {
                     self.run_pre_scene_callbacks(&mut frame)?;
                 }
@@ -543,90 +468,64 @@ impl WgpuMainRenderer {
                     )));
                 }
             }
-        } else if let Some(backend) = self.backend.clone() {
-            let mut backend = backend
-                .lock()
-                .map_err(|_| RendererError::InvalidOperation("backend mutex poisoned".into()))?;
-            let surface_handle = backend.surface();
-            let surface_config = backend.surface_config().clone();
+        } else if self.backend.is_some() {
+            let (stats, shadow_submissions) = {
+                let backend = self.backend.as_mut().expect("backend checked above");
+                let surface_handle = backend.surface();
+                let surface_config = backend.surface_config().clone();
 
-            let mut renderer_guard = self
-                .renderer
-                .lock()
-                .map_err(|_| RendererError::InvalidOperation("renderer mutex poisoned".into()))?;
+                let mut renderer_guard = self
+                    .renderer
+                    .lock()
+                    .map_err(|_| {
+                        RendererError::InvalidOperation("renderer mutex poisoned".into())
+                    })?;
 
-            let msaa_samples = if self.config.anti_aliasing { 4 } else { 1 };
-            backend.set_msaa_samples(msaa_samples);
-            renderer_guard.synchronize_swapchain(
-                surface_handle,
-                &surface_config,
-                Some(TextureFormat::Depth24PlusStencil8),
-                msaa_samples,
-                false,
-            )?;
-
-            let animation_input = self.legacy_frame_clock.advance();
-            let sync_ms = (animation_input.total_seconds.unwrap_or(0.0).max(0.0) * 1000.0)
-                .clamp(0.0, u32::MAX as f32) as u32;
-            WW3D::sync(sync_ms);
-
-            let (stats, shadow_submissions) = backend.with_render_targets(|targets| {
-                renderer_guard.render_with_targets(
-                    targets,
-                    Some(clear_color),
-                    None,
-                    Some(animation_input),
+                let msaa_samples = if self.config.anti_aliasing { 4 } else { 1 };
+                backend.set_msaa_samples(msaa_samples);
+                renderer_guard.synchronize_swapchain(
+                    surface_handle,
+                    &surface_config,
+                    Some(TextureFormat::Depth24PlusStencil8),
+                    msaa_samples,
+                    false,
                 )?;
-                Ok((
-                    renderer_guard.mesh_stats().clone(),
-                    renderer_guard.take_pending_shadow_caster_submissions(),
-                ))
-            })?;
-            drop(renderer_guard);
+
+                let animation_input = self.legacy_frame_clock.advance();
+                let sync_ms = (animation_input.total_seconds.unwrap_or(0.0).max(0.0) * 1000.0)
+                    .clamp(0.0, u32::MAX as f32) as u32;
+                WW3D::sync(sync_ms);
+
+                let (stats, shadow_submissions) = backend.with_render_targets(|targets| {
+                    renderer_guard.render_with_targets(
+                        targets,
+                        Some(clear_color),
+                        None,
+                        Some(animation_input),
+                    )?;
+                    Ok((
+                        renderer_guard.mesh_stats().clone(),
+                        renderer_guard.take_pending_shadow_caster_submissions(),
+                    ))
+                })?;
+                backend.end_scene(true)?;
+                (stats, shadow_submissions)
+            };
             self.sync_shadow_submissions(shadow_submissions);
 
-            backend.end_scene(true)?;
-            #[cfg(not(target_arch = "wasm32"))]
-            if let Ok(mut callbacks) = self.pre_scene_callbacks.lock() {
-                if !callbacks.is_empty() {
-                    log::warn!(
-                        "pre-scene callbacks ignored when running in legacy backend mode ({} callbacks dropped)",
-                        callbacks.len()
-                    );
-                    callbacks.clear();
-                }
+            if !self.pre_scene_callbacks.is_empty() {
+                log::warn!(
+                    "pre-scene callbacks ignored when running in legacy backend mode ({} callbacks dropped)",
+                    self.pre_scene_callbacks.len()
+                );
+                self.pre_scene_callbacks.clear();
             }
-            #[cfg(target_arch = "wasm32")]
-            {
-                let mut callbacks = self.pre_scene_callbacks.borrow_mut();
-                if !callbacks.is_empty() {
-                    log::warn!(
-                        "pre-scene callbacks ignored when running in legacy backend mode ({} callbacks dropped)",
-                        callbacks.len()
-                    );
-                    callbacks.clear();
-                }
-            }
-            #[cfg(not(target_arch = "wasm32"))]
-            if let Ok(mut callbacks) = self.post_frame_callbacks.lock() {
-                if !callbacks.is_empty() {
-                    log::warn!(
-                        "post-frame callbacks ignored when running in legacy backend mode ({} callbacks dropped)",
-                        callbacks.len()
-                    );
-                    callbacks.clear();
-                }
-            }
-            #[cfg(target_arch = "wasm32")]
-            {
-                let mut callbacks = self.post_frame_callbacks.borrow_mut();
-                if !callbacks.is_empty() {
-                    log::warn!(
-                        "post-frame callbacks ignored when running in legacy backend mode ({} callbacks dropped)",
-                        callbacks.len()
-                    );
-                    callbacks.clear();
-                }
+            if !self.post_frame_callbacks.is_empty() {
+                log::warn!(
+                    "post-frame callbacks ignored when running in legacy backend mode ({} callbacks dropped)",
+                    self.post_frame_callbacks.len()
+                );
+                self.post_frame_callbacks.clear();
             }
 
             stats
@@ -644,9 +543,7 @@ impl WgpuMainRenderer {
         self.stats.shader_switches = frame_mesh_stats.shader_switches;
         self.stats.vertex_color_passes = frame_mesh_stats.vertex_color_passes;
 
-        if let Ok(mut bridge) = self.frame_stats_bridge.lock() {
-            *bridge = FrameStats::from(&self.stats);
-        }
+        *self.frame_stats_bridge.borrow_mut() = FrameStats::from(&self.stats);
 
         let elapsed = self.frame_start.elapsed();
         self.frame_accumulator += elapsed;
@@ -674,55 +571,25 @@ impl WgpuMainRenderer {
         Ok(())
     }
 
-    #[cfg(not(target_arch = "wasm32"))]
     pub fn enqueue_post_frame_callback<F>(&mut self, callback: F)
     where
         F: FnOnce(&mut ww3d_engine::RenderFrame) -> RendererResult<()> + Send + 'static,
     {
-        if let Ok(mut callbacks) = self.post_frame_callbacks.lock() {
-            callbacks.push(Box::new(callback));
-        }
+        self.post_frame_callbacks.push(Box::new(callback));
     }
 
-    #[cfg(target_arch = "wasm32")]
-    pub fn enqueue_post_frame_callback<F>(&mut self, callback: F)
-    where
-        F: FnOnce(&mut ww3d_engine::RenderFrame) -> RendererResult<()> + 'static,
-    {
-        self.post_frame_callbacks.borrow_mut().push(Box::new(callback));
-    }
-
-    #[cfg(not(target_arch = "wasm32"))]
     pub fn enqueue_pre_scene_callback<F>(&mut self, callback: F)
     where
         F: FnOnce(&mut ww3d_engine::RenderFrame) -> RendererResult<()> + Send + 'static,
     {
-        if let Ok(mut callbacks) = self.pre_scene_callbacks.lock() {
-            callbacks.push(Box::new(callback));
-        }
-    }
-
-    #[cfg(target_arch = "wasm32")]
-    pub fn enqueue_pre_scene_callback<F>(&mut self, callback: F)
-    where
-        F: FnOnce(&mut ww3d_engine::RenderFrame) -> RendererResult<()> + 'static,
-    {
-        self.pre_scene_callbacks.borrow_mut().push(Box::new(callback));
+        self.pre_scene_callbacks.push(Box::new(callback));
     }
 
     fn run_pre_scene_callbacks(
         &mut self,
         frame: &mut ww3d_engine::RenderFrame,
     ) -> RendererResult<()> {
-        #[cfg(not(target_arch = "wasm32"))]
-        let callbacks = {
-            let mut callbacks = self.pre_scene_callbacks.lock().map_err(|_| {
-                RendererError::InvalidOperation("pre-scene callback mutex poisoned".into())
-            })?;
-            std::mem::take(&mut *callbacks)
-        };
-        #[cfg(target_arch = "wasm32")]
-        let callbacks = std::mem::take(&mut *self.pre_scene_callbacks.borrow_mut());
+        let callbacks = std::mem::take(&mut self.pre_scene_callbacks);
         for callback in callbacks {
             callback(frame)?;
         }
@@ -733,15 +600,7 @@ impl WgpuMainRenderer {
         &mut self,
         frame: &mut ww3d_engine::RenderFrame,
     ) -> RendererResult<()> {
-        #[cfg(not(target_arch = "wasm32"))]
-        let callbacks = {
-            let mut callbacks = self.post_frame_callbacks.lock().map_err(|_| {
-                RendererError::InvalidOperation("post-frame callback mutex poisoned".into())
-            })?;
-            std::mem::take(&mut *callbacks)
-        };
-        #[cfg(target_arch = "wasm32")]
-        let callbacks = std::mem::take(&mut *self.post_frame_callbacks.borrow_mut());
+        let callbacks = std::mem::take(&mut self.post_frame_callbacks);
         for callback in callbacks {
             if let Err(err) = callback(frame) {
                 log::error!("post-frame callback failed: {err:?}");
@@ -762,23 +621,17 @@ impl WgpuMainRenderer {
             }
         }
 
-        let backend = self.backend.clone().ok_or_else(|| {
+        let backend = self.backend.as_mut().ok_or_else(|| {
             RendererError::NotInitialized(
                 "WW3D engine not initialised and no legacy backend configured".into(),
             )
         })?;
 
         let msaa_samples = if self.config.anti_aliasing { 4 } else { 1 };
-        let (surface_config, surface_handle) = {
-            let mut backend = backend
-                .lock()
-                .map_err(|_| RendererError::InvalidOperation("backend mutex poisoned".into()))?;
-            backend.resize(width, height)?;
-            backend.set_msaa_samples(msaa_samples);
-            let config = backend.surface_config().clone();
-            let surface = backend.surface();
-            (config, surface)
-        };
+        backend.resize(width, height)?;
+        backend.set_msaa_samples(msaa_samples);
+        let surface_config = backend.surface_config().clone();
+        let surface_handle = backend.surface();
 
         if let Ok(mut renderer) = self.renderer.lock() {
             if let Err(err) = renderer.synchronize_swapchain(
@@ -797,7 +650,7 @@ impl WgpuMainRenderer {
     /// Access the underlying device.
     pub fn device(&self) -> Arc<Device> {
         if let Some(backend) = &self.backend {
-            backend.lock().expect("backend mutex poisoned").device()
+            backend.device()
         } else {
             ww3d_engine::device().expect("WW3D engine not initialised")
         }
@@ -806,7 +659,7 @@ impl WgpuMainRenderer {
     /// Access the underlying queue.
     pub fn queue(&self) -> Arc<Queue> {
         if let Some(backend) = &self.backend {
-            backend.lock().expect("backend mutex poisoned").queue()
+            backend.queue()
         } else {
             ww3d_engine::queue().expect("WW3D engine not initialised")
         }
@@ -815,11 +668,7 @@ impl WgpuMainRenderer {
     /// Access the surface configuration (legacy path only).
     pub fn surface_config(&self) -> SurfaceConfiguration {
         if let Some(backend) = &self.backend {
-            backend
-                .lock()
-                .expect("backend mutex poisoned")
-                .surface_config()
-                .clone()
+            backend.surface_config().clone()
         } else {
             panic!("surface configuration unavailable when ww3d_engine drives the renderer")
         }
@@ -837,9 +686,7 @@ impl WgpuMainRenderer {
             self.stats.shader_switches = mesh_stats.shader_switches;
             self.stats.vertex_color_passes = mesh_stats.vertex_color_passes;
         }
-        if let Ok(mut bridge) = self.frame_stats_bridge.lock() {
-            *bridge = FrameStats::from(&self.stats);
-        }
+        *self.frame_stats_bridge.borrow_mut() = FrameStats::from(&self.stats);
         FrameStats::from(&self.stats)
     }
 
@@ -912,11 +759,14 @@ impl From<&MainRendererStats> for FrameStats {
 }
 
 pub(crate) struct WgpuCoreBridge {
-    stats: Arc<Mutex<FrameStats>>,
+    stats: Rc<RefCell<FrameStats>>,
     ready: Arc<AtomicBool>,
     sorting_enabled: Arc<AtomicBool>,
     static_sort_enabled: Arc<AtomicBool>,
     decals_enabled: Arc<AtomicBool>,
+    /// THREAD: same shared renderer handle as [`WgpuMainRenderer::renderer`] —
+    /// the host frame pump reaches the renderer through the registered backend
+    /// via this handle, so game thread and host meet here.
     _renderer: Arc<Mutex<Renderer>>,
 }
 
@@ -935,7 +785,7 @@ unsafe impl Sync for WgpuCoreBridge {}
 
 impl WgpuCoreBridge {
     fn new(
-        stats: Arc<Mutex<FrameStats>>,
+        stats: Rc<RefCell<FrameStats>>,
         ready: Arc<AtomicBool>,
         renderer: Arc<Mutex<Renderer>>,
     ) -> Self {
@@ -969,10 +819,7 @@ impl RendererBackend for WgpuCoreBridge {
     }
 
     fn frame_stats(&self) -> FrameStats {
-        self.stats
-            .lock()
-            .map(|stats| stats.clone())
-            .unwrap_or_default()
+        self.stats.borrow().clone()
     }
 
     fn set_sorting_enabled(&mut self, enabled: bool) -> W3DResult<()> {

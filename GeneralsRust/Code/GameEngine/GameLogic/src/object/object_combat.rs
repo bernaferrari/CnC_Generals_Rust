@@ -377,16 +377,10 @@ impl Object {
         // Multiplayer score hook location?
 
         // Get victim's controlling player
-        let victim_controller = victim.get_controlling_player();
-
         // if the other player is not a playable side (i.e. they are civilian, observer, whatever)
         // we shouldn't count the kill.
-        let Some(ref victim_player) = victim_controller else {
-            return;
-        };
-        if !victim_player
-            .read()
-            .map(|g| g.is_playable_side())
+        if !victim
+            .with_controlling_player(|g| g.is_playable_side())
             .unwrap_or(false)
         {
             return;
@@ -397,14 +391,10 @@ impl Object {
             return;
         }
 
-        let controller = self.get_controlling_player();
-
         // Record object lost for victim's player
-        if let Some(ref victim_player) = victim_controller {
-            if let Ok(mut guard) = victim_player.write() {
-                guard.get_score_keeper_mut().add_object_lost_obj(victim);
-            }
-        }
+        victim.with_controlling_player_mut(|guard| {
+            guard.get_score_keeper_mut().add_object_lost_obj(victim);
+        });
 
         // Check relationship - only score kills on enemies
         let relationship = self.relationship_to(victim);
@@ -413,24 +403,22 @@ impl Object {
         }
 
         // Don't count kills that I do on my own buildings or units, cause that's just silly.
-        if let (Some(controller_player), Some(victim_player)) = (&controller, &victim_controller) {
-            let controller_idx = controller_player.read().ok().map(|g| g.get_player_index());
-            let victim_idx = victim_player.read().ok().map(|g| g.get_player_index());
-            if controller_idx.is_some() && victim_idx.is_some() && controller_idx == victim_idx {
-                return;
+        if let Some(controller_idx) = self.with_controlling_player(|g| g.get_player_index()) {
+            if let Some(victim_idx) = victim.with_controlling_player(|g| g.get_player_index()) {
+                if controller_idx == victim_idx {
+                    return;
+                }
             }
         }
 
         // Record kill for controlling player
-        if let Some(ref controller_player) = controller {
-            if let Ok(mut guard) = controller_player.write() {
-                guard
-                    .get_score_keeper_mut()
-                    .add_object_destroyed_obj(victim);
-                guard.add_skill_points_for_kill_obj(self, victim);
-                guard.do_bounty_for_kill_obj(self, victim);
-            }
-        }
+        self.with_controlling_player_mut(|guard| {
+            guard
+                .get_score_keeper_mut()
+                .add_object_destroyed_obj(victim);
+            guard.add_skill_points_for_kill_obj(self, victim);
+            guard.do_bounty_for_kill_obj(self, victim);
+        });
 
         // Now handle experience, if we can gain any
         let template = self.get_template();
@@ -476,20 +464,16 @@ impl Object {
     /// The playable/non-ignored victim loss is recorded before the relationship
     /// check; self-relationship means no killer rewards are issued.
     pub(crate) fn score_self_kill(&mut self) {
-        let Some(victim_controller) = self.get_controlling_player() else {
-            return;
-        };
-        if !victim_controller
-            .read()
-            .map(|player| player.is_playable_side())
+        if !self
+            .with_controlling_player(|player| player.is_playable_side())
             .unwrap_or(false)
             || self.is_kind_of(KindOf::IgnoredInGui)
         {
             return;
         }
-        if let Ok(mut player) = victim_controller.write() {
+        self.with_controlling_player_mut(|player| {
             player.get_score_keeper_mut().add_object_lost_obj(self);
-        }
+        });
     }
 
     pub fn on_veterancy_level_changed(

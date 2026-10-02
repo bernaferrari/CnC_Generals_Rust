@@ -20,9 +20,9 @@ use crate::common::{
     system::{SubsystemInterface, Xfer},
     thing::module::{Module, ModuleData, ModuleInterfaceType, ModuleType, Thing},
 };
-use once_cell::sync::Lazy;
 use std::{
     any::Any,
+    cell::RefCell,
     collections::{HashMap, hash_map::Entry},
     mem,
     sync::{Arc, Mutex},
@@ -342,8 +342,11 @@ struct ModuleOverride {
     create_data_proc: NewModuleDataProc,
 }
 
-static MODULE_OVERRIDES: Lazy<Mutex<HashMap<NameKeyType, ModuleOverride>>> =
-    Lazy::new(|| Mutex::new(HashMap::new()));
+// THREAD: C++ plain static; driven only by the single game/client thread.
+thread_local! {
+    static MODULE_OVERRIDES: RefCell<HashMap<NameKeyType, ModuleOverride>> =
+        RefCell::new(HashMap::new());
+}
 
 #[derive(Clone)]
 struct RegisteredDescriptor {
@@ -358,8 +361,10 @@ struct PendingDescriptor {
     descriptor: TemplateModuleDescriptor,
 }
 
-static PENDING_DESCRIPTORS: Lazy<Mutex<Vec<PendingDescriptor>>> =
-    Lazy::new(|| Mutex::new(Vec::new()));
+// THREAD: C++ plain static; driven only by the single game/client thread.
+thread_local! {
+    static PENDING_DESCRIPTORS: RefCell<Vec<PendingDescriptor>> = RefCell::new(Vec::new());
+}
 
 pub struct ModuleFactory {
     module_template_map: HashMap<NameKeyType, ModuleTemplate>,
@@ -383,7 +388,7 @@ pub type NewModuleDataProc = fn(ini: Option<&mut INI>) -> Box<dyn ModuleData>;
 fn enqueue_pending_descriptor(module_type: ModuleType, descriptor: &TemplateModuleDescriptor) {
     let key = decorated_name_key(descriptor.name.as_str(), module_type);
 
-    if let Ok(mut pending) = PENDING_DESCRIPTORS.lock() {
+    PENDING_DESCRIPTORS.with_borrow_mut(|pending| {
         if let Some(existing) = pending.iter_mut().find(|entry| entry.key == key) {
             let combined_mask = existing.descriptor.interface_mask.0 | descriptor.interface_mask.0;
             existing.descriptor.interface_mask = ModuleInterfaceType(combined_mask);
@@ -397,7 +402,7 @@ fn enqueue_pending_descriptor(module_type: ModuleType, descriptor: &TemplateModu
                 descriptor: descriptor.clone(),
             });
         }
-    }
+    });
 }
 
 fn cache_descriptor_set(descriptor_set: &TemplateModuleDescriptorSet) {
@@ -491,16 +496,15 @@ pub fn register_module_override(
     }
 
     let key = decorated_name_key(name, module_type);
-    let mut registry = MODULE_OVERRIDES
-        .lock()
-        .map_err(|_| "module override registry poisoned".to_string())?;
-    registry.insert(
-        key,
-        ModuleOverride {
-            create_proc,
-            create_data_proc,
-        },
-    );
+    MODULE_OVERRIDES.with_borrow_mut(|registry| {
+        registry.insert(
+            key,
+            ModuleOverride {
+                create_proc,
+                create_data_proc,
+            },
+        );
+    });
     Ok(())
 }
 
@@ -527,16 +531,12 @@ pub fn register_descriptor_set_global(descriptor_set: &TemplateModuleDescriptorS
 
 #[cfg(test)]
 fn clear_module_overrides_for_test() {
-    if let Ok(mut registry) = MODULE_OVERRIDES.lock() {
-        registry.clear();
-    }
+    MODULE_OVERRIDES.with_borrow_mut(|registry| registry.clear());
 }
 
 #[cfg(test)]
 pub(crate) fn clear_pending_descriptors_for_test() {
-    if let Ok(mut pending) = PENDING_DESCRIPTORS.lock() {
-        pending.clear();
-    }
+    PENDING_DESCRIPTORS.with_borrow_mut(|pending| pending.clear());
 }
 
 impl ModuleFactory {
@@ -779,9 +779,7 @@ impl ModuleFactory {
     ) {
         let name_key = self.make_decorated_name_key(name, module_type);
         let (proc, data_proc) = MODULE_OVERRIDES
-            .lock()
-            .map(|registry| registry.get(&name_key).copied())
-            .unwrap_or(None)
+            .with_borrow(|registry| registry.get(&name_key).copied())
             .map(|override_entry| {
                 (
                     Some(override_entry.create_proc),
@@ -817,11 +815,8 @@ impl ModuleFactory {
     }
 
     fn absorb_pending_descriptors(&mut self) {
-        let pending_entries = if let Ok(mut pending) = PENDING_DESCRIPTORS.lock() {
-            mem::take(&mut *pending)
-        } else {
-            Vec::new()
-        };
+        let pending_entries =
+            PENDING_DESCRIPTORS.with_borrow_mut(|pending| mem::take(pending));
 
         for PendingDescriptor {
             key: _,
@@ -978,9 +973,13 @@ pub fn init_module_factory() -> Result<(), String> {
 /// This supports late override registration (e.g. game-logic override installation after
 /// module-factory initialization) by rebinding constructor pointers in place.
 pub fn apply_module_overrides_to_existing_templates() -> Result<(), String> {
-    let overrides = MODULE_OVERRIDES
-        .lock()
-        .map_err(|_| "module override registry poisoned".to_string())?;
+    // Snapshot the override table so no borrow is held across the factory lock.
+    let overrides = MODULE_OVERRIDES.with_borrow(|registry| {
+        registry
+            .iter()
+            .map(|(key, override_entry)| (*key, *override_entry))
+            .collect::<HashMap<_, _>>()
+    });
 
     let mut factory_guard =
         get_module_factory().map_err(|_| "Failed to lock module factory".to_string())?;

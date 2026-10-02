@@ -3,17 +3,18 @@
 
 use crate::error::NetworkResult;
 use std::collections::HashSet;
-use tokio::sync::RwLock;
 use tracing::info;
 
+/// Buddy list owned by the GameSpy interface. Only the owning task's methods
+/// touch it, so it is a plain field with no shared lock.
 pub struct BuddySystem {
-    buddies: RwLock<HashSet<String>>,
+    buddies: HashSet<String>,
 }
 
 impl BuddySystem {
     pub async fn new() -> NetworkResult<Self> {
         Ok(Self {
-            buddies: RwLock::new(HashSet::new()),
+            buddies: HashSet::new(),
         })
     }
 
@@ -27,25 +28,22 @@ impl BuddySystem {
         Ok(())
     }
 
-    pub async fn add_buddy(&self, buddy_id: String) -> NetworkResult<()> {
-        let mut buddies = self.buddies.write().await;
-        buddies.insert(buddy_id);
+    pub async fn add_buddy(&mut self, buddy_id: String) -> NetworkResult<()> {
+        self.buddies.insert(buddy_id);
         Ok(())
     }
 
-    pub async fn remove_buddy(&self, buddy_id: String) -> NetworkResult<()> {
-        let mut buddies = self.buddies.write().await;
-        buddies.remove(&buddy_id);
+    pub async fn remove_buddy(&mut self, buddy_id: String) -> NetworkResult<()> {
+        self.buddies.remove(&buddy_id);
         Ok(())
     }
 
     pub async fn get_buddy_list(&self) -> HashSet<String> {
-        let buddies = self.buddies.read().await;
-        buddies.clone()
+        self.buddies.clone()
     }
 
     pub fn set_buddy_list(&mut self, buddies: HashSet<String>) {
         // This is a synchronous setter for internal use
-        self.buddies = RwLock::new(buddies);
+        self.buddies = buddies;
     }
 }

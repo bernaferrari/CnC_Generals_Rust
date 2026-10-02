@@ -237,19 +237,30 @@ impl VoteResult {
     }
 }
 
+/// Voting bookkeeping shared between the coordinator's public accessors and its
+/// periodic cleanup task.
+///
+/// THREAD: one lock for the bundle instead of one per map - the game thread drives
+/// votes through `initiate_vote`/`cast_vote` while the cleanup task expires
+/// timed-out votes every five seconds. Every critical section is short and none
+/// of them nest, so a single async `RwLock` is sufficient and cannot deadlock.
+#[derive(Default)]
+struct VoteState {
+    /// Active votes
+    active_votes: HashMap<Uuid, DisconnectVote>,
+    /// Vote history for cooldown tracking
+    vote_history: HashMap<u8, Vec<NetworkInstant>>,
+    /// Current player list
+    active_players: HashSet<u8>,
+}
+
 /// Disconnect voting coordinator
 pub struct DisconnectVotingCoordinator {
     /// Configuration
     config: DisconnectVoteConfig,
 
-    /// Active votes
-    active_votes: Arc<RwLock<HashMap<Uuid, DisconnectVote>>>,
-
-    /// Vote history for cooldown tracking
-    vote_history: Arc<RwLock<HashMap<u8, Vec<NetworkInstant>>>>,
-
-    /// Current player list
-    active_players: Arc<RwLock<HashSet<u8>>>,
+    /// THREAD: see [`VoteState`].
+    state: Arc<RwLock<VoteState>>,
 
     /// Vote event broadcaster
     vote_events_tx: broadcast::Sender<VoteEvent>,
@@ -296,9 +307,7 @@ impl DisconnectVotingCoordinator {
 
         Self {
             config,
-            active_votes: Arc::new(RwLock::new(HashMap::new())),
-            vote_history: Arc::new(RwLock::new(HashMap::new())),
-            active_players: Arc::new(RwLock::new(HashSet::new())),
+            state: Arc::new(RwLock::new(VoteState::default())),
             vote_events_tx,
             cleanup_task: None,
             shutdown_tx,
@@ -318,9 +327,9 @@ impl DisconnectVotingCoordinator {
 
     /// Update active player list
     pub async fn update_players(&self, players: HashSet<u8>) {
-        let mut active_players = self.active_players.write().await;
-        *active_players = players;
-        debug!("Updated active players: {:?}", *active_players);
+        let mut state = self.state.write().await;
+        state.active_players = players;
+        debug!("Updated active players: {:?}", state.active_players);
     }
 
     /// Initiate a disconnect vote
@@ -344,10 +353,7 @@ impl DisconnectVotingCoordinator {
         }
 
         // Check concurrent vote limit
-        let active_count = {
-            let active_votes = self.active_votes.read().await;
-            active_votes.len()
-        };
+        let active_count = { self.state.read().await.active_votes.len() };
 
         if active_count >= self.config.max_concurrent_votes as usize {
             return Err(NetworkError::generic("too many concurrent votes"));
@@ -355,8 +361,8 @@ impl DisconnectVotingCoordinator {
 
         // Get eligible voters
         let eligible_voters = {
-            let players = self.active_players.read().await;
-            let mut voters = players.clone();
+            let state = self.state.read().await;
+            let mut voters = state.active_players.clone();
             voters.remove(&target_player); // Target cannot vote on themselves
             voters
         };
@@ -380,16 +386,15 @@ impl DisconnectVotingCoordinator {
             evidence,
         };
 
-        // Store vote
         {
-            let mut active_votes = self.active_votes.write().await;
-            active_votes.insert(vote_id, vote);
-        }
+            let mut state = self.state.write().await;
+            state.active_votes.insert(vote_id, vote);
 
-        // Update vote history for cooldown
-        {
-            let mut history = self.vote_history.write().await;
-            let entry = history.entry(target_player).or_insert_with(Vec::new);
+            // Update vote history for cooldown
+            let entry = state
+                .vote_history
+                .entry(target_player)
+                .or_insert_with(Vec::new);
             entry.push(NetworkInstant::now());
         }
 
@@ -420,7 +425,8 @@ impl DisconnectVotingCoordinator {
         let mut vote_result = None;
 
         {
-            let mut active_votes = self.active_votes.write().await;
+            let mut state = self.state.write().await;
+            let active_votes = &mut state.active_votes;
             let vote = active_votes
                 .get_mut(&vote_id)
                 .ok_or_else(|| NetworkError::generic("vote not found"))?;
@@ -468,8 +474,7 @@ impl DisconnectVotingCoordinator {
 
             if vote_completed {
                 // Remove from active votes
-                let mut active_votes = self.active_votes.write().await;
-                active_votes.remove(&vote_id);
+                self.state.write().await.active_votes.remove(&vote_id);
             }
         }
 
@@ -482,7 +487,8 @@ impl DisconnectVotingCoordinator {
         let mut found = false;
 
         {
-            let mut active_votes = self.active_votes.write().await;
+            let mut state = self.state.write().await;
+            let active_votes = &mut state.active_votes;
             if let Some(vote) = active_votes.get_mut(&vote_id) {
                 vote.status = VoteStatus::Cancelled;
                 found = true;
@@ -491,10 +497,7 @@ impl DisconnectVotingCoordinator {
 
         if found {
             // Remove from active votes
-            {
-                let mut active_votes = self.active_votes.write().await;
-                active_votes.remove(&vote_id);
-            }
+            self.state.write().await.active_votes.remove(&vote_id);
 
             // Send cancellation event
             let _ = self
@@ -509,8 +512,8 @@ impl DisconnectVotingCoordinator {
 
     /// Get current active votes
     pub async fn get_active_votes(&self) -> Vec<DisconnectVote> {
-        let active_votes = self.active_votes.read().await;
-        active_votes.values().cloned().collect()
+        let state = self.state.read().await;
+        state.active_votes.values().cloned().collect()
     }
 
     /// Check if automatic vote should be triggered for network issues
@@ -582,18 +585,14 @@ impl DisconnectVotingCoordinator {
         _reason: &DisconnectReason,
         _initiator: u8,
     ) -> NetworkResult<()> {
-        // Check if target player is active
+        // Check if target player is active, and that no vote is already running
+        // for them. Both checks read the same bundle, so one guard covers both.
         {
-            let players = self.active_players.read().await;
-            if !players.contains(&target_player) {
+            let state = self.state.read().await;
+            if !state.active_players.contains(&target_player) {
                 return Err(NetworkError::generic("target player not active"));
             }
-        }
-
-        // Check if there's already an active vote for this player
-        {
-            let active_votes = self.active_votes.read().await;
-            for vote in active_votes.values() {
+            for vote in state.active_votes.values() {
                 if vote.target_player == target_player && vote.status == VoteStatus::Active {
                     return Err(NetworkError::generic("vote already active for this player"));
                 }
@@ -605,8 +604,8 @@ impl DisconnectVotingCoordinator {
 
     /// Check if player is in cooldown period
     async fn is_player_in_cooldown(&self, player_id: u8) -> bool {
-        let history = self.vote_history.read().await;
-        if let Some(votes) = history.get(&player_id) {
+        let state = self.state.read().await;
+        if let Some(votes) = state.vote_history.get(&player_id) {
             if let Some(&last_vote) = votes.last() {
                 return last_vote.elapsed() < self.config.vote_cooldown;
             }
@@ -695,7 +694,7 @@ impl DisconnectVotingCoordinator {
 
     /// Start cleanup task for expired votes
     async fn start_cleanup_task(&mut self) -> NetworkResult<()> {
-        let active_votes = self.active_votes.clone();
+        let state = self.state.clone();
         let vote_events_tx = self.vote_events_tx.clone();
         let mut shutdown_rx = self.shutdown_tx.subscribe();
 
@@ -709,9 +708,9 @@ impl DisconnectVotingCoordinator {
                         let mut expired_votes = Vec::new();
 
                         {
-                            let mut votes = active_votes.write().await;
+                            let mut guard = state.write().await;
 
-                            for (&vote_id, vote) in votes.iter_mut() {
+                            for (&vote_id, vote) in guard.active_votes.iter_mut() {
                                 if vote.status == VoteStatus::Active &&
                                    now.signed_duration_since(vote.started_at).to_std().unwrap_or_default() > vote.timeout {
 
@@ -748,7 +747,7 @@ impl DisconnectVotingCoordinator {
 
                             // Remove expired votes
                             for (vote_id, _) in &expired_votes {
-                                votes.remove(vote_id);
+                                guard.active_votes.remove(vote_id);
                             }
                         }
 
@@ -787,8 +786,8 @@ impl DisconnectVotingCoordinator {
 
         // Cancel all active votes
         let vote_ids: Vec<Uuid> = {
-            let active_votes = self.active_votes.read().await;
-            active_votes.keys().copied().collect()
+            let state = self.state.read().await;
+            state.active_votes.keys().copied().collect()
         };
 
         for vote_id in vote_ids {
@@ -826,7 +825,7 @@ mod tests {
 
         coordinator.update_players(players).await;
 
-        let active_players = coordinator.active_players.read().await;
+        let active_players = coordinator.state.read().await.active_players;
         assert_eq!(active_players.len(), 3);
         assert!(active_players.contains(&0));
         assert!(active_players.contains(&1));

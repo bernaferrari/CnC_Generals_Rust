@@ -1,7 +1,5 @@
+use std::cell::RefCell;
 use std::time::Duration;
-
-use parking_lot::RwLock;
-use std::sync::OnceLock;
 
 #[derive(Debug, Clone)]
 pub struct SimulationClock {
@@ -52,10 +50,13 @@ impl Default for SimulationClock {
     }
 }
 
-static SIM_CLOCK: OnceLock<RwLock<SimulationClock>> = OnceLock::new();
+// THREAD: C++ plain static; driven only by the single game/client thread.
+thread_local! {
+    static SIM_CLOCK: RefCell<SimulationClock> = RefCell::new(SimulationClock::default());
+}
 
-fn clock_cell() -> &'static RwLock<SimulationClock> {
-    SIM_CLOCK.get_or_init(|| RwLock::new(SimulationClock::default()))
+fn with_clock<R>(f: impl FnOnce(&mut SimulationClock) -> R) -> R {
+    SIM_CLOCK.with_borrow_mut(f)
 }
 
 fn fps_to_delta(target_fps: u32) -> Duration {
@@ -67,35 +68,36 @@ fn fps_to_delta(target_fps: u32) -> Duration {
 }
 
 pub fn initialize(target_fps: u32) {
-    let mut guard = clock_cell().write();
-    guard.set_tick_rate(target_fps);
-    guard.reset();
+    with_clock(|clock| {
+        clock.set_tick_rate(target_fps);
+        clock.reset();
+    });
 }
 
 pub fn set_tick_rate(target_fps: u32) {
-    clock_cell().write().set_tick_rate(target_fps);
+    with_clock(|clock| clock.set_tick_rate(target_fps));
 }
 
 pub fn advance() {
-    clock_cell().write().advance();
+    with_clock(|clock| clock.advance());
 }
 
 pub fn reset() {
-    clock_cell().write().reset();
+    with_clock(|clock| clock.reset());
 }
 
 pub fn frame() -> u32 {
-    clock_cell().read().frame()
+    SIM_CLOCK.with_borrow(|clock| clock.frame())
 }
 
 pub fn elapsed() -> Duration {
-    clock_cell().read().elapsed()
+    SIM_CLOCK.with_borrow(|clock| clock.elapsed())
 }
 
 pub fn delta() -> Duration {
-    clock_cell().read().delta()
+    SIM_CLOCK.with_borrow(|clock| clock.delta())
 }
 
 pub fn snapshot() -> SimulationClock {
-    clock_cell().read().clone()
+    SIM_CLOCK.with_borrow(|clock| clock.clone())
 }

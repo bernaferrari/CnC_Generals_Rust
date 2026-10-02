@@ -1646,23 +1646,21 @@ impl UpdateModuleInterface for ParticleUplinkCannonUpdate {
                         )
                     }) {
                         if let Ok(obj_guard) = object_arc.read() {
-                            if let Some(player) = obj_guard.get_controlling_player() {
-                                if let Ok(player_guard) = player.read() {
-                                    let mask = player_guard.get_player_mask().bits();
-                                    if let Ok(mut shroud) = get_shroud_manager().lock() {
-                                        shroud.do_shroud_reveal(
-                                            &self.current_target_position,
-                                            data.reveal_range,
-                                            mask,
-                                        );
-                                        shroud.undo_shroud_reveal(
-                                            &self.current_target_position,
-                                            data.reveal_range,
-                                            mask,
-                                        );
-                                    }
+                            obj_guard.with_controlling_player(|player_guard| {
+                                let mask = player_guard.get_player_mask().bits();
+                                if let Ok(mut shroud) = get_shroud_manager().lock() {
+                                    shroud.do_shroud_reveal(
+                                        &self.current_target_position,
+                                        data.reveal_range,
+                                        mask,
+                                    );
+                                    shroud.undo_shroud_reveal(
+                                        &self.current_target_position,
+                                        data.reveal_range,
+                                        mask,
+                                    );
                                 }
-                            }
+                            });
                         }
                     }
                 }
@@ -1689,8 +1687,7 @@ impl UpdateModuleInterface for ParticleUplinkCannonUpdate {
                     }) {
                         let (source_id, source_mask) = if let Ok(obj_guard) = object_arc.read() {
                             let mask = obj_guard
-                                .get_controlling_player()
-                                .and_then(|player| player.read().ok().map(|g| g.get_player_mask()))
+                                .with_controlling_player(|g| g.get_player_mask())
                                 .unwrap_or(PlayerMaskType::none());
                             (obj_guard.get_id(), mask)
                         } else {

@@ -613,21 +613,20 @@ impl ProductionUpdateBehavior {
                         .read()
                         .ok()
                         .and_then(|c| c.find_upgrade(upgrade_name));
-                    let owner_player =
-                        TheGameLogic::find_object_by_id(self.owner_id).and_then(|obj| {
-                            obj.read()
-                                .ok()
-                                .and_then(|guard| guard.get_controlling_player())
-                        });
                     upgrade
                         .map(|template| {
-                            if let Some(player) = &owner_player {
-                                if let Ok(player_guard) = player.read() {
-                                    return template.calc_time_to_build(&player_guard).max(1)
-                                        as u32;
-                                }
-                            }
-                            template.calc_time_to_build(&Player::default()).max(1) as u32
+                            TheGameLogic::find_object_by_id(self.owner_id)
+                                .and_then(|obj| {
+                                    obj.read().ok().and_then(|guard| {
+                                        guard.with_controlling_player(|player_guard| {
+                                            template.calc_time_to_build(player_guard).max(1)
+                                                as u32
+                                        })
+                                    })
+                                })
+                                .unwrap_or_else(|| {
+                                    template.calc_time_to_build(&Player::default()).max(1) as u32
+                                })
                         })
                         .unwrap_or(1)
                 }

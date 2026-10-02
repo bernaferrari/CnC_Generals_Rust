@@ -238,20 +238,31 @@ impl ActiveTransfer {
     }
 }
 
+/// Transfer bookkeeping shared between the coordinator's public accessors and its
+/// background tasks (chunk processing, stale-transfer cleanup).
+///
+/// THREAD: one async lock guards the bundle instead of one lock per collection -
+/// the game thread starts/cancels transfers while the cleanup task expires them.
+/// A tokio lock is required because the priority insert reads sibling transfers
+/// while the guard is held.
+#[derive(Default)]
+struct TransferState {
+    /// Active transfers
+    active_transfers: HashMap<Uuid, ActiveTransfer>,
+    /// Transfer priority queue
+    priority_queue: VecDeque<Uuid>,
+    /// Transfer statistics
+    stats: TransferStats,
+}
+
 /// File transfer coordinator
 pub struct FileTransferCoordinator {
     /// Configuration
     config: FileTransferConfig,
-    
-    /// Active transfers
-    active_transfers: Arc<RwLock<HashMap<Uuid, ActiveTransfer>>>,
-    
-    /// Transfer priority queue
-    priority_queue: Arc<RwLock<VecDeque<Uuid>>>,
-    
-    /// Transfer statistics
-    stats: Arc<RwLock<TransferStats>>,
-    
+
+    /// THREAD: see [`TransferState`].
+    state: Arc<RwLock<TransferState>>,
+
     /// Semaphore for limiting concurrent transfers
     transfer_semaphore: Arc<Semaphore>,
     
@@ -261,7 +272,8 @@ pub struct FileTransferCoordinator {
     /// Communication channels
     transfer_events_tx: broadcast::Sender<TransferEvent>,
     chunk_queue_tx: mpsc::Sender<(u8, FileChunk)>,
-    chunk_queue_rx: Arc<RwLock<mpsc::Receiver<(u8, FileChunk)>>>,
+    /// Consumed exactly once by the chunk processing task.
+    chunk_queue_rx: Option<mpsc::Receiver<(u8, FileChunk)>>,
     
     /// Shutdown coordination
     shutdown_tx: broadcast::Sender<()>,
@@ -334,13 +346,11 @@ impl FileTransferCoordinator {
         Self {
             transfer_semaphore: Arc::new(Semaphore::new(config.max_concurrent_transfers)),
             config,
-            active_transfers: Arc::new(RwLock::new(HashMap::new())),
-            priority_queue: Arc::new(RwLock::new(VecDeque::new())),
-            stats: Arc::new(RwLock::new(TransferStats::default())),
+            state: Arc::new(RwLock::new(TransferState::default())),
             background_tasks: Vec::new(),
             transfer_events_tx,
             chunk_queue_tx,
-            chunk_queue_rx: Arc::new(RwLock::new(chunk_queue_rx)),
+            chunk_queue_rx: Some(chunk_queue_rx),
             shutdown_tx,
         }
     }
@@ -424,20 +434,22 @@ impl FileTransferCoordinator {
 
         // Add to active transfers
         {
-            let mut transfers = self.active_transfers.write().await;
+            let mut transfers = self.state.write().await.active_transfers;
             transfers.insert(transfer_id, active_transfer);
         }
 
-        // Add to priority queue
+        // Priority insert, reading sibling transfers under the same guard.
         {
-            let mut queue = self.priority_queue.write().await;
+            let mut state = self.state.write().await;
+            let queue = &mut state.priority_queue;
             // Insert based on priority (higher priority goes first)
             let mut inserted = false;
             for (i, &existing_id) in queue.iter().enumerate() {
-                let existing_transfer = {
-                    let transfers = self.active_transfers.read().await;
-                    transfers.get(&existing_id).map(|t| t.metadata.priority).unwrap_or(TransferPriority::Low)
-                };
+                let existing_transfer = state
+                    .active_transfers
+                    .get(&existing_id)
+                    .map(|t| t.metadata.priority)
+                    .unwrap_or(TransferPriority::Low);
                 
                 if priority > existing_transfer {
                     queue.insert(i, transfer_id);
@@ -449,13 +461,9 @@ impl FileTransferCoordinator {
             if !inserted {
                 queue.push_back(transfer_id);
             }
-        }
 
-        // Update statistics
-        {
-            let mut stats = self.stats.write().await;
-            stats.transfers_initiated += 1;
-            stats.active_transfers += 1;
+            state.stats.transfers_initiated += 1;
+            state.stats.active_transfers += 1;
         }
 
         // Send start event
@@ -475,7 +483,7 @@ impl FileTransferCoordinator {
         // Find active transfer
         let mut transfer_found = false;
         {
-            let mut transfers = self.active_transfers.write().await;
+            let mut transfers = self.state.write().await.active_transfers;
             if let Some(active_transfer) = transfers.get_mut(&transfer_id) {
                 transfer_found = true;
                 
@@ -546,7 +554,7 @@ impl FileTransferCoordinator {
         
         // Update statistics
         {
-            let mut stats = self.stats.write().await;
+            let mut stats = self.state.write().await.stats;
             stats.chunks_processed += 1;
         }
         
@@ -559,7 +567,7 @@ impl FileTransferCoordinator {
         let mut found = false;
         
         {
-            let mut transfers = self.active_transfers.write().await;
+            let mut transfers = self.state.write().await.active_transfers;
             if let Some(active_transfer) = transfers.get_mut(&transfer_id) {
                 active_transfer.state = FileTransferState::Cancelled;
                 active_transfer.error_message = Some(reason.clone());
@@ -570,7 +578,7 @@ impl FileTransferCoordinator {
         if found {
             // Remove from priority queue
             {
-                let mut queue = self.priority_queue.write().await;
+                let mut queue = self.state.write().await.priority_queue;
                 queue.retain(|&id| id != transfer_id);
             }
             
@@ -588,14 +596,15 @@ impl FileTransferCoordinator {
 
     /// Get transfer statistics
     pub async fn get_stats(&self) -> TransferStats {
-        let stats = self.stats.read().await.clone();
-        stats
+        self.state.read().await.stats.clone()
     }
 
     /// Get active transfer information
     pub async fn get_active_transfers(&self) -> Vec<(Uuid, FileTransferState, f64)> {
-        let transfers = self.active_transfers.read().await;
-        transfers.iter()
+        let state = self.state.read().await;
+        state
+            .active_transfers
+            .iter()
             .map(|(&id, transfer)| (id, transfer.state, transfer.get_progress_percent()))
             .collect()
     }
@@ -665,10 +674,9 @@ impl FileTransferCoordinator {
 
     /// Start chunk processing task
     async fn start_processing_task(&mut self) -> NetworkResult<()> {
-        let chunk_queue_rx = self.chunk_queue_rx.clone();
-        let active_transfers = self.active_transfers.clone();
+        let chunk_queue_rx = self.chunk_queue_rx.take();
+        let state = self.state.clone();
         let config = self.config.clone();
-        let stats = self.stats.clone();
         let mut shutdown_rx = self.shutdown_tx.subscribe();
 
         let handle = tokio::spawn(async move {
@@ -695,7 +703,7 @@ impl FileTransferCoordinator {
 
     /// Start cleanup task for stale transfers
     async fn start_cleanup_task(&mut self) -> NetworkResult<()> {
-        let active_transfers = self.active_transfers.clone();
+        let state = self.state.clone();
         let config = self.config.clone();
         let transfer_events_tx = self.transfer_events_tx.clone();
         let mut shutdown_rx = self.shutdown_tx.subscribe();
@@ -709,7 +717,7 @@ impl FileTransferCoordinator {
                         let mut to_remove = Vec::new();
                         
                         {
-                            let mut transfers = active_transfers.write().await;
+                            let mut transfers = state.write().await.active_transfers;
                             
                             for (&transfer_id, transfer) in transfers.iter_mut() {
                                 if transfer.is_stale(config.transfer_timeout) {
@@ -761,7 +769,7 @@ impl FileTransferCoordinator {
 
         // Close all active transfers
         {
-            let mut transfers = self.active_transfers.write().await;
+            let mut transfers = self.state.write().await.active_transfers;
             for (transfer_id, transfer) in transfers.drain() {
                 if transfer.state == FileTransferState::InProgress {
                     let _ = self.transfer_events_tx.send(TransferEvent::Cancelled {

@@ -4,9 +4,10 @@
 //! implementing the FileSystemBackend trait for standard file operations.
 
 use std::any::Any;
+use std::cell::RefCell;
 use std::fs;
 use std::path::{Component, Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::rc::Rc;
 
 use crate::common::ascii_string::AsciiString;
 use crate::common::system::{
@@ -517,15 +518,15 @@ impl SubsystemInterface for LocalFileSystem {
     }
 }
 
-// Global local file system instance (mirrors TheLocalFileSystem singleton)
-lazy_static::lazy_static! {
-    pub static ref THE_LOCAL_FILE_SYSTEM: Arc<Mutex<LocalFileSystem>> =
-        Arc::new(Mutex::new(LocalFileSystem::new()));
+// THREAD: C++ plain static; driven only by the single game/client thread.
+thread_local! {
+    pub static THE_LOCAL_FILE_SYSTEM: Rc<RefCell<LocalFileSystem>> =
+        Rc::new(RefCell::new(LocalFileSystem::new()));
 }
 
 /// Convenience function to access the global local file system
-pub fn get_local_file_system() -> Arc<Mutex<LocalFileSystem>> {
-    THE_LOCAL_FILE_SYSTEM.clone()
+pub fn get_local_file_system() -> Rc<RefCell<LocalFileSystem>> {
+    THE_LOCAL_FILE_SYSTEM.with(Rc::clone)
 }
 
 #[cfg(test)]

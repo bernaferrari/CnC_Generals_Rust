@@ -1182,11 +1182,9 @@ impl SpecialAbilityUpdate {
                 self.module_data.award_xp_for_triggering
             };
             if skill_points > 0 {
-                if let Some(player) = obj_guard.get_controlling_player() {
-                    let _ = player.write().map(|mut p| {
-                        p.add_skill_points(skill_points);
-                    });
-                }
+                obj_guard.with_controlling_player_mut(|p| {
+                    p.add_skill_points(skill_points);
+                });
             }
         });
 
@@ -1400,24 +1398,18 @@ impl SpecialAbilityUpdate {
                     return;
                 };
                 let cash = target_guard
-                    .get_controlling_player()
-                    .and_then(|player| player.read().ok().map(|guard| guard.get_money().get_money()))
+                    .with_controlling_player(|guard| guard.get_money().get_money())
                     .map(|money| money.clamp(0, 1000) as u32)
                     .unwrap_or(0);
                 if cash > 0 {
-                    if let Some(target_player) = target_guard.get_controlling_player() {
-                        let _ = target_player
-                            .write()
-                            .map(|mut p| p.get_money_mut().withdraw(cash));
-                    }
-                    if let Some(owner_player) = self
-                        .with_object(|owner_guard| owner_guard.get_controlling_player())
-                        .flatten()
-                    {
-                        let _ = owner_player
-                            .write()
-                            .map(|mut p| p.get_money_mut().deposit(cash));
-                    }
+                    target_guard.with_controlling_player_mut(|p| {
+                        p.get_money_mut().withdraw(cash);
+                    });
+                    self.with_object(|owner_guard| {
+                        owner_guard.with_controlling_player_mut(|p| {
+                            p.get_money_mut().deposit(cash);
+                        })
+                    });
 
                     if let Some(mut pos) = self.with_object(|owner_guard| *owner_guard.get_position())
                     {

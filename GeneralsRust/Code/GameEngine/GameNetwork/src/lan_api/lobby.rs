@@ -17,9 +17,11 @@ use crate::lan_api::{
 use crate::security::SecurityManager;
 use crate::time::NetworkInstant;
 use chrono::Utc;
+use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 use tokio::net::UdpSocket as AsyncUdpSocket;
 use tokio::sync::{Notify, RwLock};
@@ -93,6 +95,18 @@ struct DirectConnectState {
     requested_at: NetworkInstant,
 }
 
+/// Runtime state shared between [`LanLobby`]'s owner methods and the background
+/// tasks it spawns (countdown timer, socket receiver).
+struct LobbyRuntime {
+    /// THREAD: polled by both spawned loops, flipped by the owner in
+    /// `init`/`shutdown`.
+    is_active: AtomicBool,
+    /// THREAD: countdown deadline written by the owner
+    /// (`set_game_start_timer_internal`) and polled/cleared by the timer task.
+    /// Guard is never held across an `.await`.
+    game_start_timer: Mutex<Option<NetworkInstant>>,
+}
+
 /// LAN lobby management
 pub struct LanLobby {
     /// Static configuration derived from the LAN API settings.
@@ -101,36 +115,35 @@ pub struct LanLobby {
     discovery: Arc<GameDiscovery>,
     /// Encryption helper for securing LAN datagrams.
     crypto: LanCrypto,
-    /// Current lobby state
-    state: Arc<RwLock<LobbyState>>,
-    /// UDP socket for communication
+    /// Current lobby state (owner task only; lives behind the `Arc<RwLock<LanLobby>>`)
+    state: LobbyState,
+    /// THREAD: UDP socket swapped by the owner task (`init_socket`/`shutdown`)
+    /// and polled every iteration by the spawned socket receiver loop.
     socket: Arc<RwLock<Option<Arc<AsyncUdpSocket>>>>,
-    /// Local endpoint (ip+port) used for announcements
-    local_endpoint: Arc<RwLock<Option<SocketAddr>>>,
-    /// Preferred local IP set before sockets are initialised
-    preferred_local_ip: Arc<RwLock<Option<IpAddr>>>,
-    /// Publicly reachable endpoint discovered via NAT traversal
-    public_endpoint: Arc<RwLock<Option<SocketAddr>>>,
-    /// Current game we're in (if any)
-    current_game: Arc<RwLock<Option<LanGameInfo>>>,
-    /// Whether we're hosting
-    is_hosting: Arc<RwLock<bool>>,
-    /// Game identifier currently advertised via discovery (if any)
-    hosted_game_id: Arc<RwLock<Option<Uuid>>>,
-    /// Local player information
-    local_player: Arc<RwLock<Option<LanPlayer>>>,
+    /// Local endpoint (ip+port) used for announcements (owner task only)
+    local_endpoint: Option<SocketAddr>,
+    /// Preferred local IP set before sockets are initialised (owner task only)
+    preferred_local_ip: Option<IpAddr>,
+    /// Publicly reachable endpoint discovered via NAT traversal (owner task only)
+    public_endpoint: Option<SocketAddr>,
+    /// Current game we're in (if any; owner task only)
+    current_game: Option<LanGameInfo>,
+    /// Whether we're hosting (owner task only)
+    is_hosting: bool,
+    /// Game identifier currently advertised via discovery (if any; owner task only)
+    hosted_game_id: Option<Uuid>,
+    /// Local player information (owner task only)
+    local_player: Option<LanPlayer>,
     /// Bridge back into the high-level [`LanApi`].
     bridge_tx: LanEventSender,
-    /// Background tasks
-    tasks: Arc<RwLock<Vec<tokio::task::JoinHandle<()>>>>,
-    /// Whether the lobby is active
-    is_active: Arc<RwLock<bool>>,
-    /// Current join request (if any)
-    join_request: Arc<RwLock<Option<JoinRequest>>>,
-    /// Game start timer
-    game_start_timer: Arc<RwLock<Option<NetworkInstant>>>,
-    /// Pending direct connect handshake
-    pending_direct_connect: Arc<RwLock<Option<DirectConnectState>>>,
+    /// Background tasks (owner task only)
+    tasks: Vec<tokio::task::JoinHandle<()>>,
+    /// THREAD: flags/deadline shared with the spawned background tasks.
+    runtime: Arc<LobbyRuntime>,
+    /// Current join request (if any; owner task only)
+    join_request: Option<JoinRequest>,
+    /// Pending direct connect handshake (owner task only)
+    pending_direct_connect: Option<DirectConnectState>,
     /// Shutdown notifier for background tasks
     shutdown_notify: Arc<Notify>,
     /// Whether real network IO should be used
@@ -149,21 +162,23 @@ impl LanLobby {
             config,
             discovery,
             crypto,
-            state: Arc::new(RwLock::new(LobbyState::default())),
+            state: LobbyState::default(),
             socket: Arc::new(RwLock::new(None)),
-            local_endpoint: Arc::new(RwLock::new(None)),
-            preferred_local_ip: Arc::new(RwLock::new(None)),
-            public_endpoint: Arc::new(RwLock::new(None)),
-            current_game: Arc::new(RwLock::new(None)),
-            is_hosting: Arc::new(RwLock::new(false)),
-            hosted_game_id: Arc::new(RwLock::new(None)),
-            local_player: Arc::new(RwLock::new(None)),
+            local_endpoint: None,
+            preferred_local_ip: None,
+            public_endpoint: None,
+            current_game: None,
+            is_hosting: false,
+            hosted_game_id: None,
+            local_player: None,
             bridge_tx,
-            tasks: Arc::new(RwLock::new(Vec::new())),
-            is_active: Arc::new(RwLock::new(false)),
-            join_request: Arc::new(RwLock::new(None)),
-            game_start_timer: Arc::new(RwLock::new(None)),
-            pending_direct_connect: Arc::new(RwLock::new(None)),
+            tasks: Vec::new(),
+            runtime: Arc::new(LobbyRuntime {
+                is_active: AtomicBool::new(false),
+                game_start_timer: Mutex::new(None),
+            }),
+            join_request: None,
+            pending_direct_connect: None,
             shutdown_notify: Arc::new(Notify::new()),
             networking_enabled,
         }
@@ -221,18 +236,18 @@ impl LanLobby {
     pub async fn init(&mut self) -> NetworkResult<()> {
         info!("Initializing LAN lobby");
 
-        *self.is_active.write().await = true;
-        *self.state.write().await = LobbyState::MainLobby;
+        self.runtime.is_active.store(true, Ordering::Relaxed);
+        self.state = LobbyState::MainLobby;
         self.shutdown_notify = Arc::new(Notify::new());
 
         if self.networking_enabled {
             self.init_socket().await?;
         } else {
             // Ensure we have a usable endpoint even when skipping IO.
-            if self.local_endpoint.read().await.is_none() {
-                if let Some(ip) = *self.preferred_local_ip.read().await {
+            if self.local_endpoint.is_none() {
+                if let Some(ip) = self.preferred_local_ip {
                     let addr = SocketAddr::new(ip, self.config.base_port);
-                    *self.local_endpoint.write().await = Some(addr);
+                    self.local_endpoint = Some(addr);
                 }
             }
         }
@@ -245,7 +260,7 @@ impl LanLobby {
     }
 
     /// Initialize UDP socket
-    async fn init_socket(&self) -> NetworkResult<()> {
+    async fn init_socket(&mut self) -> NetworkResult<()> {
         // Prefer the configured base port when available to match discovery semantics.
         let socket =
             match AsyncUdpSocket::bind(SocketAddr::from(([0, 0, 0, 0], self.config.base_port)))
@@ -269,59 +284,45 @@ impl LanLobby {
         })?;
 
         let port = addr.port();
-        let preferred_ip = {
-            let guard = self.preferred_local_ip.read().await;
-            guard.as_ref().copied().unwrap_or(addr.ip())
-        };
+        let preferred_ip = self.preferred_local_ip.unwrap_or(addr.ip());
         let endpoint = SocketAddr::new(preferred_ip, port);
 
         *self.socket.write().await = Some(socket);
-        *self.local_endpoint.write().await = Some(endpoint);
+        self.local_endpoint = Some(endpoint);
         debug!("UDP socket initialised on {}", endpoint);
         Ok(())
     }
 
     /// Update the local announcement endpoint with the resolved external IP.
-    pub async fn set_local_ip(&self, ip: IpAddr) {
-        {
-            let mut guard = self.preferred_local_ip.write().await;
-            *guard = Some(ip);
-        }
+    pub async fn set_local_ip(&mut self, ip: IpAddr) {
+        self.preferred_local_ip = Some(ip);
 
-        let port = {
-            let guard = self.local_endpoint.read().await;
-            guard
-                .as_ref()
-                .map(|addr| addr.port())
-                .unwrap_or(self.config.base_port)
-        };
+        let port = self
+            .local_endpoint
+            .as_ref()
+            .map(|addr| addr.port())
+            .unwrap_or(self.config.base_port);
         let endpoint = SocketAddr::new(ip, port);
-        *self.local_endpoint.write().await = Some(endpoint);
+        self.local_endpoint = Some(endpoint);
 
-        let hosted_game = {
-            let mut guard = self.current_game.write().await;
-            guard.as_mut().map(|game| {
-                game.host_ip = ip;
-                game.port = port;
-                for slot in &mut game.slots {
-                    if let Some(player) = slot.player.as_mut() {
-                        if player.is_host() {
-                            player.ip = ip;
-                            player.port = port;
-                            break;
-                        }
+        let hosted_game = self.current_game.as_mut().map(|game| {
+            game.host_ip = ip;
+            game.port = port;
+            for slot in &mut game.slots {
+                if let Some(player) = slot.player.as_mut() {
+                    if player.is_host() {
+                        player.ip = ip;
+                        player.port = port;
+                        break;
                     }
                 }
-                game.game_id
-            })
-        };
-
-        {
-            let mut guard = self.local_player.write().await;
-            if let Some(player) = guard.as_mut() {
-                player.ip = ip;
-                player.port = port;
             }
+            game.game_id
+        });
+
+        if let Some(player) = self.local_player.as_mut() {
+            player.ip = ip;
+            player.port = port;
         }
 
         if self.networking_enabled {
@@ -340,22 +341,17 @@ impl LanLobby {
 
     /// Update the public endpoint used for advertisements and direct connect.
     pub async fn set_public_endpoint(&mut self, endpoint: Option<SocketAddr>) {
-        *self.public_endpoint.write().await = endpoint;
+        self.public_endpoint = endpoint;
 
-        if !*self.is_hosting.read().await {
+        if !self.is_hosting {
             return;
         }
 
-        let snapshot = {
-            let mut guard = self.current_game.write().await;
-            if let Some(game) = guard.as_mut() {
-                game.public_host = endpoint.map(|addr| addr.ip());
-                game.public_port = endpoint.map(|addr| addr.port());
-                Some(game.clone())
-            } else {
-                None
-            }
-        };
+        let snapshot = self.current_game.as_mut().map(|game| {
+            game.public_host = endpoint.map(|addr| addr.ip());
+            game.public_port = endpoint.map(|addr| addr.port());
+            game.clone()
+        });
 
         if self.networking_enabled {
             if let Some(game) = snapshot {
@@ -377,8 +373,7 @@ impl LanLobby {
     }
 
     pub(super) async fn player_info(&self) -> Option<PlayerInfo> {
-        let endpoint = *self.local_endpoint.read().await;
-        let endpoint = endpoint?;
+        let endpoint = self.local_endpoint?;
 
         let mut info = PlayerInfo::new(
             self.config.player_name.clone(),
@@ -422,15 +417,13 @@ impl LanLobby {
     }
 
     async fn host_endpoint(&self) -> Option<SocketAddr> {
-        let guard = self.current_game.read().await;
-        guard
+        self.current_game
             .as_ref()
             .map(|game| SocketAddr::new(game.host_ip, game.port))
     }
 
     async fn remote_participants(&self) -> Vec<SocketAddr> {
-        let guard = self.current_game.read().await;
-        guard
+        self.current_game
             .as_ref()
             .map(|game| {
                 game.slots
@@ -463,7 +456,7 @@ impl LanLobby {
     }
 
     async fn send_to_game_participants(&self, message: &LanMessage) -> NetworkResult<()> {
-        if *self.is_hosting.read().await {
+        if self.is_hosting {
             self.send_to_remote_players(message).await
         } else {
             self.send_to_host(message).await
@@ -475,31 +468,27 @@ impl LanLobby {
     }
 
     async fn local_player_ip(&self) -> Option<IpAddr> {
-        self.local_player
-            .read()
-            .await
-            .as_ref()
-            .map(|player| player.ip)
+        self.local_player.as_ref().map(|player| player.ip)
     }
 
-    pub(super) async fn update_player_acceptance(&self, ip: IpAddr, accepted: bool) {
-        if let Some(ref mut game) = *self.current_game.write().await {
+    pub(super) async fn update_player_acceptance(&mut self, ip: IpAddr, accepted: bool) {
+        if let Some(game) = self.current_game.as_mut() {
             if game.set_player_accepted(ip, accepted) {
                 game.update_player_last_heard(ip);
             }
         }
     }
 
-    pub(super) async fn update_player_map_status(&self, ip: IpAddr, has_map: bool) {
-        if let Some(ref mut game) = *self.current_game.write().await {
+    pub(super) async fn update_player_map_status(&mut self, ip: IpAddr, has_map: bool) {
+        if let Some(game) = self.current_game.as_mut() {
             if game.set_player_has_map(ip, has_map) {
                 game.update_player_last_heard(ip);
             }
         }
     }
 
-    pub(super) async fn apply_remote_game_options(&self, options: &GameOptions, is_public: bool) {
-        if let Some(ref mut game) = *self.current_game.write().await {
+    pub(super) async fn apply_remote_game_options(&mut self, options: &GameOptions, is_public: bool) {
+        if let Some(game) = self.current_game.as_mut() {
             game.options = options.clone();
             game.is_public = is_public;
             for slot in &mut game.slots {
@@ -512,8 +501,8 @@ impl LanLobby {
         }
     }
 
-    pub(super) async fn update_player_name(&self, ip: IpAddr, new_name: &str) {
-        if let Some(ref mut game) = *self.current_game.write().await {
+    pub(super) async fn update_player_name(&mut self, ip: IpAddr, new_name: &str) {
+        if let Some(game) = self.current_game.as_mut() {
             if let Some(slot) = game
                 .slots
                 .iter_mut()
@@ -526,23 +515,23 @@ impl LanLobby {
         }
     }
 
-    pub(super) async fn set_game_start_timer_internal(&self, seconds: Option<u32>) {
+    pub(super) async fn set_game_start_timer_internal(&mut self, seconds: Option<u32>) {
         match seconds {
             Some(delay) if delay == 0 => {
-                *self.game_start_timer.write().await = None;
-                *self.state.write().await = LobbyState::GameLobby;
+                *self.runtime.game_start_timer.lock() = None;
+                self.state = LobbyState::GameLobby;
                 self.emit_lobby_event(LobbyEvent::GameStartTimer(0)).await;
             }
             Some(delay) => {
                 let timer_end = NetworkInstant::now() + Duration::from_secs(delay as u64);
-                *self.game_start_timer.write().await = Some(timer_end);
-                *self.state.write().await = LobbyState::Starting;
+                *self.runtime.game_start_timer.lock() = Some(timer_end);
+                self.state = LobbyState::Starting;
                 self.emit_lobby_event(LobbyEvent::GameStartTimer(delay))
                     .await;
             }
             None => {
-                *self.game_start_timer.write().await = None;
-                *self.state.write().await = LobbyState::Starting;
+                *self.runtime.game_start_timer.lock() = None;
+                self.state = LobbyState::Starting;
                 self.emit_lobby_event(LobbyEvent::GameStarting).await;
             }
         }
@@ -568,24 +557,24 @@ impl LanLobby {
     }
 
     pub async fn current_game_snapshot(&self) -> Option<LanGameInfo> {
-        self.current_game.read().await.clone()
+        self.current_game.clone()
     }
 
     pub async fn add_player_to_current_game(
-        &self,
+        &mut self,
         mut player: LanPlayer,
     ) -> NetworkResult<(LanGameInfo, u8)> {
         player.joined_at = Utc::now();
-        let mut guard = self.current_game.write().await;
-        let game = guard.as_mut().ok_or_else(|| {
-            NetworkError::invalid_command("No active game to add players".to_string())
-        })?;
+        let (snapshot, slot) = {
+            let game = self.current_game.as_mut().ok_or_else(|| {
+                NetworkError::invalid_command("No active game to add players".to_string())
+            })?;
 
-        let slot = game
-            .add_player(player)
-            .map_err(|err| NetworkError::invalid_command(err))?;
-        let snapshot = game.clone();
-        drop(guard);
+            let slot = game
+                .add_player(player)
+                .map_err(|err| NetworkError::invalid_command(err))?;
+            (game.clone(), slot)
+        };
 
         if self.networking_enabled {
             let announcement = self.build_announcement(&snapshot);
@@ -605,19 +594,19 @@ impl LanLobby {
         Ok((snapshot, slot))
     }
 
-    pub async fn remove_player_from_current_game(&self, ip: IpAddr) -> Option<LanGameInfo> {
-        let mut guard = self.current_game.write().await;
-        let game = guard.as_mut()?;
-        let player_name = game
-            .get_player_by_ip(ip)
-            .map(|p| p.name.clone())
-            .unwrap_or_default();
+    pub async fn remove_player_from_current_game(&mut self, ip: IpAddr) -> Option<LanGameInfo> {
+        let (snapshot, player_name) = {
+            let game = self.current_game.as_mut()?;
+            let player_name = game
+                .get_player_by_ip(ip)
+                .map(|p| p.name.clone())
+                .unwrap_or_default();
 
-        if !game.remove_player(ip) {
-            return None;
-        }
-        let snapshot = game.clone();
-        drop(guard);
+            if !game.remove_player(ip) {
+                return None;
+            }
+            (game.clone(), player_name)
+        };
 
         if self.networking_enabled {
             let announcement = self.build_announcement(&snapshot);
@@ -643,7 +632,7 @@ impl LanLobby {
     }
 
     /// Start background tasks
-    async fn start_background_tasks(&self) {
+    async fn start_background_tasks(&mut self) {
         // Start timer task
         self.start_timer_task().await;
 
@@ -653,10 +642,10 @@ impl LanLobby {
     }
 
     /// Start timer task for countdowns
-    async fn start_timer_task(&self) {
-        let game_start_timer = Arc::clone(&self.game_start_timer);
+    async fn start_timer_task(&mut self) {
+        let game_start_timer = Arc::clone(&self.runtime.game_start_timer);
         let bridge_tx = self.bridge_tx.clone();
-        let is_active = Arc::clone(&self.is_active);
+        let is_active = Arc::clone(&self.runtime.is_active);
         let shutdown = Arc::clone(&self.shutdown_notify);
 
         let handle = tokio::spawn(async move {
@@ -668,16 +657,17 @@ impl LanLobby {
                         break;
                     }
                     _ = check_interval.tick() => {
-                        if !*is_active.read().await {
+                        if !is_active.load(Ordering::Relaxed) {
                             continue;
                         }
 
-                        if let Some(timer_end) = *game_start_timer.read().await {
+                        let timer_end = *game_start_timer.lock();
+                        if let Some(timer_end) = timer_end {
                             let now = NetworkInstant::now();
                             if now >= timer_end {
                                 let _ = bridge_tx
                                     .send(LanBridgeEvent::LobbyEvent(LobbyEvent::GameStarting));
-                                *game_start_timer.write().await = None;
+                                *game_start_timer.lock() = None;
                             } else {
                                 let remaining = timer_end
                                     .duration_since(now)
@@ -695,16 +685,16 @@ impl LanLobby {
             debug!("Timer task stopped");
         });
 
-        self.tasks.write().await.push(handle);
+        self.tasks.push(handle);
     }
 
     /// Start socket receiver task
-    async fn start_socket_receiver(&self) {
+    async fn start_socket_receiver(&mut self) {
         const MAX_DATAGRAM: usize = 1400;
 
         let socket = Arc::clone(&self.socket);
         let bridge_tx = self.bridge_tx.clone();
-        let is_active = Arc::clone(&self.is_active);
+        let is_active = Arc::clone(&self.runtime.is_active);
         let shutdown = Arc::clone(&self.shutdown_notify);
         let crypto = self.crypto.clone();
 
@@ -736,7 +726,7 @@ impl LanLobby {
                     None => break,
                 };
 
-                if !*is_active.read().await {
+                if !is_active.load(Ordering::Relaxed) {
                     continue;
                 }
 
@@ -776,12 +766,12 @@ impl LanLobby {
             debug!("Socket receiver task stopped");
         });
 
-        self.tasks.write().await.push(handle);
+        self.tasks.push(handle);
     }
 
     /// Request to create a new game
     pub async fn request_create_game(
-        &self,
+        &mut self,
         game_name: String,
         is_direct_connect: bool,
     ) -> NetworkResult<()> {
@@ -798,15 +788,9 @@ impl LanLobby {
             )));
         }
 
-        let endpoint = self
-            .local_endpoint
-            .read()
-            .await
-            .as_ref()
-            .copied()
-            .ok_or_else(|| {
-                NetworkError::configuration("Local endpoint not initialised".to_string())
-            })?;
+        let endpoint = self.local_endpoint.ok_or_else(|| {
+            NetworkError::configuration("Local endpoint not initialised".to_string())
+        })?;
 
         if endpoint.ip().is_unspecified() {
             return Err(NetworkError::configuration(
@@ -822,7 +806,7 @@ impl LanLobby {
         game.is_public = !is_direct_connect;
         game.max_players = self.config.max_players;
 
-        if let Some(public) = self.public_endpoint.read().await.as_ref().copied() {
+        if let Some(public) = self.public_endpoint {
             game.public_host = Some(public.ip());
             game.public_port = Some(public.port());
         }
@@ -834,10 +818,10 @@ impl LanLobby {
         game.add_player(host_player.clone())
             .map_err(|e| NetworkError::generic(format!("Failed to add host to game: {}", e)))?;
 
-        *self.current_game.write().await = Some(game.clone());
-        *self.local_player.write().await = Some(host_player);
-        *self.is_hosting.write().await = true;
-        *self.state.write().await = LobbyState::GameLobby;
+        self.current_game = Some(game.clone());
+        self.local_player = Some(host_player);
+        self.is_hosting = true;
+        self.state = LobbyState::GameLobby;
 
         if self.networking_enabled {
             let announcement = self.build_announcement(&game);
@@ -848,7 +832,7 @@ impl LanLobby {
                 warn!("Failed to refresh discovery announcement: {}", err);
             }
         }
-        *self.hosted_game_id.write().await = Some(game.game_id);
+        self.hosted_game_id = Some(game.game_id);
 
         if let Some(sender_info) = self.player_info().await {
             let lobby_announce = LanMessage::lobby_announce(sender_info.clone());
@@ -882,7 +866,7 @@ impl LanLobby {
 
     /// Request to join a game
     pub async fn request_join(
-        &self,
+        &mut self,
         game: &LanGameInfo,
         target_ip: Option<IpAddr>,
     ) -> NetworkResult<()> {
@@ -906,7 +890,7 @@ impl LanLobby {
             target_ip,
             requested_at: NetworkInstant::now(),
         };
-        *self.join_request.write().await = Some(join_request);
+        self.join_request = Some(join_request);
 
         if let Some(info) = self.player_info().await {
             let host_ip = target_ip.unwrap_or(game.host_ip);
@@ -922,16 +906,13 @@ impl LanLobby {
     }
 
     /// Request direct connect to an IP
-    pub async fn request_direct_connect(&self, ip_address: IpAddr) -> NetworkResult<()> {
+    pub async fn request_direct_connect(&mut self, ip_address: IpAddr) -> NetworkResult<()> {
         info!("Requesting direct connect to: {}", ip_address);
 
-        {
-            let mut pending = self.pending_direct_connect.write().await;
-            *pending = Some(DirectConnectState {
-                target_ip: ip_address,
-                requested_at: NetworkInstant::now(),
-            });
-        }
+        self.pending_direct_connect = Some(DirectConnectState {
+            target_ip: ip_address,
+            requested_at: NetworkInstant::now(),
+        });
 
         if let Some(info) = self.player_info().await {
             let message = LanMessage::request_game_info(info, ip_address);
@@ -947,25 +928,17 @@ impl LanLobby {
 
     /// Handle a direct-connect game announcement from a host.
     pub async fn maybe_handle_direct_connect(
-        &self,
+        &mut self,
         game: &LanGameInfo,
         host_ip: IpAddr,
     ) -> NetworkResult<()> {
-        let should_join = {
-            let mut pending = self.pending_direct_connect.write().await;
-            if let Some(state) = pending.as_ref() {
-                if state.target_ip == host_ip || state.target_ip == game.host_ip {
-                    *pending = None;
-                    true
-                } else {
-                    false
-                }
-            } else {
-                false
-            }
+        let should_join = match self.pending_direct_connect.as_ref() {
+            Some(state) => state.target_ip == host_ip || state.target_ip == game.host_ip,
+            None => false,
         };
 
         if should_join {
+            self.pending_direct_connect = None;
             info!(
                 "Direct connect offer received from {}; requesting join",
                 host_ip
@@ -977,13 +950,13 @@ impl LanLobby {
     }
 
     /// Request to leave current game/lobby
-    pub async fn request_leave(&self) -> NetworkResult<()> {
+    pub async fn request_leave(&mut self) -> NetworkResult<()> {
         info!("Requesting to leave");
 
-        let current_state = *self.state.read().await;
+        let current_state = self.state;
         match current_state {
             LobbyState::GameLobby | LobbyState::Starting | LobbyState::InGame => {
-                let game_snapshot = { self.current_game.read().await.clone() };
+                let game_snapshot = self.current_game.clone();
 
                 if let Some(game) = game_snapshot {
                     info!("Leaving game: {}", game.name);
@@ -991,7 +964,7 @@ impl LanLobby {
                     if let Some(info) = self.player_info().await {
                         let leave = LanMessage::request_game_leave(info, game.name.clone())
                             .map_err(NetworkError::invalid_command)?;
-                        if *self.is_hosting.read().await {
+                        if self.is_hosting {
                             let _ = self.broadcast_message(&leave).await;
                         } else {
                             let target = SocketAddr::new(game.host_ip, self.config.base_port);
@@ -999,26 +972,23 @@ impl LanLobby {
                         }
                     }
 
-                    {
-                        let mut guard = self.current_game.write().await;
-                        *guard = None;
-                    }
-                    *self.is_hosting.write().await = false;
-                    if let Some(game_id) = self.hosted_game_id.write().await.take() {
+                    self.current_game = None;
+                    self.is_hosting = false;
+                    if let Some(game_id) = self.hosted_game_id.take() {
                         if self.networking_enabled {
                             let _ = self.discovery.retract_local(game_id).await;
                         }
                     }
-                    *self.join_request.write().await = None;
-                    *self.game_start_timer.write().await = None;
-                    *self.state.write().await = LobbyState::MainLobby;
+                    self.join_request = None;
+                    *self.runtime.game_start_timer.lock() = None;
+                    self.state = LobbyState::MainLobby;
 
                     info!("Left game successfully");
                 }
             }
             LobbyState::MainLobby => {
                 info!("Leaving main lobby");
-                *self.state.write().await = LobbyState::None;
+                self.state = LobbyState::None;
             }
             LobbyState::None => {
                 debug!("Already not in lobby");
@@ -1029,21 +999,21 @@ impl LanLobby {
     }
 
     /// Request lobby leave (different from game leave)
-    pub async fn request_lobby_leave(&self, forced: bool) -> NetworkResult<()> {
+    pub async fn request_lobby_leave(&mut self, forced: bool) -> NetworkResult<()> {
         info!("Requesting lobby leave (forced: {})", forced);
 
         if forced {
             // Force leave everything
-            *self.current_game.write().await = None;
-            *self.is_hosting.write().await = false;
-            if let Some(game_id) = self.hosted_game_id.write().await.take() {
+            self.current_game = None;
+            self.is_hosting = false;
+            if let Some(game_id) = self.hosted_game_id.take() {
                 if self.networking_enabled {
                     let _ = self.discovery.retract_local(game_id).await;
                 }
             }
-            *self.join_request.write().await = None;
-            *self.game_start_timer.write().await = None;
-            *self.state.write().await = LobbyState::None;
+            self.join_request = None;
+            *self.runtime.game_start_timer.lock() = None;
+            self.state = LobbyState::None;
         } else {
             // Normal leave
             self.request_leave().await?;
@@ -1058,70 +1028,76 @@ impl LanLobby {
     }
 
     /// Update acceptance of current game options
-    pub async fn request_accept(&self, accepted: bool) -> NetworkResult<()> {
+    pub async fn request_accept(&mut self, accepted: bool) -> NetworkResult<()> {
         info!("Setting accept state to {}", accepted);
 
-        if let Some(ref mut local_player) = *self.local_player.write().await {
-            local_player.set_accepted(accepted);
-            let ip = local_player.ip;
-            self.update_player_acceptance(ip, accepted).await;
+        let Some(local_player) = self.local_player.as_mut() else {
+            return Ok(());
+        };
+        local_player.set_accepted(accepted);
+        let local_ip = local_player.ip;
+        drop(local_player);
 
-            if let Some(game) = self.current_game.read().await.as_ref() {
-                if let Some(info) = self.player_info().await {
-                    let message = LanMessage::set_accept(info, game.name.clone(), accepted)
-                        .map_err(NetworkError::invalid_command)?;
-                    self.send_to_game_participants(&message).await?;
-                }
+        self.update_player_acceptance(local_ip, accepted).await;
+
+        if let Some(game) = self.current_game.as_ref() {
+            if let Some(info) = self.player_info().await {
+                let message = LanMessage::set_accept(info, game.name.clone(), accepted)
+                    .map_err(NetworkError::invalid_command)?;
+                self.send_to_game_participants(&message).await?;
             }
-
-            self.emit_lobby_event(LobbyEvent::PlayerAccepted(local_player.ip, accepted))
-                .await;
-            debug!("Accept status sent");
         }
+
+        self.emit_lobby_event(LobbyEvent::PlayerAccepted(local_ip, accepted))
+            .await;
+        debug!("Accept status sent");
 
         Ok(())
     }
 
     /// Announce map availability state
-    pub async fn request_map_status(&self, has_map: bool) -> NetworkResult<()> {
+    pub async fn request_map_status(&mut self, has_map: bool) -> NetworkResult<()> {
         info!("Announcing map availability: {}", has_map);
 
-        if let Some(ref mut local_player) = *self.local_player.write().await {
-            local_player.set_has_map(has_map);
-            let ip = local_player.ip;
-            self.update_player_map_status(ip, has_map).await;
+        let Some(local_player) = self.local_player.as_mut() else {
+            return Ok(());
+        };
+        local_player.set_has_map(has_map);
+        let local_ip = local_player.ip;
+        drop(local_player);
 
-            if let Some(game) = self.current_game.read().await.as_ref() {
-                if let Some(info) = self.player_info().await {
-                    let map_crc = game.map_crc.unwrap_or(0);
-                    let message =
-                        LanMessage::map_availability(info, game.name.clone(), map_crc, has_map)
-                            .map_err(NetworkError::invalid_command)?;
-                    self.send_to_game_participants(&message).await?;
-                }
+        self.update_player_map_status(local_ip, has_map).await;
+
+        if let Some(game) = self.current_game.as_ref() {
+            if let Some(info) = self.player_info().await {
+                let map_crc = game.map_crc.unwrap_or(0);
+                let message =
+                    LanMessage::map_availability(info, game.name.clone(), map_crc, has_map)
+                        .map_err(NetworkError::invalid_command)?;
+                self.send_to_game_participants(&message).await?;
             }
-
-            self.emit_lobby_event(LobbyEvent::PlayerMapStatus(local_player.ip, has_map))
-                .await;
-            debug!("Map status sent");
         }
+
+        self.emit_lobby_event(LobbyEvent::PlayerMapStatus(local_ip, has_map))
+            .await;
+        debug!("Map status sent");
 
         Ok(())
     }
 
     /// Request to start the game
-    pub async fn request_game_start(&self) -> NetworkResult<()> {
+    pub async fn request_game_start(&mut self) -> NetworkResult<()> {
         info!("Requesting game start");
 
         // Check if we're hosting
-        if !*self.is_hosting.read().await {
+        if !self.is_hosting {
             return Err(NetworkError::invalid_command(
                 "Only host can start the game".to_string(),
             ));
         }
 
         // Check if all players are ready
-        if let Some(ref game) = *self.current_game.read().await {
+        if let Some(game) = self.current_game.as_ref() {
             if !game.all_players_accepted() {
                 return Err(NetworkError::invalid_command(
                     "Not all players have accepted".to_string(),
@@ -1136,7 +1112,7 @@ impl LanLobby {
         }
 
         // Update state
-        *self.state.write().await = LobbyState::Starting;
+        self.state = LobbyState::Starting;
         if let Some(info) = self.player_info().await {
             let message = LanMessage::game_start(info);
             self.send_to_remote_players(&message).await?;
@@ -1148,11 +1124,11 @@ impl LanLobby {
     }
 
     /// Request game start with timer
-    pub async fn request_game_start_timer(&self, seconds: u32) -> NetworkResult<()> {
+    pub async fn request_game_start_timer(&mut self, seconds: u32) -> NetworkResult<()> {
         info!("Requesting game start timer: {} seconds", seconds);
 
         // Check if we're hosting
-        if !*self.is_hosting.read().await {
+        if !self.is_hosting {
             return Err(NetworkError::invalid_command(
                 "Only host can start countdown".to_string(),
             ));
@@ -1169,14 +1145,14 @@ impl LanLobby {
     }
 
     /// Reset game start timer
-    pub async fn reset_game_start_timer(&self) -> NetworkResult<()> {
+    pub async fn reset_game_start_timer(&mut self) -> NetworkResult<()> {
         info!("Resetting game start timer");
 
         self.set_game_start_timer_internal(Some(0)).await;
 
-        if *self.is_hosting.read().await {
+        if self.is_hosting {
             if let Some(info) = self.player_info().await {
-                if self.current_game.read().await.is_some() {
+                if self.current_game.is_some() {
                     let message = LanMessage::game_start_timer(info, 0);
                     self.send_to_remote_players(&message).await?;
                 }
@@ -1201,7 +1177,7 @@ impl LanLobby {
             )));
         }
 
-        let game = self.current_game.read().await.clone().ok_or_else(|| {
+        let game = self.current_game.clone().ok_or_else(|| {
             NetworkError::invalid_command("No active game to send chat".to_string())
         })?;
 
@@ -1238,7 +1214,7 @@ impl LanLobby {
 
     /// Request to update game options
     pub async fn request_game_options(
-        &self,
+        &mut self,
         options: GameOptions,
         is_public: bool,
         target_ip: Option<IpAddr>,
@@ -1246,15 +1222,15 @@ impl LanLobby {
         info!("Requesting game options update");
 
         // Check if we're hosting
-        if !*self.is_hosting.read().await {
+        if !self.is_hosting {
             return Err(NetworkError::invalid_command(
                 "Only host can change game options".to_string(),
             ));
         }
 
         let announce_after = {
-            let mut guard = self.current_game.write().await;
-            let game = guard
+            let game = self
+                .current_game
                 .as_mut()
                 .ok_or_else(|| NetworkError::invalid_command("No active game".to_string()))?;
             game.options = options.clone();
@@ -1303,7 +1279,7 @@ impl LanLobby {
     pub async fn request_announce(&self) -> NetworkResult<()> {
         info!("Requesting game announcement");
 
-        if *self.is_hosting.read().await {
+        if self.is_hosting {
             if let Some(game) = self.current_game_snapshot().await {
                 if let Some(info) = self.player_info().await {
                     let announce = LanMessage::game_announce(
@@ -1333,47 +1309,51 @@ impl LanLobby {
     }
 
     /// Request name change
-    pub async fn request_name_change(&self, new_name: String) -> NetworkResult<()> {
+    pub async fn request_name_change(&mut self, new_name: String) -> NetworkResult<()> {
         info!("Requesting name change to: {}", new_name);
 
-        if let Some(ref mut local_player) = *self.local_player.write().await {
-            let old_name = local_player.name.clone();
-            local_player.name = new_name.clone();
-            if let Some(info) = self.player_info().await {
-                let message = LanMessage::name_change(info, old_name.clone(), new_name.clone());
-                let _ = self.send_to_game_participants(&message).await;
-            }
+        let Some(local_player) = self.local_player.as_mut() else {
+            return Ok(());
+        };
+        let old_name = local_player.name.clone();
+        local_player.name = new_name.clone();
+        let local_ip = local_player.ip;
+        drop(local_player);
 
-            self.update_player_name(local_player.ip, &new_name).await;
-            self.emit_lobby_event(LobbyEvent::NameChange(local_player.ip, new_name.clone()))
-                .await;
-            info!("Name changed from {} to {}", old_name, new_name);
+        if let Some(info) = self.player_info().await {
+            let message = LanMessage::name_change(info, old_name.clone(), new_name.clone());
+            let _ = self.send_to_game_participants(&message).await;
         }
+
+        self.update_player_name(local_ip, &new_name).await;
+        self.emit_lobby_event(LobbyEvent::NameChange(local_ip, new_name.clone()))
+            .await;
+        info!("Name changed from {} to {}", old_name, new_name);
 
         Ok(())
     }
 
     /// Get current lobby state
     pub async fn get_state(&self) -> LobbyState {
-        *self.state.read().await
+        self.state
     }
 
     /// Get current game
     pub async fn get_current_game(&self) -> Option<LanGameInfo> {
-        self.current_game.read().await.clone()
+        self.current_game.clone()
     }
 
     /// Check if we're hosting
     pub async fn is_hosting(&self) -> bool {
-        *self.is_hosting.read().await
+        self.is_hosting
     }
 
     /// Update lobby state
     pub async fn update(&mut self) -> NetworkResult<()> {
         // Check for timed out join requests
         let join_timeout = {
-            let mut join_request = self.join_request.write().await;
-            if let Some(ref request) = *join_request {
+            let mut expired = None;
+            if let Some(request) = self.join_request.as_ref() {
                 if request.requested_at.elapsed() > Duration::from_secs(10) {
                     let game_name = request.game.name.clone();
                     let target = request.target_ip.or(Some(request.game.host_ip));
@@ -1384,14 +1364,13 @@ impl LanLobby {
                         "Join request timed out for game: {} (target: {})",
                         game_name, target_repr
                     );
-                    *join_request = None;
-                    Some((game_name, target))
-                } else {
-                    None
+                    expired = Some((game_name, target));
                 }
-            } else {
-                None
             }
+            if expired.is_some() {
+                self.join_request = None;
+            }
+            expired
         };
 
         if let Some((game_name, target)) = join_timeout {
@@ -1405,19 +1384,18 @@ impl LanLobby {
         }
 
         let direct_connect_timeout = {
-            let mut pending = self.pending_direct_connect.write().await;
-            if let Some(state) = pending.as_ref() {
+            let mut expired = None;
+            if let Some(state) = self.pending_direct_connect.as_ref() {
                 if state.requested_at.elapsed() > Duration::from_secs(10) {
                     let target = state.target_ip;
                     warn!("Direct connect request to {} timed out", target);
-                    *pending = None;
-                    Some(target)
-                } else {
-                    None
+                    expired = Some(target);
                 }
-            } else {
-                None
             }
+            if expired.is_some() {
+                self.pending_direct_connect = None;
+            }
+            expired
         };
 
         if let Some(target) = direct_connect_timeout {
@@ -1429,7 +1407,7 @@ impl LanLobby {
         }
 
         // Update current game if we have one
-        if let Some(ref mut game) = self.current_game.write().await.as_mut() {
+        if let Some(game) = self.current_game.as_mut() {
             game.update_last_heard();
         }
 
@@ -1440,12 +1418,11 @@ impl LanLobby {
     pub async fn shutdown(&mut self) -> NetworkResult<()> {
         info!("Shutting down LAN lobby");
 
-        *self.is_active.write().await = false;
+        self.runtime.is_active.store(false, Ordering::Relaxed);
         self.shutdown_notify.notify_waiters();
 
         // Wait for all tasks to complete
-        let mut tasks = self.tasks.write().await;
-        for handle in tasks.drain(..) {
+        for handle in self.tasks.drain(..) {
             handle.abort();
             let _ = handle.await;
         }
@@ -1454,15 +1431,15 @@ impl LanLobby {
         *self.socket.write().await = None;
 
         // Clear state
-        *self.current_game.write().await = None;
-        *self.local_player.write().await = None;
-        *self.is_hosting.write().await = false;
-        if let Some(game_id) = self.hosted_game_id.write().await.take() {
+        self.current_game = None;
+        self.local_player = None;
+        self.is_hosting = false;
+        if let Some(game_id) = self.hosted_game_id.take() {
             if self.networking_enabled {
                 let _ = self.discovery.retract_local(game_id).await;
             }
         }
-        *self.state.write().await = LobbyState::None;
+        self.state = LobbyState::None;
         self.shutdown_notify = Arc::new(Notify::new());
 
         info!("LAN lobby shut down successfully");
@@ -1732,10 +1709,7 @@ mod tests {
         )
         .await?;
 
-        let lobby_endpoint = {
-            let guard = lobby.local_endpoint.read().await;
-            guard.expect("lobby local endpoint")
-        };
+        let lobby_endpoint = lobby.local_endpoint.expect("lobby local endpoint");
 
         let player_info = PlayerInfo::new(
             HOST_NAME.to_string(),
@@ -1824,10 +1798,7 @@ mod tests {
         )
         .await?;
 
-        let lobby_addr = {
-            let guard = lobby.local_endpoint.read().await;
-            guard.expect("lobby endpoint")
-        };
+        let lobby_addr = lobby.local_endpoint.expect("lobby endpoint");
 
         let player_info = PlayerInfo::new(
             CLIENT_NAME.to_string(),

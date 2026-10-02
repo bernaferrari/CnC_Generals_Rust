@@ -748,21 +748,17 @@ impl SpawnBehavior {
             let spawn_obj = TheObjectFactory::new_object(Arc::clone(template), parent_team)?;
 
             // Count this unit towards our score
-            let controlling_player = self
-                .with_object(|obj_guard| obj_guard.get_controlling_player())
-                .map_err(|_| "Failed to read object")?;
-
             let producer_id = self.get_object_id();
             let unit_id = spawn_obj
                 .read()
                 .ok()
                 .map(|guard| guard.get_id())
                 .unwrap_or(crate::common::INVALID_ID);
-            if let Some(player) = controlling_player {
-                let mut player_guard = player.write().map_err(|_| "Failed to write player")?;
-                player_guard.on_unit_created_id(producer_id, unit_id);
-                drop(player_guard);
-            }
+            self.with_object(|obj_guard| {
+                obj_guard.with_controlling_player_mut(|player_guard| {
+                    player_guard.on_unit_created_id(producer_id, unit_id);
+                })
+            });
 
             // Advance template iterator
             self.template_name_iterator += 1;

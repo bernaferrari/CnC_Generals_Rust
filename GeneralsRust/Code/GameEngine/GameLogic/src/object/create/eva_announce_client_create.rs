@@ -107,27 +107,24 @@ impl EvaAnnounceClientCreate {
             return false;
         }
 
-        let Some(owner_player) = object_guard.get_controlling_player() else {
-            return true;
-        };
         let Ok(local_guard) = local_player.read() else {
             return true;
         };
-        let Ok(owner_guard) = owner_player.read() else {
+        let Some(announcement_allowed) = object_guard.with_controlling_player(|owner_guard| {
+            if self.module_data.owner_only {
+                local_guard.get_player_index() == owner_guard.get_player_index()
+            } else if self.module_data.enemy_only {
+                local_guard.is_enemy_with_player(&*owner_guard)
+            } else if self.module_data.ally_only {
+                local_guard.is_allied_with_player(&*owner_guard)
+            } else {
+                true
+            }
+        }) else {
             return true;
         };
 
-        if self.module_data.owner_only {
-            return local_guard.get_player_index() == owner_guard.get_player_index();
-        }
-        if self.module_data.enemy_only {
-            return local_guard.is_enemy_with_player(&*owner_guard);
-        }
-        if self.module_data.ally_only {
-            return local_guard.is_allied_with_player(&*owner_guard);
-        }
-
-        true
+        announcement_allowed
     }
 }
 

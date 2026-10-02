@@ -287,10 +287,10 @@ impl ObjectCreationNugget for DeliverPayloadNugget {
         };
 
         // Get owner team
-        let Some(player) = primary_object.get_controlling_player() else {
-            return None;
-        };
-        let Some(owner_arc) = player.read().ok().and_then(|p| p.get_default_team()) else {
+        let Some(owner_arc) = primary_object
+            .with_controlling_player(|p| p.get_default_team())
+            .flatten()
+        else {
             return None;
         };
         let Ok(owner) = owner_arc.read() else {

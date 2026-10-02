@@ -66,8 +66,13 @@ enum TransportCommand {
 pub struct WebSocketChatTransport {
     config: ChatTransportConfig,
     outbound_tx: mpsc::UnboundedSender<TransportCommand>,
+    /// THREAD: the transport is shared as `Arc<dyn ChatTransport>`, and the
+    /// trait's `subscribe(&self)` hands the inbound channel to the chat's
+    /// background pump exactly once, so interior mutability through `&self`
+    /// needs this mutex. Never held across an `.await`.
     inbound_rx: SyncMutex<Option<mpsc::UnboundedReceiver<ChatMessage>>>,
-    connection_task: SyncMutex<Option<JoinHandle<()>>>,
+    /// Owned by this transport; only the owner's `Drop` takes the handle.
+    connection_task: Option<JoinHandle<()>>,
 }
 
 impl WebSocketChatTransport {
@@ -86,7 +91,7 @@ impl WebSocketChatTransport {
             config,
             outbound_tx,
             inbound_rx: SyncMutex::new(Some(inbound_rx)),
-            connection_task: SyncMutex::new(Some(connection_task)),
+            connection_task: Some(connection_task),
         })
     }
 
@@ -345,7 +350,7 @@ impl super::ChatTransport for WebSocketChatTransport {
 impl Drop for WebSocketChatTransport {
     fn drop(&mut self) {
         let _ = self.outbound_tx.send(TransportCommand::Shutdown);
-        if let Some(handle) = self.connection_task.lock().take() {
+        if let Some(handle) = self.connection_task.take() {
             handle.abort();
         }
     }

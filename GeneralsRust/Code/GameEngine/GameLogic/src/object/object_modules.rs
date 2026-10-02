@@ -13,6 +13,30 @@ impl Object {
         self.body.clone()
     }
 
+    /// Resolve an interface-handle-list index into the single module list.
+    ///
+    /// The per-interface lists store indices into `modules` (mirroring the C++
+    /// `m_moduleList` + friend-array layout). Indices are only appended/cleared
+    /// in step with `modules`; once the list is released during destruction the
+    /// indices no longer resolve, so out-of-range lookups yield `None`.
+    fn interface_entry(&self, index: usize) -> Option<&Arc<ModuleEntry>> {
+        self.modules.get(index)
+    }
+
+    /// Iterate the module entries referenced by an interface-handle index list.
+    fn interface_entries(
+        &self,
+        indices: &[usize],
+    ) -> impl Iterator<Item = &Arc<ModuleEntry>> {
+        indices.iter().filter_map(move |index| self.modules.get(*index))
+    }
+
+    /// Snapshot (Arc-cloned) entries for an interface-handle index list, for
+    /// sites that must escape the `self` borrow (e.g. `&mut self` callbacks).
+    fn interface_entry_snapshots(&self, indices: &[usize]) -> Vec<Arc<ModuleEntry>> {
+        self.interface_entries(indices).cloned().collect()
+    }
+
     /// Compatibility alias that mirrors the original C++ Object API.
     pub fn get_body(&self) -> Option<Arc<Mutex<dyn BodyModuleInterface>>> {
         self.get_body_module()
@@ -269,7 +293,7 @@ impl Object {
             module,
         ));
         self.modules.push(Arc::clone(&entry));
-        self.update_module_handles.push(entry);
+        self.update_module_handles.push(self.modules.len() - 1);
         self.rebuild_behavior_list();
     }
 
@@ -290,7 +314,9 @@ impl Object {
             module,
         ));
         if (mask.0 & ModuleInterfaceType::DESTROY.0) != 0 {
-            self.die_module_handles.push(Arc::clone(&entry));
+            // The die list stores indices into `modules`; the entry lands at
+            // the next slot.
+            self.die_module_handles.push(self.modules.len());
         }
         if (mask.0 & ModuleInterfaceType::DAMAGE.0) != 0 {
             // Damage walks get_behavior_modules(); keep the entry on `modules`.
@@ -903,34 +929,39 @@ impl Object {
             guard.contain_module_handles.clear();
             guard.upgrade_module_handles.clear();
 
-            let module_entries: Vec<Arc<ModuleEntry>> = guard.modules.iter().cloned().collect();
-            for entry in &module_entries {
+            // Interface lists store indices into `modules`, populated in the
+            // same order as before (single walk over the module list).
+            for (index, entry) in guard.modules.iter().enumerate() {
                 let mask = entry.mask();
                 if (mask.0 & ModuleInterfaceType::BODY.0) != 0 {
-                    guard.body_module_handles.push(Arc::clone(entry));
+                    guard.body_module_handles.push(index);
                 }
                 if (mask.0 & ModuleInterfaceType::DIE.0) != 0 {
-                    guard.die_module_handles.push(Arc::clone(entry));
+                    guard.die_module_handles.push(index);
                 }
                 if (mask.0 & ModuleInterfaceType::UPDATE.0) != 0
                     && (mask.0 & ModuleInterfaceType::CONTAIN.0) == 0
                 {
-                    guard.update_module_handles.push(Arc::clone(entry));
+                    guard.update_module_handles.push(index);
                 }
                 if (mask.0 & ModuleInterfaceType::COLLIDE.0) != 0 {
-                    guard.collide_module_handles.push(Arc::clone(entry));
+                    guard.collide_module_handles.push(index);
                 }
                 if (mask.0 & ModuleInterfaceType::CONTAIN.0) != 0 {
-                    guard.contain_module_handles.push(Arc::clone(entry));
+                    guard.contain_module_handles.push(index);
                 }
                 if (mask.0 & ModuleInterfaceType::UPGRADE.0) != 0 {
-                    guard.upgrade_module_handles.push(Arc::clone(entry));
+                    guard.upgrade_module_handles.push(index);
                 }
             }
 
             #[cfg(feature = "allow_surrender")]
             if guard.contain.is_none() {
-                for entry in &guard.contain_module_handles {
+                for index in guard.contain_module_handles.clone() {
+                    let entry = guard.modules.get(index);
+                    let Some(entry) = entry else {
+                        continue;
+                    };
                     let contain_handle = entry.with_module(|module| {
                         module
                             .as_any()
@@ -982,8 +1013,11 @@ impl Object {
 
             let object_id = guard.id;
             guard.update_module_registrations.clear();
-            let update_handles: Vec<Arc<ModuleEntry>> =
-                guard.update_module_handles.iter().cloned().collect();
+            let update_handles: Vec<Arc<ModuleEntry>> = guard
+                .update_module_handles
+                .iter()
+                .filter_map(|index| guard.modules.get(*index).cloned())
+                .collect();
             for entry in &update_handles {
                 let proxy: UpdateModulePtr = Arc::new(RwLock::new(ModuleUpdateProxy::new(
                     Arc::clone(entry),
@@ -1066,7 +1100,7 @@ impl Object {
         &self,
     ) -> Result<Arc<crate::object::contain::garrison_contain::GarrisonContainModuleData>, String>
     {
-        for entry in &self.contain_module_handles {
+        for entry in self.interface_entries(&self.contain_module_handles) {
             if let Some(ContainModuleDataKind::Garrison(data)) =
                 ContainModuleDataKind::from_module_data(entry.module_data.as_ref())
             {
@@ -1082,7 +1116,7 @@ impl Object {
     pub fn get_transport_contain_module_data(
         &self,
     ) -> Result<crate::object::contain::transport_contain::TransportContainModuleData, String> {
-        for entry in &self.contain_module_handles {
+        for entry in self.interface_entries(&self.contain_module_handles) {
             if let Some(ContainModuleDataKind::Transport(data)) =
                 ContainModuleDataKind::from_module_data(entry.module_data.as_ref())
             {
@@ -1188,7 +1222,7 @@ impl Object {
     }
 
     pub fn force_refresh_sub_object_upgrade_status(&mut self) {
-        for entry in &self.upgrade_module_handles {
+        for entry in self.interface_entries(&self.upgrade_module_handles) {
             entry.with_module(|module| {
                 if let Some(UpgradeModuleKindMut::SubObjects(sub_obj)) = module_upgrade_kind(module)
                 {

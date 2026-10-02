@@ -72,15 +72,21 @@ fn estimate_ping_ms(hostname: &str) -> i32 {
     (50 + (total % 200)) as i32
 }
 
-static THE_GAMESPY_PING_QUEUE: OnceLock<Arc<Mutex<GameSpyPingQueue>>> = OnceLock::new();
+/// THREAD: C++-parity global ping queue. GUI threads push ping requests and
+/// drain responses while the ping worker drains requests and pushes results;
+/// this single mutex is the only cross-thread handoff and is never held across
+/// an `.await`.
+type SharedPingQueue = Arc<Mutex<GameSpyPingQueue>>;
 
-pub fn init_ping_queue() -> Arc<Mutex<GameSpyPingQueue>> {
+static THE_GAMESPY_PING_QUEUE: OnceLock<SharedPingQueue> = OnceLock::new();
+
+pub fn init_ping_queue() -> SharedPingQueue {
     THE_GAMESPY_PING_QUEUE
         .get_or_init(|| Arc::new(Mutex::new(GameSpyPingQueue::default())))
         .clone()
 }
 
-pub fn get_ping_queue() -> Option<Arc<Mutex<GameSpyPingQueue>>> {
+pub fn get_ping_queue() -> Option<SharedPingQueue> {
     THE_GAMESPY_PING_QUEUE.get().cloned()
 }
 

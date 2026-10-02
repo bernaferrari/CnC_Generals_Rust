@@ -273,12 +273,8 @@ impl UpgradeModuleInterface for ReplaceObjectUpgrade {
             replacement_guard.on_build_complete();
         }
 
-        let player = replacement_object
-            .read()
-            .ok()
-            .and_then(|guard| guard.get_controlling_player());
-        if let Some(player) = player {
-            if let Ok(mut player_guard) = player.write() {
+        if let Ok(replacement_guard) = replacement_object.read() {
+            replacement_guard.with_controlling_player_mut(|player_guard| {
                 let builder_id = constructor_arc
                     .as_ref()
                     .and_then(|b| b.read().ok().map(|g| g.get_id()));
@@ -287,7 +283,7 @@ impl UpgradeModuleInterface for ReplaceObjectUpgrade {
                     replacement_id,
                     false,
                 );
-            }
+            });
         }
 
         self.applied = true;

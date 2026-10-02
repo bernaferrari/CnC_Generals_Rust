@@ -6,8 +6,6 @@
 //! safe memory operations and channels for data flow.
 
 use crate::error::{Error, Result};
-use std::collections::VecDeque;
-use std::sync::{Arc, Mutex, Weak};
 use tokio::fs::File;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
@@ -186,7 +184,11 @@ impl StreamBuffer {
     }
 }
 
-/// Stream access interface for reading/writing stream data
+/// Stream access interface for reading/writing stream data.
+///
+/// An accessor is plain bookkeeping state plus an index into the owning
+/// `StreamBuffering` ring; the C++ original used raw `StreamBuffer*`
+/// pointers, which only ever pointed inside the same buffering object.
 pub struct StreamAccess {
     /// Access identifier
     pub id: AccessId,
@@ -196,10 +198,10 @@ pub struct StreamAccess {
     pub mode: StreamAccessMode,
     /// Current data block being accessed
     pub block: StreamDataBlock,
-    /// Current buffer being accessed
-    current_buffer: Option<Arc<Mutex<StreamBuffer>>>,
-    /// Start buffer for this access
-    start_buffer: Option<Arc<Mutex<StreamBuffer>>>,
+    /// Ring index of the buffer currently being accessed
+    current_buffer: Option<usize>,
+    /// Ring index of the buffer this access starts at
+    start_buffer: Option<usize>,
     /// Current position within access
     access_position: usize,
     /// Absolute position in stream
@@ -212,8 +214,6 @@ pub struct StreamAccess {
     last_error: Option<Error>,
     /// Access flags
     flags: u32,
-    /// Reference to parent stream
-    stream: Weak<Mutex<StreamBuffering>>,
 }
 
 /// Stream access flags
@@ -235,7 +235,6 @@ impl StreamAccess {
             bytes_in: 0,
             last_error: None,
             flags: 0,
-            stream: Weak::new(),
         }
     }
 
@@ -259,200 +258,6 @@ impl StreamAccess {
         self.last_error.as_ref()
     }
 
-    /// Transfer data to/from the stream
-    pub async fn transfer(&mut self, data: &mut [u8]) -> Result<usize> {
-        let mut transferred = 0;
-        let mut remaining = data.len();
-        let mut data_offset = 0;
-
-        while remaining > 0 {
-            self.get_block().await?;
-
-            if self.block.bytes == 0 {
-                break; // Stream exhausted
-            }
-
-            let transfer_size = remaining.min(self.block.bytes);
-
-            match self.access_type {
-                StreamAccessType::Input => {
-                    // Copy data into stream
-                    self.block.data[..transfer_size]
-                        .copy_from_slice(&data[data_offset..data_offset + transfer_size]);
-                }
-                StreamAccessType::Output => {
-                    // Copy data from stream
-                    data[data_offset..data_offset + transfer_size]
-                        .copy_from_slice(&self.block.valid_data()[..transfer_size]);
-                }
-            }
-
-            self.advance(transfer_size).await?;
-            data_offset += transfer_size;
-            remaining -= transfer_size;
-            transferred += transfer_size;
-        }
-
-        Ok(transferred)
-    }
-
-    /// Transfer data to/from file
-    pub async fn file_transfer(
-        &mut self,
-        file: &mut File,
-        bytes: usize,
-    ) -> Result<(usize, StreamResult)> {
-        let mut transferred = 0;
-        let mut remaining = bytes;
-
-        while remaining > 0 {
-            self.get_block().await?;
-
-            if self.block.bytes == 0 {
-                return Ok((transferred, StreamResult::Eof));
-            }
-
-            let transfer_size = remaining.min(self.block.bytes);
-
-            let result = match self.access_type {
-                StreamAccessType::Input => {
-                    // Read from file into stream
-                    match file.read(&mut self.block.data[..transfer_size]).await {
-                        Ok(bytes_read) => {
-                            if bytes_read == 0 {
-                                return Ok((transferred, StreamResult::Eof));
-                            }
-                            bytes_read
-                        }
-                        Err(e) => {
-                            self.last_error = Some(Error::Io(e));
-                            return Ok((transferred, StreamResult::Fail));
-                        }
-                    }
-                }
-                StreamAccessType::Output => {
-                    // Write from stream to file
-                    match file.write(&self.block.valid_data()[..transfer_size]).await {
-                        Ok(bytes_written) => bytes_written,
-                        Err(e) => {
-                            self.last_error = Some(Error::Io(e));
-                            return Ok((transferred, StreamResult::Fail));
-                        }
-                    }
-                }
-            };
-
-            self.advance(result).await?;
-            remaining -= result;
-            transferred += result;
-
-            if result < transfer_size {
-                // Partial transfer indicates end of file or error
-                return Ok((transferred, StreamResult::Eof));
-            }
-        }
-
-        Ok((transferred, StreamResult::Ok))
-    }
-
-    /// Get current data block for access
-    pub async fn get_block(&mut self) -> Result<usize> {
-        self.advance(0).await?;
-        Ok(self.block.bytes)
-    }
-
-    /// Advance access position
-    pub async fn advance(&mut self, bytes_to_advance: usize) -> Result<usize> {
-        let total_bytes = self.get_total_bytes();
-
-        if self.access_position >= total_bytes {
-            self.block.bytes = 0;
-            return Ok(0);
-        }
-
-        let available_bytes = total_bytes - self.access_position;
-        let advance_bytes = bytes_to_advance.min(available_bytes);
-
-        // Update positions
-        self.access_position += advance_bytes;
-        self.absolute_position += advance_bytes as u64;
-        if self.access_type == StreamAccessType::Input {
-            if let Some(stream) = self.stream.upgrade() {
-                if let Ok(mut stream_guard) = stream.lock() {
-                    stream_guard.input_queued =
-                        stream_guard.input_queued.saturating_add(advance_bytes);
-                }
-            }
-        } else {
-            if let Some(stream) = self.stream.upgrade() {
-                if let Ok(mut stream_guard) = stream.lock() {
-                    stream_guard.output_queued =
-                        stream_guard.output_queued.saturating_add(advance_bytes);
-                }
-            }
-        }
-
-        // Handle wrap-around for absolute position
-        if let Some(stream) = self.stream.upgrade() {
-            if let Ok(stream_guard) = stream.lock() {
-                let total_stream_bytes = stream_guard.total_bytes() as u64;
-                if total_stream_bytes != 0 && self.absolute_position >= total_stream_bytes {
-                    self.absolute_position %= total_stream_bytes;
-                }
-            }
-        }
-
-        // Update buffer access if needed
-        self.update_buffer_access().await?;
-
-        // Perform update if in update mode
-        if self.access_position > 0 && self.mode == StreamAccessMode::Update {
-            self.update().await?;
-        }
-
-        Ok(advance_bytes)
-    }
-
-    /// Update downstream accessor when data is consumed
-    pub async fn update(&mut self) -> Result<usize> {
-        let bytes_to_update = self.access_position;
-        if bytes_to_update == 0 {
-            return Ok(0);
-        }
-
-        // Update byte counts
-        self.bytes_out = self.bytes_out.wrapping_add(bytes_to_update as u64);
-
-        // Notify upstream accessor
-        if let Some(stream) = self.stream.upgrade() {
-            if let Ok(mut stream_guard) = stream.lock() {
-                stream_guard.update_upstream_accessor(self.id, bytes_to_update as u64)?;
-            }
-        }
-
-        // Update buffer positions
-        self.update_start_buffer(bytes_to_update).await?;
-        self.return_to_start().await?;
-
-        Ok(bytes_to_update)
-    }
-
-    /// Return access to start position
-    pub async fn return_to_start(&mut self) -> Result<()> {
-        self.access_position = 0;
-        self.current_buffer = self.start_buffer.clone();
-
-        if let Some(buffer) = &self.current_buffer {
-            if let Ok(buffer_guard) = buffer.lock() {
-                self.block.data = buffer_guard.regions[self.id as usize].data.clone();
-                self.block.bytes = 0; // Will be set by next get_block call
-            }
-        }
-
-        self.flags &= !ACCESS_FLAG_TOP_OF_START;
-        Ok(())
-    }
-
     /// Get total available bytes for this access
     pub fn get_total_bytes(&self) -> usize {
         self.bytes_in.wrapping_sub(self.bytes_out) as usize
@@ -462,93 +267,17 @@ impl StreamAccess {
     pub fn get_position(&self) -> u64 {
         self.absolute_position
     }
-
-    /// Update buffer access positions
-    async fn update_buffer_access(&mut self) -> Result<()> {
-        // Implementation for buffer navigation and data block updates
-        if let Some(buffer) = &self.current_buffer {
-            if let Ok(buffer_guard) = buffer.lock() {
-                let region = &buffer_guard.regions[self.id as usize];
-
-                let available_in_region = region.bytes;
-                if self.block.data.len() < available_in_region {
-                    self.block.data.resize(available_in_region, 0);
-                    self.block.capacity = self.block.data.len();
-                }
-                if self.access_type == StreamAccessType::Output && available_in_region > 0 {
-                    let copy_len = available_in_region.min(region.data.len());
-                    self.block.data[..copy_len].copy_from_slice(&region.data[..copy_len]);
-                }
-
-                let total_available = self.get_total_bytes();
-                self.block.bytes = available_in_region.min(total_available);
-            }
-        }
-        Ok(())
-    }
-
-    /// Update start buffer position after consumption
-    async fn update_start_buffer(&mut self, bytes_consumed: usize) -> Result<()> {
-        let mut remaining_bytes = bytes_consumed;
-
-        while remaining_bytes > 0 && self.start_buffer.is_some() {
-            let next_buffer = {
-                let Some(buffer_arc) = self.start_buffer.clone() else {
-                    break;
-                };
-
-                let Ok(mut buffer_guard) = buffer_arc.lock() else {
-                    return Err(Error::Memory("Failed to lock stream buffer".to_string()));
-                };
-
-                let buffer_id = buffer_guard.id;
-                let reset_data = buffer_guard.data_region.data.clone();
-                let region = &mut buffer_guard.regions[self.id as usize];
-
-                if region.bytes <= remaining_bytes {
-                    remaining_bytes -= region.bytes;
-                    region.reset(reset_data);
-                    drop(buffer_guard);
-
-                    if let Some(stream) = self.stream.upgrade() {
-                        if let Ok(stream_guard) = stream.lock() {
-                            stream_guard.get_next_buffer(buffer_id)
-                        } else {
-                            None
-                        }
-                    } else {
-                        None
-                    }
-                } else {
-                    region.data.drain(..remaining_bytes);
-                    region.bytes -= remaining_bytes;
-                    region.offset += remaining_bytes;
-                    remaining_bytes = 0;
-                    drop(buffer_guard);
-                    Some(buffer_arc)
-                }
-            };
-
-            self.start_buffer = next_buffer;
-        }
-
-        Ok(())
-    }
-
-    /// Reset access to initial state
-    pub async fn reset(&mut self, start_buffer: Option<Arc<Mutex<StreamBuffer>>>) {
-        self.start_buffer = start_buffer.clone();
-        self.bytes_in = 0;
-        self.bytes_out = 0;
-        self.absolute_position = 0;
-        self.return_to_start().await.unwrap_or(());
-    }
 }
 
 /// Main stream buffering system
+///
+/// Owns its ring of `StreamBuffer`s outright and the two accessors that walk
+/// them. The whole object is driven by a single owner (the streaming task),
+/// so buffers are stored by value and addressed by ring index instead of
+/// shared handle types.
 pub struct StreamBuffering {
-    /// List of buffers in the stream
-    buffers: VecDeque<Arc<Mutex<StreamBuffer>>>,
+    /// Ring of buffers owned by this stream
+    buffers: Vec<StreamBuffer>,
     /// Stream access interfaces
     accessors: [Option<StreamAccess>; MAX_STREAM_ACCESSORS],
     /// Total bytes in all buffers
@@ -563,23 +292,16 @@ pub struct StreamBuffering {
     flags: u32,
     /// Next buffer ID to assign
     next_buffer_id: BufferId,
-    /// Weak reference back to this stream for accessor coordination
-    self_ref: Weak<Mutex<StreamBuffering>>,
 }
 
 /// Stream flags
 const STREAM_FLAG_RESET_DONE: u32 = 0x0001;
 
 impl StreamBuffering {
-    /// Attach a self reference for accessors; must be called once the stream is wrapped in Arc<Mutex<>>
-    pub fn set_self_reference(&mut self, owner: &Arc<Mutex<StreamBuffering>>) {
-        self.self_ref = Arc::downgrade(owner);
-    }
-
     /// Create a new stream buffering system
     pub fn new() -> Self {
         Self {
-            buffers: VecDeque::new(),
+            buffers: Vec::new(),
             accessors: [None, None],
             total_bytes: 0,
             input_queued: 0,
@@ -587,7 +309,25 @@ impl StreamBuffering {
             buffer_count: 0,
             flags: 0,
             next_buffer_id: 0,
-            self_ref: Weak::new(),
+        }
+    }
+
+    /// Borrow an acquired accessor
+    fn access_mut(&mut self, access_id: AccessId) -> Result<&mut StreamAccess> {
+        self.accessors
+            .get_mut(access_id as usize)
+            .and_then(|slot| slot.as_mut())
+            .ok_or_else(|| Error::Memory("Access not acquired".to_string()))
+    }
+
+    /// Ring index that follows `index`, wrapping around the ring
+    fn next_buffer_index(&self, index: usize) -> Option<usize> {
+        if self.buffers.is_empty() {
+            None
+        } else if index + 1 < self.buffers.len() {
+            Some(index + 1)
+        } else {
+            Some(0)
         }
     }
 
@@ -597,8 +337,7 @@ impl StreamBuffering {
         self.next_buffer_id += 1;
         let capacity = buffer.data_region.capacity;
 
-        let buffer_arc = Arc::new(Mutex::new(buffer));
-        self.buffers.push_back(buffer_arc);
+        self.buffers.push(buffer);
 
         self.buffer_count += 1;
         self.total_bytes = self.total_bytes.saturating_add(capacity);
@@ -646,16 +385,13 @@ impl StreamBuffering {
         }
 
         let mut access = StreamAccess::new(access_id, access_type);
-        access.stream = self.self_ref.clone();
-        access.start_buffer = self.buffers.front().cloned();
-        access.current_buffer = access.start_buffer.clone();
-        if let Some(buffer_arc) = &access.current_buffer {
-            if let Ok(buffer_guard) = buffer_arc.lock() {
-                let region = &buffer_guard.regions[access_id as usize];
-                access.block.data = region.data.clone();
-                access.block.bytes = region.bytes;
-                access.block.capacity = region.data.len();
-            }
+        access.start_buffer = if self.buffers.is_empty() { None } else { Some(0) };
+        access.current_buffer = access.start_buffer;
+        if let Some(buffer_index) = access.current_buffer {
+            let region = &self.buffers[buffer_index].regions[access_id as usize];
+            access.block.data = region.data.clone();
+            access.block.bytes = region.bytes;
+            access.block.capacity = region.data.len();
         }
 
         // For input accessor, initialize with available space
@@ -692,29 +428,20 @@ impl StreamBuffering {
     /// Internal reset implementation
     fn reset_internal(&mut self) -> Result<()> {
         // Reset all buffers
-        for (index, buffer_arc) in self.buffers.iter().enumerate() {
-            if let Ok(mut buffer) = buffer_arc.lock() {
-                buffer.reset();
-                buffer.id = index as BufferId;
-            }
+        for (index, buffer) in self.buffers.iter_mut().enumerate() {
+            buffer.reset();
+            buffer.id = index as BufferId;
         }
         self.total_bytes = self
             .buffers
             .iter()
-            .filter_map(|buffer_arc| buffer_arc.lock().ok())
             .map(|buffer| buffer.data_region.capacity)
             .sum();
 
         // Reset accessor states (if any exist but not currently acquired)
         for i in 0..MAX_STREAM_ACCESSORS {
-            if let Some(ref mut access) = self.accessors[i] {
-                let start_buffer = self.buffers.front().cloned();
-                // Reset in a blocking context - we'll need to handle this properly
-                tokio::task::block_in_place(|| {
-                    tokio::runtime::Handle::current().block_on(async {
-                        access.reset(start_buffer).await;
-                    })
-                });
+            if self.accessors[i].is_some() {
+                self.reset_access(i as AccessId);
             }
         }
 
@@ -722,11 +449,24 @@ impl StreamBuffering {
         self.input_queued = self.buffers.len()
             * self
                 .buffers
-                .front()
-                .and_then(|b| b.lock().ok().map(|guard| guard.data_region.capacity))
+                .first()
+                .map(|buffer| buffer.data_region.capacity)
                 .unwrap_or(0);
         self.output_queued = 0;
         Ok(())
+    }
+
+    /// Rewind one accessor to the start of the ring
+    fn reset_access(&mut self, access_id: AccessId) {
+        let start = if self.buffers.is_empty() { None } else { Some(0) };
+        if let Ok(access) = self.access_mut(access_id) {
+            access.start_buffer = start;
+            access.bytes_in = 0;
+            access.bytes_out = 0;
+            access.absolute_position = 0;
+            access.access_position = 0;
+            access.current_buffer = start;
+        }
     }
 
     /// Destroy all buffers in the stream
@@ -753,8 +493,7 @@ impl StreamBuffering {
     fn recalculate_queue_state_interior(&mut self) {
         let buffer_capacity = self
             .buffers
-            .front()
-            .and_then(|buffer_arc| buffer_arc.lock().ok())
+            .first()
             .map(|buffer| buffer.data_region.capacity)
             .unwrap_or(0);
 
@@ -781,7 +520,7 @@ impl StreamBuffering {
         }
     }
 
-    /// Get total bytes available for output  
+    /// Get total bytes available for output
     pub fn total_bytes_in(&self) -> usize {
         if let Some(ref access) = self.accessors[StreamAccessType::Output as usize] {
             access.get_total_bytes()
@@ -795,27 +534,16 @@ impl StreamBuffering {
         self.total_bytes_till_full() == 0
     }
 
-    /// Get next buffer after the specified buffer ID
-    pub fn get_next_buffer(&self, buffer_id: BufferId) -> Option<Arc<Mutex<StreamBuffer>>> {
-        let mut found = false;
+    /// Ring index of the buffer that follows `buffer_id`
+    pub fn get_next_buffer(&self, buffer_id: BufferId) -> Option<usize> {
+        let found = self.buffers.iter().position(|buffer| buffer.id == buffer_id)?;
 
-        for buffer_arc in &self.buffers {
-            if let Ok(buffer) = buffer_arc.lock() {
-                if found {
-                    return Some(buffer_arc.clone());
-                }
-                if buffer.id == buffer_id {
-                    found = true;
-                }
-            }
-        }
-
-        // If not found or at end, return first buffer for circular behavior
-        if found {
-            self.buffers.front().cloned()
+        // Wrap around to the first buffer for circular behavior
+        Some(if found + 1 < self.buffers.len() {
+            found + 1
         } else {
-            None
-        }
+            0
+        })
     }
 
     /// Update upstream accessor when downstream consumes data
@@ -828,11 +556,291 @@ impl StreamBuffering {
 
         Ok(())
     }
-}
 
-impl Default for StreamBuffering {
-    fn default() -> Self {
-        Self::new()
+    /// Transfer data to/from the stream through one accessor
+    pub async fn transfer(&mut self, access_id: AccessId, data: &mut [u8]) -> Result<usize> {
+        let mut transferred = 0;
+        let mut remaining = data.len();
+        let mut data_offset = 0;
+
+        while remaining > 0 {
+            self.get_block(access_id).await?;
+
+            let (block_bytes, access_type) = {
+                let access = self.access_mut(access_id)?;
+                (access.block.bytes, access.access_type)
+            };
+
+            if block_bytes == 0 {
+                break; // Stream exhausted
+            }
+
+            let transfer_size = remaining.min(block_bytes);
+
+            {
+                let access = self.access_mut(access_id)?;
+                match access_type {
+                    StreamAccessType::Input => {
+                        // Copy data into stream
+                        access.block.data[..transfer_size]
+                            .copy_from_slice(&data[data_offset..data_offset + transfer_size]);
+                    }
+                    StreamAccessType::Output => {
+                        // Copy data from stream
+                        data[data_offset..data_offset + transfer_size]
+                            .copy_from_slice(&access.block.valid_data()[..transfer_size]);
+                    }
+                }
+            }
+
+            self.advance(access_id, transfer_size).await?;
+            data_offset += transfer_size;
+            remaining -= transfer_size;
+            transferred += transfer_size;
+        }
+
+        Ok(transferred)
+    }
+
+    /// Transfer data to/from file through one accessor
+    pub async fn file_transfer(
+        &mut self,
+        access_id: AccessId,
+        file: &mut File,
+        bytes: usize,
+    ) -> Result<(usize, StreamResult)> {
+        let mut transferred = 0;
+        let mut remaining = bytes;
+
+        while remaining > 0 {
+            self.get_block(access_id).await?;
+
+            let block_bytes = self.access_mut(access_id)?.block.bytes;
+            if block_bytes == 0 {
+                return Ok((transferred, StreamResult::Eof));
+            }
+
+            let transfer_size = remaining.min(block_bytes);
+
+            let result = {
+                let access = self.access_mut(access_id)?;
+                match access.access_type {
+                    StreamAccessType::Input => {
+                        // Read from file into stream
+                        match file.read(&mut access.block.data[..transfer_size]).await {
+                            Ok(bytes_read) => {
+                                if bytes_read == 0 {
+                                    return Ok((transferred, StreamResult::Eof));
+                                }
+                                bytes_read
+                            }
+                            Err(e) => {
+                                access.last_error = Some(Error::Io(e));
+                                return Ok((transferred, StreamResult::Fail));
+                            }
+                        }
+                    }
+                    StreamAccessType::Output => {
+                        // Write from stream to file
+                        match file.write(&access.block.valid_data()[..transfer_size]).await {
+                            Ok(bytes_written) => bytes_written,
+                            Err(e) => {
+                                access.last_error = Some(Error::Io(e));
+                                return Ok((transferred, StreamResult::Fail));
+                            }
+                        }
+                    }
+                }
+            };
+
+            self.advance(access_id, result).await?;
+            remaining -= result;
+            transferred += result;
+
+            if result < transfer_size {
+                // Partial transfer indicates end of file or error
+                return Ok((transferred, StreamResult::Eof));
+            }
+        }
+
+        Ok((transferred, StreamResult::Ok))
+    }
+
+    /// Get current data block for an access
+    pub async fn get_block(&mut self, access_id: AccessId) -> Result<usize> {
+        self.advance(access_id, 0).await?;
+        Ok(self.access_mut(access_id)?.block.bytes)
+    }
+
+    /// Advance an access position
+    pub async fn advance(&mut self, access_id: AccessId, bytes_to_advance: usize) -> Result<usize> {
+        let total_bytes = self.access_mut(access_id)?.get_total_bytes();
+
+        let access_position = {
+            let access = self.access_mut(access_id)?;
+            if access.access_position >= total_bytes {
+                access.block.bytes = 0;
+                return Ok(0);
+            }
+            access.access_position
+        };
+
+        let available_bytes = total_bytes - access_position;
+        let advance_bytes = bytes_to_advance.min(available_bytes);
+
+        // Update positions
+        {
+            let access = self.access_mut(access_id)?;
+            access.access_position += advance_bytes;
+            access.absolute_position += advance_bytes as u64;
+        }
+
+        // Update queued byte counts
+        let access_type = self.access_mut(access_id)?.access_type;
+        if access_type == StreamAccessType::Input {
+            self.input_queued = self.input_queued.saturating_add(advance_bytes);
+        } else {
+            self.output_queued = self.output_queued.saturating_add(advance_bytes);
+        }
+
+        // Handle wrap-around for absolute position
+        let total_stream_bytes = self.total_bytes as u64;
+        if total_stream_bytes != 0 {
+            let access = self.access_mut(access_id)?;
+            if access.absolute_position >= total_stream_bytes {
+                access.absolute_position %= total_stream_bytes;
+            }
+        }
+
+        // Update buffer access if needed
+        self.update_buffer_access(access_id)?;
+
+        // Perform update if in update mode
+        let needs_update = {
+            let access = self.access_mut(access_id)?;
+            access.access_position > 0 && access.mode == StreamAccessMode::Update
+        };
+        if needs_update {
+            self.update_access(access_id)?;
+        }
+
+        Ok(advance_bytes)
+    }
+
+    /// Update one accessor after its data was consumed
+    fn update_access(&mut self, access_id: AccessId) -> Result<usize> {
+        let bytes_to_update = self.access_mut(access_id)?.access_position;
+        if bytes_to_update == 0 {
+            return Ok(0);
+        }
+
+        // Update byte counts
+        {
+            let access = self.access_mut(access_id)?;
+            access.bytes_out = access.bytes_out.wrapping_add(bytes_to_update as u64);
+        }
+
+        // Notify upstream accessor
+        self.update_upstream_accessor(access_id, bytes_to_update as u64)?;
+
+        // Update buffer positions
+        self.update_start_buffer(access_id, bytes_to_update)?;
+        self.return_to_start(access_id)?;
+
+        Ok(bytes_to_update)
+    }
+
+    /// Return an access to its start position
+    fn return_to_start(&mut self, access_id: AccessId) -> Result<()> {
+        {
+            let access = self.access_mut(access_id)?;
+            access.access_position = 0;
+            access.current_buffer = access.start_buffer;
+        }
+
+        let current = self.access_mut(access_id)?.current_buffer;
+        if let Some(buffer_index) = current {
+            let region_data = self.buffers[buffer_index].regions[access_id as usize].data.clone();
+            let access = self.access_mut(access_id)?;
+            access.block.data = region_data;
+            access.block.bytes = 0; // Will be set by next get_block call
+        }
+
+        let access = self.access_mut(access_id)?;
+        access.flags &= !ACCESS_FLAG_TOP_OF_START;
+        Ok(())
+    }
+
+    /// Update buffer access positions for one accessor
+    fn update_buffer_access(&mut self, access_id: AccessId) -> Result<()> {
+        let current = self.access_mut(access_id)?.current_buffer;
+        let Some(buffer_index) = current else {
+            return Ok(());
+        };
+
+        let access_type = self.access_mut(access_id)?.access_type;
+        let (available_in_region, region_copy) = {
+            let region = &self.buffers[buffer_index].regions[access_id as usize];
+            let copy = if access_type == StreamAccessType::Output && region.bytes > 0 {
+                let copy_len = region.bytes.min(region.data.len());
+                Some(region.data[..copy_len].to_vec())
+            } else {
+                None
+            };
+            (region.bytes, copy)
+        };
+
+        let access = self.access_mut(access_id)?;
+        if access.block.data.len() < available_in_region {
+            access.block.data.resize(available_in_region, 0);
+            access.block.capacity = access.block.data.len();
+        }
+        if let Some(region_copy) = region_copy {
+            access.block.data[..region_copy.len()].copy_from_slice(&region_copy);
+        }
+
+        let total_available = access.get_total_bytes();
+        access.block.bytes = available_in_region.min(total_available);
+        Ok(())
+    }
+
+    /// Update the start buffer of one accessor after consumption
+    fn update_start_buffer(&mut self, access_id: AccessId, bytes_consumed: usize) -> Result<()> {
+        let mut remaining_bytes = bytes_consumed;
+
+        while remaining_bytes > 0 {
+            let Some(buffer_index) = self.access_mut(access_id)?.start_buffer else {
+                break;
+            };
+
+            let stayed = {
+                let buffer = &mut self.buffers[buffer_index];
+                let reset_data = buffer.data_region.data.clone();
+                let region = &mut buffer.regions[access_id as usize];
+
+                if region.bytes <= remaining_bytes {
+                    remaining_bytes -= region.bytes;
+                    region.reset(reset_data);
+                    false
+                } else {
+                    region.data.drain(..remaining_bytes);
+                    region.bytes -= remaining_bytes;
+                    region.offset += remaining_bytes;
+                    remaining_bytes = 0;
+                    true
+                }
+            };
+
+            let next = if stayed {
+                Some(buffer_index)
+            } else {
+                let buffer_id = self.buffers[buffer_index].id;
+                self.get_next_buffer(buffer_id)
+            };
+            self.access_mut(access_id)?.start_buffer = next;
+        }
+
+        Ok(())
     }
 }
 
@@ -952,13 +960,16 @@ mod tests {
         let mut stream = StreamBuffering::new();
         stream.create_buffers(2, 1024, 8).unwrap();
 
-        let input_access = stream.acquire_access(StreamAccessType::Input).unwrap();
+        stream.acquire_access(StreamAccessType::Input).unwrap();
 
         // Test data transfer
         let test_data = vec![1, 2, 3, 4, 5];
         let mut data_copy = test_data.clone();
 
-        let transferred = input_access.transfer(&mut data_copy).await.unwrap();
+        let transferred = stream
+            .transfer(StreamAccessType::Input as AccessId, &mut data_copy)
+            .await
+            .unwrap();
         assert_eq!(transferred, test_data.len());
     }
 

@@ -1219,18 +1219,15 @@ impl AIDockProcessDockState {
         let owner_guard = owner
             .read()
             .map_err(|_| "dock process owner poisoned".to_string())?;
-        if let Some(player) = owner_guard.get_controlling_player() {
-            let owner_id = owner_guard.get_id();
-            if let Ok(player_guard) = player.read() {
-                let drone_id = player_guard.find_drone_id_by_producer_id(owner_id);
-                if drone_id.is_some() {
-                    self.drone_id = drone_id;
-                }
-                return Ok(drone_id);
-            }
+        let drone_id = owner_guard
+            .with_controlling_player(|player_guard| {
+                player_guard.find_drone_id_by_producer_id(owner_guard.get_id())
+            })
+            .flatten();
+        if drone_id.is_some() {
+            self.drone_id = drone_id;
         }
-
-        Ok(None)
+        Ok(drone_id)
     }
 
     fn find_my_drone(&mut self) -> Result<Option<Arc<RwLock<Object>>>, String> {

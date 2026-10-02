@@ -236,8 +236,9 @@ impl ComprehensiveAudioSystem {
     }
 
     /// Create a music stream
+    // THREAD: `StreamManager` is owner-thread state, so mutation needs `&mut self`.
     pub fn create_music_stream(
-        &self,
+        &mut self,
         file_path: &str,
     ) -> Result<Arc<AudioStreamer>, Box<dyn std::error::Error>> {
         let metadata = self.asset_manager.get_metadata(file_path)?;
@@ -252,7 +253,8 @@ impl ComprehensiveAudioSystem {
     }
 
     /// Update the audio system (call every frame)
-    pub fn update(&self) {
+    // THREAD: `StreamManager::update` mutates owner-thread state.
+    pub fn update(&mut self) {
         // Update sound effects manager
         self.sound_effects.update();
 

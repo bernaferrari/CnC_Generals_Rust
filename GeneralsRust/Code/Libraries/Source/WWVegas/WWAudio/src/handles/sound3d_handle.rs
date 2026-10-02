@@ -10,6 +10,9 @@ use super::{base_handle::BaseSoundHandle, sound2d_handle::Sound2DHandle};
 /// 3D sound handle implementation (`Sound3DHandleClass` analogue)
 pub struct Sound3DHandle {
     pub base: BaseSoundHandle,
+    // THREAD: cloned handles share one Sound3D on the game thread, and the
+    // last clone is dropped on a thread-pool worker by the delayed-release
+    // queue, so the shared sound keeps its shared, locked handle
     sound: Arc<Mutex<Sound3D>>,
     sample_handle: Sound2DHandle,
 }

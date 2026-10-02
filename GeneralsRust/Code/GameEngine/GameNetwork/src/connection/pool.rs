@@ -120,6 +120,23 @@ impl PooledConnection {
     }
 }
 
+/// Pool bookkeeping shared between the pool's public accessors and its two
+/// background tasks (connection validator, pool maintainer).
+///
+/// THREAD: one async lock guards the whole bundle instead of one lock per
+/// collection - the game thread checks out and returns connections while the
+/// background tasks validate and trim them. A tokio lock is required because
+/// connection validity checks await while the guard is held.
+#[derive(Default)]
+struct PoolState {
+    /// Active connections (by remote address)
+    active_connections: HashMap<SocketAddr, PooledConnection>,
+    /// Idle connection queue
+    idle_queue: VecDeque<PooledConnection>,
+    /// Pool statistics
+    stats: PoolStats,
+}
+
 /// Connection pool for managing network connections
 pub struct ConnectionPool {
     /// Pool configuration
@@ -128,14 +145,8 @@ pub struct ConnectionPool {
     /// Transport reference
     transport: Arc<Transport>,
 
-    /// Active connections (by remote address)
-    active_connections: Arc<RwLock<HashMap<SocketAddr, PooledConnection>>>,
-
-    /// Idle connection queue
-    idle_queue: Arc<RwLock<VecDeque<PooledConnection>>>,
-
-    /// Pool statistics
-    stats: Arc<RwLock<PoolStats>>,
+    /// THREAD: see [`PoolState`].
+    pool_state: Arc<RwLock<PoolState>>,
 
     /// Connection semaphore for limiting max connections
     connection_semaphore: Arc<Semaphore>,
@@ -164,9 +175,7 @@ impl ConnectionPool {
             connection_semaphore: Arc::new(Semaphore::new(config.max_connections)),
             config,
             transport,
-            active_connections: Arc::new(RwLock::new(HashMap::new())),
-            idle_queue: Arc::new(RwLock::new(VecDeque::new())),
-            stats: Arc::new(RwLock::new(PoolStats::default())),
+            pool_state: Arc::new(RwLock::new(PoolState::default())),
             usage_counter: AtomicUsize::new(0),
             task_handles: Vec::new(),
             shutdown_tx,
@@ -181,33 +190,23 @@ impl ConnectionPool {
 
         // Connection validator task
         let validator_task = {
-            let active_connections = self.active_connections.clone();
-            let idle_queue = self.idle_queue.clone();
-            let stats = self.stats.clone();
+            let pool_state = self.pool_state.clone();
             let config = self.config.clone();
             let mut shutdown_rx_clone = shutdown_tx.subscribe();
 
             tokio::spawn(async move {
-                Self::connection_validator_task(
-                    active_connections,
-                    idle_queue,
-                    stats,
-                    config,
-                    &mut shutdown_rx_clone,
-                )
-                .await;
+                Self::connection_validator_task(pool_state, config, &mut shutdown_rx_clone).await;
             })
         };
 
         // Pool maintainer task
         let maintainer_task = {
-            let idle_queue = self.idle_queue.clone();
-            let stats = self.stats.clone();
+            let pool_state = self.pool_state.clone();
             let config = self.config.clone();
             let mut shutdown_rx_clone = shutdown_tx.subscribe();
 
             tokio::spawn(async move {
-                Self::pool_maintainer_task(idle_queue, stats, config, &mut shutdown_rx_clone).await;
+                Self::pool_maintainer_task(pool_state, config, &mut shutdown_rx_clone).await;
             })
         };
 
@@ -228,54 +227,56 @@ impl ConnectionPool {
 
         // Check if we have an active connection for this address
         {
-            let mut active = self.active_connections.write().await;
-            if let Some(pooled) = active.get_mut(&remote_addr) {
-                if pooled.is_valid().await {
+            let mut state = self.pool_state.write().await;
+
+            // Validate before taking the mutable borrow so the two field accesses
+            // below cannot overlap.
+            let is_valid = match state.active_connections.get(&remote_addr) {
+                Some(pooled) => pooled.is_valid().await,
+                None => false,
+            };
+
+            if is_valid {
+                let connection = {
+                    let pooled = state
+                        .active_connections
+                        .get_mut(&remote_addr)
+                        .expect("checked above");
                     pooled.mark_used();
+                    pooled.connection.clone()
+                };
+                state.stats.pool_hits += 1;
 
-                    // Update stats
-                    {
-                        let mut stats = self.stats.write().await;
-                        stats.pool_hits += 1;
-                    }
-
-                    trace!("Pool hit #{} for {}", usage_id, remote_addr);
-                    return Ok(pooled.connection.clone());
-                } else {
-                    // Connection is no longer valid, remove it
-                    active.remove(&remote_addr);
-                }
+                trace!("Pool hit #{} for {}", usage_id, remote_addr);
+                return Ok(connection);
+            } else if state.active_connections.contains_key(&remote_addr) {
+                // Connection is no longer valid, remove it
+                state.active_connections.remove(&remote_addr);
             }
         }
 
         // Try to get an idle connection
         if self.config.enable_reuse {
-            let mut idle_queue = self.idle_queue.write().await;
+            let mut state = self.pool_state.write().await;
 
             // Look for a suitable idle connection
-            for i in 0..idle_queue.len() {
-                let pooled = &idle_queue[i];
+            for i in 0..state.idle_queue.len() {
+                let pooled = &state.idle_queue[i];
                 if pooled.is_valid().await && pooled.age() < self.config.max_lifetime {
                     // Found a good idle connection
-                    let mut pooled = idle_queue.remove(i).unwrap();
+                    let mut pooled = state.idle_queue.remove(i).unwrap();
                     pooled.mark_used();
 
                     // Move to active connections
-                    {
-                        let mut active = self.active_connections.write().await;
-                        active.insert(remote_addr, pooled);
-                    }
+                    state.active_connections.insert(remote_addr, pooled);
 
                     // Update stats
-                    {
-                        let mut stats = self.stats.write().await;
-                        stats.pool_hits += 1;
-                        stats.active_connections += 1;
-                        stats.idle_connections -= 1;
-                    }
+                    state.stats.pool_hits += 1;
+                    state.stats.active_connections += 1;
+                    state.stats.idle_connections -= 1;
 
                     trace!("Pool reuse #{} for {}", usage_id, remote_addr);
-                    return Ok(idle_queue[i].connection.clone());
+                    return Ok(state.idle_queue[i].connection.clone());
                 }
             }
         }
@@ -313,15 +314,11 @@ impl ConnectionPool {
             Ok(Ok(conn)) => Arc::new(conn),
             Ok(Err(e)) => {
                 // Update error stats
-                {
-                    let mut stats = self.stats.write().await;
-                    stats.failed_connections += 1;
-                }
+                self.pool_state.write().await.stats.failed_connections += 1;
                 return Err(e);
             }
             Err(_) => {
-                let mut stats = self.stats.write().await;
-                stats.failed_connections += 1;
+                self.pool_state.write().await.stats.failed_connections += 1;
                 return Err(NetworkError::connection("connection creation timeout"));
             }
         };
@@ -330,18 +327,13 @@ impl ConnectionPool {
         let mut pooled = PooledConnection::new(connection.clone());
         pooled.mark_used();
 
-        // Add to active connections
+        // Add to active connections and record statistics under one guard.
         {
-            let mut active = self.active_connections.write().await;
-            active.insert(remote_addr, pooled);
-        }
-
-        // Update statistics
-        {
-            let mut stats = self.stats.write().await;
-            stats.total_created += 1;
-            stats.active_connections += 1;
-            stats.pool_misses += 1;
+            let mut state = self.pool_state.write().await;
+            state.active_connections.insert(remote_addr, pooled);
+            state.stats.total_created += 1;
+            state.stats.active_connections += 1;
+            state.stats.pool_misses += 1;
         }
 
         info!("Created new connection #{} to {}", usage_id, remote_addr);
@@ -350,9 +342,9 @@ impl ConnectionPool {
 
     /// Return a connection to the pool
     pub async fn return_connection(&self, remote_addr: SocketAddr) -> NetworkResult<()> {
-        let mut active = self.active_connections.write().await;
+        let mut state = self.pool_state.write().await;
 
-        if let Some(mut pooled) = active.remove(&remote_addr) {
+        if let Some(mut pooled) = state.active_connections.remove(&remote_addr) {
             pooled.mark_idle();
 
             // Check if we should keep this connection in the idle pool
@@ -360,18 +352,13 @@ impl ConnectionPool {
                 && pooled.age() < self.config.max_lifetime
                 && pooled.is_valid().await
             {
-                let mut idle_queue = self.idle_queue.write().await;
-
                 // Only keep if we're under the idle limit
-                if idle_queue.len() < self.config.max_idle {
-                    idle_queue.push_back(pooled);
+                if state.idle_queue.len() < self.config.max_idle {
+                    state.idle_queue.push_back(pooled);
 
                     // Update stats
-                    {
-                        let mut stats = self.stats.write().await;
-                        stats.active_connections -= 1;
-                        stats.idle_connections += 1;
-                    }
+                    state.stats.active_connections -= 1;
+                    state.stats.idle_connections += 1;
 
                     trace!("Returned connection to idle pool: {}", remote_addr);
                     return Ok(());
@@ -379,11 +366,8 @@ impl ConnectionPool {
             }
 
             // Connection will be dropped and destroyed
-            {
-                let mut stats = self.stats.write().await;
-                stats.total_destroyed += 1;
-                stats.active_connections -= 1;
-            }
+            state.stats.total_destroyed += 1;
+            state.stats.active_connections -= 1;
 
             trace!("Destroyed connection: {}", remote_addr);
         }
@@ -393,24 +377,27 @@ impl ConnectionPool {
 
     /// Get current pool statistics
     pub async fn get_stats(&self) -> PoolStats {
-        let mut stats = self.stats.read().await.clone();
+        let mut stats;
+        {
+            let state = self.pool_state.read().await;
+            stats = state.stats.clone();
 
-        // Calculate average connection age
-        let active = self.active_connections.read().await;
-        let idle = self.idle_queue.read().await;
+            // Calculate average connection age across active and idle connections.
+            let total_age: u64 = state
+                .active_connections
+                .values()
+                .chain(state.idle_queue.iter())
+                .map(|conn| conn.age().as_millis() as u64)
+                .sum();
 
-        let total_age: u64 = active
-            .values()
-            .chain(idle.iter())
-            .map(|conn| conn.age().as_millis() as u64)
-            .sum();
-
-        let total_connections = active.len() + idle.len();
-        stats.average_connection_age_ms = if total_connections > 0 {
-            total_age as f64 / total_connections as f64
-        } else {
-            0.0
-        };
+            let total_connections =
+                state.active_connections.len() + state.idle_queue.len();
+            stats.average_connection_age_ms = if total_connections > 0 {
+                total_age as f64 / total_connections as f64
+            } else {
+                0.0
+            };
+        }
 
         stats
     }
@@ -446,11 +433,11 @@ impl ConnectionPool {
 
     /// Force cleanup of idle connections
     pub async fn cleanup_idle(&self) -> usize {
-        let mut idle_queue = self.idle_queue.write().await;
+        let mut state = self.pool_state.write().await;
         let mut cleaned = 0;
 
         // Remove expired or invalid connections
-        idle_queue.retain(|pooled| {
+        state.idle_queue.retain(|pooled| {
             if pooled.idle_time() > self.config.idle_timeout
                 || pooled.age() > self.config.max_lifetime
             {
@@ -462,9 +449,8 @@ impl ConnectionPool {
         });
 
         if cleaned > 0 {
-            let mut stats = self.stats.write().await;
-            stats.total_destroyed += cleaned;
-            stats.idle_connections = idle_queue.len();
+            state.stats.total_destroyed += cleaned;
+            state.stats.idle_connections = state.idle_queue.len();
         }
 
         debug!("Cleaned {} idle connections", cleaned);
@@ -473,9 +459,7 @@ impl ConnectionPool {
 
     /// Connection validator background task
     async fn connection_validator_task(
-        active_connections: Arc<RwLock<HashMap<SocketAddr, PooledConnection>>>,
-        idle_queue: Arc<RwLock<VecDeque<PooledConnection>>>,
-        stats: Arc<RwLock<PoolStats>>,
+        pool_state: Arc<RwLock<PoolState>>,
         config: PoolConfig,
         shutdown_rx: &mut broadcast::Receiver<()>,
     ) {
@@ -486,12 +470,7 @@ impl ConnectionPool {
         loop {
             tokio::select! {
                 _ = interval.tick() => {
-                    Self::validate_connections(
-                        &active_connections,
-                        &idle_queue,
-                        &stats,
-                        &config,
-                    ).await;
+                    Self::validate_connections(&pool_state, &config).await;
                 }
                 _ = shutdown_rx.recv() => {
                     debug!("Connection validator task shutting down");
@@ -502,14 +481,10 @@ impl ConnectionPool {
     }
 
     /// Validate all connections in the pool
-    async fn validate_connections(
-        active_connections: &Arc<RwLock<HashMap<SocketAddr, PooledConnection>>>,
-        idle_queue: &Arc<RwLock<VecDeque<PooledConnection>>>,
-        stats: &Arc<RwLock<PoolStats>>,
-        config: &PoolConfig,
-    ) {
+    async fn validate_connections(pool_state: &RwLock<PoolState>, config: &PoolConfig) {
         let removed_active = {
-            let mut active = active_connections.write().await;
+            let mut state = pool_state.write().await;
+            let active = &mut state.active_connections;
             let mut to_remove = Vec::new();
 
             for (addr, pooled) in active.iter() {
@@ -527,7 +502,8 @@ impl ConnectionPool {
         };
 
         let removed_idle = {
-            let mut idle = idle_queue.write().await;
+            let mut state = pool_state.write().await;
+            let idle = &mut state.idle_queue;
             let original_len = idle.len();
 
             idle.retain(|pooled| {
@@ -539,7 +515,7 @@ impl ConnectionPool {
 
         // Update statistics
         if removed_active > 0 || removed_idle > 0 {
-            let mut stats_guard = stats.write().await;
+            let mut stats_guard = &mut pool_state.write().await.stats;
             stats_guard.total_destroyed += removed_active + removed_idle;
             stats_guard.active_connections -= removed_active;
             stats_guard.idle_connections -= removed_idle;
@@ -553,8 +529,7 @@ impl ConnectionPool {
 
     /// Pool maintainer background task
     async fn pool_maintainer_task(
-        idle_queue: Arc<RwLock<VecDeque<PooledConnection>>>,
-        stats: Arc<RwLock<PoolStats>>,
+        pool_state: Arc<RwLock<PoolState>>,
         config: PoolConfig,
         shutdown_rx: &mut broadcast::Receiver<()>,
     ) {
@@ -565,7 +540,7 @@ impl ConnectionPool {
         loop {
             tokio::select! {
                 _ = interval.tick() => {
-                    Self::maintain_pool(&idle_queue, &stats, &config).await;
+                    Self::maintain_pool(&pool_state, &config).await;
                 }
                 _ = shutdown_rx.recv() => {
                     debug!("Pool maintainer task shutting down");
@@ -576,18 +551,11 @@ impl ConnectionPool {
     }
 
     /// Maintain pool size and health
-    async fn maintain_pool(
-        idle_queue: &Arc<RwLock<VecDeque<PooledConnection>>>,
-        stats: &Arc<RwLock<PoolStats>>,
-        config: &PoolConfig,
-    ) {
-        let idle_count = {
-            let idle = idle_queue.read().await;
-            idle.len()
+    async fn maintain_pool(pool_state: &RwLock<PoolState>, config: &PoolConfig) {
+        let (idle_count, current_stats) = {
+            let state = pool_state.read().await;
+            (state.idle_queue.len(), state.stats.clone())
         };
-
-        // Log pool status periodically
-        let current_stats = stats.read().await.clone();
         trace!(
             "Pool status: active={}, idle={}, hits={}, misses={}",
             current_stats.active_connections,
@@ -598,16 +566,15 @@ impl ConnectionPool {
 
         // Trim excess idle connections
         if idle_count > config.max_idle {
-            let mut idle = idle_queue.write().await;
+            let mut state = pool_state.write().await;
             let to_remove = idle_count - config.max_idle;
 
             for _ in 0..to_remove {
-                idle.pop_front();
+                state.idle_queue.pop_front();
             }
 
-            let mut stats_guard = stats.write().await;
-            stats_guard.total_destroyed += to_remove;
-            stats_guard.idle_connections = idle.len();
+            state.stats.total_destroyed += to_remove;
+            state.stats.idle_connections = state.idle_queue.len();
 
             debug!("Trimmed {} excess idle connections", to_remove);
         }
@@ -622,23 +589,23 @@ impl ConnectionPool {
             warn!("Failed to send pool shutdown signal: {}", e);
         }
 
-        // Close all active connections
-        {
-            let mut active = self.active_connections.write().await;
-            for (addr, pooled) in active.drain() {
-                if let Err(e) = pooled.connection.disconnect().await {
-                    warn!("Error disconnecting {}: {}", addr, e);
-                }
+        // Close all connections. Draining the bundle first keeps the guard clear
+        // of the await points below.
+        let (active, mut idle) = {
+            let mut state = self.pool_state.write().await;
+            (state.active_connections.drain().collect::<Vec<_>>(), std::mem::take(&mut state.idle_queue))
+        };
+
+        for (addr, pooled) in active {
+            if let Err(e) = pooled.connection.disconnect().await {
+                warn!("Error disconnecting {}: {}", addr, e);
             }
         }
 
         // Close all idle connections
-        {
-            let mut idle = self.idle_queue.write().await;
-            while let Some(pooled) = idle.pop_front() {
-                if let Err(e) = pooled.connection.disconnect().await {
-                    warn!("Error disconnecting idle connection: {}", e);
-                }
+        while let Some(pooled) = idle.pop_front() {
+            if let Err(e) = pooled.connection.disconnect().await {
+                warn!("Error disconnecting idle connection: {}", e);
             }
         }
 

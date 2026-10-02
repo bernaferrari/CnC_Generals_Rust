@@ -1,6 +1,6 @@
 use glam::Vec3;
 use lazy_static::lazy_static;
-use std::sync::{Arc, Mutex};
+use std::sync::Mutex;
 use ww3d_core::ww3d::WW3D;
 use ww3d_engine::{self, EngineConfig};
 use ww3d_renderer_3d::rendering::wgpu_main_renderer::WgpuMainRenderer;
@@ -44,8 +44,7 @@ fn ww3d_stats_bridge_updates_after_frame() {
 
     let backend = WgpuWrapper::new_headless((32, 32), wgpu::TextureFormat::Bgra8Unorm)
         .expect("failed to construct headless wrapper");
-    let mut renderer =
-        WgpuMainRenderer::from_backend(Arc::new(Mutex::new(backend)), Default::default());
+    let mut renderer = WgpuMainRenderer::from_backend(backend, Default::default());
 
     renderer.begin_frame().expect("begin frame");
     renderer.end_frame().expect("end frame");

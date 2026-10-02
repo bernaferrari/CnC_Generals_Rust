@@ -160,8 +160,7 @@ impl UpdateModuleInterface for PilotFindVehicleUpdate {
         }
 
         let is_human = owner_guard
-            .get_controlling_player()
-            .and_then(|player| player.read().ok().map(|guard| guard.get_player_type()))
+            .with_controlling_player(|guard| guard.get_player_type())
             == Some(PlayerType::Human);
         if is_human {
             return UpdateSleepTime::Forever;

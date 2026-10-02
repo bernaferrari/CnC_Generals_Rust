@@ -14,10 +14,9 @@ use ring::digest::{Context, SHA256};
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, Mutex};
 use tokio::fs;
 use tokio::io::AsyncReadExt;
-use tokio::sync::Mutex as AsyncMutex;
 use uuid::Uuid;
 
 // Re-export bandwidth types
@@ -121,13 +120,23 @@ pub trait ProgressCallback: Send + Sync {
     fn on_failed(&self, progress: &TransferProgress, error: &NetworkError);
 }
 
+/// Mutable bookkeeping state of the transfer manager.
+struct TransferState {
+    config: TransferConfig,
+    uploads: HashMap<Uuid, TransferProgress>,
+    downloads: HashMap<Uuid, TransferProgress>,
+    callback: Option<Arc<dyn ProgressCallback>>,
+}
+
 /// Minimal file transfer manager (inspection + bookkeeping).
 pub struct FileTransferManager {
     transport: Arc<Transport>,
-    config: Arc<RwLock<TransferConfig>>,
-    uploads: Arc<AsyncMutex<HashMap<Uuid, TransferProgress>>>,
-    downloads: Arc<AsyncMutex<HashMap<Uuid, TransferProgress>>>,
-    callback: Arc<Mutex<Option<Arc<dyn ProgressCallback>>>>,
+    /// THREAD: single guarded bundle for config, transfer progress and the progress
+    /// callback. The manager is published as `Arc<FileTransferManager>` and inspect /
+    /// query calls arrive from arbitrary tasks while configuration runs on the
+    /// owning thread. Critical sections are synchronous; no guard is held across an
+    /// `.await`.
+    state: Mutex<TransferState>,
 }
 
 impl FileTransferManager {
@@ -138,19 +147,23 @@ impl FileTransferManager {
     pub fn with_config(transport: Arc<Transport>, config: TransferConfig) -> Arc<Self> {
         Arc::new(Self {
             transport,
-            config: Arc::new(RwLock::new(config)),
-            uploads: Arc::new(AsyncMutex::new(HashMap::new())),
-            downloads: Arc::new(AsyncMutex::new(HashMap::new())),
-            callback: Arc::new(Mutex::new(None)),
+            state: Mutex::new(TransferState {
+                config,
+                uploads: HashMap::new(),
+                downloads: HashMap::new(),
+                callback: None,
+            }),
         })
     }
 
-    pub fn set_progress_callback(&self, callback: Arc<dyn ProgressCallback>) {
-        let mut guard = self
-            .callback
+    fn lock_state(&self) -> std::sync::MutexGuard<'_, TransferState> {
+        self.state
             .lock()
-            .expect("FileTransferManager callback lock poisoned");
-        *guard = Some(callback);
+            .expect("FileTransferManager state lock poisoned")
+    }
+
+    pub fn set_progress_callback(&self, callback: Arc<dyn ProgressCallback>) {
+        self.lock_state().callback = Some(callback);
     }
 
     pub fn set_incoming_directory<P: AsRef<Path>>(&self, path: P) -> NetworkResult<()> {
@@ -158,27 +171,24 @@ impl FileTransferManager {
         std::fs::create_dir_all(path_ref).map_err(|e| {
             NetworkError::generic(format!("failed to create incoming directory: {}", e))
         })?;
-        let mut guard = self
-            .config
-            .write()
-            .expect("FileTransferManager config lock poisoned");
-        guard.incoming_directory = path_ref.to_path_buf();
+        self.lock_state().config.incoming_directory = path_ref.to_path_buf();
         Ok(())
     }
 
     pub async fn uploads(&self) -> Vec<TransferProgress> {
-        let guard = self.uploads.lock().await;
-        guard.values().cloned().collect()
+        let state = self.lock_state();
+        state.uploads.values().cloned().collect()
     }
 
     pub async fn downloads(&self) -> Vec<TransferProgress> {
-        let guard = self.downloads.lock().await;
-        guard.values().cloned().collect()
+        let state = self.lock_state();
+        state.downloads.values().cloned().collect()
     }
 
     pub async fn shutdown(&self) {
-        self.uploads.lock().await.clear();
-        self.downloads.lock().await.clear();
+        let mut state = self.lock_state();
+        state.uploads.clear();
+        state.downloads.clear();
     }
 
     pub async fn inspect_file<P: AsRef<Path>>(
@@ -197,15 +207,16 @@ impl FileTransferManager {
             .await
             .map_err(|e| NetworkError::generic(format!("failed to stat file: {}", e)))?;
 
-        let config = self
-            .config
-            .read()
-            .expect("FileTransferManager config lock poisoned");
-        if metadata.len() > config.max_file_size {
+        let (max_file_size, chunk_size) = {
+            let state = self.lock_state();
+            (state.config.max_file_size, state.config.chunk_size)
+        };
+
+        if metadata.len() > max_file_size {
             return Err(NetworkError::generic("file exceeds max transfer size"));
         }
 
-        let checksum = self.compute_checksum(path_ref, config.chunk_size).await?;
+        let checksum = self.compute_checksum(path_ref, chunk_size).await?;
 
         Ok(FileMetadata {
             filename,

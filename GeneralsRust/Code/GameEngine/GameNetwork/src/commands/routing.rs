@@ -8,7 +8,6 @@ use crate::error::{NetworkError, NetworkResult};
 use async_trait::async_trait;
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
-use tokio::sync::RwLock;
 use tracing::{debug, trace, warn};
 
 /// Command handler trait - implement this to handle specific command types
@@ -27,13 +26,16 @@ pub trait CommandHandler: Send + Sync {
 }
 
 /// Command router that dispatches commands to registered handlers
+///
+/// The router owns its handler table, queues, and stats outright: nothing is
+/// cloned into a spawned task, so the caller drives it through `&mut self`.
 pub struct CommandRouter {
     /// Registered handlers by command type
-    handlers: Arc<RwLock<HashMap<NetCommandType, Vec<Arc<dyn CommandHandler>>>>>,
+    handlers: HashMap<NetCommandType, Vec<Arc<dyn CommandHandler>>>,
     /// Command queue organized by priority
-    queues: Arc<RwLock<PriorityQueues>>,
+    queues: PriorityQueues,
     /// Statistics
-    stats: Arc<RwLock<RouterStats>>,
+    stats: RouterStats,
 }
 
 /// Priority-based command queues
@@ -102,18 +104,16 @@ impl CommandRouter {
     /// Create a new command router
     pub fn new() -> Self {
         Self {
-            handlers: Arc::new(RwLock::new(HashMap::new())),
-            queues: Arc::new(RwLock::new(PriorityQueues::new())),
-            stats: Arc::new(RwLock::new(RouterStats::default())),
+            handlers: HashMap::new(),
+            queues: PriorityQueues::new(),
+            stats: RouterStats::default(),
         }
     }
 
     /// Register a command handler
-    pub async fn register_handler(&self, handler: Arc<dyn CommandHandler>) {
-        let mut handlers = self.handlers.write().await;
-
+    pub async fn register_handler(&mut self, handler: Arc<dyn CommandHandler>) {
         for cmd_type in handler.supported_types() {
-            handlers
+            self.handlers
                 .entry(cmd_type)
                 .or_insert_with(Vec::new)
                 .push(handler.clone());
@@ -126,56 +126,51 @@ impl CommandRouter {
     }
 
     /// Unregister all handlers for a specific command type
-    pub async fn unregister_type(&self, command_type: NetCommandType) {
-        let mut handlers = self.handlers.write().await;
-        handlers.remove(&command_type);
+    pub async fn unregister_type(&mut self, command_type: NetCommandType) {
+        self.handlers.remove(&command_type);
         debug!("Unregistered all handlers for type: {:?}", command_type);
     }
 
     /// Queue a command for processing
-    pub async fn queue_command(&self, command: NetCommand) -> NetworkResult<()> {
-        let mut queues = self.queues.write().await;
+    pub async fn queue_command(&mut self, command: NetCommand) -> NetworkResult<()> {
         trace!(
             "Queuing command {:?} with priority {:?}",
             command.command_type, command.priority
         );
-        queues.push(command);
+        self.queues.push(command);
         Ok(())
     }
 
     /// Route a single command immediately (bypass queue)
-    pub async fn route_command(&self, command: &NetCommand) -> NetworkResult<()> {
-        let handlers = self.handlers.read().await;
-
-        let handlers_for_type = match handlers.get(&command.command_type) {
-            Some(h) if !h.is_empty() => h,
-            _ => {
-                warn!(
-                    "No handler registered for command type: {:?}",
-                    command.command_type
-                );
-                let mut stats = self.stats.write().await;
-                stats.unhandled += 1;
-                return Err(NetworkError::invalid_command(format!(
-                    "no handler for command type {:?}",
-                    command.command_type
-                )));
-            }
-        };
+    pub async fn route_command(&mut self, command: &NetCommand) -> NetworkResult<()> {
+        // Clone the handler list so the table borrow is released before the
+        // handlers run and stats are updated.
+        let handlers_for_type: Vec<Arc<dyn CommandHandler>> =
+            match self.handlers.get(&command.command_type) {
+                Some(h) if !h.is_empty() => h.clone(),
+                _ => {
+                    warn!(
+                        "No handler registered for command type: {:?}",
+                        command.command_type
+                    );
+                    self.stats.unhandled += 1;
+                    return Err(NetworkError::invalid_command(format!(
+                        "no handler for command type {:?}",
+                        command.command_type
+                    )));
+                }
+            };
 
         // Update stats
-        {
-            let mut stats = self.stats.write().await;
-            stats.total_routed += 1;
-            *stats.by_type.entry(command.command_type).or_insert(0) += 1;
-            *stats.by_priority.entry(command.priority).or_insert(0) += 1;
-        }
+        self.stats.total_routed += 1;
+        *self.stats.by_type.entry(command.command_type).or_insert(0) += 1;
+        *self.stats.by_priority.entry(command.priority).or_insert(0) += 1;
 
         // Call all registered handlers
         let mut any_succeeded = false;
         let mut last_error = None;
 
-        for handler in handlers_for_type {
+        for handler in &handlers_for_type {
             match handler.handle_command(command).await {
                 Ok(()) => {
                     any_succeeded = true;
@@ -195,8 +190,7 @@ impl CommandRouter {
         }
 
         if !any_succeeded {
-            let mut stats = self.stats.write().await;
-            stats.failed += 1;
+            self.stats.failed += 1;
 
             if let Some(err) = last_error {
                 return Err(err);
@@ -207,14 +201,11 @@ impl CommandRouter {
     }
 
     /// Process queued commands (call this regularly from game loop)
-    pub async fn process_queued(&self, max_commands: usize) -> NetworkResult<usize> {
+    pub async fn process_queued(&mut self, max_commands: usize) -> NetworkResult<usize> {
         let mut processed = 0;
 
         for _ in 0..max_commands {
-            let command = {
-                let mut queues = self.queues.write().await;
-                queues.pop_highest()
-            };
+            let command = self.queues.pop_highest();
 
             match command {
                 Some(cmd) => {
@@ -236,27 +227,23 @@ impl CommandRouter {
 
     /// Get current queue depth
     pub async fn queue_depth(&self) -> usize {
-        let queues = self.queues.read().await;
-        queues.total_count()
+        self.queues.total_count()
     }
 
     /// Clear all queued commands
-    pub async fn clear_queue(&self) {
-        let mut queues = self.queues.write().await;
-        queues.clear();
+    pub async fn clear_queue(&mut self) {
+        self.queues.clear();
         debug!("Cleared all queued commands");
     }
 
     /// Get routing statistics
     pub async fn get_stats(&self) -> RouterStats {
-        let stats = self.stats.read().await;
-        stats.clone()
+        self.stats.clone()
     }
 
     /// Reset routing statistics
-    pub async fn reset_stats(&self) {
-        let mut stats = self.stats.write().await;
-        *stats = RouterStats::default();
+    pub async fn reset_stats(&mut self) {
+        self.stats = RouterStats::default();
     }
 }
 
@@ -341,30 +328,30 @@ impl<H: CommandHandler> CommandHandler for ValidatingHandler<H> {
 mod tests {
     use super::*;
     use crate::commands::CommandPayload;
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
     struct TestHandler {
         types: Vec<NetCommandType>,
-        call_count: Arc<RwLock<usize>>,
+        call_count: Arc<AtomicUsize>,
     }
 
     impl TestHandler {
         fn new(types: Vec<NetCommandType>) -> Self {
             Self {
                 types,
-                call_count: Arc::new(RwLock::new(0)),
+                call_count: Arc::new(AtomicUsize::new(0)),
             }
         }
 
-        async fn get_call_count(&self) -> usize {
-            *self.call_count.read().await
+        fn get_call_count(&self) -> usize {
+            self.call_count.load(Ordering::SeqCst)
         }
     }
 
     #[async_trait]
     impl CommandHandler for TestHandler {
         async fn handle_command(&self, _command: &NetCommand) -> NetworkResult<()> {
-            let mut count = self.call_count.write().await;
-            *count += 1;
+            self.call_count.fetch_add(1, Ordering::SeqCst);
             Ok(())
         }
 
@@ -375,7 +362,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_router_registration() {
-        let router = CommandRouter::new();
+        let mut router = CommandRouter::new();
         let handler = Arc::new(TestHandler::new(vec![NetCommandType::KeepAlive]));
 
         router.register_handler(handler.clone()).await;
@@ -383,12 +370,12 @@ mod tests {
         let command = NetCommand::keep_alive(0);
         router.route_command(&command).await.unwrap();
 
-        assert_eq!(handler.get_call_count().await, 1);
+        assert_eq!(handler.get_call_count(), 1);
     }
 
     #[tokio::test]
     async fn test_priority_queuing() {
-        let router = CommandRouter::new();
+        let mut router = CommandRouter::new();
         let handler = Arc::new(TestHandler::new(vec![
             NetCommandType::KeepAlive,
             NetCommandType::Chat,
@@ -408,12 +395,12 @@ mod tests {
         // Process should handle critical first
         router.process_queued(2).await.unwrap();
 
-        assert_eq!(handler.get_call_count().await, 2);
+        assert_eq!(handler.get_call_count(), 2);
     }
 
     #[tokio::test]
     async fn test_unhandled_command() {
-        let router = CommandRouter::new();
+        let mut router = CommandRouter::new();
 
         let command = NetCommand::keep_alive(0);
         let result = router.route_command(&command).await;
@@ -426,7 +413,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_multiple_handlers() {
-        let router = CommandRouter::new();
+        let mut router = CommandRouter::new();
 
         let handler1 = Arc::new(TestHandler::new(vec![NetCommandType::Chat]));
         let handler2 = Arc::new(TestHandler::new(vec![NetCommandType::Chat]));
@@ -438,13 +425,13 @@ mod tests {
         router.route_command(&command).await.unwrap();
 
         // Both handlers should be called
-        assert_eq!(handler1.get_call_count().await, 1);
-        assert_eq!(handler2.get_call_count().await, 1);
+        assert_eq!(handler1.get_call_count(), 1);
+        assert_eq!(handler2.get_call_count(), 1);
     }
 
     #[tokio::test]
     async fn test_stats_tracking() {
-        let router = CommandRouter::new();
+        let mut router = CommandRouter::new();
         let handler = Arc::new(TestHandler::new(vec![
             NetCommandType::KeepAlive,
             NetCommandType::Chat,

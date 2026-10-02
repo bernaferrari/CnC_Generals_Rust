@@ -131,13 +131,12 @@ impl DefectorSpecialPower {
             let Ok(owner_guard) = owner.read() else {
                 return Ok(());
             };
-            let Some(player) = owner_guard.get_controlling_player() else {
-                return Ok(());
-            };
-            let Ok(player_guard) = player.read() else {
-                return Ok(());
-            };
-            player_guard.get_default_team()
+            match owner_guard
+                .with_controlling_player(|player_guard| player_guard.get_default_team())
+            {
+                Some(team) => team,
+                None => return Ok(()),
+            }
         };
 
         // Make the target defect to the caster's team

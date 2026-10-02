@@ -427,12 +427,9 @@ impl UpgradeEffectApplicator {
 
     /// Apply production cost modifier to the controlling player for this object's KindOf mask.
     fn apply_cost_modifier(object: &mut Object, percent: Real) -> Result<(), String> {
-        if let Some(player) = object.get_controlling_player() {
-            let mut player_guard = player
-                .write()
-                .map_err(|_| "Failed to lock controlling player".to_string())?;
+        object.with_controlling_player_mut(|player_guard| {
             player_guard.add_kind_of_production_cost_change(object.get_kind_of(), percent);
-        }
+        });
         Ok(())
     }
 
@@ -531,15 +528,12 @@ impl UpgradeEffectApplicator {
                 Ok(())
             }
             UpgradeEffectType::CostModifier => {
-                if let Some(player) = object.get_controlling_player() {
-                    let mut player_guard = player
-                        .write()
-                        .map_err(|_| "Failed to lock controlling player".to_string())?;
+                object.with_controlling_player_mut(|player_guard| {
                     player_guard.remove_kind_of_production_cost_change(
                         object.get_kind_of(),
                         effect.modifier,
                     );
-                }
+                });
                 Ok(())
             }
             UpgradeEffectType::LocomotorChange

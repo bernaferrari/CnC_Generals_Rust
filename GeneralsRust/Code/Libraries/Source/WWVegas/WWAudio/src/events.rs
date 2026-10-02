@@ -41,10 +41,14 @@ pub trait EventHandler: Send + Sync {
 }
 
 /// Audio event manager
+///
+/// The manager is owned by whoever spawns the processing loop, so the
+/// receiving end of the channel is a plain owned field instead of a shared
+/// locked handle.
 pub struct AudioEventManager {
     handlers: Vec<Arc<dyn EventHandler>>,
     event_sender: mpsc::UnboundedSender<AudioEvent>,
-    event_receiver: Arc<tokio::sync::Mutex<mpsc::UnboundedReceiver<AudioEvent>>>,
+    event_receiver: Option<mpsc::UnboundedReceiver<AudioEvent>>,
 }
 
 impl AudioEventManager {
@@ -54,7 +58,7 @@ impl AudioEventManager {
         Self {
             handlers: Vec::new(),
             event_sender: sender,
-            event_receiver: Arc::new(tokio::sync::Mutex::new(receiver)),
+            event_receiver: Some(receiver),
         }
     }
 
@@ -82,8 +86,15 @@ impl AudioEventManager {
     }
 
     /// Start event processing loop
-    pub async fn start_processing(&self) -> Result<()> {
-        let mut receiver = self.event_receiver.lock().await;
+    ///
+    /// Consumes the owned receiver; call this once from the task that owns
+    /// the manager.
+    pub async fn start_processing(&mut self) -> Result<()> {
+        let Some(mut receiver) = self.event_receiver.take() else {
+            return Err(crate::error::Error::Audio(
+                "Event processing already started".to_string(),
+            ));
+        };
         while let Some(event) = receiver.recv().await {
             for handler in &self.handlers {
                 if let Err(e) = handler.handle_event(event.clone()).await {

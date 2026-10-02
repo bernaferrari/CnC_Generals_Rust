@@ -724,9 +724,11 @@ enum MixerCommand {
 /// Thread-safe mixer wrapper shared across subsystems.
 #[derive(Debug, Clone)]
 pub struct AudioMixer {
+    // THREAD: game thread reads snapshots/sends commands, cpal render thread renders
     inner: Arc<Mutex<MixerState>>,
     config: MixerConfig,
     command_tx: Sender<MixerCommand>,
+    // THREAD: game thread sends commands, cpal render thread drains them
     command_rx: Arc<Mutex<Receiver<MixerCommand>>>,
 }
 

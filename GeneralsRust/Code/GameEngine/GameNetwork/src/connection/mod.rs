@@ -19,11 +19,13 @@ use chrono::{DateTime, Utc};
 use game_engine::common::system::compression::{decompress_data, is_data_compressed};
 use game_engine::get_game_state;
 use serde::{Deserialize, Serialize};
+use parking_lot::Mutex as SyncMutex;
 use std::collections::{HashMap, VecDeque};
 use std::fmt;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU8, Ordering};
 use tokio::fs;
 use tokio::sync::{Mutex as AsyncMutex, RwLock, broadcast, watch};
 use tokio::task::JoinHandle;
@@ -44,21 +46,39 @@ fn unpack_net_command(data: &[u8]) -> NetworkResult<NetCommand> {
         .map(|cmd| cmd.to_net_command())
 }
 
+/// Mutable command-processing bookkeeping shared by the producers and consumers of
+/// incoming commands.
+///
+/// THREAD: a single tokio mutex guards the whole bundle because the game thread
+/// mutates these maps through [`crate::NetworkInterface`] while the connection
+/// manager's routing task runs [`CommandProcessorContext::handle_command`] on the
+/// same data; the wrapper-reassembly critical section legitimately spans awaits,
+/// so an async lock (not `parking_lot`) is required here.
+#[derive(Default)]
+pub struct CommandProcessorState {
+    pub wrapper_reassembler: WrapperReassembler,
+    pub player_names: HashMap<u8, String>,
+    pub player_load_progress: HashMap<u8, u8>,
+    pub file_announcements: HashMap<u16, FileAnnouncementState>,
+    pub file_transfer_map: HashMap<u16, Vec<(u8, Uuid)>>,
+    pub file_progress: HashMap<u16, FileProgressState>,
+}
+
 #[derive(Clone)]
 pub struct CommandProcessorContext {
     pub local_player_id: u8,
+    /// THREAD: shared handle - the routing task and the game thread both drive the
+    /// same connection table.
     pub connection_manager: Arc<RwLock<ConnectionManager>>,
-    pub wrapper_reassembler: Arc<AsyncMutex<WrapperReassembler>>,
-    pub player_names: Arc<AsyncMutex<HashMap<u8, String>>>,
-    pub player_load_progress: Arc<AsyncMutex<HashMap<u8, u8>>>,
-    pub file_announcements: Arc<AsyncMutex<HashMap<u16, FileAnnouncementState>>>,
-    pub file_transfer_map: Arc<AsyncMutex<HashMap<u16, Vec<(u8, Uuid)>>>>,
+    /// THREAD: see [`CommandProcessorState`].
+    pub state: Arc<AsyncMutex<CommandProcessorState>>,
     pub load_progress_tx: watch::Sender<HashMap<u8, u8>>,
     pub file_announcement_tx: broadcast::Sender<FileAnnouncementEvent>,
-    pub file_progress: Arc<AsyncMutex<HashMap<u16, FileProgressState>>>,
     pub file_progress_tx: broadcast::Sender<FileProgressEvent>,
     pub chat_tx: broadcast::Sender<ChatEvent>,
     pub timeout_tx: broadcast::Sender<TimeoutEvent>,
+    /// THREAD: shared handle - frame data is written by the game thread and read
+    /// from the routing task.
     pub frame_manager: Option<Arc<RwLock<crate::frame_data::FrameDataManager>>>,
 }
 
@@ -88,10 +108,7 @@ impl CommandContextResult {
 
 impl CommandProcessorContext {
     async fn publish_load_progress(&self) {
-        let snapshot = {
-            let load = self.player_load_progress.lock().await;
-            load.clone()
-        };
+        let snapshot = self.state.lock().await.player_load_progress.clone();
         let _ = self.load_progress_tx.send(snapshot);
     }
 
@@ -102,8 +119,8 @@ impl CommandProcessorContext {
         status: FileProgressStatus,
     ) {
         {
-            let mut map = self.file_progress.lock().await;
-            let entry = map.entry(command_id).or_default();
+            let mut state = self.state.lock().await;
+            let entry = state.file_progress.entry(command_id).or_default();
             match &status {
                 FileProgressStatus::Progress { percentage } => {
                     entry.failures.remove(&player_id);
@@ -119,7 +136,7 @@ impl CommandProcessorContext {
             }
 
             if entry.progress.is_empty() && entry.failures.is_empty() {
-                map.remove(&command_id);
+                state.file_progress.remove(&command_id);
             }
         }
 
@@ -138,30 +155,27 @@ impl CommandProcessorContext {
                 if progress.progress_type == ProgressType::Loading =>
             {
                 {
-                    let mut load = self.player_load_progress.lock().await;
-                    load.insert(player_id, progress.percentage.min(100));
+                    let mut state = self.state.lock().await;
+                    state
+                        .player_load_progress
+                        .insert(player_id, progress.percentage.min(100));
                 }
                 self.publish_load_progress().await;
             }
             CommandPayload::FileAnnouncement(data) => {
+                let mut announced_players = Vec::new();
                 {
-                    let mut announcements = self.file_announcements.lock().await;
-                    announcements.insert(
+                    let mut state = self.state.lock().await;
+                    state.file_announcements.insert(
                         data.command_id,
                         FileAnnouncementState {
                             metadata: data.metadata.clone(),
                             player_mask: data.player_mask,
                         },
                     );
-                }
-                {
-                    let mut transfers = self.file_transfer_map.lock().await;
-                    transfers.remove(&data.command_id);
-                }
-                let mut announced_players = Vec::new();
-                {
-                    let mut progress = self.file_progress.lock().await;
-                    let entry = progress.entry(data.command_id).or_default();
+                    state.file_transfer_map.remove(&data.command_id);
+
+                    let entry = state.file_progress.entry(data.command_id).or_default();
                     entry.progress.clear();
                     entry.failures.clear();
 
@@ -228,8 +242,9 @@ impl CommandProcessorContext {
                 }
 
                 {
-                    let mut announcements = self.file_announcements.lock().await;
-                    announcements
+                    let mut state = self.state.lock().await;
+                    state
+                        .file_announcements
                         .entry(command_id)
                         .or_insert(FileAnnouncementState {
                             metadata: FileMetadata {
@@ -286,63 +301,65 @@ impl CommandProcessorContext {
             CommandPayload::Wrapper(wrapper) => {
                 let wrapped_id = wrapper.wrapped_command_id;
                 let orig_progress = {
-                    let progress = self.file_progress.lock().await;
-                    progress
+                    let state = self.state.lock().await;
+                    state
+                        .file_progress
                         .get(&wrapped_id)
                         .and_then(|entry| entry.progress.get(&self.local_player_id))
                         .copied()
                         .unwrap_or(0)
                 };
 
-                let mut reassembler = self.wrapper_reassembler.lock().await;
-                let reassembled = match reassembler.add_chunk(wrapper.clone()) {
-                    Ok(data) => data,
-                    Err(err) => {
-                        warn!(
-                            "Failed to add wrapper chunk for command {}: {}",
-                            wrapped_id, err
-                        );
+                // Reassembly runs under one short critical section; the progress
+                // broadcast below happens after the guard is released.
+                let (reassembled, reassembled_progress) = {
+                    let mut state = self.state.lock().await;
+                    let reassembled = match state.wrapper_reassembler.add_chunk(wrapper.clone()) {
+                        Ok(data) => data,
+                        Err(err) => {
+                            warn!(
+                                "Failed to add wrapper chunk for command {}: {}",
+                                wrapped_id, err
+                            );
+                            None
+                        }
+                    };
+
+                    let progress = if state.file_announcements.contains_key(&wrapped_id) {
+                        state.wrapper_reassembler.percent_complete(wrapped_id)
+                    } else {
                         None
-                    }
+                    };
+                    (reassembled, progress)
                 };
 
-                if self
-                    .file_announcements
-                    .lock()
-                    .await
-                    .contains_key(&wrapped_id)
-                {
-                    if let Some(new_progress) = reassembler.percent_complete(wrapped_id) {
-                        if new_progress > orig_progress && new_progress < 100 {
-                            self.apply_file_progress(
-                                wrapped_id,
-                                self.local_player_id,
-                                FileProgressStatus::Progress {
-                                    percentage: new_progress,
-                                },
-                            )
-                            .await;
+                if let Some(new_progress) = reassembled_progress {
+                    if new_progress > orig_progress && new_progress < 100 {
+                        self.apply_file_progress(
+                            wrapped_id,
+                            self.local_player_id,
+                            FileProgressStatus::Progress {
+                                percentage: new_progress,
+                            },
+                        )
+                        .await;
 
-                            let progress_command = NetCommand::file_progress(
-                                self.local_player_id,
-                                wrapped_id,
-                                new_progress as i32,
+                        let progress_command = NetCommand::file_progress(
+                            self.local_player_id,
+                            wrapped_id,
+                            new_progress as i32,
+                        );
+                        let mask = 0xffu32 ^ (1u32 << self.local_player_id);
+                        let manager = self.connection_manager.read().await;
+                        if let Err(err) = manager.send_command_to_mask(progress_command, mask).await
+                        {
+                            warn!(
+                                "Failed to broadcast wrapper progress for command {}: {}",
+                                wrapped_id, err
                             );
-                            let mask = 0xffu32 ^ (1u32 << self.local_player_id);
-                            let manager = self.connection_manager.read().await;
-                            if let Err(err) =
-                                manager.send_command_to_mask(progress_command, mask).await
-                            {
-                                warn!(
-                                    "Failed to broadcast wrapper progress for command {}: {}",
-                                    wrapped_id, err
-                                );
-                            }
                         }
                     }
                 }
-
-                drop(reassembler);
 
                 if let Some(data) = reassembled {
                     match unpack_net_command(&data) {
@@ -392,54 +409,55 @@ impl CommandProcessorContext {
     }
 
     async fn remove_player(&self, player_id: u8) {
-        let mut names = self.player_names.lock().await;
-        names.remove(&player_id);
-        drop(names);
-
-        {
-            let mut load = self.player_load_progress.lock().await;
-            let existed = load.remove(&player_id).is_some();
-            let snapshot = if existed { Some(load.clone()) } else { None };
-            drop(load);
-            if let Some(snapshot) = snapshot {
-                let _ = self.load_progress_tx.send(snapshot);
+        let load_snapshot = {
+            let mut state = self.state.lock().await;
+            state.player_names.remove(&player_id);
+            let existed = state.player_load_progress.remove(&player_id).is_some();
+            if existed {
+                Some(state.player_load_progress.clone())
+            } else {
+                None
             }
+        };
+        if let Some(snapshot) = load_snapshot {
+            let _ = self.load_progress_tx.send(snapshot);
         }
 
-        let mut transfers = self.file_transfer_map.lock().await;
-        transfers.retain(|_, entries| {
-            entries.retain(|(pid, _)| *pid != player_id);
-            !entries.is_empty()
-        });
-        drop(transfers);
+        {
+            let mut state = self.state.lock().await;
+            state.file_transfer_map.retain(|_, entries| {
+                entries.retain(|(pid, _)| *pid != player_id);
+                !entries.is_empty()
+            });
+        }
 
         let mut disconnect_events = Vec::new();
         {
-            let mut progress = self.file_progress.lock().await;
+            let mut state = self.state.lock().await;
             let mut empty = Vec::new();
-            for (&command_id, state) in progress.iter_mut() {
-                if let Some(percent) = state.progress.remove(&player_id) {
+            for (&command_id, progress) in state.file_progress.iter_mut() {
+                if let Some(percent) = progress.progress.remove(&player_id) {
                     if percent < 100 {
                         let reason = "player disconnected".to_string();
-                        state.failures.insert(player_id, reason.clone());
+                        progress.failures.insert(player_id, reason.clone());
                         disconnect_events.push(FileProgressEvent {
                             command_id,
                             player_id,
                             status: FileProgressStatus::Failed { reason },
                         });
                     } else {
-                        state.failures.remove(&player_id);
+                        progress.failures.remove(&player_id);
                     }
                 } else {
-                    state.failures.remove(&player_id);
+                    progress.failures.remove(&player_id);
                 }
 
-                if state.progress.is_empty() && state.failures.is_empty() {
+                if progress.progress.is_empty() && progress.failures.is_empty() {
                     empty.push(command_id);
                 }
             }
             for command_id in empty {
-                progress.remove(&command_id);
+                state.file_progress.remove(&command_id);
             }
         }
 
@@ -483,6 +501,26 @@ pub enum ConnectionState {
     Disconnecting = 6,
     /// Connection lost/error state
     Error = 7,
+}
+
+impl ConnectionState {
+    /// Maps a raw `repr(u8)` discriminant back to its variant.
+    ///
+    /// The wire/storage representation of `ConnectionState` is fixed, so unknown
+    /// values collapse to `Disconnected` exactly as they would have read as an
+    /// out-of-range enum in the original C++.
+    fn from_u8(value: u8) -> Self {
+        match value {
+            1 => Self::Connecting,
+            2 => Self::Connected,
+            3 => Self::Authenticating,
+            4 => Self::Authenticated,
+            5 => Self::InGame,
+            6 => Self::Disconnecting,
+            7 => Self::Error,
+            _ => Self::Disconnected,
+        }
+    }
 }
 
 impl fmt::Display for ConnectionState {
@@ -640,6 +678,38 @@ impl Default for ConnectionConfig {
     }
 }
 
+/// Outbound-path and timing state for a single connection.
+///
+/// THREAD: one `parking_lot` mutex guards this bundle instead of one lock per
+/// field because four contexts touch it concurrently - the caller of
+/// [`Connection::send_command`] (game thread), the keep-alive task, the
+/// reliability/retransmission task, and the message-processing task that drains
+/// the queue into the transport. Every critical section is short and contains no
+/// `.await`, so a synchronous lock is both correct and cheapest here.
+struct OutboundState {
+    queue: VecDeque<NetCommand>,
+    /// Track last send time for frame grouping.
+    last_time_sent: NetworkInstant,
+    /// Minimum time between packet sends.
+    frame_grouping: Duration,
+    /// Retry interval for reliable commands.
+    retry_time: Duration,
+    num_retries: u32,
+    retry_metrics_time: NetworkInstant,
+    /// Latency tracking for ACKs.
+    latencies: [f32; CONNECTION_LATENCY_HISTORY_LENGTH],
+    average_latency_ms: f32,
+    /// Ack tracking for latency + retry.
+    pending_ack_times: HashMap<Uuid, NetworkInstant>,
+    /// Quit handling (C++ parity).
+    is_quitting: bool,
+    quit_time: Option<NetworkInstant>,
+    /// Written on every inbound datagram; never read back. Mirrors the C++
+    /// `m_lastActivity` field, which is likewise recorded but not consulted.
+    #[allow(dead_code)]
+    last_activity: NetworkInstant,
+}
+
 /// Individual player connection
 pub struct Connection {
     /// Unique connection identifier
@@ -648,38 +718,26 @@ pub struct Connection {
     player_id: u8,
     /// Remote address
     remote_addr: SocketAddr,
-    /// Connection state
-    state: Arc<RwLock<ConnectionState>>,
+    /// THREAD: single-byte connection state. Written by connect/disconnect on the
+    /// game thread, read by the manager's update loop and the keep-alive task.
+    /// The full `repr(u8)` discriminant set is preserved, so an atomic is exact.
+    state: Arc<AtomicU8>,
     /// Connection configuration
     config: ConnectionConfig,
-    /// Connection statistics
-    stats: Arc<RwLock<ConnectionStats>>,
+    /// THREAD: written by the message-processing, reliability, and routing tasks;
+    /// read by `get_stats()` from any caller.
+    stats: Arc<SyncMutex<ConnectionStats>>,
 
     /// Transport protocol used
     protocol: TransportProtocol,
     /// Transport layer reference
     transport: Arc<Transport>,
 
-    /// Message queues
-    send_queue: Arc<RwLock<VecDeque<NetCommand>>>,
-    receive_queue: Arc<RwLock<VecDeque<NetCommand>>>,
-    /// Track last send time for frame grouping.
-    last_time_sent: Arc<AsyncMutex<NetworkInstant>>,
-    /// Minimum time between packet sends.
-    frame_grouping: Arc<AsyncMutex<Duration>>,
-    /// Retry interval for reliable commands.
-    retry_time: Duration,
-    /// Retry metrics
-    num_retries: Arc<AsyncMutex<u32>>,
-    retry_metrics_time: Arc<AsyncMutex<NetworkInstant>>,
-    /// Latency tracking for ACKs.
-    latencies: Arc<AsyncMutex<[f32; CONNECTION_LATENCY_HISTORY_LENGTH]>>,
-    average_latency_ms: Arc<AsyncMutex<f32>>,
-    /// Ack tracking for latency + retry.
-    pending_ack_times: Arc<AsyncMutex<HashMap<Uuid, NetworkInstant>>>,
-    /// Quit handling
-    is_quitting: Arc<AsyncMutex<bool>>,
-    quit_time: Arc<AsyncMutex<Option<NetworkInstant>>>,
+    /// THREAD: see [`OutboundState`].
+    outbound: Arc<SyncMutex<OutboundState>>,
+    /// THREAD: produced by the routing task via `enqueue_incoming_commands`,
+    /// drained by `receive_command()` on the game thread.
+    receive_queue: Arc<SyncMutex<VecDeque<NetCommand>>>,
 
     /// Reliability layer for acknowledgments, ordering, and retransmission
     reliability: Option<Arc<ReliabilityLayer>>,
@@ -689,8 +747,6 @@ pub struct Connection {
 
     /// Timing
     created_at: DateTime<Utc>,
-    last_keepalive: Arc<RwLock<NetworkInstant>>,
-    last_activity: Arc<RwLock<NetworkInstant>>,
 
     /// Control channels
     shutdown_tx: broadcast::Sender<()>,
@@ -749,28 +805,29 @@ impl Connection {
             id: Uuid::new_v4(),
             player_id,
             remote_addr,
-            state: Arc::new(RwLock::new(ConnectionState::Disconnected)),
+            state: Arc::new(AtomicU8::new(ConnectionState::Disconnected as u8)),
             config: config.clone(),
-            stats: Arc::new(RwLock::new(ConnectionStats::default())),
+            stats: Arc::new(SyncMutex::new(ConnectionStats::default())),
             protocol,
             transport,
-            send_queue: Arc::new(RwLock::new(VecDeque::new())),
-            receive_queue: Arc::new(RwLock::new(VecDeque::new())),
-            last_time_sent: Arc::new(AsyncMutex::new(now)),
-            frame_grouping: Arc::new(AsyncMutex::new(Duration::from_millis(frame_grouping_ms))),
-            retry_time: Duration::from_millis(retry_timeout_ms),
-            num_retries: Arc::new(AsyncMutex::new(0)),
-            retry_metrics_time: Arc::new(AsyncMutex::new(now)),
-            latencies: Arc::new(AsyncMutex::new([0.0; CONNECTION_LATENCY_HISTORY_LENGTH])),
-            average_latency_ms: Arc::new(AsyncMutex::new(0.0)),
-            pending_ack_times: Arc::new(AsyncMutex::new(HashMap::new())),
-            is_quitting: Arc::new(AsyncMutex::new(false)),
-            quit_time: Arc::new(AsyncMutex::new(None)),
+            outbound: Arc::new(SyncMutex::new(OutboundState {
+                queue: VecDeque::new(),
+                last_time_sent: now,
+                frame_grouping: Duration::from_millis(frame_grouping_ms),
+                retry_time: Duration::from_millis(retry_timeout_ms),
+                num_retries: 0,
+                retry_metrics_time: now,
+                latencies: [0.0; CONNECTION_LATENCY_HISTORY_LENGTH],
+                average_latency_ms: 0.0,
+                pending_ack_times: HashMap::new(),
+                is_quitting: false,
+                quit_time: None,
+                last_activity: now,
+            })),
+            receive_queue: Arc::new(SyncMutex::new(VecDeque::new())),
             reliability,
             security,
             created_at: Utc::now(),
-            last_keepalive: Arc::new(RwLock::new(now)),
-            last_activity: Arc::new(RwLock::new(now)),
             shutdown_tx,
             task_handles: Vec::new(),
             command_context: None,
@@ -788,10 +845,7 @@ impl Connection {
             self.player_id, self.remote_addr
         );
 
-        {
-            let mut state = self.state.write().await;
-            *state = ConnectionState::Connecting;
-        }
+        self.set_state(ConnectionState::Connecting).await;
 
         // Start background tasks
         self.start_background_tasks().await?;
@@ -809,7 +863,7 @@ impl Connection {
         // Message processing task
         {
             let connection_id = self.id;
-            let send_queue = self.send_queue.clone();
+            let outbound = self.outbound.clone();
             let transport = self.transport.clone();
             let remote_addr = self.remote_addr;
             let protocol = self.protocol;
@@ -818,20 +872,12 @@ impl Connection {
             let security = self.security.clone();
             let encryption_enabled = self.config.enable_encryption;
             let player_id = self.player_id;
-            let last_time_sent = self.last_time_sent.clone();
-            let frame_grouping = self.frame_grouping.clone();
-            let retry_time = self.retry_time;
-            let num_retries = self.num_retries.clone();
-            let retry_metrics_time = self.retry_metrics_time.clone();
-            let pending_ack_times = self.pending_ack_times.clone();
-            let is_quitting = self.is_quitting.clone();
-            let quit_time = self.quit_time.clone();
             let mut shutdown_rx_clone = shutdown_tx.subscribe();
 
             let handle = tokio::spawn(async move {
                 Self::message_processing_task(
                     connection_id,
-                    send_queue,
+                    outbound,
                     transport,
                     remote_addr,
                     protocol,
@@ -840,14 +886,6 @@ impl Connection {
                     security,
                     encryption_enabled,
                     player_id,
-                    last_time_sent,
-                    frame_grouping,
-                    retry_time,
-                    num_retries,
-                    retry_metrics_time,
-                    pending_ack_times,
-                    is_quitting,
-                    quit_time,
                     &mut shutdown_rx_clone,
                 )
                 .await;
@@ -861,9 +899,8 @@ impl Connection {
             let connection_id = self.id;
             let local_player_id = self.config.local_player_id;
             let keepalive_interval = self.config.keepalive_interval;
-            let last_keepalive = self.last_keepalive.clone();
+            let outbound = self.outbound.clone();
             let state = self.state.clone();
-            let send_queue = self.send_queue.clone();
             let mut shutdown_rx_clone = shutdown_tx.subscribe();
 
             let handle = tokio::spawn(async move {
@@ -871,9 +908,8 @@ impl Connection {
                     connection_id,
                     local_player_id,
                     keepalive_interval,
-                    last_keepalive,
+                    outbound,
                     state,
-                    send_queue,
                     &mut shutdown_rx_clone,
                 )
                 .await;
@@ -885,7 +921,7 @@ impl Connection {
         // Reliability task (if enabled)
         if let Some(reliability) = self.reliability.clone() {
             let connection_id = self.id;
-            let send_queue = self.send_queue.clone();
+            let outbound = self.outbound.clone();
             let stats = self.stats.clone();
             let mut shutdown_rx_clone = shutdown_tx.subscribe();
 
@@ -893,7 +929,7 @@ impl Connection {
                 Self::reliability_task(
                     connection_id,
                     reliability,
-                    send_queue,
+                    outbound,
                     stats,
                     &mut shutdown_rx_clone,
                 )
@@ -920,7 +956,7 @@ impl Connection {
 
     /// Send a command through this connection
     pub async fn send_command(&self, mut command: NetCommand) -> NetworkResult<()> {
-        if *self.is_quitting.lock().await {
+        if self.outbound.lock().is_quitting {
             return Ok(());
         }
 
@@ -943,18 +979,18 @@ impl Connection {
 
         // Add to send queue
         {
-            let mut queue = self.send_queue.write().await;
+            let mut outbound = self.outbound.lock();
 
             // Check queue size
-            if queue.len() >= self.config.max_send_queue {
-                queue.pop_front();
+            if outbound.queue.len() >= self.config.max_send_queue {
+                outbound.queue.pop_front();
                 warn!(
                     "Send queue overflow for player {}, dropping oldest command",
                     self.player_id
                 );
             }
 
-            queue.push_back(command);
+            outbound.queue.push_back(command);
         }
 
         Ok(())
@@ -962,17 +998,15 @@ impl Connection {
 
     /// Receive a command from this connection
     pub async fn receive_command(&self) -> Option<NetCommand> {
-        let mut queue = self.receive_queue.write().await;
-        queue.pop_front()
+        self.receive_queue.lock().pop_front()
     }
 
     /// Determine whether both send and receive queues are empty.
     pub async fn queues_empty(&self) -> bool {
-        let send_empty = { self.send_queue.read().await.is_empty() };
-        if !send_empty {
+        if !self.outbound.lock().queue.is_empty() {
             return false;
         }
-        self.receive_queue.read().await.is_empty()
+        self.receive_queue.lock().is_empty()
     }
 
     /// Fetch lightweight statistics used for heuristics.
@@ -983,8 +1017,7 @@ impl Connection {
     /// Process incoming transport message
     pub async fn process_incoming_message(&self, message: TransportMessage) -> NetworkResult<()> {
         {
-            let mut last_activity = self.last_activity.write().await;
-            *last_activity = NetworkInstant::now();
+            self.outbound.lock().last_activity = NetworkInstant::now();
         }
 
         let payload = match encryption::decode_envelope(&message.data)? {
@@ -1028,21 +1061,7 @@ impl Connection {
                 self.sync_reliability_stats().await;
 
                 if let CommandPayload::Ack(data) = &command.payload {
-                    let mut pending = self.pending_ack_times.lock().await;
-                    if let Some(sent_at) = pending.remove(&data.command_id) {
-                        let latency_ms = sent_at.elapsed().as_secs_f32() * 1000.0;
-                        let index = (data.command_id.as_u128() as usize)
-                            % CONNECTION_LATENCY_HISTORY_LENGTH;
-                        let mut latencies = self.latencies.lock().await;
-                        let mut avg = self.average_latency_ms.lock().await;
-                        *avg -= latencies[index] / CONNECTION_LATENCY_HISTORY_LENGTH as f32;
-                        *avg += latency_ms / CONNECTION_LATENCY_HISTORY_LENGTH as f32;
-                        latencies[index] = latency_ms;
-
-                        let mut stats = self.stats.write().await;
-                        stats.current_latency_ms = latency_ms as f64;
-                        stats.average_rtt_ms = *avg as f64;
-                    }
+                    self.record_ack_latency(&data.command_id);
                 }
             } else {
                 let ready_commands = layer.process_incoming(command).await?;
@@ -1074,21 +1093,7 @@ impl Connection {
         } else {
             if is_ack {
                 if let CommandPayload::Ack(data) = &command.payload {
-                    let mut pending = self.pending_ack_times.lock().await;
-                    if let Some(sent_at) = pending.remove(&data.command_id) {
-                        let latency_ms = sent_at.elapsed().as_secs_f32() * 1000.0;
-                        let index = (data.command_id.as_u128() as usize)
-                            % CONNECTION_LATENCY_HISTORY_LENGTH;
-                        let mut latencies = self.latencies.lock().await;
-                        let mut avg = self.average_latency_ms.lock().await;
-                        *avg -= latencies[index] / CONNECTION_LATENCY_HISTORY_LENGTH as f32;
-                        *avg += latency_ms / CONNECTION_LATENCY_HISTORY_LENGTH as f32;
-                        latencies[index] = latency_ms;
-
-                        let mut stats = self.stats.write().await;
-                        stats.current_latency_ms = latency_ms as f64;
-                        stats.average_rtt_ms = *avg as f64;
-                    }
+                    self.record_ack_latency(&data.command_id);
                 }
             } else {
                 if let Some(ctx) = &self.command_context {
@@ -1127,13 +1132,37 @@ impl Connection {
         }
 
         {
-            let mut stats = self.stats.write().await;
+            let mut stats = self.stats.lock();
             stats.packets_received += 1;
             stats.bytes_received += message.data.len() as u64;
             stats.last_activity = Utc::now();
         }
 
         Ok(())
+    }
+
+    /// Records the observed round-trip time for one acknowledged command.
+    ///
+    /// THREAD: the latency ring lives in the outbound bundle, so it is updated
+    /// under one short lock and then mirrored into the shared stats bundle.
+    fn record_ack_latency(&self, command_id: &Uuid) {
+        let (latency_ms, average_latency_ms) = {
+            let mut outbound = self.outbound.lock();
+            let Some(sent_at) = outbound.pending_ack_times.remove(command_id) else {
+                return;
+            };
+            let latency_ms = sent_at.elapsed().as_secs_f32() * 1000.0;
+            let index = (command_id.as_u128() as usize) % CONNECTION_LATENCY_HISTORY_LENGTH;
+            outbound.average_latency_ms -=
+                outbound.latencies[index] / CONNECTION_LATENCY_HISTORY_LENGTH as f32;
+            outbound.average_latency_ms += latency_ms / CONNECTION_LATENCY_HISTORY_LENGTH as f32;
+            outbound.latencies[index] = latency_ms;
+            (latency_ms, outbound.average_latency_ms)
+        };
+
+        let mut stats = self.stats.lock();
+        stats.current_latency_ms = latency_ms as f64;
+        stats.average_rtt_ms = average_latency_ms as f64;
     }
 
     async fn enqueue_incoming_commands(&self, commands: Vec<NetCommand>) {
@@ -1161,7 +1190,7 @@ impl Connection {
             }
         }
 
-        let mut queue = self.receive_queue.write().await;
+        let mut queue = self.receive_queue.lock();
         let mut dropped = 0usize;
 
         for command in commands {
@@ -1183,7 +1212,7 @@ impl Connection {
     async fn sync_reliability_stats(&self) {
         if let Some(layer) = &self.reliability {
             let layer_stats = layer.get_stats().await;
-            let mut stats = self.stats.write().await;
+            let mut stats = self.stats.lock();
             stats.average_rtt_ms = layer_stats.average_rtt_ms;
             stats.current_latency_ms = layer_stats.average_rtt_ms;
             stats.packets_lost = layer_stats.messages_failed;
@@ -1192,18 +1221,19 @@ impl Connection {
 
     /// Get connection state
     pub async fn get_state(&self) -> ConnectionState {
-        *self.state.read().await
+        ConnectionState::from_u8(self.state.load(Ordering::SeqCst))
     }
 
     /// Set connection state
     pub async fn set_state(&self, new_state: ConnectionState) {
-        let mut state = self.state.write().await;
-        if *state != new_state {
+        let previous = self.state.swap(new_state as u8, Ordering::SeqCst);
+        if previous != new_state as u8 {
             debug!(
                 "Connection {} state change: {} -> {}",
-                self.id, *state, new_state
+                self.id,
+                ConnectionState::from_u8(previous),
+                new_state
             );
-            *state = new_state;
         }
     }
 
@@ -1219,7 +1249,7 @@ impl Connection {
 
     /// Get connection statistics
     pub async fn get_stats(&self) -> ConnectionStats {
-        let mut stats = self.stats.read().await.clone();
+        let mut stats = self.stats.lock().clone();
         stats.uptime = Utc::now()
             .signed_duration_since(self.created_at)
             .to_std()
@@ -1245,8 +1275,7 @@ impl Connection {
 
     /// Set minimum time between packet sends (C++ SetFrameGrouping).
     pub async fn set_frame_grouping_ms(&self, frame_grouping_ms: u64) {
-        let mut grouping = self.frame_grouping.lock().await;
-        *grouping = Duration::from_millis(frame_grouping_ms);
+        self.outbound.lock().frame_grouping = Duration::from_millis(frame_grouping_ms);
     }
 
     /// Gracefully disconnect
@@ -1257,10 +1286,9 @@ impl Connection {
         );
 
         {
-            let mut quitting = self.is_quitting.lock().await;
-            *quitting = true;
-            let mut quit_time = self.quit_time.lock().await;
-            *quit_time = Some(NetworkInstant::now());
+            let mut outbound = self.outbound.lock();
+            outbound.is_quitting = true;
+            outbound.quit_time = Some(NetworkInstant::now());
         }
 
         self.set_state(ConnectionState::Disconnecting).await;
@@ -1285,37 +1313,28 @@ impl Connection {
 
     /// Mark this connection as quitting (C++ parity).
     pub async fn set_quitting(&self) {
-        let mut quitting = self.is_quitting.lock().await;
-        *quitting = true;
-        let mut quit_time = self.quit_time.lock().await;
-        *quit_time = Some(NetworkInstant::now());
+        let mut outbound = self.outbound.lock();
+        outbound.is_quitting = true;
+        outbound.quit_time = Some(NetworkInstant::now());
     }
 
     /// Check if connection is marked as quitting.
     pub async fn is_quitting(&self) -> bool {
-        *self.is_quitting.lock().await
+        self.outbound.lock().is_quitting
     }
 
     /// Background task for processing outgoing messages with backpressure handling
     async fn message_processing_task(
         connection_id: Uuid,
-        send_queue: Arc<RwLock<VecDeque<NetCommand>>>,
+        outbound: Arc<SyncMutex<OutboundState>>,
         transport: Arc<Transport>,
         remote_addr: SocketAddr,
         protocol: TransportProtocol,
-        stats: Arc<RwLock<ConnectionStats>>,
+        stats: Arc<SyncMutex<ConnectionStats>>,
         reliability: Option<Arc<ReliabilityLayer>>,
         security: Option<Arc<SecurityManager>>,
         encryption_enabled: bool,
         remote_player_id: u8,
-        last_time_sent: Arc<AsyncMutex<NetworkInstant>>,
-        frame_grouping: Arc<AsyncMutex<Duration>>,
-        retry_time: Duration,
-        num_retries: Arc<AsyncMutex<u32>>,
-        retry_metrics_time: Arc<AsyncMutex<NetworkInstant>>,
-        pending_ack_times: Arc<AsyncMutex<HashMap<Uuid, NetworkInstant>>>,
-        is_quitting: Arc<AsyncMutex<bool>>,
-        quit_time: Arc<AsyncMutex<Option<NetworkInstant>>>,
         shutdown_rx: &mut broadcast::Receiver<()>,
     ) {
         debug!(
@@ -1338,13 +1357,11 @@ impl Connection {
 
                     // Quit flush handling (C++ parity)
                     {
-                        let quitting = *is_quitting.lock().await;
-                        if quitting {
-                            let quit_at = *quit_time.lock().await;
-                            if let Some(quit_at) = quit_at {
+                        let mut outbound = outbound.lock();
+                        if outbound.is_quitting {
+                            if let Some(quit_at) = outbound.quit_time {
                                 if quit_at.elapsed() > Duration::from_millis(MAX_QUIT_FLUSH_TIME_MS) {
-                                    let mut queue = send_queue.write().await;
-                                    queue.clear();
+                                    outbound.queue.clear();
                                     continue;
                                 }
                             }
@@ -1353,28 +1370,25 @@ impl Connection {
 
                     // Frame grouping throttle (C++ parity)
                     {
-                        let last = *last_time_sent.lock().await;
-                        let grouping = *frame_grouping.lock().await;
-                        if grouping > Duration::from_millis(0) && last.elapsed() < grouping {
+                        let outbound = outbound.lock();
+                        if outbound.frame_grouping > Duration::from_millis(0)
+                            && outbound.last_time_sent.elapsed() < outbound.frame_grouping
+                        {
                             continue;
                         }
                     }
 
                     // Retry metrics (C++ parity: 10s window)
                     {
-                        let mut last_metrics = retry_metrics_time.lock().await;
-                        if last_metrics.elapsed() > Duration::from_secs(10) {
-                            *last_metrics = now;
-                            let mut retries = num_retries.lock().await;
-                            *retries = 0;
+                        let mut outbound = outbound.lock();
+                        if outbound.retry_metrics_time.elapsed() > Duration::from_secs(10) {
+                            outbound.retry_metrics_time = now;
+                            outbound.num_retries = 0;
                         }
                     }
 
                     // Get current queue size for backpressure monitoring
-                    let queue_size = {
-                        let queue = send_queue.read().await;
-                        queue.len()
-                    };
+                    let queue_size = outbound.lock().queue.len();
 
                     // Adaptive batching based on queue pressure
                     if queue_size > 50 {
@@ -1404,21 +1418,21 @@ impl Connection {
 
                     // Process outgoing messages in batches
                     let commands_to_send = {
-                        let mut queue = send_queue.write().await;
+                        let mut outbound = outbound.lock();
                         let mut commands = Vec::with_capacity(batch_size as usize);
 
                         // Extract batch of commands
                         for _ in 0..batch_size {
-                            if let Some(command) = queue.pop_front() {
+                            if let Some(command) = outbound.queue.pop_front() {
                                 let should_send = if command.needs_acknowledgment() {
-                                    let mut pending = pending_ack_times.lock().await;
-                                    if let Some(last_sent) = pending.get(&command.id).copied() {
-                                        if last_sent.elapsed() < retry_time {
-                                            queue.push_back(command);
+                                    if let Some(last_sent) =
+                                        outbound.pending_ack_times.get(&command.id).copied()
+                                    {
+                                        if last_sent.elapsed() < outbound.retry_time {
+                                            outbound.queue.push_back(command);
                                             continue; // Skip to next iteration
                                         } else {
-                                            let mut retries = num_retries.lock().await;
-                                            *retries += 1;
+                                            outbound.num_retries += 1;
                                             true
                                         }
                                     } else {
@@ -1579,15 +1593,17 @@ impl Connection {
                                     any_sent = true;
                                     batch_success += 1;
                                     {
-                                        let mut stats_guard = stats.write().await;
+                                        let mut stats_guard = stats.lock();
                                         stats_guard.packets_sent += 1;
                                         stats_guard.bytes_sent += payload_len as u64;
                                         stats_guard.last_activity = Utc::now();
                                     }
 
                                     if command.needs_acknowledgment() {
-                                        let mut pending = pending_ack_times.lock().await;
-                                        pending.insert(command.id, now);
+                                        outbound
+                                            .lock()
+                                            .pending_ack_times
+                                            .insert(command.id, now);
                                     }
 
                                     if let Some(layer) = &reliability {
@@ -1606,15 +1622,13 @@ impl Connection {
                                     send_failures += 1;
                                     last_failure_time = NetworkInstant::now();
 
-                                    let mut queue = send_queue.write().await;
-                                    queue.push_front(command);
+                                    outbound.lock().queue.push_front(command);
                                 }
                             }
                         }
 
                         if any_sent {
-                            let mut last = last_time_sent.lock().await;
-                            *last = now;
+                            outbound.lock().last_time_sent = now;
                         }
 
                         if batch_failures > 0 {
@@ -1647,40 +1661,35 @@ impl Connection {
         connection_id: Uuid,
         player_id: u8,
         interval: Duration,
-        last_keepalive: Arc<RwLock<NetworkInstant>>,
-        state: Arc<RwLock<ConnectionState>>,
-        send_queue: Arc<RwLock<VecDeque<NetCommand>>>,
+        outbound: Arc<SyncMutex<OutboundState>>,
+        state: Arc<AtomicU8>,
         shutdown_rx: &mut broadcast::Receiver<()>,
     ) {
         debug!("Starting keepalive task for connection {}", connection_id);
 
         let mut timer = tokio::time::interval(interval);
+        let mut last_keepalive = NetworkInstant::now();
 
         loop {
             tokio::select! {
                     _ = timer.tick() => {
                         // Check if we need to send keepalive
+                        // The last-send timestamp is private to this task, so it
+                        // needs no shared state at all.
                         let should_send = {
-                            let last = last_keepalive.read().await;
-                            let state_val = *state.read().await;
+                            let state_val = ConnectionState::from_u8(state.load(Ordering::SeqCst));
 
-                            last.elapsed() >= interval &&
+                            last_keepalive.elapsed() >= interval &&
                             matches!(state_val, ConnectionState::Connected | ConnectionState::Authenticated | ConnectionState::InGame)
                         };
 
                         if should_send {
                             // Create and queue keepalive command
-            let keepalive = NetCommand::keep_alive(player_id);
+                            let keepalive = NetCommand::keep_alive(player_id);
 
-                            {
-                                let mut queue = send_queue.write().await;
-                                queue.push_back(keepalive);
-                            }
+                            outbound.lock().queue.push_back(keepalive);
 
-                            {
-                                let mut last = last_keepalive.write().await;
-                                *last = NetworkInstant::now();
-                            }
+                            last_keepalive = NetworkInstant::now();
 
                             trace!("Queued keepalive for connection {}", connection_id);
                         }
@@ -1697,8 +1706,8 @@ impl Connection {
     async fn reliability_task(
         connection_id: Uuid,
         reliability: Arc<ReliabilityLayer>,
-        send_queue: Arc<RwLock<VecDeque<NetCommand>>>,
-        stats: Arc<RwLock<ConnectionStats>>,
+        outbound: Arc<SyncMutex<OutboundState>>,
+        stats: Arc<SyncMutex<ConnectionStats>>,
         shutdown_rx: &mut broadcast::Receiver<()>,
     ) {
         debug!("Starting reliability task for connection {}", connection_id);
@@ -1708,28 +1717,28 @@ impl Connection {
         loop {
             tokio::select! {
                 _ = interval.tick() => {
-                    let mut outbound = Vec::new();
+                    let mut outbound_commands = Vec::new();
 
                     let mut control = reliability.drain_control_queue().await;
                     if !control.is_empty() {
-                        outbound.append(&mut control);
+                        outbound_commands.append(&mut control);
                     }
 
                     let retries = reliability.process_retransmission().await;
                     if !retries.is_empty() {
-                        outbound.extend(retries);
+                        outbound_commands.extend(retries);
                     }
 
-                    if !outbound.is_empty() {
-                        let mut queue = send_queue.write().await;
-                        for command in outbound {
-                            queue.push_back(command);
+                    if !outbound_commands.is_empty() {
+                        let mut state = outbound.lock();
+                        for command in outbound_commands {
+                            state.queue.push_back(command);
                         }
                     }
 
                     let layer_stats = reliability.get_stats().await;
                     {
-                        let mut stats_guard = stats.write().await;
+                        let mut stats_guard = stats.lock();
                         stats_guard.average_rtt_ms = layer_stats.average_rtt_ms;
                         stats_guard.current_latency_ms = layer_stats.average_rtt_ms;
                         stats_guard.packets_lost = layer_stats.messages_failed;
@@ -1784,9 +1793,17 @@ pub struct ConnectionInfo {
 pub struct ConnectionManager {
     transport: Arc<Transport>,
     config: ConnectionConfig,
+    /// THREAD: shared with the message-routing task spawned by
+    /// `start_message_routing()` - the game thread adds and removes connections
+    /// while that task resolves inbound datagrams to them.
     connections: Arc<RwLock<HashMap<u8, Arc<Connection>>>>,
+    /// THREAD: same boundary as `connections`; the routing task keeps the
+    /// address -> player index current while the game thread registers peers.
     address_map: Arc<RwLock<HashMap<SocketAddr, u8>>>,
-    file_transfers: Arc<RwLock<HashMap<Uuid, ManagedTransfer>>>,
+    /// THREAD: transfer bookkeeping is written by the file-transfer tasks and
+    /// read by telemetry/UI on the game thread. Kept as one short-critical-section
+    /// bundle rather than per-field locks.
+    file_transfers: Arc<SyncMutex<HashMap<Uuid, ManagedTransfer>>>,
     message_routing_task: Option<JoinHandle<()>>,
     security: Option<Arc<SecurityManager>>,
     shutdown_tx: broadcast::Sender<()>,
@@ -1809,7 +1826,7 @@ impl ConnectionManager {
             config: ConnectionConfig::default(),
             connections: Arc::new(RwLock::new(HashMap::new())),
             address_map: Arc::new(RwLock::new(HashMap::new())),
-            file_transfers: Arc::new(RwLock::new(HashMap::new())),
+            file_transfers: Arc::new(SyncMutex::new(HashMap::new())),
             message_routing_task: None,
             security: None,
             shutdown_tx,
@@ -1955,22 +1972,6 @@ impl ConnectionManager {
         map.get(&addr).copied()
     }
 
-    /// Convenience helper to resolve a player's remote address when only the
-    /// manager handle is available.
-    pub async fn remote_addr_for_handle(
-        handle: &Arc<RwLock<Self>>,
-        player_id: u8,
-    ) -> Option<SocketAddr> {
-        let connections_arc = {
-            let guard = handle.read().await;
-            guard.connections.clone()
-        };
-        let connections = connections_arc.read().await;
-        connections
-            .get(&player_id)
-            .map(|connection| connection.get_info().remote_addr)
-    }
-
     /// Return the set of currently connected player identifiers for the provided handle.
     pub async fn player_ids_for(handle: &Arc<RwLock<Self>>) -> Vec<u8> {
         let connections_arc = {
@@ -2011,7 +2012,7 @@ impl ConnectionManager {
             let guard = handle.read().await;
             guard.file_transfers.clone()
         };
-        let transfers = transfers_arc.read().await;
+        let transfers = transfers_arc.lock();
         transfers.values().cloned().collect()
     }
 
@@ -2034,7 +2035,7 @@ impl ConnectionManager {
             completion_status.insert(*participant, false);
         }
 
-        let mut transfers = self.file_transfers.write().await;
+        let mut transfers = self.file_transfers.lock();
         transfers.insert(
             progress.transfer_id,
             ManagedTransfer {
@@ -2053,7 +2054,7 @@ impl ConnectionManager {
             "Transfer {} progress: {}/{}",
             progress.transfer_id, progress.bytes_transferred, progress.metadata.file_size
         );
-        let mut transfers = self.file_transfers.write().await;
+        let mut transfers = self.file_transfers.lock();
         if let Some(record) = transfers.get_mut(&progress.transfer_id) {
             record.progress = progress;
         } else {
@@ -2075,7 +2076,7 @@ impl ConnectionManager {
         trace!("Transfer {} completed", progress.transfer_id);
         self.record_transfer_progress(progress.clone()).await;
 
-        let mut transfers = self.file_transfers.write().await;
+        let mut transfers = self.file_transfers.lock();
         if let Some(record) = transfers.get_mut(&progress.transfer_id) {
             record.progress.complete = true;
             for status in record.completion_status.values_mut() {
@@ -2090,7 +2091,7 @@ impl ConnectionManager {
             "Transfer {} {:?} failed: {}",
             progress.transfer_id, progress.direction, reason
         );
-        let mut transfers = self.file_transfers.write().await;
+        let mut transfers = self.file_transfers.lock();
         match transfers.get_mut(&progress.transfer_id) {
             Some(record) => {
                 record.progress = progress;
@@ -2114,7 +2115,7 @@ impl ConnectionManager {
 
     /// Associate a transfer with its announcing command identifier and target participants.
     pub async fn tag_transfer(&self, transfer_id: Uuid, command_id: u16, participants: &[u8]) {
-        let mut transfers = self.file_transfers.write().await;
+        let mut transfers = self.file_transfers.lock();
         if let Some(record) = transfers.get_mut(&transfer_id) {
             record.command_id = Some(command_id);
             for participant in participants {
@@ -2136,13 +2137,13 @@ impl ConnectionManager {
 
     /// Snapshot of currently tracked file transfers for telemetry or diagnostics.
     pub async fn active_file_transfers(&self) -> Vec<ManagedTransfer> {
-        let transfers = self.file_transfers.read().await;
+        let transfers = self.file_transfers.lock();
         transfers.values().cloned().collect()
     }
 
     /// Resolve metadata for a specific transfer identifier.
     pub async fn transfer_for(&self, transfer_id: Uuid) -> Option<ManagedTransfer> {
-        let transfers = self.file_transfers.read().await;
+        let transfers = self.file_transfers.lock();
         transfers.get(&transfer_id).cloned()
     }
 
@@ -2385,7 +2386,7 @@ impl ConnectionManager {
         };
 
         self.address_map.write().await.clear();
-        self.file_transfers.write().await.clear();
+        self.file_transfers.lock().clear();
 
         for connection in connections {
             if let Err(err) = connection.disconnect().await {

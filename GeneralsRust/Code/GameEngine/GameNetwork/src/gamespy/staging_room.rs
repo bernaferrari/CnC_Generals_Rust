@@ -5,11 +5,12 @@
 use crate::error::{NetworkError, NetworkResult};
 use crate::gamespy::{GameInvite, GameSettings};
 use std::collections::HashMap;
-use tokio::sync::RwLock;
 use tracing::info;
 
+/// Staging room table owned by the GameSpy interface. Only the owning task's
+/// methods touch it, so it is a plain field with no shared lock.
 pub struct StagingRoom {
-    rooms: RwLock<HashMap<String, GameRoom>>,
+    rooms: HashMap<String, GameRoom>,
 }
 
 pub struct GameRoom {
@@ -23,7 +24,7 @@ pub struct GameRoom {
 impl StagingRoom {
     pub async fn new() -> NetworkResult<Self> {
         Ok(Self {
-            rooms: RwLock::new(HashMap::new()),
+            rooms: HashMap::new(),
         })
     }
 

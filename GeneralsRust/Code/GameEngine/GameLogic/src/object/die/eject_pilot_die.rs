@@ -220,8 +220,11 @@ impl EjectPilotDie {
 
         if let Some(mut voice) = template.get_per_unit_sound("VoiceEject") {
             voice.set_position(&pos_tuple);
-            if let Some(player) = dying_object.get_controlling_player() {
-                let Ok(player_guard) = player.read() else {
+            let player_index = dying_object
+                .with_controlling_player(|player_guard| player_guard.get_player_index() as u32);
+            match player_index {
+                Some(player_index) => voice.set_player_index(player_index),
+                None => {
                     // C++ setPlayerIndex requires the controlling player.
                     // SoundEject below does not.
                     if let Some(mut sound) = template.get_per_unit_sound("SoundEject") {
@@ -229,8 +232,7 @@ impl EjectPilotDie {
                         audio.add_audio_event(&sound);
                     }
                     return;
-                };
-                voice.set_player_index(player_guard.get_player_index() as u32);
+                }
             }
             audio.add_audio_event(&voice);
         }

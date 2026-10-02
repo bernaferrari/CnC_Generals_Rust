@@ -627,29 +627,26 @@ impl SpectreGunshipUpdate {
             return false;
         };
 
-        let Some(our_player_arc) = gunship.get_controlling_player() else {
-            return false;
-        };
-        let Ok(our_player) = our_player_arc.read() else {
-            return false;
-        };
+        gunship
+            .with_controlling_player(|our_player| {
+                let list = ThePlayerList().read().ok();
+                let other_player_arc = list.as_ref().and_then(|l| l.get_player(disguised_index));
+                let Some(other_player_arc) = other_player_arc else {
+                    return false;
+                };
+                let Ok(other_player) = other_player_arc.read() else {
+                    return false;
+                };
+                let Some(other_team) = other_player.get_default_team() else {
+                    return false;
+                };
+                let Ok(other_team_guard) = other_team.read() else {
+                    return false;
+                };
 
-        let list = ThePlayerList().read().ok();
-        let other_player_arc = list.as_ref().and_then(|l| l.get_player(disguised_index));
-        let Some(other_player_arc) = other_player_arc else {
-            return false;
-        };
-        let Ok(other_player) = other_player_arc.read() else {
-            return false;
-        };
-        let Some(other_team) = other_player.get_default_team() else {
-            return false;
-        };
-        let Ok(other_team_guard) = other_team.read() else {
-            return false;
-        };
-
-        our_player.get_relationship_with_team(&other_team_guard) == Relationship::Enemies
+                our_player.get_relationship_with_team(&other_team_guard) == Relationship::Enemies
+            })
+            .unwrap_or(false)
     }
 
     fn find_target_in_radius(
@@ -660,14 +657,8 @@ impl SpectreGunshipUpdate {
     ) -> Option<(ObjectID, Coord3D)> {
         let mut best: Option<(ObjectID, Coord3D, Real)> = None;
         let gunship_off_map = gunship.is_off_map();
-        let controlling_player_index = if let Some(player_arc) = gunship.get_controlling_player() {
-            player_arc
-                .read()
-                .ok()
-                .map(|player| player.get_player_index())
-        } else {
-            None
-        };
+        let controlling_player_index =
+            gunship.with_controlling_player(|player| player.get_player_index());
         let partition = ThePartitionManager::get()?;
         let radius_sqr = radius * radius;
         for id in partition.get_objects_in_range_boundary_2d(&center, radius) {
@@ -987,17 +978,12 @@ impl UpdateModuleInterface for SpectreGunshipUpdate {
                 ) {
                     target_id = Some(id);
                     _target_pos = pos;
-                } else if {
-                    if let Some(player_arc) = gunship.get_controlling_player() {
-                        player_arc
-                            .read()
-                            .ok()
-                            .map(|player| player.get_player_type() != PlayerType::Human)
-                            .unwrap_or(false)
-                    } else {
-                        false
-                    }
-                } {
+                } else if gunship
+                    .with_controlling_player(|player| {
+                        player.get_player_type() != PlayerType::Human
+                    })
+                    .unwrap_or(false)
+                {
                     if let Some((id, pos)) = self.find_target_in_radius(
                         &gunship,
                         self.initial_target_position,
@@ -1247,9 +1233,8 @@ impl SpecialPowerUpdateInterface for SpectreGunshipUpdate {
                     }
                 }
 
-                let owner_index = gunship
-                    .get_controlling_player()
-                    .and_then(|player| player.read().ok().map(|p| p.get_player_index()));
+                let owner_index =
+                    gunship.with_controlling_player(|p| p.get_player_index());
                 self.attack_area_decal = Some(Self::create_decal(
                     &self.module_data.attack_area_decal_template,
                     *gunship.get_position(),
@@ -1312,24 +1297,22 @@ impl SpecialPowerUpdateInterface for SpectreGunshipUpdate {
             if let Ok(gunship) = gunship_arc.read() {
                 if !gunship.is_disabled() {
                     self.override_target_destination = *location;
-                    if let Some(controller) = gunship.get_controlling_player() {
-                        if let Ok(player) = controller.read() {
-                            if player.get_player_index()
-                                == ThePlayerList()
-                                    .read()
-                                    .map(|l| l.get_local_player_index())
-                                    .unwrap_or(crate::player::PLAYER_INDEX_INVALID)
-                            {
-                                let mut sound = gunship.get_template().get_voice_attack();
-                                if !sound.event_name.is_empty() {
-                                    sound.set_object_id(gunship.get_id());
-                                    if let Some(audio) = TheAudio::get() {
-                                        audio.add_audio_event(&sound);
-                                    }
+                    gunship.with_controlling_player(|player| {
+                        if player.get_player_index()
+                            == ThePlayerList()
+                                .read()
+                                .map(|l| l.get_local_player_index())
+                                .unwrap_or(crate::player::PLAYER_INDEX_INVALID)
+                        {
+                            let mut sound = gunship.get_template().get_voice_attack();
+                            if !sound.event_name.is_empty() {
+                                sound.set_object_id(gunship.get_id());
+                                if let Some(audio) = TheAudio::get() {
+                                    audio.add_audio_event(&sound);
                                 }
                             }
                         }
-                    }
+                    });
                 }
             }
         }

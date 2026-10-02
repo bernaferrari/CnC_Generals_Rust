@@ -9,7 +9,6 @@ use game_network::commands::routing::{CommandHandler, CommandRouter, LoggingHand
 use game_network::commands::{CommandPayload, NetCommand, NetCommandType, ProgressType};
 use game_network::error::NetworkResult;
 use std::sync::Arc;
-use tokio::sync::RwLock;
 
 /// Test all message types for serialization round-trip
 #[tokio::test]
@@ -181,30 +180,25 @@ fn test_chat_utf16_encoding() {
 /// Test message routing system
 #[tokio::test]
 async fn test_message_routing() {
-    let router = CommandRouter::new();
+    let mut router = CommandRouter::new();
 
-    // Create a test handler
+    // Create a test handler. The router invokes it through `&self`, so the
+    // handler reports back over a channel instead of a shared lock.
     struct TestHandler {
-        received: Arc<RwLock<Vec<NetCommandType>>>,
+        received: std::sync::mpsc::Sender<NetCommandType>,
     }
 
     impl TestHandler {
-        fn new() -> Self {
-            Self {
-                received: Arc::new(RwLock::new(Vec::new())),
-            }
-        }
-
-        async fn get_received(&self) -> Vec<NetCommandType> {
-            self.received.read().await.clone()
+        fn new() -> (Self, std::sync::mpsc::Receiver<NetCommandType>) {
+            let (tx, rx) = std::sync::mpsc::channel();
+            (Self { received: tx }, rx)
         }
     }
 
     #[async_trait]
     impl CommandHandler for TestHandler {
         async fn handle_command(&self, command: &NetCommand) -> NetworkResult<()> {
-            let mut received = self.received.write().await;
-            received.push(command.command_type);
+            let _ = self.received.send(command.command_type);
             Ok(())
         }
 
@@ -217,8 +211,8 @@ async fn test_message_routing() {
         }
     }
 
-    let handler = Arc::new(TestHandler::new());
-    router.register_handler(handler.clone()).await;
+    let (handler, received_rx) = TestHandler::new();
+    router.register_handler(Arc::new(handler)).await;
 
     // Route various commands
     router
@@ -234,7 +228,10 @@ async fn test_message_routing() {
         .await
         .unwrap();
 
-    let received = handler.get_received().await;
+    let mut received = Vec::new();
+    while let Ok(command_type) = received_rx.try_recv() {
+        received.push(command_type);
+    }
     assert_eq!(received.len(), 3);
     assert_eq!(received[0], NetCommandType::KeepAlive);
     assert_eq!(received[1], NetCommandType::Chat);
@@ -250,7 +247,7 @@ async fn test_message_routing() {
 /// Test priority-based command queuing
 #[tokio::test]
 async fn test_priority_queuing() {
-    let router = CommandRouter::new();
+    let mut router = CommandRouter::new();
 
     let handler = Arc::new(LoggingHandler::new("test"));
     router.register_handler(handler).await;

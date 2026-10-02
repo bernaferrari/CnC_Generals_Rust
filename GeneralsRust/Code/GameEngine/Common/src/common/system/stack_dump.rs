@@ -8,8 +8,7 @@
 // Stack dump and debugging utilities
 ///////////////////////////////////////////////////////////////////////////////
 
-use once_cell::sync::OnceCell;
-use parking_lot::RwLock;
+use std::cell::RefCell;
 use std::backtrace::{Backtrace, BacktraceStatus};
 use std::fmt;
 use std::io::{self, Write};
@@ -165,15 +164,14 @@ impl fmt::Display for StackFrame {
     }
 }
 
-/// Global stack dump handler
-static STACK_DUMP_HANDLER: OnceCell<RwLock<Option<fn(&StackDump)>>> = OnceCell::new();
+// THREAD: C++ plain static; driven only by the single game/client thread.
+thread_local! {
+    static STACK_DUMP_HANDLER: RefCell<Option<fn(&StackDump)>> = const { RefCell::new(None) };
+}
 
 /// Set global stack dump handler
 pub fn set_stack_dump_handler(handler: fn(&StackDump)) {
-    STACK_DUMP_HANDLER
-        .get_or_init(|| RwLock::new(None))
-        .write()
-        .replace(handler);
+    STACK_DUMP_HANDLER.with_borrow_mut(|slot| *slot = Some(handler));
 }
 
 /// Trigger stack dump with optional message
@@ -186,10 +184,9 @@ pub fn dump_stack(message: Option<&str>) {
 
     eprintln!("{}", stack_dump.to_string());
 
-    if let Some(handler_lock) = STACK_DUMP_HANDLER.get() {
-        if let Some(handler) = *handler_lock.read() {
-            handler(&stack_dump);
-        }
+    let handler = STACK_DUMP_HANDLER.with_borrow(|slot| *slot);
+    if let Some(handler) = handler {
+        handler(&stack_dump);
     }
 }
 
