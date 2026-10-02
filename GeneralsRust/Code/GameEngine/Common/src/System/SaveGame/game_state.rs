@@ -1337,30 +1337,29 @@ impl GameState {
 mod tests {
     use super::super::register_save_load_mission_hooks;
     use super::*;
-    use std::cell::Cell;
     use std::fs;
     use std::path::Path;
-    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
     use std::sync::{Arc, Mutex};
     use std::time::{SystemTime, UNIX_EPOCH};
 
     static HOOK_TEST_LOCK: Mutex<()> = Mutex::new(());
 
     // NOTE: `dyn Snapshot` requires `Send`, so these shared test counters use
-    // `Arc<Cell<u32>>` (Send + Sync) instead of `Rc<RefCell<u32>>`.
+    // `Arc<AtomicU32>` for Send-safe shared observation; Cell is not Sync.
     struct CountingSnapshot {
-        payload: Arc<Cell<u32>>,
-        xfer_calls: Arc<Cell<u32>>,
-        crc_calls: Arc<Cell<u32>>,
-        post_process_calls: Arc<Cell<u32>>,
+        payload: Arc<AtomicU32>,
+        xfer_calls: Arc<AtomicU32>,
+        crc_calls: Arc<AtomicU32>,
+        post_process_calls: Arc<AtomicU32>,
     }
 
     impl CountingSnapshot {
         fn new(
-            payload: Arc<Cell<u32>>,
-            xfer_calls: Arc<Cell<u32>>,
-            crc_calls: Arc<Cell<u32>>,
-            post_process_calls: Arc<Cell<u32>>,
+            payload: Arc<AtomicU32>,
+            xfer_calls: Arc<AtomicU32>,
+            crc_calls: Arc<AtomicU32>,
+            post_process_calls: Arc<AtomicU32>,
         ) -> Self {
             Self {
                 payload,
@@ -1373,27 +1372,27 @@ mod tests {
 
     impl Snapshot for CountingSnapshot {
         fn crc(&mut self, xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
-            self.crc_calls.set(self.crc_calls.get() + 1);
-            let mut payload = self.payload.get();
+            self.crc_calls.fetch_add(1, Ordering::Relaxed);
+            let mut payload = self.payload.load(Ordering::Relaxed);
             xfer.xfer_unsigned_int(&mut payload)?;
             if xfer.get_xfer_mode() == XferMode::Load {
-                self.payload.set(payload);
+                self.payload.store(payload, Ordering::Relaxed);
             }
             Ok(())
         }
 
         fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
-            self.xfer_calls.set(self.xfer_calls.get() + 1);
-            let mut payload = self.payload.get();
+            self.xfer_calls.fetch_add(1, Ordering::Relaxed);
+            let mut payload = self.payload.load(Ordering::Relaxed);
             xfer.xfer_unsigned_int(&mut payload)?;
             if xfer.get_xfer_mode() == XferMode::Load {
-                self.payload.set(payload);
+                self.payload.store(payload, Ordering::Relaxed);
             }
             Ok(())
         }
 
         fn load_post_process(&mut self) -> Result<(), XferStatus> {
-            self.post_process_calls.set(self.post_process_calls.get() + 1);
+            self.post_process_calls.fetch_add(1, Ordering::Relaxed);
             Ok(())
         }
     }
@@ -1432,10 +1431,10 @@ mod tests {
     fn register_counting_snapshot(
         state: &mut GameState,
         block_name: &str,
-        payload: Arc<Cell<u32>>,
-        xfer_calls: Arc<Cell<u32>>,
-        crc_calls: Arc<Cell<u32>>,
-        post_process_calls: Arc<Cell<u32>>,
+        payload: Arc<AtomicU32>,
+        xfer_calls: Arc<AtomicU32>,
+        crc_calls: Arc<AtomicU32>,
+        post_process_calls: Arc<AtomicU32>,
     ) {
         state.add_snapshot_block(
             block_name.to_string(),
@@ -1552,11 +1551,11 @@ mod tests {
     fn registered_snapshot_blocks_replace_placeholders_and_round_trip() {
         let save_dir = unique_temp_save_dir("snapshot_bridge");
         let path = save_dir.join("00000001.sav");
-        let writer_payload = Arc::new(Cell::new(0xDEADBEEF));
-        let reader_payload = Arc::new(Cell::new(0u32));
-        let xfer_calls = Arc::new(Cell::new(0));
-        let crc_calls = Arc::new(Cell::new(0));
-        let post_process_calls = Arc::new(Cell::new(0));
+        let writer_payload = Arc::new(AtomicU32::new(0xDEADBEEF));
+        let reader_payload = Arc::new(AtomicU32::new(0u32));
+        let xfer_calls = Arc::new(AtomicU32::new(0));
+        let crc_calls = Arc::new(AtomicU32::new(0));
+        let post_process_calls = Arc::new(AtomicU32::new(0));
 
         let mut writer_state = GameState::new(save_dir.clone());
         writer_state.init();
@@ -1596,9 +1595,9 @@ mod tests {
             .expect("save snapshot blocks");
         xfer_save.close().expect("close save file");
 
-        assert_eq!(xfer_calls.get(), 1);
-        assert_eq!(crc_calls.get(), 0);
-        assert_eq!(writer_payload.get(), 0xDEADBEEF);
+        assert_eq!(xfer_calls.load(Ordering::Relaxed), 1);
+        assert_eq!(crc_calls.load(Ordering::Relaxed), 0);
+        assert_eq!(writer_payload.load(Ordering::Relaxed), 0xDEADBEEF);
 
         let mut reader_state = GameState::new(save_dir.clone());
         reader_state.init();
@@ -1623,10 +1622,10 @@ mod tests {
             .expect("post-process loaded snapshot blocks");
         xfer_load.close().expect("close load file");
 
-        assert_eq!(xfer_calls.get(), 2);
-        assert_eq!(crc_calls.get(), 0);
-        assert_eq!(post_process_calls.get(), 1);
-        assert_eq!(reader_payload.get(), 0xDEADBEEF);
+        assert_eq!(xfer_calls.load(Ordering::Relaxed), 2);
+        assert_eq!(crc_calls.load(Ordering::Relaxed), 0);
+        assert_eq!(post_process_calls.load(Ordering::Relaxed), 1);
+        assert_eq!(reader_payload.load(Ordering::Relaxed), 0xDEADBEEF);
 
         let _ = fs::remove_dir_all(save_dir);
     }
@@ -1680,7 +1679,7 @@ mod tests {
     #[test]
     fn post_process_load_invokes_partition_manager_update() {
         let _guard = HOOK_TEST_LOCK.lock().expect("hook test lock");
-        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
         let calls = Arc::new(AtomicUsize::new(0));
         let observed = Arc::clone(&calls);
         register_partition_manager_update(move || {

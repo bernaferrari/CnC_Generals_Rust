@@ -488,20 +488,7 @@ impl SalvageCrateCollide {
             .write()
             .map_err(|_| CollisionError::InvalidObject("object lock poisoned".into()))?;
 
-        let promoted = guard.with_experience_tracker_mut(|tracker| {
-            let old_level = tracker.get_veterancy_level();
-            if tracker.gain_exp_for_level(1, true, &ExperienceTracker::DEFAULT_EXPERIENCE_REQUIRED)
-            {
-                Some((old_level, tracker.get_veterancy_level()))
-            } else {
-                None
-            }
-        });
-        if let Some((old_level, new_level)) = promoted.flatten() {
-            if old_level != new_level {
-                guard.on_veterancy_level_changed(old_level, new_level, true);
-            }
-        }
+        guard.gain_exp_for_level_with_side_effects(1, true);
         Ok(())
     }
 

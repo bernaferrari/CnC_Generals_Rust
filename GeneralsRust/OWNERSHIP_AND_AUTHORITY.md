@@ -4,6 +4,53 @@
 
 Preserve C++ **behavior**. Do not preserve C++ **pointer ownership**.
 
+## Ownership review boundary (2026-10-02)
+
+The primary branch already owns `Object` experience trackers, partition data,
+and radar records. Experience mutation belongs to the borrowed `Object`: it
+reads trainability and thresholds from its own template, updates its tracker,
+and fires the owner's promotion effects. A sink transfer enters the sink's
+Object operation and uses that Object's template. It must not rediscover a
+write-locked owner to decide whether XP is accepted. Source and sink scalars
+retain the C++ order, including unconditional source scaling when forwarding.
+Promotion audio receives the borrowed owner's player index at submission,
+without re-locking that Object. Its queued event retains its object identity
+and dynamic position resolution; filename/RNG, locality, limits, and queue
+ordering stay in the existing audio pipeline. The chained-sink regression
+reproduced the old audio self-read deadlock (hq-juitw).
+Explicit level setting and crate level gains also use the owner's thresholds;
+the degraded tracker table is not an authored-game default. Xfer fields and
+ordering remain unchanged.
+
+Review of parallel branch `3fcbc7394` rejected its registry checkout as a
+production ownership boundary. Its read callbacks remove the Object from the
+ID map, hiding it from nested lookup and iteration. Unconditional reinsertion
+also resurrects an Object unregistered or cleared by a callback, and can
+replace a newly registered same-ID Object with the old value. A source probe
+reproduces all four outcomes; C++ `GameLogic::findObjectByID` keeps the live
+Object in its vector during ordinary access. These are integration blockers
+tracked in hq-7ax3s. Compilation cannot establish these lifecycle contracts.
+That branch also retains locked experience and partition fields; merging it
+wholesale would not simply advance the primary ownership model.
+
+The next structural boundary is explicit match access, not a process-global
+checkout façade. A driving match owns objects and mutable AI/shroud/module
+state; operations receive its relevant borrows and resolve relationships by
+IDs. Module interfaces must address one owned module instance, with the C++
+execution order and immediate effects preserved. Immutable authored definitions
+may be shared after loading. A parser's mutable loading state and a match's
+mutable runtime state need distinct owners. Remove active-slot/TLS discovery
+as callers acquire explicit contexts; replacing its locks with RefCell would
+retain the hidden dependency.
+
+Partition shroud currently uses atomic caches because Object still has shared
+outer handles. That is a transitional constraint, not a concurrency requirement
+of the simulation. The current query also recomputes cells on every call; C++
+caches until partition invalidation. Restoring that optimization requires
+wiring invalidation and previous/ghost state, not just adding a cached return.
+See hq-px0a8 for the partition contract and hq-bt4ex for bounded XP evidence. No whole-match isolation, retail playthrough,
+C++ binary differential, or frame-rate improvement is inferred from this review.
+
 ## Current production ownership (2026-09-30)
 
 The default Main host owns its objects and player runtime. The eleven authority

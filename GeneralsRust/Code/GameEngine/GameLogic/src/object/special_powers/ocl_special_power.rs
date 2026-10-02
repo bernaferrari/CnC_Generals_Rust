@@ -182,13 +182,15 @@ impl OclSpecialPower {
 
         let upgraded_ocl = crate::object::registry::OBJECT_REGISTRY
             .with_object(self.owner_object_id, |owner_guard| {
-                owner_guard.with_controlling_player(|player_guard| {
-                    self.data
-                        .upgrade_ocl
-                        .iter()
-                        .find(|upgrade| player_guard.has_science(upgrade.science))
-                        .map(|upgrade| upgrade.ocl_name.clone())
-                })
+                owner_guard
+                    .with_controlling_player(|player_guard| {
+                        self.data
+                            .upgrade_ocl
+                            .iter()
+                            .find(|upgrade| player_guard.has_science(upgrade.science))
+                            .map(|upgrade| upgrade.ocl_name.clone())
+                    })
+                    .flatten()
             })
             .flatten();
         if let Some(ocl) = upgraded_ocl {
@@ -334,7 +336,9 @@ impl OclSpecialPower {
 
         // Check disabled
         let owner_disabled = crate::object::registry::OBJECT_REGISTRY
-            .with_object(self.owner_object_id, |owner_guard| owner_guard.is_disabled())
+            .with_object(self.owner_object_id, |owner_guard| {
+                owner_guard.is_disabled()
+            })
             .unwrap_or(false);
         if owner_disabled {
             return Ok(());
@@ -432,7 +436,7 @@ impl OclSpecialPower {
             drop(guard);
             self.base_module
                 .do_special_power_at_location(&pos, -999999.0, command_options);
-            });
+        });
     }
 
     fn dispatch_do_special_power_at_location(

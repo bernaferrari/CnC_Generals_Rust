@@ -6,7 +6,6 @@
 
 use super::*;
 use crate::common::{FieldParse, FieldType, KindOf, kindof_from_name};
-use crate::experience::ExperienceRequirements;
 use crate::helpers::TheGameLogic;
 use crate::object::collide::crate_collide::crate_collide::CrateCollide as LegacyCrateCollide;
 use crate::object::collide::partition_filters::{
@@ -511,7 +510,6 @@ impl VeterancyCrateCollide {
             affected_objects.extend(self.collect_area_effect_object_ids(other, range));
         }
 
-        let requirements = ExperienceRequirements::default_requirements();
         for object_id in affected_objects {
             let Some(obj_arc) = TheGameLogic::find_object_by_id(object_id) else {
                 continue;
@@ -519,26 +517,8 @@ impl VeterancyCrateCollide {
             let Ok(mut obj_guard) = obj_arc.write() else {
                 continue;
             };
-            let promoted = obj_guard.with_experience_tracker_mut(|tracker_guard| {
-                if !tracker_guard.can_gain_exp_for_level(levels_to_gain) {
-                    return None;
-                }
-                let old_level = tracker_guard.get_veterancy_level();
-                let gained = tracker_guard.gain_exp_for_level(
-                    levels_to_gain,
-                    !self.module_data.is_pilot,
-                    requirements.as_array(),
-                );
-                let new_level = tracker_guard.get_veterancy_level();
-                if gained && old_level != new_level {
-                    Some((old_level, new_level))
-                } else {
-                    None
-                }
-            });
-            if let Some((old_level, new_level)) = promoted.flatten() {
-                obj_guard.on_veterancy_level_changed(old_level, new_level, true);
-            }
+            obj_guard
+                .gain_exp_for_level_with_side_effects(levels_to_gain, !self.module_data.is_pilot);
         }
 
         // Transfer object name for pilots (for script control)

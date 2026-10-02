@@ -280,31 +280,8 @@ impl ExperienceTracker {
         can_scale_for_bonus: bool,
         experience_required: &[i32],
     ) -> Option<VeterancyLevel> {
-        if self.experience_sink != Self::INVALID_ID {
-            if let Some(sink) = TheGameLogic::find_object_by_id(self.experience_sink) {
-                if let Ok(mut sink_guard) = sink.write() {
-                    let forwarded_experience_gain =
-                        (experience_gain as f32 * self.experience_scalar) as i32;
-                    let transition = sink_guard
-                        .with_experience_tracker_mut(|tracker_guard| {
-                            let promoted = tracker_guard.add_experience_points(
-                                forwarded_experience_gain,
-                                can_scale_for_bonus,
-                                experience_required,
-                            );
-                            let new_level = tracker_guard.get_veterancy_level();
-                            (promoted, new_level)
-                        })
-                        .and_then(|(promoted, new_level)| {
-                            promoted.map(|old_level| (old_level, new_level))
-                        });
-                    if let Some((old_level, new_level)) = transition {
-                        sink_guard.on_veterancy_level_changed(old_level, new_level, true);
-                    }
-                    return None;
-                }
-                return None;
-            }
+        if self.forward_experience_points(experience_gain, can_scale_for_bonus) {
+            return None;
         }
 
         if !self.is_trainable() {
@@ -317,50 +294,28 @@ impl ExperienceTracker {
         )
     }
 
-    /// Caller already checked `get_template().is_trainable()` or a sink.
-    /// Does not call `owner_is_trainable`.
-    pub fn add_experience_points_already_accepted(
-        &mut self,
-        experience_gain: i32,
-        can_scale_for_bonus: bool,
-        experience_required: &[i32],
-    ) -> Option<VeterancyLevel> {
-        if self.experience_sink != Self::INVALID_ID {
-            if let Some(sink) = TheGameLogic::find_object_by_id(self.experience_sink) {
-                if let Ok(mut sink_guard) = sink.write() {
-                    let forwarded_experience_gain =
-                        (experience_gain as f32 * self.experience_scalar) as i32;
-                    let transition = sink_guard
-                        .with_experience_tracker_mut(|tracker_guard| {
-                            let promoted = tracker_guard.add_experience_points(
-                                forwarded_experience_gain,
-                                can_scale_for_bonus,
-                                experience_required,
-                            );
-                            let new_level = tracker_guard.get_veterancy_level();
-                            (promoted, new_level)
-                        })
-                        .and_then(|(promoted, new_level)| {
-                            promoted.map(|old_level| (old_level, new_level))
-                        });
-                    if let Some((old_level, new_level)) = transition {
-                        sink_guard.on_veterancy_level_changed(old_level, new_level, true);
-                    }
-                    return None;
-                }
-                return None;
-            }
-            // C++ falls through to isTrainable when the sink object is gone.
-            // The caller already proved this template is trainable.
+    /// Standalone adapter: forwarding runs on the borrowed sink Object, so its
+    /// own template and promotion effects are used without re-locking it.
+    fn forward_experience_points(&self, experience_gain: i32, can_scale_for_bonus: bool) -> bool {
+        if self.experience_sink == Self::INVALID_ID {
+            return false;
         }
-        self.add_experience_points_after_trainable_check(
-            experience_gain,
-            can_scale_for_bonus,
-            experience_required,
-        )
+        let Some(sink) = TheGameLogic::find_object_by_id(self.experience_sink) else {
+            return false; // C++ falls back to the source if the sink died.
+        };
+        if let Ok(mut sink) = sink.write() {
+            sink.add_experience_points_with_side_effects(
+                (experience_gain as f32 * self.experience_scalar) as i32,
+                can_scale_for_bonus,
+            );
+        }
+        true
     }
 
-    fn add_experience_points_after_trainable_check(
+    /// Local arithmetic phase. The borrowed Object supplies its template and
+    /// handles sink routing, trainability, and promotion effects before/after
+    /// this call. There is no ambient owner lookup or sink callback here.
+    pub(crate) fn add_experience_points_after_trainable_check(
         &mut self,
         experience_gain: i32,
         can_scale_for_bonus: bool,
@@ -450,11 +405,7 @@ impl ExperienceTracker {
         if self.experience_sink != Self::INVALID_ID {
             if let Some(sink) = TheGameLogic::find_object_by_id(self.experience_sink) {
                 if let Ok(mut sink_guard) = sink.write() {
-                    if let Some(promoted) = sink_guard.with_experience_tracker_mut(|guard| {
-                        guard.set_experience_and_level(experience, experience_required)
-                    }) {
-                        return promoted;
-                    }
+                    sink_guard.set_experience_and_level_with_side_effects(experience, true);
                 }
                 return None;
             }

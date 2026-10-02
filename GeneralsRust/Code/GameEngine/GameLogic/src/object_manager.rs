@@ -712,6 +712,14 @@ impl GameObjectInstance {
         let list = crate::player::player_list().read().ok()?;
         list.get_player(player_index).cloned()
     }
+    /// Run `f` with the base object's controlling player (scoped access; no
+    /// player handle escapes). Mirrors [`Object::with_controlling_player`].
+    pub fn with_controlling_player<R>(
+        &self,
+        f: impl FnOnce(&crate::player::Player) -> R,
+    ) -> Option<R> {
+        self.base().read().ok()?.with_controlling_player(f)
+    }
 }
 
 // Implement AI command interface for objects

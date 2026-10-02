@@ -420,43 +420,12 @@ impl Object {
             guard.do_bounty_for_kill_obj(self, victim);
         });
 
-        // Now handle experience, if we can gain any
-        let template = self.get_template();
-        let template_trainable = template.is_trainable();
-        let required = [
-            template.get_experience_required(0),
-            template.get_experience_required(1),
-            template.get_experience_required(2),
-            template.get_experience_required(3),
-        ];
-        let victim_level = victim
-            .experience_tracker
-            .as_ref()
-            .map(|tracker| tracker.get_veterancy_level() as usize)
-            .unwrap_or(0);
-        // C++ ExperienceTracker::getExperienceValue: ally → 0,
-        // else template table at the victim's current level.
-        // score_the_kill has already required Enemies.
-        let experience_value = victim.get_template().get_experience_value(victim_level);
-        let promotion = if let Some(tracker) = &mut self.experience_tracker {
-            let accepting = template_trainable || tracker.has_experience_sink();
-            if accepting {
-                // srj sez: per dustin, no experience (et al) for killing things under construction.
-                if !victim.test_status(ObjectStatusTypes::UnderConstruction) {
-                    tracker
-                        .add_experience_points_already_accepted(experience_value, true, &required)
-                        .map(|old_level| (old_level, tracker.get_veterancy_level()))
-                } else {
-                    None
-                }
-            } else {
-                None
-            }
-        } else {
-            None
-        };
-        if let Some((old_level, new_level)) = promotion {
-            self.on_veterancy_level_changed(old_level, new_level, true);
+        // C++: no XP for objects under construction. Route the award through
+        // this borrowed Object so every sink uses its own template and effects.
+        if !victim.test_status(ObjectStatusTypes::UnderConstruction) {
+            let victim_level = victim.get_veterancy_level() as usize;
+            let experience_value = victim.get_template().get_experience_value(victim_level);
+            self.add_experience_points_with_side_effects(experience_value, true);
         }
     }
 
@@ -509,7 +478,7 @@ impl Object {
             };
             sound.set_object_id(self.id as u32);
             if let Some(audio) = crate::helpers::TheAudio::get() {
-                audio.add_audio_event(&sound);
+                audio.add_audio_event_for_owner(&sound, self);
             }
             let selected = crate::player::player_list()
                 .read()
@@ -620,7 +589,7 @@ impl Object {
                     .unit_promoted
                     .clone();
                 sound.set_object_id(self.id as u32);
-                audio.add_audio_event(&sound);
+                audio.add_audio_event_for_owner(&sound, self);
             }
         }
 
@@ -653,10 +622,7 @@ impl Object {
     /// Returns `None` when the object has no tracker. Replaces the former
     /// Arc-cloning `get_experience_tracker`, so no caller can retain a
     /// lockable handle to per-object state.
-    pub fn with_experience_tracker<R>(
-        &self,
-        f: impl FnOnce(&ExperienceTracker) -> R,
-    ) -> Option<R> {
+    pub fn with_experience_tracker<R>(&self, f: impl FnOnce(&ExperienceTracker) -> R) -> Option<R> {
         self.experience_tracker.as_deref().map(f)
     }
 
@@ -690,8 +656,12 @@ impl Object {
         new_level: VeterancyLevel,
         provide_feedback: bool,
     ) -> bool {
+        let required: [i32; 4] =
+            std::array::from_fn(|level| self.get_template().get_experience_required(level));
         let old_level = self
-            .with_experience_tracker_mut(|tracker| tracker.set_veterancy_level(new_level))
+            .with_experience_tracker_mut(|tracker| {
+                tracker.set_veterancy_level_with_requirements(new_level, &required)
+            })
             .flatten();
         let Some(old_level) = old_level else {
             return false;
@@ -708,9 +678,9 @@ impl Object {
         experience: i32,
         provide_feedback: bool,
     ) -> bool {
-        let Some(experience_sink) = self.with_experience_tracker(|tracker| {
-            tracker.get_experience_sink()
-        }) else {
+        let Some(experience_sink) =
+            self.with_experience_tracker(|tracker| tracker.get_experience_sink())
+        else {
             return false;
         };
 
@@ -772,19 +742,37 @@ impl Object {
         experience_gain: i32,
         can_scale_for_bonus: bool,
     ) -> bool {
-        let template_trainable = self.get_template().is_trainable();
-        let required = [
-            self.get_template().get_experience_required(0),
-            self.get_template().get_experience_required(1),
-            self.get_template().get_experience_required(2),
-            self.get_template().get_experience_required(3),
-        ];
-        let old_level = self
-            .with_experience_tracker_mut(|tracker_guard| {
-                if !template_trainable && !tracker_guard.has_experience_sink() {
-                    return None;
+        let Some((sink_id, scalar)) = self.with_experience_tracker(|tracker| {
+            (
+                tracker.get_experience_sink(),
+                tracker.get_experience_scalar(),
+            )
+        }) else {
+            return false;
+        };
+        if sink_id != ExperienceTracker::INVALID_ID {
+            if let Some(sink) = crate::helpers::TheGameLogic::find_object_by_id(sink_id) {
+                if let Ok(mut sink) = sink.write() {
+                    // C++ scales the source unconditionally, even when the
+                    // sink's optional bonus scaling is disabled.
+                    sink.add_experience_points_with_side_effects(
+                        (experience_gain as f32 * scalar) as i32,
+                        can_scale_for_bonus,
+                    );
                 }
-                tracker_guard.add_experience_points_already_accepted(
+                return false; // Only the sink's level can change.
+            }
+        }
+        // C++ checks source trainability after an absent sink, not before
+        // forwarding. An untrainable projectile may forward but may not keep XP.
+        if !self.get_template().is_trainable() {
+            return false;
+        }
+        let required: [i32; 4] =
+            std::array::from_fn(|level| self.get_template().get_experience_required(level));
+        let old_level = self
+            .with_experience_tracker_mut(|tracker| {
+                tracker.add_experience_points_after_trainable_check(
                     experience_gain,
                     can_scale_for_bonus,
                     &required,
@@ -794,8 +782,34 @@ impl Object {
         let Some(old_level) = old_level else {
             return false;
         };
-        let current_level = self.get_veterancy_level();
-        self.on_veterancy_level_changed(old_level, current_level, true);
+        self.on_veterancy_level_changed(old_level, self.get_veterancy_level(), true);
+        true
+    }
+
+    /// C++ `gainExpForLevel`: calculate the award from this owner's template,
+    /// then perform the ordinary XP operation, including sink routing.
+    /// Returns whether a higher requested level exists, even if XP is rejected.
+    pub fn gain_exp_for_level_with_side_effects(
+        &mut self,
+        levels_to_gain: i32,
+        can_scale_for_bonus: bool,
+    ) -> bool {
+        let Some((level, experience)) = self.with_experience_tracker(|tracker| {
+            (
+                tracker.get_veterancy_level() as i32,
+                tracker.get_current_experience(),
+            )
+        }) else {
+            return false;
+        };
+        if levels_to_gain <= 0 || level == VeterancyLevel::Heroic as i32 {
+            return false;
+        }
+        let target = level
+            .saturating_add(levels_to_gain)
+            .min(VeterancyLevel::Heroic as i32);
+        let needed = self.get_template().get_experience_required(target as usize) - experience;
+        self.add_experience_points_with_side_effects(needed, can_scale_for_bonus);
         true
     }
 
@@ -1110,8 +1124,7 @@ impl Object {
         victim_id: ObjectID,
     ) {
         let mut handled = false;
-        let handles = self.update_module_handles.clone();
-        for entry in handles {
+        for entry in self.interface_entry_snapshots(&self.update_module_handles) {
             let mut used = false;
             entry.with_module(|module| {
                 if let Some(tracker_module) = module_behavior_utility_kind(module)
@@ -1149,7 +1162,7 @@ impl Object {
     }
 
     pub(super) fn has_firing_tracker_module(&self) -> bool {
-        for entry in &self.update_module_handles {
+        for entry in self.interface_entries(&self.update_module_handles) {
             let found = entry.with_module(|module| {
                 matches!(
                     module_behavior_utility_kind(module),
@@ -2194,7 +2207,7 @@ impl Object {
     /// Get the last frame when this object fired a weapon
     /// Returns 0 if no firing tracker exists or never fired
     pub fn get_last_shot_fired_frame(&self) -> u32 {
-        for entry in &self.update_module_handles {
+        for entry in self.interface_entries(&self.update_module_handles) {
             let mut last_frame: Option<u32> = None;
             entry.with_module(|module| {
                 if let Some(tracker_module) = module_behavior_utility_kind(module)
@@ -2451,7 +2464,7 @@ impl Object {
     }
 
     pub fn get_num_consecutive_shots_fired_at_target(&self, victim_id: ObjectID) -> i32 {
-        for entry in &self.update_module_handles {
+        for entry in self.interface_entries(&self.update_module_handles) {
             let mut count: Option<i32> = None;
             entry.with_module(|module| {
                 if let Some(tracker_module) = module_behavior_utility_kind(module)
@@ -2538,3 +2551,7 @@ mod veterancy_side_effect_tests {
         assert!(!obj.set_veterancy_level_with_side_effects(VeterancyLevel::Regular, false));
     }
 }
+
+#[cfg(test)]
+#[path = "owner_experience_tests.rs"]
+mod owner_experience_tests;

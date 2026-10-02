@@ -71,7 +71,6 @@ impl AudioEventOwnerResolver for GameLogicAudioEventOwnerResolver {
             y: obj.z,
             z: obj.y,
         })
-
     }
 
     fn resolve_drawable_position(&self, drawable_id: u32) -> Option<EngineCoord3D> {
@@ -375,7 +374,6 @@ fn leftover_event_to_engine(event: &AudioEventRts) -> EngineAudioEventRts {
     engine_event
 }
 
-
 impl TheAudio {
     pub fn get() -> Option<&'static Self> {
         static AUDIO: OnceLock<TheAudio> = OnceLock::new();
@@ -395,9 +393,7 @@ impl TheAudio {
         MiscAudioEvents {
             crate_heal: AudioEventRts::new(leftover_misc_event_name(&misc_audio.crate_heal)),
             crate_shroud: AudioEventRts::new(leftover_misc_event_name(&misc_audio.crate_shroud)),
-            crate_salvage: AudioEventRts::new(leftover_misc_event_name(
-                &misc_audio.crate_salvage,
-            )),
+            crate_salvage: AudioEventRts::new(leftover_misc_event_name(&misc_audio.crate_salvage)),
             crate_free_unit: AudioEventRts::new(leftover_misc_event_name(
                 &misc_audio.crate_free_unit,
             )),
@@ -425,6 +421,20 @@ impl TheAudio {
     }
 
     pub fn add_audio_event(&self, event: &AudioEventRts) -> u32 {
+        self.add_audio_event_with_player(event, None)
+    }
+
+    /// The caller already owns this Object's borrow. Resolve submission
+    /// locality from it instead of asking audio to reacquire the same object.
+    pub(crate) fn add_audio_event_for_owner(&self, event: &AudioEventRts, owner: &Object) -> u32 {
+        let player_index = owner
+            .with_controlling_player(|player| player.get_player_index())
+            .or_else(|| event.player_index.map(|index| index as Int))
+            .unwrap_or(-1);
+        self.add_audio_event_with_player(event, Some(player_index))
+    }
+
+    fn add_audio_event_with_player(&self, event: &AudioEventRts, player_index: Option<Int>) -> u32 {
         #[cfg(test)]
         if !AUDIO_EVENTS_ENABLED_FOR_TESTS.load(std::sync::atomic::Ordering::SeqCst) {
             return 0;
@@ -444,7 +454,10 @@ impl TheAudio {
         // when the name is missing. Do not invent a blank SoundEffect via newAudioEventInfo.
         // generatePlayInfo does not overwrite a caller setVolume (default -1 uses INI).
 
-        manager.add_audio_event(&engine_event)
+        match player_index {
+            Some(index) => manager.add_audio_event_for_player(&engine_event, index),
+            None => manager.add_audio_event(&engine_event),
+        }
     }
 
     pub fn add_misc_audio_event(&self, event: &AudioEventRts) -> u32 {
@@ -653,16 +666,18 @@ mod leftover_the_audio_tests {
     fn host_snapshot_resolver_uses_host_height() {
         use super::AudioEventOwnerResolver;
         crate::scripting::clear_host_script_query_snapshot();
-        crate::scripting::set_host_script_query_snapshot(crate::scripting::HostScriptQuerySnapshot {
-            objects: vec![crate::scripting::HostScriptQueryObject {
-                id: 77,
-                x: 10.0,
-                y: 42.0,
-                z: 20.0,
+        crate::scripting::set_host_script_query_snapshot(
+            crate::scripting::HostScriptQuerySnapshot {
+                objects: vec![crate::scripting::HostScriptQueryObject {
+                    id: 77,
+                    x: 10.0,
+                    y: 42.0,
+                    z: 20.0,
+                    ..Default::default()
+                }],
                 ..Default::default()
-            }],
-            ..Default::default()
-        });
+            },
+        );
         let resolver = super::GameLogicAudioEventOwnerResolver;
         let pos = resolver.resolve_object_position(77).expect("host object");
         assert_eq!(pos.x, 10.0);
@@ -670,7 +685,6 @@ mod leftover_the_audio_tests {
         assert_eq!(pos.z, 42.0);
         crate::scripting::clear_host_script_query_snapshot();
     }
-
 
     #[test]
     fn leftover_the_audio_preserves_caller_volume() {
