@@ -148,19 +148,33 @@ impl GeometryInfo {
         self.is_small = is_small;
     }
 
-    /// Get the bounding sphere radius (3D, includes height)
+    /// C++ Geometry.cpp:468-497 uses shape-specific bounding radii.
     pub fn get_bounding_sphere_radius(&self) -> Real {
-        let dx = self.bounds.max.x - self.bounds.min.x;
-        let dy = self.bounds.max.y - self.bounds.min.y;
-        let dz = self.bounds.max.z - self.bounds.min.z;
-        ((dx * dx + dy * dy + dz * dz).sqrt() / 2.0).max(0.0)
+        match self.geometry_type {
+            EngineGeometryType::Sphere => self.get_major_radius(),
+            EngineGeometryType::Cylinder => {
+                let half_height = (self.bounds.max.z - self.bounds.min.z).abs() * 0.5;
+                self.get_major_radius().max(half_height)
+            }
+            EngineGeometryType::Box => {
+                let dx = self.bounds.max.x - self.bounds.min.x;
+                let dy = self.bounds.max.y - self.bounds.min.y;
+                let dz = self.bounds.max.z - self.bounds.min.z;
+                ((dx * dx + dy * dy + dz * dz).sqrt() / 2.0).max(0.0)
+            }
+        }
     }
 
-    /// Get the bounding circle radius (2D, XY plane only)
+    /// C++ sphere/cylinder footprints are circular; a box uses its XY diagonal.
     pub fn get_bounding_circle_radius(&self) -> Real {
-        let dx = self.bounds.max.x - self.bounds.min.x;
-        let dy = self.bounds.max.y - self.bounds.min.y;
-        ((dx * dx + dy * dy).sqrt() / 2.0).max(0.0)
+        match self.geometry_type {
+            EngineGeometryType::Sphere | EngineGeometryType::Cylinder => self.get_major_radius(),
+            EngineGeometryType::Box => {
+                let dx = self.bounds.max.x - self.bounds.min.x;
+                let dy = self.bounds.max.y - self.bounds.min.y;
+                ((dx * dx + dy * dy).sqrt() / 2.0).max(0.0)
+            }
+        }
     }
 
     /// C++ `GeometryInfo::getZDeltaToCenterPosition`.
@@ -173,20 +187,15 @@ impl GeometryInfo {
         }
     }
 
-    /// Get the major radius (largest XY half-extent).
+    /// C++ Geometry.h:119: major radius is the X-axis half extent.
     pub fn get_major_radius(&self) -> Real {
-        let dx = (self.bounds.max.x - self.bounds.min.x).abs();
-        let dy = (self.bounds.max.y - self.bounds.min.y).abs();
-        (dx.max(dy) * 0.5).max(0.0)
+        (self.bounds.max.x - self.bounds.min.x).abs() * 0.5
     }
 
-    /// Get the minor radius (smallest XY half-extent).
+    /// C++ Geometry.h:120: minor radius is the Y-axis half extent.
     pub fn get_minor_radius(&self) -> Real {
-        let dx = (self.bounds.max.x - self.bounds.min.x).abs();
-        let dy = (self.bounds.max.y - self.bounds.min.y).abs();
-        (dx.min(dy) * 0.5).max(0.0)
+        (self.bounds.max.y - self.bounds.min.y).abs() * 0.5
     }
-
 
     /// C++ `GeometryInfo::getFootprintArea`.
     pub fn get_footprint_area(&self) -> Real {
@@ -213,11 +222,7 @@ impl GeometryInfo {
     /// Get max height below position (matches C++ GeometryInfo::getMaxHeightBelowPosition).
     pub fn get_max_height_below_position(&self) -> Real {
         let below = -self.bounds.min.z;
-        if below < 0.0 {
-            0.0
-        } else {
-            below
-        }
+        if below < 0.0 { 0.0 } else { below }
     }
 
     /// Get the geometry center position given a base position.
@@ -366,4 +371,3 @@ impl Percentage {
         self.0 * 100.0
     }
 }
-

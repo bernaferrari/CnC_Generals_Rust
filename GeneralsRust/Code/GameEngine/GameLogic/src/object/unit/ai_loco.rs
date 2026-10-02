@@ -1251,25 +1251,6 @@ impl UnitAIUpdate {
             self.compute_quick_path(destination);
             return Ok(());
         }
-        self.retry_path = false;
-        if self.should_force_direct_path_for_off_map_start(destination)
-            && self.install_direct_path_from_current_position(destination)
-        {
-            return Ok(());
-        }
-        if (self.get_current_state_id() == Some(u32::from(AIStateType::FollowExitProductionPath))
-            || self.current_command == Some(crate::ai::AiCommandType::FollowExitProductionPath))
-            && self.can_path_through_units
-            && self.install_direct_path_from_current_position(destination)
-        {
-            let _ = self.set_can_path_through_units(false);
-            return Ok(());
-        }
-        if self.should_use_direct_path_for_line_passable_non_final_goal(destination)
-            && self.install_direct_path_from_current_position(destination)
-        {
-            return Ok(());
-        }
         self.waiting_for_path = true;
         let now = TheGameLogic::get_frame();
         if self.path_timestamp > now.saturating_sub(3) {

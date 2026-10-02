@@ -524,11 +524,13 @@ impl WeaponSet {
         Ok(())
     }
 
-    /// Update weapon set based on current object conditions
+    /// Update from the borrowed owner's conditions and source/container bonus mask.
+    /// Resolve bonuses only when the set changes, as C++ does. Never reborrow the owner.
     pub fn update_weapon_set(
         &mut self,
         object_id: ObjectID,
         conditions: &WeaponSetFlags,
+        owner_bonus_flags: impl FnOnce() -> crate::common::types::WeaponBonusConditionFlags,
     ) -> GameLogicResult<()> {
         // Find best matching weapon template set
         let best_set = self.find_best_weapon_template_set(conditions);
@@ -540,7 +542,7 @@ impl WeaponSet {
                 .map_or(true, |current| !Arc::ptr_eq(current, &best_set))
             {
                 // Switch to new weapon template set
-                self.switch_weapon_template_set(best_set, object_id)?;
+                self.switch_weapon_template_set(best_set, object_id, owner_bonus_flags())?;
             }
         }
 
@@ -592,8 +594,8 @@ impl WeaponSet {
         &mut self,
         new_set: Arc<WeaponTemplateSet>,
         object_id: ObjectID,
+        owner_bonus_flags: crate::common::types::WeaponBonusConditionFlags,
     ) -> GameLogicResult<()> {
-
         // C++ WeaponSet.cpp:281-286: If weapon lock is NOT shared across sets,
         // release ALL locks and reset curWeapon to PRIMARY.
         if !new_set.is_weapon_lock_shared_across_sets {
@@ -619,7 +621,9 @@ impl WeaponSet {
                 let mut new_weapon = Weapon::new(Arc::clone(template), slot);
 
                 // C++ WeaponSet.cpp:303: loadAmmoNow - start with full clips
-                new_weapon.load_ammo_now(object_id).ok();
+                let bonus =
+                    new_weapon.bonus_from_flags(super::map_common_bonus_flags(owner_bonus_flags));
+                new_weapon.reload_with_bonus(object_id, &bonus, true)?;
 
                 self.weapons[slot_index] = Some(new_weapon);
                 self.filled_weapon_slot_mask |= 1 << slot_index;
@@ -1537,7 +1541,11 @@ mod tests {
         weapon_set.weapon_template_sets.push(default_set);
 
         weapon_set
-            .update_weapon_set(77, &WeaponSetFlags::new())
+            .update_weapon_set(
+                77,
+                &WeaponSetFlags::new(),
+                crate::common::types::WeaponBonusConditionFlags::empty,
+            )
             .expect("default weapon set");
 
         let weapon = weapon_set
@@ -1546,6 +1554,22 @@ mod tests {
             .0;
         assert_eq!(weapon.get_name(), "DefaultPrimary");
         assert_eq!(weapon.get_status(), WeaponStatus::ReadyToFire);
+    }
+
+    #[test]
+    fn unchanged_weapon_set_does_not_resolve_owner_bonuses() {
+        // C++ WeaponSet.cpp:276-303 only computes bonuses while replacing slots.
+        let mut set = WeaponSet::new();
+        set.add_weapon_template_set(WeaponTemplateSet::new());
+        let mut reads = 0;
+        for _ in 0..2 {
+            set.update_weapon_set(77, &WeaponSetFlags::new(), || {
+                reads += 1;
+                crate::common::types::WeaponBonusConditionFlags::empty()
+            })
+            .expect("weapon set update");
+        }
+        assert_eq!(reads, 1);
     }
 
     #[test]
@@ -1578,7 +1602,11 @@ mod tests {
 
         let mut weapon_set = WeaponSet::new();
         weapon_set
-            .switch_weapon_template_set(original_set, 100)
+            .switch_weapon_template_set(
+                original_set,
+                100,
+                crate::common::types::WeaponBonusConditionFlags::empty(),
+            )
             .expect("initial weapon set");
         weapon_set.set_weapon_lock(WeaponSlotType::Secondary, WeaponLockType::LockedPermanently);
 
@@ -1592,7 +1620,11 @@ mod tests {
         }
 
         weapon_set
-            .switch_weapon_template_set(replacement_set, 100)
+            .switch_weapon_template_set(
+                replacement_set,
+                100,
+                crate::common::types::WeaponBonusConditionFlags::empty(),
+            )
             .expect("replacement weapon set");
 
         assert_eq!(
@@ -1624,12 +1656,20 @@ mod tests {
 
         let mut weapon_set = WeaponSet::new();
         weapon_set
-            .switch_weapon_template_set(original_set, 100)
+            .switch_weapon_template_set(
+                original_set,
+                100,
+                crate::common::types::WeaponBonusConditionFlags::empty(),
+            )
             .expect("initial weapon set");
         weapon_set.set_weapon_lock(WeaponSlotType::Secondary, WeaponLockType::LockedPermanently);
 
         weapon_set
-            .switch_weapon_template_set(replacement_set, 100)
+            .switch_weapon_template_set(
+                replacement_set,
+                100,
+                crate::common::types::WeaponBonusConditionFlags::empty(),
+            )
             .expect("replacement weapon set");
 
         assert_eq!(

@@ -1107,7 +1107,7 @@ impl GameLogic {
         if skill_value > 0 {
             if let Some(owner) = killer_owner {
                 if let Some(player) = self.players.get_mut(&owner) {
-                    player.add_skill_points(skill_value);
+                    player.add_skill_points_limited(skill_value, self.rank_level_limit);
                 }
             }
         }

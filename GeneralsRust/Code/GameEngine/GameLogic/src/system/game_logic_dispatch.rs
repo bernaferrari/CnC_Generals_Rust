@@ -23,21 +23,7 @@ use crate::commands;
 use crate::common::{AsciiString, Coord3D, Int, ObjectID, UnsignedInt};
 use log::{debug, trace, warn};
 use std::collections::VecDeque;
-use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Instant;
-
-/// Global dispatcher singleton (matches the legacy `TheGameLogicDispatch`)
-static GAME_LOGIC_DISPATCH: OnceLock<Mutex<GameLogicDispatch>> = OnceLock::new();
-
-/// Retrieve the global dispatcher if it has been initialized
-pub fn get_dispatch() -> Option<&'static Mutex<GameLogicDispatch>> {
-    GAME_LOGIC_DISPATCH.get()
-}
-
-/// Initialize the global dispatcher (idempotent)
-pub fn init_dispatch(max_players: Int) -> &'static Mutex<GameLogicDispatch> {
-    GAME_LOGIC_DISPATCH.get_or_init(|| Mutex::new(GameLogicDispatch::new(max_players)))
-}
 
 /// Command types supported by the dispatch system
 ///

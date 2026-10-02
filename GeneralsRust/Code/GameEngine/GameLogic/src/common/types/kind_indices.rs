@@ -166,23 +166,28 @@ pub fn kind_of_indices(kind: KindOf) -> &'static [u32] {
 }
 
 fn engine_geometry_to_logic(info: &EngineGeometryInfo) -> GeometryInfo {
-    let half_width = info.width * 0.5;
-    let half_depth = info.depth * 0.5;
-    let height = info.height.max(0.0);
-
-    // Approximate bounds centered at origin
-    let min = Coord3D::new(-half_width, -half_depth, 0.0);
-    let max = Coord3D::new(half_width, half_depth, height);
+    // Common's width/depth aliases already hold C++ major/minor radii.
+    // Geometry.cpp:61-85 normalizes the sphere/cylinder at definition load.
+    let major_radius = info.width;
+    let minor_radius = info.depth;
+    let height = info.height;
+    let sphere = matches!(info.geometry_type, EngineGeometryType::Sphere);
+    let min = Coord3D::new(
+        -major_radius,
+        -minor_radius,
+        if sphere { -major_radius } else { 0.0 },
+    );
+    let max = Coord3D::new(
+        major_radius,
+        minor_radius,
+        if sphere { major_radius } else { height },
+    );
 
     GeometryInfo {
-        position: Coord3D::new(0.0, 0.0, if info.is_small { 0.0 } else { height * 0.5 }),
+        position: Coord3D::new(0.0, 0.0, if sphere { 0.0 } else { height * 0.5 }),
         angle: 0.0,
         bounds: AABox { min, max },
-        height_above_terrain: if matches!(info.geometry_type, EngineGeometryType::Sphere) {
-            0.0
-        } else {
-            height
-        },
+        height_above_terrain: if sphere { 0.0 } else { height },
         geometry_type: info.geometry_type,
         is_small: info.is_small,
     }
@@ -192,4 +197,3 @@ fn engine_geometry_to_logic(info: &EngineGeometryInfo) -> GeometryInfo {
 pub fn test_disabled_mask(mask: DisabledMaskType, disabled_type: DisabledType) -> bool {
     mask.test(disabled_type)
 }
-

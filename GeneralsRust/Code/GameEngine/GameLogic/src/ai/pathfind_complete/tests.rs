@@ -1975,9 +1975,10 @@ fn crusher_combiner_merges_fence_obstacle() {
 
 #[test]
 fn fence_flag_cpp_surface() {
+    // AIPathfind.cpp:1421-1453: obstacle annotations belong to the obstacle operations.
     let src = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../Pathfinding/src/lib.rs"
+        "/../Pathfinding/src/obstacles.rs"
     ));
     assert!(src.contains("obstacle_fence"));
     assert!(src.contains("is_obstacle_fence"));
@@ -2198,15 +2199,16 @@ fn process_queue_dirty_cpp_surface() {
 
 #[test]
 fn zone_passable_cost_cpp_surface() {
+    // AIPathfind.cpp:6155-6158, 6313-6315: coarse-zone failure adds a cost to A*.
     let src = PATHFIND_COMPLETE_SRC;
     let prod = src.split("#[cfg(test)]").next().expect("production");
     assert!(prod.contains("set_zone_passable"));
     assert!(prod.contains("set_zone_cell_passable"));
     let astar = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../Pathfinding/src/lib.rs"
+        "/../Pathfinding/src/astar.rs"
     ));
-    assert!(astar.contains("ZONE_IMPASSABLE_COST"));
+    assert!(astar.contains("movement_cost.saturating_add(ZONE_IMPASSABLE_COST)"));
     assert!(astar.contains("notZonePassable") || astar.contains("is_zone_passable"));
 }
 
@@ -3175,9 +3177,10 @@ fn build_actual_path_ally_block_cpp_surface() {
 
 #[test]
 fn find_path_ex_ally_cost_cpp_surface() {
+    // AIPathfind.cpp:6281-6294: ally occupancy contributes to the neighbor cost.
     let src = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../Pathfinding/src/lib.rs"
+        "/../Pathfinding/src/astar.rs"
     ));
     assert!(
         src.contains("find_path_ex") && src.contains("extra_cost"),
@@ -3223,14 +3226,16 @@ fn ally_moving_cost_requires_near_start_cpp_surface() {
 
 #[test]
 fn downhill_only_astar_cpp_surface() {
+    // AIPathfind.cpp:6189-6204: downhill-only locomotors reject uphill neighbors.
     let src = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../Pathfinding/src/lib.rs"
+        "/../Pathfinding/src/astar.rs"
     ));
     assert!(
         src.contains("downhill_only") && src.contains("find_path_ex2"),
         "A* must support downhill-only step rejection"
     );
+    assert!(src.contains("if fz < tz {"));
     let complete = PATHFIND_COMPLETE_SRC;
     let prod = complete.split("#[cfg(test)]").next().expect("production");
     assert!(
@@ -3246,9 +3251,10 @@ fn downhill_only_astar_cpp_surface() {
 
 #[test]
 fn tunneling_dozer_astar_cpp_surface() {
+    // AIPathfind.cpp:6208-6226: dozers and tunneling can permit obstacle cells.
     let src = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../Pathfinding/src/lib.rs"
+        "/../Pathfinding/src/astar.rs"
     ));
     assert!(src.contains("force_passable") && src.contains("find_path_ex3"));
     let complete = PATHFIND_COMPLETE_SRC;
@@ -3267,9 +3273,10 @@ fn tunneling_dozer_astar_cpp_surface() {
 
 #[test]
 fn examine_cells_line_seed_cpp_surface() {
+    // AIPathfind.cpp:5996-6093: line seeding adds half an orthogonal step cost.
     let src = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../Pathfinding/src/lib.rs"
+        "/../Pathfinding/src/astar.rs"
     ));
     assert!(
         src.contains("examine_cells_toward_goal")
@@ -3327,14 +3334,17 @@ fn find_attack_path_astar_cpp_surface() {
 
 #[test]
 fn human_logical_extent_astar_cpp_surface() {
+    // AIPathfind.cpp:6160-6165: human neighbors are restricted to logical bounds.
     let src = include_str!(concat!(
         env!("CARGO_MANIFEST_DIR"),
-        "/../Pathfinding/src/lib.rs"
+        "/../Pathfinding/src/astar.rs"
     ));
     assert!(
         src.contains("cell_allowed") && src.contains("logical extent"),
         "A* must accept cell_allowed for human logical extent clamp"
     );
+    assert!(src.contains("if let Some(ok) = cell_allowed"));
+    assert!(src.contains("if !ok(neighbor_coord)"));
     let complete = PATHFIND_COMPLETE_SRC;
     let prod = complete.split("#[cfg(test)]").next().expect("production");
     let i = prod.find("fn find_path_internal").expect("internal");

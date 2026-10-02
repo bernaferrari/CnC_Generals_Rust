@@ -19,12 +19,6 @@ use game_engine::common::thing::module::Module;
 use std::str::FromStr;
 use std::sync::{Arc, RwLock};
 
-/// Wave 389: host-only path has no dual-world factory objects.
-#[inline]
-fn dual_world_registry_unavailable() -> bool {
-    crate::object::registry::OBJECT_REGISTRY.is_empty()
-}
-
 /// Configuration data specific to hive structure bodies
 #[derive(Debug, Clone)]
 pub struct HiveStructureBodyModuleData {
@@ -223,11 +217,6 @@ impl HiveStructureBody {
     /// `NoTarget` when a spawn or contain interface exists but has nobody to hit.
     /// `NoInterface` when neither module exists, or the shooter is missing.
     fn try_damage_slave(&mut self, damage_info: &mut DamageInfo) -> HiveRedirect {
-        // Wave 389: empty dual-world → false.
-        if dual_world_registry_unavailable() {
-            return HiveRedirect::NoInterface;
-        }
-
         let Some(owner) = self.structure_body.owner_handle() else {
             return HiveRedirect::NoInterface;
         };
@@ -316,11 +305,6 @@ impl HiveStructureBody {
         damage_info: &mut DamageInfo,
         context: Option<&super::body_module::BodyDamageContext>,
     ) -> BodyResult<()> {
-        // Wave 389: empty dual-world → Ok(()).
-        if dual_world_registry_unavailable() {
-            return Ok(());
-        }
-
         if self.should_propagate_to_slaves(damage_info) {
             match self.try_damage_slave(damage_info) {
                 HiveRedirect::Propagated => return Ok(()),
@@ -523,8 +507,9 @@ mod tests {
     use super::*;
     use crate::object::Object;
     use crate::object::body::body_module::DamageType;
+    use crate::object::contain::open_contain::{OpenContain, OpenContainModuleData};
     use crate::object::registry::OBJECT_REGISTRY;
-    use std::sync::{Arc, RwLock};
+    use std::sync::{Arc, Mutex, RwLock};
 
     fn make_damage_info(damage_type: DamageType, amount: f32) -> DamageInfo {
         let mut info = DamageInfo::new();
@@ -535,13 +520,43 @@ mod tests {
         info
     }
 
-    fn register_source_object() -> Arc<RwLock<Object>> {
-        let source = Arc::new(RwLock::new(Object::new_test(9000, 100.0)));
-        OBJECT_REGISTRY.register_object(9000, &source);
-        source
+    struct RegisteredObject {
+        id: ObjectId,
+        object: Arc<RwLock<Object>>,
+    }
+
+    impl Drop for RegisteredObject {
+        fn drop(&mut self) {
+            OBJECT_REGISTRY.unregister_object(self.id);
+        }
+    }
+
+    fn register_test_object(id: ObjectId) -> RegisteredObject {
+        let object = Arc::new(RwLock::new(Object::new_test(id, 100.0)));
+        OBJECT_REGISTRY.register_object(id, &object);
+        RegisteredObject { id, object }
+    }
+
+    fn register_empty_hive_owner(id: ObjectId) -> RegisteredObject {
+        let owner = register_test_object(id);
+        let contain = OpenContain::new(
+            Arc::downgrade(&owner.object),
+            &OpenContainModuleData::default(),
+        )
+        .expect("empty hive contain");
+        owner
+            .object
+            .write()
+            .unwrap()
+            .set_contain(Some(Arc::new(Mutex::new(contain))));
+        owner
     }
 
     fn create_test_hive_body() -> HiveStructureBody {
+        create_test_hive_body_with_owner(INVALID_ID)
+    }
+
+    fn create_test_hive_body_with_owner(owner_id: ObjectId) -> HiveStructureBody {
         let mut base_data = ActiveBodyModuleData::default();
         base_data.max_health = 500.0;
         base_data.initial_health = 500.0;
@@ -562,7 +577,7 @@ mod tests {
             .damage_types_to_swallow
             .set_damage_type(DamageType::Sniper);
 
-        HiveStructureBody::new(module_data, 0)
+        HiveStructureBody::new(module_data, owner_id)
     }
 
     #[test]
@@ -590,8 +605,9 @@ mod tests {
 
     #[test]
     fn test_swallow_damage_when_no_slaves() {
-        let _source = register_source_object();
-        let mut body = create_test_hive_body();
+        let _source = register_test_object(9000);
+        let hive = register_empty_hive_owner(9001);
+        let mut body = create_test_hive_body_with_owner(hive.id);
 
         // Sniper damage should be swallowed (no slaves available in this test)
         let mut damage_info = make_damage_info(DamageType::Sniper, 200.0);
@@ -602,7 +618,6 @@ mod tests {
         assert_eq!(damage_info.output.actual_damage_clipped, 0.0);
         assert!(damage_info.output.no_effect);
         assert_eq!(body.get_health(), 500.0); // No damage taken
-        OBJECT_REGISTRY.unregister_object(9000);
     }
 
     #[test]
@@ -648,7 +663,8 @@ mod tests {
 
     #[test]
     fn test_multiple_damage_types_configuration() {
-        let _source = register_source_object();
+        let _source = register_test_object(9010);
+        let hive = register_empty_hive_owner(9011);
         let mut base_data = ActiveBodyModuleData::default();
         base_data.max_health = 500.0;
         base_data.initial_health = 500.0;
@@ -672,10 +688,12 @@ mod tests {
             .damage_types_to_swallow
             .set_damage_type(DamageType::Sniper);
 
-        let mut body = HiveStructureBody::new(module_data, 0);
+        let mut body = HiveStructureBody::new(module_data, hive.id);
 
         // Sniper should be swallowed
         let mut sniper_damage = make_damage_info(DamageType::Sniper, 100.0);
+        sniper_damage.input.source_id = 9010;
+        sniper_damage.sync_from_input();
 
         assert!(body.attempt_damage(&mut sniper_damage).is_ok());
         assert_eq!(sniper_damage.output.actual_damage_dealt, 0.0);
@@ -684,11 +702,42 @@ mod tests {
         // SmallArms should propagate but since no slaves, it should damage the hive
         // (it's not in the swallow list)
         let mut small_arms_damage = make_damage_info(DamageType::SmallArms, 100.0);
+        small_arms_damage.input.source_id = 9010;
+        small_arms_damage.sync_from_input();
 
         assert!(body.attempt_damage(&mut small_arms_damage).is_ok());
         // Note: actual damage will be affected by armor, so we can't predict exact value
         // Just verify health decreased
         assert!(body.get_health() < 500.0);
-        OBJECT_REGISTRY.unregister_object(9000);
+    }
+    #[test]
+    fn test_swallow_requires_contain_or_spawn_interface() {
+        let _source = register_test_object(9020);
+        let hive = register_test_object(9021);
+        let mut body = create_test_hive_body_with_owner(hive.id);
+        let mut damage = make_damage_info(DamageType::Sniper, 100.0);
+        damage.input.source_id = 9020;
+        damage.sync_from_input();
+
+        // HiveStructureBody.cpp:103-112 falls through to StructureBody without an interface.
+        body.attempt_damage(&mut damage).unwrap();
+        assert_eq!(body.get_health(), 400.0);
+        assert_eq!(damage.output.actual_damage_dealt, 100.0);
+        assert!(!damage.output.no_effect);
+    }
+
+    #[test]
+    fn test_swallow_requires_live_shooter() {
+        let hive = register_empty_hive_owner(9031);
+        let mut body = create_test_hive_body_with_owner(hive.id);
+        let mut damage = make_damage_info(DamageType::Sniper, 100.0);
+        damage.input.source_id = 9030;
+        damage.sync_from_input();
+
+        // HiveStructureBody.cpp:81-102 does not swallow when the shooter lookup fails.
+        body.attempt_damage(&mut damage).unwrap();
+        assert_eq!(body.get_health(), 400.0);
+        assert_eq!(damage.output.actual_damage_dealt, 100.0);
+        assert!(!damage.output.no_effect);
     }
 }

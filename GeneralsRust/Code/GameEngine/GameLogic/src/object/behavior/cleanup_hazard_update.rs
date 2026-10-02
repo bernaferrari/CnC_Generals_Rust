@@ -261,11 +261,7 @@ impl CleanupHazardUpdate {
 
 impl CleanupHazardUpdateInterface for CleanupHazardUpdate {
     fn set_cleanup_area_parameters(&mut self, pos: &Coord3D, range: Real) {
-        // Wave 317: empty dual-world → no-op.
-        if dual_world_registry_unavailable() {
-            return;
-        }
-
+        // C++ stores the requested area before issuing an optional AI move.
         self.move_range = range;
         self.pos = *pos;
 

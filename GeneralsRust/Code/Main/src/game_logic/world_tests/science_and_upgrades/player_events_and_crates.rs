@@ -2,6 +2,67 @@
 use super::*;
 
 #[test]
+fn script_rank_caps_stay_with_the_driving_match() {
+    // GameLogic.h:205-209 owns the cap; Player.cpp:2433-2456 and
+    // 2654-2672 consult that match for awards and explicit rank changes.
+    use crate::game_logic::{Player, Team};
+    use gamelogic::scripting::{HostScriptRankRequest, request_host_rank};
+    let _ = gamelogic::scripting::take_host_rank_requests();
+    let mut first = GameLogic::new();
+    let mut second = GameLogic::new();
+    for world in [&mut first, &mut second] {
+        world.scripts_loaded = true;
+        world.add_player(Player::new(0, Team::USA, "Local", true));
+    }
+
+    request_host_rank(HostScriptRankRequest::SetRankLevelLimit { limit: 2 });
+    first.evaluate_and_execute_scripts(0.0);
+    request_host_rank(HostScriptRankRequest::SetRankLevelLimit { limit: 4 });
+    second.evaluate_and_execute_scripts(0.0);
+    assert!(gamelogic::scripting::take_host_rank_requests().is_empty());
+
+    assert!(first.set_player_rank_level(0, 5));
+    assert_eq!(first.get_player(0).unwrap().rank_level, 2);
+    assert!(second.set_player_rank_level(0, 5));
+    assert_eq!(second.get_player(0).unwrap().rank_level, 4);
+
+    assert!(first.set_player_rank_level(0, 1));
+    assert!(second.set_player_rank_level(0, 1));
+    assert!(second.add_player_skill_points(0, 999_999));
+    assert!(first.add_player_skill_points(0, 999_999));
+    assert_eq!(first.get_player(0).unwrap().rank_level, 2);
+    assert_eq!(second.get_player(0).unwrap().rank_level, 4);
+
+    let mut candidate = GameLogic::new();
+    assert_eq!(candidate.rank_level_limit(), 1000);
+    assert_eq!(first.rank_level_limit(), 2);
+    assert_eq!(second.rank_level_limit(), 4);
+    let saved = crate::save_load::snapshot::persist_v18::capture_persist_v18(&first);
+    assert_eq!(saved.rank_level_limit, 2);
+    assert_eq!(
+        crate::save_load::snapshot::persist_v18::capture_persist_v18(&second).rank_level_limit,
+        4
+    );
+    crate::save_load::snapshot::persist_v18::restore_persist_v18(&saved, &mut candidate);
+    candidate.add_player(Player::new(0, Team::USA, "Local", true));
+    assert!(candidate.add_player_skill_points(0, 999_999));
+    assert_eq!(candidate.get_player(0).unwrap().rank_level, 2);
+    assert_eq!(second.rank_level_limit(), 4);
+    assert_eq!(first.rank_level_limit(), 2);
+
+    candidate.reset();
+    assert_eq!(candidate.rank_level_limit(), 1000);
+    assert_eq!(first.rank_level_limit(), 2);
+    assert_eq!(second.rank_level_limit(), 4);
+    first.set_rank_level_limit(-5);
+    assert_eq!(first.rank_level_limit(), 1);
+    assert_eq!(first.get_player(0).unwrap().rank_level, 2);
+    assert!(first.set_player_rank_level(0, 5));
+    assert_eq!(first.get_player(0).unwrap().rank_level, 1);
+    assert_eq!(second.get_player(0).unwrap().rank_level, 4);
+}
+
+#[test]
 fn script_set_rank_level_plays_eva_general_level_up() {
     // C++ Player.cpp:2708-2714 setRankLevel always EVA for local.
     use crate::game_logic::Team;
@@ -565,11 +626,11 @@ fn select_objects_flashes_selection_residual() {
 
 #[test]
 fn assign_unit_path_undeploys_residual() {
-    let src = crate::game_logic::residuals::harness::host_logic_scan_src();
-    let start = src
-        .find("fn assign_unit_path_inner")
-        .expect("assign_unit_path_inner");
-    let body = &src[start..start + 3000];
+    let body = crate::game_logic::residuals::harness::rust_fn_body(
+        include_str!("../../world_save/world_paths.rs"),
+        "assign_unit_path_inner",
+    )
+    .expect("assign_unit_path_inner");
     assert!(
         body.contains("is_deployed") && body.contains("set_deployed(false)"),
         "assign_unit_path must pack/undeploy before pathing residual"
@@ -1915,8 +1976,10 @@ fn shroud_crate_reveals_map_for_picker_player() {
     // NON-permanent reveal parked in the FOW shroud manager, never the
     // permanent partition latch (partition_manager.rs internal test pins
     // that separation).
-    let reveal_queued = |player_id: u32| {
-        gamelogic::system::shroud_manager::get_shroud_manager()
+    let reveal_queued = |world: &GameLogic, player_id: u32| {
+        world
+            .engine_stores
+            .shroud()
             .lock()
             .map(|mgr| {
                 mgr.snapshot_state()
@@ -1925,12 +1988,12 @@ fn shroud_crate_reveals_map_for_picker_player() {
             })
             .unwrap_or(false)
     };
-    assert!(!reveal_queued(0));
+    assert!(!reveal_queued(&logic, 0));
     assert!(logic.execute_shroud_crate_behavior(uid));
-    assert!(reveal_queued(0), "shroud crate reveal must reach FOW");
+    assert!(reveal_queued(&logic, 0), "shroud crate reveal must reach FOW");
     // Idempotent
     assert!(logic.execute_shroud_crate_behavior(uid));
-    assert!(reveal_queued(0));
+    assert!(reveal_queued(&logic, 0));
 }
 
 #[test]
@@ -1960,7 +2023,9 @@ fn shroud_crate_collide_path() {
     logic.update_money_crate_collides();
     // C++ revealMapForPlayer lands in the FOW shroud manager (GLA slot 2),
     // not in the permanent partition latch.
-    let reveal_queued = gamelogic::system::shroud_manager::get_shroud_manager()
+    let reveal_queued = logic
+        .engine_stores
+        .shroud()
         .lock()
         .map(|mgr| {
             mgr.snapshot_state()
@@ -2704,12 +2769,18 @@ fn try_idle_crate_pickup_moves_to_money_crate() {
     let mut logic = GameLogic::new();
     let mut ut = ThingTemplate::new("AIUnit");
     ut.add_kind_of(KindOf::Infantry);
-    let uid = ObjectId(4610);
-    let mut unit = Object::new(ut, uid, Team::China);
+    // C++ AIUpdate::isDoingGroundMovement requires a current locomotor.
+    // Use the real create path to bind the infantry's authored ground set.
+    ut.set_locomotor_set_names(&[
+        crate::game_logic::locomotor_bootstrap::BASIC_HUMAN_LOCOMOTOR.to_string(),
+    ]);
+    logic.templates.insert("AIUnit".into(), ut);
+    let uid = logic
+        .create_object("AIUnit", Team::China, glam::Vec3::ZERO)
+        .expect("infantry with a current ground locomotor");
+    let unit = logic.objects.get_mut(&uid).unwrap();
     unit.set_ai_state(AIState::Idle);
     unit.movement.max_speed = 8.0;
-    unit.set_position(glam::Vec3::ZERO);
-    logic.objects.insert(uid, unit);
 
     let mut ct = ThingTemplate::new("SupplyDropZoneCrate");
     let cid = ObjectId(4611);

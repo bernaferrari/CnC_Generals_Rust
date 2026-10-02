@@ -160,10 +160,7 @@ fn give_test_damage_weapon(object: &Arc<RwLock<gamelogic::object::Object>>, rang
     guard.weapon_set.add_weapon_template_set(set);
     guard.set_weapon_set_flag(LogicWeaponSetType::PlayerUpgrade);
     let object_id = guard.get_id();
-    guard
-        .weapon_set
-        .update_weapon_set(object_id, &LogicWeaponSetFlags::new())
-        .unwrap();
+    guard.refresh_weapon_set().unwrap();
 }
 
 #[test]

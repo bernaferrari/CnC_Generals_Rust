@@ -845,13 +845,14 @@ impl Player {
         bounty
     }
 
-    /// C++ Player::addSkillPoints — modifier ceil, point cap, rank-up loop.
+    /// Standalone player award with the C++ default match cap.
+    /// Match-owned callers pass their cap to `add_skill_points_limited`.
     /// Negative deltas lower skill points (C++ `min(pointCap, skill+delta)`).
     /// Rank-down is `set_rank_level` / `reset_rank`, not this loop.
     pub fn add_skill_points(&mut self, points: i32) -> bool {
         self.add_skill_points_limited(
             points,
-            gamelogic::helpers::TheGameLogic::get_rank_level_limit(),
+            crate::game_logic::host_rank_ui_residual::RANK_LEVEL_LIMIT_DEFAULT_RESIDUAL,
         )
     }
 
@@ -894,6 +895,7 @@ impl Player {
     }
 
     /// C++ Player::addSkillPointsForKill — victim template SkillPointValue.
+    /// Standalone default cap; match kill awards pass their owner's cap directly.
     pub fn add_skill_points_for_kill(&mut self, victim_skill_value: i32) -> bool {
         self.add_skill_points(victim_skill_value)
     }
@@ -933,15 +935,21 @@ impl Player {
         self.sync_leftover_player_sciences_from_host();
     }
 
-    /// C++ Player::setRankLevel — downgrade calls resetRank then climbs.
+    /// Standalone player rank change with the C++ default match cap.
+    /// Match-owned callers use their cap and bound PlayerTemplate.
     pub fn set_rank_level(&mut self, new_level: u32) -> bool {
-        self.set_rank_level_from_template(new_level, None)
+        self.set_rank_level_from_template(
+            new_level,
+            None,
+            crate::game_logic::host_rank_ui_residual::RANK_LEVEL_LIMIT_DEFAULT_RESIDUAL,
+        )
     }
 
     pub(crate) fn set_rank_level_from_template(
         &mut self,
         new_level: u32,
         template: Option<&game_engine::common::rts::player_template::PlayerTemplate>,
+        rank_level_limit: i32,
     ) -> bool {
         use crate::game_logic::host_rank_ui_residual::{
             RankSkillStateResidual, rank_level_down_threshold_residual,
@@ -949,7 +957,7 @@ impl Player {
         };
         use crate::game_logic::host_science_rank::{RETAIL_RANK_COUNT, retail_rank_for_level};
 
-        let limit = gamelogic::helpers::TheGameLogic::get_rank_level_limit().max(1) as u32;
+        let limit = rank_level_limit.max(1) as u32;
         let old = self.rank_level.max(1);
         let target = new_level.max(1).min(RETAIL_RANK_COUNT).min(limit);
         if target == old {

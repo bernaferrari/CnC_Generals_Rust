@@ -306,7 +306,7 @@ thread_local! {
         const { std::cell::Cell::new(None) };
 }
 
-struct InUpdateFrameGuard;
+pub(crate) struct InUpdateFrameGuard;
 
 impl Drop for InUpdateFrameGuard {
     fn drop(&mut self) {

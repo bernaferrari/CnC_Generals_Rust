@@ -75,7 +75,7 @@ impl GameLogic {
         let Some(p) = self.players.get_mut(&player_id) else {
             return false;
         };
-        let leveled = p.add_skill_points(points);
+        let leveled = p.add_skill_points_limited(points, self.rank_level_limit);
         if leveled {
             self.try_eva_general_level_up(player_id);
         }

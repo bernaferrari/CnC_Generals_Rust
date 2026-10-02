@@ -742,43 +742,45 @@ impl MissileAIUpdate {
             self.switch_to_state(MissileState::KillSelf, TheGameLogic::get_frame());
             return;
         };
+        // C++ passes its source Object to synchronous weapon callbacks. Those
+        // callbacks inspect and may damage objects, so retain only position
+        // across firing, not the projectile's exclusive registry borrow.
+        let obj_pos = match obj_arc.read() {
+            Ok(obj) => *obj.get_position(),
+            Err(_) => {
+                self.switch_to_state(MissileState::KillSelf, TheGameLogic::get_frame());
+                return;
+            }
+        };
+        let weapon = self.detonation_weapon_tmpl.as_ref().and_then(Weak::upgrade);
+        if let Some(template) = weapon.as_ref() {
+            // Allocate under the store borrow, then fire after releasing it:
+            // projectileless flight/damage can append to that same store.
+            if let Ok(mut detonation) = crate::weapon::with_weapon_store(|store| {
+                store.allocate_new_weapon(template, crate::weapon::WeaponSlotType::Primary)
+            }) {
+                if detonation.load_ammo_now(self.object_id).is_ok() {
+                    let _ = detonation.fire_projectile_detonation_weapon(
+                        self.object_id,
+                        None,
+                        Some(&obj_pos),
+                        self.extra_bonus_flags,
+                        !self.no_damage,
+                    );
+                }
+            }
+        }
+
+        // C++ MissileAIUpdate.cpp:371-392 fires before reading current health
+        // and applying ordered self-damage; callbacks may have changed it.
         let Ok(mut obj_guard) = obj_arc.write() else {
             self.switch_to_state(MissileState::KillSelf, TheGameLogic::get_frame());
             return;
         };
-
-        let obj_pos = *obj_guard.get_position();
-
-        if let Some(weapon) = self
-            .detonation_weapon_tmpl
+        let kill_projectile = weapon
             .as_ref()
-            .and_then(|weak| weak.upgrade())
-        {
-            let _ = crate::weapon::with_weapon_store(|store| {
-                let _ = store.handle_projectile_detonation(
-                    &weapon,
-                    self.object_id,
-                    &obj_pos,
-                    self.extra_bonus_flags,
-                    !self.no_damage,
-                );
-            });
-
-            if weapon.die_on_detonate {
-                let max_health = obj_guard.get_max_health();
-                let mut damage_info = DamageInfo {
-                    input: DamageInfoInput {
-                        damage_type: DamageType::Unresistable,
-                        death_type: DeathType::Detonated,
-                        source_id: INVALID_ID,
-                        amount: max_health,
-                        ..Default::default()
-                    },
-                    ..Default::default()
-                };
-                let _ = obj_guard.attempt_damage(&mut damage_info);
-            }
-        } else if !self.no_damage {
+            .map_or(!self.no_damage, |template| template.die_on_detonate);
+        if kill_projectile {
             let max_health = obj_guard.get_max_health();
             let mut damage_info = DamageInfo {
                 input: DamageInfoInput {
@@ -799,9 +801,8 @@ impl MissileAIUpdate {
             }
         }
 
-        obj_guard.set_status(ObjectStatusMaskType::MISSILE_KILLING_SELF, true);
-
         self.switch_to_state(MissileState::KillSelf, TheGameLogic::get_frame());
+        obj_guard.set_status(ObjectStatusMaskType::MISSILE_KILLING_SELF, true);
     }
 
     /// Update missile state machine (per-frame update)
@@ -1950,6 +1951,7 @@ mod tests {
     #[test]
     fn projectile_collision_always_hits_intended_victim() {
         let _guard = game_logic_test_guard();
+        crate::weapon::initialize_weapon_store().unwrap();
         reset_game_logic_objects();
 
         let projectile = register_test_object(1014);
@@ -1964,6 +1966,13 @@ mod tests {
 
         assert!(missile.projectile_handle_collision(Some(1015)));
         assert_eq!(missile.state, MissileState::KillSelf);
+        assert_eq!(projectile.read().unwrap().get_health(), 100.0);
+        assert!(
+            projectile
+                .read()
+                .unwrap()
+                .test_status(crate::common::ObjectStatusTypes::MissileKillingSelf,)
+        );
         assert!(
             projectile
                 .read()
@@ -1971,6 +1980,50 @@ mod tests {
                 .test_status(crate::common::ObjectStatusTypes::NoCollisions)
         );
 
+        reset_game_logic_objects();
+    }
+
+    #[test]
+    fn detonation_preserves_cpp_template_and_no_damage_self_damage_rules() {
+        let _guard = game_logic_test_guard();
+        crate::weapon::initialize_weapon_store().unwrap();
+        // C++ MissileAIUpdate.cpp:371-392: DieOnDetonate applies even with
+        // noDamage; without a template, noDamage suppresses self-damage.
+        for (index, (die_on_detonate, no_damage, should_die)) in [
+            (None, false, true),
+            (None, true, false),
+            (Some(false), false, false),
+            (Some(false), true, false),
+            (Some(true), false, true),
+            (Some(true), true, true),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            reset_game_logic_objects();
+            let object_id = 1020 + index as ObjectID;
+            let projectile = register_test_object(object_id);
+            let template = die_on_detonate.map(|die| {
+                let mut template = WeaponTemplate::new(format!("DetonationRule{index}"));
+                template.die_on_detonate = die;
+                Arc::new(template)
+            });
+            let mut missile =
+                MissileAIUpdate::new(Arc::new(MissileAIUpdateModuleData::default()), 0);
+            missile.object_id = object_id;
+            missile.no_damage = no_damage;
+            missile.detonation_weapon_tmpl = template.as_ref().map(Arc::downgrade);
+
+            missile.detonate();
+
+            assert_eq!(missile.state, MissileState::KillSelf);
+            let projectile = projectile.read().unwrap();
+            assert_eq!(
+                projectile.get_health(),
+                if should_die { 0.0 } else { 100.0 }
+            );
+            assert!(projectile.test_status(crate::common::ObjectStatusTypes::MissileKillingSelf));
+        }
         reset_game_logic_objects();
     }
 

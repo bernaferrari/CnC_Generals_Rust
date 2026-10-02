@@ -2763,7 +2763,6 @@ mod tests {
     use crate::modules::AIUpdateInterface;
     use crate::object::Object;
     use crate::object::registry::OBJECT_REGISTRY;
-    use std::cell::RefCell;
     use std::sync::{Arc, Mutex, RwLock};
 
     #[derive(Debug, Default, Clone)]
@@ -2776,18 +2775,11 @@ mod tests {
 
     #[derive(Debug)]
     struct FaceTestAI {
-        /// Sole owner. `with_cur_locomotor` is `&self`, so interior mutability
-        /// is a `RefCell`, not a lock (std `Mutex` is not reentrant).
-        locomotor: RefCell<Locomotor>,
+        // The interface exposes mutable locomotor access through &self and
+        // requires Sync, so this test double needs checked synchronization.
+        locomotor: Mutex<Locomotor>,
         capture: Arc<Mutex<FaceAiCapture>>,
     }
-
-    // SAFETY: `AIUpdateInterface: Sync`, but this double is only installed as
-    // `Arc<Mutex<dyn AIUpdateInterface>>` and the sim is single-threaded.
-    // The outer mutex is the only share path; `borrow_mut` never runs on two
-    // threads at once. `RefCell` stays the non-reentrant stand-in for the
-    // C++ locomotor pointer.
-    unsafe impl Sync for FaceTestAI {}
 
     impl AIUpdateInterface for FaceTestAI {
         fn update(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
@@ -2807,7 +2799,7 @@ mod tests {
         }
 
         fn with_cur_locomotor(&self, f: &mut dyn FnMut(&mut crate::locomotor::Locomotor)) {
-            f(&mut self.locomotor.borrow_mut());
+            f(&mut self.locomotor.lock().expect("face-test locomotor"));
         }
 
         fn set_locomotor_goal_orientation(&mut self, angle: Real) {
@@ -2829,16 +2821,11 @@ mod tests {
         position: Coord3D,
         orientation: Real,
     ) -> (Arc<RwLock<Object>>, Arc<Mutex<FaceAiCapture>>) {
-        // Wave 267: empty dual-world → no factory object walks.
-        if dual_world_registry_unavailable() {
-            panic!("dual-world registry unavailable in test helper");
-        }
-
         let object = Arc::new(RwLock::new(Object::new_test(id, 100.0)));
 
         let mut template = LocomotorTemplate::new(format!("face_test_{id}"));
         template.min_speed = min_speed;
-        let locomotor = RefCell::new(Locomotor::new(Arc::new(template)));
+        let locomotor = Mutex::new(Locomotor::new(Arc::new(template)));
 
         let capture = Arc::new(Mutex::new(FaceAiCapture::default()));
         let ai: Arc<Mutex<dyn AIUpdateInterface>> = Arc::new(Mutex::new(FaceTestAI {
@@ -2860,11 +2847,6 @@ mod tests {
     }
 
     fn unregister_face_test_object(id: ObjectID) {
-        // Wave 267: empty dual-world → no factory object walks.
-        if dual_world_registry_unavailable() {
-            panic!("dual-world registry unavailable in test helper");
-        }
-
         OBJECT_REGISTRY.unregister_object(id);
     }
 

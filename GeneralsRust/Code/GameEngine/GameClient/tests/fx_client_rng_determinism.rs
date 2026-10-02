@@ -87,11 +87,11 @@ fn fx_randomness_is_reproducible_from_same_client_seed() {
         assert_eq!(a.position, b.position, "same seed must reproduce position");
         assert_eq!(a.velocity, b.velocity, "same seed must reproduce velocity");
         assert!(
-            a.position.coords.norm().is_finite() && a.velocity.norm().is_finite(),
+            a.position.length().is_finite() && a.velocity.length().is_finite(),
             "emission samples must be finite"
         );
         assert!(
-            a.velocity.norm() > 0.0,
+            a.velocity.length() > 0.0,
             "spherical speed in [1, 2] must produce non-zero velocity"
         );
     }

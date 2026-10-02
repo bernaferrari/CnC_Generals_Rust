@@ -49,9 +49,7 @@ impl Object {
             crate::helpers::TheGameLogic::queue_objects_changed_trigger_areas(self.id);
         }
 
-        let _ = self
-            .weapon_set
-            .update_weapon_set(self.id, &self.cur_weapon_set_flags);
+        let _ = self.refresh_weapon_set();
 
         if self.is_kind_of(KindOf::Mine)
             || self.is_kind_of(KindOf::BoobyTrap)

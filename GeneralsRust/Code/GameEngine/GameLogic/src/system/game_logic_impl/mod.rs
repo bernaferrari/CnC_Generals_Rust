@@ -99,7 +99,6 @@ use crate::player::{GameDifficulty, Player, PlayerIndex, PlayerType, player_list
 use crate::scripting::engine::{ScriptEngine, get_script_engine, initialize_script_engine};
 use crate::sides_list::get_sides_list;
 use crate::system::beacon_manager::{BeaconUpdate, drain_beacon_updates};
-use crate::system::game_logic_dispatch::{GameLogicDispatch, get_dispatch};
 use crate::system::radar_notifier;
 use crate::system::shroud_manager::get_shroud_manager;
 use crate::team::{Team, flush_pending_team_script_events, get_team_factory};

@@ -331,8 +331,7 @@ impl Object {
             self.weapon_set.add_weapon_template_set(set);
         }
         if self.weapon_set.has_weapon_template_sets() {
-            let flags = self.cur_weapon_set_flags;
-            let _ = self.weapon_set.update_weapon_set(self.id, &flags);
+            let _ = self.refresh_weapon_set();
         }
     }
 

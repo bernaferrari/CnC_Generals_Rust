@@ -2171,7 +2171,7 @@ mod tests {
             .unwrap_or(prod.len().min(i + 2500));
         let w = &prod[i..end];
         assert!(
-            w.contains("OBJECT_REGISTRY.get_object(obj_id)")
+            w.contains("OBJECT_REGISTRY.with_object(obj_id, |_| ()).is_some()")
                 && w.contains("mark_priority_build")
                 && w.contains("set_build_delay_frames(0)")
                 && !w.contains("build_structure_now"),

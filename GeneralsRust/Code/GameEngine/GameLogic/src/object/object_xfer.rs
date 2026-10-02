@@ -1049,10 +1049,7 @@ impl Snapshot for Object {
             }
 
             if is_loading {
-                if let Err(err) = self
-                    .weapon_set
-                    .update_weapon_set(self.id, &self.cur_weapon_set_flags)
-                {
+                if let Err(err) = self.refresh_weapon_set() {
                     warn!(
                         "Object::xfer failed to prepare weapon set for object {}: {}",
                         self.id, err
