@@ -4,38 +4,51 @@
 use super::helpers::*;
 use super::*;
 
-struct BodyBindingModule<T>
+struct BodyBindingModule<T, B>
 where
     T: ModuleData + Clone + Send + Sync + std::fmt::Debug + 'static,
+    B: BodyModuleInterface + Snapshotable + 'static,
 {
     module_name_key: NameKeyType,
     owner_id: ObjectID,
     data: Arc<T>,
-    create_body: fn(T, ObjectID) -> Arc<Mutex<dyn BodyModuleInterface>>,
+    create_body: fn(T, ObjectID) -> Arc<Mutex<B>>,
+    body: Option<Arc<Mutex<B>>>,
 }
 
-impl<T> BodyBindingModule<T>
+impl<T, B> BodyBindingModule<T, B>
 where
     T: ModuleData + Clone + Send + Sync + std::fmt::Debug + 'static,
+    B: BodyModuleInterface + Snapshotable + 'static,
 {
     fn new(
         module_name: &str,
         owner_id: ObjectID,
         data: Arc<T>,
-        create_body: fn(T, ObjectID) -> Arc<Mutex<dyn BodyModuleInterface>>,
+        create_body: fn(T, ObjectID) -> Arc<Mutex<B>>,
     ) -> Self {
         Self {
             module_name_key: NameKeyGenerator::name_to_key(module_name),
             owner_id,
             data,
             create_body,
+            body: None,
         }
+    }
+
+    fn snapshot_body(&self) -> Result<std::sync::MutexGuard<'_, B>, String> {
+        self.body
+            .as_ref()
+            .ok_or_else(|| "body snapshot requested before onObjectCreated".to_string())?
+            .lock()
+            .map_err(|_| "body lock poisoned during snapshot".to_string())
     }
 }
 
-impl<T> Module for BodyBindingModule<T>
+impl<T, B> Module for BodyBindingModule<T, B>
 where
     T: ModuleData + Clone + Send + Sync + std::fmt::Debug + 'static,
+    B: BodyModuleInterface + Snapshotable + 'static,
 {
     fn get_module_name_key(&self) -> NameKeyType {
         self.module_name_key
@@ -50,80 +63,82 @@ where
     }
 
     fn on_object_created(&mut self) {
-        let body = (self.create_body)((*self.data).clone(), self.owner_id);
+        // The interface attached to Object and the module written by Xfer must
+        // refer to the same body, as C++ m_body aliases its behavior module.
+        let body = self
+            .body
+            .get_or_insert_with(|| (self.create_body)((*self.data).clone(), self.owner_id))
+            .clone();
         attach_body_to_object(self.owner_id, body);
     }
 }
 
-impl<T> Snapshotable for BodyBindingModule<T>
+impl<T, B> Snapshotable for BodyBindingModule<T, B>
 where
     T: ModuleData + Clone + Send + Sync + std::fmt::Debug + 'static,
+    B: BodyModuleInterface + Snapshotable + 'static,
 {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let mut version: u8 = 0;
-        xfer.xfer_version(&mut version, 1)
-            .map_err(|e| e.to_string())?;
-        Ok(())
+        self.snapshot_body()?.crc(xfer)
     }
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let mut version: u8 = 0;
-        xfer.xfer_version(&mut version, 1)
-            .map_err(|e| e.to_string())?;
-        Ok(())
+        // No adapter version byte: each concrete body owns the C++ version
+        // chain and payload, including ActiveBody's health and damage state.
+        self.snapshot_body()?.xfer(xfer)
     }
 
     fn load_post_process(&mut self) -> Result<(), String> {
-        Ok(())
+        self.snapshot_body()?.load_post_process()
     }
 }
 
 pub(super) fn inactive_body_instance(
     data: BodyModuleData,
     owner_id: ObjectID,
-) -> Arc<Mutex<dyn BodyModuleInterface>> {
+) -> Arc<Mutex<InactiveBody>> {
     Arc::new(Mutex::new(InactiveBody::new_with_owner(data, owner_id)))
 }
 
 pub(super) fn active_body_instance(
     data: ActiveBodyModuleData,
     owner_id: ObjectID,
-) -> Arc<Mutex<dyn BodyModuleInterface>> {
+) -> Arc<Mutex<ActiveBody>> {
     Arc::new(Mutex::new(ActiveBody::new_with_owner(data, owner_id)))
 }
 
 pub(super) fn structure_body_instance(
     data: StructureBodyModuleData,
     owner_id: ObjectID,
-) -> Arc<Mutex<dyn BodyModuleInterface>> {
+) -> Arc<Mutex<StructureBody>> {
     Arc::new(Mutex::new(StructureBody::new(data, owner_id)))
 }
 
 pub(super) fn highlander_body_instance(
     data: ActiveBodyModuleData,
     owner_id: ObjectID,
-) -> Arc<Mutex<dyn BodyModuleInterface>> {
+) -> Arc<Mutex<HighlanderBody>> {
     Arc::new(Mutex::new(HighlanderBody::new(data, owner_id)))
 }
 
 pub(super) fn immortal_body_instance(
     data: ActiveBodyModuleData,
     owner_id: ObjectID,
-) -> Arc<Mutex<dyn BodyModuleInterface>> {
+) -> Arc<Mutex<ImmortalBody>> {
     Arc::new(Mutex::new(ImmortalBody::new(data, owner_id)))
 }
 
 pub(super) fn hive_structure_body_instance(
     data: HiveStructureBodyModuleData,
     owner_id: ObjectID,
-) -> Arc<Mutex<dyn BodyModuleInterface>> {
+) -> Arc<Mutex<HiveStructureBody>> {
     Arc::new(Mutex::new(HiveStructureBody::new(data, owner_id)))
 }
 
 pub(super) fn undead_body_instance(
     data: UndeadBodyModuleData,
     owner_id: ObjectID,
-) -> Arc<Mutex<dyn BodyModuleInterface>> {
+) -> Arc<Mutex<UndeadBody>> {
     Arc::new(Mutex::new(UndeadBody::new(data, owner_id)))
 }
 

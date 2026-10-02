@@ -360,26 +360,27 @@ impl Snapshot for Drawable {
     }
 
     fn load_post_process(&mut self) {
-        if let Some(object) = self.object_ref.as_ref().and_then(|weak| weak.upgrade()) {
-            if let Ok(object_guard) = object.read() {
-                self.object_id = object_guard.get_id();
-                self.set_transform(object_guard.get_transform_matrix());
-            }
-        }
+        let object = self.object_ref.as_ref().and_then(|weak| weak.upgrade());
+        let owner = object.as_ref().and_then(|object| object.read().ok());
+        self.load_post_process_with_owner(owner.as_deref());
+    }
+}
 
-        if self.ambient_sound_enabled && self.ambient_sound_enabled_from_script {
-            if let Some(object) = self.object_ref.as_ref().and_then(|weak| weak.upgrade()) {
-                if let Ok(object_guard) = object.read() {
-                    let time_of_day = TheGlobalData::get()
-                        .map(|data| data.get_time_of_day())
-                        .unwrap_or(TimeOfDay::Day);
-                    self.start_ambient_sound_internal(&object_guard, time_of_day, true);
-                } else {
-                    self.stop_ambient_sound();
-                }
-            } else {
-                self.stop_ambient_sound();
-            }
+impl Drawable {
+    /// Object restoration already borrows its owner; do not discover and lock
+    /// that owner again through the bound weak reference.
+    pub(crate) fn load_post_process_with_owner(&mut self, owner: Option<&Object>) {
+        if let Some(owner) = owner {
+            self.object_id = owner.get_id();
+            self.set_transform(owner.get_transform_matrix());
+        }
+        if let Some(owner) =
+            owner.filter(|_| self.ambient_sound_enabled && self.ambient_sound_enabled_from_script)
+        {
+            let time_of_day = TheGlobalData::get()
+                .map(|data| data.get_time_of_day())
+                .unwrap_or(TimeOfDay::Day);
+            self.start_ambient_sound_internal(owner, time_of_day, true);
         } else {
             self.stop_ambient_sound();
         }

@@ -262,10 +262,9 @@ impl ObjectFactory {
         TheGameLogic::register_object(base_object.clone())
             .map_err(|err| Box::new(err) as Box<dyn std::error::Error + Send + Sync>)?;
 
-        // Instantiate behavior/update/etc modules from template descriptors.
-        Object::init_modules_for(&base_object, template.as_ref())?;
-
-        // Run object initialization hooks after modules are attached.
+        // new_with_id has already installed modules and run onObjectCreated,
+        // before GameLogic admission, as in C++ Object.cpp:388-476.
+        // Run onCreate hooks on those same instances.
         {
             let mut obj_guard = base_object
                 .write()
@@ -1228,3 +1227,7 @@ fn draw_module_below_min_lod(data: &dyn ModuleData) -> bool {
     };
     required > current
 }
+
+#[cfg(test)]
+#[path = "object_factory_tests.rs"]
+mod tests;

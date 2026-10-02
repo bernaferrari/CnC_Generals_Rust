@@ -1668,6 +1668,69 @@ fn try_event_throttles_inactive_history_for_ten_seconds() {
 }
 
 #[test]
+fn try_event_uses_unsigned_age_when_frame_rolls_back() {
+    let mut radar = RadarSystem::new();
+    radar.new_map(
+        Coord3D::new(0.0, 0.0, 0.0),
+        Coord3D::new(1024.0, 1024.0, 100.0),
+        &[],
+    );
+    let loc = Coord3D::new(100.0, 100.0, 0.0);
+
+    // Restored inactive history still participates in Radar::tryEvent's ring
+    // scan, and C++ uses modulo-u32 subtraction when the clock moves backward.
+    let mut events = std::array::from_fn(|_| RadarEvent::default());
+    events[0] = RadarEvent {
+        event_type: RadarEventType::UnderAttack,
+        create_frame: 500,
+        world_loc: loc,
+        ..RadarEvent::default()
+    };
+    radar.restore_persist_state(false, false, events, 1, None);
+    radar.update(100);
+
+    assert!(
+        radar.try_event(RadarEventType::UnderAttack, &loc),
+        "unsigned currentFrame - createFrame wraps to an age beyond 300 frames"
+    );
+}
+
+#[test]
+fn try_event_uses_unsigned_age_across_u32_frame_wrap() {
+    let mut radar = RadarSystem::new();
+    radar.new_map(
+        Coord3D::new(0.0, 0.0, 0.0),
+        Coord3D::new(1024.0, 1024.0, 100.0),
+        &[],
+    );
+    let loc = Coord3D::new(100.0, 100.0, 0.0);
+
+    // Crossing u32::MAX makes the unsigned age 351 frames, outside the
+    // 300-frame throttle window, even though create_frame is numerically larger.
+    let mut events = std::array::from_fn(|_| RadarEvent::default());
+    events[0] = RadarEvent {
+        event_type: RadarEventType::UnderAttack,
+        create_frame: u32::MAX - 100,
+        world_loc: loc,
+        ..RadarEvent::default()
+    };
+    radar.restore_persist_state(false, false, events, 1, None);
+    radar.update(100);
+
+    assert!(
+        !radar.try_event(RadarEventType::UnderAttack, &loc),
+        "unsigned age across u32 frame wrap is 201 and remains throttled"
+    );
+
+    radar.update(250);
+
+    assert!(
+        radar.try_event(RadarEventType::UnderAttack, &loc),
+        "unsigned age across u32 frame wrap is 351 and must not throttle"
+    );
+}
+
+#[test]
 fn try_event_cpp_precedence_throttles_map_wide() {
     let mut radar = RadarSystem::new();
     radar.new_map(
