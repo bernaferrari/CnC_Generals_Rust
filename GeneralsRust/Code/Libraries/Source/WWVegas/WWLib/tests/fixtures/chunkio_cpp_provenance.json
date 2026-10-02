@@ -1,0 +1,13 @@
+{
+  "scope": "Original WWLib chunkio on little-endian host; memory-file adapter only",
+  "load_scope": "Raw-buffer Read only: original typed-load overloads use sizeof(pointer), not sizeof(value)",
+  "source_sha256": {
+    "chunkio.cpp": "39fadf36c823af635c6a6b4a1d215710d0c450caaa951177ea6fe2a046f6d4c6",
+    "chunkio.h": "7527c451b128d885228dfae22b9747d1249941e9c213c3e97c2a1b903ffeecaa",
+    "iostruct.h": "986b7cd012691bb55deac19db05da52522cac9943a8d4a7aec5e72784439ee11"
+  },
+  "fixture_sha256": {
+    "chunkio_cpp_nested.bin": "ef3495d61c17552411ae2d7fabbd341d273e4226e9283497678a6cb69930b81f",
+    "chunkio_cpp_partial.bin": "e8b1bbefa5b327a66cc91967d8d47c2b019f2a7018756e0f2247fa9e4b09e13b"
+  }
+}
