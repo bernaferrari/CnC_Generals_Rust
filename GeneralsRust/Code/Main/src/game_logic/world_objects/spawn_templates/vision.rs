@@ -218,7 +218,6 @@ impl GameLogic {
         use crate::game_logic::partition_coi::{
             cells_touched_for_footprint, mix_object_shroud_from_cells,
         };
-        use game_engine::common::system::radar::CellShroudStatus;
         use gamelogic::common::{Relationship, types::ObjectShroudStatus};
 
         let object_snaps: Vec<_> = self
@@ -264,31 +263,19 @@ impl GameLogic {
                     shroud_mgr.set_host_object_ever_seen(pid, id.0, true);
                     continue;
                 }
-                let mut shrouded_cells = 0usize;
-                let mut fogged_cells = 0usize;
-                for &(cx, cz) in &cells {
-                    // C++ PartitionData::getShroudedStatus
-                    // (PartitionManager.cpp:1582) mixes over the LIVE 40wu
-                    // partition shroud grid that the look pass above stamps
-                    // (stamp_partition_cell_lookers). The legacy ShroudManager
-                    // grid is never advanced on this host path (last_upd stays
-                    // 0) and reads Hidden everywhere, which fogged the whole
-                    // world out of the presentation FOW snapshot.
-                    match gamelogic::object::partition_cell_shroud_status(pid as i32, cx, cz) {
-                        CellShroudStatus::Shrouded => shrouded_cells += 1,
-                        CellShroudStatus::Fogged => fogged_cells += 1,
-                        CellShroudStatus::Clear => {}
-                    }
-                }
+                // C++ PartitionData mixes the live 40wu COIs. Sample the whole
+                // footprint under one partition guard, preserving the sparse
+                // compatibility-grid fallback and immediate coverage changes.
+                let counts = gamelogic::object::partition_cell_shroud_counts(pid as i32, &cells);
                 let ever = shroud_mgr.host_object_ever_seen(pid, id.0);
                 let relationship_neutral = match owner {
                     Some(oid) => self.player_relationship(pid, oid) == Relationship::Neutral,
                     None => true,
                 };
                 let (status, ever_now) = mix_object_shroud_from_cells(
-                    cells.len(),
-                    shrouded_cells,
-                    fogged_cells,
+                    counts.total,
+                    counts.shrouded,
+                    counts.fogged,
                     relationship_neutral,
                     immobile,
                     mine,

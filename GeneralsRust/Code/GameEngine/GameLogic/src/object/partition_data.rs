@@ -4,26 +4,25 @@
 //! SHROUDED / FOGGED / CLEAR into object shroud, including fogged-enemy,
 //! mine, neutral-mobile, and PARTIAL_CLEAR rules.
 
-use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
+use std::sync::MutexGuard;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::common::{Coord3D, KindOf, MAX_PLAYER_COUNT, ObjectShroudStatus, Relationship};
 use crate::object::Object;
 use crate::object::collide::partition_coi::{do_circle_fill, do_rect_fill, do_small_fill};
-use crate::object::collide::partition_manager::{CellCoord, PARTITION_MANAGER};
+use crate::object::collide::partition_manager::{CellCoord, PARTITION_MANAGER, PartitionManager};
+use crate::object::collide::partition_shroud::PartitionCellShroudCounts;
 use crate::player::player_list;
 use game_engine::common::system::radar::CellShroudStatus;
 
-/// C++ `PartitionData` per-object shroud cache + COI mix.
+/// Per-object seen history and C++ COI visibility rules.
 ///
-/// The caches are atomics so `getShroudedStatus` can refresh them through a
-/// shared Object borrow — the original wrapped this struct in a mutex purely
-/// to mutate two cache arrays from `&self` call sites. `Object` must stay
-/// `Sync` (it lives in `Arc<RwLock<…>>` everywhere), so these are atomics
-/// rather than `Cell`s. Ordering is relaxed: the simulation is single-threaded
-/// and the caches are best-effort views recomputed on demand.
+/// Visibility is recomputed until cell invalidation is fully wired. Seen history
+/// is retained through shared Object queries; the outer Object handle currently
+/// requires Sync, so this history remains atomic. It is not a concurrency design
+/// for the simulation. No write-only status cache is maintained here.
 #[derive(Debug)]
 pub struct PartitionData {
-    shroudedness: [AtomicU8; MAX_PLAYER_COUNT],
     ever_seen_by_player: [AtomicBool; MAX_PLAYER_COUNT],
 }
 
@@ -36,68 +35,55 @@ impl Default for PartitionData {
 impl PartitionData {
     pub fn new() -> Self {
         Self {
-            shroudedness: std::array::from_fn(|_| {
-                AtomicU8::new(ObjectShroudStatus::Invalid as u8)
-            }),
             ever_seen_by_player: std::array::from_fn(|_| AtomicBool::new(false)),
         }
     }
 
-    /// C++ `PartitionData::invalidateShroudedStatusForPlayer`.
-    pub fn invalidate_shrouded_status_for_player(&self, player_index: i32) {
-        if let Some(slot) = self.shroudedness.get(player_index as usize) {
-            slot.store(ObjectShroudStatus::Invalid as u8, Ordering::Relaxed);
-        }
-    }
-
     /// C++ `PartitionData::getShroudedStatus`.
-    pub fn get_shrouded_status(
-        &self,
-        player_index: i32,
-        object: &Object,
-    ) -> ObjectShroudStatus {
+    pub fn get_shrouded_status(&self, player_index: i32, object: &Object) -> ObjectShroudStatus {
         if player_index < 0 || player_index as usize >= MAX_PLAYER_COUNT {
             return ObjectShroudStatus::Clear;
         }
-        let idx = player_index as usize;
-
-        if !partition_updated_since_last_reset() {
-            // C++: fog must not persist across reset; force recompute next ask.
-            self.invalidate_shrouded_status_for_player(player_index);
+        let Some(counts) = object_cell_shroud_counts(player_index, object) else {
+            // C++: shroud remains invalid until update. We recompute on every
+            // query, so no cached status can survive reset.
             return ObjectShroudStatus::Invalid;
-        }
+        };
 
-        let cells = coi_cells_for_object(object);
-        let mut shrouded_cells = 0usize;
-        let mut fogged_cells = 0usize;
-        for cell in &cells {
-            match cell_shroud_status(player_index, cell.x, cell.y) {
-                CellShroudStatus::Shrouded => shrouded_cells += 1,
-                CellShroudStatus::Fogged => fogged_cells += 1,
-                CellShroudStatus::Clear => {}
-            }
-        }
+        self.status_from_counts(
+            player_index as usize,
+            counts,
+            object.is_kind_of(KindOf::Immobile),
+            object.is_kind_of(KindOf::Mine),
+            || viewer_relationship_to_object(player_index, object),
+        )
+    }
 
-        let coi_count = cells.len();
-        let status = if coi_count == 0 {
-            self.ever_seen_by_player[idx].store(false, Ordering::Relaxed);
-            ObjectShroudStatus::Shrouded
-        } else if shrouded_cells == coi_count {
+    fn status_from_counts(
+        &self,
+        idx: usize,
+        counts: PartitionCellShroudCounts,
+        immobile: bool,
+        mine: bool,
+        relationship: impl FnOnce() -> Option<Relationship>,
+    ) -> ObjectShroudStatus {
+        let coi_count = counts.total;
+        let shrouded_cells = counts.shrouded;
+        let fogged_cells = counts.fogged;
+        if coi_count == 0 || shrouded_cells == coi_count {
             self.ever_seen_by_player[idx].store(false, Ordering::Relaxed);
             ObjectShroudStatus::Shrouded
         } else if shrouded_cells + fogged_cells == coi_count {
             let mut fogged = ObjectShroudStatus::Fogged;
-            let relationship = viewer_relationship_to_object(player_index, object);
-            let immobile = object.is_kind_of(KindOf::Immobile);
-            let mine = object.is_kind_of(KindOf::Mine);
-            match relationship {
+            match relationship() {
                 Some(Relationship::Neutral) => {
                     if !immobile {
                         fogged = ObjectShroudStatus::Shrouded;
                     }
                 }
                 _ => {
-                    if !(immobile && self.ever_seen_by_player[idx].load(Ordering::Relaxed)) || mine {
+                    if !(immobile && self.ever_seen_by_player[idx].load(Ordering::Relaxed)) || mine
+                    {
                         fogged = ObjectShroudStatus::Shrouded;
                     }
                 }
@@ -109,33 +95,89 @@ impl PartitionData {
         } else {
             self.ever_seen_by_player[idx].store(true, Ordering::Relaxed);
             ObjectShroudStatus::PartialClear
-        };
-
-        self.shroudedness[idx].store(status as u8, Ordering::Relaxed);
-        status
-    }
-}
-
-fn partition_updated_since_last_reset() -> bool {
-    let leftover = PARTITION_MANAGER
-        .read()
-        .ok()
-        .is_some_and(|pm| pm.updated_since_last_reset());
-    if leftover {
-        return true;
-    }
-    crate::system::game_logic::get_game_logic()
-        .try_lock()
-        .ok()
-        .is_some_and(|logic| logic.partition_manager().updated_since_last_reset())
-}
-
-fn coi_cells_for_object(object: &Object) -> Vec<CellCoord> {
-    if let Ok(pm) = PARTITION_MANAGER.read() {
-        if let Some(cells) = pm.object_coi_cells(object.get_id()) {
-            return cells.to_vec();
         }
     }
+}
+
+// Temporary adapter for the existing two partition representations. All guards
+// are local to a synchronous cell walk; no object/player callbacks run under them.
+// The fallback is attempted once, only when the primary cannot answer a query.
+enum LivePartitionRead {
+    Unqueried,
+    Unavailable,
+    Borrowed(MutexGuard<'static, crate::system::game_logic::GameLogic>),
+}
+
+impl LivePartitionRead {
+    fn partition(&mut self) -> Option<&crate::system::game_logic::PartitionManager> {
+        if matches!(self, Self::Unqueried) {
+            *self = match crate::system::game_logic::get_game_logic().try_lock() {
+                Ok(logic) => Self::Borrowed(logic),
+                Err(_) => Self::Unavailable,
+            };
+        }
+        match self {
+            Self::Borrowed(logic) => Some(logic.partition_manager()),
+            Self::Unqueried | Self::Unavailable => None,
+        }
+    }
+}
+
+fn sample_partition_cells(
+    primary: Option<&PartitionManager>,
+    live: &mut LivePartitionRead,
+    player_index: i32,
+    cells: impl IntoIterator<Item = (i32, i32)>,
+) -> PartitionCellShroudCounts {
+    let fallback = |x, y| {
+        live.partition()
+            .map(|pm| pm.get_shroud_status_for_player_cell(player_index, x, y))
+            .unwrap_or(CellShroudStatus::Shrouded)
+    };
+    match primary {
+        Some(pm) => pm
+            .shroud
+            .count_cells_with_fallback(player_index, cells, fallback),
+        None => PartitionCellShroudCounts::sample(cells, fallback),
+    }
+}
+
+fn object_cell_shroud_counts(
+    player_index: i32,
+    object: &Object,
+) -> Option<PartitionCellShroudCounts> {
+    let primary = PARTITION_MANAGER.read().ok();
+    let mut live = LivePartitionRead::Unqueried;
+    if !primary
+        .as_ref()
+        .is_some_and(|pm| pm.updated_since_last_reset())
+        && !live
+            .partition()
+            .is_some_and(|pm| pm.updated_since_last_reset())
+    {
+        return None;
+    }
+    // Borrow registered COIs instead of cloning the array on every query.
+    let generated;
+    let cells = match primary
+        .as_ref()
+        .and_then(|pm| pm.object_coi_cells(object.get_id()))
+    {
+        Some(cells) => cells,
+        None => {
+            generated = geometry_cells_for_object(object);
+            &generated
+        }
+    };
+    Some(sample_partition_cells(
+        primary.as_deref(),
+        &mut live,
+        player_index,
+        cells.iter().map(|cell| (cell.x, cell.y)),
+    ))
+}
+
+fn geometry_cells_for_object(object: &Object) -> Vec<CellCoord> {
     let pos = *object.get_position();
     let geom = object.get_geometry_info();
     if geom.get_is_small() {
@@ -155,8 +197,7 @@ fn coi_cells_for_object(object: &Object) -> Vec<CellCoord> {
 
 fn cell_shroud_status(player_index: i32, x: i32, y: i32) -> CellShroudStatus {
     if let Ok(pm) = PARTITION_MANAGER.read() {
-        let status = pm.get_shroud_status_for_player_cell(player_index, x, y);
-        if status != CellShroudStatus::Shrouded || pm.has_known_shroud_cell(x, y) {
+        if let Some(status) = pm.shroud.known_cell_status(player_index, x, y) {
             return status;
         }
     }
@@ -174,6 +215,22 @@ fn cell_shroud_status(player_index: i32, x: i32, y: i32) -> CellShroudStatus {
 /// Host FOW: cell shroud on the 40wu partition grid stamped by lookers.
 pub fn partition_cell_shroud_status(player_index: i32, x: i32, y: i32) -> CellShroudStatus {
     cell_shroud_status(player_index, x, y)
+}
+
+/// Compatibility adapter for a whole footprint. Prefer
+/// `PartitionShroudGrid::count_cells` when the driving instance is available.
+/// Acquires the primary guard once and lazily tries the fallback at most once.
+pub fn partition_cell_shroud_counts(
+    player_index: i32,
+    cells: &[(i32, i32)],
+) -> PartitionCellShroudCounts {
+    let primary = PARTITION_MANAGER.read().ok();
+    sample_partition_cells(
+        primary.as_deref(),
+        &mut LivePartitionRead::Unqueried,
+        player_index,
+        cells.iter().copied(),
+    )
 }
 
 fn viewer_relationship_to_object(player_index: i32, object: &Object) -> Option<Relationship> {
@@ -223,3 +280,7 @@ pub fn stamp_partition_cell_covers(center: &Coord3D, radius: f32, player_mask: u
         }
     }
 }
+
+#[cfg(test)]
+#[path = "partition_data_tests.rs"]
+mod tests;

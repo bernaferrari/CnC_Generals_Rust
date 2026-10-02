@@ -43,13 +43,40 @@ mutable runtime state need distinct owners. Remove active-slot/TLS discovery
 as callers acquire explicit contexts; replacing its locks with RefCell would
 retain the hidden dependency.
 
-Partition shroud currently uses atomic caches because Object still has shared
-outer handles. That is a transitional constraint, not a concurrency requirement
-of the simulation. The current query also recomputes cells on every call; C++
-caches until partition invalidation. Restoring that optimization requires
-wiring invalidation and previous/ghost state, not just adding a cached return.
-See hq-px0a8 for the partition contract and hq-bt4ex for bounded XP evidence. No whole-match isolation, retail playthrough,
-C++ binary differential, or frame-rate improvement is inferred from this review.
+Partition seen history still uses atomics because Object has shared outer
+handles. The status array was write-only and has been removed: this deletes
+16 AtomicU8 cells per PartitionData and the status stores without changing
+query results or serialized fields. Footprint queries now borrow registered
+COIs instead of copying them, and acquire the primary partition guard once.
+A private synchronous adapter attempts the live fallback at most once for
+missing cells; known primary cells remain authoritative, even when shrouded.
+Its enum distinguishes unqueried, unavailable, and borrowed fallback state.
+No player/object callbacks or caller-supplied iterators run under these guards.
+The pure grid count operation takes an explicit borrow and keeps no cache.
+The native host uses the same batched adapter in its object-visibility pass.
+
+These changes preserve the existing two-grid selection, reset gate, cell mix,
+and per-player seen-history rules; they do not consolidate partition authority.
+The query still recomputes on every call, whereas C++ caches until partition
+invalidation. Restoring that optimization requires wiring invalidation and
+previous/ghost state, not just adding a cached return. See hq-px0a8 for the
+remaining partition contract, hq-5ayhx for footprint-query evidence, and
+hq-bt4ex for bounded XP evidence. The manual footprint comparison exercises
+actual adapters, but is not a whole-game or frame-rate benchmark.
+
+The script-hook queue consolidation now initializes only its canonical
+notification/completion owners. Old per-queue constructor fields and two stale
+queue accesses have been removed, and completion tests use the existing owned
+maps under their guard. This finishes the already-selected consolidation;
+it does not establish a cross-thread need for its remaining hook locks.
+See hq-0qygm. Queued safe flee paths also preserve the C++ early-return
+locomotor goal after installation (AIUpdate.cpp:379-403); the failing
+safe-queue assertion is unchanged and now passes (hq-nluyy). Broader checks
+exposed separate body/module Xfer, authored end-screen loading, path-install
+mode/fixture, and full-host WASM callback-boundary gaps. They remain tracked,
+and neither the full host test suite nor the full WASM host is claimed green.
+No whole-match isolation, retail playthrough, C++ executable differential,
+or frame-rate improvement is inferred from this review.
 
 ## Current production ownership (2026-09-30)
 
