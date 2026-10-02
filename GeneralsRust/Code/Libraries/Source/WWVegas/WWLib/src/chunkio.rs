@@ -129,8 +129,8 @@ impl<'a> ChunkSaveClass<'a> {
         self.header_stack[self.stack_index] = chunkh;
         self.stack_index += 1;
 
-        let bytes = as_bytes(&chunkh);
-        if self.file.write(bytes).unwrap_or(0) != bytes.len() {
+        let bytes = chunk_header_bytes(&chunkh);
+        if self.file.write(&bytes).unwrap_or(0) != bytes.len() {
             return false;
         }
         true
@@ -149,8 +149,8 @@ impl<'a> ChunkSaveClass<'a> {
         let chunkh = self.header_stack[self.stack_index];
 
         let _ = self.file.seek(chunkpos as i64, SeekDirection::Start);
-        let bytes = as_bytes(&chunkh);
-        if self.file.write(bytes).unwrap_or(0) != bytes.len() {
+        let bytes = chunk_header_bytes(&chunkh);
+        if self.file.write(&bytes).unwrap_or(0) != bytes.len() {
             return false;
         }
 
@@ -176,8 +176,8 @@ impl<'a> ChunkSaveClass<'a> {
         self.micro_chunk_position = self.file.seek(0, SeekDirection::Current).unwrap_or(0) as i32;
 
         let header = self.mc_header;
-        let bytes = as_bytes(&header);
-        if self.write(bytes) != bytes.len() as u32 {
+        let bytes = micro_header_bytes(&header);
+        if self.write(&bytes) != bytes.len() as u32 {
             return false;
         }
 
@@ -192,8 +192,8 @@ impl<'a> ChunkSaveClass<'a> {
         let _ = self
             .file
             .seek(self.micro_chunk_position as i64, SeekDirection::Start);
-        let bytes = as_bytes(&self.mc_header);
-        if self.file.write(bytes).unwrap_or(0) != bytes.len() {
+        let bytes = micro_header_bytes(&self.mc_header);
+        if self.file.write(&bytes).unwrap_or(0) != bytes.len() {
             return false;
         }
 
@@ -222,19 +222,23 @@ impl<'a> ChunkSaveClass<'a> {
     }
 
     pub fn write_vec2(&mut self, v: &IOVector2Struct) -> u32 {
-        self.write(as_bytes(v))
+        let bytes = vec2_bytes(v);
+        self.write(&bytes)
     }
 
     pub fn write_vec3(&mut self, v: &IOVector3Struct) -> u32 {
-        self.write(as_bytes(v))
+        let bytes = vec3_bytes(v);
+        self.write(&bytes)
     }
 
     pub fn write_vec4(&mut self, v: &IOVector4Struct) -> u32 {
-        self.write(as_bytes(v))
+        let bytes = vec4_bytes(v);
+        self.write(&bytes)
     }
 
     pub fn write_quat(&mut self, q: &IOQuaternionStruct) -> u32 {
-        self.write(as_bytes(q))
+        let bytes = quat_bytes(q);
+        self.write(&bytes)
     }
 }
 
@@ -274,11 +278,11 @@ impl<'a> ChunkLoadClass<'a> {
             }
         }
 
-        let mut header = ChunkHeader::default();
-        let bytes = as_bytes_mut(&mut header);
-        if self.file.read(bytes).unwrap_or(0) != bytes.len() {
+        let mut bytes = [0u8; 8];
+        if self.file.read(&mut bytes).unwrap_or(0) != bytes.len() {
             return false;
         }
+        let header = chunk_header_from_bytes(&bytes);
 
         self.header_stack[self.stack_index] = header;
         self.position_stack[self.stack_index] = 0;
@@ -333,12 +337,11 @@ impl<'a> ChunkLoadClass<'a> {
     pub fn open_micro_chunk(&mut self) -> bool {
         debug_assert!(!self.in_micro_chunk);
 
-        let mut header = MicroChunkHeader::default();
-        if self.read(as_bytes_mut(&mut header))
-            != std::mem::size_of::<MicroChunkHeader>() as u32
-        {
+        let mut bytes = [0u8; 2];
+        if self.read(&mut bytes) != bytes.len() as u32 {
             return false;
         }
+        let header = micro_header_from_bytes(&bytes);
 
         self.mc_header = header;
         self.in_micro_chunk = true;
@@ -433,34 +436,137 @@ impl<'a> ChunkLoadClass<'a> {
     }
 
     pub fn read_vec2(&mut self, v: &mut IOVector2Struct) -> u32 {
-        self.read(as_bytes_mut(v))
+        let mut raw = vec2_bytes(v);
+        let n = self.read(&mut raw);
+        *v = vec2_from_bytes(&raw);
+        n
     }
 
     pub fn read_vec3(&mut self, v: &mut IOVector3Struct) -> u32 {
-        self.read(as_bytes_mut(v))
+        let mut raw = vec3_bytes(v);
+        let n = self.read(&mut raw);
+        *v = vec3_from_bytes(&raw);
+        n
     }
 
     pub fn read_vec4(&mut self, v: &mut IOVector4Struct) -> u32 {
-        self.read(as_bytes_mut(v))
+        let mut raw = vec4_bytes(v);
+        let n = self.read(&mut raw);
+        *v = vec4_from_bytes(&raw);
+        n
     }
 
     pub fn read_quat(&mut self, q: &mut IOQuaternionStruct) -> u32 {
-        self.read(as_bytes_mut(q))
+        let mut raw = quat_bytes(q);
+        let n = self.read(&mut raw);
+        *q = quat_from_bytes(&raw);
+        n
     }
 }
 
-fn as_bytes<T: Copy>(value: &T) -> &[u8] {
-    // SAFETY: [Category 10 — OOB / Category 11 — provenance]
-    // `value` is a live `&T` of a `Copy` POD type (chunk headers and IO vector
-    // structs); the slice covers exactly `size_of::<T>()` bytes of that object,
-    // mirroring WWLib chunkio.cpp typed read/write of POD chunk fields.
-    unsafe { std::slice::from_raw_parts((value as *const T).cast::<u8>(), size_of::<T>()) }
+// WWLib writes these POD fields directly on the original little-endian x86
+// targets. Encode that wire format explicitly without borrowing object memory.
+fn chunk_header_bytes(header: &ChunkHeader) -> [u8; 8] {
+    let mut bytes = [0u8; 8];
+    bytes[..4].copy_from_slice(&header.chunk_type.to_le_bytes());
+    bytes[4..].copy_from_slice(&header.chunk_size.to_le_bytes());
+    bytes
 }
 
-fn as_bytes_mut<T: Copy>(value: &mut T) -> &mut [u8] {
-    // SAFETY: [Category 1 — aliasing / Category 10 — OOB]
-    // `value` is a live `&mut T` of a `Copy` POD type; the mutable slice covers
-    // exactly that object, does not outlive the borrow, and no other reference
-    // exists for its lifetime (WWLib chunkio.cpp POD field IO).
-    unsafe { std::slice::from_raw_parts_mut((value as *mut T).cast::<u8>(), size_of::<T>()) }
+fn chunk_header_from_bytes(bytes: &[u8; 8]) -> ChunkHeader {
+    ChunkHeader {
+        chunk_type: u32::from_le_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]),
+        chunk_size: u32::from_le_bytes([bytes[4], bytes[5], bytes[6], bytes[7]]),
+    }
 }
+
+fn micro_header_bytes(header: &MicroChunkHeader) -> [u8; 2] {
+    [header.chunk_type, header.chunk_size]
+}
+
+fn micro_header_from_bytes(bytes: &[u8; 2]) -> MicroChunkHeader {
+    MicroChunkHeader {
+        chunk_type: bytes[0],
+        chunk_size: bytes[1],
+    }
+}
+
+fn pack_f32s(values: &[f32], bytes: &mut [u8]) {
+    for (index, value) in values.iter().enumerate() {
+        let start = index * 4;
+        bytes[start..start + 4].copy_from_slice(&value.to_le_bytes());
+    }
+}
+
+fn unpack_f32(bytes: &[u8], index: usize) -> f32 {
+    let start = index * 4;
+    f32::from_le_bytes([
+        bytes[start],
+        bytes[start + 1],
+        bytes[start + 2],
+        bytes[start + 3],
+    ])
+}
+
+fn vec2_bytes(v: &IOVector2Struct) -> [u8; 8] {
+    let mut bytes = [0u8; 8];
+    pack_f32s(&[v.x, v.y], &mut bytes);
+    bytes
+}
+
+fn vec2_from_bytes(bytes: &[u8; 8]) -> IOVector2Struct {
+    IOVector2Struct {
+        x: unpack_f32(bytes, 0),
+        y: unpack_f32(bytes, 1),
+    }
+}
+
+fn vec3_bytes(v: &IOVector3Struct) -> [u8; 12] {
+    let mut bytes = [0u8; 12];
+    pack_f32s(&[v.x, v.y, v.z], &mut bytes);
+    bytes
+}
+
+fn vec3_from_bytes(bytes: &[u8; 12]) -> IOVector3Struct {
+    IOVector3Struct {
+        x: unpack_f32(bytes, 0),
+        y: unpack_f32(bytes, 1),
+        z: unpack_f32(bytes, 2),
+    }
+}
+
+fn vec4_bytes(v: &IOVector4Struct) -> [u8; 16] {
+    let mut bytes = [0u8; 16];
+    pack_f32s(&[v.x, v.y, v.z, v.w], &mut bytes);
+    bytes
+}
+
+fn vec4_from_bytes(bytes: &[u8; 16]) -> IOVector4Struct {
+    IOVector4Struct {
+        x: unpack_f32(bytes, 0),
+        y: unpack_f32(bytes, 1),
+        z: unpack_f32(bytes, 2),
+        w: unpack_f32(bytes, 3),
+    }
+}
+
+fn quat_bytes(q: &IOQuaternionStruct) -> [u8; 16] {
+    let mut bytes = [0u8; 16];
+    pack_f32s(&q.q, &mut bytes);
+    bytes
+}
+
+fn quat_from_bytes(bytes: &[u8; 16]) -> IOQuaternionStruct {
+    IOQuaternionStruct {
+        q: [
+            unpack_f32(bytes, 0),
+            unpack_f32(bytes, 1),
+            unpack_f32(bytes, 2),
+            unpack_f32(bytes, 3),
+        ],
+    }
+}
+
+#[cfg(test)]
+#[path = "chunkio_tests.rs"]
+mod tests;
