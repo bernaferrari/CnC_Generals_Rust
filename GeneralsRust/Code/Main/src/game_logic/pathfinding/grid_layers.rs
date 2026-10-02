@@ -1406,7 +1406,7 @@ impl PathfindingGrid {
         f: i32,
         closed: &HashSet<(i32, i32, u8)>,
         g_score: &mut HashMap<(i32, i32, u8), i32>,
-        open: &mut BinaryHeap<std::cmp::Reverse<(i32, i32, i32, i32, u8)>>,
+        enqueue: &mut impl FnMut(i32, i32, i32, i32, u8),
     ) -> bool {
         let Some(cl) = self.connect_layer_of(cell, layer) else {
             return false;
@@ -1420,7 +1420,7 @@ impl PathfindingGrid {
             return false;
         }
         g_score.insert(key, g);
-        open.push(std::cmp::Reverse((f, g, cell.x, cell.y, lid)));
+        enqueue(f, g, cell.x, cell.y, lid);
         true
     }
 

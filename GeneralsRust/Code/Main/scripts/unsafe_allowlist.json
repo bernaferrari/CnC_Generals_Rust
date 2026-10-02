@@ -616,10 +616,6 @@
       "constructs": 2,
       "undocumented": 0
     },
-    "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-renderer-3d/src/rendering/wgpu_main_renderer.rs": {
-      "constructs": 4,
-      "undocumented": 0
-    },
     "Code/Libraries/Source/WWVegas/WW3D2/crates/ww3d-renderer-3d/src/rendering/wgpu_renderer/runtime.rs": {
       "constructs": 2,
       "undocumented": 0
@@ -817,10 +813,6 @@
       "undocumented": 0
     },
     "Code/Main/src/graphics/occlusion_bridge.rs": {
-      "constructs": 2,
-      "undocumented": 0
-    },
-    "Code/Main/src/graphics/render_pipeline/forward_render.rs": {
       "constructs": 2,
       "undocumented": 0
     },

@@ -527,7 +527,10 @@ fn find_safe_path_enqueues_change_layers() {
     let i = src
         .find("pub fn find_safe_path_from(")
         .expect("find_safe_path_from");
-    let w = &src[i..src.len().min(i + 5000)];
+    let w = src[i..]
+        .split("\n    pub fn ")
+        .next()
+        .expect("safe search function body");
     assert!(
         w.contains("enqueue_connect_layer"),
         "safe search must hop checkChangeLayers"

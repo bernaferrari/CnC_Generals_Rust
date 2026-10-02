@@ -19,24 +19,12 @@ struct LaserCallbackPack {
     vertex_count: u32,
 }
 
-#[cfg(target_arch = "wasm32")]
-// SAFETY: wasm32-only. The pack carries `Arc<wgpu::RenderPipeline>`,
-// `Arc<wgpu::BindGroup>`, `Arc<wgpu::Buffer>` and a `u32`; the handles are
-// `Rc`-backed and `!Send` on the web backend, but wasm32 has no threads, so
-// they can never cross a thread boundary. The impl only satisfies the bounds
-// of the render-callback slot storing the pack across the frame.
-unsafe impl Send for LaserCallbackPack {}
-#[cfg(target_arch = "wasm32")]
-// SAFETY: same wasm32-only scope: the target is single-threaded, so
-// `&LaserCallbackPack` is never accessed from two threads and the handles'
-// `!Sync` default is unreachable.
-unsafe impl Sync for LaserCallbackPack {}
 #[cfg(feature = "game_client")]
-use game_client::effects::particle_renderer::{register_particle_renderer, ParticleUniforms};
+use game_client::effects::particle_renderer::{ParticleUniforms, register_particle_renderer};
 #[cfg(feature = "game_client")]
 use game_client::effects::weather_complete::get_weather_system;
 #[cfg(feature = "game_client")]
-use game_client::effects::{get_particle_system_manager, ParticleRenderer};
+use game_client::effects::{ParticleRenderer, get_particle_system_manager};
 #[cfg(feature = "game_client")]
 use game_client::fx_list::get_decal_manager;
 #[cfg(feature = "game_client")]
@@ -1111,34 +1099,20 @@ impl ForwardPass {
         Ok(Some(Arc::new(mesh)))
     }
 
-    #[cfg(not(target_arch = "wasm32"))]
     pub(super) fn enqueue_post_frame_callback<F>(&mut self, callback: F)
     where
-        F: FnOnce(&mut ww3d_engine::RenderFrame) -> RendererResult<()> + Send + 'static,
+        F: FnOnce(&mut ww3d_engine::RenderFrame) -> RendererResult<()>
+            + wgpu::WasmNotSend
+            + 'static,
     {
         self.renderer.enqueue_post_frame_callback(callback);
     }
 
-    #[cfg(target_arch = "wasm32")]
-    pub(super) fn enqueue_post_frame_callback<F>(&mut self, callback: F)
-    where
-        F: FnOnce(&mut ww3d_engine::RenderFrame) -> RendererResult<()> + 'static,
-    {
-        self.renderer.enqueue_post_frame_callback(callback);
-    }
-
-    #[cfg(not(target_arch = "wasm32"))]
     pub(super) fn enqueue_pre_scene_callback<F>(&mut self, callback: F)
     where
-        F: FnOnce(&mut ww3d_engine::RenderFrame) -> RendererResult<()> + Send + 'static,
-    {
-        self.renderer.enqueue_pre_scene_callback(callback);
-    }
-
-    #[cfg(target_arch = "wasm32")]
-    pub(super) fn enqueue_pre_scene_callback<F>(&mut self, callback: F)
-    where
-        F: FnOnce(&mut ww3d_engine::RenderFrame) -> RendererResult<()> + 'static,
+        F: FnOnce(&mut ww3d_engine::RenderFrame) -> RendererResult<()>
+            + wgpu::WasmNotSend
+            + 'static,
     {
         self.renderer.enqueue_pre_scene_callback(callback);
     }

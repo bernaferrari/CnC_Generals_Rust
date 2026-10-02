@@ -747,10 +747,15 @@ impl RadarObject {
     /// and DETECTED / `DISGUISED_ENEMY` still blip unless the drawable is
     /// script-hidden / hijacker-hidden.
     pub fn is_temporarily_hidden(&self) -> bool {
+        self.is_temporarily_hidden_for_player(true)
+    }
+
+    fn is_temporarily_hidden_for_player(&self, local_player_active: bool) -> bool {
         if self.drawable_hidden || self.hidden_by_stealth {
             return true;
         }
-        self.is_stealth
+        local_player_active
+            && self.is_stealth
             && self.is_enemy
             && !self.is_detected
             && !self.is_disguised
@@ -1742,7 +1747,7 @@ impl RadarSystem {
     /// Returns only objects that should be displayed on radar
     pub fn get_visible_objects(&self) -> Vec<&RadarObject> {
         self.get_all_objects()
-            .filter(|obj| !obj.is_temporarily_hidden())
+            .filter(|obj| !obj.is_temporarily_hidden_for_player(self.local_player_active))
             .collect()
     }
 
@@ -2103,7 +2108,9 @@ impl RadarSystem {
     }
 
     fn should_render_object_overlay_blip(&self, obj: &RadarObject) -> bool {
-        if obj.is_temporarily_hidden() || !obj.priority.is_visible() {
+        if obj.is_temporarily_hidden_for_player(self.local_player_active)
+            || !obj.priority.is_visible()
+        {
             return false;
         }
         // C++ W3DRadar.cpp:647-650 — LOCAL_UNIT_ONLY skip only while local is active.
@@ -2113,18 +2120,6 @@ impl RadarSystem {
         {
             return false;
         }
-        // C++ `calcStealthedStatusForPlayer` treats observers as allies, so
-        // undetected enemy stealth is VISIBLE_FRIENDLY — not hidden.
-        if self.local_player_active
-            && obj.is_stealth
-            && obj.is_enemy
-            && !obj.is_detected
-            && !obj.is_disguised
-            && !obj.stealth_revealed
-        {
-            return false;
-        }
-
         self.object_shroud_allows_overlay_blip(obj)
     }
 
