@@ -65,6 +65,10 @@ impl HostRadarMapState {
 
 static HOST_RADAR_MAP: Mutex<HostRadarMapState> = Mutex::new(HostRadarMapState::empty());
 
+#[cfg(test)]
+#[path = "radar_sampling_tests.rs"]
+mod sampling_tests;
+
 struct HostRadarMapSource;
 
 static HOST_RADAR_MAP_REGISTERED: LazyLock<()> = LazyLock::new(|| {
@@ -97,6 +101,38 @@ fn ensure_radar_hooks_registered() {
 }
 
 impl RadarMapSource for HostRadarMapSource {
+    fn sample_grid(&self, origin: Coord3D, x_sample: f32, y_sample: f32) -> Vec<(f32, f32, bool)> {
+        let state = HOST_RADAR_MAP.lock().ok();
+        // Cached data is complete or absent for the whole grid. Borrow the
+        // fallback terrain once only when there is no usable cache.
+        if let Some(state) = state
+            .as_ref()
+            .filter(|s| s.sample(origin.x, origin.y).is_some())
+        {
+            return game_engine::common::system::radar::sample_radar_map_grid(
+                origin,
+                x_sample,
+                y_sample,
+                |x, y| state.sample(x, y),
+            );
+        }
+        drop(state);
+        let terrain = gamelogic::terrain::get_terrain_logic().try_read().ok();
+        game_engine::common::system::radar::sample_radar_map_grid(
+            origin,
+            x_sample,
+            y_sample,
+            |x, y| {
+                terrain.as_ref().map(|tl| {
+                    (
+                        tl.get_ground_height(x, y, None),
+                        tl.is_underwater(x, y, None, None),
+                    )
+                })
+            },
+        )
+    }
+
     fn map_extent(&self) -> Option<(Coord3D, Coord3D)> {
         let guard = HOST_RADAR_MAP.lock().ok()?;
         if !guard.ready {
@@ -463,6 +499,10 @@ impl GameLogic {
         const H: u32 = 128;
         let x_sample = span_x / W as f32;
         let y_sample = span_y / H as f32;
+        // terrain_height_at ordinarily obtains this same read borrow for each
+        // bridge query. Pass it explicitly so a queued writer cannot cause a
+        // recursive read acquisition halfway through the grid.
+        let terrain = gamelogic::terrain::get_terrain_logic().read().ok();
         let mut samples = Vec::with_capacity((W * H) as usize);
         let mut min_z = f32::MAX;
         let mut max_z = f32::MIN;
@@ -471,12 +511,14 @@ impl GameLogic {
                 let wx = lo.x + x as f32 * x_sample;
                 let wy = lo.y + y as f32 * y_sample;
                 let world = glam::Vec3::new(wx, 0.0, wy);
-                let mut height = self.terrain_height_at(world).unwrap_or(0.0);
+                let mut height = self
+                    .terrain_height_at_with_terrain_logic(world, terrain.as_deref())
+                    .unwrap_or(0.0);
                 let mut water = self
                     .terrain
                     .as_ref()
                     .is_some_and(|t| t.is_underwater_at_world(world));
-                if let Ok(tl) = gamelogic::terrain::get_terrain_logic().try_read() {
+                if let Some(tl) = terrain.as_ref() {
                     let leftover_h = tl.get_ground_height(wx, wy, None);
                     if self.terrain.is_none() {
                         height = leftover_h;
@@ -488,6 +530,7 @@ impl GameLogic {
                 samples.push((height, water));
             }
         }
+        drop(terrain);
         if let Ok(mut guard) = HOST_RADAR_MAP.lock() {
             if min_z.is_finite() && max_z.is_finite() && max_z > min_z {
                 guard.min.z = min_z;

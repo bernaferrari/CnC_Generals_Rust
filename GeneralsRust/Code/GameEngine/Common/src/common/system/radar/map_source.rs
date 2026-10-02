@@ -8,6 +8,30 @@ pub trait RadarMapSource: Send + Sync {
     fn map_extent(&self) -> Option<(Coord3D, Coord3D)>;
     /// `(height, is_water)` for one radar cell, or `None` if unmapped.
     fn sample_cell(&self, world_x: f32, world_y: f32) -> Option<(f32, bool)>;
+
+    /// Row-major 128x128 samples, using the same coordinates and unmapped
+    /// fallback as scalar sampling. Shared sources may borrow once per grid.
+    fn sample_grid(&self, origin: Coord3D, x_sample: f32, y_sample: f32) -> Vec<(f32, f32, bool)> {
+        sample_radar_map_grid(origin, x_sample, y_sample, |x, y| self.sample_cell(x, y))
+    }
+}
+
+pub fn sample_radar_map_grid(
+    origin: Coord3D,
+    x_sample: f32,
+    y_sample: f32,
+    mut sample: impl FnMut(f32, f32) -> Option<(f32, bool)>,
+) -> Vec<(f32, f32, bool)> {
+    let mut heights = Vec::with_capacity((RADAR_CELL_WIDTH * RADAR_CELL_HEIGHT) as usize);
+    for y in 0..RADAR_CELL_HEIGHT {
+        for x in 0..RADAR_CELL_WIDTH {
+            let wx = origin.x + x as f32 * x_sample;
+            let wy = origin.y + y as f32 * y_sample;
+            let (z, is_water) = sample(wx, wy).unwrap_or((0.0, false));
+            heights.push((wx, z, is_water));
+        }
+    }
+    heights
 }
 
 static MAP_SOURCE: OnceLock<Arc<dyn RadarMapSource>> = OnceLock::new();
@@ -50,16 +74,7 @@ impl RadarSystem {
 
         let x_sample = (max.x - min.x) / RADAR_CELL_WIDTH as f32;
         let y_sample = (max.y - min.y) / RADAR_CELL_HEIGHT as f32;
-        let expected = (RADAR_CELL_WIDTH * RADAR_CELL_HEIGHT) as usize;
-        let mut heights = Vec::with_capacity(expected);
-        for y in 0..RADAR_CELL_HEIGHT {
-            for x in 0..RADAR_CELL_WIDTH {
-                let wx = min.x + x as f32 * x_sample;
-                let wy = min.y + y as f32 * y_sample;
-                let (z, is_water) = source.sample_cell(wx, wy).unwrap_or((0.0, false));
-                heights.push((wx, z, is_water));
-            }
-        }
+        let heights = source.sample_grid(min, x_sample, y_sample);
         self.new_map(min, max, &heights);
         true
     }
@@ -70,44 +85,19 @@ impl RadarSystem {
         let Some(source) = radar_map_source() else {
             return false;
         };
+        self.resample_terrain_with_source(source)
+    }
+
+    pub(super) fn resample_terrain_with_source(&mut self, source: &dyn RadarMapSource) -> bool {
         if !self.has_map_extent() {
             return false;
         }
-        let expected = (RADAR_CELL_WIDTH * RADAR_CELL_HEIGHT) as usize;
-        let mut heights = Vec::with_capacity(expected);
-        let mut terrain_sum = 0.0;
-        let mut water_sum = 0.0;
-        let mut terrain_count = 0u32;
-        let mut water_count = 0u32;
-        for y in 0..RADAR_CELL_HEIGHT {
-            for x in 0..RADAR_CELL_WIDTH {
-                let wx = self.map_extent.lo.x + x as f32 * self.x_sample;
-                let wy = self.map_extent.lo.y + y as f32 * self.y_sample;
-                let (z, is_water) = source.sample_cell(wx, wy).unwrap_or((0.0, false));
-                if is_water {
-                    water_sum += z;
-                    water_count += 1;
-                } else {
-                    terrain_sum += z;
-                    terrain_count += 1;
-                }
-                heights.push(super::RadarTerrainSample {
-                    height: z,
-                    is_water,
-                });
-            }
-        }
-        self.terrain_average_z = if terrain_count > 0 {
-            terrain_sum / terrain_count as f32
-        } else {
-            0.0
-        };
-        self.water_average_z = if water_count > 0 {
-            water_sum / water_count as f32
-        } else {
-            0.0
-        };
-        self.terrain_samples = heights;
+        // C++ refreshTerrain repaints using the averages established by newMap.
+        self.terrain_samples = source
+            .sample_grid(self.map_extent.lo, self.x_sample, self.y_sample)
+            .into_iter()
+            .map(|(_, height, is_water)| super::RadarTerrainSample { height, is_water })
+            .collect();
         self.terrain_dirty = true;
         true
     }
