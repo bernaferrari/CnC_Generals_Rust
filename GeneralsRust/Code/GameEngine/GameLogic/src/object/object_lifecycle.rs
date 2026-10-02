@@ -511,7 +511,13 @@ impl Object {
                 if let Some(upgrade) = super::module_upgrade_kind(module) {
                     upgrade.into_interface().on_delete(self);
                 }
-                module.on_delete();
+                if let Some(battle_plan) = module.as_any_mut().downcast_mut::<
+                    crate::object::behavior::battle_plan_update::BattlePlanUpdateModule,
+                >() {
+                    battle_plan.on_delete_with_owner(self);
+                } else {
+                    module.on_delete();
+                }
             });
         }
         self.modules = modules;

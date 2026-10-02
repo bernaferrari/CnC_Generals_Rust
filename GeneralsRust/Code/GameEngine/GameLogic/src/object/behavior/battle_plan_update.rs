@@ -3,9 +3,8 @@
 
 use crate::common::audio::AudioEventRts;
 use crate::common::{
-    ALL_KIND_OF, AsciiString, CommandSourceType, Coord3D, DisabledType, KindOf, KindOfMask,
-    ModelConditionFlag, ModuleData, ObjectID, SpecialPowerTemplateId, TurretType, UnsignedInt,
-    kindof_from_name,
+    AsciiString, CommandSourceType, Coord3D, DisabledType, KindOf, KindOfMask, ModelConditionFlag,
+    ModuleData, ObjectID, SpecialPowerTemplateId, TurretType, UnsignedInt, kindof_from_name,
 };
 use crate::helpers::{TheAudio, TheGameLogic, TheGameText, TheInGameUI, TheRadar};
 use crate::modules::{
@@ -23,10 +22,11 @@ use crate::waypoint::Waypoint;
 use crate::weapon::{WeaponLockType, WeaponSetType, WeaponSlotType};
 use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::name_key_generator::NameKeyGenerator;
+use game_engine::common::system::kind_of::{KIND_OF_BIT_NAMES, kind_of_bit_from_name};
 use game_engine::common::system::radar::RadarEventType;
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{Module, ModuleData as EngineModuleData, NameKeyType};
-use std::sync::{Arc, RwLock, Weak};
+use std::sync::{Arc, RwLock};
 
 const BATTLE_PLAN_RADAR_EVENT_SECONDS: f32 = 4.0;
 
@@ -479,6 +479,18 @@ impl BattlePlanUpdate {
         Some(func(&mut *guard))
     }
 
+    fn with_controlling_player_mut<R>(
+        &self,
+        action: impl FnOnce(&mut crate::player::Player) -> R,
+    ) -> Option<R> {
+        // Player callbacks can mutate this owner while iterating its army.
+        // Resolve only the controller ID under the owner borrow, then release it.
+        let player_id = self
+            .with_object(|owner| owner.get_controlling_player_id())
+            .flatten()?;
+        crate::player::with_player_mut(player_id as crate::player::PlayerIndex, action)
+    }
+
     fn enable_turret(&self, enable: bool) {
         self.with_object(|object| {
             if let Some(ai) = object.get_ai() {
@@ -744,24 +756,39 @@ impl BattlePlanUpdate {
         stop_audio(&mut self.hold_the_line_pack);
     }
 
-    /// C++ `BattlePlanUpdate::onDelete` (`BattlePlanUpdate.cpp:164-191`).
-    /// Vision object teardown + invert army bonuses. Not `onDie`.
-    fn on_delete(&mut self) {
+    fn army_plan_type(&self) -> Option<BattlePlanType> {
+        match self.plan_affecting_army {
+            BattlePlanStatus::Bombardment => Some(BattlePlanType::Bombard),
+            BattlePlanStatus::HoldTheLine => Some(BattlePlanType::HoldTheLine),
+            BattlePlanStatus::SearchAndDestroy => Some(BattlePlanType::SearchAndDestroy),
+            BattlePlanStatus::None => None,
+        }
+    }
+
+    fn destroy_vision_object(&self) {
         if let Some(vision_id) = self.vision_object_id {
             let _ = TheGameLogic::destroy_object_by_id(vision_id);
         }
+    }
 
-        if self.plan_affecting_army != BattlePlanStatus::None {
-            let plan_type = match self.plan_affecting_army {
-                BattlePlanStatus::Bombardment => BattlePlanType::Bombard,
-                BattlePlanStatus::HoldTheLine => BattlePlanType::HoldTheLine,
-                BattlePlanStatus::SearchAndDestroy => BattlePlanType::SearchAndDestroy,
-                BattlePlanStatus::None => unreachable!(),
-            };
-            self.with_object(|object| {
-                object.with_controlling_player_mut(|player| {
-                    player.change_battle_plan(plan_type, -1, &self.bonuses);
-                })
+    /// C++ `BattlePlanUpdate::onDelete` (`BattlePlanUpdate.cpp:164-191`).
+    /// Vision object teardown + invert army bonuses. Not `onDie`.
+    fn on_delete(&mut self) {
+        self.destroy_vision_object();
+        if let Some(plan_type) = self.army_plan_type() {
+            self.with_controlling_player_mut(|player| {
+                player.change_battle_plan(plan_type, -1, &self.bonuses);
+            });
+        }
+    }
+
+    fn on_delete_with_owner(&mut self, owner: &mut GameObject) {
+        self.destroy_vision_object();
+        if let (Some(plan_type), Some(player_id)) =
+            (self.army_plan_type(), owner.get_controlling_player_id())
+        {
+            crate::player::with_player_mut(player_id as crate::player::PlayerIndex, |player| {
+                player.change_battle_plan_with_owner(plan_type, -1, &self.bonuses, owner);
             });
         }
     }
@@ -1056,10 +1083,8 @@ impl SpecialPowerUpdateInterface for BattlePlanUpdate {
             return false;
         }
 
-        self.with_object(|object| {
-            object.with_controlling_player_mut(|player| {
-                player.get_academy_stats_mut().record_battle_plan_selected();
-            })
+        self.with_controlling_player_mut(|player| {
+            player.get_academy_stats_mut().record_battle_plan_selected();
         });
 
         true
@@ -1206,20 +1231,25 @@ impl BattlePlanUpdateModule {
     pub fn behavior_mut(&mut self) -> &mut BattlePlanUpdate {
         &mut self.behavior
     }
+
+    /// Object's onDestroy already owns its mutable state. Preserve onDelete
+    /// order without rediscovering that owner through the global registry.
+    pub(crate) fn on_delete_with_owner(&mut self, owner: &mut GameObject) {
+        self.behavior.on_delete_with_owner(owner);
+    }
 }
 
 fn xfer_battle_plan_status(
     xfer: &mut dyn Xfer,
     status: &mut BattlePlanStatus,
 ) -> Result<(), String> {
-    let mut raw = *status as i32;
-    // SAFETY: `raw` is an initialized stack `i32`; `xfer_user` moves exactly
-    // `size_of::<i32>()` bytes for the duration of the call.
-    unsafe { xfer.xfer_user(&mut raw as *mut i32 as *mut u8, std::mem::size_of::<i32>()) }
+    // C++ xferUser writes the native i32 enum representation directly.
+    let mut bytes = (*status as i32).to_ne_bytes();
+    xfer.xfer_user_bytes(&mut bytes)
         .map_err(|e| format!("BattlePlanStatus xfer failed: {:?}", e))?;
 
     if xfer.is_reading() {
-        *status = match raw {
+        *status = match i32::from_ne_bytes(bytes) {
             0 => BattlePlanStatus::None,
             1 => BattlePlanStatus::Bombardment,
             2 => BattlePlanStatus::HoldTheLine,
@@ -1235,14 +1265,13 @@ fn xfer_transition_status(
     xfer: &mut dyn Xfer,
     status: &mut TransitionStatus,
 ) -> Result<(), String> {
-    let mut raw = *status as i32;
-    // SAFETY: `raw` is an initialized stack `i32`; `xfer_user` moves exactly
-    // `size_of::<i32>()` bytes for the duration of the call.
-    unsafe { xfer.xfer_user(&mut raw as *mut i32 as *mut u8, std::mem::size_of::<i32>()) }
+    // C++ xferUser writes the native i32 enum representation directly.
+    let mut bytes = (*status as i32).to_ne_bytes();
+    xfer.xfer_user_bytes(&mut bytes)
         .map_err(|e| format!("TransitionStatus xfer failed: {:?}", e))?;
 
     if xfer.is_reading() {
-        *status = match raw {
+        *status = match i32::from_ne_bytes(bytes) {
             0 => TransitionStatus::Idle,
             1 => TransitionStatus::Unpacking,
             2 => TransitionStatus::Active,
@@ -1254,148 +1283,6 @@ fn xfer_transition_status(
     Ok(())
 }
 
-fn kindof_name(kind: KindOf) -> Option<&'static str> {
-    match kind {
-        KindOf::Selectable => Some("SELECTABLE"),
-        KindOf::Unit => Some("UNIT"),
-        KindOf::Building => Some("BUILDING"),
-        KindOf::Vehicle => Some("VEHICLE"),
-        KindOf::Infantry => Some("INFANTRY"),
-        KindOf::Aircraft => Some("AIRCRAFT"),
-        KindOf::Drone => Some("DRONE"),
-        KindOf::CliffJumper => Some("CLIFF_JUMPER"),
-        KindOf::Structure => Some("STRUCTURE"),
-        KindOf::Weapon => Some("WEAPON"),
-        KindOf::Projectile => Some("PROJECTILE"),
-        KindOf::CanSeeThrough => Some("CAN_SEE_THROUGH"),
-        KindOf::AlwaysSelectable => Some("ALWAYS_SELECTABLE"),
-        KindOf::Crate => Some("CRATE"),
-        KindOf::ResourceNode => Some("RESOURCE_NODE"),
-        KindOf::SupplySourceOnPreview => Some("SUPPLY_SOURCE_ON_PREVIEW"),
-        KindOf::SupplySource => Some("SUPPLY_SOURCE"),
-        KindOf::TechBuilding => Some("TECH_BUILDING"),
-        KindOf::Powered => Some("POWERED"),
-        KindOf::ProducedAtHelipad => Some("PRODUCED_AT_HELIPAD"),
-        KindOf::Bridge => Some("BRIDGE"),
-        KindOf::Barrier => Some("BARRIER"),
-        KindOf::Civilian => Some("CIVILIAN"),
-        KindOf::Destructible => Some("DESTRUCTIBLE"),
-        KindOf::CanCrossBridges => Some("CAN_CROSS_BRIDGES"),
-        KindOf::Amphibious => Some("AMPHIBIOUS"),
-        KindOf::AmphibiousTransport => Some("AMPHIBIOUS_TRANSPORT"),
-        KindOf::Transport => Some("TRANSPORT"),
-        KindOf::CanCapture => Some("CAN_CAPTURE"),
-        KindOf::Saboteur => Some("SABOTEUR"),
-        KindOf::Hacker => Some("HACKER"),
-        KindOf::Hero => Some("HERO"),
-        KindOf::KeyStructure => Some("KEY_STRUCTURE"),
-        KindOf::CommandCenter => Some("COMMAND_CENTER"),
-        KindOf::Prison => Some("PRISON"),
-        KindOf::CollectsPrisonBounty => Some("COLLECTS_PRISON_BOUNTY"),
-        KindOf::PowTruck => Some("POW_TRUCK"),
-        KindOf::PowerPlant => Some("POWER_PLANT"),
-        KindOf::Refinery => Some("REFINERY"),
-        KindOf::Factory => Some("FACTORY"),
-        KindOf::Defense => Some("DEFENSE"),
-        KindOf::Shrubbery => Some("SHRUBBERY"),
-        KindOf::Dozer => Some("DOZER"),
-        KindOf::Harvester => Some("HARVESTER"),
-        KindOf::Hulk => Some("HULK"),
-        KindOf::Salvager => Some("SALVAGER"),
-        KindOf::WeaponSalvager => Some("WEAPON_SALVAGER"),
-        KindOf::ArmorSalvager => Some("ARMOR_SALVAGER"),
-        KindOf::AircraftCarrier => Some("AIRCRAFT_CARRIER"),
-        KindOf::FSBarracks => Some("FS_BARRACKS"),
-        KindOf::FSWarfactory => Some("FS_WARFACTORY"),
-        KindOf::FSAirfield => Some("FS_AIRFIELD"),
-        KindOf::FSInternetCenter => Some("FS_INTERNET_CENTER"),
-        KindOf::FSPower => Some("FS_POWER"),
-        KindOf::FSBaseDefense => Some("FS_BASE_DEFENSE"),
-        KindOf::FSSupplyDropzone => Some("FS_SUPPLY_DROPZONE"),
-        KindOf::FSSupplyCenter => Some("FS_SUPPLY_CENTER"),
-        KindOf::FSSuperweapon => Some("FS_SUPERWEAPON"),
-        KindOf::FSStrategyCenter => Some("FS_STRATEGY_CENTER"),
-        KindOf::FSFake => Some("FS_FAKE"),
-        KindOf::CountsForVictory => Some("COUNTS_FOR_VICTORY"),
-        KindOf::Mine => Some("MINE"),
-        KindOf::CleanupHazard => Some("CLEANUP_HAZARD"),
-        KindOf::HealPad => Some("HEAL_PAD"),
-        KindOf::WaveGuide => Some("WAVE_GUIDE"),
-        KindOf::BridgeTower => Some("BRIDGE_TOWER"),
-        KindOf::Immobile => Some("IMMOBILE"),
-        KindOf::BoobyTrap => Some("BOOBY_TRAP"),
-        KindOf::Disguiser => Some("DISGUISER"),
-        KindOf::PortableStructure => Some("PORTABLE_STRUCTURE"),
-        KindOf::CanRappel => Some("CAN_RAPPEL"),
-        KindOf::CanBeRepulsed => Some("CAN_BE_REPULSED"),
-        KindOf::EmpHardened => Some("EMP_HARDENED"),
-        KindOf::SpawnsAreTheWeapons => Some("SPAWNS_ARE_THE_WEAPONS"),
-        KindOf::IgnoreDockingBones => Some("IGNORE_DOCKING_BONES"),
-        KindOf::CanSurrender => Some("CAN_SURRENDER"),
-        KindOf::RepairPad => Some("REPAIR_PAD"),
-        KindOf::RejectUnmanned => Some("REJECT_UNMANNED"),
-        KindOf::IgnoredInGui => Some("IGNORED_IN_GUI"),
-        KindOf::MobNexus => Some("MOB_NEXUS"),
-        KindOf::Capturable => Some("CAPTURABLE"),
-        KindOf::ImmuneToCapture => Some("IMMUNE_TO_CAPTURE"),
-        KindOf::CashGenerator => Some("CASH_GENERATOR"),
-        KindOf::RebuildHole => Some("REBUILD_HOLE"),
-        KindOf::FSTechnology => Some("FS_TECHNOLOGY"),
-        KindOf::NoGarrison => Some("NO_GARRISON"),
-        KindOf::Boat => Some("BOAT"),
-        KindOf::GarrisonableUntilDestroyed => Some("GARRISONABLE_UNTIL_DESTROYED"),
-        KindOf::Obstacle => Some("OBSTACLE"),
-        KindOf::CanAttack => Some("CAN_ATTACK"),
-        KindOf::StickToTerrainSlope => Some("STICK_TO_TERRAIN_SLOPE"),
-        KindOf::CanCastReflections => Some("CAN_CAST_REFLECTIONS"),
-        KindOf::HugeVehicle => Some("HUGE_VEHICLE"),
-        KindOf::LineBuild => Some("LINEBUILD"),
-        KindOf::Preload => Some("PRELOAD"),
-        KindOf::NoCollide => Some("NO_COLLIDE"),
-        KindOf::StealthGarrison => Some("STEALTH_GARRISON"),
-        KindOf::DrawableOnly => Some("DRAWABLE_ONLY"),
-        KindOf::Score => Some("SCORE"),
-        KindOf::ScoreCreate => Some("SCORE_CREATE"),
-        KindOf::ScoreDestroy => Some("SCORE_DESTROY"),
-        KindOf::NoHealIcon => Some("NO_HEAL_ICON"),
-        KindOf::Parachutable => Some("PARACHUTABLE"),
-        KindOf::SmallMissile => Some("SMALL_MISSILE"),
-        KindOf::AlwaysVisible => Some("ALWAYS_VISIBLE"),
-        KindOf::Unattackable => Some("UNATTACKABLE"),
-        KindOf::AttackNeedsLineOfSight => Some("ATTACK_NEEDS_LINE_OF_SIGHT"),
-        KindOf::WalkOnTopOfWall => Some("WALK_ON_TOP_OF_WALL"),
-        KindOf::DefensiveWall => Some("DEFENSIVE_WALL"),
-        KindOf::AircraftPathAround => Some("AIRCRAFT_PATH_AROUND"),
-        KindOf::LowOverlappable => Some("LOW_OVERLAPPABLE"),
-        KindOf::ForceAttackable => Some("FORCEATTACKABLE"),
-        KindOf::AutoRallypoint => Some("AUTO_RALLYPOINT"),
-        KindOf::MoneyHacker => Some("MONEY_HACKER"),
-        KindOf::BallisticMissile => Some("BALLISTIC_MISSILE"),
-        KindOf::ClickThrough => Some("CLICK_THROUGH"),
-        KindOf::ShowPortraitWhenControlled => Some("SHOW_PORTRAIT_WHEN_CONTROLLED"),
-        KindOf::CannotBuildNearSupplies => Some("CANNOT_BUILD_NEAR_SUPPLIES"),
-        KindOf::RevealToAll => Some("REVEAL_TO_ALL"),
-        KindOf::IgnoresSelectAll => Some("IGNORES_SELECT_ALL"),
-        KindOf::DontAutoCrushInfantry => Some("DONT_AUTO_CRUSH_INFANTRY"),
-        KindOf::FsBlackMarket => Some("FS_BLACK_MARKET"),
-        KindOf::FsAdvancedTech => Some("FS_ADVANCED_TECH"),
-        KindOf::RevealsEnemyPaths => Some("REVEALS_ENEMY_PATHS"),
-        KindOf::NoSelect => Some("NO_SELECT"),
-        KindOf::CannotRetaliate => Some("CANNOT_RETALIATE"),
-        KindOf::TechBaseDefense => Some("TECH_BASE_DEFENSE"),
-        KindOf::Demotrap => Some("DEMOTRAP"),
-        KindOf::ConservativeBuilding => Some("CONSERVATIVE_BUILDING"),
-        KindOf::BlastCrater => Some("BLAST_CRATER"),
-        KindOf::Prop => Some("PROP"),
-        KindOf::OptimizedTree => Some("OPTIMIZED_TREE"),
-        KindOf::LandmarkBridge => Some("LANDMARK_BRIDGE"),
-        KindOf::WaveEffect => Some("WAVE_EFFECT"),
-        KindOf::ClearedByBuild => Some("CLEARED_BY_BUILD"),
-        KindOf::Parachute => Some("PARACHUTE"),
-        KindOf::Inert => Some("INERT"),
-    }
-}
-
 fn xfer_kind_of_mask(xfer: &mut dyn Xfer, mask: &mut KindOfMask) -> Result<(), String> {
     let mut version = 1;
     xfer.xfer_version(&mut version, 1)
@@ -1403,29 +1290,22 @@ fn xfer_kind_of_mask(xfer: &mut dyn Xfer, mask: &mut KindOfMask) -> Result<(), S
 
     match xfer.get_xfer_mode() {
         game_engine::system::XferMode::Save => {
-            let mut count = ALL_KIND_OF
+            // BitFlagsIO.h walks each retail bit once in numerical order.
+            // GameLogic KindOf aliases share bits and are not snapshot names.
+            let mut count = KIND_OF_BIT_NAMES
                 .iter()
-                .filter(|kind| {
-                    kindof_bit(**kind)
-                        .map(|bit| (*mask & bit) != 0)
-                        .unwrap_or(false)
-                })
+                .enumerate()
+                .filter(|(bit, _)| (*mask & (1u128 << bit)) != 0)
                 .count() as i32;
             xfer.xfer_int(&mut count)
                 .map_err(|e| format!("KindOfMask count xfer failed: {:?}", e))?;
 
-            for kind in ALL_KIND_OF {
-                let Some(bit) = kindof_bit(*kind) else {
-                    continue;
-                };
-                if (*mask & bit) == 0 {
-                    continue;
+            for (bit, name) in KIND_OF_BIT_NAMES.iter().enumerate() {
+                if (*mask & (1u128 << bit)) != 0 {
+                    let mut name = name.to_string();
+                    xfer.xfer_ascii_string(&mut name)
+                        .map_err(|e| format!("KindOfMask name xfer failed: {:?}", e))?;
                 }
-                let mut name = kindof_name(*kind)
-                    .ok_or_else(|| format!("KindOfMask has unnamed bit {}", *kind as u32))?
-                    .to_string();
-                xfer.xfer_ascii_string(&mut name)
-                    .map_err(|e| format!("KindOfMask name xfer failed: {:?}", e))?;
             }
             Ok(())
         }
@@ -1439,25 +1319,15 @@ fn xfer_kind_of_mask(xfer: &mut dyn Xfer, mask: &mut KindOfMask) -> Result<(), S
                 let mut name = String::new();
                 xfer.xfer_ascii_string(&mut name)
                     .map_err(|e| format!("KindOfMask name xfer failed: {:?}", e))?;
-                let kind = kindof_from_name(&name)
+                let bit = kind_of_bit_from_name(&name)
                     .ok_or_else(|| format!("KindOfMask unknown kind '{}'", name))?;
-                if let Some(bit) = kindof_bit(kind) {
-                    *mask |= bit;
-                }
+                *mask |= 1u128 << bit;
             }
             Ok(())
         }
-        game_engine::system::XferMode::Crc =>
-            // SAFETY: `mask` is a fully initialized stack `KindOfMask`
-            // (plain integer mask); CRC mode only reads its exact size in
-            // bytes and never retains the pointer.
-            unsafe {
-                xfer.xfer_user(
-                    mask as *mut KindOfMask as *mut u8,
-                    std::mem::size_of::<KindOfMask>(),
-                )
-                .map_err(|e| format!("KindOfMask crc xfer failed: {:?}", e))
-            },
+        game_engine::system::XferMode::Crc => xfer
+            .xfer_user_bytes(&mut mask.to_ne_bytes())
+            .map_err(|e| format!("KindOfMask crc xfer failed: {:?}", e)),
         mode => Err(format!("KindOfMask unsupported xfer mode: {:?}", mode)),
     }
 }
@@ -1589,7 +1459,7 @@ mod tests {
     use crate::player::{Player, player_list};
     use crate::team::Team;
 
-    fn make_module(
+    pub(super) fn make_module(
         object: Arc<RwLock<GameObject>>,
         special_power_template: Option<SpecialPowerTemplateId>,
     ) -> BattlePlanUpdateModule {
@@ -1638,6 +1508,7 @@ mod tests {
         // C++ BattlePlanUpdate::onDelete (BattlePlanUpdate.cpp:186-189)
         // Cleanup is onDelete, not onDie. Object::onDestroy walks Module::on_delete.
         let _lock = test_isolation_lock().lock().unwrap();
+        let _players = super::delete_tests::PlayerListRestore::new();
         OBJECT_REGISTRY.clear();
         let id: ObjectID = 0x00B0_7002;
         let object = Arc::new(RwLock::new(GameObject::new_test(id, 100.0)));
@@ -1692,3 +1563,7 @@ mod tests {
         OBJECT_REGISTRY.clear();
     }
 }
+
+#[cfg(test)]
+#[path = "battle_plan_delete_tests.rs"]
+mod delete_tests;

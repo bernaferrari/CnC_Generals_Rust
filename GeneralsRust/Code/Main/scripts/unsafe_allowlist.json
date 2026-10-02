@@ -300,10 +300,6 @@
       "constructs": 1,
       "undocumented": 0
     },
-    "Code/GameEngine/GameLogic/src/object/behavior/battle_plan_update.rs": {
-      "constructs": 3,
-      "undocumented": 0
-    },
     "Code/GameEngine/GameLogic/src/object/behavior/firestorm_dynamic_geometry_info_update.rs": {
       "constructs": 1,
       "undocumented": 0
