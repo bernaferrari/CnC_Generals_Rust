@@ -415,6 +415,18 @@ pub use contain::{ContainModuleDataAdapter, ContainModuleDataKind};
 pub(crate) use helpers::ActiveBehaviorModule;
 pub use install::ensure_module_overrides_installed;
 
+/// Factory fixtures reset the global factory on their own test thread. Register
+/// the real body callbacks there without relying on the process-wide installer.
+#[cfg(test)]
+pub(crate) fn register_active_body_override_for_test() -> Result<(), String> {
+    register_module_override(
+        "ActiveBody",
+        ModuleType::Behavior,
+        body::active_body_module_factory,
+        body::active_body_module_data_factory,
+    )
+}
+
 /// Concatenated live sources for residual `include_str!` scans.
 pub const CONTAIN_OVERRIDES_SRC: &str = concat!(
     include_str!("mod.rs"),

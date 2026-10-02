@@ -423,8 +423,7 @@ impl LegacyCollideAdapter for SabotageInternetCenterCrateCollide {
         if SabotageInternetCenterCrateCollide::is_valid_to_execute(self, other_id)? {
             let success =
                 SabotageInternetCenterCrateCollide::execute_crate_behavior(self, other_id)?;
-            if let Some(other) = crate::object::registry::OBJECT_REGISTRY.get_object(other_id)
-            {
+            if let Some(other) = crate::object::registry::OBJECT_REGISTRY.get_object(other_id) {
                 self.base
                     .finish_execution_attempt(&other, success)
                     .map_err(GameError::from)?;
@@ -502,8 +501,8 @@ fn disable_internet_center_spy_vision(
 
     let applied = crate::object::registry::OBJECT_REGISTRY.with_object(obj_id, |obj_lock| {
         if obj_lock.is_kind_of(KindOf::FSInternetCenter) {
-            for module in obj_lock.get_behavior_modules() {
-                if let Ok(mut module_guard) = module.lock() {
+            for mut module in obj_lock.get_behavior_modules() {
+                if let Ok(mut module_guard) = module.access() {
                     if let Some(spy_vision) = module_guard.get_spy_vision_control_interface() {
                         spy_vision.set_disabled_until_frame(frame);
                     }

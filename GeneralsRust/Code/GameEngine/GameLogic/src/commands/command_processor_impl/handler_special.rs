@@ -188,7 +188,7 @@ impl DefaultCommandHandler {
                 None => {
                     return CommandExecutionResult::Failed(AsciiString::from(
                         "Special power override requires a target location",
-                    ))
+                    ));
                 }
             };
 
@@ -239,8 +239,8 @@ impl DefaultCommandHandler {
                             }
                         }
                         if !matches_power {
-                            for behavior_arc in obj_guard.get_behavior_modules() {
-                                let Ok(mut behavior_guard) = behavior_arc.lock() else {
+                            for mut behavior_arc in obj_guard.get_behavior_modules() {
+                                let Ok(mut behavior_guard) = behavior_arc.access() else {
                                     continue;
                                 };
                                 let Some(sp_module) = behavior_guard.get_special_power() else {
@@ -275,8 +275,8 @@ impl DefaultCommandHandler {
                         });
                     }
                     if !overridden_here {
-                        for behavior_arc in obj_guard.get_behavior_modules() {
-                            let Ok(mut behavior_guard) = behavior_arc.lock() else {
+                        for mut behavior_arc in obj_guard.get_behavior_modules() {
+                            let Ok(mut behavior_guard) = behavior_arc.access() else {
                                 continue;
                             };
                             if let Some(update) =
@@ -314,7 +314,7 @@ impl DefaultCommandHandler {
             None => {
                 return CommandExecutionResult::Failed(AsciiString::from(
                     "Special power ID not specified",
-                ))
+                ));
             }
         };
 
@@ -487,8 +487,8 @@ impl DefaultCommandHandler {
             if any_executed {
                 continue;
             }
-            for behavior_arc in obj_guard.get_behavior_modules() {
-                let Ok(mut behavior_guard) = behavior_arc.lock() else {
+            for mut behavior_arc in obj_guard.get_behavior_modules() {
+                let Ok(mut behavior_guard) = behavior_arc.access() else {
                     continue;
                 };
                 let Some(sp_module) = behavior_guard.get_special_power() else {
@@ -624,7 +624,7 @@ impl DefaultCommandHandler {
             None => {
                 return CommandExecutionResult::Failed(AsciiString::from(
                     "No beacon position supplied",
-                ))
+                ));
             }
         };
 
@@ -642,7 +642,7 @@ impl DefaultCommandHandler {
                     None => {
                         return CommandExecutionResult::Failed(AsciiString::from(
                             "Player not found for beacon placement",
-                        ))
+                        ));
                     }
                 };
                 (player, list.get_local_player().cloned())
@@ -650,7 +650,7 @@ impl DefaultCommandHandler {
             Err(_) => {
                 return CommandExecutionResult::Failed(AsciiString::from(
                     "Player list lock poisoned",
-                ))
+                ));
             }
         };
 
@@ -660,7 +660,7 @@ impl DefaultCommandHandler {
                 Err(_) => {
                     return CommandExecutionResult::Failed(AsciiString::from(
                         "Player lock poisoned",
-                    ))
+                    ));
                 }
             };
             let template_name = guard
@@ -742,7 +742,7 @@ impl DefaultCommandHandler {
                 Err(_) => {
                     return CommandExecutionResult::Failed(AsciiString::from(
                         "Beacon manager lock poisoned",
-                    ))
+                    ));
                 }
             };
             manager.place_beacon(context.player_id, position, context.current_frame);
@@ -789,7 +789,7 @@ impl DefaultCommandHandler {
                     None => {
                         return CommandExecutionResult::Failed(AsciiString::from(
                             "Player not found for beacon removal",
-                        ))
+                        ));
                     }
                 };
                 let local = list.get_local_player().cloned();
@@ -808,7 +808,7 @@ impl DefaultCommandHandler {
             Err(_) => {
                 return CommandExecutionResult::Failed(AsciiString::from(
                     "Player list lock poisoned",
-                ))
+                ));
             }
         };
 
@@ -876,7 +876,7 @@ impl DefaultCommandHandler {
         let text = match self.extract_command_text(command) {
             Some(text) => text,
             None => {
-                return CommandExecutionResult::Failed(AsciiString::from("No beacon text supplied"))
+                return CommandExecutionResult::Failed(AsciiString::from("No beacon text supplied"));
             }
         };
 
@@ -886,7 +886,7 @@ impl DefaultCommandHandler {
             Err(_) => {
                 return CommandExecutionResult::Failed(AsciiString::from(
                     "Beacon manager lock poisoned",
-                ))
+                ));
             }
         };
 
@@ -1201,5 +1201,4 @@ impl DefaultCommandHandler {
         }
         hidden
     }
-
 }

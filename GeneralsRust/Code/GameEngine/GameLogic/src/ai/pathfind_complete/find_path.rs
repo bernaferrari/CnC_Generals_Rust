@@ -6,7 +6,7 @@ impl PathfindingSystem {
     /// 1) clientSafeQuickDoesPathExist zone gate  
     /// 2) hierarchical path probe → clearPassableFlags; on failure setAllPassable  
     /// 3) internalFindPath A*
-    pub fn find_path(&self, request: PathRequest) -> PathResult {
+    pub fn find_path(&mut self, request: PathRequest) -> PathResult {
         // Check cache first
         let cache_key = (
             GridCoord::from_world(&request.from),
@@ -20,7 +20,8 @@ impl PathfindingSystem {
             request.is_human,
         );
 
-        if let Ok(cache) = self.path_cache.lock() {
+        {
+            let cache = &self.path_cache;
             if let Some(cached) = cache.get(&cache_key) {
                 return cached.clone();
             }
@@ -38,11 +39,9 @@ impl PathfindingSystem {
         let start = GridCoord::from_world(&request.from);
         let goal = GridCoord::from_world(&request.to);
         let zone_join = {
-            let connected = self
-                .zones
-                .lock()
-                .map(|z| z.are_connected(start, goal, request.surfaces, request.is_crusher))
-                .unwrap_or(true);
+            let connected =
+                self.zones
+                    .are_connected(start, goal, request.surfaces, request.is_crusher);
             connected
                 || self.hierarchical_zones_join_via_bridge(
                     start,
@@ -68,19 +67,13 @@ impl PathfindingSystem {
                 pairs
             })
             .collect();
-        let hier_ok = self
-            .pathfinder
-            .lock()
-            .map(|mut pf| {
-                pf.apply_hierarchical_zone_prune(
-                    start,
-                    goal,
-                    request.surfaces,
-                    request.is_crusher,
-                    &jumps,
-                )
-            })
-            .unwrap_or(false);
+        let hier_ok = self.pathfinder.apply_hierarchical_zone_prune(
+            start,
+            goal,
+            request.surfaces,
+            request.is_crusher,
+            &jumps,
+        );
         if !hier_ok {
             // C++ setAllPassable / leftover set_all_passable
             self.set_all_zone_passable();
@@ -91,7 +84,8 @@ impl PathfindingSystem {
         let result = self.find_path_internal(request);
 
         // Cache the result
-        if let Ok(mut cache) = self.path_cache.lock() {
+        {
+            let cache = &mut self.path_cache;
             cache.insert(cache_key, result.clone());
 
             // Limit cache size
@@ -105,7 +99,7 @@ impl PathfindingSystem {
 
     /// Internal path finding implementation
     /// Matches C++ Pathfinder::internalFindPath() at AIPathfind.cpp:6438-6694
-    pub(crate) fn find_path_internal(&self, request: PathRequest) -> PathResult {
+    pub(crate) fn find_path_internal(&mut self, request: PathRequest) -> PathResult {
         let start = GridCoord::from_world(&request.from);
         let goal = GridCoord::from_world(&request.to);
         let ignore_cells = ignored_obstacle_cells(request.ignore_obstacle_id);
@@ -121,23 +115,21 @@ impl PathfindingSystem {
 
         // Check zone connectivity for fast rejection
         // Matches C++ zone check at AIPathfind.cpp:6531-6559
-        if let Ok(zones) = self.zones.lock() {
+        {
+            let zones = &self.zones;
             if !zones.are_connected(start, goal, request.surfaces, request.is_crusher) {
                 return PathResult::none();
             }
         }
 
         // C++ internalFindPath tunneling: start in obstacle → ignore obstacles until clear.
-        let start_is_obstacle = self
-            .pathfinder
-            .lock()
-            .ok()
-            .map(|pf| pf.get_cell_type(start) == Some(PathfindCellType::Obstacle))
-            .unwrap_or(false);
+        let start_is_obstacle =
+            self.pathfinder.get_cell_type(start) == Some(PathfindCellType::Obstacle);
         let mut tunneling = start_is_obstacle;
         if !tunneling {
             // Source invalid movement → cheat tunnel (C++ validMovementPosition source fail).
-            if let Ok(pf) = self.pathfinder.lock() {
+            {
+                let pf = &self.pathfinder;
                 if !pf.is_passable(start, request.surfaces, request.is_crusher) {
                     tunneling = true;
                 }
@@ -204,7 +196,7 @@ impl PathfindingSystem {
         };
 
         // Run A* pathfinding
-        let pathfinder = self.pathfinder.lock().unwrap();
+        let pathfinder = &self.pathfinder;
         // force_passable stays Some (never None) so find_path_ex6 goal-obstacle
         // early-out matches prior host behavior. DozerHack is dozer_obstacle_ok.
         let force_pass = |_cell: GridCoord| -> bool { false };
@@ -291,8 +283,6 @@ impl PathfindingSystem {
             dozer_ok_ref,
         );
 
-        drop(pathfinder); // Release lock
-
         let Some((grid_path, cells_examined)) = grid_path else {
             return PathResult::none();
         };
@@ -349,7 +339,7 @@ impl PathfindingSystem {
     /// Hierarchical passable dance, then A* from start tracking the closest
     /// valid destination cell to the goal (screen distance + cost factor).
     /// Exact goal success returns buildActualPath; else path to closest cell.
-    pub fn find_closest_path(&self, mut request: PathRequest) -> PathResult {
+    pub fn find_closest_path(&mut self, mut request: PathRequest) -> PathResult {
         const COST_ORTHO: i32 = 10;
         const COST_DIAG: i32 = 14;
         // C++ COST_TO_DISTANCE_FACTOR = 1/10 → SQR = 1/100.
@@ -376,29 +366,21 @@ impl PathfindingSystem {
         // C++ hierarchical passable flags (unless tunneling).
         let started_stuck = self.is_tunneling;
         if self.is_tunneling {
-            if let Ok(mut zones) = self.zones.lock() {
-                zones.set_all_passable();
-            }
+            self.zones.set_all_passable();
         } else {
-            if let Ok(mut zones) = self.zones.lock() {
-                zones.clear_passable_flags();
-            }
+            self.zones.clear_passable_flags();
             let start_c = GridCoord::from_world(&request.from);
-            let hier_ok = self
-                .zones
-                .lock()
-                .map(|z| z.are_connected(start_c, goal_grid, request.surfaces, request.is_crusher))
-                .unwrap_or(true)
-                || self.hierarchical_zones_join_via_bridge(
-                    start_c,
-                    goal_grid,
-                    request.surfaces,
-                    request.is_crusher,
-                );
+            let hier_ok =
+                self.zones
+                    .are_connected(start_c, goal_grid, request.surfaces, request.is_crusher)
+                    || self.hierarchical_zones_join_via_bridge(
+                        start_c,
+                        goal_grid,
+                        request.surfaces,
+                        request.is_crusher,
+                    );
             if !hier_ok {
-                if let Ok(mut zones) = self.zones.lock() {
-                    zones.set_all_passable();
-                }
+                self.zones.set_all_passable();
             }
         }
 
@@ -552,9 +534,7 @@ impl PathfindingSystem {
                     continue;
                 }
                 {
-                    let Ok(pf) = self.pathfinder.lock() else {
-                        continue;
-                    };
+                    let pf = &self.pathfinder;
                     if !self.is_tunneling && !pf.is_passable(nc, surfaces, is_crusher) {
                         continue;
                     }

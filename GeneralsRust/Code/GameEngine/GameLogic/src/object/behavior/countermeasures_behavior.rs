@@ -645,10 +645,10 @@ impl CountermeasuresBehavior {
         module_data: &CountermeasuresBehaviorModuleData,
         state: &mut CountermeasuresState,
     ) -> BehaviorResult<()> {
-        state.available_countermeasures =
-            module_data
-                .number_of_volleys
-                .saturating_mul(module_data.volley_size) as u32;
+        state.available_countermeasures = module_data
+            .number_of_volleys
+            .saturating_mul(module_data.volley_size)
+            as u32;
         state.reload_frame = 0;
         Ok(())
     }
@@ -822,8 +822,8 @@ impl CountermeasuresBehaviorInterface for CountermeasuresBehavior {
             let modules = missile_guard.get_behavior_modules();
 
             let mut diverted = false;
-            for behavior in modules {
-                let Ok(mut behavior) = behavior.lock() else {
+            for mut behavior in modules {
+                let Ok(mut behavior) = behavior.access() else {
                     continue;
                 };
                 if let Some(projectile) = behavior.get_projectile_update_interface() {
@@ -853,19 +853,12 @@ impl CountermeasuresBehaviorInterface for CountermeasuresBehavior {
         _victim_id: ObjectID,
     ) -> Result<ObjectID, Box<dyn std::error::Error + Send + Sync>> {
         let max_check = std::cmp::max(self.module_data.volley_size as usize, 1);
-        for &countermeasure_id in self
-            .state
-            .countermeasures
-            .iter()
-            .rev()
-            .take(max_check)
-        {
+        for &countermeasure_id in self.state.countermeasures.iter().rev().take(max_check) {
             if Self::object_is_valid(countermeasure_id) {
                 return Ok(countermeasure_id);
             }
         }
         Ok(INVALID_OBJECT_ID)
-
     }
 
     fn reload_countermeasures(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {

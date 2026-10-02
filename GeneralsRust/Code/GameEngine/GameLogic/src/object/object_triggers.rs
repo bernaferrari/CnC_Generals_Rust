@@ -847,7 +847,7 @@ impl Object {
         let Some(pathfinder) = ai_guard.pathfinder() else {
             return;
         };
-        let Ok(pf) = pathfinder.write() else {
+        let Ok(mut pf) = pathfinder.write() else {
             return;
         };
         let cell = crate::ai::pathfind_astar::GridCoord::from_world(self.get_position());

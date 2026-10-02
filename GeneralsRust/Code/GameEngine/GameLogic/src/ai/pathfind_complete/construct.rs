@@ -51,21 +51,21 @@ impl PathfindingSystem {
 
     pub fn new(width: usize, height: usize) -> Self {
         Self {
-            pathfinder: Arc::new(Mutex::new(AStarPathfinder::new(width, height))),
+            pathfinder: AStarPathfinder::new(width, height),
             optimizer: PathOptimizer::new(),
             bridges: Vec::new(),
             request_queue: Arc::new(Mutex::new(VecDeque::new())),
             object_path_queue: Arc::new(Mutex::new(ObjectPathQueue::new())),
-            goal_cells: Arc::new(Mutex::new(vec![vec![GoalCell::new(); height]; width])),
-            path_cache: Arc::new(Mutex::new(HashMap::new())),
-            zones: Arc::new(Mutex::new(ZoneManager::new(width, height))),
+            goal_cells: vec![vec![GoalCell::new(); height]; width],
+            path_cache: HashMap::new(),
+            zones: ZoneManager::new(width, height),
             width,
             height,
             is_map_ready: false,
-            unit_goal_cells: Arc::new(Mutex::new(HashMap::new())),
-            unit_pos_cells: Arc::new(Mutex::new(HashMap::new())),
+            unit_goal_cells: HashMap::new(),
+            unit_pos_cells: HashMap::new(),
             wall_pieces: Vec::new(),
-            wall_cells: Arc::new(Mutex::new(HashSet::new())),
+            wall_cells: HashSet::new(),
             is_tunneling: false,
             ignore_obstacle_id: INVALID_ID,
             wall_height: 0.0,
@@ -179,7 +179,7 @@ impl PathfindingSystem {
             return 0;
         }
         // C++: if needToCalculateZones → calculateZones and return (no queue drain).
-        let dirty = self.zones.lock().map(|z| z.zones_dirty).unwrap_or(false);
+        let dirty = self.zones.zones_dirty;
         if dirty {
             self.recalculate_zones_from_cells();
             return 0;
@@ -194,55 +194,71 @@ impl PathfindingSystem {
         let mut processed = 0;
 
         // Drain ObjectID ring (C++ primary path → ai->doPathfind).
-        if let Ok(mut oq) = self.object_path_queue.lock() {
-            while (self.cumulative_cells_allocated() as usize) < cell_budget && !oq.is_empty() {
-                let Some(id) = oq.pop_front() else {
+        // End each queue borrow before calling into the driving pathfinder.
+        loop {
+            let next = {
+                let Ok(mut queue) = self.object_path_queue.lock() else {
                     break;
                 };
-                drop(oq);
-                // C++: Object* obj = findObjectByID; if (ai) ai->doPathfind(this);
-                if id != INVALID_ID {
-                    if let Some(ai) = OBJECT_REGISTRY
-                        .with_object(id, |obj_g| obj_g.get_ai_update_interface())
-                        .flatten()
-                    {
-                        if let Ok(mut ai_g) = ai.lock() {
-                            // C++ ai->doPathfind reads the live ignore id and destination.
-                            ai_g.do_pathfind();
-                            drop(ai_g);
-                            // One pathfind per queue entry. The PathRequest was snapshotted
-                            // at queue time; do not search it after do_pathfind.
-                            if let Ok(mut queued) = self.request_queue.lock() {
-                                queued.retain(|r| r.object_id != id);
-                            }
-                        }
-                    } else if let Ok(mut queue) = self.request_queue.lock() {
-                        // Fallback: PathRequest residual for host/tests without registry object.
-                        if let Some(pos) = queue.iter().position(|r| r.object_id == id) {
-                            let req = queue.remove(pos).expect("pos");
-                            drop(queue);
-                            let _ = self.find_path_internal(req);
+                if self.cumulative_cells_allocated() as usize >= cell_budget {
+                    None
+                } else {
+                    queue.pop_front()
+                }
+            };
+            let Some(id) = next else {
+                break;
+            };
+            // C++: Object* obj = findObjectByID; if (ai) ai->doPathfind(this);
+            if id != INVALID_ID {
+                if let Some(ai) = OBJECT_REGISTRY
+                    .with_object(id, |obj_g| obj_g.get_ai_update_interface())
+                    .flatten()
+                {
+                    if let Ok(mut ai_g) = ai.lock() {
+                        // C++ ai->doPathfind reads the live ignore id and destination.
+                        ai_g.do_pathfind();
+                        drop(ai_g);
+                        // One pathfind per queue entry. The PathRequest was snapshotted
+                        // at queue time; do not search it after do_pathfind.
+                        if let Ok(mut queued) = self.request_queue.lock() {
+                            queued.retain(|r| r.object_id != id);
                         }
                     }
+                } else {
+                    // Fallback: PathRequest residual for host/tests without registry object.
+                    let request = {
+                        self.request_queue.lock().ok().and_then(|mut queue| {
+                            let pos = queue.iter().position(|r| r.object_id == id)?;
+                            queue.remove(pos)
+                        })
+                    };
+                    if let Some(request) = request {
+                        let _ = self.find_path_internal(request);
+                    }
                 }
-                processed += 1;
-                oq = self.object_path_queue.lock().unwrap();
             }
+            processed += 1;
         }
 
         // Residual PathRequests with no live ObjectID (INVALID_ID host/tests).
         // A request whose object already ran do_pathfind was removed above.
-        if let Ok(mut queue) = self.request_queue.lock() {
-            while (self.cumulative_cells_allocated() as usize) < cell_budget && !queue.is_empty() {
-                if let Some(request) = queue.pop_front() {
-                    drop(queue);
-                    let _ = self.find_path_internal(request);
-                    processed += 1;
-                    queue = self.request_queue.lock().unwrap();
-                } else {
+        loop {
+            let request = {
+                let Ok(mut queue) = self.request_queue.lock() else {
                     break;
+                };
+                if self.cumulative_cells_allocated() as usize >= cell_budget {
+                    None
+                } else {
+                    queue.pop_front()
                 }
-            }
+            };
+            let Some(request) = request else {
+                break;
+            };
+            let _ = self.find_path_internal(request);
+            processed += 1;
         }
 
         processed

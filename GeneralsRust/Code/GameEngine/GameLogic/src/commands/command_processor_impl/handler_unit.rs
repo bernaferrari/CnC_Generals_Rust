@@ -72,8 +72,8 @@ impl DefaultCommandHandler {
             }
 
             if !toggled {
-                for behavior in obj_guard.get_behavior_modules() {
-                    if let Ok(mut behavior_guard) = behavior.lock() {
+                for mut behavior in obj_guard.get_behavior_modules() {
+                    if let Ok(mut behavior_guard) = behavior.access() {
                         if let Some(overcharge) = behavior_guard.get_overcharge_behavior_interface()
                         {
                             let _ = overcharge.toggle();
@@ -498,7 +498,7 @@ impl DefaultCommandHandler {
             _ => {
                 return CommandExecutionResult::Failed(AsciiString::from(
                     "QueueUpgrade missing upgrade key",
-                ))
+                ));
             }
         };
 
@@ -555,7 +555,7 @@ impl DefaultCommandHandler {
             _ => {
                 return CommandExecutionResult::Failed(AsciiString::from(
                     "CancelUpgrade missing upgrade key",
-                ))
+                ));
             }
         };
 
@@ -612,7 +612,7 @@ impl DefaultCommandHandler {
             _ => {
                 return CommandExecutionResult::Failed(AsciiString::from(
                     "QueueUnitCreate missing template id",
-                ))
+                ));
             }
         };
         let production_id = match command.command.get_argument(1) {
@@ -674,7 +674,7 @@ impl DefaultCommandHandler {
             _ => {
                 return CommandExecutionResult::Failed(AsciiString::from(
                     "CancelUnitCreate missing production id",
-                ))
+                ));
             }
         };
 
@@ -780,5 +780,4 @@ impl DefaultCommandHandler {
 
         CommandExecutionResult::Success
     }
-
 }

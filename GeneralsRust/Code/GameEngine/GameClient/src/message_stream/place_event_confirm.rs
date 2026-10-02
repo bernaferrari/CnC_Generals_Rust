@@ -3,7 +3,7 @@
 //! Used by the crate translator and exported for the live host click path.
 
 use super::game_message::Coord3D;
-use crate::eva::{with_eva, EvaMessage};
+use crate::eva::{EvaMessage, with_eva};
 use crate::helpers::{PendingSpecialPower, TheInGameUI};
 use game_engine::common::system::build_assistant::CanMakeType as BuildCanMakeType;
 use gamelogic::common::audio::AudioEventRts;
@@ -89,8 +89,8 @@ pub fn can_make_unit_for_place(
     }
 
     let template_name = template.get_name().as_str();
-    for behavior in builder.get_behavior_modules() {
-        let Ok(mut guard) = behavior.lock() else {
+    for mut behavior in builder.get_behavior_modules() {
+        let Ok(mut guard) = behavior.access() else {
             continue;
         };
 

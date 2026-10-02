@@ -71,14 +71,15 @@ pub fn update_damage_state(bridge: &mut Bridge) {
 }
 
 fn change_bridge_state(layer: PathfindLayerEnum, repaired: bool) {
-    let ai_store = the_ai(); if let Ok(mut ai) = ai_store.write() {
+    let ai_store = the_ai();
+    if let Ok(mut ai) = ai_store.write() {
         ai.change_bridge_state(layer, repaired);
     }
 }
 
 fn bridge_has_scaffold(bridge_obj: &Object) -> bool {
-    for module in bridge_obj.get_behavior_modules() {
-        let Ok(mut guard) = module.lock() else {
+    for mut module in bridge_obj.get_behavior_modules() {
+        let Ok(mut guard) = module.access() else {
             continue;
         };
         if let Some(bbi) = guard.get_bridge_behavior_interface() {

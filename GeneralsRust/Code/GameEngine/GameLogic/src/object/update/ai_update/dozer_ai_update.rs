@@ -1388,8 +1388,8 @@ impl DozerAIUpdate {
             }
         }
 
-        for behavior in tower.get_behavior_modules() {
-            let Ok(mut guard) = behavior.lock() else {
+        for mut behavior in tower.get_behavior_modules() {
+            let Ok(mut guard) = behavior.access() else {
                 continue;
             };
             if let Some(interface) = guard.get_bridge_tower_behavior_interface() {
@@ -1423,8 +1423,8 @@ impl DozerAIUpdate {
         };
         let behaviors = bridge_guard.get_behavior_modules();
         drop(bridge_guard);
-        for behavior in behaviors {
-            let Ok(mut behavior_guard) = behavior.lock() else {
+        for mut behavior in behaviors {
+            let Ok(mut behavior_guard) = behavior.access() else {
                 continue;
             };
             if let Some(interface) = behavior_guard.get_bridge_behavior_interface() {
@@ -1462,8 +1462,8 @@ impl DozerAIUpdate {
         };
         let behaviors = bridge_guard.get_behavior_modules();
         drop(bridge_guard);
-        for behavior in behaviors {
-            let Ok(mut behavior_guard) = behavior.lock() else {
+        for mut behavior in behaviors {
+            let Ok(mut behavior_guard) = behavior.access() else {
                 continue;
             };
             if let Some(interface) = behavior_guard.get_bridge_behavior_interface() {
@@ -1568,8 +1568,8 @@ impl DozerAIUpdate {
             }
         }
 
-        for behavior in target.get_behavior_modules() {
-            let Ok(mut guard) = behavior.lock() else {
+        for mut behavior in target.get_behavior_modules() {
+            let Ok(mut guard) = behavior.access() else {
                 continue;
             };
             if let Some(interface) = guard.get_bridge_behavior_interface() {

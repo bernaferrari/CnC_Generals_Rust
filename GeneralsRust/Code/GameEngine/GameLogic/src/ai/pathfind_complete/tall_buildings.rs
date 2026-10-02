@@ -21,16 +21,13 @@ impl PathfindingSystem {
             PathfindLayerEnum::Ground,
             |_f, to_c, _x, _y| {
                 // C++: to->getType()==OBSTACLE then findObjectByID(to->getObstacleID()).
-                let Ok(pf) = self.pathfinder.lock() else {
-                    return 0;
-                };
+                let pf = &self.pathfinder;
                 if pf.get_cell_type(to_c) != Some(PathfindCellType::Obstacle) {
                     return 0;
                 }
                 let Some(oid) = pf.get_cell_obstacle_id(to_c) else {
                     return 0;
                 };
-                drop(pf);
                 if oid == ignore_building || oid == INVALID_ID {
                     return 0;
                 }
@@ -253,7 +250,7 @@ impl PathfindingSystem {
         let cut_corners = radius > 1;
         let mut clear = true;
 
-        let goals = self.goal_cells.lock().ok();
+        let goals = &self.goal_cells;
 
         'outer: for i in (cell_x - radius)..(cell_x + num_cells_above) {
             let x_min_or_max = i == cell_x - radius || i == cell_x + num_cells_above - 1;
@@ -273,11 +270,7 @@ impl PathfindingSystem {
                 if ctype != PathfindCellType::Clear {
                     if ctype == PathfindCellType::Obstacle {
                         // C++: fence obstacles block only non-crushers; solid obstacles always block.
-                        let is_fence = self
-                            .pathfinder
-                            .lock()
-                            .map(|pf| pf.is_obstacle_fence(coord))
-                            .unwrap_or(false);
+                        let is_fence = self.pathfinder.is_obstacle_fence(coord);
                         if is_fence {
                             if !crusher {
                                 clear = false;
@@ -291,7 +284,7 @@ impl PathfindingSystem {
                 }
                 // C++ UNIT_PRESENT_FIXED via getPosUnit when pathDiameter >= 2.
                 if path_diameter >= 2 {
-                    if let Some(ref goals) = goals {
+                    {
                         if let Some(row) = goals.get(coord.x as usize) {
                             if let Some(gc) = row.get(coord.y as usize) {
                                 let pos_unit = gc.get_pos_unit(layer);
@@ -316,7 +309,6 @@ impl PathfindingSystem {
                 }
             }
         }
-        drop(goals);
 
         if clear {
             if radius == 0 {
@@ -502,7 +494,7 @@ impl PathfindingSystem {
             return false;
         }
         let ignore_cells = ignored_obstacle_cells(ignore_obstacle_id);
-        let pathfinder = self.pathfinder.lock().unwrap();
+        let pathfinder = &self.pathfinder;
         pathfinder.is_passable_with_ignore(coord, surfaces, is_crusher, ignore_cells.as_ref())
     }
 }

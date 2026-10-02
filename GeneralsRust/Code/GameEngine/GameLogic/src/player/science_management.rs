@@ -330,8 +330,8 @@ impl Player {
                     if let Some(instance_arc) = manager.get_object(object_id) {
                         let instance_lock = &*instance_arc;
                         if let Ok(mut instance) = instance_lock.write() {
-                            for behavior in instance.get_behavior_modules() {
-                                if let Ok(mut module_guard) = behavior.lock() {
+                            for mut behavior in instance.get_behavior_modules() {
+                                if let Ok(mut module_guard) = behavior.access() {
                                     if let Some(module) =
                                         module_guard.get_special_power_module_interface()
                                     {

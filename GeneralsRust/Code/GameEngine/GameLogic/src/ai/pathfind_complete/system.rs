@@ -4,7 +4,7 @@ use super::*;
 /// Matches C++ Pathfinder class at AIPathfind.h:568-846
 pub struct PathfindingSystem {
     /// Core A* pathfinder
-    pub(crate) pathfinder: Arc<Mutex<AStarPathfinder>>,
+    pub(crate) pathfinder: AStarPathfinder,
 
     /// Path optimizer
     pub(crate) optimizer: PathOptimizer,
@@ -19,29 +19,25 @@ pub struct PathfindingSystem {
     /// C++ m_queuedPathfindRequests ObjectID ring + head/tail.
     pub(crate) object_path_queue: Arc<Mutex<ObjectPathQueue>>,
     /// Goal cell tracking (ground/top + aircraft goals).
-    pub(crate) goal_cells: Arc<Mutex<Vec<Vec<GoalCell>>>>,
+    pub(crate) goal_cells: Vec<Vec<GoalCell>>,
 
     /// Cached paths
-    pub(crate) path_cache: Arc<
-        Mutex<
-            HashMap<
-                (
-                    GridCoord,
-                    GridCoord,
-                    LocomotorSurfaceTypeMask,
-                    bool,
-                    bool,
-                    u32,
-                    bool,
-                    ObjectID,
-                    bool, // is_human
-                ),
-                PathResult,
-            >,
-        >,
+    pub(crate) path_cache: HashMap<
+        (
+            GridCoord,
+            GridCoord,
+            LocomotorSurfaceTypeMask,
+            bool,
+            bool,
+            u32,
+            bool,
+            ObjectID,
+            bool, // is_human
+        ),
+        PathResult,
     >,
 
-    pub(crate) zones: Arc<Mutex<ZoneManager>>,
+    pub(crate) zones: ZoneManager,
 
     /// Map dimensions
     pub(crate) width: usize,
@@ -49,12 +45,12 @@ pub struct PathfindingSystem {
     /// C++ m_isMapReady
     pub(crate) is_map_ready: bool,
     /// C++ AIUpdateInterface pathfind goal/cur cells per unit.
-    pub(crate) unit_goal_cells: Arc<Mutex<HashMap<ObjectID, ICoord2D>>>,
-    pub(crate) unit_pos_cells: Arc<Mutex<HashMap<ObjectID, ICoord2D>>>,
+    pub(crate) unit_goal_cells: HashMap<ObjectID, ICoord2D>,
+    pub(crate) unit_pos_cells: HashMap<ObjectID, ICoord2D>,
     /// C++ m_wallPieces / m_numWallPieces.
     pub(crate) wall_pieces: Vec<ObjectID>,
     /// Cells classified as walkable wall (LAYER_WALL clear).
-    pub(crate) wall_cells: Arc<Mutex<HashSet<(i32, i32)>>>,
+    pub(crate) wall_cells: HashSet<(i32, i32)>,
     /// C++ m_isTunneling
     pub(crate) is_tunneling: bool,
     /// C++ m_ignoreObstacleID

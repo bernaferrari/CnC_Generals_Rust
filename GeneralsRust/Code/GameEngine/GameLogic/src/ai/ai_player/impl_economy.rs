@@ -586,8 +586,8 @@ impl AIPlayer {
                                     continue;
                                 }
                                 let mut matched = false;
-                                for behavior in hg.get_behavior_modules() {
-                                    if let Ok(mut bg) = behavior.lock() {
+                                for mut behavior in hg.get_behavior_modules() {
+                                    if let Ok(mut bg) = behavior.access() {
                                         if let Some(rhbi) = bg.get_rebuild_hole_behavior_interface()
                                         {
                                             if rhbi.get_spawner_id() == prior_id {
@@ -701,7 +701,8 @@ impl AIPlayer {
     /// C++ rebuild delay frames from AIData `m_rebuildDelaySeconds` (default path).
     /// Retail AIData = 30; zero/unloaded AIData falls back to REBUILD_DELAY_SECONDS.
     pub(super) fn rebuild_delay_frames(&self) -> u32 {
-        let ai_store = the_ai();let seconds = ai_store
+        let ai_store = the_ai();
+        let seconds = ai_store
             .read()
             .ok()
             .and_then(|ai| {
@@ -726,7 +727,8 @@ impl AIPlayer {
         self.ready_to_build_structure = false;
         // Live AIData structureSeconds (0.0 is valid retail). Keep field snapshot
         // in sync for xfer/tests that set structure_seconds directly.
-        let ai_store = the_ai();let structure_seconds = ai_store
+        let ai_store = the_ai();
+        let structure_seconds = ai_store
             .read()
             .ok()
             .and_then(|ai| Some(&*ai.get_ai_data()).map(|d| d.structure_seconds))

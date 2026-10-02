@@ -1443,7 +1443,7 @@ impl UnitAIUpdate {
             }
             if let Ok(ai) = the_ai().read() {
                 if let Some(pathfinder) = ai.pathfinder() {
-                    if let Ok(pf) = pathfinder.read() {
+                    if let Ok(mut pf) = pathfinder.write() {
                         let (cell_radius, center_in_cell) =
                             crate::ai::pathfind_complete::PathfindingSystem::compute_radius_and_center(
                                 radius,

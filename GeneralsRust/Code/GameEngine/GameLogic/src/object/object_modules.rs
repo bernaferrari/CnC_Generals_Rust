@@ -198,8 +198,9 @@ impl Object {
         }
 
         for behavior in &self.behaviors {
+            let mut behavior = behavior.clone();
             let result = {
-                let Ok(mut guard) = behavior.lock() else {
+                let Ok(mut guard) = behavior.access() else {
                     continue;
                 };
                 guard.get_overcharge_behavior_interface().map(&mut func)
@@ -229,8 +230,9 @@ impl Object {
         }
 
         for behavior in &self.behaviors {
+            let mut behavior = behavior.clone();
             let result = {
-                let Ok(mut guard) = behavior.lock() else {
+                let Ok(mut guard) = behavior.access() else {
                     continue;
                 };
                 guard.get_power_plant_update_interface().map(&mut func)
@@ -331,20 +333,11 @@ impl Object {
     }
 
     /// Find a legacy behavior module by name (behavior list only).
-    pub fn find_update_behavior(
-        &self,
-        module_name: &str,
-    ) -> Option<Arc<Mutex<dyn BehaviorModuleInterface>>> {
-        self.behaviors.iter().find_map(|module| {
-            let Ok(guard) = module.lock() else {
-                return None;
-            };
-            if guard.get_module_name() == module_name {
-                Some(Arc::clone(module))
-            } else {
-                None
-            }
-        })
+    pub fn find_update_behavior(&self, module_name: &str) -> Option<BehaviorInterfaceHandle> {
+        self.behaviors
+            .iter()
+            .find(|module| module.matches_name(module_name))
+            .cloned()
     }
 
     /// Find a module by its NameKeyType (matches C++ Object::findModule).
@@ -410,12 +403,12 @@ impl Object {
     where
         F: FnOnce(&mut T) -> R,
     {
-        let behavior = self.find_update_behavior(module_name)?;
-        let mut guard = behavior.lock().ok()?;
+        let mut behavior = self.find_update_behavior(module_name)?;
+        let mut guard = behavior.access().ok()?;
         behavior_with_downcast::<T, _, _>(&mut *guard, func)
     }
 
-    pub fn get_behavior_modules(&self) -> Vec<Arc<Mutex<dyn BehaviorModuleInterface>>> {
+    pub fn get_behavior_modules(&self) -> Vec<BehaviorInterfaceHandle> {
         self.behaviors.iter().cloned().collect()
     }
 
@@ -529,59 +522,33 @@ impl Object {
 
     /// `get_behavior_modules()` == C++ Object.cpp:299-384 helper order, then template modules.
     pub(super) fn rebuild_behavior_list(&mut self) {
-        // THREAD: behavior-list elements are shared Arc + mutex handles
-        // (see the `behaviors` field type) handed out by
-        // `get_behavior_modules()` / `push_behavior_module_for_test()`;
-        // the per-element lock belongs to that public handle type, not to
-        // Object-owned state. The explicit element type keeps the pushes
-        // below coercing to the trait object instead of pinning a concrete
-        // element type on the first push.
-        let mut behaviors: Vec<Arc<Mutex<dyn BehaviorModuleInterface>>> = Vec::new();
+        let mut behaviors = Vec::new();
         if self.smc_helper.is_some() {
-            behaviors.push(Arc::new(Mutex::new(CtorHelperBehavior {
-                name: "ObjectSMCHelper",
-            })));
+            behaviors.push(BehaviorInterfaceHandle::helper("ObjectSMCHelper"));
         }
         if self.status_damage_helper.is_some() {
-            behaviors.push(Arc::new(Mutex::new(CtorHelperBehavior {
-                name: "StatusDamageHelper",
-            })));
+            behaviors.push(BehaviorInterfaceHandle::helper("StatusDamageHelper"));
         }
         if self.subdual_damage_helper.is_some() {
-            behaviors.push(Arc::new(Mutex::new(CtorHelperBehavior {
-                name: "SubdualDamageHelper",
-            })));
+            behaviors.push(BehaviorInterfaceHandle::helper("SubdualDamageHelper"));
         }
         if self.repulsor_helper.is_some() {
-            behaviors.push(Arc::new(Mutex::new(CtorHelperBehavior {
-                name: "ObjectRepulsorHelper",
-            })));
+            behaviors.push(BehaviorInterfaceHandle::helper("ObjectRepulsorHelper"));
         }
         if self.defection_helper.is_some() {
-            behaviors.push(Arc::new(Mutex::new(CtorHelperBehavior {
-                name: "ObjectDefectionHelper",
-            })));
+            behaviors.push(BehaviorInterfaceHandle::helper("ObjectDefectionHelper"));
         }
         if self.ws_helper.is_some() {
-            behaviors.push(Arc::new(Mutex::new(CtorHelperBehavior {
-                name: "ObjectWeaponStatusHelper",
-            })));
+            behaviors.push(BehaviorInterfaceHandle::helper("ObjectWeaponStatusHelper"));
         }
         if self.firing_tracker.is_some() {
-            behaviors.push(Arc::new(Mutex::new(CtorHelperBehavior {
-                name: "FiringTracker",
-            })));
+            behaviors.push(BehaviorInterfaceHandle::helper("FiringTracker"));
         }
         if self.temp_weapon_bonus_helper.is_some() {
-            behaviors.push(Arc::new(Mutex::new(CtorHelperBehavior {
-                name: "TempWeaponBonusHelper",
-            })));
+            behaviors.push(BehaviorInterfaceHandle::helper("TempWeaponBonusHelper"));
         }
         for entry in &self.modules {
-            behaviors.push(Arc::new(Mutex::new(TemplateModuleBehavior {
-                name: entry.name().to_string(),
-                entry: Arc::clone(entry),
-            })));
+            behaviors.push(BehaviorInterfaceHandle::template(Arc::clone(entry)));
         }
         self.behaviors = behaviors;
     }
@@ -617,10 +584,10 @@ impl Object {
     }
 
     /// Borrow-first flammable module lookup (no outer Object Arc required).
-    pub fn find_flammable_update_module(&self) -> Option<Arc<Mutex<dyn BehaviorModuleInterface>>> {
-        for module in self.get_behavior_modules() {
+    pub fn find_flammable_update_module(&self) -> Option<BehaviorInterfaceHandle> {
+        for mut module in self.get_behavior_modules() {
             let would_ignite = {
-                let Ok(module_guard) = module.try_lock() else {
+                let Ok(module_guard) = module.try_access() else {
                     continue;
                 };
                 module_guard
@@ -721,8 +688,9 @@ impl Object {
         }
 
         for behavior in &self.behaviors {
+            let mut behavior = behavior.clone();
             let has_exit = {
-                let Ok(mut guard) = behavior.lock() else {
+                let Ok(mut guard) = behavior.access() else {
                     continue;
                 };
                 guard.get_update_exit_interface().is_some()
@@ -1159,7 +1127,8 @@ impl Object {
     {
         let mut func = func;
         for behavior in &self.behaviors {
-            if let Ok(mut guard) = behavior.lock() {
+            let mut behavior = behavior.clone();
+            if let Ok(mut guard) = behavior.access() {
                 if let Some(parking) = guard.get_parking_place_behavior_interface() {
                     return Some(func(parking));
                 }
@@ -1185,59 +1154,57 @@ impl Object {
     // C++ Reference: Object.cpp getProjectileUpdateInterface, etc.
     // ========================================================================
 
-    pub fn get_projectile_update_interface(
-        &self,
-    ) -> Option<Arc<Mutex<dyn BehaviorModuleInterface>>> {
+    pub fn get_projectile_update_interface(&self) -> Option<BehaviorInterfaceHandle> {
         for behavior in &self.behaviors {
-            let Ok(mut guard) = behavior.lock() else {
+            let mut behavior = behavior.clone();
+            let Ok(mut guard) = behavior.access() else {
                 continue;
             };
             if guard.get_projectile_update_interface().is_some() {
                 drop(guard);
-                return Some(behavior.clone());
+                return Some(behavior);
             }
         }
         None
     }
 
-    pub fn get_spawn_behavior_interface_public(
-        &self,
-    ) -> Option<Arc<Mutex<dyn BehaviorModuleInterface>>> {
+    pub fn get_spawn_behavior_interface_public(&self) -> Option<BehaviorInterfaceHandle> {
         for behavior in &self.behaviors {
-            let Ok(mut guard) = behavior.lock() else {
+            let mut behavior = behavior.clone();
+            let Ok(mut guard) = behavior.access() else {
                 continue;
             };
             if guard.get_spawn_behavior_interface().is_some() {
                 drop(guard);
-                return Some(behavior.clone());
+                return Some(behavior);
             }
         }
         None
     }
 
-    pub fn get_production_update_interface(
-        &self,
-    ) -> Option<Arc<Mutex<dyn BehaviorModuleInterface>>> {
+    pub fn get_production_update_interface(&self) -> Option<BehaviorInterfaceHandle> {
         for behavior in &self.behaviors {
-            let Ok(mut guard) = behavior.lock() else {
+            let mut behavior = behavior.clone();
+            let Ok(mut guard) = behavior.access() else {
                 continue;
             };
             if guard.get_production_update_interface().is_some() {
                 drop(guard);
-                return Some(behavior.clone());
+                return Some(behavior);
             }
         }
         None
     }
 
-    pub fn get_dock_update_interface(&self) -> Option<Arc<Mutex<dyn BehaviorModuleInterface>>> {
+    pub fn get_dock_update_interface(&self) -> Option<BehaviorInterfaceHandle> {
         for behavior in &self.behaviors {
-            let Ok(mut guard) = behavior.lock() else {
+            let mut behavior = behavior.clone();
+            let Ok(mut guard) = behavior.access() else {
                 continue;
             };
             if guard.get_dock_update_interface().is_some() {
                 drop(guard);
-                return Some(behavior.clone());
+                return Some(behavior);
             }
         }
         None
@@ -1285,129 +1252,4 @@ fn template_can_possibly_have_any_weapon(template: &dyn ThingTemplate) -> bool {
         .weapon_template_sets()
         .iter()
         .any(|set| set.has_any_weapons())
-}
-
-/// C++ helper modules live on `m_behaviors` so destroy/damage/xfer walk them.
-struct CtorHelperBehavior {
-    name: &'static str,
-}
-
-impl BehaviorModuleInterface for CtorHelperBehavior {
-    fn get_module_name(&self) -> &str {
-        self.name
-    }
-}
-
-/// Template `ModuleEntry` listed after helpers on `get_behavior_modules()`.
-struct TemplateModuleBehavior {
-    name: String,
-    entry: Arc<ModuleEntry>,
-}
-
-impl BehaviorModuleInterface for TemplateModuleBehavior {
-    fn get_module_name(&self) -> &str {
-        &self.name
-    }
-
-    fn get_destroy(&mut self) -> Option<&mut dyn crate::modules::DestroyModuleInterface> {
-        if (self.entry.mask().0 & ModuleInterfaceType::DESTROY.0) != 0 {
-            Some(self)
-        } else {
-            None
-        }
-    }
-
-    fn get_damage(&mut self) -> Option<&mut dyn crate::modules::DamageModuleInterface> {
-        if (self.entry.mask().0 & ModuleInterfaceType::DAMAGE.0) != 0 {
-            Some(self)
-        } else {
-            None
-        }
-    }
-}
-
-impl crate::modules::DestroyModuleInterface for TemplateModuleBehavior {
-    fn on_destroy(&mut self, object_id: ObjectID) {
-        let _ = object_id;
-        self.entry.with_module(|module| module.on_delete());
-    }
-}
-
-impl crate::modules::DamageModuleInterface for TemplateModuleBehavior {
-    fn receive_damage(&mut self, object_id: ObjectID, damage: &DamageInfo) -> Real {
-        let _ = (object_id, damage);
-        0.0
-    }
-
-    fn on_damage(
-        &mut self,
-        damage_info: &mut DamageInfo,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        self.entry.with_module(|module| {
-            if let Some(auto_heal) = (module as &mut dyn Any).downcast_mut::<
-                crate::object::behavior::auto_heal_behavior::AutoHealBehaviorModule,
-            >() {
-                return auto_heal.behavior_mut().on_damage(damage_info);
-            }
-            if let Some(bridge) = (module as &mut dyn Any)
-                .downcast_mut::<crate::object::behavior::bridge_behavior::BridgeBehaviorModule>(
-            ) {
-                return bridge.behavior_mut().on_damage(damage_info);
-            }
-            if let Some(tower) = (module as &mut dyn Any).downcast_mut::<
-                crate::object::behavior::bridge_tower_behavior::BridgeTowerBehaviorModule,
-            >() {
-                return tower.behavior_mut().on_damage(damage_info);
-            }
-            Ok(())
-        })
-    }
-
-    fn on_healing(
-        &mut self,
-        damage_info: &mut DamageInfo,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        self.entry.with_module(|module| {
-            if let Some(bridge) = (module as &mut dyn Any)
-                .downcast_mut::<crate::object::behavior::bridge_behavior::BridgeBehaviorModule>(
-            ) {
-                return bridge.behavior_mut().on_healing(damage_info);
-            }
-            if let Some(tower) = (module as &mut dyn Any).downcast_mut::<
-                crate::object::behavior::bridge_tower_behavior::BridgeTowerBehaviorModule,
-            >() {
-                return tower.behavior_mut().on_healing(damage_info);
-            }
-            Ok(())
-        })
-    }
-
-    fn on_body_damage_state_change(
-        &mut self,
-        damage_info: &DamageInfo,
-        old_state: crate::damage::BodyDamageType,
-        new_state: crate::damage::BodyDamageType,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        self.entry.with_module(|module| {
-            if let Some(bridge) = (module as &mut dyn Any)
-                .downcast_mut::<crate::object::behavior::bridge_behavior::BridgeBehaviorModule>(
-            ) {
-                return bridge.behavior_mut().on_body_damage_state_change(
-                    damage_info,
-                    old_state,
-                    new_state,
-                );
-            }
-            if let Some(tower) = (module as &mut dyn Any).downcast_mut::<
-                crate::object::behavior::bridge_tower_behavior::BridgeTowerBehaviorModule,
-            >() {
-                return tower.behavior_mut().on_body_damage_state_change(
-                    damage_info,
-                    old_state,
-                    new_state,
-                );
-            }
-            Ok(())
-        })
-    }
 }

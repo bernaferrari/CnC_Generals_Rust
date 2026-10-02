@@ -42,23 +42,164 @@ fn cpp_reset_releases_map_dimensions_and_readiness() {
     system.new_map();
     assert!(system.is_map_ready());
 
-    system.wall_cells.lock().unwrap().insert((2, 2));
-    system
-        .unit_goal_cells
-        .lock()
-        .unwrap()
-        .insert(7, ICoord2D::new(3, 3));
+    system.wall_cells.insert((2, 2));
+    system.unit_goal_cells.insert(7, ICoord2D::new(3, 3));
     system.open_list_count = 9;
     system.reset();
 
     assert_eq!(system.width(), 0);
     assert_eq!(system.height(), 0);
     assert!(!system.is_map_ready());
-    assert!(system.wall_cells.lock().unwrap().is_empty());
+    assert!(system.wall_cells.is_empty());
     assert!(system.wall_pieces.is_empty());
-    assert!(system.unit_goal_cells.lock().unwrap().is_empty());
+    assert!(system.unit_goal_cells.is_empty());
     assert!(system.request_queue.lock().unwrap().is_empty());
     assert_eq!(system.open_list_count, 0);
+}
+
+#[test]
+fn owned_classic_stores_isolate_same_id_and_reset_through_pathfinder() {
+    // AI.cpp owns one Pathfinder per AI. AIPathfind.cpp:9701/9861/9921
+    // stamps and clears that owner's cells; reset (3816) releases its map.
+    use game_engine::common::system::xfer_save::XferSave;
+    use std::io::Cursor;
+
+    let crc_bytes = |owner: &crate::ai::Pathfinder| {
+        let mut bytes = Vec::new();
+        owner.crc_pathfinder(&mut XferSave::new(Cursor::new(&mut bytes), 1));
+        bytes
+    };
+    let mut first = crate::ai::Pathfinder::new();
+    first.reset_with_size(8, 8);
+    first.inner.new_map_from_classified_cells();
+    let before_construction = crc_bytes(&first);
+    let mut second = crate::ai::Pathfinder::new();
+    assert_eq!(crc_bytes(&first), before_construction);
+    second.reset_with_size(8, 8);
+    second.inner.new_map_from_classified_cells();
+
+    const ID: ObjectID = 77;
+    let a = GridCoord::new(2, 2);
+    let b = GridCoord::new(5, 5);
+    first.update_goal_cells(a, ID, PathfindLayerEnum::Ground, 0, true, false);
+    second.update_goal_cells(b, ID, PathfindLayerEnum::Ground, 0, true, false);
+    first.update_pos_cells(a, ID, PathfindLayerEnum::Ground, 0, true, false);
+    second.update_pos_cells(b, ID, PathfindLayerEnum::Ground, 0, true, false);
+    first.inner.classify_wall_cell_at(2, 2, true);
+    second.inner.classify_wall_cell_at(5, 5, true);
+    second.inner.set_zone_bridge(b, true);
+    assert_eq!(first.inner.get_goal_unit(a, PathfindLayerEnum::Ground), ID);
+    assert_eq!(
+        second.inner.get_goal_unit(a, PathfindLayerEnum::Ground),
+        INVALID_ID
+    );
+    assert_eq!(second.inner.pos_unit_at(b, PathfindLayerEnum::Ground), ID);
+    assert_eq!(
+        first.inner.pos_unit_at(b, PathfindLayerEnum::Ground),
+        INVALID_ID
+    );
+    assert!(!first.inner.zone_interacts_with_bridge(b));
+    assert!(second.inner.zone_interacts_with_bridge(b));
+    assert!(first.inner.wall_cells.contains(&(2, 2)));
+    assert!(!second.inner.wall_cells.contains(&(2, 2)));
+
+    let request = PathRequest {
+        object_id: ID,
+        from: Coord3D::new(15.0, 15.0, 0.0),
+        to: Coord3D::new(65.0, 15.0, 0.0),
+        surfaces: SURFACE_GROUND,
+        is_crusher: false,
+        unit_radius: 0.0,
+        allow_partial: false,
+        move_allies: false,
+        ignore_obstacle_id: None,
+        is_human: false,
+    };
+    let first_path = first.find_path_result(request.clone());
+    assert!(first_path.success);
+    assert_eq!(first.inner.path_cache.len(), 1);
+    second
+        .inner
+        .set_cell_type(&request.to, PathfindCellType::Cliff);
+    assert!(!second.find_path_result(request.clone()).success);
+    assert!(second.inner.path_cache.is_empty());
+    let first_crc_after_search = crc_bytes(&first);
+    assert_eq!(
+        first.find_path_result(request).waypoints,
+        first_path.waypoints
+    );
+    assert_eq!(
+        crc_bytes(&first),
+        first_crc_after_search,
+        "cache hit must not repeat A*"
+    );
+
+    second.queue_for_path(ID);
+    second.inner.set_wall_height(17.5);
+    let second_before_reset = crc_bytes(&second);
+    first.reset();
+    assert_eq!(first.inner.width(), 0);
+    assert!(first.inner.goal_cells.is_empty());
+    assert!(first.inner.unit_goal_cells.is_empty());
+    assert!(first.inner.unit_pos_cells.is_empty());
+    assert!(first.inner.path_cache.is_empty());
+    assert!(first.inner.wall_cells.is_empty());
+    assert_eq!(crc_bytes(&second), second_before_reset);
+    assert_eq!(second.inner.get_goal_unit(b, PathfindLayerEnum::Ground), ID);
+    assert_eq!(
+        second.inner.get_cell_type(&Coord3D::new(65.0, 15.0, 0.0)),
+        Some(PathfindCellType::Cliff)
+    );
+}
+
+#[test]
+fn owned_classic_stores_keep_cpp_version_only_xfer() {
+    // AIPathfind.cpp:11085-11093 transfers only version 1; moving private
+    // map/cache/occupancy stores must not introduce serialized fields.
+    use game_engine::common::system::{xfer_load::XferLoad, xfer_save::XferSave};
+    use std::io::Cursor;
+
+    let mut source = crate::ai::Pathfinder::new();
+    source.reset_with_size(8, 8);
+    source.inner.new_map_from_classified_cells();
+    source.update_goal_cells(
+        GridCoord::new(2, 2),
+        77,
+        PathfindLayerEnum::Ground,
+        0,
+        true,
+        false,
+    );
+    let mut bytes = Vec::new();
+    source.xfer_pathfinder(&mut XferSave::new(Cursor::new(&mut bytes), 1));
+    assert_eq!(bytes, [1]);
+
+    let mut loaded = crate::ai::Pathfinder::new();
+    loaded.reset_with_size(4, 4);
+    loaded.inner.new_map_from_classified_cells();
+    loaded.update_goal_cells(
+        GridCoord::new(1, 1),
+        77,
+        PathfindLayerEnum::Ground,
+        0,
+        true,
+        false,
+    );
+    loaded.xfer_pathfinder(&mut XferLoad::new(Cursor::new(bytes), 1));
+    loaded.load_post_process_pathfinder();
+    assert_eq!(loaded.inner.width(), 4);
+    assert_eq!(
+        loaded
+            .inner
+            .get_goal_unit(GridCoord::new(1, 1), PathfindLayerEnum::Ground),
+        77
+    );
+    assert_eq!(
+        source
+            .inner
+            .get_goal_unit(GridCoord::new(2, 2), PathfindLayerEnum::Ground),
+        77
+    );
 }
 
 #[test]
@@ -83,7 +224,7 @@ fn test_queue_path_request() {
 
 #[test]
 fn test_simple_pathfinding() {
-    let system = PathfindingSystem::new(64, 64);
+    let mut system = PathfindingSystem::new(64, 64);
 
     let request = PathRequest {
         object_id: 1,
@@ -115,16 +256,16 @@ fn test_bridge_layers() {
 
 #[test]
 fn classify_map_cell_preserves_existing_obstacle_like_cpp() {
-    let system = PathfindingSystem::new(8, 8);
+    let mut system = PathfindingSystem::new(8, 8);
     let coord = GridCoord::new(2, 3);
     {
-        let mut pathfinder = system.pathfinder.lock().unwrap();
+        let pathfinder = &mut system.pathfinder;
         pathfinder.set_cell_type(coord, PathfindCellType::Obstacle);
     }
 
     system.classify_map_cell(coord.x, coord.y);
 
-    let pathfinder = system.pathfinder.lock().unwrap();
+    let pathfinder = &system.pathfinder;
     assert_eq!(
         pathfinder.get_cell_type(coord),
         Some(PathfindCellType::Obstacle)
@@ -133,15 +274,15 @@ fn classify_map_cell_preserves_existing_obstacle_like_cpp() {
 
 #[test]
 fn classify_map_expands_cliff_cells_like_cpp() {
-    let system = PathfindingSystem::new(7, 7);
+    let mut system = PathfindingSystem::new(7, 7);
     {
-        let mut pathfinder = system.pathfinder.lock().unwrap();
+        let pathfinder = &mut system.pathfinder;
         pathfinder.set_cell_type(GridCoord::new(3, 3), PathfindCellType::Cliff);
     }
 
     system.expand_cliff_cells_like_cpp();
 
-    let pathfinder = system.pathfinder.lock().unwrap();
+    let pathfinder = &system.pathfinder;
     assert_eq!(
         pathfinder.get_cell_type(GridCoord::new(2, 2)),
         Some(PathfindCellType::Cliff)
@@ -160,7 +301,7 @@ fn classify_map_expands_cliff_cells_like_cpp() {
 
 #[test]
 fn client_safe_quick_does_path_exist_rejects_cliff_like_cpp() {
-    let system = PathfindingSystem::new(16, 16);
+    let mut system = PathfindingSystem::new(16, 16);
     let from = Coord3D::new(16.0, 16.0, 0.0);
     let to = Coord3D::new(48.0, 48.0, 0.0);
     system.set_cell_type(&to, PathfindCellType::Cliff);
@@ -176,7 +317,7 @@ fn client_safe_quick_does_path_exist_rejects_cliff_like_cpp() {
 
 #[test]
 fn client_safe_quick_does_path_exist_uses_zones_not_astar() {
-    let system = PathfindingSystem::new(16, 16);
+    let mut system = PathfindingSystem::new(16, 16);
     let from = Coord3D::new(16.0, 16.0, 0.0);
     let to = Coord3D::new(48.0, 48.0, 0.0);
     // Uninitialized zones (0) → C++ false-positive true.
@@ -184,7 +325,7 @@ fn client_safe_quick_does_path_exist_uses_zones_not_astar() {
 
     // Force different zones → false.
     {
-        let mut zones = system.zones.lock().unwrap();
+        let zones = &mut system.zones;
         let a = GridCoord::from_world(&from);
         let b = GridCoord::from_world(&to);
         zones.zones[a.x as usize][a.y as usize] = 1;
@@ -197,7 +338,7 @@ fn client_safe_quick_does_path_exist_uses_zones_not_astar() {
 
     // Same zone → true.
     {
-        let mut zones = system.zones.lock().unwrap();
+        let zones = &mut system.zones;
         let b = GridCoord::from_world(&to);
         zones.zones[b.x as usize][b.y as usize] = 1;
     }
@@ -288,7 +429,7 @@ fn slow_does_path_exist_ex_passes_ignore_obstacle_like_cpp() {
 
 #[test]
 fn slow_does_path_exist_finds_open_path() {
-    let system = PathfindingSystem::new(32, 32);
+    let mut system = PathfindingSystem::new(32, 32);
     let from = Coord3D::new(16.0, 16.0, 0.0);
     let to = Coord3D::new(200.0, 200.0, 0.0);
     assert!(system.slow_does_path_exist(&from, &to, SURFACE_GROUND, false));
@@ -345,7 +486,7 @@ fn adjust_destination_half_cell_offset_when_not_centered() {
 
 #[test]
 fn adjust_destination_rejects_cliff_like_cpp() {
-    let system = PathfindingSystem::new(16, 16);
+    let mut system = PathfindingSystem::new(16, 16);
     let cliff = Coord3D::new(48.0, 48.0, 0.0);
     system.set_cell_type(&cliff, PathfindCellType::Cliff);
     let mut dest = cliff;
@@ -469,7 +610,7 @@ fn adjust_to_landing_off_map_scripted_ok() {
 
 #[test]
 fn adjust_to_landing_rejects_water_cell() {
-    let system = PathfindingSystem::new(16, 16);
+    let mut system = PathfindingSystem::new(16, 16);
     let water = Coord3D::new(48.0, 48.0, 0.0);
     system.set_cell_type(&water, PathfindCellType::Water);
     let from = Coord3D::new(16.0, 16.0, 0.0);
@@ -527,7 +668,7 @@ fn adjust_target_destination_out_of_bounds_fails() {
 
 #[test]
 fn is_line_passable_rejects_pinched_like_cpp() {
-    let system = PathfindingSystem::new(16, 16);
+    let mut system = PathfindingSystem::new(16, 16);
     let from = Coord3D::new(16.0, 16.0, 0.0);
     let to = Coord3D::new(80.0, 16.0, 0.0);
     // Mark a mid cell pinched via cliff expand (neighbors become pinched).
@@ -642,7 +783,7 @@ fn valid_movement_terrain_cpp_surface() {
 
 #[test]
 fn valid_movement_terrain_obstacle_true() {
-    let system = PathfindingSystem::new(16, 16);
+    let mut system = PathfindingSystem::new(16, 16);
     let pos = Coord3D::new(48.0, 48.0, 0.0);
     system.set_cell_type(&pos, PathfindCellType::Obstacle);
     assert!(system.valid_movement_terrain(PathfindLayerEnum::Ground, SURFACE_GROUND, &pos));
@@ -749,7 +890,7 @@ fn clear_cell_for_diameter_open_returns_diameter() {
 
 #[test]
 fn clear_cell_for_diameter_blocked_by_cliff() {
-    let system = PathfindingSystem::new(32, 32);
+    let mut system = PathfindingSystem::new(32, 32);
     system.set_cell_type(&Coord3D::new(100.0, 100.0, 0.0), PathfindCellType::Cliff);
     let cell = GridCoord::from_world(&Coord3D::new(100.0, 100.0, 0.0));
     let d = system.clear_cell_for_diameter(false, cell.x, cell.y, PathfindLayerEnum::Ground, 2);
@@ -892,7 +1033,7 @@ fn build_actual_path_prepend_cells_cpp_surface() {
 
 #[test]
 fn build_actual_path_prepends_unit_feet() {
-    let system = PathfindingSystem::new(32, 32);
+    let mut system = PathfindingSystem::new(32, 32);
     let from = Coord3D::new(15.0, 15.0, 0.0);
     let to = Coord3D::new(85.0, 85.0, 0.0);
     let grid = vec![
@@ -910,7 +1051,7 @@ fn build_actual_path_prepends_unit_feet() {
 
 #[test]
 fn build_actual_path_empty_grid_returns_cpp_failure() {
-    let system = PathfindingSystem::new(8, 8);
+    let mut system = PathfindingSystem::new(8, 8);
     let from = Coord3D::new(5.0, 5.0, 0.0);
     let to = Coord3D::new(65.0, 65.0, 0.0);
     let result = system.build_actual_path(&[], &from, &to, SURFACE_GROUND, false, false, true);
@@ -1013,11 +1154,11 @@ fn update_goal_remove_goal_cpp_surface() {
 
 #[test]
 fn update_pos_requires_map_ready_and_dedupes() {
-    let system = PathfindingSystem::new(16, 16);
+    let mut system = PathfindingSystem::new(16, 16);
     let cell = GridCoord::new(3, 4);
     system.update_pos(cell, 42, PathfindLayerEnum::Ground, 0, true, false);
     // not ready → no pos recorded
-    assert!(system.unit_pos_cells.lock().unwrap().get(&42).is_none());
+    assert!(system.unit_pos_cells.get(&42).is_none());
     // make ready and update
     // cannot set is_map_ready from outside easily if private - use new_map via mut
 }
@@ -1029,27 +1170,17 @@ fn update_goal_and_remove_unit_clears_tracking() {
     let cell = GridCoord::new(5, 6);
     system.update_goal(cell, 7, PathfindLayerEnum::Ground, 0, true, false);
     assert_eq!(
-        system
-            .unit_goal_cells
-            .lock()
-            .unwrap()
-            .get(&7)
-            .map(|c| (c.x, c.y)),
+        system.unit_goal_cells.get(&7).map(|c| (c.x, c.y)),
         Some((5, 6))
     );
     // same cell no-op still present
     system.update_goal(cell, 7, PathfindLayerEnum::Ground, 0, true, false);
     assert_eq!(
-        system
-            .unit_goal_cells
-            .lock()
-            .unwrap()
-            .get(&7)
-            .map(|c| (c.x, c.y)),
+        system.unit_goal_cells.get(&7).map(|c| (c.x, c.y)),
         Some((5, 6))
     );
     system.remove_unit_from_pathfind_map(7, 0, true, PathfindLayerEnum::Ground);
-    assert!(system.unit_goal_cells.lock().unwrap().get(&7).is_none());
+    assert!(system.unit_goal_cells.get(&7).is_none());
 }
 
 #[test]
@@ -1186,7 +1317,7 @@ fn check_change_layers_cpp_surface() {
 
 #[test]
 fn check_change_layers_returns_parent_when_linked() {
-    let system = PathfindingSystem::new(16, 16);
+    let mut system = PathfindingSystem::new(16, 16);
     let cell = GridCoord::new(4, 5);
     assert!(system.check_change_layers(cell).is_none());
     system.set_connect_layer(cell, PathfindLayerEnum::Top);
@@ -1310,7 +1441,7 @@ fn bridge_cell_reads_and_writes_use_exact_layer_slot() {
 
 #[test]
 fn check_change_layers_enqueues_same_xy_when_not_closed() {
-    let system = PathfindingSystem::new(16, 16);
+    let mut system = PathfindingSystem::new(16, 16);
     let cell = GridCoord::new(4, 5);
     system.set_connect_layer(cell, PathfindLayerEnum::Top);
     let closed = HashSet::new();
@@ -1477,11 +1608,7 @@ fn zone_block_and_effective_zone_cpp_surface() {
 fn get_effective_zone_air_is_one() {
     let mut system = PathfindingSystem::new(20, 20);
     system.new_map();
-    let z = system
-        .zones
-        .lock()
-        .unwrap()
-        .get_effective_zone(SURFACE_AIR, false, 7);
+    let z = system.zones.get_effective_zone(SURFACE_AIR, false, 7);
     assert_eq!(z, 1);
 }
 
@@ -1491,7 +1618,7 @@ fn process_hierarchical_cell_same_zone_expands() {
     system.new_map();
     // Force same zones across block boundary
     {
-        let mut zones = system.zones.lock().unwrap();
+        let zones = &mut system.zones;
         for x in 0..30 {
             for y in 0..30 {
                 zones.zones[x][y] = 1;
@@ -1806,7 +1933,7 @@ fn check_for_possible_same_zone() {
     let mut system = PathfindingSystem::new(16, 16);
     system.new_map();
     {
-        let mut zones = system.zones.lock().unwrap();
+        let zones = &mut system.zones;
         for x in 0..16 {
             for y in 0..16 {
                 zones.zones[x][y] = 1;
@@ -1855,7 +1982,7 @@ fn build_ground_and_hierarchical_path_cpp_surface() {
 
 #[test]
 fn build_ground_path_optimizes_waypoints() {
-    let system = PathfindingSystem::new(32, 32);
+    let mut system = PathfindingSystem::new(32, 32);
     let from = Coord3D::new(15.0, 15.0, 0.0);
     let grid = vec![
         GridCoord::new(1, 1),
@@ -1901,7 +2028,7 @@ fn zone_combiners_merge_ground_cliff() {
         );
     }
     system.new_map();
-    let z = system.zones.lock().unwrap();
+    let z = &system.zones;
     // Combiners should not be pure identity if cliff/clear adjacencies exist
     let mut merged = false;
     for (i, &v) in z.ground_cliff_zones.iter().enumerate() {
@@ -1945,11 +2072,11 @@ fn crusher_combiner_merges_fence_obstacle() {
     let mut system = PathfindingSystem::new(12, 12);
     // Fence obstacle next to clear cells.
     {
-        let mut pf = system.pathfinder.lock().unwrap();
+        let pf = &mut system.pathfinder;
         pf.set_cell_obstacle_id(GridCoord::new(5, 5), 7, true, false);
     }
     system.new_map();
-    let z = system.zones.lock().unwrap();
+    let z = &system.zones;
     // Fence obstacle zone and neighboring clear should merge under crusher table.
     let z_obs = z.zones[5][5];
     let z_clear = z.zones[6][5];
@@ -1992,7 +2119,7 @@ fn fence_flag_cpp_surface() {
 fn zone_blocks_allocated_on_new_map() {
     let mut system = PathfindingSystem::new(25, 25);
     system.new_map();
-    let z = system.zones.lock().unwrap();
+    let z = &system.zones;
     // 25 cells → 3 blocks (10+10+5)
     assert_eq!(z.blocks_x, 3);
     assert_eq!(z.blocks_y, 3);
@@ -2011,7 +2138,7 @@ fn get_block_zone_uses_block_combiner() {
         );
     }
     system.new_map();
-    let z = system.zones.lock().unwrap();
+    let z = &system.zones;
     let cell_zone = z.zones[5][5];
     let block_z = z.get_block_zone(SURFACE_GROUND | SURFACE_CLIFF, false, 5, 5);
     // ground|cliff effective should resolve through block table
@@ -2071,7 +2198,7 @@ fn hierarchical_zones_merge_same_type() {
         );
     }
     system.new_map();
-    let z = system.zones.lock().unwrap();
+    let z = &system.zones;
     assert!(!z.hierarchical_zones.is_empty());
     assert!(!z.terrain_zones.is_empty());
     // Default effective zone for plain ground uses hierarchical table.
@@ -2091,12 +2218,12 @@ fn hierarchical_zones_merge_same_type() {
 fn terrain_zone_treats_obstacle_as_clear() {
     let mut system = PathfindingSystem::new(12, 12);
     {
-        let mut pf = system.pathfinder.lock().unwrap();
+        let pf = &mut system.pathfinder;
         // Non-fence obstacle between clear cells
         pf.set_cell_obstacle_id(GridCoord::new(5, 5), 9, false, false);
     }
     system.new_map();
-    let z = system.zones.lock().unwrap();
+    let z = &system.zones;
     let z_obs = z.zones[5][5];
     let z_a = z.zones[4][5];
     let z_b = z.zones[6][5];
@@ -2145,7 +2272,7 @@ fn connect_layer_merges_hierarchical_zone() {
     system.new_map();
     let bridge_zone = system.bridge_by_layer_id(bid).expect("bridge").zone;
     assert_ne!(bridge_zone, 0, "bridge layer zone must be allocated");
-    let z = system.zones.lock().unwrap();
+    let z = &system.zones;
     assert!(!z.hierarchical_zones.is_empty());
     let cell_z = z.zones[8][7];
     assert_ne!(cell_z, 0);
@@ -2175,12 +2302,12 @@ fn process_queue_recalculates_dirty_zones() {
     system.new_map();
     assert!(system.is_map_ready);
     system.mark_zones_dirty();
-    assert!(system.zones.lock().unwrap().zones_dirty);
+    assert!(system.zones.zones_dirty);
     // C++ processPathfindQueue: dirty → calculateZones and return 0 processed.
     let n = system.process_queue(PATHFIND_CELLS_PER_FRAME);
     assert_eq!(n, 0, "dirty zone frame must not drain path queue");
     assert!(
-        !system.zones.lock().unwrap().zones_dirty,
+        !system.zones.zones_dirty,
         "zones_dirty cleared after recalculate"
     );
 }
@@ -2227,7 +2354,7 @@ fn hierarchical_path_marks_start_block_passable() {
     let res = system.build_hierarchical_path(&from, &cells);
     assert!(res.success);
     // Start neighborhood should be passable on A* table.
-    let pf = system.pathfinder.lock().unwrap();
+    let pf = &system.pathfinder;
     assert!(pf.is_zone_passable(GridCoord::new(5, 5)));
 }
 
@@ -2281,11 +2408,11 @@ fn hierarchical_skips_pinched_cells() {
     let cell = GridCoord::new(5, 5);
     let adj = GridCoord::new(6, 5);
     {
-        let mut pf = system.pathfinder.lock().unwrap();
+        let pf = &mut system.pathfinder;
         pf.set_pinched(adj, true);
     }
     let mut examined = Vec::new();
-    let parent_zone = system.zones.lock().unwrap().zone_at(cell);
+    let parent_zone = system.zones.zone_at(cell);
     let res = system.process_hierarchical_cell(
         cell,
         (1, 0),
@@ -2426,12 +2553,9 @@ fn hierarchical_bridge_jumps_from_live_bridge() {
     system.new_map();
     assert!(system.zone_interacts_with_bridge(GridCoord::new(15, 15)));
     let parent = GridCoord::new(15, 15);
-    let parent_z =
-        system
-            .zones
-            .lock()
-            .unwrap()
-            .get_block_zone(SURFACE_GROUND, false, parent.x, parent.y);
+    let parent_z = system
+        .zones
+        .get_block_zone(SURFACE_GROUND, false, parent.x, parent.y);
     let mut examined = Vec::new();
     let jumps =
         system.hierarchical_bridge_jumps(parent, parent_z, 0, SURFACE_GROUND, false, &mut examined);
@@ -2461,7 +2585,7 @@ fn build_actual_path_center_in_cell_cpp_surface() {
 
 #[test]
 fn build_actual_path_respects_center_flag() {
-    let system = PathfindingSystem::new(30, 30);
+    let mut system = PathfindingSystem::new(30, 30);
     let from = Coord3D::new(15.0, 15.0, 0.0);
     let to = Coord3D::new(85.0, 15.0, 0.0);
     let grid = vec![
@@ -2517,16 +2641,15 @@ fn update_goal_bridge_end_stamps_ground() {
     let cell = GridCoord::new(5, 5);
     // Elevated layer without bridge-end: layer only.
     system.update_goal(cell, 42, PathfindLayerEnum::Top, 0, true, false);
-    let goals = system.goal_cells.lock().unwrap();
+    let goals = &system.goal_cells;
     let gc = goals[5][5];
     assert_eq!(gc.get_goal_unit(PathfindLayerEnum::Top), 42);
     // Ground should not be stamped without bridge-end.
     // (may be INVALID if never set)
-    drop(goals);
     system.remove_goal(42, 0, true, PathfindLayerEnum::Top);
     // With bridge-end both layers.
     system.update_goal(cell, 43, PathfindLayerEnum::Top, 0, true, true);
-    let goals = system.goal_cells.lock().unwrap();
+    let goals = &system.goal_cells;
     let gc = goals[5][5];
     assert_eq!(gc.get_goal_unit(PathfindLayerEnum::Top), 43);
     assert_eq!(
@@ -2571,7 +2694,7 @@ fn tall_building_segment_finds_obstacle_id_building() {
     // Stamp obstacle cell with a fake id — without registry object, scan skips.
     // With KindOf would need full object; surface: obstacle id is read.
     {
-        let mut pf = system.pathfinder.lock().unwrap();
+        let pf = &mut system.pathfinder;
         pf.set_cell_type(GridCoord::new(10, 10), PathfindCellType::Obstacle);
         pf.set_cell_obstacle_id(GridCoord::new(10, 10), 99, false, false);
     }
@@ -2610,7 +2733,7 @@ fn clear_cell_for_diameter_allows_crusher_through_fence() {
     let mut system = PathfindingSystem::new(20, 20);
     system.new_map();
     {
-        let mut pf = system.pathfinder.lock().unwrap();
+        let pf = &mut system.pathfinder;
         pf.set_cell_type(GridCoord::new(5, 5), PathfindCellType::Obstacle);
         pf.set_cell_obstacle_id(GridCoord::new(5, 5), 1, true, false);
     }
@@ -2629,7 +2752,7 @@ fn update_pos_stamps_pos_unit_not_goal() {
     system.new_map();
     let cell = GridCoord::new(4, 4);
     system.update_pos(cell, 77, PathfindLayerEnum::Ground, 0, true, false);
-    let goals = system.goal_cells.lock().unwrap();
+    let goals = &system.goal_cells;
     let gc = goals[4][4];
     assert_eq!(gc.get_pos_unit(PathfindLayerEnum::Ground), 77);
     assert_eq!(
@@ -2681,7 +2804,7 @@ fn check_for_movement_ally_moving_from_pos_without_goal() {
     };
     // Without a real object in registry for obj_id, returns true early.
     // Surface: occupancy flags are queryable.
-    let goals = system.goal_cells.lock().unwrap();
+    let goals = &system.goal_cells;
     let gc = goals[5][5];
     assert_eq!(gc.get_pos_unit(PathfindLayerEnum::Ground), 55);
     assert_eq!(gc.get_goal_unit(PathfindLayerEnum::Ground), INVALID_ID);
@@ -3157,7 +3280,7 @@ fn add_bridge_runs_classify_clearance() {
     let _id = system.add_bridge_ex((lo, hi), INVALID_ID, lo, hi);
     // Without terrain, deck_z = 2*cell; ground 0 → 0+10 > 20? false, so no impassable.
     // Entry cells should be Clear.
-    let pf = system.pathfinder.lock().unwrap();
+    let pf = &system.pathfinder;
     assert_eq!(pf.get_cell_type(lo), Some(PathfindCellType::Clear));
 }
 
@@ -3360,7 +3483,8 @@ fn human_logical_extent_blocks_out_of_map_neighbor() {
     let mut system = PathfindingSystem::new(20, 20);
     system.new_map();
     // Full grid clear
-    if let Ok(mut pf) = system.pathfinder.lock() {
+    {
+        let pf = &mut system.pathfinder;
         for x in 0..20 {
             for y in 0..20 {
                 pf.set_cell_type(GridCoord::new(x, y), PathfindCellType::Clear);
@@ -3424,7 +3548,8 @@ fn is_attack_view_blocked_by_obstacle_cpp_surface() {
 fn attack_los_blocks_opaque_obstacle_on_line() {
     let mut system = PathfindingSystem::new(20, 20);
     system.new_map();
-    if let Ok(mut pf) = system.pathfinder.lock() {
+    {
+        let pf = &mut system.pathfinder;
         for x in 0..20 {
             for y in 0..20 {
                 pf.set_cell_type(GridCoord::new(x, y), PathfindCellType::Clear);
@@ -3449,7 +3574,8 @@ fn attack_los_blocks_opaque_obstacle_on_line() {
         "opaque obstacle must block attack LOS"
     );
     // Transparent wall should not block
-    if let Ok(mut pf) = system.pathfinder.lock() {
+    {
+        let pf = &mut system.pathfinder;
         for y in 0..20 {
             let c = GridCoord::new(10, y);
             pf.set_cell_obstacle_id(c, 999, false, true);
@@ -3531,7 +3657,7 @@ fn dozer_hack_steps_non_enemy_obstacle_not_enemy() {
     let goal = GridCoord::new(4, 1);
     let obs = GridCoord::new(2, 1);
     {
-        let mut pf = system.pathfinder.lock().unwrap();
+        let pf = &mut system.pathfinder;
         for x in 0..8 {
             for y in 0..4 {
                 pf.set_cell_type(GridCoord::new(x, y), PathfindCellType::Clear);
@@ -3566,15 +3692,15 @@ fn dozer_hack_steps_non_enemy_obstacle_not_enemy() {
         dozer_path.waypoints
     );
 
-    system.path_cache.lock().unwrap().clear();
+    system.path_cache.clear();
     let infantry = system.find_path(mk(INVALID_ID));
     assert!(!infantry.success, "non-dozer cannot step on CELL_OBSTACLE");
 
     {
-        let mut pf = system.pathfinder.lock().unwrap();
+        let pf = &mut system.pathfinder;
         pf.set_cell_obstacle_id(obs, ENEMY_OBS_ID, false, false);
     }
-    system.path_cache.lock().unwrap().clear();
+    system.path_cache.clear();
     let enemy_path = system.find_path(mk(DOZER_ID));
     assert!(
         !enemy_path.success,
@@ -3582,10 +3708,10 @@ fn dozer_hack_steps_non_enemy_obstacle_not_enemy() {
     );
 
     {
-        let mut pf = system.pathfinder.lock().unwrap();
+        let pf = &mut system.pathfinder;
         pf.set_cell_obstacle_id(obs, MISSING_OBS_ID, false, false);
     }
-    system.path_cache.lock().unwrap().clear();
+    system.path_cache.clear();
     let missing = system.find_path(mk(DOZER_ID));
     assert!(
         !missing.success,

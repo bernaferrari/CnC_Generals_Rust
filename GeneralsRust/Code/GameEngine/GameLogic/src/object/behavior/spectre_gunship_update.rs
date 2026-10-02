@@ -613,8 +613,8 @@ impl SpectreGunshipUpdate {
         }
 
         let mut disguised_player_index = None;
-        for behavior in target.get_behavior_modules() {
-            let Ok(guard) = behavior.lock() else {
+        for mut behavior in target.get_behavior_modules() {
+            let Ok(guard) = behavior.access() else {
                 continue;
             };
             if let Some(idx) = guard.get_disguised_player_index() {
@@ -979,9 +979,7 @@ impl UpdateModuleInterface for SpectreGunshipUpdate {
                     target_id = Some(id);
                     _target_pos = pos;
                 } else if gunship
-                    .with_controlling_player(|player| {
-                        player.get_player_type() != PlayerType::Human
-                    })
+                    .with_controlling_player(|player| player.get_player_type() != PlayerType::Human)
                     .unwrap_or(false)
                 {
                     if let Some((id, pos)) = self.find_target_in_radius(
@@ -1233,8 +1231,7 @@ impl SpecialPowerUpdateInterface for SpectreGunshipUpdate {
                     }
                 }
 
-                let owner_index =
-                    gunship.with_controlling_player(|p| p.get_player_index());
+                let owner_index = gunship.with_controlling_player(|p| p.get_player_index());
                 self.attack_area_decal = Some(Self::create_decal(
                     &self.module_data.attack_area_decal_template,
                     *gunship.get_position(),

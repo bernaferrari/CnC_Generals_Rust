@@ -966,8 +966,8 @@ impl AIPlayer {
                                 // C++: only if bldg->getID() == rhbi->getReconstructedBuildingID().
                                 let mut is_this_spawn = false;
                                 let mut saw_rhbi = false;
-                                for behavior in hole_g.get_behavior_modules() {
-                                    if let Ok(mut bg) = behavior.lock() {
+                                for mut behavior in hole_g.get_behavior_modules() {
+                                    if let Ok(mut bg) = behavior.access() {
                                         if let Some(rhbi) = bg.get_rebuild_hole_behavior_interface()
                                         {
                                             saw_rhbi = true;

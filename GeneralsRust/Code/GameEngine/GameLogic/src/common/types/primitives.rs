@@ -249,8 +249,8 @@ pub const DISABLED_COUNT: usize = 13;
 /// Maximum trigger area infos
 pub const MAX_TRIGGER_AREA_INFOS: usize = 5;
 
-/// Construction complete percentage
-pub const CONSTRUCTION_COMPLETE: Real = 100.0;
+/// C++ `BuildAssistant.h:25`: completion is a sentinel, not a percentage.
+pub const CONSTRUCTION_COMPLETE: Real = -1.0;
 
 /// Never timestamp
 pub const NEVER: UnsignedInt = 0xFFFFFFFF;
@@ -327,4 +327,3 @@ impl Color {
         ((self.a as u32) << 24) | ((self.b as u32) << 16) | ((self.g as u32) << 8) | (self.r as u32)
     }
 }
-

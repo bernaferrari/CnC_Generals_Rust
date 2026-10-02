@@ -422,8 +422,8 @@ impl WorkerAIUpdate {
                 return false;
             };
             let mut id = INVALID_ID;
-            for behavior in tower_guard.get_behavior_modules() {
-                let Ok(mut behavior) = behavior.lock() else {
+            for mut behavior in tower_guard.get_behavior_modules() {
+                let Ok(mut behavior) = behavior.access() else {
                     continue;
                 };
                 if let Some(tower) = behavior.get_bridge_tower_behavior_interface() {
@@ -444,8 +444,8 @@ impl WorkerAIUpdate {
         };
         let behaviors = bridge_guard.get_behavior_modules();
         drop(bridge_guard);
-        for behavior in behaviors {
-            let Ok(mut behavior) = behavior.lock() else {
+        for mut behavior in behaviors {
+            let Ok(mut behavior) = behavior.access() else {
                 continue;
             };
             if let Some(bridge) = behavior.get_bridge_behavior_interface() {
@@ -464,8 +464,8 @@ impl WorkerAIUpdate {
             return;
         };
         let mut bridge_id: Option<ObjectID> = None;
-        for behavior in tower_guard.get_behavior_modules() {
-            let Ok(mut behavior) = behavior.lock() else {
+        for mut behavior in tower_guard.get_behavior_modules() {
+            let Ok(mut behavior) = behavior.access() else {
                 continue;
             };
             let Some(tower) = behavior.get_bridge_tower_behavior_interface() else {
@@ -487,8 +487,8 @@ impl WorkerAIUpdate {
         };
         let behaviors = bridge_guard.get_behavior_modules();
         drop(bridge_guard);
-        for behavior in behaviors {
-            let Ok(mut behavior) = behavior.lock() else {
+        for mut behavior in behaviors {
+            let Ok(mut behavior) = behavior.access() else {
                 continue;
             };
             let Some(bridge) = behavior.get_bridge_behavior_interface() else {

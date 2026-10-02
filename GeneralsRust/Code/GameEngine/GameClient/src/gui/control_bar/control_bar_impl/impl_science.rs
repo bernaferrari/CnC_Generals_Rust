@@ -1421,8 +1421,8 @@ impl ControlBar {
     fn leftover_shortcut_module_name_and_ready(
         obj: &gamelogic::object::Object,
     ) -> Option<(String, bool, f32)> {
-        let behavior = obj.find_any_shortcut_special_power_module_interface()?;
-        let mut guard = behavior.lock().ok()?;
+        let mut behavior = obj.find_any_shortcut_special_power_module_interface()?;
+        let mut guard = behavior.access().ok()?;
         let sp = guard.get_special_power_module_interface()?;
         let template_any = sp.get_special_power_template()?;
         let template = template_any.downcast_ref::<std::sync::Arc<

@@ -1199,7 +1199,7 @@ impl AIUpdateInterface {
             self.is_blocked_and_stuck = false;
             return false;
         };
-        let Ok(pathfinder) = pathfinder.read() else {
+        let Ok(mut pathfinder) = pathfinder.write() else {
             self.path_timestamp = TheGameLogic::get_frame();
             self.blocked_frames = 0;
             self.is_blocked_and_stuck = false;
@@ -1286,7 +1286,7 @@ impl AIUpdateInterface {
             self.is_blocked_and_stuck = false;
             return false;
         };
-        let Ok(pathfinder) = pathfinder.read() else {
+        let Ok(mut pathfinder) = pathfinder.write() else {
             self.path_timestamp = TheGameLogic::get_frame();
             self.blocked_frames = 0;
             self.is_blocked_and_stuck = false;
@@ -1496,7 +1496,7 @@ impl AIUpdateInterface {
         let ai_store = crate::ai::the_ai();let Some(pathfinder) = ai_store.read().ok().and_then(|ai| ai.pathfinder()) else {
             return false;
         };
-        let Ok(pathfinder) = pathfinder.read() else {
+        let Ok(mut pathfinder) = pathfinder.write() else {
             return false;
         };
         pathfinder
@@ -2859,12 +2859,72 @@ mod tests {
         }
     }
 
+    /// C++ AIUpdate runs after terrain classification and Pathfinder::newMap.
+    /// Preserve the ambient classic map so these fixtures cannot initialize a
+    /// later test accidentally or erase its queued/occupied cells.
+    struct InitializedPathfinder {
+        pathfinder: Arc<RwLock<crate::ai::Pathfinder>>,
+        previous: Option<crate::ai::Pathfinder>,
+    }
+
+    impl InitializedPathfinder {
+        fn new() -> Self {
+            let mut map = crate::system::map_loader::MapData::new();
+            map.width = 32;
+            map.height = 32;
+            map.heightmap = vec![0; 32 * 32];
+            // C++ getMaximumPathfindExtent uses authored boundaries, not the
+            // heightmap dimensions. Without this the fixture is a 1-cell map.
+            map.boundaries.push(ICoord2D::new(32, 32));
+            let mut terrain = crate::terrain::TerrainLogic::new();
+            terrain.load_map_data(map);
+            assert_eq!(
+                terrain.get_maximum_pathfind_extent().hi,
+                Coord3D::new(320.0, 320.0, 0.0),
+            );
+            let mut initialized = crate::ai::Pathfinder::new();
+            initialized.rebuild_from_terrain(&terrain);
+            assert!(initialized.valid_movement_position_for_surfaces(
+                SURFACE_GROUND,
+                false,
+                &Coord3D::new(99.0, 99.0, 0.0),
+                None,
+            ));
+            let pathfinder = crate::ai::the_ai().read().unwrap().pathfinder().unwrap();
+            let previous = std::mem::replace(&mut *pathfinder.write().unwrap(), initialized);
+            Self {
+                pathfinder,
+                previous: Some(previous),
+            }
+        }
+    }
+
+    impl Drop for InitializedPathfinder {
+        fn drop(&mut self) {
+            if let Some(previous) = self.previous.take() {
+                *self.pathfinder.write().unwrap() = previous;
+            }
+        }
+    }
+
+    fn ground_path_ai(owner_id: ObjectID) -> AIUpdateInterface {
+        // Author the movement capability explicitly; an INI set name alone
+        // does not provide surfaces for the C++ pathfinding services.
+        const NAME: &str = "AIUpdateGroundPathFixture";
+        LOCOMOTOR_STORE.register_template(crate::locomotor::LocomotorTemplate::new_wheeled(
+            NAME.to_string(),
+        ));
+        let mut data = AIUpdateModuleData::default();
+        data.add_locomotor_set_entry(LocomotorSetType::Normal, NAME.into());
+        AIUpdateInterface::new_for_object(Arc::new(data), owner_id)
+    }
+
     struct PathfinderCellCleanup(Coord3D);
 
     impl Drop for PathfinderCellCleanup {
         fn drop(&mut self) {
-            let ai_store = crate::ai::the_ai();let Some(pathfinder) = ai_store.read().ok().and_then(|ai| ai.pathfinder())
-            else {
+            let ai_store = crate::ai::the_ai();
+            let Some(pathfinder) = ai_store.read().ok().and_then(|ai| ai.pathfinder()) else {
                 return;
             };
             if let Ok(mut pathfinder) = pathfinder.write() {
@@ -3008,8 +3068,7 @@ mod tests {
         let mut template_set = crate::weapon::WeaponTemplateSet::new();
         template_set.set_weapon_template(WeaponSlotType::Primary, Arc::new(weapon_template));
         object.weapon_set.add_weapon_template_set(template_set);
-        object.refresh_weapon_set()
-            .unwrap();
+        object.refresh_weapon_set().unwrap();
     }
 
     #[test]
@@ -3138,7 +3197,12 @@ mod tests {
 
     #[test]
     fn compute_and_destroy_path_update_cpp_state() {
-        let mut ai = ai_update_with_locomotors();
+        let _lock = crate::test_sync::lock();
+        let _map = InitializedPathfinder::new();
+        let owner_id = 7401;
+        let (_owner, _owner_cleanup) =
+            register_collision_object(owner_id, Coord3D::new(1.0, 2.0, 0.0), 0.0, None);
+        let mut ai = ground_path_ai(owner_id);
         assert!(ai.choose_locomotor_set(LocomotorSetType::Normal));
         ai.set_final_position(Coord3D::new(1.0, 2.0, 0.0));
         ai.is_blocked = true;
@@ -3298,6 +3362,11 @@ mod tests {
 
     #[test]
     fn is_path_available_checks_requested_destination_not_any_path() {
+        let _lock = crate::test_sync::lock();
+        let _map = InitializedPathfinder::new();
+        let owner_id = 7402;
+        let (_owner, _owner_cleanup) =
+            register_collision_object(owner_id, Coord3D::new(1.0, 2.0, 0.0), 0.0, None);
         let mut ai = ai_update();
         ai.path = Some(vec![
             Coord3D::new(1.0, 2.0, 0.0),
@@ -3310,7 +3379,7 @@ mod tests {
         ai.set_final_position(Coord3D::new(1.0, 2.0, 0.0));
         assert!(!ai.is_path_available(Coord3D::new(99.0, 99.0, 0.0)));
 
-        let mut ai = ai_update_with_locomotors();
+        let mut ai = ground_path_ai(owner_id);
         assert!(ai.choose_locomotor_set(LocomotorSetType::Normal));
         ai.set_final_position(Coord3D::new(1.0, 2.0, 0.0));
         assert!(ai.is_path_available(Coord3D::new(99.0, 99.0, 0.0)));
@@ -3442,7 +3511,12 @@ mod tests {
 
     #[test]
     fn do_pathfind_approach_builds_current_bridge_path() {
-        let mut ai = ai_update_with_locomotors();
+        let _lock = crate::test_sync::lock();
+        let _map = InitializedPathfinder::new();
+        let owner_id = 7403;
+        let (_owner, _owner_cleanup) =
+            register_collision_object(owner_id, Coord3D::new(3.0, 4.0, 0.0), 0.0, None);
+        let mut ai = ground_path_ai(owner_id);
         assert!(ai.choose_locomotor_set(LocomotorSetType::Normal));
         ai.set_final_position(Coord3D::new(3.0, 4.0, 0.0));
 
@@ -3459,7 +3533,12 @@ mod tests {
 
     #[test]
     fn do_pathfind_attack_fallback_clears_attack_flag_like_cpp() {
-        let mut ai = ai_update_with_locomotors();
+        let _lock = crate::test_sync::lock();
+        let _map = InitializedPathfinder::new();
+        let owner_id = 7404;
+        let (_owner, _owner_cleanup) =
+            register_collision_object(owner_id, Coord3D::new(6.0, 7.0, 0.0), 0.0, None);
+        let mut ai = ground_path_ai(owner_id);
         assert!(ai.choose_locomotor_set(LocomotorSetType::Normal));
         ai.set_final_position(Coord3D::new(6.0, 7.0, 0.0));
 
@@ -3543,7 +3622,13 @@ mod tests {
 
     #[test]
     fn do_pathfind_safe_path_builds_escape_path_like_cpp_contract() {
-        let mut ai = ai_update();
+        let _lock = crate::test_sync::lock();
+        let _map = InitializedPathfinder::new();
+        let owner_id = 7405;
+        let (_owner, _owner_cleanup) =
+            register_collision_object(owner_id, Coord3D::new(10.0, 10.0, 0.0), 0.0, None);
+        let mut ai = ground_path_ai(owner_id);
+        assert!(ai.choose_locomotor_set(LocomotorSetType::Normal));
         ai.set_final_position(Coord3D::new(10.0, 10.0, 0.0));
 
         ai.request_safe_path(777);
@@ -3746,6 +3831,8 @@ mod tests {
 
     #[test]
     fn choose_locomotor_uses_pathfinder_valid_cell_like_cpp() {
+        let _lock = crate::test_sync::lock();
+        let _map = InitializedPathfinder::new();
         let object_id = 7_201;
         let position = Coord3D::new(48.0, 48.0, 0.0);
         let object = Arc::new(RwLock::new(Object::new_test(object_id, 100.0)));
@@ -3753,11 +3840,8 @@ mod tests {
         OBJECT_REGISTRY.register_object(object_id, &object);
         let _object_cleanup = RegisteredObjectCleanup(object_id);
 
-        let ai_store = crate::ai::the_ai();let pathfinder = ai_store
-            .read()
-            .ok()
-            .and_then(|ai| ai.pathfinder())
-            .unwrap();
+        let ai_store = crate::ai::the_ai();
+        let pathfinder = ai_store.read().ok().and_then(|ai| ai.pathfinder()).unwrap();
         pathfinder
             .write()
             .unwrap()

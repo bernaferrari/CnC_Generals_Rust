@@ -473,8 +473,8 @@ impl StructureCollapseUpdate {
                     bone_fx.stop_all_bone_fx();
                 }
             });
-        } else if let Some(behavior) = obj.find_update_behavior("BoneFXUpdate") {
-            if let Ok(mut behavior) = behavior.lock() {
+        } else if let Some(mut behavior) = obj.find_update_behavior("BoneFXUpdate") {
+            if let Ok(mut behavior) = behavior.access() {
                 if let Some(bone_fx) = behavior.get_bone_fx_control_interface() {
                     bone_fx.stop_all_bone_fx();
                 }
@@ -508,7 +508,10 @@ impl StructureCollapseUpdate {
         }) {
             if let Ok(obj) = object_arc.read() {
                 self.next_call_frame_and_phase = current_frame.saturating_add(1);
-                obj.reschedule_named_update("StructureCollapseUpdate", self.next_call_frame_and_phase);
+                obj.reschedule_named_update(
+                    "StructureCollapseUpdate",
+                    self.next_call_frame_and_phase,
+                );
                 let pos = *obj.get_position();
                 self.do_phase_stuff(StructureCollapsePhaseType::Initial, &pos);
             }

@@ -113,10 +113,10 @@ fn airfield_is_usable(guard: &crate::object::Object) -> bool {
 }
 
 fn reload_jet_countermeasures(obj: &crate::object::Object) {
-    let Some(module) = obj.get_countermeasures_behavior_interface() else {
+    let Some(mut module) = obj.get_countermeasures_behavior_interface() else {
         return;
     };
-    let Ok(mut guard) = module.lock() else {
+    let Ok(mut guard) = module.access() else {
         return;
     };
     if let Some(cbi) = guard.get_countermeasures_behavior_interface() {
@@ -2151,7 +2151,7 @@ impl JetAIUpdate {
                     machine.set_state(JetAIStateType::ReturningForLanding, ai, jet)
                 });
             }
-            });
+        });
     }
 
     fn is_parked_at(&self, obj_id: Option<ObjectID>, obj: &crate::object::Object) -> bool {
@@ -2804,10 +2804,11 @@ impl JetAIUpdate {
 impl Drop for JetAIUpdate {
     fn drop(&mut self) {
         if let Some(producer_id) = self.with_object(|guard| guard.get_producer_id()) {
-            let _ = crate::object::registry::OBJECT_REGISTRY.with_object(producer_id, |air_guard| {
-                air_guard.with_parking_place_behavior(|pp| {
-                    pp.release_space(self.object_id);
-                });
+            let _ =
+                crate::object::registry::OBJECT_REGISTRY.with_object(producer_id, |air_guard| {
+                    air_guard.with_parking_place_behavior(|pp| {
+                        pp.release_space(self.object_id);
+                    });
                 });
         }
 

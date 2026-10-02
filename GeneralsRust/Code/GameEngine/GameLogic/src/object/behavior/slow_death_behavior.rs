@@ -1174,18 +1174,18 @@ impl ModuleSlowDeathBehaviorInterface for SlowDeathBehavior {
                 |obj_write| -> Result<bool, Box<dyn std::error::Error + Send + Sync>> {
                     if obj_write.is_disabled_by_type(DisabledType::Held) {
                         let mut handled = false;
-                        if let Some(result) = obj_write.with_slaved_update_interface(|slaved| {
-                            slaved.on_slaver_die(None)
-                        }) {
+                        if let Some(result) = obj_write
+                            .with_slaved_update_interface(|slaved| slaved.on_slaver_die(None))
+                        {
                             let _ = result;
                             handled = true;
                         }
 
                         if !handled {
-                            if let Some(slave_module) =
+                            if let Some(mut slave_module) =
                                 obj_write.find_update_behavior("SlavedUpdate")
                             {
-                                if let Ok(mut slave_guard) = slave_module.lock() {
+                                if let Ok(mut slave_guard) = slave_module.access() {
                                     if let Some(slaved) = slave_guard.get_slaved_update_interface()
                                     {
                                         let _ = slaved.on_slaver_die(None);

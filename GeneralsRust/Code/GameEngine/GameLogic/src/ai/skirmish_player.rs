@@ -849,8 +849,8 @@ impl AISkirmishPlayer {
                         let candidate_id = candidate_guard.get_id();
                         // Find RebuildHoleBehaviorInterface::getSpawnerID.
                         let mut matched_hole = false;
-                        for behavior in candidate_guard.get_behavior_modules() {
-                            if let Ok(mut bg) = behavior.lock() {
+                        for mut behavior in candidate_guard.get_behavior_modules() {
+                            if let Ok(mut bg) = behavior.access() {
                                 if let Some(rhbi) = bg.get_rebuild_hole_behavior_interface() {
                                     if rhbi.get_spawner_id() == prior_id {
                                         matched_hole = true;

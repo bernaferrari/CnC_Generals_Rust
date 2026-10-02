@@ -758,10 +758,7 @@ impl WeaponTemplate {
         template.fire_sound_loop_time = self.fire_sound_loop_time;
         template.fire_fx = self.fire_fx.clone();
         template.projectile_detonate_fx = self.projectile_detonate_fx.clone();
-        template.fire_ocl = self
-            .fire_ocl
-            .clone()
-            .map(|entry| entry.map(Arc::new));
+        template.fire_ocl = self.fire_ocl.clone().map(|entry| entry.map(Arc::new));
         template.projectile_detonation_ocl = self
             .projectile_detonation_ocl
             .clone()
@@ -1054,8 +1051,8 @@ impl WeaponTemplate {
                 if is_missile {
                     if let Some(victim_arc) = TheGameLogic::find_object_by_id(victim_id) {
                         if let Ok(mut victim_guard) = victim_arc.write() {
-                            for behavior in victim_guard.get_behavior_modules() {
-                                let Ok(mut behavior) = behavior.lock() else {
+                            for mut behavior in victim_guard.get_behavior_modules() {
+                                let Ok(mut behavior) = behavior.access() else {
                                     continue;
                                 };
                                 if let Some(countermeasures) =
@@ -2768,12 +2765,21 @@ impl WeaponTemplate {
 
                 "FireFX" => {
                     let fx = FXList::new(trimmed);
-                    self.fire_fx = [Some(fx.clone()), Some(fx.clone()), Some(fx.clone()), Some(fx)];
+                    self.fire_fx = [
+                        Some(fx.clone()),
+                        Some(fx.clone()),
+                        Some(fx.clone()),
+                        Some(fx),
+                    ];
                 }
                 "ProjectileDetonationFX" => {
                     let fx = FXList::new(trimmed);
-                    self.projectile_detonate_fx =
-                        [Some(fx.clone()), Some(fx.clone()), Some(fx.clone()), Some(fx)];
+                    self.projectile_detonate_fx = [
+                        Some(fx.clone()),
+                        Some(fx.clone()),
+                        Some(fx.clone()),
+                        Some(fx),
+                    ];
                 }
                 "VeterancyFireFX" => {
                     if let Some((level, name)) = vet_level_and_name(trimmed) {
@@ -2881,7 +2887,11 @@ fn vet_level_and_name(value: &str) -> Option<(usize, String)> {
         _ => return None,
     };
     let name = tokens.next()?.to_string();
-    if name.is_empty() { None } else { Some((level, name)) }
+    if name.is_empty() {
+        None
+    } else {
+        Some((level, name))
+    }
 }
 
 fn parse_shot_delay(value: &str) -> Option<(i32, i32)> {
@@ -2892,7 +2902,10 @@ fn parse_shot_delay(value: &str) -> Option<(i32, i32)> {
     let first = tokens.first().copied()?;
     if first.eq_ignore_ascii_case("Min") {
         let min_delay = shot_delay_frames(tokens.get(1).copied()?)?;
-        if tokens.get(2).is_some_and(|token| token.eq_ignore_ascii_case("Max")) {
+        if tokens
+            .get(2)
+            .is_some_and(|token| token.eq_ignore_ascii_case("Max"))
+        {
             let max_delay = shot_delay_frames(tokens.get(3).copied()?)?;
             Some((min_delay, max_delay))
         } else {

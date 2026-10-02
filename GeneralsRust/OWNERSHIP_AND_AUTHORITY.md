@@ -4,6 +4,38 @@
 
 Preserve C++ **behavior**. Do not preserve C++ **pointer ownership**.
 
+## Classic Object views and pathfinding stores (2026-10-02)
+
+The classic Object's ordered behavior list owns helper/template descriptors.
+These views contain immutable metadata, and borrowed interface access requires
+an explicit mutable handle. Helpers allocate no shared wrapper. A template view
+retains the existing authoritative `ModuleEntry`; detached callback snapshots
+keep that same entry alive after the Object borrow ends. They do not copy module
+state, resolve a reused ObjectId, or expose additional interfaces. Shared test
+behavior injection remains gated by test/internal configuration. Its actual
+mutex keeps its original busy/poison policy. See hq-kttbn.
+
+This removes one wrapper Arc and mutex per helper or template module. The
+authoritative module, body/interface aliases, and scheduler registrations still
+have shared ownership. Immutable receiver queries may clone an entry handle to
+borrow its view; metadata name matching and compatible mutable loops avoid
+those clones. Removing the remaining module locks requires explicit owner and
+sibling access during immediate callbacks. Damage callback owner rediscovery
+and lifetime/deletion scheduler cycles are tracked in hq-zi4dr and hq-ve7qn.
+
+The classic `Pathfinder.inner` now directly owns its A* core, goal grid, path
+cache, zones, unit goal/position maps, and wall cells. Mutating operations require
+the driving pathfinder's mutable borrow. Search guards end before installing a
+path or invoking a fallback that accesses that pathfinder again. This removes
+seven allocated Arc/mutex pairs and 125 production field acquisition sites;
+queue locks, the cumulative atomic, outer AI ownership, and ambient registry
+access remain separate dependencies. See hq-e5hpo and hq-1tq1l. Queue scheduling
+and version-only Xfer are unchanged by this storage migration.
+
+These are classic GameLogic changes. The default Main host already has owned
+Object storage and a separate pathfinder. This work establishes neither full
+classic world isolation nor a measured Main frame-rate gain.
+
 ## Ownership review boundary (2026-10-02)
 
 The primary branch already owns `Object` experience trackers, partition data,

@@ -60,8 +60,8 @@ impl Object {
             return;
         };
         if let Ok(mut hole_guard) = hole.write() {
-            for behavior in hole_guard.behaviors.clone() {
-                if let Ok(mut bg) = behavior.lock() {
+            for mut behavior in hole_guard.behaviors.clone() {
+                if let Ok(mut bg) = behavior.access() {
                     if let Some(rhbi) = bg.get_rebuild_hole_behavior_interface() {
                         rhbi.start_rebuild_process(template.clone(), dead_id);
                     }

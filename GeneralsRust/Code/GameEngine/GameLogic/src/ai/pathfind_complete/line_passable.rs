@@ -128,7 +128,7 @@ impl PathfindingSystem {
             let coord = GridCoord::from_world(&sample);
 
             {
-                let pathfinder = self.pathfinder.lock().unwrap();
+                let pathfinder = &self.pathfinder;
                 // C++: if (!allowPinched && to->getPinched()) bail.
                 if !allow_pinched && pathfinder.is_pinched(coord) == Some(true) {
                     return false;
@@ -171,7 +171,7 @@ impl PathfindingSystem {
         diameter: i32,
         ignore_cells: Option<&HashSet<GridCoord>>,
     ) -> bool {
-        let pathfinder = self.pathfinder.lock().unwrap();
+        let pathfinder = &self.pathfinder;
         let radius = (diameter / 2).max(1);
 
         let dx = to.x - from.x;
@@ -283,12 +283,12 @@ impl PathfindingSystem {
         }
 
         let ignore_cells = ignored_obstacle_cells(request.ignore_obstacle_id);
-        let pathfinder = self.pathfinder.lock().unwrap();
+        let pathfinder = &self.pathfinder;
         let center_cell = ICoord2D::new(cell.x, cell.y);
         let check_for_aircraft = Self::object_uses_aircraft_goal_reservations(request.object_id);
 
         let mut ok = true;
-        self.for_goal_cells(center_cell, radius, center_in_cell, |coord| {
+        Self::for_goal_cells(center_cell, radius, center_in_cell, |coord| {
             if !ok {
                 return;
             }
@@ -348,7 +348,6 @@ impl PathfindingSystem {
     }
 
     pub(crate) fn for_goal_cells<F>(
-        &self,
         center_cell: ICoord2D,
         radius: i32,
         center_in_cell: bool,
@@ -513,9 +512,7 @@ impl PathfindingSystem {
     }
 
     pub(crate) fn zone_at_cell(&self, cell: GridCoord) -> u16 {
-        let Ok(zones) = self.zones.lock() else {
-            return 0;
-        };
+        let zones = &self.zones;
         zones.zone_at(cell)
     }
 
@@ -563,18 +560,14 @@ impl PathfindingSystem {
     }
 
     /// Clear path cache
-    pub fn clear_cache(&self) {
-        if let Ok(mut cache) = self.path_cache.lock() {
-            cache.clear();
-        }
+    pub fn clear_cache(&mut self) {
+        self.path_cache.clear();
     }
 
     /// Set cell type at world position
-    pub fn set_cell_type(&self, pos: &Coord3D, cell_type: PathfindCellType) {
+    pub fn set_cell_type(&mut self, pos: &Coord3D, cell_type: PathfindCellType) {
         let coord = GridCoord::from_world(pos);
-        if let Ok(mut pathfinder) = self.pathfinder.lock() {
-            pathfinder.set_cell_type(coord, cell_type);
-        }
+        self.pathfinder.set_cell_type(coord, cell_type);
     }
 
     /// Get cell type at world position.
@@ -583,7 +576,7 @@ impl PathfindingSystem {
     /// `get_cell_type_at_layer` for C++ `getCell(layer, REAL_TO_INT(x/size))`.
     pub fn get_cell_type(&self, pos: &Coord3D) -> Option<PathfindCellType> {
         let coord = GridCoord::from_world(pos);
-        let pathfinder = self.pathfinder.lock().ok()?;
+        let pathfinder = &self.pathfinder;
         pathfinder.get_cell_type(coord)
     }
 
@@ -628,7 +621,7 @@ impl PathfindingSystem {
                 return Some(cell_type);
             }
         }
-        let pathfinder = self.pathfinder.lock().ok()?;
+        let pathfinder = &self.pathfinder;
         pathfinder.get_cell_type(coord)
     }
 
@@ -667,13 +660,11 @@ impl PathfindingSystem {
                 })
                 .is_some();
             if bridge_updated {
-                if let Ok(mut pathfinder) = self.pathfinder.lock() {
-                    pathfinder.set_cell_type_on_layer(
-                        coord,
-                        PathfindLayerEnum::from_u32(layer_id),
-                        cell_type,
-                    );
-                }
+                self.pathfinder.set_cell_type_on_layer(
+                    coord,
+                    PathfindLayerEnum::from_u32(layer_id),
+                    cell_type,
+                );
             } else {
                 self.set_cell_type(pos, cell_type);
             }
@@ -691,9 +682,7 @@ impl PathfindingSystem {
     ) -> bool {
         let from_c = GridCoord::from_world(from);
         let to_c = GridCoord::from_world(to);
-        let Ok(zones) = self.zones.lock() else {
-            return true;
-        };
+        let zones = &self.zones;
         zones.are_connected(from_c, to_c, surfaces, false)
     }
 

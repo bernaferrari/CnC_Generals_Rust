@@ -215,8 +215,8 @@ impl Weapon {
             else {
                 continue;
             };
-            for behavior in behaviors {
-                if let Ok(mut behavior_guard) = behavior.lock() {
+            for mut behavior in behaviors {
+                if let Ok(mut behavior_guard) = behavior.access() {
                     let Some(assist) = behavior_guard.get_assisted_targeting_update_interface()
                     else {
                         continue;
@@ -1380,8 +1380,8 @@ impl Weapon {
             return source_obj_id;
         }
 
-        for behavior in source.get_behavior_modules() {
-            let Ok(mut guard) = behavior.lock() else {
+        for mut behavior in source.get_behavior_modules() {
+            let Ok(mut guard) = behavior.access() else {
                 continue;
             };
             let Some(projectile) = guard.get_projectile_update_interface() else {

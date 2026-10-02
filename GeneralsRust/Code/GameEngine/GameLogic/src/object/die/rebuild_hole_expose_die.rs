@@ -348,7 +348,8 @@ impl DieModuleInterface for RebuildHoleExposeDie {
             if let Ok(hole) = hole_arc.read() {
                 let hole_id = hole.get_id();
                 let pos = *hole.get_position();
-                let ai_store = the_ai(); if let Ok(ai_guard) = ai_store.read() {
+                let ai_store = the_ai();
+                if let Ok(ai_guard) = ai_store.read() {
                     if let Some(pathfinder) = ai_guard.pathfinder() {
                         if let Ok(mut pf) = pathfinder.write() {
                             pf.add_object_to_map(hole_id, &[pos], false);
@@ -356,8 +357,8 @@ impl DieModuleInterface for RebuildHoleExposeDie {
                     }
                 }
 
-                for behavior in hole.get_behavior_modules() {
-                    let Ok(mut behavior_guard) = behavior.lock() else {
+                for mut behavior in hole.get_behavior_modules() {
+                    let Ok(mut behavior_guard) = behavior.access() else {
                         continue;
                     };
                     if let Some(rebuild) = behavior_guard.get_rebuild_hole_behavior_interface() {

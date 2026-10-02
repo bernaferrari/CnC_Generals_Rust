@@ -708,8 +708,7 @@ impl AIGroup {
                     && !obj.test_status(ObjectStatusTypes::Detected)
                 {
                     if let Some(stealth) = obj.get_stealth() {
-                        if let (Ok(stealth_guard), Ok(mut ai_guard)) = (stealth.lock(), ai.lock())
-                        {
+                        if let (Ok(stealth_guard), Ok(mut ai_guard)) = (stealth.lock(), ai.lock()) {
                             if ai_guard.can_auto_acquire()
                                 && !stealth_guard.is_granted_by_special_power()
                                 && !ai_guard.can_auto_acquire_while_stealthed()
@@ -1063,10 +1062,10 @@ impl AIGroup {
         }
         for &member_id in &self.member_list {
             let _ = OBJECT_REGISTRY.with_object(member_id, |obj_ref| {
-                if let Some(module) =
+                if let Some(mut module) =
                     obj_ref.find_special_power_with_overridable_destination_active(sp_type)
                 {
-                    if let Ok(mut guard) = module.lock() {
+                    if let Ok(mut guard) = module.access() {
                         if let Some(sp) = guard.get_special_power_update_interface() {
                             sp.set_special_power_overridable_destination(loc);
                         }
@@ -1266,7 +1265,6 @@ impl AIGroup {
                     ai.ai_idle(cmd_source);
                     if matches!(cmd_source, CommandSourceType::FromPlayer)
                         && obj_ref.test_status(ObjectStatusTypes::CanStealth)
-
                         && !obj_ref.test_status(ObjectStatusTypes::Stealthed)
                         && !obj_ref.test_status(ObjectStatusTypes::Detected)
                     {
@@ -1279,15 +1277,11 @@ impl AIGroup {
                                     && !ai_guard.can_auto_acquire_while_stealthed()
                                 {
                                     let stealth_frames = stealth_guard.get_stealth_delay();
-                                    let random_frames = GameLogicRandomValue(
-                                        0,
-                                        LOGICFRAMES_PER_SECOND as i32,
-                                    )
-                                        as u32;
+                                    let random_frames =
+                                        GameLogicRandomValue(0, LOGICFRAMES_PER_SECOND as i32)
+                                            as u32;
                                     ai_guard.set_next_mood_check_time(
-                                        TheGameLogic::get_frame()
-                                            + stealth_frames
-                                            + random_frames,
+                                        TheGameLogic::get_frame() + stealth_frames + random_frames,
                                     );
                                 }
                             }
@@ -1302,8 +1296,8 @@ impl AIGroup {
                         });
                     }
                 }
-                if let Some(behavior) = obj_ref.get_spawn_behavior_interface_public() {
-                    if let Ok(mut guard) = behavior.lock() {
+                if let Some(mut behavior) = obj_ref.get_spawn_behavior_interface_public() {
+                    if let Ok(mut guard) = behavior.access() {
                         if let Some(spawn) = guard.get_spawn_behavior_full_interface() {
                             let _ = spawn.order_slaves_to_go_idle(cmd_source);
                         }
@@ -1629,8 +1623,8 @@ impl AIGroup {
                         }
                     }
                 }
-                if let Some(behavior) = obj_ref.get_spawn_behavior_interface_public() {
-                    if let Ok(mut guard) = behavior.lock() {
+                if let Some(mut behavior) = obj_ref.get_spawn_behavior_interface_public() {
+                    if let Ok(mut guard) = behavior.access() {
                         if let Some(spawn) = guard.get_spawn_behavior_full_interface() {
                             if !spawn.do_slaves_have_freedom() {
                                 let _ = OBJECT_REGISTRY.with_object(victim_id, |victim| {
@@ -1721,8 +1715,8 @@ impl AIGroup {
                         }
                     }
                 }
-                if let Some(behavior) = obj_ref.get_spawn_behavior_interface_public() {
-                    if let Ok(mut guard) = behavior.lock() {
+                if let Some(mut behavior) = obj_ref.get_spawn_behavior_interface_public() {
+                    if let Ok(mut guard) = behavior.access() {
                         if let Some(spawn) = guard.get_spawn_behavior_full_interface() {
                             if !spawn.do_slaves_have_freedom() {
                                 let _ = spawn.order_slaves_to_attack_position(
@@ -2220,7 +2214,8 @@ impl AIGroup {
         let Some((min, max, mut center, _)) = self.get_min_max_and_center() else {
             return None;
         };
-        let ai_store = the_ai();let (min_dist, require_dist, _min_inf, _min_veh) = ai_store
+        let ai_store = the_ai();
+        let (min_dist, require_dist, _min_inf, _min_veh) = ai_store
             .read()
             .ok()
             .and_then(|ai| {
@@ -2349,9 +2344,9 @@ impl AIGroup {
         const PATH_DIAMETER_IN_CELLS: i32 = 6;
         the_ai().read().ok().and_then(|ai| {
             ai.pathfinder().and_then(|pf| {
-                pf.read()
-                    .ok()
-                    .and_then(|p| p.find_group_ground_path(&center, pos, PATH_DIAMETER_IN_CELLS))
+                pf.write().ok().and_then(|mut p| {
+                    p.find_group_ground_path(&center, pos, PATH_DIAMETER_IN_CELLS)
+                })
             })
         })
     }
@@ -2389,7 +2384,8 @@ impl AIGroup {
         let Some(center) = self.get_center() else {
             return false;
         };
-        let ai_store = the_ai();let min_count = ai_store
+        let ai_store = the_ai();
+        let min_count = ai_store
             .read()
             .ok()
             .and_then(|ai| {

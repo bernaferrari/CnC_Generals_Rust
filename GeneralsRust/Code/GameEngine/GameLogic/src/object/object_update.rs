@@ -14,8 +14,8 @@ impl Object {
         let Some(object_arc) = crate::helpers::TheGameLogic::find_object_by_id(self.id) else {
             return;
         };
-        for behavior in self.get_behavior_modules() {
-            let Ok(mut behavior) = behavior.lock() else {
+        for mut behavior in self.get_behavior_modules() {
+            let Ok(mut behavior) = behavior.access() else {
                 continue;
             };
             let Some(topple) = behavior.get_topple_control_interface() else {
@@ -424,7 +424,8 @@ impl Object {
         }
 
         for behavior in &self.behaviors {
-            if let Ok(mut behavior_guard) = behavior.lock() {
+            let mut behavior = behavior.clone();
+            if let Ok(mut behavior_guard) = behavior.access() {
                 behavior_guard.on_capture(old_owner.as_ref(), new_owner.as_ref());
                 if !contain_notified {
                     if let Some(contain) = behavior_guard.get_contain() {

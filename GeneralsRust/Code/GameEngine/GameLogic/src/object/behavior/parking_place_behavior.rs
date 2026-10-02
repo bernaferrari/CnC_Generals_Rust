@@ -378,7 +378,8 @@ impl ParkingPlaceBehavior {
             return;
         };
         for behavior in &owner_guard.behaviors {
-            let Ok(mut behavior_guard) = behavior.lock() else {
+            let mut behavior = behavior.clone();
+            let Ok(mut behavior_guard) = behavior.access() else {
                 continue;
             };
             if let Some(prod) = behavior_guard.get_production_update_interface() {
@@ -467,7 +468,8 @@ impl ParkingPlaceBehavior {
 
         let max_door = door as usize;
         for behavior in &owner_guard.behaviors {
-            let Ok(mut behavior_guard) = behavior.lock() else {
+            let mut behavior = behavior.clone();
+            let Ok(mut behavior_guard) = behavior.access() else {
                 continue;
             };
             if let Some(prod) = behavior_guard.get_production_update_interface() {

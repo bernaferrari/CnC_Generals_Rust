@@ -201,7 +201,6 @@ impl InGameUI {
         });
     }
 
-
     fn military_caption_text(label: &str) -> String {
         GameText::fetch(label)
     }
@@ -283,10 +282,9 @@ impl InGameUI {
         tooltip.push_str(&Self::supply_warehouse_tooltip_feedback(boxes, base_value));
     }
 
-
     fn supply_warehouse_boxes_for_object(object: &Object) -> Option<i32> {
-        for behavior in object.get_behavior_modules() {
-            let Ok(mut behavior) = behavior.lock() else {
+        for mut behavior in object.get_behavior_modules() {
+            let Ok(mut behavior) = behavior.access() else {
                 continue;
             };
             let Some(dock) = behavior.get_dock_update_interface() else {
@@ -443,7 +441,6 @@ impl InGameUI {
             .map(MilitarySubtitle::visible_text)
     }
 
-
     pub fn expire_military_subtitle(&mut self) {
         if let Some(sub) = &self.current_military_subtitle {
             if self.current_frame >= sub.lifetime_frame {
@@ -571,7 +568,6 @@ impl InGameUI {
         typed_visible_char
     }
 
-
     fn play_military_subtitle_typing_sound() {
         if let Some(audio) = TheAudio::get() {
             let event = AudioEventRts::new("MilitarySubtitlesTyping");
@@ -615,7 +611,6 @@ impl InGameUI {
         }
     }
 
-
     fn military_caption_speed_frames(&self) -> u32 {
         get_global_language_read()
             .map(|language| language.military_caption_speed.max(0) as u32)
@@ -631,5 +626,4 @@ impl InGameUI {
 
     // ── INI settings loading ─────────────────────────────────────────────
     // C++: InGameUI::init() loads Data\INI\InGameUI.ini via TheINIParser
-
 }

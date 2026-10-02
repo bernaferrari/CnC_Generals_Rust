@@ -360,13 +360,12 @@ impl GenericObjectCreationNugget {
         if !self.put_in_container.is_empty() {
             if let Some(container_tmpl) = ctx.thing_factory.find_template(&self.put_in_container) {
                 if let Some(team_id) = debris_owner {
-                    if let Some(obj) =
-                        crate::team::with_team(team_id, |team_guard| {
-                            ctx.thing_factory
-                                .new_object(container_tmpl, team_guard)
-                                .ok()
-                        })
-                        .flatten()
+                    if let Some(obj) = crate::team::with_team(team_id, |team_guard| {
+                        ctx.thing_factory
+                            .new_object(container_tmpl, team_guard)
+                            .ok()
+                    })
+                    .flatten()
                     {
                         if let Some(src) = source_obj {
                             if let Ok(mut obj_guard) = obj.write() {
@@ -1110,8 +1109,8 @@ fn apply_debris_model_and_anims(
 
 /// C++ ObjectCreationList.cpp:985-994
 fn notify_first_slaved_update(obj: &Object, source_id: ObjectID) {
-    for module in obj.get_behavior_modules() {
-        let Ok(mut guard) = module.lock() else {
+    for mut module in obj.get_behavior_modules() {
+        let Ok(mut guard) = module.access() else {
             continue;
         };
         if let Some(sdu) = guard.get_slaved_update_interface() {

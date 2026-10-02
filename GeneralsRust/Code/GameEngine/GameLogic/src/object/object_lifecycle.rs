@@ -1252,7 +1252,8 @@ impl Object {
         &mut self,
         behavior: Arc<Mutex<dyn crate::modules::BehaviorModuleInterface>>,
     ) {
-        self.behaviors.push(behavior);
+        self.behaviors
+            .push(BehaviorInterfaceHandle::injected(behavior));
     }
 
     /// Attach radar-object data so Object::attemptDamage can fire

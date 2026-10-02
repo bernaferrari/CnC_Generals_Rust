@@ -1003,7 +1003,8 @@ impl RailroadBehavior {
             return;
         }
 
-        let ai_store = the_ai(); if let Ok(ai) = ai_store.write() {
+        let ai_store = the_ai();
+        if let Ok(ai) = ai_store.write() {
             let _ = self.with_object(|obj_guard| {
                 if let Some(pathfinder) = ai.pathfinder() {
                     if let Ok(mut pf) = pathfinder.write() {
@@ -1019,9 +1020,10 @@ impl RailroadBehavior {
 
         if self.trailer_id != INVALID_ID {
             if let Some(trailer) = TheGameLogic::find_object_by_id(self.trailer_id) {
-                let module = trailer.read().ok().and_then(|trailer_guard| {
-                    trailer_guard.find_update_module("RailroadBehavior")
-                });
+                let module = trailer
+                    .read()
+                    .ok()
+                    .and_then(|trailer_guard| trailer_guard.find_update_module("RailroadBehavior"));
                 if let Some(module) = module {
                     module.with_module(|module| {
                         if let Some(train) = module.get_train_control_interface() {
@@ -1048,9 +1050,10 @@ impl RailroadBehavior {
 
         if self.trailer_id != INVALID_ID {
             if let Some(trailer) = TheGameLogic::find_object_by_id(self.trailer_id) {
-                let module = trailer.read().ok().and_then(|trailer_guard| {
-                    trailer_guard.find_update_module("RailroadBehavior")
-                });
+                let module = trailer
+                    .read()
+                    .ok()
+                    .and_then(|trailer_guard| trailer_guard.find_update_module("RailroadBehavior"));
                 if let Some(module) = module {
                     module.with_module(|module| {
                         if let Some(train) = module.get_train_control_interface() {
@@ -1148,9 +1151,10 @@ impl RailroadBehavior {
                 self.trailer_id = carriage_guard.get_id();
             }
 
-            let module = first_carriage.read().ok().and_then(|carriage_guard| {
-                carriage_guard.find_update_module("RailroadBehavior")
-            });
+            let module = first_carriage
+                .read()
+                .ok()
+                .and_then(|carriage_guard| carriage_guard.find_update_module("RailroadBehavior"));
             if let Some(module) = module {
                 let _ = module.with_module_downcast::<
                     crate::object::update::ai_update::railroad_guide_ai_update::RailroadBehaviorModule,
@@ -1329,9 +1333,10 @@ impl RailroadBehavior {
                     close_guard.set_producer_id(owner_id);
                     self.trailer_id = close_guard.get_id();
                 }
-                let module = close.read().ok().and_then(|close_guard| {
-                    close_guard.find_update_module("RailroadBehavior")
-                });
+                let module = close
+                    .read()
+                    .ok()
+                    .and_then(|close_guard| close_guard.find_update_module("RailroadBehavior"));
                 if let Some(module) = module {
                     let _ = module.with_module_downcast::<
                         crate::object::update::ai_update::railroad_guide_ai_update::RailroadBehaviorModule,
@@ -1394,18 +1399,16 @@ impl RailroadBehavior {
         let Some(track) = &self.track else {
             return;
         };
-        let Some((hitch_radius, pos, dir_x, dir_y, transform)) =
-            self.with_object(|obj_guard| {
-                let (dir_x, dir_y) = obj_guard.get_unit_direction_vector_2d();
-                (
-                    obj_guard.get_geometry_info().get_major_radius(),
-                    *obj_guard.get_position(),
-                    dir_x,
-                    dir_y,
-                    obj_guard.get_transform_matrix(),
-                )
-            })
-        else {
+        let Some((hitch_radius, pos, dir_x, dir_y, transform)) = self.with_object(|obj_guard| {
+            let (dir_x, dir_y) = obj_guard.get_unit_direction_vector_2d();
+            (
+                obj_guard.get_geometry_info().get_major_radius(),
+                *obj_guard.get_position(),
+                dir_x,
+                dir_y,
+                obj_guard.get_transform_matrix(),
+            )
+        }) else {
             return;
         };
 
@@ -1460,7 +1463,8 @@ impl RailroadBehavior {
         tmp *= Mat4::from_translation(Vec3::new(-turn_pos.x, -turn_pos.y, 0.0));
         let mut mtx = tmp * transform;
         let ground_z = if !self.in_tunnel {
-            TheTerrainLogic::get().map(|terrain| terrain.get_ground_height(turn_pos.x, turn_pos.y, None))
+            TheTerrainLogic::get()
+                .map(|terrain| terrain.get_ground_height(turn_pos.x, turn_pos.y, None))
         } else {
             None
         };
@@ -1495,9 +1499,10 @@ impl RailroadBehavior {
             let Some(trailer) = TheGameLogic::find_object_by_id(next) else {
                 break;
             };
-            let module = trailer.read().ok().and_then(|trailer_guard| {
-                trailer_guard.find_update_module("RailroadBehavior")
-            });
+            let module = trailer
+                .read()
+                .ok()
+                .and_then(|trailer_guard| trailer_guard.find_update_module("RailroadBehavior"));
             let Some(module) = module else {
                 break;
             };
@@ -1535,7 +1540,9 @@ impl RailroadBehavior {
         self.waiting_in_wings = false;
 
         let mut actual_distance = dist;
-        let track_guard = track.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        let track_guard = track
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         {
             if track_guard.is_looping {
                 while actual_distance < 0.0 {
@@ -1664,9 +1671,14 @@ impl RailroadBehavior {
 
         if other
             .get_behavior_modules()
-            .iter()
-            .filter_map(|m| m.lock().ok())
-            .any(|mut module| module.get_collide().map_or(false, |c| c.is_railroad()))
+            .into_iter()
+            .any(|mut behavior| {
+                behavior.access().ok().map_or(false, |mut module| {
+                    module
+                        .get_collide()
+                        .map_or(false, |collide| collide.is_railroad())
+                })
+            })
         {
             if self.is_locomotive {
                 other.kill(None, None);
@@ -1773,18 +1785,18 @@ impl RailroadBehavior {
                         phys_guard.set_pitch_rate(
                             crate::helpers::get_game_logic_random_value_real(-0.03, 0.03),
                         );
-                        phys_guard.set_roll_rate(
-                            crate::helpers::get_game_logic_random_value_real(-0.03, 0.03),
-                        );
+                        phys_guard.set_roll_rate(crate::helpers::get_game_logic_random_value_real(
+                            -0.03, 0.03,
+                        ));
                     }
                     Err(poisoned) => {
                         let mut phys_guard = poisoned.into_inner();
                         phys_guard.set_pitch_rate(
                             crate::helpers::get_game_logic_random_value_real(-0.03, 0.03),
                         );
-                        phys_guard.set_roll_rate(
-                            crate::helpers::get_game_logic_random_value_real(-0.03, 0.03),
-                        );
+                        phys_guard.set_roll_rate(crate::helpers::get_game_logic_random_value_real(
+                            -0.03, 0.03,
+                        ));
                     }
                 }
             } else {
@@ -1990,12 +2002,9 @@ impl UpdateModuleInterface for RailroadBehavior {
 
             if self.trailer_id != INVALID_ID {
                 if let Some(trailer) = TheGameLogic::find_object_by_id(self.trailer_id) {
-                    let module = trailer
-                        .read()
-                        .ok()
-                        .and_then(|trailer_guard| {
-                            trailer_guard.find_update_module("RailroadBehavior")
-                        });
+                    let module = trailer.read().ok().and_then(|trailer_guard| {
+                        trailer_guard.find_update_module("RailroadBehavior")
+                    });
                     if let Some(module) = module {
                         module.with_module(|module| {
                             if let Some(train) = module.get_train_control_interface() {

@@ -1,8 +1,8 @@
 //! Canonical leftover Weapon instance extracted from weapon/mod.rs.
 
+use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::{Arc, Mutex, RwLock, Weak};
-use std::collections::{HashMap, VecDeque};
 
 use crate::common::Coord3D;
 use crate::common::LOGICFRAMES_PER_SECOND;
@@ -106,7 +106,12 @@ pub struct Weapon {
     caller_player: Option<std::sync::Arc<std::sync::RwLock<crate::player::Player>>>,
     pending_self_damage: Option<crate::damage::DamageInfo>,
 }
-fn goal_boundary_dist_sqr(goal: &Coord3D, source_radius: f32, target: &Coord3D, target_radius: f32) -> f32 {
+fn goal_boundary_dist_sqr(
+    goal: &Coord3D,
+    source_radius: f32,
+    target: &Coord3D,
+    target_radius: f32,
+) -> f32 {
     let dx = goal.x - target.x;
     let dy = goal.y - target.y;
     let center = (dx * dx + dy * dy).sqrt();
@@ -374,7 +379,6 @@ impl Weapon {
         Ok(self.load_status() == WeaponStatus::ReloadingClip)
     }
 
-
     /// Fire projectile detonation weapon
     pub fn fire_projectile_detonation_weapon(
         &mut self,
@@ -405,8 +409,15 @@ impl Weapon {
         inflict_damage: bool,
     ) -> Result<(), WeaponError> {
         let current_frame = TheGameLogic::get_frame();
-        if !self.private_fire_weapon(source, target, position, bonus, true, false, inflict_damage)?
-        {
+        if !self.private_fire_weapon(
+            source,
+            target,
+            position,
+            bonus,
+            true,
+            false,
+            inflict_damage,
+        )? {
             let _ = self.apply_post_fire_state(source, current_frame, bonus);
         }
         Ok(())
@@ -449,7 +460,6 @@ impl Weapon {
                 if !matches!(err, WeaponError::OutOfRange { .. }) {
                     return Err(err);
                 }
-
             }
         }
         let reload_frame_before = self.when_last_reload_started;
@@ -472,15 +482,8 @@ impl Weapon {
             self.compute_bonus(source_id, internal_flags)
         };
 
-        let fired = self.private_fire_weapon(
-            source_id,
-            Some(target_id),
-            None,
-            &bonus,
-            false,
-            false,
-            true,
-        )?;
+        let fired =
+            self.private_fire_weapon(source_id, Some(target_id), None, &bonus, false, false, true)?;
         if !fired {
             return Ok(self.apply_post_fire_state(source_id, current_frame, &bonus));
         }
@@ -541,7 +544,6 @@ impl Weapon {
         ));
         false
     }
-
 
     /// Pre-fire weapon (for weapons with pre-attack delay)
     pub fn pre_fire_weapon(&mut self, _source: ObjectId, _victim: ObjectId) -> GameLogicResult<()> {
@@ -778,8 +780,8 @@ impl Weapon {
         let attack_range = (self.get_attack_range(source_obj) - CELL_FUDGE).max(0.0);
         let min_range = self.template.get_minimum_attack_range() + CELL_FUDGE;
         let dist_sqr = if let Some(target_id) = target_obj {
-            let Some((pos, radius, is_bridge)) =
-                crate::object::registry::OBJECT_REGISTRY.with_object(target_id, |guard| {
+            let Some((pos, radius, is_bridge)) = crate::object::registry::OBJECT_REGISTRY
+                .with_object(target_id, |guard| {
                     (
                         *guard.get_position(),
                         guard.get_geometry_info().get_bounding_circle_radius(),
@@ -813,7 +815,6 @@ impl Weapon {
         }
         dist_sqr <= attack_range * attack_range
     }
-
 
     /// Load ammo instantly (for newly created units)
     pub fn load_ammo_now(&mut self, source: ObjectId) -> GameLogicResult<()> {
@@ -983,9 +984,9 @@ impl Weapon {
                 let consecutive = consecutive_shots.unwrap_or_else(|| {
                     TheGameLogic::find_object_by_id(source)
                         .and_then(|arc| {
-                            arc.try_read().ok().map(|obj| {
-                                obj.get_num_consecutive_shots_fired_at_target(victim)
-                            })
+                            arc.try_read()
+                                .ok()
+                                .map(|obj| obj.get_num_consecutive_shots_fired_at_target(victim))
                         })
                         .unwrap_or(0)
                 });
@@ -1218,8 +1219,8 @@ impl Weapon {
         if let Some(pos) = pos {
             let _ = stream_guard.set_position(&pos);
         }
-        for behavior in stream_guard.get_behavior_modules() {
-            let Ok(mut behavior) = behavior.lock() else {
+        for mut behavior in stream_guard.get_behavior_modules() {
+            let Ok(mut behavior) = behavior.access() else {
                 continue;
             };
             let Some(stream_update) = behavior.get_projectile_stream_update_interface() else {
@@ -1542,7 +1543,9 @@ impl Weapon {
         let current_frame = TheGameLogic::get_frame();
 
         // Check if we can fire
-        if let Err(err) = self.check_can_fire(source_obj_id, Some(target_obj_id), None, current_frame) {
+        if let Err(err) =
+            self.check_can_fire(source_obj_id, Some(target_obj_id), None, current_frame)
+        {
             if !matches!(err, WeaponError::OutOfRange { .. }) {
                 return Err(err);
             }
@@ -1576,7 +1579,8 @@ impl Weapon {
         let current_frame = TheGameLogic::get_frame();
 
         // Check if we can fire
-        if let Err(err) = self.check_can_fire(source_obj_id, None, Some(target_pos), current_frame) {
+        if let Err(err) = self.check_can_fire(source_obj_id, None, Some(target_pos), current_frame)
+        {
             if !matches!(err, WeaponError::OutOfRange { .. }) {
                 return Err(err);
             }
@@ -1670,10 +1674,11 @@ impl Weapon {
         let play_disarm_fx = |pos: &Coord3D| {
             let _veterancy = veterancy;
             if let Some(fx) = self.template.get_fire_fx(veterancy) {
-                let matrix = crate::object::registry::OBJECT_REGISTRY.with_object(victim_id, |obj| {
-                    crate::common::Matrix3D::from_translation(*obj.get_position())
-                        * crate::common::Matrix3D::from_rotation_z(obj.get_orientation())
-                });
+                let matrix =
+                    crate::object::registry::OBJECT_REGISTRY.with_object(victim_id, |obj| {
+                        crate::common::Matrix3D::from_translation(*obj.get_position())
+                            * crate::common::Matrix3D::from_rotation_z(obj.get_orientation())
+                    });
                 let _ = fx.do_fx_pos(pos, matrix.as_ref(), 0.0, Some(pos), 0.0);
             }
         };
@@ -1682,8 +1687,8 @@ impl Weapon {
         if let Some(behaviors) = crate::object::registry::OBJECT_REGISTRY
             .with_object(victim_id, |obj| obj.get_behavior_modules())
         {
-            for behavior in behaviors {
-                if let Ok(mut guard) = behavior.lock() {
+            for mut behavior in behaviors {
+                if let Ok(mut guard) = behavior.access() {
                     if let Some(land_mine) = guard.get_land_mine_interface() {
                         if let Some(pos) = crate::object::registry::OBJECT_REGISTRY
                             .with_object(victim_id, |obj| *obj.get_position())
@@ -1785,10 +1790,6 @@ impl Weapon {
         } else {
             return Err(WeaponError::InvalidTarget);
         };
-
-
-
-
 
         if let Some(target_id) = victim_id {
             if let Some(arc) = TheGameLogic::find_object_by_id(target_id) {

@@ -296,8 +296,8 @@ impl GameLogic {
                 }
                 // C++ DestroyModuleInterface::onDestroy before status bit.
                 let behaviors = obj.get_behavior_modules();
-                for behavior in behaviors {
-                    if let Ok(mut module) = behavior.lock() {
+                for mut behavior in behaviors {
+                    if let Ok(mut module) = behavior.access() {
                         if let Some(destroy) = module.get_destroy() {
                             destroy.on_destroy(object_id);
                         }

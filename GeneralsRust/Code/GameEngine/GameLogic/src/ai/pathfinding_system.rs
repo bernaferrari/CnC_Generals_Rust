@@ -930,8 +930,8 @@ impl PathfindingSystem {
     /// Request a path (async)
     pub fn request_path(&mut self, request: PathRequest) {
         // Production facades carry their owning Classic Pathfinder explicitly.
-        if let Some(pathfinder) = self.classic_pathfinder.clone() {
-            if let Ok(pf) = pathfinder.read() {
+        if let Some(pathfinder) = &self.classic_pathfinder {
+            if let Ok(mut pf) = pathfinder.write() {
                 let classic_request = ClassicPathRequest {
                     object_id: request.requester,
                     from: request.start,
@@ -1035,7 +1035,7 @@ impl PathfindingSystem {
     /// Find path immediately (synchronous, may be expensive)
     pub fn find_path_immediate(&mut self, request: &PathRequest) -> PathResult {
         if let Some(pathfinder) = &self.classic_pathfinder {
-            let Ok(pf) = pathfinder.read() else {
+            let Ok(mut pf) = pathfinder.write() else {
                 return PathResult::Failed("Pathfinder unavailable".to_string());
             };
             let classic_request = ClassicPathRequest {

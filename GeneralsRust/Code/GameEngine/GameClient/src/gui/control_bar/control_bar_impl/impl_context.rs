@@ -140,8 +140,8 @@ impl ControlBar {
         let Ok(obj) = obj_arc.read() else {
             return (0, false);
         };
-        for module in obj.get_behavior_modules() {
-            if let Ok(mut guard) = module.lock() {
+        for mut module in obj.get_behavior_modules() {
+            if let Ok(mut guard) = module.access() {
                 if guard.get_production_update_interface().is_some() {
                     return (0, true);
                 }
@@ -183,8 +183,8 @@ impl ControlBar {
         let Ok(obj) = obj_arc.read() else {
             return None;
         };
-        for module in obj.get_behavior_modules() {
-            if let Ok(mut guard) = module.lock() {
+        for mut module in obj.get_behavior_modules() {
+            if let Ok(mut guard) = module.access() {
                 if let Some(pu) = guard.get_production_update_interface() {
                     let progress = pu.get_production_progress();
                     if progress > 0.0 {
@@ -314,8 +314,8 @@ impl ControlBar {
         let Ok(obj) = obj_arc.read() else {
             return false;
         };
-        for module in obj.get_behavior_modules() {
-            if let Ok(mut guard) = module.lock() {
+        for mut module in obj.get_behavior_modules() {
+            if let Ok(mut guard) = module.access() {
                 if guard.get_production_update_interface().is_some() {
                     return true;
                 }
@@ -332,8 +332,8 @@ impl ControlBar {
             return;
         };
 
-        for module in obj.get_behavior_modules() {
-            let Ok(mut guard) = module.lock() else {
+        for mut module in obj.get_behavior_modules() {
+            let Ok(mut guard) = module.access() else {
                 continue;
             };
             let Some(production) = guard.get_production_update_interface() else {
@@ -357,8 +357,8 @@ impl ControlBar {
         };
         let queue_index = production_id as usize;
 
-        for module in obj.get_behavior_modules() {
-            let Ok(mut guard) = module.lock() else {
+        for mut module in obj.get_behavior_modules() {
+            let Ok(mut guard) = module.access() else {
                 continue;
             };
             let Some(production) = guard.get_production_update_interface() else {

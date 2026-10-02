@@ -205,26 +205,38 @@ impl UnitAIUpdate {
         let locomotor_set = get_unit_arc(self.unit_id)
             .and_then(|unit| unit.read().ok().map(|guard| guard.locomotor_set.clone()))
             .ok_or_else(|| "unit no longer available".to_string())?;
-        let ai_store = the_ai();let Some(ai) = ai_store.read().ok() else {
-            return Ok(false);
+        let pathfinder = {
+            let ai_store = the_ai();
+            let Some(ai) = ai_store.read().ok() else {
+                return Ok(false);
+            };
+            let Some(pathfinder) = ai.pathfinder() else {
+                return Ok(false);
+            };
+            pathfinder
         };
-        let Some(pathfinder) = ai.pathfinder() else {
-            return Ok(false);
+        // Fallback and path installation update goals through the pathfinder.
+        // Return the search result before invoking those callbacks.
+        let result = {
+            let Ok(mut pf_guard) = pathfinder.write() else {
+                return Ok(false);
+            };
+            if pf_guard.valid_movement_position(
+                &locomotor_set,
+                request.is_crusher,
+                destination,
+                request.ignore_obstacle_id,
+            ) {
+                return Ok(false);
+            }
+            if self.has_current_path() {
+                None
+            } else {
+                self.retry_path = true;
+                Some(pf_guard.find_closest_path_result(request))
+            }
         };
-        let Ok(pf_guard) = pathfinder.read() else {
-            return Ok(false);
-        };
-
-        if pf_guard.valid_movement_position(
-            &locomotor_set,
-            request.is_crusher,
-            destination,
-            request.ignore_obstacle_id,
-        ) {
-            return Ok(false);
-        }
-
-        if self.has_current_path() {
+        let Some(result) = result else {
             if self.blocked_and_stuck {
                 self.stop_stuck_old_path_after_failed_path()?;
             } else {
@@ -233,15 +245,16 @@ impl UnitAIUpdate {
                 self.blocked_and_stuck = false;
             }
             return Ok(true);
-        }
-
-        self.retry_path = true;
-        let result = pf_guard.find_closest_path_result(request);
+        };
         if result.success && !result.waypoints.is_empty() {
             self.set_path_from_coords(&result.waypoints)?;
             self.remember_result_layers(
                 &result.waypoints,
-                &result.layers.iter().map(|layer| *layer as u8).collect::<Vec<_>>(),
+                &result
+                    .layers
+                    .iter()
+                    .map(|layer| *layer as u8)
+                    .collect::<Vec<_>>(),
             );
             self.apply_final_ground_path_layer(&result.waypoints)?;
             Ok(true)
@@ -352,9 +365,9 @@ impl UnitAIUpdate {
                 .and_then(|ai| ai.pathfinder())
                 .and_then(|pathfinder| {
                     pathfinder
-                        .read()
+                        .write()
                         .ok()
-                        .map(|pf| pf.find_path_result(request.clone()))
+                        .map(|mut pf| pf.find_path_result(request.clone()))
                 });
 
         if let Some(result) = path_result {
@@ -388,9 +401,9 @@ impl UnitAIUpdate {
                 .and_then(|ai| ai.pathfinder())
                 .and_then(|pathfinder| {
                     pathfinder
-                        .read()
+                        .write()
                         .ok()
-                        .map(|pf| pf.find_closest_path_result(request))
+                        .map(|mut pf| pf.find_closest_path_result(request))
                 });
         if let Some(result) = closest_result {
             if result.success && !result.waypoints.is_empty() {
@@ -533,9 +546,9 @@ impl UnitAIUpdate {
                 .and_then(|ai| ai.pathfinder())
                 .and_then(|pathfinder| {
                     pathfinder
-                        .read()
+                        .write()
                         .ok()
-                        .map(|pf| pf.find_closest_path_result(request))
+                        .map(|mut pf| pf.find_closest_path_result(request))
                 });
 
         if let Some(result) = closest_result {
@@ -602,7 +615,7 @@ impl UnitAIUpdate {
                 .ok()
                 .and_then(|ai| ai.pathfinder())
                 .and_then(|pathfinder| {
-                    pathfinder.read().ok().map(|pf| {
+                    pathfinder.write().ok().map(|mut pf| {
                         pf.find_safe_path_result(
                             request,
                             &repulsor_pos1,
