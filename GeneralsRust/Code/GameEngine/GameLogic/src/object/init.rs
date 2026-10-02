@@ -21,20 +21,20 @@ impl Object {
 
         self.update_upgrade_modules_from_player();
 
-        let should_bonus = crate::scripting::engine::get_script_engine()
-            .read()
-            .ok()
-            .and_then(|engine| {
-                engine
-                    .as_ref()
-                    .map(|e| e.get_objects_should_receive_difficulty_bonus())
-            })
-            .unwrap_or(false);
-        if !self.is_receiving_difficulty_bonus() && should_bonus {
-            self.set_receiving_difficulty_bonus(true);
-        }
-
         if let Some(controller) = self.get_controlling_player() {
+            let should_bonus = crate::scripting::engine::get_script_engine()
+                .read()
+                .ok()
+                .and_then(|engine| {
+                    engine
+                        .as_ref()
+                        .map(|e| e.get_objects_should_receive_difficulty_bonus())
+                })
+                .unwrap_or(false);
+            if !self.is_receiving_difficulty_bonus() && should_bonus {
+                self.set_receiving_difficulty_bonus(true);
+            }
+
             if let Ok(player_guard) = controller.read() {
                 if player_guard.get_num_battle_plans_active() > 0 {
                     player_guard.apply_battle_plan_bonuses_for_object(self);

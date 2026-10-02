@@ -172,7 +172,10 @@ impl ScriptEngine {
     /// Notify the script engine that objects were created or destroyed.
     /// Mirrors C++ ScriptEngine::notifyOfObjectCreationOrDestruction().
     pub fn notify_of_object_creation_or_destruction(&mut self) {
-        self.create_named_cache();
+        // ScriptEngine.cpp:7785-7788 records the frame only. Scanning live
+        // objects here both changes cache timing and re-enters initializing
+        // objects; createNamedCache belongs to the first script update.
+        self.set_frame_object_count_changed(TheGameLogic::get_frame() as u32);
     }
 
     fn execute_side_scripts(&self) -> GameLogicResult<()> {
