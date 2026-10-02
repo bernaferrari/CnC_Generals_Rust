@@ -12,7 +12,7 @@ use tokio::task::JoinHandle;
 use tokio::time::{sleep, timeout};
 use tokio_tungstenite::{
     connect_async,
-    tungstenite::{Error as TungsteniteError, protocol::Message},
+    tungstenite::{protocol::Message, Error as TungsteniteError},
 };
 use tracing::{debug, error, info, trace, warn};
 use url::Url;
@@ -113,7 +113,11 @@ impl WebSocketChatTransport {
                 pending.push_back(cmd);
             }
 
-            match timeout(config.connect_timeout, connect_async(config.endpoint.as_str())).await
+            match timeout(
+                config.connect_timeout,
+                connect_async(config.endpoint.as_str()),
+            )
+            .await
             {
                 Ok(Ok((ws_stream, _))) => {
                     info!("Connected to GameSpy chat backend {}", config.endpoint);
@@ -474,7 +478,9 @@ mod tests {
                                     "room": value["room"],
                                     "timestamp": Utc::now().to_rfc3339(),
                                 });
-                                ws.send(Message::Text(response.to_string())).await.unwrap();
+                                ws.send(Message::Text(response.to_string().into()))
+                                    .await
+                                    .unwrap();
                             }
                             Some("message") => {
                                 let payload = &value["payload"];
@@ -486,7 +492,9 @@ mod tests {
                                     "kind": payload["kind"],
                                     "timestamp": payload["timestamp"],
                                 });
-                                ws.send(Message::Text(response.to_string())).await.unwrap();
+                                ws.send(Message::Text(response.to_string().into()))
+                                    .await
+                                    .unwrap();
                             }
                             _ => {}
                         }

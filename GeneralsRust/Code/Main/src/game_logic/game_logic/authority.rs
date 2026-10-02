@@ -122,21 +122,11 @@ impl GameLogic {
 
 impl GameLogic {
     pub(super) fn load_campaign_objectives(&self, map_name: &str) -> Vec<ObjectiveDisplay> {
-        let Some(manager) = &self.campaign_manager else {
-            return Self::seed_sample_objectives();
-        };
-
-        let Ok(guard) = manager.lock() else {
-            log::warn!(
-                "Campaign manager unavailable while loading objectives for '{}'",
-                map_name
-            );
-            return Self::seed_sample_objectives();
-        };
-
-        // Path-stem + short-name match (MD_USA01 ↔ .../MD_USA01.map); prefer
-        // missions that actually define objectives (Campaign.ini residual table).
-        let Some(mission) = guard.find_mission_for_map(map_name) else {
+        let Some(mission) = crate::save_load::game_state::with_global_campaign_manager(|manager| {
+            manager.find_mission_for_map(map_name).cloned()
+        })
+        .ok()
+        .flatten() else {
             log::info!(
                 "No campaign mission metadata found for map '{}'; using sample objectives",
                 map_name

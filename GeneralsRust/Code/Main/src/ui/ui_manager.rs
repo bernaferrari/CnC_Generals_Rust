@@ -4,11 +4,11 @@
 //! between different UI components like menus, HUD, and dialogs.
 
 use super::{
-    FactionSelectionScreen, GameHUD, Interactive, KeyCode, MainMenu, MouseButton, PauseMenu,
-    SaveLoadMenu, SaveLoadMode, Screen, SkirmishMenu, VictoryScreen, animations, sound_files,
+    animations, sound_files, FactionSelectionScreen, GameHUD, Interactive, KeyCode, MainMenu,
+    MouseButton, PauseMenu, SaveLoadMenu, SaveLoadMode, Screen, SkirmishMenu, VictoryScreen,
 };
 use crate::{
-    game_logic::{GameMode, victory::VictorySummary},
+    game_logic::{victory::VictorySummary, GameMode},
     localization,
     subsystem_manager::initialize_shell_ui_schemes,
 };

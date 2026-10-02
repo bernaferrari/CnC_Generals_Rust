@@ -17,6 +17,7 @@ use std::io::{ErrorKind, Read, Seek, SeekFrom, Write};
 use std::ops::{Deref, DerefMut};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU32, Ordering};
+use std::cell::RefCell;
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use ww3d_core::ww3d::WW3D;
@@ -1366,59 +1367,25 @@ fn file_time_seconds(path: &Path) -> Option<u64> {
         .map(|duration| duration.as_secs())
 }
 
-fn texture_cache_slot() -> &'static Mutex<Option<TextureFileCache>> {
-    static STORAGE: OnceLock<Mutex<Option<TextureFileCache>>> = OnceLock::new();
-    STORAGE.get_or_init(|| Mutex::new(None))
+thread_local! {
+    /// C++ kept the texture file cache as a plain singleton on the game thread.
+    static TEXTURE_CACHE: RefCell<Option<TextureFileCache>> = const { RefCell::new(None) };
 }
 
-fn lock_texture_cache_slot() -> MutexGuard<'static, Option<TextureFileCache>> {
-    match texture_cache_slot().lock() {
-        Ok(guard) => guard,
-        Err(poisoned) => poisoned.into_inner(),
-    }
-}
-
-/// Scoped handle to the global cache.
-pub struct TextureCacheHandle<'a> {
-    guard: MutexGuard<'a, Option<TextureFileCache>>,
-}
-
-impl<'a> Deref for TextureCacheHandle<'a> {
-    type Target = TextureFileCache;
-
-    fn deref(&self) -> &Self::Target {
-        self.guard
-            .as_ref()
-            .expect("texture cache must be initialised before use")
-    }
-}
-
-impl<'a> DerefMut for TextureCacheHandle<'a> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        self.guard
-            .as_mut()
-            .expect("texture cache must be initialised before use")
-    }
+/// Run `f` with mutable access to the global texture file cache, if initialised.
+pub fn with_global_texture_cache<R>(f: impl FnOnce(&mut TextureFileCache) -> R) -> Option<R> {
+    TEXTURE_CACHE.with_borrow_mut(|cache| {
+        let cache = cache.as_mut()?;
+        Some(f(cache))
+    })
 }
 
 /// Initialise the global texture cache.
 pub fn init_global_texture_cache(file_prefix: &str) {
-    let mut guard = lock_texture_cache_slot();
-    *guard = Some(TextureFileCache::new(file_prefix));
-}
-
-/// Borrow the global cache.
-pub fn get_global_texture_cache() -> Option<TextureCacheHandle<'static>> {
-    let guard = lock_texture_cache_slot();
-    if guard.is_none() {
-        None
-    } else {
-        Some(TextureCacheHandle { guard })
-    }
+    TEXTURE_CACHE.with_borrow_mut(|slot| *slot = Some(TextureFileCache::new(file_prefix)));
 }
 
 /// Tear down the global cache.
 pub fn shutdown_global_texture_cache() {
-    let mut guard = lock_texture_cache_slot();
-    *guard = None;
+    TEXTURE_CACHE.with_borrow_mut(|slot| *slot = None);
 }

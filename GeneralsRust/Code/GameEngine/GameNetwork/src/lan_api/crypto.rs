@@ -1,7 +1,7 @@
 use crate::connection::ConnectionManager;
 use crate::error::{NetworkError, NetworkResult};
-use crate::security::SecurityManager;
 use crate::security::encryption::{self, EncryptedPacket, EncryptionProvider};
+use crate::security::SecurityManager;
 use std::net::SocketAddr;
 use std::sync::{Arc, Weak};
 use tokio::sync::RwLock;
@@ -32,6 +32,7 @@ impl LanCrypto {
         connections: Option<Arc<RwLock<ConnectionManager>>>,
     ) -> Self {
         Self {
+            security,
             connections: connections.map(|arc| Arc::downgrade(&arc)),
             #[cfg(test)]
             overrides: Arc::new(std::sync::Mutex::new(HashMap::new())),

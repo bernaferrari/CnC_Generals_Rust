@@ -41,19 +41,29 @@ pub enum CrcMode {
 /// C++ `XferCRC` used by `GameLogic::getCRC`. Implements both Xfer stacks so
 
 /// C++ `GameLogic::sendObjectCreated` — create a drawable and bind both worlds.
-pub fn send_object_created(object: &Arc<RwLock<Object>>) {
-    let Ok(guard) = object.read() else {
-        return;
-    };
-    if guard.get_drawable().is_some() {
-        return;
-    }
-    let object_id = guard.get_id();
+/// Id-keyed: the object is already registered by every caller, so the template
+/// is read through a scoped registry borrow and no object Arc handle is
+/// retained across the drawable handoff.
+pub fn send_object_created(object_id: ObjectID) {
     let Some(client) = TheGameClient::get() else {
         return;
     };
-    let draw_id = client.create_drawable(guard.get_template().as_ref());
-    drop(guard);
+    // Scoped registry borrow: objects that already own a drawable yield None.
+    // `flatten` collapses the lookup's Option with the drawable guard's Option,
+    // so only the cloned template (no object Arc handle) escapes.
+    let template = OBJECT_REGISTRY
+        .with_object(object_id, |guard| {
+            if guard.get_drawable().is_some() {
+                None
+            } else {
+                Some(guard.get_template().clone())
+            }
+        })
+        .flatten();
+    let Some(template) = template else {
+        return;
+    };
+    let draw_id = client.create_drawable(template.as_ref());
     bind_object_and_drawable(object_id, draw_id);
 }
 

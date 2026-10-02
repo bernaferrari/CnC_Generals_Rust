@@ -11,9 +11,9 @@ use std::time::Duration;
 
 use crate::game_logic::ObjectId;
 use crate::localization;
-use crate::ui::KeyCode;
 use crate::ui::layout;
 use crate::ui::utils;
+use crate::ui::KeyCode;
 
 use game_engine::common::ini::ini_command_button::get_control_bar;
 use game_engine::common::thing::thing_template::BuildableStatus;
@@ -1044,11 +1044,10 @@ mod tests {
             .unwrap();
         assert_eq!(bi.can_make, CANMAKE_MAXED_OUT_FOR_PLAYER);
         assert!(!bi.available);
-        assert!(
-            bi.help_status
-                .as_deref()
-                .is_some_and(|s| s.contains("maximum"))
-        );
+        assert!(bi
+            .help_status
+            .as_deref()
+            .is_some_and(|s| s.contains("maximum")));
         // Affordable but unavailable residual still disabled.
         assert!(!bi.is_enabled(10_000));
     }
@@ -1306,7 +1305,7 @@ mod tests {
     #[test]
     fn text_label_ampersand_hotkey_matches_cpp_search_hot_key() {
         // C++ HotKey.cpp:182-201 / ControlBar.cpp:2472-2476.
-        use super::{KeyCode, hotkey_from_text_label};
+        use super::{hotkey_from_text_label, KeyCode};
         assert_eq!(hotkey_from_text_label("S&top"), Some(KeyCode::T));
         assert_eq!(hotkey_from_text_label("&Guard"), Some(KeyCode::G));
         assert_eq!(

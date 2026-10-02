@@ -11,8 +11,8 @@
 //! Append a tagged suffix after the historical v9 contain/producer payload so
 //! older decoders ignore the extra bytes. No WorldSnapshot version bump.
 
-use crate::game_logic::GameLogic;
 use crate::game_logic::host_supply_drop_zone::HostSupplyDropZoneRegistry;
+use crate::game_logic::GameLogic;
 use crate::save_load::{SaveLoadError, SaveLoadResult};
 use serde::{Deserialize, Serialize};
 
@@ -133,12 +133,10 @@ mod tests {
             "ControlBar OCL timer must keep remaining seconds"
         );
         assert_eq!(restored.supply_drop_zones.flights_started(), 2);
-        assert!(
-            restored
-                .supply_drop_zones
-                .peek_next_drop(ObjectId(99))
-                .is_none()
-        );
+        assert!(restored
+            .supply_drop_zones
+            .peek_next_drop(ObjectId(99))
+            .is_none());
     }
 
     #[test]
@@ -146,11 +144,9 @@ mod tests {
         let mut logic = GameLogic::new();
         logic.supply_drop_zones.set_next_drop(ObjectId(3), 100);
         apply_from_lifecycle_tail(b"no-magic-here", &mut logic).expect("apply");
-        assert!(
-            logic
-                .supply_drop_zones
-                .peek_next_drop(ObjectId(3))
-                .is_none()
-        );
+        assert!(logic
+            .supply_drop_zones
+            .peek_next_drop(ObjectId(3))
+            .is_none());
     }
 }

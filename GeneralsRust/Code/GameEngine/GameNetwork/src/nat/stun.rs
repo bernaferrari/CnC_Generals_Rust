@@ -32,9 +32,9 @@
 
 use crate::error::{NetworkError, NetworkResult};
 use crate::time::NetworkInstant;
-use rand::Rng;
 use rand::rand_core::UnwrapErr;
 use rand::rngs::SysRng;
+use rand::Rng;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::time::Duration;
 use tokio::net::UdpSocket;
@@ -762,7 +762,7 @@ mod tests {
     #[tokio::test]
     async fn test_caching_behavior() {
         let config = StunConfig::default();
-        let client = StunClient::new(config);
+        let mut client = StunClient::new(config);
 
         // Initially empty
         assert!(client.get_public_address().await.is_none());
@@ -780,7 +780,7 @@ mod tests {
     #[tokio::test]
     async fn test_is_behind_nat() {
         let config = StunConfig::default();
-        let client = StunClient::new(config);
+        let mut client = StunClient::new(config);
 
         // Initially unknown
         assert!(!client.is_behind_nat().await);
@@ -797,7 +797,7 @@ mod tests {
     #[tokio::test]
     async fn test_can_direct_connect() {
         let config = StunConfig::default();
-        let client = StunClient::new(config);
+        let mut client = StunClient::new(config);
 
         // Initially false
         assert!(!client.can_direct_connect().await);

@@ -134,12 +134,7 @@ fn apply_single_player_campaign_images(wm: &mut WindowManager) {
 fn with_single_player_load_screen_state<R>(
     f: impl FnOnce(&mut SinglePlayerLoadScreenState) -> R,
 ) -> R {
-    let state = SINGLE_PLAYER_LOAD_SCREEN_STATE
-        .get_or_init(|| Mutex::new(SinglePlayerLoadScreenState::default()));
-    let mut guard = state
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
-    f(&mut guard)
+    SINGLE_PLAYER_LOAD_SCREEN_STATE.with_borrow_mut(f)
 }
 
 fn finish_single_player_load_screen_audio_prelude() {

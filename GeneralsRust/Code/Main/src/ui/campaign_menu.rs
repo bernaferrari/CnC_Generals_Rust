@@ -4,7 +4,7 @@
 //! matching the C&C Generals campaign structure.
 
 use super::{
-    Interactive, KeyCode, MouseButton, Renderable, Screen, UIEvent, UIRenderContext, layout, utils,
+    layout, utils, Interactive, KeyCode, MouseButton, Renderable, Screen, UIEvent, UIRenderContext,
 };
 use crate::localization;
 use log::info;

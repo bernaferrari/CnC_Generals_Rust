@@ -6,7 +6,7 @@
 //! format decisions taken whenever a texture is ingested.
 
 use crate::core::ww3dformat::{FormatDecision, WW3DFormat};
-use std::sync::{Mutex, OnceLock};
+use std::cell::RefCell;
 
 /// Recorded texture format decision.
 #[cfg_attr(
@@ -23,9 +23,9 @@ pub struct TextureDecisionRecord {
     pub mip_levels: u32,
 }
 
-fn storage() -> &'static Mutex<Vec<TextureDecisionRecord>> {
-    static STORAGE: OnceLock<Mutex<Vec<TextureDecisionRecord>>> = OnceLock::new();
-    STORAGE.get_or_init(|| Mutex::new(Vec::new()))
+thread_local! {
+    /// C++ recorded texture decisions in a plain static buffer on the game thread.
+    static DECISIONS: RefCell<Vec<TextureDecisionRecord>> = const { RefCell::new(Vec::new()) };
 }
 
 /// Record a texture format decision for later analysis.
@@ -39,28 +39,17 @@ pub fn record_decision(name: impl Into<String>, decision: &FormatDecision, mip_l
         mip_levels,
     };
 
-    if let Ok(mut guard) = storage().lock() {
-        guard.push(record);
-    }
+    DECISIONS.with_borrow_mut(|guard| guard.push(record));
 }
 
 /// Snapshot the recorded decisions and clear the buffer.
 pub fn drain_decisions() -> Vec<TextureDecisionRecord> {
-    if let Ok(mut guard) = storage().lock() {
-        let mut drained = Vec::with_capacity(guard.len());
-        std::mem::swap(&mut drained, &mut *guard);
-        drained
-    } else {
-        Vec::new()
-    }
+    DECISIONS.with_borrow_mut(|guard| std::mem::take(guard))
 }
 
 /// Borrow a copy of the current decision log without clearing it.
 pub fn snapshot_decisions() -> Vec<TextureDecisionRecord> {
-    storage()
-        .lock()
-        .map(|guard| guard.clone())
-        .unwrap_or_default()
+    DECISIONS.with_borrow(Vec::clone)
 }
 
 /// Summary information derived from recorded decisions.
@@ -78,10 +67,9 @@ pub struct TextureMetricsSummary {
 
 /// Build a summary of the current decision log without clearing it.
 pub fn summarize() -> TextureMetricsSummary {
-    let guard = match storage().lock() {
-        Ok(guard) => guard,
-        Err(_) => return TextureMetricsSummary::default(),
-    };
+    let empty = Vec::new();
+    let guard = &DECISIONS.with_borrow(Vec::clone);
+    let guard: &Vec<TextureDecisionRecord> = if guard.is_empty() { &empty } else { guard };
 
     if guard.is_empty() {
         return TextureMetricsSummary::default();

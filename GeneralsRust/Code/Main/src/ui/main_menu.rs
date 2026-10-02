@@ -10,8 +10,8 @@
 //! loading saves, accessing multiplayer, options, and exiting the game.
 
 use super::{
-    ClickSpring, Interactive, KeyCode, MouseButton, Renderable, Screen, UIEvent, UIRenderContext,
-    animations, layout, sound_files, utils,
+    animations, layout, sound_files, utils, ClickSpring, Interactive, KeyCode, MouseButton,
+    Renderable, Screen, UIEvent, UIRenderContext,
 };
 use crate::game_logic::GameMode;
 use crate::localization;

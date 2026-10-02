@@ -6,10 +6,11 @@
 //! - `W3DTracerDraw.cpp` Line3D from (0,0,0)→(length,0,0), opacity decay,
 //!   local-X translation by speed each frame
 
+use std::cell::RefCell;
 use std::sync::{Mutex, OnceLock};
 
 use gamelogic::object::draw::{DrawModule, TracerDrawInterface};
-use glam::{Vec3, Vec4, Mat4};
+use glam::{Mat4, Vec3, Vec4};
 
 /// Live tracer created by FXList (wgpu stand-in for the Drawable + Line3D).
 #[derive(Debug, Clone, PartialEq)]
@@ -55,12 +56,17 @@ impl TracerStore {
     }
 }
 
-fn global_tracers() -> &'static Mutex<TracerStore> {
-    static STORE: OnceLock<Mutex<TracerStore>> = OnceLock::new();
-    STORE.get_or_init(|| Mutex::new(TracerStore::new()))
+// THREAD: main thread only — tracers are spawned by FXList nuggets on the game
+// thread and rendered by the same thread's draw pass.
+thread_local! {
+    static TRACERS: RefCell<TracerStore> = RefCell::new(TracerStore::new());
 }
 
-/// Serializes tests that touch the process-wide tracer store.
+fn with_tracers<R>(f: impl FnOnce(&mut TracerStore) -> R) -> R {
+    TRACERS.with_borrow_mut(f)
+}
+
+/// Serializes tests that touch the per-thread tracer store.
 pub fn lock_tracer_fx_tests() -> std::sync::MutexGuard<'static, ()> {
     static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
     LOCK.get_or_init(|| Mutex::new(()))
@@ -243,24 +249,21 @@ impl TracerDrawableStore {
     }
 }
 
-fn global_tracer_drawables() -> &'static Mutex<TracerDrawableStore> {
-    static STORE: OnceLock<Mutex<TracerDrawableStore>> = OnceLock::new();
-    STORE.get_or_init(|| Mutex::new(TracerDrawableStore::new()))
+thread_local! {
+    static TRACER_DRAWABLES: RefCell<TracerDrawableStore> =
+        RefCell::new(TracerDrawableStore::new());
+}
+
+fn with_tracer_drawables<R>(f: impl FnOnce(&mut TracerDrawableStore) -> R) -> R {
+    TRACER_DRAWABLES.with_borrow_mut(f)
 }
 
 pub fn live_tracer_drawables() -> Vec<LiveTracerDrawable> {
-    global_tracer_drawables()
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .drawables
-        .clone()
+    with_tracer_drawables(|store| store.drawables.clone())
 }
 
 fn clear_tracer_drawables() {
-    let mut store = global_tracer_drawables()
-        .lock()
-        .unwrap_or_else(|e| e.into_inner());
-    store.drawables.clear();
+    with_tracer_drawables(|store| store.drawables.clear());
 }
 
 fn rgb_from_fx_color(color: [f32; 3]) -> gamelogic::object::draw::draw_module::RGBColor {
@@ -334,42 +337,41 @@ pub fn spawn_tracer_drawable_like_cpp(
         draw.set_expiration_date(expire);
         draw.do_draw_module(&xform);
         tracer_parms_applied = true;
-        let mut store = global_tracer_drawables()
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        let id = store.next_id;
-        store.next_id = store.next_id.wrapping_add(1).max(1);
         let start = draw.line_start();
         let end = draw.line_end();
-        store.drawables.push(LiveTracerDrawable {
-            id,
-            tracer_name: tracer_name.to_string(),
-            line_start: [start.x, start.y, start.z],
-            line_end: [end.x, end.y, end.z],
-            opacity: draw.opacity(),
-            length: draw.length(),
-            speed: draw.speed_in_dist_per_frame(),
-            expire_frame: expire,
+        let pushed_id = with_tracer_drawables(|store| {
+            let id = store.next_id;
+            store.next_id = store.next_id.wrapping_add(1).max(1);
+            store.drawables.push(LiveTracerDrawable {
+                id,
+                tracer_name: tracer_name.to_string(),
+                line_start: [start.x, start.y, start.z],
+                line_end: [end.x, end.y, end.z],
+                opacity: draw.opacity(),
+                length: draw.length(),
+                speed: draw.speed_in_dist_per_frame(),
+                expire_frame: expire,
+            });
+            id
         });
-        drawable_id = Some(id);
+        drawable_id = Some(pushed_id);
     } else if used_thing_factory {
         // Template path already owns the drawable; record spawn for tests (no second Line3D).
-        let mut store = global_tracer_drawables()
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        store.drawables.push(LiveTracerDrawable {
-            id: drawable_id.unwrap_or(0),
-            tracer_name: tracer_name.to_string(),
-            line_start: primary,
-            line_end: [
-                primary[0] + fx.dir[0] * length,
-                primary[1] + fx.dir[1] * length,
-                primary[2] + fx.dir[2] * length,
-            ],
-            opacity: 1.0,
-            length,
-            speed,
-            expire_frame: expire,
+        with_tracer_drawables(|store| {
+            store.drawables.push(LiveTracerDrawable {
+                id: drawable_id.unwrap_or(0),
+                tracer_name: tracer_name.to_string(),
+                line_start: primary,
+                line_end: [
+                    primary[0] + fx.dir[0] * length,
+                    primary[1] + fx.dir[1] * length,
+                    primary[2] + fx.dir[2] * length,
+                ],
+                opacity: 1.0,
+                length,
+                speed,
+                expire_frame: expire,
+            });
         });
     }
 
@@ -406,8 +408,7 @@ pub fn create_tracer_fx(
     }
     let dist = tracer_distance(primary, secondary);
     let frames = tracer_expiration_frames(dist - length, speed, decay_at);
-    let instance = {
-        let mut store = global_tracers().lock().unwrap_or_else(|e| e.into_inner());
+    let instance = with_tracers(|store| {
         let id = store.next_id;
         store.next_id = store.next_id.wrapping_add(1).max(1);
         let inst = TracerFxInstance {
@@ -425,45 +426,41 @@ pub fn create_tracer_fx(
         };
         store.tracers.push(inst.clone());
         inst
-    };
+    });
     Some(instance)
 }
 
 pub fn live_tracer_fx() -> Vec<TracerFxInstance> {
-    global_tracers()
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .tracers
-        .clone()
+    with_tracers(|store| store.tracers.clone())
 }
 
 pub fn clear_tracer_fx() {
-    let mut store = global_tracers().lock().unwrap_or_else(|e| e.into_inner());
-    store.tracers.clear();
+    with_tracers(|store| store.tracers.clear());
     clear_tracer_drawables();
 }
 
 /// C++ `W3DTracerDraw::doDrawModule` opacity decay + local-X translate, then
 /// expire when `current_frame >= expirationDate`.
 pub fn update_tracer_fx(current_frame: u32) {
-    let mut store = global_tracers().lock().unwrap_or_else(|e| e.into_inner());
-    store
-        .tracers
-        .retain(|t| t.expire_frame == 0 || current_frame < t.expire_frame);
-    for tracer in &mut store.tracers {
-        if tracer.expire_frame != 0 {
-            let remaining = (tracer.expire_frame - current_frame) as f32;
-            if remaining > 0.0 {
-                let decay = tracer.opacity / remaining;
-                tracer.opacity -= decay;
+    with_tracers(|store| {
+        store
+            .tracers
+            .retain(|t| t.expire_frame == 0 || current_frame < t.expire_frame);
+        for tracer in &mut store.tracers {
+            if tracer.expire_frame != 0 {
+                let remaining = (tracer.expire_frame - current_frame) as f32;
+                if remaining > 0.0 {
+                    let decay = tracer.opacity / remaining;
+                    tracer.opacity -= decay;
+                }
+            }
+            if tracer.speed != 0.0 {
+                tracer.pos[0] += tracer.dir[0] * tracer.speed;
+                tracer.pos[1] += tracer.dir[1] * tracer.speed;
+                tracer.pos[2] += tracer.dir[2] * tracer.speed;
             }
         }
-        if tracer.speed != 0.0 {
-            tracer.pos[0] += tracer.dir[0] * tracer.speed;
-            tracer.pos[1] += tracer.dir[1] * tracer.speed;
-            tracer.pos[2] += tracer.dir[2] * tracer.speed;
-        }
-    }
+    });
 }
 
 pub fn bake_all_tracer_gpu_meshes() -> Vec<TracerGpuMesh> {

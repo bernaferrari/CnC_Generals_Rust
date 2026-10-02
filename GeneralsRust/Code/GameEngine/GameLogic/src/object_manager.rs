@@ -195,10 +195,14 @@ impl engine_module::Thing for GameObjectInstance {
 }
 
 impl GameObjectInstance {
-    fn player_from_team(team: Option<&Arc<RwLock<Team>>>) -> Option<Arc<RwLock<Player>>> {
+    /// Resolve the controlling player's index through the shared player list.
+    /// `PlayerList::get_player` returns the fixed slot for an index (the slot
+    /// is the player's own index), so the index needs no second player lock.
+    fn player_index_from_team(team: Option<&Arc<RwLock<Team>>>) -> Option<PlayerIndex> {
         let player_index = team?.read().ok()?.get_controlling_player_id()? as Int;
         let list = crate::player::player_list().read().ok()?;
-        list.get_player(player_index).cloned()
+        list.get_player(player_index)?;
+        Some(player_index as PlayerIndex)
     }
 
     fn store_team(team: Option<Arc<RwLock<Team>>>) -> (Option<TeamID>, Option<Arc<RwLock<Team>>>) {
@@ -278,8 +282,7 @@ impl GameObjectInstance {
             register_legacy_object(&base);
         }
 
-        let player_index = Self::player_from_team(team.as_ref())
-            .and_then(|p| p.read().ok().map(|g| g.get_player_index()));
+        let player_index = Self::player_index_from_team(team.as_ref());
         let (team_id, team_pin) = Self::store_team(team);
 
         // `base` is kept alive by OBJECT_REGISTRY (strong store).
@@ -329,8 +332,7 @@ impl GameObjectInstance {
             register_legacy_object(&base);
         }
 
-        let player_index = Self::player_from_team(team.as_ref())
-            .and_then(|p| p.read().ok().map(|g| g.get_player_index()));
+        let player_index = Self::player_index_from_team(team.as_ref());
         let (team_id, team_pin) = Self::store_team(team.clone());
         let _ = &base; // registered above; instance resolves by id
         let mut instance = Self {
@@ -712,6 +714,7 @@ impl GameObjectInstance {
         let list = crate::player::player_list().read().ok()?;
         list.get_player(player_index).cloned()
     }
+
     /// Run `f` with the base object's controlling player (scoped access; no
     /// player handle escapes). Mirrors [`Object::with_controlling_player`].
     pub fn with_controlling_player<R>(
@@ -941,6 +944,9 @@ impl SpatialPartition {
 /// Per-object slot: owned instance with interior mutability (no Arc sharing).
 #[derive(Debug)]
 pub struct ObjectSlot {
+    /// THREAD: slots are reachable as `&self` through the global
+    /// `THE_OBJECT_MANAGER` Arc, whose clones escape to GameClient and script
+    /// callers; the Mutex is what keeps the shared manager `Sync`.
     inner: Mutex<GameObjectInstance>,
 }
 
@@ -1059,8 +1065,9 @@ impl ObjectManager {
 
         if let Some(slot) = self.objects.get(&object_id) {
             if let Ok(obj) = slot.read() {
-                bind_crate_object(object_id, &obj.base());
-                register_legacy_object(&obj.base());
+                let base = obj.base();
+                bind_crate_object(object_id, &base);
+                register_legacy_object(&base);
                 self.register_player_ownership(object_id, &obj);
             }
         }
@@ -1083,12 +1090,14 @@ impl ObjectManager {
         flags: ObjectCreationFlags,
     ) -> GameLogicResult<ObjectID> {
         let factory_flags = Self::map_creation_flags(flags);
-        let object_id = {
+        // One exclusive factory guard covers creation and the base-object
+        // fetch; neither re-enters the factory lock.
+        let (object_id, base_object) = {
             let factory_arc = crate::object::object_factory::get_object_factory();
             let mut factory = factory_arc.write().map_err(|_| {
                 GameLogicError::SystemNotInitialized("ObjectFactory lock poisoned".to_string())
             })?;
-            factory
+            let object_id = factory
                 .create_object_with_status(
                     template_name,
                     position,
@@ -1096,22 +1105,16 @@ impl ObjectManager {
                     factory_flags,
                     flags.status_mask,
                 )
-                .map_err(|err| GameLogicError::SystemNotInitialized(err.to_string()))?
-        };
-
-        let base_object = {
-            let factory_arc = crate::object::object_factory::get_object_factory();
-            let factory = factory_arc.read().map_err(|_| {
-                GameLogicError::SystemNotInitialized("ObjectFactory lock poisoned".to_string())
-            })?;
-            factory
+                .map_err(|err| GameLogicError::SystemNotInitialized(err.to_string()))?;
+            let base_object = factory
                 .get_object(object_id)
                 .and_then(|instance| instance.get_base_object())
                 .ok_or_else(|| {
                     GameLogicError::SystemNotInitialized(
                         "Created object missing from factory".to_string(),
                     )
-                })?
+                })?;
+            (object_id, base_object)
         };
 
         let template = base_object
@@ -1137,8 +1140,9 @@ impl ObjectManager {
         }
         if let Some(slot) = self.objects.get(&object_id) {
             if let Ok(obj) = slot.read() {
-                bind_crate_object(object_id, &obj.base());
-                register_legacy_object(&obj.base());
+                let base = obj.base();
+                bind_crate_object(object_id, &base);
+                register_legacy_object(&base);
                 self.register_player_ownership(object_id, &obj);
             }
         }
@@ -1296,10 +1300,13 @@ impl ObjectManager {
         let pending: Vec<_> = self.destroy_queue.drain(..).collect();
         for object_id in pending {
             if let Some(slot) = self.objects.remove(&object_id) {
-                OBJECT_REGISTRY.unregister_object(object_id);
-                unregister_legacy_object(object_id);
+                // Destroy while the object is still resolvable: `destroy()`
+                // writes through `base()`, which expects the registry lookup
+                // to succeed.
                 let mut object = slot.into_inner();
                 object.destroy();
+                OBJECT_REGISTRY.unregister_object(object_id);
+                unregister_legacy_object(object_id);
                 self.unregister_player_ownership(object_id, &object);
 
                 // Remove from spatial partition
@@ -1367,7 +1374,7 @@ impl ObjectManager {
     ///
     /// # Arguments
     ///
-    /// * `f` - Closure to call for each object: `|id: ObjectID, obj: &Mutex<GameObjectInstance>|`
+    /// * `f` - Closure to call for each object: `|id: ObjectID, obj: &ObjectSlot|`
     ///
     /// # Example
     ///
@@ -1474,6 +1481,9 @@ impl Default for ObjectManager {
 }
 
 /// Global object manager instance
+// THREAD: cloned Arc + RwLock handles escape to GameClient/script callers
+// via `get_object_manager()`, so the RwLock is the shared-manager contract
+// (legacy adapter; not convertible to a thread-local without breaking that API).
 pub static THE_OBJECT_MANAGER: Lazy<Arc<RwLock<ObjectManager>>> =
     Lazy::new(|| Arc::new(RwLock::new(ObjectManager::new())));
 

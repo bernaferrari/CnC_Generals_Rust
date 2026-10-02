@@ -7,8 +7,8 @@ use crate::gui::game_window::{GameWindow, WindowMessage, WindowMsgData};
 use gamelogic::common::audio::AudioEventRts;
 use gamelogic::helpers::TheAudio;
 use log::warn;
+use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
-use std::sync::LazyLock;
 use std::rc::Weak;
 
 const KEY_STATE_CONTROL: u32 = 0x0004 | 0x0008;
@@ -21,15 +21,15 @@ const KEY_STATE_ALT: u32 = 0x0040 | 0x0080;
 /// a duplicate claim and silently ignores it in retail. The control bar
 /// re-binds command windows repeatedly, so warn once per key per session and
 /// demote repeats to debug instead of flooding the log every frame.
-static DUPLICATE_HOTKEY_WARNED: LazyLock<std::sync::Mutex<HashSet<String>>> =
-    LazyLock::new(|| std::sync::Mutex::new(HashSet::new()));
+// THREAD: main thread only — hotkeys are registered from GUI-thread window
+// bindings, so the once-per-session warn set is a plain thread-local cell.
+thread_local! {
+    static DUPLICATE_HOTKEY_WARNED: RefCell<HashSet<String>> = RefCell::new(HashSet::new());
+}
 
 /// True when this key already triggered its once-per-session duplicate warn.
 pub(crate) fn duplicate_hotkey_warned(key: &str) -> bool {
-    DUPLICATE_HOTKEY_WARNED
-        .lock()
-        .map(|warned| warned.contains(key))
-        .unwrap_or(false)
+    DUPLICATE_HOTKEY_WARNED.with_borrow(|warned| warned.contains(key))
 }
 
 fn keycode_to_char(key_code: u32) -> Option<char> {
@@ -126,10 +126,8 @@ impl HotKeyManager {
             // C++ HotKey.cpp:130 DEBUG_ASSERTCRASH on duplicates, silent in
             // retail: the registration is ignored either way. Warn once per
             // key per session; repeats are debug-only.
-            let should_warn = match DUPLICATE_HOTKEY_WARNED.lock() {
-                Ok(mut warned) => warned.insert(key.clone()),
-                Err(_) => false,
-            };
+            let should_warn =
+                DUPLICATE_HOTKEY_WARNED.with_borrow_mut(|warned| warned.insert(key.clone()));
             if should_warn {
                 warn!(
                     "Hotkey {} already mapped; ignoring new window registration",

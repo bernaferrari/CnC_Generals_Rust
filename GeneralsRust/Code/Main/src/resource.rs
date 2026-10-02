@@ -6,7 +6,7 @@
 //! - Memory management for assets
 //! - Cross-platform resource handling
 
-use anyhow::{Result, anyhow};
+use anyhow::{anyhow, Result};
 use log::{debug, info, warn};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -101,6 +101,8 @@ pub struct AssetStats {
 }
 
 /// Complete asset management system
+/// THREAD: owned by the global `ASSET_MANAGER` (`Arc<Mutex<_>>`), but reached
+/// through `&self` async loaders, so the cache keeps its own interior locks.
 pub struct AssetManager {
     /// Asset cache
     cache: RwLock<HashMap<String, Arc<CachedAsset>>>,

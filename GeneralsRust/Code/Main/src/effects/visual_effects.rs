@@ -1,7 +1,6 @@
 use glam::{Vec3, Vec4};
 use log::{debug, info, warn};
 use std::collections::HashMap;
-use std::sync::Arc;
 
 use crate::assets::archive::ArchiveFileSystem;
 use crate::effects::animation_system::AnimationManager;
@@ -542,8 +541,7 @@ impl WeaponEffect {
 pub struct VisualEffectsManager {
     effects: HashMap<EffectType, VisualEffect>,
     pub(crate) active_effects: Vec<ActiveEffect>,
-    particle_manager: Arc<std::sync::Mutex<ParticleSystemManager>>,
-    animation_manager: Arc<std::sync::Mutex<AnimationManager>>,
+    particle_manager: ParticleSystemManager,
     scheduled_impulses: Vec<ScheduledImpulse>,
     active_lights: Vec<ActiveLight>,
     current_time: f32,
@@ -555,15 +553,21 @@ pub struct VisualEffectsManager {
 }
 
 impl VisualEffectsManager {
-    pub fn new(
-        particle_manager: Arc<std::sync::Mutex<ParticleSystemManager>>,
-        animation_manager: Arc<std::sync::Mutex<AnimationManager>>,
-    ) -> Self {
+    /// Direct particle-system access for the owning coordinator.
+    pub fn particle_manager(&mut self) -> &mut ParticleSystemManager {
+        &mut self.particle_manager
+    }
+
+    /// Read-only particle-system access.
+    pub fn particle_manager_shared(&self) -> &ParticleSystemManager {
+        &self.particle_manager
+    }
+
+    pub fn new(particle_manager: ParticleSystemManager) -> Self {
         let mut manager = Self {
             effects: HashMap::new(),
             active_effects: Vec::new(),
             particle_manager,
-            animation_manager,
             scheduled_impulses: Vec::new(),
             active_lights: Vec::new(),
             current_time: 0.0,
@@ -590,10 +594,7 @@ impl VisualEffectsManager {
         if let Some(effect_def) = self.effects.get(&effect_type).cloned() {
             // Create particle system if specified
             let particle_system_id = if !effect_def.particle_template_name.is_empty() {
-                let mut manager = self
-                    .particle_manager
-                    .lock()
-                    .expect("Particle system manager mutex poisoned");
+                let manager = &mut self.particle_manager;
                 let id = manager.create_system(&effect_def.particle_template_name);
                 if let Some(system_id) = id {
                     if let Some(system) = manager.get_system_mut(system_id) {
@@ -662,10 +663,7 @@ impl VisualEffectsManager {
             let execute_at = self.current_time + delay_seconds;
 
             if !stage.particle_template.is_empty() {
-                let mut manager = self
-                    .particle_manager
-                    .lock()
-                    .expect("Particle system manager mutex poisoned");
+                let manager = &mut self.particle_manager;
                 if let Some(system_id) = manager.create_system(&stage.particle_template) {
                     if let Some(system) = manager.get_system_mut(system_id) {
                         system.set_position(explosion.position);
@@ -792,9 +790,7 @@ impl VisualEffectsManager {
             if elapsed >= effect.duration {
                 effect.is_active = false;
                 if let Some(system_id) = effect.particle_system_id {
-                    if let Ok(mut manager) = self.particle_manager.lock() {
-                        manager.destroy_system(system_id);
-                    }
+                    self.particle_manager.destroy_system(system_id);
                 }
                 continue;
             }

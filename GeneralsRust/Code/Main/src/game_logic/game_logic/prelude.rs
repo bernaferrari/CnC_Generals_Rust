@@ -18,15 +18,15 @@ pub(super) use super::super::victory::{
     PlayerOutcome, PlayerResult, VictoryCondition, VictorySummary,
 };
 pub(super) use super::super::victory_conditions::{
-    AllianceNotification, VictoryConditions, victory_rules_for_map,
+    victory_rules_for_map, AllianceNotification, VictoryConditions,
 };
 pub(super) use super::super::*;
 pub(super) use crate::ai::*;
-pub(super) use crate::assets::{ObjectDefinition, get_asset_manager};
+pub(super) use crate::assets::{get_asset_manager, ObjectDefinition};
 pub(super) use crate::localization;
 pub(super) use crate::save_load::campaign::CampaignManager;
 pub(super) use crate::save_load::campaign::MissionObjective;
-pub(super) use crate::save_load::game_state::global_campaign_manager;
+pub(super) use crate::save_load::game_state::with_global_campaign_manager;
 pub(super) use crate::ui::audio::translate_audio_event;
 pub(super) use crate::ui::color_for_player;
 pub(super) use crate::ui::objectives::{ObjectiveCategory, ObjectiveDisplay, ObjectiveStatus};

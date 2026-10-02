@@ -12,9 +12,9 @@
 //! so older decoders ignore the extra bytes. No WorldSnapshot version bump.
 //! Restore writes completed-blast clocks only; it never calls `begin`.
 
-use crate::game_logic::GameLogic;
 use crate::game_logic::host_neutron_missile_slow_death::HostNeutronMissileSlowDeathData;
 use crate::game_logic::special_power_strikes::HostNeutronSlowDeathMeta;
+use crate::game_logic::GameLogic;
 use crate::save_load::{SaveLoadError, SaveLoadResult};
 use serde::{Deserialize, Serialize};
 

@@ -60,6 +60,10 @@ unsafe impl Send for PendingCommand {}
 unsafe impl Sync for PendingCommand {}
 
 static FRAME_ACTIVE: AtomicBool = AtomicBool::new(false);
+// THREAD: render-record call sites vs. the `submit_owned_frame` drain on the
+// game thread. A mutex (not thread-local) is required here: dropping queued
+// wgpu encoders from a thread-local destructor would run after wgpu's own TLS
+// has been destroyed at thread exit.
 static PENDING: Mutex<Vec<PendingCommand>> = Mutex::new(Vec::new());
 static LAST_FRAME_SUBMIT_COUNT: AtomicU64 = AtomicU64::new(0);
 static LAST_OUT_OF_FRAME_COUNT: AtomicU64 = AtomicU64::new(0);

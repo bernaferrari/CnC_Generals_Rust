@@ -1,7 +1,7 @@
 //! C++ `W3DStatusCircle::Render` camera-fade overlay.
 
-use gamelogic::scripting::{TFade, get_script_engine};
-use std::sync::Mutex;
+use gamelogic::scripting::{get_script_engine, TFade};
+use std::cell::{Cell, RefCell};
 
 /// Fullscreen camera-fade overlay produced by `W3DStatusCircle::Render`.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -13,7 +13,11 @@ pub struct CameraFadeOverlay {
     pub diffuse: u32,
 }
 
-static LAST_OVERLAY: Mutex<Option<CameraFadeOverlay>> = Mutex::new(None);
+// THREAD: main thread only — the fade slots are written by the frame's script
+// tick and read back by the same thread's overlay blit.
+thread_local! {
+    static LAST_OVERLAY: Cell<Option<CameraFadeOverlay>> = Cell::new(None);
+}
 
 /// C++ `W3DStatusCircle::Render` fade branch.
 pub fn render_camera_fade() -> Option<CameraFadeOverlay> {
@@ -31,33 +35,28 @@ pub fn render_camera_fade() -> Option<CameraFadeOverlay> {
             diffuse: (0xff << 24) | (channel << 16) | (channel << 8) | channel,
         })
     });
-    if let Ok(mut slot) = LAST_OVERLAY.lock() {
-        *slot = overlay;
-    }
+    LAST_OVERLAY.set(overlay);
     overlay
 }
 
 /// Last fade overlay computed this frame.
 pub fn current_camera_fade() -> Option<CameraFadeOverlay> {
-    LAST_OVERLAY.lock().ok().and_then(|slot| *slot)
+    LAST_OVERLAY.get()
 }
 
-static QUEUED_LIVE_FADE: Mutex<Option<CameraFadeOverlay>> = Mutex::new(None);
+thread_local! {
+    static QUEUED_LIVE_FADE: Cell<Option<CameraFadeOverlay>> = Cell::new(None);
+}
 
 /// Stamp a frozen presentation fade for the live overlay / render_pipeline blit.
 pub fn queue_live_camera_fade(fade: u8, intensity: f32, diffuse: u32) {
     let overlay = overlay_from_packed(fade, intensity, diffuse);
-    if let Ok(mut slot) = QUEUED_LIVE_FADE.lock() {
-        *slot = overlay;
-    }
+    QUEUED_LIVE_FADE.set(overlay);
 }
 
 /// Consume the overlay queued by the live letterbox/cinematic pass.
 pub fn take_queued_live_camera_fade() -> Option<CameraFadeOverlay> {
-    QUEUED_LIVE_FADE
-        .lock()
-        .ok()
-        .and_then(|mut slot| slot.take())
+    QUEUED_LIVE_FADE.take()
 }
 
 fn overlay_from_packed(fade: u8, intensity: f32, diffuse: u32) -> Option<CameraFadeOverlay> {
@@ -85,20 +84,12 @@ struct FadeGpu {
     saturate: wgpu::RenderPipeline,
 }
 
-#[cfg(target_arch = "wasm32")]
-// SAFETY: wasm32-only. `Buffer`, `BindGroup` and the four `RenderPipeline`s
-// are `Rc`-backed wgpu handles and `!Send` on the web backend. wasm32 has no
-// threads, so the handles can never move to or be observed from another
-// thread; the impl only satisfies the `Send` bound of the
-// `static Mutex<Option<FadeGpu>>` that owns it.
-unsafe impl Send for FadeGpu {}
-#[cfg(target_arch = "wasm32")]
-// SAFETY: same wasm32-only scope: the target is single-threaded, so `&FadeGpu`
-// is never shared between threads and the handles' `!Sync` default is
-// unreachable.
-unsafe impl Sync for FadeGpu {}
-
-static FADE_GPU: Mutex<Option<FadeGpu>> = Mutex::new(None);
+// `FadeGpu` holds `Rc`-backed wgpu handles (`!Send` on the web backend); the
+// thread-local slot below keeps those handles on the GUI thread that created
+// them, so no `Send`/`Sync` shim is needed.
+thread_local! {
+    static FADE_GPU: RefCell<Option<FadeGpu>> = const { RefCell::new(None) };
+}
 
 fn fade_blend(
     src: wgpu::BlendFactor,
@@ -281,55 +272,53 @@ pub fn record_camera_fade_overlay(
     if overlay.fade == TFade::None {
         return;
     }
-    let mut slot = match FADE_GPU.lock() {
-        Ok(slot) => slot,
-        Err(_) => return,
-    };
-    if slot.as_ref().map(|gpu| gpu.format) != Some(format) {
-        *slot = Some(FadeGpu::new(device, format));
-    }
-    let Some(gpu) = slot.as_ref() else {
-        return;
-    };
-    let a = ((overlay.diffuse >> 24) & 0xff) as f32 / 255.0;
-    let r = ((overlay.diffuse >> 16) & 0xff) as f32 / 255.0;
-    let g = ((overlay.diffuse >> 8) & 0xff) as f32 / 255.0;
-    let b = (overlay.diffuse & 0xff) as f32 / 255.0;
-    let color = [r, g, b, a.max(overlay.intensity)];
-    queue.write_buffer(&gpu.color, 0, bytemuck::cast_slice(&color));
-    let pipeline = match overlay.fade {
-        TFade::Add => &gpu.add,
-        TFade::Subtract => &gpu.subtract,
-        TFade::Multiply => &gpu.multiply,
-        TFade::Saturate => &gpu.saturate,
-        TFade::None => return,
-    };
-    let passes = if overlay.fade == TFade::Saturate {
-        2
-    } else {
-        1
-    };
-    for _ in 0..passes {
-        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: Some("W3DStatusCircle fade"),
-            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view: dest,
-                depth_slice: None,
-                resolve_target: None,
-                ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Load,
-                    store: wgpu::StoreOp::Store,
-                },
-            })],
-            depth_stencil_attachment: None,
-            occlusion_query_set: None,
-            timestamp_writes: None,
-            multiview_mask: None,
-});
-        pass.set_pipeline(pipeline);
-        pass.set_bind_group(0, &gpu.bind, &[]);
-        pass.draw(0..3, 0..1);
-    }
+    FADE_GPU.with_borrow_mut(|slot| {
+        if slot.as_ref().map(|gpu| gpu.format) != Some(format) {
+            *slot = Some(FadeGpu::new(device, format));
+        }
+        let Some(gpu) = slot.as_ref() else {
+            return;
+        };
+        let a = ((overlay.diffuse >> 24) & 0xff) as f32 / 255.0;
+        let r = ((overlay.diffuse >> 16) & 0xff) as f32 / 255.0;
+        let g = ((overlay.diffuse >> 8) & 0xff) as f32 / 255.0;
+        let b = (overlay.diffuse & 0xff) as f32 / 255.0;
+        let color = [r, g, b, a.max(overlay.intensity)];
+        queue.write_buffer(&gpu.color, 0, bytemuck::cast_slice(&color));
+        let pipeline = match overlay.fade {
+            TFade::Add => &gpu.add,
+            TFade::Subtract => &gpu.subtract,
+            TFade::Multiply => &gpu.multiply,
+            TFade::Saturate => &gpu.saturate,
+            TFade::None => return,
+        };
+        let passes = if overlay.fade == TFade::Saturate {
+            2
+        } else {
+            1
+        };
+        for _ in 0..passes {
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("W3DStatusCircle fade"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: dest,
+                    depth_slice: None,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                occlusion_query_set: None,
+                timestamp_writes: None,
+                multiview_mask: None,
+            });
+            pass.set_pipeline(pipeline);
+            pass.set_bind_group(0, &gpu.bind, &[]);
+            pass.draw(0..3, 0..1);
+        }
+    });
 }
 
 #[cfg(test)]

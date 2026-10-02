@@ -70,7 +70,7 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, LazyLock};
 use std::time::Duration;
-use tokio::sync::{RwLock, broadcast, watch};
+use tokio::sync::{broadcast, watch, RwLock};
 use tracing::{debug, error, info, warn};
 
 pub mod bus;
@@ -89,7 +89,7 @@ pub mod lobby;
 pub mod messages;
 pub mod player;
 
-pub use bus::{LanBridgeEvent, LanEventReceiver, LanEventSender, lan_event_channel};
+pub use bus::{lan_event_channel, LanBridgeEvent, LanEventReceiver, LanEventSender};
 pub use chat::{ChatMessage, ChatType, LanChat};
 pub use discovery::{DiscoveryConfig, DiscoveryMethod, GameDiscovery};
 pub use game_info::{GameOptions, GameState as LanGameState, LanGameInfo};
@@ -436,7 +436,7 @@ impl LanApi {
             debug!("NAT-to-LAN bridge task terminating");
         });
 
-        if let Some(existing) = self.nat_task.write().await.replace(handle) {
+        if let Some(existing) = self.nat_task.replace(handle) {
             existing.abort();
             let _ = existing.await;
         }
@@ -445,20 +445,19 @@ impl LanApi {
     }
 
     /// Start the background processing task
-    async fn start_background_task(&self) {
-        let bridge_rx = Arc::clone(&self.bridge_rx);
+    async fn start_background_task(&mut self) {
+        // The bus receiver is consumed by exactly one background task; a second
+        // `init` keeps the original loop running.
+        let Some(mut bridge_rx) = self.bridge_rx.take() else {
+            return;
+        };
         let event_tx = self.event_tx.clone();
-        let games = Arc::clone(&self.games);
-        let lobby_players = Arc::clone(&self.lobby_players);
-        let current_game = Arc::clone(&self.current_game);
+        let tables = Arc::clone(&self.tables);
         let pending_action = Arc::clone(&self.pending_action);
-        let action_expiration = Arc::clone(&self.action_expiration);
         let is_host = Arc::clone(&self.is_host);
         let lobby = Arc::clone(&self.lobby);
 
         let handle = tokio::spawn(async move {
-            let mut bridge_rx = bridge_rx.lock().await;
-
             loop {
                 tokio::select! {
                     // Process internal messages
@@ -468,11 +467,8 @@ impl LanApi {
                                 if let Err(e) = Self::handle_bridge_event(
                                     &msg,
                                     &event_tx,
-                                    &games,
-                                    &lobby_players,
-                                    &current_game,
+                                    &tables,
                                     &pending_action,
-                                    &action_expiration,
                                     &is_host,
                                     &lobby,
                                 ).await {
@@ -493,28 +489,32 @@ impl LanApi {
                     // Check for action timeouts
                     _ = tokio::time::sleep(Duration::from_millis(100)) => {
                         let now = NetworkInstant::now();
-                        let mut action_expiration = action_expiration.write().await;
-                        let mut pending_action_guard = pending_action.write().await;
-
-                        if let Some(expiry) = *action_expiration {
-                            if now >= expiry {
-                                let expired_action = *pending_action_guard;
-                                *pending_action_guard = PendingAction::None;
-                                *action_expiration = None;
-
-                                // Send timeout event
-                                match expired_action {
-                                    PendingAction::Join | PendingAction::JoinDirectConnect => {
-                                        let _ = event_tx.send(LanEvent::GameJoin(LanResult::Timeout, None));
-                                    }
-                                    PendingAction::CreateGame => {
-                                        let _ = event_tx.send(LanEvent::GameCreate(LanResult::Timeout));
-                                    }
-                                    _ => {}
+                        let expired_action = {
+                            let mut pending = pending_action.lock();
+                            match pending.expires_at {
+                                Some(expiry) if now >= expiry => {
+                                    let expired_action = pending.action;
+                                    pending.action = PendingAction::None;
+                                    pending.expires_at = None;
+                                    Some(expired_action)
                                 }
-
-                                debug!("Action {:?} timed out", expired_action);
+                                _ => None,
                             }
+                        };
+
+                        if let Some(expired_action) = expired_action {
+                            // Send timeout event
+                            match expired_action {
+                                PendingAction::Join | PendingAction::JoinDirectConnect => {
+                                    let _ = event_tx.send(LanEvent::GameJoin(LanResult::Timeout, None));
+                                }
+                                PendingAction::CreateGame => {
+                                    let _ = event_tx.send(LanEvent::GameCreate(LanResult::Timeout));
+                                }
+                                _ => {}
+                            }
+
+                            debug!("Action {:?} timed out", expired_action);
                         }
                     }
                 }
@@ -523,19 +523,16 @@ impl LanApi {
             info!("LAN API background task stopped");
         });
 
-        *self.bg_task.write().await = Some(handle);
+        self.bg_task = Some(handle);
     }
 
     /// Handle bridge events emitted by LAN subsystems.
     async fn handle_bridge_event(
         msg: &LanBridgeEvent,
         event_tx: &broadcast::Sender<LanEvent>,
-        games: &Arc<RwLock<HashMap<String, LanGameInfo>>>,
-        lobby_players: &Arc<RwLock<HashMap<IpAddr, LanPlayer>>>,
-        current_game: &Arc<RwLock<Option<LanGameInfo>>>,
-        pending_action: &Arc<RwLock<PendingAction>>,
-        action_expiration: &Arc<RwLock<Option<NetworkInstant>>>,
-        is_host: &Arc<RwLock<bool>>,
+        tables: &Mutex<SessionTables>,
+        pending_action: &Mutex<PendingActionState>,
+        is_host: &AtomicBool,
         lobby: &Arc<RwLock<LanLobby>>,
     ) -> NetworkResult<()> {
         match msg {
@@ -548,21 +545,18 @@ impl LanApi {
                     message,
                     *sender,
                     event_tx,
-                    games,
-                    lobby_players,
-                    current_game,
+                    tables,
                     pending_action,
-                    action_expiration,
                     is_host,
                     lobby,
                 )
                 .await?;
             }
             LanBridgeEvent::DiscoverySnapshot(discovered_games) => {
-                let mut games_guard = games.write().await;
-                games_guard.clear();
+                let mut tables = tables.lock();
+                tables.games.clear();
                 for game in discovered_games {
-                    games_guard.insert(game.name.clone(), game.clone());
+                    tables.games.insert(game.name.clone(), game.clone());
                 }
                 let _ = event_tx.send(LanEvent::GameList(discovered_games.clone()));
             }
@@ -570,32 +564,34 @@ impl LanApi {
                 debug!("Lobby update: {:?}", lobby_event);
                 match lobby_event.clone() {
                     LobbyEvent::GameCreated(game) => {
-                        *is_host.write().await = true;
-                        *current_game.write().await = Some(game.clone());
-                        let mut games_guard = games.write().await;
-                        games_guard.insert(game.name.clone(), game.clone());
+                        is_host.store(true, Ordering::SeqCst);
+                        let snapshot: Vec<LanGameInfo> = {
+                            let mut tables = tables.lock();
+                            tables.current_game = Some(game.clone());
+                            tables.games.insert(game.name.clone(), game.clone());
+                            tables.games.values().cloned().collect()
+                        };
                         let _ = event_tx.send(LanEvent::GameCreate(LanResult::Ok));
-                        let snapshot: Vec<LanGameInfo> = games_guard.values().cloned().collect();
-                        drop(games_guard);
                         let _ = event_tx.send(LanEvent::GameList(snapshot));
                     }
                     LobbyEvent::PlayerJoined(player) => {
-                        lobby_players
-                            .write()
-                            .await
-                            .insert(player.ip, player.clone());
-                        if let Some(game) = current_game.read().await.clone() {
-                            let mut guard = games.write().await;
-                            guard.insert(game.name.clone(), game);
+                        {
+                            let mut tables = tables.lock();
+                            tables.lobby_players.insert(player.ip, player.clone());
+                            if let Some(game) = tables.current_game.clone() {
+                                tables.games.insert(game.name.clone(), game);
+                            }
                         }
                         let _ =
                             event_tx.send(LanEvent::PlayerJoin(player.name.clone(), player.team));
                     }
                     LobbyEvent::PlayerLeft(ip, name) => {
-                        lobby_players.write().await.remove(&ip);
-                        if let Some(game) = current_game.read().await.clone() {
-                            let mut guard = games.write().await;
-                            guard.insert(game.name.clone(), game);
+                        {
+                            let mut tables = tables.lock();
+                            tables.lobby_players.remove(&ip);
+                            if let Some(game) = tables.current_game.clone() {
+                                tables.games.insert(game.name.clone(), game);
+                            }
                         }
                         let _ = event_tx.send(LanEvent::PlayerLeave(name.clone()));
                     }
@@ -606,32 +602,38 @@ impl LanApi {
                         let _ = event_tx.send(LanEvent::GameStart);
                     }
                     LobbyEvent::GameOptionsUpdated(options) => {
-                        if let Some(ref mut game) = *current_game.write().await {
-                            game.options = options.clone();
-                        }
-                        if let Some(game) = current_game.read().await.clone() {
-                            let mut guard = games.write().await;
-                            guard.insert(game.name.clone(), game);
+                        {
+                            let mut tables = tables.lock();
+                            if let Some(ref mut game) = tables.current_game {
+                                game.options = options.clone();
+                            }
+                            if let Some(game) = tables.current_game.clone() {
+                                tables.games.insert(game.name.clone(), game);
+                            }
                         }
                         let _ = event_tx.send(LanEvent::GameOptionsUpdated(options.clone()));
                     }
                     LobbyEvent::PlayerAccepted(ip, accepted) => {
-                        if let Some(ref mut game) = *current_game.write().await {
-                            game.set_player_accepted(ip, accepted);
-                        }
-                        if let Some(game) = current_game.read().await.clone() {
-                            let mut guard = games.write().await;
-                            guard.insert(game.name.clone(), game);
+                        {
+                            let mut tables = tables.lock();
+                            if let Some(ref mut game) = tables.current_game {
+                                game.set_player_accepted(ip, accepted);
+                            }
+                            if let Some(game) = tables.current_game.clone() {
+                                tables.games.insert(game.name.clone(), game);
+                            }
                         }
                         let _ = event_tx.send(LanEvent::AcceptStatus(ip, accepted));
                     }
                     LobbyEvent::PlayerMapStatus(ip, has_map) => {
-                        if let Some(ref mut game) = *current_game.write().await {
-                            game.set_player_has_map(ip, has_map);
-                        }
-                        if let Some(game) = current_game.read().await.clone() {
-                            let mut guard = games.write().await;
-                            guard.insert(game.name.clone(), game);
+                        {
+                            let mut tables = tables.lock();
+                            if let Some(ref mut game) = tables.current_game {
+                                game.set_player_has_map(ip, has_map);
+                            }
+                            if let Some(game) = tables.current_game.clone() {
+                                tables.games.insert(game.name.clone(), game);
+                            }
                         }
                         let _ = event_tx.send(LanEvent::MapStatus(ip, has_map));
                     }
@@ -640,25 +642,22 @@ impl LanApi {
                     }
                     LobbyEvent::NameChange(ip_addr, name) => {
                         {
-                            let mut players = lobby_players.write().await;
-                            if let Some(player) = players.get_mut(&ip_addr) {
+                            let mut tables = tables.lock();
+                            if let Some(player) = tables.lobby_players.get_mut(&ip_addr) {
                                 player.name = name.clone();
                             }
-                        }
-                        if let Some(ref mut game) = *current_game.write().await {
-                            if let Some(slot) = game
-                                .slots
-                                .iter_mut()
-                                .find(|slot| slot.player.as_ref().map(|p| p.ip) == Some(ip_addr))
-                            {
-                                if let Some(player) = slot.player.as_mut() {
-                                    player.name = name.clone();
+                            if let Some(ref mut game) = tables.current_game {
+                                if let Some(slot) = game.slots.iter_mut().find(|slot| {
+                                    slot.player.as_ref().map(|p| p.ip) == Some(ip_addr)
+                                }) {
+                                    if let Some(player) = slot.player.as_mut() {
+                                        player.name = name.clone();
+                                    }
                                 }
                             }
-                        }
-                        if let Some(game) = current_game.read().await.clone() {
-                            let mut guard = games.write().await;
-                            guard.insert(game.name.clone(), game);
+                            if let Some(game) = tables.current_game.clone() {
+                                tables.games.insert(game.name.clone(), game);
+                            }
                         }
                         let _ = event_tx.send(LanEvent::NameChange(ip_addr, name.clone()));
                     }
@@ -681,17 +680,13 @@ impl LanApi {
         Ok(())
     }
 
-    #[allow(clippy::too_many_arguments)]
     async fn handle_network_message(
         message: &LanMessage,
         sender: SocketAddr,
         event_tx: &broadcast::Sender<LanEvent>,
-        games: &Arc<RwLock<HashMap<String, LanGameInfo>>>,
-        lobby_players: &Arc<RwLock<HashMap<IpAddr, LanPlayer>>>,
-        current_game: &Arc<RwLock<Option<LanGameInfo>>>,
-        pending_action: &Arc<RwLock<PendingAction>>,
-        action_expiration: &Arc<RwLock<Option<NetworkInstant>>>,
-        is_host: &Arc<RwLock<bool>>,
+        tables: &Mutex<SessionTables>,
+        pending_action: &Mutex<PendingActionState>,
+        is_host: &AtomicBool,
         lobby: &Arc<RwLock<LanLobby>>,
     ) -> NetworkResult<()> {
         let sender_ip = sender.ip();
@@ -707,11 +702,11 @@ impl LanApi {
 
         match message.message_type {
             LanMessageType::RequestLocations => {
-                let lobby_guard = Arc::clone(&lobby).read_owned().await;
+                let lobby_guard = Arc::clone(lobby).read_owned().await;
                 if let Some(info) = lobby_guard.player_info().await {
                     let lobby_msg = LanMessage::lobby_announce(info.clone());
                     lobby_guard.send_to(&lobby_msg, sender).await?;
-                    if *is_host.read().await {
+                    if is_host.load(Ordering::SeqCst) {
                         if let Some(game) = lobby_guard.current_game_snapshot().await {
                             let announce = LanMessage::game_announce(
                                 info.clone(),
@@ -739,9 +734,9 @@ impl LanApi {
             LanMessageType::LobbyAnnounce => {
                 let player = remote_player(PlayerState::InLobby);
                 {
-                    let mut players = lobby_players.write().await;
-                    players.insert(player.ip, player.clone());
-                    let snapshot: Vec<LanPlayer> = players.values().cloned().collect();
+                    let mut tables = tables.lock();
+                    tables.lobby_players.insert(player.ip, player.clone());
+                    let snapshot: Vec<LanPlayer> = tables.lobby_players.values().cloned().collect();
                     let _ = event_tx.send(LanEvent::PlayerList(snapshot));
                 }
             }
@@ -781,13 +776,14 @@ impl LanApi {
                             };
 
                             {
-                                let mut guard = games.write().await;
-                                guard.insert(game.name.clone(), game.clone());
-                                let snapshot: Vec<LanGameInfo> = guard.values().cloned().collect();
+                                let mut tables = tables.lock();
+                                tables.games.insert(game.name.clone(), game.clone());
+                                let snapshot: Vec<LanGameInfo> =
+                                    tables.games.values().cloned().collect();
                                 let _ = event_tx.send(LanEvent::GameList(snapshot));
                             }
 
-                            let lobby_guard = Arc::clone(&lobby).read_owned().await;
+                            let mut lobby_guard = Arc::clone(lobby).write_owned().await;
                             lobby_guard
                                 .maybe_handle_direct_connect(&game, sender_ip)
                                 .await?;
@@ -799,7 +795,7 @@ impl LanApi {
                 }
             }
             LanMessageType::RequestJoin => {
-                if !*is_host.read().await {
+                if !is_host.load(Ordering::SeqCst) {
                     return Ok(());
                 }
 
@@ -817,7 +813,7 @@ impl LanApi {
                     new_player.ini_crc = Some(*ini_crc);
                     new_player.serial_hash = Some(serial_hash.clone());
 
-                    let lobby_guard = Arc::clone(&lobby).read_owned().await;
+                    let mut lobby_guard = Arc::clone(lobby).write_owned().await;
                     if let Some(host_info) = lobby_guard.player_info().await {
                         match lobby_guard
                             .add_player_to_current_game(new_player.clone())
@@ -839,14 +835,12 @@ impl LanApi {
                                 joined_player.state = PlayerState::InGameSetup;
 
                                 {
-                                    let mut players = lobby_players.write().await;
-                                    players.insert(sender_ip, joined_player.clone());
-                                }
-
-                                *current_game.write().await = Some(updated_game.clone());
-                                {
-                                    let mut guard = games.write().await;
-                                    guard.insert(updated_game.name.clone(), updated_game);
+                                    let mut tables = tables.lock();
+                                    tables
+                                        .lobby_players
+                                        .insert(sender_ip, joined_player.clone());
+                                    tables.current_game = Some(updated_game.clone());
+                                    tables.games.insert(updated_game.name.clone(), updated_game);
                                 }
 
                                 let _ = event_tx
@@ -876,128 +870,150 @@ impl LanApi {
                     ..
                 } = &message.payload
                 {
-                    *pending_action.write().await = PendingAction::None;
-                    *action_expiration.write().await = None;
-                    *is_host.write().await = false;
-
-                    let mut guard = games.write().await;
-                    let mut game = guard.get(game_name).cloned().unwrap_or_else(|| {
-                        LanGameInfo::new(game_name.clone(), *game_ip, sender_port)
-                    });
-                    game.game_id = *game_id;
-                    game.host_ip = *game_ip;
-                    game.port = sender_port;
-                    game.state = LanGameState::Lobby;
-                    if game.player_count <= *slot_position {
-                        game.player_count = slot_position + 1;
+                    {
+                        let mut pending = pending_action.lock();
+                        pending.action = PendingAction::None;
+                        pending.expires_at = None;
                     }
-                    guard.insert(game_name.clone(), game.clone());
-                    drop(guard);
+                    is_host.store(false, Ordering::SeqCst);
 
-                    *current_game.write().await = Some(game.clone());
+                    let game = {
+                        let mut tables = tables.lock();
+                        let mut game = tables.games.get(game_name).cloned().unwrap_or_else(|| {
+                            LanGameInfo::new(game_name.clone(), *game_ip, sender_port)
+                        });
+                        game.game_id = *game_id;
+                        game.host_ip = *game_ip;
+                        game.port = sender_port;
+                        game.state = LanGameState::Lobby;
+                        if game.player_count <= *slot_position {
+                            game.player_count = slot_position + 1;
+                        }
+                        tables.games.insert(game_name.clone(), game.clone());
+                        game
+                    };
+
+                    tables.lock().current_game = Some(game.clone());
                     let _ = event_tx.send(LanEvent::GameJoin(LanResult::Ok, Some(game)));
                 }
             }
             LanMessageType::JoinDeny => {
                 if let MessagePayload::GameNotJoined { reason, .. } = &message.payload {
-                    *pending_action.write().await = PendingAction::None;
-                    *action_expiration.write().await = None;
+                    {
+                        let mut pending = pending_action.lock();
+                        pending.action = PendingAction::None;
+                        pending.expires_at = None;
+                    }
                     let _ = event_tx.send(LanEvent::GameJoin(*reason, None));
                 }
             }
             LanMessageType::RequestGameLeave => {
-                if let Some(updated_game) = lobby
-                    .clone()
-                    .read_owned()
-                    .await
-                    .remove_player_from_current_game(sender_ip)
-                    .await
-                {
+                let updated_game = {
+                    let mut lobby_guard = Arc::clone(lobby).write_owned().await;
+                    lobby_guard.remove_player_from_current_game(sender_ip).await
+                };
+                if let Some(updated_game) = updated_game {
                     {
-                        let mut players = lobby_players.write().await;
-                        players.remove(&sender_ip);
-                        let snapshot: Vec<LanPlayer> = players.values().cloned().collect();
+                        let mut tables = tables.lock();
+                        tables.lobby_players.remove(&sender_ip);
+                        let snapshot: Vec<LanPlayer> =
+                            tables.lobby_players.values().cloned().collect();
                         let _ = event_tx.send(LanEvent::PlayerList(snapshot));
-                    }
-                    *current_game.write().await = Some(updated_game.clone());
-                    {
-                        let mut guard = games.write().await;
-                        guard.insert(updated_game.name.clone(), updated_game.clone());
+                        tables.current_game = Some(updated_game.clone());
+                        tables
+                            .games
+                            .insert(updated_game.name.clone(), updated_game.clone());
                     }
                     let _ = event_tx.send(LanEvent::PlayerLeave(message.sender.name.clone()));
                 }
             }
             LanMessageType::MapAvailability => {
                 if let MessagePayload::MapStatus { has_map, .. } = &message.payload {
-                    lobby
-                        .clone()
-                        .read_owned()
-                        .await
-                        .update_player_map_status(sender_ip, *has_map)
-                        .await;
-                    if let Some(game) = current_game.read().await.clone() {
-                        let mut guard = games.write().await;
-                        guard.insert(game.name.clone(), game);
+                    {
+                        let mut lobby_guard = Arc::clone(lobby).write_owned().await;
+                        lobby_guard
+                            .update_player_map_status(sender_ip, *has_map)
+                            .await;
+                    }
+                    {
+                        let mut tables = tables.lock();
+                        if let Some(game) = tables.current_game.clone() {
+                            tables.games.insert(game.name.clone(), game);
+                        }
                     }
                     let _ = event_tx.send(LanEvent::MapStatus(sender_ip, *has_map));
                 }
             }
             LanMessageType::SetAccept => {
                 if let MessagePayload::Accept { is_accepted, .. } = &message.payload {
-                    lobby
-                        .clone()
-                        .read_owned()
-                        .await
-                        .update_player_acceptance(sender_ip, *is_accepted)
-                        .await;
-                    if let Some(game) = current_game.read().await.clone() {
-                        let mut guard = games.write().await;
-                        guard.insert(game.name.clone(), game);
+                    {
+                        let mut lobby_guard = Arc::clone(lobby).write_owned().await;
+                        lobby_guard
+                            .update_player_acceptance(sender_ip, *is_accepted)
+                            .await;
+                    }
+                    {
+                        let mut tables = tables.lock();
+                        if let Some(game) = tables.current_game.clone() {
+                            tables.games.insert(game.name.clone(), game);
+                        }
                     }
                     let _ = event_tx.send(LanEvent::AcceptStatus(sender_ip, *is_accepted));
                 }
             }
             LanMessageType::GameStartTimer => {
                 if let MessagePayload::StartTimer { seconds } = &message.payload {
-                    let lobby_guard = lobby.clone().read_owned().await;
-                    lobby_guard
-                        .set_game_start_timer_internal(Some(*seconds))
-                        .await;
-                    if let Some(ref mut game) = *current_game.write().await {
-                        game.state = LanGameState::Starting;
+                    {
+                        let mut lobby_guard = Arc::clone(lobby).write_owned().await;
+                        lobby_guard
+                            .set_game_start_timer_internal(Some(*seconds))
+                            .await;
                     }
-                    if let Some(game) = current_game.read().await.clone() {
-                        let mut guard = games.write().await;
-                        guard.insert(game.name.clone(), game);
+                    {
+                        let mut tables = tables.lock();
+                        if let Some(ref mut game) = tables.current_game {
+                            game.state = LanGameState::Starting;
+                        }
+                        if let Some(game) = tables.current_game.clone() {
+                            tables.games.insert(game.name.clone(), game);
+                        }
                     }
                 }
             }
             LanMessageType::GameStart => {
-                let lobby_guard = Arc::clone(&lobby).read_owned().await;
-                lobby_guard.set_game_start_timer_internal(None).await;
-                if let Some(ref mut game) = *current_game.write().await {
-                    game.state = LanGameState::InProgress;
+                {
+                    let mut lobby_guard = Arc::clone(lobby).write_owned().await;
+                    lobby_guard.set_game_start_timer_internal(None).await;
                 }
-                if let Some(game) = current_game.read().await.clone() {
-                    let mut guard = games.write().await;
-                    guard.insert(game.name.clone(), game);
+                {
+                    let mut tables = tables.lock();
+                    if let Some(ref mut game) = tables.current_game {
+                        game.state = LanGameState::InProgress;
+                    }
+                    if let Some(game) = tables.current_game.clone() {
+                        tables.games.insert(game.name.clone(), game);
+                    }
                 }
             }
             LanMessageType::GameOptions => {
                 if let MessagePayload::GameOptions { options, is_public } = &message.payload {
                     match GameOptions::from_string(options) {
                         Ok(parsed) => {
-                            let lobby_guard = Arc::clone(&lobby).read_owned().await;
-                            lobby_guard
-                                .apply_remote_game_options(&parsed, *is_public)
-                                .await;
-                            if let Some(ref mut game) = *current_game.write().await {
-                                game.options = parsed.clone();
-                                game.is_public = *is_public;
+                            {
+                                let mut lobby_guard = Arc::clone(lobby).write_owned().await;
+                                lobby_guard
+                                    .apply_remote_game_options(&parsed, *is_public)
+                                    .await;
                             }
-                            if let Some(game) = current_game.read().await.clone() {
-                                let mut guard = games.write().await;
-                                guard.insert(game.name.clone(), game);
+                            {
+                                let mut tables = tables.lock();
+                                if let Some(ref mut game) = tables.current_game {
+                                    game.options = parsed.clone();
+                                    game.is_public = *is_public;
+                                }
+                                if let Some(game) = tables.current_game.clone() {
+                                    tables.games.insert(game.name.clone(), game);
+                                }
                             }
                             let _ = event_tx.send(LanEvent::GameOptionsUpdated(parsed));
                         }
@@ -1006,7 +1022,7 @@ impl LanApi {
                 }
             }
             LanMessageType::RequestGameInfo => {
-                if *is_host.read().await {
+                if is_host.load(Ordering::SeqCst) {
                     let lobby_guard = Arc::clone(&lobby).read_owned().await;
                     if let Some(info) = lobby_guard.player_info().await {
                         if let Some(game) = lobby_guard.current_game_snapshot().await {
@@ -1057,22 +1073,24 @@ impl LanApi {
             }
             LanMessageType::NameChange => {
                 if let MessagePayload::NameChange { new_name, .. } = &message.payload {
-                    let lobby_guard = lobby.clone().read_owned().await;
-                    lobby_guard.update_player_name(sender_ip, new_name).await;
                     {
-                        let mut players = lobby_players.write().await;
-                        if let Some(player) = players.get_mut(&sender_ip) {
+                        let mut lobby_guard = Arc::clone(lobby).write_owned().await;
+                        lobby_guard.update_player_name(sender_ip, new_name).await;
+                    }
+                    {
+                        let mut tables = tables.lock();
+                        if let Some(player) = tables.lobby_players.get_mut(&sender_ip) {
                             player.name = new_name.clone();
                         }
-                    }
-                    if let Some(ref mut game) = *current_game.write().await {
-                        if let Some(slot) = game
-                            .slots
-                            .iter_mut()
-                            .find(|slot| slot.player.as_ref().map(|p| p.ip) == Some(sender_ip))
-                        {
-                            if let Some(player) = slot.player.as_mut() {
-                                player.name = new_name.clone();
+                        if let Some(ref mut game) = tables.current_game {
+                            if let Some(slot) = game
+                                .slots
+                                .iter_mut()
+                                .find(|slot| slot.player.as_ref().map(|p| p.ip) == Some(sender_ip))
+                            {
+                                if let Some(player) = slot.player.as_mut() {
+                                    player.name = new_name.clone();
+                                }
                             }
                         }
                     }
@@ -1080,22 +1098,18 @@ impl LanApi {
                 }
             }
             LanMessageType::RequestLobbyLeave => {
-                if let Some(updated_game) = lobby
-                    .clone()
-                    .read_owned()
-                    .await
-                    .remove_player_from_current_game(sender_ip)
-                    .await
-                {
-                    *current_game.write().await = Some(updated_game.clone());
-                    {
-                        let mut guard = games.write().await;
-                        guard.insert(updated_game.name.clone(), updated_game);
-                    }
+                let updated_game = {
+                    let mut lobby_guard = Arc::clone(lobby).write_owned().await;
+                    lobby_guard.remove_player_from_current_game(sender_ip).await
+                };
+                if let Some(updated_game) = updated_game {
+                    let mut tables = tables.lock();
+                    tables.current_game = Some(updated_game.clone());
+                    tables.games.insert(updated_game.name.clone(), updated_game);
                 }
                 {
-                    let mut players = lobby_players.write().await;
-                    players.remove(&sender_ip);
+                    let mut tables = tables.lock();
+                    tables.lobby_players.remove(&sender_ip);
                 }
                 let _ = event_tx.send(LanEvent::PlayerLeave(message.sender.name.clone()));
             }
@@ -1150,19 +1164,10 @@ impl LanApi {
         }
 
         // Update chat
-        {
-            let mut chat = self.chat.write().await;
-            chat.update().await?;
-        }
+        self.chat.update().await?;
 
         // Return any pending events
         Ok(self.poll_event().await)
-    }
-
-    /// Set whether the application is active
-    pub async fn set_is_active(&self, is_active: bool) {
-        *self.is_active.write().await = is_active;
-        debug!("Application active state changed to: {}", is_active);
     }
 
     /// Request location discovery (find all players and games)
@@ -1181,24 +1186,20 @@ impl LanApi {
     ) -> NetworkResult<()> {
         info!("Requesting to join game: {}", game.name);
 
-        // Check if we're already busy with another action
+        // Check if we're already busy with another action and reserve the slot
         {
-            let pending = *self.pending_action.read().await;
-            if pending != PendingAction::None {
+            let mut pending = self.pending_action.lock();
+            if pending.action != PendingAction::None {
                 return Err(NetworkError::generic(
                     "Another action is already in progress".to_string(),
                 ));
             }
+
+            pending.action = PendingAction::Join;
+            pending.expires_at = Some(NetworkInstant::now() + self.config.action_timeout);
         }
 
-        // Set pending action
-        {
-            *self.pending_action.write().await = PendingAction::Join;
-            *self.action_expiration.write().await =
-                Some(NetworkInstant::now() + self.config.action_timeout);
-        }
-
-        let lobby = self.lobby.write().await;
+        let mut lobby = self.lobby.write().await;
         lobby.request_join(game, ip).await
     }
 
@@ -1206,38 +1207,34 @@ impl LanApi {
     pub async fn request_game_join_direct_connect(&self, ip_address: IpAddr) -> NetworkResult<()> {
         info!("Requesting direct connect to: {}", ip_address);
 
-        // Check if we're already busy
+        // Check if we're already busy and reserve the slot
         {
-            let pending = *self.pending_action.read().await;
-            if pending != PendingAction::None {
+            let mut pending = self.pending_action.lock();
+            if pending.action != PendingAction::None {
                 return Err(NetworkError::generic(
                     "Another action is already in progress".to_string(),
                 ));
             }
+
+            pending.action = PendingAction::JoinDirectConnect;
+            pending.expires_at = Some(NetworkInstant::now() + self.config.action_timeout);
         }
 
-        // Set pending action
-        {
-            *self.pending_action.write().await = PendingAction::JoinDirectConnect;
-            *self.action_expiration.write().await =
-                Some(NetworkInstant::now() + self.config.action_timeout);
-        }
-
-        let lobby = self.lobby.write().await;
+        let mut lobby = self.lobby.write().await;
         lobby.request_direct_connect(ip_address).await
     }
 
     /// Request to leave current game
     pub async fn request_game_leave(&self) -> NetworkResult<()> {
         info!("Requesting to leave game");
-        let lobby = self.lobby.write().await;
+        let mut lobby = self.lobby.write().await;
         lobby.request_leave().await
     }
 
     /// Update acceptance of current game options
     pub async fn request_accept(&self, accepted: bool) -> NetworkResult<()> {
         info!("Requesting accept status: {}", accepted);
-        let lobby = self.lobby.read().await;
+        let mut lobby = self.lobby.write().await;
         lobby.request_accept(accepted).await
     }
 
@@ -1249,7 +1246,7 @@ impl LanApi {
     /// Announce local map availability status
     pub async fn request_map_status(&self, has_map: bool) -> NetworkResult<()> {
         info!("Announcing map status: {}", has_map);
-        let lobby = self.lobby.read().await;
+        let mut lobby = self.lobby.write().await;
         lobby.request_map_status(has_map).await
     }
 
@@ -1270,14 +1267,14 @@ impl LanApi {
     /// Request to start the game
     pub async fn request_game_start(&self) -> NetworkResult<()> {
         info!("Requesting game start");
-        let lobby = self.lobby.read().await;
+        let mut lobby = self.lobby.write().await;
         lobby.request_game_start().await
     }
 
     /// Request game start with countdown timer
     pub async fn request_game_start_timer(&self, seconds: u32) -> NetworkResult<()> {
         info!("Requesting game start timer: {} seconds", seconds);
-        let lobby = self.lobby.read().await;
+        let mut lobby = self.lobby.write().await;
         lobby.request_game_start_timer(seconds).await
     }
 
@@ -1289,7 +1286,7 @@ impl LanApi {
         ip: Option<IpAddr>,
     ) -> NetworkResult<()> {
         info!("Requesting game options update");
-        let lobby = self.lobby.read().await;
+        let mut lobby = self.lobby.write().await;
         lobby
             .request_game_options(game_options, is_public, ip)
             .await
@@ -1311,27 +1308,23 @@ impl LanApi {
 
         info!("Requesting game creation: {}", game_name);
 
-        // Check if we're already busy
+        // Check if we're already busy and reserve the slot
         {
-            let pending = *self.pending_action.read().await;
-            if pending != PendingAction::None {
+            let mut pending = self.pending_action.lock();
+            if pending.action != PendingAction::None {
                 return Err(NetworkError::generic(
                     "Another action is already in progress".to_string(),
                 ));
             }
-        }
 
-        // Set pending action
-        {
-            *self.pending_action.write().await = PendingAction::CreateGame;
-            *self.action_expiration.write().await =
-                Some(NetworkInstant::now() + self.config.action_timeout);
+            pending.action = PendingAction::CreateGame;
+            pending.expires_at = Some(NetworkInstant::now() + self.config.action_timeout);
         }
 
         // Set as host
-        *self.is_host.write().await = true;
+        self.is_host.store(true, Ordering::SeqCst);
 
-        let lobby = self.lobby.write().await;
+        let mut lobby = self.lobby.write().await;
         lobby
             .request_create_game(game_name, is_direct_connect)
             .await
@@ -1355,7 +1348,7 @@ impl LanApi {
         }
 
         info!("Requesting name change to: {}", new_name);
-        let lobby = self.lobby.read().await;
+        let mut lobby = self.lobby.write().await;
         lobby.request_name_change(new_name).await
     }
 
@@ -1363,17 +1356,17 @@ impl LanApi {
     pub async fn request_lobby_leave(&self, forced: bool) -> NetworkResult<()> {
         info!("Requesting lobby leave (forced: {})", forced);
         {
-            let mut pending = self.pending_action.write().await;
-            *pending = PendingAction::Leave;
+            let mut pending = self.pending_action.lock();
+            pending.action = PendingAction::Leave;
+            pending.expires_at = Some(NetworkInstant::now() + self.config.action_timeout);
         }
-        *self.action_expiration.write().await =
-            Some(NetworkInstant::now() + self.config.action_timeout);
 
-        let lobby = self.lobby.write().await;
+        let mut lobby = self.lobby.write().await;
         let result = lobby.request_lobby_leave(forced).await;
 
-        *self.pending_action.write().await = PendingAction::None;
-        *self.action_expiration.write().await = None;
+        let mut pending = self.pending_action.lock();
+        pending.action = PendingAction::None;
+        pending.expires_at = None;
 
         result
     }
@@ -1381,7 +1374,7 @@ impl LanApi {
     /// Reset game start timer
     pub async fn reset_game_start_timer(&self) -> NetworkResult<()> {
         info!("Resetting game start timer");
-        let lobby = self.lobby.read().await;
+        let mut lobby = self.lobby.write().await;
         lobby.reset_game_start_timer().await
     }
 
@@ -1393,24 +1386,24 @@ impl LanApi {
 
     /// Look up a game by name
     pub async fn lookup_game(&self, game_name: &str) -> Option<LanGameInfo> {
-        let games = self.games.read().await;
-        games.get(game_name).cloned()
+        let tables = self.tables.lock();
+        tables.games.get(game_name).cloned()
     }
 
     /// Look up a game by list offset
     pub async fn lookup_game_by_offset(&self, offset: usize) -> Option<LanGameInfo> {
-        let games = self.games.read().await;
-        games.values().nth(offset).cloned()
+        let tables = self.tables.lock();
+        tables.games.values().nth(offset).cloned()
     }
 
     /// Set local IP address
-    pub async fn set_local_ip(&self, local_ip: IpAddr) -> NetworkResult<bool> {
+    pub async fn set_local_ip(&mut self, local_ip: IpAddr) -> NetworkResult<bool> {
         info!("Setting local IP to: {}", local_ip);
-        *self.local_ip.write().await = Some(local_ip);
+        self.local_ip = Some(local_ip);
 
         self.discovery.set_local_ip(local_ip).await;
         {
-            let lobby = self.lobby.read().await;
+            let mut lobby = self.lobby.write().await;
             lobby.set_local_ip(local_ip).await;
         }
 
@@ -1419,12 +1412,12 @@ impl LanApi {
 
     /// Get local IP address
     pub async fn get_local_ip(&self) -> Option<IpAddr> {
-        *self.local_ip.read().await
+        self.local_ip
     }
 
     /// Check if we are the host
     pub async fn am_i_host(&self) -> bool {
-        *self.is_host.read().await
+        self.is_host.load(Ordering::SeqCst)
     }
 
     /// Get our player name
@@ -1434,34 +1427,35 @@ impl LanApi {
 
     /// Get current game we're in
     pub async fn get_my_game(&self) -> Option<LanGameInfo> {
-        self.current_game.read().await.clone()
+        let tables = self.tables.lock();
+        tables.current_game.clone()
     }
 
     /// Get all discovered games
     pub async fn get_game_list(&self) -> Vec<LanGameInfo> {
-        let games = self.games.read().await;
-        games.values().cloned().collect()
+        let tables = self.tables.lock();
+        tables.games.values().cloned().collect()
     }
 
     /// Get all lobby players
     pub async fn get_player_list(&self) -> Vec<LanPlayer> {
-        let players = self.lobby_players.read().await;
-        players.values().cloned().collect()
+        let tables = self.tables.lock();
+        tables.lobby_players.values().cloned().collect()
     }
 
     /// Shutdown the LAN API
-    pub async fn shutdown(&self) -> NetworkResult<()> {
+    pub async fn shutdown(&mut self) -> NetworkResult<()> {
         info!("Shutting down LAN API");
 
         // Send shutdown signal
         let _ = self.bridge_tx.send(LanBridgeEvent::Shutdown);
 
         // Wait for background task to complete
-        if let Some(handle) = self.bg_task.write().await.take() {
+        if let Some(handle) = self.bg_task.take() {
             let _ = handle.await;
         }
 
-        if let Some(handle) = self.nat_task.write().await.take() {
+        if let Some(handle) = self.nat_task.take() {
             handle.abort();
             let _ = handle.await;
         }
@@ -1474,16 +1468,16 @@ impl LanApi {
             lobby.shutdown().await?;
         }
 
-        {
-            let mut chat = self.chat.write().await;
-            chat.shutdown().await?;
-        }
+        self.chat.shutdown().await?;
 
         info!("LAN API shut down successfully");
         Ok(())
     }
 }
 
+/// THREAD: process-global singleton guard for the C++ `TheLAN` object. All
+/// user-facing callers (shell callbacks, `Code/Main`) serialise on this mutex,
+/// which is what makes single-owner access to [`LanApi`] sound.
 static THE_LAN: LazyLock<tokio::sync::Mutex<Option<LanApi>>> =
     LazyLock::new(|| tokio::sync::Mutex::new(None));
 
@@ -1558,11 +1552,11 @@ mod tests {
     use super::*;
     use crate::error::NetworkResult;
     use crate::observability::{
-        HealthStatus, ObservabilityConfig, initialize_telemetry, telemetry,
+        initialize_telemetry, telemetry, HealthStatus, ObservabilityConfig,
     };
     use std::net::{IpAddr, Ipv4Addr, SocketAddr};
     use std::time::Duration;
-    use tokio::sync::{OnceCell, watch};
+    use tokio::sync::{watch, OnceCell};
     use tokio::time::sleep;
 
     fn next_port() -> u16 {
@@ -1726,7 +1720,7 @@ mod tests {
             .expect("send nat binding");
         sleep(Duration::from_millis(100)).await;
 
-        let discovery_endpoint = host.discovery.public_endpoint().await;
+        let discovery_endpoint = host.discovery.public_endpoint();
         assert_eq!(discovery_endpoint, Some(binding.address));
 
         let snapshot = {
@@ -1741,7 +1735,7 @@ mod tests {
         sleep(Duration::from_millis(100)).await;
         pump(&mut host).await?;
 
-        let cleared = host.discovery.public_endpoint().await;
+        let cleared = host.discovery.public_endpoint();
         assert!(cleared.is_none());
 
         host.shutdown().await?;
@@ -1969,7 +1963,7 @@ mod tests {
     #[tokio::test]
     async fn test_local_ip_setting() {
         let config = LanConfig::default();
-        let lan_api = LanApi::new(config).await.unwrap();
+        let mut lan_api = LanApi::new(config).await.unwrap();
 
         let test_ip = IpAddr::V4(Ipv4Addr::new(192, 168, 1, 100));
         let success = lan_api.set_local_ip(test_ip).await.unwrap();

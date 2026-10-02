@@ -12,10 +12,10 @@
 //! Append a tagged suffix after the historical v9 contain/producer payload
 //! so older decoders ignore the extra bytes. No WorldSnapshot version bump.
 
-use crate::game_logic::GameLogic;
 use crate::game_logic::host_leaflet_drop::HostLeafletDropMission;
 use crate::game_logic::host_paradrop::HostParadropMission;
 use crate::game_logic::host_sneak_attack::{HostSneakAttackMission, PendingSneakShockwave};
+use crate::game_logic::GameLogic;
 use crate::save_load::{SaveLoadError, SaveLoadResult};
 use serde::{Deserialize, Serialize};
 
@@ -99,8 +99,9 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
             "DPLS payload truncated".to_string(),
         ));
     }
-    let payload: DeliverPayloadPersistPayload = bincode_legacy::deserialize(&rest[..payload_len])
-        .map_err(|err| SaveLoadError::Corrupted(format!("DPLS payload decode: {err}")))?;
+    let payload: DeliverPayloadPersistPayload =
+        bincode_legacy::deserialize(&rest[..payload_len])
+            .map_err(|err| SaveLoadError::Corrupted(format!("DPLS payload decode: {err}")))?;
     apply_payload(game_logic, payload);
     Ok(())
 }
@@ -185,7 +186,7 @@ mod tests {
         HostParadropKind, HostParadropPhase, PARADROP_RESIDUAL_TEMPLATE,
     };
     use crate::game_logic::host_sneak_attack::{
-        GLA_SNEAK_TUNNEL_TEMPLATE, HostSneakAttackKind, HostSneakAttackPhase,
+        HostSneakAttackKind, HostSneakAttackPhase, GLA_SNEAK_TUNNEL_TEMPLATE,
     };
     use crate::game_logic::{GameLogic, ObjectId, Team};
     use glam::Vec3;

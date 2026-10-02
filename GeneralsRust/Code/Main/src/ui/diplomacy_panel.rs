@@ -8,7 +8,7 @@
 //! `GameClient/gui/callbacks/diplomacy.rs`.
 
 use super::{
-    ClickSpring, Interactive, KeyCode, MouseButton, Renderable, UIRenderContext, layout, utils,
+    layout, utils, ClickSpring, Interactive, KeyCode, MouseButton, Renderable, UIRenderContext,
 };
 use crate::localization;
 use std::collections::HashMap;
@@ -780,12 +780,13 @@ mod tests {
             .collect();
         panel.set_players(many_players);
         assert_eq!(panel.players().len(), 10);
-        let mut row_player_ids: Vec<i32> =
-            panel.buttons.iter().map(|b| b.player_id).collect();
+        let mut row_player_ids: Vec<i32> = panel.buttons.iter().map(|b| b.player_id).collect();
         row_player_ids.sort_unstable();
         row_player_ids.dedup();
         assert!(
-            row_player_ids.iter().all(|id| (*id as usize) < MAX_PLAYER_ROWS),
+            row_player_ids
+                .iter()
+                .all(|id| (*id as usize) < MAX_PLAYER_ROWS),
             "rows must never exceed the panel's row capacity: {row_player_ids:?}"
         );
     }

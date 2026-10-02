@@ -13,8 +13,8 @@ use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
 use std::net::{IpAddr, SocketAddr};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 use tokio::net::UdpSocket;
 use tokio::sync::{Notify, RwLock};
@@ -566,7 +566,11 @@ impl LanChat {
     }
 
     /// Send a chat message
-    pub async fn send_message(&mut self, message: String, chat_type: ChatType) -> NetworkResult<()> {
+    pub async fn send_message(
+        &mut self,
+        message: String,
+        chat_type: ChatType,
+    ) -> NetworkResult<()> {
         // Validate message length
         if message.len() > self.max_message_length {
             return Err(NetworkError::invalid_command(format!(

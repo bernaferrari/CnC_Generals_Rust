@@ -14,8 +14,10 @@
 // - Temporal smoothing for smooth intensity transitions
 // - Blinking support for periodic on/off effects
 
+use std::cell::RefCell;
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 use crate::texture::{MipCount, TextureBase, TextureFormat, TextureManager};
 
@@ -940,20 +942,19 @@ impl DazzleVisibilityHandler for DefaultDazzleVisibilityHandler {
     }
 }
 
-static DAZZLE_VISIBILITY_HANDLER: OnceLock<Mutex<Arc<dyn DazzleVisibilityHandler>>> =
-    OnceLock::new();
+thread_local! {
+    /// C++ kept the dazzle hooks as plain statics on the game thread.
+    static DAZZLE_VISIBILITY_HANDLER: RefCell<Arc<dyn DazzleVisibilityHandler>> =
+        RefCell::new(Arc::new(DefaultDazzleVisibilityHandler));
+}
 
 fn get_dazzle_visibility_handler() -> Arc<dyn DazzleVisibilityHandler> {
-    let handler = DAZZLE_VISIBILITY_HANDLER
-        .get_or_init(|| Mutex::new(Arc::new(DefaultDazzleVisibilityHandler)));
-    handler.lock().unwrap().clone()
+    DAZZLE_VISIBILITY_HANDLER.with_borrow(Clone::clone)
 }
 
 /// Install a custom visibility handler.
 pub fn install_dazzle_visibility_handler(handler: Arc<dyn DazzleVisibilityHandler>) {
-    let storage = DAZZLE_VISIBILITY_HANDLER
-        .get_or_init(|| Mutex::new(Arc::new(DefaultDazzleVisibilityHandler)));
-    *storage.lock().unwrap() = handler;
+    DAZZLE_VISIBILITY_HANDLER.with_borrow_mut(|storage| *storage = handler);
 }
 
 /// Dazzle texture provider interface (C++: WW3DAssetManager::Get_Texture).
@@ -969,28 +970,27 @@ impl DazzleTextureProvider for DefaultDazzleTextureProvider {
         if name.is_empty() {
             return None;
         }
-        let manager = DAZZLE_TEXTURE_MANAGER.get_or_init(|| Mutex::new(TextureManager::new()));
-        let mut manager = manager.lock().unwrap();
-        manager
-            .get_or_load(name, TextureFormat::A8R8G8B8, true, MipCount::All)
-            .ok()
+        DAZZLE_TEXTURE_MANAGER.with_borrow_mut(|manager| {
+            manager
+                .get_or_load(name, TextureFormat::A8R8G8B8, true, MipCount::All)
+                .ok()
+        })
     }
 }
 
-static DAZZLE_TEXTURE_PROVIDER: OnceLock<Mutex<Arc<dyn DazzleTextureProvider>>> = OnceLock::new();
-static DAZZLE_TEXTURE_MANAGER: OnceLock<Mutex<TextureManager>> = OnceLock::new();
+thread_local! {
+    static DAZZLE_TEXTURE_PROVIDER: RefCell<Arc<dyn DazzleTextureProvider>> =
+        RefCell::new(Arc::new(DefaultDazzleTextureProvider));
+    static DAZZLE_TEXTURE_MANAGER: RefCell<TextureManager> = RefCell::new(TextureManager::new());
+}
 
 fn get_dazzle_texture_provider() -> Arc<dyn DazzleTextureProvider> {
-    let provider =
-        DAZZLE_TEXTURE_PROVIDER.get_or_init(|| Mutex::new(Arc::new(DefaultDazzleTextureProvider)));
-    provider.lock().unwrap().clone()
+    DAZZLE_TEXTURE_PROVIDER.with_borrow(Clone::clone)
 }
 
 /// Install a custom texture provider for dazzle/lensflare assets.
 pub fn install_dazzle_texture_provider(provider: Arc<dyn DazzleTextureProvider>) {
-    let storage =
-        DAZZLE_TEXTURE_PROVIDER.get_or_init(|| Mutex::new(Arc::new(DefaultDazzleTextureProvider)));
-    *storage.lock().unwrap() = provider;
+    DAZZLE_TEXTURE_PROVIDER.with_borrow_mut(|storage| *storage = provider);
 }
 
 fn fetch_dazzle_texture(name: &str) -> Option<Arc<TextureBase>> {
@@ -1004,169 +1004,66 @@ fn fetch_dazzle_texture(name: &str) -> Option<Arc<TextureBase>> {
 // Global Type Management (matches C++ static arrays)
 // ============================================================================
 
-/// Global dazzle type registry.
-static DAZZLE_TYPES: OnceLock<Mutex<HashMap<String, DazzleTypeClass>>> = OnceLock::new();
+thread_local! {
+    /// Global dazzle type registries. C++ kept them as plain statics on the
+    /// game thread, so thread-local storage replaces the mutexes.
+    static DAZZLE_TYPES: RefCell<HashMap<String, DazzleTypeClass>> = RefCell::new(HashMap::new());
+    static LENSFLARE_TYPES: RefCell<HashMap<String, LensflareTypeClass>> =
+        RefCell::new(HashMap::new());
+}
 
-/// Global lensflare type registry.
-static LENSFLARE_TYPES: OnceLock<Mutex<HashMap<String, LensflareTypeClass>>> = OnceLock::new();
-
-/// Global dazzle rendering enabled flag.
-static DAZZLE_RENDERING_ENABLED: OnceLock<Mutex<bool>> = OnceLock::new();
+static DAZZLE_RENDERING_ENABLED: AtomicBool = AtomicBool::new(true);
 
 /// Initialize global state.
-pub fn init_dazzle_system() {
-    DAZZLE_TYPES.get_or_init(|| Mutex::new(HashMap::new()));
-    LENSFLARE_TYPES.get_or_init(|| Mutex::new(HashMap::new()));
-    DAZZLE_RENDERING_ENABLED.get_or_init(|| Mutex::new(true));
-}
+pub fn init_dazzle_system() {}
 
 /// Register a dazzle type.
 /// Matches C++ Init_Type (lines 680-699).
 pub fn register_dazzle_type(name: String, config: DazzleInitClass) {
-    init_dazzle_system();
-    let types = DAZZLE_TYPES.get().unwrap();
-    // Recover from poisoned mutex by clearing and recreating
-    match types.lock() {
-        Ok(mut types_guard) => {
-            types_guard.insert(name.clone(), DazzleTypeClass::new(name, config));
-        }
-        Err(poisoned) => {
-            eprintln!("Warning: Dazzle types mutex was poisoned, recovering by clearing");
-            let mut types_guard = poisoned.into_inner();
-            types_guard.clear();
-            types_guard.insert(name.clone(), DazzleTypeClass::new(name, config));
-        }
-    }
+    DAZZLE_TYPES.with_borrow_mut(|types| {
+        types.insert(name.clone(), DazzleTypeClass::new(name, config));
+    });
 }
 
 /// Register a lensflare type.
 /// Matches C++ Init_Lensflare (lines 703-722).
 pub fn register_lensflare_type(name: String, config: LensflareInitClass) {
-    init_dazzle_system();
-    let lensflares = LENSFLARE_TYPES.get().unwrap();
-    // Recover from poisoned mutex by clearing and recreating
-    match lensflares.lock() {
-        Ok(mut lensflares_guard) => {
-            lensflares_guard.insert(name.clone(), LensflareTypeClass::new(name, config));
-        }
-        Err(poisoned) => {
-            eprintln!("Warning: Lensflare types mutex was poisoned, recovering by clearing");
-            let mut lensflares_guard = poisoned.into_inner();
-            lensflares_guard.clear();
-            lensflares_guard.insert(name.clone(), LensflareTypeClass::new(name, config));
-        }
-    }
+    LENSFLARE_TYPES.with_borrow_mut(|types| {
+        types.insert(name.clone(), LensflareTypeClass::new(name, config));
+    });
 }
 
 /// Get dazzle type by name.
 pub fn get_dazzle_type(name: &str) -> Option<DazzleTypeClass> {
-    let types = DAZZLE_TYPES.get()?;
-    // Recover from poisoned mutex by returning None (safe fallback)
-    match types.lock() {
-        Ok(types_guard) => types_guard.get(name).cloned(),
-        Err(_) => {
-            eprintln!(
-                "Warning: Dazzle types mutex was poisoned while retrieving type '{}'",
-                name
-            );
-            None
-        }
-    }
+    DAZZLE_TYPES.with_borrow(|types| types.get(name).cloned())
 }
 
 /// Get lensflare type by name.
 pub fn get_lensflare_type(name: &str) -> Option<LensflareTypeClass> {
-    let lensflares = LENSFLARE_TYPES.get()?;
-    // Recover from poisoned mutex by returning None (safe fallback)
-    match lensflares.lock() {
-        Ok(lensflares_guard) => lensflares_guard.get(name).cloned(),
-        Err(_) => {
-            eprintln!(
-                "Warning: Lensflare types mutex was poisoned while retrieving type '{}'",
-                name
-            );
-            None
-        }
-    }
+    LENSFLARE_TYPES.with_borrow(|types| types.get(name).cloned())
 }
 
 /// Get all dazzle type names.
 pub fn get_dazzle_type_names() -> Vec<String> {
-    init_dazzle_system();
-    let types = DAZZLE_TYPES.get().unwrap();
-    // Recover from poisoned mutex by returning empty list
-    match types.lock() {
-        Ok(types_guard) => types_guard.keys().cloned().collect(),
-        Err(_) => {
-            eprintln!("Warning: Dazzle types mutex was poisoned while retrieving type names");
-            Vec::new()
-        }
-    }
+    DAZZLE_TYPES.with_borrow(|types| types.keys().cloned().collect())
 }
 
 /// Enable/disable dazzle rendering globally.
 /// Matches C++ Enable_Dazzle_Rendering.
 pub fn set_dazzle_rendering_enabled(enabled: bool) {
-    init_dazzle_system();
-    let flag = DAZZLE_RENDERING_ENABLED.get().unwrap();
-    // Recover from poisoned mutex by reinitializing state
-    match flag.lock() {
-        Ok(mut flag_guard) => {
-            *flag_guard = enabled;
-        }
-        Err(poisoned) => {
-            eprintln!("Warning: Dazzle rendering enabled flag mutex was poisoned, recovering");
-            let mut flag_guard = poisoned.into_inner();
-            *flag_guard = enabled;
-        }
-    }
+    DAZZLE_RENDERING_ENABLED.store(enabled, Ordering::Relaxed);
 }
 
 /// Check if dazzle rendering is enabled.
 pub fn is_dazzle_rendering_enabled() -> bool {
-    init_dazzle_system();
-    let flag = DAZZLE_RENDERING_ENABLED.get().unwrap();
-    // Recover from poisoned mutex by assuming disabled (safe default)
-    match flag.lock() {
-        Ok(flag_guard) => *flag_guard,
-        Err(_) => {
-            eprintln!(
-                "Warning: Dazzle rendering enabled flag mutex was poisoned, assuming disabled"
-            );
-            false
-        }
-    }
+    DAZZLE_RENDERING_ENABLED.load(Ordering::Relaxed)
 }
 
 /// Clear all registered types.
 /// Matches C++ Deinit (lines 726-748).
 pub fn clear_dazzle_types() {
-    if let Some(types) = DAZZLE_TYPES.get() {
-        // Recover from poisoned mutex by clearing state
-        match types.lock() {
-            Ok(mut types_guard) => {
-                types_guard.clear();
-            }
-            Err(poisoned) => {
-                eprintln!("Warning: Dazzle types mutex was poisoned during clear, recovering");
-                let mut types_guard = poisoned.into_inner();
-                types_guard.clear();
-            }
-        }
-    }
-    if let Some(lensflares) = LENSFLARE_TYPES.get() {
-        // Recover from poisoned mutex by clearing state
-        match lensflares.lock() {
-            Ok(mut lensflares_guard) => {
-                lensflares_guard.clear();
-            }
-            Err(poisoned) => {
-                eprintln!("Warning: Lensflare types mutex was poisoned during clear, recovering");
-                let mut lensflares_guard = poisoned.into_inner();
-                lensflares_guard.clear();
-            }
-        }
-    }
+    DAZZLE_TYPES.with_borrow_mut(HashMap::clear);
+    LENSFLARE_TYPES.with_borrow_mut(HashMap::clear);
 }
 
 // ============================================================================

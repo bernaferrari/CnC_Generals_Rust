@@ -32,11 +32,11 @@ unsafe impl Send for LaserCallbackPack {}
 // `!Sync` default is unreachable.
 unsafe impl Sync for LaserCallbackPack {}
 #[cfg(feature = "game_client")]
-use game_client::effects::particle_renderer::{ParticleUniforms, register_particle_renderer};
+use game_client::effects::particle_renderer::{register_particle_renderer, ParticleUniforms};
 #[cfg(feature = "game_client")]
 use game_client::effects::weather_complete::get_weather_system;
 #[cfg(feature = "game_client")]
-use game_client::effects::{ParticleRenderer, get_particle_system_manager};
+use game_client::effects::{get_particle_system_manager, ParticleRenderer};
 #[cfg(feature = "game_client")]
 use game_client::fx_list::get_decal_manager;
 #[cfg(feature = "game_client")]
@@ -816,7 +816,7 @@ impl ForwardPass {
         let direction = Vec3::from_array(direction).normalize_or_zero();
         let mut light = LightClass::directional(direction, Vec3::from_array(color), 1.0);
         light.enabled = true;
-        env.add_light(Arc::new(Mutex::new(light)));
+        env.add_light(light);
 
         #[cfg(feature = "game_client")]
         {
@@ -831,7 +831,7 @@ impl ForwardPass {
                 let intensity = pulse_color.max_element().max(0.01);
                 let mut point = LightClass::point(position, pulse_color, intensity, range);
                 point.enabled = true;
-                env.add_light(Arc::new(Mutex::new(point)));
+                env.add_light(point);
             }
         }
 
@@ -856,10 +856,8 @@ impl ForwardPass {
             .unwrap_or(0.5)
             .clamp(0.0, 1.0);
         env.ambient *= fraction;
-        for light in &env.lights {
-            if let Ok(mut light) = light.lock() {
-                light.color *= fraction;
-            }
+        for light in &mut env.lights {
+            light.color *= fraction;
         }
         Some(env)
     }
@@ -1472,11 +1470,8 @@ mod tests {
             .expect("the same frozen metadata builds the dedicated ghost environment");
 
         assert_eq!(fogged.ambient, ordinary.ambient * 0.25);
-        let ordinary_color = ordinary.lights[0]
-            .lock()
-            .expect("ordinary light lock")
-            .color;
-        let fogged_color = fogged.lights[0].lock().expect("ghost light lock").color;
+        let ordinary_color = ordinary.lights[0].color;
+        let fogged_color = fogged.lights[0].color;
         assert_eq!(fogged_color, ordinary_color * 0.25);
     }
 }

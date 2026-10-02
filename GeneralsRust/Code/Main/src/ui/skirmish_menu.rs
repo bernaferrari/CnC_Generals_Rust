@@ -5,8 +5,8 @@
 //! Configures map, player slots, teams, factions, and game rules.
 
 use super::{
-    ClickSpring, Interactive, KeyCode, MouseButton, Renderable, Screen, UIEvent, UIRenderContext,
-    layout, sound_files, utils,
+    layout, sound_files, utils, ClickSpring, Interactive, KeyCode, MouseButton, Renderable, Screen,
+    UIEvent, UIRenderContext,
 };
 use crate::game_logic::GameMode;
 use crate::localization;

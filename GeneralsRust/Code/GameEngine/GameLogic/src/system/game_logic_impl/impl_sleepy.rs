@@ -57,13 +57,6 @@ impl GameLogic {
                 .pop()
                 .expect("Heap became empty after peek");
 
-            let object_ref = match self.objects.get(&entry.object_id) {
-                Some(obj) => obj.clone(),
-                None => {
-                    continue;
-                }
-            };
-
             let (module_disabled_mask, phase) = entry
                 .module
                 .read()
@@ -75,7 +68,14 @@ impl GameLogic {
                 })
                 .unwrap_or((DisabledMaskType::empty(), SleepyUpdatePhase::Normal));
 
-            let object_disabled = object_ref.read().ok().map(|obj| obj.get_disabled_flags());
+            // Scoped map borrow for the disabled-flag check — no Arc handle
+            // clone per entry. A missing object still drops the entry (its
+            // module belongs to a dead object); a poisoned lock still reads
+            // as "not disabled".
+            let object_disabled = match self.objects.get(&entry.object_id) {
+                Some(obj_ref) => obj_ref.read().ok().map(|obj| obj.get_disabled_flags()),
+                None => continue,
+            };
             let should_process = match object_disabled {
                 Some(mask) => disabled_module_should_process(mask, module_disabled_mask),
                 None => true,
@@ -271,11 +271,6 @@ impl GameLogic {
 
         for phase in phases {
             for entry in &self.normal_updates {
-                let object_ref = match self.objects.get(&entry.object_id) {
-                    Some(obj) => obj.clone(),
-                    None => continue,
-                };
-
                 let (module_disabled_mask, module_phase) = entry
                     .module
                     .read()
@@ -290,7 +285,14 @@ impl GameLogic {
                     continue;
                 }
 
-                let object_disabled = object_ref.read().ok().map(|obj| obj.get_disabled_flags());
+                // Scoped map borrow for the disabled-flag check — no Arc
+                // handle clone per entry per phase. A missing object still
+                // skips the module; a poisoned lock still reads as "not
+                // disabled".
+                let object_disabled = match self.objects.get(&entry.object_id) {
+                    Some(obj_ref) => obj_ref.read().ok().map(|obj| obj.get_disabled_flags()),
+                    None => continue,
+                };
                 let should_process = match object_disabled {
                     Some(mask) => disabled_module_should_process(mask, module_disabled_mask),
                     None => true,
@@ -563,10 +565,9 @@ mod sleepy_parity_tests {
         (module, count)
     }
 
-    fn insert_test_object(logic: &mut GameLogic, id: ObjectID) -> Arc<RwLock<Object>> {
+    fn insert_test_object(logic: &mut GameLogic, id: ObjectID) {
         let object = Arc::new(RwLock::new(Object::new_test(id, 100.0)));
-        logic.objects.insert(id, Arc::clone(&object));
-        object
+        logic.objects.insert(id, object);
     }
 
     #[test]
@@ -652,9 +653,14 @@ mod sleepy_parity_tests {
         // Object EMP|HELD, module HELD: C++ runs; old Rust subset skipped EMP leftover.
         let mut logic = GameLogic::new();
         logic.frame = 4;
-        let object = insert_test_object(&mut logic, 44);
+        insert_test_object(&mut logic, 44);
         {
-            let mut guard = object.write().expect("object lock");
+            let mut guard = logic
+                .objects
+                .get(&44)
+                .expect("test object inserted")
+                .write()
+                .expect("object lock");
             guard.set_disabled(DisabledType::DisabledEmp);
             guard.set_disabled(DisabledType::Held);
         }
@@ -681,8 +687,7 @@ mod sleepy_parity_tests {
             "no intersection must skip the module"
         );
 
-        let enabled = insert_test_object(&mut logic, 45);
-        let _ = enabled;
+        insert_test_object(&mut logic, 45);
         let (always, always_ticks) =
             counting_ptr(DisabledMaskType::empty(), UpdateSleepTime::Forever);
         logic.register_sleepy_update_module(45, Arc::clone(&always), 4);

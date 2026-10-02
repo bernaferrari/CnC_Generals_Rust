@@ -90,6 +90,9 @@ pub struct DX8TextureCategoryClass {
     pub shader: ShaderClass,
     pub material: Option<Arc<VertexMaterialClass>>,
     pub polygon_renderers: Vec<Arc<DX8PolygonRendererClass>>,
+    // THREAD: MeshClass travels as an `Arc<dyn Any + Send + Sync>` payload
+    // through the static sort lists, so the category's task queue must stay
+    // `Sync` — a mutex instead of a RefCell.
     pub(super) render_tasks: Mutex<Vec<MeshRenderTask>>,
 }
 

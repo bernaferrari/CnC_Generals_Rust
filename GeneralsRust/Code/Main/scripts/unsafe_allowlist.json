@@ -160,18 +160,6 @@
       "constructs": 2,
       "undocumented": 0
     },
-    "Code/GameEngine/GameClient/src/display/shader_filter.rs": {
-      "constructs": 2,
-      "undocumented": 0
-    },
-    "Code/GameEngine/GameClient/src/display/shadow_pass.rs": {
-      "constructs": 2,
-      "undocumented": 0
-    },
-    "Code/GameEngine/GameClient/src/display/status_circle.rs": {
-      "constructs": 2,
-      "undocumented": 0
-    },
     "Code/GameEngine/GameClient/src/drawable/drawable_draw_pipeline.rs": {
       "constructs": 2,
       "undocumented": 0
@@ -190,10 +178,6 @@
     },
     "Code/GameEngine/GameClient/src/gui/ui_renderer.rs": {
       "constructs": 2,
-      "undocumented": 0
-    },
-    "Code/GameEngine/GameClient/src/gui/w3d_gadget_draw/common.rs": {
-      "constructs": 4,
       "undocumented": 0
     },
     "Code/GameEngine/GameClient/src/terrain/terrain_visual/visual_struct.rs": {

@@ -1,7 +1,7 @@
 //! v9 world-tail codec for the Entity lifecycle envelope + contain/producer links.
 
 use crate::game_logic::object::{decode_lifecycle_snapshot_block, encode_lifecycle_snapshot_block};
-use crate::game_logic::{GameLogic, ObjectId, railroad_registry_reset};
+use crate::game_logic::{railroad_registry_reset, GameLogic, ObjectId};
 use crate::gameworld_shadow::GameWorldShadow;
 use crate::save_load::{SaveLoadError, SaveLoadResult};
 use gamelogic::world::entities::EntityId;
@@ -347,8 +347,8 @@ mod tests {
     #[test]
     fn apply_tail_resets_stale_railroad_then_restores_envelope() {
         use crate::game_logic::{
-            HostConductorState, HostRailroadCar, ObjectId, railroad_car, railroad_registry_reset,
-            restore_railroad_car,
+            railroad_car, railroad_registry_reset, restore_railroad_car, HostConductorState,
+            HostRailroadCar, ObjectId,
         };
 
         railroad_registry_reset();

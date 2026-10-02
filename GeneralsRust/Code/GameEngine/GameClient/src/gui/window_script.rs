@@ -3,17 +3,17 @@
 //! This module parses the legacy Generals GUI window scripts into in-memory
 //! window definitions for creation by the WindowManager.
 
-use super::MAX_DRAW_DATA;
 use super::game_window::{
-    GWS_ANIMATED, GWS_CHECK_BOX, GWS_COMBO_BOX, GWS_ENTRY_FIELD, GWS_HORZ_SLIDER, GWS_MOUSE_TRACK,
-    GWS_PROGRESS_BAR, GWS_PUSH_BUTTON, GWS_RADIO_BUTTON, GWS_SCROLL_LISTBOX, GWS_STATIC_TEXT,
-    GWS_TAB_CONTROL, GWS_TAB_PANE, GWS_TAB_STOP, GWS_USER_WINDOW, GWS_VERT_SLIDER, GameFont, Image,
-    WindowDrawData, WindowStatus, WindowTextColors,
+    GameFont, Image, WindowDrawData, WindowStatus, WindowTextColors, GWS_ANIMATED, GWS_CHECK_BOX,
+    GWS_COMBO_BOX, GWS_ENTRY_FIELD, GWS_HORZ_SLIDER, GWS_MOUSE_TRACK, GWS_PROGRESS_BAR,
+    GWS_PUSH_BUTTON, GWS_RADIO_BUTTON, GWS_SCROLL_LISTBOX, GWS_STATIC_TEXT, GWS_TAB_CONTROL,
+    GWS_TAB_PANE, GWS_TAB_STOP, GWS_USER_WINDOW, GWS_VERT_SLIDER,
 };
+use super::MAX_DRAW_DATA;
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, OnceLock};
 
 #[derive(Debug, Default, Clone)]
 pub struct WindowLayoutDefinition {
@@ -252,23 +252,22 @@ pub fn parse_window_script(path: &Path) -> Result<WindowLayoutDefinition, Window
     Ok(parsed)
 }
 
-fn wnd_parse_cache() -> &'static Mutex<HashMap<PathBuf, WindowLayoutDefinition>> {
-    static CACHE: OnceLock<Mutex<HashMap<PathBuf, WindowLayoutDefinition>>> = OnceLock::new();
-    CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+// THREAD: main thread only — .wnd layouts are parsed by GUI-thread menu init,
+// so the cache is a plain thread-local map.
+thread_local! {
+    static WND_PARSE_CACHE: RefCell<HashMap<PathBuf, WindowLayoutDefinition>> =
+        RefCell::new(HashMap::new());
 }
 
 fn wnd_parse_cache_get(path: &Path) -> Option<WindowLayoutDefinition> {
     let key = path.to_path_buf();
-    wnd_parse_cache()
-        .lock()
-        .ok()
-        .and_then(|cache| cache.get(&key).cloned())
+    WND_PARSE_CACHE.with_borrow(|cache| cache.get(&key).cloned())
 }
 
 fn wnd_parse_cache_put(path: &Path, parsed: WindowLayoutDefinition) {
-    if let Ok(mut cache) = wnd_parse_cache().lock() {
+    WND_PARSE_CACHE.with_borrow_mut(|cache| {
         cache.insert(path.to_path_buf(), parsed);
-    }
+    });
 }
 
 pub fn parse_window_script_uncached(
@@ -1125,12 +1124,10 @@ mod tests {
             !window.slider_thumb_enabled_draw_data.is_empty(),
             "per-window SLIDERTHUMB* must land on WindowDefinition"
         );
-        assert!(
-            window.slider_thumb_enabled_draw_data[0]
-                .image
-                .as_ref()
-                .is_some_and(|image| image.name == "Thumb")
-        );
+        assert!(window.slider_thumb_enabled_draw_data[0]
+            .image
+            .as_ref()
+            .is_some_and(|image| image.name == "Thumb"));
     }
 
     #[test]
@@ -1145,12 +1142,10 @@ mod tests {
             !window.listbox_enabled_up_button_draw_data.is_empty(),
             "per-window LISTBOX*DRAWDATA must land on WindowDefinition"
         );
-        assert!(
-            window.listbox_enabled_up_button_draw_data[0]
-                .image
-                .as_ref()
-                .is_some_and(|image| image.name == "UpArrow")
-        );
+        assert!(window.listbox_enabled_up_button_draw_data[0]
+            .image
+            .as_ref()
+            .is_some_and(|image| image.name == "UpArrow"));
     }
 
     #[test]

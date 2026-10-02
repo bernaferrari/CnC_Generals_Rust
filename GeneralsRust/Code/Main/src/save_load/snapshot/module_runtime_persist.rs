@@ -17,7 +17,7 @@ use crate::game_logic::host_checkpoint_update::HostCheckpointUpdateData;
 use crate::game_logic::host_countermeasures::{
     HostCountermeasuresState, PendingCountermeasureFlareSpawn,
 };
-use crate::game_logic::host_enemy_near::{ENEMY_NEAR_MODEL_CONDITION, HostEnemyNearData};
+use crate::game_logic::host_enemy_near::{HostEnemyNearData, ENEMY_NEAR_MODEL_CONDITION};
 use crate::game_logic::{GameLogic, ObjectId};
 use crate::save_load::{SaveLoadError, SaveLoadResult};
 use serde::{Deserialize, Serialize};

@@ -6,6 +6,7 @@
 
 use bytemuck::{Pod, Zeroable};
 use image::{DynamicImage, GenericImageView};
+use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex, OnceLock, RwLock};
 use wgpu::util::DeviceExt;
@@ -14,8 +15,8 @@ use super::decals::DecalRenderItem;
 use super::particle_manager::*;
 use super::particle_system::{Particle, ParticleSystem};
 use super::weather_complete::WeatherParticle;
-use crate::system::smudge::{SmudgeSetHandle, get_smudge_manager};
-use glam::{Vec2, Vec3, Mat4};
+use crate::system::smudge::{get_smudge_manager, SmudgeSetHandle};
+use glam::{Mat4, Vec2, Vec3};
 
 /// C++ `W3DParticleSystemManager::MAX_POINTS_PER_GROUP`.
 ///
@@ -207,22 +208,34 @@ fn drape_decal_vertices(decal: &DecalRenderItem) -> Vec<DecalVertex> {
                 DecalVertex {
                     position: world[0],
                     color,
-                    uv: [corners[0].0 + decal.uv_offset[0], corners[0].1 + decal.uv_offset[1]],
+                    uv: [
+                        corners[0].0 + decal.uv_offset[0],
+                        corners[0].1 + decal.uv_offset[1],
+                    ],
                 },
                 DecalVertex {
                     position: world[1],
                     color,
-                    uv: [corners[1].0 + decal.uv_offset[0], corners[1].1 + decal.uv_offset[1]],
+                    uv: [
+                        corners[1].0 + decal.uv_offset[0],
+                        corners[1].1 + decal.uv_offset[1],
+                    ],
                 },
                 DecalVertex {
                     position: world[2],
                     color,
-                    uv: [corners[2].0 + decal.uv_offset[0], corners[2].1 + decal.uv_offset[1]],
+                    uv: [
+                        corners[2].0 + decal.uv_offset[0],
+                        corners[2].1 + decal.uv_offset[1],
+                    ],
                 },
                 DecalVertex {
                     position: world[3],
                     color,
-                    uv: [corners[3].0 + decal.uv_offset[0], corners[3].1 + decal.uv_offset[1]],
+                    uv: [
+                        corners[3].0 + decal.uv_offset[0],
+                        corners[3].1 + decal.uv_offset[1],
+                    ],
                 },
             ];
             vertices
@@ -618,24 +631,20 @@ unsafe impl Sync for ParticleRenderer {}
 /// later asset uploads land in a surface that is no longer presented.  The
 /// active owner is therefore replaceable, and readers clone its `Arc` before
 /// doing any potentially re-entrant GPU work.
-static PARTICLE_RENDERER: OnceLock<RwLock<Option<Arc<Mutex<ParticleRenderer>>>>> = OnceLock::new();
-
-fn particle_renderer_slot() -> &'static RwLock<Option<Arc<Mutex<ParticleRenderer>>>> {
-    PARTICLE_RENDERER.get_or_init(|| RwLock::new(None))
+// THREAD: main thread only — registration and the frame's particle draw both
+// run on the GUI thread that owns the wgpu surface; the `Arc` inside stays a
+// shared handle for the display that owns the renderer.
+thread_local! {
+    static PARTICLE_RENDERER: RefCell<Option<Arc<Mutex<ParticleRenderer>>>> =
+        const { RefCell::new(None) };
 }
 
 pub fn register_particle_renderer(renderer: Arc<Mutex<ParticleRenderer>>) {
-    if let Ok(mut slot) = particle_renderer_slot().write() {
-        *slot = Some(renderer);
-    }
+    PARTICLE_RENDERER.with_borrow_mut(|slot| *slot = Some(renderer));
 }
 
 pub fn with_particle_renderer<R>(f: impl FnOnce(&Arc<Mutex<ParticleRenderer>>) -> R) -> Option<R> {
-    let renderer = particle_renderer_slot()
-        .read()
-        .ok()?
-        .as_ref()
-        .map(Arc::clone)?;
+    let renderer = PARTICLE_RENDERER.with_borrow(|slot| slot.as_ref().map(Arc::clone))?;
     Some(f(&renderer))
 }
 
@@ -746,7 +755,10 @@ impl ParticleRenderer {
         // Create render pipeline layout
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("Particle Pipeline Layout"),
-            bind_group_layouts: &[Some(&uniform_bind_group_layout), Some(&texture_bind_group_layout)],
+            bind_group_layouts: &[
+                Some(&uniform_bind_group_layout),
+                Some(&texture_bind_group_layout),
+            ],
             immediate_size: 0,
         });
 
@@ -906,7 +918,10 @@ impl ParticleRenderer {
             vertex: wgpu::VertexState {
                 module: &vertex_shader,
                 entry_point: Some("vs_main"),
-                buffers: &[Some(billboard_layout.clone()), Some(vertex_buffer_layout.clone())],
+                buffers: &[
+                    Some(billboard_layout.clone()),
+                    Some(vertex_buffer_layout.clone()),
+                ],
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
             },
             fragment: Some(wgpu::FragmentState {
@@ -958,7 +973,10 @@ impl ParticleRenderer {
             vertex: wgpu::VertexState {
                 module: &vertex_shader,
                 entry_point: Some("vs_main"),
-                buffers: &[Some(billboard_layout.clone()), Some(vertex_buffer_layout.clone())],
+                buffers: &[
+                    Some(billboard_layout.clone()),
+                    Some(vertex_buffer_layout.clone()),
+                ],
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
             },
             fragment: Some(wgpu::FragmentState {
@@ -994,7 +1012,10 @@ impl ParticleRenderer {
             vertex: wgpu::VertexState {
                 module: &vertex_shader,
                 entry_point: Some("vs_main"),
-                buffers: &[Some(billboard_layout.clone()), Some(vertex_buffer_layout.clone())],
+                buffers: &[
+                    Some(billboard_layout.clone()),
+                    Some(vertex_buffer_layout.clone()),
+                ],
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
             },
             fragment: Some(wgpu::FragmentState {
@@ -1030,7 +1051,10 @@ impl ParticleRenderer {
             vertex: wgpu::VertexState {
                 module: &vertex_shader,
                 entry_point: Some("vs_main"),
-                buffers: &[Some(billboard_layout.clone()), Some(vertex_buffer_layout.clone())],
+                buffers: &[
+                    Some(billboard_layout.clone()),
+                    Some(vertex_buffer_layout.clone()),
+                ],
                 compilation_options: wgpu::PipelineCompilationOptions::default(),
             },
             fragment: Some(wgpu::FragmentState {
@@ -1252,8 +1276,12 @@ impl ParticleRenderer {
 
         // Create default white texture
         let default_texture = Self::create_default_texture(&device, &queue);
-        let default_bind_group =
-            Self::create_texture_bind_group(&device, &texture_bind_group_layout, &default_texture, false);
+        let default_bind_group = Self::create_texture_bind_group(
+            &device,
+            &texture_bind_group_layout,
+            &default_texture,
+            false,
+        );
         let heat_haze_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("Heat Haze Scene Sampler"),
             address_mode_u: wgpu::AddressMode::ClampToEdge,
@@ -1372,7 +1400,7 @@ impl ParticleRenderer {
                 occlusion_query_set: None,
                 timestamp_writes: None,
                 multiview_mask: None,
-});
+            });
 
             // Set uniform bind group
             render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
@@ -1502,7 +1530,7 @@ impl ParticleRenderer {
                 occlusion_query_set: None,
                 timestamp_writes: None,
                 multiview_mask: None,
-});
+            });
 
             render_pass.set_pipeline(&self.alpha_pipeline);
             render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
@@ -1618,7 +1646,7 @@ impl ParticleRenderer {
                 occlusion_query_set: None,
                 timestamp_writes: None,
                 multiview_mask: None,
-});
+            });
             render_pass.set_pipeline(&self.additive_pipeline);
             render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
             render_pass.set_bind_group(1, &self.default_bind_group, &[]);
@@ -1694,7 +1722,7 @@ impl ParticleRenderer {
                 occlusion_query_set: None,
                 timestamp_writes: None,
                 multiview_mask: None,
-});
+            });
             render_pass.set_pipeline(&self.heat_haze_pipeline);
             render_pass.set_bind_group(0, &self.uniform_bind_group, &[]);
             let scene_bind_group = self
@@ -1789,7 +1817,7 @@ impl ParticleRenderer {
                     occlusion_query_set: None,
                     timestamp_writes: None,
                     multiview_mask: None,
-});
+                });
 
                 let pipeline = if shadow_type == SHADOW_ADDITIVE_DECAL_TYPE {
                     &self.decal_additive_pipeline
@@ -2392,13 +2420,11 @@ mod tests {
         assert!(smudges[0].offset.y >= -0.03 && smudges[0].offset.y <= 0.03);
 
         begin_particle_heat_smudge_frame();
-        assert!(
-            get_smudge_manager()
-                .lock()
-                .unwrap()
-                .collect_decal_render_items()
-                .is_empty()
-        );
+        assert!(get_smudge_manager()
+            .lock()
+            .unwrap()
+            .collect_decal_render_items()
+            .is_empty());
     }
 
     #[test]
@@ -2464,13 +2490,11 @@ mod tests {
         assert!(!system_is_heat_smudge(&system));
         assert_eq!(feed_system_heat_smudges(&system), 0);
         assert_eq!(bake_particle_system_gpu_mesh(&system).len(), 1);
-        assert!(
-            get_smudge_manager()
-                .lock()
-                .unwrap()
-                .collect_decal_render_items()
-                .is_empty()
-        );
+        assert!(get_smudge_manager()
+            .lock()
+            .unwrap()
+            .collect_decal_render_items()
+            .is_empty());
 
         begin_particle_heat_smudge_frame();
     }

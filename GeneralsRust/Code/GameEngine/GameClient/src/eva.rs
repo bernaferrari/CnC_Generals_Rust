@@ -1,10 +1,10 @@
 //! EVA voice system (GameClient/Eva.cpp).
 
+use std::cell::RefCell;
 use std::sync::atomic::AtomicUsize;
-use std::sync::{LazyLock, Mutex};
 
 use game_engine::common::ini::{
-    FieldParse, INI, INIError, INILoadType, INIResult, register_block_parser,
+    register_block_parser, FieldParse, INIError, INILoadType, INIResult, INI,
 };
 use game_engine::common::random_value::get_game_client_random_value;
 use gamelogic::common::audio::AudioEventRts;
@@ -889,10 +889,12 @@ fn map_logic_event(event: LogicEvaEvent) -> Option<EvaMessage> {
 
 pub fn parse_eva_event(ini: &mut INI) -> INIResult<()> {
     let tokens = ini.get_line_tokens();
-    let Some(name) = tokens.get(1) else {
+    // Own the event name: `tokens` borrows the INI buffer, and the parse arms
+    // below each need `&mut INI` again.
+    let Some(name) = tokens.get(1).map(|token| (*token).to_string()) else {
         return Err(INIError::InvalidData);
     };
-    if EvaMessage::from_name(name).is_none() {
+    if EvaMessage::from_name(name.as_str()).is_none() {
         // C++ INI.cpp:81 / Eva.cpp:99-109: an unknown event name creates an
         // inert entry and the file load continues. Never fail the whole
         // Eva.ini for one bad name.
@@ -900,20 +902,22 @@ pub fn parse_eva_event(ini: &mut INI) -> INIResult<()> {
         return Ok(());
     }
 
-    // Always use the OnceLock singleton. Do not hold THE_EVA across INI load
-    // (parse callbacks re-enter this function).
-    let eva = get_eva();
-    let mut eva = eva.lock().map_err(|_| INIError::InvalidData)?;
-    let Some(check) = eva.new_eva_check_info(name) else {
-        drop(eva);
-        skip_eva_event_block(ini)?;
-        return Ok(());
-    };
-    parse_eva_check_info_fields(ini, check)?;
-    Ok(())
+    // THREAD: main thread only — Eva.ini is parsed by client init and its tests.
+    // Never hold the cell borrow across INI load (parse callbacks re-enter this
+    // function), so each arm borrows only for its own work.
+    with_eva(|eva| match eva.new_eva_check_info(&name) {
+        Some(check) => parse_eva_check_info_fields(ini, check),
+        None => skip_eva_event_block(ini),
+    })
 }
 
-static THE_EVA: LazyLock<Mutex<Eva>> = LazyLock::new(|| Mutex::new(Eva::new()));
+thread_local! {
+    static THE_EVA: RefCell<Eva> = RefCell::new(Eva::new());
+}
+
+pub fn with_eva<R>(f: impl FnOnce(&mut Eva) -> R) -> R {
+    THE_EVA.with_borrow_mut(f)
+}
 
 thread_local! {
     /// Live host logic frame (Main `GameLogic::get_frame` / presentation freeze).
@@ -947,11 +951,8 @@ pub fn eva_logic_frame() -> u32 {
 /// Publish host Energy::hasSufficientPower for Eva.cpp:408-422 LowPower poll.
 static EVA_PLAYED_COUNT: AtomicUsize = AtomicUsize::new(0);
 
-static HOST_EVA_LOCAL_PLAYER: LazyLock<Mutex<Option<(String, u32)>>> =
-    LazyLock::new(|| Mutex::new(None));
-
-fn host_eva_local_player_cell() -> &'static Mutex<Option<(String, u32)>> {
-    &HOST_EVA_LOCAL_PLAYER
+thread_local! {
+    static HOST_EVA_LOCAL_PLAYER: RefCell<Option<(String, u32)>> = const { RefCell::new(None) };
 }
 
 /// Live-probe counter: total EVA messages dispatched to the audio device.
@@ -977,32 +978,20 @@ pub fn eva_host_sufficient_power() -> Option<bool> {
 /// Publish host local-player identity for Eva.cpp:270 `m_localPlayer`
 /// (side token for Eva.ini SideSounds + player index for the speech handle).
 pub fn set_eva_host_local_player(side: impl Into<String>, player_index: u32) {
-    if let Ok(mut cell) = host_eva_local_player_cell().lock() {
-        *cell = Some((side.into(), player_index));
-    }
+    HOST_EVA_LOCAL_PLAYER.with_borrow_mut(|cell| *cell = Some((side.into(), player_index)));
 }
 
 /// Drop the host local-player snapshot so leftover ThePlayerList is used.
 pub fn clear_eva_host_local_player() {
-    if let Ok(mut cell) = host_eva_local_player_cell().lock() {
-        *cell = None;
-    }
+    HOST_EVA_LOCAL_PLAYER.with_borrow_mut(|cell| *cell = None);
 }
 
 /// Host local-player snapshot: `(side token, player index)`.
 pub fn eva_host_local_player() -> Option<(String, u32)> {
-    host_eva_local_player_cell()
-        .lock()
-        .ok()
-        .and_then(|cell| cell.clone())
-}
-
-pub fn get_eva() -> &'static Mutex<Eva> {
-    &THE_EVA
+    HOST_EVA_LOCAL_PLAYER.with_borrow(Clone::clone)
 }
 
 pub fn initialize_eva_system() -> INIResult<()> {
-    let _ = get_eva();
     if eva_check_info_count() > 0 {
         return Ok(());
     }
@@ -1014,10 +1003,7 @@ pub fn initialize_eva_system() -> INIResult<()> {
 
 /// Number of Eva.ini `EvaEvent` blocks currently on the live singleton.
 pub fn eva_check_info_count() -> usize {
-    get_eva()
-        .lock()
-        .map(|eva| eva.all_check_infos.len())
-        .unwrap_or(0)
+    with_eva(|eva| eva.all_check_infos.len())
 }
 
 /// Live-probe snapshot: (check infos, pending checks, last played message,
@@ -1025,25 +1011,22 @@ pub fn eva_check_info_count() -> usize {
 pub fn eva_check_snapshot() -> (usize, usize, Option<usize>, bool, bool, u32) {
     let present = eva_host_local_player().is_some();
     let frame = eva_logic_frame();
-    get_eva()
-        .lock()
-        .map(|eva| {
-            let last_played = eva
-                .checks
-                .iter()
-                .filter(|check| check.already_played)
-                .map(|check| check.eva_info.as_index())
-                .next_back();
-            (
-                eva.all_check_infos.len(),
-                eva.checks.len(),
-                last_played,
-                eva.enabled,
-                present,
-                frame,
-            )
-        })
-        .unwrap_or((0, 0, None, true, present, frame))
+    with_eva(|eva| {
+        let last_played = eva
+            .checks
+            .iter()
+            .filter(|check| check.already_played)
+            .map(|check| check.eva_info.as_index())
+            .next_back();
+        (
+            eva.all_check_infos.len(),
+            eva.checks.len(),
+            last_played,
+            eva.enabled,
+            present,
+            frame,
+        )
+    })
 }
 
 pub fn reset_eva_system() {
@@ -1057,31 +1040,19 @@ pub fn reset_eva_system() {
     // reset must re-arm both or sync_enabled_from_logic keeps re-applying the
     // stale shell disable every frame.
     let _ = LogicEva::set_enabled(true);
-    let eva = get_eva();
-    if let Ok(mut guard) = eva.lock() {
-        guard.reset();
-    }
+    with_eva(|guard| guard.reset());
 }
 
 pub fn update_eva_system() {
-    let eva = get_eva();
-    if let Ok(mut guard) = eva.lock() {
-        guard.update();
-    }
+    with_eva(|guard| guard.update());
 }
 
 pub fn set_eva_should_play(message: EvaMessage) {
-    let eva = get_eva();
-    if let Ok(mut guard) = eva.lock() {
-        guard.set_should_play(message);
-    }
+    with_eva(|guard| guard.set_should_play(message));
 }
 
 pub fn set_eva_enabled(enabled: bool) {
-    let eva = get_eva();
-    if let Ok(mut guard) = eva.lock() {
-        guard.set_enabled(enabled);
-    }
+    with_eva(|guard| guard.set_enabled(enabled));
 }
 
 #[cfg(test)]
@@ -1102,9 +1073,7 @@ mod tests {
     }
 
     fn load_eva_file_for_test(path: &Path) -> INIResult<()> {
-        // Shipped parse path writes THE_EVA (OnceLock), not a raw TLS pointer.
         reset_eva_system();
-        let _ = get_eva();
         let _ = register_block_parser("EvaEvent", parse_eva_event);
         let mut ini = INI::new();
         ini.load(path, INILoadType::Overwrite)
@@ -1175,17 +1144,18 @@ mod tests {
         load_eva_file_for_test(&path).expect("retail Eva.ini should parse");
 
         // Assert the shipped singleton the parser actually writes.
-        let eva = get_eva();
-        let eva = eva.lock().expect("THE_EVA lock");
-        assert_eq!(eva.all_check_infos.len(), 49);
-        assert!(
-            eva.get_eva_check_info_by_name("SuperweaponLaunched_Enemy_GPS_Scrambler")
-                .is_some()
-        );
-        assert!(
-            eva.get_eva_check_info_by_name("SuperweaponLaunched_Enemy_Sneak_Attack")
-                .is_some()
-        );
+        let (count, has_gps, has_sneak) = with_eva(|eva| {
+            (
+                eva.all_check_infos.len(),
+                eva.get_eva_check_info_by_name("SuperweaponLaunched_Enemy_GPS_Scrambler")
+                    .is_some(),
+                eva.get_eva_check_info_by_name("SuperweaponLaunched_Enemy_Sneak_Attack")
+                    .is_some(),
+            )
+        });
+        assert_eq!(count, 49);
+        assert!(has_gps);
+        assert!(has_sneak);
     }
 
     #[test]
@@ -1299,7 +1269,11 @@ pub fn residual_eva_is_enabled() -> bool {
 /// Residual: last EvaMessage index flagged for play (None if none).
 pub fn residual_eva_last_message_index() -> Option<usize> {
     let idx = RESIDUAL_EVA_LAST_MESSAGE.load(std::sync::atomic::Ordering::Relaxed);
-    if idx == usize::MAX { None } else { Some(idx) }
+    if idx == usize::MAX {
+        None
+    } else {
+        Some(idx)
+    }
 }
 
 /// Residual: enable EVA without INI reload.
@@ -1336,10 +1310,7 @@ pub fn simulate_eva_set_should_play_low_power() -> bool {
 
 /// Residual: reset EVA residual flags without INI reload.
 pub fn simulate_eva_reset() -> bool {
-    let eva = get_eva();
-    if let Ok(mut guard) = eva.lock() {
-        guard.reset();
-    }
+    with_eva(|guard| guard.reset());
     RESIDUAL_EVA_ENABLED.store(true, std::sync::atomic::Ordering::Relaxed);
     RESIDUAL_EVA_LAST_MESSAGE.store(usize::MAX, std::sync::atomic::Ordering::Relaxed);
     residual_eva_action_store(ResidualEvaAction::Reset);

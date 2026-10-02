@@ -15,8 +15,8 @@ use chrono::{DateTime, Utc};
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{broadcast, mpsc};
 use tokio::task::JoinHandle;
@@ -827,7 +827,7 @@ mod tests {
     use serde_json::json;
     use std::sync::Arc;
     use tokio::net::TcpListener;
-    use tokio::time::{Duration, timeout};
+    use tokio::time::{timeout, Duration};
     use tokio_tungstenite::{accept_async, tungstenite::Message};
     use url::Url;
 
@@ -888,7 +888,9 @@ mod tests {
                                     "room": room,
                                     "timestamp": Utc::now().to_rfc3339(),
                                 });
-                                ws.send(Message::Text(response.to_string())).await.unwrap();
+                                ws.send(Message::Text(response.to_string().into()))
+                                    .await
+                                    .unwrap();
 
                                 let remote_message = json!({
                                     "type": "message",
@@ -898,7 +900,7 @@ mod tests {
                                     "kind": "normal",
                                     "timestamp": Utc::now().to_rfc3339(),
                                 });
-                                ws.send(Message::Text(remote_message.to_string()))
+                                ws.send(Message::Text(remote_message.to_string().into()))
                                     .await
                                     .unwrap();
                             }

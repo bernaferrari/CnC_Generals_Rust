@@ -777,35 +777,25 @@ fn snapshot_player_state_captures_population_build_queue_and_research() {
         player_snapshot.build_queue,
         vec!["USA_Ranger".to_string(), "USA_Ranger".to_string()]
     );
-    assert!(
-        player_snapshot
-            .tech_tree
-            .unlocked_buildings
-            .contains(&"USA_Barracks".to_string())
-    );
-    assert!(
-        player_snapshot
-            .tech_tree
-            .unlocked_units
-            .contains(&"USA_Ranger".to_string())
-    );
-    assert!(
-        player_snapshot
-            .tech_tree
-            .unlocked_upgrades
-            .contains(&"SciencePathfinder".to_string())
-    );
-    assert!(
-        player_snapshot
-            .research_queue
-            .contains(&"UpgradeAdvancedTraining".to_string())
-    );
-    assert!(
-        player_snapshot
-            .tech_tree
-            .research_progress
-            .contains_key("UpgradeAdvancedTraining")
-    );
+    assert!(player_snapshot
+        .tech_tree
+        .unlocked_buildings
+        .contains(&"USA_Barracks".to_string()));
+    assert!(player_snapshot
+        .tech_tree
+        .unlocked_units
+        .contains(&"USA_Ranger".to_string()));
+    assert!(player_snapshot
+        .tech_tree
+        .unlocked_upgrades
+        .contains(&"SciencePathfinder".to_string()));
+    assert!(player_snapshot
+        .research_queue
+        .contains(&"UpgradeAdvancedTraining".to_string()));
+    assert!(player_snapshot
+        .tech_tree
+        .research_progress
+        .contains_key("UpgradeAdvancedTraining"));
 }
 
 #[test]
@@ -1473,11 +1463,9 @@ fn special_power_daisy_cutter_mid_flight_save_load_still_impacts() {
         1,
         "strike must still be queued mid-flight"
     );
-    assert!(
-        source
-            .special_power_strikes()
-            .honesty_queue_ok(HostSuperweaponKind::DaisyCutter)
-    );
+    assert!(source
+        .special_power_strikes()
+        .honesty_queue_ok(HostSuperweaponKind::DaisyCutter));
     let health_mid = source.host_object(enemy_id).unwrap().health.current;
     assert!((health_mid - 500.0).abs() < 0.1, "no damage mid-flight");
 
@@ -1525,11 +1513,9 @@ fn special_power_daisy_cutter_mid_flight_save_load_still_impacts() {
     restored.set_current_frame(89);
     restored.update_special_power_strikes();
     assert!((restored.host_object(enemy_id).unwrap().health.current - 500.0).abs() < 0.1);
-    assert!(
-        !restored
-            .special_power_strikes()
-            .honesty_complete_ok(HostSuperweaponKind::DaisyCutter)
-    );
+    assert!(!restored
+        .special_power_strikes()
+        .honesty_complete_ok(HostSuperweaponKind::DaisyCutter));
 
     // Impact after remaining delay: damage applied.
     restored.set_current_frame(90);
@@ -1610,11 +1596,9 @@ fn special_power_a10_mid_flight_save_load_still_impacts() {
         .expect("A10 restore");
 
     assert_eq!(restored.get_current_frame(), 130);
-    assert!(
-        restored
-            .special_power_strikes()
-            .honesty_queue_ok(HostSuperweaponKind::A10Strike)
-    );
+    assert!(restored
+        .special_power_strikes()
+        .honesty_queue_ok(HostSuperweaponKind::A10Strike));
 
     restored.set_current_frame(159);
     restored.update_special_power_strikes();
@@ -1997,11 +1981,9 @@ fn save_file_roundtrip_preserves_pending_host_upgrade() {
 
     assert_eq!(loaded.get_current_frame(), 5);
     assert_eq!(loaded.host_upgrades().pending_count(), 1);
-    assert!(
-        loaded
-            .host_upgrades()
-            .honesty_queue_ok(HostUpgradeKind::CaptureBuilding)
-    );
+    assert!(loaded
+        .host_upgrades()
+        .honesty_queue_ok(HostUpgradeKind::CaptureBuilding));
     for _ in 0..900 {
         loaded.update();
     }
@@ -2317,14 +2299,12 @@ fn direct_xfer_v2_object_snapshot_omits_hacker_disable_tail_and_keeps_alignment(
     assert_eq!(restored.frame_number, 4_321);
     assert_eq!(restored.random_seed, 0x1BAD_B002);
     assert_eq!(restored.players[0].name, "PostObjectAlignment");
-    assert!(
-        restored
-            .objects
-            .get(&object_id)
-            .expect("restored v2 object")
-            .hacker_disable_channel
-            .is_none()
-    );
+    assert!(restored
+        .objects
+        .get(&object_id)
+        .expect("restored v2 object")
+        .hacker_disable_channel
+        .is_none());
     assert_eq!(
         restored
             .objects
@@ -2624,7 +2604,11 @@ fn direct_xfer_v6_round_trips_exact_shroud_tail() {
                     }),
                     active_shroud_level: std::array::from_fn(
                         |player| {
-                            if player == 1 { 3 } else { 0 }
+                            if player == 1 {
+                                3
+                            } else {
+                                0
+                            }
                         },
                     ),
                 },
@@ -2838,14 +2822,12 @@ fn direct_xfer_v6_omits_weapon_suspend_fx_tail_and_keeps_alignment() {
         reader.xfer_u32(&mut sentinel).expect("read sentinel");
     }
 
-    assert!(
-        restored
-            .objects
-            .get(&object_id)
-            .expect("restored v6 object")
-            .weapon_suspend_fx_frames
-            .is_empty()
-    );
+    assert!(restored
+        .objects
+        .get(&object_id)
+        .expect("restored v6 object")
+        .weapon_suspend_fx_frames
+        .is_empty());
     assert_eq!(sentinel, 0xFA0B_1C2D);
 }
 

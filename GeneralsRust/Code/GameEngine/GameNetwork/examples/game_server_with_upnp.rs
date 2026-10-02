@@ -7,7 +7,7 @@
 
 use game_network::nat::upnp::{PortMapping, UPnPClient, UPnPConfig};
 use game_network::nat::{NatConfig, NatService};
-use game_network::transport::Transport;
+use game_network::transport_unified::UnifiedTransport as Transport;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::signal;
@@ -24,7 +24,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("=== C&C Generals Zero Hour - Game Server ===\n");
 
     // Create transport layer
-    let transport = Arc::new(Transport::new().await?);
+    let transport = Arc::new(Transport::new_udp().await?);
     let local_port = 27015; // Default game port
     println!("1. Transport initialized\n");
 

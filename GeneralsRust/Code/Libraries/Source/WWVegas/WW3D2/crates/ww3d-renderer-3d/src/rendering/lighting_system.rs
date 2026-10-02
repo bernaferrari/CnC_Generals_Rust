@@ -2,7 +2,7 @@
 
 use crate::texture_system::TextureClass;
 use glam::{Mat4, Vec3};
-use std::sync::{Arc, LazyLock, Mutex};
+use std::cell::Cell;
 
 /// C++ `LightEnvironmentClass::MAX_LIGHTS`.
 pub const MAX_LIGHTS: usize = 4;
@@ -11,22 +11,19 @@ const DIFFUSE_TO_AMBIENT_FRACTION: f32 = 1.0;
 const NEAR_BLACK: f32 = 0.05;
 const WWMATH_EPSILON: f32 = 1.0e-5;
 
-static LIGHTING_LOD_CUTOFF: LazyLock<Mutex<f32>> = LazyLock::new(|| Mutex::new(0.5));
-
-fn lod_cutoff_cell() -> &'static Mutex<f32> {
-    &LIGHTING_LOD_CUTOFF
+thread_local! {
+    /// C++ kept the lighting LOD cutoff as a plain static on the game thread.
+    static LIGHTING_LOD_CUTOFF: Cell<f32> = const { Cell::new(0.5) };
 }
 
 /// C++ `Set_Lighting_LOD_Cutoff`.
 pub fn set_lighting_lod_cutoff(cutoff: f32) {
-    if let Ok(mut cell) = lod_cutoff_cell().lock() {
-        *cell = cutoff;
-    }
+    LIGHTING_LOD_CUTOFF.with(|cell| cell.set(cutoff));
 }
 
 /// C++ `Get_Lighting_LOD_Cutoff` (default 0.5, cutoff² = 0.25).
 pub fn get_lighting_lod_cutoff() -> f32 {
-    lod_cutoff_cell().lock().map(|cell| *cell).unwrap_or(0.5)
+    LIGHTING_LOD_CUTOFF.with(Cell::get)
 }
 
 fn lighting_lod_cutoff2() -> f32 {
@@ -38,13 +35,13 @@ fn lighting_lod_cutoff2() -> f32 {
 #[derive(Debug, Clone)]
 pub struct LightEnvironmentClass {
     pub ambient: Vec3,
-    pub lights: Vec<Arc<Mutex<LightClass>>>,
+    pub lights: Vec<LightClass>,
     object_center: Vec3,
     input_lights: Vec<InputLight>,
     output_lights: Vec<OutputLight>,
     fill_light: Option<InputLight>,
     fill_intensity: f32,
-    sources: Vec<Arc<Mutex<LightClass>>>,
+    sources: Vec<LightClass>,
 }
 
 #[derive(Debug, Clone)]
@@ -109,26 +106,20 @@ impl LightEnvironmentClass {
     }
 
     /// Add a light to the environment — C++ `Add_Light`.
-    pub fn add_light(&mut self, light: Arc<Mutex<LightClass>>) {
-        self.sources.push(Arc::clone(&light));
-        let guard = match light.lock() {
-            Ok(g) => g,
-            Err(_) => return,
-        };
-        if !guard.enabled {
+    pub fn add_light(&mut self, light: LightClass) {
+        self.sources.push(light.clone());
+        if !light.enabled {
             return;
         }
-        let diff = guard.diffuse_color();
+        let diff = light.diffuse_color();
         if diff.x < NEAR_BLACK && diff.y < NEAR_BLACK && diff.z < NEAR_BLACK {
             return;
         }
 
-        let mut new_light = init_input_light(&guard, self.object_center);
+        let mut new_light = init_input_light(&light, self.object_center);
         if self.fill_intensity != 0.0 {
-            new_light.diffuse *= guard.intensity;
+            new_light.diffuse *= light.intensity;
         }
-        let keep_source = Arc::clone(&light);
-        drop(guard);
 
         self.ambient += new_light.ambient;
 
@@ -136,6 +127,7 @@ impl LightEnvironmentClass {
             return;
         }
 
+        let keep_source = light.clone();
         let contribution = new_light.contribution();
         let mut inserted = false;
         for light_index in 0..self.input_lights.len() {
@@ -145,15 +137,15 @@ impl LightEnvironmentClass {
                     if i < MAX_LIGHTS {
                         if i == count {
                             self.input_lights.push(self.input_lights[i - 1].clone());
-                            self.lights.push(Arc::clone(&self.lights[i - 1]));
+                            self.lights.push(self.lights[i - 1].clone());
                         } else {
                             self.input_lights[i] = self.input_lights[i - 1].clone();
-                            self.lights[i] = Arc::clone(&self.lights[i - 1]);
+                            self.lights[i] = self.lights[i - 1].clone();
                         }
                     }
                 }
                 self.input_lights[light_index] = new_light.clone();
-                self.lights[light_index] = Arc::clone(&keep_source);
+                self.lights[light_index] = keep_source.clone();
                 if self.input_lights.len() > MAX_LIGHTS {
                     self.input_lights.truncate(MAX_LIGHTS);
                     self.lights.truncate(MAX_LIGHTS);
@@ -306,10 +298,8 @@ impl LightEnvironmentClass {
 
     /// Remove a light from the environment
     pub fn remove_light(&mut self, light_id: u32) {
-        self.sources
-            .retain(|light| light.lock().map(|l| l.id != light_id).unwrap_or(true));
-        self.lights
-            .retain(|light| light.lock().map(|l| l.id != light_id).unwrap_or(true));
+        self.sources.retain(|light| light.id != light_id);
+        self.lights.retain(|light| light.id != light_id);
     }
 
     /// Get ambient light color
@@ -814,8 +804,7 @@ impl LightingManager {
 
     /// Add a light to the scene
     pub fn add_light(&mut self, light: LightClass) {
-        let light_arc = Arc::new(Mutex::new(light));
-        self.light_environment.add_light(light_arc);
+        self.light_environment.add_light(light);
     }
 
     /// Calculate lighting contribution for a point
@@ -829,7 +818,6 @@ impl LightingManager {
         let mut total_light = self.light_environment.ambient * albedo;
 
         for light in &self.light_environment.lights {
-            let light = light.lock().unwrap();
             if light.enabled {
                 let light_contrib = light.calculate_contribution(position, normal, view_dir);
                 total_light += light_contrib * albedo;
@@ -850,18 +838,13 @@ impl LightingManager {
 
     /// Update shadow maps for all lights that cast shadows
     pub fn update_shadow_maps(&mut self, _device: &wgpu::Device, _queue: &wgpu::Queue) {
-        for light in &self.light_environment.lights {
-            let mut light = light.lock().unwrap();
+        for light in &mut self.light_environment.lights {
             if light.casts_shadows {
                 if light.shadow_map.is_none() {
                     light.shadow_map = Some(ShadowMap::new(1024));
                 }
 
-                // Update light view-projection matrix without conflicting borrows
-                let light_view_projection = {
-                    let light_ref = &*light;
-                    light_ref.get_light_view_projection(Vec3::ZERO, 100.0)
-                };
+                let light_view_projection = light.get_light_view_projection(Vec3::ZERO, 100.0);
                 if let Some(ref mut shadow_map) = light.shadow_map {
                     shadow_map.light_view_projection = light_view_projection;
                     // In a full implementation, render the scene from the light to populate texture
@@ -877,7 +860,6 @@ impl LightingManager {
         }
 
         if let Some(light) = self.light_environment.lights.get(light_index) {
-            let light = light.lock().unwrap();
             if let Some(ref _shadow_map) = light.shadow_map {
                 // Simplified shadow mapping - in practice this would sample the shadow map
                 return 1.0; // No shadow

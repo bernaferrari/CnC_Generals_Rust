@@ -1,41 +1,26 @@
 //! Shared menu flags used by multiple shell/menu callbacks.
 
-use std::sync::{Mutex, OnceLock};
+use std::cell::Cell;
 
-#[derive(Default)]
-struct MenuFlags {
-    dont_show_main_menu: bool,
-    replay_was_pressed: bool,
-}
-
-static MENU_FLAGS: OnceLock<Mutex<MenuFlags>> = OnceLock::new();
-
-fn flags() -> &'static Mutex<MenuFlags> {
-    MENU_FLAGS.get_or_init(|| Mutex::new(MenuFlags::default()))
+// THREAD: main thread only — shell menu latches read and written by GUI-thread
+// callbacks, so plain cells replace the lock-wrapped static.
+thread_local! {
+    static DONT_SHOW_MAIN_MENU: Cell<bool> = Cell::new(false);
+    static REPLAY_WAS_PRESSED: Cell<bool> = Cell::new(false);
 }
 
 pub fn get_dont_show_main_menu() -> bool {
-    flags()
-        .lock()
-        .map(|flags| flags.dont_show_main_menu)
-        .unwrap_or(false)
+    DONT_SHOW_MAIN_MENU.get()
 }
 
 pub fn set_dont_show_main_menu(value: bool) {
-    if let Ok(mut flags) = flags().lock() {
-        flags.dont_show_main_menu = value;
-    }
+    DONT_SHOW_MAIN_MENU.set(value);
 }
 
 pub fn get_replay_was_pressed() -> bool {
-    flags()
-        .lock()
-        .map(|flags| flags.replay_was_pressed)
-        .unwrap_or(false)
+    REPLAY_WAS_PRESSED.get()
 }
 
 pub fn set_replay_was_pressed(value: bool) {
-    if let Ok(mut flags) = flags().lock() {
-        flags.replay_was_pressed = value;
-    }
+    REPLAY_WAS_PRESSED.set(value);
 }

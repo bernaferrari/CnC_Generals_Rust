@@ -8,7 +8,7 @@
 //! - `ScreenCrossFadeFilter` fade-pattern / `ST_MASK_TEXTURE`
 
 use crate::display::view::{FilterMode, FilterType, ViewFilterComposite};
-use std::sync::Mutex;
+use std::cell::RefCell;
 
 /// C++ `ScreenMotionBlurFilter::MAX_COUNT`.
 pub const MOTION_BLUR_MAX_COUNT: i32 = 60;
@@ -33,20 +33,11 @@ struct ShaderFilterGpu {
     last_kind: FilterType,
 }
 
-#[cfg(target_arch = "wasm32")]
-// SAFETY: wasm32-only. Every non-scalar field is a wgpu handle (`Texture`,
-// `TextureView`, `Sampler`, `Buffer`, `RenderPipeline`, `BindGroupLayout`),
-// which are `Rc`-backed and `!Send` on the web backend. The wasm target has no
-// threads, so a cross-thread move can never happen; the impl only satisfies
-// the `Send` bound of the `static Mutex<Option<Self>>` that owns it.
-unsafe impl Send for ShaderFilterGpu {}
-#[cfg(target_arch = "wasm32")]
-// SAFETY: same wasm32-only scope: no threads exist on this target, so `&Self`
-// is never accessed concurrently and the handles' `!Sync` default is
-// unreachable.
-unsafe impl Sync for ShaderFilterGpu {}
-
-static FILTER_GPU: Mutex<Option<ShaderFilterGpu>> = Mutex::new(None);
+// `ShaderFilterGpu` holds `Rc`-backed wgpu handles (`!Send` on the web backend);
+// the thread-local slot keeps them on the GUI thread that created them.
+thread_local! {
+    static FILTER_GPU: RefCell<Option<ShaderFilterGpu>> = const { RefCell::new(None) };
+}
 
 fn needs_rtt(composite: &ViewFilterComposite) -> bool {
     composite.filter != FilterType::Null && composite.fade > 0.0
@@ -362,18 +353,19 @@ pub fn start_render_to_texture(
     if !needs_rtt(composite) {
         return None;
     }
-    let mut slot = FILTER_GPU.lock().ok()?;
-    if slot.is_none() {
-        *slot = Some(ShaderFilterGpu::new(device, queue, format, width, height));
-    }
-    let gpu = slot.as_mut()?;
-    gpu.ensure(device, queue, format, width, height);
-    if gpu.last_kind != composite.filter {
-        gpu.mb_count = 0;
-        gpu.mb_decrement = false;
-        gpu.last_kind = composite.filter;
-    }
-    Some(gpu.scene_view.clone())
+    FILTER_GPU.with_borrow_mut(|slot| {
+        if slot.is_none() {
+            *slot = Some(ShaderFilterGpu::new(device, queue, format, width, height));
+        }
+        let gpu = slot.as_mut()?;
+        gpu.ensure(device, queue, format, width, height);
+        if gpu.last_kind != composite.filter {
+            gpu.mb_count = 0;
+            gpu.mb_decrement = false;
+            gpu.last_kind = composite.filter;
+        }
+        Some(gpu.scene_view.clone())
+    })
 }
 
 /// C++ `W3DShaderManager::endRenderToTexture` + `filterPostRender`.
@@ -387,155 +379,151 @@ pub fn filter_post_render(
     if !needs_rtt(composite) {
         return;
     }
-    let Ok(mut slot) = FILTER_GPU.lock() else {
-        return;
-    };
-    let Some(gpu) = slot.as_mut() else {
-        return;
-    };
+    FILTER_GPU.with_borrow_mut(|slot| {
+        let Some(gpu) = slot.as_mut() else {
+            return;
+        };
 
-    let (kind, mode, additive) = match composite.filter {
-        FilterType::BlackAndWhite => {
-            let mode = match composite.mode {
-                FilterMode::BWRedAndWhite => 1.0,
-                FilterMode::BWGreenAndWhite => 2.0,
-                _ => 0.0,
-            };
-            (0.0f32, mode, 0.0f32)
-        }
-        FilterType::MotionBlur => {
-            let additive = matches!(
-                composite.mode,
-                FilterMode::MBInAndOutSaturate
-                    | FilterMode::MBInSaturate
-                    | FilterMode::MBOutSaturate
-            );
-            let pan = matches!(
-                composite.mode,
-                FilterMode::MBPanAlpha
-                    | FilterMode::MBPanAlpha1
-                    | FilterMode::MBPanAlpha2
-                    | FilterMode::MBPanAlpha3
-                    | FilterMode::MBEndPanAlpha
-            );
-            // C++ `ScreenMotionBlurFilter::postRender`: pan uses scrollDelta
-            // for m_maxCount; zoom-in/out steps COUNT_STEP and lookAts at peak.
-            if !pan {
-                if gpu.mb_decrement {
-                    gpu.mb_count = (gpu.mb_count - COUNT_STEP).max(1);
-                    if gpu.mb_count <= 1 {
-                        gpu.mb_decrement = false;
-                    }
-                } else {
-                    gpu.mb_count += COUNT_STEP;
-                    if gpu.mb_count >= MOTION_BLUR_MAX_COUNT {
-                        gpu.mb_count = MOTION_BLUR_MAX_COUNT;
-                        gpu.mb_decrement = true;
-                        let do_zoom_to = matches!(
-                            composite.mode,
-                            FilterMode::MBInAndOutAlpha | FilterMode::MBInAndOutSaturate
-                        );
-                        if do_zoom_to {
-                            if let Some(pos) = composite.zoom_to {
-                                crate::display::view::with_tactical_view(|view| {
-                                    view.look_at(&pos);
-                                });
-                                crate::display::view::queue_motion_blur_zoom_look_at(pos);
+        let (kind, mode, additive) = match composite.filter {
+            FilterType::BlackAndWhite => {
+                let mode = match composite.mode {
+                    FilterMode::BWRedAndWhite => 1.0,
+                    FilterMode::BWGreenAndWhite => 2.0,
+                    _ => 0.0,
+                };
+                (0.0f32, mode, 0.0f32)
+            }
+            FilterType::MotionBlur => {
+                let additive = matches!(
+                    composite.mode,
+                    FilterMode::MBInAndOutSaturate
+                        | FilterMode::MBInSaturate
+                        | FilterMode::MBOutSaturate
+                );
+                let pan = matches!(
+                    composite.mode,
+                    FilterMode::MBPanAlpha
+                        | FilterMode::MBPanAlpha1
+                        | FilterMode::MBPanAlpha2
+                        | FilterMode::MBPanAlpha3
+                        | FilterMode::MBEndPanAlpha
+                );
+                // C++ `ScreenMotionBlurFilter::postRender`: pan uses scrollDelta
+                // for m_maxCount; zoom-in/out steps COUNT_STEP and lookAts at peak.
+                if !pan {
+                    if gpu.mb_decrement {
+                        gpu.mb_count = (gpu.mb_count - COUNT_STEP).max(1);
+                        if gpu.mb_count <= 1 {
+                            gpu.mb_decrement = false;
+                        }
+                    } else {
+                        gpu.mb_count += COUNT_STEP;
+                        if gpu.mb_count >= MOTION_BLUR_MAX_COUNT {
+                            gpu.mb_count = MOTION_BLUR_MAX_COUNT;
+                            gpu.mb_decrement = true;
+                            let do_zoom_to = matches!(
+                                composite.mode,
+                                FilterMode::MBInAndOutAlpha | FilterMode::MBInAndOutSaturate
+                            );
+                            if do_zoom_to {
+                                if let Some(pos) = composite.zoom_to {
+                                    crate::display::view::with_tactical_view(|view| {
+                                        view.look_at(&pos);
+                                    });
+                                    crate::display::view::queue_motion_blur_zoom_look_at(pos);
+                                }
                             }
                         }
                     }
                 }
+                (
+                    1.0f32,
+                    if pan { 1.0 } else { 0.0 },
+                    if additive { 1.0 } else { 0.0 },
+                )
             }
-            (
-                1.0f32,
-                if pan { 1.0 } else { 0.0 },
-                if additive { 1.0 } else { 0.0 },
-            )
-        }
-        FilterType::Crossfade => (2.0f32, 0.0, 0.0),
-        FilterType::Null => return,
-    };
+            FilterType::Crossfade => (2.0f32, 0.0, 0.0),
+            FilterType::Null => return,
+        };
 
-    let fade = composite.fade.clamp(0.0, 1.0);
-    let bytes: [f32; 8] = [
-        fade,
-        kind,
-        mode,
-        gpu.mb_count as f32,
-        composite.scroll_delta.x,
-        composite.scroll_delta.y,
-        fade,
-        additive,
-    ];
-    queue.write_buffer(&gpu.params, 0, bytemuck::cast_slice(&bytes));
+        let fade = composite.fade.clamp(0.0, 1.0);
+        let bytes: [f32; 8] = [
+            fade,
+            kind,
+            mode,
+            gpu.mb_count as f32,
+            composite.scroll_delta.x,
+            composite.scroll_delta.y,
+            fade,
+            additive,
+        ];
+        queue.write_buffer(&gpu.params, 0, bytemuck::cast_slice(&bytes));
 
-    let bind = device.create_bind_group(&wgpu::BindGroupDescriptor {
-        label: Some("W3D filter composite bind"),
-        layout: &gpu.bind_layout,
-        entries: &[
-            wgpu::BindGroupEntry {
-                binding: 0,
-                resource: wgpu::BindingResource::TextureView(&gpu.scene_view),
-            },
-            wgpu::BindGroupEntry {
-                binding: 1,
-                resource: wgpu::BindingResource::Sampler(&gpu.sampler),
-            },
-            wgpu::BindGroupEntry {
-                binding: 2,
-                resource: wgpu::BindingResource::TextureView(&gpu.prev_view),
-            },
-            wgpu::BindGroupEntry {
-                binding: 3,
-                resource: wgpu::BindingResource::TextureView(&gpu.mask_view),
-            },
-            wgpu::BindGroupEntry {
-                binding: 4,
-                resource: gpu.params.as_entire_binding(),
-            },
-        ],
-    });
-
-    {
-        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: Some("W3D filterPostRender"),
-            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view: dest,
-                depth_slice: None,
-                resolve_target: None,
-                ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Load,
-                    store: wgpu::StoreOp::Store,
+        let bind = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("W3D filter composite bind"),
+            layout: &gpu.bind_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&gpu.scene_view),
                 },
-            })],
-            depth_stencil_attachment: None,
-            occlusion_query_set: None,
-            timestamp_writes: None,
-            multiview_mask: None,
-});
-        pass.set_pipeline(&gpu.pipeline);
-        pass.set_bind_group(0, &bind, &[]);
-        pass.draw(0..3, 0..1);
-    }
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&gpu.sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::TextureView(&gpu.prev_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: wgpu::BindingResource::TextureView(&gpu.mask_view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 4,
+                    resource: gpu.params.as_entire_binding(),
+                },
+            ],
+        });
 
-    // Keep last scene for ScreenCrossFadeFilter two-capture mix.
-    encoder.copy_texture_to_texture(
-        gpu.scene_tex.as_image_copy(),
-        gpu.prev_tex.as_image_copy(),
-        wgpu::Extent3d {
-            width: gpu.width,
-            height: gpu.height,
-            depth_or_array_layers: 1,
-        },
-    );
+        {
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("W3D filterPostRender"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: dest,
+                    depth_slice: None,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                occlusion_query_set: None,
+                timestamp_writes: None,
+                multiview_mask: None,
+            });
+            pass.set_pipeline(&gpu.pipeline);
+            pass.set_bind_group(0, &bind, &[]);
+            pass.draw(0..3, 0..1);
+        }
+
+        // Keep last scene for ScreenCrossFadeFilter two-capture mix.
+        encoder.copy_texture_to_texture(
+            gpu.scene_tex.as_image_copy(),
+            gpu.prev_tex.as_image_copy(),
+            wgpu::Extent3d {
+                width: gpu.width,
+                height: gpu.height,
+                depth_or_array_layers: 1,
+            },
+        );
+    });
 }
 
 /// C++ `W3DShaderManager::endRenderToTexture` — dest view of the last scene capture.
 pub fn end_render_to_texture() -> Option<wgpu::TextureView> {
-    FILTER_GPU
-        .lock()
-        .ok()
-        .and_then(|g| g.as_ref().map(|gpu| gpu.scene_view.clone()))
+    FILTER_GPU.with_borrow(|g| g.as_ref().map(|gpu| gpu.scene_view.clone()))
 }
 
 /// Live `render_pipeline` hook: the 3D scene already sits on `dest_texture`.
@@ -555,10 +543,7 @@ pub fn composite_live_view_filter(
         return;
     }
     let _ = start_render_to_texture(device, queue, format, width, height, composite);
-    {
-        let Ok(slot) = FILTER_GPU.lock() else {
-            return;
-        };
+    FILTER_GPU.with_borrow(|slot| {
         let Some(gpu) = slot.as_ref() else {
             return;
         };
@@ -576,6 +561,6 @@ pub fn composite_live_view_filter(
                 depth_or_array_layers: 1,
             },
         );
-    }
+    });
     filter_post_render(device, queue, encoder, dest_view, composite);
 }

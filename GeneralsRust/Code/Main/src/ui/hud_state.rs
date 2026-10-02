@@ -1,6 +1,6 @@
 use crate::game_logic::{
-    ObjectId,
     victory::{PlayerOutcome, VictorySummary},
+    ObjectId,
 };
 use crate::graphics::MinimapCoordinates;
 use crate::localization;

@@ -7,7 +7,7 @@ use crate::game_logic::{GameLogic, ObjectId};
 use crate::save_load::{SaveLoadError, SaveLoadResult};
 use game_engine::common::ascii_string::AsciiString;
 use game_engine::common::system::radar::{
-    Coord3D, ICoord2D, MAX_RADAR_EVENTS, RGBAColorInt, RadarEvent, RadarEventType, get_radar_system,
+    get_radar_system, Coord3D, ICoord2D, RGBAColorInt, RadarEvent, RadarEventType, MAX_RADAR_EVENTS,
 };
 use game_engine::common::system::xfer::Xfer as CommonXfer;
 use game_engine::common::system::xfer_load::XferLoad as CommonXferLoad;

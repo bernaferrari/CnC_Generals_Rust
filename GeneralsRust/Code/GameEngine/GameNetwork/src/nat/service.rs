@@ -6,14 +6,15 @@
 use crate::error::{NetworkError, NetworkResult};
 use crate::time::NetworkInstant;
 use crate::transport_unified::UnifiedTransport as Transport;
-use rand::Rng;
+use parking_lot::Mutex;
 use rand::rand_core::UnwrapErr;
 use rand::rngs::SysRng;
+use rand::Rng;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
-use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
-use tokio::net::{UdpSocket, lookup_host};
+use tokio::net::{lookup_host, UdpSocket};
 use tokio::sync::{mpsc, watch};
 use tokio::task::JoinHandle;
 use tokio::time::{sleep, timeout};

@@ -7,14 +7,14 @@
 //! - Resource-aware scheduling
 //! - Tokio Console integration for debugging
 
+use crate::error::{NetworkError, NetworkResult};
+use crate::time::NetworkInstant;
 use std::future::Future;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::sync::{broadcast, Semaphore};
 use tokio::task::JoinSet;
 use tokio::time::{sleep, timeout};
-use crate::error::{NetworkError, NetworkResult};
-use crate::time::NetworkInstant;
 
 #[cfg(feature = "metrics")]
 use log;
@@ -22,13 +22,17 @@ use log;
 use tracing::{debug, error, info, instrument, trace, warn, Instrument};
 
 #[cfg(not(feature = "metrics"))]
-macro_rules! debug { ($($args:tt)*) => {}; }
+macro_rules! debug {
+    ($($args:tt)*) => {};
+}
 #[cfg(not(feature = "metrics"))]
 macro_rules! error { ($($args:tt)*) => { eprintln!($($args)*) }; }
 #[cfg(not(feature = "metrics"))]
 macro_rules! info { ($($args:tt)*) => { println!($($args)*) }; }
 #[cfg(not(feature = "metrics"))]
-macro_rules! trace { ($($args:tt)*) => {}; }
+macro_rules! trace {
+    ($($args:tt)*) => {};
+}
 #[cfg(not(feature = "metrics"))]
 macro_rules! warn { ($($args:tt)*) => { eprintln!("WARN: {}", format!($($args)*)) }; }
 
@@ -103,56 +107,57 @@ impl AsyncScope {
             active_tasks: Arc::new(Mutex::new(Vec::new())),
         }
     }
-    
+
     /// Spawn a task with metadata and resource management
     #[cfg(feature = "metrics")]
     #[instrument(skip(self, future))]
-    pub async fn spawn<F, Fut>(&mut self,
-        metadata: TaskMetadata,
-        future: F
-    ) -> NetworkResult<()>
+    pub async fn spawn<F, Fut>(&mut self, metadata: TaskMetadata, future: F) -> NetworkResult<()>
     where
         F: FnOnce() -> Fut + Send + 'static,
         Fut: Future<Output = NetworkResult<()>> + Send + 'static,
     {
         // Acquire resource permit
-        let permit = self.semaphore.clone().acquire_owned().await
-            .map_err(|e| NetworkError::generic(format!("Failed to acquire task permit: {}", e)))?;
-        
+        let permit =
+            self.semaphore.clone().acquire_owned().await.map_err(|e| {
+                NetworkError::generic(format!("Failed to acquire task permit: {}", e))
+            })?;
+
         // Clone necessary data
         let mut shutdown = self.shutdown.subscribe();
         let task_name = metadata.name.clone();
         let task_name_for_closure = task_name.clone();
         let max_duration = metadata.max_duration;
         let active_tasks = self.active_tasks.clone();
-        
+
         // Add to active tasks
         {
             let mut tasks = active_tasks.lock().expect("active task list poisoned");
             tasks.push(metadata);
         }
-        
+
         // Create instrumented task
         let instrumented_future = async move {
             let _permit = permit; // Hold permit for task duration
-            
+
             let task_future = future();
-            
+
             let result = if let Some(duration) = max_duration {
                 // Apply timeout if specified
-                timeout(duration, task_future).await
+                timeout(duration, task_future)
+                    .await
                     .map_err(|_| NetworkError::generic("Task timeout exceeded".to_string()))?
             } else {
                 task_future.await
             };
-            
+
             // Remove from active tasks on completion
             let mut tasks = active_tasks.lock().expect("active task list poisoned");
             tasks.retain(|t| t.name != task_name_for_closure);
 
             result
-        }.instrument(tracing::info_span!("async_task", task = %task_name));
-        
+        }
+        .instrument(tracing::info_span!("async_task", task = %task_name));
+
         // Spawn with cancellation support
         let cancellable_future = async move {
             tokio::select! {
@@ -163,12 +168,13 @@ impl AsyncScope {
                 }
             }
         };
-        
+
         let handle = tokio::spawn(cancellable_future);
-        
+
         // Add to task set
         self.tasks.spawn(async move {
-            handle.await
+            handle
+                .await
                 .map_err(|e| NetworkError::generic(format!("Task join failed: {}", e)))?
         });
 
@@ -176,23 +182,22 @@ impl AsyncScope {
     }
 
     #[cfg(not(feature = "metrics"))]
-    pub async fn spawn<F, Fut>(&mut self,
-        metadata: TaskMetadata,
-        future: F
-    ) -> NetworkResult<()>
+    pub async fn spawn<F, Fut>(&mut self, metadata: TaskMetadata, future: F) -> NetworkResult<()>
     where
         F: FnOnce() -> Fut + Send + 'static,
         Fut: Future<Output = NetworkResult<()>> + Send + 'static,
     {
         // Simplified version without tracing
-        let permit = self.semaphore.clone().acquire_owned().await
-            .map_err(|e| NetworkError::generic(format!("Failed to acquire task permit: {}", e)))?;
-        
+        let permit =
+            self.semaphore.clone().acquire_owned().await.map_err(|e| {
+                NetworkError::generic(format!("Failed to acquire task permit: {}", e))
+            })?;
+
         let shutdown = self.shutdown.subscribe();
         let task_name = metadata.name.clone();
         let max_duration = metadata.max_duration;
         let active_tasks = self.active_tasks.clone();
-        
+
         {
             let mut tasks = active_tasks.lock().expect("active task list poisoned");
             tasks.push(metadata);
@@ -202,7 +207,8 @@ impl AsyncScope {
             let _permit = permit;
 
             let result = if let Some(duration) = max_duration {
-                timeout(duration, future()).await
+                timeout(duration, future())
+                    .await
                     .map_err(|_| NetworkError::generic("Task timeout exceeded".to_string()))?
             } else {
                 future().await
@@ -213,7 +219,7 @@ impl AsyncScope {
 
             result
         };
-        
+
         let cancellable_future = async move {
             tokio::select! {
                 result = task_future => result,
@@ -223,12 +229,13 @@ impl AsyncScope {
                 }
             }
         };
-        
+
         let handle = tokio::spawn(cancellable_future);
 
         // Add to task set
         self.tasks.spawn(async move {
-            handle.await
+            handle
+                .await
                 .map_err(|e| NetworkError::generic(format!("Task join failed: {}", e)))?
         });
 
@@ -238,14 +245,14 @@ impl AsyncScope {
     /// Wait for all tasks to complete or timeout
     pub async fn join_all(self, timeout_duration: Duration) -> NetworkResult<()> {
         let mut tasks = self.tasks;
-        
+
         let join_future = async move {
             let mut results = Vec::new();
-            
+
             while let Some(result) = tasks.join_next().await {
                 results.push(result);
             }
-            
+
             // Check for any failures
             for result in results {
                 match result {
@@ -254,21 +261,22 @@ impl AsyncScope {
                     Err(e) => return Err(NetworkError::generic(format!("Task panicked: {}", e))),
                 }
             }
-            
+
             Ok(())
         };
-        
-        timeout(timeout_duration, join_future).await
+
+        timeout(timeout_duration, join_future)
+            .await
             .map_err(|_| NetworkError::generic("Scope join timeout exceeded".to_string()))?
     }
-    
+
     /// Gracefully shutdown all tasks
     pub async fn shutdown(&self) -> NetworkResult<()> {
         info!("Initiating structured concurrency shutdown");
-        
+
         // Signal all tasks to shutdown
         let _ = self.shutdown.send(());
-        
+
         // Wait for tasks to complete with timeout
         let shutdown_timeout = Duration::from_secs(30);
         let start = NetworkInstant::now();
@@ -312,11 +320,11 @@ impl AsyncScope {
             tasks_by_priority: [0; 5],
             average_task_age: Duration::ZERO,
         };
-        
+
         // Calculate priority distribution and average age
         let now = NetworkInstant::now();
         let mut total_age = Duration::ZERO;
-        
+
         for task in tasks.iter() {
             let priority_index = task.priority as usize;
             if priority_index < 5 {
@@ -324,11 +332,11 @@ impl AsyncScope {
             }
             total_age += now.duration_since(task.created_at);
         }
-        
+
         if !tasks.is_empty() {
             stats.average_task_age = total_age / tasks.len() as u32;
         }
-        
+
         stats
     }
 }
@@ -368,48 +376,51 @@ impl AdvancedRuntime {
     }
 
     /// Spawn a task in the appropriate scope based on priority
-    pub async fn spawn_task<F, Fut>(&mut self,
+    pub async fn spawn_task<F, Fut>(
+        &mut self,
         metadata: TaskMetadata,
-        future: F
+        future: F,
     ) -> NetworkResult<()>
     where
         F: FnOnce() -> Fut + Send + 'static,
         Fut: Future<Output = NetworkResult<()>> + Send + 'static,
     {
         let scope = match metadata.priority {
-            TaskPriority::Critical | TaskPriority::Game => &self.game_scope,
-            TaskPriority::Network => &self.network_scope,
-            TaskPriority::Background => &self.background_scope,
-            TaskPriority::Normal => &self.main_scope,
+            TaskPriority::Critical | TaskPriority::Game => &mut self.game_scope,
+            TaskPriority::Network => &mut self.network_scope,
+            TaskPriority::Background => &mut self.background_scope,
+            TaskPriority::Normal => &mut self.main_scope,
         };
-        
+
         scope.spawn(metadata, future).await
     }
-    
+
     /// Gracefully shutdown all scopes with proper ordering
     pub async fn shutdown(self) -> NetworkResult<()> {
         info!("Starting coordinated runtime shutdown");
-        
+
         // Shutdown in reverse priority order
         self.background_scope.shutdown().await?;
         self.main_scope.shutdown().await?;
         self.network_scope.shutdown().await?;
         self.game_scope.shutdown().await?;
-        
+
         info!("Advanced runtime shutdown complete");
         Ok(())
     }
-    
+
     /// Get comprehensive runtime statistics
     pub async fn get_runtime_stats(&self) -> RuntimeStats {
         let main_stats = self.main_scope.get_stats().await;
         let network_stats = self.network_scope.get_stats().await;
         let game_stats = self.game_scope.get_stats().await;
         let background_stats = self.background_scope.get_stats().await;
-        
+
         RuntimeStats {
-            total_active_tasks: main_stats.active_tasks + network_stats.active_tasks 
-                              + game_stats.active_tasks + background_stats.active_tasks,
+            total_active_tasks: main_stats.active_tasks
+                + network_stats.active_tasks
+                + game_stats.active_tasks
+                + background_stats.active_tasks,
             main_scope_stats: main_stats,
             network_scope_stats: network_stats,
             game_scope_stats: game_stats,
@@ -477,7 +488,7 @@ impl Default for AdvancedRuntime {
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[tokio::test]
     async fn test_async_scope() {
         let mut scope = AsyncScope::new(5);
@@ -491,10 +502,13 @@ mod tests {
             resource_limits: ResourceLimits::default(),
         };
 
-        scope.spawn(metadata, || async {
-            tokio::time::sleep(Duration::from_millis(100)).await;
-            Ok(())
-        }).await.unwrap();
+        scope
+            .spawn(metadata, || async {
+                tokio::time::sleep(Duration::from_millis(100)).await;
+                Ok(())
+            })
+            .await
+            .unwrap();
 
         // Test stats
         let stats = scope.get_stats().await;
@@ -517,9 +531,10 @@ mod tests {
             resource_limits: ResourceLimits::default(),
         };
 
-        runtime.spawn_task(high_priority_task, || async {
-            Ok(())
-        }).await.unwrap();
+        runtime
+            .spawn_task(high_priority_task, || async { Ok(()) })
+            .await
+            .unwrap();
 
         // Get stats
         let stats = runtime.get_runtime_stats().await;

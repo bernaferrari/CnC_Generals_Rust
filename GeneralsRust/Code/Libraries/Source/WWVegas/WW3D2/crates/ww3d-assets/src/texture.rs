@@ -12,9 +12,10 @@
 /// - C++ texture.cpp lines 1-1872
 /// - C++ textureloader.h/cpp lines 1-800+
 use glam::Vec3;
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::Instant;
 use ww3d_core::errors::{W3DError, W3DResult};
 
@@ -306,14 +307,14 @@ struct DDSHeader {
 
 /// Texture loader supporting multiple formats
 pub struct TextureLoader {
-    cache: Arc<Mutex<HashMap<String, Arc<TextureBase>>>>,
+    cache: RefCell<HashMap<String, Arc<TextureBase>>>,
 }
 
 impl TextureLoader {
     /// Create a new texture loader
     pub fn new() -> Self {
         Self {
-            cache: Arc::new(Mutex::new(HashMap::new())),
+            cache: RefCell::new(HashMap::new()),
         }
     }
 
@@ -329,11 +330,8 @@ impl TextureLoader {
         let key = path.to_string_lossy().to_string();
 
         // Check cache first
-        {
-            let cache = self.cache.lock().unwrap();
-            if let Some(texture) = cache.get(&key) {
-                return Ok(Arc::clone(texture));
-            }
+        if let Some(texture) = self.cache.borrow().get(&key) {
+            return Ok(Arc::clone(texture));
         }
 
         // Load based on extension
@@ -358,10 +356,7 @@ impl TextureLoader {
         let texture_arc = Arc::new(texture);
 
         // Cache the loaded texture
-        {
-            let mut cache = self.cache.lock().unwrap();
-            cache.insert(key, Arc::clone(&texture_arc));
-        }
+        self.cache.borrow_mut().insert(key, Arc::clone(&texture_arc));
 
         Ok(texture_arc)
     }
@@ -780,13 +775,12 @@ impl TextureLoader {
 
     /// Clear texture cache
     pub fn clear_cache(&self) {
-        let mut cache = self.cache.lock().unwrap();
-        cache.clear();
+        self.cache.borrow_mut().clear();
     }
 
     /// Get cache statistics
     pub fn cache_stats(&self) -> (usize, u64) {
-        let cache = self.cache.lock().unwrap();
+        let cache = self.cache.borrow();
         let count = cache.len();
         let total_memory: u64 = cache.values().map(|t| t.memory_usage()).sum();
         (count, total_memory)

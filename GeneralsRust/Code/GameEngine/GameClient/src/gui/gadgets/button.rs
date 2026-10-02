@@ -32,42 +32,37 @@
 
 use super::*;
 use std::cell::Cell;
-use std::sync::{OnceLock, RwLock};
+use std::cell::RefCell;
 use std::time::{Duration, Instant};
 
 /// Callback function type for button events
 pub type ButtonCallback = Box<dyn Fn(GadgetId) + Send + Sync>;
 pub type ButtonAudioHook = Box<dyn FnMut(&str) + Send + Sync>;
 
-static BUTTON_AUDIO: OnceLock<RwLock<Option<ButtonAudioHook>>> = OnceLock::new();
+// THREAD: main thread only — push-button clicks dispatch audio on the GUI thread.
+thread_local! {
+    static BUTTON_AUDIO: RefCell<Option<ButtonAudioHook>> = const { RefCell::new(None) };
+}
 
 /// Register button audio dispatch.
 ///
 /// C++ push buttons call `TheAudio->addAudioEvent()` on accepted mouse-down
 /// events. The hook keeps that behavior injectable for the Rust client.
 pub fn register_button_audio_hook(hook: ButtonAudioHook) {
-    BUTTON_AUDIO
-        .get_or_init(|| RwLock::new(None))
-        .write()
-        .unwrap_or_else(|err| err.into_inner())
-        .replace(hook);
+    BUTTON_AUDIO.with_borrow_mut(|slot| slot.replace(hook));
 }
 
 #[cfg(test)]
 fn clear_button_audio_hook() {
-    if let Some(hook) = BUTTON_AUDIO.get() {
-        hook.write().unwrap_or_else(|err| err.into_inner()).take();
-    }
+    BUTTON_AUDIO.with_borrow_mut(Option::take);
 }
 
 fn with_button_audio<F: FnOnce(&mut ButtonAudioHook)>(f: F) {
-    let Some(hook) = BUTTON_AUDIO.get() else {
-        return;
-    };
-    let mut guard = hook.write().unwrap_or_else(|err| err.into_inner());
-    if let Some(hook) = guard.as_mut() {
-        f(hook);
-    }
+    BUTTON_AUDIO.with_borrow_mut(|guard| {
+        if let Some(hook) = guard.as_mut() {
+            f(hook);
+        }
+    });
 }
 
 /// Clock display mode for progress indicators
@@ -1030,7 +1025,7 @@ impl PushButtonBuilder {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::{Arc, Mutex};
+    use std::sync::{Arc, Mutex, OnceLock};
 
     fn audio_test_guard() -> std::sync::MutexGuard<'static, ()> {
         static TEST_AUDIO_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
@@ -1438,12 +1433,10 @@ mod tests {
             button: MouseButton::Right,
         });
 
-        assert!(
-            events
-                .lock()
-                .unwrap_or_else(|err| err.into_inner())
-                .is_empty()
-        );
+        assert!(events
+            .lock()
+            .unwrap_or_else(|err| err.into_inner())
+            .is_empty());
         clear_button_audio_hook();
     }
 
@@ -1462,12 +1455,10 @@ mod tests {
             Some((ClockMode::Normal, 50, Color::GREEN))
         );
         assert_eq!(button.clock_request(), None);
-        assert!(
-            button
-                .render_commands(&GadgetTheme::default())
-                .iter()
-                .all(|command| !matches!(command, PushButtonRenderCommand::Clock { .. }))
-        );
+        assert!(button
+            .render_commands(&GadgetTheme::default())
+            .iter()
+            .all(|command| !matches!(command, PushButtonRenderCommand::Clock { .. })));
 
         button.set_inverse_clock(25, Color::RED);
         assert_eq!(

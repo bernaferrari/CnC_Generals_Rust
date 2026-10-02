@@ -127,7 +127,12 @@ mod tests {
             Some("SELECT_ALL")
         );
         assert!(command_map_binds("SELECT_ALL"));
-        assert!(update_command_map_entry("SELECTION", "GUI:SelectAll", 0x4B, 0));
+        assert!(update_command_map_entry(
+            "SELECTION",
+            "GUI:SelectAll",
+            0x4B,
+            0
+        ));
         assert_eq!(
             lookup_command_map_name(0x4B, 0).as_deref(),
             Some("SELECT_ALL")
@@ -537,33 +542,33 @@ mod tests {
     #[test]
     fn test_selection_debug_toggle_aliases_flip_compat_state() {
         let _guard = test_state_lock().lock().unwrap_or_else(|e| e.into_inner());
-        set_bool_state_for_tests(hand_of_god_mode_state(), false);
-        set_bool_state_for_tests(hurt_me_mode_state(), false);
-        set_bool_state_for_tests(debug_selection_mode_state(), false);
+        set_bool_state_for_tests(&HAND_OF_GOD_MODE, false);
+        set_bool_state_for_tests(&HURT_ME_MODE, false);
+        set_bool_state_for_tests(&DEBUG_SELECTION_MODE, false);
 
         assert_eq!(
             dispatch_map_entry(&alias_record("DEMO_TOGGLE_HAND_OF_GOD_MODE")),
             Some(GameMessageDisposition::DestroyMessage)
         );
-        assert!(bool_state_for_tests(hand_of_god_mode_state()));
+        assert!(bool_state_for_tests(&HAND_OF_GOD_MODE));
 
         assert_eq!(
             dispatch_map_entry(&alias_record("CHEAT_TOGGLE_HAND_OF_GOD_MODE")),
             Some(GameMessageDisposition::DestroyMessage)
         );
-        assert!(!bool_state_for_tests(hand_of_god_mode_state()));
+        assert!(!bool_state_for_tests(&HAND_OF_GOD_MODE));
 
         assert_eq!(
             dispatch_map_entry(&alias_record("DEMO_TOGGLE_HURT_ME_MODE")),
             Some(GameMessageDisposition::DestroyMessage)
         );
-        assert!(bool_state_for_tests(hurt_me_mode_state()));
+        assert!(bool_state_for_tests(&HURT_ME_MODE));
 
         assert_eq!(
             dispatch_map_entry(&alias_record("DEMO_DEBUG_SELECTION")),
             Some(GameMessageDisposition::DestroyMessage)
         );
-        assert!(bool_state_for_tests(debug_selection_mode_state()));
+        assert!(bool_state_for_tests(&DEBUG_SELECTION_MODE));
     }
 
     #[test]
@@ -853,45 +858,26 @@ mod tests {
         if let Ok(mut logic) = get_game_logic().lock() {
             logic.set_game_mode(GAME_SINGLE_PLAYER);
         }
-        if let Ok(mut index) = get_objective_movie_index().write() {
-            *index = 1;
-        }
+        OBJECTIVE_MOVIE_INDEX.set(1);
 
         assert_eq!(
             dispatch_map_entry(&alias_record("DEMO_PLAY_OBJECTIVE_MOVIE4")),
             Some(GameMessageDisposition::DestroyMessage)
         );
-        assert_eq!(
-            *get_objective_movie_index()
-                .read()
-                .unwrap_or_else(|e| e.into_inner()),
-            4
-        );
+        assert_eq!(OBJECTIVE_MOVIE_INDEX.with(Cell::get), 4);
 
         assert_eq!(
             dispatch_map_entry(&alias_record("DEMO_NEXT_OBJECTIVE_MOVIE")),
             Some(GameMessageDisposition::DestroyMessage)
         );
-        assert_eq!(
-            *get_objective_movie_index()
-                .read()
-                .unwrap_or_else(|e| e.into_inner()),
-            5
-        );
+        assert_eq!(OBJECTIVE_MOVIE_INDEX.with(Cell::get), 5);
 
-        if let Ok(mut index) = get_objective_movie_index().write() {
-            *index = 6;
-        }
+        OBJECTIVE_MOVIE_INDEX.set(6);
         assert_eq!(
             dispatch_map_entry(&alias_record("DEMO_NEXT_OBJECTIVE_MOVIE")),
             Some(GameMessageDisposition::DestroyMessage)
         );
-        assert_eq!(
-            *get_objective_movie_index()
-                .read()
-                .unwrap_or_else(|e| e.into_inner()),
-            1
-        );
+        assert_eq!(OBJECTIVE_MOVIE_INDEX.with(Cell::get), 1);
 
         if let Ok(mut logic) = get_game_logic().lock() {
             logic.set_game_mode(GAME_NONE);
@@ -1207,9 +1193,7 @@ mod tests {
             view.set_camera_lock(None);
             view.set_position(&crate::display::view::Point3::new(0.0, 0.0, 0.0));
         });
-        if let Ok(mut saturate) = get_motion_blur_zoom_saturate_state().write() {
-            *saturate = false;
-        }
+        MOTION_BLUR_ZOOM_SATURATE.set(false);
 
         assert_eq!(
             dispatch_map_entry(&alias_record("DEMO_TOGGLE_RED_VIEW")),

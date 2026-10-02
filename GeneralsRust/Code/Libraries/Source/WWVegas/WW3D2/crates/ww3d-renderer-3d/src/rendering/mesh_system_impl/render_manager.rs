@@ -1966,13 +1966,11 @@ mod per_mesh_lighting_tests {
         let camera = Arc::new(CameraClass::new());
         let mut info = RenderInfoClass::new(camera);
         let mut environment = LightEnvironmentClass::new();
-        environment.add_light(Arc::new(std::sync::Mutex::new(
-            crate::rendering::lighting_system::LightClass::directional(
-                glam::Vec3::new(0.2, -1.0, 0.1),
-                glam::Vec3::ONE,
-                1.0,
-            ),
-        )));
+        environment.add_light(crate::rendering::lighting_system::LightClass::directional(
+            glam::Vec3::new(0.2, -1.0, 0.1),
+            glam::Vec3::ONE,
+            1.0,
+        ));
         info.set_lighting_environment(environment);
         let dir = live_cascade_light_direction(&info);
         assert!((dir.y + 1.0 / (0.2f32 * 0.2 + 1.0 + 0.1 * 0.1).sqrt()).abs() < 0.02);
@@ -2379,13 +2377,11 @@ mod per_mesh_lighting_tests {
 pub(crate) fn live_cascade_light_direction(render_info: &RenderInfoClass) -> glam::Vec3 {
     if let Some(environment) = render_info.lighting.as_ref() {
         for light in &environment.lights {
-            if let Ok(light) = light.lock() {
-                if light.enabled
-                    && light.light_type == crate::rendering::lighting_system::LightType::Directional
-                    && light.direction.length_squared() > 1e-6
-                {
-                    return light.direction;
-                }
+            if light.enabled
+                && light.light_type == crate::rendering::lighting_system::LightType::Directional
+                && light.direction.length_squared() > 1e-6
+            {
+                return light.direction;
             }
         }
     }

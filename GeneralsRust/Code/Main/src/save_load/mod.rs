@@ -416,6 +416,7 @@ impl SaveLoadManager {
 /// Global save/load manager instance
 use std::sync::{Arc, Mutex, OnceLock};
 
+// THREAD: process-wide save directory owner, shared with the save/load UI.
 static SAVE_LOAD_MANAGER: OnceLock<Arc<Mutex<SaveLoadManager>>> = OnceLock::new();
 
 /// Initialize the global save/load system

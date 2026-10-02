@@ -16,8 +16,6 @@ use crate::input_system::RtsInputSystem;
 use crate::presentation_frame::{PresentationFrame, RenderableObject};
 use glam::{Mat4, Vec2, Vec3, Vec4};
 use std::collections::HashMap;
-use std::sync::Arc;
-use std::sync::Mutex as AsyncMutex;
 use std::time::SystemTime;
 
 /// Host residual: double-click select-type window (seconds).
@@ -52,7 +50,11 @@ impl Ray {
             let t1 = (-b - discriminant.sqrt()) / (2.0 * a);
             let t2 = (-b + discriminant.sqrt()) / (2.0 * a);
             let t = if t1 > 0.0 { t1 } else { t2 };
-            if t > 0.0 { Some(t) } else { None }
+            if t > 0.0 {
+                Some(t)
+            } else {
+                None
+            }
         }
     }
 
@@ -525,14 +527,14 @@ impl UnitControlSystem {
 
     /// Handle left mouse click for unit selection
     /// Supports: Regular click, Shift+click (add), Ctrl+click (remove), Double-click (select all of type)
-    pub async fn handle_left_click(
+    pub fn handle_left_click(
         &mut self,
         screen_pos: Vec2,
         shift_pressed: bool,
         ctrl_pressed: bool,
-        game_logic: &Arc<AsyncMutex<GameLogic>>,
+        game_logic: &mut GameLogic,
     ) {
-        let mut logic = game_logic.lock().unwrap_or_else(|e| e.into_inner());
+        let mut logic = &mut *game_logic;
         let now = logic.get_total_play_time();
         let is_double_click = if let Some(last_click) = self.last_click_time {
             (now - last_click) < self.double_click_threshold
@@ -591,12 +593,8 @@ impl UnitControlSystem {
     }
 
     /// Handle right mouse click for unit commands
-    pub async fn handle_right_click(
-        &mut self,
-        screen_pos: Vec2,
-        game_logic: &Arc<AsyncMutex<GameLogic>>,
-    ) {
-        let mut logic = game_logic.lock().unwrap_or_else(|e| e.into_inner());
+    pub fn handle_right_click(&mut self, screen_pos: Vec2, game_logic: &mut GameLogic) {
+        let mut logic = &mut *game_logic;
 
         if self.selected_objects.is_empty() {
             println!("No units selected for command");
@@ -645,14 +643,14 @@ impl UnitControlSystem {
     }
 
     /// Handle drag selection (box selection)
-    pub async fn handle_box_selection(
+    pub fn handle_box_selection(
         &mut self,
         start_screen: Vec2,
         end_screen: Vec2,
         shift_pressed: bool,
-        game_logic: &Arc<AsyncMutex<GameLogic>>,
+        game_logic: &mut GameLogic,
     ) {
-        let logic = game_logic.lock().unwrap_or_else(|e| e.into_inner());
+        let mut logic = &mut *game_logic;
 
         // Convert screen box to world coordinates
         let start_world = self.screen_to_ground(start_screen);
@@ -687,8 +685,6 @@ impl UnitControlSystem {
                 }
 
                 // Update game logic selection
-                drop(logic);
-                let mut logic = game_logic.lock().unwrap_or_else(|e| e.into_inner());
                 logic.select_objects(self.player_id, self.selected_objects.clone());
 
                 println!("📦 Box selected {} units", self.selected_objects.len());
@@ -697,12 +693,8 @@ impl UnitControlSystem {
     }
 
     /// Update hover state based on mouse position
-    pub async fn update_hover(
-        &mut self,
-        screen_pos: Vec2,
-        game_logic: &Arc<AsyncMutex<GameLogic>>,
-    ) {
-        let logic = game_logic.lock().unwrap_or_else(|e| e.into_inner());
+    pub fn update_hover(&mut self, screen_pos: Vec2, game_logic: &mut GameLogic) {
+        let mut logic = &mut *game_logic;
 
         let new_hovered = self
             .pick_object_at_screen_pos(screen_pos, &logic)
@@ -820,17 +812,13 @@ impl UnitControlSystem {
     }
 
     /// Assign selected units to a control group (Ctrl+0-9)
-    pub async fn assign_control_group(
-        &mut self,
-        group_num: u8,
-        game_logic: &Arc<AsyncMutex<GameLogic>>,
-    ) {
+    pub fn assign_control_group(&mut self, group_num: u8, game_logic: &mut GameLogic) {
         // Support groups 0-9 (10 total) like C++ Generals
         if group_num > 9 {
             return;
         }
 
-        let logic = game_logic.lock().unwrap_or_else(|e| e.into_inner());
+        let mut logic = &mut *game_logic;
 
         let mut control_group = ControlGroup::new();
         for &object_id in &self.selected_objects {
@@ -867,18 +855,14 @@ impl UnitControlSystem {
     }
 
     /// Select units from a control group (press 0-9)
-    pub async fn select_control_group(
-        &mut self,
-        group_num: u8,
-        game_logic: &Arc<AsyncMutex<GameLogic>>,
-    ) {
+    pub fn select_control_group(&mut self, group_num: u8, game_logic: &mut GameLogic) {
         // Support groups 0-9 (10 total) like C++ Generals
         if group_num > 9 {
             return;
         }
 
         if let Some(control_group) = self.control_groups.get_mut(&group_num) {
-            let mut logic = game_logic.lock().unwrap_or_else(|e| e.into_inner());
+            let mut logic = &mut *game_logic;
 
             // C++ SELECT_TEAM: getLiveObjects() + local owner. Not CanSelectDrawable
             // (garrisoned / transported / FireBase members stay on the squad).
@@ -938,7 +922,7 @@ impl UnitControlSystem {
     }
 
     /// Select all player units (Ctrl+A)
-    pub async fn select_all_units(&mut self, game_logic: &Arc<AsyncMutex<GameLogic>>) {
+    pub fn select_all_units(&mut self, game_logic: &mut GameLogic) {
         // Wave 949: presentation-only select-all (no live GameLogic dual-read).
         self.selected_objects.clear();
         if let Some(frame) = self.presentation_frame.as_ref() {
@@ -948,7 +932,7 @@ impl UnitControlSystem {
                 }
             }
         }
-        let mut logic = game_logic.lock().unwrap_or_else(|e| e.into_inner());
+        let mut logic = &mut *game_logic;
         logic.select_objects(self.player_id, self.selected_objects.clone());
         println!("Selected all {} units", self.selected_objects.len());
     }
@@ -1006,12 +990,12 @@ impl UnitControlSystem {
     }
 
     /// Issue Stop command to all selected units
-    pub async fn command_stop(&mut self, game_logic: &Arc<AsyncMutex<GameLogic>>) {
+    pub fn command_stop(&mut self, game_logic: &mut GameLogic) {
         if self.selected_objects.is_empty() {
             return;
         }
 
-        let mut logic = game_logic.lock().unwrap_or_else(|e| e.into_inner());
+        let mut logic = &mut *game_logic;
         let command = self.create_stop_command();
 
         for &object_id in &self.selected_objects {
@@ -1030,12 +1014,12 @@ impl UnitControlSystem {
     }
 
     /// Issue Hold Position command to all selected units
-    pub async fn command_hold_position(&mut self, game_logic: &Arc<AsyncMutex<GameLogic>>) {
+    pub fn command_hold_position(&mut self, game_logic: &mut GameLogic) {
         if self.selected_objects.is_empty() {
             return;
         }
 
-        let mut logic = game_logic.lock().unwrap_or_else(|e| e.into_inner());
+        let mut logic = &mut *game_logic;
 
         for &object_id in &self.selected_objects {
             if let Some(obj) = logic.host_object_mut(object_id) {
@@ -1050,12 +1034,12 @@ impl UnitControlSystem {
     }
 
     /// Issue Guard command to all selected units
-    pub async fn command_guard(&mut self, game_logic: &Arc<AsyncMutex<GameLogic>>) {
+    pub fn command_guard(&mut self, game_logic: &mut GameLogic) {
         if self.selected_objects.is_empty() {
             return;
         }
 
-        let mut logic = game_logic.lock().unwrap_or_else(|e| e.into_inner());
+        let mut logic = &mut *game_logic;
 
         for &object_id in &self.selected_objects {
             if let Some(obj) = logic.host_object_mut(object_id) {
@@ -1478,8 +1462,7 @@ mod tests {
         let mut ctl = UnitControlSystem::new((800.0, 600.0), Team::USA, 0);
         ctl.selected_objects = vec![id];
         ctl.set_presentation_frame(Some(frame));
-        let logic_arc = std::sync::Arc::new(AsyncMutex::new(logic));
-        futures::executor::block_on(ctl.assign_control_group(1, &logic_arc));
+        ctl.assign_control_group(1, &mut logic);
         let group = ctl.get_control_group_info(1).expect("g1");
         assert_eq!(group.objects, vec![id]);
         let pos = *group.positions.get(&id).expect("pos");
@@ -1507,11 +1490,10 @@ mod tests {
         let mut ctl = UnitControlSystem::new((800.0, 600.0), Team::USA, 0);
         ctl.selected_objects = vec![id, id2];
         ctl.set_presentation_frame(Some(frame));
-        let logic_arc = std::sync::Arc::new(AsyncMutex::new(logic));
-        futures::executor::block_on(ctl.assign_control_group(2, &logic_arc));
+        ctl.assign_control_group(2, &mut logic);
         let group = ctl.get_control_group_info(2).expect("g2");
         assert_eq!(group.objects, vec![id]);
-        futures::executor::block_on(ctl.select_control_group(2, &logic_arc));
+        ctl.select_control_group(2, &mut logic);
         assert_eq!(ctl.selected_objects, vec![id]);
     }
 
@@ -1777,6 +1759,4 @@ mod tests {
             "detected stealthed enemy is pickable"
         );
     }
-
-
 }

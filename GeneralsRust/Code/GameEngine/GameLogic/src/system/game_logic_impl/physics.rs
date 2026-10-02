@@ -70,8 +70,14 @@ impl PhysicsWorld {
     pub fn resolve_all(&mut self, game_logic: &mut GameLogic) -> Result<(), GameLogicError> {
         // Process pending damage
         for damage in self.pending_damage.drain(..) {
-            if let Some(obj_ref) = game_logic.find_object_by_id(damage.target_id) {
-                if let Ok(mut obj) = obj_ref.write() {
+            // Scoped map borrow — no Arc handle clone. The write guard is
+            // dropped before destroy_object so the destroy pass can re-take
+            // the same object's lock instead of recursing on it.
+            let destroyed = game_logic
+                .objects
+                .get(&damage.target_id)
+                .and_then(|obj_ref| obj_ref.write().ok())
+                .map(|mut obj| {
                     let mut info = crate::damage::DamageInfo::with_simple(
                         damage.damage_amount,
                         damage.attacker_id,
@@ -79,10 +85,11 @@ impl PhysicsWorld {
                         damage.death_type,
                     );
                     let _ = obj.attempt_damage(&mut info);
-                    if obj.is_destroyed() {
-                        game_logic.destroy_object(damage.target_id);
-                    }
-                }
+                    obj.is_destroyed()
+                })
+                .unwrap_or(false);
+            if destroyed {
+                game_logic.destroy_object(damage.target_id);
             }
         }
 

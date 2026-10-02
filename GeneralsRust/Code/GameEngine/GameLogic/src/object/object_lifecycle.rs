@@ -36,21 +36,21 @@ impl Object {
         object_status_mask: ObjectStatusMaskType,
         team: Option<Arc<RwLock<Team>>>,
     ) -> Result<Arc<RwLock<Self>>, Box<dyn std::error::Error + Send + Sync>> {
-        let obj = Self::new_raw(
+        // set_team runs on the still-unshared object: registration below is
+        // what publishes the id, so the previous uniquely-owned write guard
+        // spelled a lock that protected nothing.
+        let mut obj = Self::new_raw(
             thing_template.clone(),
             object_id,
             object_status_mask,
             team.clone(),
         );
+        obj.set_team(team)?;
 
+        // THREAD: register_object below publishes this handle by id through
+        // OBJECT_REGISTRY and the legacy registry; the outer RwLock is that
+        // shared-object contract, not file-owned state.
         let object_arc = Arc::new(RwLock::new(obj));
-
-        {
-            let mut guard = object_arc
-                .write()
-                .map_err(|_| "object lock poisoned during initialization")?;
-            guard.set_team(team)?;
-        }
 
         if object_id != INVALID_ID {
             OBJECT_REGISTRY.register_object(object_id, &object_arc);
@@ -424,6 +424,9 @@ impl Object {
     ) {
         let pos = *self.get_position();
         let footprint = crate::ai::object_footprint_positions(self).unwrap_or_else(|| vec![pos]);
+        // THREAD: the destructor tail touches sibling-family globals owned by
+        // their own lanes (AI/pathfinder, radar, script engine); those locks
+        // are the cross-family contracts and stay.
         let ai_store = crate::ai::the_ai();
         if let Ok(ai) = ai_store.read() {
             if let Some(pf) = ai.pathfinder() {
@@ -636,16 +639,9 @@ impl Object {
                 .ok()
                 .and_then(|team_guard| team_guard.get_controlling_player_id())
                 .and_then(|player_id| {
-                    player_list()
-                        .read()
-                        .ok()
-                        .and_then(|list| list.get_player(player_id as PlayerIndex).cloned())
-                })
-                .and_then(|player_arc| {
-                    player_arc
-                        .read()
-                        .ok()
-                        .map(|player| !player.is_player_active())
+                    crate::player::with_player(player_id as Int, |player| {
+                        !player.is_player_active()
+                    })
                 })
                 .unwrap_or(false);
 
@@ -662,12 +658,14 @@ impl Object {
             None
         };
 
-        self.set_or_restore_team(resolved_team, false)?;
-        self.original_team_name = {
-            let team = self.get_team();
-            team.and_then(|team_ref| team_ref.read().ok().map(|g| g.get_name().clone()))
-                .unwrap_or_else(AsciiString::new)
-        };
+        self.set_or_restore_team(resolved_team.clone(), false)?;
+        // set_or_restore_team stores the resolved team (factory id or pin), so
+        // the follow-up get_team() re-resolve would only re-take the team
+        // factory lock to return the same handle; read it directly.
+        self.original_team_name = resolved_team
+            .as_ref()
+            .and_then(|team_ref| team_ref.read().ok().map(|g| g.get_name().clone()))
+            .unwrap_or_else(AsciiString::new);
         Ok(())
     }
 
@@ -858,27 +856,34 @@ impl Object {
             }
         }
 
+        // One player-list read covers both the capture hand-off and the
+        // initial-capture-bonus lookup; owners are cloned out so no guard is
+        // held while the callbacks run. `award_initial_capture_bonus_if_needed`
+        // treats `None` as "no new owner", matching the previous skip.
+        let (old_owner, new_owner, capture_bonus_player) = match player_list().read() {
+            Ok(list_guard) => {
+                let lookup = |id: Option<UnsignedInt>| {
+                    id.and_then(|id| list_guard.get_player(id as PlayerIndex).cloned())
+                };
+                (
+                    lookup(old_player_id),
+                    lookup(new_player_id),
+                    if !restoring {
+                        lookup(new_player_id)
+                    } else {
+                        None
+                    },
+                )
+            }
+            Err(_) => (None, None, None),
+        };
+
         if old_team_id.is_some() && new_team_id.is_some() && !restoring {
-            let (old_owner, new_owner) = if let Ok(list_guard) = player_list().read() {
-                let old_owner =
-                    old_player_id.and_then(|id| list_guard.get_player(id as PlayerIndex).cloned());
-                let new_owner =
-                    new_player_id.and_then(|id| list_guard.get_player(id as PlayerIndex).cloned());
-                (old_owner, new_owner)
-            } else {
-                (None, None)
-            };
             self.on_capture(old_owner, new_owner);
         }
 
         if !restoring {
-            if let Some(new_id) = new_player_id {
-                if let Ok(list_guard) = player_list().read() {
-                    let player = list_guard.get_player(new_id as PlayerIndex).cloned();
-                    drop(list_guard);
-                    self.award_initial_capture_bonus_if_needed(player);
-                }
-            }
+            self.award_initial_capture_bonus_if_needed(capture_bonus_player);
         }
 
         self.refresh_radar_object_from_state();
@@ -1194,8 +1199,8 @@ impl Object {
         let mut module_data = crate::object::body::active_body::ActiveBodyModuleData::default();
         module_data.max_health = max_health;
         module_data.initial_health = max_health;
-        let body: Arc<Mutex<dyn crate::object::body::body_module::BodyModuleInterface>> =
-            Arc::new(Mutex::new(
+        // Element type is anchored by `obj.body = Some(body)` below.
+        let body = Arc::new(Mutex::new(
                 crate::object::body::active_body::ActiveBody::new_with_owner(
                     module_data,
                     obj.get_id(),
@@ -1223,8 +1228,8 @@ impl Object {
         let mut module_data = crate::object::body::active_body::ActiveBodyModuleData::default();
         module_data.max_health = max_health;
         module_data.initial_health = max_health;
-        let body: Arc<Mutex<dyn crate::object::body::body_module::BodyModuleInterface>> =
-            Arc::new(Mutex::new(
+        // Element type is anchored by `obj.body = Some(body)` below.
+        let body = Arc::new(Mutex::new(
                 crate::object::body::active_body::ActiveBody::new_with_owner(
                     module_data,
                     obj.get_id(),

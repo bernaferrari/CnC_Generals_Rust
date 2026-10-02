@@ -6,8 +6,8 @@
 //! placeholder, so PUC beams / lock-on / ropes never came back.
 
 use crate::save_load::{SaveLoadError, SaveLoadResult};
-use std::io::{Cursor, Read};
 use std::collections::HashSet;
+use std::io::{Cursor, Read};
 use std::sync::Mutex;
 
 pub const CHUNK_GAME_CLIENT: &str = "CHUNK_GameClient";
@@ -17,7 +17,9 @@ static PENDING_GAME_CLIENT_XFER: Mutex<Option<Vec<u8>>> = Mutex::new(None);
 pub fn capture_game_client_xfer_bytes(
     client: &mut game_client::core::game_client::GameClient,
 ) -> SaveLoadResult<Vec<u8>> {
-    client.capture_xfer_bytes().map_err(SaveLoadError::Serialization)
+    client
+        .capture_xfer_bytes()
+        .map_err(SaveLoadError::Serialization)
 }
 
 pub fn stash_loaded_game_client_xfer(bytes: Vec<u8>) {
@@ -185,18 +187,16 @@ mod client_xfer_tests {
 
         // Exercise the length-delimited Drawable block as well as the empty
         // client envelope; live saves commonly contain many such blocks.
-        let mut populated = game_client::core::game_client::GameClient::new()
-            .expect("client with drawable");
-        let mut drawable = game_client::drawable::BasicDrawable::new(
-            game_client::drawable::DrawableId::INVALID,
-        );
+        let mut populated =
+            game_client::core::game_client::GameClient::new().expect("client with drawable");
+        let mut drawable =
+            game_client::drawable::BasicDrawable::new(game_client::drawable::DrawableId::INVALID);
         drawable.set_object_id(Some(73));
         populated
             .register_drawable_with_template(Box::new(drawable), Some("XferTest".into()))
             .expect("register saved drawable");
-        let populated_bytes = capture_game_client_xfer_bytes(&mut populated)
-            .expect("save populated client");
-        validate_game_client_xfer_bytes(&populated_bytes)
-            .expect("valid Drawable block envelope");
+        let populated_bytes =
+            capture_game_client_xfer_bytes(&mut populated).expect("save populated client");
+        validate_game_client_xfer_bytes(&populated_bytes).expect("valid Drawable block envelope");
     }
 }

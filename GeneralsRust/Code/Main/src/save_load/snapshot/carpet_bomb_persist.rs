@@ -11,8 +11,8 @@
 //! (and after SPCD / BPPL / SUBD / HSQD / BTRY) so older decoders ignore the
 //! extra bytes. No world snapshot version bump.
 
-use crate::game_logic::GameLogic;
 use crate::game_logic::host_carpet_bomb_flight::HostCarpetBombFlightRegistry;
+use crate::game_logic::GameLogic;
 use crate::save_load::{SaveLoadError, SaveLoadResult};
 use serde::{Deserialize, Serialize};
 

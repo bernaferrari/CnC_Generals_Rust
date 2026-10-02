@@ -1,12 +1,12 @@
 //! Mechanical split from `game_logic/game_logic.rs`. No behavior change.
 #![allow(non_snake_case, unused_imports, dead_code)]
-use super::HostHeliTakeoffOrLanding;
 use super::authority::*;
 use super::construct::*;
 use super::crate_tick::*;
 use super::player::*;
 use super::prelude::*;
 use super::script_camera::*;
+use super::HostHeliTakeoffOrLanding;
 use super::*;
 
 pub struct GameLogic {
@@ -1354,7 +1354,6 @@ pub struct GameLogic {
     pub(super) pending_radar_movie: Option<String>,
     pub(super) mission_objectives: Vec<ObjectiveDisplay>,
     pub(super) objective_lookup: HashMap<String, usize>,
-    pub(super) campaign_manager: Option<Arc<Mutex<CampaignManager>>>,
     pub(super) last_map_settings: Option<super::script_loader::MapMetadata>,
     pub(super) spawned_map_object_ids: Vec<(ObjectId, usize)>,
     pub(super) terrain: Option<super::terrain::TerrainData>,

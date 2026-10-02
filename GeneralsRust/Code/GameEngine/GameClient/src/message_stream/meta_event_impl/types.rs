@@ -73,20 +73,14 @@ impl MetaMap {
     }
 }
 
+// THREAD: producer -> consumer across the host's startup worker. The host parses
+// CommandMap.ini on a background startup thread (`Main::spawn_startup_map_load`), and
+// the registered "CommandMap" INI block parser writes straight into this table, so
+// the map itself has to stay a process-wide lock; the meta-event toggles/cheat state
+// that is only ever touched by GUI-thread handlers lives in the thread-local cell
+// block in `state.rs`.
 static META_MAP: OnceLock<RwLock<MetaMap>> = OnceLock::new();
 static META_PARSER_REGISTERED: OnceLock<()> = OnceLock::new();
-static LOWER_DETAIL_TOGGLE_STATE: OnceLock<RwLock<LowerDetailToggleState>> = OnceLock::new();
-static OBJECTIVE_MOVIE_INDEX: OnceLock<RwLock<i32>> = OnceLock::new();
-static MOTION_BLUR_ZOOM_SATURATE: OnceLock<RwLock<bool>> = OnceLock::new();
-static CYCLE_LOD_LEVEL_STATE: OnceLock<RwLock<DynamicGameLODLevel>> = OnceLock::new();
-static LAST_PLANE_LOCK_OBJECT_ID: OnceLock<RwLock<Option<u32>>> = OnceLock::new();
-static VTUNE_ENABLED: OnceLock<RwLock<bool>> = OnceLock::new();
-static SKATE_DISTANCE_OVERRIDE: OnceLock<RwLock<f32>> = OnceLock::new();
-static DEMO_CAMERA_ADJUST_STATE: OnceLock<RwLock<DemoCameraAdjustState>> = OnceLock::new();
-static HAND_OF_GOD_MODE: OnceLock<RwLock<bool>> = OnceLock::new();
-static HURT_ME_MODE: OnceLock<RwLock<bool>> = OnceLock::new();
-static DEBUG_SELECTION_MODE: OnceLock<RwLock<bool>> = OnceLock::new();
-static BW_VIEW_MODE_STATE: OnceLock<RwLock<u8>> = OnceLock::new();
 
 const DROPPED_MAX_PARTICLE_COUNT: i32 = 1000;
 const EXTENT_BIG_CHANGE: f32 = 10.0;

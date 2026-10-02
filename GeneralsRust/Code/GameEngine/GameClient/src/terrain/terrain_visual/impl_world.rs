@@ -1469,21 +1469,22 @@ fn is_synthetic_skybox_bind(name: &str) -> bool {
 /// so a missing file is opened once per process — not once per map load or
 /// per frame (`init_terrain_visual` re-creates the singleton per match, so
 /// this must not live on the instance).
-static MISSING_SKYBOX_TEXTURES: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+// THREAD: main thread only — consulted on the terrain init/draw path.
+thread_local! {
+    static MISSING_SKYBOX_TEXTURES: RefCell<Vec<String>> = RefCell::new(Vec::new());
+}
 
 fn skybox_texture_known_missing(name: &str) -> bool {
     MISSING_SKYBOX_TEXTURES
-        .lock()
-        .map(|names| names.iter().any(|n| n.eq_ignore_ascii_case(name)))
-        .unwrap_or(false)
+        .with_borrow(|names| names.iter().any(|known| known.eq_ignore_ascii_case(name)))
 }
 
 fn remember_missing_skybox_texture(name: &str) {
-    if let Ok(mut names) = MISSING_SKYBOX_TEXTURES.lock() {
-        if !names.iter().any(|n| n.eq_ignore_ascii_case(name)) {
+    MISSING_SKYBOX_TEXTURES.with_borrow_mut(|names| {
+        if !names.iter().any(|known| known.eq_ignore_ascii_case(name)) {
             names.push(name.to_string());
         }
-    }
+    });
 }
 
 fn water_ini_or_default_skybox_names() -> [String; 5] {

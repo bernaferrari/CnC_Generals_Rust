@@ -13,8 +13,8 @@
 //! Append a tagged suffix after the historical v9 contain/producer payload
 //! so older decoders ignore the extra bytes. No WorldSnapshot version bump.
 
-use crate::game_logic::GameLogic;
 use crate::game_logic::host_helix_napalm::HostHelixNapalmRegistry;
+use crate::game_logic::GameLogic;
 use crate::save_load::{SaveLoadError, SaveLoadResult};
 use serde::{Deserialize, Serialize};
 

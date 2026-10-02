@@ -774,80 +774,42 @@ impl TextureLoader {
     }
 }
 
-fn texture_loader_slot() -> &'static Mutex<Option<TextureLoader>> {
-    static SLOT: OnceLock<Mutex<Option<TextureLoader>>> = OnceLock::new();
-    SLOT.get_or_init(|| Mutex::new(None))
+thread_local! {
+    /// C++ kept the texture loader singleton as a plain static on the game thread.
+    static TEXTURE_LOADER: RefCell<Option<TextureLoader>> = const { RefCell::new(None) };
 }
 
-fn lock_texture_loader_slot() -> MutexGuard<'static, Option<TextureLoader>> {
-    match texture_loader_slot().lock() {
-        Ok(guard) => guard,
-        Err(poisoned) => poisoned.into_inner(),
-    }
-}
-
-/// Handle for interacting with the texture loader singleton.
-pub struct TextureLoaderHandle<'a> {
-    guard: MutexGuard<'a, Option<TextureLoader>>,
-}
-
-impl<'a> Deref for TextureLoaderHandle<'a> {
-    type Target = TextureLoader;
-
-    fn deref(&self) -> &Self::Target {
-        self.guard
-            .as_ref()
-            .expect("texture loader must be initialized before use")
-    }
-}
-
-impl<'a> DerefMut for TextureLoaderHandle<'a> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        self.guard
-            .as_mut()
-            .expect("texture loader must be initialized before use")
-    }
+/// Run `f` with mutable access to the texture loader singleton, if initialized.
+pub fn with_texture_loader<R>(f: impl FnOnce(&mut TextureLoader) -> R) -> Option<R> {
+    TEXTURE_LOADER.with_borrow_mut(|loader| {
+        let loader = loader.as_mut()?;
+        Some(f(loader))
+    })
 }
 
 /// Initialize texture system
 pub fn init_texture_system() -> Result<()> {
-    let mut guard = lock_texture_loader_slot();
-    *guard = Some(TextureLoader::new());
+    TEXTURE_LOADER.with_borrow_mut(|slot| *slot = Some(TextureLoader::new()));
     Ok(())
 }
 
 /// Shutdown texture system
 pub fn shutdown_texture_system() {
-    let mut guard = lock_texture_loader_slot();
-    *guard = None;
-}
-
-/// Get texture loader instance
-pub fn get_texture_loader() -> Option<TextureLoaderHandle<'static>> {
-    let guard = lock_texture_loader_slot();
-    if guard.is_none() {
-        None
-    } else {
-        Some(TextureLoaderHandle { guard })
-    }
+    TEXTURE_LOADER.with_borrow_mut(|slot| *slot = None);
 }
 
 /// Quick texture loading function
 pub fn load_texture(filename: &str) -> Result<Arc<TextureBaseClass>> {
-    let mut loader = get_texture_loader()
-        .ok_or_else(|| W3dError::NotInitialized("Texture loader not initialized".to_string()))?;
-
-    loader.load_texture(filename)
+    with_texture_loader(|loader| loader.load_texture(filename))
+        .ok_or_else(|| W3dError::NotInitialized("Texture loader not initialized".to_string()))?
 }
 
 pub fn load_texture_with_policy(
     filename: &str,
     policy: TextureUsagePolicy,
 ) -> Result<Arc<TextureBaseClass>> {
-    let mut loader = get_texture_loader()
-        .ok_or_else(|| W3dError::NotInitialized("Texture loader not initialized".to_string()))?;
-
-    loader.load_texture_with_policy(filename, policy)
+    with_texture_loader(|loader| loader.load_texture_with_policy(filename, policy))
+        .ok_or_else(|| W3dError::NotInitialized("Texture loader not initialized".to_string()))?
 }
 
 /// Quick texture creation function

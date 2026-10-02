@@ -157,7 +157,7 @@ impl GameLogic {
 
         // C++ GameLogic::registerObject prepends (GameLogic.cpp:3866).
         self.objects.insert(object_id, Arc::clone(&object));
-        self.prepend_to_object_list(&object, object_id);
+        self.prepend_to_object_list(object_id);
 
         // Register in global registry
         OBJECT_REGISTRY.register_object(object_id, &object);
@@ -170,7 +170,7 @@ impl GameLogic {
 
         // C++ Object::initObject → sendObjectCreated after the object exists.
         // Dual-world: bind a client drawable when the logic object has none.
-        send_object_created(&object);
+        send_object_created(object_id);
 
         // Add to partition manager
         if let Ok(obj) = object.read() {
@@ -271,7 +271,7 @@ impl GameLogic {
 
         // C++ registerObject prepends (GameLogic.cpp:3866).
         self.objects.insert(object_id, Arc::clone(&object));
-        self.prepend_to_object_list(&object, object_id);
+        self.prepend_to_object_list(object_id);
 
         Ok(object_id)
     }
@@ -284,6 +284,9 @@ impl GameLogic {
             return;
         }
 
+        // Map-owned lookup: destroy parity tests register objects directly in
+        // GameLogic.objects, and the &mut self onDestroy callbacks below need
+        // the handle owned rather than borrowed from the map.
         if let Some(obj_arc) = self.objects.get(&object_id).cloned() {
             if let Ok(mut obj) = obj_arc.write() {
                 if obj.is_destroyed() {
@@ -359,12 +362,16 @@ impl GameLogic {
     }
 
     /// C++ `Object::prependToList(&m_objList)` — newest object is list head.
-    fn prepend_to_object_list(&mut self, object: &Arc<RwLock<Object>>, object_id: ObjectID) {
+    /// Every caller has already inserted the handle into `self.objects`, so
+    /// the link fixups run on scoped map borrows instead of a passed-in Arc.
+    fn prepend_to_object_list(&mut self, object_id: ObjectID) {
         let old_head = self.all_objects.first().copied();
         self.all_objects.insert(0, object_id);
-        if let Ok(mut object_guard) = object.write() {
-            object_guard.set_prev_object_id(None);
-            object_guard.set_next_object_id(old_head);
+        if let Some(object) = self.objects.get(&object_id) {
+            if let Ok(mut object_guard) = object.write() {
+                object_guard.set_prev_object_id(None);
+                object_guard.set_next_object_id(old_head);
+            }
         }
         if let Some(old_id) = old_head {
             if let Some(old_object) = self.objects.get(&old_id) {
@@ -705,8 +712,7 @@ impl GameLogic {
         game_engine::common::random_value::init_game_logic_random(seed as u32);
     }
 
-    /// Iterate over all objects in the game
-    /// Returns iterator yielding Arc<RwLock<Object>> for each object
+    /// Iterate over all live object ids in list order (no Arc handles).
     pub fn iter_all_object_ids(&self) -> impl Iterator<Item = ObjectID> + '_ {
         self.all_objects.iter().copied()
     }
@@ -812,7 +818,7 @@ impl GameLogic {
 
         // C++ restore lands on m_objList (prepend) and is findable.
         self.objects.insert(object_id, Arc::clone(&object_arc));
-        self.prepend_to_object_list(&object_arc, object_id);
+        self.prepend_to_object_list(object_id);
         OBJECT_REGISTRY.register_object(object_id, &object_arc);
 
         // Register with partition manager
@@ -894,10 +900,13 @@ impl GameLogic {
         player_mask: PlayerMaskType,
         affect_client: bool,
     ) {
-        let Some(obj_ref) = self.find_object_by_id(object_id) else {
+        let Some(obj_ref) = self.objects.get(&object_id) else {
             return;
         };
         let (allowed, can_add, drawable) = {
+            // Scoped map borrow — no Arc handle clone. The guard is dropped
+            // before apply_select_object: AIGroup::add try-reads the same
+            // object (Darwin deadlock), so it must not run under this lock.
             let Ok(obj) = obj_ref.read() else {
                 return;
             };
@@ -932,10 +941,12 @@ impl GameLogic {
         player_mask: PlayerMaskType,
         affect_client: bool,
     ) {
-        let Some(obj_ref) = self.find_object_by_id(object_id) else {
+        let Some(obj_ref) = self.objects.get(&object_id) else {
             return;
         };
         let drawable = {
+            // Scoped map borrow — no Arc handle clone; the guard is dropped
+            // before apply_deselect_object (same AIGroup try-read hazard).
             let Ok(obj) = obj_ref.read() else {
                 return;
             };

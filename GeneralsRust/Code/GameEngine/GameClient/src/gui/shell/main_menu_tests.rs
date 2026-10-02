@@ -423,7 +423,7 @@ mod tests {
     #[test]
     fn test_input_focus_writeback_sets_keyboard_focus() {
         use crate::gui::{
-            WindowMsgPayload, pop_payload, push_payload, write_input_focus_response as safe_focus,
+            pop_payload, push_payload, write_input_focus_response as safe_focus, WindowMsgPayload,
         };
 
         // Production path: set_focus pushes a Bool payload token, never a raw ptr.
@@ -1094,15 +1094,15 @@ mod main_menu_shell_borrow_residual_tests {
 
     #[test]
     fn os_mouse_click_button_skirmish_bubbles_gbm_selected_like_cpp() {
-        use crate::gui::WindowMessage;
         use crate::gui::gadgets::PushButton;
         use crate::gui::game_window::{
-            GWS_MOUSE_TRACK, GWS_PUSH_BUTTON, WindowInputReturnCode, WindowWidget,
+            WindowInputReturnCode, WindowWidget, GWS_MOUSE_TRACK, GWS_PUSH_BUTTON,
         };
         use crate::gui::window_manager::{
             dispatch_os_mouse_to_window_manager, with_window_manager,
         };
         use crate::gui::window_script::WindowDefinition;
+        use crate::gui::WindowMessage;
 
         let parent_id = NameKeyGenerator::name_to_key("MainMenu.wnd:MainMenuParent") as i32;
         let border_id = NameKeyGenerator::name_to_key("MainMenu.wnd:MapBorder") as i32;
@@ -1198,13 +1198,13 @@ mod main_menu_shell_borrow_residual_tests {
         // dropDownWindows[DROPDOWN_SINGLE]->winHide(FALSE) (MapBorder)
         // so SKIRMISH (a MapBorder child) is hittable. Physical click must
         // bubble through PassSelectedButtonsToParentSystem into MainMenuSystem.
-        use crate::gui::WindowMessage;
         use crate::gui::gadgets::PushButton;
         use crate::gui::game_window::{
-            GWS_MOUSE_TRACK, GWS_PUSH_BUTTON, WindowInputReturnCode, WindowStatus, WindowWidget,
+            WindowInputReturnCode, WindowStatus, WindowWidget, GWS_MOUSE_TRACK, GWS_PUSH_BUTTON,
         };
         use crate::gui::window_manager::with_window_manager;
         use crate::gui::window_script::WindowDefinition;
+        use crate::gui::WindowMessage;
 
         let ids = build_window_ids();
         let parent_id = ids.main_menu_id as i32;
@@ -1536,10 +1536,7 @@ mod main_menu_shell_borrow_residual_tests {
 
             // Retail 800x600 centers: SOLO PLAY 644,134; Skirmish 644,294;
             // RecentSave 486,116.
-            for (x, y, label) in [
-                (644, 134, "SOLO PLAY"),
-                (486, 116, "RecentSave"),
-            ] {
+            for (x, y, label) in [(644, 134, "SOLO PLAY"), (486, 116, "RecentSave")] {
                 let hit = manager.get_window_under_cursor(x, y, false);
                 assert!(
                     hit.is_none(),
@@ -1625,13 +1622,11 @@ mod main_menu_shell_borrow_residual_tests {
                     .is_hidden(),
                 "C++ main dropdown must not leave single-player buttons visible underneath"
             );
-            assert!(
-                !manager
-                    .find_window_by_name("MainMenu.wnd:MapBorder2")
-                    .unwrap()
-                    .borrow()
-                    .is_hidden()
-            );
+            assert!(!manager
+                .find_window_by_name("MainMenu.wnd:MapBorder2")
+                .unwrap()
+                .borrow()
+                .is_hidden());
         });
     }
 

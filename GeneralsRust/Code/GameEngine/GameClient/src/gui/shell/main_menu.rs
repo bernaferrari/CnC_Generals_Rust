@@ -29,18 +29,17 @@
 //! This is a faithful port of /GeneralsMD/Code/GameEngine/Source/GameClient/GUI/GUICallbacks/Menus/MainMenu.cpp
 //! All constants, state transitions, and callbacks match the original C++ implementation.
 
-use crate::gui::WindowMsgData;
 use crate::gui::callbacks::download_menu::download_menu_update;
 use crate::gui::callbacks::message_box::{
-    ExtendedMessageBoxFunc, MessageBoxFunc, MessageBoxReturnType as ExMessageBoxReturnType,
     ex_message_box_ok_cancel, message_box_ok, message_box_ok_cancel, quit_message_box_yes_no,
+    ExtendedMessageBoxFunc, MessageBoxFunc, MessageBoxReturnType as ExMessageBoxReturnType,
 };
 use crate::gui::campaign_launch_host_bridge::{
-    HostCampaignLaunchDescriptor, publish_host_campaign_launch,
+    publish_host_campaign_launch, HostCampaignLaunchDescriptor,
 };
-use crate::gui::campaign_manager::{GameDifficulty as CampaignDifficulty, get_campaign_manager};
+use crate::gui::campaign_manager::{get_campaign_manager, GameDifficulty as CampaignDifficulty};
 use crate::gui::challenge_generals::{
-    GameDifficulty as ChallengeGameDifficulty, get_challenge_generals_mut,
+    get_challenge_generals_mut, GameDifficulty as ChallengeGameDifficulty,
 };
 use crate::gui::header_template::get_header_template_manager;
 use crate::gui::menu_flags::get_dont_show_main_menu;
@@ -50,14 +49,15 @@ use crate::gui::shell::{
     try_with_shell_mut, with_shell_ref,
 };
 use crate::gui::window_manager::{
-    WindowLayout as ManagerWindowLayout, queue_window_manager_op, queue_window_manager_op_deferred,
-    window_manager_try_borrow_free, with_window_manager, with_window_manager_ref,
+    queue_window_manager_op, queue_window_manager_op_deferred, window_manager_try_borrow_free,
+    with_window_manager, with_window_manager_ref, WindowLayout as ManagerWindowLayout,
 };
 use crate::gui::write_input_focus_response;
+use crate::gui::WindowMsgData;
 use crate::helpers::set_mouse_cursor_visibility;
 use crate::helpers::{TheControlBar, TheInGameUI};
 use crate::map_util::get_map_cache_manager;
-use crate::message_stream::{GameMessageType, get_message_stream};
+use crate::message_stream::{get_message_stream, GameMessageType};
 use crate::shell_hooks::{
     SHELL_SCRIPT_HOOK_MAIN_MENU_EXIT_SELECTED, SHELL_SCRIPT_HOOK_MAIN_MENU_NETWORK_SELECTED,
     SHELL_SCRIPT_HOOK_MAIN_MENU_ONLINE_SELECTED, SHELL_SCRIPT_HOOK_MAIN_MENU_OPTIONS_SELECTED,
@@ -2835,19 +2835,19 @@ pub fn soft_reveal_main_menu_for_host_inject() -> bool {
     true
 }
 
-static DEFERRED_SHELL_PUSHES: OnceLock<Mutex<Vec<String>>> = OnceLock::new();
-
-fn deferred_shell_push_queue() -> &'static Mutex<Vec<String>> {
-    DEFERRED_SHELL_PUSHES.get_or_init(|| Mutex::new(Vec::new()))
+// THREAD: main thread only — shell pushes are queued by menu callbacks and
+// drained by the menu tick on the same GUI thread.
+thread_local! {
+    static DEFERRED_SHELL_PUSHES: RefCell<Vec<String>> = RefCell::new(Vec::new());
 }
 
 fn queue_deferred_shell_push(screen: &str) {
-    if let Ok(mut q) = deferred_shell_push_queue().lock() {
-        if !q.iter().any(|s| s == screen) {
+    DEFERRED_SHELL_PUSHES.with_borrow_mut(|queue| {
+        if !queue.iter().any(|existing| existing == screen) {
             log::info!("MainMenu: defer shell push {screen}");
-            q.push(screen.to_string());
+            queue.push(screen.to_string());
         }
-    }
+    });
 }
 
 /// Apply shell pushes deferred from MainMenu system callbacks (see
@@ -2855,10 +2855,7 @@ fn queue_deferred_shell_push(screen: &str) {
 /// host inject so process_mouse_event can return Used without hanging on
 /// synchronous `Shell::push` / layout init.
 pub fn drain_deferred_shell_pushes() {
-    let screens = deferred_shell_push_queue()
-        .lock()
-        .map(|mut q| std::mem::take(&mut *q))
-        .unwrap_or_default();
+    let screens = DEFERRED_SHELL_PUSHES.with_borrow_mut(std::mem::take);
     for screen in screens {
         queue_shell_push(screen, false);
     }
@@ -2867,12 +2864,12 @@ pub fn drain_deferred_shell_pushes() {
 /// Drop deferred shell pushes without applying (host `start_game` owns match start;
 /// pushing SkirmishGameOptions mid inject was RefCell-panicing layout init).
 pub fn clear_deferred_shell_pushes() {
-    if let Ok(mut q) = deferred_shell_push_queue().lock() {
-        if !q.is_empty() {
-            log::info!("MainMenu: clear {} deferred shell push(es)", q.len());
-            q.clear();
+    DEFERRED_SHELL_PUSHES.with_borrow_mut(|queue| {
+        if !queue.is_empty() {
+            log::info!("MainMenu: clear {} deferred shell push(es)", queue.len());
+            queue.clear();
         }
-    }
+    });
 }
 
 /// Advance MainMenu transition timers (used by drive_os_wnd_* and winit inject).
@@ -2962,7 +2959,11 @@ pub fn os_wnd_widget_under_cursor_name(x: i32, y: i32) -> Option<String> {
             }
         }
         let name = guard.get_name().to_string();
-        if name.is_empty() { None } else { Some(name) }
+        if name.is_empty() {
+            None
+        } else {
+            Some(name)
+        }
     })
 }
 

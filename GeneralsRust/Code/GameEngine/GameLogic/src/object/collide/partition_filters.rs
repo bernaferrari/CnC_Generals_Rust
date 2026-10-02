@@ -1047,6 +1047,8 @@ impl super::partition_manager::PartitionFilter for PartitionFilterRejectBuilding
 
                 let accept = crate::object::registry::OBJECT_REGISTRY
                     .with_object(self.obj_id, |src_guard| {
+                        // `.flatten()`: the closure's `None` means "no resolvable
+                        // team" and rejects, on top of the accessor's own Option.
                         let Some(rel) = src_guard
                             .with_controlling_player(|my_guard| {
                                 let other_player = other_guard

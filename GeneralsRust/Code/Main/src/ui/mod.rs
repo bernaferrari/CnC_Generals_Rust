@@ -8,7 +8,6 @@
 
 use log::warn;
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
 
 pub mod audio;
 pub mod campaign_menu;
@@ -22,11 +21,11 @@ pub mod hud;
 pub mod hud_state;
 pub mod layout_manager;
 pub use layout_manager::{
-    MAIN_MENU_LAYOUT_BUTTON_NAMES, MAIN_MENU_LAYOUT_CHROME_NAMES, ResidualMainMenuLayoutAction,
-    UILayoutManager, residual_main_menu_layout_button_count,
-    residual_main_menu_layout_element_count, residual_main_menu_layout_last_action,
-    simulate_main_menu_layout_clear, simulate_main_menu_layout_create,
-    simulate_main_menu_layout_hit_test_single_player, simulate_main_menu_layout_prepare_default,
+    residual_main_menu_layout_button_count, residual_main_menu_layout_element_count,
+    residual_main_menu_layout_last_action, simulate_main_menu_layout_clear,
+    simulate_main_menu_layout_create, simulate_main_menu_layout_hit_test_single_player,
+    simulate_main_menu_layout_prepare_default, ResidualMainMenuLayoutAction, UILayoutManager,
+    MAIN_MENU_LAYOUT_BUTTON_NAMES, MAIN_MENU_LAYOUT_CHROME_NAMES,
 };
 pub mod loading_screen;
 pub mod main_menu;
@@ -54,15 +53,15 @@ pub use events::{InputEvent, KeyEvent, MouseEvent, UIEventHandler};
 pub use faction_selection::{Faction, FactionSelectionScreen};
 pub use hud::{ConstructionTab, GameHUD, MiniMap, ResourceDisplay};
 pub use hud_state::{
+    color_for_player, default_minimap_view_box, default_minimap_viewport, normalized_minimap_rect,
     BuildQueueEntry, CanMakeCameoUi, ControlBarSelectionPanelState, DiagnosticsOverlayStats,
     GameUIState, MinimapActionKind, MinimapDot, MinimapInteraction, RadarMessageEntry, RadarPing,
     RadarPingKind, UiColor, UiPos2, UiRect, UiTextureId, UiVec2, UnitDisplayInfo,
-    VictoryOverlayAction, color_for_player, default_minimap_view_box, default_minimap_viewport,
-    normalized_minimap_rect,
+    VictoryOverlayAction,
 };
 pub use loading_screen::LoadingScreen;
 pub use main_menu::{MainMenu, MainMenuState};
-pub use minimap_panel::{BeaconDot, MinimapClickEvent, MinimapUIState, update_minimap_state};
+pub use minimap_panel::{update_minimap_state, BeaconDot, MinimapClickEvent, MinimapUIState};
 pub use options_menu::{GraphicsQuality, OptionsMenu, OptionsTab, Resolution};
 pub use pause_menu::{PauseMenu, PauseMenuAction};
 pub use quit_dialog::QuitDialog;
@@ -70,7 +69,7 @@ pub use rts_interface::{
     BuildingInterface, RTSInterface, UnitCommandAvailability, UnitCommandButton, UnitCommandPanel,
 };
 pub use save_load_menu::{SaveGameEntry, SaveLoadDialogState, SaveLoadMenu, SaveLoadMode};
-pub use skirmish_menu::{GameRules, GameSlot, MAX_SLOTS, PlayerColor, PlayerType, SkirmishMenu};
+pub use skirmish_menu::{GameRules, GameSlot, PlayerColor, PlayerType, SkirmishMenu, MAX_SLOTS};
 pub use themes::{Colors, GeneralsTheme, UITheme};
 pub use ui_manager::{UIEvent, UIManager, UIState};
 pub use victory_screen::{VictoryScreen, VictoryScreenType};
@@ -435,8 +434,8 @@ pub struct UIRenderContext {
     pub screen_size: (u32, u32),
     pub delta_time: f32,
     pub mouse_position: (i32, i32),
-    pub font_manager: Arc<Mutex<FontManager>>,
-    pub texture_manager: Arc<Mutex<TextureManager>>,
+    pub font_manager: FontManager,
+    pub texture_manager: TextureManager,
     /// Accumulated draw commands produced by `Renderable::render` implementations.
     pub draw_commands: Vec<UIRenderCommand>,
 }
@@ -453,8 +452,8 @@ impl UIRenderContext {
             screen_size: (1024, 768),
             delta_time: 0.016,
             mouse_position: (0, 0),
-            font_manager: Arc::new(Mutex::new(FontManager::new())),
-            texture_manager: Arc::new(Mutex::new(TextureManager::new())),
+            font_manager: FontManager::new(),
+            texture_manager: TextureManager::new(),
             draw_commands: Vec::new(),
         }
     }
@@ -686,7 +685,7 @@ pub struct TextureData {
 
 #[cfg(test)]
 mod tests {
-    use super::{Screen, utils, *};
+    use super::{utils, Screen, *};
     use game_engine::global_data;
     use game_engine::global_data::with_global_data_restored as with_global_data_snapshot_restored;
 

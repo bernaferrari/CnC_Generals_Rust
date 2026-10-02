@@ -190,25 +190,25 @@ impl Default for SciencePurchaseState {
     }
 }
 
-/// Wave 985: host residual production pause requests (producer_id, paused).
-static HOST_PRODUCTION_PAUSE_QUEUE: std::sync::Mutex<Vec<(u32, bool)>> =
-    std::sync::Mutex::new(Vec::new());
+// Wave 985: host residual production pause requests (producer_id, paused).
+// THREAD: main thread only — queued by ControlBar WND callbacks and drained by
+// the same thread's GameLogic bridge.
+thread_local! {
+    static HOST_PRODUCTION_PAUSE_QUEUE: RefCell<Vec<(u32, bool)>> = RefCell::new(Vec::new());
+}
 
 /// Queue host production pause residual for Main GameLogic drain.
 pub fn queue_host_production_pause(producer_id: u32, paused: bool) {
-    if let Ok(mut q) = HOST_PRODUCTION_PAUSE_QUEUE.lock() {
+    HOST_PRODUCTION_PAUSE_QUEUE.with_borrow_mut(|queue| {
         // Last write for same producer wins.
-        q.retain(|(id, _)| *id != producer_id);
-        q.push((producer_id, paused));
-    }
+        queue.retain(|(id, _)| *id != producer_id);
+        queue.push((producer_id, paused));
+    });
 }
 
 /// Drain host production pause residual queue.
 pub fn take_host_production_pause_requests() -> Vec<(u32, bool)> {
-    HOST_PRODUCTION_PAUSE_QUEUE
-        .lock()
-        .map(|mut q| std::mem::take(&mut *q))
-        .unwrap_or_default()
+    HOST_PRODUCTION_PAUSE_QUEUE.with_borrow_mut(std::mem::take)
 }
 
 /// Discard legacy host-pause residuals without applying them.
@@ -217,10 +217,7 @@ pub fn take_host_production_pause_requests() -> Vec<(u32, bool)> {
 /// queued for the legacy GameLogic path must never be replayed into a later
 /// authoritative-world session.
 pub fn clear_host_production_pause_requests() {
-    HOST_PRODUCTION_PAUSE_QUEUE
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
-        .clear();
+    HOST_PRODUCTION_PAUSE_QUEUE.with_borrow_mut(Vec::clear);
 }
 
 pub struct ControlBar {

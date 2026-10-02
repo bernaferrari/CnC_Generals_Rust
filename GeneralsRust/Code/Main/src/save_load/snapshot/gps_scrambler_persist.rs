@@ -12,8 +12,8 @@
 //! Append a tagged suffix after the historical v9 contain/producer payload
 //! so older decoders ignore the extra bytes. No WorldSnapshot version bump.
 
-use crate::game_logic::GameLogic;
 use crate::game_logic::host_gps_scrambler::HostGpsScramblerRegistry;
+use crate::game_logic::GameLogic;
 use crate::save_load::{SaveLoadError, SaveLoadResult};
 use serde::{Deserialize, Serialize};
 
@@ -93,10 +93,10 @@ fn take_u32(rest: &mut &[u8]) -> SaveLoadResult<u32> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::game_logic::ObjectId;
     use crate::game_logic::host_gps_scrambler::{
-        GPS_SCRAMBLER_START_RADIUS, HOST_GPS_SCRAMBLER_RADIUS, HostGpsScrambler,
+        HostGpsScrambler, GPS_SCRAMBLER_START_RADIUS, HOST_GPS_SCRAMBLER_RADIUS,
     };
+    use crate::game_logic::ObjectId;
     use glam::Vec3;
 
     #[test]

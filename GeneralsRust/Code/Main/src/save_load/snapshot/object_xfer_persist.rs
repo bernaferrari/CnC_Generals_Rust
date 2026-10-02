@@ -29,8 +29,8 @@
 //! so older decoders ignore the extra bytes. No WorldSnapshot version bump.
 //! Restore writes clocks/flags only; it never re-runs create/apply.
 
-use crate::game_logic::HUNT_CMD_FROM_AI;
 use crate::game_logic::object::TurretSubState;
+use crate::game_logic::HUNT_CMD_FROM_AI;
 use crate::game_logic::{GameLogic, ObjectId};
 use crate::save_load::{SaveLoadError, SaveLoadResult};
 use serde::{Deserialize, Serialize};
@@ -1539,7 +1539,18 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
     };
     let mut rest = suffix;
     let version = take_u32(&mut rest)?;
-    if version != 1 && version != 2 && version != 3 && version != 4 && version != 5 && version != 6 && version != 7 && version != 8 && version != 9 && version != 10 && version != OXOB_VERSION {
+    if version != 1
+        && version != 2
+        && version != 3
+        && version != 4
+        && version != 5
+        && version != 6
+        && version != 7
+        && version != 8
+        && version != 9
+        && version != 10
+        && version != OXOB_VERSION
+    {
         return Err(SaveLoadError::Corrupted(format!(
             "unknown OXOB suffix version {version}"
         )));
@@ -2175,12 +2186,10 @@ mod tests {
         assert_eq!(object.which_exit_path, 0);
         assert_eq!(object.cheer_timer, 0.0);
         assert!(!object_has_special_cheering(&object));
-        assert!(
-            object
-                .weapon_scatter_targets_unused
-                .iter()
-                .all(Vec::is_empty)
-        );
+        assert!(object
+            .weapon_scatter_targets_unused
+            .iter()
+            .all(Vec::is_empty));
         assert_eq!(object.weapon_scatter_targets_inited, [false, false, false]);
         assert!(!object.weapon_bonus_horde);
         assert!(!object.weapon_bonus_enthusiastic);
@@ -2192,24 +2201,18 @@ mod tests {
             "absent OXOB resets m_isRecruitable to leftover default true"
         );
         assert_eq!(object.ignore_collisions_until_frame, 0);
-        assert!(
-            logic
-                .host_objects()
-                .values()
-                .all(|object| object.unit_ai_runtime.guard_scan_deadline().is_none())
-        );
-        assert!(
-            logic
-                .host_objects()
-                .values()
-                .all(|object| object.unit_ai_runtime.hunt_scan_deadline().is_none())
-        );
-        assert!(
-            logic
-                .host_objects()
-                .values()
-                .all(|object| object.unit_ai_runtime.quick_exit_deadline().is_none())
-        );
+        assert!(logic
+            .host_objects()
+            .values()
+            .all(|object| object.unit_ai_runtime.guard_scan_deadline().is_none()));
+        assert!(logic
+            .host_objects()
+            .values()
+            .all(|object| object.unit_ai_runtime.hunt_scan_deadline().is_none()));
+        assert!(logic
+            .host_objects()
+            .values()
+            .all(|object| object.unit_ai_runtime.quick_exit_deadline().is_none()));
     }
 
     #[test]
@@ -2576,7 +2579,10 @@ mod tests {
         apply_from_lifecycle_tail(&bytes, &mut logic).expect("apply v6");
         let loaded = logic.host_object(id).expect("unit");
         assert!(loaded.locomotor_upgrade);
-        assert_eq!(loaded.jet_ai.cur_locomotor_set.as_deref(), Some("SET_TAXIING"));
+        assert_eq!(
+            loaded.jet_ai.cur_locomotor_set.as_deref(),
+            Some("SET_TAXIING")
+        );
         assert!((loaded.braking - 40.0).abs() < 0.001);
         assert!((loaded.max_lift - 9.5).abs() < 0.001);
         assert!((loaded.braking_factor - 0.25).abs() < 0.001);
@@ -2786,15 +2792,13 @@ mod tests {
         assert_eq!(loaded.last_fire_frame, 0);
         assert!(loaded.is_recruitable);
         assert_eq!(loaded.ignore_collisions_until_frame, 0);
-        assert!(
-            dest.host_objects()
-                .values()
-                .all(|object| object.unit_ai_runtime.guard_scan_deadline().is_none())
-        );
-        assert!(
-            dest.host_objects()
-                .values()
-                .all(|object| object.unit_ai_runtime.hunt_scan_deadline().is_none())
-        );
+        assert!(dest
+            .host_objects()
+            .values()
+            .all(|object| object.unit_ai_runtime.guard_scan_deadline().is_none()));
+        assert!(dest
+            .host_objects()
+            .values()
+            .all(|object| object.unit_ai_runtime.hunt_scan_deadline().is_none()));
     }
 }

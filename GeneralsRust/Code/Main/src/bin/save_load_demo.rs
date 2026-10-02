@@ -11,15 +11,14 @@ use generals_main::command_system::{CommandSystem, CommandType, GameCommand, Mod
 use generals_main::game_logic::{GameLogic, GameMode, ObjectId, Team};
 #[cfg(feature = "dev-tools")]
 use generals_main::save_load::{
-    CampaignId, GAME_STATE_MANAGER, GameDifficulty, MissionCompletionData, MissionDifficulty,
-    ReplayPlayerInfo, ReplayTeamInfo, SaveFileType, init_campaign_system, init_game_state_system,
-    init_replay_system, init_save_load_system, list_available_saves, load_game, quick_save,
-    record_replay_command, register_game_systems, save_game, try_auto_save, update_replay_system,
+    init_campaign_system, init_game_state_system, init_replay_system, init_save_load_system,
+    list_available_saves, load_game, quick_save, record_replay_command, register_game_systems,
+    save_game, try_auto_save, update_replay_system, CampaignId, GameDifficulty,
+    MissionCompletionData, MissionDifficulty, ReplayPlayerInfo, ReplayTeamInfo, SaveFileType,
+    GAME_STATE_MANAGER,
 };
 #[cfg(feature = "dev-tools")]
 use glam::Vec3;
-#[cfg(feature = "dev-tools")]
-use std::sync::{Arc, Mutex};
 #[cfg(feature = "dev-tools")]
 use std::time::{Duration, SystemTime};
 
@@ -32,11 +31,10 @@ fn build_demo_state() {
     let _ = logic.create_object("USA_Humvee", Team::USA, Vec3::new(-10.0, 0.0, -8.0));
     let _ = logic.create_object("GLA_Soldier", Team::GLA, Vec3::new(25.0, 0.0, 25.0));
 
-    let game_logic = Arc::new(Mutex::new(logic));
-    let command_system = Arc::new(Mutex::new(CommandSystem::new()));
-    let ai_system = Arc::new(Mutex::new(AIManager::new()));
+    let command_system = CommandSystem::new();
+    let ai_system = AIManager::new();
 
-    register_game_systems(game_logic, command_system, ai_system, None);
+    register_game_systems(logic, command_system, ai_system);
 }
 
 #[cfg(feature = "dev-tools")]

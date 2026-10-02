@@ -12,8 +12,8 @@
 //! Append a tagged suffix after the historical v9 contain/producer payload so
 //! older decoders ignore the extra bytes. No WorldSnapshot version bump.
 
-use crate::game_logic::GameLogic;
 use crate::game_logic::host_hacker_income::HostHackerIncomeRegistry;
+use crate::game_logic::GameLogic;
 use crate::save_load::{SaveLoadError, SaveLoadResult};
 use serde::{Deserialize, Serialize};
 
@@ -104,10 +104,10 @@ fn take_u32(rest: &mut &[u8]) -> SaveLoadResult<u32> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::game_logic::ObjectId;
     use crate::game_logic::host_hacker_income::{
-        HACKER_CASH_INTERVAL_FRAMES, HackerInternetPhase, PendingHackerCommand,
+        HackerInternetPhase, PendingHackerCommand, HACKER_CASH_INTERVAL_FRAMES,
     };
+    use crate::game_logic::ObjectId;
     use glam::Vec3;
 
     #[test]
@@ -167,12 +167,10 @@ mod tests {
             restored.hacker_income.peek_pending_command(packing),
             Some(PendingHackerCommand::MoveTo(Vec3::new(8.0, 0.0, 4.0)))
         );
-        assert!(
-            restored
-                .hacker_income
-                .take_finished_pack(packing, 229)
-                .is_none()
-        );
+        assert!(restored
+            .hacker_income
+            .take_finished_pack(packing, 229)
+            .is_none());
         assert_eq!(
             restored.hacker_income.take_finished_pack(packing, 230),
             Some(PendingHackerCommand::MoveTo(Vec3::new(8.0, 0.0, 4.0)))

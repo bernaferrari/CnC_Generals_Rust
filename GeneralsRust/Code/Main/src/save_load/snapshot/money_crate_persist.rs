@@ -12,8 +12,8 @@
 //! Append a tagged suffix after the historical v9 contain/producer payload
 //! so older decoders ignore the extra bytes. No WorldSnapshot version bump.
 
-use crate::game_logic::GameLogic;
 use crate::game_logic::host_money_crate::HostMoneyCrateRegistry;
+use crate::game_logic::GameLogic;
 use crate::save_load::{SaveLoadError, SaveLoadResult};
 use serde::{Deserialize, Serialize};
 
@@ -93,8 +93,8 @@ fn take_u32(rest: &mut &[u8]) -> SaveLoadResult<u32> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::game_logic::ObjectId;
     use crate::game_logic::host_money_crate::MONEY_CRATE_DELETION_MIN_FRAMES;
+    use crate::game_logic::ObjectId;
 
     #[test]
     fn snapshot_round_trips_money_crate_expire_and_pickup() {
@@ -144,10 +144,9 @@ mod tests {
         assert_eq!(salvage.money_provided, 50);
         assert!(salvage.expires_frame > 20);
         assert!(reg.contains(money_id));
-        assert!(
-            reg.expired_ids(10 + MONEY_CRATE_DELETION_MIN_FRAMES)
-                .contains(&money_id)
-        );
+        assert!(reg
+            .expired_ids(10 + MONEY_CRATE_DELETION_MIN_FRAMES)
+            .contains(&money_id));
     }
 
     #[test]

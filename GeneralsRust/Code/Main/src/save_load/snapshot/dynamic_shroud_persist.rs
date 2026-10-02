@@ -14,10 +14,10 @@
 //! Append a tagged suffix after the historical v9 contain/producer payload
 //! so older decoders ignore the extra bytes. No WorldSnapshot version bump.
 
-use crate::game_logic::GameLogic;
 use crate::game_logic::host_radar_scan::HostRadarScanRegistry;
 use crate::game_logic::host_spy_drone::HostSpyDroneRegistry;
 use crate::game_logic::host_spy_satellite::HostSpySatelliteRegistry;
+use crate::game_logic::GameLogic;
 use crate::save_load::{SaveLoadError, SaveLoadResult};
 use serde::{Deserialize, Serialize};
 
@@ -111,10 +111,10 @@ fn take_u32(rest: &mut &[u8]) -> SaveLoadResult<u32> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::game_logic::ObjectId;
     use crate::game_logic::host_radar_scan::{HostRadarScan, RADAR_SCAN_RADIUS};
     use crate::game_logic::host_spy_drone::HostSpyDrone;
     use crate::game_logic::host_spy_satellite::{HostSpySatellite, SPY_SATELLITE_RADIUS};
+    use crate::game_logic::ObjectId;
     use glam::Vec3;
 
     #[test]

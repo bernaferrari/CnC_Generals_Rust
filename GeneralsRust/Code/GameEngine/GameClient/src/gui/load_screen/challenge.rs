@@ -91,12 +91,7 @@ fn initialize_challenge_windows(wm: &mut WindowManager, did_mem_pass: bool) {
 }
 
 fn with_challenge_load_screen_state<R>(f: impl FnOnce(&mut ChallengeLoadScreenState) -> R) -> R {
-    let state =
-        CHALLENGE_LOAD_SCREEN_STATE.get_or_init(|| Mutex::new(ChallengeLoadScreenState::default()));
-    let mut guard = state
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
-    f(&mut guard)
+    CHALLENGE_LOAD_SCREEN_STATE.with_borrow_mut(f)
 }
 
 pub fn activate_challenge_load_screen_frame(frame: i32) {

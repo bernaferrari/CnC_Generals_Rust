@@ -66,41 +66,26 @@ fn toggle_demo_network_runtime() {
     }
 }
 
-fn vtune_enabled_state() -> &'static RwLock<bool> {
-    VTUNE_ENABLED.get_or_init(|| RwLock::new(false))
-}
-
 fn set_vtune_enabled(enabled: bool) {
-    if let Ok(mut guard) = vtune_enabled_state().write() {
-        *guard = enabled;
-    }
+    VTUNE_ENABLED.set(enabled);
 }
 
 #[cfg(test)]
 fn is_vtune_enabled_for_tests() -> bool {
-    vtune_enabled_state()
-        .read()
-        .map(|guard| *guard)
-        .unwrap_or(false)
-}
-
-fn skate_distance_override_state() -> &'static RwLock<f32> {
-    SKATE_DISTANCE_OVERRIDE.get_or_init(|| RwLock::new(0.0))
+    VTUNE_ENABLED.get()
 }
 
 fn adjust_skate_distance_override(delta: f32) -> f32 {
-    if let Ok(mut guard) = skate_distance_override_state().write() {
-        *guard += delta;
-        return *guard;
-    }
-    0.0
+    SKATE_DISTANCE_OVERRIDE.with(|value| {
+        let next = value.get() + delta;
+        value.set(next);
+        next
+    })
 }
 
 #[cfg(test)]
 fn set_skate_distance_override_for_tests(value: f32) {
-    if let Ok(mut guard) = skate_distance_override_state().write() {
-        *guard = value;
-    }
+    SKATE_DISTANCE_OVERRIDE.set(value);
 }
 
 fn dump_used_map_assets() -> std::io::Result<()> {
@@ -129,23 +114,17 @@ fn dump_used_map_assets() -> std::io::Result<()> {
     fs::write("UsedMapAssets.txt", output)
 }
 
-fn cycle_lod_level_state() -> &'static RwLock<DynamicGameLODLevel> {
-    CYCLE_LOD_LEVEL_STATE.get_or_init(|| RwLock::new(DynamicGameLODLevel::VeryHigh))
-}
-
 fn cycle_dynamic_lod_level() {
-    let next = {
-        let mut guard = cycle_lod_level_state()
-            .write()
-            .unwrap_or_else(|e| e.into_inner());
-        *guard = match *guard {
+    let next = CYCLE_LOD_LEVEL_STATE.with(|level| {
+        let next = match level.get() {
             DynamicGameLODLevel::VeryHigh => DynamicGameLODLevel::High,
             DynamicGameLODLevel::High => DynamicGameLODLevel::Medium,
             DynamicGameLODLevel::Medium => DynamicGameLODLevel::Low,
             _ => DynamicGameLODLevel::VeryHigh,
         };
-        *guard
-    };
+        level.set(next);
+        next
+    });
 
     game_engine::common::game_lod::set_dynamic_lod_from_string(next.to_str());
     let message = format!("Dynamic Game Detail {}", next.to_str());
@@ -154,13 +133,7 @@ fn cycle_dynamic_lod_level() {
 
 #[cfg(test)]
 fn set_cycle_lod_level_state_for_tests(level: DynamicGameLODLevel) {
-    if let Ok(mut guard) = cycle_lod_level_state().write() {
-        *guard = level;
-    }
-}
-
-fn last_plane_lock_object_id_state() -> &'static RwLock<Option<u32>> {
-    LAST_PLANE_LOCK_OBJECT_ID.get_or_init(|| RwLock::new(None))
+    CYCLE_LOD_LEVEL_STATE.set(level);
 }
 
 fn next_plane_camera_lock_object_id() -> Option<u32> {
@@ -227,10 +200,7 @@ fn next_plane_camera_lock_object_id() -> Option<u32> {
         return None;
     }
 
-    let previous = last_plane_lock_object_id_state()
-        .read()
-        .ok()
-        .and_then(|guard| *guard);
+    let previous = LAST_PLANE_LOCK_OBJECT_ID.with(Cell::get);
 
     let next = if let Some(previous_id) = previous {
         if let Some(index) = candidates.iter().position(|id| *id == previous_id) {
@@ -242,18 +212,14 @@ fn next_plane_camera_lock_object_id() -> Option<u32> {
         candidates[0]
     };
 
-    if let Ok(mut guard) = last_plane_lock_object_id_state().write() {
-        *guard = Some(next);
-    }
+    LAST_PLANE_LOCK_OBJECT_ID.set(Some(next));
 
     Some(next)
 }
 
 #[cfg(test)]
 fn set_last_plane_lock_object_id_for_tests(object_id: Option<u32>) {
-    if let Ok(mut guard) = last_plane_lock_object_id_state().write() {
-        *guard = object_id;
-    }
+    LAST_PLANE_LOCK_OBJECT_ID.set(object_id);
 }
 
 fn toggle_bw_color_view(mode: FilterMode) {
@@ -272,14 +238,12 @@ fn toggle_bw_color_view(mode: FilterMode) {
 }
 
 fn toggle_bw_view_mode() {
-    let mode = bw_view_mode_state().read().map(|guard| *guard).unwrap_or(0);
+    let mode = BW_VIEW_MODE_STATE.with(Cell::get);
     match mode {
         0 => {
             game_engine::common::global_data::write().writable.wireframe = true;
             with_tactical_view(|view| view.set_3d_wireframe_mode(true));
-            if let Ok(mut guard) = bw_view_mode_state().write() {
-                *guard = 1;
-            }
+            BW_VIEW_MODE_STATE.set(1);
         }
         1 => {
             let mut should_disable_wireframe = false;
@@ -299,9 +263,7 @@ fn toggle_bw_view_mode() {
                     view.set_fade_parameters(60, -1);
                     view.set_3d_wireframe_mode(false);
                     should_disable_wireframe = true;
-                    if let Ok(mut guard) = bw_view_mode_state().write() {
-                        *guard = 2;
-                    }
+                    BW_VIEW_MODE_STATE.set(2);
                 }
             });
             if should_disable_wireframe {
@@ -314,9 +276,7 @@ fn toggle_bw_view_mode() {
                     script_engine.do_unfreeze_time();
                 }
             }
-            if let Ok(mut guard) = bw_view_mode_state().write() {
-                *guard = 0;
-            }
+            BW_VIEW_MODE_STATE.set(0);
         }
     }
 }
@@ -329,13 +289,11 @@ fn toggle_motion_blur_zoom_filter() {
             return;
         }
 
-        let saturate = if let Ok(mut state) = get_motion_blur_zoom_saturate_state().write() {
-            let current = *state;
-            *state = !*state;
+        let saturate = MOTION_BLUR_ZOOM_SATURATE.with(|state| {
+            let current = state.get();
+            state.set(!current);
             current
-        } else {
-            false
-        };
+        });
 
         let mut mode = if saturate {
             FilterMode::MBInAndOutSaturate

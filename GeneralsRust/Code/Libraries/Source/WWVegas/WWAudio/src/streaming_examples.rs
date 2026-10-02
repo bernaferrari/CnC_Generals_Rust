@@ -513,13 +513,11 @@ mod tests {
             .acquire_access(StreamAccessType::Input)
             .unwrap();
         assert_eq!(input_access.get_id(), StreamAccessType::Input as u32);
-        drop(input_access);
 
         let output_access = stream_buffer
             .acquire_access(StreamAccessType::Output)
             .unwrap();
         assert_eq!(output_access.get_id(), StreamAccessType::Output as u32);
-        drop(output_access);
 
         // Test access release
         stream_buffer

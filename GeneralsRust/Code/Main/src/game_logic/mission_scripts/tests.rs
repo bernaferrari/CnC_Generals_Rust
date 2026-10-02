@@ -577,13 +577,12 @@ mod tests {
         );
 
         // Seed a 5s VO completion (150 frames) as TheAudio would.
-        {
-            let mut state = hooks.completion.lock().expect("completion");
+        hooks.with_completion_tracking_for_test(|state| {
             state.speech_complete_frame.insert(
                 "Briefing".to_string(),
                 10 + speech_frames_from_length_ms(5_000.0),
             );
-        }
+        });
         assert!(
             !hooks.is_speech_complete("Briefing", false),
             "HAS_FINISHED_SPEECH must stay false one frame after a 5s line"
@@ -598,13 +597,9 @@ mod tests {
         hooks.note_logic_frame(160);
         assert!(hooks.is_speech_complete("Briefing", true));
         assert!(
-            hooks
-                .completion
-                .lock()
-                .expect("completion")
-                .speech_complete_frame
-                .get("Briefing")
-                .is_none(),
+            hooks.with_completion_tracking_for_test(|state| {
+                state.speech_complete_frame.get("Briefing").is_none()
+            }),
             "flush removes the completed speech tracker"
         );
     }
@@ -619,13 +614,12 @@ mod tests {
         );
 
         // Seed a 5s SFX completion (150 frames) as leftover TheAudio would.
-        {
-            let mut state = hooks.completion.lock().expect("completion");
+        hooks.with_completion_tracking_for_test(|state| {
             state.audio_complete_frame.insert(
                 "Boom".to_string(),
                 10 + speech_frames_from_length_ms(5_000.0),
             );
-        }
+        });
         assert!(
             !hooks.is_audio_complete("Boom", false),
             "HAS_FINISHED_AUDIO must stay false one frame after a 5s SFX"
@@ -640,13 +634,9 @@ mod tests {
         hooks.note_logic_frame(160);
         assert!(hooks.is_audio_complete("Boom", true));
         assert!(
-            hooks
-                .completion
-                .lock()
-                .expect("completion")
-                .audio_complete_frame
-                .get("Boom")
-                .is_none(),
+            hooks.with_completion_tracking_for_test(|state| {
+                state.audio_complete_frame.get("Boom").is_none()
+            }),
             "flush removes the completed audio tracker"
         );
     }
@@ -1248,7 +1238,7 @@ mod tests {
     fn live_quick_victory_starts_timer_then_posts_clear_game_data() {
         // C++ ScriptActions.cpp:169-176 doQuickVictory → startQuickEndGameTimer.
         // ScriptEngine.cpp:5514-5518 expiry appends MSG_CLEAR_GAME_DATA.
-        use game_engine::common::message_stream::{GameMessageType, get_message_stream};
+        use game_engine::common::message_stream::{get_message_stream, GameMessageType};
         use gamelogic::scripting::core::ScriptAction;
         use gamelogic::scripting::evaluator::ScriptEvaluator;
 

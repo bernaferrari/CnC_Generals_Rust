@@ -11,14 +11,14 @@ use crate::assets::{
     archive::{ArchiveFileSystem, ArchiveStatistics},
     audio::AudioManager,
     models::{
-        W3DLoader, W3DMesh, W3DModel, W3dAnimation, W3dAnimationBinding, get_common_cnc_units,
-        split_w3d_draw_animation_identity,
+        get_common_cnc_units, split_w3d_draw_animation_identity, W3DLoader, W3DMesh, W3DModel,
+        W3dAnimation, W3dAnimationBinding,
     },
     textures::{GPUTexture, RawTexture, TextureManager},
     ww3d_asset_manager::WW3DAssetManager,
 };
 use crate::localization;
-use anyhow::{Result, anyhow};
+use anyhow::{anyhow, Result};
 use log::{debug, error, info, warn};
 use std::cmp::Ordering as CmpOrdering;
 use std::collections::{HashMap, HashSet};
@@ -2345,6 +2345,8 @@ impl AssetSearchResults {
 }
 
 /// Global asset manager instance
+// THREAD: process-wide asset owner; handed out as `Arc<Mutex<_>>` to the
+// render, audio and GUI callers that each hold it for one call.
 static ASSET_MANAGER: OnceLock<Arc<Mutex<AssetManager>>> = OnceLock::new();
 static CAUSTIC_WARMUP_STARTED: AtomicBool = AtomicBool::new(false);
 static TEXTURE_PRIME_QUEUE: OnceLock<Sender<String>> = OnceLock::new();
@@ -2756,12 +2758,10 @@ mod tests {
         assert!(first.get_cached_model(key).is_none());
         assert!(!first.w3d_model_known_missing("first_owner_missing"));
         assert!(second.w3d_model_known_missing("second_owner_missing"));
-        assert!(
-            first
-                .archive_system
-                .resolve_local_file(&relative_asset)
-                .is_none()
-        );
+        assert!(first
+            .archive_system
+            .resolve_local_file(&relative_asset)
+            .is_none());
         let second_root_file = second
             .archive_system
             .resolve_local_file(&relative_asset)

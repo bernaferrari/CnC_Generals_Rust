@@ -33,7 +33,8 @@ use crate::npatch::{
     NPatchConfig, NPatchTessellator, NPatchVertex, SubdividedMesh, TessellationLevel,
 };
 use std::collections::HashMap;
-use std::sync::{Arc, RwLock};
+use std::cell::RefCell;
+use std::sync::Arc;
 
 /// Cache key for subdivided meshes
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -51,8 +52,8 @@ struct MeshCacheKey {
 pub struct NPatchPipeline {
     config: NPatchConfig,
     tessellator: NPatchTessellator,
-    cache: Arc<RwLock<HashMap<MeshCacheKey, Arc<SubdividedMesh>>>>,
-    stats: Arc<RwLock<PipelineStats>>,
+    cache: RefCell<HashMap<MeshCacheKey, Arc<SubdividedMesh>>>,
+    stats: RefCell<PipelineStats>,
 }
 
 impl NPatchPipeline {
@@ -64,8 +65,8 @@ impl NPatchPipeline {
         Self {
             config,
             tessellator,
-            cache: Arc::new(RwLock::new(HashMap::new())),
-            stats: Arc::new(RwLock::new(PipelineStats::default())),
+            cache: RefCell::new(HashMap::new()),
+            stats: RefCell::new(PipelineStats::default()),
         }
     }
 
@@ -77,8 +78,8 @@ impl NPatchPipeline {
         Self {
             config,
             tessellator,
-            cache: Arc::new(RwLock::new(HashMap::new())),
-            stats: Arc::new(RwLock::new(PipelineStats::default())),
+            cache: RefCell::new(HashMap::new()),
+            stats: RefCell::new(PipelineStats::default()),
         }
     }
 
@@ -107,11 +108,9 @@ impl NPatchPipeline {
 
         // Try to get from cache
         if self.config.cache_subdivisions {
-            if let Ok(cache) = self.cache.read() {
-                if let Some(cached) = cache.get(&key) {
-                    self.record_cache_hit();
-                    return cached.clone();
-                }
+            if let Some(cached) = self.cache.borrow().get(&key) {
+                self.record_cache_hit();
+                return cached.clone();
             }
         }
 
@@ -122,9 +121,7 @@ impl NPatchPipeline {
 
         // Store in cache
         if self.config.cache_subdivisions {
-            if let Ok(mut cache) = self.cache.write() {
-                cache.insert(key, result.clone());
-            }
+            self.cache.borrow_mut().insert(key, result.clone());
         }
 
         result
@@ -161,11 +158,9 @@ impl NPatchPipeline {
 
         // Try to get from cache
         if self.config.cache_subdivisions {
-            if let Ok(cache) = self.cache.read() {
-                if let Some(cached) = cache.get(&key) {
-                    self.record_cache_hit();
-                    return cached.clone();
-                }
+            if let Some(cached) = self.cache.borrow().get(&key) {
+                self.record_cache_hit();
+                return cached.clone();
             }
         }
 
@@ -176,9 +171,7 @@ impl NPatchPipeline {
 
         // Store in cache
         if self.config.cache_subdivisions {
-            if let Ok(mut cache) = self.cache.write() {
-                cache.insert(key, result.clone());
-            }
+            self.cache.borrow_mut().insert(key, result.clone());
         }
 
         result
@@ -190,9 +183,7 @@ impl NPatchPipeline {
         self.tessellator.set_level(level);
 
         // Clear cache when level changes
-        if let Ok(mut cache) = self.cache.write() {
-            cache.clear();
-        }
+        self.cache.borrow_mut().clear();
     }
 
     /// Enable or disable N-Patch tessellation
@@ -212,51 +203,31 @@ impl NPatchPipeline {
 
     /// Clear the subdivision cache
     pub fn clear_cache(&self) {
-        if let Ok(mut cache) = self.cache.write() {
-            cache.clear();
-        }
-        if let Ok(mut stats) = self.stats.write() {
-            *stats = PipelineStats::default();
-        }
+        self.cache.borrow_mut().clear();
+        *self.stats.borrow_mut() = PipelineStats::default();
     }
 
     /// Get cache statistics
     pub fn get_stats(&self) -> PipelineStats {
-        if let Ok(stats) = self.stats.read() {
-            *stats
-        } else {
-            PipelineStats::default()
-        }
+        *self.stats.borrow()
     }
 
     /// Get cache size (number of cached meshes)
     pub fn cache_size(&self) -> usize {
-        if let Ok(cache) = self.cache.read() {
-            cache.len()
-        } else {
-            0
-        }
+        self.cache.borrow().len()
     }
 
     /// Get estimated cache memory usage in bytes
     pub fn cache_memory_usage(&self) -> usize {
-        if let Ok(cache) = self.cache.read() {
-            cache.values().map(|mesh| mesh.memory_size()).sum()
-        } else {
-            0
-        }
+        self.cache.borrow().values().map(|mesh| mesh.memory_size()).sum()
     }
 
     fn record_cache_hit(&self) {
-        if let Ok(mut stats) = self.stats.write() {
-            stats.cache_hits += 1;
-        }
+        self.stats.borrow_mut().cache_hits += 1;
     }
 
     fn record_cache_miss(&self) {
-        if let Ok(mut stats) = self.stats.write() {
-            stats.cache_misses += 1;
-        }
+        self.stats.borrow_mut().cache_misses += 1;
     }
 }
 

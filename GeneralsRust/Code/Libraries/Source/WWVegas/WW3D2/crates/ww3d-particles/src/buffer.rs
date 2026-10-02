@@ -10,7 +10,7 @@ use super::sorting_renderer::TriangleIndices;
 use super::streak::SegmentedLineRenderer;
 use glam::{Mat4, Vec3, Vec4};
 use std::collections::VecDeque;
-use std::sync::{Mutex, OnceLock};
+
 use ww3d_collision::SphereClass;
 use ww3d_core::ww3d::WW3D;
 
@@ -149,7 +149,11 @@ const PERMUTATION_ARRAY: [u32; 16] = [11, 3, 7, 14, 0, 13, 1, 2, 5, 12, 15, 6, 9
 const NO_MAX_SCREEN_SIZE: f32 = f32::MAX;
 
 // LOD max screen sizes for 17 possible LOD levels
-static LOD_MAX_SCREEN_SIZES: OnceLock<Mutex<[f32; 17]>> = OnceLock::new();
+thread_local! {
+    /// C++ kept the LOD screen-size table as a plain static array on the game thread.
+    static LOD_MAX_SCREEN_SIZES: std::cell::Cell<[f32; 17]> =
+        const { std::cell::Cell::new([NO_MAX_SCREEN_SIZE; 17]) };
+}
 
 // Predictive LOD value markers
 const AT_MIN_LOD: f32 = -1.0;
@@ -1069,10 +1073,7 @@ impl ParticleBuffer {
         // Calculate value heuristic
         let mut lod = 0;
         {
-            let lod_sizes = LOD_MAX_SCREEN_SIZES
-                .get_or_init(|| Mutex::new([NO_MAX_SCREEN_SIZE; 17]))
-                .lock()
-                .unwrap();
+            let lod_sizes = LOD_MAX_SCREEN_SIZES.with(std::cell::Cell::get);
             // Find first LOD where MaxScreenSize >= screen_area
             while lod < self.lod_count && lod_sizes[lod] < screen_area {
                 self.value[lod] = AT_MIN_LOD;
@@ -1157,10 +1158,7 @@ impl ParticleBuffer {
     /// Set global LOD max screen size for a specific level
     pub fn set_lod_max_screen_size(lod_level: usize, max_screen_size: f32) {
         if lod_level < 17 {
-            let mut sizes = LOD_MAX_SCREEN_SIZES
-                .get_or_init(|| Mutex::new([NO_MAX_SCREEN_SIZE; 17]))
-                .lock()
-                .unwrap();
+            let mut sizes = LOD_MAX_SCREEN_SIZES.with(std::cell::Cell::get);
             sizes[lod_level] = max_screen_size;
         }
     }
@@ -1168,11 +1166,7 @@ impl ParticleBuffer {
     /// Get global LOD max screen size for a specific level
     pub fn get_lod_max_screen_size(lod_level: usize) -> f32 {
         if lod_level < 17 {
-            let sizes = LOD_MAX_SCREEN_SIZES
-                .get_or_init(|| Mutex::new([NO_MAX_SCREEN_SIZE; 17]))
-                .lock()
-                .unwrap();
-            sizes[lod_level]
+            LOD_MAX_SCREEN_SIZES.with(std::cell::Cell::get)[lod_level]
         } else {
             NO_MAX_SCREEN_SIZE
         }

@@ -106,7 +106,8 @@ where
         *value = if bytes.is_empty() {
             T::default()
         } else {
-            bincode_legacy::deserialize(&bytes).map_err(|e| SaveLoadError::Serialization(e.to_string()))?
+            bincode_legacy::deserialize(&bytes)
+                .map_err(|e| SaveLoadError::Serialization(e.to_string()))?
         };
     }
     Ok(())

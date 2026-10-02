@@ -103,11 +103,7 @@ fn register_single_player_movie_play_hook(
     hook: impl Fn(&str) -> bool + Send + Sync + 'static,
 ) -> Option<SinglePlayerMoviePlayHook> {
     let hook = Arc::new(hook);
-    let state = SINGLE_PLAYER_MOVIE_PLAY_HOOK.get_or_init(|| Mutex::new(None));
-    let mut guard = state
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
-    guard.replace(hook)
+    SINGLE_PLAYER_MOVIE_PLAY_HOOK.with_borrow_mut(|slot| slot.replace(hook))
 }
 
 #[cfg(test)]
@@ -115,105 +111,61 @@ fn register_single_player_movie_playing_hook(
     hook: impl Fn(&str) -> bool + Send + Sync + 'static,
 ) -> Option<SinglePlayerMoviePlayHook> {
     let hook = Arc::new(hook);
-    let state = SINGLE_PLAYER_MOVIE_PLAYING_HOOK.get_or_init(|| Mutex::new(None));
-    let mut guard = state
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
-    guard.replace(hook)
+    SINGLE_PLAYER_MOVIE_PLAYING_HOOK.with_borrow_mut(|slot| slot.replace(hook))
 }
 
 #[cfg(test)]
 fn clear_single_player_movie_play_hook() -> Option<SinglePlayerMoviePlayHook> {
-    let state = SINGLE_PLAYER_MOVIE_PLAY_HOOK.get_or_init(|| Mutex::new(None));
-    let mut guard = state
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
-    guard.take()
+    SINGLE_PLAYER_MOVIE_PLAY_HOOK.with_borrow_mut(|slot| slot.take())
 }
 
 #[cfg(test)]
 fn clear_single_player_movie_playing_hook() -> Option<SinglePlayerMoviePlayHook> {
-    let state = SINGLE_PLAYER_MOVIE_PLAYING_HOOK.get_or_init(|| Mutex::new(None));
-    let mut guard = state
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
-    guard.take()
+    SINGLE_PLAYER_MOVIE_PLAYING_HOOK.with_borrow_mut(|slot| slot.take())
 }
 
 #[cfg(test)]
 fn single_player_movie_play_hook() -> Option<SinglePlayerMoviePlayHook> {
-    let state = SINGLE_PLAYER_MOVIE_PLAY_HOOK.get_or_init(|| Mutex::new(None));
-    let guard = state
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
-    guard.clone()
+    SINGLE_PLAYER_MOVIE_PLAY_HOOK.with_borrow(Clone::clone)
 }
 
 #[cfg(test)]
 fn single_player_movie_playing_hook() -> Option<SinglePlayerMoviePlayHook> {
-    let state = SINGLE_PLAYER_MOVIE_PLAYING_HOOK.get_or_init(|| Mutex::new(None));
-    let guard = state
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
-    guard.clone()
+    SINGLE_PLAYER_MOVIE_PLAYING_HOOK.with_borrow(Clone::clone)
 }
 
 #[cfg(test)]
 fn register_challenge_movie_play_hook(
     hook: impl Fn(&str) -> bool + Send + Sync + 'static,
 ) -> Option<ChallengeMoviePlayHook> {
-    let state = CHALLENGE_MOVIE_PLAY_HOOK.get_or_init(|| Mutex::new(None));
-    let mut guard = state
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
-    guard.replace(Arc::new(hook))
+    CHALLENGE_MOVIE_PLAY_HOOK.with_borrow_mut(|slot| slot.replace(Arc::new(hook)))
 }
 
 #[cfg(test)]
 fn clear_challenge_movie_play_hook() -> Option<ChallengeMoviePlayHook> {
-    let state = CHALLENGE_MOVIE_PLAY_HOOK.get_or_init(|| Mutex::new(None));
-    let mut guard = state
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
-    guard.take()
+    CHALLENGE_MOVIE_PLAY_HOOK.with_borrow_mut(|slot| slot.take())
 }
 
 #[cfg(test)]
 fn challenge_movie_play_hook() -> Option<ChallengeMoviePlayHook> {
-    let state = CHALLENGE_MOVIE_PLAY_HOOK.get_or_init(|| Mutex::new(None));
-    let guard = state
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
-    guard.clone()
+    CHALLENGE_MOVIE_PLAY_HOOK.with_borrow(Clone::clone)
 }
 
 #[cfg(test)]
 fn register_challenge_movie_advance_hook(
     hook: impl Fn(&str) -> Option<LoadScreenMovieAdvance> + Send + Sync + 'static,
 ) -> Option<ChallengeMovieAdvanceHook> {
-    let state = CHALLENGE_MOVIE_ADVANCE_HOOK.get_or_init(|| Mutex::new(None));
-    let mut guard = state
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
-    guard.replace(Arc::new(hook))
+    CHALLENGE_MOVIE_ADVANCE_HOOK.with_borrow_mut(|slot| slot.replace(Arc::new(hook)))
 }
 
 #[cfg(test)]
 fn clear_challenge_movie_advance_hook() -> Option<ChallengeMovieAdvanceHook> {
-    let state = CHALLENGE_MOVIE_ADVANCE_HOOK.get_or_init(|| Mutex::new(None));
-    let mut guard = state
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
-    guard.take()
+    CHALLENGE_MOVIE_ADVANCE_HOOK.with_borrow_mut(|slot| slot.take())
 }
 
 #[cfg(test)]
 fn challenge_movie_advance_hook() -> Option<ChallengeMovieAdvanceHook> {
-    let state = CHALLENGE_MOVIE_ADVANCE_HOOK.get_or_init(|| Mutex::new(None));
-    let guard = state
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
-    guard.clone()
+    CHALLENGE_MOVIE_ADVANCE_HOOK.with_borrow(Clone::clone)
 }
 
 fn play_audio_event(event_name: &str) {

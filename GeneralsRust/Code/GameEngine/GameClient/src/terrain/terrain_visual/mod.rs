@@ -3,11 +3,12 @@
 //! Core terrain rendering system that matches the C++ TerrainVisual implementation exactly.
 //! Handles heightmaps, texturing, water, roads, and all visual terrain features.
 
+use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::f32::consts::PI;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::Arc;
 
 use glam::{Mat4, Vec2, Vec3, Vec4Swizzles};
 use log::{debug, info, warn};
@@ -29,25 +30,26 @@ use super::scorch_mesh::{
 };
 use super::terrain_tracks::{TerrainTrackHeightProvider, TerrainTracksConfig};
 use super::textures::{
-    MAX_BLEND_WEIGHTS, NUM_SOURCE_TILES, TerrainTexture, TerrainTextures, TextureId, TextureKind,
-    TextureRule, TextureWeights, TileData,
+    TerrainTexture, TerrainTextures, TextureId, TextureKind, TextureRule, TextureWeights, TileData,
+    MAX_BLEND_WEIGHTS, NUM_SOURCE_TILES,
 };
 use super::tree_buffer::{
-    TREE_MAX_GLOBAL_LIGHTS, TreeGpuVertex, TreeObjectLight, W3DTreeBuffer,
-    fill_tree_gpu_upload_vertices,
+    fill_tree_gpu_upload_vertices, TreeGpuVertex, TreeObjectLight, W3DTreeBuffer,
+    TREE_MAX_GLOBAL_LIGHTS,
 };
 use super::w3d_overlay_mesh::{
-    BRIDGE_FLOAT_AMT, DEFAULT_ROAD_SCALE, OverlayGpuVertex, ROAD_FLOAT_AMOUNT, WaterGpuVertex,
-    WaterTerrainLight, bake_bridge_span, bake_straight_road_segment, bake_water_tiles_world,
+    bake_bridge_span, bake_straight_road_segment, bake_water_tiles_world,
     compute_standing_water_diffuse, default_sectional_bridge_model,
     fill_bridge_gpu_upload_vertices, fill_road_gpu_upload_vertices, fill_water_gpu_upload_vertices,
+    OverlayGpuVertex, WaterGpuVertex, WaterTerrainLight, BRIDGE_FLOAT_AMT, DEFAULT_ROAD_SCALE,
+    ROAD_FLOAT_AMOUNT,
 };
-use crate::fx_list::{DisplayDynamicLight, do_the_dynamic_light, scene_dynamic_lights};
+use crate::fx_list::{do_the_dynamic_light, scene_dynamic_lights, DisplayDynamicLight};
 
 use super::{
-    ExtraBlendDrawMesh, HeightMap, RoadSystem, TerrainConfig, TerrainError, TerrainLOD,
-    TerrainModification, TerrainResult, TerrainStats, TerrainTracksRenderObjClassSystem,
-    TerrainVertex, TerrainVisual, WaterSystem, calculate_terrain_lod,
+    calculate_terrain_lod, ExtraBlendDrawMesh, HeightMap, RoadSystem, TerrainConfig, TerrainError,
+    TerrainLOD, TerrainModification, TerrainResult, TerrainStats,
+    TerrainTracksRenderObjClassSystem, TerrainVertex, TerrainVisual, WaterSystem,
 };
 use bytemuck::cast_slice;
 use game_engine::common::ascii_string::AsciiString;

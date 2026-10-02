@@ -9,9 +9,10 @@
 use crate::error::{NetworkError, NetworkResult};
 use crate::nat::NatService;
 use crate::time::NetworkInstant;
-use rand::Rng;
 use rand::rand_core::UnwrapErr;
 use rand::rngs::SysRng;
+use rand::Rng;
+use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::{Arc, Mutex};
@@ -142,17 +143,20 @@ pub struct NatTraversalManager {
     local_port: u16,
     /// Detected NAT behavior
     ///
-    /// THREAD: written by the owner's `detect_nat_behavior` and read by
-    /// `nat_behavior`; no spawned task touches it, so it is a plain field.
-    nat_behavior: NatBehavior,
+    /// THREAD: written by `detect_nat_behavior` and read by `nat_behavior` on
+    /// the owning manager (which lives behind `THE_NAT`'s mutex or as a
+    /// test-local value). No other task touches it, so single-threaded
+    /// interior mutability replaces the old shared async lock; `&self` is
+    /// kept because the public API is consumed that way.
+    nat_behavior: Cell<NatBehavior>,
     /// Detected NAT type
     ///
     /// THREAD: same single-owner story as `nat_behavior`.
-    nat_type: NatType,
+    nat_type: Cell<NatType>,
     /// Port allocation pattern
     ///
     /// THREAD: same single-owner story as `nat_behavior`.
-    port_pattern: Option<PortAllocationPattern>,
+    port_pattern: RefCell<Option<PortAllocationPattern>>,
     /// STUN service for external address discovery
     nat_service: Arc<NatService>,
     /// Active peer connections
@@ -187,9 +191,9 @@ impl NatTraversalManager {
             local_id,
             local_addr,
             local_port,
-            nat_behavior: NatBehavior::UNKNOWN,
-            nat_type: NatType::Unknown,
-            port_pattern: None,
+            nat_behavior: Cell::new(NatBehavior::UNKNOWN),
+            nat_type: Cell::new(NatType::Unknown),
+            port_pattern: RefCell::new(None),
             nat_service,
             peers: Arc::new(RwLock::new(HashMap::new())),
             keepalive_task: Mutex::new(None),
@@ -213,7 +217,7 @@ impl NatTraversalManager {
             Some(b) => b,
             None => {
                 warn!("No STUN binding available, assuming unknown NAT");
-                self.nat_type = NatType::Unknown;
+                self.nat_type.set(NatType::Unknown);
                 return Ok(NatType::Unknown);
             }
         };
@@ -223,7 +227,7 @@ impl NatTraversalManager {
             && binding.address.port() == self.local_port
         {
             info!("No NAT detected - open internet connection");
-            self.nat_type = NatType::OpenInternet;
+            self.nat_type.set(NatType::OpenInternet);
             return Ok(NatType::OpenInternet);
         }
 
@@ -237,7 +241,7 @@ impl NatTraversalManager {
 
         if mangled_ports.is_empty() {
             warn!("Could not query mangler servers for NAT type detection");
-            self.nat_type = NatType::Unknown;
+            self.nat_type.set(NatType::Unknown);
             return Ok(NatType::Unknown);
         }
 
@@ -263,7 +267,7 @@ impl NatTraversalManager {
         };
 
         info!("Detected NAT type: {:?}", nat_type);
-        self.nat_type = nat_type;
+        self.nat_type.set(nat_type);
         Ok(nat_type)
     }
 
@@ -278,7 +282,7 @@ impl NatTraversalManager {
         if external_binding.is_none() {
             warn!("No external address available");
             behavior.insert(NatBehavior::SIMPLE);
-            self.nat_behavior = behavior;
+            self.nat_behavior.set(behavior);
             return Ok(behavior);
         }
 
@@ -288,7 +292,7 @@ impl NatTraversalManager {
         if external_addr.ip() == IpAddr::V4(self.local_addr) {
             info!("No NAT detected");
             behavior = NatBehavior::SIMPLE;
-            self.nat_behavior = behavior;
+            self.nat_behavior.set(behavior);
             return Ok(behavior);
         }
 
@@ -297,7 +301,7 @@ impl NatTraversalManager {
 
         if mangled_ports.is_empty() {
             warn!("Failed to communicate with mangler servers");
-            self.nat_behavior = behavior;
+            self.nat_behavior.set(behavior);
             return Ok(behavior);
         }
 
@@ -320,8 +324,8 @@ impl NatTraversalManager {
             }
         }
 
-        self.port_pattern = pattern;
-        self.nat_behavior = behavior;
+        *self.port_pattern.borrow_mut() = pattern;
+        self.nat_behavior.set(behavior);
 
         info!("Detected NAT behavior: {:?}", behavior);
         Ok(behavior)
@@ -652,17 +656,17 @@ impl NatTraversalManager {
 
     /// Get current NAT behavior.
     pub async fn nat_behavior(&self) -> NatBehavior {
-        self.nat_behavior
+        self.nat_behavior.get()
     }
 
     /// Get current NAT type.
     pub async fn nat_type(&self) -> NatType {
-        self.nat_type
+        self.nat_type.get()
     }
 
     /// Get port allocation pattern.
     pub async fn port_pattern(&self) -> Option<PortAllocationPattern> {
-        self.port_pattern.clone()
+        self.port_pattern.borrow().clone()
     }
 
     /// Predict next ports for symmetric NAT connection establishment.
@@ -677,7 +681,7 @@ impl NatTraversalManager {
         previous_mappings: &[(SocketAddr, u16)],
         count: usize,
     ) -> Vec<u16> {
-        let pattern = self.port_pattern.clone();
+        let pattern = self.port_pattern.borrow().clone();
 
         if previous_mappings.is_empty() {
             // No data, return sequential ports from local port

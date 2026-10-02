@@ -15,9 +15,9 @@ use crate::core::wwstring::StringClass;
 use crate::rendering::shader_core::ShaderClass;
 use crate::rendering::texture_system::texture_base::TextureClass;
 use glam::{Mat4, Vec2, Vec3, Vec4};
-use std::ops::{Deref, DerefMut};
 use std::sync::atomic::{AtomicU32, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
+use std::cell::RefCell;
+use std::sync::Arc;
 
 /// 2D rendering modes
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -756,39 +756,17 @@ impl Render2DClass {
     }
 }
 
-fn renderer_2d_slot() -> &'static Mutex<Option<Render2DClass>> {
-    static SLOT: OnceLock<Mutex<Option<Render2DClass>>> = OnceLock::new();
-    SLOT.get_or_init(|| Mutex::new(None))
+thread_local! {
+    /// C++ kept the 2D renderer singleton as a plain static on the game thread.
+    static RENDERER_2D: RefCell<Option<Render2DClass>> = const { RefCell::new(None) };
 }
 
-fn lock_renderer_2d_slot() -> MutexGuard<'static, Option<Render2DClass>> {
-    match renderer_2d_slot().lock() {
-        Ok(guard) => guard,
-        Err(poisoned) => poisoned.into_inner(),
-    }
-}
-
-/// Scoped handle to the shared Render2D instance.
-pub struct Render2DHandle<'a> {
-    guard: MutexGuard<'a, Option<Render2DClass>>,
-}
-
-impl<'a> Deref for Render2DHandle<'a> {
-    type Target = Render2DClass;
-
-    fn deref(&self) -> &Self::Target {
-        self.guard
-            .as_ref()
-            .expect("2D renderer must be initialized before use")
-    }
-}
-
-impl<'a> DerefMut for Render2DHandle<'a> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        self.guard
-            .as_mut()
-            .expect("2D renderer must be initialized before use")
-    }
+/// Run `f` with mutable access to the global 2D renderer, if initialized.
+pub fn with_renderer_2d<R>(f: impl FnOnce(&mut Render2DClass) -> R) -> Option<R> {
+    RENDERER_2D.with_borrow_mut(|renderer| {
+        let renderer = renderer.as_mut()?;
+        Some(f(renderer))
+    })
 }
 
 /// Initialize global 2D renderer
@@ -796,64 +774,35 @@ pub fn init_renderer_2d(device: &wgpu::Device) -> Result<()> {
     let mut renderer = Render2DClass::new();
     renderer.initialize(device)?;
 
-    let mut guard = lock_renderer_2d_slot();
-    *guard = Some(renderer);
+    RENDERER_2D.with_borrow_mut(|slot| *slot = Some(renderer));
     Ok(())
-}
-
-/// Get global 2D renderer
-pub fn get_renderer_2d() -> Option<Render2DHandle<'static>> {
-    let guard = lock_renderer_2d_slot();
-    if guard.is_none() {
-        None
-    } else {
-        Some(Render2DHandle { guard })
-    }
 }
 
 /// Shutdown global 2D renderer
 pub fn shutdown_renderer_2d() {
-    let mut guard = lock_renderer_2d_slot();
-    *guard = None;
+    RENDERER_2D.with_borrow_mut(|slot| *slot = None);
 }
 
 /// Quick 2D rendering functions
 pub fn begin_2d_frame() {
-    if let Some(mut renderer) = get_renderer_2d() {
-        renderer.begin_frame();
-    }
+    let _ = with_renderer_2d(|renderer| renderer.begin_frame());
 }
 
 pub fn end_2d_frame(device: &wgpu::Device, queue: &wgpu::Queue) -> Result<()> {
-    if let Some(mut renderer) = get_renderer_2d() {
-        renderer.end_frame(device, queue)
-    } else {
-        Ok(())
-    }
-}
-
-pub fn render_2d_quad(rect: Rect2D, color: Vec4) {
-    if let Some(mut renderer) = get_renderer_2d() {
-        renderer.add_quad(rect, color, None);
-    }
+    with_renderer_2d(|renderer| renderer.end_frame(device, queue))
+        .unwrap_or(Ok(()))
 }
 
 pub fn render_2d_bitmap(bitmap: &Bitmap2D, dest_rect: Rect2D) {
-    if let Some(mut renderer) = get_renderer_2d() {
-        renderer.render_bitmap(bitmap, dest_rect);
-    }
+    let _ = with_renderer_2d(|renderer| renderer.render_bitmap(bitmap, dest_rect));
 }
 
 pub fn render_2d_text(text: &Text2D) {
-    if let Some(mut renderer) = get_renderer_2d() {
-        renderer.render_text(text);
-    }
+    let _ = with_renderer_2d(|renderer| renderer.render_text(text));
 }
 
 pub fn render_2d_line(start: Vec2, end: Vec2, color: Vec4, thickness: f32) {
-    if let Some(mut renderer) = get_renderer_2d() {
-        renderer.add_line(start, end, color, thickness);
-    }
+    let _ = with_renderer_2d(|renderer| renderer.add_line(start, end, color, thickness));
 }
 
 #[cfg(test)]

@@ -4,7 +4,7 @@ use crate::game_text::GameText;
 use crate::gui::callbacks::quit_menu::destroy_quit_menu;
 use crate::gui::campaign_manager::get_campaign_manager;
 use crate::gui::control_bar::{
-    HostControlBarInputProvenance, host_control_bar_input_provenance_for_current_dispatch,
+    host_control_bar_input_provenance_for_current_dispatch, HostControlBarInputProvenance,
 };
 use crate::gui::gadgets::ListBoxItemData;
 use crate::gui::menu_flags::{
@@ -12,23 +12,24 @@ use crate::gui::menu_flags::{
 };
 use crate::gui::shell::Color as WindowColor;
 use crate::gui::{
-    GLM_DOUBLE_CLICKED, GameWindow, KeyModifiers, WindowLayout, WindowMessage, WindowMsgData,
-    WindowMsgHandled, queue_set_focus, queue_shell_hide, queue_shell_pop, queue_shell_show,
+    queue_set_focus, queue_shell_hide, queue_shell_pop, queue_shell_show,
     queue_shell_shutdown_complete, queue_window_manager_op, queue_window_manager_op_deferred,
     show_shell_map_if_available, with_shell_ref, with_window_manager, write_input_focus_response,
+    GameWindow, KeyModifiers, WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled,
+    GLM_DOUBLE_CLICKED,
 };
 use game_engine::common::game_engine::get_game_engine;
 use game_engine::common::ini::get_global_data;
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::{
-    AvailableGameInfo, SaveCode, SaveFileType, SaveLoadLayoutType, SnapshotType, get_game_state,
+    get_game_state, AvailableGameInfo, SaveCode, SaveFileType, SaveLoadLayoutType, SnapshotType,
 };
 use gamelogic::helpers::TheGameLogic;
 use gamelogic::system::game_logic::GAME_SINGLE_PLAYER;
 use std::cell::RefCell;
 use std::fs;
 use std::rc::Rc;
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex};
 
 const KEY_ESC: usize = 0x1B;
 const KEY_STATE_UP: usize = 0x0001;
@@ -87,10 +88,15 @@ struct HostPopupSaveLoadBridge {
     requests: Vec<HostPopupSaveLoadPublishedRequest>,
 }
 
-static HOST_POPUP_SAVE_LOAD_BRIDGE: OnceLock<Mutex<HostPopupSaveLoadBridge>> = OnceLock::new();
+// THREAD: main thread only — published by the GUI-thread save/load popup and
+// drained by the host (or legacy callbacks) on the same thread.
+thread_local! {
+    static HOST_POPUP_SAVE_LOAD_BRIDGE: RefCell<HostPopupSaveLoadBridge> =
+        RefCell::new(HostPopupSaveLoadBridge::default());
+}
 
-fn host_popup_save_load_bridge() -> &'static Mutex<HostPopupSaveLoadBridge> {
-    HOST_POPUP_SAVE_LOAD_BRIDGE.get_or_init(|| Mutex::new(HostPopupSaveLoadBridge::default()))
+fn with_host_popup_save_load_bridge<R>(f: impl FnOnce(&mut HostPopupSaveLoadBridge) -> R) -> R {
+    HOST_POPUP_SAVE_LOAD_BRIDGE.with_borrow_mut(f)
 }
 
 /// Publish the active host's save rows for the next PopupSaveLoad initialization.
@@ -104,10 +110,10 @@ fn host_popup_save_load_bridge() -> &'static Mutex<HostPopupSaveLoadBridge> {
 /// `New Save Game` pseudo-row.  This prevents incompatible/stale Common saves
 /// from leaking into a host-owned snapshot menu.
 pub fn publish_host_popup_save_load_entries(entries: Vec<PopupSaveLoadEntry>) {
-    if let Ok(mut bridge) = host_popup_save_load_bridge().lock() {
+    with_host_popup_save_load_bridge(|bridge| {
         bridge.installed = true;
         bridge.entries = entries;
-    }
+    });
 }
 
 /// Drain confirmed PopupSaveLoad actions with their captured input provenance.
@@ -115,10 +121,7 @@ pub fn publish_host_popup_save_load_entries(entries: Vec<PopupSaveLoadEntry>) {
 /// Main must use this detailed drain at its authority boundary.  The legacy
 /// request-only drain below intentionally discards provenance.
 pub fn take_host_popup_save_load_published_requests() -> Vec<HostPopupSaveLoadPublishedRequest> {
-    host_popup_save_load_bridge()
-        .lock()
-        .map(|mut bridge| std::mem::take(&mut bridge.requests))
-        .unwrap_or_default()
+    with_host_popup_save_load_bridge(|bridge| std::mem::take(&mut bridge.requests))
 }
 
 /// Drain confirmed PopupSaveLoad actions for legacy standalone callers.
@@ -132,40 +135,31 @@ pub fn take_host_popup_save_load_requests() -> Vec<PopupSaveLoadRequest> {
 /// Disable the host bridge and discard its published rows/undrained requests.
 /// Primarily useful when a host shuts down or tests reset the singleton state.
 pub fn clear_host_popup_save_load_bridge() {
-    if let Ok(mut bridge) = host_popup_save_load_bridge().lock() {
-        *bridge = HostPopupSaveLoadBridge::default();
-    }
+    with_host_popup_save_load_bridge(|bridge| *bridge = HostPopupSaveLoadBridge::default());
 }
 
 fn host_popup_save_load_entries() -> Vec<PopupSaveLoadEntry> {
-    host_popup_save_load_bridge()
-        .lock()
-        .map(|bridge| bridge.entries.clone())
-        .unwrap_or_default()
+    with_host_popup_save_load_bridge(|bridge| bridge.entries.clone())
 }
 
 fn host_popup_save_load_bridge_installed() -> bool {
-    host_popup_save_load_bridge()
-        .lock()
-        .map(|bridge| bridge.installed)
-        .unwrap_or(false)
+    with_host_popup_save_load_bridge(|bridge| bridge.installed)
 }
 
 fn queue_host_popup_save_load_request(
     request: PopupSaveLoadRequest,
     input_provenance: HostControlBarInputProvenance,
 ) -> bool {
-    let Ok(mut bridge) = host_popup_save_load_bridge().lock() else {
-        return false;
-    };
-    if !bridge.installed {
-        return false;
-    }
-    bridge.requests.push(HostPopupSaveLoadPublishedRequest {
-        request,
-        input_provenance,
-    });
-    true
+    with_host_popup_save_load_bridge(|bridge| {
+        if !bridge.installed {
+            return false;
+        }
+        bridge.requests.push(HostPopupSaveLoadPublishedRequest {
+            request,
+            input_provenance,
+        });
+        true
+    })
 }
 
 struct SaveLoadMenuState {
@@ -1717,7 +1711,11 @@ pub fn residual_save_load_last_action() -> ResidualSaveLoadAction {
 /// Residual: last selected slot index (-1 if none).
 pub fn residual_save_load_selected_slot() -> Option<i32> {
     let slot = RESIDUAL_SAVE_LOAD_SLOT.load(std::sync::atomic::Ordering::Relaxed);
-    if slot < 0 { None } else { Some(slot) }
+    if slot < 0 {
+        None
+    } else {
+        Some(slot)
+    }
 }
 
 /// Residual: bind SaveLoad gadget IDs for popup or full-screen layout.

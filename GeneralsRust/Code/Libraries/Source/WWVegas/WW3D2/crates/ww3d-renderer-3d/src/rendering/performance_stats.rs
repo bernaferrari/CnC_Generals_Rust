@@ -13,8 +13,8 @@ use crate::core::error::Result;
 use crate::core::wwstring::StringClass;
 use crate::rendering::texture_system::texture_base::TextureClass;
 use std::collections::HashMap;
-use std::ops::{Deref, DerefMut};
-use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
+use std::cell::RefCell;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 fn texture_key(texture: &Arc<TextureClass>) -> usize {
@@ -624,166 +624,108 @@ impl PerformanceSummary {
     }
 }
 
-fn statistics_slot() -> &'static Mutex<Option<DebugStatistics>> {
-    static SLOT: OnceLock<Mutex<Option<DebugStatistics>>> = OnceLock::new();
-    SLOT.get_or_init(|| Mutex::new(None))
+thread_local! {
+    /// C++ kept the debug statistics singleton as a plain static on the game thread.
+    static STATISTICS: RefCell<Option<DebugStatistics>> = const { RefCell::new(None) };
 }
 
-fn lock_statistics_slot() -> MutexGuard<'static, Option<DebugStatistics>> {
-    match statistics_slot().lock() {
-        Ok(guard) => guard,
-        Err(poisoned) => poisoned.into_inner(),
-    }
-}
-
-/// Handle for interacting with the shared statistics singleton.
-pub struct StatisticsHandle<'a> {
-    guard: MutexGuard<'a, Option<DebugStatistics>>,
-}
-
-impl<'a> Deref for StatisticsHandle<'a> {
-    type Target = DebugStatistics;
-
-    fn deref(&self) -> &Self::Target {
-        self.guard
-            .as_ref()
-            .expect("statistics must be initialized before use")
-    }
-}
-
-impl<'a> DerefMut for StatisticsHandle<'a> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        self.guard
-            .as_mut()
-            .expect("statistics must be initialized before use")
-    }
+/// Run `f` with mutable access to the global statistics, if initialized.
+pub fn with_statistics<R>(f: impl FnOnce(&mut DebugStatistics) -> R) -> Option<R> {
+    STATISTICS.with_borrow_mut(|stats| {
+        let stats = stats.as_mut()?;
+        Some(f(stats))
+    })
 }
 
 /// Initialize global statistics
 pub fn init_statistics() -> Result<()> {
-    let mut guard = lock_statistics_slot();
-    *guard = Some(DebugStatistics::new());
+    STATISTICS.with_borrow_mut(|slot| *slot = Some(DebugStatistics::new()));
     Ok(())
-}
-
-/// Get global statistics instance
-pub fn get_statistics() -> Option<StatisticsHandle<'static>> {
-    let guard = lock_statistics_slot();
-    if guard.is_none() {
-        None
-    } else {
-        Some(StatisticsHandle { guard })
-    }
 }
 
 /// Shutdown global statistics
 pub fn shutdown_statistics() {
-    let mut guard = lock_statistics_slot();
-    *guard = None;
+    STATISTICS.with_borrow_mut(|slot| *slot = None);
 }
 
 /// Quick statistics functions
 pub fn begin_recording(mode: RecordTextureMode) {
-    if let Some(mut stats) = get_statistics() {
-        stats.begin_recording(mode);
-    }
+    let _ = with_statistics(|stats| stats.begin_recording(mode));
 }
 
 pub fn end_recording() {
-    if let Some(mut stats) = get_statistics() {
-        stats.end_recording();
-    }
+    let _ = with_statistics(|stats| stats.end_recording());
 }
 
 pub fn record_texture(texture: Option<&Arc<TextureClass>>) {
-    if let Some(mut stats) = get_statistics() {
-        stats.record_texture(texture);
-    }
+    let _ = with_statistics(|stats| stats.record_texture(texture));
 }
 
 pub fn begin_statistics() {
-    if let Some(mut stats) = get_statistics() {
-        stats.begin_statistics();
-    }
+    let _ = with_statistics(|stats| stats.begin_statistics());
 }
 
 pub fn end_statistics() {
-    if let Some(mut stats) = get_statistics() {
-        stats.end_statistics();
-    }
+    let _ = with_statistics(|stats| stats.end_statistics());
 }
 
 pub fn shutdown_statistics() {
-    if let Some(mut stats) = get_statistics() {
-        stats.shutdown_statistics();
-    }
+    let _ = with_statistics(|stats| stats.shutdown_statistics());
 }
 
 pub fn record_dx8_skin_polys_and_vertices(pcount: i32, vcount: i32) {
-    if let Some(mut stats) = get_statistics() {
-        stats.record_dx8_skin_polys_and_vertices(pcount, vcount);
-    }
+    let _ = with_statistics(|stats| stats.record_dx8_skin_polys_and_vertices(pcount, vcount));
 }
 
 pub fn record_dx8_polys_and_vertices(pcount: i32, vcount: i32) {
-    if let Some(mut stats) = get_statistics() {
-        stats.record_dx8_polys_and_vertices(pcount, vcount);
-    }
+    let _ = with_statistics(|stats| stats.record_dx8_polys_and_vertices(pcount, vcount));
 }
 
 pub fn record_sorting_polys_and_vertices(pcount: i32, vcount: i32) {
-    if let Some(mut stats) = get_statistics() {
-        stats.record_sorting_polys_and_vertices(pcount, vcount);
-    }
+    let _ = with_statistics(|stats| stats.record_sorting_polys_and_vertices(pcount, vcount));
 }
 
 pub fn get_dx8_polygons() -> i32 {
-    get_statistics().map(|s| s.get_dx8_polygons()).unwrap_or(0)
+    with_statistics(|s| s.get_dx8_polygons()).unwrap_or(0)
 }
 pub fn get_dx8_vertices() -> i32 {
-    get_statistics().map(|s| s.get_dx8_vertices()).unwrap_or(0)
+    with_statistics(|s| s.get_dx8_vertices()).unwrap_or(0)
 }
 pub fn get_dx8_skin_polygons() -> i32 {
-    get_statistics().map(|s| s.get_dx8_skin_polygons()).unwrap_or(0)
+    with_statistics(|s| s.get_dx8_skin_polygons()).unwrap_or(0)
 }
 pub fn get_dx8_skin_vertices() -> i32 {
-    get_statistics().map(|s| s.get_dx8_skin_vertices()).unwrap_or(0)
+    with_statistics(|s| s.get_dx8_skin_vertices()).unwrap_or(0)
 }
 pub fn get_dx8_skin_renders() -> i32 {
-    get_statistics().map(|s| s.get_dx8_skin_renders()).unwrap_or(0)
+    with_statistics(|s| s.get_dx8_skin_renders()).unwrap_or(0)
 }
 pub fn get_sorting_polygons() -> i32 {
-    get_statistics().map(|s| s.get_sorting_polygons()).unwrap_or(0)
+    with_statistics(|s| s.get_sorting_polygons()).unwrap_or(0)
 }
 pub fn get_sorting_vertices() -> i32 {
-    get_statistics().map(|s| s.get_sorting_vertices()).unwrap_or(0)
+    with_statistics(|s| s.get_sorting_vertices()).unwrap_or(0)
 }
 pub fn get_draw_calls() -> i32 {
-    get_statistics().map(|s| s.get_draw_calls()).unwrap_or(0)
+    with_statistics(|s| s.get_draw_calls()).unwrap_or(0)
 }
 
 pub fn get_statistics_string() -> String {
-    if let Some(stats) = get_statistics() {
-        stats.get_statistics_string().to_string()
-    } else {
-        String::new()
-    }
+    with_statistics(|stats| stats.get_statistics_string().to_string())
+        .unwrap_or_default()
 }
 
 pub fn record_texture_mode(mode: RecordTextureMode) {
-    if let Some(mut stats) = get_statistics() {
-        stats.set_record_texture_mode(mode);
-    }
+    let _ = with_statistics(|stats| stats.set_record_texture_mode(mode));
 }
 
 pub fn get_record_texture_mode() -> RecordTextureMode {
-    get_statistics()
-        .map(|stats| stats.get_recording_mode())
+    with_statistics(|stats| stats.get_recording_mode())
         .unwrap_or(RecordTextureMode::NoRecording)
 }
 
 pub fn get_performance_summary() -> Option<PerformanceSummary> {
-    get_statistics().map(|stats| stats.get_performance_summary())
+    with_statistics(|stats| stats.get_performance_summary())
 }
 
 #[cfg(test)]

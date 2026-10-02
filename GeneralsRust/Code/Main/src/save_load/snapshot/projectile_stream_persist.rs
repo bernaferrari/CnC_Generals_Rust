@@ -15,8 +15,8 @@
 //! Restore replaces the live registry and never calls `add_projectile`, so
 //! a load cannot insert a retarget hole or re-create the trail.
 
-use crate::game_logic::GameLogic;
 use crate::game_logic::host_projectile_stream::ProjectileStreamRegistry;
+use crate::game_logic::GameLogic;
 use crate::save_load::{SaveLoadError, SaveLoadResult};
 use serde::{Deserialize, Serialize};
 
@@ -96,8 +96,8 @@ fn take_u32(rest: &mut &[u8]) -> SaveLoadResult<u32> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::game_logic::ObjectId;
     use crate::game_logic::host_projectile_stream::STREAM_HOLE;
+    use crate::game_logic::ObjectId;
     use glam::Vec3;
 
     #[test]

@@ -34,6 +34,10 @@ enum Slot {
     Occupied(SharedGpuDevice),
 }
 
+// THREAD: the device slot must outlive every thread (host window/GL side and
+// game thread both adopt/clone handles) and holds live wgpu `Device`/`Queue`
+// handles — thread-local storage would drop them from a TLS destructor after
+// wgpu's own TLS has been destroyed.
 fn slot() -> &'static parking_lot::Mutex<Slot> {
     static SLOT: OnceLock<parking_lot::Mutex<Slot>> = OnceLock::new();
     SLOT.get_or_init(|| parking_lot::Mutex::new(Slot::Vacant))

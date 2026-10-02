@@ -3,7 +3,23 @@
 /// This test module validates the safety improvements made to the WW3D2 renderer:
 /// 1. Surface lifetime safety without unsafe transmute
 /// 2. GPU buffer conversion safety using bytemuck instead of from_raw_parts
+use lazy_static::lazy_static;
 use ww3d_renderer_3d::rendering::wgpu_renderer::wgpu_wrapper::WgpuWrapper;
+
+lazy_static! {
+    // THREAD: test binary's parallel test threads meet at the process-wide GPU
+    // device authority (`ww3d_gpu::acquire_device` admits exactly one
+    // `request_device` per process); serializing keeps the later tests on the
+    // shared-handles path instead of racing the first acquisition while it is
+    // still pending.
+    static ref GPU_DEVICE_TEST_MUTEX: std::sync::Mutex<()> = std::sync::Mutex::new(());
+}
+
+fn gpu_device_test_guard() -> std::sync::MutexGuard<'static, ()> {
+    GPU_DEVICE_TEST_MUTEX
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
 
 /// Test that headless wrapper can be created and destroyed safely
 /// without any lifetime issues.
@@ -12,6 +28,7 @@ use ww3d_renderer_3d::rendering::wgpu_renderer::wgpu_wrapper::WgpuWrapper;
 /// use-after-free issues even when the wrapper is dropped.
 #[test]
 fn test_headless_wrapper_safe_lifecycle() {
+    let _gpu_guard = gpu_device_test_guard();
     // Create wrapper
     let wrapper = WgpuWrapper::new_headless((256, 256), wgpu::TextureFormat::Bgra8Unorm)
         .expect("Failed to create headless wrapper");
@@ -27,6 +44,7 @@ fn test_headless_wrapper_safe_lifecycle() {
 /// Test that multiple wrapper instances can coexist safely
 #[test]
 fn test_multiple_wrapper_instances_safe() {
+    let _gpu_guard = gpu_device_test_guard();
     let wrapper1 = WgpuWrapper::new_headless((128, 128), wgpu::TextureFormat::Bgra8Unorm)
         .expect("Failed to create first wrapper");
 
@@ -42,6 +60,7 @@ fn test_multiple_wrapper_instances_safe() {
 /// Test that wrapper can be resized safely without lifetime issues
 #[test]
 fn test_wrapper_resize_safety() {
+    let _gpu_guard = gpu_device_test_guard();
     let mut wrapper = WgpuWrapper::new_headless((100, 100), wgpu::TextureFormat::Bgra8Unorm)
         .expect("Failed to create wrapper");
 
@@ -61,6 +80,7 @@ fn test_wrapper_resize_safety() {
 /// Test that wrapper can handle frame lifecycle safely
 #[test]
 fn test_frame_lifecycle_safety() {
+    let _gpu_guard = gpu_device_test_guard();
     let mut wrapper = WgpuWrapper::new_headless((320, 240), wgpu::TextureFormat::Bgra8Unorm)
         .expect("Failed to create wrapper");
 
@@ -76,6 +96,7 @@ fn test_frame_lifecycle_safety() {
 /// Test that device and queue references are managed safely
 #[test]
 fn test_device_queue_reference_safety() {
+    let _gpu_guard = gpu_device_test_guard();
     let wrapper = WgpuWrapper::new_headless((128, 128), wgpu::TextureFormat::Bgra8Unorm)
         .expect("Failed to create wrapper");
 
@@ -103,6 +124,7 @@ fn test_device_queue_reference_safety() {
 /// Test that surface can be safely cloned and shared
 #[test]
 fn test_surface_arc_safety() {
+    let _gpu_guard = gpu_device_test_guard();
     let wrapper = WgpuWrapper::new_headless((128, 128), wgpu::TextureFormat::Bgra8Unorm)
         .expect("Failed to create wrapper");
 
@@ -122,6 +144,7 @@ fn test_surface_arc_safety() {
 /// Test wrapper doesn't leak memory across multiple create/drop cycles
 #[test]
 fn test_no_memory_leak_on_multiple_cycles() {
+    let _gpu_guard = gpu_device_test_guard();
     // Create and drop wrapper multiple times
     // If there were lifetime issues or leaks, this would fail or crash
     for i in 0..10 {
@@ -141,6 +164,7 @@ fn test_no_memory_leak_on_multiple_cycles() {
 /// Stress test: rapid creation and destruction of wrappers
 #[test]
 fn test_rapid_wrapper_lifecycle() {
+    let _gpu_guard = gpu_device_test_guard();
     for _ in 0..20 {
         let wrapper = WgpuWrapper::new_headless((64, 64), wgpu::TextureFormat::Bgra8Unorm)
             .expect("Failed to create wrapper");
@@ -154,6 +178,7 @@ fn test_rapid_wrapper_lifecycle() {
 /// Test that zero-sized surfaces are handled safely
 #[test]
 fn test_zero_size_surface_safety() {
+    let _gpu_guard = gpu_device_test_guard();
     // Zero-sized surfaces should be clamped to minimum size
     let wrapper = WgpuWrapper::new_headless((0, 0), wgpu::TextureFormat::Bgra8Unorm)
         .expect("Failed to create wrapper with zero size");
@@ -167,6 +192,7 @@ fn test_zero_size_surface_safety() {
 /// Test that very large surfaces don't cause overflow issues
 #[test]
 fn test_large_surface_safety() {
+    let _gpu_guard = gpu_device_test_guard();
     // Test with a reasonably large surface (not testing GPU memory limits)
     let wrapper = WgpuWrapper::new_headless((4096, 4096), wgpu::TextureFormat::Bgra8Unorm)
         .expect("Failed to create large wrapper");
@@ -183,6 +209,7 @@ fn test_large_surface_safety() {
 /// Test that render target acquisition is safe
 #[test]
 fn test_render_target_acquisition_safety() {
+    let _gpu_guard = gpu_device_test_guard();
     let mut wrapper = WgpuWrapper::new_headless((320, 240), wgpu::TextureFormat::Bgra8Unorm)
         .expect("Failed to create wrapper");
 
@@ -206,6 +233,7 @@ fn test_render_target_acquisition_safety() {
 /// Test that command encoder is properly initialized
 #[test]
 fn test_command_encoder_safety() {
+    let _gpu_guard = gpu_device_test_guard();
     let wrapper = WgpuWrapper::new_headless((256, 256), wgpu::TextureFormat::Bgra8Unorm)
         .expect("Failed to create wrapper");
 
@@ -227,6 +255,7 @@ fn test_command_encoder_safety() {
 /// Test texture validation and format safety
 #[test]
 fn test_texture_format_validation() {
+    let _gpu_guard = gpu_device_test_guard();
     let wrapper = WgpuWrapper::new_headless((256, 256), wgpu::TextureFormat::Bgra8Unorm)
         .expect("Failed to create wrapper");
 
@@ -244,6 +273,7 @@ fn test_texture_format_validation() {
 /// Test that render targets are properly configured
 #[test]
 fn test_render_target_configuration() {
+    let _gpu_guard = gpu_device_test_guard();
     let wrapper = WgpuWrapper::new_headless((512, 512), wgpu::TextureFormat::Bgra8Unorm)
         .expect("Failed to create wrapper");
 
@@ -261,6 +291,7 @@ fn test_render_target_configuration() {
 /// Test frame state consistency across prepare/clear cycle
 #[test]
 fn test_frame_state_consistency() {
+    let _gpu_guard = gpu_device_test_guard();
     let mut wrapper = WgpuWrapper::new_headless((320, 240), wgpu::TextureFormat::Bgra8Unorm)
         .expect("Failed to create wrapper");
 
@@ -289,6 +320,7 @@ fn test_frame_state_consistency() {
 /// Test that Arc references are properly managed
 #[test]
 fn test_arc_reference_management() {
+    let _gpu_guard = gpu_device_test_guard();
     let wrapper = WgpuWrapper::new_headless((128, 128), wgpu::TextureFormat::Bgra8Unorm)
         .expect("Failed to create wrapper");
 
@@ -307,6 +339,7 @@ fn test_arc_reference_management() {
 /// Test that strong count is appropriate for Arc
 #[test]
 fn test_arc_strong_count() {
+    let _gpu_guard = gpu_device_test_guard();
     let wrapper = WgpuWrapper::new_headless((128, 128), wgpu::TextureFormat::Bgra8Unorm)
         .expect("Failed to create wrapper");
 
@@ -329,6 +362,7 @@ fn test_arc_strong_count() {
 /// Test surface lifecycle is safe
 #[test]
 fn test_surface_lifecycle() {
+    let _gpu_guard = gpu_device_test_guard();
     let wrapper = WgpuWrapper::new_headless((256, 256), wgpu::TextureFormat::Bgra8Unorm)
         .expect("Failed to create wrapper");
 
@@ -357,6 +391,7 @@ fn test_surface_lifecycle() {
 /// Test surface config is accessible and consistent
 #[test]
 fn test_surface_config_consistency() {
+    let _gpu_guard = gpu_device_test_guard();
     let wrapper = WgpuWrapper::new_headless((320, 240), wgpu::TextureFormat::Bgra8Unorm)
         .expect("Failed to create wrapper");
 
@@ -373,6 +408,7 @@ fn test_surface_config_consistency() {
 /// Test wrapper state after frame operations
 #[test]
 fn test_wrapper_state_after_operations() {
+    let _gpu_guard = gpu_device_test_guard();
     let mut wrapper = WgpuWrapper::new_headless((256, 256), wgpu::TextureFormat::Bgra8Unorm)
         .expect("Failed to create wrapper");
 
@@ -402,6 +438,7 @@ fn test_wrapper_state_after_operations() {
 /// Test that invalid operations don't cause silent failures
 #[test]
 fn test_error_handling_on_invalid_state() {
+    let _gpu_guard = gpu_device_test_guard();
     let mut wrapper = WgpuWrapper::new_headless((128, 128), wgpu::TextureFormat::Bgra8Unorm)
         .expect("Failed to create wrapper");
 
@@ -417,6 +454,7 @@ fn test_error_handling_on_invalid_state() {
 /// Test that extremely small dimensions are handled safely
 #[test]
 fn test_minimum_dimension_safety() {
+    let _gpu_guard = gpu_device_test_guard();
     let wrapper = WgpuWrapper::new_headless((1, 1), wgpu::TextureFormat::Bgra8Unorm)
         .expect("Failed to create 1x1 wrapper");
 
@@ -428,6 +466,7 @@ fn test_minimum_dimension_safety() {
 /// Test that aspect ratios don't cause issues
 #[test]
 fn test_extreme_aspect_ratio_safety() {
+    let _gpu_guard = gpu_device_test_guard();
     // Very wide aspect ratio
     let wide = WgpuWrapper::new_headless((4096, 64), wgpu::TextureFormat::Bgra8Unorm)
         .expect("Failed to create wide wrapper");

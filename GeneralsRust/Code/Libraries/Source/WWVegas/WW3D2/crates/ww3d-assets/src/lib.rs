@@ -87,7 +87,6 @@ pub use hlod_anim_pose::{
     child_world_from_anim_bones, evaluate_htree_anim_worlds, fraction_to_hanim_frame,
     resolve_hlod_anim_applied_bones,
 };
-pub use loader::w3d_streaming_loader::*;
 pub use material::{
     AlphaTest, ColorMask, CullMode, DepthCompare, DepthMask, DetailAlphaFunc, DetailColorFunc,
     DstBlendFunc, FogFunc, Material, MaterialManager, MaterialPass, PrimaryGradient,

@@ -15,8 +15,8 @@
 //! Restore always clears the live registry first so a load cannot leak the
 //! previous session's roster.
 
-use crate::game_logic::GameLogic;
 use crate::game_logic::host_angry_mob::HostAngryMobRegistry;
+use crate::game_logic::GameLogic;
 use crate::save_load::{SaveLoadError, SaveLoadResult};
 use serde::{Deserialize, Serialize};
 

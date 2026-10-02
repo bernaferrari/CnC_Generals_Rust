@@ -17,8 +17,8 @@
 //! so older decoders ignore the extra bytes. No WorldSnapshot version bump.
 //! Restore replaces the live registry and never calls `create_scaffolding`.
 
-use crate::game_logic::GameLogic;
 use crate::game_logic::host_bridge_behavior::HostBridgeBehaviorRegistry;
+use crate::game_logic::GameLogic;
 use crate::save_load::{SaveLoadError, SaveLoadResult};
 use serde::{Deserialize, Serialize};
 
@@ -61,8 +61,9 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
             "BRBH payload truncated".to_string(),
         ));
     }
-    let payload: BridgeBehaviorPersistPayload = bincode_legacy::deserialize(&rest[..payload_len])
-        .map_err(|err| SaveLoadError::Corrupted(format!("BRBH payload decode: {err}")))?;
+    let payload: BridgeBehaviorPersistPayload =
+        bincode_legacy::deserialize(&rest[..payload_len])
+            .map_err(|err| SaveLoadError::Corrupted(format!("BRBH payload decode: {err}")))?;
     game_logic.bridge_behavior.restore(payload.registry);
     Ok(())
 }
@@ -96,11 +97,11 @@ fn take_u32(rest: &mut &[u8]) -> SaveLoadResult<u32> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::game_logic::ObjectId;
     use crate::game_logic::host_bridge_behavior::{
-        BRIDGE_SCAFFOLD_LATERAL_SPEED, BRIDGE_SCAFFOLD_VERTICAL_SPEED, HostScaffoldAnim,
-        HostScaffoldMotion,
+        HostScaffoldAnim, HostScaffoldMotion, BRIDGE_SCAFFOLD_LATERAL_SPEED,
+        BRIDGE_SCAFFOLD_VERTICAL_SPEED,
     };
+    use crate::game_logic::ObjectId;
     use glam::Vec3;
 
     #[test]

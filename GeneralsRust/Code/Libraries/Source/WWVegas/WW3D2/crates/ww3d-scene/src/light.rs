@@ -622,29 +622,21 @@ fn hsv_to_rgb(hsv: Vec3) -> Vec3 {
     }
 }
 
-/// Global lighting LOD cutoff - uses Arc<Mutex<f32>> for thread-safe mutable access
-static LIGHTING_LOD_CUTOFF: OnceLock<Arc<Mutex<f32>>> = OnceLock::new();
-
-fn get_lod_cutoff_cell() -> Arc<Mutex<f32>> {
-    LIGHTING_LOD_CUTOFF
-        .get_or_init(|| Arc::new(Mutex::new(0.5)))
-        .clone()
+thread_local! {
+    /// C++ kept the lighting LOD cutoff as a plain static on the game thread.
+    static LIGHTING_LOD_CUTOFF: std::cell::Cell<f32> = const { std::cell::Cell::new(0.5) };
 }
 
 /// Set the lighting LOD cutoff
 ///
 /// Lights with diffuse intensity below this threshold are converted to pure ambient
 pub fn set_lighting_lod_cutoff(cutoff: f32) {
-    let cell = get_lod_cutoff_cell();
-    let mut guard = cell.lock().unwrap();
-    *guard = cutoff;
+    LIGHTING_LOD_CUTOFF.with(|cell| cell.set(cutoff));
 }
 
 /// Get the lighting LOD cutoff
 pub fn get_lighting_lod_cutoff() -> f32 {
-    let cell = get_lod_cutoff_cell();
-    let guard = cell.lock().unwrap();
-    *guard
+    LIGHTING_LOD_CUTOFF.with(std::cell::Cell::get)
 }
 
 #[cfg(test)]

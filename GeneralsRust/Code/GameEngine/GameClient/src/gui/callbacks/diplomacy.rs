@@ -6,8 +6,8 @@
 use crate::game_text::GameText;
 use crate::gui::gadgets::{ListBoxAddEntry, ListBoxItemData};
 use crate::gui::{
-    AnimateWindowManager, AnimationType, Color, GameWindow, WindowLayout, WindowMessage,
-    WindowMsgData, WindowMsgHandled, WindowWidget, get_disconnect_menu, with_window_manager,
+    get_disconnect_menu, with_window_manager, AnimateWindowManager, AnimationType, Color,
+    GameWindow, WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled, WindowWidget,
 };
 use crate::helpers::TheInGameUI;
 use game_engine::common::ini::ini_game_data::get_global_data;
@@ -72,13 +72,15 @@ struct DiplomacyUiState {
     animate_manager: AnimateWindowManager,
 }
 
+// THREAD: main thread only. The state owns `Rc` window/layout handles (already
+// `!Send`), so the cell replaces the lock-wrapped `Arc` around it.
 thread_local! {
-    static DIPLOMACY_UI_STATE: Arc<Mutex<DiplomacyUiState>> =
-        Arc::new(Mutex::new(DiplomacyUiState::default()));
+    static DIPLOMACY_UI_STATE: RefCell<DiplomacyUiState> =
+        RefCell::new(DiplomacyUiState::default());
 }
 
-fn diplomacy_ui_state() -> Arc<Mutex<DiplomacyUiState>> {
-    DIPLOMACY_UI_STATE.with(|state| state.clone())
+fn with_diplomacy_ui_state<R>(f: impl FnOnce(&mut DiplomacyUiState) -> R) -> R {
+    DIPLOMACY_UI_STATE.with_borrow_mut(f)
 }
 
 /// Diplomacy screen state and callbacks
@@ -113,9 +115,7 @@ impl DiplomacyCallbacks {
                 WindowMsgHandled::Handled
             }
             WindowMessage::None => {
-                let state_handle = diplomacy_ui_state();
-                let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
-                state.animate_manager.update();
+                with_diplomacy_ui_state(|state| state.animate_manager.update());
                 WindowMsgHandled::Handled
             }
             WindowMessage::Destroy => WindowMsgHandled::Handled,
@@ -450,28 +450,30 @@ impl DiplomacyCallbacks {
             return;
         }
 
-        let state_handle = diplomacy_ui_state();
-        let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
-        if state.layout.is_none() {
-            // C++ ShowDiplomacy: TheWindowManager->winCreateLayout(
-            // "Diplomacy.wnd") parses Window/Diplomacy.wnd and creates every
-            // window in the live WM (Diplomacy.cpp:195-196, GameWindowManager-
-            // Script.cpp:2700-2703 prefixes a bare filename with "Window\\").
-            // winCreateLayout returns NULL on parse failure; fail closed the
-            // same way instead of caching an empty layout.
-            let Some(layout) = with_window_manager(|manager| {
-                manager
-                    .create_layout_with_windows("Diplomacy.wnd")
-                    .ok()
-                    .map(|(layout, _)| layout)
-            }) else {
-                return;
-            };
-            state.window = layout.borrow().get_first_window();
-            state.layout = Some(layout);
-        }
-
-        let window = state.window.clone();
+        let window = with_diplomacy_ui_state(|state| {
+            if state.layout.is_none() {
+                // C++ ShowDiplomacy: TheWindowManager->winCreateLayout(
+                // "Diplomacy.wnd") parses Window/Diplomacy.wnd and creates every
+                // window in the live WM (Diplomacy.cpp:195-196, GameWindowManager-
+                // Script.cpp:2700-2703 prefixes a bare filename with "Window\\").
+                // winCreateLayout returns NULL on parse failure; fail closed the
+                // same way instead of caching an empty layout.
+                let Some(layout) = with_window_manager(|manager| {
+                    manager
+                        .create_layout_with_windows("Diplomacy.wnd")
+                        .ok()
+                        .map(|(layout, _)| layout)
+                }) else {
+                    return None;
+                };
+                state.window = layout.borrow().get_first_window();
+                state.layout = Some(layout);
+            }
+            Some(state.window.clone())
+        });
+        let Some(window) = window else {
+            return;
+        };
         if let Some(window) = window.as_ref() {
             let _ = window.borrow_mut().hide(false);
             let _ = window.borrow_mut().enable(true);
@@ -526,14 +528,16 @@ impl DiplomacyCallbacks {
             .unwrap_or(true);
         if !immediate && animate_windows {
             if let Some(window) = window {
-                state.animate_manager.reset();
-                state.animate_manager.register_window(
-                    window,
-                    AnimationType::SlideTop,
-                    true,
-                    200,
-                    0,
-                );
+                with_diplomacy_ui_state(|state| {
+                    state.animate_manager.reset();
+                    state.animate_manager.register_window(
+                        window,
+                        AnimationType::SlideTop,
+                        true,
+                        200,
+                        0,
+                    );
+                });
             }
         }
 
@@ -546,14 +550,14 @@ impl DiplomacyCallbacks {
     }
 
     fn hide_layout(&self) {
-        let state_handle = diplomacy_ui_state();
-        let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some(window) = &state.window {
-            // C++ HideDiplomacy immediate: winHide(TRUE) + winEnable(FALSE)
-            // (Diplomacy.cpp:286-290).
-            let _ = window.borrow_mut().hide(true);
-            let _ = window.borrow_mut().enable(false);
-        }
+        with_diplomacy_ui_state(|state| {
+            if let Some(window) = &state.window {
+                // C++ HideDiplomacy immediate: winHide(TRUE) + winEnable(FALSE)
+                // (Diplomacy.cpp:286-290).
+                let _ = window.borrow_mut().hide(true);
+                let _ = window.borrow_mut().enable(false);
+            }
+        });
     }
 
     fn refresh_from_player_list(&mut self) {
@@ -676,18 +680,21 @@ pub fn tick_diplomacy_animation() {
     if !animate_windows {
         return;
     }
-    let state_handle = diplomacy_ui_state();
-    let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
-    if state.window.is_none() {
-        return;
-    }
-    let was_finished = state.animate_manager.is_finished();
-    state.animate_manager.update();
-    if state.animate_manager.is_finished() && !was_finished && state.animate_manager.is_reversed() {
-        if let Some(window) = &state.window {
-            let _ = window.borrow_mut().hide(true);
+    with_diplomacy_ui_state(|state| {
+        if state.window.is_none() {
+            return;
         }
-    }
+        let was_finished = state.animate_manager.is_finished();
+        state.animate_manager.update();
+        if state.animate_manager.is_finished()
+            && !was_finished
+            && state.animate_manager.is_reversed()
+        {
+            if let Some(window) = &state.window {
+                let _ = window.borrow_mut().hide(true);
+            }
+        }
+    });
 }
 
 impl Default for DiplomacyCallbacks {
@@ -913,19 +920,15 @@ mod tests {
         diplomacy.update_player_info(0, player_info).unwrap();
 
         // Test setting relationship
-        assert!(
-            diplomacy
-                .set_relationship(0, DiplomaticRelationship::Ally)
-                .is_ok()
-        );
+        assert!(diplomacy
+            .set_relationship(0, DiplomaticRelationship::Ally)
+            .is_ok());
         assert_eq!(diplomacy.get_relationship(0), DiplomaticRelationship::Ally);
 
         // Test setting relationship for non-existent player
-        assert!(
-            diplomacy
-                .set_relationship(99, DiplomaticRelationship::Enemy)
-                .is_err()
-        );
+        assert!(diplomacy
+            .set_relationship(99, DiplomaticRelationship::Enemy)
+            .is_err());
 
         // Test default relationship for non-existent player
         assert_eq!(
@@ -1057,11 +1060,9 @@ mod tests {
             ..PlayerInfo::default()
         };
         assert!(system.update_player_info(0, player_info).is_ok());
-        assert!(
-            system
-                .set_relationship(0, DiplomaticRelationship::Ally)
-                .is_ok()
-        );
+        assert!(system
+            .set_relationship(0, DiplomaticRelationship::Ally)
+            .is_ok());
         assert!(system.set_player_muted(0, true).is_ok());
     }
 
@@ -1143,7 +1144,11 @@ pub fn residual_diplomacy_is_active() -> bool {
 /// Residual: last mute/unmute slot (-1 if none).
 pub fn residual_diplomacy_mute_slot() -> Option<i32> {
     let slot = RESIDUAL_DIPLOMACY_MUTE_SLOT.load(std::sync::atomic::Ordering::Relaxed);
-    if slot < 0 { None } else { Some(slot) }
+    if slot < 0 {
+        None
+    } else {
+        Some(slot)
+    }
 }
 
 /// Residual: bind Diplomacy control name keys (no layout load).

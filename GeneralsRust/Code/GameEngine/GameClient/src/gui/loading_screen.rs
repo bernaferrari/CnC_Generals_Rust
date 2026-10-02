@@ -4,6 +4,7 @@
 //! and background rendering during game loading operations.
 
 use super::gadgets::{ProgressBar, ProgressBarBuilder, ProgressBarStyle};
+use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::time::{Duration, Instant};
 
@@ -608,7 +609,10 @@ static RESIDUAL_LOADING_ACTION: std::sync::atomic::AtomicU8 = std::sync::atomic:
 static RESIDUAL_LOADING_VISIBLE: std::sync::atomic::AtomicBool =
     std::sync::atomic::AtomicBool::new(false);
 static RESIDUAL_LOADING_PROGRESS: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
-static RESIDUAL_LOADING_MAP: std::sync::Mutex<String> = std::sync::Mutex::new(String::new());
+// THREAD: main thread only — GUI residual latch, see `RESIDUAL_LOADING_SCREEN`.
+thread_local! {
+    static RESIDUAL_LOADING_MAP: RefCell<String> = RefCell::new(String::new());
+}
 
 fn residual_loading_screen_new() -> LoadingScreen {
     let mut screen = LoadingScreen::new(LoadingScreenConfig::default());
@@ -650,11 +654,12 @@ pub fn residual_loading_screen_progress() -> u8 {
 
 /// Residual: last map name residual.
 pub fn residual_loading_screen_map_name() -> Option<String> {
-    let name = RESIDUAL_LOADING_MAP
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .clone();
-    if name.is_empty() { None } else { Some(name) }
+    let name = RESIDUAL_LOADING_MAP.with_borrow(Clone::clone);
+    if name.is_empty() {
+        None
+    } else {
+        Some(name)
+    }
 }
 
 /// Residual: show loading screen without full asset pipeline.
@@ -700,9 +705,7 @@ pub fn simulate_loading_screen_set_map(map_name: &str) -> bool {
     RESIDUAL_LOADING_SCREEN.with(|screen| {
         let mut screen = screen.borrow_mut();
         screen.set_map_name(map_name);
-        *RESIDUAL_LOADING_MAP
-            .lock()
-            .unwrap_or_else(|e| e.into_inner()) = map_name.to_string();
+        RESIDUAL_LOADING_MAP.with_borrow_mut(|stored| *stored = map_name.to_string());
         residual_loading_action_store(ResidualLoadingScreenAction::SetMap);
         residual_loading_screen_map_name().as_deref() == Some(map_name)
     })
