@@ -1,6 +1,4 @@
-use parking_lot::Mutex;
 use std::collections::VecDeque;
-use std::sync::OnceLock;
 
 use glam::Vec3;
 
@@ -20,8 +18,10 @@ pub enum RadarKind {
     Ally,
 }
 
+/// Pending UI notifications owned by one match. Producers and the UI drain
+/// borrow that match mutably; presentation only reads a completed snapshot.
 pub struct RadarNotifications {
-    queue: Mutex<VecDeque<RadarEntry>>,
+    queue: VecDeque<RadarEntry>,
 }
 
 impl Default for RadarNotifications {
@@ -33,31 +33,24 @@ impl Default for RadarNotifications {
 impl RadarNotifications {
     pub fn new() -> Self {
         Self {
-            queue: Mutex::new(VecDeque::new()),
+            queue: VecDeque::new(),
         }
     }
 
-    pub fn push(&self, entry: RadarEntry) {
-        self.queue.lock().push_back(entry);
+    pub fn push(&mut self, entry: RadarEntry) {
+        self.queue.push_back(entry);
     }
 
-    pub fn drain(&self) -> Vec<RadarEntry> {
-        let mut guard = self.queue.lock();
-        if guard.is_empty() {
-            Vec::new()
-        } else {
-            guard.drain(..).collect()
-        }
+    pub fn drain(&mut self) -> Vec<RadarEntry> {
+        self.queue.drain(..).collect()
+    }
+
+    pub fn clear(&mut self) {
+        self.queue.clear();
     }
 
     /// Non-destructive copy for presentation freeze (UI drain remains authoritative).
     pub fn snapshot(&self) -> Vec<RadarEntry> {
-        self.queue.lock().iter().cloned().collect()
+        self.queue.iter().cloned().collect()
     }
-}
-
-static GLOBAL_RADAR_NOTIFICATIONS: OnceLock<RadarNotifications> = OnceLock::new();
-
-pub fn global_radar_notifications() -> &'static RadarNotifications {
-    GLOBAL_RADAR_NOTIFICATIONS.get_or_init(RadarNotifications::new)
 }
