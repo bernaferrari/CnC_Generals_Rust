@@ -406,12 +406,7 @@ impl ConvertToCarBombCrateCollide {
             drop(obj_guard);
 
             if let Ok(mut other_guard) = other.write() {
-                if let Some(old_level) = other_guard
-                    .with_experience_tracker_mut(|exp_guard| exp_guard.set_veterancy_level(level))
-                    .flatten()
-                {
-                    other_guard.on_veterancy_level_changed(old_level, level, true);
-                }
+                other_guard.set_veterancy_level_with_side_effects(level, true);
             }
         }
 
@@ -434,8 +429,7 @@ impl LegacyCollideAdapter for ConvertToCarBombCrateCollide {
 
         if ConvertToCarBombCrateCollide::is_valid_to_execute(self, other_id)? {
             let success = ConvertToCarBombCrateCollide::execute_crate_behavior(self, other_id)?;
-            if let Some(other) = crate::object::registry::OBJECT_REGISTRY.get_object(other_id)
-            {
+            if let Some(other) = crate::object::registry::OBJECT_REGISTRY.get_object(other_id) {
                 self.base
                     .finish_execution_attempt(&other, success)
                     .map_err(GameError::from)?;

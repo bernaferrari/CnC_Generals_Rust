@@ -174,9 +174,7 @@ impl Object {
             return;
         }
 
-        if let Some(tracker) = &mut self.experience_tracker {
-            let _ = tracker.set_experience_and_level(0, &[]);
-        }
+        self.set_experience_and_level_with_side_effects(0, false);
         self.with_friend_module_by_name::<AutoHealBehavior, _, _>("AutoHealBehavior", |heal| {
             heal.undo_upgrade();
         });

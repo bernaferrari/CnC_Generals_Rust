@@ -11,9 +11,7 @@
 use std::collections::VecDeque;
 use std::sync::{Arc, RwLock};
 
-
 use crate::ai::group::GuardMode;
-use crate::object::ProductionBehaviorRallyKindMut;
 use crate::ai::{AiCommandType, CommandSourceType, the_ai};
 use crate::common::ThingTemplate;
 use crate::common::xfer::XferExt;
@@ -30,6 +28,7 @@ use crate::modules::{
     ExitDoorType as ModuleExitDoorType, ExitInterface as ModuleExitInterface,
     ProductionUpdateInterface, UPDATE_SLEEP_NONE, UpdateModuleInterface, UpdateSleepTime,
 };
+use crate::object::ProductionBehaviorRallyKindMut;
 use crate::object::behavior::behavior_module::{
     BehaviorModuleData, PPInfo as SharedPPInfo,
     ParkingPlaceBehaviorInterface as SharedParkingPlaceBehaviorInterface,
@@ -647,7 +646,12 @@ impl FlightDeckBehavior {
             Self::purge_dead(state);
 
             // Update healing
-            Self::update_healing(state, current_frame, self.object_id, self.config.heal_amount)?;
+            Self::update_healing(
+                state,
+                current_frame,
+                self.object_id,
+                self.config.heal_amount,
+            )?;
 
             // Update parking space assignments
             Self::update_parking_assignments(
@@ -670,7 +674,8 @@ impl FlightDeckBehavior {
 
         if let Some(owner_arc) = TheGameLogic::find_object_by_id(self.object_id) {
             if let Ok(mut owner_guard) = owner_arc.write() {
-                let has_aircraft = self.state
+                let has_aircraft = self
+                    .state
                     .parking_spaces
                     .iter()
                     .any(|space| space.object_id != INVALID_OBJECT_ID);
@@ -781,6 +786,7 @@ impl FlightDeckBehavior {
                 if let (Some(template), true) = (&self.thing_template, create_units) {
                     if let Some(team_arc) = owner_guard
                         .with_controlling_player(|player_guard| player_guard.get_default_team())
+                        .flatten()
                     {
                         if let Ok(team_guard) = team_arc.read() {
                             if let Ok(factory) = TheThingFactory::get() {
@@ -893,8 +899,7 @@ impl FlightDeckBehavior {
         }
 
         state.next_heal_frame = now + HEAL_RATE_FRAMES;
-        let amount =
-            HEAL_RATE_FRAMES as f32 * heal_amount * SECONDS_PER_LOGICFRAME_REAL;
+        let amount = HEAL_RATE_FRAMES as f32 * heal_amount * SECONDS_PER_LOGICFRAME_REAL;
 
         state.healing_objects.retain(|info| {
             if info.object_id == INVALID_OBJECT_ID {
@@ -1079,10 +1084,7 @@ impl FlightDeckBehavior {
                             let player_id =
                                 owner_guard.get_controlling_player_id().unwrap_or(0) as ObjectID;
                             if prod
-                                .start_production(
-                                    config.thing_template_name.clone(),
-                                    player_id,
-                                )
+                                .start_production(config.thing_template_name.clone(), player_id)
                                 .is_ok()
                             {
                                 queued = true;
@@ -1142,11 +1144,7 @@ impl FlightDeckBehavior {
             let Ok(jet_guard) = jet_arc.read() else {
                 continue;
             };
-            if Self::is_able_to_give_up_parking_space(
-                &jet_guard,
-                state,
-                self.designated_command,
-            ) {
+            if Self::is_able_to_give_up_parking_space(&jet_guard, state, self.designated_command) {
                 self.propagate_order_to_specific_plane(&jet_guard);
             }
         }
@@ -1245,11 +1243,7 @@ impl FlightDeckBehavior {
                 continue;
             };
 
-            if !Self::is_able_to_give_up_parking_space(
-                &jet_guard,
-                state,
-                self.designated_command,
-            )
+            if !Self::is_able_to_give_up_parking_space(&jet_guard, state, self.designated_command)
                 && self.is_in_position_to_takeoff(&jet_guard, state)
                 && self.has_takeoff_orders()
             {
@@ -1377,7 +1371,8 @@ impl FlightDeckBehavior {
 
         let _ = object_guard.set_position(&creation_pos);
         let _ = object_guard.set_orientation(heading);
-        let ai_store = the_ai(); if let Ok(ai_guard) = ai_store.read() {
+        let ai_store = the_ai();
+        if let Ok(ai_guard) = ai_store.read() {
             if let Some(pf_arc) = ai_guard.pathfinder() {
                 if let Ok(mut pf) = pf_arc.write() {
                     pf.add_object_to_map(object_id, &[creation_pos], false);
@@ -2342,11 +2337,7 @@ impl Snapshotable for FlightDeckBehavior {
             let _ = self.build_info(false);
         }
 
-        let mut spaces_count: u8 = self
-            .state
-            .parking_spaces
-            .len()
-            .min(u8::MAX as usize) as u8;
+        let mut spaces_count: u8 = self.state.parking_spaces.len().min(u8::MAX as usize) as u8;
         xfer.xfer_unsigned_byte(&mut spaces_count)
             .map_err(|e| e.to_string())?;
         if xfer.get_xfer_mode() == XferMode::Save {
@@ -2368,11 +2359,7 @@ impl Snapshotable for FlightDeckBehavior {
             }
         }
 
-        let mut runways_count: u8 = self
-            .state
-            .runways
-            .len()
-            .min(u8::MAX as usize) as u8;
+        let mut runways_count: u8 = self.state.runways.len().min(u8::MAX as usize) as u8;
         xfer.xfer_unsigned_byte(&mut runways_count)
             .map_err(|e| e.to_string())?;
         if xfer.get_xfer_mode() == XferMode::Save {
@@ -2401,11 +2388,7 @@ impl Snapshotable for FlightDeckBehavior {
             }
         }
 
-        let mut heal_count: u8 = self
-            .state
-            .healing_objects
-            .len()
-            .min(u8::MAX as usize) as u8;
+        let mut heal_count: u8 = self.state.healing_objects.len().min(u8::MAX as usize) as u8;
         xfer.xfer_unsigned_byte(&mut heal_count)
             .map_err(|e| e.to_string())?;
         if xfer.get_xfer_mode() == XferMode::Save {
@@ -2674,10 +2657,10 @@ mod tests {
     use super::*;
     use crate::object::Object;
     use crate::object::registry::OBJECT_REGISTRY;
-    use std::sync::atomic::{AtomicU32, Ordering as AtomicOrdering};
-    use std::sync::{Arc, RwLock};
     use game_engine::system::{xfer_load::XferLoad, xfer_save::XferSave};
     use std::io::Cursor;
+    use std::sync::atomic::{AtomicU32, Ordering as AtomicOrdering};
+    use std::sync::{Arc, RwLock};
 
     static NEXT_TEST_OBJECT_ID: AtomicU32 = AtomicU32::new(10_000);
 

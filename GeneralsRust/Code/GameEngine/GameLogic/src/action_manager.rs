@@ -399,9 +399,12 @@ fn appears_to_contain_friendlies(obj: &Object, other: &Object) -> bool {
     let Ok(contain_guard) = contain.lock() else {
         return false;
     };
-    let Some(apparent_player) = obj.with_controlling_player(|observer_guard| {
-        contain_guard.get_apparent_controlling_player(Some(observer_guard))
-    }) else {
+    let Some(apparent_player) = obj
+        .with_controlling_player(|observer_guard| {
+            contain_guard.get_apparent_controlling_player(Some(observer_guard))
+        })
+        .flatten()
+    else {
         return false;
     };
     let Ok(apparent_guard) = apparent_player.read() else {
@@ -1788,13 +1791,17 @@ impl TheActionManager {
         }
 
         // C++ ActionManager.cpp:2016 — player->getRelationship(target->getTeam()) == NEUTRAL
+        // The team guard stays inside this closure: it borrows the locally
+        // owned team handle and cannot escape it.
         let neutral_to_target = obj.with_controlling_player(|player_guard| {
             target
                 .get_team()
-                .and_then(|target_team| target_team.read().ok())
-                .is_some_and(|target_team_guard| {
-                    player_guard.get_relationship_with_team(&target_team_guard)
-                        == Relationship::Neutral
+                .is_some_and(|target_team| match target_team.read() {
+                    Ok(target_team_guard) => {
+                        player_guard.get_relationship_with_team(&target_team_guard)
+                            == Relationship::Neutral
+                    }
+                    Err(_) => false,
                 })
         });
         if neutral_to_target.unwrap_or(false) {
@@ -1836,12 +1843,17 @@ impl TheActionManager {
             return true;
         }
 
+        // The team guard stays inside this closure: it borrows the locally
+        // owned team handle and cannot escape it.
         let neutral_to_target = target.with_controlling_player(|target_guard| {
             target_guard
                 .get_default_team()
-                .and_then(|target_team| target_team.read().ok())
-                .is_some_and(|target_team_guard| {
-                    player.get_relationship_with_team(&target_team_guard) == Relationship::Neutral
+                .is_some_and(|target_team| match target_team.read() {
+                    Ok(target_team_guard) => {
+                        player.get_relationship_with_team(&target_team_guard)
+                            == Relationship::Neutral
+                    }
+                    Err(_) => false,
                 })
         });
         if neutral_to_target.unwrap_or(false) {

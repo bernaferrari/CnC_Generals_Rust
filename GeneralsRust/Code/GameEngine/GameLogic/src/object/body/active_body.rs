@@ -1777,14 +1777,19 @@ impl ActiveBody {
                     // try_read: the owner's write guard may be held by this
                     // thread while the body mutates (self-sourced damage).
                     if let Ok(owner_guard) = owner.try_read() {
+                        // `.flatten()`: with_object wraps the scoped player
+                        // lookup's own Option; keep only the source's index.
                         let src_index = owner_guard.with_controlling_player(|_| {
-                            OBJECT_REGISTRY.with_object(last_source_id, |src| {
-                                src.with_controlling_player(|g| g.get_player_index())
-                            })
+                            OBJECT_REGISTRY
+                                .with_object(last_source_id, |src| {
+                                    src.with_controlling_player(|g| g.get_player_index())
+                                })
+                                .flatten()
                         });
                         if let Some(Some(src_index)) = src_index {
-                            owner_guard
-                                .with_controlling_player_mut(|player| player.set_attacked_by(src_index));
+                            owner_guard.with_controlling_player_mut(|player| {
+                                player.set_attacked_by(src_index)
+                            });
                         }
                     }
                 }

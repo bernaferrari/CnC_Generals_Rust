@@ -59,7 +59,7 @@ impl Object {
         });
 
         let mut found = false;
-        for entry in &self.die_module_handles {
+        for entry in self.interface_entries(&self.die_module_handles) {
             entry.with_module(|module| {
                 if let Some(die_module) = module_die_kind(module) {
                     if die_module

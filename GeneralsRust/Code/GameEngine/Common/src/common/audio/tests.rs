@@ -303,8 +303,9 @@ fn the_audio_singleton_registers_rodio_not_wwaudio() {
     let src = include_str!("game_audio.rs");
     let prod = src.split("#[cfg(test)]").next().expect("production");
     assert!(
-        prod.contains("use rodio_compat::{Decoder, OutputStream, OutputStreamHandle, Sink, Source}")
-            && prod.contains("fn register_rodio_playback_hook"),
+        prod.contains(
+            "use rodio_compat::{Decoder, OutputStream, OutputStreamHandle, Sink, Source}"
+        ) && prod.contains("fn register_rodio_playback_hook"),
         "Common TheAudio backend must be rodio, not Miles leftover crate"
     );
     assert!(
@@ -775,18 +776,14 @@ fn unresolved_add_audio_event_reports_failure_once() {
     // (no reset, no race with the rate-limit test).
     let mut audio = AudioManager::new();
     audio.init();
-    let handle = audio.add_audio_event(&AudioEventRts::with_event_name(
-        "NoSuchSoundEventAnywhere",
-    ));
+    let handle = audio.add_audio_event(&AudioEventRts::with_event_name("NoSuchSoundEventAnywhere"));
     assert_eq!(handle, AHSV_ERROR);
     assert_eq!(
         play_failure_report_reason_for_tests("NoSuchSoundEventAnywhere").as_deref(),
         Some("addAudioEvent: event name unresolved")
     );
     // Second add of the same unresolved name must not grow the report set.
-    let handle = audio.add_audio_event(&AudioEventRts::with_event_name(
-        "NoSuchSoundEventAnywhere",
-    ));
+    let handle = audio.add_audio_event(&AudioEventRts::with_event_name("NoSuchSoundEventAnywhere"));
     assert_eq!(handle, AHSV_ERROR);
     assert_eq!(
         play_failure_report_reason_for_tests("NoSuchSoundEventAnywhere").as_deref(),
@@ -820,4 +817,70 @@ fn play_err_strings_reach_the_failure_report_not_a_discard() {
         2,
         "friend_forcePlayAudioEventRTS must report both unresolved info and hook.play Err"
     );
+}
+struct OwnerSubmissionLocality;
+impl AudioLocalityResolver for OwnerSubmissionLocality {
+    fn get_local_player_index(&self) -> Option<Int> {
+        Some(3)
+    }
+    fn is_player_active(&self, _: Int) -> Bool {
+        true
+    }
+    fn player_exists(&self, index: Int) -> Bool {
+        matches!(index, 3 | 4)
+    }
+    fn has_default_team(&self, _: Int) -> Bool {
+        true
+    }
+    fn get_relationship_to_local_team(&self, source: Int, local: Int) -> AudioLocalityRelationship {
+        if source == local {
+            AudioLocalityRelationship::Allies
+        } else {
+            AudioLocalityRelationship::Enemies
+        }
+    }
+}
+
+#[test]
+fn borrowed_owner_locality_uses_supplied_player_without_changing_event_identity() {
+    let manager = AudioManager::new();
+    let mut info = test_info("OwnerPromotion", AudioType::SoundEffect, 0, 0);
+    info.type_field = ST_PLAYER;
+    let mut event = event_with(info.clone(), 1.0);
+    event.set_object_id(9090);
+    event.set_player_index(99);
+    assert!(manager.should_play_locally_with_resolver(
+        &event,
+        &info,
+        &OwnerSubmissionLocality,
+        Some(3),
+    ));
+    assert!(!manager.should_play_locally_with_resolver(
+        &event,
+        &info,
+        &OwnerSubmissionLocality,
+        Some(4),
+    ));
+    assert_eq!(event.get_object_id(), 9090);
+    assert_eq!(event.player_index, 99);
+}
+
+#[test]
+fn borrowed_owner_submission_keeps_object_identity_in_the_queued_sound() {
+    let mut manager = AudioManager::new();
+    manager.init();
+    let mut info = test_info("OwnerPromotionQueued", AudioType::SoundEffect, 0, 0);
+    info.type_field = ST_EVERYONE;
+    let mut event = event_with(info, 1.0);
+    event.set_object_id(9091);
+    let handle = manager.add_audio_event_for_player(&event, 3);
+    assert!(handle >= AHSV_FIRST_HANDLE);
+    let queued = manager
+        .audio_requests
+        .last()
+        .unwrap()
+        .get_pending_event()
+        .unwrap();
+    assert_eq!(queued.get_object_id(), 9091);
+    assert_eq!(event.get_object_id(), 9091);
 }
