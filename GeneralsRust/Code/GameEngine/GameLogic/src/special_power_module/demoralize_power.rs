@@ -95,8 +95,9 @@ impl DemoralizeSpecialPower {
             return false;
         };
 
+        let facts = crate::helpers::capture_player_audio_locality(&player_guard, &list_guard);
         if !player_guard
-            .get_money_mut()
+            .get_money_mut_with_locality(facts)
             .subtract_money(self.data.base.cost)
         {
             return false;

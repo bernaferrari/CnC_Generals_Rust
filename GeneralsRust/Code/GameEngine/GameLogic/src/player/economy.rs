@@ -24,8 +24,15 @@ impl Player {
         &self.money
     }
 
-    pub fn get_money_mut(&mut self) -> &mut PlayerMoney {
-        &mut self.money
+    pub fn get_money_mut(&mut self) -> PlayerMoneyMut<'_> {
+        PlayerMoneyMut::new(self)
+    }
+
+    pub(crate) fn get_money_mut_with_locality(
+        &mut self,
+        locality: game_engine::common::audio::AudioSubmissionLocality,
+    ) -> PlayerMoneyMut<'_> {
+        PlayerMoneyMut::with_locality(self, locality)
     }
 
     /// C++ Player::getSupplyBoxValue hook. Today it returns the global base value,

@@ -227,7 +227,7 @@ impl ProductionUpdate {
         // Take cost
         let mut player_guard = player.write().unwrap();
         let cost = upgrade.calc_cost_to_build(&*player_guard).max(0) as u32;
-        let money = player_guard.get_money_mut();
+        let mut money = player_guard.get_money_mut();
         if money.withdraw(cost).is_err() {
             return false;
         }
@@ -273,7 +273,7 @@ impl ProductionUpdate {
             // Refund money
             let mut player_guard = player.write().unwrap();
             let cost = upgrade.calc_cost_to_build(&*player_guard).max(0) as u32;
-            let money = player_guard.get_money_mut();
+            let mut money = player_guard.get_money_mut();
             if let Err(err) = money.deposit(cost) {
                 log::debug!("ProductionUpdate::cancel_upgrade deposit failed: {err}");
             }
@@ -335,7 +335,7 @@ impl ProductionUpdate {
 
         let mut player_guard = player.write().unwrap();
         let cost = unit_type.calc_cost_to_build(Some(&*player_guard)).max(0) as u32;
-        let money = player_guard.get_money_mut();
+        let mut money = player_guard.get_money_mut();
         if money.withdraw(cost).is_err() {
             return false;
         }
@@ -392,7 +392,7 @@ impl ProductionUpdate {
                             let mut player_guard = player.write().unwrap();
                             let cost =
                                 template.calc_cost_to_build(Some(&*player_guard)).max(0) as u32;
-                            let money = player_guard.get_money_mut();
+                            let mut money = player_guard.get_money_mut();
                             if let Err(err) = money.deposit(cost) {
                                 log::debug!(
                                     "ProductionUpdate::cancel_unit_create deposit failed: {err}"
@@ -460,86 +460,87 @@ impl ProductionUpdate {
         let mut canceled_production_id = None;
         if let Some(production) = self.production_queue.first_mut() {
             if let Some(player) = object.get_controlling_player() {
-
-            // Check if type is still allowed
-            let mut should_cancel = false;
-            let production_id = production.production_id;
-            if production.production_type == ProductionType::Unit {
-                if let Some(template_id) = production.object_to_produce {
-                    if let Some(thing_factory) = ctx.thing_factory.as_ref() {
-                        if let Some(template) = thing_factory.get_template(template_id) {
-                            if !player.allowed_to_build(&template)
-                                && !template.is_kind_of(KindOf::Dozer)
-                            {
-                                should_cancel = true;
-                            }
-                        }
-                    }
-                }
-            }
-
-            if should_cancel {
-                canceled_production_id = Some(production_id);
-            } else {
-                // Increment construction frames
-                production.frames_under_construction += 1;
-
-                // Calculate total production time
-                let total_production_frames = if production.production_type == ProductionType::Unit
-                {
+                // Check if type is still allowed
+                let mut should_cancel = false;
+                let production_id = production.production_id;
+                if production.production_type == ProductionType::Unit {
                     if let Some(template_id) = production.object_to_produce {
                         if let Some(thing_factory) = ctx.thing_factory.as_ref() {
                             if let Some(template) = thing_factory.get_template(template_id) {
-                                if let Ok(player_guard) = player.read() {
-                                    template.calc_time_to_build(Some(&*player_guard))
-                                } else {
-                                    0
+                                if !player.allowed_to_build(&template)
+                                    && !template.is_kind_of(KindOf::Dozer)
+                                {
+                                    should_cancel = true;
                                 }
-                            } else {
-                                0
                             }
-                        } else {
-                            0
                         }
-                    } else {
-                        0
                     }
-                } else if let Some(upgrade_id) = production.upgrade_to_research {
-                    if let Some(upgrade_center) = ctx.upgrade_center.as_ref() {
-                        if let Some(upgrade_any) = upgrade_center.find_upgrade(upgrade_id) {
-                            if let Some(upgrade) = upgrade_any
-                                .downcast_ref::<crate::upgrade::template::UpgradeTemplate>(
-                            ) {
-                                if let Ok(player_guard) = player.read() {
-                                    upgrade.calc_time_to_build(&*player_guard)
-                                } else {
-                                    0
-                                }
-                            } else {
-                                0
-                            }
-                        } else {
-                            0
-                        }
-                    } else {
-                        0
-                    }
-                } else {
-                    0
-                };
-
-                production.percent_complete = if total_production_frames <= 0 {
-                    100.0
-                } else {
-                    (production.frames_under_construction as f32 / total_production_frames as f32)
-                        * 100.0
-                };
-
-                // Check if complete
-                if production.percent_complete >= 100.0 {
-                    finished = true;
                 }
-            }
+
+                if should_cancel {
+                    canceled_production_id = Some(production_id);
+                } else {
+                    // Increment construction frames
+                    production.frames_under_construction += 1;
+
+                    // Calculate total production time
+                    let total_production_frames = if production.production_type
+                        == ProductionType::Unit
+                    {
+                        if let Some(template_id) = production.object_to_produce {
+                            if let Some(thing_factory) = ctx.thing_factory.as_ref() {
+                                if let Some(template) = thing_factory.get_template(template_id) {
+                                    if let Ok(player_guard) = player.read() {
+                                        template.calc_time_to_build(Some(&*player_guard))
+                                    } else {
+                                        0
+                                    }
+                                } else {
+                                    0
+                                }
+                            } else {
+                                0
+                            }
+                        } else {
+                            0
+                        }
+                    } else if let Some(upgrade_id) = production.upgrade_to_research {
+                        if let Some(upgrade_center) = ctx.upgrade_center.as_ref() {
+                            if let Some(upgrade_any) = upgrade_center.find_upgrade(upgrade_id) {
+                                if let Some(upgrade) = upgrade_any
+                                    .downcast_ref::<crate::upgrade::template::UpgradeTemplate>(
+                                ) {
+                                    if let Ok(player_guard) = player.read() {
+                                        upgrade.calc_time_to_build(&*player_guard)
+                                    } else {
+                                        0
+                                    }
+                                } else {
+                                    0
+                                }
+                            } else {
+                                0
+                            }
+                        } else {
+                            0
+                        }
+                    } else {
+                        0
+                    };
+
+                    production.percent_complete = if total_production_frames <= 0 {
+                        100.0
+                    } else {
+                        (production.frames_under_construction as f32
+                            / total_production_frames as f32)
+                            * 100.0
+                    };
+
+                    // Check if complete
+                    if production.percent_complete >= 100.0 {
+                        finished = true;
+                    }
+                }
             } else {
                 no_player = true;
             }
@@ -766,8 +767,6 @@ impl ProductionUpdate {
                 }
             }
         }
-
-
 
         // Mark one unit as produced
         self.production_queue[idx].one_production_successful();

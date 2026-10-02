@@ -69,10 +69,11 @@ pub use dynamic_audio_event_info::{BitFlags, DynamicAudioEventInfo, OverriddenFi
 
 pub use game_audio::{
     AHSV_STOP_THE_MUSIC, AHSV_STOP_THE_MUSIC_FADE, AudioAffect, AudioLocalityRelationship,
-    AudioLocalityResolver, AudioManager, AudioSettings, MiscAudio, MusicManager, SoundManager,
-    SoundPlaybackHook, load_audio_event_inis, music_repeats_source_infinitely,
-    register_animation_sound_library, register_audio_locality_resolver,
-    register_sound_playback_hook, should_play_locally_for_players, sound_playback_hook_registered,
+    AudioLocalityResolver, AudioManager, AudioSettings, AudioSubmissionLocality, MiscAudio,
+    MusicManager, SoundManager, SoundPlaybackHook, load_audio_event_inis,
+    music_repeats_source_infinitely, register_animation_sound_library,
+    register_audio_locality_resolver, register_sound_playback_hook,
+    should_play_locally_for_players, sound_playback_hook_registered,
 };
 
 pub use game_music::{MusicManagerImpl, MusicTrack, create_music_manager};
@@ -203,7 +204,6 @@ impl ComprehensiveAudioSystem {
 
         // Set up default sound effect descriptors
         self.setup_default_sound_effects();
-
 
         // Set up default audio buses
         self.setup_default_audio_buses();

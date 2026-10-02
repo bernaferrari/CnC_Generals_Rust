@@ -1,23 +1,25 @@
-//! Wave 290 residual peels: Async AI player dual-world empty short-circuits.
-//! When `OBJECT_REGISTRY` is empty (host-only presentation path), async AI
-//! state/threat/task helpers fail-closed without dual-world factory walks.
-//! Never flips shell `playable_claim`. Network deferred.
+//! Historical Wave 290 async-player gate, retained for shell command/result compatibility.
+//! The async-player implementation was an undeclared archive and is retired.
+//! This source gate checks that classic AI and the live factory installer are
+//! declared while the retired modules remain undeclared. It proves no async
+//! runtime behavior or gameplay parity. Shell `playable_claim` stays false.
 //!
 //! Orthogonal to Wave 289 weapon.rs dual-world empty-gate residual.
 //!
 //! Sources:
-//! - `GameLogic/src/ai/async_player.rs` dual_world_registry_unavailable
+//! - `GameLogic/src/ai/mod.rs` compiled classic AI declarations
+//! - `GameLogic/src/lib.rs` compiled live module-factory declaration
 //!
 //! Fail-closed:
 //! - Shell `playable_claim` stays false; network deferred
-//! - Dual-world still active when registry is populated
+//! - The remaining classic AI registry gates are checked independently
 
 /// Lookup residual name index (exact match).
 pub fn residual_name_index(table: &[&str], name: &str) -> Option<usize> {
     table.iter().position(|n| *n == name)
 }
 
-/// Async player dual-world empty-gate residual method names.
+/// Historical names from the retired source; compatibility labels only.
 pub const LIVE_ASYNC_PLAYER_DUAL_WORLD_EMPTY_GATE_METHOD_NAMES_WAVE290: &[&str] = &[
     "dual_world_registry_unavailable",
     "update_game_state",
@@ -78,59 +80,29 @@ pub fn honesty_live_async_player_dual_world_empty_gate_residual_pack_wave290() -
         && honesty_live_async_player_dual_world_empty_gate_nav_commands_residual_wave290()
 }
 
-fn fn_body<'a>(src: &'a str, name: &str) -> Option<&'a str> {
-    let mut search_from = 0usize;
-    while let Some(rel) = src[search_from..].find(name) {
-        let i = search_from + rel;
-        let Some(b) = src[i..].find('{') else {
-            search_from = i + name.len();
-            continue;
-        };
-        let brace = i + b;
-        let mut depth = 0usize;
-        for (off, ch) in src[brace..].char_indices() {
-            match ch {
-                '{' => depth += 1,
-                '}' => {
-                    depth -= 1;
-                    if depth == 0 {
-                        let body = &src[i..brace + off + 1];
-                        if body.contains("dual_world_registry_unavailable") {
-                            return Some(body);
-                        }
-                        break;
-                    }
-                }
-                _ => {}
-            }
-        }
-        search_from = i + name.len();
-    }
-    None
+fn module_declared(src: &str, name: &str) -> bool {
+    let private = format!("mod {name};");
+    let public = format!("pub mod {name};");
+    src.lines().any(|line| {
+        let declaration = line.split("//").next().unwrap_or("").trim();
+        declaration == private || declaration == public
+    })
 }
 
-/// Source residual: async player empty dual-world short-circuits.
+/// Retirement source contract. The public name remains a compatibility alias;
+/// the removed archive supplies no executable evidence.
 pub fn honesty_async_player_dual_world_empty_gate_source() -> bool {
-    let g = include_str!("../../../../GameEngine/GameLogic/src/ai/async_player.rs");
-    if !(g.contains("Wave 290")
-        && g.contains("fn dual_world_registry_unavailable")
-        && g.contains("OBJECT_REGISTRY.is_empty()"))
-    {
-        return false;
-    }
-    let helper_ok = g.contains(
-        "fn dual_world_registry_unavailable() -> bool {\n    OBJECT_REGISTRY.is_empty()\n}",
-    );
-    let Some(state) = fn_body(g, "fn update_game_state(") else {
-        return false;
-    };
-    let Some(tasks) = fn_body(g, "fn generate_tasks_from_strategy(") else {
-        return false;
-    };
-    helper_ok && state.contains("Ok(())") && tasks.contains("Ok(Vec::new())")
+    let ai = include_str!("../../../../GameEngine/GameLogic/src/ai/mod.rs");
+    let root = include_str!("../../../../GameEngine/GameLogic/src/lib.rs");
+    module_declared(root, "ai")
+        && module_declared(ai, "ai_core")
+        && module_declared(ai, "ai_player")
+        && !module_declared(ai, "async_player")
+        && module_declared(root, "contain_module_overrides")
+        && !module_declared(root, "module_overrides")
 }
 
-/// Live residual: source honesty pack latches.
+/// Historical shell smoke latch for the compatibility names and retirement contract.
 pub fn simulate_live_async_player_dual_world_empty_gate_honesty() -> bool {
     honesty_live_async_player_dual_world_empty_gate_residual_pack_wave290()
         && honesty_async_player_dual_world_empty_gate_source()
@@ -164,7 +136,7 @@ mod tests {
     fn simulate_live_async_player_dual_world_empty_gate_honesty_residual_live() {
         assert!(
             simulate_live_async_player_dual_world_empty_gate_honesty(),
-            "async player dual-world empty gate residual must latch"
+            "historical async-player gate must attest retirement and retain compatibility names"
         );
     }
 }

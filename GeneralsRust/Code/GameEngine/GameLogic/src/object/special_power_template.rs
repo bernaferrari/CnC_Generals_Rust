@@ -681,8 +681,6 @@ fn build_from_ini_special_power(
         if let Ok(radius) = value.parse::<f32>() {
             template.radius_cursor_radius = radius;
         }
-    } else {
-        template.radius_cursor_radius = ini_template.radius;
     }
 
     if let Some(value) = props.get("AcademyClassify") {
@@ -859,8 +857,26 @@ mod tests {
 
         assert_eq!(event.event_name, "TestSound");
         assert_eq!(event.object_id, 42);
-        assert_eq!(event.position, Some((100.0, 200.0, 50.0)));
+        // C++ AudioEventRTS.cpp:529-567 rejects changing the owner kind.
+        assert_eq!(event.position, None);
+        assert_eq!(
+            event.owner_type,
+            crate::common::audio::LeftoverAudioOwner::Object
+        );
         assert_eq!(event.player_index, Some(1));
+
+        let mut positional = AudioEventRts::new("TestSound");
+        positional.set_position(&(100.0, 200.0, 50.0));
+        positional.set_object_id(42);
+        positional.set_player_index(1);
+        assert_eq!(positional.event_name, "TestSound");
+        assert_eq!(positional.position, Some((100.0, 200.0, 50.0)));
+        assert_eq!(positional.object_id, 0);
+        assert_eq!(
+            positional.owner_type,
+            crate::common::audio::LeftoverAudioOwner::Positional
+        );
+        assert_eq!(positional.player_index, Some(1));
     }
 
     #[test]

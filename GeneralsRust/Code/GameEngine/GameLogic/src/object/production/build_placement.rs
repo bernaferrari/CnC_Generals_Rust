@@ -14,7 +14,7 @@ use crate::common::*;
 use crate::economy::IncomeSource;
 use crate::helpers::{TheGameLogic, TheInGameUI, ThePartitionManager, TheThingFactory};
 use crate::object::production::construction::{
-    get_construction_manager, ConstructionState, FoundationValidator,
+    ConstructionState, FoundationValidator, get_construction_manager,
 };
 use crate::object::production::prerequisite_checker::PrerequisiteChecker;
 use crate::player::player_list;
@@ -326,21 +326,22 @@ impl BuildPlacementMode {
 
         for obj_id in partition.get_objects_in_range(&self.cursor_position, scan_radius) {
             let player_id = self.player_id;
-            let is_candidate = crate::object::registry::OBJECT_REGISTRY.with_object(obj_id, |obj_guard| {
-                if !obj_guard.is_kind_of(KindOf::Dozer) {
-                    return false;
-                }
-                let Some(controller_id) = obj_guard.get_controlling_player_id() else {
-                    return false;
-                };
-                if controller_id as ObjectID != player_id {
-                    return false;
-                }
-                if obj_guard.is_destroyed() || obj_guard.is_under_construction() {
-                    return false;
-                }
-                true
-            });
+            let is_candidate =
+                crate::object::registry::OBJECT_REGISTRY.with_object(obj_id, |obj_guard| {
+                    if !obj_guard.is_kind_of(KindOf::Dozer) {
+                        return false;
+                    }
+                    let Some(controller_id) = obj_guard.get_controlling_player_id() else {
+                        return false;
+                    };
+                    if controller_id as ObjectID != player_id {
+                        return false;
+                    }
+                    if obj_guard.is_destroyed() || obj_guard.is_under_construction() {
+                        return false;
+                    }
+                    true
+                });
             if is_candidate != Some(true) {
                 continue;
             }
@@ -467,7 +468,11 @@ impl BuildPlacementMode {
         if let Ok(list) = player_list().read() {
             if let Some(player) = list.get_player(self.player_id as i32) {
                 if let Ok(mut player_guard) = player.write() {
-                    match player_guard.get_money_mut().withdraw(self.cost as u32) {
+                    let facts = crate::helpers::capture_player_audio_locality(&player_guard, &list);
+                    match player_guard
+                        .get_money_mut_with_locality(facts)
+                        .withdraw(self.cost as u32)
+                    {
                         Ok(_) => {
                             player_guard
                                 .get_score_keeper_mut()
@@ -535,13 +540,13 @@ impl BuildPlacementMode {
         let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(building_id, |guard| {
             guard.clear_model_condition_state(ModelConditionFlags::AWAITING_CONSTRUCTION);
             guard.set_model_condition_state(ModelConditionFlags::ACTIVELY_BEING_CONSTRUCTED);
-            });
+        });
 
         // Tell the dozer to build
         let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(dozer_id, |guard| {
             guard.set_model_condition_state(ModelConditionFlags::ACTIVELY_CONSTRUCTING);
             // The DozerAIUpdate will pick up the construction via the construction manager
-            });
+        });
 
         log::info!(
             "Started construction of '{}' (id={}) by dozer (id={}) at {:?}",

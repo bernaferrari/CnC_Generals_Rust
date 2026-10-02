@@ -323,7 +323,7 @@ impl Player {
 
         let all_money = self.money.count_money();
         if all_money > 0 {
-            let _ = self.money.withdraw_with_sound(all_money, false);
+            let _ = self.get_money_mut().withdraw_with_sound(all_money, false);
         }
     }
 
@@ -441,7 +441,7 @@ impl Player {
 
         // Award the bounty — C++ deposits + scoreKeeper.addMoneyEarned
         if bounty > 0 {
-            let _ = self.money.deposit(bounty as u32);
+            let _ = self.get_money_mut().deposit(bounty as u32);
             self.score_keeper.add_money_earned(bounty as u32);
         }
 

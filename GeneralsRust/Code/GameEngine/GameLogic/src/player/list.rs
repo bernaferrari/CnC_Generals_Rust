@@ -6,44 +6,49 @@ pub(super) static PLAYER_LIST: OnceLock<RwLock<PlayerList>> = OnceLock::new();
 /// Player list management (matching C++ PlayerList functionality)
 #[derive(Debug)]
 pub struct PlayerList {
-    pub(super) players: Vec<Arc<RwLock<Player>>>,
+    // C++ PlayerList.cpp:43-47 fixes identity to m_players[index]. Player's
+    // index is constructor-only, so admission is the only time it is read.
+    players: [Option<Arc<RwLock<Player>>>; MAX_PLAYER_COUNT],
     pub(super) local_player_index: PlayerIndex,
 }
 
 impl PlayerList {
     pub fn new() -> Self {
         Self {
-            players: Vec::new(),
+            players: std::array::from_fn(|_| None),
             local_player_index: PLAYER_INDEX_INVALID,
         }
     }
 
     pub fn add_player(&mut self, player: Arc<RwLock<Player>>) {
-        self.players.push(player);
+        let index = match player.read() {
+            Ok(player) => player.get_player_index(),
+            Err(_) => {
+                log::warn!("PlayerList rejected a player with a poisoned lock");
+                return;
+            }
+        };
+        let Ok(index) = usize::try_from(index) else {
+            return;
+        };
+        let Some(slot) = self.players.get_mut(index) else {
+            return;
+        };
+        // C++ has one Player per fixed index. Keep the admitted identity on
+        // duplicate insertion, matching the old lookup's first-match result.
+        if slot.is_none() {
+            *slot = Some(player);
+        }
     }
 
     pub fn get_player(&self, index: PlayerIndex) -> Option<&Arc<RwLock<Player>>> {
-        // C++ PlayerList::getNthPlayer (PlayerList.cpp:66-75) returns the fixed
-        // slot m_players[i]; the ctor allocates one Player(i) per index
-        // (PlayerList.cpp:43-47). The addressed slot is the player's own index,
-        // never the count of live players before it, so a sparse list (e.g.
-        // only the ReplayObserver side registered at index N) must not hand
-        // back its first live player for index 0.
-        if index < 0 {
-            return None;
-        }
-        self.players
-            .iter()
-            .find(|player| {
-                player
-                    .read()
-                    .ok()
-                    .is_some_and(|guard| guard.get_player_index() == index)
-            })
+        // C++ PlayerList::getNthPlayer (PlayerList.cpp:66-75): indexing never
+        // reads Player state, including while that Player is already borrowed.
+        self.players.get(usize::try_from(index).ok()?)?.as_ref()
     }
 
     pub fn get_player_count(&self) -> usize {
-        self.players.len()
+        self.iter().count()
     }
 
     pub fn set_local_player_index(&mut self, index: PlayerIndex) {
@@ -63,16 +68,20 @@ impl PlayerList {
     }
 
     pub fn clear(&mut self) {
-        self.players.clear();
+        for slot in &mut self.players {
+            *slot = None;
+        }
         self.local_player_index = PLAYER_INDEX_INVALID;
     }
 
-    pub fn iter(&self) -> std::slice::Iter<'_, Arc<RwLock<Player>>> {
-        self.players.iter()
+    pub fn iter(&self) -> impl DoubleEndedIterator<Item = &Arc<RwLock<Player>>> {
+        // C++ PlayerList walks m_players in index order, independent of the
+        // order Rust's sparse compatibility roster admitted the players.
+        self.players.iter().filter_map(Option::as_ref)
     }
 
     pub fn get_neutral_player(&self) -> Option<Arc<RwLock<Player>>> {
-        self.players.iter().find_map(|player| {
+        self.iter().find_map(|player| {
             let guard = player.read().ok()?;
             if guard.get_player_type() == PlayerType::Neutral {
                 Some(Arc::clone(player))
@@ -86,7 +95,7 @@ impl PlayerList {
     /// Matches C++ PlayerList::findPlayerWithNameKey()
     pub fn find_player_by_name(&self, name: &str) -> Option<Arc<RwLock<Player>>> {
         let key = NameKeyGenerator::name_to_key(name);
-        self.players.iter().find_map(|player| {
+        self.iter().find_map(|player| {
             let guard = player.read().ok()?;
             if guard.get_player_name_key() == key {
                 Some(Arc::clone(player))
@@ -96,6 +105,10 @@ impl PlayerList {
         })
     }
 }
+
+#[cfg(test)]
+#[path = "list_tests.rs"]
+mod tests;
 
 // Provide PlayerManager operations directly on PlayerList for systems that hold the list lock.
 impl crate::commands::command_processor::PlayerManager for PlayerList {
@@ -115,7 +128,10 @@ impl crate::commands::command_processor::PlayerManager for PlayerList {
     fn modify_player_resources(&mut self, player_id: Int, supplies: Int, power: Int) {
         if let Some(player_arc) = self.get_player(player_id).cloned() {
             if let Ok(mut player) = player_arc.write() {
-                player.get_money_mut().add_money(supplies);
+                let facts = crate::helpers::capture_player_audio_locality(&player, self);
+                player
+                    .get_money_mut_with_locality(facts)
+                    .add_money(supplies);
                 if power > 0 {
                     player.add_power_production(power);
                 } else if power < 0 {
@@ -270,7 +286,8 @@ impl PlayerArcExt for Arc<RwLock<Player>> {
                     // per-object re-check reads that mask (C++ reads the same
                     // completed mask via Object::updateUpgradeModules).
                     if let Some(manager) = guard.get_upgrade_manager_mut() {
-                        manager.add_completed_upgrade(upgrade_template.get_name_key(), upgrade_mask);
+                        manager
+                            .add_completed_upgrade(upgrade_template.get_name_key(), upgrade_mask);
                     }
                     completed_roster = guard.get_all_objects();
                 }
@@ -387,8 +404,8 @@ fn on_upgrade_completed_fanout(object_ids: Vec<ObjectID>, skip_object_id: Option
         if Some(object_id) == skip_object_id {
             continue;
         }
-        let _ = crate::object::registry::OBJECT_REGISTRY
-            .with_object_mut(object_id, |object_guard| {
+        let _ =
+            crate::object::registry::OBJECT_REGISTRY.with_object_mut(object_id, |object_guard| {
                 object_guard.update_upgrade_modules_from_player();
             });
     }

@@ -23,29 +23,9 @@ impl PlayerMoney {
         self.amount
     }
 
-    pub fn add_money(&mut self, amount: Int) {
-        if amount >= 0 {
-            let _ = self.deposit(amount as u32);
-        } else {
-            let _ = self.withdraw((-amount) as u32);
-        }
-    }
-
     /// Set money to an exact amount (matching C++ Player::setMoney)
     pub fn set_money(&mut self, amount: Int) {
         self.amount = amount;
-    }
-
-    pub fn subtract_money(&mut self, amount: Int) -> bool {
-        if amount <= 0 {
-            return true;
-        }
-        if self.amount >= amount {
-            let _ = self.withdraw(amount as u32);
-            true
-        } else {
-            false
-        }
     }
 
     pub fn can_afford(&self, cost: Int) -> bool {
@@ -60,96 +40,9 @@ impl PlayerMoney {
         self.income_rate
     }
 
-    pub fn set_player_index(&mut self, player_index: PlayerIndex) {
-        self.player_index = player_index;
-    }
-
     /// Returns the currently available cash (non-negative) as an unsigned amount.
     pub fn count_money(&self) -> u32 {
         self.amount.max(0) as u32
-    }
-
-    /// Withdraw money from the player's reserves.
-    pub fn withdraw(&mut self, amount: u32) -> Result<u32, GameError> {
-        self.withdraw_with_sound(amount, true)
-    }
-
-    /// Withdraw money from the player's reserves, optionally playing a sound.
-    /// Matches C++ Money::withdraw(amount, playSound).
-    pub fn withdraw_with_sound(&mut self, amount: u32, play_sound: bool) -> Result<u32, GameError> {
-        let available = self.count_money();
-        let actual = amount.min(available);
-        if actual == 0 {
-            return Ok(0);
-        }
-
-        if play_sound {
-            if let Some(audio) = crate::helpers::TheAudio::get() {
-                let mut audio_event = crate::helpers::TheAudio::get_misc_audio()
-                    .money_withdraw
-                    .clone();
-                audio_event.set_player_index(self.player_index as u32);
-                audio.add_audio_event(&audio_event);
-            }
-        }
-
-        self.amount = self.amount.saturating_sub(actual as Int);
-        Ok(actual)
-    }
-
-    /// Deposit money into the player's reserves.
-    pub fn deposit(&mut self, amount: u32) -> Result<(), GameError> {
-        self.deposit_with_sound(amount, true)
-    }
-
-    /// Deposit money into the player's reserves, optionally playing a sound.
-    /// Matches C++ Money::deposit(amount, playSound).
-    pub fn deposit_with_sound(&mut self, amount: u32, play_sound: bool) -> Result<(), GameError> {
-        if amount == 0 {
-            return Ok(());
-        }
-
-        if play_sound {
-            if let Some(audio) = crate::helpers::TheAudio::get() {
-                let mut audio_event = crate::helpers::TheAudio::get_misc_audio()
-                    .money_deposit
-                    .clone();
-                audio_event.set_player_index(self.player_index as u32);
-                audio.add_audio_event(&audio_event);
-            }
-        }
-
-        self.amount = self.amount.saturating_add(amount as Int);
-        if let Ok(list) = player_list().read() {
-            if let Some(player) = list.get_player(self.player_index) {
-                if let Ok(mut player_guard) = player.write() {
-                    player_guard
-                        .get_academy_stats_mut()
-                        .record_income(amount as Int);
-                }
-            }
-        }
-        Ok(())
-    }
-
-    /// Deposit money from Int amount (alternative interface).
-    pub fn deposit_money(&mut self, amount: Int) {
-        self.amount = self.amount.saturating_add(amount);
-    }
-
-    /// Track money earned for statistics (currently just adds to total).
-    pub fn add_money_earned(&mut self, amount: Int) {
-        if amount <= 0 {
-            return;
-        }
-
-        if let Ok(list) = player_list().read() {
-            if let Some(player) = list.get_player(self.player_index) {
-                if let Ok(mut player_guard) = player.write() {
-                    player_guard.score_keeper.add_money_earned(amount as u32);
-                }
-            }
-        }
     }
 }
 
@@ -158,3 +51,153 @@ impl MoneyInterface for PlayerMoney {
         self.amount
     }
 }
+
+/// Money operations execute through the player that owns both cash and statistics.
+/// This borrow cannot escape as mutable cash storage or rediscover its owner.
+pub struct PlayerMoneyMut<'a> {
+    player: &'a mut Player,
+    locality: Option<game_engine::common::audio::AudioSubmissionLocality>,
+}
+
+impl<'a> PlayerMoneyMut<'a> {
+    pub(super) fn new(player: &'a mut Player) -> Self {
+        Self {
+            player,
+            locality: None,
+        }
+    }
+
+    pub(super) fn with_locality(
+        player: &'a mut Player,
+        locality: game_engine::common::audio::AudioSubmissionLocality,
+    ) -> Self {
+        Self {
+            player,
+            locality: Some(locality),
+        }
+    }
+
+    pub fn set_money(&mut self, amount: Int) {
+        self.player.money.set_money(amount);
+    }
+    pub fn set_income_rate(&mut self, rate: Real) {
+        self.player.money.set_income_rate(rate);
+    }
+    pub fn add_money(&mut self, amount: Int) {
+        if amount >= 0 {
+            let _ = self.deposit(amount as u32);
+        } else {
+            let _ = self.withdraw(amount.unsigned_abs());
+        }
+    }
+
+    pub fn subtract_money(&mut self, amount: Int) -> bool {
+        if amount <= 0 {
+            return true;
+        }
+        if self.player.money.amount < amount {
+            return false;
+        }
+        let _ = self.withdraw(amount as u32);
+        true
+    }
+
+    fn submit_sound(&self, deposit: bool) {
+        let Some(audio) = crate::helpers::TheAudio::get() else {
+            return;
+        };
+        let misc = crate::helpers::TheAudio::get_misc_audio();
+        let mut event = if deposit {
+            misc.money_deposit
+        } else {
+            misc.money_withdraw
+        };
+        event.set_player_index(self.player.money.player_index as u32);
+        let locality = match self.locality {
+            Some(locality) => locality,
+            None => {
+                // Temporary classic adapter: discover the roster once, before
+                // borrowing audio. Callers already holding it pass frozen facts.
+                let Ok(list) = player_list().read() else {
+                    return;
+                };
+                crate::helpers::capture_player_audio_locality(self.player, &list)
+            }
+        };
+        audio.add_audio_event_with_locality(&event, &locality);
+    }
+
+    pub fn withdraw(&mut self, amount: u32) -> Result<u32, GameError> {
+        self.withdraw_with_sound(amount, true)
+    }
+
+    /// C++ Money.cpp: clamp, zero return, submit sound, then debit.
+    pub fn withdraw_with_sound(&mut self, amount: u32, play_sound: bool) -> Result<u32, GameError> {
+        self.withdraw_with_submission(amount, play_sound, |money| money.submit_sound(false))
+    }
+
+    fn withdraw_with_submission(
+        &mut self,
+        amount: u32,
+        play_sound: bool,
+        submit: impl FnOnce(&Self),
+    ) -> Result<u32, GameError> {
+        let actual = amount.min(self.player.money.count_money());
+        if actual == 0 {
+            return Ok(0);
+        }
+        if play_sound {
+            submit(self);
+        }
+        self.player.money.amount = self.player.money.amount.saturating_sub(actual as Int);
+        Ok(actual)
+    }
+
+    pub fn deposit(&mut self, amount: u32) -> Result<(), GameError> {
+        self.deposit_with_sound(amount, true)
+    }
+
+    /// C++ Money.cpp: zero return, submit sound, credit, then record income.
+    pub fn deposit_with_sound(&mut self, amount: u32, play_sound: bool) -> Result<(), GameError> {
+        self.deposit_with_submission(amount, play_sound, |money| money.submit_sound(true))
+    }
+
+    fn deposit_with_submission(
+        &mut self,
+        amount: u32,
+        play_sound: bool,
+        submit: impl FnOnce(&Self),
+    ) -> Result<(), GameError> {
+        if amount == 0 {
+            return Ok(());
+        }
+        if play_sound {
+            submit(self);
+        }
+        self.player.money.amount = self.player.money.amount.saturating_add(amount as Int);
+        self.player.academy_stats.record_income(amount as Int);
+        Ok(())
+    }
+
+    /// Existing direct setter interface; no sound or income callback.
+    pub fn deposit_money(&mut self, amount: Int) {
+        self.player.money.amount = self.player.money.amount.saturating_add(amount);
+    }
+
+    pub fn add_money_earned(&mut self, amount: Int) {
+        if amount > 0 {
+            self.player.score_keeper.add_money_earned(amount as u32);
+        }
+    }
+}
+
+impl std::ops::Deref for PlayerMoneyMut<'_> {
+    type Target = PlayerMoney;
+    fn deref(&self) -> &Self::Target {
+        &self.player.money
+    }
+}
+
+#[cfg(test)]
+#[path = "money_tests.rs"]
+mod tests;

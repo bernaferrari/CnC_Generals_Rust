@@ -725,10 +725,13 @@ enum SalvageType {
 }
 
 #[cfg(test)]
+#[path = "salvage_crate_test_helpers.rs"]
+mod test_helpers;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::object::ObjectStatusMaskType;
-    use crate::object::registry::OBJECT_REGISTRY;
     use crate::player::{Player, player_list};
     use crate::team::Team;
     use std::collections::HashMap;
@@ -819,8 +822,7 @@ mod tests {
     #[test]
     fn salvage_money_floating_text_uses_crate_position_like_cpp() {
         let _lock = crate::test_sync::lock();
-
-        OBJECT_REGISTRY.clear();
+        let mut services = test_helpers::Services::new();
 
         let crate_obj = Arc::new(RwLock::new(Object::new_test(1003, 100.0)));
         crate_obj
@@ -828,7 +830,7 @@ mod tests {
             .expect("crate write")
             .set_position(&Coord3D::new(11.0, 22.0, 3.0))
             .expect("crate position");
-        OBJECT_REGISTRY.register_object(1003, &crate_obj);
+        services.register(&crate_obj);
 
         let collector = Arc::new(RwLock::new(Object::new_test(1004, 100.0)));
         collector
@@ -836,6 +838,7 @@ mod tests {
             .expect("collector write")
             .set_position(&Coord3D::new(200.0, 300.0, 4.0))
             .expect("collector position");
+        services.register(&collector);
 
         let module = SalvageCrateCollide::new(1003, SalvageCrateCollideModuleData::default());
         let collector_id = collector.read().expect("collector read").get_id();
@@ -846,16 +849,13 @@ mod tests {
         assert!((position.x - 11.0).abs() < f32::EPSILON);
         assert!((position.y - 22.0).abs() < f32::EPSILON);
         assert!((position.z - 13.0).abs() < f32::EPSILON);
-
-        OBJECT_REGISTRY.clear();
     }
 
     #[test]
     fn successful_salvage_records_academy_stat_like_cpp() {
         let _lock = crate::test_sync::lock();
         let _audio_guard = AudioEventsGuard::disabled();
-
-        player_list().write().expect("player list write").clear();
+        let mut services = test_helpers::Services::new();
 
         let player = Arc::new(RwLock::new(Player::new(0)));
         player_list()
@@ -874,6 +874,11 @@ mod tests {
             .expect("collector write")
             .set_team(Some(team))
             .expect("collector team set");
+        services.register(&collector);
+        assert!(Arc::ptr_eq(
+            &collector.read().unwrap().get_controlling_player().unwrap(),
+            &player,
+        ));
 
         let data = SalvageCrateCollideModuleData {
             weapon_chance: 0.0,
@@ -898,15 +903,12 @@ mod tests {
                 .get_salvage_collected(),
             1
         );
-
-        player_list().write().expect("player list write").clear();
     }
 
     #[test]
     fn on_collide_rejects_non_salvager_after_base_building_pickup_allows_it() {
         let _lock = crate::test_sync::lock();
-
-        player_list().write().expect("player list write").clear();
+        let _services = test_helpers::Services::new();
 
         let player = Arc::new(RwLock::new(Player::new(0)));
         player
@@ -953,8 +955,6 @@ mod tests {
         let player = player.read().expect("player read");
         assert_eq!(player.get_money().get_money(), 100);
         assert_eq!(player.get_academy_stats().get_salvage_collected(), 0);
-
-        player_list().write().expect("player list write").clear();
     }
 }
 

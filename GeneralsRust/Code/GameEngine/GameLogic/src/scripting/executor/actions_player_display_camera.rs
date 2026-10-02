@@ -58,7 +58,11 @@ impl ScriptActionDispatcher {
         if let Ok(list_guard) = list.read() {
             if let Some(player_arc) = list_guard.find_player_by_name(&player_name) {
                 if let Ok(mut player_guard) = player_arc.write() {
-                    player_guard.get_money_mut().add_money(money_amount);
+                    let facts =
+                        crate::helpers::capture_player_audio_locality(&player_guard, &list_guard);
+                    player_guard
+                        .get_money_mut_with_locality(facts)
+                        .add_money(money_amount);
                     log::info!("Player '{}' received {} money", player_name, money_amount);
                 }
             } else {
