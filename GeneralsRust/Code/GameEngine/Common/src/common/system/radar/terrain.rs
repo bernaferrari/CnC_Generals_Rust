@@ -175,6 +175,5 @@ impl RadarSystem {
         let _ = expected;
         self.terrain_dirty = false;
         self.terrain_generation = self.terrain_generation.wrapping_add(1);
-        self.queue_terrain_refresh_frame = None;
     }
 }

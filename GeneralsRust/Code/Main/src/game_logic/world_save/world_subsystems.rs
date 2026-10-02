@@ -619,6 +619,15 @@ impl GameLogic {
     }
 
     pub fn terrain_height_at(&self, world_pos: Vec3) -> Option<f32> {
+        let terrain = gamelogic::terrain::get_terrain_logic().read().ok();
+        self.terrain_height_at_with_terrain_logic(world_pos, terrain.as_deref())
+    }
+
+    pub(in super::super) fn terrain_height_at_with_terrain_logic(
+        &self,
+        world_pos: Vec3,
+        terrain: Option<&gamelogic::terrain::TerrainLogic>,
+    ) -> Option<f32> {
         let ground = {
             #[cfg(feature = "game_client")]
             {
@@ -638,7 +647,7 @@ impl GameLogic {
             }
         };
         // C++ getLayerHeight: non-rubble deck plane wins when the XY is on a span.
-        if let Ok(tl) = gamelogic::terrain::get_terrain_logic().read() {
+        if let Some(tl) = terrain {
             if let Some(deck) = tl.host_deck_height_at(world_pos.x, world_pos.z) {
                 if ground.map_or(true, |g| deck > g) {
                     return Some(deck);

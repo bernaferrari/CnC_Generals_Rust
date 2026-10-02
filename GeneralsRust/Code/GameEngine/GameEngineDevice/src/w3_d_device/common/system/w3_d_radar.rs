@@ -237,7 +237,7 @@ impl W3DRadar {
 
     /// Mark terrain as dirty and rebuild the software terrain texture.
     pub fn refresh_terrain(&mut self) {
-        self.radar.build_terrain_texture_cpp();
+        self.radar.refresh_terrain();
     }
 
     /// C++ `W3DRadar::buildTerrainTexture`.
@@ -336,6 +336,28 @@ impl Default for W3DRadar {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn refresh_consumes_delayed_request_but_raw_build_preserves_it() {
+        let mut radar = W3DRadar::new();
+        radar.new_map(
+            Coord3D::new(0.0, 0.0, 0.0),
+            Coord3D::new(128.0, 128.0, 10.0),
+            &[],
+        );
+        radar.radar_mut().update(10);
+        radar.radar_mut().queue_terrain_refresh();
+        radar.build_terrain_texture();
+        let after_build = radar.radar().terrain_generation();
+        radar.radar_mut().update(101);
+        assert_eq!(radar.radar().terrain_generation(), after_build + 1);
+
+        radar.radar_mut().queue_terrain_refresh();
+        radar.refresh_terrain();
+        let after_refresh = radar.radar().terrain_generation();
+        radar.radar_mut().update(192);
+        assert_eq!(radar.radar().terrain_generation(), after_refresh);
+    }
 
     #[test]
     fn constructor_leaves_texture_formats_unknown_until_init() {

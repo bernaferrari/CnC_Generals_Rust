@@ -25,7 +25,10 @@ mod window;
 #[cfg(test)]
 mod tests;
 
-pub use map_source::{RadarMapSource, register_radar_map_source};
+#[cfg(test)]
+mod terrain_refresh_tests;
+
+pub use map_source::{RadarMapSource, register_radar_map_source, sample_radar_map_grid};
 pub use objects::{
     RadarDataSink, RadarObjectInsert, RadarObjectProvider, register_radar_data_sink,
     register_radar_object_provider, resolve_radar_object_color,
@@ -1385,7 +1388,6 @@ impl RadarSystem {
         true
     }
 
-
     /// Object-aware under-attack event: ping + ControlBar glow + UI/audio/EVA.
     pub fn try_under_attack_event_for(
         &mut self,
@@ -1466,13 +1468,16 @@ impl RadarSystem {
     /// Refresh terrain texture (matches C++ Radar::refreshTerrain / W3DRadar::buildTerrainTexture).
     /// Re-samples the registered map source so water/height/bridge changes repaint.
     pub fn refresh_terrain(&mut self) {
+        // C++ Radar::refreshTerrain consumes the request before W3DRadar paints.
+        self.queue_terrain_refresh_frame = None;
         let _ = self.resample_terrain_from_source();
         self.build_terrain_texture_cpp();
     }
 
     /// Queue terrain refresh (matches C++ Radar::queueTerrainRefresh)
     pub fn queue_terrain_refresh(&mut self) {
-        self.queue_terrain_refresh_frame = Some(self.current_frame);
+        // C++ uses frame zero as the inactive sentinel.
+        self.queue_terrain_refresh_frame = (self.current_frame != 0).then_some(self.current_frame);
     }
 
     /// Get terrain texture data
@@ -1508,7 +1513,6 @@ impl RadarSystem {
     pub fn shroud_revision(&self) -> u64 {
         self.shroud_revision
     }
-
 
     /// Hide/show radar
     pub fn hide(&mut self, hidden: bool) {
