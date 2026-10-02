@@ -287,9 +287,9 @@ impl PathfindingSystem {
             return PathResult::none();
         };
         // C++ m_cumulativeCellsAllocated += cells examined this path.
-        let _ = self
+        self.cumulative_cells_allocated = self
             .cumulative_cells_allocated
-            .fetch_add(cells_examined as i32, Ordering::Relaxed);
+            .wrapping_add(cells_examined as i32);
 
         // Convert grid path via buildActualPath (centerInCell from unit radius).
         // Matches C++ buildActualPath() at AIPathfind.cpp:8954-9071

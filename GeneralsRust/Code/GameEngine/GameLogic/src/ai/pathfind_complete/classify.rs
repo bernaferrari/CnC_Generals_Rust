@@ -552,8 +552,6 @@ impl PathfindingSystem {
         let _ = xfer.xfer_real(&mut wall_h);
         let mut cells = self.cumulative_cells_allocated();
         let _ = xfer.xfer_int(&mut cells);
-        self.cumulative_cells_allocated
-            .store(cells, Ordering::Relaxed);
     }
 
     /// C++ `Pathfinder::xfer` — version only (AIPathfind.cpp:11085-11093).

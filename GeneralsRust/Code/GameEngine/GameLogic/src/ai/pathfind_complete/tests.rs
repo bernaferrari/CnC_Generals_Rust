@@ -2504,9 +2504,7 @@ fn process_queue_uses_cell_budget() {
         "cells examined must accumulate"
     );
     // Tiny budget stops after cells exceed.
-    system
-        .cumulative_cells_allocated
-        .store(PATHFIND_CELLS_PER_FRAME as i32, Ordering::Relaxed);
+    system.cumulative_cells_allocated = PATHFIND_CELLS_PER_FRAME as i32;
     // re-queue
     let req = PathRequest {
         object_id: INVALID_ID,
