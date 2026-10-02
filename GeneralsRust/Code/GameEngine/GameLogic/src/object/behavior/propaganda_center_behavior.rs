@@ -674,6 +674,16 @@ impl Module for PropagandaCenterBehaviorModule {
             let _ = guard.on_delete();
         }
     }
+
+    /// C++ PropagandaCenterBehavior keeps its behavior behind a `Mutex`, so it
+    /// cannot hand out `&mut dyn UpdateModuleInterface`; the previous dispatch
+    /// locked it inline and called `update_simple()`.
+    #[cfg(feature = "allow_surrender")]
+    fn update_module_behind_shared_lock(
+        &mut self,
+    ) -> Option<game_engine::common::thing::update_module::UpdateSleepTime> {
+        self.behavior().map(|mut behavior| behavior.update_simple())
+    }
 }
 
 #[cfg(not(feature = "allow_surrender"))]

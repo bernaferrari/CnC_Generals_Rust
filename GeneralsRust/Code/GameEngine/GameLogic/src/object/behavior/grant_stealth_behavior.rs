@@ -603,6 +603,13 @@ impl Module for GrantStealthBehaviorModule {
     fn on_object_created(&mut self) {}
 
     fn on_delete(&mut self) {}
+
+    /// C++ `UpdateModule` initial wake frame, reached through the typed
+    /// `Module::get_initial_wake_frame()` accessor instead of the former
+    /// `as_any().downcast_ref::<Self>()` chain in `initial_update_wake_frame`.
+    fn get_initial_wake_frame(&mut self) -> Option<u32> {
+        Some(self.initial_wake_frame())
+    }
 }
 
 // Factory for creating GrantStealthBehavior instances

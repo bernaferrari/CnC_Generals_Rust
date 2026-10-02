@@ -395,18 +395,18 @@ mod tests {
     fn hijacker_in_vehicle_keeps_highest_veterancy_with_target() {
         let hijacker = Arc::new(RwLock::new(GameObject::new_test(9304, 100.0)));
         let target = Arc::new(RwLock::new(GameObject::new_test(9305, 100.0)));
-        let hijacker_tracker = Arc::new(Mutex::new(ExperienceTracker::new(9304)));
-        let target_tracker = Arc::new(Mutex::new(ExperienceTracker::new(9305)));
-        hijacker_tracker
-            .lock()
+        let mut hijacker_tracker = Box::new(ExperienceTracker::new(9304));
+        let mut target_tracker = Box::new(ExperienceTracker::new(9305));
+        hijacker.write().unwrap().experience_tracker = Some(hijacker_tracker);
+        target.write().unwrap().experience_tracker = Some(target_tracker);
+        hijacker
+            .write()
             .unwrap()
-            .set_veterancy_level(VeterancyLevel::Veteran);
-        target_tracker
-            .lock()
+            .with_experience_tracker_mut(|t| t.set_veterancy_level(VeterancyLevel::Veteran));
+        target
+            .write()
             .unwrap()
-            .set_veterancy_level(VeterancyLevel::Elite);
-        hijacker.write().unwrap().experience_tracker = Some(Arc::clone(&hijacker_tracker));
-        target.write().unwrap().experience_tracker = Some(Arc::clone(&target_tracker));
+            .with_experience_tracker_mut(|t| t.set_veterancy_level(VeterancyLevel::Elite));
         OBJECT_REGISTRY.register_object(9304, &hijacker);
         OBJECT_REGISTRY.register_object(9305, &target);
 
@@ -414,14 +414,16 @@ mod tests {
         update.configure_hijacked_vehicle(9305);
 
         assert!(matches!(update.update_simple(), UpdateSleepTime::None));
-        assert_eq!(
-            hijacker_tracker.lock().unwrap().get_veterancy_level(),
-            VeterancyLevel::Elite
-        );
-        assert_eq!(
-            target_tracker.lock().unwrap().get_veterancy_level(),
-            VeterancyLevel::Elite
-        );
+        let hijacker_level = hijacker
+            .read()
+            .unwrap()
+            .with_experience_tracker(|t| t.get_veterancy_level());
+        let target_level = target
+            .read()
+            .unwrap()
+            .with_experience_tracker(|t| t.get_veterancy_level());
+        assert_eq!(hijacker_level, Some(VeterancyLevel::Elite));
+        assert_eq!(target_level, Some(VeterancyLevel::Elite));
 
         OBJECT_REGISTRY.unregister_object(9304);
         OBJECT_REGISTRY.unregister_object(9305);
@@ -435,14 +437,12 @@ mod tests {
         // on BOTH hijacker and vehicle, not just the tracker level.
         let hijacker = Arc::new(RwLock::new(GameObject::new_test(9309, 100.0)));
         let target = Arc::new(RwLock::new(GameObject::new_test(9310, 100.0)));
-        let hijacker_tracker = Arc::new(Mutex::new(ExperienceTracker::new(9309)));
-        let target_tracker = Arc::new(Mutex::new(ExperienceTracker::new(9310)));
+        let mut hijacker_tracker = Box::new(ExperienceTracker::new(9309));
+        let mut target_tracker = Box::new(ExperienceTracker::new(9310));
         target_tracker
-            .lock()
-            .unwrap()
             .set_veterancy_level(VeterancyLevel::Elite);
-        hijacker.write().unwrap().experience_tracker = Some(Arc::clone(&hijacker_tracker));
-        target.write().unwrap().experience_tracker = Some(Arc::clone(&target_tracker));
+        hijacker.write().unwrap().experience_tracker = Some(hijacker_tracker);
+        target.write().unwrap().experience_tracker = Some(target_tracker);
         OBJECT_REGISTRY.register_object(9309, &hijacker);
         OBJECT_REGISTRY.register_object(9310, &target);
 

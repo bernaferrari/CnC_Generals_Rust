@@ -708,6 +708,54 @@ pub trait Module: ModuleAny + Snapshotable + Send + Sync + Any {
     fn get_spawn_control_interface(&mut self) -> Option<&mut dyn SpawnControlInterface> {
         None
     }
+
+    /// Typed accessor for the per-frame update interface (C++
+    /// `Module::DynamicInterfaceCast(ModuleInterfaceType::UPDATE)`).
+    ///
+    /// Modules that implement per-frame updates override this to return their
+    /// update interface; everything else keeps the `None` default, which maps
+    /// 1:1 onto the previous "no update dispatcher for this module" behaviour.
+    fn get_update_module_interface(
+        &mut self,
+    ) -> Option<&mut dyn crate::common::thing::update_module::UpdateModuleInterface> {
+        None
+    }
+
+    /// Typed accessor for the *sleepy* update interface — the subset of update
+    /// modules that participate in disabled-state filtering and phase picking
+    /// (`UpdateModule::getDisabledTypesToProcess` /
+    /// `UpdateModule::getUpdatePhase` in C++).
+    ///
+    /// Kept separate from [`Module::get_update_module_interface`] because the
+    /// port only registers part of the update-module set for those two queries;
+    /// overriding this for the full set would change which modules wake while
+    /// their object is disabled. See `ModuleUpdateProxy` in the game-logic
+    /// crate for the two consumers.
+    fn get_sleepy_update_interface(
+        &mut self,
+    ) -> Option<&mut dyn crate::common::thing::update_module::UpdateModuleInterface> {
+        None
+    }
+
+    /// Sleepy-update dispatch for wrappers whose inner behavior sits behind a
+    /// shared lock and therefore cannot hand out a
+    /// `&mut dyn UpdateModuleInterface` (C++ PropagandaCenterBehavior owns its
+    /// behavior through a `Mutex`). Consulted only after
+    /// [`Module::get_update_module_interface`] returns `None`.
+    fn update_module_behind_shared_lock(
+        &mut self,
+    ) -> Option<crate::common::thing::update_module::UpdateSleepTime> {
+        None
+    }
+
+    /// Typed accessor for the update module's first wake frame (C++
+    /// `UpdateModule` modules that arm themselves at creation report it here).
+    /// `None` keeps the previous "this module does not arm a wake frame"
+    /// behaviour, so the sleepy-update queue keeps treating those modules as
+    /// frame 0.
+    fn get_initial_wake_frame(&mut self) -> Option<u32> {
+        None
+    }
 }
 
 /// Base module implementation

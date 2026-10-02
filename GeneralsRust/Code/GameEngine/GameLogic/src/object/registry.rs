@@ -14,6 +14,12 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, RwLock};
 
+/// Shared handle to a registered object, resolved transiently by id. The
+/// registry is the owner; callers must not store these handles (host-only runs
+/// have an empty registry, so id-keyed lookups fail closed there — see the
+/// Wave 276 gates in `ai/turret.rs`).
+pub type SharedObjectHandle = Arc<RwLock<Object>>;
+
 /// Internal storage for the registry.
 #[derive(Default)]
 struct RegistryStore {

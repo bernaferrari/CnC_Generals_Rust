@@ -396,52 +396,51 @@ impl UnitAIUpdate {
             TurretType::Invalid => None,
         }
     }
+    /// C++ `UnitAI::UnitAI` turret build (AIUpdate.cpp): create the `TurretAI`,
+    /// apply `TurretAIData`, then construct `TurretStateMachine`, which defines
+    /// the states and enters IDLE (TurretAI.cpp:248-298). The turret bundle is
+    /// owned outright — no shared handle.
     pub(super) fn build_turret_machine(&self, turret: TurretType) -> Option<TurretStateMachine> {
         let unit = get_unit_arc(self.unit_id)?;
-        let base_object = unit.read().ok().map(|guard| guard.base_arc())?;
-        let owner = Arc::downgrade(&base_object);
-        let turret_ai = Arc::new(Mutex::new(TurretAI::new(Arc::downgrade(&base_object))));
-        if let Ok(mut guard) = turret_ai.lock() {
-            let slot = match turret {
-                TurretType::Primary => WeaponSlotType::Primary,
-                TurretType::Secondary => WeaponSlotType::Secondary,
-                TurretType::Invalid => WeaponSlotType::Primary,
-            };
-            guard.set_weapon_slot(slot);
-            let mask = match slot {
-                WeaponSlotType::Primary => 1u32 << 0,
-                WeaponSlotType::Secondary => 1u32 << 1,
-                WeaponSlotType::Tertiary => 1u32 << 2,
-            };
-            let data = match turret {
-                TurretType::Primary => self.turret_primary_data.as_ref(),
-                TurretType::Secondary => self.turret_secondary_data.as_ref(),
-                TurretType::Invalid => None,
-            };
+        let owner_id = unit
+            .read()
+            .ok()
+            .and_then(|guard| guard.base_arc().read().ok().map(|obj| obj.get_id()))
+            .unwrap_or(crate::common::INVALID_ID);
+        let mut turret_ai = TurretAI::new(owner_id);
+        let slot = match turret {
+            TurretType::Primary => WeaponSlotType::Primary,
+            TurretType::Secondary => WeaponSlotType::Secondary,
+            TurretType::Invalid => WeaponSlotType::Primary,
+        };
+        turret_ai.set_weapon_slot(slot);
+        let mask = match slot {
+            WeaponSlotType::Primary => 1u32 << 0,
+            WeaponSlotType::Secondary => 1u32 << 1,
+            WeaponSlotType::Tertiary => 1u32 << 2,
+        };
+        let data = match turret {
+            TurretType::Primary => self.turret_primary_data.as_ref(),
+            TurretType::Secondary => self.turret_secondary_data.as_ref(),
+            TurretType::Invalid => None,
+        };
 
-            if let Some(data) = data {
-                data.apply_to(&mut guard);
-                if data.turret_weapon_slots == 0 {
-                    error!("TurretAIData missing ControlledWeaponSlots; applying slot fallback.");
-                    guard.set_turret_weapon_slots_mask(mask);
-                }
-            } else {
-                guard.set_turret_weapon_slots_mask(mask);
+        if let Some(data) = data {
+            data.apply_to(&mut turret_ai);
+            if data.turret_weapon_slots == 0 {
+                error!("TurretAIData missing ControlledWeaponSlots; applying slot fallback.");
+                turret_ai.set_turret_weapon_slots_mask(mask);
             }
+        } else {
+            turret_ai.set_turret_weapon_slots_mask(mask);
         }
-        Some(TurretStateMachine::new(Some(turret_ai), owner, "TurretAI"))
+        Some(TurretStateMachine::new(turret_ai))
     }
     pub(super) fn xfer_turret_ai(
-        machine: &TurretStateMachine,
+        machine: &mut TurretStateMachine,
         xfer: &mut dyn Xfer,
     ) -> Result<(), String> {
-        if let Some(turret_ai) = machine.get_turret_ai() {
-            let mut guard = turret_ai
-                .lock()
-                .map_err(|_| "TurretAI lock poisoned during AIUpdate xfer".to_string())?;
-            guard.xfer(xfer)?;
-        }
-        Ok(())
+        machine.turret_mut().xfer(xfer)
     }
     pub(super) fn start_rappel_state(&mut self, target_id: Option<ObjectID>) -> Result<(), String> {
         // Wave 258: empty dual-world → Ok(()).

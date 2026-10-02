@@ -20,6 +20,7 @@ use super::prerequisite_checker::{
 use super::queue::{BuildQueue, BuildQueueEntry, ProductionType};
 use super::rally_point::RallyPointManager;
 use crate::common::xfer::XferExt;
+use crate::object::ProductionBehaviorQueueKindMut;
 use crate::common::*;
 use crate::common::{
     MODELCONDITION_ACTIVELY_CONSTRUCTING, MODELCONDITION_DOOR_1_CLOSING,
@@ -1587,6 +1588,15 @@ impl BehaviorModuleInterface for ProductionUpdateComplete {
         self.cancel_and_refund_all_production(&mut refund);
         Ok(())
     }
+
+    /// C++ `DynamicInterfaceCast`-style typed accessor for the production
+    /// queue family; replaces the former `as_any().downcast_mut::<Self>()`
+    /// branch in `behavior_production_queue_kind`.
+    fn as_production_queue_kind(
+        &mut self,
+    ) -> Option<crate::object::ProductionBehaviorQueueKindMut<'_>> {
+        Some(ProductionBehaviorQueueKindMut::Complete(self))
+    }
 }
 
 impl BehaviorModule for ProductionUpdateComplete {
@@ -2037,6 +2047,25 @@ impl Module for ProductionUpdateCompleteModule {
 
     fn get_production_control_interface(&mut self) -> Option<&mut dyn ProductionControlInterface> {
         Some(&mut self.behavior)
+    }
+
+    /// C++ `UpdateModule : Module` interface query
+    /// (`Module::DynamicInterfaceCast(ModuleInterfaceType::UPDATE)`): forwards
+    /// to the wrapped behavior's per-frame hooks. Replaces the former
+    /// `as_any().downcast_mut::<Self>()` branch in `ModuleUpdateProxy`.
+    fn get_update_module_interface(
+        &mut self,
+    ) -> Option<&mut dyn game_engine::common::thing::update_module::UpdateModuleInterface> {
+        Some(self.behavior_mut())
+    }
+
+    /// Sleepy-update subset (disabled-state mask + phase hint); see
+    /// `Module::get_sleepy_update_interface` for why this set is narrower than
+    /// the full update interface.
+    fn get_sleepy_update_interface(
+        &mut self,
+    ) -> Option<&mut dyn game_engine::common::thing::update_module::UpdateModuleInterface> {
+        Some(self.behavior_mut())
     }
 }
 

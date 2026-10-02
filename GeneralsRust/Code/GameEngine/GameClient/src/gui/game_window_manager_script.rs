@@ -1445,26 +1445,12 @@ fn main_menu_input(
     }
 }
 
-fn with_menu<M, R>(
-    menu: Option<Arc<RwLock<M>>>,
-    name: &str,
-    f: impl FnOnce(&mut M) -> R,
-) -> Option<R>
+fn with_menu<M, R, F>(fetch: F, f: impl FnOnce(&mut M) -> R) -> R
 where
     M: cb::MenuCallbacks,
+    F: for<'a> FnOnce(&'a mut cb::MenuManager) -> &'a mut M,
 {
-    let Some(menu) = menu else {
-        log::warn!("{} adapter missing menu instance", name);
-        return None;
-    };
-    let result = match menu.write() {
-        Ok(mut menu) => Some(f(&mut menu)),
-        Err(err) => {
-            log::warn!("{} adapter lock poisoned: {}", name, err);
-            None
-        }
-    };
-    result
+    cb::with_menu_manager(|manager| f(fetch(manager)))
 }
 
 fn with_arc_write<T, R>(lock: &Arc<RwLock<T>>, f: impl FnOnce(&mut T) -> R) -> R {
@@ -1665,43 +1651,32 @@ fn default_input_callback(
     WindowMsgHandled::Ignored
 }
 
-fn single_player_menu() -> Option<Arc<RwLock<cb::SinglePlayerMenu>>> {
-    cb::get_menu_manager()
-        .read()
-        .ok()
-        .map(|manager| manager.get_single_player_menu())
+// THREAD: shell menus are GUI-thread state owned by the thread-local
+// `MenuManager`, so these only project a `&mut` field — no lock to take, and a
+// nested dispatch into the same menu is a RefCell borrow panic instead of the
+// old non-re-entrant `RwLock` wedge.
+fn single_player_menu(manager: &mut cb::MenuManager) -> &mut cb::SinglePlayerMenu {
+    manager.single_player_menu_mut()
 }
 
-fn options_menu() -> Option<Arc<RwLock<cb::OptionsMenu>>> {
-    cb::get_menu_manager()
-        .read()
-        .ok()
-        .map(|manager| manager.get_options_menu())
+fn options_menu(manager: &mut cb::MenuManager) -> &mut cb::OptionsMenu {
+    manager.options_menu_mut()
 }
 
-fn map_select_menu() -> Option<Arc<RwLock<cb::MapSelectMenu>>> {
-    cb::get_menu_manager()
-        .read()
-        .ok()
-        .map(|manager| manager.get_map_select_menu())
+fn map_select_menu(manager: &mut cb::MenuManager) -> &mut cb::MapSelectMenu {
+    manager.map_select_menu_mut()
 }
 
-fn credits_menu() -> Option<Arc<RwLock<cb::CreditsMenu>>> {
-    cb::get_menu_manager()
-        .read()
-        .ok()
-        .map(|manager| manager.get_credits_menu())
+fn credits_menu(manager: &mut cb::MenuManager) -> &mut cb::CreditsMenu {
+    manager.credits_menu_mut()
 }
 
-fn lan_lobby_menu() -> Option<Arc<RwLock<cb::LanLobbyMenu>>> {
-    cb::get_menu_manager()
-        .read()
-        .ok()
-        .map(|manager| manager.get_lan_lobby_menu())
+fn lan_lobby_menu(manager: &mut cb::MenuManager) -> &mut cb::LanLobbyMenu {
+    manager.lan_lobby_menu_mut()
 }
 
-fn menu_system<M>(
-    menu: Option<Arc<RwLock<M>>>,
+fn menu_system<M, F>(
+    fetch: F,
     name: &str,
     window: &GameWindow,
     msg: WindowMessage,
@@ -1710,13 +1685,14 @@ fn menu_system<M>(
 ) -> WindowMsgHandled
 where
     M: cb::MenuCallbacks,
+    F: for<'a> FnOnce(&'a mut cb::MenuManager) -> &'a mut M,
 {
-    with_menu(menu, name, |menu| menu.system(window, msg, data1, data2))
-        .unwrap_or(WindowMsgHandled::Ignored)
+    let _ = name;
+    with_menu(fetch, |menu| menu.system(window, msg, data1, data2))
 }
 
-fn menu_input<M>(
-    menu: Option<Arc<RwLock<M>>>,
+fn menu_input<M, F>(
+    fetch: F,
     name: &str,
     window: &GameWindow,
     msg: WindowMessage,
@@ -1725,39 +1701,46 @@ fn menu_input<M>(
 ) -> WindowMsgHandled
 where
     M: cb::MenuCallbacks,
+    F: for<'a> FnOnce(&'a mut cb::MenuManager) -> &'a mut M,
 {
-    with_menu(menu, name, |menu| menu.input(window, msg, data1, data2))
-        .unwrap_or(WindowMsgHandled::Ignored)
+    let _ = name;
+    with_menu(fetch, |menu| menu.input(window, msg, data1, data2))
 }
 
-fn menu_init<M>(menu: Option<Arc<RwLock<M>>>, name: &str, layout: &WindowLayout)
+fn menu_init<M, F>(fetch: F, name: &str, layout: &WindowLayout)
 where
     M: cb::MenuCallbacks,
+    F: for<'a> FnOnce(&'a mut cb::MenuManager) -> &'a mut M,
 {
-    let _ = with_menu(menu, name, |menu| {
-        if let Err(err) = menu.init(layout, None) {
+    let _ = name;
+    cb::with_menu_manager(|manager| {
+        if let Err(err) = fetch(manager).init(layout, None) {
             log::warn!("{} failed: {}", name, err);
         }
     });
 }
 
-fn menu_update<M>(menu: Option<Arc<RwLock<M>>>, name: &str, layout: &WindowLayout)
+fn menu_update<M, F>(fetch: F, name: &str, layout: &WindowLayout)
 where
     M: cb::MenuCallbacks,
+    F: for<'a> FnOnce(&'a mut cb::MenuManager) -> &'a mut M,
 {
-    let _ = with_menu(menu, name, |menu| {
-        if let Err(err) = menu.update(layout, None) {
+    let _ = name;
+    cb::with_menu_manager(|manager| {
+        if let Err(err) = fetch(manager).update(layout, None) {
             log::warn!("{} failed: {}", name, err);
         }
     });
 }
 
-fn menu_shutdown<M>(menu: Option<Arc<RwLock<M>>>, name: &str, layout: &WindowLayout)
+fn menu_shutdown<M, F>(fetch: F, name: &str, layout: &WindowLayout)
 where
     M: cb::MenuCallbacks,
+    F: for<'a> FnOnce(&'a mut cb::MenuManager) -> &'a mut M,
 {
-    let _ = with_menu(menu, name, |menu| {
-        if let Err(err) = menu.shutdown(layout, None) {
+    let _ = name;
+    cb::with_menu_manager(|manager| {
+        if let Err(err) = fetch(manager).shutdown(layout, None) {
             log::warn!("{} failed: {}", name, err);
         }
     });
@@ -1770,7 +1753,7 @@ fn single_player_menu_system(
     data2: WindowMsgData,
 ) -> WindowMsgHandled {
     menu_system(
-        single_player_menu(),
+        single_player_menu,
         "SinglePlayerMenuSystem",
         window,
         msg,
@@ -1786,7 +1769,7 @@ fn options_menu_system(
     data2: WindowMsgData,
 ) -> WindowMsgHandled {
     menu_system(
-        options_menu(),
+        options_menu,
         "OptionsMenuSystem",
         window,
         msg,
@@ -1802,7 +1785,7 @@ fn map_select_menu_system(
     data2: WindowMsgData,
 ) -> WindowMsgHandled {
     menu_system(
-        map_select_menu(),
+        map_select_menu,
         "MapSelectMenuSystem",
         window,
         msg,
@@ -1818,7 +1801,7 @@ fn credits_menu_system(
     data2: WindowMsgData,
 ) -> WindowMsgHandled {
     menu_system(
-        credits_menu(),
+        credits_menu,
         "CreditsMenuSystem",
         window,
         msg,
@@ -1834,7 +1817,7 @@ fn lan_lobby_menu_system(
     data2: WindowMsgData,
 ) -> WindowMsgHandled {
     menu_system(
-        lan_lobby_menu(),
+        lan_lobby_menu,
         "LanLobbyMenuSystem",
         window,
         msg,
@@ -1850,7 +1833,7 @@ fn single_player_menu_input(
     data2: WindowMsgData,
 ) -> WindowMsgHandled {
     menu_input(
-        single_player_menu(),
+        single_player_menu,
         "SinglePlayerMenuInput",
         window,
         msg,
@@ -1866,7 +1849,7 @@ fn options_menu_input(
     data2: WindowMsgData,
 ) -> WindowMsgHandled {
     menu_input(
-        options_menu(),
+        options_menu,
         "OptionsMenuInput",
         window,
         msg,
@@ -1882,7 +1865,7 @@ fn map_select_menu_input(
     data2: WindowMsgData,
 ) -> WindowMsgHandled {
     menu_input(
-        map_select_menu(),
+        map_select_menu,
         "MapSelectMenuInput",
         window,
         msg,
@@ -1898,7 +1881,7 @@ fn credits_menu_input(
     data2: WindowMsgData,
 ) -> WindowMsgHandled {
     menu_input(
-        credits_menu(),
+        credits_menu,
         "CreditsMenuInput",
         window,
         msg,
@@ -1914,7 +1897,7 @@ fn lan_lobby_menu_input(
     data2: WindowMsgData,
 ) -> WindowMsgHandled {
     menu_input(
-        lan_lobby_menu(),
+        lan_lobby_menu,
         "LanLobbyMenuInput",
         window,
         msg,
@@ -1924,63 +1907,63 @@ fn lan_lobby_menu_input(
 }
 
 fn single_player_menu_init(layout: &WindowLayout) {
-    menu_init(single_player_menu(), "SinglePlayerMenuInit", layout);
+    menu_init(single_player_menu, "SinglePlayerMenuInit", layout);
 }
 
 fn options_menu_init(layout: &WindowLayout) {
-    menu_init(options_menu(), "OptionsMenuInit", layout);
+    menu_init(options_menu, "OptionsMenuInit", layout);
 }
 
 fn map_select_menu_init(layout: &WindowLayout) {
-    menu_init(map_select_menu(), "MapSelectMenuInit", layout);
+    menu_init(map_select_menu, "MapSelectMenuInit", layout);
 }
 
 fn credits_menu_init(layout: &WindowLayout) {
-    menu_init(credits_menu(), "CreditsMenuInit", layout);
+    menu_init(credits_menu, "CreditsMenuInit", layout);
 }
 
 fn lan_lobby_menu_init(layout: &WindowLayout) {
-    menu_init(lan_lobby_menu(), "LanLobbyMenuInit", layout);
+    menu_init(lan_lobby_menu, "LanLobbyMenuInit", layout);
 }
 
 fn single_player_menu_update(layout: &WindowLayout) {
-    menu_update(single_player_menu(), "SinglePlayerMenuUpdate", layout);
+    menu_update(single_player_menu, "SinglePlayerMenuUpdate", layout);
 }
 
 fn options_menu_update(layout: &WindowLayout) {
-    menu_update(options_menu(), "OptionsMenuUpdate", layout);
+    menu_update(options_menu, "OptionsMenuUpdate", layout);
 }
 
 fn map_select_menu_update(layout: &WindowLayout) {
-    menu_update(map_select_menu(), "MapSelectMenuUpdate", layout);
+    menu_update(map_select_menu, "MapSelectMenuUpdate", layout);
 }
 
 fn credits_menu_update(layout: &WindowLayout) {
-    menu_update(credits_menu(), "CreditsMenuUpdate", layout);
+    menu_update(credits_menu, "CreditsMenuUpdate", layout);
 }
 
 fn lan_lobby_menu_update(layout: &WindowLayout) {
-    menu_update(lan_lobby_menu(), "LanLobbyMenuUpdate", layout);
+    menu_update(lan_lobby_menu, "LanLobbyMenuUpdate", layout);
 }
 
 fn single_player_menu_shutdown(layout: &WindowLayout) {
-    menu_shutdown(single_player_menu(), "SinglePlayerMenuShutdown", layout);
+    menu_shutdown(single_player_menu, "SinglePlayerMenuShutdown", layout);
 }
 
 fn options_menu_shutdown(layout: &WindowLayout) {
-    menu_shutdown(options_menu(), "OptionsMenuShutdown", layout);
+    menu_shutdown(options_menu, "OptionsMenuShutdown", layout);
 }
 
 fn map_select_menu_shutdown(layout: &WindowLayout) {
-    menu_shutdown(map_select_menu(), "MapSelectMenuShutdown", layout);
+    menu_shutdown(map_select_menu, "MapSelectMenuShutdown", layout);
 }
 
 fn credits_menu_shutdown(layout: &WindowLayout) {
-    menu_shutdown(credits_menu(), "CreditsMenuShutdown", layout);
+    menu_shutdown(credits_menu, "CreditsMenuShutdown", layout);
 }
 
 fn lan_lobby_menu_shutdown(layout: &WindowLayout) {
-    menu_shutdown(lan_lobby_menu(), "LanLobbyMenuShutdown", layout);
+    menu_shutdown(lan_lobby_menu, "LanLobbyMenuShutdown", layout);
 }
 
 // ---------------------------------------------------------------------------

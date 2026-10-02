@@ -71,6 +71,7 @@ pub mod thing_factory;
 pub mod thing_template;
 pub mod thing_template_color;
 pub mod thing_template_locomotor;
+pub mod update_module;
 
 // Re-export the main types for easier access
 pub use draw_module::{
@@ -86,6 +87,11 @@ pub use module::{
     BaseDrawableModule, BaseModule, BaseModuleData, BaseObjectModule, Drawable, DrawableModule,
     Module, ModuleData, ModuleInterfaceType, Object, ObjectModule, Player, StaticGameLodLevel,
     Thing as ThingTrait, TimeOfDay, UpgradeMuxData,
+};
+
+pub use update_module::{
+    DisabledMask, DisabledMaskType, DisabledType, SleepyUpdatePhase, UpdateModuleInterface,
+    UpdateSleepTime,
 };
 
 pub use module_factory::{

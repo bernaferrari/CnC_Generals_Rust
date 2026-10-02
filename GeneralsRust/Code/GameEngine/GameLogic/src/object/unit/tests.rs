@@ -103,8 +103,7 @@ fn unit_ai_update_with_primary_weapon(
 }
 
 fn test_turret_machine() -> TurretStateMachine {
-    let turret_ai = Arc::new(Mutex::new(TurretAI::new(Weak::new())));
-    TurretStateMachine::new(Some(turret_ai), Weak::new(), "TurretAI")
+    TurretStateMachine::new(TurretAI::new(crate::common::INVALID_ID))
 }
 
 #[test]

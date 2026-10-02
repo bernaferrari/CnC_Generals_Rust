@@ -114,24 +114,11 @@ impl ObjectStatusTypes {
 }
 
 /// Disabled types (matching C++ DisabledType order).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum DisabledType {
-    DisabledDefault,
-    DisabledHacked,
-    DisabledEmp,
-    Held,
-    Paralyzed,
-    DisabledUnmanned,
-    DisabledUnderpowered,
-    DisabledFreefall,
-    DisabledAwestruck,
-    DisabledBrainwashed,
-    DisabledSubdued,
-    DisabledScriptDisabled,
-    DisabledScriptUnderpowered,
-    DisabledAny,
-    Unmanned, // Alias for DisabledUnmanned
-}
+///
+/// Definition hoisted into `Common` (`common::thing::update_module`) alongside
+/// `DisabledMaskType`, which its helpers take as an argument. Re-exported here
+/// so the `crate::common::DisabledType` path stays stable.
+pub use game_engine::common::thing::update_module::DisabledType;
 
 /// Weapon set types (matching C++ WeaponSetType)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

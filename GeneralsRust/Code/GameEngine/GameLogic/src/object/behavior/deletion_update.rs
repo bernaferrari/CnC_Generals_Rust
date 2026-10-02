@@ -177,6 +177,15 @@ impl BehaviorModuleInterface for DeletionUpdate {
     fn get_update(&mut self) -> Option<&mut dyn UpdateModuleInterface> {
         Some(self)
     }
+    /// Sleepy-update table participant (see `ActiveBehaviorModule`).
+    fn get_sleepy_update_interface(&mut self) -> Option<&mut dyn UpdateModuleInterface> {
+        Some(self)
+    }
+    /// Wake frame consumed by `initial_update_wake_frame` through
+    /// `ActiveBehaviorModule<DeletionUpdate>`.
+    fn behavior_initial_wake_frame(&mut self) -> Option<u32> {
+        Some(DeletionUpdate::initial_wake_frame(self))
+    }
 
     fn get_deletion_lifetime_interface(&mut self) -> Option<&mut dyn DeletionLifetimeInterface> {
         Some(self)

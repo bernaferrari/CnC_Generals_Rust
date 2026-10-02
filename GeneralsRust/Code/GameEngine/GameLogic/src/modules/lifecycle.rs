@@ -304,36 +304,12 @@ pub trait ProjectileUpdateInterface {
     }
 }
 
-/// Update module interface for general updates (matching C++ UpdateModuleInterface)
-pub trait UpdateModuleInterface: Send + Sync {
-    /// Update the module
-    fn update(&mut self) -> Result<UpdateSleepTime, Box<dyn std::error::Error + Send + Sync>> {
-        Ok(UPDATE_SLEEP_NONE)
-    }
-    /// Simplified update hook most modules implement
-    fn update_simple(&mut self) -> UpdateSleepTime {
-        match self.update() {
-            Ok(sleep) => sleep,
-            Err(_) => UPDATE_SLEEP_NONE,
-        }
-    }
-    /// Get disabled types to process
-    fn get_disabled_types_to_process(&self) -> DisabledMaskType {
-        DisabledMaskType::empty() // Default: process no disabled types
-    }
-    /// Phase hint executed after this module wakes.
-    fn get_update_phase(&self) -> SleepyUpdatePhase {
-        SleepyUpdatePhase::Normal
-    }
-
-    /// Lifecycle hook when object is created (matches C++ Module::OnObjectCreated).
-    fn on_object_created(&mut self) {
-        let _ = self;
-    }
-
-    /// INI module name. Default empty so unnamed updates do not match a reschedule.
-    fn module_name(&self) -> &str {
-        ""
-    }
-}
+/// Update module interface for general updates (matching C++ UpdateModuleInterface).
+///
+/// The trait is defined in `Common` (`common::thing::update_module`) and
+/// re-exported here so the Common `Module` trait can expose the typed
+/// `get_update_module_interface()` accessor — the Rust counterpart of the C++
+/// `DynamicInterfaceCast(ModuleInterfaceType::UPDATE)` interface query. The
+/// `crate::modules::UpdateModuleInterface` path is unchanged for callers.
+pub use game_engine::common::thing::update_module::UpdateModuleInterface;
 

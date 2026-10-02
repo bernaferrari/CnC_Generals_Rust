@@ -112,34 +112,24 @@ pub mod benchmarks {
         elapsed
     }
 
-    /// Benchmark concurrent allocations.
-    pub fn bench_concurrent_allocations(threads: usize, allocs_per_thread: usize) -> Duration {
-        use std::sync::Arc;
-        use std::thread;
-
+    /// Benchmark batched allocations.
+    ///
+    /// The pool is single-owner (C++ thread model), so the former
+    /// per-thread benchmark allocates the same total count in sequential
+    /// batches.
+    pub fn bench_batch_allocations(batches: usize, allocs_per_batch: usize) -> Duration {
         let config = PoolConfig::for_game_objects("BenchPool");
         let pool = ObjectPool::<BenchObject>::new(config).unwrap();
 
         let start = Instant::now();
 
-        let handles: Vec<_> = (0..threads)
-            .map(|t| {
-                let pool = Arc::clone(&pool);
-                thread::spawn(move || {
-                    let mut handles = Vec::new();
-                    for i in 0..allocs_per_thread {
-                        let id = (t * allocs_per_thread + i) as u64;
-                        handles.push(pool.alloc(BenchObject::new(id)).unwrap());
-                    }
-                    handles
-                })
-            })
-            .collect();
-
-        let all_handles: Vec<_> = handles
-            .into_iter()
-            .flat_map(|h| h.join().unwrap())
-            .collect();
+        let mut all_handles = Vec::new();
+        for t in 0..batches {
+            for i in 0..allocs_per_batch {
+                let id = (t * allocs_per_batch + i) as u64;
+                all_handles.push(pool.alloc(BenchObject::new(id)).unwrap());
+            }
+        }
 
         let elapsed = start.elapsed();
         std::hint::black_box(all_handles);
@@ -281,13 +271,13 @@ pub mod benchmarks {
             mixed_time.as_micros() as f64 / 10000.0
         );
 
-        // Concurrent allocations
-        println!("\n=== Concurrent Allocations Benchmark ===");
-        let concurrent_time = bench_concurrent_allocations(8, 1000);
-        println!("8 threads × 1,000 allocs: {:?}", concurrent_time);
+        // Batched allocations
+        println!("\n=== Batched Allocations Benchmark ===");
+        let batch_time = bench_batch_allocations(8, 1000);
+        println!("8 batches × 1,000 allocs: {:?}", batch_time);
         println!(
             "Throughput: {:.0} allocs/sec",
-            8000.0 / concurrent_time.as_secs_f64()
+            8000.0 / batch_time.as_secs_f64()
         );
 
         // Cache locality

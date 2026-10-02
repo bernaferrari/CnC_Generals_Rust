@@ -368,6 +368,23 @@ impl Module for TechBuildingBehaviorModule {
     fn get_module_data(&self) -> &dyn EngineModuleData {
         self.module_data.as_ref()
     }
+
+    /// C++ `UpdateModule : Module` interface query
+    /// (`Module::DynamicInterfaceCast(ModuleInterfaceType::UPDATE)`): forwards
+    /// to the wrapped behavior's per-frame hooks. Replaces the former
+    /// `as_any().downcast_mut::<Self>()` branch in `ModuleUpdateProxy`.
+    fn get_update_module_interface(
+        &mut self,
+    ) -> Option<&mut dyn game_engine::common::thing::update_module::UpdateModuleInterface> {
+        Some(self.behavior_mut())
+    }
+
+    /// C++ `UpdateModule` initial wake frame, reached through the typed
+    /// `Module::get_initial_wake_frame()` accessor instead of the former
+    /// `as_any().downcast_ref::<Self>()` chain in `initial_update_wake_frame`.
+    fn get_initial_wake_frame(&mut self) -> Option<u32> {
+        Some(self.initial_wake_frame())
+    }
 }
 
 #[cfg(test)]

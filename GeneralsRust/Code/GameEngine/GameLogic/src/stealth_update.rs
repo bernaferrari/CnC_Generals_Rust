@@ -1488,6 +1488,13 @@ impl Module for StealthUpdateModule {
     ) -> Option<&mut dyn StealthDisguiseControlInterface> {
         Some(self)
     }
+
+    /// C++ `UpdateModule` initial wake frame, reached through the typed
+    /// `Module::get_initial_wake_frame()` accessor instead of the former
+    /// `as_any().downcast_ref::<Self>()` chain in `initial_update_wake_frame`.
+    fn get_initial_wake_frame(&mut self) -> Option<u32> {
+        Some(self.initial_wake_frame())
+    }
 }
 
 impl UpdateModuleInterface for StealthUpdateModule {

@@ -4,10 +4,11 @@
 //! It provides enough API surface for single-player/non-network builds.
 
 use game_engine::common::ascii_string::AsciiString;
+use std::cell::{Ref, RefCell, RefMut};
 use std::collections::{HashMap, VecDeque};
 use std::net::IpAddr;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, OnceLock, RwLock};
+use std::sync::{Arc, OnceLock};
 
 #[path = "../../GameNetwork/src/game_info/mod.rs"]
 mod game_info_port;
@@ -92,6 +93,51 @@ pub mod network {
 
 pub fn get_favorite_side<T>(_stats: &T) -> i32 {
     0
+}
+
+/// Single-threaded stand-in for the `std::sync::Mutex`/`RwLock` slots that the
+/// compat singletons below hand out.
+///
+/// THREAD: this is not a thread boundary — it is the absence of one. With the
+/// `network` feature off there is no network task at all: the peer / persistent
+/// storage / buddy / ping / GameSpy / download systems in this module are
+/// inert stubs and every accessor runs on the GUI thread. C++ guarded the real
+/// singletons with critical sections because producer threads existed; this
+/// stub inherited the locks without the threads, so a nested `lock()` from the
+/// same thread parked forever (the same non-re-entrant wedge the menu manager
+/// hit). `RefCell` keeps the single-owner rule and turns that bug into an
+/// immediate, attributable borrow panic instead of a hang. The `Result`-shaped
+/// `lock`/`read`/`write` surface is kept so callers compile unchanged against
+/// the real thread-backed `game_network` crate when `network` is enabled.
+pub struct GuiThreadLock<T> {
+    value: RefCell<T>,
+}
+
+/// Same-thread re-entry: the slot was already borrowed on this thread.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BorrowConflict;
+
+impl<T> GuiThreadLock<T> {
+    pub fn new(value: T) -> Self {
+        Self {
+            value: RefCell::new(value),
+        }
+    }
+
+    /// `std::sync::Mutex::lock` shape — exclusive access to the slot.
+    pub fn lock(&self) -> Result<RefMut<'_, T>, BorrowConflict> {
+        self.value.try_borrow_mut().map_err(|_| BorrowConflict)
+    }
+
+    /// `std::sync::RwLock::read` shape — shared access to the slot.
+    pub fn read(&self) -> Result<Ref<'_, T>, BorrowConflict> {
+        self.value.try_borrow().map_err(|_| BorrowConflict)
+    }
+
+    /// `std::sync::RwLock::write` shape — exclusive access to the slot.
+    pub fn write(&self) -> Result<RefMut<'_, T>, BorrowConflict> {
+        self.lock()
+    }
 }
 
 pub mod commands {
@@ -263,6 +309,11 @@ pub mod download_manager {
         End,
     }
 
+    thread_local! {
+        static DOWNLOAD_MANAGER: RefCell<Option<Arc<GuiThreadLock<Option<DownloadManager>>>>> =
+            const { RefCell::new(None) };
+    }
+
     impl Default for DownloadEvent {
         fn default() -> Self {
             Self::StatusUpdate(String::new())
@@ -335,13 +386,21 @@ pub mod download_manager {
         }
     }
 
-    pub fn download_manager() -> &'static Mutex<Option<DownloadManager>> {
-        static DOWNLOAD_MANAGER: OnceLock<Mutex<Option<DownloadManager>>> = OnceLock::new();
-        DOWNLOAD_MANAGER.get_or_init(|| Mutex::new(None))
+    /// GUI-thread download slot. THREAD: stub build — no FTP task exists, so
+    /// the slot is per-thread state (see [`GuiThreadLock`]).
+    pub fn download_manager() -> Arc<GuiThreadLock<Option<DownloadManager>>> {
+        DOWNLOAD_MANAGER.with(|slot| {
+            slot.borrow_mut()
+                .get_or_insert_with(|| Arc::new(GuiThreadLock::new(None)))
+                .clone()
+        })
     }
 
     pub fn set_download_manager(manager: Option<DownloadManager>) {
-        let mut guard = download_manager().lock().unwrap_or_else(|e| e.into_inner());
+        let slot = download_manager();
+        let mut guard = slot
+            .lock()
+            .expect("download manager slot re-entered on the GUI thread");
         *guard = manager;
     }
 }
@@ -419,15 +478,22 @@ pub mod gamespy {
             }
         }
 
-        pub fn get_ladder_list() -> Option<Arc<RwLock<LadderList>>> {
-            static LIST: OnceLock<Arc<RwLock<LadderList>>> = OnceLock::new();
-            Some(
-                LIST.get_or_init(|| Arc::new(RwLock::new(LadderList::default())))
-                    .clone(),
-            )
+        /// GUI-thread ladder list. THREAD: stub build — no ladder task exists,
+        /// so the slot is per-thread state (see [`GuiThreadLock`]).
+        pub fn get_ladder_list() -> Option<Arc<GuiThreadLock<LadderList>>> {
+            Some(LADDER_LIST.with(|slot| {
+                slot.borrow_mut()
+                    .get_or_insert_with(|| Arc::new(GuiThreadLock::new(LadderList::default())))
+                    .clone()
+            }))
         }
 
         pub fn init_ladder_list() {}
+
+        thread_local! {
+            static LADDER_LIST: RefCell<Option<Arc<GuiThreadLock<LadderList>>>> =
+                const { RefCell::new(None) };
+        }
 
         pub fn set_ladder_map_provider(_provider: Arc<dyn LadderMapProvider>) {}
     }
@@ -552,12 +618,19 @@ pub mod gamespy {
             ((r as u32) << 16) | ((g as u32) << 8) | (b as u32)
         }
 
-        pub fn get_gamespy_info() -> Option<Arc<Mutex<GameSpyInfo>>> {
-            static INFO: OnceLock<Arc<Mutex<GameSpyInfo>>> = OnceLock::new();
-            Some(
-                INFO.get_or_init(|| Arc::new(Mutex::new(GameSpyInfo::default())))
-                    .clone(),
-            )
+        /// GUI-thread GameSpy slot. THREAD: stub build — no GameSpy task
+        /// exists, so the slot is per-thread state (see [`GuiThreadLock`]).
+        pub fn get_gamespy_info() -> Option<Arc<GuiThreadLock<GameSpyInfo>>> {
+            Some(GAMESPY_INFO.with(|slot| {
+                slot.borrow_mut()
+                    .get_or_insert_with(|| Arc::new(GuiThreadLock::new(GameSpyInfo::default())))
+                    .clone()
+            }))
+        }
+
+        thread_local! {
+            static GAMESPY_INFO: RefCell<Option<Arc<GuiThreadLock<GameSpyInfo>>>> =
+                const { RefCell::new(None) };
         }
 
         pub fn tear_down_gamespy() {}
@@ -637,13 +710,21 @@ pub mod gamespy {
             }
         }
 
-        pub fn get_peer_message_queue() -> Option<Arc<Mutex<PeerMessageQueue>>> {
-            static QUEUE: OnceLock<Arc<Mutex<PeerMessageQueue>>> = OnceLock::new();
-            Some(
-                QUEUE
-                    .get_or_init(|| Arc::new(Mutex::new(PeerMessageQueue::default())))
-                    .clone(),
-            )
+        /// GUI-thread peer queue. THREAD: stub build — no peer task exists, so
+        /// the queue is per-thread state (see [`GuiThreadLock`]).
+        pub fn get_peer_message_queue() -> Option<Arc<GuiThreadLock<PeerMessageQueue>>> {
+            Some(PEER_MESSAGE_QUEUE.with(|slot| {
+                slot.borrow_mut()
+                    .get_or_insert_with(|| {
+                        Arc::new(GuiThreadLock::new(PeerMessageQueue::default()))
+                    })
+                    .clone()
+            }))
+        }
+
+        thread_local! {
+            static PEER_MESSAGE_QUEUE: RefCell<Option<Arc<GuiThreadLock<PeerMessageQueue>>>> =
+                const { RefCell::new(None) };
         }
 
         pub fn teardown_peer_message_queue() {}
@@ -713,13 +794,21 @@ pub mod gamespy {
             }
         }
 
-        pub fn get_ps_message_queue() -> Option<Arc<Mutex<GameSpyPSMessageQueue>>> {
-            static QUEUE: OnceLock<Arc<Mutex<GameSpyPSMessageQueue>>> = OnceLock::new();
-            Some(
-                QUEUE
-                    .get_or_init(|| Arc::new(Mutex::new(GameSpyPSMessageQueue::default())))
-                    .clone(),
-            )
+        /// GUI-thread persistent-storage queue. THREAD: stub build — no PS
+        /// task exists, so the queue is per-thread state (see [`GuiThreadLock`]).
+        pub fn get_ps_message_queue() -> Option<Arc<GuiThreadLock<GameSpyPSMessageQueue>>> {
+            Some(PS_MESSAGE_QUEUE.with(|slot| {
+                slot.borrow_mut()
+                    .get_or_insert_with(|| {
+                        Arc::new(GuiThreadLock::new(GameSpyPSMessageQueue::default()))
+                    })
+                    .clone()
+            }))
+        }
+
+        thread_local! {
+            static PS_MESSAGE_QUEUE: RefCell<Option<Arc<GuiThreadLock<GameSpyPSMessageQueue>>>> =
+                const { RefCell::new(None) };
         }
 
         pub fn teardown_ps_message_queue() {}
@@ -770,13 +859,21 @@ pub mod gamespy {
             }
         }
 
-        pub fn get_buddy_message_queue() -> Option<Arc<Mutex<BuddyMessageQueue>>> {
-            static QUEUE: OnceLock<Arc<Mutex<BuddyMessageQueue>>> = OnceLock::new();
-            Some(
-                QUEUE
-                    .get_or_init(|| Arc::new(Mutex::new(BuddyMessageQueue::default())))
-                    .clone(),
-            )
+        /// GUI-thread buddy queue. THREAD: stub build — no buddy task exists,
+        /// so the queue is per-thread state (see [`GuiThreadLock`]).
+        pub fn get_buddy_message_queue() -> Option<Arc<GuiThreadLock<BuddyMessageQueue>>> {
+            Some(BUDDY_MESSAGE_QUEUE.with(|slot| {
+                slot.borrow_mut()
+                    .get_or_insert_with(|| {
+                        Arc::new(GuiThreadLock::new(BuddyMessageQueue::default()))
+                    })
+                    .clone()
+            }))
+        }
+
+        thread_local! {
+            static BUDDY_MESSAGE_QUEUE: RefCell<Option<Arc<GuiThreadLock<BuddyMessageQueue>>>> =
+                const { RefCell::new(None) };
         }
 
         pub fn teardown_buddy_message_queue() {}
@@ -806,13 +903,19 @@ pub mod gamespy {
 
         pub fn init_ping_queue() {}
 
-        pub fn get_ping_queue() -> Option<Arc<Mutex<PingQueue>>> {
-            static QUEUE: OnceLock<Arc<Mutex<PingQueue>>> = OnceLock::new();
-            Some(
-                QUEUE
-                    .get_or_init(|| Arc::new(Mutex::new(PingQueue::default())))
-                    .clone(),
-            )
+        /// GUI-thread ping queue. THREAD: stub build — no ping task exists, so
+        /// the queue is per-thread state (see [`GuiThreadLock`]).
+        pub fn get_ping_queue() -> Option<Arc<GuiThreadLock<PingQueue>>> {
+            Some(PING_QUEUE.with(|slot| {
+                slot.borrow_mut()
+                    .get_or_insert_with(|| Arc::new(GuiThreadLock::new(PingQueue::default())))
+                    .clone()
+            }))
+        }
+
+        thread_local! {
+            static PING_QUEUE: RefCell<Option<Arc<GuiThreadLock<PingQueue>>>> =
+                const { RefCell::new(None) };
         }
 
         pub fn teardown_ping_queue() {}

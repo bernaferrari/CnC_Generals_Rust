@@ -2028,6 +2028,25 @@ impl Module for SpawnBehaviorModule {
     fn get_spawn_control_interface(&mut self) -> Option<&mut dyn SpawnControlInterface> {
         Some(self)
     }
+
+    /// C++ `UpdateModule : Module` interface query
+    /// (`Module::DynamicInterfaceCast(ModuleInterfaceType::UPDATE)`): forwards
+    /// to the wrapped behavior's per-frame hooks. Replaces the former
+    /// `as_any().downcast_mut::<Self>()` branch in `ModuleUpdateProxy`.
+    fn get_update_module_interface(
+        &mut self,
+    ) -> Option<&mut dyn game_engine::common::thing::update_module::UpdateModuleInterface> {
+        Some(self.behavior_mut())
+    }
+
+    /// Sleepy-update subset (disabled-state mask + phase hint); see
+    /// `Module::get_sleepy_update_interface` for why this set is narrower than
+    /// the full update interface.
+    fn get_sleepy_update_interface(
+        &mut self,
+    ) -> Option<&mut dyn game_engine::common::thing::update_module::UpdateModuleInterface> {
+        Some(self.behavior_mut())
+    }
 }
 
 impl SpawnControlInterface for SpawnBehaviorModule {

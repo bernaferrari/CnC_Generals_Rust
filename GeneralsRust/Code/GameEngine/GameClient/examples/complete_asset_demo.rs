@@ -11,7 +11,7 @@
 //! - Performance monitoring and optimization
 
 use game_client_rust::assets::*;
-use game_client_rust::{init, GameClientResult};
+use game_client_rust::{GameClientResult, init};
 use glam::Vec3;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -202,7 +202,7 @@ async fn demo_audio_system() -> Result<(), Box<dyn std::error::Error + Send + Sy
     println!("\n🔊 Demo 3: Advanced Audio System");
     println!("──────────────────────────────────");
 
-    let audio_loader = AudioLoader::new()?;
+    let mut audio_loader = AudioLoader::new()?;
 
     // Mock audio data
     let audio_path = PathBuf::from("demo_assets/explosion.wav");

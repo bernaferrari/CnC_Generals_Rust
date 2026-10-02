@@ -21,6 +21,7 @@ pub mod production;
 pub mod special_power_cooldown;
 pub mod special_power_effects;
 pub mod special_power_interface_cast;
+pub mod update_module_interfaces;
 pub mod special_power_module;
 pub mod special_power_template;
 pub mod special_power_types;
@@ -600,7 +601,7 @@ fn module_production_queue_kind(
     None
 }
 
-enum ProductionBehaviorQueueKindMut<'a> {
+pub(crate) enum ProductionBehaviorQueueKindMut<'a> {
     Legacy(&'a mut crate::object::behavior::production_update_behavior::ProductionUpdateBehavior),
     Complete(&'a mut crate::object::production::ProductionUpdateComplete),
     Core(&'a mut crate::object::production::ProductionUpdate),
@@ -818,36 +819,11 @@ impl<'a> ProductionBehaviorQueueKindMut<'a> {
 fn behavior_production_queue_kind(
     behavior: &mut dyn BehaviorModuleInterface,
 ) -> Option<ProductionBehaviorQueueKindMut<'_>> {
-    if behavior
-        .as_any()
-        .is::<crate::object::behavior::production_update_behavior::ProductionUpdateBehavior>()
-    {
-        return behavior_downcast_mut::<
-            crate::object::behavior::production_update_behavior::ProductionUpdateBehavior,
-        >(behavior)
-        .map(|b| ProductionBehaviorQueueKindMut::Legacy(b));
-    }
-    if behavior
-        .as_any()
-        .is::<crate::object::production::ProductionUpdateComplete>()
-    {
-        return behavior_downcast_mut::<crate::object::production::ProductionUpdateComplete>(
-            behavior,
-        )
-        .map(|b| ProductionBehaviorQueueKindMut::Complete(b));
-    }
-    if behavior
-        .as_any()
-        .is::<crate::object::production::ProductionUpdate>()
-    {
-        return behavior_downcast_mut::<crate::object::production::ProductionUpdate>(behavior)
-            .map(|b| ProductionBehaviorQueueKindMut::Core(b));
-    }
-
-    None
+    behavior.as_production_queue_kind()
 }
 
-enum ProductionBehaviorRallyKindMut<'a> {
+
+pub(crate) enum ProductionBehaviorRallyKindMut<'a> {
     QueueExit(&'a mut crate::object::behavior::queue_production_exit_behavior::QueueProductionExitBehavior),
     DefaultExit(
         &'a mut crate::object::behavior::default_production_exit_behavior::DefaultProductionExitBehavior,
@@ -883,48 +859,9 @@ impl<'a> ProductionBehaviorRallyKindMut<'a> {
 fn behavior_production_rally_kind(
     behavior: &mut dyn BehaviorModuleInterface,
 ) -> Option<ProductionBehaviorRallyKindMut<'_>> {
-    if behavior
-        .as_any()
-        .is::<crate::object::behavior::queue_production_exit_behavior::QueueProductionExitBehavior>()
-    {
-        return behavior_downcast_mut::<crate::object::behavior::queue_production_exit_behavior::QueueProductionExitBehavior>(behavior)
-            .map(|b| ProductionBehaviorRallyKindMut::QueueExit(b));
-    }
-    if behavior
-        .as_any()
-        .is::<crate::object::behavior::default_production_exit_behavior::DefaultProductionExitBehavior>()
-    {
-        return behavior_downcast_mut::<crate::object::behavior::default_production_exit_behavior::DefaultProductionExitBehavior>(behavior)
-            .map(|b| ProductionBehaviorRallyKindMut::DefaultExit(b));
-    }
-    if behavior
-        .as_any()
-        .is::<crate::object::behavior::supply_center_production_exit_behavior::SupplyCenterProductionExitBehavior>()
-    {
-        return behavior_downcast_mut::<crate::object::behavior::supply_center_production_exit_behavior::SupplyCenterProductionExitBehavior>(behavior)
-            .map(|b| ProductionBehaviorRallyKindMut::SupplyCenterExit(b));
-    }
-    if behavior
-        .as_any()
-        .is::<crate::object::behavior::parking_place_behavior::ParkingPlaceBehavior>()
-    {
-        return behavior_downcast_mut::<
-            crate::object::behavior::parking_place_behavior::ParkingPlaceBehavior,
-        >(behavior)
-        .map(|b| ProductionBehaviorRallyKindMut::ParkingPlace(b));
-    }
-    if behavior
-        .as_any()
-        .is::<crate::object::behavior::flight_deck_behavior::FlightDeckBehavior>()
-    {
-        return behavior_downcast_mut::<
-            crate::object::behavior::flight_deck_behavior::FlightDeckBehavior,
-        >(behavior)
-        .map(|b| ProductionBehaviorRallyKindMut::FlightDeck(b));
-    }
-
-    None
+    behavior.as_production_rally_kind()
 }
+
 
 enum BehaviorUtilityModuleKindMut<'a> {
     FiringTracker(
@@ -1911,490 +1848,42 @@ impl ModuleUpdateProxy {
         }
     }
 
+    /// Sleepy-update dispatch. Every branch of the former per-type downcast
+    /// tables is now a `Module::get_update_module_interface()` override (see
+    /// `super::update_module_interfaces`); the `None` cases are unchanged, so
+    /// the "No update dispatcher" warning below still fires for exactly the
+    /// same modules.
     fn dispatch_update(module: &mut dyn Module) -> Option<UpdateSleepTime> {
-        macro_rules! update_via_behavior {
-            ($ty:ty) => {
-                if let Some(result) = module_with_downcast::<$ty, _, _>(module, |module| {
-                    module.behavior_mut().update_simple()
-                }) {
-                    return Some(result);
-                };
-            };
-        }
-
-        if let Some(module) = (module as &mut dyn Any)
-            .downcast_mut::<crate::object::update::ocl_update::OCLUpdateModule>()
+        if let Some(sleep) = module
+            .get_update_module_interface()
+            .map(|update| update.update_simple())
         {
-            return Some(module.update());
+            return Some(sleep);
         }
-        if let Some(module) = (module as &mut dyn Any)
-            .downcast_mut::<crate::object::update::special_power_update::SpecialPowerUpdateModule>(
-        ) {
-            return Some(module.update_simple());
-        }
-        if let Some(module) = (module as &mut dyn Any)
-            .downcast_mut::<crate::object::update::fire_spread_update::FireSpreadUpdateModule>(
-        ) {
-            return Some(module.behavior_mut().update_simple());
-        }
-        update_via_behavior!(crate::contain_module_overrides::ActiveBehaviorModule<
-            crate::object::behavior::deletion_update::DeletionUpdate,
-        >);
-        update_via_behavior!(crate::contain_module_overrides::ActiveBehaviorModule<
-            crate::object::behavior::animation_steering_update::AnimationSteeringUpdate,
-        >);
-
-        update_via_behavior!(crate::object::behavior::auto_heal_behavior::AutoHealBehaviorModule);
-        update_via_behavior!(
-            crate::object::behavior::firing_tracker_behavior::FiringTrackerBehaviorModule
-        );
-        update_via_behavior!(crate::object::behavior::battle_bus_slow_death_behavior::BattleBusSlowDeathBehaviorModule);
-        if let Some(module) = (module as &mut dyn Any)
-            .downcast_mut::<crate::object::behavior::slow_death_behavior::SlowDeathBehavior>(
-        ) {
-            return Some(module.update_simple());
-        }
-        update_via_behavior!(
-            crate::object::behavior::tech_building_behavior::TechBuildingBehaviorModule
-        );
-        update_via_behavior!(
-            crate::object::behavior::propaganda_tower_behavior::PropagandaTowerBehaviorModule
-        );
-        #[cfg(feature = "allow_surrender")]
-        {
-            if let Some(module) = (module as &mut dyn Any)
-                .downcast_mut::<crate::object::behavior::propaganda_center_behavior::PropagandaCenterBehaviorModule>()
-            {
-                if let Some(mut guard) = module.behavior() {
-                    return Some(guard.update_simple());
-                }
-            }
-        }
-        update_via_behavior!(
-            crate::object::behavior::dumb_projectile_behavior::DumbProjectileBehaviorModule
-        );
-        update_via_behavior!(
-            crate::object::behavior::bridge_scaffold_behavior::BridgeScaffoldBehaviorModule
-        );
-        update_via_behavior!(crate::object::behavior::bridge_behavior::BridgeBehaviorModule);
-        update_via_behavior!(crate::object::behavior::horde_update::HordeUpdateModule);
-        update_via_behavior!(crate::object::behavior::radar_update::RadarUpdateModule);
-        update_via_behavior!(crate::object::behavior::radius_decal_update::RadiusDecalUpdateModule);
-        update_via_behavior!(crate::object::behavior::spawn_behavior::SpawnBehaviorModule);
-        update_via_behavior!(
-            crate::object::behavior::stealth_detector_update::StealthDetectorUpdateModule
-        );
-        update_via_behavior!(crate::object::behavior::spawn_point_production_exit_behavior::SpawnPointProductionExitBehaviorModule);
-        update_via_behavior!(crate::object::behavior::supply_center_production_exit_behavior::SupplyCenterProductionExitBehaviorModule);
-        update_via_behavior!(
-            crate::object::behavior::countermeasures_behavior::CountermeasuresBehaviorModule
-        );
-        update_via_behavior!(crate::object::behavior::default_production_exit_behavior::DefaultProductionExitBehaviorModule);
-        update_via_behavior!(crate::object::behavior::queue_production_exit_behavior::QueueProductionExitBehaviorModule);
-        update_via_behavior!(
-            crate::object::behavior::flight_deck_behavior::FlightDeckBehaviorModule
-        );
-        update_via_behavior!(
-            crate::object::behavior::parking_place_behavior::ParkingPlaceBehaviorModule
-        );
-        update_via_behavior!(
-            crate::object::behavior::rebuild_hole_behavior::RebuildHoleBehaviorModule
-        );
-        update_via_behavior!(
-            crate::object::behavior::overcharge_behavior::OverchargeBehaviorModule
-        );
-        update_via_behavior!(
-            crate::object::behavior::bunker_buster_behavior::BunkerBusterBehaviorModule
-        );
-        update_via_behavior!(crate::object::behavior::topple_update::ToppleUpdateModule);
-        update_via_behavior!(
-            crate::object::behavior::structure_topple_update::StructureToppleUpdateModule
-        );
-        update_via_behavior!(
-            crate::object::update::ai_update::railroad_guide_ai_update::RailroadBehaviorModule
-        );
-        update_via_behavior!(
-            crate::object::production::production_update_complete::ProductionUpdateCompleteModule
-        );
-        update_via_behavior!(crate::object::behavior::sticky_bomb_update::StickyBombUpdateModule);
-        update_via_behavior!(crate::object::behavior::prone_update::ProneUpdateModule);
-        update_via_behavior!(
-            crate::object::behavior::projectile_stream_update::ProjectileStreamUpdateModule
-        );
-        update_via_behavior!(
-            crate::object::behavior::point_defense_laser_update::PointDefenseLaserUpdateModule
-        );
-        update_via_behavior!(crate::object::behavior::laser_update::LaserUpdateModule);
-        update_via_behavior!(crate::object::update::bone_fx_update::BoneFXUpdateModule);
-        update_via_behavior!(crate::object::behavior::demo_trap_update::DemoTrapUpdateModule);
-        update_via_behavior!(crate::object::behavior::smart_bomb_target_homing_update::SmartBombTargetHomingUpdateModule);
-        update_via_behavior!(
-            crate::object::behavior::tensile_formation_update::TensileFormationUpdateModule
-        );
-        update_via_behavior!(
-            crate::object::behavior::generate_minefield_behavior::GenerateMinefieldBehaviorModule
-        );
-        update_via_behavior!(crate::object::behavior::minefield_behavior::MinefieldBehaviorModule);
-        update_via_behavior!(
-            crate::object::behavior::special_ability_update::SpecialAbilityUpdateModule
-        );
-        update_via_behavior!(
-            crate::object::behavior::spectre_gunship_update::SpectreGunshipUpdateModule
-        );
-        update_via_behavior!(crate::object::behavior::spectre_gunship_deployment_update::SpectreGunshipDeploymentUpdateModule);
-        update_via_behavior!(crate::object::behavior::particle_uplink_cannon_update::ParticleUplinkCannonUpdateModule);
-        update_via_behavior!(crate::object::behavior::battle_plan_update::BattlePlanUpdateModule);
-        update_via_behavior!(crate::object::behavior::missile_launcher_building_update::MissileLauncherBuildingUpdateModule);
-        update_via_behavior!(crate::object::behavior::lifetime_update::LifetimeUpdateModule);
-        update_via_behavior!(crate::object::update::spy_vision_update::SpyVisionUpdateModule);
-        update_via_behavior!(crate::object::behavior::fire_weapon_when_damaged_behavior_new::FireWeaponWhenDamagedBehaviorModule);
-        update_via_behavior!(crate::object::behavior::fire_weapon_update::FireWeaponUpdateModule);
-        update_via_behavior!(crate::object::behavior::fire_ocl_after_weapon_cooldown_update::FireOCLAfterWeaponCooldownUpdateModule);
-        update_via_behavior!(crate::object::behavior::weapon_bonus_update::WeaponBonusUpdateModule);
-        update_via_behavior!(crate::object::behavior::emp_update::EMPUpdateModule);
-        update_via_behavior!(
-            crate::object::behavior::structure_collapse_update::StructureCollapseUpdateModule
-        );
-        update_via_behavior!(crate::object::behavior::float_update::FloatUpdateModule);
-        update_via_behavior!(crate::object::behavior::enemy_near_update::EnemyNearUpdateModule);
-        update_via_behavior!(
-            crate::object::behavior::auto_find_healing_update::AutoFindHealingUpdateModule
-        );
-        update_via_behavior!(
-            crate::object::behavior::base_regenerate_update::BaseRegenerateUpdateModule
-        );
-        update_via_behavior!(crate::object::behavior::auto_deposit_update::AutoDepositUpdateModule);
-        update_via_behavior!(crate::object::behavior::power_plant_update::PowerPlantUpdateModule);
-        update_via_behavior!(
-            crate::object::behavior::assisted_targeting_update::AssistedTargetingUpdateModule
-        );
-        update_via_behavior!(crate::object::behavior::dynamic_shroud_clearing_range_update::DynamicShroudClearingRangeUpdateModule);
-        update_via_behavior!(
-            crate::object::behavior::cleanup_hazard_update::CleanupHazardUpdateModule
-        );
-        // C++ FlammableUpdate is an UpdateModule; without this entry its proxy
-        // warns "No update dispatcher" and sleeps Forever, so the wake armed by
-        // tryToIgnite (FlammableUpdate.cpp:196) can never advance the burn
-        // state machine.
-        update_via_behavior!(
-            crate::contain_module_overrides::ActiveBehaviorModule<
-                crate::object::behavior::flammable_update::FlammableUpdate,
-            >
-        );
-        update_via_behavior!(
-            crate::object::production::railed_transport_dock::RailedTransportDockUpdateModule
-        );
-        update_via_behavior!(
-            crate::object::update::command_button_hunt_update::CommandButtonHuntUpdateModule
-        );
-        update_via_behavior!(crate::object::update::slaved_update::SlavedUpdateModule);
-        update_via_behavior!(
-            crate::object::update::mob_member_slaved_update::MobMemberSlavedUpdateModule
-        );
-
-        None
+        module.update_module_behind_shared_lock()
     }
 
     fn dispatch_disabled_mask(module: &mut dyn Module) -> Option<DisabledMaskType> {
-        macro_rules! mask_via_behavior {
-            ($ty:ty) => {
-                if let Some(result) = module_with_downcast::<$ty, _, _>(module, |module| {
-                    module.behavior_mut().get_disabled_types_to_process()
-                }) {
-                    return Some(result);
-                };
-            };
-        }
-
-        mask_via_behavior!(crate::object::behavior::auto_heal_behavior::AutoHealBehaviorModule);
-        mask_via_behavior!(
-            crate::object::behavior::firing_tracker_behavior::FiringTrackerBehaviorModule
-        );
-        mask_via_behavior!(crate::object::behavior::battle_bus_slow_death_behavior::BattleBusSlowDeathBehaviorModule);
-        if let Some(module) = (module as &mut dyn Any)
-            .downcast_mut::<crate::object::behavior::slow_death_behavior::SlowDeathBehavior>(
-        ) {
-            return Some(module.get_disabled_types_to_process());
-        }
-        mask_via_behavior!(
-            crate::object::behavior::dumb_projectile_behavior::DumbProjectileBehaviorModule
-        );
-        mask_via_behavior!(
-            crate::object::behavior::bridge_scaffold_behavior::BridgeScaffoldBehaviorModule
-        );
-        mask_via_behavior!(crate::object::behavior::bridge_behavior::BridgeBehaviorModule);
-        mask_via_behavior!(crate::object::behavior::horde_update::HordeUpdateModule);
-        mask_via_behavior!(crate::object::behavior::radar_update::RadarUpdateModule);
-        mask_via_behavior!(crate::object::behavior::radius_decal_update::RadiusDecalUpdateModule);
-        mask_via_behavior!(crate::object::behavior::spawn_behavior::SpawnBehaviorModule);
-        mask_via_behavior!(
-            crate::object::behavior::stealth_detector_update::StealthDetectorUpdateModule
-        );
-        mask_via_behavior!(crate::object::behavior::spawn_point_production_exit_behavior::SpawnPointProductionExitBehaviorModule);
-        mask_via_behavior!(crate::object::behavior::supply_center_production_exit_behavior::SupplyCenterProductionExitBehaviorModule);
-        mask_via_behavior!(
-            crate::object::behavior::countermeasures_behavior::CountermeasuresBehaviorModule
-        );
-        mask_via_behavior!(crate::object::behavior::default_production_exit_behavior::DefaultProductionExitBehaviorModule);
-        mask_via_behavior!(crate::object::behavior::queue_production_exit_behavior::QueueProductionExitBehaviorModule);
-        mask_via_behavior!(crate::object::behavior::flight_deck_behavior::FlightDeckBehaviorModule);
-        mask_via_behavior!(
-            crate::object::behavior::rebuild_hole_behavior::RebuildHoleBehaviorModule
-        );
-        mask_via_behavior!(crate::object::behavior::overcharge_behavior::OverchargeBehaviorModule);
-        mask_via_behavior!(
-            crate::object::behavior::bunker_buster_behavior::BunkerBusterBehaviorModule
-        );
-        mask_via_behavior!(crate::object::behavior::topple_update::ToppleUpdateModule);
-        mask_via_behavior!(
-            crate::object::behavior::special_ability_update::SpecialAbilityUpdateModule
-        );
-        mask_via_behavior!(
-            crate::object::behavior::spectre_gunship_update::SpectreGunshipUpdateModule
-        );
-        mask_via_behavior!(crate::object::behavior::spectre_gunship_deployment_update::SpectreGunshipDeploymentUpdateModule);
-        mask_via_behavior!(crate::object::behavior::particle_uplink_cannon_update::ParticleUplinkCannonUpdateModule);
-        mask_via_behavior!(crate::object::behavior::battle_plan_update::BattlePlanUpdateModule);
-        mask_via_behavior!(crate::object::behavior::missile_launcher_building_update::MissileLauncherBuildingUpdateModule);
-        mask_via_behavior!(crate::object::behavior::lifetime_update::LifetimeUpdateModule);
-        mask_via_behavior!(
-            crate::object::update::ai_update::railroad_guide_ai_update::RailroadBehaviorModule
-        );
-        mask_via_behavior!(
-            crate::object::production::production_update_complete::ProductionUpdateCompleteModule
-        );
-        if let Some(module) = (module as &mut dyn Any)
-            .downcast_mut::<crate::object::update::special_power_update::SpecialPowerUpdateModule>(
-        ) {
-            return Some(module.get_disabled_types_to_process());
-        }
-
-        None
+        module
+            .get_sleepy_update_interface()
+            .map(|update| update.get_disabled_types_to_process())
     }
 
     fn dispatch_phase(module: &mut dyn Module) -> Option<SleepyUpdatePhase> {
-        macro_rules! phase_via_behavior {
-            ($ty:ty) => {
-                if let Some(result) = module_with_downcast::<$ty, _, _>(module, |module| {
-                    module.behavior_mut().get_update_phase()
-                }) {
-                    return Some(result);
-                };
-            };
-        }
-
-        phase_via_behavior!(crate::object::behavior::auto_heal_behavior::AutoHealBehaviorModule);
-        phase_via_behavior!(
-            crate::object::behavior::firing_tracker_behavior::FiringTrackerBehaviorModule
-        );
-        phase_via_behavior!(crate::object::behavior::battle_bus_slow_death_behavior::BattleBusSlowDeathBehaviorModule);
-        if let Some(module) = (module as &mut dyn Any)
-            .downcast_mut::<crate::object::behavior::slow_death_behavior::SlowDeathBehavior>(
-        ) {
-            return Some(module.get_update_phase());
-        }
-        phase_via_behavior!(
-            crate::object::behavior::dumb_projectile_behavior::DumbProjectileBehaviorModule
-        );
-        phase_via_behavior!(
-            crate::object::behavior::bridge_scaffold_behavior::BridgeScaffoldBehaviorModule
-        );
-        phase_via_behavior!(crate::object::behavior::bridge_behavior::BridgeBehaviorModule);
-        phase_via_behavior!(crate::object::behavior::horde_update::HordeUpdateModule);
-        phase_via_behavior!(crate::object::behavior::radar_update::RadarUpdateModule);
-        phase_via_behavior!(crate::object::behavior::radius_decal_update::RadiusDecalUpdateModule);
-        phase_via_behavior!(crate::object::behavior::spawn_behavior::SpawnBehaviorModule);
-        phase_via_behavior!(
-            crate::object::behavior::stealth_detector_update::StealthDetectorUpdateModule
-        );
-        phase_via_behavior!(crate::object::behavior::spawn_point_production_exit_behavior::SpawnPointProductionExitBehaviorModule);
-        phase_via_behavior!(crate::object::behavior::supply_center_production_exit_behavior::SupplyCenterProductionExitBehaviorModule);
-        phase_via_behavior!(
-            crate::object::behavior::countermeasures_behavior::CountermeasuresBehaviorModule
-        );
-        phase_via_behavior!(crate::object::behavior::default_production_exit_behavior::DefaultProductionExitBehaviorModule);
-        phase_via_behavior!(crate::object::behavior::queue_production_exit_behavior::QueueProductionExitBehaviorModule);
-        phase_via_behavior!(
-            crate::object::behavior::flight_deck_behavior::FlightDeckBehaviorModule
-        );
-        phase_via_behavior!(
-            crate::object::behavior::rebuild_hole_behavior::RebuildHoleBehaviorModule
-        );
-        phase_via_behavior!(crate::object::behavior::overcharge_behavior::OverchargeBehaviorModule);
-        phase_via_behavior!(
-            crate::object::behavior::bunker_buster_behavior::BunkerBusterBehaviorModule
-        );
-        phase_via_behavior!(crate::object::behavior::topple_update::ToppleUpdateModule);
-        phase_via_behavior!(
-            crate::object::behavior::special_ability_update::SpecialAbilityUpdateModule
-        );
-        phase_via_behavior!(
-            crate::object::behavior::spectre_gunship_update::SpectreGunshipUpdateModule
-        );
-        phase_via_behavior!(crate::object::behavior::spectre_gunship_deployment_update::SpectreGunshipDeploymentUpdateModule);
-        phase_via_behavior!(crate::object::behavior::particle_uplink_cannon_update::ParticleUplinkCannonUpdateModule);
-        phase_via_behavior!(crate::object::behavior::battle_plan_update::BattlePlanUpdateModule);
-        phase_via_behavior!(crate::object::behavior::missile_launcher_building_update::MissileLauncherBuildingUpdateModule);
-        phase_via_behavior!(crate::object::behavior::lifetime_update::LifetimeUpdateModule);
-        if let Some(module) = (module as &mut dyn Any)
-            .downcast_mut::<crate::object::update::special_power_update::SpecialPowerUpdateModule>(
-        ) {
-            return Some(module.get_update_phase());
-        }
-
-        None
+        module
+            .get_sleepy_update_interface()
+            .map(|update| update.get_update_phase())
     }
 }
 
 fn initial_update_wake_frame(entry: &ModuleEntry) -> UnsignedInt {
-    entry.with_module(|module| {
-        module
-            .as_any()
-            .downcast_ref::<crate::object::behavior::lifetime_update::LifetimeUpdateModule>()
-            .map(|module| module.initial_wake_frame())
-            .or_else(|| {
-                module
-                    .as_any()
-                    .downcast_ref::<crate::contain_module_overrides::ActiveBehaviorModule<
-                        crate::object::behavior::deletion_update::DeletionUpdate,
-                    >>()
-                    .map(|module| module.behavior().initial_wake_frame())
-            })
-            .or_else(|| {
-                module
-                    .as_any()
-                    .downcast_ref::<crate::object::behavior::slow_death_behavior::SlowDeathBehavior>()
-                    .map(|_| UpdateSleepTime::Forever.to_u32())
-            })
-            .or_else(|| {
-                module
-                    .as_any()
-                    .downcast_ref::<crate::object::behavior::sticky_bomb_update::StickyBombUpdateModule>()
-                    .map(|module| module.initial_wake_frame())
-            })
-            .or_else(|| {
-                module
-                    .as_any()
-                    .downcast_ref::<crate::object::behavior::structure_collapse_update::StructureCollapseUpdateModule>()
-                    .map(|module| module.initial_wake_frame())
-            })
-            .or_else(|| {
-                module
-                    .as_any()
-                    .downcast_ref::<crate::object::behavior::structure_topple_update::StructureToppleUpdateModule>()
-                    .map(|module| module.initial_wake_frame())
-            })
-            .or_else(|| {
-                module
-                    .as_any()
-                    .downcast_ref::<crate::object::behavior::grant_stealth_behavior::GrantStealthBehaviorModule>()
-                    .map(|module| module.initial_wake_frame())
-            })
-            .or_else(|| {
-                module
-                    .as_any()
-                    .downcast_ref::<crate::object::behavior::fire_weapon_when_damaged_behavior_new::FireWeaponWhenDamagedBehaviorModule>()
-                    .map(|module| module.initial_wake_frame())
-            })
-            .or_else(|| {
-                module
-                    .as_any()
-                    .downcast_ref::<crate::object::behavior::overcharge_behavior::OverchargeBehaviorModule>()
-                    .map(|module| module.initial_wake_frame())
-            })
-            .or_else(|| {
-                module
-                    .as_any()
-                    .downcast_ref::<crate::object::behavior::special_ability_update::SpecialAbilityUpdateModule>()
-                    .map(|module| module.initial_wake_frame())
-            })
-            .or_else(|| {
-                module
-                    .as_any()
-                    .downcast_ref::<crate::object::behavior::propaganda_tower_behavior::PropagandaTowerBehaviorModule>()
-                    .map(|module| module.initial_wake_frame())
-            })
-            .or_else(|| {
-                module
-                    .as_any()
-                    .downcast_ref::<crate::object::behavior::firing_tracker_behavior::FiringTrackerBehaviorModule>()
-                    .map(|module| module.initial_wake_frame())
-            })
-            .or_else(|| {
-                module
-                    .as_any()
-                    .downcast_ref::<crate::object::behavior::parking_place_behavior::ParkingPlaceBehaviorModule>()
-                    .map(|module| module.initial_wake_frame())
-            })
-            .or_else(|| {
-                module
-                    .as_any()
-                    .downcast_ref::<crate::object::behavior::flight_deck_behavior::FlightDeckBehaviorModule>()
-                    .map(|module| module.initial_wake_frame())
-            })
-            .or_else(|| {
-                module
-                    .as_any()
-                    .downcast_ref::<crate::object::behavior::horde_update::HordeUpdateModule>()
-                    .map(|module| module.initial_wake_frame())
-            })
-            .or_else(|| {
-                module
-                    .as_any()
-                    .downcast_ref::<crate::object::behavior::stealth_detector_update::StealthDetectorUpdateModule>()
-                    .map(|module| module.initial_wake_frame())
-            })
-            .or_else(|| {
-                module
-                    .as_any()
-                    .downcast_ref::<crate::object::behavior::countermeasures_behavior::CountermeasuresBehaviorModule>()
-                    .map(|module| module.initial_wake_frame())
-            })
-            .or_else(|| {
-                module
-                    .as_any()
-                    .downcast_ref::<crate::object::behavior::poisoned_behavior::PoisonedBehaviorModule>()
-                    .map(|module| module.initial_wake_frame())
-            })
-            .or_else(|| {
-                module
-                    .as_any()
-                    .downcast_ref::<crate::object::behavior::minefield_behavior::MinefieldBehaviorModule>()
-                    .map(|module| module.initial_wake_frame())
-            })
-            .or_else(|| {
-                module
-                    .as_any()
-                    .downcast_ref::<crate::object::behavior::tech_building_behavior::TechBuildingBehaviorModule>()
-                    .map(|module| module.initial_wake_frame())
-            })
-            .or_else(|| {
-                module
-                    .as_any()
-                    .downcast_ref::<crate::object::behavior::supply_warehouse_crippling_behavior::SupplyWarehouseCripplingBehaviorModule>()
-                    .map(|module| module.initial_wake_frame())
-            })
-            .or_else(|| {
-                module
-                    .as_any()
-                    .downcast_ref::<crate::object::behavior::topple_update::ToppleUpdateModule>()
-                    .map(|module| module.initial_wake_frame())
-            })
-            .or_else(|| {
-                module
-                    .as_any()
-                    .downcast_ref::<crate::object::update::command_button_hunt_update::CommandButtonHuntUpdateModule>()
-                    .map(|module| module.initial_wake_frame())
-            })
-            .or_else(|| {
-                module
-                    .as_any()
-                    .downcast_ref::<crate::stealth_update::StealthUpdateModule>()
-                    .map(|module| module.initial_wake_frame())
-            })
-            .unwrap_or(0)
-    })
+    // Every branch of the former `as_any().downcast_ref` chain is now a
+    // `Module::get_initial_wake_frame()` override (see the wrapper modules);
+    // modules without a wake frame still report 0 here.
+    entry
+        .with_module(|module| module.get_initial_wake_frame().unwrap_or(0))
 }
+
 
 impl UpdateModuleInterface for ModuleUpdateProxy {
     fn update(&mut self) -> Result<UpdateSleepTime, Box<dyn std::error::Error + Send + Sync>> {

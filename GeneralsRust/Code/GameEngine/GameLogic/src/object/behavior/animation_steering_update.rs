@@ -183,6 +183,10 @@ impl BehaviorModuleInterface for AnimationSteeringUpdate {
     fn get_update(&mut self) -> Option<&mut dyn UpdateModuleInterface> {
         Some(self)
     }
+    /// Sleepy-update table participant (see `ActiveBehaviorModule`).
+    fn get_sleepy_update_interface(&mut self) -> Option<&mut dyn UpdateModuleInterface> {
+        Some(self)
+    }
 }
 
 impl Snapshotable for AnimationSteeringUpdate {

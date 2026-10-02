@@ -3,8 +3,6 @@
 #[cfg(test)]
 mod tests {
     use crate::memory::*;
-    use std::sync::{Arc, Barrier};
-    use std::thread;
 
     #[derive(Debug, Clone, PartialEq)]
     struct GameObject {
@@ -122,33 +120,20 @@ mod tests {
     }
 
     #[test]
-    fn test_concurrent_allocations() {
+    fn test_bulk_allocations_single_owner() {
+        // The pool is single-owner like the C++ statics it ports, so the
+        // former 10-thread Barrier test runs as one bulk allocation pass.
         let config = PoolConfig::for_game_objects("TestPool");
         let pool = ObjectPool::<GameObject>::new(config).unwrap();
-        let barrier = Arc::new(Barrier::new(10));
 
-        let handles: Vec<_> = (0..10)
-            .map(|i| {
-                let pool = Arc::clone(&pool);
-                let barrier = Arc::clone(&barrier);
-                thread::spawn(move || {
-                    barrier.wait();
-                    let mut handles = Vec::new();
-                    for j in 0..100 {
-                        let id = i * 100 + j;
-                        handles.push(pool.alloc(GameObject::new(id)).unwrap());
-                    }
-                    handles
-                })
-            })
-            .collect();
+        let mut handles = Vec::new();
+        for i in 0..10u32 {
+            for j in 0..100u32 {
+                handles.push(pool.alloc(GameObject::new(i * 100 + j)).unwrap());
+            }
+        }
 
-        let all_handles: Vec<_> = handles
-            .into_iter()
-            .flat_map(|h| h.join().unwrap())
-            .collect();
-
-        assert_eq!(all_handles.len(), 1000);
+        assert_eq!(handles.len(), 1000);
         assert_eq!(pool.len(), 1000);
     }
 

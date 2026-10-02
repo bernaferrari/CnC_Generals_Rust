@@ -1060,18 +1060,12 @@ mod tests {
                 .is_trainable(),
             "the reset regression uses an authored IsTrainable template"
         );
-        let rider_tracker = Arc::new(std::sync::Mutex::new(
-            crate::common::ExperienceTracker::new(97021),
-        ));
-        let bike_tracker = Arc::new(std::sync::Mutex::new(
-            crate::common::ExperienceTracker::new(97022),
-        ));
+        let mut rider_tracker = Box::new(crate::common::ExperienceTracker::new(97021));
+        let mut bike_tracker = Box::new(crate::common::ExperienceTracker::new(97022));
         rider_tracker
-            .lock()
-            .expect("rider tracker")
             .set_veterancy_level(crate::common::VeterancyLevel::Veteran);
-        rider.write().expect("rider write").experience_tracker = Some(Arc::clone(&rider_tracker));
-        bike.write().expect("bike write").experience_tracker = Some(Arc::clone(&bike_tracker));
+        rider.write().expect("rider write").experience_tracker = Some(rider_tracker);
+        bike.write().expect("bike write").experience_tracker = Some(bike_tracker);
 
         transfer_veterancy(&rider, &bike);
 
@@ -1083,20 +1077,18 @@ mod tests {
             "C++ fires onVeterancyLevelChanged on mount: bike weapon set becomes Veteran"
         );
         assert_eq!(
-            bike_tracker
-                .lock()
-                .expect("bike tracker")
-                .get_veterancy_level(),
-            crate::common::VeterancyLevel::Veteran
+            bike.read()
+                .expect("bike read")
+                .with_experience_tracker(|t| t.get_veterancy_level()),
+            Some(crate::common::VeterancyLevel::Veteran)
         );
         // Rider resets to Regular via setExperienceAndLevel(0, FALSE) — side
         // effects clear the Veteran weapon-set flag on demotion too.
         assert_eq!(
-            rider_tracker
-                .lock()
-                .expect("rider tracker")
-                .get_veterancy_level(),
-            crate::common::VeterancyLevel::Regular
+            rider.read()
+                .expect("rider read")
+                .with_experience_tracker(|t| t.get_veterancy_level()),
+            Some(crate::common::VeterancyLevel::Regular)
         );
         assert!(
             !rider
@@ -1114,14 +1106,10 @@ mod tests {
         let _lock = crate::test_sync::lock();
         reset_players();
         let object = owned_object("NontrainableExperienceReset", 97023, 0);
-        let tracker = Arc::new(std::sync::Mutex::new(
-            crate::common::ExperienceTracker::new(97023),
-        ));
+        let mut tracker = Box::new(crate::common::ExperienceTracker::new(97023));
         tracker
-            .lock()
-            .expect("tracker")
             .set_veterancy_level(crate::common::VeterancyLevel::Veteran);
-        object.write().expect("object write").experience_tracker = Some(Arc::clone(&tracker));
+        object.write().expect("object write").experience_tracker = Some(tracker);
 
         assert!(
             !object
@@ -1130,8 +1118,8 @@ mod tests {
                 .set_experience_and_level_with_side_effects(0, false)
         );
         assert_eq!(
-            tracker.lock().expect("tracker").get_veterancy_level(),
-            crate::common::VeterancyLevel::Veteran,
+            object.read().expect("object read").with_experience_tracker(|t| t.get_veterancy_level()),
+            Some(crate::common::VeterancyLevel::Veteran),
             "CPP setExperienceAndLevel returns without mutation when IsTrainable is false"
         );
 
@@ -1144,20 +1132,11 @@ mod tests {
         reset_players();
         let source = owned_object("ExperienceSinkSource", 97024, 0);
         let target = owned_trainable_object("ExperienceSinkTarget", 97025, 0);
-        let source_tracker = Arc::new(std::sync::Mutex::new(
-            crate::common::ExperienceTracker::new(97024),
-        ));
-        let target_tracker = Arc::new(std::sync::Mutex::new(
-            crate::common::ExperienceTracker::new(97025),
-        ));
-        source_tracker
-            .lock()
-            .expect("source tracker")
-            .set_experience_sink(97025);
-        source.write().expect("source write").experience_tracker =
-            Some(Arc::clone(&source_tracker));
-        target.write().expect("target write").experience_tracker =
-            Some(Arc::clone(&target_tracker));
+        let mut source_tracker = Box::new(crate::common::ExperienceTracker::new(97024));
+        let mut target_tracker = Box::new(crate::common::ExperienceTracker::new(97025));
+        source_tracker.set_experience_sink(97025);
+        source.write().expect("source write").experience_tracker = Some(source_tracker);
+        target.write().expect("target write").experience_tracker = Some(target_tracker);
         assert!(
             target
                 .write()
@@ -1175,11 +1154,8 @@ mod tests {
                 .set_experience_and_level_with_side_effects(0, false)
         );
         assert_eq!(
-            target_tracker
-                .lock()
-                .expect("target tracker")
-                .get_veterancy_level(),
-            crate::common::VeterancyLevel::Regular,
+            target.read().expect("target read").with_experience_tracker(|t| t.get_veterancy_level()),
+            Some(crate::common::VeterancyLevel::Regular),
             "CPP forwards the reset to the sink Object and applies its level change"
         );
         assert!(
@@ -1190,11 +1166,8 @@ mod tests {
             "sink Object receives onVeterancyLevelChanged on demotion"
         );
         assert_eq!(
-            source_tracker
-                .lock()
-                .expect("source tracker")
-                .get_veterancy_level(),
-            crate::common::VeterancyLevel::Regular,
+            source.read().expect("source read").with_experience_tracker(|t| t.get_veterancy_level()),
+            Some(crate::common::VeterancyLevel::Regular),
             "the forwarding source tracker is not mutated"
         );
 
@@ -1206,15 +1179,9 @@ mod tests {
         let _lock = crate::test_sync::lock();
         reset_players();
         let source = owned_trainable_object("ExperienceMissingSinkSource", 97026, 0);
-        let source_tracker = Arc::new(std::sync::Mutex::new(
-            crate::common::ExperienceTracker::new(97026),
-        ));
-        source_tracker
-            .lock()
-            .expect("source tracker")
-            .set_experience_sink(97999);
-        source.write().expect("source write").experience_tracker =
-            Some(Arc::clone(&source_tracker));
+        let mut source_tracker = Box::new(crate::common::ExperienceTracker::new(97026));
+        source_tracker.set_experience_sink(97999);
+        source.write().expect("source write").experience_tracker = Some(source_tracker);
         assert!(
             source
                 .write()
@@ -1232,11 +1199,8 @@ mod tests {
                 .set_experience_and_level_with_side_effects(0, false)
         );
         assert_eq!(
-            source_tracker
-                .lock()
-                .expect("source tracker")
-                .get_veterancy_level(),
-            crate::common::VeterancyLevel::Regular,
+            source.read().expect("source read").with_experience_tracker(|t| t.get_veterancy_level()),
+            Some(crate::common::VeterancyLevel::Regular),
             "CPP falls through to local reset when the sink object no longer exists"
         );
         assert!(

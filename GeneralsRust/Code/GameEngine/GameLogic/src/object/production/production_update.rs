@@ -13,6 +13,7 @@ use super::prerequisite_checker::{
 use super::queue::{BuildQueue, BuildQueueEntry, ProductionType};
 use super::rally_point::RallyPointManager;
 use crate::common::*;
+use crate::object::ProductionBehaviorQueueKindMut;
 use crate::economy::{EconomyManager, IncomeSource};
 use crate::helpers::{TheGameLogic, TheThingFactory};
 use crate::modules::{
@@ -733,6 +734,15 @@ impl BehaviorModuleInterface for ProductionUpdate {
         }
         self.state = ProductionState::Idle;
         Ok(())
+    }
+
+    /// C++ `DynamicInterfaceCast`-style typed accessor for the production
+    /// queue family; replaces the former `as_any().downcast_mut::<Self>()`
+    /// branch in `behavior_production_queue_kind`.
+    fn as_production_queue_kind(
+        &mut self,
+    ) -> Option<crate::object::ProductionBehaviorQueueKindMut<'_>> {
+        Some(crate::object::ProductionBehaviorQueueKindMut::Core(self))
     }
 }
 
