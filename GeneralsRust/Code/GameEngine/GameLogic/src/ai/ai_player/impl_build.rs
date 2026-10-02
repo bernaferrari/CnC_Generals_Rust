@@ -872,7 +872,7 @@ impl AIPlayer {
         // Do NOT call check_for_supply_center while holding player write —
         // it re-acquires the same lock (would deadlock on std::sync::RwLock).
         // C++ order: map props → clear UC → upgrades → script cache → supply.
-        let mut matched = false;
+        let mut matched_properties = None;
         let mut script_name = String::new();
         {
             let Ok(mut player_guard) = player_arc.write() else {
@@ -903,26 +903,23 @@ impl AIPlayer {
                         script_name = node.get_script().to_string();
                         node.set_under_construction(false);
 
-                        let _ = OBJECT_REGISTRY.with_object_mut(structure_id, |sg| {
-                            sg.update_obj_values_from_map_properties(&props);
-                            let mask = ObjectStatusMaskType::from_status(
-                                ObjectStatusTypes::UnderConstruction,
-                            ) | ObjectStatusMaskType::from_status(
-                                ObjectStatusTypes::Reconstructing,
-                            );
-                            sg.clear_status(mask);
-                            // UnderConstruction just cleared → refresh upgrades.
-                            sg.update_upgrade_modules_from_player();
-                        });
-
-                        matched = true;
+                        matched_properties = Some(props);
                         break;
                     }
                     current = node.get_next_mut();
                 }
             }
         }
-        if matched {
+        if let Some(props) = matched_properties {
+            // Object upgrade refresh reborrows its controlling player. Finish
+            // the build-list edit before invoking object/module callbacks.
+            let _ = OBJECT_REGISTRY.with_object_mut(structure_id, |sg| {
+                sg.update_obj_values_from_map_properties(&props);
+                let mask = ObjectStatusMaskType::from_status(ObjectStatusTypes::UnderConstruction)
+                    | ObjectStatusMaskType::from_status(ObjectStatusTypes::Reconstructing);
+                sg.clear_status(mask);
+                sg.update_upgrade_modules_from_player();
+            });
             // C++ TheScriptEngine->addObjectToCache + runObjectScript
             if let Ok(mut eng) = get_script_engine().write() {
                 if let Some(e) = eng.as_mut() {
@@ -937,6 +934,7 @@ impl AIPlayer {
             return Ok(());
         }
 
+        let mut matched = false;
         // Pass 2: rebuild-hole spawn retarget (C++ getReconstructedBuildingID).
         let structure_template_name = OBJECT_REGISTRY
             .with_object(structure_id, |g| g.get_template_name().to_string())

@@ -182,7 +182,8 @@ impl UpgradeModuleInterface for ReplaceObjectUpgrade {
             return false;
         };
 
-        let ai_store = the_ai(); if let Ok(ai_guard) = ai_store.read() {
+        let ai_store = the_ai();
+        if let Ok(ai_guard) = ai_store.read() {
             if let Some(pathfinder) = ai_guard.pathfinder() {
                 if let Ok(mut pf) = pathfinder.write() {
                     if was_structure {
@@ -255,7 +256,8 @@ impl UpgradeModuleInterface for ReplaceObjectUpgrade {
             }
         }
 
-        let ai_store = the_ai(); if let Ok(ai_guard) = ai_store.read() {
+        let ai_store = the_ai();
+        if let Ok(ai_guard) = ai_store.read() {
             if let Some(pathfinder) = ai_guard.pathfinder() {
                 if let Ok(mut pf) = pathfinder.write() {
                     if let Ok(replacement_guard) = replacement_object.read() {
@@ -273,17 +275,20 @@ impl UpgradeModuleInterface for ReplaceObjectUpgrade {
             replacement_guard.on_build_complete();
         }
 
-        if let Ok(replacement_guard) = replacement_object.read() {
-            replacement_guard.with_controlling_player_mut(|player_guard| {
-                let builder_id = constructor_arc
-                    .as_ref()
-                    .and_then(|b| b.read().ok().map(|g| g.get_id()));
-                player_guard.on_structure_construction_complete_id(
-                    builder_id,
-                    replacement_id,
-                    false,
-                );
-            });
+        let player = replacement_object
+            .read()
+            .ok()
+            .and_then(|guard| guard.get_controlling_player());
+        if let Some(player) = player {
+            let builder_id = constructor_arc
+                .as_ref()
+                .and_then(|builder| builder.read().ok().map(|guard| guard.get_id()));
+            crate::player::Player::on_structure_construction_complete(
+                &player,
+                builder_id,
+                &replacement_object,
+                false,
+            );
         }
 
         self.applied = true;
