@@ -18,7 +18,6 @@ static SINGLE_ALLIANCE_REMAINING: AtomicBool = AtomicBool::new(false);
 static VICTORY_FLAGS_FROM_LIVE: AtomicBool = AtomicBool::new(false);
 static LOCAL_PLAYER_DEFEATED: AtomicBool = AtomicBool::new(false);
 
-
 static HULK_MAX_LIFETIME_OVERRIDE: AtomicI32 = AtomicI32::new(-1);
 static INPUT_ENABLED: AtomicBool = AtomicBool::new(true);
 
@@ -64,6 +63,13 @@ impl TheGameLogic {
         }
     }
 
+    /// Standalone object deletion adapter for C++ GameLogic.h:183.
+    pub(crate) fn mark_objects_changed_trigger_areas() {
+        if let Ok(mut logic) = crate::system::game_logic::get_game_logic().lock() {
+            logic.update_objects_changed_trigger_areas();
+        }
+    }
+
     /// C++ `TheGameLogic::getFrameObjectsChangedTriggerAreas()`.
     pub fn get_frame_objects_changed_trigger_areas() -> UnsignedInt {
         crate::system::game_logic::get_game_logic()
@@ -71,7 +77,6 @@ impl TheGameLogic {
             .map(|logic| logic.get_frame_objects_changed_trigger_areas())
             .unwrap_or(0)
     }
-
 
     /// Get current frame number (mirrors C++ TheGameLogic::Get_Frame)
     pub fn get_frame() -> UnsignedInt {
@@ -556,7 +561,7 @@ impl TheGameLogic {
         mask: PlayerMaskType,
         affect_client: bool,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        use crate::commands::{get_selection_manager, SelectionType};
+        use crate::commands::{SelectionType, get_selection_manager};
 
         let object_id = object.get_id();
         let selection_manager = get_selection_manager();
@@ -620,7 +625,7 @@ impl TheGameLogic {
         mask: PlayerMaskType,
         affect_client: bool,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        use crate::commands::{get_selection_manager, SelectionType};
+        use crate::commands::{SelectionType, get_selection_manager};
 
         if !object.is_mass_selectable() && !create_new_selection {
             return Ok(());
@@ -735,7 +740,6 @@ impl TheGameLogic {
         logic.ai_update_already_due(object_id, now)
     }
 
-
     /// Remove an update module from the global scheduler.
     pub fn unregister_update_module(
         object_id: ObjectID,
@@ -784,7 +788,7 @@ impl TheGameLogic {
 #[cfg(test)]
 mod game_logic_tests {
     use super::TheGameLogic;
-    use crate::system::game_logic::{get_game_logic, GAME_NONE, GAME_SHELL};
+    use crate::system::game_logic::{GAME_NONE, GAME_SHELL, get_game_logic};
 
     #[test]
     fn is_in_game_matches_cpp_for_shell_mode() {

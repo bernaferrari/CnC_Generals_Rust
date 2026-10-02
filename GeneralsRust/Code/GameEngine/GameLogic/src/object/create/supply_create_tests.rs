@@ -317,7 +317,21 @@ fn destroy_notification_updates_frame_without_recaching_destroyed_owner() {
         .as_mut()
         .unwrap()
         .set_frame_object_count_changed(frame.wrapping_add(1));
+    let object_id = fixture.structure.read().unwrap().get_id();
     fixture.structure.write().unwrap().on_destroy();
+    assert_eq!(
+        tracker.get_object_id("CompletionScriptName").unwrap(),
+        Some(object_id),
+        "C++ onDestroy leaves named-cache cleanup to the destructor"
+    );
+    let changed = crate::scripting::engine::get_script_engine()
+        .read()
+        .unwrap()
+        .as_ref()
+        .unwrap()
+        .get_frame_object_count_changed();
+    assert_eq!(changed, frame.wrapping_add(1));
+    fixture.structure.write().unwrap().run_destructor_tail();
     assert_eq!(
         crate::scripting::engine::get_script_engine()
             .read()

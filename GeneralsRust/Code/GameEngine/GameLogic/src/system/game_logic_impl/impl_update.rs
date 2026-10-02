@@ -15,9 +15,7 @@ fn stream_contains_clear_game_data() -> bool {
 /// Collision snapshot lifted out of the object guard so neither the
 /// GameLogic map borrow nor the registry scoped borrow has to span the
 /// collision-system calls.
-fn collision_position_snapshot(
-    obj: &Object,
-) -> (ObjectID, Coord3D, CollisionGeometryInfo) {
+fn collision_position_snapshot(obj: &Object) -> (ObjectID, Coord3D, CollisionGeometryInfo) {
     let pos = obj.get_position();
     (
         obj.get_id(),
@@ -207,11 +205,10 @@ impl GameLogic {
         // C++ has exactly one poster (GameLogic.cpp:3625-3654). This
         // crate-local path stays the sole poster for headless/crate-only
         // runs, where no external bridge is installed.
-        let external_crc_post =
-            game_engine::common::recorder::with_recorder(|recorder| {
-                recorder.logic_crc_posted_externally()
-            })
-            .unwrap_or(false);
+        let external_crc_post = game_engine::common::recorder::with_recorder(|recorder| {
+            recorder.logic_crc_posted_externally()
+        })
+        .unwrap_or(false);
         let mut posted_logic_crc = None;
         if !external_crc_post
             && current_crc_interval > 0
@@ -219,10 +216,9 @@ impl GameLogic {
             && self.frame % current_crc_interval == 0
         {
             self.crc_cache = self.compute_crc();
-            let playback = game_engine::common::recorder::with_recorder(|recorder| {
-                recorder.is_playback()
-            })
-            .unwrap_or(false);
+            let playback =
+                game_engine::common::recorder::with_recorder(|recorder| recorder.is_playback())
+                    .unwrap_or(false);
             if let Ok(mut stream) =
                 game_engine::common::message_stream::get_message_stream().write()
             {
@@ -248,7 +244,6 @@ impl GameLogic {
                 }
             });
         }
-
 
         // Clear frame events and reset temporary flags
         if let Err(e) = self.clear_frame_events() {
@@ -352,7 +347,8 @@ impl GameLogic {
             warn!("Physics resolution phase failed: {}", e);
         }
 
-        self.update_objects_changed_trigger_areas();
+        // Retire diagnostic IDs without falsely stamping a change every tick.
+        self.objects_changed_trigger_areas.clear();
 
         // -----------------------------------------------------------------------
         // Phase 10: Partition Manager Update (C++ line 3753)
@@ -547,7 +543,8 @@ impl GameLogic {
         trace!("GameLogic::update_ai_players(frame={})", frame);
 
         // Access the global AI system
-        let ai_store = the_ai(); if let Ok(mut ai) = ai_store.write() {
+        let ai_store = the_ai();
+        if let Ok(mut ai) = ai_store.write() {
             if let Err(e) = ai.update(frame) {
                 return Err(GameLogicError::AIError(format!("AI update failed: {}", e)));
             }
@@ -607,7 +604,6 @@ impl GameLogic {
             }
         }
 
-
         Ok(())
     }
 
@@ -648,8 +644,7 @@ impl GameLogic {
             } => {
                 trace!(
                     "Executing BuildStructure command for player {} ({})",
-                    player_id,
-                    structure_type
+                    player_id, structure_type
                 );
                 // In full implementation: start structure construction
                 Ok(())
@@ -661,8 +656,7 @@ impl GameLogic {
             } => {
                 trace!(
                     "Executing UseSpecialPower command for player {} ({})",
-                    player_id,
-                    power_name
+                    player_id, power_name
                 );
                 // In full implementation: activate special power
                 Ok(())
@@ -763,7 +757,6 @@ impl GameLogic {
 
         Ok(())
     }
-
 
     /// Process sleepy (delayed) update modules
     ///
@@ -1262,7 +1255,7 @@ impl GameLogic {
         let Some(position) = self.partition_manager.ghost_frozen_position(object_id) else {
             return crate::common::ObjectShroudStatus::Fogged;
         };
-        use crate::system::shroud_manager::{get_shroud_manager, ShroudState};
+        use crate::system::shroud_manager::{ShroudState, get_shroud_manager};
         let shroud_manager = get_shroud_manager();
         let Ok(shroud) = shroud_manager.lock() else {
             return crate::common::ObjectShroudStatus::Fogged;
@@ -1394,7 +1387,8 @@ impl GameLogic {
         trace!("GameLogic::update_weapon_store()");
 
         if let Err(e) = (|| {
-            let due = crate::weapon::with_weapon_store_mut(|store| store.take_due_delayed_damage())?;
+            let due =
+                crate::weapon::with_weapon_store_mut(|store| store.take_due_delayed_damage())?;
             for info in due {
                 crate::weapon::WeaponStore::apply_delayed_damage(info)?;
             }
@@ -1467,7 +1461,8 @@ impl GameLogic {
 
         let mut marker = "MARKER:TheAI".to_string();
         let _ = Xfer::xfer_ascii_string(&mut xfer, &mut marker);
-        let ai_store = crate::ai::the_ai(); if let Ok(ai) = ai_store.read() {
+        let ai_store = crate::ai::the_ai();
+        if let Ok(ai) = ai_store.read() {
             if let Some(pathfinder) = ai.pathfinder() {
                 if let Ok(pathfinder) = pathfinder.read() {
                     pathfinder.crc_pathfinder(&mut xfer);
@@ -1568,9 +1563,7 @@ impl GameLogic {
             }
 
             if self.frame > 1 {
-                if let Ok(mut shroud) =
-                    crate::system::shroud_manager::get_shroud_manager().lock()
-                {
+                if let Ok(mut shroud) = crate::system::shroud_manager::get_shroud_manager().lock() {
                     let _ = shroud.reveal_map_for_player_permanently(*player_index as u32);
                 }
 
