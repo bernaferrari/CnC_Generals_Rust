@@ -789,6 +789,26 @@ impl AudioManager {
 
     /// Add an audio event to be played
     pub fn add_audio_event(&mut self, event_to_add: &AudioEventRts) -> AudioHandle {
+        self.add_audio_event_with_player(event_to_add, None)
+    }
+
+    /// Submit from an already-borrowed object. C++ reads the owner's player
+    /// during shouldPlayLocally; the driving simulation supplies that same
+    /// fact without an ambient lookup of its write-locked object. Queued audio
+    /// keeps the original object ID and its dynamic position/owner resolution.
+    pub fn add_audio_event_for_player(
+        &mut self,
+        event_to_add: &AudioEventRts,
+        owner_player_index: Int,
+    ) -> AudioHandle {
+        self.add_audio_event_with_player(event_to_add, Some(owner_player_index))
+    }
+
+    fn add_audio_event_with_player(
+        &mut self,
+        event_to_add: &AudioEventRts,
+        owner_player_index: Option<Int>,
+    ) -> AudioHandle {
         if event_to_add.get_event_name().is_empty() || event_to_add.get_event_name() == "NoSound" {
             return AHSV_NO_SOUND;
         }
@@ -851,7 +871,9 @@ impl AudioManager {
             }
         }
 
-        if !audio_event.get_uninterruptable() && !self.should_play_locally(&audio_event) {
+        if !audio_event.get_uninterruptable()
+            && !self.should_play_locally_for_player(&audio_event, owner_player_index)
+        {
             return AHSV_NOT_FOR_LOCAL;
         }
 
@@ -1079,27 +1101,27 @@ impl AudioManager {
         }
         #[cfg(not(target_arch = "wasm32"))]
         {
-        let mut decoder = Mp3Decoder::new(Cursor::new(data));
-        let mut total_ms = 0.0f64;
+            let mut decoder = Mp3Decoder::new(Cursor::new(data));
+            let mut total_ms = 0.0f64;
 
-        loop {
-            match decoder.next_frame() {
-                Ok(frame) => {
-                    if frame.sample_rate <= 0 {
-                        continue;
+            loop {
+                match decoder.next_frame() {
+                    Ok(frame) => {
+                        if frame.sample_rate <= 0 {
+                            continue;
+                        }
+                        let channels = frame.channels.max(1) as f64;
+                        let samples = frame.data.len() as f64;
+                        let frames = samples / channels;
+                        total_ms += frames * 1000.0 / frame.sample_rate as f64;
                     }
-                    let channels = frame.channels.max(1) as f64;
-                    let samples = frame.data.len() as f64;
-                    let frames = samples / channels;
-                    total_ms += frames * 1000.0 / frame.sample_rate as f64;
+                    Err(Mp3Error::Eof) => break,
+                    Err(Mp3Error::SkippedData) => continue,
+                    Err(_) => return None,
                 }
-                Err(Mp3Error::Eof) => break,
-                Err(Mp3Error::SkippedData) => continue,
-                Err(_) => return None,
             }
-        }
 
-        (total_ms > 0.0).then_some(total_ms as Real)
+            (total_ms > 0.0).then_some(total_ms as Real)
         }
     }
 
@@ -1987,6 +2009,14 @@ impl AudioManager {
     }
 
     pub fn should_play_locally(&self, audio_event: &AudioEventRts) -> Bool {
+        self.should_play_locally_for_player(audio_event, None)
+    }
+
+    fn should_play_locally_for_player(
+        &self,
+        audio_event: &AudioEventRts,
+        owner_player_index: Option<Int>,
+    ) -> Bool {
         let Some(event_info) = audio_event.get_audio_event_info() else {
             return false;
         };
@@ -2006,7 +2036,12 @@ impl AudioManager {
 
         // Live host registers a resolver; leftover PlayerList is not the player path.
         with_audio_locality_resolver(|resolver| {
-            self.should_play_locally_with_resolver(audio_event, &event_info, resolver)
+            self.should_play_locally_with_resolver(
+                audio_event,
+                &event_info,
+                resolver,
+                owner_player_index,
+            )
         })
         .unwrap_or(true)
     }
@@ -2016,8 +2051,10 @@ impl AudioManager {
         audio_event: &AudioEventRts,
         event_info: &AudioEventInfo,
         resolver: &dyn AudioLocalityResolver,
+        owner_player_index: Option<Int>,
     ) -> Bool {
-        let owning_player_index = audio_event.get_player_index();
+        let owning_player_index =
+            owner_player_index.unwrap_or_else(|| audio_event.get_player_index());
         let owning_player_exists = resolver.player_exists(owning_player_index);
 
         let mut local_player_index = match resolver.get_local_player_index() {

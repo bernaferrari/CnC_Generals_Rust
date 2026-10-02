@@ -24,16 +24,18 @@ impl Object {
     }
 
     /// Iterate the module entries referenced by an interface-handle index list.
-    fn interface_entries(
+    pub(super) fn interface_entries(
         &self,
         indices: &[usize],
     ) -> impl Iterator<Item = &Arc<ModuleEntry>> {
-        indices.iter().filter_map(move |index| self.modules.get(*index))
+        indices
+            .iter()
+            .filter_map(move |index| self.modules.get(*index))
     }
 
     /// Snapshot (Arc-cloned) entries for an interface-handle index list, for
     /// sites that must escape the `self` borrow (e.g. `&mut self` callbacks).
-    fn interface_entry_snapshots(&self, indices: &[usize]) -> Vec<Arc<ModuleEntry>> {
+    pub(super) fn interface_entry_snapshots(&self, indices: &[usize]) -> Vec<Arc<ModuleEntry>> {
         self.interface_entries(indices).cloned().collect()
     }
 
@@ -931,8 +933,9 @@ impl Object {
 
             // Interface lists store indices into `modules`, populated in the
             // same order as before (single walk over the module list).
-            for (index, entry) in guard.modules.iter().enumerate() {
-                let mask = entry.mask();
+            let masks: Vec<ModuleInterfaceType> =
+                guard.modules.iter().map(|entry| entry.mask()).collect();
+            for (index, mask) in masks.into_iter().enumerate() {
                 if (mask.0 & ModuleInterfaceType::BODY.0) != 0 {
                     guard.body_module_handles.push(index);
                 }

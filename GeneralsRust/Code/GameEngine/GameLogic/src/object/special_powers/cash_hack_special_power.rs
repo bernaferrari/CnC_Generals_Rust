@@ -143,13 +143,15 @@ impl CashHackSpecialPower {
     fn find_amount_to_steal(&self) -> Int {
         let stolen = crate::object::registry::OBJECT_REGISTRY
             .with_object(self.owner_object_id, |owner_guard| {
-                owner_guard.with_controlling_player(|player_guard| {
-                    self.data
-                        .upgrades
-                        .iter()
-                        .find(|upgrade| player_guard.has_science(upgrade.science))
-                        .map(|upgrade| upgrade.amount_to_steal)
-                })
+                owner_guard
+                    .with_controlling_player(|player_guard| {
+                        self.data
+                            .upgrades
+                            .iter()
+                            .find(|upgrade| player_guard.has_science(upgrade.science))
+                            .map(|upgrade| upgrade.amount_to_steal)
+                    })
+                    .flatten()
             })
             .flatten();
         if let Some(amount) = stolen {

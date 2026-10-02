@@ -139,14 +139,17 @@ impl Object {
         if let Some(contain) = &self.contain {
             if let Ok(contain_guard) = contain.lock() {
                 if let Some(rider_id) = contain_guard.get_rider_id() {
-                    let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(rider_id, |rider_guard| {
-                        // If this was a FOREVER disable, clear the rider's matching disable
-                        if let Some(index) = self.get_disabled_type_index(disabled_type) {
-                            if self.disabled_till_frame[index] == FOREVER {
-                                let _ = rider_guard.clear_disabled(disabled_type);
+                    let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(
+                        rider_id,
+                        |rider_guard| {
+                            // If this was a FOREVER disable, clear the rider's matching disable
+                            if let Some(index) = self.get_disabled_type_index(disabled_type) {
+                                if self.disabled_till_frame[index] == FOREVER {
+                                    let _ = rider_guard.clear_disabled(disabled_type);
+                                }
                             }
-                        }
-                        });
+                        },
+                    );
                 }
             }
         }
@@ -289,7 +292,7 @@ impl Object {
 
         let mut radar_disable_proof: Option<bool> = None;
         let mut power_bonus_applied = false;
-        for entry in &self.upgrade_module_handles {
+        for entry in self.interface_entries(&self.upgrade_module_handles) {
             entry.with_module(|module| {
                 if let Some(radar) = module
                     .as_any()
@@ -435,7 +438,7 @@ impl Object {
         }
 
         let mut would = false;
-        for entry in &self.upgrade_module_handles {
+        for entry in self.interface_entries(&self.upgrade_module_handles) {
             entry.with_module(|module| {
                 if let Some(upgrade) = module_upgrade_kind(module) {
                     if upgrade.into_interface().can_upgrade(mask_to_check) {
@@ -527,7 +530,7 @@ impl Object {
         self.object_upgrades_completed.remove(mask);
 
         let mut matched_any = false;
-        for entry in &self.upgrade_module_handles {
+        for entry in self.interface_entries(&self.upgrade_module_handles) {
             let matched_any_ref = &mut matched_any;
             entry.with_module(|module| {
                 if let Some(upgrade) = module_upgrade_kind(module) {
@@ -566,7 +569,7 @@ impl Object {
             return;
         }
         let mut matched_any = false;
-        for entry in &self.upgrade_module_handles {
+        for entry in self.interface_entries(&self.upgrade_module_handles) {
             let matched_any_ref = &mut matched_any;
             entry.with_module(|module| {
                 if let Some(upgrade) = module_upgrade_kind(module) {

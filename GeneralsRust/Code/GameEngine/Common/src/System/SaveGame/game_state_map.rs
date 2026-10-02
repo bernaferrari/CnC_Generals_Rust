@@ -585,8 +585,8 @@ mod tests {
     };
     use crate::System::{XferLoad, XferSave};
     use crate::common::ini::ini_game_data::{get_global_data, init_global_data};
-    use std::fs;
     use std::cell::RefCell;
+    use std::fs;
     use std::rc::Rc;
     use std::sync::{Arc, Mutex};
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -627,7 +627,8 @@ mod tests {
 
     #[test]
     fn load_refreshes_new_game_after_skirmish_payload() {
-        let _guard = test_guard().borrow();
+        let guard_owner = test_guard();
+        let _guard = guard_owner.borrow();
         let save_dir = unique_temp_save_dir("load_refresh");
         let map_path = save_dir.join("FrozenValley.map");
         fs::write(&map_path, b"dummy map payload").expect("write dummy map");
