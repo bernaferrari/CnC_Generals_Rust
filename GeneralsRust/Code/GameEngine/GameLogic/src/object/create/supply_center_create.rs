@@ -20,28 +20,19 @@ impl SupplyCenterCreate {
             base: CreateModule::new(thing),
         }
     }
-}
 
-impl CreateInterface for SupplyCenterCreate {
-    fn on_create(&self) {}
-
-    fn on_build_complete(&self) {
+    fn begin_build_complete(&self) -> bool {
         if !self.base.should_do_on_build_complete() {
-            return;
+            return false;
         }
-
         self.base.on_build_complete();
+        true
+    }
 
-        let object_id = self
-            .base
-            .get_thing()
-            .as_object()
-            .map(|obj| obj.get_object_id())
-            .unwrap_or_default();
+    fn register_supply_center(&self, object_id: u32) {
         if object_id == 0 {
             return;
         }
-
         if let Ok(list_guard) = ThePlayerList().read() {
             for player_arc in list_guard.iter() {
                 let Ok(mut player_guard) = player_arc.write() else {
@@ -52,6 +43,35 @@ impl CreateInterface for SupplyCenterCreate {
                 };
                 manager.add_supply_center(object_id);
             }
+        }
+    }
+}
+
+impl CreateInterface for SupplyCenterCreate {
+    fn on_create(&self) {}
+
+    fn on_build_complete(&self) {
+        if !self.begin_build_complete() {
+            return;
+        }
+
+        let object_id = self
+            .base
+            .get_thing()
+            .as_object()
+            .map(|obj| obj.get_object_id())
+            .unwrap_or_default();
+        self.register_supply_center(object_id);
+    }
+
+    fn on_build_complete_with_owner(&self, owner: &mut dyn std::any::Any) {
+        if !self.begin_build_complete() {
+            return;
+        }
+        // Object::on_build_complete already owns this object mutably. Resolving
+        // its Thing handle here would re-enter the same object lock.
+        if let Some(object) = owner.downcast_ref::<crate::object::Object>() {
+            self.register_supply_center(object.get_id());
         }
     }
 

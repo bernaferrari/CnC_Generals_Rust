@@ -987,10 +987,12 @@ impl DozerAIUpdate {
                 target,
                 is_rebuild,
             );
+            if let Ok(mut target_guard) = target.write() {
+                target_guard.on_build_complete();
+            }
         }
 
         if let Ok(mut target_guard) = target.write() {
-            target_guard.on_build_complete();
             target_guard.handle_partition_cell_maintenance();
             target_guard.update_upgrade_modules_from_player();
         }
@@ -1722,4 +1724,4 @@ mod tests {
 
 #[cfg(test)]
 #[path = "construction_callback_tests.rs"]
-mod construction_callback_tests;
+pub(crate) mod construction_callback_tests;
