@@ -89,6 +89,8 @@ mod types;
 mod work_order;
 
 #[cfg(test)]
+mod production_callback_tests;
+#[cfg(test)]
 mod tests;
 
 pub use strategy::*;
