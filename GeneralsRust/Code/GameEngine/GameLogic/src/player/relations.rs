@@ -234,6 +234,28 @@ impl Player {
         delta: Int,
         bonus: &BattlePlanBonuses,
     ) {
+        self.change_battle_plan_internal(plan_type, delta, bonus, None);
+    }
+
+    /// A module deletion can update its army while Object already lends its
+    /// owner mutably. Use that borrow for the matching ID in the same walk.
+    pub(crate) fn change_battle_plan_with_owner(
+        &mut self,
+        plan_type: BattlePlanType,
+        delta: Int,
+        bonus: &BattlePlanBonuses,
+        owner: &mut Object,
+    ) {
+        self.change_battle_plan_internal(plan_type, delta, bonus, Some(owner));
+    }
+
+    fn change_battle_plan_internal(
+        &mut self,
+        plan_type: BattlePlanType,
+        delta: Int,
+        bonus: &BattlePlanBonuses,
+        owner: Option<&mut Object>,
+    ) {
         let mut add_bonus = false;
         let mut remove_bonus = false;
 
@@ -265,7 +287,7 @@ impl Player {
         }
 
         if add_bonus {
-            self.apply_battle_plan_bonuses_for_player_objects(bonus);
+            self.apply_battle_plan_bonuses_for_player_objects_internal(bonus, owner);
         } else if remove_bonus {
             let mut inverted = bonus.clone();
             inverted.armor_scalar = 1.0 / inverted.armor_scalar.max(0.01);
@@ -279,7 +301,7 @@ impl Player {
             if inverted.search_and_destroy > 0 {
                 inverted.search_and_destroy = -1;
             }
-            self.apply_battle_plan_bonuses_for_player_objects(&inverted);
+            self.apply_battle_plan_bonuses_for_player_objects_internal(&inverted, owner);
         }
     }
 
@@ -332,14 +354,14 @@ impl Player {
         }
 
         if !is_projectile {
-            if (bonus.armor_scalar - 1.0).abs() > f32::EPSILON {
+            if bonus.armor_scalar != 1.0 {
                 if let Some(body) = obj.get_body_module() {
                     if let Ok(mut body_guard) = body.lock() {
                         let _ = body_guard.apply_damage_scalar(bonus.armor_scalar);
                     }
                 }
             }
-            if (bonus.sight_range_scalar - 1.0).abs() > f32::EPSILON {
+            if bonus.sight_range_scalar != 1.0 {
                 let new_range = obj.get_vision_range() * bonus.sight_range_scalar;
                 let new_shroud = obj.get_shroud_clearing_range() * bonus.sight_range_scalar;
                 obj.set_vision_range(new_range);
@@ -401,6 +423,14 @@ impl Player {
 
     /// Battle plan bonuses changing, so apply to all of our objects.
     pub fn apply_battle_plan_bonuses_for_player_objects(&mut self, bonus: &BattlePlanBonuses) {
+        self.apply_battle_plan_bonuses_for_player_objects_internal(bonus, None);
+    }
+
+    fn apply_battle_plan_bonuses_for_player_objects_internal(
+        &mut self,
+        bonus: &BattlePlanBonuses,
+        mut owner: Option<&mut Object>,
+    ) {
         if let Some(existing) = &mut self.battle_plan_bonuses {
             existing.armor_scalar *= bonus.armor_scalar;
             existing.sight_range_scalar *= bonus.sight_range_scalar;
@@ -412,11 +442,20 @@ impl Player {
             self.battle_plan_bonuses = Some(bonus.clone());
         }
 
-        let owned_objects = self.owned_objects.clone();
-        for object_id in owned_objects {
-            let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(object_id, |obj| {
-                self.local_apply_battle_plan_bonuses_to_object(obj, bonus);
-            });
+        // Preserve the owned-object order, including the current owner at its
+        // original position. No list copy or recursive lock is needed for it.
+        for &object_id in &self.owned_objects {
+            if let Some(object) = owner
+                .as_deref_mut()
+                .filter(|object| object.get_id() == object_id)
+            {
+                self.local_apply_battle_plan_bonuses_to_object(object, bonus);
+            } else {
+                let _ =
+                    crate::object::registry::OBJECT_REGISTRY.with_object_mut(object_id, |obj| {
+                        self.local_apply_battle_plan_bonuses_to_object(obj, bonus);
+                    });
+            }
         }
     }
 }
