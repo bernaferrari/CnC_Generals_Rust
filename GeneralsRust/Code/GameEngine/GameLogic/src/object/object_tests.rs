@@ -131,7 +131,11 @@ mod tests {
         .expect("flammable module");
         let normal_module: Arc<Mutex<dyn BehaviorModuleInterface>> =
             Arc::new(Mutex::new(normal_flammable));
-        normal_object.write().unwrap().behaviors.push(normal_module);
+        normal_object
+            .write()
+            .unwrap()
+            .behaviors
+            .push(BehaviorInterfaceHandle::injected(normal_module));
 
         assert!(normal_object.find_flammable_update().is_some());
 
@@ -147,7 +151,11 @@ mod tests {
         aflame_flammable.try_to_ignite();
         let aflame_module: Arc<Mutex<dyn BehaviorModuleInterface>> =
             Arc::new(Mutex::new(aflame_flammable));
-        aflame_object.write().unwrap().behaviors.push(aflame_module);
+        aflame_object
+            .write()
+            .unwrap()
+            .behaviors
+            .push(BehaviorInterfaceHandle::injected(aflame_module));
 
         assert!(aflame_object.find_flammable_update().is_none());
     }
@@ -281,9 +289,9 @@ mod tests {
         let names: Vec<String> = obj
             .get_behavior_modules()
             .into_iter()
-            .map(|module| {
+            .map(|mut module| {
                 module
-                    .lock()
+                    .access()
                     .map(|g| g.get_module_name().to_string())
                     .unwrap_or_default()
             })
@@ -537,8 +545,8 @@ mod tests {
             !modules.is_empty(),
             "destroyObject walks get_behavior_modules(); list must not be empty"
         );
-        for module in modules {
-            let mut guard = module.lock().expect("behavior lock");
+        for mut module in modules {
+            let mut guard = module.access().expect("behavior lock");
             let _ = guard.get_destroy();
             let _ = guard.get_damage();
         }
@@ -701,10 +709,10 @@ mod tests {
             "production must not skip-close solely because registry is empty"
         );
 
-        let modules = include_str!("object_modules.rs");
+        let interfaces = include_str!("behavior_interfaces.rs");
         assert!(
-            modules.contains("ModuleInterfaceType::DESTROY")
-                && modules.contains("ModuleInterfaceType::DAMAGE"),
+            interfaces.contains("ModuleInterfaceType::DESTROY")
+                && interfaces.contains("ModuleInterfaceType::DAMAGE"),
             "TemplateModuleBehavior must advertise destroy/damage from the module mask"
         );
     }
@@ -741,9 +749,9 @@ mod tests {
         let names: Vec<String> = obj
             .get_behavior_modules()
             .into_iter()
-            .map(|module| {
+            .map(|mut module| {
                 module
-                    .lock()
+                    .access()
                     .map(|g| g.get_module_name().to_string())
                     .unwrap_or_default()
             })
@@ -823,9 +831,9 @@ mod tests {
     fn behavior_names(obj: &Object) -> Vec<String> {
         obj.get_behavior_modules()
             .into_iter()
-            .map(|module| {
+            .map(|mut module| {
                 module
-                    .lock()
+                    .access()
                     .map(|g| g.get_module_name().to_string())
                     .unwrap_or_default()
             })

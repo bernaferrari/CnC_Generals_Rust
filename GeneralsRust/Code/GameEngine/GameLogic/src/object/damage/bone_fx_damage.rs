@@ -50,10 +50,10 @@ impl BoneFXDamage {
                     .unwrap_or_else(|| Err("BoneFXUpdate module type mismatch".to_string()));
             }
 
-            let Some(behavior) = object_guard.find_update_behavior("BoneFXUpdate") else {
+            let Some(mut behavior) = object_guard.find_update_behavior("BoneFXUpdate") else {
                 return Err("BoneFXUpdate type mismatch".to_string());
             };
-            let mut behavior = match behavior.lock() {
+            let mut behavior = match behavior.access() {
                 Ok(b) => b,
                 Err(_) => return Err("BoneFXDamage: BoneFXUpdate lock failed".to_string()),
             };

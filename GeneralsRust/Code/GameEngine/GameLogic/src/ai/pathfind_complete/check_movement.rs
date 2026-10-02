@@ -237,7 +237,7 @@ impl PathfindingSystem {
         }
 
         let ignore_cells = ignored_obstacle_cells(ignore_obstacle_id);
-        let pathfinder = self.pathfinder.lock().unwrap();
+        let pathfinder = &self.pathfinder;
 
         // Check all cells in the unit's footprint
         let mut num_cells_above = radius;
@@ -327,9 +327,7 @@ impl PathfindingSystem {
         const UNIT_PRESENT_FIXED: u8 = 0x03;
         const UNIT_GOAL_OTHER_MOVING: u8 = 0x05;
 
-        let Ok(goals) = self.goal_cells.lock() else {
-            return true;
-        };
+        let goals = &self.goal_cells;
 
         for i in (info.cell.x - info.radius)..(info.cell.x + num_cells_above) {
             for j in (info.cell.y - info.radius)..(info.cell.y + num_cells_above) {
@@ -475,9 +473,7 @@ impl PathfindingSystem {
             return false;
         }
         {
-            let Ok(pf) = self.pathfinder.lock() else {
-                return false;
-            };
+            let pf = &self.pathfinder;
             if let Some(ct) = pf.get_cell_type(cell) {
                 if matches!(
                     ct,
@@ -489,15 +485,14 @@ impl PathfindingSystem {
                 }
             }
         }
-        let mut zone2 = if let Ok(zones) = self.zones.lock() {
+        let mut zone2 = {
+            let zones = &self.zones;
             let z = zones.zone_at(cell);
             let mut z2 = zones.get_effective_zone(surfaces, is_crusher, z);
             if starting_in_obstacle {
                 z2 = zones.get_effective_terrain_zone(z2);
             }
             z2
-        } else {
-            0
         };
         let _ = layer;
         if from_zone == zone2 {
@@ -531,10 +526,9 @@ impl PathfindingSystem {
         let destination_layer = self.get_layer_for_coord(goal_cell);
 
         let start_cell = GridCoord::from_world(start);
-        let same_zone = if let Ok(zones) = self.zones.lock() {
+        let same_zone = {
+            let zones = &self.zones;
             zones.are_connected(start_cell, goal_cell, surfaces, is_crusher)
-        } else {
-            true
         };
 
         if same_zone {
@@ -649,10 +643,9 @@ impl PathfindingSystem {
         }
         let layer = self.get_layer_for_coord(coord);
 
-        let connected = if let Ok(zones) = self.zones.lock() {
+        let connected = {
+            let zones = &self.zones;
             zones.are_connected(start_cell, coord, surfaces, is_crusher)
-        } else {
-            true
         };
         if !connected {
             return false;
@@ -889,9 +882,7 @@ impl PathfindingSystem {
             destination,
             layer,
             |_from_c, to_c, _x, _y| {
-                let Ok(goals) = self.goal_cells.lock() else {
-                    return 0;
-                };
+                let goals = &self.goal_cells;
                 let Some(row) = goals.get(to_c.x as usize) else {
                     return 0;
                 };
@@ -900,7 +891,6 @@ impl PathfindingSystem {
                 };
                 let cell_layer = self.get_layer_for_coord(to_c);
                 let pos_unit = gc.get_pos_unit(cell_layer);
-                drop(goals);
                 if pos_unit == INVALID_ID || pos_unit == obj_id || pos_unit == ignore_id {
                     return 0;
                 }

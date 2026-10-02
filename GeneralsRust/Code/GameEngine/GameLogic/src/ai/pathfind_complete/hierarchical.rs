@@ -403,9 +403,7 @@ impl PathfindingSystem {
         if !self.is_valid_coord(scan_cell) {
             return None;
         }
-        let Ok(zones) = self.zones.lock() else {
-            return None;
-        };
+        let zones = &self.zones;
         let scan_block = zones.get_block_zone(surfaces, crusher, scan_cell.x, scan_cell.y);
         if scan_block != parent_zone {
             return None;
@@ -415,7 +413,8 @@ impl PathfindingSystem {
             return None;
         }
         // C++ hierarchical: skip pinched cells when expanding neighbors.
-        if let Ok(pf) = self.pathfinder.lock() {
+        {
+            let pf = &self.pathfinder;
             if pf.is_pinched(adj) == Some(true) {
                 return None;
             }
@@ -453,9 +452,7 @@ impl PathfindingSystem {
         if parent_zone == 0 || parent_zone == UNINITIALIZED_ZONE {
             return out;
         }
-        let Ok(zones) = self.zones.lock() else {
-            return out;
-        };
+        let zones = &self.zones;
         if !zones.interacts_with_bridge(parent_cell.x, parent_cell.y) {
             return out;
         }
@@ -534,12 +531,9 @@ impl PathfindingSystem {
         surfaces: LocomotorSurfaceTypeMask,
         crusher: bool,
     ) -> bool {
-        let Ok(zones) = self.zones.lock() else {
-            return false;
-        };
+        let zones = &self.zones;
         let start_z = zones.get_block_zone(surfaces, crusher, start.x, start.y);
         let goal_z = zones.get_block_zone(surfaces, crusher, goal.x, goal.y);
-        drop(zones);
         if start_z == 0 || goal_z == 0 {
             return false;
         }
@@ -557,9 +551,7 @@ impl PathfindingSystem {
                 break;
             }
             let parent_z = {
-                let Ok(zones) = self.zones.lock() else {
-                    break;
-                };
+                let zones = &self.zones;
                 zones.get_block_zone(surfaces, crusher, cell.x, cell.y)
             };
             if parent_z == goal_z {
@@ -591,7 +583,7 @@ impl PathfindingSystem {
     /// zones, then delegates to the full A* pathfinder.
     /// C++ `Pathfinder::findHierarchicalPath` → internal_findHierarchicalPath(closestOK=false).
     pub fn find_hierarchical_path(
-        &self,
+        &mut self,
         start: Coord3D,
         end: Coord3D,
         surfaces: LocomotorSurfaceTypeMask,
@@ -602,7 +594,7 @@ impl PathfindingSystem {
 
     /// C++ `Pathfinder::findClosestHierarchicalPath` → closestOK=true.
     pub fn find_closest_hierarchical_path(
-        &self,
+        &mut self,
         start: Coord3D,
         end: Coord3D,
         surfaces: LocomotorSurfaceTypeMask,
@@ -617,7 +609,7 @@ impl PathfindingSystem {
     /// builds a cell path via find_path_internal from start to the reached cell
     /// (exact goal or closest block when `closest_ok`).
     pub fn internal_find_hierarchical_path(
-        &self,
+        &mut self,
         start: Coord3D,
         end: Coord3D,
         surfaces: LocomotorSurfaceTypeMask,
@@ -649,9 +641,7 @@ impl PathfindingSystem {
 
         // Effective zone equality gate (C++ zone1 != zone2 early out).
         let (z1, z2) = {
-            let Ok(zones) = self.zones.lock() else {
-                return None;
-            };
+            let zones = &self.zones;
             let a = zones.get_effective_zone(surfaces, is_crusher, zones.zone_at(start_cell));
             let b = zones.get_effective_zone(surfaces, is_crusher, zones.zone_at(end_cell));
             (a, b)
@@ -664,9 +654,7 @@ impl PathfindingSystem {
         }
 
         let goal_block_zone = {
-            let Ok(zones) = self.zones.lock() else {
-                return None;
-            };
+            let zones = &self.zones;
             zones.get_block_zone(surfaces, is_crusher, end_cell.x, end_cell.y)
         };
         let goal_block_ndx = (
@@ -713,9 +701,7 @@ impl PathfindingSystem {
             }
 
             let parent_zone = {
-                let Ok(zones) = self.zones.lock() else {
-                    break;
-                };
+                let zones = &self.zones;
                 zones.get_block_zone(surfaces, is_crusher, cx, cy)
             };
 
@@ -828,9 +814,7 @@ impl PathfindingSystem {
             // (open ground single zone), fall through to cell A* like prior residual.
             let connected = self
                 .zones
-                .lock()
-                .map(|z| z.are_connected(start_cell, end_cell, surfaces, is_crusher))
-                .unwrap_or(false)
+                .are_connected(start_cell, end_cell, surfaces, is_crusher)
                 || self
                     .hierarchical_zones_join_via_bridge(start_cell, end_cell, surfaces, is_crusher);
             if !connected {
@@ -891,27 +875,25 @@ impl PathfindingSystem {
         }
 
         // Quick passability check on start/end
-        let pathfinder = self.pathfinder.lock().unwrap();
+        let pathfinder = &self.pathfinder;
         if !pathfinder.is_passable(start_cell, surfaces, is_crusher) {
             return false;
         }
         if !pathfinder.is_passable(end_cell, surfaces, is_crusher) {
             return false;
         }
-        drop(pathfinder);
 
         // Zone connectivity check
-        if let Ok(zones) = self.zones.lock() {
+        {
+            let zones = &self.zones;
             zones.are_connected(start_cell, end_cell, surfaces, is_crusher)
-        } else {
-            true
         }
     }
 
     /// Full path existence check (runs actual A*).
     /// C++ `Pathfinder::slowDoesPathExist(obj, from, to, ignoreObject)`.
     pub fn slow_does_path_exist(
-        &self,
+        &mut self,
         start: &Coord3D,
         end: &Coord3D,
         surfaces: LocomotorSurfaceTypeMask,
@@ -922,7 +904,7 @@ impl PathfindingSystem {
 
     /// C++ `slowDoesPathExist` with ignore obstacle + optional object id for radius.
     pub fn slow_does_path_exist_ex(
-        &self,
+        &mut self,
         start: &Coord3D,
         end: &Coord3D,
         surfaces: LocomotorSurfaceTypeMask,

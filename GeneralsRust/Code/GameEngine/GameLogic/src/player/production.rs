@@ -114,12 +114,12 @@ impl Player {
                     }
 
                     if check_production_queue {
-                        let Some(production_behavior) =
+                        let Some(mut production_behavior) =
                             object_guard.get_production_update_interface()
                         else {
                             return false;
                         };
-                        let Ok(mut behavior_guard) = production_behavior.lock() else {
+                        let Ok(mut behavior_guard) = production_behavior.access() else {
                             return false;
                         };
                         let Some(production) = behavior_guard.get_production_update_interface()

@@ -1075,8 +1075,8 @@ impl FlightDeckBehavior {
             }
 
             if !checked {
-                for behavior in owner_guard.get_behavior_modules() {
-                    let Ok(mut behavior_guard) = behavior.lock() else {
+                for mut behavior in owner_guard.get_behavior_modules() {
+                    let Ok(mut behavior_guard) = behavior.access() else {
                         continue;
                     };
                     if let Some(prod) = behavior_guard.get_production_update_interface() {

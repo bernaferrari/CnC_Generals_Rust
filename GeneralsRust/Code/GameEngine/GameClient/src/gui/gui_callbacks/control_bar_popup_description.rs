@@ -423,8 +423,8 @@ fn leftover_append_can_make_and_overcharge(
 }
 
 fn leftover_production_count_for_obj(obj: &gamelogic::object::Object) -> Option<usize> {
-    let arc = obj.get_production_update_interface()?;
-    let mut guard = arc.lock().ok()?;
+    let mut behavior = obj.get_production_update_interface()?;
+    let mut guard = behavior.access().ok()?;
     let pu = guard.get_production_update_interface()?;
     Some(pu.get_queue_size())
 }

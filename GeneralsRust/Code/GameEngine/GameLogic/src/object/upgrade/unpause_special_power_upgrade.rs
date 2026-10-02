@@ -180,8 +180,8 @@ impl UpgradeModuleInterface for UnpauseSpecialPowerUpgrade {
             }
 
             if !paused {
-                for behavior in object_guard.get_behavior_modules() {
-                    let mut behavior_guard = match behavior.lock() {
+                for mut behavior in object_guard.get_behavior_modules() {
+                    let mut behavior_guard = match behavior.access() {
                         Ok(guard) => guard,
                         Err(_) => {
                             log::warn!(

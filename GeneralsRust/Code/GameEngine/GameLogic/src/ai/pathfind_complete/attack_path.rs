@@ -7,9 +7,9 @@ impl PathfindingSystem {
     /// 2) Else hierarchical connectivity probe + spiral/A* to an in-range cell.
     ///
     /// `in_range(goal)` should implement weapon isGoalPosWithinAttackRange.
-    /// `view_blocked(from,goal)` should implement isAttackViewBlockedByObstacle.
+    /// `view_blocked(pathfinder,from,goal)` should implement isAttackViewBlockedByObstacle.
     pub fn find_attack_path<F, G>(
-        &self,
+        &mut self,
         from: &Coord3D,
         victim_pos: &Coord3D,
         surfaces: LocomotorSurfaceTypeMask,
@@ -23,7 +23,7 @@ impl PathfindingSystem {
     ) -> PathResult
     where
         F: FnMut(&Coord3D) -> bool,
-        G: FnMut(&Coord3D, &Coord3D) -> bool,
+        G: FnMut(&Self, &Coord3D, &Coord3D) -> bool,
     {
         // C++ Pathfinder::findAttackPath (AIPathfind.cpp:10506-10880).
         if !self.is_map_ready {
@@ -52,9 +52,7 @@ impl PathfindingSystem {
                         break;
                     }
                     {
-                        let Ok(pf) = self.pathfinder.lock() else {
-                            break;
-                        };
+                        let pf = &self.pathfinder;
                         if !pf.is_passable(cell, surfaces, is_crusher) {
                             break;
                         }
@@ -73,7 +71,7 @@ impl PathfindingSystem {
                     if is_human && !self.in_logical_extent(cell) {
                         break;
                     }
-                    if in_range(&test) && !view_blocked(from, &test) {
+                    if in_range(&test) && !view_blocked(self, from, &test) {
                         return PathResult {
                             success: true,
                             waypoints: vec![*from, test],
@@ -88,14 +86,10 @@ impl PathfindingSystem {
         }
 
         // Hierarchical connectivity probe (C++ findClosestHierarchicalPath)
-        if let Ok(mut zones) = self.zones.lock() {
-            zones.clear_passable_flags();
-        }
+        self.zones.clear_passable_flags();
         let h = self.find_closest_hierarchical_path(*from, *victim_pos, surfaces, is_crusher);
         if h.is_none() {
-            if let Ok(mut zones) = self.zones.lock() {
-                zones.set_all_passable();
-            }
+            self.zones.set_all_passable();
         }
 
         // C++ attackDistance includes +3*PATHFIND_CELL_SIZE already at call sites.
@@ -167,7 +161,7 @@ impl PathfindingSystem {
                         blocked = true;
                     }
                 }
-                if !blocked && view_blocked(from, &cell_center) {
+                if !blocked && view_blocked(self, from, &cell_center) {
                     blocked = true;
                 }
                 if !blocked {
@@ -178,9 +172,7 @@ impl PathfindingSystem {
 
             // Track closest valid movement cell to victim (fallback).
             if dest_ok {
-                let Ok(pf) = self.pathfinder.lock() else {
-                    continue;
-                };
+                let pf = &self.pathfinder;
                 if pf.is_passable(cell, surfaces, is_crusher) {
                     let dx = (victim_cell.x - cx).abs() as f32;
                     let dy = (victim_cell.y - cy).abs() as f32;
@@ -227,9 +219,7 @@ impl PathfindingSystem {
                     continue;
                 }
                 {
-                    let Ok(pf) = self.pathfinder.lock() else {
-                        continue;
-                    };
+                    let pf = &self.pathfinder;
                     if !pf.is_passable(nc, surfaces, is_crusher) {
                         continue;
                     }
@@ -277,9 +267,7 @@ impl PathfindingSystem {
                     }
                 }
                 {
-                    let Ok(pf) = self.pathfinder.lock() else {
-                        continue;
-                    };
+                    let pf = &self.pathfinder;
                     if pf.is_pinched(nc).unwrap_or(false) {
                         step += COST_ORTHOGONAL as i32 + COST_DIAGONAL as i32;
                     }
@@ -422,7 +410,8 @@ impl PathfindingSystem {
         // KINDOF / container / slaver lookups skip when attacker INVALID_ID.
 
         // Global switch TheAI->getAiData()->m_attackUsesLineOfSight
-        let ai_store = crate::ai::the_ai();let los_enabled = ai_store
+        let ai_store = crate::ai::the_ai();
+        let los_enabled = ai_store
             .read()
             .ok()
             .map(|ai| ai.get_ai_data().attack_uses_line_of_sight)
@@ -510,11 +499,7 @@ impl PathfindingSystem {
         }
 
         let victim_cell = GridCoord::from_world(victim_pos);
-        let victim_obstacle_id = self
-            .pathfinder
-            .lock()
-            .ok()
-            .and_then(|pf| pf.get_cell_obstacle_id(victim_cell));
+        let victim_obstacle_id = self.pathfinder.get_cell_obstacle_id(victim_cell);
 
         let attacker_container = Self::object_container_id(attacker_id);
         let attacker_slaver = Self::object_slaver_id(attacker_id);
@@ -530,9 +515,7 @@ impl PathfindingSystem {
                     remaining_skip -= 1;
                     return 0;
                 }
-                let Ok(pf) = self.pathfinder.lock() else {
-                    return 0;
-                };
+                let pf = &self.pathfinder;
                 if pf.get_cell_type(to) != Some(PathfindCellType::Obstacle) {
                     return 0;
                 }
@@ -605,7 +588,7 @@ impl PathfindingSystem {
 
     /// Convenience: find_attack_path with simple 2D circle range and optional LOS.
     pub fn find_attack_path_range(
-        &self,
+        &mut self,
         from: &Coord3D,
         victim_pos: &Coord3D,
         surfaces: LocomotorSurfaceTypeMask,
@@ -633,16 +616,16 @@ impl PathfindingSystem {
                 let dy = goal.y - victim.y;
                 dx * dx + dy * dy <= range_sqr
             },
-            |a, b| {
+            |pathfinder, a, b| {
                 if !check_los {
                     return false;
                 }
                 // C++ isAttackViewBlockedByObstacle from attack cell `a` toward victim `b`.
                 // When attacker id known, use full obstacle LOS; else line passability fallback.
                 if obj_id != INVALID_ID {
-                    self.is_attack_view_blocked_by_obstacle(obj_id, a, None, b)
+                    pathfinder.is_attack_view_blocked_by_obstacle(obj_id, a, None, b)
                 } else {
-                    !self.is_line_passable_ex(a, b, surfaces, is_crusher, None, false)
+                    !pathfinder.is_line_passable_ex(a, b, surfaces, is_crusher, None, false)
                 }
             },
         )
@@ -653,7 +636,7 @@ impl PathfindingSystem {
     /// A* from unit feet until a destination is outside both repulsor radii
     /// (or budget exhausted with farthest cell). Builds path via find_path.
     pub fn find_safe_path(
-        &self,
+        &mut self,
         request: PathRequest,
         repulsor_pos1: &Coord3D,
         repulsor_pos2: &Coord3D,
@@ -666,9 +649,7 @@ impl PathfindingSystem {
         if !self.is_map_ready {
             return PathResult::none();
         }
-        if let Ok(mut zones) = self.zones.lock() {
-            zones.set_all_passable();
-        }
+        self.zones.set_all_passable();
 
         let (radius, center_in_cell) = Self::compute_radius_and_center(request.unit_radius);
         let start = Self::cell_for_unit_position(&request.from, center_in_cell);
@@ -777,9 +758,7 @@ impl PathfindingSystem {
                     continue;
                 }
                 {
-                    let Ok(pf) = self.pathfinder.lock() else {
-                        continue;
-                    };
+                    let pf = &self.pathfinder;
                     if !pf.is_passable(nc, surfaces, is_crusher) {
                         continue;
                     }

@@ -636,16 +636,15 @@ fn dispatch_behavior_collides(object_id: ObjectId, other: Option<&dyn GameObject
     let behaviors = guard.get_behavior_modules();
     drop(guard);
     let other_id = other.map(|o| o.get_id()).unwrap_or(INVALID_ID);
-    for behavior in behaviors {
-        if let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(object_id)
-        {
+    for mut behavior in behaviors {
+        if let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(object_id) {
             if let Ok(guard) = obj.try_read() {
                 if guard.test_status(ObjectStatusTypes::NoCollisions) {
                     break;
                 }
             }
         }
-        let Ok(mut module) = behavior.try_lock() else {
+        let Ok(mut module) = behavior.try_access() else {
             continue;
         };
         if let Some(collide) = module.get_collide() {
@@ -653,8 +652,7 @@ fn dispatch_behavior_collides(object_id: ObjectId, other: Option<&dyn GameObject
         }
     }
     if other_id != INVALID_ID {
-        if let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(object_id)
-        {
+        if let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(object_id) {
             let contain = obj.try_read().ok().and_then(|guard| guard.get_contain());
             if let Some(contain) = contain {
                 if let Ok(mut contain_guard) = contain.try_lock() {

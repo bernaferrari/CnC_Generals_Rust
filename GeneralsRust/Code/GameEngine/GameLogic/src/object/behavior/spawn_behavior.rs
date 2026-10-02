@@ -103,9 +103,6 @@ fn orphan_template_is_redundant(prev_name: &str, template_name: &str) -> bool {
     prev_name == template_name
 }
 
-
-
-
 /// C++ computeAggregateStates (SpawnBehavior.cpp:982-985):
 /// `setInitialHealth(100.0f * actualHealth)` — `Int` cast truncates toward zero,
 /// no 0..100 clamp. Clamping hid over-population health and changed hive HP.
@@ -802,7 +799,6 @@ impl SpawnBehavior {
         };
         self.spawn_ids.push(new_spawn_id);
 
-
         // Handle exit behavior
         if !reclaimed_orphan {
             let mut exit_guard = exit_interface
@@ -843,19 +839,18 @@ impl SpawnBehavior {
                                         .unwrap_or(0);
                                     barracks_exit_guard
                                         .exit_object_via_door(spawn_id, barracks_door)?;
-                                        drop(barracks_exit_guard);
+                                    drop(barracks_exit_guard);
 
-                                        // Set producer back to parent
-                                        let mut spawn_guard = new_spawn
-                                            .write()
-                                            .map_err(|_| "Failed to write spawn")?;
-                                        let _ = self.with_object(|parent_obj| {
-                                            spawn_guard.set_producer(Some(parent_obj));
-                                        })?;
-                                        drop(spawn_guard);
+                                    // Set producer back to parent
+                                    let mut spawn_guard =
+                                        new_spawn.write().map_err(|_| "Failed to write spawn")?;
+                                    let _ = self.with_object(|parent_obj| {
+                                        spawn_guard.set_producer(Some(parent_obj));
+                                    })?;
+                                    drop(spawn_guard);
 
-                                        self.initial_burst_countdown -= 1;
-                                        barracks_exit_success = true;
+                                    self.initial_burst_countdown -= 1;
+                                    barracks_exit_success = true;
                                 }
                             }
                         }
@@ -892,9 +887,9 @@ impl SpawnBehavior {
                         }
                     }
 
-                    let host_id = bud_host.as_ref().and_then(|host| {
-                        host.read().ok().map(|guard| guard.get_id())
-                    });
+                    let host_id = bud_host
+                        .as_ref()
+                        .and_then(|host| host.read().ok().map(|guard| guard.get_id()));
                     exit_guard.exit_object_by_budding(new_spawn_id, host_id)?;
                 }
             } else {
@@ -969,10 +964,7 @@ impl SpawnBehavior {
                         .read()
                         .map_err(|_| "Failed to read player object")?;
 
-                    if !obj_guard
-                        .get_template()
-                        .is_equivalent_to(template.as_ref())
-                    {
+                    if !obj_guard.get_template().is_equivalent_to(template.as_ref()) {
                         continue;
                     }
 
@@ -1029,9 +1021,9 @@ impl SpawnBehavior {
                 let mut spawn_guard = current_spawn.read().map_err(|_| "Failed to read spawn")?;
 
                 // Count self-tasking spawns
-                for behavior in spawn_guard.get_behavior_modules() {
+                for mut behavior in spawn_guard.get_behavior_modules() {
                     let mut behavior_guard = behavior
-                        .lock()
+                        .access()
                         .map_err(|_| "Failed to lock behavior module")?;
                     if let Some(slaved) = behavior_guard.get_slaved_update_interface() {
                         if slaved.is_self_tasking() {
@@ -1310,9 +1302,9 @@ impl DieModuleInterface for SpawnBehavior {
                         spawn_guard.get_behavior_modules()
                     };
 
-                    for behavior in spawn_behaviors {
+                    for mut behavior in spawn_behaviors {
                         let mut behavior_guard = behavior
-                            .lock()
+                            .access()
                             .map_err(|_| "Failed to lock behavior module")?;
                         if let Some(slaved) = behavior_guard.get_slaved_update_interface() {
                             slaved.on_slaver_die(Some(damage_info))?;
@@ -1383,9 +1375,9 @@ impl DamageModuleInterface for SpawnBehavior {
                         spawn_guard.get_behavior_modules()
                     };
 
-                    for behavior in spawn_behaviors {
+                    for mut behavior in spawn_behaviors {
                         let mut behavior_guard = behavior
-                            .lock()
+                            .access()
                             .map_err(|_| "Failed to lock behavior module")?;
                         if let Some(slaved) = behavior_guard.get_slaved_update_interface() {
                             slaved.on_slaver_damage(damage_info)?;

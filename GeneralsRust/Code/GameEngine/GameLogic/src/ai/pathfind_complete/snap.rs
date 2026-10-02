@@ -129,9 +129,7 @@ impl PathfindingSystem {
         layer: PathfindLayerEnum,
         unit_id: ObjectID,
     ) -> bool {
-        let Ok(goals) = self.goal_cells.lock() else {
-            return true;
-        };
+        let goals = &self.goal_cells;
         let Some(row) = goals.get(cell.x as usize) else {
             return true;
         };
@@ -147,9 +145,7 @@ impl PathfindingSystem {
         cell: GridCoord,
         layer: PathfindLayerEnum,
     ) -> bool {
-        let Ok(goals) = self.goal_cells.lock() else {
-            return false;
-        };
+        let goals = &self.goal_cells;
         let Some(row) = goals.get(cell.x as usize) else {
             return false;
         };
@@ -197,9 +193,7 @@ impl PathfindingSystem {
     /// Returns world position for a unit's tracked pathfind goal cell.
     pub fn goal_position(&self, unit_id: ObjectID, unit_radius: f32, out: &mut Coord3D) -> bool {
         let cell = {
-            let Ok(goals) = self.unit_goal_cells.lock() else {
-                return false;
-            };
+            let goals = &self.unit_goal_cells;
             match goals.get(&unit_id).copied() {
                 Some(c) if c.x >= 0 && c.y >= 0 => c,
                 _ => return false,
@@ -246,9 +240,7 @@ impl PathfindingSystem {
             return MAX_COST;
         }
         {
-            let Ok(pf) = self.pathfinder.lock() else {
-                return MAX_COST;
-            };
+            let pf = &self.pathfinder;
             if !pf.is_passable(start, surfaces, is_crusher) {
                 return MAX_COST;
             }
@@ -325,9 +317,7 @@ impl PathfindingSystem {
                     continue;
                 }
                 {
-                    let Ok(pf) = self.pathfinder.lock() else {
-                        continue;
-                    };
+                    let pf = &self.pathfinder;
                     if !pf.is_passable(nc, surfaces, is_crusher) {
                         continue;
                     }
@@ -376,9 +366,7 @@ impl PathfindingSystem {
 
         // Start must be valid movement.
         {
-            let Ok(pf) = self.pathfinder.lock() else {
-                return false;
-            };
+            let pf = &self.pathfinder;
             if !pf.is_passable(start, surfaces, is_crusher) {
                 return false;
             }
@@ -466,9 +454,7 @@ impl PathfindingSystem {
                     continue;
                 }
                 {
-                    let Ok(pf) = self.pathfinder.lock() else {
-                        continue;
-                    };
+                    let pf = &self.pathfinder;
                     if !pf.is_passable(nc, surfaces, is_crusher) {
                         continue;
                     }
@@ -493,14 +479,15 @@ impl PathfindingSystem {
     ///
     /// Clears prior goal, stamps goalAircraft on ground cells for hover/wings aircraft.
     pub fn update_aircraft_goal(
-        &self,
+        &mut self,
         goal_pos: &Coord3D,
         unit_id: ObjectID,
         radius: i32,
         center_in_cell: bool,
     ) {
         let new_cell = Self::cell_for_unit_position(goal_pos, center_in_cell);
-        if let Ok(goals) = self.unit_goal_cells.lock() {
+        {
+            let goals = &self.unit_goal_cells;
             if let Some(prev) = goals.get(&unit_id) {
                 if prev.x == new_cell.x && prev.y == new_cell.y {
                     return;
@@ -509,9 +496,8 @@ impl PathfindingSystem {
         }
         // C++ removeGoal first (clears both unit + aircraft stamps for prior cell).
         self.remove_goal(unit_id, radius, center_in_cell, PathfindLayerEnum::Ground);
-        if let Ok(mut goals) = self.unit_goal_cells.lock() {
-            goals.insert(unit_id, ICoord2D::new(new_cell.x, new_cell.y));
-        }
+        self.unit_goal_cells
+            .insert(unit_id, ICoord2D::new(new_cell.x, new_cell.y));
         self.set_aircraft_goal_cells(
             unit_id,
             ICoord2D::new(new_cell.x, new_cell.y),
@@ -522,7 +508,7 @@ impl PathfindingSystem {
 
     /// C++ `Pathfinder::updateGoal` (AIPathfind.cpp:9701+).
     pub fn update_goal(
-        &self,
+        &mut self,
         cell: GridCoord,
         unit_id: ObjectID,
         layer: PathfindLayerEnum,
@@ -531,7 +517,8 @@ impl PathfindingSystem {
         interacts_with_bridge_end: bool,
     ) {
         let new_cell = ICoord2D::new(cell.x, cell.y);
-        if let Ok(goals) = self.unit_goal_cells.lock() {
+        {
+            let goals = &self.unit_goal_cells;
             if let Some(prev) = goals.get(&unit_id) {
                 if prev.x == new_cell.x && prev.y == new_cell.y {
                     return;
@@ -539,9 +526,7 @@ impl PathfindingSystem {
             }
         }
         self.remove_goal(unit_id, radius, center_in_cell, layer);
-        if let Ok(mut goals) = self.unit_goal_cells.lock() {
-            goals.insert(unit_id, new_cell);
-        }
+        self.unit_goal_cells.insert(unit_id, new_cell);
         // C++ updateGoal: LAYER_GROUND → doGround; else doLayer, and also doGround
         // when TheTerrainLogic->objectInteractsWithBridgeEnd.
         let do_layer = layer != PathfindLayerEnum::Ground;
@@ -559,17 +544,14 @@ impl PathfindingSystem {
 
     /// C++ `Pathfinder::removeGoal` (AIPathfind.cpp:9861+).
     pub fn remove_goal(
-        &self,
+        &mut self,
         unit_id: ObjectID,
         radius: i32,
         center_in_cell: bool,
         layer: PathfindLayerEnum,
     ) {
         let goal_cell = {
-            let mut goals = match self.unit_goal_cells.lock() {
-                Ok(g) => g,
-                Err(_) => return,
-            };
+            let goals = &mut self.unit_goal_cells;
             goals.remove(&unit_id)
         };
         let Some(goal_cell) = goal_cell else {
@@ -597,7 +579,7 @@ impl PathfindingSystem {
 
     /// C++ `Pathfinder::updatePos` (AIPathfind.cpp:9921+).
     pub fn update_pos(
-        &self,
+        &mut self,
         cell: GridCoord,
         unit_id: ObjectID,
         layer: PathfindLayerEnum,
@@ -609,7 +591,8 @@ impl PathfindingSystem {
             return;
         }
         let new_cell = ICoord2D::new(cell.x, cell.y);
-        if let Ok(pos) = self.unit_pos_cells.lock() {
+        {
+            let pos = &self.unit_pos_cells;
             if let Some(prev) = pos.get(&unit_id) {
                 if prev.x == new_cell.x && prev.y == new_cell.y {
                     return;
@@ -617,9 +600,7 @@ impl PathfindingSystem {
             }
         }
         self.remove_pos(unit_id, radius, center_in_cell, layer);
-        if let Ok(mut pos) = self.unit_pos_cells.lock() {
-            pos.insert(unit_id, new_cell);
-        }
+        self.unit_pos_cells.insert(unit_id, new_cell);
         // C++ updatePos: setPosUnit on layer (+ ground at bridge end).
         let do_layer = layer != PathfindLayerEnum::Ground;
         let do_ground = layer == PathfindLayerEnum::Ground || interacts_with_bridge_end;
@@ -636,17 +617,14 @@ impl PathfindingSystem {
 
     /// C++ `Pathfinder::removePos` — clear previous position footprint.
     pub fn remove_pos(
-        &self,
+        &mut self,
         unit_id: ObjectID,
         radius: i32,
         center_in_cell: bool,
         layer: PathfindLayerEnum,
     ) {
         let cur = {
-            let mut pos = match self.unit_pos_cells.lock() {
-                Ok(p) => p,
-                Err(_) => return,
-            };
+            let pos = &mut self.unit_pos_cells;
             pos.remove(&unit_id)
         };
         let Some(cur) = cur else {
@@ -672,7 +650,7 @@ impl PathfindingSystem {
 
     /// C++ `Pathfinder::removeUnitFromPathfindMap` (AIPathfind.cpp:10082).
     pub fn remove_unit_from_pathfind_map(
-        &self,
+        &mut self,
         unit_id: ObjectID,
         radius: i32,
         center_in_cell: bool,
@@ -702,7 +680,7 @@ impl PathfindingSystem {
     /// For each cell in bridge bounds: if ground height + LAYER_Z_CLOSE_ENOUGH_F
     /// exceeds bridge deck height, mark ground cell BridgeImpassable (unless
     /// already Obstacle). Entry-point cells keep Clear + connect-layer stamps.
-    pub fn classify_bridge_cells(&self, bridge_idx: usize) {
+    pub fn classify_bridge_cells(&mut self, bridge_idx: usize) {
         let Some(bridge) = self.bridges.get(bridge_idx) else {
             return;
         };
@@ -725,13 +703,15 @@ impl PathfindingSystem {
             }
         };
 
-        let Ok(mut pathfinder) = self.pathfinder.lock() else {
-            return;
-        };
+        let pathfinder = &mut self.pathfinder;
         for bx in lo.x..=hi.x {
             for by in lo.y..=hi.y {
                 let coord = GridCoord::new(bx, by);
-                if !self.is_valid_coord(coord) {
+                if coord.x < 0
+                    || coord.y < 0
+                    || coord.x as usize >= self.width
+                    || coord.y as usize >= self.height
+                {
                     continue;
                 }
                 let is_entry = bridge
@@ -777,7 +757,8 @@ impl PathfindingSystem {
         let lo = self.bridges[idx].bounds.0;
         let hi = self.bridges[idx].bounds.1;
         if destroyed {
-            if let Ok(mut pathfinder) = self.pathfinder.lock() {
+            {
+                let pathfinder = &mut self.pathfinder;
                 for bx in lo.x..=hi.x {
                     for by in lo.y..=hi.y {
                         pathfinder.set_cell_type(

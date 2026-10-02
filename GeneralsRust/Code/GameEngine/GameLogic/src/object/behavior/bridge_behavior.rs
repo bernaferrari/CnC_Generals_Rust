@@ -1136,8 +1136,8 @@ impl BridgeBehavior {
         f: impl FnOnce(&mut dyn BridgeScaffoldBehaviorInterface) -> R,
     ) -> Option<R> {
         let behaviors = obj.read().ok()?.get_behavior_modules();
-        for behavior in behaviors {
-            if let Ok(mut guard) = behavior.lock() {
+        for mut behavior in behaviors {
+            if let Ok(mut guard) = behavior.access() {
                 if let Some(interface) = guard.get_bridge_scaffold_behavior_interface() {
                     return Some(f(interface));
                 }

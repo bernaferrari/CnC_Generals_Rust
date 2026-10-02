@@ -51,7 +51,7 @@ impl GroupPathfinder {
     /// Returns individual paths for each unit maintaining formation
     pub fn find_group_paths(
         &mut self,
-        pathfinder: &PathfindingSystem,
+        pathfinder: &mut PathfindingSystem,
         unit_ids: &[ObjectID],
         unit_positions: &HashMap<ObjectID, Coord3D>,
         goal: Coord3D,
@@ -225,7 +225,7 @@ impl GroupPathfinder {
     /// Returns adjusted positions that avoid obstacles
     pub fn adjust_formation_for_terrain(
         &self,
-        pathfinder: &PathfindingSystem,
+        pathfinder: &mut PathfindingSystem,
         positions: &HashMap<ObjectID, Coord3D>,
         surfaces: u32,
     ) -> HashMap<ObjectID, Coord3D> {
@@ -251,7 +251,7 @@ impl GroupPathfinder {
     /// Find nearest passable cell to given coordinate
     fn find_nearest_passable(
         &self,
-        pathfinder: &PathfindingSystem,
+        pathfinder: &mut PathfindingSystem,
         start: GridCoord,
         surfaces: u32,
         max_radius: i32,
@@ -328,7 +328,7 @@ impl FlowField {
     }
 
     /// Generate flow field from pathfinding grid
-    pub fn generate(&mut self, _pathfinder: &PathfindingSystem, _surfaces: u32) {
+    pub fn generate(&mut self, _pathfinder: &mut PathfindingSystem, _surfaces: u32) {
         // Dijkstra's algorithm working backwards from goal
         use std::cmp::Reverse;
         use std::collections::BinaryHeap;
@@ -461,7 +461,7 @@ mod tests {
 
     #[test]
     fn adjust_formation_moves_blocked_positions_to_nearby_passable_cells() {
-        let pathfinder = PathfindingSystem::new(16, 16);
+        let mut pathfinder = PathfindingSystem::new(16, 16);
         let blocked = GridCoord::new(5, 5);
         pathfinder.set_cell_type(
             &pathfinder.world_pos_for_coord(blocked, PathfindLayerEnum::Ground),
@@ -476,7 +476,7 @@ mod tests {
 
         let group_pathfinder = GroupPathfinder::new(20.0);
         let adjusted =
-            group_pathfinder.adjust_formation_for_terrain(&pathfinder, &positions, SURFACE_GROUND);
+            group_pathfinder.adjust_formation_for_terrain(&mut pathfinder, &positions, SURFACE_GROUND);
         let adjusted_coord = GridCoord::from_world(adjusted.get(&1).unwrap());
 
         assert_ne!(adjusted_coord, blocked);

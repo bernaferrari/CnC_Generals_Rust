@@ -392,8 +392,7 @@ impl ConvertToHijackedVehicleCrateCollide {
             if let Ok(hijacker_guard) = hijacker.read() {
                 let hijacker_name = hijacker_guard.get_name().clone();
                 let hijacker_level = hijacker_guard.get_veterancy_level();
-                let hijacker_has_tracker =
-                    hijacker_guard.with_experience_tracker(|_| ()).is_some();
+                let hijacker_has_tracker = hijacker_guard.with_experience_tracker(|_| ()).is_some();
                 drop(hijacker_guard);
 
                 if !hijacker_name.is_empty() {
@@ -450,8 +449,8 @@ impl ConvertToHijackedVehicleCrateCollide {
                     })
                 });
             if !configured {
-                for behavior in hijacker_guard.get_behavior_modules() {
-                    let Ok(mut behavior) = behavior.lock() else {
+                for mut behavior in hijacker_guard.get_behavior_modules() {
+                    let Ok(mut behavior) = behavior.access() else {
                         continue;
                     };
                     let Some(hijacker_update) = behavior.get_hijacker_control_interface() else {
@@ -507,8 +506,8 @@ impl ConvertToHijackedVehicleCrateCollide {
             .read()
             .map_err(|_| GameError::LockError)?
             .get_behavior_modules();
-        for module in behavior_modules {
-            if let Ok(mut guard) = module.lock() {
+        for mut module in behavior_modules {
+            if let Ok(mut guard) = module.access() {
                 if guard.get_eject_pilot_die_interface().is_some() {
                     return Ok(true);
                 }
@@ -530,8 +529,7 @@ impl LegacyCollideAdapter for ConvertToHijackedVehicleCrateCollide {
         if ConvertToHijackedVehicleCrateCollide::is_valid_to_execute(self, other_id)? {
             let success =
                 ConvertToHijackedVehicleCrateCollide::execute_crate_behavior(self, other_id)?;
-            if let Some(other) = crate::object::registry::OBJECT_REGISTRY.get_object(other_id)
-            {
+            if let Some(other) = crate::object::registry::OBJECT_REGISTRY.get_object(other_id) {
                 self.base
                     .finish_execution_attempt(&other, success)
                     .map_err(GameError::from)?;

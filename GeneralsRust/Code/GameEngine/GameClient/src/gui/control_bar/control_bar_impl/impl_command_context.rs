@@ -863,8 +863,8 @@ impl ControlBar {
         };
 
         let mut found_pu = false;
-        for module in obj.get_behavior_modules() {
-            if let Ok(mut guard) = module.lock() {
+        for mut module in obj.get_behavior_modules() {
+            if let Ok(mut guard) = module.access() {
                 if let Some(pu) = guard.get_production_update_interface() {
                     found_pu = true;
                     for entry in pu.get_queue_entries() {
@@ -1182,8 +1182,8 @@ fn leftover_ignores_underpowered_clears_disabled(
 }
 
 fn leftover_production_count(obj: &gamelogic::object::Object) -> Option<usize> {
-    let arc = obj.get_production_update_interface()?;
-    let mut guard = arc.lock().ok()?;
+    let mut behavior = obj.get_production_update_interface()?;
+    let mut guard = behavior.access().ok()?;
     let pu = guard.get_production_update_interface()?;
     Some(pu.get_queue_size())
 }
@@ -1209,10 +1209,10 @@ fn leftover_production_update_present(obj: &gamelogic::object::Object) -> bool {
 }
 
 fn leftover_upgrade_in_queue(obj: &gamelogic::object::Object, upgrade_name: &str) -> bool {
-    let Some(arc) = obj.get_production_update_interface() else {
+    let Some(mut behavior) = obj.get_production_update_interface() else {
         return false;
     };
-    let Ok(mut guard) = arc.lock() else {
+    let Ok(mut guard) = behavior.access() else {
         return false;
     };
     let Some(pu) = guard.get_production_update_interface() else {

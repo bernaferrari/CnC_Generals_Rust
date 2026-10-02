@@ -255,7 +255,6 @@ impl ObjectCreationNugget for DeliverPayloadNugget {
         None
     }
 
-
     fn create_with_angle(
         &self,
         ctx: &CreationContext<'_>,
@@ -644,7 +643,6 @@ impl ObjectCreationNugget for FireWeaponNugget {
     ) -> CreationResult {
         None
     }
-
 }
 
 /// AttackNugget - makes object attack a position
@@ -703,8 +701,8 @@ impl ObjectCreationNugget for AttackNugget {
         }
 
         // C++ always asks RadiusDecalUpdate to create the decal when the module exists.
-        for behavior in primary_object.get_behavior_modules() {
-            let Ok(mut behavior) = behavior.lock() else {
+        for mut behavior in primary_object.get_behavior_modules() {
+            let Ok(mut behavior) = behavior.access() else {
                 continue;
             };
             let Some(radius_update) = behavior.get_radius_decal_update_interface() else {
@@ -731,7 +729,6 @@ impl ObjectCreationNugget for AttackNugget {
     ) -> CreationResult {
         None
     }
-
 }
 
 /// ApplyRandomForceNugget - applies random forces to an object

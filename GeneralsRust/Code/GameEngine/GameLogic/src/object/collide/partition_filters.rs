@@ -650,7 +650,7 @@ impl PartitionFilterStealthedAndUndetected {
         let disguised_player_index = target
             .get_behavior_modules()
             .into_iter()
-            .filter_map(|module| module.lock().ok()?.get_disguised_player_index())
+            .filter_map(|mut module| module.access().ok()?.get_disguised_player_index())
             .next();
         let Some(disguised_player_index) = disguised_player_index else {
             return None;

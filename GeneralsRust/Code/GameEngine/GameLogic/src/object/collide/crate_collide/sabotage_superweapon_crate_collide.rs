@@ -332,8 +332,8 @@ impl SabotageSuperweaponCrateCollide {
 
         if let Ok(other_lock) = other.read() {
             let behavior_modules = other_lock.get_behavior_modules();
-            for module in behavior_modules {
-                if let Ok(mut module_guard) = module.lock() {
+            for mut module in behavior_modules {
+                if let Ok(mut module_guard) = module.access() {
                     if let Some(special_power) = module_guard.get_special_power() {
                         let _ = special_power.start_power_recharge();
                     }
@@ -360,8 +360,7 @@ impl LegacyCollideAdapter for SabotageSuperweaponCrateCollide {
 
         if SabotageSuperweaponCrateCollide::is_valid_to_execute(self, other_id)? {
             let success = SabotageSuperweaponCrateCollide::execute_crate_behavior(self, other_id)?;
-            if let Some(other) = crate::object::registry::OBJECT_REGISTRY.get_object(other_id)
-            {
+            if let Some(other) = crate::object::registry::OBJECT_REGISTRY.get_object(other_id) {
                 self.base
                     .finish_execution_attempt(&other, success)
                     .map_err(GameError::from)?;

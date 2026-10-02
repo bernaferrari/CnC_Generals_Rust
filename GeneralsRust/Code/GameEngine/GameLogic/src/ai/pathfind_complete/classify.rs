@@ -67,9 +67,7 @@ impl PathfindingSystem {
         if original_waypoints.len() < 2 || !self.is_map_ready {
             return PathResult::none();
         }
-        if let Ok(mut zones) = self.zones.lock() {
-            zones.set_all_passable();
-        }
+        self.zones.set_all_passable();
         let (radius, center_in_cell) = Self::compute_radius_and_center(unit_radius);
         let start = Self::cell_for_unit_position(from, center_in_cell);
         if !self.is_valid_coord(start) {
@@ -275,9 +273,7 @@ impl PathfindingSystem {
         if !self.is_map_ready {
             return PathResult::none();
         }
-        if let Ok(mut zones) = self.zones.lock() {
-            zones.set_all_passable();
-        }
+        self.zones.set_all_passable();
 
         let (radius, center_in_cell) = Self::compute_radius_and_center(unit_radius);
         let (other_r, other_center) = Self::compute_radius_and_center(other_radius);
@@ -289,9 +285,7 @@ impl PathfindingSystem {
         // C++ tunneling when current cell invalid movement or enemyFixed.
         self.is_tunneling = false;
         {
-            let Ok(pf) = self.pathfinder.lock() else {
-                return PathResult::none();
-            };
+            let pf = &self.pathfinder;
             if !pf.is_passable(start, surfaces, is_crusher) {
                 self.is_tunneling = true;
             }
@@ -445,9 +439,7 @@ impl PathfindingSystem {
                     continue;
                 }
                 {
-                    let Ok(pf) = self.pathfinder.lock() else {
-                        continue;
-                    };
+                    let pf = &self.pathfinder;
                     if !self.is_tunneling && !pf.is_passable(nc, surfaces, is_crusher) {
                         continue;
                     }
@@ -644,9 +636,7 @@ impl PathfindingSystem {
                         }
                         // C++ PathfindCell::getPosUnit() — standing occupancy, not goal claim.
                         let pos_unit = {
-                            let Ok(goals) = self.goal_cells.lock() else {
-                                continue;
-                            };
+                            let goals = &self.goal_cells;
                             goals
                                 .get(i as usize)
                                 .and_then(|row| row.get(j as usize))
@@ -714,10 +704,9 @@ impl PathfindingSystem {
     }
 
     pub fn classify_map(&mut self) {
-        let pathfinder = self.pathfinder.lock().unwrap();
+        let pathfinder = &self.pathfinder;
         let w = pathfinder.width();
         let h = pathfinder.height();
-        drop(pathfinder);
 
         for x in 0..w {
             for y in 0..h {
@@ -727,15 +716,11 @@ impl PathfindingSystem {
         self.expand_cliff_cells_like_cpp();
 
         // Recalculate zones after full classification
-        if let Ok(mut zones) = self.zones.lock() {
-            zones.calculate_zones();
-        }
+        self.zones.calculate_zones();
     }
 
-    pub(crate) fn expand_cliff_cells_like_cpp(&self) {
-        let Ok(mut pathfinder) = self.pathfinder.lock() else {
-            return;
-        };
+    pub(crate) fn expand_cliff_cells_like_cpp(&mut self) {
+        let pathfinder = &mut self.pathfinder;
         let w = pathfinder.width() as i32;
         let h = pathfinder.height() as i32;
 
@@ -793,7 +778,7 @@ impl PathfindingSystem {
     /// Matches C++ Pathfinder::classifyMapCell() at AIPathfind.cpp:4485.
     ///
     /// Sets cell type to Clear/Cliff/Water while preserving existing obstacles.
-    pub fn classify_map_cell(&self, x: i32, y: i32) {
+    pub fn classify_map_cell(&mut self, x: i32, y: i32) {
         if x < 0 || y < 0 {
             return;
         }
@@ -803,12 +788,7 @@ impl PathfindingSystem {
         let bottom_right_x = top_left_x + PATHFIND_CELL_SIZE_F;
         let bottom_right_y = top_left_y + PATHFIND_CELL_SIZE_F;
 
-        let has_obstacle = self
-            .pathfinder
-            .lock()
-            .ok()
-            .and_then(|pathfinder| pathfinder.get_cell_type(coord))
-            == Some(PathfindCellType::Obstacle);
+        let has_obstacle = self.pathfinder.get_cell_type(coord) == Some(PathfindCellType::Obstacle);
 
         let mut cell_type = PathfindCellType::Clear;
         if let Some(terrain) = TheTerrainLogic::get() {
@@ -828,9 +808,7 @@ impl PathfindingSystem {
             cell_type = PathfindCellType::Obstacle;
         }
 
-        if let Ok(mut pathfinder) = self.pathfinder.lock() {
-            pathfinder.set_cell_type(coord, cell_type);
-        }
+        self.pathfinder.set_cell_type(coord, cell_type);
     }
 
     /// Mark/remove an object's footprint cells as obstacles.
@@ -936,9 +914,7 @@ impl PathfindingSystem {
         }
 
         if did {
-            if let Ok(mut zones) = self.zones.lock() {
-                zones.mark_zones_dirty(insert);
-            }
+            self.zones.mark_zones_dirty(insert);
             self.refresh_pinched_bounds(lo_x, lo_y, hi_x, hi_y);
         }
     }
@@ -1037,9 +1013,7 @@ impl PathfindingSystem {
         }
 
         if did {
-            if let Ok(mut zones) = self.zones.lock() {
-                zones.mark_zones_dirty(insert);
-            }
+            self.zones.mark_zones_dirty(insert);
             self.refresh_pinched_bounds(lo_x, lo_y, hi_x, hi_y);
         }
     }
@@ -1060,7 +1034,7 @@ impl PathfindingSystem {
     }
 
     pub(crate) fn set_or_clear_obstacle_cell(
-        &self,
+        &mut self,
         cx: i32,
         cy: i32,
         obj_id: ObjectID,
@@ -1077,7 +1051,8 @@ impl PathfindingSystem {
         let is_transparent = OBJECT_REGISTRY
             .with_object(obj_id, |g| g.is_kind_of(KindOf::CanSeeThrough))
             .unwrap_or(false);
-        if let Ok(mut pathfinder) = self.pathfinder.lock() {
+        {
+            let pathfinder = &mut self.pathfinder;
             if insert {
                 pathfinder.set_cell_type(coord, PathfindCellType::Obstacle);
                 pathfinder.set_cell_obstacle_id(coord, obj_id, is_fence, is_transparent);
@@ -1087,12 +1062,10 @@ impl PathfindingSystem {
             } else {
                 false
             }
-        } else {
-            false
         }
     }
 
-    pub(crate) fn refresh_pinched_bounds(&self, lo_x: i32, lo_y: i32, hi_x: i32, hi_y: i32) {
+    pub(crate) fn refresh_pinched_bounds(&mut self, lo_x: i32, lo_y: i32, hi_x: i32, hi_y: i32) {
         if lo_x == i32::MAX {
             return;
         }
@@ -1101,8 +1074,6 @@ impl PathfindingSystem {
             (hi_x + 2).min(self.width as i32 - 1),
             (hi_y + 2).min(self.height as i32 - 1),
         );
-        if let Ok(mut pathfinder) = self.pathfinder.lock() {
-            pathfinder.refresh_pinched_cells_in_bounds(lo, hi);
-        }
+        self.pathfinder.refresh_pinched_cells_in_bounds(lo, hi);
     }
 }

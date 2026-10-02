@@ -26,8 +26,8 @@ pub(super) fn selection_can_override_special_power_destination(
 
         let mut matches_power = special_power_type == SPECIAL_POWER_INVALID;
         if !matches_power {
-            for behavior_arc in sel_guard.get_behavior_modules() {
-                let Ok(behavior_lock) = behavior_arc.lock() else {
+            for mut behavior_arc in sel_guard.get_behavior_modules() {
+                let Ok(behavior_lock) = behavior_arc.access() else {
                     continue;
                 };
                 let Some(sp_module) = behavior_lock.get_special_power_module_interface_const()
@@ -50,8 +50,8 @@ pub(super) fn selection_can_override_special_power_destination(
         }
 
         let mut can_override = false;
-        for behavior_arc in sel_guard.get_behavior_modules() {
-            let Ok(mut behavior_lock) = behavior_arc.lock() else {
+        for mut behavior_arc in sel_guard.get_behavior_modules() {
+            let Ok(mut behavior_lock) = behavior_arc.access() else {
                 continue;
             };
             let Some(update) = behavior_lock.get_special_power_update_interface() else {

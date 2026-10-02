@@ -179,7 +179,7 @@ pub trait ObjectLockExt {
 }
 
 struct SpecialAbilityUpdateProxy {
-    behavior: Arc<Mutex<dyn BehaviorModuleInterface>>,
+    behavior: BehaviorInterfaceHandle,
 }
 
 #[allow(dead_code)]
@@ -188,7 +188,7 @@ struct ModuleSpecialAbilityUpdateProxy {
 }
 
 struct ExitInterfaceProxy {
-    behavior: Arc<Mutex<dyn BehaviorModuleInterface>>,
+    behavior: BehaviorInterfaceHandle,
 }
 
 struct ContainExitInterfaceProxy {
@@ -1342,7 +1342,7 @@ impl SpecialAbilityUpdate for SpecialAbilityUpdateProxy {
         &mut self,
         frame_time: f32,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        if let Ok(mut guard) = self.behavior.lock() {
+        if let Ok(mut guard) = self.behavior.access() {
             if let Some(update) = guard.get_special_power_update_interface() {
                 return update.update_special_power(frame_time);
             }
@@ -1351,7 +1351,8 @@ impl SpecialAbilityUpdate for SpecialAbilityUpdateProxy {
     }
 
     fn is_ability_active(&self) -> bool {
-        if let Ok(mut guard) = self.behavior.lock() {
+        let mut behavior = self.behavior.clone();
+        if let Ok(mut guard) = behavior.access() {
             if let Some(update) = guard.get_special_power_update_interface() {
                 return update.is_active();
             }
@@ -1404,7 +1405,8 @@ impl ModuleExitInterfaceProxy {
 
 impl ExitInterface for ExitInterfaceProxy {
     fn can_exit(&self, object_id: ObjectID) -> bool {
-        if let Ok(mut guard) = self.behavior.lock() {
+        let mut behavior = self.behavior.clone();
+        if let Ok(mut guard) = behavior.access() {
             if let Some(exit_interface) = guard.get_update_exit_interface() {
                 return exit_interface.can_exit(object_id);
             }
@@ -1413,7 +1415,7 @@ impl ExitInterface for ExitInterfaceProxy {
     }
 
     fn exit(&mut self, object_id: ObjectID) -> bool {
-        if let Ok(mut guard) = self.behavior.lock() {
+        if let Ok(mut guard) = self.behavior.access() {
             if let Some(exit_interface) = guard.get_update_exit_interface() {
                 return exit_interface.exit(object_id);
             }
@@ -1422,7 +1424,8 @@ impl ExitInterface for ExitInterfaceProxy {
     }
 
     fn get_rally_point(&self) -> Result<Option<Coord3D>, Box<dyn std::error::Error + Send + Sync>> {
-        if let Ok(mut guard) = self.behavior.lock() {
+        let mut behavior = self.behavior.clone();
+        if let Ok(mut guard) = behavior.access() {
             if let Some(exit_interface) = guard.get_update_exit_interface() {
                 return exit_interface.get_rally_point();
             }
@@ -1435,7 +1438,7 @@ impl ExitInterface for ExitInterfaceProxy {
         spawner: Option<&crate::object::Object>,
         spawn: Option<&crate::object::Object>,
     ) -> crate::modules::ExitDoorType {
-        if let Ok(mut guard) = self.behavior.lock() {
+        if let Ok(mut guard) = self.behavior.access() {
             if let Some(exit_interface) = guard.get_update_exit_interface() {
                 return exit_interface.reserve_door_for_exit(spawner, spawn);
             }
@@ -1444,7 +1447,7 @@ impl ExitInterface for ExitInterfaceProxy {
     }
 
     fn unreserve_door_for_exit(&mut self, door: crate::modules::ExitDoorType) {
-        if let Ok(mut guard) = self.behavior.lock() {
+        if let Ok(mut guard) = self.behavior.access() {
             if let Some(exit_interface) = guard.get_update_exit_interface() {
                 exit_interface.unreserve_door_for_exit(door);
             }
@@ -1468,7 +1471,7 @@ impl ExitInterface for ExitInterfaceProxy {
             return Ok(());
         }
 
-        if let Ok(mut guard) = self.behavior.lock() {
+        if let Ok(mut guard) = self.behavior.access() {
             if let Some(exit_interface) = guard.get_update_exit_interface() {
                 return exit_interface.exit_object_via_door(obj_id, door);
             }
@@ -1489,7 +1492,7 @@ impl ExitInterface for ExitInterfaceProxy {
             return Ok(());
         };
 
-        if let Ok(mut guard) = self.behavior.lock() {
+        if let Ok(mut guard) = self.behavior.access() {
             if let Some(exit_interface) = guard.get_update_exit_interface() {
                 return exit_interface.exit_object_in_a_hurry(obj_id);
             }
@@ -1511,7 +1514,7 @@ impl ExitInterface for ExitInterfaceProxy {
             return Ok(());
         };
 
-        if let Ok(mut guard) = self.behavior.lock() {
+        if let Ok(mut guard) = self.behavior.access() {
             if let Some(exit_interface) = guard.get_update_exit_interface() {
                 return exit_interface.exit_object_by_budding(obj_id, host_id);
             }
@@ -2052,8 +2055,7 @@ pub const MAX_PLAYER_COUNT: usize = crate::common::MAX_PLAYER_COUNT;
 pub const WEAPONSLOT_COUNT: usize = 3;
 pub const DISABLED_COUNT: usize = 13;
 pub const NUM_SLEEP_HELPERS: usize = 8;
-/// C++ `BuildAssistant.h:25` `enum { CONSTRUCTION_COMPLETE = -1 }`.
-pub const CONSTRUCTION_COMPLETE: Real = -1.0;
+pub use crate::common::CONSTRUCTION_COMPLETE;
 pub const NEVER: UnsignedInt = 0xFFFFFFFF;
 pub const INVALID_ID: ObjectID = 0;
 
@@ -2387,8 +2389,8 @@ pub struct Object {
     original_team_name: AsciiString,
     indicator_color: Color,
 
-    // Modules - using Arc<Mutex<>> for thread safety
-    behaviors: Vec<Arc<Mutex<dyn BehaviorModuleInterface>>>,
+    // Ordered owned behavior views; mutable module state remains in ModuleEntry.
+    behaviors: Vec<BehaviorInterfaceHandle>,
     modules: Vec<Arc<ModuleEntry>>,
     // Interface handle lists index into `modules` (C++ keeps m_moduleList plus
     // small friend arrays; entries are never removed individually, so the
@@ -2588,6 +2590,10 @@ fn weapon_set_model_condition(flag: WeaponSetType) -> Option<ModelConditionFlags
 }
 
 // Inherent Object methods and later trait impls live in sibling files.
+mod behavior_interfaces;
+pub use behavior_interfaces::{
+    BehaviorAccessError, BehaviorInterfaceHandle, BehaviorInterfaceLease,
+};
 mod capture;
 mod command_buttons;
 mod command_weapon;

@@ -7,6 +7,7 @@ use game_engine::common::thing::module::BaseModuleData;
 use game_engine::common::thing::module_factory::register_module_override;
 use game_engine::system::xfer_load::XferLoad;
 use game_engine::system::xfer_save::XferSave;
+use std::any::Any;
 use std::io::Cursor;
 
 const PROBE_NAME: &str = "FactoryCreationBorrowProbe";
@@ -17,6 +18,7 @@ struct CreationProbe {
     owner_id: ObjectID,
     data: Arc<dyn ModuleData>,
     created: bool,
+    delete_calls: u32,
 }
 
 impl Module for CreationProbe {
@@ -45,6 +47,17 @@ impl Module for CreationProbe {
         assert!(owner.has_ctor_helpers(), "helpers precede callbacks");
         self.created = true;
     }
+
+    fn on_delete(&mut self) {
+        let owner = OBJECT_REGISTRY
+            .get_object(self.owner_id)
+            .expect("published owner");
+        let mut owner = owner
+            .try_write()
+            .expect("detached callback must release the owner borrow");
+        self.delete_calls += 1;
+        owner.construction_percent = self.delete_calls as f32;
+    }
 }
 
 impl Snapshotable for CreationProbe {
@@ -64,6 +77,7 @@ fn probe_factory(thing: Arc<dyn ModuleThing>, data: Arc<dyn ModuleData>) -> Box<
         owner_id: thing.as_object().expect("object module").get_object_id(),
         data,
         created: false,
+        delete_calls: 0,
     })
 }
 
@@ -140,6 +154,9 @@ impl ThingTemplate for AuthoredBodyTemplate {
 
 #[test]
 fn factory_authored_body_creates_once_and_restores_live_health() {
+    let _lock = crate::test_sync::lock();
+    crate::contain_module_overrides::register_active_body_override_for_test()
+        .expect("real ActiveBody descriptor");
     register_module_override(
         PROBE_NAME,
         ModuleType::Behavior,
@@ -242,4 +259,149 @@ fn factory_authored_body_creates_once_and_restores_live_health() {
     // saved id in the payload. Remove both original registrations explicitly.
     TheGameLogic::remove_object(saved_id);
     TheGameLogic::remove_object(loaded_id);
+}
+
+#[test]
+fn factory_behavior_views_keep_identity_and_release_owner_before_callbacks() {
+    let _lock = crate::test_sync::lock();
+    crate::contain_module_overrides::register_active_body_override_for_test()
+        .expect("real ActiveBody descriptor");
+    register_module_override(
+        PROBE_NAME,
+        ModuleType::Behavior,
+        probe_factory,
+        probe_data_factory,
+    )
+    .expect("probe descriptor");
+    init_module_factory().expect("module factory");
+    get_module_factory()
+        .unwrap()
+        .as_mut()
+        .unwrap()
+        .add_module_internal(
+            Some(probe_factory),
+            Some(probe_data_factory),
+            ModuleType::Behavior,
+            &AsciiString::from(PROBE_NAME),
+            ModuleInterfaceType::NONE,
+        );
+    let mut factory = ObjectFactory::new();
+    factory.next_object_id = 91_411;
+    let mut template = AuthoredBodyTemplate::new("DetachedBehaviorProbe", true);
+    template.modules[0].interface_mask = ModuleInterfaceType::DESTROY;
+    factory
+        .template_cache
+        .insert("DetachedBehaviorProbe".into(), Arc::new(template));
+    let first_id = factory
+        .create_object(
+            "DetachedBehaviorProbe",
+            Coord3D::default(),
+            None,
+            ObjectCreationFlags::NO_DRAWABLE,
+        )
+        .expect("first factory object");
+    let second_id = factory
+        .create_object(
+            "DetachedBehaviorProbe",
+            Coord3D::default(),
+            None,
+            ObjectCreationFlags::NO_DRAWABLE,
+        )
+        .expect("second factory object");
+    let first = factory
+        .get_object(first_id)
+        .unwrap()
+        .get_base_object()
+        .unwrap();
+    let second = factory
+        .get_object(second_id)
+        .unwrap()
+        .get_base_object()
+        .unwrap();
+    let (mut detached, entry, names) = {
+        let object = first.read().unwrap();
+        let detached = object
+            .find_update_behavior(PROBE_NAME)
+            .expect("probe behavior");
+        let names: Vec<String> = object
+            .get_behavior_modules()
+            .into_iter()
+            .map(|mut view| view.access().unwrap().get_module_name().to_string())
+            .collect();
+        (detached, object.modules[0].clone(), names)
+    };
+    assert_eq!(
+        &names[..3],
+        [
+            "ObjectSMCHelper",
+            "StatusDamageHelper",
+            "SubdualDamageHelper"
+        ]
+    );
+    assert_eq!(&names[names.len() - 2..], [PROBE_NAME, "ActiveBody"]);
+    assert!(Arc::ptr_eq(
+        detached.template_entry_for_test().unwrap(),
+        &entry
+    ));
+    let mut cloned = detached.clone();
+    assert!(Arc::ptr_eq(
+        cloned.template_entry_for_test().unwrap(),
+        &entry
+    ));
+    {
+        let mut lease = detached.access().unwrap();
+        assert!(
+            lease.get_damage().is_none(),
+            "mask controls damage visibility"
+        );
+        assert!(lease.get_production_update_interface().is_none());
+        assert!(
+            lease.get_body().is_none(),
+            "view must not expose extra interfaces"
+        );
+        assert!(
+            !lease.as_any().is::<CreationProbe>(),
+            "view does not downcast to the module"
+        );
+        lease.get_destroy().unwrap().on_destroy(first_id);
+    }
+    assert_eq!(first.read().unwrap().construction_percent, 1.0);
+    assert_eq!(
+        second.read().unwrap().construction_percent,
+        CONSTRUCTION_COMPLETE
+    );
+    cloned
+        .access()
+        .unwrap()
+        .get_destroy()
+        .unwrap()
+        .on_destroy(first_id);
+    assert_eq!(first.read().unwrap().construction_percent, 2.0);
+    entry.with_module(|module| {
+        let probe = (module as &mut dyn Any)
+            .downcast_mut::<CreationProbe>()
+            .unwrap();
+        assert!(probe.created);
+        assert_eq!(
+            probe.delete_calls, 2,
+            "both views mutate the same factory module"
+        );
+    });
+    // Removing the owner's list does not retarget detached views to another
+    // object or copy module state. The retained Entry is the same authority.
+    first.write().unwrap().modules.clear();
+    first.write().unwrap().behaviors.clear();
+    cloned
+        .access()
+        .unwrap()
+        .get_destroy()
+        .unwrap()
+        .on_destroy(first_id);
+    assert_eq!(first.read().unwrap().construction_percent, 3.0);
+    assert_eq!(
+        second.read().unwrap().construction_percent,
+        CONSTRUCTION_COMPLETE
+    );
+    TheGameLogic::remove_object(first_id);
+    TheGameLogic::remove_object(second_id);
 }

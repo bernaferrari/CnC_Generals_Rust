@@ -1089,8 +1089,8 @@ impl GenerateMinefieldBehavior {
                 .read()
                 .map(|guard| guard.get_behavior_modules())
                 .unwrap_or_default();
-            for behavior in behaviors {
-                if let Ok(mut guard) = behavior.lock() {
+            for mut behavior in behaviors {
+                if let Ok(mut guard) = behavior.access() {
                     if let Some(lmi) = guard.get_land_mine_interface() {
                         lmi.set_scoot_parms(&owner_pos, position);
                         break;

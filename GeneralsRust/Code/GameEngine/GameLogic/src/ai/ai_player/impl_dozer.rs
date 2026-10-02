@@ -184,7 +184,8 @@ impl AIPlayer {
 
         let mut path_ok = false;
         if let Some(ref loco_set) = loco_set {
-            let ai_store = the_ai(); if let Ok(ai_guard) = ai_store.read() {
+            let ai_store = the_ai();
+            if let Ok(ai_guard) = ai_store.read() {
                 if let Some(pf_arc) = ai_guard.pathfinder() {
                     if let Ok(pf) = pf_arc.read() {
                         path_ok = pf.client_safe_quick_does_path_exist(loco_set, &dpos, &pos);
@@ -741,8 +742,8 @@ impl AIPlayer {
         }
 
         if !checked {
-            for behavior in behaviors {
-                let Ok(mut behavior_guard) = behavior.lock() else {
+            for mut behavior in behaviors {
+                let Ok(mut behavior_guard) = behavior.access() else {
                     continue;
                 };
                 let Some(prod) = behavior_guard.get_production_update_interface() else {
@@ -1080,7 +1081,8 @@ impl AIPlayer {
             (origin, tid)
         };
 
-        let ai_store = the_ai();let max_recruit = ai_store
+        let ai_store = the_ai();
+        let max_recruit = ai_store
             .read()
             .ok()
             .and_then(|ai| Some(&*ai.get_ai_data()).map(|d| d.max_recruit_distance))

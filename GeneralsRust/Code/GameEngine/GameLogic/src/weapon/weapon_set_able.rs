@@ -358,8 +358,8 @@ fn disguised_as_non_enemy(source: &crate::object::Object, victim: &crate::object
     drop(stealth_guard);
 
     let mut disguised_index = None;
-    for behavior in victim.get_behavior_modules() {
-        let Ok(mut guard) = behavior.lock() else {
+    for mut behavior in victim.get_behavior_modules() {
+        let Ok(mut guard) = behavior.access() else {
             continue;
         };
         if let Some(idx) = guard.get_disguised_player_index() {
@@ -558,9 +558,9 @@ fn spawn_slave_result(
 ) -> Option<CanAttackResult> {
     let source_arc = crate::helpers::TheGameLogic::find_object_by_id(source_obj)?;
     let source_guard = source_arc.read().ok()?;
-    let spawn_mod = source_guard.get_spawn_behavior_interface_public()?;
+    let mut spawn_mod = source_guard.get_spawn_behavior_interface_public()?;
     drop(source_guard);
-    let mut spawn_guard = spawn_mod.lock().ok()?;
+    let mut spawn_guard = spawn_mod.access().ok()?;
 
     // C++ WeaponSet.cpp:741-744 + SpawnBehavior.cpp:424-432: victim may be
     // NULL for ground attacks; slaves still run getAbleToUseWeaponAgainstTarget.

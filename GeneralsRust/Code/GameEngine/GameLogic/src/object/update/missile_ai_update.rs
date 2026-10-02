@@ -1371,7 +1371,7 @@ impl MissileAIUpdate {
 
         let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(self.object_id, |guard| {
             guard.set_model_condition_state(MODELCONDITION_JAMMED);
-            });
+        });
 
         let scatter = self.data.distance_scatter_when_jammed;
         let mut target_position = if self.is_tracking_target {
@@ -1397,7 +1397,8 @@ impl MissileAIUpdate {
         self.is_tracking_target = false;
         self.original_target_pos = target_position;
         self.victim_id = INVALID_ID;
-        self.is_jammed = true;
+        // C++ MissileAIUpdate.cpp:777-807 does not latch m_isJammed here.
+        // Only the existing/restored true flag suppresses repeated scatter.
     }
 
     /// Check if missile is armed
@@ -1784,6 +1785,7 @@ impl Snapshotable for MissileAIUpdate {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::object::drawable::{DrawableExt, DrawableType};
     use game_engine::system::{xfer_load::XferLoad, xfer_save::XferSave};
     use std::io::Cursor;
     use std::sync::{Mutex, MutexGuard, OnceLock, RwLock};
@@ -2039,28 +2041,149 @@ mod tests {
 
     #[test]
     fn test_jamming() {
+        let _guard = game_logic_test_guard();
+        reset_game_logic_objects();
+        struct RestoreJamFixture {
+            terrain: Option<crate::terrain::TerrainLogic>,
+            seed: [u32; 6],
+        }
+        impl Drop for RestoreJamFixture {
+            fn drop(&mut self) {
+                *crate::terrain::get_terrain_logic().write().unwrap() =
+                    self.terrain.take().unwrap();
+                crate::helpers::set_game_logic_random_seed(self.seed);
+            }
+        }
+        let mut map = crate::system::map_loader::MapData::new();
+        map.width = 32;
+        map.height = 32;
+        map.heightmap = vec![24; 32 * 32];
+        map.boundaries = vec![crate::common::ICoord2D::new(32, 32)];
+        let mut terrain = crate::terrain::TerrainLogic::new();
+        terrain.load_map_data(map);
+        let previous = std::mem::replace(
+            &mut *crate::terrain::get_terrain_logic().write().unwrap(),
+            terrain,
+        );
+        let _restore = RestoreJamFixture {
+            terrain: Some(previous),
+            seed: game_engine::common::random_value::get_game_logic_random_seed_state(),
+        };
+        let projectile = register_test_object(1026);
+        let drawable = Arc::new(RwLock::new(crate::object::Drawable::new(
+            1026,
+            1026,
+            "JammingProjectile".to_string(),
+            DrawableType::Static,
+        )));
+        projectile
+            .write()
+            .unwrap()
+            .set_drawable(Some(Arc::clone(&drawable)));
+
         let seed = [0x1234, 0x5678, 0x9abc, 0xdef0, 0x1357, 0x2468];
         let data = Arc::new(MissileAIUpdateModuleData {
             distance_scatter_when_jammed: 100.0,
             ..Default::default()
         });
         let mut missile = MissileAIUpdate::new(data, 0);
-
+        missile.object_id = 1026;
+        missile.victim_id = 77;
+        missile.is_tracking_target = true;
+        missile.no_damage = true;
         let original = Coord3D::new(100.0, 100.0, 10.0);
         crate::helpers::set_game_logic_random_seed(seed);
         let expected_x = original.x + get_game_logic_random_value_real(-100.0, 100.0);
         let expected_y = original.y + get_game_logic_random_value_real(-100.0, 100.0);
-
+        let after_first = game_engine::common::random_value::get_game_logic_random_seed_state();
+        let expected_second_x = expected_x + get_game_logic_random_value_real(-100.0, 100.0);
+        let expected_second_y = expected_y + get_game_logic_random_value_real(-100.0, 100.0);
+        let after_second = game_engine::common::random_value::get_game_logic_random_seed_state();
+        let terrain = TheTerrainLogic::get().unwrap();
+        let first_target = Coord3D::new(expected_x, expected_y, original.z);
+        let expected_z = terrain.get_layer_height(
+            expected_x,
+            expected_y,
+            terrain.get_highest_layer_for_destination(&first_target),
+        );
+        let second_target = Coord3D::new(expected_second_x, expected_second_y, expected_z);
+        let expected_second_z = terrain.get_layer_height(
+            expected_second_x,
+            expected_second_y,
+            terrain.get_highest_layer_for_destination(&second_target),
+        );
+        assert!(expected_z > 0.0);
         crate::helpers::set_game_logic_random_seed(seed);
         missile.original_target_pos = original;
         missile.projectile_now_jammed();
 
-        assert!(missile.is_jammed);
+        // C++ never sets m_isJammed here: each subsequent call scatters the
+        // updated goal again, consuming exactly X then Y random draws.
+        assert!(!missile.is_jammed);
         assert!(!missile.is_tracking_target);
         assert_eq!(missile.victim_id, INVALID_ID);
+        assert!(missile.no_damage);
         assert!((missile.original_target_pos.x - expected_x).abs() < 0.001);
         assert!((missile.original_target_pos.y - expected_y).abs() < 0.001);
-        assert_eq!(missile.original_target_pos.z, 0.0);
+        assert_eq!(missile.original_target_pos.z, expected_z);
+        assert_eq!(
+            game_engine::common::random_value::get_game_logic_random_seed_state(),
+            after_first
+        );
+        assert!(
+            drawable
+                .read()
+                .unwrap()
+                .get_model_conditions()
+                .contains(MODELCONDITION_JAMMED)
+        );
+
+        missile.projectile_now_jammed();
+        assert!(!missile.is_jammed);
+        assert!(!missile.is_tracking_target);
+        assert_eq!(missile.victim_id, INVALID_ID);
+        assert!((missile.original_target_pos.x - expected_second_x).abs() < 0.001);
+        assert!((missile.original_target_pos.y - expected_second_y).abs() < 0.001);
+        assert_eq!(missile.original_target_pos.z, expected_second_z);
+        assert_eq!(
+            game_engine::common::random_value::get_game_logic_random_seed_state(),
+            after_second
+        );
+        assert!(
+            drawable
+                .read()
+                .unwrap()
+                .get_model_conditions()
+                .contains(MODELCONDITION_JAMMED)
+        );
+
+        // Preserve the C++ early return for a flag restored/pre-set true.
+        missile.is_jammed = true;
+        missile.is_tracking_target = true;
+        missile.victim_id = 77;
+        let target_before = missile.original_target_pos;
+        drawable
+            .write()
+            .unwrap()
+            .clear_model_condition_state(MODELCONDITION_JAMMED);
+        missile.projectile_now_jammed();
+        assert!(missile.is_jammed);
+        assert!(missile.is_tracking_target);
+        assert_eq!(missile.victim_id, 77);
+        assert!(missile.no_damage);
+        assert_eq!(missile.original_target_pos, target_before);
+        assert_eq!(
+            game_engine::common::random_value::get_game_logic_random_seed_state(),
+            after_second
+        );
+        assert!(
+            !drawable
+                .read()
+                .unwrap()
+                .get_model_conditions()
+                .contains(MODELCONDITION_JAMMED)
+        );
+        reset_game_logic_objects();
     }
 
     #[test]

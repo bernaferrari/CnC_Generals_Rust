@@ -229,8 +229,8 @@ fn special_power_module_percent_ready(
     obj: &Object,
     sp_template: &SpecialPowerTemplate,
 ) -> Option<f32> {
-    for behavior in obj.get_behavior_modules() {
-        let Ok(behavior) = behavior.lock() else {
+    for mut behavior in obj.get_behavior_modules() {
+        let Ok(behavior) = behavior.access() else {
             continue;
         };
         if let Some(module) = behavior.get_special_power_module_interface_const() {
@@ -245,8 +245,8 @@ fn special_power_module_percent_ready(
 fn special_ability_object_counts(obj: &Object, power_type: SpecialPowerType) -> Option<(u32, u32)> {
     use crate::object::behavior::special_ability_update::SpecialAbilityUpdate as SpecialAbilityUpdateBehavior;
 
-    for behavior in obj.get_behavior_modules() {
-        let Ok(guard) = behavior.lock() else {
+    for mut behavior in obj.get_behavior_modules() {
+        let Ok(guard) = behavior.access() else {
             continue;
         };
         let Some(update) = guard
@@ -427,8 +427,8 @@ fn appears_to_contain_friendlies(obj: &Object, other: &Object) -> bool {
 
 fn get_special_power_ready_percent(obj: &Object, power_type: SpecialPowerType) -> Option<f32> {
     let mut ready = None;
-    for behavior in obj.get_behavior_modules() {
-        let Ok(mut behavior) = behavior.lock() else {
+    for mut behavior in obj.get_behavior_modules() {
+        let Ok(mut behavior) = behavior.access() else {
             continue;
         };
         if let Some(module) = behavior.get_special_power() {
@@ -1934,8 +1934,8 @@ impl TheActionManager {
         }
 
         if obj.is_kind_of(KindOf::SpawnsAreTheWeapons) {
-            for behavior in obj.get_behavior_modules() {
-                let Ok(mut behavior) = behavior.lock() else {
+            for mut behavior in obj.get_behavior_modules() {
+                let Ok(mut behavior) = behavior.access() else {
                     continue;
                 };
                 if let Some(spawn_behavior) = behavior.get_spawn_behavior_full_interface() {

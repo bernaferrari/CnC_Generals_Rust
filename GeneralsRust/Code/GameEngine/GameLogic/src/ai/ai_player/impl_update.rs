@@ -575,8 +575,8 @@ impl AIPlayer {
                         .with_object(obj_id, |obj_g| {
                             // Factory if any production interface.
                             let mut is_factory = false;
-                            for behavior in obj_g.get_behavior_modules() {
-                                if let Ok(mut bg) = behavior.lock() {
+                            for mut behavior in obj_g.get_behavior_modules() {
+                                if let Ok(mut bg) = behavior.access() {
                                     if bg.get_production_update_interface().is_some() {
                                         is_factory = true;
                                         break;

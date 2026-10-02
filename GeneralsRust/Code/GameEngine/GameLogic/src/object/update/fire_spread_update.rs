@@ -451,11 +451,10 @@ trait FlammableUpdateGlobalExt {
     fn try_to_ignite_without_context(&self);
 }
 
-impl FlammableUpdateGlobalExt
-    for Arc<std::sync::Mutex<dyn crate::modules::BehaviorModuleInterface>>
-{
+impl FlammableUpdateGlobalExt for crate::object::BehaviorInterfaceHandle {
     fn try_to_ignite_without_context(&self) {
-        if let Ok(mut guard) = self.lock() {
+        let mut behavior = self.clone();
+        if let Ok(mut guard) = behavior.access() {
             guard.try_to_ignite_flammable();
         }
     }

@@ -393,7 +393,7 @@ impl GameObjectInstance {
     }
 
     /// Retrieve behavior modules for this object (delegates to base Object).
-    pub fn get_behavior_modules(&self) -> Vec<Arc<Mutex<dyn BehaviorModuleInterface>>> {
+    pub fn get_behavior_modules(&self) -> Vec<crate::object::BehaviorInterfaceHandle> {
         self.base()
             .read()
             .map(|base| base.get_behavior_modules())

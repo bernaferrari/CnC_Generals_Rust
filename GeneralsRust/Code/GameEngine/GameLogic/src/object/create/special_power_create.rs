@@ -43,7 +43,8 @@ impl CreateInterface for SpecialPowerCreate {
         }
 
         for behavior_arc in &obj.behaviors {
-            if let Ok(mut behavior_guard) = behavior_arc.lock() {
+            let mut behavior_arc = behavior_arc.clone();
+            if let Ok(mut behavior_guard) = behavior_arc.access() {
                 if let Some(sp) = behavior_guard.get_special_power() {
                     sp.on_special_power_creation();
                 }

@@ -1754,7 +1754,7 @@ pub fn update_goal_for_object(
     drop(obj_guard);
     let ai_store = the_ai(); if let Ok(ai) = ai_store.read() {
         if let Some(pf) = ai.pathfinder() {
-            if let Ok(pf) = pf.read() {
+            if let Ok(mut pf) = pf.write() {
                 pf.update_goal_cells(
                     cell,
                     obj_id,
@@ -1817,7 +1817,7 @@ pub fn find_path(start: Coord3D, end: Coord3D, obj: Option<ObjectID>) -> Option<
 
     // Try full A* pathfinder first, fall back to straight-line if unavailable.
     let ai_store = the_ai(); if let Some(pathfinder) = ai_store.read().ok().and_then(|ai| ai.pathfinder()) {
-        if let Ok(pf_guard) = pathfinder.read() {
+        if let Ok(mut pf_guard) = pathfinder.write() {
             if let Some(waypoints) =
                 pf_guard.find_path(&start, &end, crate::path::SURFACE_GROUND, false)
             {

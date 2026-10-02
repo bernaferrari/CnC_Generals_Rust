@@ -253,7 +253,7 @@ pub trait ObjectArcExt {
     fn set_disabled_until(&self, disabled_type: DisabledType, frame: UnsignedInt);
     fn is_special_zero_slot_container(&self) -> bool;
     fn is_effectively_dead(&self) -> bool;
-    fn find_flammable_update(&self) -> Option<Arc<Mutex<dyn BehaviorModuleInterface>>>;
+    fn find_flammable_update(&self) -> Option<BehaviorInterfaceHandle>;
 }
 
 impl ObjectArcExt for Arc<rhai::Locked<Object>> {
@@ -320,18 +320,21 @@ impl ObjectArcExt for Arc<rhai::Locked<Object>> {
 
     /// Find the flammable update module for this object.
     /// Returns None if object has no flammable update module.
-    fn find_flammable_update(&self) -> Option<Arc<Mutex<dyn BehaviorModuleInterface>>> {
+    fn find_flammable_update(&self) -> Option<BehaviorInterfaceHandle> {
         let guard = self.read().ok()?;
-        for module in guard.get_behavior_modules() {
-            if let Ok(module_guard) = module.try_lock() {
-                if module_guard
+        for mut module in guard.get_behavior_modules() {
+            let would_ignite = {
+                let Ok(module_guard) = module.try_access() else {
+                    continue;
+                };
+                module_guard
                     .as_any()
                     .downcast_ref::<crate::object::behavior::flammable_update::FlammableUpdate>()
                     .map(|flammable| flammable.would_ignite())
                     .unwrap_or(false)
-                {
-                    return Some(Arc::clone(&module));
-                }
+            };
+            if would_ignite {
+                return Some(module);
             }
         }
         None

@@ -23,7 +23,8 @@ impl Object {
         }
 
         for behavior in &self.behaviors {
-            if let Ok(mut guard) = behavior.lock() {
+            let mut behavior = behavior.clone();
+            if let Ok(mut guard) = behavior.access() {
                 if let Some(sp) = guard.get_special_power_module_interface() {
                     sp.pause_countdown(pausing);
                 }
@@ -143,8 +144,8 @@ impl Object {
             }
         }
 
-        for behavior in &self.behaviors {
-            let Ok(mut behavior_guard) = behavior.lock() else {
+        for behavior in &mut self.behaviors {
+            let Ok(mut behavior_guard) = behavior.access() else {
                 continue;
             };
 
@@ -184,7 +185,8 @@ impl Object {
         }
 
         for behavior_arc in &self.behaviors {
-            let Ok(mut behavior_guard) = behavior_arc.lock() else {
+            let mut behavior_arc = behavior_arc.clone();
+            let Ok(mut behavior_guard) = behavior_arc.access() else {
                 continue;
             };
             if let Some(flight) = behavior_production_rally_kind(&mut *behavior_guard)
@@ -673,8 +675,9 @@ impl Object {
         power_type: crate::common::types::SpecialPowerType,
     ) -> Option<Arc<Mutex<dyn crate::modules::SpecialAbilityUpdate>>> {
         for behavior in &self.behaviors {
+            let mut behavior = behavior.clone();
             let matches = {
-                let Ok(guard) = behavior.lock() else {
+                let Ok(guard) = behavior.access() else {
                     continue;
                 };
                 guard
@@ -705,7 +708,8 @@ impl Object {
     /// Matches the module-presence gate in C++ `Object::getSpecialPowerModule`.
     pub fn has_special_power_module_for_power(&self, template: &SpecialPowerTemplate) -> bool {
         for behavior_arc in &self.behaviors {
-            let Ok(behavior_lock) = behavior_arc.lock() else {
+            let mut behavior_arc = behavior_arc.clone();
+            let Ok(behavior_lock) = behavior_arc.access() else {
                 continue;
             };
             if behavior_lock
@@ -742,7 +746,8 @@ impl Object {
     /// An optional special power module ID
     pub fn get_special_power_module(&self, template_id: u32) -> Option<u32> {
         for behavior_arc in &self.behaviors {
-            let Ok(behavior_lock) = behavior_arc.lock() else {
+            let mut behavior_arc = behavior_arc.clone();
+            let Ok(behavior_lock) = behavior_arc.access() else {
                 continue;
             };
             if let Some(sp_module) = behavior_lock.get_special_power_module_interface_const() {
@@ -782,14 +787,16 @@ impl Object {
     pub fn get_special_power_module_by_name(
         &self,
         template_name: &str,
-    ) -> Option<Arc<Mutex<dyn BehaviorModuleInterface>>> {
+    ) -> Option<BehaviorInterfaceHandle> {
         for behavior_arc in &self.behaviors {
-            let Ok(behavior_lock) = behavior_arc.lock() else {
+            let mut behavior_arc = behavior_arc.clone();
+            let Ok(behavior_lock) = behavior_arc.access() else {
                 continue;
             };
             if let Some(sp_module) = behavior_lock.get_special_power_module_interface_const() {
                 if sp_module.get_power_name() == template_name {
-                    return Some(behavior_arc.clone());
+                    drop(behavior_lock);
+                    return Some(behavior_arc);
                 }
             }
         }
@@ -807,7 +814,8 @@ impl Object {
         let mut func = Some(func);
 
         for behavior_arc in &self.behaviors {
-            let Ok(mut behavior_lock) = behavior_arc.lock() else {
+            let mut behavior_arc = behavior_arc.clone();
+            let Ok(mut behavior_lock) = behavior_arc.access() else {
                 continue;
             };
             if let Some(sp_module) = behavior_lock.get_special_power_module_interface() {
@@ -845,7 +853,8 @@ impl Object {
         F: FnMut(&dyn SpecialPowerModuleInterface) -> R,
     {
         for behavior_arc in &self.behaviors {
-            let Ok(behavior_lock) = behavior_arc.lock() else {
+            let mut behavior_arc = behavior_arc.clone();
+            let Ok(behavior_lock) = behavior_arc.access() else {
                 continue;
             };
             if let Some(sp_module) = behavior_lock.get_special_power_module_interface_const() {
@@ -964,9 +973,10 @@ impl Object {
     pub fn find_special_power_module_interface(
         &self,
         special_power_type: SpecialPowerType,
-    ) -> Option<Arc<Mutex<dyn BehaviorModuleInterface>>> {
+    ) -> Option<BehaviorInterfaceHandle> {
         for behavior in &self.behaviors {
-            let Ok(mut guard) = behavior.lock() else {
+            let mut behavior = behavior.clone();
+            let Ok(mut guard) = behavior.access() else {
                 continue;
             };
             if let Some(sp) = guard.get_special_power_module_interface() {
@@ -977,7 +987,7 @@ impl Object {
                             || special_power_type == SpecialPowerType::Invalid
                         {
                             drop(guard);
-                            return Some(behavior.clone());
+                            return Some(behavior);
                         }
                     }
                 }
@@ -988,9 +998,10 @@ impl Object {
 
     pub fn find_any_shortcut_special_power_module_interface(
         &self,
-    ) -> Option<Arc<Mutex<dyn BehaviorModuleInterface>>> {
+    ) -> Option<BehaviorInterfaceHandle> {
         for behavior in &self.behaviors {
-            let Ok(mut guard) = behavior.lock() else {
+            let mut behavior = behavior.clone();
+            let Ok(mut guard) = behavior.access() else {
                 continue;
             };
             if let Some(sp) = guard.get_special_power_module_interface() {
@@ -999,7 +1010,7 @@ impl Object {
                     {
                         if template.is_shortcut_power() {
                             drop(guard);
-                            return Some(behavior.clone());
+                            return Some(behavior);
                         }
                     }
                 }
@@ -1011,15 +1022,16 @@ impl Object {
     pub fn find_special_power_with_overridable_destination_active(
         &self,
         _special_power_type: SpecialPowerType,
-    ) -> Option<Arc<Mutex<dyn BehaviorModuleInterface>>> {
+    ) -> Option<BehaviorInterfaceHandle> {
         for behavior in &self.behaviors {
-            let Ok(mut guard) = behavior.lock() else {
+            let mut behavior = behavior.clone();
+            let Ok(mut guard) = behavior.access() else {
                 continue;
             };
             if let Some(sp_interface) = guard.get_special_power_update_interface() {
                 if sp_interface.does_special_power_have_overridable_destination_active() {
                     drop(guard);
-                    return Some(behavior.clone());
+                    return Some(behavior);
                 }
             }
         }
@@ -1029,15 +1041,16 @@ impl Object {
     pub fn find_special_power_with_overridable_destination(
         &self,
         _special_power_type: SpecialPowerType,
-    ) -> Option<Arc<Mutex<dyn BehaviorModuleInterface>>> {
+    ) -> Option<BehaviorInterfaceHandle> {
         for behavior in &self.behaviors {
-            let Ok(mut guard) = behavior.lock() else {
+            let mut behavior = behavior.clone();
+            let Ok(mut guard) = behavior.access() else {
                 continue;
             };
             if let Some(sp_interface) = guard.get_special_power_update_interface() {
                 if sp_interface.does_special_power_have_overridable_destination() {
                     drop(guard);
-                    return Some(behavior.clone());
+                    return Some(behavior);
                 }
             }
         }

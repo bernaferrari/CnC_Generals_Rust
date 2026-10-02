@@ -942,8 +942,8 @@ impl AiIntegrationManager {
         let Some(pathfinder) = ai.pathfinder() else {
             return Err(AiError::NoPathfinder);
         };
-        let pathfinder_lock = pathfinder.read();
-        if let Ok(pf) = pathfinder_lock {
+        let pathfinder_lock = pathfinder.write();
+        if let Ok(mut pf) = pathfinder_lock {
             Ok(pf.find_path(from, to, acceptable_surfaces, is_crusher))
         } else {
             Err(AiError::NoPathfinder)
@@ -1170,8 +1170,8 @@ impl AiIntegrationManager {
         let Some(pathfinder) = ai.pathfinder() else {
             return Err(AiError::NoPathfinder);
         };
-        let pathfinder_lock = pathfinder.read();
-        if let Ok(pf) = pathfinder_lock {
+        let pathfinder_lock = pathfinder.write();
+        if let Ok(mut pf) = pathfinder_lock {
             let requester_id = request.object_id;
             let result = pf.find_path_result(request);
             self.path_results.insert(requester_id, result);

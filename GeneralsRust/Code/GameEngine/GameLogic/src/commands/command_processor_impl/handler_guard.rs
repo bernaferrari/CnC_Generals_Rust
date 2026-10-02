@@ -68,7 +68,7 @@ impl DefaultCommandHandler {
             None => {
                 return CommandExecutionResult::Failed(AsciiString::from(
                     "No guard position specified",
-                ))
+                ));
             }
         };
         let mut guard_mode = crate::ai::GuardMode::Normal;
@@ -246,7 +246,7 @@ impl DefaultCommandHandler {
             None => {
                 return CommandExecutionResult::Failed(AsciiString::from(
                     "No target specified for capture",
-                ))
+                ));
             }
         };
 
@@ -434,8 +434,8 @@ impl DefaultCommandHandler {
             }
 
             if !executed_here {
-                for behavior_arc in source_guard.get_behavior_modules() {
-                    let Ok(mut behavior_guard) = behavior_arc.lock() else {
+                for mut behavior_arc in source_guard.get_behavior_modules() {
+                    let Ok(mut behavior_guard) = behavior_arc.access() else {
                         continue;
                     };
                     let Some(sp_module) = behavior_guard.get_special_power() else {
@@ -558,5 +558,4 @@ impl DefaultCommandHandler {
             "AI system failed to process snipe vehicle order",
         ))
     }
-
 }

@@ -212,7 +212,8 @@ impl Object {
         let mut func = Some(func);
 
         for behavior_arc in &self.behaviors {
-            let Ok(mut guard) = behavior_arc.lock() else {
+            let mut behavior_arc = behavior_arc.clone();
+            let Ok(mut guard) = behavior_arc.access() else {
                 continue;
             };
             if guard.get_module_name_key() == key {
@@ -268,8 +269,8 @@ impl Object {
 
     /// Call order_slaves_to_clear_disabled on any spawn behavior modules
     pub(super) fn order_spawn_slaves_to_clear_disabled(&mut self, disabled_type: DisabledType) {
-        for behavior in &self.behaviors {
-            if let Ok(mut guard) = behavior.lock() {
+        for behavior in &mut self.behaviors {
+            if let Ok(mut guard) = behavior.access() {
                 if let Some(spawn) = guard.get_spawn_behavior_interface() {
                     let _ = spawn.order_slaves_to_clear_disabled(disabled_type);
                     return;
@@ -280,8 +281,8 @@ impl Object {
 
     pub(super) fn on_disabled_edge(&mut self, becoming_disabled: bool) {
         self.cancel_dozer_task_on_disabled_edge(becoming_disabled);
-        for behavior in &self.behaviors {
-            if let Ok(mut guard) = behavior.lock() {
+        for behavior in &mut self.behaviors {
+            if let Ok(mut guard) = behavior.access() {
                 guard.on_disabled_edge(becoming_disabled);
             }
         }
@@ -340,8 +341,8 @@ impl Object {
                         break;
                     }
                 }
-                for behavior in &self.behaviors {
-                    if let Ok(guard) = behavior.lock() {
+                for behavior in &mut self.behaviors {
+                    if let Ok(guard) = behavior.access() {
                         if let Some(overcharge) = guard
                             .as_any()
                             .downcast_ref::<crate::object::behavior::overcharge_behavior::OverchargeBehavior>()
@@ -452,7 +453,8 @@ impl Object {
         }
 
         for behavior in &self.behaviors {
-            let Ok(mut guard) = behavior.lock() else {
+            let mut behavior = behavior.clone();
+            let Ok(mut guard) = behavior.access() else {
                 continue;
             };
             if let Some(upgrade) = guard.get_upgrade() {
@@ -734,7 +736,8 @@ impl Object {
         }
 
         for behavior in &self.behaviors {
-            let Ok(mut behavior_guard) = behavior.lock() else {
+            let mut behavior = behavior.clone();
+            let Ok(mut behavior_guard) = behavior.access() else {
                 continue;
             };
 
@@ -781,7 +784,8 @@ impl Object {
         }
 
         for behavior in &self.behaviors {
-            let Ok(mut behavior_guard) = behavior.lock() else {
+            let mut behavior = behavior.clone();
+            let Ok(mut behavior_guard) = behavior.access() else {
                 continue;
             };
 
@@ -834,7 +838,8 @@ impl Object {
         }
 
         for behavior in &self.behaviors {
-            let Ok(mut behavior_guard) = behavior.lock() else {
+            let mut behavior = behavior.clone();
+            let Ok(mut behavior_guard) = behavior.access() else {
                 continue;
             };
 
@@ -872,7 +877,8 @@ impl Object {
         }
 
         for behavior in &self.behaviors {
-            let Ok(mut behavior_guard) = behavior.lock() else {
+            let mut behavior = behavior.clone();
+            let Ok(mut behavior_guard) = behavior.access() else {
                 continue;
             };
 
@@ -908,7 +914,8 @@ impl Object {
         }
 
         for behavior in &self.behaviors {
-            let Ok(mut behavior_guard) = behavior.lock() else {
+            let mut behavior = behavior.clone();
+            let Ok(mut behavior_guard) = behavior.access() else {
                 continue;
             };
 
@@ -943,7 +950,8 @@ impl Object {
         }
 
         for behavior in &self.behaviors {
-            let Ok(mut behavior_guard) = behavior.lock() else {
+            let mut behavior = behavior.clone();
+            let Ok(mut behavior_guard) = behavior.access() else {
                 continue;
             };
 
@@ -991,8 +999,8 @@ impl Object {
             }
         }
 
-        for behavior in &self.behaviors {
-            let Ok(mut behavior_guard) = behavior.lock() else {
+        for behavior in &mut self.behaviors {
+            let Ok(mut behavior_guard) = behavior.access() else {
                 continue;
             };
 
@@ -1030,8 +1038,8 @@ impl Object {
             });
         }
 
-        for behavior in &self.behaviors {
-            let Ok(mut behavior_guard) = behavior.lock() else {
+        for behavior in &mut self.behaviors {
+            let Ok(mut behavior_guard) = behavior.access() else {
                 continue;
             };
             if let Some(prod) = behavior_guard.get_production_update_interface() {
@@ -1096,8 +1104,8 @@ impl Object {
             }
         }
 
-        for behavior in &self.behaviors {
-            let Ok(mut behavior_guard) = behavior.lock() else {
+        for behavior in &mut self.behaviors {
+            let Ok(mut behavior_guard) = behavior.access() else {
                 continue;
             };
 

@@ -311,8 +311,8 @@ impl InGameUI {
             return false;
         }
 
-        for behavior_arc in source_guard.get_behavior_modules() {
-            let Ok(mut behavior_lock) = behavior_arc.lock() else {
+        for mut behavior_arc in source_guard.get_behavior_modules() {
+            let Ok(mut behavior_lock) = behavior_arc.access() else {
                 continue;
             };
             let Some(update) = behavior_lock.get_special_power_update_interface() else {
@@ -668,7 +668,6 @@ impl InGameUI {
         Self::should_clear_modes_on_input_disable(was_enabled, enable)
     }
 
-
     fn ignored_gui_slaver_id_from_presentation(&self, object_id: ObjectID) -> Option<ObjectID> {
         // Wave 1000: host empty dual-world → presentation catalog slaver residual.
         let entry = self
@@ -705,8 +704,8 @@ impl InGameUI {
             return None;
         }
 
-        for behavior in object.get_behavior_modules() {
-            let Ok(mut behavior) = behavior.lock() else {
+        for mut behavior in object.get_behavior_modules() {
+            let Ok(mut behavior) = behavior.access() else {
                 continue;
             };
             let Some(slaved) = behavior.get_slaved_update_interface() else {
@@ -760,8 +759,8 @@ impl InGameUI {
             return None;
         }
 
-        for behavior in object.get_behavior_modules() {
-            let Ok(behavior) = behavior.lock() else {
+        for mut behavior in object.get_behavior_modules() {
+            let Ok(behavior) = behavior.access() else {
                 continue;
             };
             if let Some(index) = behavior.get_disguised_player_index() {
@@ -815,7 +814,6 @@ impl InGameUI {
         *timer -= 1;
         *timer > 0
     }
-
 
     fn default_command_hint_blocked_by_source(source_locally_controlled: Option<bool>) -> bool {
         source_locally_controlled == Some(false)
@@ -1106,7 +1104,6 @@ impl InGameUI {
             self.mouse_mode
         };
         match mouse_mode {
-
             MouseMode::Default => {
                 // C++: InGameUI.cpp:2585-2688
                 // This section only applies when there is no specific cursor mode happening.
@@ -1290,11 +1287,7 @@ impl InGameUI {
                             TheInGameUI::set_radius_cursor_active_with_type(
                                 &pending.radius_cursor_type,
                             );
-                            self.set_radius_cursor(
-                                cursor_type,
-                                Coord3D::new(0.0, 0.0, 0.0),
-                                1.0,
-                            );
+                            self.set_radius_cursor(cursor_type, Coord3D::new(0.0, 0.0, 0.0), 1.0);
                         }
                     }
                 } else {
@@ -1360,8 +1353,7 @@ impl InGameUI {
             } else {
                 self.set_mouse_cursor(MouseCursor::Arrow);
             }
-        } else if self.mouse_mode != MouseMode::Default
-            && self.mouse_mode != MouseMode::BuildPlace
+        } else if self.mouse_mode != MouseMode::Default && self.mouse_mode != MouseMode::BuildPlace
         {
             self.set_mouse_cursor(self.mouse_mode_cursor);
         }
@@ -1383,7 +1375,8 @@ impl InGameUI {
             if draw_id != Self::INVALID_DRAWABLE_ID {
                 if let Some(entry) = catalog.iter().find(|u| u.object_id == draw_id).cloned() {
                     if !(entry.destroyed || entry.sold || entry.unselectable || entry.masked) {
-                        let local = crate::presentation_translator_residual::translator_local_team_name();
+                        let local =
+                            crate::presentation_translator_residual::translator_local_team_name();
                         let stealthed_hidden = entry.effectively_stealthed
                             && (local.is_empty() || entry.team_name != local);
                         let fogged = matches!(
@@ -1446,10 +1439,8 @@ impl InGameUI {
                                         &mut tooltip,
                                         tip_entry.supply_boxes,
                                     );
-                                    if let Some(player) = player_list()
-                                        .read()
-                                        .ok()
-                                        .and_then(|list| {
+                                    if let Some(player) =
+                                        player_list().read().ok().and_then(|list| {
                                             list.find_player_by_name(&tip_entry.team_name)
                                         })
                                     {
@@ -1492,7 +1483,6 @@ impl InGameUI {
         TheInGameUI::set_moused_over_drawable_id(moused_over);
         moused_over
     }
-
 
     pub fn create_mouseover_hint(&mut self, drawable_id: Option<u32>, is_location_hint: bool) {
         // Wave 968: host empty dual-world → presentation catalog residual path.
@@ -1617,8 +1607,7 @@ impl InGameUI {
             } else {
                 self.set_mouse_cursor(MouseCursor::Arrow);
             }
-        } else if self.mouse_mode != MouseMode::Default
-            && self.mouse_mode != MouseMode::BuildPlace
+        } else if self.mouse_mode != MouseMode::Default && self.mouse_mode != MouseMode::BuildPlace
         {
             self.set_mouse_cursor(self.mouse_mode_cursor);
         }

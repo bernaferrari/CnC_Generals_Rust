@@ -440,8 +440,8 @@ impl Weapon {
                     if let Some(behaviors) = OBJECT_REGISTRY
                         .with_object(target_id, |obj_guard| obj_guard.get_behavior_modules())
                     {
-                        for behavior in behaviors {
-                            if let Ok(mut behavior_guard) = behavior.lock() {
+                        for mut behavior in behaviors {
+                            if let Ok(mut behavior_guard) = behavior.access() {
                                 if let Some(land_mine) = behavior_guard.get_land_mine_interface() {
                                     land_mine.disarm();
                                     handled = true;
@@ -1396,8 +1396,8 @@ impl Weapon {
                 let _ = stream_guard.set_position(&pos);
             }
         }
-        for behavior in stream_guard.get_behavior_modules() {
-            let Ok(mut behavior) = behavior.lock() else {
+        for mut behavior in stream_guard.get_behavior_modules() {
+            let Ok(mut behavior) = behavior.access() else {
                 continue;
             };
             let Some(update) = behavior.get_projectile_stream_update_interface() else {
@@ -1545,8 +1545,8 @@ impl Weapon {
             else {
                 continue;
             };
-            for behavior in behaviors {
-                if let Ok(mut behavior_guard) = behavior.lock() {
+            for mut behavior in behaviors {
+                if let Ok(mut behavior_guard) = behavior.access() {
                     let Some(assist) = behavior_guard.get_assisted_targeting_update_interface()
                     else {
                         continue;

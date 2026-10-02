@@ -2431,7 +2431,8 @@ impl Object {
 
     pub fn has_countermeasures(&self) -> bool {
         for behavior in &self.behaviors {
-            let Ok(guard) = behavior.lock() else {
+            let mut behavior = behavior.clone();
+            let Ok(guard) = behavior.access() else {
                 continue;
             };
             if let Some(cbi) = guard.get_countermeasures_behavior_interface_const() {
@@ -2445,7 +2446,8 @@ impl Object {
 
     pub fn report_missile_for_countermeasures(&self, missile_id: ObjectID) {
         for behavior in &self.behaviors {
-            let Ok(mut guard) = behavior.lock() else {
+            let mut behavior = behavior.clone();
+            let Ok(mut guard) = behavior.access() else {
                 continue;
             };
             if let Some(cbi) = guard.get_countermeasures_behavior_interface() {
@@ -2454,16 +2456,15 @@ impl Object {
         }
     }
 
-    pub fn get_countermeasures_behavior_interface(
-        &self,
-    ) -> Option<Arc<Mutex<dyn BehaviorModuleInterface>>> {
+    pub fn get_countermeasures_behavior_interface(&self) -> Option<BehaviorInterfaceHandle> {
         for behavior in &self.behaviors {
-            let Ok(mut guard) = behavior.lock() else {
+            let mut behavior = behavior.clone();
+            let Ok(mut guard) = behavior.access() else {
                 continue;
             };
             if guard.get_countermeasures_behavior_interface().is_some() {
                 drop(guard);
-                return Some(behavior.clone());
+                return Some(behavior);
             }
         }
         None

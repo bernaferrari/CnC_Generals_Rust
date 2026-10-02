@@ -890,8 +890,8 @@ impl StructureToppleUpdate {
                     bone_fx.stop_all_bone_fx();
                 }
             });
-        } else if let Some(behavior) = building.find_update_behavior("BoneFXUpdate") {
-            if let Ok(mut behavior) = behavior.lock() {
+        } else if let Some(mut behavior) = building.find_update_behavior("BoneFXUpdate") {
+            if let Ok(mut behavior) = behavior.access() {
                 if let Some(bone_fx) = behavior.get_bone_fx_control_interface() {
                     bone_fx.stop_all_bone_fx();
                 }

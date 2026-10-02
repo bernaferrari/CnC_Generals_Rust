@@ -159,3 +159,25 @@ impl FlammableUpdateExt for Arc<Mutex<dyn BehaviorModuleInterface>> {
         }
     }
 }
+
+impl BehaviorModuleExt for crate::object::BehaviorInterfaceHandle {
+    fn set_sd_enabled(&self, enabled: bool) {
+        let mut behavior = self.clone();
+        if let Ok(mut lease) = behavior.try_access() {
+            lease.set_sd_enabled(enabled);
+        }
+    }
+
+    fn start_fire_spreading(&self) {
+        // The real fire-spread operation requires UpdateContext.
+    }
+}
+
+impl FlammableUpdateExt for crate::object::BehaviorInterfaceHandle {
+    fn try_to_ignite(&self, _ctx: &mut crate::common::UpdateContext<'_>) {
+        let mut behavior = self.clone();
+        if let Ok(mut lease) = behavior.access() {
+            lease.try_to_ignite_flammable();
+        }
+    }
+}

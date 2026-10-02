@@ -1132,8 +1132,8 @@ impl ActiveBody {
             return;
         }
         let mut tower_ids = Vec::new();
-        for behavior in owner_guard.get_behavior_modules() {
-            let Ok(mut guard) = behavior.lock() else {
+        for mut behavior in owner_guard.get_behavior_modules() {
+            let Ok(mut guard) = behavior.access() else {
                 continue;
             };
             if let Some(interface) = guard.get_bridge_behavior_interface() {
@@ -1175,8 +1175,8 @@ impl ActiveBody {
             Err(_) => return,
         };
 
-        for behavior in behaviors {
-            if let Ok(mut behavior_guard) = behavior.lock() {
+        for mut behavior in behaviors {
+            if let Ok(mut behavior_guard) = behavior.access() {
                 if let Some(damage_module) = behavior_guard.get_damage() {
                     f(damage_module);
                 }
@@ -1398,8 +1398,8 @@ impl ActiveBody {
                         }
                     }
                 } else if is_now_subdued {
-                    for behavior in obj.get_behavior_modules() {
-                        if let Ok(mut behavior_guard) = behavior.lock() {
+                    for mut behavior in obj.get_behavior_modules() {
+                        if let Ok(mut behavior_guard) = behavior.access() {
                             if let Some(projectile) =
                                 behavior_guard.get_projectile_update_interface()
                             {

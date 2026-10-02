@@ -67,8 +67,8 @@ impl Object {
 
     fn fill_special_power_bits_from_modules(&mut self) {
         let mut bits = SpecialPowerMask::default();
-        for behavior in &self.behaviors {
-            let Ok(mut guard) = behavior.lock() else {
+        for behavior in &mut self.behaviors {
+            let Ok(mut guard) = behavior.access() else {
                 continue;
             };
             let Some(sp) = guard.get_special_power() else {

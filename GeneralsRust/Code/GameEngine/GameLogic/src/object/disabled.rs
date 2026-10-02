@@ -139,8 +139,8 @@ impl Object {
         disabled_type: DisabledType,
         frame: UnsignedInt,
     ) {
-        for behavior in &self.behaviors {
-            if let Ok(mut guard) = behavior.lock() {
+        for behavior in &mut self.behaviors {
+            if let Ok(mut guard) = behavior.access() {
                 if let Some(spawn) = guard.get_spawn_behavior_interface() {
                     let _ = spawn.order_slaves_disabled_until(disabled_type, frame);
                     return;

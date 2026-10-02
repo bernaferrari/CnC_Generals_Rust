@@ -548,7 +548,8 @@ impl Object {
 
     pub fn is_salvage_crate(&self) -> bool {
         for behavior in &self.behaviors {
-            let Ok(guard) = behavior.lock() else {
+            let mut behavior = behavior.clone();
+            let Ok(guard) = behavior.access() else {
                 continue;
             };
             if guard.as_any().is::<crate::object::collide::crate_collide::salvage_crate_collide::SalvageCrateCollide>() {

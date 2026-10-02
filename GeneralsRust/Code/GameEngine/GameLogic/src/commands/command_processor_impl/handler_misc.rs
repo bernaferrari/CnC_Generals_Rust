@@ -19,7 +19,7 @@ impl DefaultCommandHandler {
             _ => {
                 return CommandExecutionResult::Failed(AsciiString::from(
                     "Weapon command missing weapon slot",
-                ))
+                ));
             }
         };
 
@@ -39,7 +39,7 @@ impl DefaultCommandHandler {
                 _ => {
                     return CommandExecutionResult::Failed(AsciiString::from(
                         "Weapon object command missing target",
-                    ))
+                    ));
                 }
             }
         } else {
@@ -52,7 +52,7 @@ impl DefaultCommandHandler {
                 _ => {
                     return CommandExecutionResult::Failed(AsciiString::from(
                         "Weapon location command missing target",
-                    ))
+                    ));
                 }
             }
         } else {
@@ -84,7 +84,8 @@ impl DefaultCommandHandler {
                     if guard.is_destroyed() {
                         return None;
                     }
-                    if guard.get_controlling_player_id().map(|id| id as Int) != Some(context.player_id)
+                    if guard.get_controlling_player_id().map(|id| id as Int)
+                        != Some(context.player_id)
                     {
                         return None;
                     }
@@ -116,10 +117,7 @@ impl DefaultCommandHandler {
                         {
                             return None;
                         }
-                        Some(guard.set_weapon_lock(
-                            weapon_slot,
-                            WeaponLockType::LockedTemporarily,
-                        ))
+                        Some(guard.set_weapon_lock(weapon_slot, WeaponLockType::LockedTemporarily))
                     });
                     if let Some(locked) = locked.flatten() {
                         members.push(*object_id);
@@ -149,10 +147,7 @@ impl DefaultCommandHandler {
                         {
                             return None;
                         }
-                        Some(guard.set_weapon_lock(
-                            weapon_slot,
-                            WeaponLockType::LockedTemporarily,
-                        ))
+                        Some(guard.set_weapon_lock(weapon_slot, WeaponLockType::LockedTemporarily))
                     });
                     if let Some(locked) = locked.flatten() {
                         members.push(*object_id);
@@ -208,8 +203,8 @@ impl DefaultCommandHandler {
                     }
                 }
             }
-            if let Some(behavior) = obj_ref.get_spawn_behavior_interface_public() {
-                if let Ok(mut guard) = behavior.lock() {
+            if let Some(mut behavior) = obj_ref.get_spawn_behavior_interface_public() {
+                if let Ok(mut guard) = behavior.access() {
                     if let Some(spawn) = guard.get_spawn_behavior_full_interface() {
                         if !spawn.do_slaves_have_freedom() {
                             let _ = spawn.order_slaves_to_attack_position(
@@ -222,7 +217,11 @@ impl DefaultCommandHandler {
                 }
             }
             if let Some(ai) = obj_ref.get_ai_update_interface() {
-                ai.ai_attack_position(&attack_pos, max_shots_to_fire, CommandSourceType::FromPlayer);
+                ai.ai_attack_position(
+                    &attack_pos,
+                    max_shots_to_fire,
+                    CommandSourceType::FromPlayer,
+                );
             }
         });
     }
@@ -267,8 +266,8 @@ impl DefaultCommandHandler {
                     }
                 }
             }
-            if let Some(behavior) = obj_ref.get_spawn_behavior_interface_public() {
-                if let Ok(mut guard) = behavior.lock() {
+            if let Some(mut behavior) = obj_ref.get_spawn_behavior_interface_public() {
+                if let Ok(mut guard) = behavior.access() {
                     if let Some(spawn) = guard.get_spawn_behavior_full_interface() {
                         if !spawn.do_slaves_have_freedom() {
                             let _ = OBJECT_REGISTRY.with_object(victim_id, |victim| {
@@ -284,7 +283,11 @@ impl DefaultCommandHandler {
             }
             if object_id != victim_id {
                 if let Some(ai) = obj_ref.get_ai_update_interface() {
-                    ai.ai_attack_object(victim_id, max_shots_to_fire, CommandSourceType::FromPlayer);
+                    ai.ai_attack_object(
+                        victim_id,
+                        max_shots_to_fire,
+                        CommandSourceType::FromPlayer,
+                    );
                 }
             }
         });

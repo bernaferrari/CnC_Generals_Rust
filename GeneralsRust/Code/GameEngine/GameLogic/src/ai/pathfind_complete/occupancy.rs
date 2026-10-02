@@ -2,7 +2,7 @@ use super::*;
 
 impl PathfindingSystem {
     pub(crate) fn set_goal_cells(
-        &self,
+        &mut self,
         unit_id: ObjectID,
         center_cell: ICoord2D,
         radius: i32,
@@ -11,11 +11,11 @@ impl PathfindingSystem {
         do_ground: bool,
         do_layer: bool,
     ) {
-        let Ok(mut goals) = self.goal_cells.lock() else {
-            return;
-        };
-        self.for_goal_cells(center_cell, radius, center_in_cell, |coord| {
-            if !self.is_valid_coord(coord) {
+        let (width, height) = (self.width, self.height);
+        let goals = &mut self.goal_cells;
+        Self::for_goal_cells(center_cell, radius, center_in_cell, |coord| {
+            if coord.x < 0 || coord.y < 0 || coord.x as usize >= width || coord.y as usize >= height
+            {
                 return;
             }
             if let Some(cell) = goals
@@ -34,7 +34,7 @@ impl PathfindingSystem {
 
     /// C++ setPosUnit footprint stamp (UNIT_PRESENT_FIXED).
     pub(crate) fn set_pos_cells(
-        &self,
+        &mut self,
         unit_id: ObjectID,
         center_cell: ICoord2D,
         radius: i32,
@@ -43,11 +43,11 @@ impl PathfindingSystem {
         do_ground: bool,
         do_layer: bool,
     ) {
-        let Ok(mut goals) = self.goal_cells.lock() else {
-            return;
-        };
-        self.for_goal_cells(center_cell, radius, center_in_cell, |coord| {
-            if !self.is_valid_coord(coord) {
+        let (width, height) = (self.width, self.height);
+        let goals = &mut self.goal_cells;
+        Self::for_goal_cells(center_cell, radius, center_in_cell, |coord| {
+            if coord.x < 0 || coord.y < 0 || coord.x as usize >= width || coord.y as usize >= height
+            {
                 return;
             }
             if let Some(cell) = goals
@@ -65,7 +65,7 @@ impl PathfindingSystem {
     }
 
     pub(crate) fn clear_pos_cells(
-        &self,
+        &mut self,
         unit_id: ObjectID,
         center_cell: ICoord2D,
         radius: i32,
@@ -74,11 +74,11 @@ impl PathfindingSystem {
         clear_ground: bool,
         clear_layer: bool,
     ) {
-        let Ok(mut goals) = self.goal_cells.lock() else {
-            return;
-        };
-        self.for_goal_cells(center_cell, radius, center_in_cell, |coord| {
-            if !self.is_valid_coord(coord) {
+        let (width, height) = (self.width, self.height);
+        let goals = &mut self.goal_cells;
+        Self::for_goal_cells(center_cell, radius, center_in_cell, |coord| {
+            if coord.x < 0 || coord.y < 0 || coord.x as usize >= width || coord.y as usize >= height
+            {
                 return;
             }
             if let Some(cell) = goals
@@ -96,7 +96,7 @@ impl PathfindingSystem {
     }
 
     pub(crate) fn clear_goal_cells(
-        &self,
+        &mut self,
         unit_id: ObjectID,
         center_cell: ICoord2D,
         radius: i32,
@@ -105,11 +105,11 @@ impl PathfindingSystem {
         clear_ground: bool,
         clear_layer: bool,
     ) {
-        let Ok(mut goals) = self.goal_cells.lock() else {
-            return;
-        };
-        self.for_goal_cells(center_cell, radius, center_in_cell, |coord| {
-            if !self.is_valid_coord(coord) {
+        let (width, height) = (self.width, self.height);
+        let goals = &mut self.goal_cells;
+        Self::for_goal_cells(center_cell, radius, center_in_cell, |coord| {
+            if coord.x < 0 || coord.y < 0 || coord.x as usize >= width || coord.y as usize >= height
+            {
                 return;
             }
             if let Some(cell) = goals
@@ -127,17 +127,17 @@ impl PathfindingSystem {
     }
 
     pub(crate) fn set_aircraft_goal_cells(
-        &self,
+        &mut self,
         unit_id: ObjectID,
         center_cell: ICoord2D,
         radius: i32,
         center_in_cell: bool,
     ) {
-        let Ok(mut goals) = self.goal_cells.lock() else {
-            return;
-        };
-        self.for_goal_cells(center_cell, radius, center_in_cell, |coord| {
-            if !self.is_valid_coord(coord) {
+        let (width, height) = (self.width, self.height);
+        let goals = &mut self.goal_cells;
+        Self::for_goal_cells(center_cell, radius, center_in_cell, |coord| {
+            if coord.x < 0 || coord.y < 0 || coord.x as usize >= width || coord.y as usize >= height
+            {
                 return;
             }
             if let Some(cell) = goals
@@ -150,17 +150,17 @@ impl PathfindingSystem {
     }
 
     pub(crate) fn clear_aircraft_goal_cells(
-        &self,
+        &mut self,
         unit_id: ObjectID,
         center_cell: ICoord2D,
         radius: i32,
         center_in_cell: bool,
     ) {
-        let Ok(mut goals) = self.goal_cells.lock() else {
-            return;
-        };
-        self.for_goal_cells(center_cell, radius, center_in_cell, |coord| {
-            if !self.is_valid_coord(coord) {
+        let (width, height) = (self.width, self.height);
+        let goals = &mut self.goal_cells;
+        Self::for_goal_cells(center_cell, radius, center_in_cell, |coord| {
+            if coord.x < 0 || coord.y < 0 || coord.x as usize >= width || coord.y as usize >= height
+            {
                 return;
             }
             if let Some(cell) = goals
@@ -173,9 +173,7 @@ impl PathfindingSystem {
     }
 
     pub(crate) fn get_goal_unit(&self, coord: GridCoord, layer: PathfindLayerEnum) -> ObjectID {
-        let Ok(goals) = self.goal_cells.lock() else {
-            return INVALID_ID;
-        };
+        let goals = &self.goal_cells;
         goals
             .get(coord.x as usize)
             .and_then(|row| row.get(coord.y as usize))
@@ -184,9 +182,7 @@ impl PathfindingSystem {
     }
 
     pub(crate) fn get_goal_aircraft(&self, coord: GridCoord) -> ObjectID {
-        let Ok(goals) = self.goal_cells.lock() else {
-            return INVALID_ID;
-        };
+        let goals = &self.goal_cells;
         goals
             .get(coord.x as usize)
             .and_then(|row| row.get(coord.y as usize))
@@ -195,9 +191,7 @@ impl PathfindingSystem {
     }
 
     pub(crate) fn has_aircraft_goal(&self, coord: GridCoord) -> bool {
-        let Ok(goals) = self.goal_cells.lock() else {
-            return false;
-        };
+        let goals = &self.goal_cells;
         goals
             .get(coord.x as usize)
             .and_then(|row| row.get(coord.y as usize))
@@ -205,7 +199,7 @@ impl PathfindingSystem {
             .unwrap_or(false)
     }
 
-    pub fn refresh_pinched_for_positions(&self, positions: &[Coord3D]) {
+    pub fn refresh_pinched_for_positions(&mut self, positions: &[Coord3D]) {
         if positions.is_empty() {
             return;
         }
@@ -226,9 +220,7 @@ impl PathfindingSystem {
         hi.x = (hi.x + margin).min(self.width.saturating_sub(1) as i32);
         hi.y = (hi.y + margin).min(self.height.saturating_sub(1) as i32);
 
-        if let Ok(mut pathfinder) = self.pathfinder.lock() {
-            pathfinder.refresh_pinched_cells_in_bounds(lo, hi);
-        }
+        self.pathfinder.refresh_pinched_cells_in_bounds(lo, hi);
     }
 
     /// Line-clear check against impassable cells (matches C++ path validation usage).
@@ -244,9 +236,7 @@ impl PathfindingSystem {
         let step = (PATHFIND_CELL_SIZE_F * 0.5).max(0.1);
         let steps = (distance / step).ceil().max(1.0) as i32;
 
-        let Ok(pathfinder) = self.pathfinder.lock() else {
-            return true;
-        };
+        let pathfinder = &self.pathfinder;
 
         for i in 0..=steps {
             let t = i as f32 / steps as f32;
@@ -334,7 +324,7 @@ impl PathfindingSystem {
     /// Returns `PathResult` with full waypoint list from `from` to `to` using
     /// ground-surface A* with zone-based early rejection.
     pub fn find_ground_path(
-        &self,
+        &mut self,
         from: Coord3D,
         to: Coord3D,
         surfaces: LocomotorSurfaceTypeMask,
@@ -393,9 +383,7 @@ impl PathfindingSystem {
     }
 
     pub(crate) fn pos_unit_at(&self, cell: GridCoord, layer: PathfindLayerEnum) -> ObjectID {
-        let Ok(goals) = self.goal_cells.lock() else {
-            return INVALID_ID;
-        };
+        let goals = &self.goal_cells;
         goals
             .get(cell.x as usize)
             .and_then(|row| row.get(cell.y as usize))
@@ -416,9 +404,7 @@ impl PathfindingSystem {
 
     /// Snapshot CELL_OBSTACLE owners so A* dozerHack does not re-lock pathfinder.
     pub(crate) fn snapshot_cell_obstacle_ids(&self) -> HashMap<(i32, i32), ObjectID> {
-        let Ok(pf) = self.pathfinder.lock() else {
-            return HashMap::new();
-        };
+        let pf = &self.pathfinder;
         let mut owners = HashMap::new();
         for x in 0..self.width {
             for y in 0..self.height {
@@ -489,9 +475,7 @@ impl PathfindingSystem {
         }
 
         let pos_unit = {
-            let Ok(goals) = self.goal_cells.lock() else {
-                return false;
-            };
+            let goals = &self.goal_cells;
             goals
                 .get(cell.x as usize)
                 .and_then(|row| row.get(cell.y as usize))
@@ -516,7 +500,7 @@ impl PathfindingSystem {
     /// Walks cells in reverse (goal→start), applies cliff optimize flags, layer
     /// transition handling, and prepends the real unit foot position.
     pub fn build_actual_path(
-        &self,
+        &mut self,
         grid_path: &[GridCoord],
         from_world: &Coord3D,
         to_world: &Coord3D,
@@ -539,7 +523,7 @@ impl PathfindingSystem {
 
     /// C++ buildActualPath with object for isBlockedByAlly cell stamps.
     pub fn build_actual_path_for_object(
-        &self,
+        &mut self,
         grid_path: &[GridCoord],
         from_world: &Coord3D,
         to_world: &Coord3D,
@@ -569,7 +553,7 @@ impl PathfindingSystem {
     /// Build path nodes from the actual A* cell/layer sequence, including
     /// same-XY transitions. This is the C++ `PathNode::getLayer()` source.
     pub(crate) fn build_actual_path_from_layered_path(
-        &self,
+        &mut self,
         grid_path: &[(GridCoord, PathfindLayerEnum)],
         from_world: &Coord3D,
         to_world: &Coord3D,
@@ -627,12 +611,8 @@ impl PathfindingSystem {
                 prev_layer = Some(layer);
                 prev_coord = Some(coord);
                 // C++ setPassable(start cell) when building ground path reverse.
-                if let Ok(mut zones) = self.zones.lock() {
-                    zones.set_passable(coord.x, coord.y, true);
-                }
-                if let Ok(mut pf) = self.pathfinder.lock() {
-                    pf.set_zone_passable(coord, true);
-                }
+                self.zones.set_passable(coord.x, coord.y, true);
+                self.pathfinder.set_zone_passable(coord, true);
                 break;
             }
 
@@ -718,7 +698,7 @@ impl PathfindingSystem {
     /// Object footprint classification is caller-driven (iterate objects).
     /// C++ `Pathfinder::buildGroundPath` (AIPathfind.cpp:6765-6807).
     pub fn build_ground_path(
-        &self,
+        &mut self,
         from: &Coord3D,
         grid_path: &[GridCoord],
         is_crusher: bool,
@@ -766,7 +746,11 @@ impl PathfindingSystem {
     }
 
     /// C++ `Pathfinder::buildHierachicalPath` (AIPathfind.cpp:6813-6867).
-    pub fn build_hierarchical_path(&self, from: &Coord3D, grid_path: &[GridCoord]) -> PathResult {
+    pub fn build_hierarchical_path(
+        &mut self,
+        from: &Coord3D,
+        grid_path: &[GridCoord],
+    ) -> PathResult {
         if grid_path.is_empty() {
             return PathResult::none();
         }
@@ -786,7 +770,8 @@ impl PathfindingSystem {
         let max_pos = Coord3D::new(pos.x + half, pos.y + half, pos.z);
         let lo = GridCoord::from_world(&min_pos);
         let hi = GridCoord::from_world(&max_pos);
-        if let Ok(mut zones) = self.zones.lock() {
+        {
+            let zones = &mut self.zones;
             for i in lo.x..=hi.x {
                 for j in lo.y..=hi.y {
                     zones.set_passable(i, j, true);
@@ -794,7 +779,8 @@ impl PathfindingSystem {
             }
         }
         // Keep A* notZonePassable table in sync with hierarchical expansion.
-        if let Ok(mut pf) = self.pathfinder.lock() {
+        {
+            let pf = &mut self.pathfinder;
             for i in lo.x..=hi.x {
                 for j in lo.y..=hi.y {
                     pf.set_zone_passable(GridCoord::new(i, j), true);
@@ -823,55 +809,36 @@ impl PathfindingSystem {
     }
 
     /// C++ `PathfindZoneManager::setBridge`.
-    pub fn set_zone_bridge(&self, cell: GridCoord, bridge: bool) {
-        if let Ok(mut z) = self.zones.lock() {
-            z.set_bridge(cell.x, cell.y, bridge);
-        }
+    pub fn set_zone_bridge(&mut self, cell: GridCoord, bridge: bool) {
+        self.zones.set_bridge(cell.x, cell.y, bridge);
     }
 
     /// C++ `PathfindZoneManager::interactsWithBridge`.
     pub fn zone_interacts_with_bridge(&self, cell: GridCoord) -> bool {
-        self.zones
-            .lock()
-            .map(|z| z.interacts_with_bridge(cell.x, cell.y))
-            .unwrap_or(false)
+        self.zones.interacts_with_bridge(cell.x, cell.y)
     }
 
     /// C++ `PathfindZoneManager::setPassable` — zone block + A* cost table.
-    pub fn set_zone_cell_passable(&self, cell: GridCoord, passable: bool) {
-        if let Ok(mut z) = self.zones.lock() {
-            z.set_passable(cell.x, cell.y, passable);
-        }
-        if let Ok(mut pf) = self.pathfinder.lock() {
-            pf.set_zone_passable(cell, passable);
-        }
+    pub fn set_zone_cell_passable(&mut self, cell: GridCoord, passable: bool) {
+        self.zones.set_passable(cell.x, cell.y, passable);
+        self.pathfinder.set_zone_passable(cell, passable);
     }
 
     /// C++ `PathfindZoneManager::clearPassableFlags`.
-    pub fn clear_zone_passable_flags(&self) {
-        if let Ok(mut z) = self.zones.lock() {
-            z.clear_passable_flags();
-        }
-        if let Ok(mut pf) = self.pathfinder.lock() {
-            pf.mark_all_zone_blocks_impassable();
-        }
+    pub fn clear_zone_passable_flags(&mut self) {
+        self.zones.clear_passable_flags();
+        self.pathfinder.mark_all_zone_blocks_impassable();
     }
 
     /// C++ `PathfindZoneManager::setAllPassable` — zone blocks + A* table.
-    pub fn set_all_zone_passable(&self) {
-        if let Ok(mut z) = self.zones.lock() {
-            z.set_all_passable();
-        }
-        if let Ok(mut pf) = self.pathfinder.lock() {
-            pf.clear_zone_passable_flags();
-        }
+    pub fn set_all_zone_passable(&mut self) {
+        self.zones.set_all_passable();
+        self.pathfinder.clear_zone_passable_flags();
     }
 
     /// C++ `PathfindZoneManager::markZonesDirty` / force zone rebuild next processQueue.
-    pub fn mark_zones_dirty(&self) {
-        if let Ok(mut z) = self.zones.lock() {
-            z.mark_zones_dirty(true);
-        }
+    pub fn mark_zones_dirty(&mut self) {
+        self.zones.mark_zones_dirty(true);
     }
 
     pub fn new_map(&mut self) {
@@ -902,10 +869,8 @@ impl PathfindingSystem {
     /// Install the explicit bridge-layer cells and ground transition links in
     /// the owned A* grid. C++ A* nodes carry a layer; keeping that same state in
     /// the grid lets route reconstruction return the node's actual layer.
-    pub(crate) fn sync_bridge_layers_to_pathfinder(&self) {
-        let Ok(mut pathfinder) = self.pathfinder.lock() else {
-            return;
-        };
+    pub(crate) fn sync_bridge_layers_to_pathfinder(&mut self) {
+        let pathfinder = &mut self.pathfinder;
         for bridge in &self.bridges {
             let layer = PathfindLayerEnum::from_u32(bridge.layer_id);
             if layer == PathfindLayerEnum::Invalid || layer == PathfindLayerEnum::Ground {
@@ -934,7 +899,8 @@ impl PathfindingSystem {
 
     /// Snapshot cell types + fence flags + connect layers; rebuild zones + combiners.
     pub(crate) fn recalculate_zones_from_cells(&mut self) {
-        let snapshot = if let Ok(pf) = self.pathfinder.lock() {
+        let snapshot = {
+            let pf = &self.pathfinder;
             let mut grid = vec![vec![PathfindCellType::Clear; self.height]; self.width];
             let mut fences = vec![vec![false; self.height]; self.width];
             let mut connects = vec![vec![0u8; self.height]; self.width];
@@ -951,10 +917,9 @@ impl PathfindingSystem {
                 }
             }
             Some((grid, fences, connects))
-        } else {
-            None
         };
-        if let Ok(mut zones) = self.zones.lock() {
+        {
+            let zones = &mut self.zones;
             if let Some((types, fences, connects)) = snapshot {
                 // Flood-fill ground cells once.
                 zones.flood_fill_from_types(&types);
@@ -1002,9 +967,7 @@ impl PathfindingSystem {
     /// When a parent cell has a connectLayer link (bridge entry/exit), return the
     /// same-xy transition cell so A* can enqueue it with parent cost.
     pub fn check_change_layers(&self, parent: GridCoord) -> Option<GridCoord> {
-        let Ok(pathfinder) = self.pathfinder.lock() else {
-            return None;
-        };
+        let pathfinder = &self.pathfinder;
         let cl = pathfinder.get_cell_connect_layer(parent)?;
         if cl == PathfindLayerEnum::Invalid {
             return None;
@@ -1044,24 +1007,16 @@ impl PathfindingSystem {
     /// Stamp connectLayer on a cell (bridge ground-connect / wall link).
     /// C++ PathfindCell::isObstacleTransparent.
     pub fn is_cell_obstacle_transparent(&self, cell: GridCoord) -> bool {
-        self.pathfinder
-            .lock()
-            .map(|pf| pf.is_obstacle_transparent(cell))
-            .unwrap_or(false)
+        self.pathfinder.is_obstacle_transparent(cell)
     }
 
     /// C++ PathfindCell::getObstacleID via A* obstacle_owners.
     pub fn get_cell_obstacle_id(&self, cell: GridCoord) -> Option<ObjectID> {
-        self.pathfinder
-            .lock()
-            .ok()
-            .and_then(|pf| pf.get_cell_obstacle_id(cell))
+        self.pathfinder.get_cell_obstacle_id(cell)
     }
 
-    pub fn set_connect_layer(&self, cell: GridCoord, layer: PathfindLayerEnum) {
-        if let Ok(mut pathfinder) = self.pathfinder.lock() {
-            pathfinder.set_cell_connect_layer(cell, layer);
-        }
+    pub fn set_connect_layer(&mut self, cell: GridCoord, layer: PathfindLayerEnum) {
+        self.pathfinder.set_cell_connect_layer(cell, layer);
     }
 
     pub fn force_map_recalculation(&mut self) {
@@ -1100,18 +1055,14 @@ impl PathfindingSystem {
             return false;
         }
         let cell = GridCoord::from_world(pos);
-        let Ok(walls) = self.wall_cells.lock() else {
-            return false;
-        };
+        let walls = &self.wall_cells;
         walls.contains(&(cell.x, cell.y))
     }
 
     /// Residual wall-cell classification from registered wall piece positions.
     /// C++ `PathfindLayer::classifyWallCells` — marks ground cells under pieces as wall.
     pub fn classify_wall_cells(&mut self) {
-        let Ok(mut walls) = self.wall_cells.lock() else {
-            return;
-        };
+        let walls = &mut self.wall_cells;
         walls.clear();
         if self.wall_pieces.is_empty() {
             return;
@@ -1148,7 +1099,7 @@ impl PathfindingSystem {
                 }
             }
         }
-        let mut pf = self.pathfinder.lock();
+        let finder = &mut self.pathfinder;
         for y in 0..h {
             for x in 0..w {
                 let mut ty = types
@@ -1161,7 +1112,7 @@ impl PathfindingSystem {
                 if ty == crate::path::PathfindCellType::Clear {
                     walls.insert((x, y));
                 }
-                if let Ok(finder) = &mut pf {
+                {
                     let astar_ty = match ty {
                         crate::path::PathfindCellType::Clear => PathfindCellType::Clear,
                         crate::path::PathfindCellType::Water => PathfindCellType::Water,
@@ -1184,11 +1135,12 @@ impl PathfindingSystem {
     }
 
     /// Stamp a single wall cell (used when object positions are known).
-    pub fn classify_wall_cell_at(&self, x: i32, y: i32, clear_for_walk: bool) {
+    pub fn classify_wall_cell_at(&mut self, x: i32, y: i32, clear_for_walk: bool) {
         if x < 0 || y < 0 || x as usize >= self.width || y as usize >= self.height {
             return;
         }
-        if let Ok(mut walls) = self.wall_cells.lock() {
+        {
+            let walls = &mut self.wall_cells;
             if clear_for_walk {
                 walls.insert((x, y));
             } else {

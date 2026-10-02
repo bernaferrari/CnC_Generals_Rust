@@ -733,7 +733,7 @@ impl PathfindingGrid {
         let ai_store = gamelogic::ai::the_ai();
         if let Ok(ai) = ai_store.read() {
             if let Some(pf) = ai.pathfinder() {
-                if let Ok(pf) = pf.read() {
+                if let Ok(mut pf) = pf.write() {
                     let dest = gamelogic::common::Coord3D::new(goal.x, goal.z, goal.y);
                     pf.update_aircraft_goal(&dest, obj.id.0, radius, center_in_cell);
                 }

@@ -745,8 +745,8 @@ impl WeaponTemplate {
                     if let Some(victim_id) = victim_obj {
                         if let Some(victim_arc) = TheGameLogic::find_object_by_id(victim_id) {
                             if let Ok(mut victim_guard) = victim_arc.write() {
-                                for behavior in victim_guard.get_behavior_modules() {
-                                    let Ok(mut behavior) = behavior.lock() else {
+                                for mut behavior in victim_guard.get_behavior_modules() {
+                                    let Ok(mut behavior) = behavior.access() else {
                                         continue;
                                     };
                                     if let Some(countermeasures) =
@@ -1141,10 +1141,9 @@ impl WeaponTemplate {
         projectile_guard.set_transform_matrix(&world_transform);
         let _ = projectile_guard.set_position(&world_pos);
 
-        let _ = projectile_guard
-            .with_experience_tracker_mut(|tracker_guard| {
-                tracker_guard.set_experience_sink(launcher_guard.get_id())
-            });
+        let _ = projectile_guard.with_experience_tracker_mut(|tracker_guard| {
+            tracker_guard.set_experience_sink(launcher_guard.get_id())
+        });
 
         let launcher_phys = launcher_guard.get_physics();
         let projectile_phys = projectile_guard.get_physics();

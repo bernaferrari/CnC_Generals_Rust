@@ -329,8 +329,8 @@ impl InGameUI {
         {
             return;
         }
-        for behavior in guard.get_behavior_modules() {
-            let Ok(module) = behavior.lock() else {
+        for mut behavior in guard.get_behavior_modules() {
+            let Ok(module) = behavior.access() else {
                 continue;
             };
             let Some(sp) = module.get_special_power_module_interface_const() else {

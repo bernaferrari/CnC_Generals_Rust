@@ -2544,7 +2544,7 @@ impl Pathfinder {
     }
 
     pub fn find_path(
-        &self,
+        &mut self,
         from: &Coord3D,
         to: &Coord3D,
         acceptable_surfaces: u32,
@@ -2571,7 +2571,7 @@ impl Pathfinder {
     }
 
     pub fn find_path_for_locomotor(
-        &self,
+        &mut self,
         obj: ObjectID,
         locomotor_set: &crate::locomotor::LocomotorSet,
         from: &Coord3D,
@@ -2626,17 +2626,17 @@ impl Pathfinder {
         }
     }
 
-    pub fn find_path_result(&self, request: ClassicPathRequest) -> ClassicPathResult {
+    pub fn find_path_result(&mut self, request: ClassicPathRequest) -> ClassicPathResult {
         self.inner.find_path(request)
     }
 
-    pub fn find_closest_path_result(&self, request: ClassicPathRequest) -> ClassicPathResult {
+    pub fn find_closest_path_result(&mut self, request: ClassicPathRequest) -> ClassicPathResult {
         self.inner.find_closest_path(request)
     }
 
     /// C++ `Pathfinder::buildGroundPath`.
     pub fn build_ground_path(
-        &self,
+        &mut self,
         from: &Coord3D,
         grid_path: &[pathfind_astar::GridCoord],
         is_crusher: bool,
@@ -2649,7 +2649,7 @@ impl Pathfinder {
 
     /// C++ `Pathfinder::buildHierachicalPath`.
     pub fn build_hierarchical_path(
-        &self,
+        &mut self,
         from: &Coord3D,
         grid_path: &[pathfind_astar::GridCoord],
     ) -> crate::ai::pathfind_complete::PathResult {
@@ -2724,7 +2724,7 @@ impl Pathfinder {
     }
 
     pub fn find_safe_path_result(
-        &self,
+        &mut self,
         request: ClassicPathRequest,
         repulsor_pos1: &Coord3D,
         repulsor_pos2: &Coord3D,
@@ -2895,7 +2895,7 @@ impl Pathfinder {
 
     /// C++ `Pathfinder::slowDoesPathExist` — full A* with optional ignore obstacle.
     pub fn slow_does_path_exist(
-        &self,
+        &mut self,
         obj: &Object,
         from: &Coord3D,
         to: &Coord3D,
@@ -2935,7 +2935,7 @@ impl Pathfinder {
 
     /// C++ `Pathfinder::findGroundPath` used by `AIGroup::friend_computeGroundPath`.
     pub fn find_group_ground_path(
-        &self,
+        &mut self,
         from: &Coord3D,
         to: &Coord3D,
         diameter_cells: i32,
@@ -3354,7 +3354,7 @@ impl Pathfinder {
     }
 
     pub fn update_aircraft_goal(
-        &self,
+        &mut self,
         goal_pos: &Coord3D,
         unit_id: ObjectID,
         radius: i32,
@@ -3365,7 +3365,7 @@ impl Pathfinder {
     }
 
     pub fn update_goal_cells(
-        &self,
+        &mut self,
         cell: pathfind_astar::GridCoord,
         unit_id: ObjectID,
         layer: pathfind_astar::PathfindLayerEnum,
@@ -3385,7 +3385,7 @@ impl Pathfinder {
 
     /// C++ `Pathfinder::updatePos`.
     pub fn update_pos_cells(
-        &self,
+        &mut self,
         cell: pathfind_astar::GridCoord,
         unit_id: ObjectID,
         layer: pathfind_astar::PathfindLayerEnum,
@@ -3405,7 +3405,7 @@ impl Pathfinder {
 
     /// C++ `Pathfinder::removePos` — clear previous occupancy without touching goal.
     pub fn remove_pos_cells(
-        &self,
+        &mut self,
         unit_id: ObjectID,
         radius: i32,
         center_in_cell: bool,
@@ -3417,7 +3417,7 @@ impl Pathfinder {
 
     /// C++ `Pathfinder::removeUnitFromPathfindMap`.
     pub fn remove_unit_from_pathfind_map(
-        &self,
+        &mut self,
         unit_id: ObjectID,
         radius: i32,
         center_in_cell: bool,
