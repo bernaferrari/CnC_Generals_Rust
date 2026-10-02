@@ -16,9 +16,14 @@ use super::update_modules::*;
 use super::*;
 use game_engine::common::thing::thing_factory::apply_stored_locomotors_to_all_templates;
 
-pub(super) fn install_contain_overrides() -> Result<(), String> {
-    install_template_locomotor_applier();
-
+fn register_module_constructors(
+    mut register_module_override: impl FnMut(
+        &str,
+        ModuleType,
+        game_engine::common::thing::module_factory::NewModuleProc,
+        game_engine::common::thing::module_factory::NewModuleDataProc,
+    ) -> Result<(), String>,
+) -> Result<(), String> {
     register_module_override(
         "InactiveBody",
         ModuleType::Behavior,
@@ -1325,8 +1330,17 @@ pub(super) fn install_contain_overrides() -> Result<(), String> {
         defector_special_power_module_factory,
         defector_special_power_module_data_factory,
     )?;
-    apply_stored_locomotors_to_all_templates();
     Ok(())
+}
+
+/// Install the real GameLogic constructors into the supplied rules owner.
+/// Uses the same registration sequence as startup, without publishing an active factory.
+pub fn register_module_overrides(
+    factory: &mut game_engine::common::thing::module_factory::ModuleFactory,
+) -> Result<(), String> {
+    register_module_constructors(|name, module_type, proc, data_proc| {
+        factory.register_override(name, module_type, proc, data_proc)
+    })
 }
 
 static CONTAIN_OVERRIDES_READY: OnceLock<Result<(), String>> = OnceLock::new();
@@ -1334,7 +1348,9 @@ static CONTAIN_OVERRIDES_READY: OnceLock<Result<(), String>> = OnceLock::new();
 pub fn ensure_module_overrides_installed() -> Result<(), String> {
     CONTAIN_OVERRIDES_READY
         .get_or_init(|| {
-            install_contain_overrides()?;
+            install_template_locomotor_applier();
+            register_module_constructors(register_module_override)?;
+            apply_stored_locomotors_to_all_templates();
             apply_module_overrides_to_existing_templates()?;
             Ok(())
         })

@@ -3,7 +3,6 @@ use game_engine::common::rts::AsciiString;
 use game_engine::common::thing::module::{ModuleInterfaceType, ModuleType};
 use game_engine::common::thing::module_factory::ModuleFactory;
 use game_engine::common::thing::thing_template::{ModuleDescriptor, ModuleDescriptorSet};
-use gamelogic::contain_module_overrides::ensure_module_overrides_installed;
 use generals_main::assets::archive::ArchiveFileSystem;
 use std::collections::BTreeSet;
 
@@ -148,8 +147,6 @@ fn unique_module_uses(used: &BTreeSet<ModuleUse>) -> Vec<ModuleUse> {
 }
 
 fn audit_runtime_factory(unique: &[ModuleUse]) -> Result<Vec<ModuleUse>> {
-    ensure_module_overrides_installed().map_err(|err| anyhow!(err))?;
-
     let mut descriptor_set = ModuleDescriptorSet::default();
     for module in unique {
         descriptor_set
@@ -165,6 +162,8 @@ fn audit_runtime_factory(unique: &[ModuleUse]) -> Result<Vec<ModuleUse>> {
     }
 
     let mut factory = ModuleFactory::new();
+    gamelogic::contain_module_overrides::register_module_overrides(&mut factory)
+        .map_err(|err| anyhow!(err))?;
     factory.register_descriptor_set(&descriptor_set);
 
     let mut missing = Vec::new();

@@ -408,12 +408,9 @@ mod tests {
             "live factory must wire w3d_prop_draw_module_factory"
         );
 
-        crate::contain_module_overrides::ensure_module_overrides_installed()
-            .expect("install live contain overrides");
-        let _ = game_engine::common::thing::module_factory::init_module_factory();
-        let _ = game_engine::common::thing::module_factory::apply_module_overrides_to_existing_templates();
-
         let mut factory = game_engine::common::thing::module_factory::ModuleFactory::new();
+        crate::contain_module_overrides::register_module_overrides(&mut factory)
+            .expect("configure owned factory");
         factory.add_module_internal(
             None,
             None,
