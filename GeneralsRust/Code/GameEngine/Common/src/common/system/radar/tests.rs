@@ -414,6 +414,9 @@ fn test_radar_event_expiration() {
         &[],
     );
 
+    // C++ uses createFrame == 0 as the empty-slot sentinel. Start at a
+    // nonzero simulation frame when checking ordinary event expiration.
+    radar.update(1);
     let world_loc = Coord3D::new(100.0, 100.0, 0.0);
     radar.create_event(&world_loc, RadarEventType::Information, 1.0);
 
@@ -423,6 +426,26 @@ fn test_radar_event_expiration() {
     // Update past expiration (1 second = 30 frames)
     radar.update(35);
     assert_eq!(radar.get_active_events().len(), 0);
+}
+
+#[test]
+fn test_radar_event_created_at_frame_zero_does_not_expire() {
+    let mut radar = RadarSystem::new();
+    radar.new_map(
+        Coord3D::new(0.0, 0.0, 0.0),
+        Coord3D::new(1024.0, 1024.0, 100.0),
+        &[],
+    );
+
+    radar.create_event(
+        &Coord3D::new(100.0, 100.0, 0.0),
+        RadarEventType::Information,
+        1.0,
+    );
+    radar.update(35);
+
+    // C++ Radar::update only expires events whose createFrame is nonzero.
+    assert_eq!(radar.get_active_events().len(), 1);
 }
 
 #[test]
@@ -956,9 +979,43 @@ fn test_object_overlay_unhides_enemy_stealth_for_defeated_or_observer() {
     radar.set_local_player_active(false);
     assert_eq!(
         pixel(&radar),
-        vec![0xFF, 0x00, 0x00, 0xFF],
+        vec![0xFF, 0x00, 0x00, 0x20],
         "defeated/observer local must see enemy stealth as VISIBLE_FRIENDLY"
     );
+}
+
+#[test]
+fn test_observer_overlay_still_hides_drawable_hidden_objects() {
+    let mut radar = RadarSystem::new();
+    radar.new_map(
+        Coord3D::new(0.0, 0.0, 0.0),
+        Coord3D::new(128.0, 128.0, 0.0),
+        &[],
+    );
+    radar.clear_shroud();
+
+    let mut drawable_hidden = RadarObject::new(31);
+    drawable_hidden.world_pos = Coord3D::new(12.0, 18.0, 0.0);
+    drawable_hidden.priority = RadarPriorityType::Unit;
+    drawable_hidden.drawable_hidden = true;
+    radar.add_object(drawable_hidden);
+
+    let mut hidden_by_stealth = RadarObject::new(32);
+    hidden_by_stealth.world_pos = Coord3D::new(24.0, 30.0, 0.0);
+    hidden_by_stealth.priority = RadarPriorityType::Unit;
+    hidden_by_stealth.hidden_by_stealth = true;
+    radar.add_object(hidden_by_stealth);
+
+    radar.set_local_player_active(false);
+    let texture = radar.build_object_overlay_texture_rgba();
+    for (x, y) in [(12, 18), (24, 30)] {
+        let idx = ((y * RADAR_CELL_WIDTH + x) * 4) as usize;
+        assert_eq!(
+            &texture[idx..idx + 4],
+            &[0, 0, 0, 0],
+            "observer radar must still hide effectively hidden drawables"
+        );
+    }
 }
 
 #[test]
@@ -1262,6 +1319,7 @@ fn test_visible_objects_filtering() {
     hidden.world_pos = Coord3D::new(200.0, 200.0, 0.0);
     hidden.priority = RadarPriorityType::Unit;
     hidden.is_stealth = true;
+    hidden.is_enemy = true;
     radar.add_object(hidden);
 
     // Should only get visible objects
@@ -1598,6 +1656,8 @@ fn try_event_throttles_inactive_history_for_ten_seconds() {
         Coord3D::new(1024.0, 1024.0, 100.0),
         &[],
     );
+    // Keep the created event away from the frame-zero empty-slot sentinel.
+    radar.update(1);
     let loc = Coord3D::new(100.0, 100.0, 0.0);
     assert!(radar.try_event(RadarEventType::UnderAttack, &loc));
     radar.update(150);

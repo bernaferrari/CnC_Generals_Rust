@@ -1,5 +1,18 @@
 use super::*;
 
+fn enqueue_closest_path_node(
+    open: &mut BinaryHeap<std::cmp::Reverse<(i32, u64, i32, i32, i32, u8)>>,
+    next_order: &mut u64,
+    f: i32,
+    g: i32,
+    x: i32,
+    y: i32,
+    layer: u8,
+) {
+    open.push(std::cmp::Reverse((f, *next_order, g, x, y, layer)));
+    *next_order += 1;
+}
+
 impl PathfindingSystem {
     /// `aircraft`: apply C++ tall-building aircraft path-around residual after A*.
     pub fn find_path_ex(
@@ -709,10 +722,21 @@ impl PathfindingSystem {
                 found = Some((cell, layer));
                 break;
             }
-            if self
-                .grid
-                .enqueue_connect_layer(cell, layer, g, g, &closed, &mut g_score, &mut open)
-            {
+            let layer_enqueued = {
+                let mut enqueue = |f, g, x, y, layer| {
+                    open.push(std::cmp::Reverse((f, g, x, y, layer)));
+                };
+                self.grid.enqueue_connect_layer(
+                    cell,
+                    layer,
+                    g,
+                    g,
+                    &closed,
+                    &mut g_score,
+                    &mut enqueue,
+                )
+            };
+            if layer_enqueued {
                 cell_count += 1;
             }
             let mut neighbor_flags = [false; 8];
@@ -843,7 +867,9 @@ impl PathfindingSystem {
             self.ignore_obstacle_id.map(|id| id.0).unwrap_or(0),
         );
         let start_lid = start_layer as u8;
-        let mut open: BinaryHeap<std::cmp::Reverse<(i32, i32, i32, i32, u8)>> = BinaryHeap::new();
+        let mut open: BinaryHeap<std::cmp::Reverse<(i32, u64, i32, i32, i32, u8)>> =
+            BinaryHeap::new();
+        let mut next_enqueue_order = 0u64;
         let mut g_score: HashMap<(i32, i32, u8), i32> = HashMap::new();
         let mut closed: HashSet<(i32, i32, u8)> = HashSet::new();
         // Leftover goal accept honors canPathThroughUnits (per-pop C++ check).
@@ -883,7 +909,15 @@ impl PathfindingSystem {
             (1, -1),
         ];
         let h0 = heuristic(start);
-        open.push(std::cmp::Reverse((h0, 0, start.x, start.y, start_lid)));
+        enqueue_closest_path_node(
+            &mut open,
+            &mut next_enqueue_order,
+            h0,
+            0,
+            start.x,
+            start.y,
+            start_lid,
+        );
         g_score.insert((start.x, start.y, start_lid), 0);
         let closest_jumps = self.hierarchical_bridge_jumps();
         let closest_start = self.host_to_crate_coord(start);
@@ -899,7 +933,7 @@ impl PathfindingSystem {
                 );
             }
         }
-        while let Some(std::cmp::Reverse((_f, g, cx, cy, lid))) = open.pop() {
+        while let Some(std::cmp::Reverse((_f, _order, g, cx, cy, lid))) = open.pop() {
             let key = (cx, cy, lid);
             if !closed.insert(key) {
                 continue;
@@ -954,7 +988,17 @@ impl PathfindingSystem {
                 f_hop,
                 &closed,
                 &mut g_score,
-                &mut open,
+                &mut |f, g, x, y, hop_layer| {
+                    enqueue_closest_path_node(
+                        &mut open,
+                        &mut next_enqueue_order,
+                        f,
+                        g,
+                        x,
+                        y,
+                        hop_layer,
+                    )
+                },
             );
             let mut neighbor_flags = [false; 8];
             for (i, (dx, dy)) in deltas.iter().enumerate() {
@@ -987,7 +1031,7 @@ impl PathfindingSystem {
                 }
                 g_score.insert(nkey, ng);
                 let f = ng + heuristic(nc);
-                open.push(std::cmp::Reverse((f, ng, nx, ny, lid)));
+                enqueue_closest_path_node(&mut open, &mut next_enqueue_order, f, ng, nx, ny, lid);
             }
         }
         let (best_cell, best_layer, _) = closest_cell?;
