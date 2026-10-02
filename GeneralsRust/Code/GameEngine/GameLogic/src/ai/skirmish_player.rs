@@ -156,7 +156,8 @@ impl AISkirmishPlayer {
         };
 
         let mut build_list = None;
-        let ai_store = the_ai(); if let Ok(ai_guard) = ai_store.read() {
+        let ai_store = the_ai();
+        if let Ok(ai_guard) = ai_store.read() {
             {
                 let ai_data = ai_guard.get_ai_data();
                 if let Some(entry) = ai_data
@@ -189,13 +190,15 @@ impl AISkirmishPlayer {
 
     /// Called when a unit is produced
     pub fn on_unit_produced(&mut self, factory: &Arc<RwLock<Object>>, unit: &Arc<RwLock<Object>>) {
-        let (Ok(factory_guard), Ok(unit_guard)) = (factory.read(), unit.read()) else {
-            return;
+        let (factory_id, unit_id) = {
+            let (Ok(factory_guard), Ok(unit_guard)) = (factory.read(), unit.read()) else {
+                return;
+            };
+            (factory_guard.get_id(), unit_guard.get_id())
         };
-        // C++ AISkirmishPlayer::onUnitProduced → AIPlayer::onUnitProduced only.
-        let _ = self
-            .base
-            .on_unit_produced(factory_guard.get_id(), unit_guard.get_id());
+        // C++ delegates directly. Base AI can assign this unit to its team,
+        // so no Object guard may survive into that callback.
+        let _ = self.base.on_unit_produced(factory_id, unit_id);
     }
 
     /// Build a specific AI team immediately
@@ -289,7 +292,8 @@ impl AISkirmishPlayer {
         };
         // C++ walks m_sideInfo until side match, then calls with that entry's
         // m_baseDefenseStructure1 (even if empty — template lookup fails fast).
-        let ai_store = the_ai();let defense_name = ai_store.read().ok().and_then(|ai| {
+        let ai_store = the_ai();
+        let defense_name = ai_store.read().ok().and_then(|ai| {
             Some(&*ai.get_ai_data()).and_then(|data| {
                 data.side_info
                     .iter()
@@ -371,7 +375,8 @@ impl AISkirmishPlayer {
                 offset = offset.normalized();
             }
             let mut defense_distance = self.base.get_base_radius();
-            let ai_store = the_ai(); if let Ok(ai_guard) = ai_store.read() {
+            let ai_store = the_ai();
+            if let Ok(ai_guard) = ai_store.read() {
                 defense_distance += ai_guard.get_ai_data().skirmish_base_defense_extra_distance;
             }
             offset.x *= defense_distance;
@@ -528,7 +533,8 @@ impl AISkirmishPlayer {
             out
         };
 
-        let ai_store = the_ai();let Some(pf_arc) = ai_store.read().ok().and_then(|ai| ai.pathfinder()) else {
+        let ai_store = the_ai();
+        let Some(pf_arc) = ai_store.read().ok().and_then(|ai| ai.pathfinder()) else {
             return false;
         };
         let Ok(pf) = pf_arc.read() else {
@@ -671,7 +677,8 @@ impl AISkirmishPlayer {
         let current_frame = TheGameLogic::get_frame();
         // C++: TheAI->getAiData()->m_rebuildDelaySeconds * LOGICFRAMES_PER_SECOND
         // Retail AIData = 30; fall back when AIData unloaded / zero.
-        let ai_store = the_ai();let rebuild_delay_frames = ai_store
+        let ai_store = the_ai();
+        let rebuild_delay_frames = ai_store
             .read()
             .ok()
             .and_then(|ai| {
@@ -1004,7 +1011,8 @@ impl AISkirmishPlayer {
             return;
         };
 
-        let ai_store = the_ai();let (poor, wealthy, poor_mod, wealthy_mod) = ai_store
+        let ai_store = the_ai();
+        let (poor, wealthy, poor_mod, wealthy_mod) = ai_store
             .read()
             .ok()
             .and_then(|ai| {
@@ -1081,7 +1089,8 @@ impl AISkirmishPlayer {
             return;
         };
 
-        let ai_store = the_ai();let (poor, wealthy, poor_mod, wealthy_mod) = ai_store
+        let ai_store = the_ai();
+        let (poor, wealthy, poor_mod, wealthy_mod) = ai_store
             .read()
             .ok()
             .and_then(|ai| {
@@ -1333,7 +1342,8 @@ impl AISkirmishPlayer {
             let positions: Vec<Coord3D> = OBJECT_REGISTRY
                 .with_object(obj_id, |g| vec![*g.get_position()])
                 .unwrap_or_default();
-            let ai_store = the_ai(); if let Ok(ai_guard) = ai_store.read() {
+            let ai_store = the_ai();
+            if let Ok(ai_guard) = ai_store.read() {
                 if let Some(pf_arc) = ai_guard.pathfinder() {
                     if let Ok(mut pf) = pf_arc.write() {
                         pf.remove_object_from_map(obj_id, &positions);
@@ -1384,7 +1394,8 @@ impl AISkirmishPlayer {
         }
 
         let mut angle = 0.0f32;
-        let ai_store = the_ai(); if let Ok(ai_guard) = ai_store.read() {
+        let ai_store = the_ai();
+        if let Ok(ai_guard) = ai_store.read() {
             {
                 let ai_data = ai_guard.get_ai_data();
                 if ai_data.rotate_skirmish_bases {
@@ -1426,7 +1437,6 @@ impl AISkirmishPlayer {
             cur.set_location(cur_pos);
             cur.set_angle(cur.get_angle());
         });
-
     }
 
     /// C++ newMap initial pass: buildStructureNow or incrementNumRebuilds.
@@ -1745,7 +1755,8 @@ impl AISkirmishPlayer {
         };
         let current_money = player_guard.get_money().get_money();
 
-        let ai_store = the_ai();let (poor, wealthy) = ai_store
+        let ai_store = the_ai();
+        let (poor, wealthy) = ai_store
             .read()
             .ok()
             .map(|ai| {
@@ -1968,6 +1979,13 @@ impl Snapshot for AISkirmishPlayer {
 
     fn load_post_process(&mut self) {
         self.current_enemy = None;
+    }
+}
+
+#[cfg(test)]
+impl AISkirmishPlayer {
+    pub(super) fn base_for_test(&mut self) -> &mut AIPlayer {
+        &mut self.base
     }
 }
 

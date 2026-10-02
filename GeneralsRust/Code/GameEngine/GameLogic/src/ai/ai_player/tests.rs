@@ -588,7 +588,8 @@ fn arm_structure_timer_applies_wealth_mods_like_cpp() {
     // C++: m_structureTimer = TheAI->getAiData()->m_structureSeconds * FPS
     // (live AIData, not a per-player field). Snapshot and restore AIData.
     let prev_seconds = {
-        let ai_store = the_ai();let mut ai_g = ai_store.write().expect("ai");
+        let ai_store = the_ai();
+        let mut ai_g = ai_store.write().expect("ai");
         let mut prev = 0.0;
         ai_g.update_ai_data(|data| {
             prev = data.structure_seconds;
@@ -608,7 +609,8 @@ fn arm_structure_timer_applies_wealth_mods_like_cpp() {
     );
     assert_eq!(player_ai.structure_timer, 499);
     {
-        let ai_store = the_ai();let mut ai_g = ai_store.write().expect("ai restore");
+        let ai_store = the_ai();
+        let mut ai_g = ai_store.write().expect("ai restore");
         ai_g.update_ai_data(|data| data.structure_seconds = prev_seconds);
     }
 }
@@ -888,7 +890,13 @@ fn on_unit_produced_cpp_surface() {
     let i = src
         .find("C++ `AIPlayer::onUnitProduced`")
         .expect("onUnitProduced");
-    let window = &src[i..src.len().min(i + 7500)];
+    // Use method boundaries: a fixed byte cutoff can split UTF-8 and also
+    // credit calls in the following structure callback to this unit callback.
+    let end = src[i..]
+        .find("    pub fn on_structure_produced(")
+        .map(|offset| i + offset)
+        .expect("onUnitProduced end");
+    let window = &src[i..end];
     assert!(
         window.contains("is_equivalent_to")
             && window.contains("order.factory_id = None")
@@ -913,15 +921,15 @@ fn on_unit_produced_cpp_surface() {
 fn on_unit_produced_shortcuts_team_delay() {
     let mut ai = AIPlayer::new(1);
     ai.team_delay = 99;
-    // invalid factory → still sets team_delay=0 after missing unit path
+    // C++ returns before resetting teamDelay when factory is null.
     ai.on_unit_produced(INVALID_ID, INVALID_ID).expect("oop");
-    // factory INVALID returns early without clearing in our port when factory_id==INVALID
-    // Use a fake factory with no unit:
+    assert_eq!(ai.team_delay, 99);
+    // A nonnull factory wakes scheduling even if Rust cannot resolve the unit.
     ai.team_delay = 99;
     let _ = ai.on_unit_produced(1, 999999);
     assert_eq!(
         ai.team_delay, 0,
-        "C++ always zeroes teamDelay at end of onUnitProduced"
+        "A nonnull factory must wake team scheduling"
     );
 }
 
