@@ -379,6 +379,9 @@ impl Object {
             ObjectDestroyServiceAction::QueueTriggerAreaRefresh => {
                 crate::helpers::TheGameLogic::queue_objects_changed_trigger_areas(object_id);
             }
+            ObjectDestroyServiceAction::NotifyObjectCountChanged => {
+                crate::helpers::TheScriptEngine::notify_of_object_creation_or_destruction();
+            }
         });
     }
 
@@ -411,10 +414,14 @@ impl Object {
     /// C++ `Object::~Object` after `onDestroy`: pathfinder, scripts, radar,
     /// `sendObjectDestroyed`, clear team/group, ControlBar dirty.
     pub(crate) fn run_destructor_tail(&mut self) {
-        self.run_destructor_tail_with_game_logic_service(&mut |object_id, action| {
-            if let ObjectDestroyServiceAction::QueueTriggerAreaRefresh = action {
+        self.run_destructor_tail_with_game_logic_service(&mut |object_id, action| match action {
+            ObjectDestroyServiceAction::QueueTriggerAreaRefresh => {
                 crate::helpers::TheGameLogic::queue_objects_changed_trigger_areas(object_id);
             }
+            ObjectDestroyServiceAction::NotifyObjectCountChanged => {
+                crate::helpers::TheScriptEngine::notify_of_object_creation_or_destruction();
+            }
+            ObjectDestroyServiceAction::UnregisterUpdateModule(_) => {}
         });
     }
 
@@ -439,7 +446,10 @@ impl Object {
 
         if !self.is_kind_of(KindOf::Projectile) && !self.is_kind_of(KindOf::Inert) {
             service(self.id, ObjectDestroyServiceAction::QueueTriggerAreaRefresh);
-            crate::helpers::TheScriptEngine::notify_of_object_creation_or_destruction();
+            service(
+                self.id,
+                ObjectDestroyServiceAction::NotifyObjectCountChanged,
+            );
         }
 
         if self.radar_data.is_some() {

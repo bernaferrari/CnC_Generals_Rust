@@ -49,7 +49,8 @@ pub use helpers::{
     set_host_script_query_snapshot, sync_host_trigger_flags_from_snapshot,
 };
 pub(crate) use helpers::{
-    get_player_arc, get_str_param, lookup_named_object_id, perform_comparison,
+    get_player_arc, get_str_param, host_named_unit_point_in_trigger, lookup_named_object_id,
+    perform_comparison,
 };
 
 use crate::GameLogicResult;

@@ -21,12 +21,12 @@ pub mod production;
 pub mod special_power_cooldown;
 pub mod special_power_effects;
 pub mod special_power_interface_cast;
-pub mod update_module_interfaces;
 pub mod special_power_module;
 pub mod special_power_template;
 pub mod special_power_types;
 pub mod special_powers;
 pub mod update;
+pub mod update_module_interfaces;
 pub mod upgrade;
 pub mod weapon;
 // pub mod update_modules;
@@ -46,8 +46,8 @@ pub mod object_types;
 mod partition_data;
 pub mod partition_manager;
 pub use partition_data::{
-    PartitionData, partition_cell_shroud_counts, partition_cell_shroud_status, stamp_partition_cell_covers,
-    stamp_partition_cell_lookers,
+    PartitionData, partition_cell_shroud_counts, partition_cell_shroud_status,
+    stamp_partition_cell_covers, stamp_partition_cell_lookers,
 };
 
 pub mod registry;
@@ -822,7 +822,6 @@ fn behavior_production_queue_kind(
     behavior.as_production_queue_kind()
 }
 
-
 pub(crate) enum ProductionBehaviorRallyKindMut<'a> {
     QueueExit(&'a mut crate::object::behavior::queue_production_exit_behavior::QueueProductionExitBehavior),
     DefaultExit(
@@ -861,7 +860,6 @@ fn behavior_production_rally_kind(
 ) -> Option<ProductionBehaviorRallyKindMut<'_>> {
     behavior.as_production_rally_kind()
 }
-
 
 enum BehaviorUtilityModuleKindMut<'a> {
     FiringTracker(
@@ -1463,7 +1461,8 @@ impl ExitInterface for ExitInterfaceProxy {
             return Ok(());
         }
 
-        if crate::object::registry::OBJECT_REGISTRY.get_object(obj_id)
+        if crate::object::registry::OBJECT_REGISTRY
+            .get_object(obj_id)
             .is_none()
         {
             return Ok(());
@@ -1486,8 +1485,7 @@ impl ExitInterface for ExitInterfaceProxy {
             return Ok(());
         }
 
-        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id)
-        else {
+        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id) else {
             return Ok(());
         };
 
@@ -1509,8 +1507,7 @@ impl ExitInterface for ExitInterfaceProxy {
             return Ok(());
         }
 
-        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id)
-        else {
+        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id) else {
             return Ok(());
         };
 
@@ -1575,7 +1572,8 @@ impl ExitInterface for ContainExitInterfaceProxy {
             return Ok(());
         }
 
-        if crate::object::registry::OBJECT_REGISTRY.get_object(obj_id)
+        if crate::object::registry::OBJECT_REGISTRY
+            .get_object(obj_id)
             .is_none()
         {
             return Ok(());
@@ -1596,8 +1594,7 @@ impl ExitInterface for ContainExitInterfaceProxy {
             return Ok(());
         }
 
-        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id)
-        else {
+        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id) else {
             return Ok(());
         };
 
@@ -1661,7 +1658,8 @@ impl ExitInterface for ModuleExitInterfaceProxy {
             return Ok(());
         }
 
-        if crate::object::registry::OBJECT_REGISTRY.get_object(obj_id)
+        if crate::object::registry::OBJECT_REGISTRY
+            .get_object(obj_id)
             .is_none()
         {
             return Ok(());
@@ -1680,8 +1678,7 @@ impl ExitInterface for ModuleExitInterfaceProxy {
             return Ok(());
         }
 
-        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id)
-        else {
+        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id) else {
             return Ok(());
         };
 
@@ -1699,8 +1696,7 @@ impl ExitInterface for ModuleExitInterfaceProxy {
             return Ok(());
         }
 
-        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id)
-        else {
+        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id) else {
             return Ok(());
         };
 
@@ -1880,10 +1876,8 @@ fn initial_update_wake_frame(entry: &ModuleEntry) -> UnsignedInt {
     // Every branch of the former `as_any().downcast_ref` chain is now a
     // `Module::get_initial_wake_frame()` override (see the wrapper modules);
     // modules without a wake frame still report 0 here.
-    entry
-        .with_module(|module| module.get_initial_wake_frame().unwrap_or(0))
+    entry.with_module(|module| module.get_initial_wake_frame().unwrap_or(0))
 }
-
 
 impl UpdateModuleInterface for ModuleUpdateProxy {
     fn update(&mut self) -> Result<UpdateSleepTime, Box<dyn std::error::Error + Send + Sync>> {
@@ -2251,6 +2245,7 @@ pub(crate) enum PendingProducedExit {
 pub(crate) enum ObjectDestroyServiceAction {
     UnregisterUpdateModule(UpdateModulePtr),
     QueueTriggerAreaRefresh,
+    NotifyObjectCountChanged,
 }
 
 /// Main Object struct - the core game entity

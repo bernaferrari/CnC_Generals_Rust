@@ -779,7 +779,7 @@ pub fn host_script_lookup_polygon_trigger(
         .cloned()
 }
 
-fn host_named_unit_point_in_trigger(
+pub(crate) fn host_named_unit_point_in_trigger(
     unit_name: &str,
     trigger: &crate::polygon_trigger::PolygonTrigger,
 ) -> bool {

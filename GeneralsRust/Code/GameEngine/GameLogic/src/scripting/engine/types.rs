@@ -125,7 +125,6 @@ pub trait ScriptActionHandler: Send + Sync {
         Ok(())
     }
 
-
     fn zoom_camera(
         &self,
         zoom: f32,
@@ -541,7 +540,6 @@ pub trait ScriptActionHandler: Send + Sync {
         Ok(())
     }
 
-
     /// C++ ScriptActions.cpp:174/208/232/250 TheCampaignManager->SetVictorious.
     fn set_campaign_victorious(&self, _victorious: bool) -> GameLogicResult<()> {
         Ok(())
@@ -587,7 +585,12 @@ pub(crate) fn qualify_trigger_area_name(
             .read()
             .ok()
             .and_then(|list| list.find_player_by_name(player_name))
-            .and_then(|player| player.read().ok().map(|guard| guard.get_mp_start_index() + 1))?;
+            .and_then(|player| {
+                player
+                    .read()
+                    .ok()
+                    .map(|guard| guard.get_mp_start_index() + 1)
+            })?;
         if area_name == MY_INNER_PERIMETER {
             return Some(format!("{INNER_PERIMETER}{ndx}"));
         }
@@ -619,7 +622,6 @@ pub(crate) fn qualify_trigger_area_name(
 
     Some(area_name.to_string())
 }
-
 
 /// Fade types matching C++ TFade enum
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -838,7 +840,6 @@ pub struct SequentialScriptSnapshot {
     pub frames_to_wait: i32,
     pub dont_advance_instruction: bool,
 }
-
 
 impl XferSnapshot for SequentialScript {
     fn crc(&mut self, xfer: &mut dyn Xfer) -> Result<(), XferStatus> {
@@ -1389,6 +1390,11 @@ impl ScriptEngine {
     /// `scoped_tls` restores an outer active engine even if `f` panics.
     fn with_active<R>(&self, f: impl FnOnce() -> R) -> R {
         ACTIVE_SCRIPT_ENGINE.set(self, f)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn with_active_for_test<R>(&self, f: impl FnOnce() -> R) -> R {
+        self.with_active(f)
     }
 
     /// Run a short, non-dispatching operation against this engine's lexical

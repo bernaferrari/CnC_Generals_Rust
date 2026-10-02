@@ -11,6 +11,24 @@ use crate::scripting::engine::{
 };
 use std::sync::Mutex;
 
+// TheGameLogic::register_object admits an object to GameLogic's update list,
+// independently of ObjectManager. End that lifetime through the same owner;
+// ObjectManager::reset alone leaves those objects visible to later tests.
+struct RegisteredScriptObjects(Vec<ObjectID>);
+
+impl Drop for RegisteredScriptObjects {
+    fn drop(&mut self) {
+        let owner = crate::system::game_logic::get_game_logic();
+        let mut owner = owner.lock().expect("script object owner");
+        for id in &self.0 {
+            owner.destroy_object(*id);
+        }
+        owner
+            .process_destroy_list()
+            .expect("script object teardown");
+    }
+}
+
 #[derive(Debug)]
 struct RecordingAi {
     commands: Arc<

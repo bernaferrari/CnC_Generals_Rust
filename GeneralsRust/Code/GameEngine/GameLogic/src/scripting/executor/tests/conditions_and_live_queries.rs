@@ -241,6 +241,7 @@ fn team_follow_waypoints_honors_as_team_int() {
     get_terrain_logic().write().unwrap().load_map_data(map_data);
 
     const UNIT_ID: ObjectID = 8790;
+    let _registered = RegisteredScriptObjects(vec![UNIT_ID]);
     let commands = Arc::new(Mutex::new(Vec::new()));
     let locomotors = Arc::new(Mutex::new(Vec::new()));
     let obj = Arc::new(RwLock::new(crate::object::Object::new_test(UNIT_ID, 100.0)));
@@ -258,6 +259,9 @@ fn team_follow_waypoints_honors_as_team_int() {
 
     {
         let mut factory = get_team_factory().lock().unwrap();
+        factory
+            .init_team("FollowTeam".into(), "".into(), false, None)
+            .expect("team prototype");
         let team = factory.create_team("FollowTeam").expect("team");
         team.write().unwrap().add_member(UNIT_ID);
     }
