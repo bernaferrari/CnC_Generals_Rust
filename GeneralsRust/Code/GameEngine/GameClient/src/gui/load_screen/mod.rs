@@ -8,25 +8,25 @@ use crate::input::with_mouse;
 use crate::map_util::{find_draw_positions, get_map_cache_manager, get_map_preview_image};
 
 use super::campaign_manager::{
-    MAX_DISPLAYED_UNITS, MAX_OBJECTIVE_LINES, Mission, get_campaign_manager,
+    get_campaign_manager, Mission, MAX_DISPLAYED_UNITS, MAX_OBJECTIVE_LINES,
 };
 use super::challenge_generals::{
-    ChallengeGenerals, GeneralPersona, get_challenge_generals, get_challenge_generals_mut,
-    init_challenge_generals,
+    get_challenge_generals, get_challenge_generals_mut, init_challenge_generals, ChallengeGenerals,
+    GeneralPersona,
 };
 use super::game_window::{
-    GPM_SET_PROGRESS, GameWindow, Image as WindowImage, WindowMessage, WindowMsgData,
+    GameWindow, Image as WindowImage, WindowMessage, WindowMsgData, GPM_SET_PROGRESS,
 };
-use super::window_video_manager::{WindowVideoPlayType, with_window_video_manager};
-use super::{WindowManager, WindowStatus, with_window_manager};
+use super::window_video_manager::{with_window_video_manager, WindowVideoPlayType};
+use super::{with_window_manager, WindowManager, WindowStatus};
 use game_engine::common::ini::ini_map_cache::MapMetaData;
 use game_engine::common::ini::ini_multiplayer::with_multiplayer_settings;
-use game_engine::common::rts::player_template::{PlayerTemplate, get_player_template_store};
+use game_engine::common::rts::player_template::{get_player_template_store, PlayerTemplate};
 use gamelogic::common::audio::AudioEventRts;
 use gamelogic::helpers::TheAudio;
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 // Live `load_screen` module. `include!` keeps one logical module so field

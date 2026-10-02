@@ -172,7 +172,7 @@ impl SkeletalAnimationState {
 
 pub struct EnhancedDemoApp {
     // Core systems
-    asset_manager: Arc<Mutex<AssetManager>>,
+    asset_manager: AssetManager,
     collision_system: CollisionSystem,
     scene_manager: SceneManagerClass,
     physics_world: PhysicsWorld,
@@ -200,7 +200,7 @@ pub struct EnhancedDemoApp {
 impl EnhancedDemoApp {
     pub async fn new(window: Arc<winit::window::Window>) -> Self {
         // Initialize core systems
-        let asset_manager = Arc::new(Mutex::new(AssetManager::new()));
+        let asset_manager = AssetManager::new();
         let collision_system = CollisionSystem::new();
         let mut scene_manager = SceneManagerClass::new();
         scene_manager.set_ambient_light(Vec3::new(0.18, 0.20, 0.24));
@@ -243,14 +243,8 @@ impl EnhancedDemoApp {
             }
         }
 
-        let renderer = {
-            let renderer = WgpuMainRenderer::from_engine(WgpuMainRendererConfig::default())
-                .expect("failed to construct WgpuMainRenderer from ww3d_engine");
-            renderer
-                .set_asset_manager(Arc::clone(&asset_manager))
-                .expect("failed to bind asset manager to renderer");
-            renderer
-        };
+        let renderer = WgpuMainRenderer::from_engine(WgpuMainRendererConfig::default())
+            .expect("failed to construct WgpuMainRenderer from ww3d_engine");
 
         // Setup scene
         let aspect_ratio = window_size.width.max(1) as f32 / window_size.height.max(1) as f32;
@@ -296,11 +290,10 @@ impl EnhancedDemoApp {
         }
 
         let (model, mesh_name, bind_transforms, _inverse_transforms, skeletal_state) = {
-            let mut manager = self
-                .asset_manager
-                .lock()
-                .map_err(|_| W3DError::InvalidParameter("Asset manager poisoned".into()))?;
-            manager.load_w3d(&asset_path)?;
+            self.asset_manager
+                .load_w3d(&asset_path)
+                .map_err(|_| W3DError::InvalidParameter("Asset manager load failed".into()))?;
+            let manager = &self.asset_manager;
 
             let prototype = manager
                 .prototypes

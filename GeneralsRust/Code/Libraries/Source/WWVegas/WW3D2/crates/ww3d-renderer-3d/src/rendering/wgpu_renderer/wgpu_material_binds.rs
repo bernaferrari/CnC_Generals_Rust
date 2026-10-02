@@ -436,12 +436,11 @@ fn build_lighting_uniform(render_info: &RenderInfoClass) -> LightingUniform {
                 if light_count == MAX_LIGHTS {
                     break;
                 }
-                let Ok(light) = light.lock() else { continue };
                 if !light.enabled {
                     continue;
                 }
 
-                lights[light_count] = pack_light(&light);
+                lights[light_count] = pack_light(light);
                 light_count += 1;
             }
         }

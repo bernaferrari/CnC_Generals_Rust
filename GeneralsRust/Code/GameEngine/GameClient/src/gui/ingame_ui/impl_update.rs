@@ -185,7 +185,12 @@ impl InGameUI {
         template_name: Option<String>,
         ready_frame: u32,
     ) {
-        if Self::strip_has_timer(&self.superweapon_timers, player_index, object_id, &power_name) {
+        if Self::strip_has_timer(
+            &self.superweapon_timers,
+            player_index,
+            object_id,
+            &power_name,
+        ) {
             return;
         }
         let timer = Self::make_superweapon_timer(
@@ -399,16 +404,17 @@ impl InGameUI {
             };
             let (is_ready, ready_frame, power_type, shared) = match guard
                 .with_special_power_module_interface_by_name(lookup_name, |sp| {
-                    let template = get_special_power_store().and_then(|store| {
-                        store.find_special_power_template(lookup_name).cloned()
-                    });
+                    let template = get_special_power_store()
+                        .and_then(|store| store.find_special_power_template(lookup_name).cloned());
                     (
                         sp.is_ready(),
                         sp.get_ready_frame(),
                         template
                             .as_ref()
                             .map(|t| t.get_special_power_type())
-                            .unwrap_or(gamelogic::object::special_power_types::SpecialPowerType::Invalid),
+                            .unwrap_or(
+                                gamelogic::object::special_power_types::SpecialPowerType::Invalid,
+                            ),
                         template
                             .as_ref()
                             .map(|t| t.is_shared_n_sync())
@@ -420,16 +426,17 @@ impl InGameUI {
                     // No live module (dual-world residual): the stored ready
                     // frame owns the countdown, and passing it means READY.
                     let ready_frame = timers[i].ready_frame;
-                    let template = get_special_power_store().and_then(|store| {
-                        store.find_special_power_template(lookup_name).cloned()
-                    });
+                    let template = get_special_power_store()
+                        .and_then(|store| store.find_special_power_template(lookup_name).cloned());
                     (
                         ready_frame <= current_frame,
                         ready_frame,
                         template
                             .as_ref()
                             .map(|t| t.get_special_power_type())
-                            .unwrap_or(gamelogic::object::special_power_types::SpecialPowerType::Invalid),
+                            .unwrap_or(
+                                gamelogic::object::special_power_types::SpecialPowerType::Invalid,
+                            ),
                         template
                             .as_ref()
                             .map(|t| t.is_shared_n_sync())
@@ -439,7 +446,11 @@ impl InGameUI {
             };
             drop(guard);
 
-            if shared && shared_seen.iter().any(|(p, n)| *p == player_index && n == &power_name) {
+            if shared
+                && shared_seen
+                    .iter()
+                    .any(|(p, n)| *p == player_index && n == &power_name)
+            {
                 i += 1;
                 continue;
             }
@@ -520,7 +531,11 @@ impl InGameUI {
         };
         let own = guard
             .get_controlling_player()
-            .and_then(|p| p.read().ok().map(|g| g.get_player_index() == local_guard.get_player_index()))
+            .and_then(|p| {
+                p.read()
+                    .ok()
+                    .map(|g| g.get_player_index() == local_guard.get_player_index())
+            })
             .unwrap_or(false);
         let ally = guard
             .get_team()
@@ -564,9 +579,7 @@ impl InGameUI {
             }
             _ => return,
         };
-        if let Ok(mut eva) = crate::eva::get_eva().lock() {
-            eva.set_should_play(message);
-        }
+        crate::eva::with_eva(|eva| eva.set_should_play(message));
     }
 
     pub fn get_superweapon_timers(&self) -> &[SuperweaponTimerData] {
@@ -1040,7 +1053,6 @@ impl InGameUI {
         Ok(())
     }
 
-
     /// Resize UI elements
     pub fn resize(&mut self, width: f32, height: f32) {
         self.screen_size = Vec2::new(width, height);
@@ -1062,7 +1074,6 @@ impl InGameUI {
     pub fn is_enabled(&self) -> bool {
         self.enabled
     }
-
 
     // ── Input enable/disable with mode clearing ────────────────────────
     // C++: InGameUI.cpp:3382 (setInputEnabled)
@@ -1270,8 +1281,7 @@ static LIVE_SUPERWEAPON_STRIP: std::sync::Mutex<LiveSuperweaponStrip> =
         used_flash_color: true,
     });
 
-fn lock_live_superweapon_strip(
-) -> std::sync::MutexGuard<'static, LiveSuperweaponStrip> {
+fn lock_live_superweapon_strip() -> std::sync::MutexGuard<'static, LiveSuperweaponStrip> {
     LIVE_SUPERWEAPON_STRIP
         .lock()
         .unwrap_or_else(|e| e.into_inner())
@@ -1279,20 +1289,17 @@ fn lock_live_superweapon_strip(
 
 /// Reconcile the live strip against GameLogic's superweapon store snapshot
 /// (adds new entries, drops removed ones) and tick it to `frame`.
-pub fn live_superweapon_strip_sync(
-    entries: &[(i32, String, ObjectID, u32)],
-    frame: u32,
-) {
+pub fn live_superweapon_strip_sync(entries: &[(i32, String, ObjectID, u32)], frame: u32) {
     let mut strip = lock_live_superweapon_strip();
-    strip
-        .timers
-        .retain(|t| {
-            entries.iter().any(|(player_index, power_name, object_id, _)| {
+    strip.timers.retain(|t| {
+        entries
+            .iter()
+            .any(|(player_index, power_name, object_id, _)| {
                 *player_index as u8 == t.player_index
                     && *object_id == t.object_id
                     && *power_name == t.power_name
             })
-        });
+    });
     for (player_index, power_name, object_id, ready_frame) in entries {
         let player_index = (*player_index).clamp(0, u8::MAX as i32) as u8;
         if InGameUI::strip_has_timer(&strip.timers, player_index, *object_id, power_name) {

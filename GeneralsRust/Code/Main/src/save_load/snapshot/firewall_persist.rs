@@ -10,8 +10,8 @@
 //! so older decoders ignore the extra bytes. No WorldSnapshot version bump.
 //! Restore replaces the live registry and never re-runs `activate`.
 
-use crate::game_logic::GameLogic;
 use crate::game_logic::host_firewall::HostFireWallRegistry;
+use crate::game_logic::GameLogic;
 use crate::save_load::{SaveLoadError, SaveLoadResult};
 use serde::{Deserialize, Serialize};
 

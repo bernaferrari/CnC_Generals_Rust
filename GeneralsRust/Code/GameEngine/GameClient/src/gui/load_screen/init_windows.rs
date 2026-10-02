@@ -63,22 +63,13 @@ fn initialize_shell_game_windows(wm: &mut WindowManager, did_mem_pass: bool) {
 }
 
 fn with_shell_game_first_load<R>(f: impl FnOnce(&mut bool) -> R) -> R {
-    let state = SHELL_GAME_FIRST_LOAD.get_or_init(|| Mutex::new(true));
-    let mut guard = state
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
-    f(&mut guard)
+    SHELL_GAME_FIRST_LOAD.with_borrow_mut(f)
 }
 
 fn with_multiplayer_load_screen_state<R>(
     f: impl FnOnce(&mut MultiplayerLoadScreenState) -> R,
 ) -> R {
-    let state = MULTIPLAYER_LOAD_SCREEN_STATE
-        .get_or_init(|| Mutex::new(MultiplayerLoadScreenState::default()));
-    let mut guard = state
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
-    f(&mut guard)
+    MULTIPLAYER_LOAD_SCREEN_STATE.with_borrow_mut(f)
 }
 
 fn reset_multiplayer_load_screen_state() {
@@ -88,12 +79,7 @@ fn reset_multiplayer_load_screen_state() {
 fn with_map_transfer_load_screen_state<R>(
     f: impl FnOnce(&mut MapTransferLoadScreenState) -> R,
 ) -> R {
-    let state = MAP_TRANSFER_LOAD_SCREEN_STATE
-        .get_or_init(|| Mutex::new(MapTransferLoadScreenState::default()));
-    let mut guard = state
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
-    f(&mut guard)
+    MAP_TRANSFER_LOAD_SCREEN_STATE.with_borrow_mut(f)
 }
 
 fn reset_map_transfer_load_screen_state() {

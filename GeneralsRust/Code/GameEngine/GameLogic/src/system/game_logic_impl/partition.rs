@@ -102,14 +102,12 @@ impl PartitionManager {
         let mut seen = HashSet::with_capacity(object_ids.len());
 
         for obj_id in &object_ids {
-            let Some(obj_arc) = OBJECT_REGISTRY.get_object(*obj_id) else {
+            // Scoped registry borrow — no Arc handle clone per object.
+            let Some((id, pos)) = OBJECT_REGISTRY.with_object(*obj_id, |obj| {
+                (obj.get_id(), *obj.get_position())
+            }) else {
                 continue;
             };
-            let Ok(obj) = obj_arc.read() else {
-                continue;
-            };
-            let id = obj.get_id();
-            let pos = obj.get_position();
             self.add_object(id, (pos.x, pos.y, pos.z));
             seen.insert(id);
         }

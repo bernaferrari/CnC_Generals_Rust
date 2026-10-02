@@ -17,7 +17,8 @@
  * - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
 
 use glam::Mat4;
-use std::sync::{Arc, Mutex, OnceLock};
+use std::cell::RefCell;
+use std::sync::Arc;
 use wgpu::util::DeviceExt;
 
 use super::pipeline_cache::VertexLayoutKind;
@@ -140,12 +141,14 @@ impl ShaderGlobalState {
     }
 }
 
-/// Global shader state singleton
-static SHADER_STATE: OnceLock<Mutex<ShaderGlobalState>> = OnceLock::new();
+thread_local! {
+    /// C++ kept the global shader state as a plain static on the game thread.
+    static SHADER_STATE: RefCell<ShaderGlobalState> = RefCell::new(ShaderGlobalState::new());
+}
 
-/// Get or initialize global shader state
-fn get_shader_state() -> &'static Mutex<ShaderGlobalState> {
-    SHADER_STATE.get_or_init(|| Mutex::new(ShaderGlobalState::new()))
+/// Run `f` with mutable access to the global shader state.
+fn with_shader_state<R>(f: impl FnOnce(&mut ShaderGlobalState) -> R) -> R {
+    SHADER_STATE.with_borrow_mut(f)
 }
 
 // Shader construction macro - converted to function
@@ -1756,10 +1759,7 @@ impl ShaderClass {
     /// Check if shader cache is dirty (needs full state update)
     /// Matches C++ ShaderClass::ShaderDirty (shader.cpp line 50)
     pub fn shader_dirty() -> bool {
-        get_shader_state()
-            .lock()
-            .map(|state| state.dirty)
-            .unwrap_or(true)
+        SHADER_STATE.with_borrow(|state| state.dirty)
     }
 
     /// Invalidate shader cache - forces full state application on next apply
@@ -1769,9 +1769,7 @@ impl ShaderClass {
     /// - After device reset
     /// - When external render state changes occur
     pub fn invalidate() {
-        if let Ok(mut state) = get_shader_state().lock() {
-            state.dirty = true;
-        }
+        with_shader_state(|state| state.dirty = true);
     }
 
     /// Calculate differential state mask
@@ -1785,12 +1783,13 @@ impl ShaderClass {
     /// }
     /// ```
     pub fn calculate_diff(&self) -> u32 {
-        let state = get_shader_state().lock().unwrap();
-        if state.dirty {
-            0xffffffff // Apply all states when dirty
-        } else {
-            state.current_shader ^ self.bits // XOR to find changed bits
-        }
+        SHADER_STATE.with_borrow(|state| {
+            if state.dirty {
+                0xffffffff // Apply all states when dirty
+            } else {
+                state.current_shader ^ self.bits // XOR to find changed bits
+            }
+        })
     }
 
     /// Apply shader state with differential optimization
@@ -1809,9 +1808,10 @@ impl ShaderClass {
 
         // Update global state
         {
-            let mut state = get_shader_state().lock().unwrap();
-            state.current_shader = self.bits;
-            state.dirty = false;
+            with_shader_state(|state| {
+                state.current_shader = self.bits;
+                state.dirty = false;
+            });
         }
 
         // Apply state changes by category (batched for efficiency)
@@ -1890,71 +1890,70 @@ impl ShaderClass {
 
     /// Apply blend state category
     fn apply_blend_state(&self) {
-        if let Ok(mut state) = get_shader_state().lock() {
+        with_shader_state(|state| {
             state.applied_blend_bits =
                 self.bits & (MASK_COLORMASK | MASK_SRCBLEND | MASK_DSTBLEND | MASK_ALPHATEST);
-        }
+        });
     }
 
     /// Apply fog state category
     fn apply_fog_state(&self) {
-        if let Ok(mut state) = get_shader_state().lock() {
+        with_shader_state(|state| {
             state.applied_fog_bits = self.bits & MASK_FOG;
-        }
+        });
     }
 
     /// Apply texture stage state category
     fn apply_texture_stage_state(&self) {
-        if let Ok(mut state) = get_shader_state().lock() {
+        with_shader_state(|state| {
             state.applied_texture_stage_bits = self.bits
                 & (MASK_PRIGRADIENT
                     | MASK_TEXTURING
                     | MASK_POSTDETAILCOLORFUNC
                     | MASK_POSTDETAILALPHAFUNC);
-        }
+        });
     }
 
     /// Apply depth state category
     fn apply_depth_state(&self) {
-        if let Ok(mut state) = get_shader_state().lock() {
+        with_shader_state(|state| {
             state.applied_depth_bits = self.bits & (MASK_DEPTHCOMPARE | MASK_DEPTHMASK);
-        }
+        });
     }
 
     /// Apply cull state category
     fn apply_cull_state(&self) {
-        if let Ok(mut state) = get_shader_state().lock() {
+        with_shader_state(|state| {
             state.applied_cull_bits = self.bits & MASK_CULLMODE;
-        }
+        });
     }
 
     fn apply_npatch_state(&self) {
-        if let Ok(mut state) = get_shader_state().lock() {
+        with_shader_state(|state| {
             state.applied_npatch_bits = self.bits & MASK_NPATCHENABLE;
-        }
+        });
     }
 
     /// Apply secondary gradient (specular) state
     fn apply_secondary_gradient(&self) {
-        if let Ok(mut state) = get_shader_state().lock() {
+        with_shader_state(|state| {
             state.applied_sec_gradient_bits = self.bits & MASK_SECGRADIENT;
-        }
+        });
     }
 
     #[cfg(test)]
     fn debug_applied_state_snapshot() -> (u32, u32, u32, u32, u32, u32, u32) {
-        let state = get_shader_state()
-            .lock()
-            .expect("shader state mutex poisoned");
-        (
-            state.applied_blend_bits,
-            state.applied_fog_bits,
-            state.applied_texture_stage_bits,
-            state.applied_depth_bits,
-            state.applied_cull_bits,
-            state.applied_sec_gradient_bits,
-            state.applied_npatch_bits,
-        )
+        SHADER_STATE.with_borrow(|state| {
+            (
+                state.applied_blend_bits,
+                state.applied_fog_bits,
+                state.applied_texture_stage_bits,
+                state.applied_depth_bits,
+                state.applied_cull_bits,
+                state.applied_sec_gradient_bits,
+                state.applied_npatch_bits,
+            )
+        })
     }
 }
 

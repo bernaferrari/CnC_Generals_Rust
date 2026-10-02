@@ -226,14 +226,19 @@ impl GameLogic {
         let now = if self.frame == 0 { 1 } else { self.frame };
         let object_ids: Vec<ObjectID> = self.all_objects.clone();
         for obj_id in object_ids {
-            let Some(arc) = self.find_object_by_id(obj_id) else {
+            // Scoped map borrow — collect the registrations without retaining
+            // an Arc handle, then re-push them onto the sleepy heap outside
+            // the object read guard.
+            let Some(registrations) = self
+                .objects
+                .get(&obj_id)
+                .and_then(|obj_ref| obj_ref.read().ok())
+                .map(|obj| obj.update_module_registrations().to_vec())
+            else {
                 continue;
             };
-            let Ok(obj) = arc.read() else {
-                continue;
-            };
-            for module in obj.update_module_registrations() {
-                self.register_sleepy_update_module(obj_id, module.clone(), now);
+            for module in registrations {
+                self.register_sleepy_update_module(obj_id, module, now);
             }
         }
         self.remake_sleepy_update();

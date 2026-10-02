@@ -12,7 +12,7 @@ use crate::network_metrics::packet_loss_metrics::{
 use crate::time::NetworkInstant;
 use std::collections::{HashMap, VecDeque};
 use std::time::Duration;
-use tokio::sync::{RwLock, mpsc};
+use tokio::sync::{mpsc, RwLock};
 use tracing::{debug, trace, warn};
 use uuid::Uuid;
 
@@ -290,6 +290,14 @@ impl DuplicateDetector {
 }
 
 /// Reliability layer for ensuring message delivery
+///
+/// THREAD: this layer is shared as one `Arc` between a connection's
+/// reliability/retransmission task, the routing task that feeds it incoming
+/// commands, and the game thread's send path, so the per-collection `RwLock`s
+/// below are genuine cross-task boundaries rather than ceremony. They stay
+/// separate (instead of one bundle) because the send, acknowledge, and
+/// retransmit paths legitimately mutate different collections while holding
+/// another one's guard.
 pub struct ReliabilityLayer {
     /// Configuration
     config: ReliabilityConfig,

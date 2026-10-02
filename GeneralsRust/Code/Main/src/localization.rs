@@ -144,6 +144,7 @@ impl LocalizationManager {
     }
 }
 
+// THREAD: read from any thread that formats a string; only the shell mutates.
 static GLOBAL_LOCALIZATION: OnceLock<Arc<RwLock<LocalizationManager>>> = OnceLock::new();
 
 fn manager() -> Arc<RwLock<LocalizationManager>> {

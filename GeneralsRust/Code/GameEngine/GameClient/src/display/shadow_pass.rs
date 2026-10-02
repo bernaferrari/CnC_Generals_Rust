@@ -5,19 +5,19 @@
 //! stencil then a 0x7fa0a0a0 fill quad. Occluded units get a player-color pass.
 
 use crate::display::view::with_tactical_view_ref;
-use crate::drawable::StealthLook;
 use crate::drawable::drawable_manager::with_drawable_manager;
+use crate::drawable::StealthLook;
 use crate::effects::decals::DecalRenderItem;
 use crate::radius_decal::get_projected_shadow_manager;
-use crate::terrain::TerrainVisual;
 use crate::terrain::terrain_visual::THE_TERRAIN_VISUAL;
+use crate::terrain::TerrainVisual;
 use game_engine::common::ini::ini_game_data::get_global_data;
-use gamelogic::common::SHADOW_VOLUME;
 use gamelogic::common::types::KindOf;
+use gamelogic::common::SHADOW_VOLUME;
 use gamelogic::helpers::TheGameLogic;
 use gamelogic::object::registry::OBJECT_REGISTRY;
+use std::cell::{Cell, RefCell};
 use std::collections::BTreeMap;
-use std::sync::Mutex;
 use wgpu::util::DeviceExt;
 
 #[derive(Debug, Clone)]
@@ -32,33 +32,29 @@ pub struct UnitShadowCaster {
     pub volume: bool,
 }
 
-static UNIT_CASTERS: Mutex<Vec<UnitShadowCaster>> = Mutex::new(Vec::new());
-static SHADOW_REBUILD_SERIAL: Mutex<u32> = Mutex::new(0);
+// THREAD: main thread only — casters are queued by the client's draw pass and
+// consumed by the shadow passes of the same frame on the same thread.
+thread_local! {
+    static UNIT_CASTERS: RefCell<Vec<UnitShadowCaster>> = RefCell::new(Vec::new());
+    static SHADOW_REBUILD_SERIAL: Cell<u32> = Cell::new(0);
+}
 
 /// C++ `W3DShadowManager::invalidateCachedLightPositions` / GameLOD hook.
 pub fn rebuild_shadows() {
-    if let Ok(mut serial) = SHADOW_REBUILD_SERIAL.lock() {
-        *serial = serial.wrapping_add(1);
-    }
-    if let Ok(mut casters) = UNIT_CASTERS.lock() {
-        casters.clear();
-    }
+    SHADOW_REBUILD_SERIAL.with(|serial| serial.set(serial.get().wrapping_add(1)));
+    UNIT_CASTERS.with_borrow_mut(Vec::clear);
 }
 
 pub fn shadow_rebuild_serial() -> u32 {
-    SHADOW_REBUILD_SERIAL.lock().map(|g| *g).unwrap_or(0)
+    SHADOW_REBUILD_SERIAL.get()
 }
 
 pub fn register_unit_shadow(caster: UnitShadowCaster) {
-    if let Ok(mut list) = UNIT_CASTERS.lock() {
-        list.push(caster);
-    }
+    UNIT_CASTERS.with_borrow_mut(|list| list.push(caster));
 }
 
 pub fn clear_unit_shadows() {
-    if let Ok(mut list) = UNIT_CASTERS.lock() {
-        list.clear();
-    }
+    UNIT_CASTERS.with_borrow_mut(Vec::clear);
 }
 
 /// C++ `W3DProjectedShadowManager::flushDecals` / `queueDecal`.
@@ -107,10 +103,13 @@ pub enum VolumetricPresentStatus {
 
 /// SHADOW_VOLUME casters for this frame (`UnitShadowCaster.volume` plus live objects).
 pub fn collect_volume_casters() -> Vec<UnitShadowCaster> {
-    let mut out = UNIT_CASTERS
-        .lock()
-        .map(|g| g.iter().filter(|c| c.volume).cloned().collect())
-        .unwrap_or_default();
+    let mut out = UNIT_CASTERS.with_borrow(|casters| {
+        casters
+            .iter()
+            .filter(|c| c.volume)
+            .cloned()
+            .collect::<Vec<UnitShadowCaster>>()
+    });
     let volumes_on = get_global_data()
         .map(|g| g.read().use_shadow_volumes)
         .unwrap_or(true);
@@ -197,7 +196,11 @@ fn rgb_to_hsv(r: f32, g: f32, b: f32) -> (f32, f32, f32) {
             4.0 + (r - g) / delta
         };
         let hue = hue * 60.0;
-        if hue < 0.0 { hue + 360.0 } else { hue }
+        if hue < 0.0 {
+            hue + 360.0
+        } else {
+            hue
+        }
     };
     (h, s, v)
 }
@@ -376,7 +379,7 @@ pub fn collect_occlusion_overlays() -> Vec<OcclusionOverlay> {
             }
         }
     }
-    let casters = UNIT_CASTERS.lock().map(|g| g.clone()).unwrap_or_default();
+    let casters = UNIT_CASTERS.with_borrow(Clone::clone);
     for caster in casters {
         if caster.occluded {
             out.push(OcclusionOverlay {
@@ -484,23 +487,15 @@ struct ShadowPassGpu {
     bind_group_layout: wgpu::BindGroupLayout,
 }
 
-#[cfg(target_arch = "wasm32")]
-// SAFETY: wasm32-only. All fields are wgpu handles (`TextureFormat` is `Copy`;
-// `RenderPipeline`/`BindGroupLayout` are `Rc`-backed and `!Send` on the web
-// backend). wasm32-unknown-unknown has no threads, so a cross-thread move is
-// impossible; the impl only satisfies the `Send` bound of the
-// `static Mutex<Option<Self>>` that owns it.
-unsafe impl Send for ShadowPassGpu {}
-#[cfg(target_arch = "wasm32")]
-// SAFETY: same wasm32-only scope: no threads exist on this target, so `&Self`
-// is never accessed concurrently and the handles' `!Sync` default is
-// unreachable.
-unsafe impl Sync for ShadowPassGpu {}
 const VOLUME_VERTEX_ATTRS: [wgpu::VertexAttribute; 1] = wgpu::vertex_attr_array![0 => Float32x3];
 const OVERLAY_VERTEX_ATTRS: [wgpu::VertexAttribute; 2] =
     wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x4];
 
-static SHADOW_PASS_GPU: Mutex<Option<ShadowPassGpu>> = Mutex::new(None);
+// `ShadowPassGpu` holds `Rc`-backed wgpu handles (`!Send` on the web backend);
+// the thread-local slot keeps them on the GUI thread that created them.
+thread_local! {
+    static SHADOW_PASS_GPU: RefCell<Option<ShadowPassGpu>> = const { RefCell::new(None) };
+}
 
 fn create_shadow_pass_gpu(
     device: &wgpu::Device,
@@ -735,15 +730,16 @@ fn with_shadow_pass_gpu<R>(
     depth_format: wgpu::TextureFormat,
     f: impl FnOnce(&ShadowPassGpu) -> R,
 ) -> R {
-    let mut slot = SHADOW_PASS_GPU.lock().unwrap_or_else(|e| e.into_inner());
-    let rebuild = match slot.as_ref() {
-        None => true,
-        Some(gpu) => gpu.color_format != color_format || gpu.depth_format != depth_format,
-    };
-    if rebuild {
-        *slot = Some(create_shadow_pass_gpu(device, color_format, depth_format));
-    }
-    f(slot.as_ref().expect("shadow gpu"))
+    SHADOW_PASS_GPU.with_borrow_mut(|slot| {
+        let rebuild = match slot.as_ref() {
+            None => true,
+            Some(gpu) => gpu.color_format != color_format || gpu.depth_format != depth_format,
+        };
+        if rebuild {
+            *slot = Some(create_shadow_pass_gpu(device, color_format, depth_format));
+        }
+        f(slot.as_ref().expect("shadow gpu"))
+    })
 }
 
 fn extrusion_direction(light_pos: [f32; 3], origin: [f32; 3]) -> [f32; 3] {

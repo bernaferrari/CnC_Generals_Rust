@@ -5,7 +5,7 @@
 //! the same semantics so higher level code can toggle them in the same way as
 //! before.
 
-use std::sync::{OnceLock, RwLock};
+use std::cell::Cell;
 
 /// Texture quality knobs shared across the renderer.
 #[derive(Clone, Copy, Debug)]
@@ -25,35 +25,33 @@ impl Default for TextureQualitySettings {
     }
 }
 
-static SETTINGS: OnceLock<RwLock<TextureQualitySettings>> = OnceLock::new();
-
-fn storage() -> &'static RwLock<TextureQualitySettings> {
-    SETTINGS.get_or_init(|| RwLock::new(TextureQualitySettings::default()))
+thread_local! {
+    /// C++ kept the texture quality knobs in plain statics on the game thread.
+    static SETTINGS: Cell<TextureQualitySettings> = Cell::new(TextureQualitySettings::default());
 }
 
 /// Fetch a snapshot of the current texture quality settings.
 pub fn settings() -> TextureQualitySettings {
-    *storage().read().expect("texture quality settings poisoned")
+    SETTINGS.with(Cell::get)
 }
 
 /// Replace the active texture quality settings.
 pub fn set(settings: TextureQualitySettings) {
-    *storage()
-        .write()
-        .expect("texture quality settings poisoned") = TextureQualitySettings {
-        reduction: settings.reduction,
-        min_dimension: settings.min_dimension.max(1),
-        large_texture_extra_reduction: settings.large_texture_extra_reduction,
-    };
+    let mut cfg = settings;
+    cfg.min_dimension = cfg.min_dimension.max(1);
+    SETTINGS.with(|cell| cell.set(cfg));
 }
 
 /// Set the global reduction and minimum dimension as per the legacy `WW3D::Set_Texture_Reduction`.
 pub fn set_texture_reduction(reduction: u32, min_dimension: u32) {
-    let mut guard = storage()
-        .write()
-        .expect("texture quality settings poisoned");
-    guard.reduction = reduction;
-    guard.min_dimension = min_dimension.max(1);
+    SETTINGS.with(|cell| {
+        let extra = cell.get().large_texture_extra_reduction;
+        cell.set(TextureQualitySettings {
+            reduction,
+            min_dimension: min_dimension.max(1),
+            large_texture_extra_reduction: extra,
+        });
+    });
 }
 
 /// Retrieve the currently requested global reduction level.
@@ -68,10 +66,11 @@ pub fn texture_min_dimension() -> u32 {
 
 /// Toggle the "large texture extra reduction" flag from the legacy renderer.
 pub fn enable_large_texture_extra_reduction(enabled: bool) {
-    storage()
-        .write()
-        .expect("texture quality settings poisoned")
-        .large_texture_extra_reduction = enabled;
+    SETTINGS.with(|cell| {
+        let mut cfg = cell.get();
+        cfg.large_texture_extra_reduction = enabled;
+        cell.set(cfg);
+    });
 }
 
 /// Query whether the extra large texture reduction is active.
@@ -116,16 +115,10 @@ pub fn compute_effective_reduction(width: u32, height: u32, mip_levels: u32) -> 
 mod tests {
     #[allow(unused_imports)]
     use super::*;
-    use std::sync::{Mutex, MutexGuard, OnceLock};
-
-    fn test_lock() -> MutexGuard<'static, ()> {
-        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-        LOCK.get_or_init(|| Mutex::new(())).lock().unwrap()
-    }
+    fn test_lock() {}
 
     #[test]
     fn respects_min_dimension() {
-        let _guard = test_lock();
         set(TextureQualitySettings::default());
         set_texture_reduction(3, 64);
         assert_eq!(compute_effective_reduction(128, 128, 5), 2);
@@ -134,7 +127,6 @@ mod tests {
 
     #[test]
     fn honours_large_texture_extra_reduction() {
-        let _guard = test_lock();
         set(TextureQualitySettings::default());
         set_texture_reduction(1, 1);
         enable_large_texture_extra_reduction(true);
@@ -144,7 +136,6 @@ mod tests {
 
     #[test]
     fn never_drops_all_mips() {
-        let _guard = test_lock();
         set(TextureQualitySettings::default());
         set_texture_reduction(10, 1);
         assert_eq!(compute_effective_reduction(1024, 1024, 3), 2);

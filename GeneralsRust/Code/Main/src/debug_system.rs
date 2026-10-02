@@ -124,6 +124,9 @@ impl PerformanceTimer {
 }
 
 /// Main debug system
+/// THREAD: `DebugSystem` is shared as `Arc<DebugSystem>` out of
+/// [`DEBUG_SYSTEM`], and scoped timers are created from any call site, so the
+/// mutable bookkeeping stays behind short critical sections.
 pub struct DebugSystem {
     config: DebugConfig,
     stats: Arc<Mutex<DebugStats>>,

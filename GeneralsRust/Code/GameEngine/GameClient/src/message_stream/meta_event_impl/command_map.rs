@@ -5,11 +5,7 @@ fn ensure_meta_map_loaded() {
         let _ = register_block_parser("CommandMap", parse_meta_map_definition);
     });
 
-    if get_meta_map()
-        .read()
-        .map(|guard| !guard.records.is_empty())
-        .unwrap_or(false)
-    {
+    if with_meta_map_ref(|map| !map.records.is_empty()) {
         return;
     }
 
@@ -140,18 +136,18 @@ fn push_command_map_file(files: &mut Vec<PathBuf>, seen: &mut HashSet<PathBuf>, 
 
 pub fn get_command_map_entries() -> Vec<CommandMapEntry> {
     ensure_meta_map_loaded();
-    let guard = get_meta_map().read().unwrap_or_else(|e| e.into_inner());
-    guard
-        .iter()
-        .map(|record| CommandMapEntry {
-            name: record.name.clone(),
-            key: record.key,
-            mod_state: record.mod_state,
-            category: record.category.clone(),
-            description: translate_command_map_label(&record.description),
-            display_name: translate_command_map_label(&record.display_name),
-        })
-        .collect()
+    with_meta_map_ref(|map| {
+        map.iter()
+            .map(|record| CommandMapEntry {
+                name: record.name.clone(),
+                key: record.key,
+                mod_state: record.mod_state,
+                category: record.category.clone(),
+                description: translate_command_map_label(&record.description),
+                display_name: translate_command_map_label(&record.display_name),
+            })
+            .collect()
+    })
 }
 
 /// C++ `MetaEventTranslator::translateGameMessage` key+modifier lookup.
@@ -168,16 +164,16 @@ pub fn lookup_command_map_name_usable(
     usable_mask: u32,
 ) -> Option<String> {
     ensure_meta_map_loaded();
-    let guard = get_meta_map().read().unwrap_or_else(|e| e.into_inner());
-    guard
-        .iter()
-        .find(|record| {
-            record.key == key
-                && record.mod_state == mod_state
-                && record.transition == Transition::Down
-                && (record.usable_in & usable_mask) != 0
-        })
-        .map(|record| record.name.clone())
+    with_meta_map_ref(|map| {
+        map.iter()
+            .find(|record| {
+                record.key == key
+                    && record.mod_state == mod_state
+                    && record.transition == Transition::Down
+                    && (record.usable_in & usable_mask) != 0
+            })
+            .map(|record| record.name.clone())
+    })
 }
 
 pub const COMMAND_MAP_USABLE_SHELL: u32 = COMMANDUSABLE_SHELL;
@@ -186,14 +182,10 @@ pub const COMMAND_MAP_USABLE_GAME: u32 = COMMANDUSABLE_GAME;
 /// True when CommandMap.ini / Keyboard Options still owns this command name.
 pub fn command_map_binds(name: &str) -> bool {
     ensure_meta_map_loaded();
-    get_meta_map()
-        .read()
-        .map(|guard| {
-            guard
-                .iter()
-                .any(|record| record.name.eq_ignore_ascii_case(name))
-        })
-        .unwrap_or(false)
+    with_meta_map_ref(|map| {
+        map.iter()
+            .any(|record| record.name.eq_ignore_ascii_case(name))
+    })
 }
 
 /// C++ `INI::parseAndTranslateLabel` (`MetaEvent.cpp:337-339`).
@@ -220,29 +212,31 @@ fn command_map_labels_match(stored: &str, query: &str) -> bool {
 pub fn apply_toggle_lower_details() -> Option<bool> {
     let global_data = get_global_data()?;
     let mut global = global_data.write();
-    let mut state = get_lower_detail_toggle_state().write().ok()?;
-    if state.is_low_details {
-        global.use_shadow_volumes = state.old_use_shadow_volumes;
-        global.use_light_map = state.old_use_light_map;
-        global.use_cloud_map = state.old_use_cloud_map;
-        global.max_particle_count = state.old_max_particle_count;
-        TheGameLogic::set_show_behind_building_markers(state.old_show_behind_building_markers);
-        TheInGameUI::message("GUI:ReturnGraphicsToPreviousSettings");
-    } else {
-        state.old_use_shadow_volumes = global.use_shadow_volumes;
-        global.use_shadow_volumes = false;
-        state.old_use_light_map = global.use_light_map;
-        global.use_light_map = false;
-        state.old_use_cloud_map = global.use_cloud_map;
-        global.use_cloud_map = false;
-        state.old_show_behind_building_markers = TheGameLogic::get_show_behind_building_markers();
-        TheGameLogic::set_show_behind_building_markers(false);
-        state.old_max_particle_count = global.max_particle_count;
-        global.max_particle_count = DROPPED_MAX_PARTICLE_COUNT;
-        TheInGameUI::message("GUI:DetailsSetToLowest");
-    }
-    state.is_low_details = !state.is_low_details;
-    Some(state.is_low_details)
+    LOWER_DETAIL_TOGGLE_STATE.with_borrow_mut(|state| {
+        if state.is_low_details {
+            global.use_shadow_volumes = state.old_use_shadow_volumes;
+            global.use_light_map = state.old_use_light_map;
+            global.use_cloud_map = state.old_use_cloud_map;
+            global.max_particle_count = state.old_max_particle_count;
+            TheGameLogic::set_show_behind_building_markers(state.old_show_behind_building_markers);
+            TheInGameUI::message("GUI:ReturnGraphicsToPreviousSettings");
+        } else {
+            state.old_use_shadow_volumes = global.use_shadow_volumes;
+            global.use_shadow_volumes = false;
+            state.old_use_light_map = global.use_light_map;
+            global.use_light_map = false;
+            state.old_use_cloud_map = global.use_cloud_map;
+            global.use_cloud_map = false;
+            state.old_show_behind_building_markers =
+                TheGameLogic::get_show_behind_building_markers();
+            TheGameLogic::set_show_behind_building_markers(false);
+            state.old_max_particle_count = global.max_particle_count;
+            global.max_particle_count = DROPPED_MAX_PARTICLE_COUNT;
+            TheInGameUI::message("GUI:DetailsSetToLowest");
+        }
+        state.is_low_details = !state.is_low_details;
+        Some(state.is_low_details)
+    })
 }
 
 pub fn update_command_map_entry(
@@ -252,29 +246,25 @@ pub fn update_command_map_entry(
     mod_state: u32,
 ) -> bool {
     ensure_meta_map_loaded();
-    let Ok(mut guard) = get_meta_map().write() else {
-        return false;
-    };
+    with_meta_map(|map| {
+        let Some(record) = map.records.iter_mut().find(|record| {
+            command_map_labels_match(&record.display_name, display_name)
+                && record.category.eq_ignore_ascii_case(category)
+        }) else {
+            return false;
+        };
 
-    let Some(record) = guard.records.iter_mut().find(|record| {
-        command_map_labels_match(&record.display_name, display_name)
-            && record.category.eq_ignore_ascii_case(category)
-    }) else {
-        return false;
-    };
-
-    record.key = key;
-    record.mod_state = mod_state;
-    true
+        record.key = key;
+        record.mod_state = mod_state;
+        true
+    })
 }
 
 pub fn reset_command_map_entries() {
     META_PARSER_REGISTERED.get_or_init(|| {
         let _ = register_block_parser("CommandMap", parse_meta_map_definition);
     });
-    if let Ok(mut guard) = get_meta_map().write() {
-        guard.records.clear();
-    }
+    with_meta_map(|map| map.records.clear());
     load_meta_map_files();
 }
 
@@ -352,10 +342,7 @@ fn parse_meta_map_definition(ini: &mut INI) -> INIResult<()> {
         }
     }
 
-    get_meta_map()
-        .write()
-        .unwrap_or_else(|e| e.into_inner())
-        .add_record(record);
+    with_meta_map(|map| map.add_record(record));
     Ok(())
 }
 
@@ -541,9 +528,7 @@ mod command_map_parity_tests {
         // C++ MetaEventTranslator walks TheMetaMap after Keyboard Options writes.
         ensure_meta_map_loaded();
         {
-            let Ok(mut guard) = get_meta_map().write() else {
-                panic!("meta map");
-            };
+            let mut guard = get_meta_map().write().unwrap_or_else(|e| e.into_inner());
             guard.add_record(MetaMapRec {
                 name: "TOGGLE_LOWER_DETAILS".to_string(),
                 meta: None,
@@ -560,7 +545,12 @@ mod command_map_parity_tests {
             lookup_command_map_name(0x4C, 0).as_deref(),
             Some("TOGGLE_LOWER_DETAILS")
         );
-        assert!(update_command_map_entry("CONTROL", "Lower Details", 0x4B, 1));
+        assert!(update_command_map_entry(
+            "CONTROL",
+            "Lower Details",
+            0x4B,
+            1
+        ));
         assert_eq!(
             lookup_command_map_name(0x4B, 1).as_deref(),
             Some("TOGGLE_LOWER_DETAILS")
@@ -568,4 +558,3 @@ mod command_map_parity_tests {
         reset_command_map_entries();
     }
 }
-

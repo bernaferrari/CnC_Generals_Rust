@@ -774,7 +774,10 @@ impl BSP {
 // Shatter System (C++ lines 62-98)
 // ============================================================================
 
-/// Static storage for shatter patterns and fragment data
+// THREAD: shatter pattern/fragment storage is populated on the game thread and
+// read back by fragment consumers; the raw-pointer clipper aliasing inside
+// `shatter_mesh` is written against the mutex guard being held for the whole
+// operation, so keep the mutex.
 static SHATTER_SYSTEM: OnceLock<Mutex<ShatterSystemData>> = OnceLock::new();
 
 /// Internal data for the shatter system
@@ -1136,6 +1139,7 @@ impl ShatterSystem {
             point.extend(1.0),
         )
     }
+
 
     /// Get the number of generated fragments.
     /// C++ reference: shattersystem.cpp lines 1047-1050

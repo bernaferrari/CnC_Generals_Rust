@@ -11,7 +11,7 @@
 
 use crate::message_stream::game_message::Coord3D;
 use log::{info, warn};
-use std::sync::{Mutex, OnceLock};
+use std::cell::RefCell;
 
 /// Matches the fuzzy comparison used by GameLogic when pairing commands with
 /// already-active beacons.  Using the same tolerance keeps the client-side UI
@@ -107,14 +107,14 @@ fn distance(a: &Coord3D, b: &Coord3D) -> f32 {
     (dx * dx + dy * dy + dz * dz).sqrt()
 }
 
-static BEACON_DISPLAY: OnceLock<Mutex<BeaconDisplayState>> = OnceLock::new();
-
-fn beacon_state() -> &'static Mutex<BeaconDisplayState> {
-    BEACON_DISPLAY.get_or_init(|| Mutex::new(BeaconDisplayState::default()))
+// THREAD: main thread only — beacons are recorded by client message handling
+// and drained by the display update on the same game thread.
+thread_local! {
+    static BEACON_DISPLAY: RefCell<BeaconDisplayState> = RefCell::new(BeaconDisplayState::default());
 }
 
 pub fn record_beacon_placed(player_id: i32, position: Coord3D, text: Option<String>) {
-    if let Ok(mut state) = beacon_state().lock() {
+    BEACON_DISPLAY.with_borrow_mut(|state| {
         info!(
             "Player {} placed beacon at ({:.1}, {:.1}, {:.1})",
             player_id, position.x, position.y, position.z
@@ -124,33 +124,23 @@ pub fn record_beacon_placed(player_id: i32, position: Coord3D, text: Option<Stri
             position,
             text,
         });
-    }
+    });
 }
 
 pub fn record_beacon_removed(player_id: i32, position: Coord3D) {
-    if let Ok(mut state) = beacon_state().lock() {
-        state.remove(player_id, &position);
-    }
+    BEACON_DISPLAY.with_borrow_mut(|state| state.remove(player_id, &position));
 }
 
 pub fn record_beacon_text(player_id: i32, position: Coord3D, text: String) {
-    if let Ok(mut state) = beacon_state().lock() {
-        state.update_text(player_id, &position, text);
-    }
+    BEACON_DISPLAY.with_borrow_mut(|state| state.update_text(player_id, &position, text));
 }
 
 pub fn drain_notifications() -> Vec<BeaconNotification> {
-    beacon_state()
-        .lock()
-        .map(|mut state| state.drain_notifications())
-        .unwrap_or_default()
+    BEACON_DISPLAY.with_borrow_mut(|state| state.drain_notifications())
 }
 
 pub fn snapshot_markers() -> Vec<BeaconMarker> {
-    beacon_state()
-        .lock()
-        .map(|state| state.markers.clone())
-        .unwrap_or_default()
+    BEACON_DISPLAY.with_borrow(|state| state.markers.clone())
 }
 
 /// Residual: last Beacon display action requested by residual peels.

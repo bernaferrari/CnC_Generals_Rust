@@ -8,7 +8,7 @@
 //! FXList `TerrainScorchFXNugget` and GameLogic `TheGameClient->addScorch`
 //! land here instead of a generic timed decal.
 
-use std::sync::{Mutex, OnceLock};
+use std::cell::RefCell;
 
 use crate::terrain::textures::FLIPPED_MASK;
 use gamelogic::common::types::{MAP_HEIGHT_SCALE, MAP_XY_FACTOR};
@@ -282,9 +282,14 @@ impl TerrainScorchBuffer {
     }
 }
 
-fn global_scorch_buffer() -> &'static Mutex<TerrainScorchBuffer> {
-    static BUFFER: OnceLock<Mutex<TerrainScorchBuffer>> = OnceLock::new();
-    BUFFER.get_or_init(|| Mutex::new(TerrainScorchBuffer::new()))
+// THREAD: main thread only — scorch marks are added by FX execution and baked
+// by the terrain draw pass on the same game thread.
+thread_local! {
+    static SCORCH_BUFFER: RefCell<TerrainScorchBuffer> = RefCell::new(TerrainScorchBuffer::new());
+}
+
+fn with_scorch_buffer<R>(f: impl FnOnce(&mut TerrainScorchBuffer) -> R) -> R {
+    SCORCH_BUFFER.with_borrow_mut(f)
 }
 
 /// C++ `GameClientRandomValue(SCORCH_1, SCORCH_4)` when FX type is `RANDOM` / `< 0`.
@@ -299,40 +304,24 @@ pub fn resolve_scorch_type(scorch: i32) -> i32 {
 
 /// C++ `TheGameClient->addScorch(pos, radius, type)`.
 pub fn add_terrain_scorch(location: [f32; 3], radius: f32, scorch_type: i32) -> bool {
-    global_scorch_buffer()
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .add_scorch(location, radius, scorch_type)
+    with_scorch_buffer(|buffer| buffer.add_scorch(location, radius, scorch_type))
 }
 
 pub fn clear_terrain_scorches() {
-    global_scorch_buffer()
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .clear();
+    with_scorch_buffer(TerrainScorchBuffer::clear);
 }
 
 pub fn terrain_scorch_marks() -> Vec<ScorchMark> {
-    global_scorch_buffer()
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .marks()
-        .to_vec()
+    with_scorch_buffer(|buffer| buffer.marks().to_vec())
 }
 
 pub fn terrain_scorch_count() -> usize {
-    global_scorch_buffer()
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .len()
+    with_scorch_buffer(|buffer| buffer.len())
 }
 
 /// C++ `m_scorchesInBuffer`. `0` after `addScorch` forces `updateScorches`.
 pub fn terrain_scorches_in_buffer() -> i32 {
-    global_scorch_buffer()
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .scorches_in_buffer
+    with_scorch_buffer(|buffer| buffer.scorches_in_buffer)
 }
 
 /// Bake the live FX/GameClient scorch buffer against a height source.
@@ -340,10 +329,7 @@ pub fn bake_terrain_scorch_gpu_mesh(
     height: &dyn ScorchHeightSource,
     diffuse: u32,
 ) -> ScorchGpuMesh {
-    global_scorch_buffer()
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .update_scorches(height, diffuse)
+    with_scorch_buffer(|buffer| buffer.update_scorches(height, diffuse))
 }
 
 #[cfg(test)]

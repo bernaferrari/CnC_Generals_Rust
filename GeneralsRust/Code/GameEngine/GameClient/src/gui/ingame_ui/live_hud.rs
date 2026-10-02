@@ -9,7 +9,7 @@ use crate::game_text::GameText;
 use crate::gui::callbacks::diplomacy::update_diplomacy_briefing_text;
 use gamelogic::common::audio::AudioEventRts;
 use gamelogic::helpers::{TheAudio, TheGameLogic};
-use std::sync::Mutex;
+use std::cell::RefCell;
 
 /// C++ `MAX_SUBTITLE_LINES` (InGameUI.h:235).
 const MAX_SUBTITLE_LINES: usize = 4;
@@ -71,8 +71,10 @@ impl LiveHud {
     }
 }
 
-fn live_hud() -> &'static Mutex<LiveHud> {
-    static HUD: Mutex<LiveHud> = Mutex::new(LiveHud {
+// THREAD: main thread only — the live HUD is stepped by the client update and
+// read back by the same thread's draw pass.
+thread_local! {
+    static LIVE_HUD: RefCell<LiveHud> = RefCell::new(LiveHud {
         subtitle: None,
         caption_speed: 1,
         caption_point_size: 12,
@@ -91,7 +93,6 @@ fn live_hud() -> &'static Mutex<LiveHud> {
         superweapon_flash_color: DEFAULT_SUPERWEAPON_FLASH,
         last_step_frame: 0,
     });
-    &HUD
 }
 
 fn military_caption_text(label: &str) -> String {
@@ -107,71 +108,72 @@ fn play_typing_sound() {
 
 /// C++ InGameUI::militarySubtitle — start typewriter from empty displayStrings[0].
 pub fn start_military_subtitle(label: &str, duration_ms: i32) {
-    let mut hud = live_hud().lock().unwrap_or_else(|e| e.into_inner());
-    hud.subtitle = None;
-    update_diplomacy_briefing_text(label, false);
-    let title = military_caption_text(label);
-    if title.is_empty() || duration_ms <= 0 {
-        return;
-    }
-    let frame = TheGameLogic::get_frame();
-    let lifetime_frame = frame + (30 * duration_ms.max(0) as u32) / 1000;
-    let delay = super::InGameUI::military_caption_delay_frames();
-    let pos = hud.caption_position;
-    hud.subtitle = Some(MilitarySubtitle {
-        text: title,
-        index: 0,
-        position: pos,
-        lifetime_frame,
-        block_drawn: true,
-        block_begin_frame: frame,
-        block_pos: pos,
-        increment_on_frame: frame + delay,
-        color: hud.caption_color,
-        display_lines: vec![String::new()],
-        current_display_string: 0,
+    LIVE_HUD.with_borrow_mut(|hud| {
+        hud.subtitle = None;
+        update_diplomacy_briefing_text(label, false);
+        let title = military_caption_text(label);
+        if title.is_empty() || duration_ms <= 0 {
+            return;
+        }
+        let frame = TheGameLogic::get_frame();
+        let lifetime_frame = frame + (30 * duration_ms.max(0) as u32) / 1000;
+        let delay = super::InGameUI::military_caption_delay_frames();
+        let pos = hud.caption_position;
+        hud.subtitle = Some(MilitarySubtitle {
+            text: title,
+            index: 0,
+            position: pos,
+            lifetime_frame,
+            block_drawn: true,
+            block_begin_frame: frame,
+            block_pos: pos,
+            increment_on_frame: frame + delay,
+            color: hud.caption_color,
+            display_lines: vec![String::new()],
+            current_display_string: 0,
+        });
     });
 }
 
 /// Apply InGameUI.ini MilitaryCaptionPosition / MilitaryCaptionColor to the live path.
 pub fn apply_military_caption_style(position: (f32, f32), color: u32, point_size: i32) {
-    let mut hud = live_hud().lock().unwrap_or_else(|e| e.into_inner());
-    hud.caption_position = position;
-    hud.caption_color = color;
-    if point_size > 0 {
-        hud.caption_point_size = point_size;
-    }
+    LIVE_HUD.with_borrow_mut(|hud| {
+        hud.caption_position = position;
+        hud.caption_color = color;
+        if point_size > 0 {
+            hud.caption_point_size = point_size;
+        }
+    });
 }
 
 pub fn add_named_timer(name: &str, text: &str, is_countdown: bool) {
-    let mut hud = live_hud().lock().unwrap_or_else(|e| e.into_inner());
-    hud.named_timers.retain(|t| t.name != name);
-    let remaining = script_counter_value(name).unwrap_or(0);
-    let color = hud.named_timer_normal_color;
-    hud.named_timers.push(NamedTimerData {
-        name: name.to_string(),
-        text: text.to_string(),
-        is_countdown,
-        timestamp: -1,
-        color,
-        display_text: String::new(),
-        use_ready_font: false,
-        remaining_frames: remaining,
-        last_tick_frame: 0,
-        draw_x: 0.0,
-        draw_y: 0.0,
-        draw_color: color,
+    LIVE_HUD.with_borrow_mut(|hud| {
+        hud.named_timers.retain(|t| t.name != name);
+        let remaining = script_counter_value(name).unwrap_or(0);
+        let color = hud.named_timer_normal_color;
+        hud.named_timers.push(NamedTimerData {
+            name: name.to_string(),
+            text: text.to_string(),
+            is_countdown,
+            timestamp: -1,
+            color,
+            display_text: String::new(),
+            use_ready_font: false,
+            remaining_frames: remaining,
+            last_tick_frame: 0,
+            draw_x: 0.0,
+            draw_y: 0.0,
+            draw_color: color,
+        });
     });
 }
 
 pub fn remove_named_timer(name: &str) {
-    let mut hud = live_hud().lock().unwrap_or_else(|e| e.into_inner());
-    hud.named_timers.retain(|t| t.name != name);
+    LIVE_HUD.with_borrow_mut(|hud| hud.named_timers.retain(|t| t.name != name));
 }
 
 pub fn show_named_timer_display(show: bool) {
-    let mut hud = live_hud().lock().unwrap_or_else(|e| e.into_inner());
-    hud.show_named_timers = show;
+    LIVE_HUD.with_borrow_mut(|hud| hud.show_named_timers = show);
 }
 
 fn script_counter_value(name: &str) -> Option<i32> {
@@ -318,31 +320,33 @@ fn step_to_frame(hud: &mut LiveHud, frame: u32) {
 pub fn live_military_subtitle_draw(
     frame: u32,
 ) -> Option<(String, bool, u32, (f32, f32), (f32, f32))> {
-    let mut hud = live_hud().lock().unwrap_or_else(|e| e.into_inner());
-    step_to_frame(&mut hud, frame);
-    hud.subtitle.as_ref().map(|s| {
-        (
-            s.visible_text(),
-            s.block_drawn,
-            s.color,
-            s.position,
-            s.block_pos,
-        )
+    LIVE_HUD.with_borrow_mut(|hud| {
+        step_to_frame(hud, frame);
+        hud.subtitle.as_ref().map(|s| {
+            (
+                s.visible_text(),
+                s.block_drawn,
+                s.color,
+                s.position,
+                s.block_pos,
+            )
+        })
     })
 }
 
 /// Formatted named-timer lines (text, x-fraction, color, ready-font).
 pub fn live_named_timer_draw(frame: u32) -> Vec<(String, u32, bool)> {
-    let mut hud = live_hud().lock().unwrap_or_else(|e| e.into_inner());
-    step_to_frame(&mut hud, frame);
-    if !hud.show_named_timers {
-        return Vec::new();
-    }
-    hud.named_timers
-        .iter()
-        .filter(|t| !t.display_text.is_empty())
-        .map(|t| (t.display_text.clone(), t.draw_color, t.use_ready_font))
-        .collect()
+    LIVE_HUD.with_borrow_mut(|hud| {
+        step_to_frame(hud, frame);
+        if !hud.show_named_timers {
+            return Vec::new();
+        }
+        hud.named_timers
+            .iter()
+            .filter(|t| !t.display_text.is_empty())
+            .map(|t| (t.display_text.clone(), t.draw_color, t.use_ready_font))
+            .collect()
+    })
 }
 
 fn argb_to_rgba(color: u32) -> [f32; 4] {
@@ -355,24 +359,24 @@ fn argb_to_rgba(color: u32) -> [f32; 4] {
 
 /// C++ InGameUI.cpp:3654-3677 — READY strip blinks flash color vs default.
 pub fn live_superweapon_draw_style(frame: u32, ready: bool) -> ([f32; 4], f32) {
-    let mut hud = live_hud().lock().unwrap_or_else(|e| e.into_inner());
-    let mut state = super::SuperweaponFlashState {
-        used_flash_color: hud.superweapon_used_flash_color,
-        last_flash_frame: hud.superweapon_last_flash_frame,
-    };
-    let style = super::superweapon_ready_draw_style(
-        frame,
-        ready,
-        hud.superweapon_flash_duration,
-        argb_to_rgba(hud.superweapon_flash_color),
-        &mut state,
-    );
-    hud.superweapon_used_flash_color = state.used_flash_color;
-    hud.superweapon_last_flash_frame = state.last_flash_frame;
-    style
+    LIVE_HUD.with_borrow_mut(|hud| {
+        let mut state = super::SuperweaponFlashState {
+            used_flash_color: hud.superweapon_used_flash_color,
+            last_flash_frame: hud.superweapon_last_flash_frame,
+        };
+        let style = super::superweapon_ready_draw_style(
+            frame,
+            ready,
+            hud.superweapon_flash_duration,
+            argb_to_rgba(hud.superweapon_flash_color),
+            &mut state,
+        );
+        hud.superweapon_used_flash_color = state.used_flash_color;
+        hud.superweapon_last_flash_frame = state.last_flash_frame;
+        style
+    })
 }
 
 pub fn step_live_hud(frame: u32) {
-    let mut hud = live_hud().lock().unwrap_or_else(|e| e.into_inner());
-    step_to_frame(&mut hud, frame);
+    LIVE_HUD.with_borrow_mut(|hud| step_to_frame(hud, frame));
 }

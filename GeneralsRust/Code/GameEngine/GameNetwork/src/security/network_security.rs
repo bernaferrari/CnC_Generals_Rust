@@ -5,12 +5,12 @@
 
 use crate::error::{NetworkError, NetworkResult};
 use crate::time::NetworkInstant;
+use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::net::IpAddr;
 use std::sync::{Mutex, MutexGuard};
 use std::time::{Duration, SystemTime};
-use log;
-use serde::{Deserialize, Serialize};
+use tracing::{debug, info, warn};
 use uuid::Uuid;
 
 /// Network security configuration
@@ -347,7 +347,11 @@ impl NetworkSecurityManager {
     }
 
     /// Check if a request should be allowed (rate limiting)
-    pub async fn check_request_allowed(&self, remote_addr: IpAddr, player_id: Option<u8>) -> NetworkResult<bool> {
+    pub async fn check_request_allowed(
+        &self,
+        remote_addr: IpAddr,
+        player_id: Option<u8>,
+    ) -> NetworkResult<bool> {
         // Check access control first
         if !self.check_ip_access_allowed(remote_addr).await? {
             return Ok(false);
@@ -422,7 +426,12 @@ impl NetworkSecurityManager {
     }
 
     /// Register new connection
-    pub async fn register_connection(&self, connection_id: Uuid, remote_addr: IpAddr, player_id: Option<u8>) -> NetworkResult<bool> {
+    pub async fn register_connection(
+        &self,
+        connection_id: Uuid,
+        remote_addr: IpAddr,
+        player_id: Option<u8>,
+    ) -> NetworkResult<bool> {
         // Check DDoS protection
         if self.config.enable_ddos_protection {
             let detection = {
@@ -435,7 +444,10 @@ impl NetworkSecurityManager {
             };
 
             if let Some(detection) = detection {
-                warn!("DDoS attack detected from {}: {:?}", remote_addr, detection.attack_type);
+                warn!(
+                    "DDoS attack detected from {}: {:?}",
+                    remote_addr, detection.attack_type
+                );
 
                 // Auto-block if severe
                 let should_block = detection.confidence > 0.9;
@@ -465,7 +477,10 @@ impl NetworkSecurityManager {
         };
 
         if connections_count >= self.config.ddos_protection.max_connections_per_ip {
-            warn!("Connection limit exceeded for IP {}: {} connections", remote_addr, connections_count);
+            warn!(
+                "Connection limit exceeded for IP {}: {} connections",
+                remote_addr, connections_count
+            );
             return Ok(false);
         }
 
@@ -487,12 +502,22 @@ impl NetworkSecurityManager {
             state.connections.insert(connection_id, connection_info);
         }
 
-        debug!("Registered connection {} from {}", connection_id, remote_addr);
+        debug!(
+            "Registered connection {} from {}",
+            connection_id, remote_addr
+        );
         Ok(true)
     }
 
     /// Update connection activity
-    pub async fn update_connection_activity(&self, connection_id: Uuid, bytes_sent: u64, bytes_received: u64, packets_sent: u64, packets_received: u64) -> NetworkResult<()> {
+    pub async fn update_connection_activity(
+        &self,
+        connection_id: Uuid,
+        bytes_sent: u64,
+        bytes_received: u64,
+        packets_sent: u64,
+        packets_received: u64,
+    ) -> NetworkResult<()> {
         let mut state = self.lock_state();
 
         if let Some(connection) = state.connections.get_mut(&connection_id) {
@@ -515,10 +540,11 @@ impl NetworkSecurityManager {
         let now = NetworkInstant::now();
 
         // Count recent connections from this IP
-        let recent_connections = connections.values()
+        let recent_connections = connections
+            .values()
             .filter(|conn| {
-                conn.remote_addr == remote_addr && 
-                now.duration_since(conn.connected_at) < Duration::from_secs(60)
+                conn.remote_addr == remote_addr
+                    && now.duration_since(conn.connected_at) < Duration::from_secs(60)
             })
             .count() as u32;
 
@@ -536,11 +562,18 @@ impl NetworkSecurityManager {
                 detection_id: Uuid::new_v4(),
                 source_ip: remote_addr,
                 attack_type: DDoSAttackType::ConnectionFlood,
-                confidence: (recent_connections as f64 / ddos_config.connection_rate_threshold as f64 - 1.0).min(1.0),
+                confidence: (recent_connections as f64
+                    / ddos_config.connection_rate_threshold as f64
+                    - 1.0)
+                    .min(1.0),
                 metrics,
                 detected_at: SystemTime::now(),
-                recommended_action: if recent_connections > ddos_config.connection_rate_threshold * 2 {
-                    DDoSAction::TemporaryBlock { duration_seconds: self.config.ddos_protection.auto_block_duration_seconds }
+                recommended_action: if recent_connections
+                    > ddos_config.connection_rate_threshold * 2
+                {
+                    DDoSAction::TemporaryBlock {
+                        duration_seconds: ddos_config.auto_block_duration_seconds,
+                    }
                 } else {
                     DDoSAction::RateLimit
                 },
@@ -550,7 +583,10 @@ impl NetworkSecurityManager {
         let mut earliest = now;
         let mut total_packets = 0u64;
         let mut total_bytes = 0u64;
-        for conn in connections.values().filter(|conn| conn.remote_addr == remote_addr) {
+        for conn in connections
+            .values()
+            .filter(|conn| conn.remote_addr == remote_addr)
+        {
             total_packets = total_packets.saturating_add(conn.packets_received);
             total_bytes = total_bytes.saturating_add(conn.bytes_received);
             if conn.connected_at < earliest {
@@ -558,10 +594,7 @@ impl NetworkSecurityManager {
             }
         }
 
-        let duration_seconds = now
-            .duration_since(earliest)
-            .as_secs_f64()
-            .max(1.0);
+        let duration_seconds = now.duration_since(earliest).as_secs_f64().max(1.0);
         let packets_per_second = (total_packets as f64 / duration_seconds).round() as u32;
         let bytes_per_second = (total_bytes as f64 / duration_seconds).round() as u64;
 
@@ -578,8 +611,7 @@ impl NetworkSecurityManager {
                 detection_id: Uuid::new_v4(),
                 source_ip: remote_addr,
                 attack_type: DDoSAttackType::PacketFlood,
-                confidence: (packets_per_second as f64
-                    / ddos_config.packet_rate_threshold as f64
+                confidence: (packets_per_second as f64 / ddos_config.packet_rate_threshold as f64
                     - 1.0)
                     .min(1.0),
                 metrics,
@@ -601,8 +633,7 @@ impl NetworkSecurityManager {
                 detection_id: Uuid::new_v4(),
                 source_ip: remote_addr,
                 attack_type: DDoSAttackType::BandwidthFlood,
-                confidence: (bytes_per_second as f64
-                    / ddos_config.bandwidth_threshold as f64
+                confidence: (bytes_per_second as f64 / ddos_config.bandwidth_threshold as f64
                     - 1.0)
                     .min(1.0),
                 metrics,
@@ -642,7 +673,10 @@ impl NetworkSecurityManager {
     pub async fn unregister_connection(&self, connection_id: Uuid) {
         let mut state = self.lock_state();
         if let Some(connection) = state.connections.remove(&connection_id) {
-            debug!("Unregistered connection {} from {}", connection_id, connection.remote_addr);
+            debug!(
+                "Unregistered connection {} from {}",
+                connection_id, connection.remote_addr
+            );
         }
     }
 
@@ -707,7 +741,7 @@ impl NetworkSecurityManager {
 
 /// Shared IP/player rate-limit enforcement. Returns `true` when the request is
 /// allowed.
-fn enforce_rate_limit<K: Eq + Copy + std::fmt::Display>(
+fn enforce_rate_limit<K: Eq + std::hash::Hash + Copy + std::fmt::Display>(
     states: &mut HashMap<K, RateLimitState>,
     label: &str,
     key: K,
@@ -725,7 +759,9 @@ fn enforce_rate_limit<K: Eq + Copy + std::fmt::Display>(
     let window_duration = Duration::from_secs(config.window_duration_seconds);
 
     // Clean up old requests
-    state.requests.retain(|&request_time| now.duration_since(request_time) < window_duration);
+    state
+        .requests
+        .retain(|&request_time| now.duration_since(request_time) < window_duration);
 
     // Check rate limit
     let requests_in_window = state.requests.len() as u32;
@@ -825,7 +861,10 @@ mod tests {
         let connection_id = Uuid::new_v4();
         let test_ip = IpAddr::V4(Ipv4Addr::new(192, 168, 1, 100));
 
-        let registered = manager.register_connection(connection_id, test_ip, Some(1)).await.unwrap();
+        let registered = manager
+            .register_connection(connection_id, test_ip, Some(1))
+            .await
+            .unwrap();
         assert!(registered);
 
         let stats = manager.get_stats().await;

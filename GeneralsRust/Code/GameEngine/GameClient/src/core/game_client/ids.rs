@@ -184,7 +184,6 @@ pub struct PresentationDrawableSync {
     pub health_box_width: f32,
     /// C++ getHealthBoxPosition height lift (Y-up / Z-up mapped).
     pub health_box_z_offset: f32,
-
 }
 
 // Wave 269: host-only path has no dual-world factory objects.
@@ -193,25 +192,26 @@ fn dual_world_registry_unavailable() -> bool {
     OBJECT_REGISTRY.is_empty()
 }
 
-/// Wave 984: host residual queue — flash contained presentation drawables on select.
-static HOST_CONTAINED_FLASH_QUEUE: Mutex<Vec<u32>> = Mutex::new(Vec::new());
+// Wave 984: host residual queue — flash contained presentation drawables on
+// select. THREAD: main thread only (queued by selection handling, drained by
+// the same thread's draw pass).
+thread_local! {
+    static HOST_CONTAINED_FLASH_QUEUE: RefCell<Vec<u32>> = RefCell::new(Vec::new());
+}
 
 /// Queue object ids whose presentation drawables should flash-as-selected.
 pub fn queue_host_contained_flash_object_ids(ids: impl IntoIterator<Item = u32>) {
-    if let Ok(mut q) = HOST_CONTAINED_FLASH_QUEUE.lock() {
+    HOST_CONTAINED_FLASH_QUEUE.with_borrow_mut(|queue| {
         for id in ids {
-            if id != 0 && !q.contains(&id) {
-                q.push(id);
+            if id != 0 && !queue.contains(&id) {
+                queue.push(id);
             }
         }
-    }
+    });
 }
 
 fn take_host_contained_flash_object_ids() -> Vec<u32> {
-    HOST_CONTAINED_FLASH_QUEUE
-        .lock()
-        .map(|mut q| std::mem::take(&mut *q))
-        .unwrap_or_default()
+    HOST_CONTAINED_FLASH_QUEUE.with_borrow_mut(|queue| std::mem::take(queue))
 }
 
 /// Result type for GameClient operations

@@ -20,8 +20,8 @@ use chrono::Utc;
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use std::net::{IpAddr, SocketAddr};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 use tokio::net::UdpSocket as AsyncUdpSocket;
 use tokio::sync::{Notify, RwLock};
@@ -487,7 +487,11 @@ impl LanLobby {
         }
     }
 
-    pub(super) async fn apply_remote_game_options(&mut self, options: &GameOptions, is_public: bool) {
+    pub(super) async fn apply_remote_game_options(
+        &mut self,
+        options: &GameOptions,
+        is_public: bool,
+    ) {
         if let Some(game) = self.current_game.as_mut() {
             game.options = options.clone();
             game.is_public = is_public;
@@ -643,9 +647,8 @@ impl LanLobby {
 
     /// Start timer task for countdowns
     async fn start_timer_task(&mut self) {
-        let game_start_timer = Arc::clone(&self.runtime.game_start_timer);
+        let runtime = Arc::clone(&self.runtime);
         let bridge_tx = self.bridge_tx.clone();
-        let is_active = Arc::clone(&self.runtime.is_active);
         let shutdown = Arc::clone(&self.shutdown_notify);
 
         let handle = tokio::spawn(async move {
@@ -657,17 +660,17 @@ impl LanLobby {
                         break;
                     }
                     _ = check_interval.tick() => {
-                        if !is_active.load(Ordering::Relaxed) {
+                        if !runtime.is_active.load(Ordering::Relaxed) {
                             continue;
                         }
 
-                        let timer_end = *game_start_timer.lock();
+                        let timer_end = *runtime.game_start_timer.lock();
                         if let Some(timer_end) = timer_end {
                             let now = NetworkInstant::now();
                             if now >= timer_end {
                                 let _ = bridge_tx
                                     .send(LanBridgeEvent::LobbyEvent(LobbyEvent::GameStarting));
-                                *game_start_timer.lock() = None;
+                                *runtime.game_start_timer.lock() = None;
                             } else {
                                 let remaining = timer_end
                                     .duration_since(now)
@@ -694,7 +697,7 @@ impl LanLobby {
 
         let socket = Arc::clone(&self.socket);
         let bridge_tx = self.bridge_tx.clone();
-        let is_active = Arc::clone(&self.runtime.is_active);
+        let runtime = Arc::clone(&self.runtime);
         let shutdown = Arc::clone(&self.shutdown_notify);
         let crypto = self.crypto.clone();
 
@@ -726,7 +729,7 @@ impl LanLobby {
                     None => break,
                 };
 
-                if !is_active.load(Ordering::Relaxed) {
+                if !runtime.is_active.load(Ordering::Relaxed) {
                     continue;
                 }
 
@@ -1036,7 +1039,6 @@ impl LanLobby {
         };
         local_player.set_accepted(accepted);
         let local_ip = local_player.ip;
-        drop(local_player);
 
         self.update_player_acceptance(local_ip, accepted).await;
 
@@ -1064,7 +1066,6 @@ impl LanLobby {
         };
         local_player.set_has_map(has_map);
         let local_ip = local_player.ip;
-        drop(local_player);
 
         self.update_player_map_status(local_ip, has_map).await;
 
@@ -1318,7 +1319,6 @@ impl LanLobby {
         let old_name = local_player.name.clone();
         local_player.name = new_name.clone();
         let local_ip = local_player.ip;
-        drop(local_player);
 
         if let Some(info) = self.player_info().await {
             let message = LanMessage::name_change(info, old_name.clone(), new_name.clone());
@@ -1450,12 +1450,12 @@ impl LanLobby {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::DiscoveryConfig;
     use crate::connection::ConnectionManager;
     use crate::error::{NetworkError, NetworkResult};
-    use crate::lan_api::{LanEventReceiver, LanEventSender, LanMessageType, lan_event_channel};
-    use crate::security::SecurityManager;
+    use crate::lan_api::{lan_event_channel, LanEventReceiver, LanEventSender, LanMessageType};
     use crate::security::encryption::{self, EncryptedPacket};
+    use crate::security::SecurityManager;
+    use crate::DiscoveryConfig;
     use rustls::crypto::ring;
     use std::net::{IpAddr, Ipv4Addr};
     use std::sync::Arc;

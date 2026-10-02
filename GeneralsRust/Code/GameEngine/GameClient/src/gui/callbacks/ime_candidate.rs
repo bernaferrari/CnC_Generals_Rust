@@ -1,38 +1,35 @@
 //! IMECandidate.cpp callback port.
 
 use crate::gui::display_string::DisplayStringHandle;
-use crate::gui::ime_manager::{ImeManager, get_ime_manager};
+use crate::gui::ime_manager::{get_ime_manager, ImeManager};
 use crate::gui::{
-    GameWindow, WIN_COLOR_UNDEFINED, WindowInstanceData, WindowMessage, WindowMsgData,
-    WindowMsgHandled, WindowState, WindowStatus, get_display_string_manager, get_font_library,
-    with_window_manager,
+    get_display_string_manager, get_font_library, with_window_manager, GameWindow,
+    WindowInstanceData, WindowMessage, WindowMsgData, WindowMsgHandled, WindowState, WindowStatus,
+    WIN_COLOR_UNDEFINED,
 };
+use std::cell::RefCell;
 use std::sync::{Arc, Mutex};
 
 const IME_CANDIDATE_LINE_SPACING: i32 = 2;
 
+// THREAD: main thread only — the IME candidate string is created and freed by
+// the GUI thread's window callbacks.
 thread_local! {
-    static DISPLAY_STRING: Arc<Mutex<Option<DisplayStringHandle>>> = Arc::new(Mutex::new(None));
-}
-
-fn display_string_slot() -> Arc<Mutex<Option<DisplayStringHandle>>> {
-    DISPLAY_STRING.with(|slot| slot.clone())
+    static DISPLAY_STRING: RefCell<Option<DisplayStringHandle>> = const { RefCell::new(None) };
 }
 
 fn ensure_display_string() -> Option<DisplayStringHandle> {
-    let slot_handle = display_string_slot();
-    let mut slot = slot_handle.lock().unwrap_or_else(|e| e.into_inner());
-    if slot.is_none() {
-        let mut manager = get_display_string_manager();
-        *slot = Some(manager.new_display_string());
-    }
-    slot.clone()
+    DISPLAY_STRING.with_borrow_mut(|slot| {
+        if slot.is_none() {
+            let mut manager = get_display_string_manager();
+            *slot = Some(manager.new_display_string());
+        }
+        slot.clone()
+    })
 }
 
 fn free_display_string() {
-    let slot_handle = display_string_slot();
-    let mut slot = slot_handle.lock().unwrap_or_else(|e| e.into_inner());
-    if let Some(handle) = slot.take() {
+    if let Some(handle) = DISPLAY_STRING.with_borrow_mut(Option::take) {
         let mut manager = get_display_string_manager();
         manager.free_display_string(handle);
     }

@@ -2,12 +2,13 @@
 //!
 //! Ported from `GameClient/FXList.cpp` and `GameClient/FXList.h`.
 
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock, RwLock};
 
 use glam::{Mat3, Vec3};
 
-use game_engine::common::ini::{INI, INIError, INILoadType, INIResult, register_block_parser};
+use game_engine::common::ini::{register_block_parser, INIError, INILoadType, INIResult, INI};
 use game_engine::common::name_key_generator::{NameKeyGenerator, NameKeyType};
 
 use gamelogic::common::types::FXListManagerInterface;
@@ -16,11 +17,11 @@ use gamelogic::object::Object;
 
 use crate::display::cinematic_camera::CameraShakeSystem;
 use crate::display::view::{
-    CameraShakeType as ViewShakeKind, Point3 as ViewPoint3, with_tactical_view,
+    with_tactical_view, CameraShakeType as ViewShakeKind, Point3 as ViewPoint3,
 };
 use crate::effects::decals::DecalManager;
 use crate::effects::fxlist_integration::ParticleSystemFXNugget;
-use crate::effects::particle_manager::{GameClientRandomVariable, get_particle_system_manager_mut};
+use crate::effects::particle_manager::{get_particle_system_manager_mut, GameClientRandomVariable};
 use crate::effects::ray_effect_system::create_ray_effect_by_template;
 use crate::effects::tracer_fx::spawn_tracer_drawable_like_cpp;
 use crate::message_stream::game_message::Coord3D as MessageCoord3D;
@@ -258,14 +259,24 @@ fn to_message_coord(pos: &Coord3D) -> MessageCoord3D {
 }
 
 type AudioHook = Box<dyn FnMut(&str, Option<MessageCoord3D>) + Send + Sync>;
-
-static FX_AUDIO: OnceLock<RwLock<Option<AudioHook>>> = OnceLock::new();
-static FX_DECAL_MANAGER: OnceLock<RwLock<Option<Arc<Mutex<DecalManager>>>>> = OnceLock::new();
-static FX_SHAKE_SYSTEM: OnceLock<RwLock<Option<Arc<Mutex<CameraShakeSystem>>>>> = OnceLock::new();
-static DISPLAY_LIGHT_PULSES: OnceLock<Mutex<Vec<DisplayLightPulse>>> = OnceLock::new();
 type LightPulseHook = Box<dyn FnMut(&DisplayLightPulse) + Send + Sync>;
-static LIGHT_PULSE_HOOK: OnceLock<RwLock<Option<LightPulseHook>>> = OnceLock::new();
-static SCENE_DYNAMIC_LIGHTS: OnceLock<Mutex<Vec<DisplayDynamicLight>>> = OnceLock::new();
+
+// THREAD: main thread only. Producers are FXList nugget execution on the game
+// thread and client init; consumers are the display/light tick and the host's
+// render pass on the same thread, so these slots live in one thread-local cell
+// block. (The decal/shake slots hold `Arc` handles so the owners elsewhere keep
+// their own share.) `FX_LIST_STORE` below stays a shared lock instead: its INI
+// block parser can also run on the host's startup worker thread.
+thread_local! {
+    static FX_AUDIO: RefCell<Option<AudioHook>> = const { RefCell::new(None) };
+    static FX_DECAL_MANAGER: RefCell<Option<Arc<Mutex<DecalManager>>>> =
+        const { RefCell::new(None) };
+    static FX_SHAKE_SYSTEM: RefCell<Option<Arc<Mutex<CameraShakeSystem>>>> =
+        const { RefCell::new(None) };
+    static DISPLAY_LIGHT_PULSES: RefCell<Vec<DisplayLightPulse>> = RefCell::new(Vec::new());
+    static LIGHT_PULSE_HOOK: RefCell<Option<LightPulseHook>> = const { RefCell::new(None) };
+    static SCENE_DYNAMIC_LIGHTS: RefCell<Vec<DisplayDynamicLight>> = RefCell::new(Vec::new());
+}
 
 /// C++ `TheDisplay->createLightPulse` request (W3DDisplay.cpp).
 #[derive(Debug, Clone, PartialEq)]
@@ -312,19 +323,12 @@ pub fn create_display_light_pulse(pulse: DisplayLightPulse) -> bool {
     if light_pulse_too_small(pulse.inner_radius, pulse.outer_radius) {
         return false;
     }
-    DISPLAY_LIGHT_PULSES
-        .get_or_init(|| Mutex::new(Vec::new()))
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .push(pulse.clone());
+    DISPLAY_LIGHT_PULSES.with_borrow_mut(|pulses| pulses.push(pulse.clone()));
     // C++ W3DDisplay::createLightPulse allocates a W3DDynamicLight:
     // Set_Far_Attenuation_Range(inner, inner+atten), setFrameFade, setDecayRange/Color,
     // FAR_ATTENUATION flag.
-    SCENE_DYNAMIC_LIGHTS
-        .get_or_init(|| Mutex::new(Vec::new()))
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .push(DisplayDynamicLight {
+    SCENE_DYNAMIC_LIGHTS.with_borrow_mut(|lights| {
+        lights.push(DisplayDynamicLight {
             pos: pulse.pos,
             color: pulse.color,
             far_atten_start: pulse.inner_radius,
@@ -340,22 +344,17 @@ pub fn create_display_light_pulse(pulse: DisplayLightPulse) -> bool {
             far_attenuation: true,
             enabled: true,
         });
-    if let Some(hook_slot) = LIGHT_PULSE_HOOK.get() {
-        if let Ok(mut guard) = hook_slot.write() {
-            if let Some(hook) = guard.as_mut() {
-                hook(&pulse);
-            }
+    });
+    LIGHT_PULSE_HOOK.with_borrow_mut(|hook| {
+        if let Some(hook) = hook.as_mut() {
+            hook(&pulse);
         }
-    }
+    });
     true
 }
 
 pub fn scene_dynamic_lights() -> Vec<DisplayDynamicLight> {
-    SCENE_DYNAMIC_LIGHTS
-        .get_or_init(|| Mutex::new(Vec::new()))
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .clone()
+    SCENE_DYNAMIC_LIGHTS.with_borrow(Clone::clone)
 }
 
 /// C++ `Get_Far_Attenuation_Range(midRange, range)` then
@@ -461,119 +460,87 @@ pub fn do_the_dynamic_light_from_scene(
 
 /// C++ `W3DDynamicLight::On_Frame_Update` fade (increase then decay range/color).
 pub fn tick_scene_dynamic_lights() {
-    let mut lights = SCENE_DYNAMIC_LIGHTS
-        .get_or_init(|| Mutex::new(Vec::new()))
-        .lock()
-        .unwrap_or_else(|e| e.into_inner());
-    for light in lights.iter_mut() {
-        if !light.enabled {
-            continue;
-        }
-        let factor = if light.cur_increase_frames > 0 && light.increase_frames > 0 {
-            light.cur_increase_frames -= 1;
-            (light.increase_frames - light.cur_increase_frames) as f32
-                / light.increase_frames as f32
-        } else if light.decay_frames == 0 {
-            1.0
-        } else {
-            light.cur_decay_frames = light.cur_decay_frames.saturating_sub(1);
-            if light.cur_decay_frames == 0 {
-                light.enabled = false;
+    SCENE_DYNAMIC_LIGHTS.with_borrow_mut(|lights| {
+        for light in lights.iter_mut() {
+            if !light.enabled {
                 continue;
             }
-            light.cur_decay_frames as f32 / light.decay_frames as f32
-        };
-        if light.decay_range {
-            light.far_atten_end = (factor * light.target_far_atten_end).max(light.far_atten_start);
+            let factor = if light.cur_increase_frames > 0 && light.increase_frames > 0 {
+                light.cur_increase_frames -= 1;
+                (light.increase_frames - light.cur_increase_frames) as f32
+                    / light.increase_frames as f32
+            } else if light.decay_frames == 0 {
+                1.0
+            } else {
+                light.cur_decay_frames = light.cur_decay_frames.saturating_sub(1);
+                if light.cur_decay_frames == 0 {
+                    light.enabled = false;
+                    continue;
+                }
+                light.cur_decay_frames as f32 / light.decay_frames as f32
+            };
+            if light.decay_range {
+                light.far_atten_end =
+                    (factor * light.target_far_atten_end).max(light.far_atten_start);
+            }
+            if light.decay_color {
+                light.color = [
+                    light.target_color[0] * factor,
+                    light.target_color[1] * factor,
+                    light.target_color[2] * factor,
+                ];
+            }
         }
-        if light.decay_color {
-            light.color = [
-                light.target_color[0] * factor,
-                light.target_color[1] * factor,
-                light.target_color[2] * factor,
-            ];
-        }
-    }
-    lights.retain(|light| light.enabled);
+        lights.retain(|light| light.enabled);
+    });
 }
 
 pub fn clear_scene_dynamic_lights() {
-    SCENE_DYNAMIC_LIGHTS
-        .get_or_init(|| Mutex::new(Vec::new()))
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .clear();
+    SCENE_DYNAMIC_LIGHTS.with_borrow_mut(Vec::clear);
 }
 
 pub fn drain_display_light_pulses() -> Vec<DisplayLightPulse> {
-    DISPLAY_LIGHT_PULSES
-        .get_or_init(|| Mutex::new(Vec::new()))
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .drain(..)
-        .collect()
+    DISPLAY_LIGHT_PULSES.with_borrow_mut(|pulses| pulses.drain(..).collect())
 }
 
 pub fn register_light_pulse_hook(hook: LightPulseHook) {
-    LIGHT_PULSE_HOOK
-        .get_or_init(|| RwLock::new(None))
-        .write()
-        .unwrap_or_else(|e| e.into_inner())
-        .replace(hook);
+    LIGHT_PULSE_HOOK.with_borrow_mut(|slot| slot.replace(hook));
 }
 
 pub fn register_fx_audio(mut hook: AudioHook) {
-    FX_AUDIO
-        .get_or_init(|| RwLock::new(None))
-        .write()
-        .unwrap_or_else(|e| e.into_inner())
-        .replace(hook);
+    FX_AUDIO.with_borrow_mut(|slot| slot.replace(hook));
 }
 
 pub fn register_decal_manager(manager: Arc<Mutex<DecalManager>>) {
-    FX_DECAL_MANAGER
-        .get_or_init(|| RwLock::new(None))
-        .write()
-        .unwrap_or_else(|e| e.into_inner())
-        .replace(manager);
+    FX_DECAL_MANAGER.with_borrow_mut(|slot| slot.replace(manager));
 }
 
 pub fn get_decal_manager() -> Option<Arc<Mutex<DecalManager>>> {
-    let manager = FX_DECAL_MANAGER.get()?;
-    manager.read().ok().and_then(|guard| guard.clone())
+    FX_DECAL_MANAGER.with_borrow(Clone::clone)
 }
 
 pub fn register_camera_shake_system(system: Arc<Mutex<CameraShakeSystem>>) {
-    FX_SHAKE_SYSTEM
-        .get_or_init(|| RwLock::new(None))
-        .write()
-        .unwrap_or_else(|e| e.into_inner())
-        .replace(system);
+    FX_SHAKE_SYSTEM.with_borrow_mut(|slot| slot.replace(system));
 }
 
 /// Invoke the registered FX audio hook if present.
 /// Returns `true` when a hook was called (sound routed), `false` when silent.
 fn with_audio<F: FnOnce(&mut AudioHook)>(f: F) -> bool {
-    let Some(audio) = FX_AUDIO.get() else {
-        return false;
-    };
-    if let Ok(mut guard) = audio.write() {
-        if let Some(ref mut hook) = *guard {
+    FX_AUDIO.with_borrow_mut(|slot| {
+        if let Some(ref mut hook) = *slot {
             f(hook);
             return true;
         }
-    }
-    false
+        false
+    })
 }
 
 fn with_shake_system<F: FnOnce(&mut CameraShakeSystem)>(f: F) {
-    let Some(system) = FX_SHAKE_SYSTEM.get() else {
+    let Some(system) = FX_SHAKE_SYSTEM.with_borrow(Clone::clone) else {
         return;
     };
-    if let Some(system) = system.read().ok().and_then(|guard| guard.clone()) {
-        if let Ok(mut guard) = system.lock() {
-            f(&mut guard);
-        }
+    if let Ok(mut guard) = system.lock() {
+        f(&mut guard);
     }
 }
 
@@ -1316,7 +1283,6 @@ impl FXNugget for RayEffectFXNugget {
             [target.x, target.y, target.z],
             &self.template_name,
         );
-
     }
 }
 
@@ -1552,7 +1518,10 @@ impl FXNugget for ParticleSystemWrapper {
         let primary_point = Vec3::new(primary.x, primary.y, primary.z);
         let mtx = primary_mtx.map(|mtx| {
             let cols = mtx.to_cols_array_2d();
-            Mat3::from_cols_array(&[cols[0][0], cols[1][0], cols[2][0], cols[0][1], cols[1][1], cols[2][1], cols[0][2], cols[1][2], cols[2][2]])
+            Mat3::from_cols_array(&[
+                cols[0][0], cols[1][0], cols[2][0], cols[0][1], cols[1][1], cols[2][1], cols[0][2],
+                cols[1][2], cols[2][2],
+            ])
         });
         let systems = self
             .nugget
@@ -1588,11 +1557,17 @@ impl FXNugget for ParticleSystemWrapper {
                 ))
             } else {
                 let cols = primary.get_transform_matrix().to_cols_array_2d();
-                Some(Mat3::from_cols_array(&[cols[0][0], cols[1][0], cols[2][0], cols[0][1], cols[1][1], cols[2][1], cols[0][2], cols[1][2], cols[2][2]]))
+                Some(Mat3::from_cols_array(&[
+                    cols[0][0], cols[1][0], cols[2][0], cols[0][1], cols[1][1], cols[2][1],
+                    cols[0][2], cols[1][2], cols[2][2],
+                ]))
             }
         } else {
             let cols = primary.get_transform_matrix().to_cols_array_2d();
-            Some(Mat3::from_cols_array(&[cols[0][0], cols[1][0], cols[2][0], cols[0][1], cols[1][1], cols[2][1], cols[0][2], cols[1][2], cols[2][2]]))
+            Some(Mat3::from_cols_array(&[
+                cols[0][0], cols[1][0], cols[2][0], cols[0][1], cols[1][1], cols[2][1], cols[0][2],
+                cols[1][2], cols[2][2],
+            ]))
         };
 
         let object_id = Some(primary.get_id());
@@ -1628,11 +1603,17 @@ impl FXNugget for ParticleSystemWrapper {
                 ))
             } else {
                 let cols = primary.transform.to_cols_array_2d();
-                Some(Mat3::from_cols_array(&[cols[0][0], cols[1][0], cols[2][0], cols[0][1], cols[1][1], cols[2][1], cols[0][2], cols[1][2], cols[2][2]]))
+                Some(Mat3::from_cols_array(&[
+                    cols[0][0], cols[1][0], cols[2][0], cols[0][1], cols[1][1], cols[2][1],
+                    cols[0][2], cols[1][2], cols[2][2],
+                ]))
             }
         } else {
             let cols = primary.transform.to_cols_array_2d();
-            Some(Mat3::from_cols_array(&[cols[0][0], cols[1][0], cols[2][0], cols[0][1], cols[1][1], cols[2][1], cols[0][2], cols[1][2], cols[2][2]]))
+            Some(Mat3::from_cols_array(&[
+                cols[0][0], cols[1][0], cols[2][0], cols[0][1], cols[1][1], cols[2][1], cols[0][2],
+                cols[1][2], cols[2][2],
+            ]))
         };
         let systems = self
             .nugget

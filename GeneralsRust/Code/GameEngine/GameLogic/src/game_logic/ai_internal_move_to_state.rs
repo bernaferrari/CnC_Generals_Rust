@@ -62,6 +62,29 @@ impl AIInternalMoveToState {
         })
     }
 
+    /// Machine-less variant for helpers driven by a state machine their AI owns
+    /// outright (guard machines, C++ `AIGuardReturnState :
+    /// AIInternalMoveToState`). Every machine lookup falls back to the copied
+    /// ids, exactly as when the weak handle expires, so the helper resolves the
+    /// owner through the id-keyed registries instead of a machine handle.
+    pub fn new_with_owner_id(owner_id: crate::common::ObjectID, name: String) -> Self {
+        Self {
+            name,
+            machine: Weak::new(),
+            goal_position: Coord3D::new(0.0, 0.0, 0.0),
+            goal_object_id: crate::common::INVALID_ID,
+            owner_id,
+            goal_layer: PathfindLayerEnum::Invalid,
+            waiting_for_path: false,
+            path_goal_position: Coord3D::new(0.0, 0.0, 0.0),
+            path_timestamp: 0,
+            blocked_repath_timestamp: 0,
+            try_one_more_repath: true,
+            adjusts_destination: true,
+            ambient_playing_handle: 0,
+        }
+    }
+
     fn upgrade_machine(&self) -> Result<Arc<Mutex<StateMachine>>, String> {
         self.machine.upgrade().ok_or_else(|| {
             format!(

@@ -246,11 +246,14 @@ fn xfer_game_logic_state(logic: &mut GameLogic, xfer: &mut dyn Xfer) -> Result<(
     if matches!(xfer.get_xfer_mode(), XferMode::Save | XferMode::Crc) {
         let object_ids: Vec<ObjectID> = logic.all_objects.clone();
         for obj_id in object_ids {
-            let Some(arc) = logic.objects.get(&obj_id).cloned() else {
-                continue;
-            };
+            // Scoped map borrows — the template read and the snapshot write
+            // each re-borrow the entry; no Arc handle is retained across the
+            // TOC lookup and xfer calls.
             let tname = {
-                let Ok(obj) = arc.read() else {
+                let Some(entry) = logic.objects.get(&obj_id) else {
+                    continue;
+                };
+                let Ok(obj) = entry.read() else {
                     continue;
                 };
                 obj.get_template().get_name().to_string()
@@ -261,8 +264,10 @@ fn xfer_game_logic_state(logic: &mut GameLogic, xfer: &mut dyn Xfer) -> Result<(
             let mut toc_id = toc.id;
             xfer.xfer_unsigned_short(&mut toc_id)?;
             let _ = xfer.begin_block();
-            if let Ok(mut obj) = arc.write() {
-                xfer_object_snapshot(&mut obj, xfer);
+            if let Some(entry) = logic.objects.get(&obj_id) {
+                if let Ok(mut obj) = entry.write() {
+                    xfer_object_snapshot(&mut obj, xfer);
+                }
             }
             xfer.end_block()?;
         }

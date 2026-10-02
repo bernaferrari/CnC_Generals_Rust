@@ -9,7 +9,9 @@ use super::manager::ParticleSystemManager;
 use super::point_group::ParticleInstanceData;
 use crate::ParticleSystem;
 use glam::{Mat4, Vec3};
-use std::sync::{Arc, Mutex};
+use std::cell::RefCell;
+use std::sync::Arc;
+use std::rc::Rc;
 use wgpu::{CommandEncoder, Device, Queue, RenderPass};
 use ww3d_collision::SphereClass;
 
@@ -20,7 +22,7 @@ use ww3d_collision::SphereClass;
 
 #[derive(Debug, Clone)]
 pub struct SceneParticleBuffer {
-    pub buffer: Arc<Mutex<ParticleBuffer>>,
+    pub buffer: Rc<RefCell<ParticleBuffer>>,
     pub blend_mode: BlendMode,
 }
 
@@ -36,7 +38,7 @@ impl SceneClass {
 
     pub fn add_particle_buffer(
         &mut self,
-        buffer: Arc<Mutex<ParticleBuffer>>,
+        buffer: Rc<RefCell<ParticleBuffer>>,
         blend_mode: BlendMode,
     ) {
         self.particle_buffers
@@ -75,11 +77,11 @@ impl CameraClass {
 #[derive(Debug)]
 pub struct ParticleRenderPass {
     /// Opaque particles (rendered after opaque geometry)
-    pub opaque_buffers: Vec<Arc<Mutex<ParticleBuffer>>>,
+    pub opaque_buffers: Vec<Rc<RefCell<ParticleBuffer>>>,
     /// Transparent particles (rendered after transparent geometry)
-    pub transparent_buffers: Vec<Arc<Mutex<ParticleBuffer>>>,
+    pub transparent_buffers: Vec<Rc<RefCell<ParticleBuffer>>>,
     /// Additive particles (rendered last)
-    pub additive_buffers: Vec<Arc<Mutex<ParticleBuffer>>>,
+    pub additive_buffers: Vec<Rc<RefCell<ParticleBuffer>>>,
     /// GPU instancing support
     pub instancing_enabled: bool,
     /// Maximum instances per batch
@@ -87,11 +89,8 @@ pub struct ParticleRenderPass {
 }
 
 impl ParticleRenderPass {
-    fn lock_buffer_sphere(buffer: &Arc<Mutex<ParticleBuffer>>) -> SphereClass {
-        buffer
-            .lock()
-            .map(|buf| buf.get_bounding_sphere())
-            .unwrap_or_else(|_| SphereClass::empty())
+    fn lock_buffer_sphere(buffer: &Rc<RefCell<ParticleBuffer>>) -> SphereClass {
+        buffer.borrow().get_bounding_sphere()
     }
 
     /// Create a new particle render pass
@@ -106,7 +105,7 @@ impl ParticleRenderPass {
     }
 
     /// Add a particle buffer to the appropriate render queue
-    pub fn add_buffer(&mut self, buffer: Arc<Mutex<ParticleBuffer>>, blend_mode: BlendMode) {
+    pub fn add_buffer(&mut self, buffer: Rc<RefCell<ParticleBuffer>>, blend_mode: BlendMode) {
         match blend_mode {
             BlendMode::Opaque => self.opaque_buffers.push(buffer),
             BlendMode::Alpha => self.transparent_buffers.push(buffer),
@@ -144,7 +143,7 @@ impl ParticleRenderPass {
     }
 
     /// Render all particle buffers in proper order
-    /// Note: Rendering Arc<ParticleBuffer> requires thread-safe mutability (RwLock or Mutex)
+    /// Note: particle buffers are game-thread render-pass state shared by `Rc<RefCell<..>>`.
     pub fn render(
         &mut self,
         device: &Device,
@@ -155,21 +154,21 @@ impl ParticleRenderPass {
         _camera_position: Vec3,
     ) {
         for buffer in &self.opaque_buffers {
-            if let Ok(mut buffer) = buffer.lock() {
-                buffer.render(device, queue, encoder, render_pass, view_projection_matrix);
-            }
+            buffer
+                .borrow_mut()
+                .render(device, queue, encoder, render_pass, view_projection_matrix);
         }
 
         for buffer in &self.transparent_buffers {
-            if let Ok(mut buffer) = buffer.lock() {
-                buffer.render(device, queue, encoder, render_pass, view_projection_matrix);
-            }
+            buffer
+                .borrow_mut()
+                .render(device, queue, encoder, render_pass, view_projection_matrix);
         }
 
         for buffer in &self.additive_buffers {
-            if let Ok(mut buffer) = buffer.lock() {
-                buffer.render(device, queue, encoder, render_pass, view_projection_matrix);
-            }
+            buffer
+                .borrow_mut()
+                .render(device, queue, encoder, render_pass, view_projection_matrix);
         }
     }
 
@@ -192,19 +191,13 @@ impl ParticleRenderPass {
 
         let mut total_particles = 0;
         for buffer in &self.opaque_buffers {
-            if let Ok(buffer) = buffer.lock() {
-                total_particles += buffer.get_active_count();
-            }
+            total_particles += buffer.borrow().get_active_count();
         }
         for buffer in &self.transparent_buffers {
-            if let Ok(buffer) = buffer.lock() {
-                total_particles += buffer.get_active_count();
-            }
+            total_particles += buffer.borrow().get_active_count();
         }
         for buffer in &self.additive_buffers {
-            if let Ok(buffer) = buffer.lock() {
-                total_particles += buffer.get_active_count();
-            }
+            total_particles += buffer.borrow().get_active_count();
         }
 
         ParticleRenderStats {
@@ -218,11 +211,8 @@ impl ParticleRenderPass {
     }
 }
 
-fn buffer_has_active_particles(buffer: &Arc<Mutex<ParticleBuffer>>) -> bool {
-    buffer
-        .lock()
-        .map(|buffer| buffer.get_active_count() > 0)
-        .unwrap_or(false)
+fn buffer_has_active_particles(buffer: &Rc<RefCell<ParticleBuffer>>) -> bool {
+    buffer.borrow().get_active_count() > 0
 }
 
 /// Particle blend modes
@@ -433,18 +423,18 @@ mod tests {
         )
     }
 
-    fn test_buffer_at(position: Vec3) -> Arc<Mutex<ParticleBuffer>> {
+    fn test_buffer_at(position: Vec3) -> Rc<RefCell<ParticleBuffer>> {
         let mut buffer = empty_test_buffer();
         buffer.add_new_particle(NewParticle {
             position,
             ..Default::default()
         });
         buffer.update(0);
-        Arc::new(Mutex::new(buffer))
+        Rc::new(RefCell::new(buffer))
     }
 
-    fn inactive_test_buffer() -> Arc<Mutex<ParticleBuffer>> {
-        Arc::new(Mutex::new(empty_test_buffer()))
+    fn inactive_test_buffer() -> Rc<RefCell<ParticleBuffer>> {
+        Rc::new(RefCell::new(empty_test_buffer()))
     }
 
     #[test]
@@ -459,7 +449,7 @@ mod tests {
         render_pass.batch_particles();
 
         assert_eq!(render_pass.transparent_buffers.len(), 1);
-        assert!(Arc::ptr_eq(&render_pass.transparent_buffers[0], &active));
+        assert!(Rc::ptr_eq(&render_pass.transparent_buffers[0], &active));
     }
 
     #[test]
@@ -475,8 +465,8 @@ mod tests {
         render_pass.batch_particles();
 
         assert_eq!(render_pass.opaque_buffers.len(), 2);
-        assert!(Arc::ptr_eq(&render_pass.opaque_buffers[0], &inactive));
-        assert!(Arc::ptr_eq(&render_pass.opaque_buffers[1], &active));
+        assert!(Rc::ptr_eq(&render_pass.opaque_buffers[0], &inactive));
+        assert!(Rc::ptr_eq(&render_pass.opaque_buffers[1], &active));
     }
 
     #[test]
@@ -513,9 +503,9 @@ mod tests {
         assert_eq!(render_pass.opaque_buffers.len(), 1);
         assert_eq!(render_pass.transparent_buffers.len(), 1);
         assert_eq!(render_pass.additive_buffers.len(), 1);
-        assert!(Arc::ptr_eq(&render_pass.opaque_buffers[0], &opaque));
-        assert!(Arc::ptr_eq(&render_pass.transparent_buffers[0], &alpha));
-        assert!(Arc::ptr_eq(&render_pass.additive_buffers[0], &additive));
+        assert!(Rc::ptr_eq(&render_pass.opaque_buffers[0], &opaque));
+        assert!(Rc::ptr_eq(&render_pass.transparent_buffers[0], &alpha));
+        assert!(Rc::ptr_eq(&render_pass.additive_buffers[0], &additive));
     }
 
     #[test]
@@ -530,8 +520,8 @@ mod tests {
         render_pass.collect_scene_buffers(&scene);
         render_pass.sort_transparent_particles(Vec3::ZERO);
 
-        assert!(Arc::ptr_eq(&render_pass.transparent_buffers[0], &far));
-        assert!(Arc::ptr_eq(&render_pass.transparent_buffers[1], &near));
+        assert!(Rc::ptr_eq(&render_pass.transparent_buffers[0], &far));
+        assert!(Rc::ptr_eq(&render_pass.transparent_buffers[1], &near));
     }
 
     #[test]

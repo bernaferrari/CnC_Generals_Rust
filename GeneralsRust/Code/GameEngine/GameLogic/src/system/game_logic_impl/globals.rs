@@ -106,7 +106,8 @@ struct GameLogicEnergyLookup;
 impl EnergyObjectLookup for GameLogicEnergyLookup {
     fn energy_production(&self, obj: ObjectHandle) -> i32 {
         // Wave 344: dual_world_registry_unavailable is not an early skip;
-        // try OBJECT_REGISTRY then GameLogic.objects, else 0.
+        // try OBJECT_REGISTRY then GameLogic.objects, else 0. The fallback
+        // reads GameLogic's own map under a scoped borrow — no Arc clone.
         let object_id = obj.value() as ObjectID;
         if let Some(value) = OBJECT_REGISTRY.with_object(object_id, |guard| {
             guard.get_template().get_energy_production()
@@ -116,10 +117,11 @@ impl EnergyObjectLookup for GameLogicEnergyLookup {
         get_game_logic()
             .try_lock()
             .ok()
-            .and_then(|logic| logic.find_object_by_id(object_id))
-            .and_then(|arc| {
-                arc.read()
-                    .ok()
+            .and_then(|logic| {
+                logic
+                    .objects
+                    .get(&object_id)
+                    .and_then(|entry| entry.read().ok())
                     .map(|guard| guard.get_template().get_energy_production())
             })
             .unwrap_or(0)
@@ -127,7 +129,8 @@ impl EnergyObjectLookup for GameLogicEnergyLookup {
 
     fn energy_bonus(&self, obj: ObjectHandle) -> i32 {
         // Wave 344: dual_world_registry_unavailable is not an early skip;
-        // try OBJECT_REGISTRY then GameLogic.objects, else 0.
+        // try OBJECT_REGISTRY then GameLogic.objects, else 0. The fallback
+        // reads GameLogic's own map under a scoped borrow — no Arc clone.
         let object_id = obj.value() as ObjectID;
         if let Some(value) =
             OBJECT_REGISTRY.with_object(object_id, |guard| guard.get_template().get_energy_bonus())
@@ -137,10 +140,11 @@ impl EnergyObjectLookup for GameLogicEnergyLookup {
         get_game_logic()
             .try_lock()
             .ok()
-            .and_then(|logic| logic.find_object_by_id(object_id))
-            .and_then(|arc| {
-                arc.read()
-                    .ok()
+            .and_then(|logic| {
+                logic
+                    .objects
+                    .get(&object_id)
+                    .and_then(|entry| entry.read().ok())
                     .map(|guard| guard.get_template().get_energy_bonus())
             })
             .unwrap_or(0)

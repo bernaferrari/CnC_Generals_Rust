@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::{RwLock, broadcast};
+use tokio::sync::{broadcast, RwLock};
 use tokio::task::JoinHandle;
 use tracing::{debug, info};
 use uuid::Uuid;
@@ -825,11 +825,11 @@ mod tests {
 
         coordinator.update_players(players).await;
 
-        let active_players = coordinator.state.read().await.active_players;
-        assert_eq!(active_players.len(), 3);
-        assert!(active_players.contains(&0));
-        assert!(active_players.contains(&1));
-        assert!(active_players.contains(&2));
+        let state = coordinator.state.read().await;
+        assert_eq!(state.active_players.len(), 3);
+        assert!(state.active_players.contains(&0));
+        assert!(state.active_players.contains(&1));
+        assert!(state.active_players.contains(&2));
     }
 
     #[tokio::test]

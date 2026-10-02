@@ -94,6 +94,17 @@ pub struct MissionScriptHooks {
 }
 
 impl MissionScriptHooks {
+    /// Test seam: the completion maps were folded into one guard, so tests
+    /// reach them through the same lock the drain uses.
+    #[cfg(test)]
+    pub(crate) fn with_completion_tracking_for_test<R>(
+        &self,
+        f: impl FnOnce(&mut AudioCompletionTracking) -> R,
+    ) -> R {
+        let mut state = self.completion.lock().expect("completion tracking lock");
+        f(&mut state)
+    }
+
     pub fn queue_warehouse_set_value(&self, name: &str, cash: i32) {
         if name.is_empty() {
             return;
@@ -133,7 +144,6 @@ impl MissionScriptHooks {
             )?),
             pending_script_enabled_updates,
             notifications: Mutex::new(ScriptNotificationQueues::default()),
-
             completion: Mutex::new(AudioCompletionTracking::default()),
             camera_movement_finished: AtomicBool::new(true),
             frame_counter: AtomicU64::new(0),

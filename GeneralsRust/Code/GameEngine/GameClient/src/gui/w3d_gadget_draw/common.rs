@@ -1,5 +1,23 @@
 use super::*;
+use std::cell::RefCell;
 use std::sync::atomic::{AtomicUsize, Ordering};
+
+thread_local! {
+    static RADAR_OBJECT_OVERLAY_CACHE: RefCell<RadarObjectOverlayTextureCache> =
+        RefCell::new(RadarObjectOverlayTextureCache::default());
+    static RADAR_TERRAIN_TEXTURE_CACHE: RefCell<RadarLayerTextureCache> =
+        RefCell::new(RadarLayerTextureCache::default());
+    static RADAR_SHROUD_TEXTURE_CACHE: RefCell<RadarLayerTextureCache> =
+        RefCell::new(RadarLayerTextureCache::default());
+    static MAIN_MENU_PULSE_STATE: RefCell<MainMenuPulseState> = RefCell::new(MainMenuPulseState {
+        started_at: Instant::now(),
+        going_forward: true,
+        width: 0,
+        x: -800,
+        y: 0,
+        initialized: false,
+    });
+}
 
 /// Shipped gadget/HUD draw ops recorded even when no UIRenderer/GPU is bound.
 /// Tests drive the real W3D callbacks and assert this (or UIRenderer) is > 0.
@@ -279,23 +297,14 @@ pub(super) struct RadarObjectOverlayTextureCache {
     pub(super) hero_object_ids: Vec<u32>,
 }
 
-#[cfg(target_arch = "wasm32")]
-// SAFETY: wasm32-only. The only non-plain field is `Arc<wgpu::TextureView>`,
-// an `Rc`-backed handle that is `!Send` on the web backend. wasm32 has no
-// threads, so the handle can never move to or be observed from another
-// thread; the impl only satisfies the `Send` bound of the `static
-// Mutex<Self>` that owns it.
-unsafe impl Send for RadarObjectOverlayTextureCache {}
-#[cfg(target_arch = "wasm32")]
-// SAFETY: same wasm32-only scope: the target is single-threaded, so
-// `&RadarObjectOverlayTextureCache` is never shared between threads and the
-// handle's `!Sync` default is unreachable.
-unsafe impl Sync for RadarObjectOverlayTextureCache {}
-
-pub(super) fn radar_object_overlay_texture_cache() -> &'static Mutex<RadarObjectOverlayTextureCache>
-{
-    pub(super) static CACHE: OnceLock<Mutex<RadarObjectOverlayTextureCache>> = OnceLock::new();
-    CACHE.get_or_init(|| Mutex::new(RadarObjectOverlayTextureCache::default()))
+/// THREAD: main thread only — the caches feed the GUI-thread radar draw and are
+/// keyed on radar state owned by the same thread, so they live in thread-local
+/// cells (which also drops the wasm32 `Send`/`Sync` shims the `static Mutex`
+/// storage used to need for the `!Send` texture handle).
+pub(super) fn with_radar_object_overlay_texture_cache<R>(
+    f: impl FnOnce(&mut RadarObjectOverlayTextureCache) -> R,
+) -> R {
+    RADAR_OBJECT_OVERLAY_CACHE.with_borrow_mut(f)
 }
 
 /// Cached device texture for one resident radar layer.
@@ -311,29 +320,16 @@ pub(super) struct RadarLayerTextureCache {
     pub(super) texture: Option<Arc<wgpu::TextureView>>,
 }
 
-#[cfg(target_arch = "wasm32")]
-// SAFETY: wasm32-only. The only non-plain field is `Arc<wgpu::TextureView>`,
-// an `Rc`-backed handle that is `!Send` on the web backend. wasm32 has no
-// threads, so the handle can never move to or be observed from another
-// thread; the impl only satisfies the `Send` bound of the `static
-// Mutex<Self>` caches that own it.
-unsafe impl Send for RadarLayerTextureCache {}
-#[cfg(target_arch = "wasm32")]
-// SAFETY: same wasm32-only scope: the target is single-threaded, so
-// `&RadarLayerTextureCache` is never shared between threads and the handle's
-// `!Sync` default is unreachable.
-unsafe impl Sync for RadarLayerTextureCache {}
-
-pub(super) fn radar_terrain_texture_cache() -> &'static Mutex<RadarLayerTextureCache> {
-    pub(super) static CACHE: LazyLock<Mutex<RadarLayerTextureCache>> =
-        LazyLock::new(|| Mutex::new(RadarLayerTextureCache::default()));
-    &CACHE
+pub(super) fn with_radar_terrain_texture_cache<R>(
+    f: impl FnOnce(&mut RadarLayerTextureCache) -> R,
+) -> R {
+    RADAR_TERRAIN_TEXTURE_CACHE.with_borrow_mut(f)
 }
 
-pub(super) fn radar_shroud_texture_cache() -> &'static Mutex<RadarLayerTextureCache> {
-    pub(super) static CACHE: LazyLock<Mutex<RadarLayerTextureCache>> =
-        LazyLock::new(|| Mutex::new(RadarLayerTextureCache::default()));
-    &CACHE
+pub(super) fn with_radar_shroud_texture_cache<R>(
+    f: impl FnOnce(&mut RadarLayerTextureCache) -> R,
+) -> R {
+    RADAR_SHROUD_TEXTURE_CACHE.with_borrow_mut(f)
 }
 
 pub(super) fn radar_map_extent_signature(map_extent: Region3D) -> [u32; 6] {
@@ -540,18 +536,8 @@ pub(super) struct MainMenuPulseState {
     pub(super) initialized: bool,
 }
 
-pub(super) fn main_menu_pulse_state() -> &'static Mutex<MainMenuPulseState> {
-    pub(super) static STATE: OnceLock<Mutex<MainMenuPulseState>> = OnceLock::new();
-    STATE.get_or_init(|| {
-        Mutex::new(MainMenuPulseState {
-            started_at: Instant::now(),
-            going_forward: true,
-            width: 0,
-            x: -800,
-            y: 0,
-            initialized: false,
-        })
-    })
+pub(super) fn with_main_menu_pulse_state<R>(f: impl FnOnce(&mut MainMenuPulseState) -> R) -> R {
+    MAIN_MENU_PULSE_STATE.with_borrow_mut(f)
 }
 
 #[inline]
@@ -702,32 +688,29 @@ pub(super) fn animate_main_menu_pulse(window: &GameWindow, pulse_image_name: &st
     let pulse_w = image.as_ref().map(|img| img.width).unwrap_or(120).max(24);
     let pulse_h = image.as_ref().map(|img| img.height).unwrap_or(12).max(6);
 
-    let mut state = main_menu_pulse_state()
-        .lock()
-        .unwrap_or_else(|e| e.into_inner());
-    if !state.initialized {
-        state.width = size_x + pulse_w;
-        state.x = -800;
-        state.y = pos_y - (pulse_h / 2);
-        state.started_at = Instant::now();
-        state.going_forward = true;
-        state.initialized = true;
-    }
-
-    let elapsed = state.started_at.elapsed().as_secs_f32();
-    let percent_done = (elapsed / 10.0).clamp(0.0, 1.0);
-
-    if state.going_forward {
-        if percent_done >= 1.0 {
-            state.y = pos_y + size_y - (pulse_h / 2);
-            state.started_at = Instant::now();
-            state.going_forward = false;
-        } else {
+    let (draw_x, draw_y) = with_main_menu_pulse_state(|state| {
+        if !state.initialized {
+            state.width = size_x + pulse_w;
+            state.x = -800;
             state.y = pos_y - (pulse_h / 2);
-            state.x = truncate_to_i32(percent_done * state.width as f32) - pulse_w;
+            state.started_at = Instant::now();
+            state.going_forward = true;
+            state.initialized = true;
         }
-    } else {
-        if percent_done >= 1.0 {
+
+        let elapsed = state.started_at.elapsed().as_secs_f32();
+        let percent_done = (elapsed / 10.0).clamp(0.0, 1.0);
+
+        if state.going_forward {
+            if percent_done >= 1.0 {
+                state.y = pos_y + size_y - (pulse_h / 2);
+                state.started_at = Instant::now();
+                state.going_forward = false;
+            } else {
+                state.y = pos_y - (pulse_h / 2);
+                state.x = truncate_to_i32(percent_done * state.width as f32) - pulse_w;
+            }
+        } else if percent_done >= 1.0 {
             state.y = pos_y - (pulse_h / 2);
             state.started_at = Instant::now();
             state.going_forward = true;
@@ -735,11 +718,9 @@ pub(super) fn animate_main_menu_pulse(window: &GameWindow, pulse_image_name: &st
             state.y = pos_y + size_y - (pulse_h / 2);
             state.x = size_x - truncate_to_i32(percent_done * state.width as f32);
         }
-    }
 
-    let draw_x = state.x;
-    let draw_y = state.y;
-    drop(state);
+        (state.x, state.y)
+    });
 
     if let Some(image) = image {
         with_window_manager_ref(|manager| {

@@ -12,13 +12,13 @@ use crate::gui::callbacks::{
 };
 use crate::gui::gadgets::ListBoxItemData;
 use crate::gui::{
-    GLM_DOUBLE_CLICKED, GameWindow, LanPreferences, WindowLayout, WindowMessage, WindowMsgData,
-    WindowMsgHandled, get_shell, show_shell_map_if_available, try_with_shell_mut,
-    with_window_manager, write_input_focus_response,
+    get_shell, show_shell_map_if_available, try_with_shell_mut, with_window_manager,
+    write_input_focus_response, GameWindow, LanPreferences, WindowLayout, WindowMessage,
+    WindowMsgData, WindowMsgHandled, GLM_DOUBLE_CLICKED,
 };
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_network::lan_api::{
-    ChatType, LanEvent, LanGameInfo, LanResult, ensure_the_lan, reset_the_lan, the_lan,
+    ensure_the_lan, reset_the_lan, the_lan, ChatType, LanEvent, LanGameInfo, LanResult,
 };
 use log::warn;
 
@@ -63,6 +63,10 @@ thread_local! {
     static STATE: Rc<RefCell<LanLobbyState>> = Rc::new(RefCell::new(LanLobbyState::default()));
 }
 
+// THREAD: producer -> consumer handoff. The tokio task spawned by
+// `pump_lan_events` (see `spawn_lan`) pushes LAN events from the async
+// runtime while the GUI thread drains them in the lobby update, so this
+// stays a lock-backed queue rather than thread-local state.
 static LAN_EVENTS: OnceLock<Mutex<VecDeque<LanEvent>>> = OnceLock::new();
 
 fn events() -> &'static Mutex<VecDeque<LanEvent>> {

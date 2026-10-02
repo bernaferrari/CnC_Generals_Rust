@@ -1066,8 +1066,7 @@ impl SnapshotBuilder {
             if event.experience_gained <= 0.0 {
                 continue;
             }
-            *event_totals.entry(event.object_id).or_insert(0.0) +=
-                event.experience_gained.max(0.0);
+            *event_totals.entry(event.object_id).or_insert(0.0) += event.experience_gained.max(0.0);
         }
 
         for (object_id, total) in &event_totals {

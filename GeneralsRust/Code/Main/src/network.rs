@@ -33,8 +33,8 @@ use tokio::runtime::Handle;
 use tokio::sync::{Mutex, RwLock};
 
 use game_network as real_net;
-use game_network::NetworkInterface as RealNetworkInterface;
 use game_network::lan_api::{GameOptions, LanApi, LanConfig, LanEvent, LanGameInfo};
+use game_network::NetworkInterface as RealNetworkInterface;
 use gamelogic::commands::command::CommandType;
 use real_net::commands::{CommandParameter, GameCommandData};
 use real_net::{NetCommand, NetCommandType, TransportProtocol};
@@ -205,14 +205,22 @@ pub struct LobbyCallbacks {
 }
 
 /// Main network interface that wraps the GameNetwork module
+/// THREAD: `NetworkInterface` is handed around as `Arc<RwLock<_>>` and reached
+/// from the tokio network runtime as well as the game thread, so every field
+/// keeps its own async lock: `active_session_frame_data_ready` clones the outer
+/// handle and awaits through it without a game-thread owner to borrow from.
 pub struct NetworkInterface {
+    /// THREAD: the live GameNetwork session, owned by the network tasks.
     inner: Arc<RwLock<RealNetworkInterface>>,
+    /// THREAD: lobby/config reads come from GUI + discovery tasks.
     config: RwLock<NetworkConfig>,
     local_player: RwLock<Option<PlayerInfo>>,
     player_teams: RwLock<HashMap<u8, u8>>,
     available_games: RwLock<Vec<GameInfo>>,
     statistics: RwLock<NetworkStatistics>,
+    /// THREAD: installed by the shell, invoked from network tasks.
     callbacks: RwLock<LobbyCallbacks>,
+    /// THREAD: lazily built once, then awaited by discovery/host tasks.
     lan_api: Mutex<Option<LanApi>>,
 }
 

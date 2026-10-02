@@ -45,6 +45,12 @@ impl Default for WgpuMainRendererConfig {
     }
 }
 
+/// THREAD: game thread (this renderer's frame loop) vs. the host frame pump
+/// (`Renderer::with_active_mut` / Code/Main `forward_render.rs`), which queue
+/// meshes into the same renderer through this shared handle and therefore meet
+/// here.
+type SharedRendererHandle = Arc<Mutex<Renderer>>;
+
 /// Frame statistics captured for diagnostic and profiling purposes.
 #[derive(Debug, Clone, Default)]
 pub struct MainRendererStats {
@@ -65,11 +71,7 @@ pub struct WgpuMainRenderer {
     /// The legacy DX8-parity backend. Owned outright: C++ kept it as the
     /// renderer's own member, and no caller needs a shared handle to it.
     backend: Option<WgpuWrapper>,
-    /// THREAD: game thread (this renderer's frame loop) vs. the host frame pump
-    /// (`Renderer::with_active_mut` / Code/Main `forward_render.rs`), which
-    /// queue meshes into the same renderer through this handle and therefore
-    /// meet here.
-    renderer: Arc<Mutex<Renderer>>,
+    renderer: SharedRendererHandle,
     config: WgpuMainRendererConfig,
     stats: MainRendererStats,
     frame_start: Instant,
@@ -155,7 +157,7 @@ impl WgpuMainRenderer {
     }
 
     /// Prepare the underlying renderer for a new frame.
-    fn prepare_renderer_frame(renderer: &Arc<Mutex<Renderer>>) -> RendererResult<()> {
+    fn prepare_renderer_frame(renderer: &SharedRendererHandle) -> RendererResult<()> {
         let mut renderer_guard = renderer
             .lock()
             .map_err(|_| RendererError::InvalidOperation("renderer mutex poisoned".into()))?;
@@ -324,7 +326,7 @@ impl WgpuMainRenderer {
     }
 
     /// Expose the renderer handle for scene integration.
-    pub fn renderer_handle(&self) -> Arc<Mutex<Renderer>> {
+    pub fn renderer_handle(&self) -> SharedRendererHandle {
         Arc::clone(&self.renderer)
     }
 
@@ -767,7 +769,7 @@ pub(crate) struct WgpuCoreBridge {
     /// THREAD: same shared renderer handle as [`WgpuMainRenderer::renderer`] —
     /// the host frame pump reaches the renderer through the registered backend
     /// via this handle, so game thread and host meet here.
-    _renderer: Arc<Mutex<Renderer>>,
+    _renderer: SharedRendererHandle,
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -787,7 +789,7 @@ impl WgpuCoreBridge {
     fn new(
         stats: Rc<RefCell<FrameStats>>,
         ready: Arc<AtomicBool>,
-        renderer: Arc<Mutex<Renderer>>,
+        renderer: SharedRendererHandle,
     ) -> Self {
         Self {
             stats,
@@ -799,7 +801,7 @@ impl WgpuCoreBridge {
         }
     }
 
-    pub(crate) fn renderer_handle(&self) -> Arc<Mutex<Renderer>> {
+    pub(crate) fn renderer_handle(&self) -> SharedRendererHandle {
         Arc::clone(&self._renderer)
     }
 }

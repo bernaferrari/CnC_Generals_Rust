@@ -5,7 +5,7 @@
 //! Provides tabs for Video, Audio, Controls, and Game settings.
 
 use super::{
-    ClickSpring, Interactive, KeyCode, MouseButton, Renderable, UIEvent, UIRenderContext, utils,
+    utils, ClickSpring, Interactive, KeyCode, MouseButton, Renderable, UIEvent, UIRenderContext,
 };
 use crate::localization;
 use log::info;
@@ -1533,10 +1533,9 @@ mod tests {
         assert!(!OptionsMenu::parse_yes_no(
             flat.get("SaveCameraInReplays").unwrap()
         ));
-        assert!(
-            flat.get("UseDoubleClickAttackMove")
-                .unwrap()
-                .eq_ignore_ascii_case("yes")
-        );
+        assert!(flat
+            .get("UseDoubleClickAttackMove")
+            .unwrap()
+            .eq_ignore_ascii_case("yes"));
     }
 }

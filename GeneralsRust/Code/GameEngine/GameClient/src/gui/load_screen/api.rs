@@ -174,7 +174,9 @@ pub fn advance_load_screen_prelude(
         };
     }
     let frame_count_before = with_window_video_manager(|manager| {
-        manager.movie_progress(&movie).map(|progress| progress.frame_count)
+        manager
+            .movie_progress(&movie)
+            .map(|progress| progress.frame_count)
     });
     let action = if focused {
         LoadMovieAction::Present
@@ -255,14 +257,18 @@ fn update_movie_prelude_progress(kind: LoadScreenKind, frame_index: i32, frame_c
     if frame_index.rem_euclid(progress_update_count) != 0 {
         return;
     }
-    let shifted_percent = ((frame_index / progress_update_count) - FRAME_FUDGE_ADD as i32 + 2)
-        .min(0);
+    let shifted_percent =
+        ((frame_index / progress_update_count) - FRAME_FUDGE_ADD as i32 + 2).min(0);
     let percent = ((shifted_percent + FRAME_FUDGE_ADD as i32) as f32 / 1.3).floor();
     with_window_manager(|wm| {
         let progress_window = descriptor_for_kind(kind).primary_progress;
         set_progress_window(wm, progress_window, percent);
         if kind == LoadScreenKind::SinglePlayer {
-            set_window_text(wm, "SinglePlayerLoadScreen.wnd:Percent", &format!("{percent:.0}%"));
+            set_window_text(
+                wm,
+                "SinglePlayerLoadScreen.wnd:Percent",
+                &format!("{percent:.0}%"),
+            );
         }
     });
 }
@@ -533,77 +539,43 @@ pub fn register_map_transfer_liteupdate_hook(
     hook: impl Fn() + Send + Sync + 'static,
 ) -> Option<MapTransferLiteupdateHook> {
     let hook = Arc::new(hook);
-    let state = MAP_TRANSFER_LITEUPDATE_HOOK.get_or_init(|| Mutex::new(None));
-    let mut guard = state
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
-    guard.replace(hook)
+    MAP_TRANSFER_LITEUPDATE_HOOK.with_borrow_mut(|slot| slot.replace(hook))
 }
 
 pub fn clear_map_transfer_liteupdate_hook() -> Option<MapTransferLiteupdateHook> {
-    let state = MAP_TRANSFER_LITEUPDATE_HOOK.get_or_init(|| Mutex::new(None));
-    let mut guard = state
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
-    guard.take()
+    MAP_TRANSFER_LITEUPDATE_HOOK.with_borrow_mut(|slot| slot.take())
 }
 
 pub fn register_multiplayer_load_progress_hook(
     hook: impl Fn(i32, i32) + Send + Sync + 'static,
 ) -> Option<MultiplayerLoadProgressHook> {
     let hook = Arc::new(hook);
-    let state = MULTIPLAYER_LOAD_PROGRESS_HOOK.get_or_init(|| Mutex::new(None));
-    let mut guard = state
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
-    guard.replace(hook)
+    MULTIPLAYER_LOAD_PROGRESS_HOOK.with_borrow_mut(|slot| slot.replace(hook))
 }
 
 pub fn clear_multiplayer_load_progress_hook() -> Option<MultiplayerLoadProgressHook> {
-    let state = MULTIPLAYER_LOAD_PROGRESS_HOOK.get_or_init(|| Mutex::new(None));
-    let mut guard = state
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
-    guard.take()
+    MULTIPLAYER_LOAD_PROGRESS_HOOK.with_borrow_mut(|slot| slot.take())
 }
 
 #[cfg(test)]
 fn register_load_screen_finish_update_hook(
     hook: impl Fn() + Send + Sync + 'static,
 ) -> Option<LoadScreenFinishUpdateHook> {
-    let state = LOAD_SCREEN_FINISH_UPDATE_HOOK.get_or_init(|| Mutex::new(None));
-    let mut guard = state
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
-    guard.replace(Arc::new(hook))
+    LOAD_SCREEN_FINISH_UPDATE_HOOK.with_borrow_mut(|slot| slot.replace(Arc::new(hook)))
 }
 
 #[cfg(test)]
 fn clear_load_screen_finish_update_hook() -> Option<LoadScreenFinishUpdateHook> {
-    let state = LOAD_SCREEN_FINISH_UPDATE_HOOK.get_or_init(|| Mutex::new(None));
-    let mut guard = state
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
-    guard.take()
+    LOAD_SCREEN_FINISH_UPDATE_HOOK.with_borrow_mut(|slot| slot.take())
 }
 
 #[cfg(test)]
 fn load_screen_finish_update_hook() -> Option<LoadScreenFinishUpdateHook> {
-    let state = LOAD_SCREEN_FINISH_UPDATE_HOOK.get_or_init(|| Mutex::new(None));
-    let guard = state
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
-    guard.clone()
+    LOAD_SCREEN_FINISH_UPDATE_HOOK.with_borrow(Clone::clone)
 }
 
 fn map_transfer_liteupdate() {
-    let hook = {
-        let state = MAP_TRANSFER_LITEUPDATE_HOOK.get_or_init(|| Mutex::new(None));
-        let guard = state
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        guard.clone()
-    };
+    let hook = MAP_TRANSFER_LITEUPDATE_HOOK.with_borrow(Clone::clone);
     if let Some(hook) = hook {
         hook();
     }
@@ -613,13 +585,7 @@ fn report_multiplayer_load_progress(player_id: i32, percentage: f32) {
     if !(0.0..=100.0).contains(&percentage) {
         return;
     }
-    let hook = {
-        let state = MULTIPLAYER_LOAD_PROGRESS_HOOK.get_or_init(|| Mutex::new(None));
-        let guard = state
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        guard.clone()
-    };
+    let hook = MULTIPLAYER_LOAD_PROGRESS_HOOK.with_borrow(Clone::clone);
     if let Some(hook) = hook {
         hook(player_id, percentage as i32);
     }

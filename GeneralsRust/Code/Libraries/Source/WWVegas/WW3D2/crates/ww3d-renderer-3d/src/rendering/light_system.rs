@@ -12,9 +12,9 @@ use crate::render_object_system::RenderObjClass;
 use crate::scene_system::scene::SceneClass;
 use glam::{Mat4, Vec3, Vec4};
 use std::io::Write;
-use std::ops::{Deref, DerefMut};
 use std::sync::atomic::{AtomicU32, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
+use std::cell::RefCell;
+use std::sync::Arc;
 use ww3d_collision::bounding_volumes::{aabox::AABoxClass, sphere::SphereClass};
 
 static LIGHT_ID_COUNTER: AtomicU32 = AtomicU32::new(0);
@@ -459,20 +459,19 @@ impl LightClass {
 
     /// Push light to vertex processor
     pub fn vertex_processor_push(&self) -> Result<()> {
-        let mut env = get_light_environment().ok_or_else(|| {
-            Error::NotInitialized("Light environment not initialized".to_string())
-        })?;
-        env.remove_light(self.light_id);
-        env.add_light(Arc::new(self.copy_with_light_id(self.light_id)))
+        with_light_environment(|env| {
+            env.remove_light(self.light_id);
+            env.add_light(Arc::new(self.copy_with_light_id(self.light_id)))
+        })
+        .ok_or_else(|| Error::NotInitialized("Light environment not initialized".to_string()))?
     }
 
     /// Pop light from vertex processor
     pub fn vertex_processor_pop(&self) -> Result<()> {
-        let mut env = get_light_environment().ok_or_else(|| {
-            Error::NotInitialized("Light environment not initialized".to_string())
-        })?;
-        env.remove_light(self.light_id);
-        Ok(())
+        with_light_environment(|env| {
+            env.remove_light(self.light_id);
+        })
+        .ok_or_else(|| Error::NotInitialized("Light environment not initialized".to_string()))
     }
 
     /// Notify when light is added to scene
@@ -936,62 +935,28 @@ impl Default for LightEnvironmentClass {
     }
 }
 
-fn light_environment_slot() -> &'static Mutex<Option<LightEnvironmentClass>> {
-    static SLOT: OnceLock<Mutex<Option<LightEnvironmentClass>>> = OnceLock::new();
-    SLOT.get_or_init(|| Mutex::new(None))
+thread_local! {
+    /// C++ kept the shared light environment as a plain static on the game thread.
+    static LIGHT_ENVIRONMENT: RefCell<Option<LightEnvironmentClass>> = const { RefCell::new(None) };
 }
 
-fn lock_light_environment_slot() -> MutexGuard<'static, Option<LightEnvironmentClass>> {
-    match light_environment_slot().lock() {
-        Ok(guard) => guard,
-        Err(poisoned) => poisoned.into_inner(),
-    }
-}
-
-/// Handle used to access the shared light environment safely.
-pub struct LightEnvironmentHandle<'a> {
-    guard: MutexGuard<'a, Option<LightEnvironmentClass>>,
-}
-
-impl<'a> Deref for LightEnvironmentHandle<'a> {
-    type Target = LightEnvironmentClass;
-
-    fn deref(&self) -> &Self::Target {
-        self.guard
-            .as_ref()
-            .expect("light environment must be initialized before use")
-    }
-}
-
-impl<'a> DerefMut for LightEnvironmentHandle<'a> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        self.guard
-            .as_mut()
-            .expect("light environment must be initialized before use")
-    }
+/// Run `f` with mutable access to the shared light environment, if initialized.
+pub fn with_light_environment<R>(f: impl FnOnce(&mut LightEnvironmentClass) -> R) -> Option<R> {
+    LIGHT_ENVIRONMENT.with_borrow_mut(|environment| {
+        let environment = environment.as_mut()?;
+        Some(f(environment))
+    })
 }
 
 /// Initialize light system
 pub fn init_light_system() -> Result<()> {
-    let mut guard = lock_light_environment_slot();
-    *guard = Some(LightEnvironmentClass::default());
+    LIGHT_ENVIRONMENT.with_borrow_mut(|slot| *slot = Some(LightEnvironmentClass::default()));
     Ok(())
 }
 
 /// Shutdown light system
 pub fn shutdown_light_system() {
-    let mut guard = lock_light_environment_slot();
-    *guard = None;
-}
-
-/// Get light environment instance
-pub fn get_light_environment() -> Option<LightEnvironmentHandle<'static>> {
-    let guard = lock_light_environment_slot();
-    if guard.is_none() {
-        None
-    } else {
-        Some(LightEnvironmentHandle { guard })
-    }
+    LIGHT_ENVIRONMENT.with_borrow_mut(|slot| *slot = None);
 }
 
 /// Quick light creation functions
@@ -1016,22 +981,18 @@ pub fn create_spot_light(
 
 /// Quick light environment functions
 pub fn add_light_to_environment(light: LightClass) -> Result<()> {
-    let mut env = get_light_environment()
-        .ok_or_else(|| Error::NotInitialized("Light environment not initialized".to_string()))?;
-
-    env.add_light(Arc::new(light))
+    with_light_environment(|env| env.add_light(Arc::new(light)))
+        .ok_or_else(|| Error::NotInitialized("Light environment not initialized".to_string()))?
 }
 
 pub fn get_light_contribution(point: Vec3, normal: Vec3, view_dir: Vec3) -> LightContribution {
-    if let Some(env) = get_light_environment() {
-        env.get_contribution(point, normal, view_dir)
-    } else {
+    with_light_environment(|env| env.get_contribution(point, normal, view_dir)).unwrap_or(
         LightContribution {
             ambient: Vec4::new(0.2, 0.2, 0.2, 1.0),
             diffuse: Vec4::ZERO,
             specular: Vec4::ZERO,
-        }
-    }
+        },
+    )
 }
 
 #[cfg(test)]
@@ -1217,24 +1178,24 @@ mod tests {
         let light_id = light.light_id;
 
         light.vertex_processor_push().unwrap();
-        {
-            let env = get_light_environment().unwrap();
+        with_light_environment(|env| {
             assert_eq!(env.get_light_count(), 1);
             assert_eq!(env.get_light(0).unwrap().light_id, light_id);
-        }
+        })
+        .unwrap();
 
         light.vertex_processor_push().unwrap();
-        {
-            let env = get_light_environment().unwrap();
+        with_light_environment(|env| {
             assert_eq!(env.get_light_count(), 1);
             assert_eq!(env.get_light(0).unwrap().light_id, light_id);
-        }
+        })
+        .unwrap();
 
         light.vertex_processor_pop().unwrap();
-        {
-            let env = get_light_environment().unwrap();
+        with_light_environment(|env| {
             assert_eq!(env.get_light_count(), 0);
-        }
+        })
+        .unwrap();
         shutdown_light_system();
     }
 

@@ -173,11 +173,9 @@ mod tests {
             restored.point_defense_next_ready_frame.get(&ObjectId(5)),
             Some(&77)
         );
-        assert!(
-            !restored
-                .point_defense_next_ready_frame
-                .contains_key(&ObjectId(99))
-        );
+        assert!(!restored
+            .point_defense_next_ready_frame
+            .contains_key(&ObjectId(99)));
     }
 
     #[test]
@@ -209,11 +207,9 @@ mod tests {
             restored.point_defense_next_ready_frame_1.get(&ObjectId(8)),
             Some(&55)
         );
-        assert!(
-            !restored
-                .point_defense_next_ready_frame_1
-                .contains_key(&ObjectId(3))
-        );
+        assert!(!restored
+            .point_defense_next_ready_frame_1
+            .contains_key(&ObjectId(3)));
     }
 
     #[test]

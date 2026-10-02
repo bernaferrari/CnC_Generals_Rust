@@ -5,6 +5,7 @@
 //! campaign or Challenge launch must carry its exact selection across that
 //! boundary instead of letting Main guess from a stale HUD faction.
 
+use std::cell::RefCell;
 use std::sync::{Mutex, OnceLock};
 
 /// Immutable shell selection that belongs to exactly one queued `MSG_NEW_GAME`.
@@ -68,9 +69,15 @@ pub enum HostCampaignLaunchDelivery {
     Mismatched,
 }
 
-fn host_campaign_launch_bridge() -> &'static Mutex<HostCampaignLaunchBridge> {
-    static BRIDGE: OnceLock<Mutex<HostCampaignLaunchBridge>> = OnceLock::new();
-    BRIDGE.get_or_init(|| Mutex::new(HostCampaignLaunchBridge::default()))
+// THREAD: main thread only — published by the GUI-thread shell menus and
+// consumed by the host's NewGame dispatch on the same thread.
+thread_local! {
+    static HOST_CAMPAIGN_LAUNCH_BRIDGE: RefCell<HostCampaignLaunchBridge> =
+        RefCell::new(HostCampaignLaunchBridge::default());
+}
+
+fn with_host_campaign_launch_bridge<R>(f: impl FnOnce(&mut HostCampaignLaunchBridge) -> R) -> R {
+    HOST_CAMPAIGN_LAUNCH_BRIDGE.with_borrow_mut(f)
 }
 
 /// Enable Main-host delivery for campaign and Challenge shell launch state.
@@ -78,13 +85,12 @@ fn host_campaign_launch_bridge() -> &'static Mutex<HostCampaignLaunchBridge> {
 /// Standalone GameClient preserves its C++ singleton/message-stream path when
 /// disabled. Changing owner discards only an unconsumed descriptor.
 pub fn set_host_campaign_launch_bridge_enabled(enabled: bool) {
-    let mut bridge = host_campaign_launch_bridge()
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
-    if bridge.enabled != enabled {
-        bridge.enabled = enabled;
-        bridge.pending = None;
-    }
+    with_host_campaign_launch_bridge(|bridge| {
+        if bridge.enabled != enabled {
+            bridge.enabled = enabled;
+            bridge.pending = None;
+        }
+    });
 }
 
 /// Publish the exact shell selection immediately before its `MSG_NEW_GAME`.
@@ -92,17 +98,16 @@ pub fn set_host_campaign_launch_bridge_enabled(enabled: bool) {
 /// Returns `false` when standalone GameClient remains the owner, so callers
 /// retain their legacy behavior without a Main-only conditional path.
 pub fn publish_host_campaign_launch(mut descriptor: HostCampaignLaunchDescriptor) -> bool {
-    let mut bridge = host_campaign_launch_bridge()
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
-    if !bridge.enabled || descriptor.map_name.trim().is_empty() {
-        return false;
-    }
+    with_host_campaign_launch_bridge(|bridge| {
+        if !bridge.enabled || descriptor.map_name.trim().is_empty() {
+            return false;
+        }
 
-    bridge.next_generation = bridge.next_generation.wrapping_add(1).max(1);
-    descriptor.generation = bridge.next_generation;
-    bridge.pending = Some(descriptor);
-    true
+        bridge.next_generation = bridge.next_generation.wrapping_add(1).max(1);
+        descriptor.generation = bridge.next_generation;
+        bridge.pending = Some(descriptor);
+        true
+    })
 }
 
 /// Consume the pending descriptor for an exact matching NewGame message.
@@ -116,25 +121,21 @@ pub fn take_host_campaign_launch_for_new_game(
     rank_points: i32,
     max_fps: Option<i32>,
 ) -> HostCampaignLaunchDelivery {
-    let mut bridge = host_campaign_launch_bridge()
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
-    let Some(descriptor) = bridge.pending.take() else {
-        return HostCampaignLaunchDelivery::None;
-    };
-    if descriptor.matches_new_game(game_mode_code, difficulty_code, rank_points, max_fps) {
-        HostCampaignLaunchDelivery::Matched(descriptor)
-    } else {
-        HostCampaignLaunchDelivery::Mismatched
-    }
+    with_host_campaign_launch_bridge(|bridge| {
+        let Some(descriptor) = bridge.pending.take() else {
+            return HostCampaignLaunchDelivery::None;
+        };
+        if descriptor.matches_new_game(game_mode_code, difficulty_code, rank_points, max_fps) {
+            HostCampaignLaunchDelivery::Matched(descriptor)
+        } else {
+            HostCampaignLaunchDelivery::Mismatched
+        }
+    })
 }
 
 /// Invalidate a descriptor at a host world/session boundary.
 pub fn clear_host_campaign_launch_descriptor() {
-    host_campaign_launch_bridge()
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
-        .pending = None;
+    with_host_campaign_launch_bridge(|bridge| bridge.pending = None);
 }
 
 #[cfg(test)]

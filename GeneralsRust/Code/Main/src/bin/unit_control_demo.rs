@@ -12,12 +12,10 @@
 // Wave 958: host_object dual-read seal.
 use game_engine::common::frame_clock::{FrameClock, FrameTiming as ClockFrameTiming};
 use generals_main::{
-    RtsInputSystem, SelectionRenderer, UIRenderCommand, UnitInputHandler,
     game_logic::{GameLogic, GameMode, Team},
+    RtsInputSystem, SelectionRenderer, UIRenderCommand, UnitInputHandler,
 };
 use glam::{Mat4, Vec2, Vec3};
-use std::sync::Arc;
-use std::sync::Mutex as AsyncMutex;
 use std::time::Instant;
 use winit::{
     event::{ElementState, Event, KeyEvent, MouseButton, WindowEvent},
@@ -33,7 +31,7 @@ struct UnitControlDemo {
     window: Arc<Window>,
 
     /// Core game systems
-    game_logic: Arc<AsyncMutex<GameLogic>>,
+    game_logic: GameLogic,
     input_system: RtsInputSystem,
     unit_input_handler: UnitInputHandler,
     selection_renderer: SelectionRenderer,
@@ -86,11 +84,11 @@ impl UnitControlDemo {
         };
 
         // Initialize game logic
-        let game_logic = Arc::new(AsyncMutex::new(GameLogic::new()));
+        let game_logic = GameLogic::new();
 
         // Set up the game world
         {
-            let mut logic = game_logic.lock().unwrap_or_else(|e| e.into_inner());
+            let logic = &mut game_logic;
             logic.start_new_game(GameMode::Skirmish);
             logic.load_map("demo_map");
 
@@ -147,20 +145,16 @@ impl UnitControlDemo {
     }
 
     /// Main update loop
-    pub async fn update_with_timing(&mut self, timing: &FrameTiming) -> anyhow::Result<()> {
+    pub fn update_with_timing(&mut self, timing: &FrameTiming) -> anyhow::Result<()> {
         self.frame_count = timing.frame_number;
         let dt = timing.delta_seconds();
 
         // Update game logic
-        {
-            let mut logic = self.game_logic.lock().unwrap_or_else(|e| e.into_inner());
-            logic.update_with_timing(timing);
-        }
+        self.game_logic.update_with_timing(timing);
 
         // Process input
         self.unit_input_handler
-            .process_input(&mut self.input_system, &self.game_logic)
-            .await;
+            .process_input(&mut self.input_system, &mut self.game_logic);
 
         // Update input system
         self.input_system.update_with_timing(timing);
@@ -183,9 +177,9 @@ impl UnitControlDemo {
     }
 
     /// Advance the simulation using the internal frame clock.
-    pub async fn tick(&mut self) -> anyhow::Result<()> {
+    pub fn tick(&mut self) -> anyhow::Result<()> {
         let timing = Self::to_engine_timing(self.frame_clock.next_frame());
-        self.update_with_timing(&timing).await
+        self.update_with_timing(&timing)
     }
 
     /// Handle window events
@@ -272,14 +266,14 @@ impl UnitControlDemo {
     }
 
     /// Get render commands for UI (would integrate with actual renderer)
-    pub async fn get_render_commands(&self) -> anyhow::Result<Vec<UIRenderCommand>> {
+    pub fn get_render_commands(&self) -> anyhow::Result<Vec<UIRenderCommand>> {
         let unit_control = self.unit_input_handler.get_unit_control();
 
         // Presentation-only selection path: snapshot then draw (no live dual-read).
-        let frame = {
-            let logic = self.game_logic.lock().unwrap_or_else(|e| e.into_inner());
-            generals_main::presentation_frame::PresentationFrame::build_from_logic(&logic, 0)
-        };
+        let frame = generals_main::presentation_frame::PresentationFrame::build_from_logic(
+            &self.game_logic,
+            0,
+        );
 
         let commands = self.selection_renderer.render_selection(
             unit_control,
@@ -327,8 +321,7 @@ async fn main() -> anyhow::Result<()> {
             Event::AboutToWait => {
                 // Update and render
                 // Run update
-                let runtime = tokio::runtime::Runtime::new().unwrap();
-                if let Err(e) = runtime.block_on(demo.tick()) {
+                if let Err(e) = demo.tick() {
                     eprintln!("Update error: {}", e);
                     target.exit();
                 }
@@ -342,8 +335,7 @@ async fn main() -> anyhow::Result<()> {
             } => {
                 // In a real implementation, this would render to the screen
                 // For this demo, we just show that we can generate render commands
-                let runtime = tokio::runtime::Runtime::new().unwrap();
-                if let Ok(commands) = runtime.block_on(demo.get_render_commands()) {
+                if let Ok(commands) = demo.get_render_commands() {
                     // In a real renderer, these commands would be executed
                     if !commands.is_empty() && demo.frame_count % 300 == 0 {
                         // Every 5 seconds

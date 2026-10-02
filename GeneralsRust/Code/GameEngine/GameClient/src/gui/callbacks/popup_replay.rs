@@ -3,8 +3,8 @@
 use crate::game_text::GameText;
 use crate::gui::callbacks::score_screen::score_screen_enable_controls;
 use crate::gui::{
-    GLM_SELECTED, GameWindow, WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled,
     message_box_ok, message_box_ok_cancel, with_window_manager, write_input_focus_response,
+    GameWindow, WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled, GLM_SELECTED,
 };
 use game_engine::common::name_key_generator::NameKeyGenerator;
 use game_engine::common::recorder::with_recorder;
@@ -362,8 +362,8 @@ pub fn popup_replay_system(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::gui::WindowWidget;
     use crate::gui::gadgets::{ListBox, TextEntry};
+    use crate::gui::WindowWidget;
     use std::cell::RefCell;
     use std::rc::Rc;
 
@@ -544,7 +544,10 @@ static RESIDUAL_POPUP_REPLAY_ACTION: std::sync::atomic::AtomicU8 =
     std::sync::atomic::AtomicU8::new(0);
 static RESIDUAL_POPUP_REPLAY_SLOT: std::sync::atomic::AtomicI32 =
     std::sync::atomic::AtomicI32::new(-1);
-static RESIDUAL_POPUP_REPLAY_NAME: std::sync::Mutex<String> = std::sync::Mutex::new(String::new());
+// THREAD: main thread only — GUI residual latch, see `POPUP_REPLAY_STATE`.
+thread_local! {
+    static RESIDUAL_POPUP_REPLAY_NAME: RefCell<String> = RefCell::new(String::new());
+}
 
 fn residual_popup_replay_action_store(action: ResidualPopupReplayAction) {
     RESIDUAL_POPUP_REPLAY_ACTION.store(action as u8, std::sync::atomic::Ordering::Relaxed);
@@ -564,15 +567,16 @@ pub fn residual_popup_replay_last_action() -> ResidualPopupReplayAction {
 /// Residual: last selected ListboxGames slot (-1 if none).
 pub fn residual_popup_replay_selected_slot() -> Option<i32> {
     let slot = RESIDUAL_POPUP_REPLAY_SLOT.load(std::sync::atomic::Ordering::Relaxed);
-    if slot < 0 { None } else { Some(slot) }
+    if slot < 0 {
+        None
+    } else {
+        Some(slot)
+    }
 }
 
 /// Residual: last residual replay name text.
 pub fn residual_popup_replay_name() -> String {
-    RESIDUAL_POPUP_REPLAY_NAME
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .clone()
+    RESIDUAL_POPUP_REPLAY_NAME.with_borrow(Clone::clone)
 }
 
 fn ensure_popup_replay_control_ids(state: &mut PopupReplayState) {
@@ -626,9 +630,7 @@ pub fn simulate_popup_replay_set_name(name: &str) -> bool {
     let state_handle = popup_replay_state();
     let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
     ensure_popup_replay_control_ids(&mut state);
-    *RESIDUAL_POPUP_REPLAY_NAME
-        .lock()
-        .unwrap_or_else(|e| e.into_inner()) = name.to_string();
+    RESIDUAL_POPUP_REPLAY_NAME.with_borrow_mut(|stored| *stored = name.to_string());
     residual_popup_replay_action_store(ResidualPopupReplayAction::SetName);
     residual_popup_replay_name() == name
 }
@@ -654,10 +656,7 @@ pub fn simulate_popup_replay_back_button_gadget_selected() -> bool {
     ensure_popup_replay_control_ids(&mut state);
     residual_popup_replay_action_store(ResidualPopupReplayAction::Back);
     RESIDUAL_POPUP_REPLAY_SLOT.store(-1, std::sync::atomic::Ordering::Relaxed);
-    RESIDUAL_POPUP_REPLAY_NAME
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .clear();
+    RESIDUAL_POPUP_REPLAY_NAME.with_borrow_mut(String::clear);
     true
 }
 

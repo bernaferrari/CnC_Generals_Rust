@@ -10,11 +10,12 @@
 //! populates the RenderBridge with DrawSubmissions.
 
 use bytemuck::{Pod, Zeroable};
+use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
-use std::sync::{Arc, LazyLock, Mutex, OnceLock};
+use std::sync::{Arc, Mutex};
 use wgpu::util::DeviceExt;
 
-use crate::render_bridge::{self, DrainedDrawSubmission, DrawableId, get_render_bridge};
+use crate::render_bridge::{self, get_render_bridge, DrainedDrawSubmission, DrawableId};
 
 // ---------------------------------------------------------------------------
 // Vertex / Uniform layouts
@@ -102,7 +103,13 @@ struct MeshBuffers {
 // Pipeline singleton
 // ---------------------------------------------------------------------------
 
-static DRAWABLE_PIPELINE: OnceLock<Arc<Mutex<DrawableDrawPipeline>>> = OnceLock::new();
+// THREAD: main thread only — the pipeline is registered by display init and
+// used by the client draw path plus `pollster::block_on` asset post-processing,
+// all of which run on the calling (GUI) thread.
+thread_local! {
+    static DRAWABLE_PIPELINE: RefCell<Option<Arc<Mutex<DrawableDrawPipeline>>>> =
+        const { RefCell::new(None) };
+}
 
 fn object_color_tint(state: &render_bridge::RenderStateOverrides) -> [f32; 4] {
     let mut rgb = state.construction_tint.unwrap_or([1.0, 1.0, 1.0]);
@@ -136,13 +143,13 @@ fn object_color_tint(state: &render_bridge::RenderStateOverrides) -> [f32; 4] {
 }
 
 pub fn register_drawable_pipeline(pipeline: Arc<Mutex<DrawableDrawPipeline>>) {
-    let _ = DRAWABLE_PIPELINE.set(pipeline);
+    DRAWABLE_PIPELINE.with_borrow_mut(|slot| *slot = Some(pipeline));
 }
 
 pub fn with_drawable_pipeline<R>(
     f: impl FnOnce(&Arc<Mutex<DrawableDrawPipeline>>) -> R,
 ) -> Option<R> {
-    DRAWABLE_PIPELINE.get().map(f)
+    DRAWABLE_PIPELINE.with_borrow(|slot| slot.as_ref().map(|pipeline| f(pipeline)))
 }
 
 /// Decoded RGBA8 pixels the host archive provider hands the legacy lane.
@@ -154,27 +161,22 @@ pub struct DecodedTexturePixels {
 }
 
 /// Host-side resolver for authored W3D texture names (archive-backed).
-pub type DrawableTextureProvider =
-    Arc<dyn Fn(&str) -> Option<DecodedTexturePixels> + Send + Sync>;
+pub type DrawableTextureProvider = Arc<dyn Fn(&str) -> Option<DecodedTexturePixels> + Send + Sync>;
 
-static DRAWABLE_TEXTURE_PROVIDER: LazyLock<Mutex<Option<DrawableTextureProvider>>> =
-    LazyLock::new(|| Mutex::new(None));
+thread_local! {
+    static DRAWABLE_TEXTURE_PROVIDER: RefCell<Option<DrawableTextureProvider>> =
+        const { RefCell::new(None) };
+}
 
 /// Register the host archive texture resolver (C++ WW3DAssetManager::Get_Texture
 /// parity). GameClient cannot reach the BIG archives itself, so Main installs a
 /// provider at pipeline lifecycle; without it authored skins can never bind.
 pub fn set_drawable_texture_provider(provider: Option<DrawableTextureProvider>) {
-    *DRAWABLE_TEXTURE_PROVIDER
-        .lock()
-        .unwrap_or_else(|e| e.into_inner()) = provider;
+    DRAWABLE_TEXTURE_PROVIDER.with_borrow_mut(|slot| *slot = provider);
 }
 
 fn resolve_drawable_texture_pixels(name: &str) -> Option<DecodedTexturePixels> {
-    let provider = DRAWABLE_TEXTURE_PROVIDER
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .as_ref()
-        .cloned()?;
+    let provider = DRAWABLE_TEXTURE_PROVIDER.with_borrow(|slot| slot.as_ref().cloned())?;
     (provider)(name)
 }
 
@@ -582,10 +584,8 @@ impl DrawableDrawPipeline {
         let key = submission.model_name.to_lowercase();
         // Clone the cheap Arc buffer handles out so the lazy texture resolve
         // below can take &mut self while the mesh cache stays borrowed.
-        let Some((texture_name, vertex_buffer, index_buffer, index_count)) = self
-            .mesh_cache
-            .get(&key)
-            .map(|mesh| {
+        let Some((texture_name, vertex_buffer, index_buffer, index_count)) =
+            self.mesh_cache.get(&key).map(|mesh| {
                 (
                     mesh.texture_name.clone(),
                     mesh.vertex_buffer.clone(),

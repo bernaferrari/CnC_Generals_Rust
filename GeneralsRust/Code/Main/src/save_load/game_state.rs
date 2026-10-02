@@ -1,24 +1,25 @@
 use crate::ai::AIManager;
 use crate::command_system::{CommandSystem, GameCommand};
 use crate::game_logic::*;
-use crate::network::NetworkInterface;
 use crate::save_load::*;
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::Mutex;
 use std::time::SystemTime;
 
-/// Central game state manager
+/// Central game state manager.
+///
+/// Single-owner: the manager owns every sub-system it snapshots, and callers
+/// reach it through the [`GAME_STATE_MANAGER`] global (see `// THREAD:` below).
 pub struct GameStateManager {
     // Core components
-    save_file_manager: Arc<Mutex<SaveFileManager>>,
-    replay_manager: Arc<Mutex<ReplayManager>>,
-    campaign_manager: Arc<Mutex<CampaignManager>>,
+    save_file_manager: SaveFileManager,
+    replay_manager: ReplayManager,
+    campaign_manager: CampaignManager,
 
     // Game systems to snapshot
-    game_logic: Option<Arc<Mutex<GameLogic>>>,
-    command_system: Option<Arc<Mutex<CommandSystem>>>,
-    ai_system: Option<Arc<Mutex<AIManager>>>,
-    network_manager: Option<Arc<Mutex<NetworkInterface>>>,
+    game_logic: Option<GameLogic>,
+    command_system: Option<CommandSystem>,
+    ai_system: Option<AIManager>,
 
     // Snapshot management
     post_process_snapshots: Vec<Box<dyn Snapshot + Send + Sync>>,
@@ -33,14 +34,13 @@ pub struct GameStateManager {
 impl GameStateManager {
     pub fn new() -> Self {
         Self {
-            save_file_manager: Arc::new(Mutex::new(SaveFileManager::new())),
-            replay_manager: Arc::new(Mutex::new(ReplayManager::new())),
-            campaign_manager: Arc::new(Mutex::new(CampaignManager::new())),
+            save_file_manager: SaveFileManager::new(),
+            replay_manager: ReplayManager::new(),
+            campaign_manager: CampaignManager::new(),
 
             game_logic: None,
             command_system: None,
             ai_system: None,
-            network_manager: None,
 
             post_process_snapshots: Vec::new(),
 
@@ -54,29 +54,9 @@ impl GameStateManager {
     /// Initialize the game state manager
     pub fn init(&mut self) -> SaveLoadResult<()> {
         // Initialize sub-managers
-        {
-            let mut save_manager = self
-                .save_file_manager
-                .lock()
-                .unwrap_or_else(|e| e.into_inner());
-            save_manager.init()?;
-        }
-
-        {
-            let mut replay_manager = self
-                .replay_manager
-                .lock()
-                .unwrap_or_else(|e| e.into_inner());
-            replay_manager.init()?;
-        }
-
-        {
-            let mut campaign_manager = self
-                .campaign_manager
-                .lock()
-                .unwrap_or_else(|e| e.into_inner());
-            campaign_manager.init()?;
-        }
+        self.save_file_manager.init()?;
+        self.replay_manager.init()?;
+        self.campaign_manager.init()?;
 
         log::info!("Game state manager initialized");
         Ok(())
@@ -85,15 +65,13 @@ impl GameStateManager {
     /// Register game systems for save/load operations
     pub fn register_systems(
         &mut self,
-        game_logic: Arc<Mutex<GameLogic>>,
-        command_system: Arc<Mutex<CommandSystem>>,
-        ai_system: Arc<Mutex<AIManager>>,
-        network_manager: Option<Arc<Mutex<NetworkInterface>>>,
+        game_logic: GameLogic,
+        command_system: CommandSystem,
+        ai_system: AIManager,
     ) {
         self.game_logic = Some(game_logic);
         self.command_system = Some(command_system);
         self.ai_system = Some(ai_system);
-        self.network_manager = network_manager;
     }
 
     /// Add a snapshot component for post-processing
@@ -108,11 +86,9 @@ impl GameStateManager {
         description: &str,
         save_type: SaveFileType,
     ) -> SaveLoadResult<()> {
-        let Some(game_logic) = &self.game_logic else {
+        let Some(game_logic) = self.game_logic.as_ref() else {
             return Err(SaveLoadError::InvalidFormat);
         };
-
-        let game_logic = game_logic.lock().unwrap_or_else(|e| e.into_inner());
 
         // Create save info
         let save_info = SaveGameInfo {
@@ -135,28 +111,17 @@ impl GameStateManager {
         };
 
         // Perform save operation
-        {
-            let mut save_manager = self
-                .save_file_manager
-                .lock()
-                .unwrap_or_else(|e| e.into_inner());
-            save_manager.save_game(slot_name, &game_logic, &save_info)?;
-        }
+        self.save_file_manager
+            .save_game(slot_name, game_logic, &save_info)?;
 
         // Record in replay if recording
-        if save_type != SaveFileType::AutoSave {
-            let mut replay_manager = self
-                .replay_manager
-                .lock()
-                .unwrap_or_else(|e| e.into_inner());
-            if replay_manager.is_recording() {
-                // Record save event in replay for synchronization
-                let _ = replay_manager.record_event_with_player(
-                    ReplayEventType::DebugCommand,
-                    0,
-                    format!("save_game:{}", slot_name).as_bytes(),
-                );
-            }
+        if save_type != SaveFileType::AutoSave && self.replay_manager.is_recording() {
+            // Record save event in replay for synchronization
+            let _ = self.replay_manager.record_event_with_player(
+                ReplayEventType::DebugCommand,
+                0,
+                format!("save_game:{}", slot_name).as_bytes(),
+            );
         }
 
         self.last_save_info = Some(save_info);
@@ -192,25 +157,21 @@ impl GameStateManager {
             return Ok(false);
         }
 
-        let Some(game_logic) = &self.game_logic else {
+        let Some(game_logic) = self.game_logic.as_ref() else {
             return Ok(false);
         };
 
-        let game_logic = game_logic.lock().unwrap_or_else(|e| e.into_inner());
-
         // Don't auto-save during certain conditions
         let current_play_time = game_logic.get_total_play_time();
+        let paused_or_battle = game_logic.is_paused() || game_logic.is_in_battle();
 
         if self.in_load_operation
-            || game_logic.is_paused()
-            || game_logic.is_in_battle()
+            || paused_or_battle
             || (current_play_time - self.last_auto_save_seconds) < 300.0
         {
             // 5 minute minimum interval
             return Ok(false);
         }
-
-        drop(game_logic); // Release lock before save
 
         // Generate unique auto-save name
         let timestamp = SystemTime::now()
@@ -230,38 +191,22 @@ impl GameStateManager {
 
     /// Delete a save file
     pub fn delete_save(&mut self, slot_name: &str) -> SaveLoadResult<()> {
-        let save_manager = self
-            .save_file_manager
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        save_manager.delete_save(slot_name)
+        self.save_file_manager.delete_save(slot_name)
     }
 
     /// Check if save exists
     pub fn save_exists(&self, slot_name: &str) -> bool {
-        let save_manager = self
-            .save_file_manager
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        save_manager.save_exists(slot_name)
+        self.save_file_manager.save_exists(slot_name)
     }
 
     /// Get save file information
     pub fn get_save_info(&self, slot_name: &str) -> SaveLoadResult<SaveGameInfo> {
-        let save_manager = self
-            .save_file_manager
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        save_manager.get_save_info(slot_name)
+        self.save_file_manager.get_save_info(slot_name)
     }
 
     /// List all available saves
     pub fn list_saves(&self) -> SaveLoadResult<Vec<AvailableGameInfo>> {
-        let save_manager = self
-            .save_file_manager
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        save_manager.list_saves()
+        self.save_file_manager.list_saves()
     }
 
     /// Start recording a replay
@@ -273,10 +218,7 @@ impl GameStateManager {
         players: &[ReplayPlayerInfo],
         teams: &[ReplayTeamInfo],
     ) -> SaveLoadResult<()> {
-        let mut replay_manager = self
-            .replay_manager
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
+        let replay_manager = &mut self.replay_manager;
         let replay_game_mode = match game_mode {
             crate::game_logic::GameMode::Skirmish => crate::save_load::replay::GameMode::Skirmish,
             crate::game_logic::GameMode::SinglePlayer => {
@@ -292,62 +234,39 @@ impl GameStateManager {
 
     /// Stop recording replay
     pub fn stop_replay_recording(&mut self) -> SaveLoadResult<()> {
-        let mut replay_manager = self
-            .replay_manager
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        replay_manager.stop_recording()
+        self.replay_manager.stop_recording()
     }
 
     /// Start replay playback
     pub fn start_replay_playback(&mut self, filename: &str) -> SaveLoadResult<ReplayHeader> {
-        let mut replay_manager = self
-            .replay_manager
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        replay_manager.start_playback(filename)
+        self.replay_manager.start_playback(filename)
     }
 
     /// Stop replay playback
     pub fn stop_replay_playback(&mut self) -> SaveLoadResult<()> {
-        let mut replay_manager = self
-            .replay_manager
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        replay_manager.stop_playback()
+        self.replay_manager.stop_playback()
     }
 
     /// Update replay system
     pub fn update_replay(&mut self) -> SaveLoadResult<()> {
-        let Some(command_system) = &self.command_system else {
+        let Some(command_system) = self.command_system.as_mut() else {
             return Ok(());
         };
-        let Some(game_logic) = &self.game_logic else {
+        let Some(game_logic) = self.game_logic.as_mut() else {
             return Ok(());
         };
 
-        let mut command_system = command_system.lock().unwrap_or_else(|e| e.into_inner());
-        let mut replay_manager = self
-            .replay_manager
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        let mut game_logic = game_logic.lock().unwrap_or_else(|e| e.into_inner());
-
-        replay_manager.update(&mut command_system, &mut game_logic)
+        self.replay_manager.update(command_system, game_logic)
     }
 
     /// Record a command in replay
     pub fn record_command(&mut self, command: &GameCommand) -> SaveLoadResult<()> {
-        let mut replay_manager = self
-            .replay_manager
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        replay_manager.record_command(command)
+        self.replay_manager.record_command(command)
     }
 
     /// Get campaign manager
-    pub fn get_campaign_manager(&self) -> Arc<Mutex<CampaignManager>> {
-        self.campaign_manager.clone()
+    pub fn get_campaign_manager(&mut self) -> &mut CampaignManager {
+        &mut self.campaign_manager
     }
 
     /// Start new campaign
@@ -356,11 +275,8 @@ impl GameStateManager {
         campaign_id: CampaignId,
         player_name: &str,
     ) -> SaveLoadResult<()> {
-        let mut campaign_manager = self
-            .campaign_manager
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        campaign_manager.start_campaign(campaign_id, player_name)
+        self.campaign_manager
+            .start_campaign(campaign_id, player_name)
     }
 
     /// Complete current mission
@@ -370,29 +286,18 @@ impl GameStateManager {
         difficulty: MissionDifficulty,
         completion_data: MissionCompletionData,
     ) -> SaveLoadResult<()> {
-        let mut campaign_manager = self
-            .campaign_manager
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        campaign_manager.complete_mission(mission_id, difficulty, completion_data)
+        self.campaign_manager
+            .complete_mission(mission_id, difficulty, completion_data)
     }
 
     /// Save mission state for campaign
     pub fn save_mission_state(&mut self, save_state: MissionSaveState) -> SaveLoadResult<()> {
-        let mut campaign_manager = self
-            .campaign_manager
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        campaign_manager.save_mission_state(save_state)
+        self.campaign_manager.save_mission_state(save_state)
     }
 
     /// Load mission state for campaign
     pub fn load_mission_state(&mut self) -> SaveLoadResult<Option<MissionSaveState>> {
-        let mut campaign_manager = self
-            .campaign_manager
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        campaign_manager.load_mission_state()
+        self.campaign_manager.load_mission_state()
     }
 
     /// Check if currently in load operation
@@ -412,15 +317,13 @@ impl GameStateManager {
 
     /// Create a complete CRC of game state for validation
     pub fn calculate_game_state_crc(&self) -> SaveLoadResult<u32> {
-        let Some(game_logic) = &self.game_logic else {
+        let Some(game_logic) = self.game_logic.as_ref() else {
             return Ok(0);
         };
 
-        let game_logic = game_logic.lock().unwrap_or_else(|e| e.into_inner());
-
         // Create a snapshot and calculate CRC
         let snapshot_builder = SnapshotBuilder::new();
-        let world_snapshot = snapshot_builder.create_world_snapshot(&game_logic)?;
+        let world_snapshot = snapshot_builder.create_world_snapshot(game_logic)?;
 
         let serialized = bincode_legacy::serialize(&world_snapshot)
             .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
@@ -430,13 +333,8 @@ impl GameStateManager {
 
     /// Validate save file integrity
     pub fn validate_save_file(&self, slot_name: &str) -> SaveLoadResult<bool> {
-        let save_manager = self
-            .save_file_manager
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-
         // Try to read save info - if this fails, file is corrupted
-        match save_manager.get_save_info(slot_name) {
+        match self.save_file_manager.get_save_info(slot_name) {
             Ok(_) => Ok(true),
             Err(SaveLoadError::Corrupted(_)) => Ok(false),
             Err(SaveLoadError::InvalidFormat) => Ok(false),
@@ -449,13 +347,9 @@ impl GameStateManager {
         let mut exported = HashMap::new();
 
         let saves = self.list_saves()?;
-        let save_manager = self
-            .save_file_manager
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
 
         for save_info in saves {
-            let save_path = save_manager.get_save_path(&save_info.filename);
+            let save_path = self.save_file_manager.get_save_path(&save_info.filename);
             if save_path.exists() {
                 let data = std::fs::read(&save_path)?;
                 exported.insert(save_info.filename, data);
@@ -470,14 +364,10 @@ impl GameStateManager {
         &mut self,
         save_data: HashMap<String, Vec<u8>>,
     ) -> SaveLoadResult<usize> {
-        let save_manager = self
-            .save_file_manager
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
         let mut imported_count = 0;
 
         for (filename, data) in save_data {
-            let save_path = save_manager.get_save_path(&filename);
+            let save_path = self.save_file_manager.get_save_path(&filename);
 
             // Validate data before writing
             if data.len() >= 8 && &data[0..4] == b"GZHS" {
@@ -493,41 +383,27 @@ impl GameStateManager {
 
     fn perform_load_game(&mut self, slot_name: &str) -> SaveLoadResult<()> {
         // Stop any ongoing replay first
-        if self
-            .replay_manager
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .is_recording()
-        {
+        if self.replay_manager.is_recording() {
             self.stop_replay_recording()?;
         }
 
-        let Some(game_logic) = &self.game_logic else {
+        let Some(game_logic) = self.game_logic.as_mut() else {
             return Err(SaveLoadError::InvalidFormat);
         };
 
         // Load from file
-        let save_info = {
-            let mut game_logic = game_logic.lock().unwrap_or_else(|e| e.into_inner());
-            let mut save_manager = self
-                .save_file_manager
-                .lock()
-                .unwrap_or_else(|e| e.into_inner());
-            save_manager.load_game(slot_name, &mut game_logic)?
-        };
+        let save_info = self.save_file_manager.load_game(slot_name, game_logic)?;
 
         // Run post-processing on all registered snapshots
         self.run_post_process_load()?;
 
         // Update AI system if needed
-        if let Some(ai_system) = &self.ai_system {
-            let mut ai = ai_system.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(ai) = self.ai_system.as_mut() {
             ai.on_game_loaded();
         }
 
         // Update command system
-        if let Some(command_system) = &self.command_system {
-            let mut commands = command_system.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(commands) = self.command_system.as_mut() {
             commands.clear_queue();
         }
 
@@ -583,17 +459,22 @@ impl Default for GameStateManager {
     }
 }
 
-// Global game state manager instance
+// Global game state manager instance.
+// THREAD: process-wide singleton. `Mutex` is the interior-mutability boundary
+// for the free functions below; every accessor holds it for one call only.
 lazy_static::lazy_static! {
     pub static ref GAME_STATE_MANAGER: Mutex<GameStateManager> =
         Mutex::new(GameStateManager::new());
 }
 
-pub fn global_campaign_manager() -> Result<Arc<Mutex<CampaignManager>>, &'static str> {
-    GAME_STATE_MANAGER
+/// Run `f` against the process-wide campaign manager.
+pub fn with_global_campaign_manager<R>(
+    f: impl FnOnce(&mut CampaignManager) -> R,
+) -> Result<R, &'static str> {
+    let mut manager = GAME_STATE_MANAGER
         .try_lock()
-        .map(|manager| manager.get_campaign_manager())
-        .map_err(|_| "Campaign manager unavailable")
+        .map_err(|_| "Campaign manager unavailable")?;
+    Ok(f(manager.get_campaign_manager()))
 }
 
 /// Initialize the global game state system
@@ -604,13 +485,12 @@ pub fn init_game_state_system() -> SaveLoadResult<()> {
 
 /// Register game systems with the state manager
 pub fn register_game_systems(
-    game_logic: Arc<Mutex<GameLogic>>,
-    command_system: Arc<Mutex<CommandSystem>>,
-    ai_system: Arc<Mutex<AIManager>>,
-    network_manager: Option<Arc<Mutex<NetworkInterface>>>,
+    game_logic: GameLogic,
+    command_system: CommandSystem,
+    ai_system: AIManager,
 ) {
     let mut manager = GAME_STATE_MANAGER.lock().unwrap_or_else(|e| e.into_inner());
-    manager.register_systems(game_logic, command_system, ai_system, network_manager);
+    manager.register_systems(game_logic, command_system, ai_system);
 }
 
 /// Convenience functions for common operations

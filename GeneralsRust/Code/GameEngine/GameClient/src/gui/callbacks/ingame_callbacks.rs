@@ -6,8 +6,8 @@
 use crate::game_text::GameText;
 use crate::gui::control_bar::publish_host_select_next_idle_worker;
 use crate::gui::{
-    GameWindow, WindowLayout, WindowMessage, WindowMsgData, WindowMsgHandled, get_disconnect_menu,
-    with_window_manager, write_input_focus_response,
+    get_disconnect_menu, with_window_manager, write_input_focus_response, GameWindow, WindowLayout,
+    WindowMessage, WindowMsgData, WindowMsgHandled,
 };
 use crate::helpers::TheInGameUI;
 use crate::language_filter::get_language_filter;
@@ -62,13 +62,15 @@ struct InGameChatUiState {
     just_hid: bool,
 }
 
+// THREAD: main thread only. The state owns `Rc` window handles (already `!Send`),
+// so it could never actually leave the GUI thread; the cell replaces the
+// lock-wrapped `Arc` wrapper around it.
 thread_local! {
-    static CHAT_UI_STATE: Arc<Mutex<InGameChatUiState>> =
-        Arc::new(Mutex::new(InGameChatUiState::default()));
+    static CHAT_UI_STATE: RefCell<InGameChatUiState> = RefCell::new(InGameChatUiState::default());
 }
 
-fn chat_ui_state() -> Arc<Mutex<InGameChatUiState>> {
-    CHAT_UI_STATE.with(|state| state.clone())
+fn with_chat_ui_state<R>(f: impl FnOnce(&mut InGameChatUiState) -> R) -> R {
+    CHAT_UI_STATE.with_borrow_mut(f)
 }
 
 fn text_entry_text(window: &Option<Rc<RefCell<GameWindow>>>) -> String {
@@ -269,10 +271,10 @@ impl InGameChatCallbacks {
                 let button_clear_id =
                     NameKeyGenerator::name_to_key("InGameChat.wnd:ButtonClear") as i32;
                 if control_id == button_clear_id {
-                    let state_handle = chat_ui_state();
-                    let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
-                    set_text_entry_text(&state.text_entry, "");
-                    state.saved_text.clear();
+                    with_chat_ui_state(|state| {
+                        set_text_entry_text(&state.text_entry, "");
+                        state.saved_text.clear();
+                    });
                 }
                 WindowMsgHandled::Handled
             }
@@ -309,63 +311,53 @@ impl InGameChatCallbacks {
             return Ok(());
         }
 
-        {
-            let state_handle = chat_ui_state();
-            let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
+        if with_chat_ui_state(|state| {
             if state.just_hid {
                 state.just_hid = false;
-                return Ok(());
+                return true;
             }
+            false
+        }) {
+            return Ok(());
         }
 
-        {
-            let state_handle = chat_ui_state();
-            let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
-            ensure_chat_layout(&mut state);
-        }
+        with_chat_ui_state(ensure_chat_layout);
 
-        let is_hidden = {
-            let state_handle = chat_ui_state();
-            let state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
+        let is_hidden = with_chat_ui_state(|state| {
             state
                 .parent
                 .as_ref()
                 .map(|parent| parent.borrow().is_hidden())
                 .unwrap_or(true)
-        };
+        });
 
         if is_hidden {
             self.show_in_game_chat(immediate)?;
         } else {
-            let state_handle = chat_ui_state();
-            let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
-            let mut msg = text_entry_text(&state.text_entry);
-            msg = msg.trim().to_string();
-            if !msg.is_empty() && !handle_slash_commands(&msg) {
-                let (player_mask, local_id) = build_chat_player_mask(&self.chat_type);
-                let mut filtered = msg.clone();
-                get_language_filter().filter_line(&mut filtered);
+            with_chat_ui_state(|state| {
+                let mut msg = text_entry_text(&state.text_entry);
+                msg = msg.trim().to_string();
+                if !msg.is_empty() && !handle_slash_commands(&msg) {
+                    let (player_mask, local_id) = build_chat_player_mask(&self.chat_type);
+                    let mut filtered = msg.clone();
+                    get_language_filter().filter_line(&mut filtered);
 
-                if let Some(network) = game_network::get_network() {
-                    let _ = pollster::block_on(
-                        network.send_chat_message(filtered.clone(), player_mask as u8),
-                    );
-                } else {
-                    warn!("send_chat ignored; network not initialized");
-                }
+                    if let Some(network) = game_network::get_network() {
+                        let _ = pollster::block_on(
+                            network.send_chat_message(filtered.clone(), player_mask as u8),
+                        );
+                    } else {
+                        warn!("send_chat ignored; network not initialized");
+                    }
 
-                if let Some(sender) = local_id {
-                    self.receive_network_message(sender, filtered.clone(), player_mask, false);
+                    if let Some(sender) = local_id {
+                        self.receive_network_message(sender, filtered.clone(), player_mask, false);
+                    }
                 }
-            }
-            set_text_entry_text(&state.text_entry, "");
-            drop(state);
+                set_text_entry_text(&state.text_entry, "");
+            });
             self.hide_in_game_chat(immediate)?;
-            let state_handle = chat_ui_state();
-            state_handle
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .just_hid = true;
+            with_chat_ui_state(|state| state.just_hid = true);
         }
 
         Ok(())
@@ -375,21 +367,21 @@ impl InGameChatCallbacks {
     pub fn hide_in_game_chat(&mut self, immediate: bool) -> Result<(), Box<dyn std::error::Error>> {
         info!("Hiding in-game chat (immediate: {})", immediate);
 
-        let state_handle = chat_ui_state();
-        let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
-        state.saved_text = text_entry_text(&state.text_entry);
-        let parent = state.parent.clone();
-        let text_entry = state.text_entry.clone();
+        let (parent, text_entry) = with_chat_ui_state(|state| {
+            state.saved_text = text_entry_text(&state.text_entry);
+            let parent = state.parent.clone();
+            let text_entry = state.text_entry.clone();
 
-        if let Some(parent) = parent {
-            let _ = parent.borrow_mut().hide(true);
-            let _ = parent.borrow_mut().enable(false);
-        }
-        if let Some(entry) = text_entry {
-            let _ = entry.borrow_mut().hide(true);
-            let _ = entry.borrow_mut().enable(false);
-        }
-        drop(state);
+            if let Some(parent) = &parent {
+                let _ = parent.borrow_mut().hide(true);
+                let _ = parent.borrow_mut().enable(false);
+            }
+            if let Some(entry) = &text_entry {
+                let _ = entry.borrow_mut().hide(true);
+                let _ = entry.borrow_mut().enable(false);
+            }
+            (parent, text_entry)
+        });
 
         with_window_manager(|manager| {
             let _ = manager.set_focus(None);
@@ -406,26 +398,26 @@ impl InGameChatCallbacks {
             return Ok(());
         }
 
-        let state_handle = chat_ui_state();
-        let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
-        ensure_chat_layout(&mut state);
+        with_chat_ui_state(|state| {
+            ensure_chat_layout(state);
 
-        if let Some(parent) = &state.parent {
-            let _ = parent.borrow_mut().hide(false);
-            let _ = parent.borrow_mut().enable(true);
-        }
-        if let Some(entry) = &state.text_entry {
-            let _ = entry.borrow_mut().hide(false);
-            let _ = entry.borrow_mut().enable(true);
-            set_text_entry_text(&state.text_entry, &state.saved_text);
-            state.saved_text.clear();
-        }
-        if let Some(entry) = &state.text_entry {
-            with_window_manager(|manager| {
-                let _ = manager.set_focus(Some(entry));
-            });
-        }
-        drop(state);
+            if let Some(parent) = &state.parent {
+                let _ = parent.borrow_mut().hide(false);
+                let _ = parent.borrow_mut().enable(true);
+            }
+            if let Some(entry) = &state.text_entry {
+                let _ = entry.borrow_mut().hide(false);
+                let _ = entry.borrow_mut().enable(true);
+                set_text_entry_text(&state.text_entry, &state.saved_text);
+                state.saved_text.clear();
+            }
+            if let Some(entry) = &state.text_entry {
+                let entry = entry.clone();
+                with_window_manager(|manager| {
+                    let _ = manager.set_focus(Some(&entry));
+                });
+            }
+        });
         let _ = self.set_in_game_chat_type(InGameChatType::Everyone);
         self.active = true;
 
@@ -438,12 +430,12 @@ impl InGameChatCallbacks {
         self.active = false;
         self.chat_type = InGameChatType::Allies;
         self.history.clear();
-        let state_handle = chat_ui_state();
-        let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some(layout) = &state.layout {
-            with_window_manager(|manager| manager.destroy_layout(layout));
-        }
-        *state = InGameChatUiState::default();
+        with_chat_ui_state(|state| {
+            if let Some(layout) = &state.layout {
+                with_window_manager(|manager| manager.destroy_layout(layout));
+            }
+            *state = InGameChatUiState::default();
+        });
 
         Ok(())
     }
@@ -455,27 +447,31 @@ impl InGameChatCallbacks {
     ) -> Result<(), Box<dyn std::error::Error>> {
         info!("Setting in-game chat type to: {:?}", chat_type);
         self.chat_type = chat_type;
-        let state_handle = chat_ui_state();
-        let state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
-        let Some(label) = &state.chat_type_text else {
-            return Ok(());
-        };
-        let label_text = match self.chat_type {
-            InGameChatType::Everyone => {
-                let is_active = ThePlayerList()
-                    .read()
-                    .ok()
-                    .and_then(|list| list.get_local_player().cloned())
-                    .and_then(|player| player.read().ok().map(|guard| guard.is_player_active()))
-                    .unwrap_or(true);
-                if is_active {
-                    GameText::fetch("Chat:Everyone")
-                } else {
-                    GameText::fetch("Chat:Observers")
+        let label_text = with_chat_ui_state(|state| {
+            let Some(label) = state.chat_type_text.clone() else {
+                return None;
+            };
+            let label_text = match self.chat_type {
+                InGameChatType::Everyone => {
+                    let is_active = ThePlayerList()
+                        .read()
+                        .ok()
+                        .and_then(|list| list.get_local_player().cloned())
+                        .and_then(|player| player.read().ok().map(|guard| guard.is_player_active()))
+                        .unwrap_or(true);
+                    if is_active {
+                        GameText::fetch("Chat:Everyone")
+                    } else {
+                        GameText::fetch("Chat:Observers")
+                    }
                 }
-            }
-            InGameChatType::Allies => GameText::fetch("Chat:Allies"),
-            InGameChatType::Players => GameText::fetch("Chat:Players"),
+                InGameChatType::Allies => GameText::fetch("Chat:Allies"),
+                InGameChatType::Players => GameText::fetch("Chat:Players"),
+            };
+            Some((label, label_text))
+        });
+        let Some((label, label_text)) = label_text else {
+            return Ok(());
         };
         let _ = label.borrow_mut().set_text(&label_text);
         Ok(())
@@ -483,13 +479,13 @@ impl InGameChatCallbacks {
 
     /// Check if chat is active
     pub fn is_in_game_chat_active(&self) -> bool {
-        let state_handle = chat_ui_state();
-        let state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
-        state
-            .parent
-            .as_ref()
-            .map(|parent| !parent.borrow().is_hidden())
-            .unwrap_or(false)
+        with_chat_ui_state(|state| {
+            state
+                .parent
+                .as_ref()
+                .map(|parent| !parent.borrow().is_hidden())
+                .unwrap_or(false)
+        })
     }
 
     /// Get current chat type
@@ -1035,7 +1031,14 @@ static RESIDUAL_CHAT_ACTION: std::sync::atomic::AtomicU8 = std::sync::atomic::At
 static RESIDUAL_CHAT_ACTIVE: std::sync::atomic::AtomicBool =
     std::sync::atomic::AtomicBool::new(false);
 static RESIDUAL_CHAT_TYPE: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(1); // Everyone
-static RESIDUAL_CHAT_TEXT: std::sync::Mutex<String> = std::sync::Mutex::new(String::new());
+                                                                                              // THREAD: main thread only — GUI chat residual latch, see `CHAT_UI_STATE` above.
+thread_local! {
+    static RESIDUAL_CHAT_TEXT: RefCell<String> = RefCell::new(String::new());
+}
+
+fn residual_chat_text_with<R>(f: impl FnOnce(&mut String) -> R) -> R {
+    RESIDUAL_CHAT_TEXT.with_borrow_mut(f)
+}
 
 fn residual_chat_action_store(action: ResidualInGameChatAction) {
     RESIDUAL_CHAT_ACTION.store(action as u8, std::sync::atomic::Ordering::Relaxed);
@@ -1069,10 +1072,7 @@ pub fn residual_in_game_chat_type_ordinal() -> u8 {
 
 /// Residual: last chat entry text residual.
 pub fn residual_in_game_chat_text() -> String {
-    RESIDUAL_CHAT_TEXT
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .clone()
+    RESIDUAL_CHAT_TEXT.with_borrow(Clone::clone)
 }
 
 fn with_chat_callbacks_mut<R>(f: impl FnOnce(&mut InGameChatCallbacks) -> R) -> R {
@@ -1141,14 +1141,9 @@ pub fn simulate_in_game_chat_toggle() -> bool {
 /// Residual: ButtonClear without text entry widget.
 pub fn simulate_in_game_chat_clear_button_gadget_selected() -> bool {
     let _ = simulate_in_game_chat_bind_controls();
-    RESIDUAL_CHAT_TEXT
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .clear();
+    residual_chat_text_with(String::clear);
     // also clear ui saved text residual
-    let state_handle = chat_ui_state();
-    let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
-    state.saved_text.clear();
+    with_chat_ui_state(|state| state.saved_text.clear());
     residual_chat_action_store(ResidualInGameChatAction::Clear);
     residual_in_game_chat_text().is_empty()
 }
@@ -1171,10 +1166,8 @@ pub fn simulate_in_game_chat_set_type(ord: u8) -> bool {
 
 /// Residual: set entry text without live text entry.
 pub fn simulate_in_game_chat_set_text(text: &str) -> bool {
-    *RESIDUAL_CHAT_TEXT.lock().unwrap_or_else(|e| e.into_inner()) = text.to_string();
-    let state_handle = chat_ui_state();
-    let mut state = state_handle.lock().unwrap_or_else(|e| e.into_inner());
-    state.saved_text = text.to_string();
+    residual_chat_text_with(|stored| *stored = text.to_string());
+    with_chat_ui_state(|state| state.saved_text = text.to_string());
     residual_in_game_chat_text() == text
 }
 
@@ -1185,7 +1178,7 @@ pub fn simulate_in_game_chat_submit(message: &str) -> bool {
     }
     with_chat_callbacks_mut(|chat| {
         chat.receive_network_message(0, message.to_string(), 0, false);
-        *RESIDUAL_CHAT_TEXT.lock().unwrap_or_else(|e| e.into_inner()) = message.to_string();
+        residual_chat_text_with(|stored| *stored = message.to_string());
         residual_chat_action_store(ResidualInGameChatAction::Submit);
         true
     })
@@ -1199,10 +1192,7 @@ pub fn simulate_in_game_chat_reset() -> bool {
         chat.history.clear();
         RESIDUAL_CHAT_ACTIVE.store(false, std::sync::atomic::Ordering::Relaxed);
         RESIDUAL_CHAT_TYPE.store(1, std::sync::atomic::Ordering::Relaxed);
-        RESIDUAL_CHAT_TEXT
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .clear();
+        residual_chat_text_with(String::clear);
         residual_chat_action_store(ResidualInGameChatAction::Reset);
         true
     })

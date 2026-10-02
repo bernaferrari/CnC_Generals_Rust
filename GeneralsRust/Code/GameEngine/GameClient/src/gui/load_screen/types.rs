@@ -192,30 +192,38 @@ struct SinglePlayerLoadScreenState {
     ambient_loop_handle: u32,
 }
 
-static SINGLE_PLAYER_LOAD_SCREEN_STATE: OnceLock<Mutex<SinglePlayerLoadScreenState>> =
-    OnceLock::new();
-static SHELL_GAME_FIRST_LOAD: OnceLock<Mutex<bool>> = OnceLock::new();
-static MULTIPLAYER_LOAD_SCREEN_STATE: OnceLock<Mutex<MultiplayerLoadScreenState>> = OnceLock::new();
-static MAP_TRANSFER_LOAD_SCREEN_STATE: OnceLock<Mutex<MapTransferLoadScreenState>> =
-    OnceLock::new();
-static MAP_TRANSFER_LITEUPDATE_HOOK: OnceLock<Mutex<Option<MapTransferLiteupdateHook>>> =
-    OnceLock::new();
-static MULTIPLAYER_LOAD_PROGRESS_HOOK: OnceLock<Mutex<Option<MultiplayerLoadProgressHook>>> =
-    OnceLock::new();
-#[cfg(test)]
-static LOAD_SCREEN_FINISH_UPDATE_HOOK: OnceLock<Mutex<Option<LoadScreenFinishUpdateHook>>> =
-    OnceLock::new();
-#[cfg(test)]
-static SINGLE_PLAYER_MOVIE_PLAY_HOOK: OnceLock<Mutex<Option<SinglePlayerMoviePlayHook>>> =
-    OnceLock::new();
-#[cfg(test)]
-static SINGLE_PLAYER_MOVIE_PLAYING_HOOK: OnceLock<Mutex<Option<SinglePlayerMoviePlayHook>>> =
-    OnceLock::new();
-#[cfg(test)]
-static CHALLENGE_MOVIE_PLAY_HOOK: OnceLock<Mutex<Option<ChallengeMoviePlayHook>>> = OnceLock::new();
-#[cfg(test)]
-static CHALLENGE_MOVIE_ADVANCE_HOOK: OnceLock<Mutex<Option<ChallengeMovieAdvanceHook>>> =
-    OnceLock::new();
+// THREAD: main thread only. The load screens are GUI-thread state — the host drives
+// them from the map-load milestone pump on the same thread that owns the
+// WindowManager, and the movie hooks are registered by tests on that thread too,
+// so these live in one thread-local cell block instead of lock-wrapped statics.
+thread_local! {
+    static SINGLE_PLAYER_LOAD_SCREEN_STATE: RefCell<SinglePlayerLoadScreenState> =
+        RefCell::new(SinglePlayerLoadScreenState::default());
+    static SHELL_GAME_FIRST_LOAD: RefCell<bool> = RefCell::new(true);
+    static MULTIPLAYER_LOAD_SCREEN_STATE: RefCell<MultiplayerLoadScreenState> =
+        RefCell::new(MultiplayerLoadScreenState::default());
+    static MAP_TRANSFER_LOAD_SCREEN_STATE: RefCell<MapTransferLoadScreenState> =
+        RefCell::new(MapTransferLoadScreenState::default());
+    static MAP_TRANSFER_LITEUPDATE_HOOK: RefCell<Option<MapTransferLiteupdateHook>> =
+        const { RefCell::new(None) };
+    static MULTIPLAYER_LOAD_PROGRESS_HOOK: RefCell<Option<MultiplayerLoadProgressHook>> =
+        const { RefCell::new(None) };
+    #[cfg(test)]
+    static LOAD_SCREEN_FINISH_UPDATE_HOOK: RefCell<Option<LoadScreenFinishUpdateHook>> =
+        const { RefCell::new(None) };
+    #[cfg(test)]
+    static SINGLE_PLAYER_MOVIE_PLAY_HOOK: RefCell<Option<SinglePlayerMoviePlayHook>> =
+        const { RefCell::new(None) };
+    #[cfg(test)]
+    static SINGLE_PLAYER_MOVIE_PLAYING_HOOK: RefCell<Option<SinglePlayerMoviePlayHook>> =
+        const { RefCell::new(None) };
+    #[cfg(test)]
+    static CHALLENGE_MOVIE_PLAY_HOOK: RefCell<Option<ChallengeMoviePlayHook>> =
+        const { RefCell::new(None) };
+    #[cfg(test)]
+    static CHALLENGE_MOVIE_ADVANCE_HOOK: RefCell<Option<ChallengeMovieAdvanceHook>> =
+        const { RefCell::new(None) };
+}
 
 type MapTransferLiteupdateHook = Arc<dyn Fn() + Send + Sync + 'static>;
 type MultiplayerLoadProgressHook = Arc<dyn Fn(i32, i32) + Send + Sync + 'static>;
@@ -270,7 +278,10 @@ struct ChallengeLoadScreenState {
     text_pos_strategy_left: usize,
 }
 
-static CHALLENGE_LOAD_SCREEN_STATE: OnceLock<Mutex<ChallengeLoadScreenState>> = OnceLock::new();
+thread_local! {
+    static CHALLENGE_LOAD_SCREEN_STATE: RefCell<ChallengeLoadScreenState> =
+        RefCell::new(ChallengeLoadScreenState::default());
+}
 
 const CHALLENGE_BIO_LABEL_WINDOWS: &[&str] = &[
     "ChallengeLoadScreen.wnd:BioNameLeft",

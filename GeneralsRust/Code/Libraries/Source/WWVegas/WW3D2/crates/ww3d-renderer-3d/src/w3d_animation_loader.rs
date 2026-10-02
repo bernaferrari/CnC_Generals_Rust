@@ -12,7 +12,9 @@
 
 use glam::{Mat4, Quat, Vec3};
 use std::io::Cursor;
-use std::sync::{Arc, Mutex};
+use std::cell::RefCell;
+use std::sync::Arc;
+use std::rc::Rc;
 use ww3d_animation::{
     HAnimClass, HCompressedAnimClass, load_w3d_animation, w3d_animation_to_hanim,
 };
@@ -74,7 +76,7 @@ pub struct LoadedAnimation {
     /// Uncompressed animation data (if present)
     pub hanim: Option<HAnimClass>,
     /// Compressed animation data (if present)
-    pub compressed_anim: Option<Arc<Mutex<HCompressedAnimClass>>>,
+    pub compressed_anim: Option<Rc<RefCell<HCompressedAnimClass>>>,
     /// Custom data that animation systems can store
     /// (e.g., serialized animation data, file handles)
     pub metadata: std::collections::HashMap<String, String>,
@@ -164,13 +166,13 @@ impl W3DAnimationLoader {
         loaded.hanim = hanim;
 
         if let Some(compressed) = compressed_anim {
-            loaded.compressed_anim = Some(Arc::new(Mutex::new(compressed)));
+            loaded.compressed_anim = Some(Rc::new(RefCell::new(compressed)));
         }
 
         loaded.bone_count = if let Some(hanim) = &loaded.hanim {
             hanim.num_pivots() as u32
         } else if let Some(compressed) = &loaded.compressed_anim {
-            compressed.lock().unwrap().get_num_pivots() as u32
+            compressed.borrow_mut().get_num_pivots() as u32
         } else {
             0
         };
@@ -327,9 +329,7 @@ impl AnimationPlayback {
         let bone_index = bone_index as usize;
 
         if let Some(compressed) = &self.animation.compressed_anim {
-            if let Ok(mut anim) = compressed.lock() {
-                return anim.get_transform(bone_index, frame);
-            }
+            return compressed.borrow_mut().get_transform(bone_index, frame);
         }
 
         if let Some(hanim) = &self.animation.hanim {
@@ -345,9 +345,7 @@ impl AnimationPlayback {
         let bone_index = bone_index as usize;
 
         if let Some(compressed) = &self.animation.compressed_anim {
-            if let Ok(mut anim) = compressed.lock() {
-                return anim.get_translation(bone_index, frame);
-            }
+            return compressed.borrow_mut().get_translation(bone_index, frame);
         }
 
         if let Some(hanim) = &self.animation.hanim {
@@ -363,9 +361,7 @@ impl AnimationPlayback {
         let bone_index = bone_index as usize;
 
         if let Some(compressed) = &self.animation.compressed_anim {
-            if let Ok(mut anim) = compressed.lock() {
-                return anim.get_orientation(bone_index, frame);
-            }
+            return compressed.borrow_mut().get_orientation(bone_index, frame);
         }
 
         if let Some(hanim) = &self.animation.hanim {
@@ -381,9 +377,7 @@ impl AnimationPlayback {
         let bone_index = bone_index as usize;
 
         if let Some(compressed) = &self.animation.compressed_anim {
-            if let Ok(mut anim) = compressed.lock() {
-                return anim.get_visibility(bone_index, frame);
-            }
+            return compressed.borrow_mut().get_visibility(bone_index, frame);
         }
 
         if let Some(hanim) = &self.animation.hanim {

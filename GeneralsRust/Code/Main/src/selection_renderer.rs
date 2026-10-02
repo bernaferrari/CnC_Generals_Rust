@@ -946,11 +946,10 @@ mod presentation_identity_tests {
         if let Some(o) = logic.host_object_mut(id) {
             o.set_position(Vec3::new(999.0, 0.0, 999.0));
         }
-        let logic_arc = std::sync::Arc::new(std::sync::Mutex::new(logic));
         let mut uc = UnitControlSystem::new((800.0, 600.0), Team::USA, 0);
         uc.selected_objects = vec![id];
         uc.set_presentation_frame(Some(snap.clone()));
-        futures::executor::block_on(uc.assign_control_group(1, &logic_arc));
+        uc.assign_control_group(1, &mut logic);
         assert!(
             !uc.get_unit_control_groups(id).is_empty(),
             "unit must be in control group 1"

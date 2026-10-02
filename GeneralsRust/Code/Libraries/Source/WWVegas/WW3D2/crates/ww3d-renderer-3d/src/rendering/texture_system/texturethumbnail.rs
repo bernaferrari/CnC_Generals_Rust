@@ -2,8 +2,9 @@ use crate::rendering::texture_system::texture_base::TextureClass;
 use std::collections::HashMap;
 use std::fs::{self, File};
 use std::io::{Read, Write};
+use std::cell::RefCell;
 use std::path::Path;
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::Arc;
 
 // Constants
 pub const THUMB_FILE_HEADER: &[u8; 4] = b"THU6";
@@ -13,7 +14,6 @@ const THUMB_COMPRESS_RLE: &[u8; 4] = b"RLE1";
 
 /// Thumbnail data structure
 pub struct ThumbnailClass {
-    manager: Arc<Mutex<ThumbnailManagerClass>>,
     name: String,
     bitmap: Option<Vec<u8>>,
     allocated: bool,
@@ -28,8 +28,9 @@ pub struct ThumbnailClass {
 
 impl ThumbnailClass {
     /// Create new thumbnail
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
-        manager: Arc<Mutex<ThumbnailManagerClass>>,
+        manager: &mut ThumbnailManagerClass,
         name: &str,
         bitmap: Option<Vec<u8>>,
         width: u32,
@@ -42,7 +43,6 @@ impl ThumbnailClass {
         date_time: u32,
     ) -> Self {
         let thumbnail = Self {
-            manager: manager.clone(),
             name: name.to_string(),
             bitmap,
             allocated,
@@ -56,9 +56,7 @@ impl ThumbnailClass {
         };
 
         // Add to manager's hash
-        if let Ok(mut mgr) = manager.lock() {
-            mgr.insert_to_hash(&thumbnail);
-        }
+        manager.insert_to_hash(&thumbnail);
 
         thumbnail
     }
@@ -122,11 +120,11 @@ pub struct ThumbnailManagerClass {
 
 impl ThumbnailManagerClass {
     /// Create new thumbnail manager
-    pub fn new() -> Arc<Mutex<Self>> {
-        Arc::new(Mutex::new(Self {
+    pub fn new() -> Self {
+        Self {
             thumbnails: HashMap::new(),
             create_thumbnail_if_not_found: false,
-        }))
+        }
     }
 
     /// Insert thumbnail into hash
@@ -134,7 +132,6 @@ impl ThumbnailManagerClass {
         self.thumbnails.insert(
             thumbnail.name().to_string(),
             Arc::new(ThumbnailClass {
-                manager: thumbnail.manager.clone(),
                 name: thumbnail.name.clone(),
                 bitmap: thumbnail.bitmap.clone(),
                 allocated: thumbnail.allocated,
@@ -162,7 +159,6 @@ impl ThumbnailManagerClass {
         let thumbnail_bitmap = self.generate_thumbnail_bitmap(texture)?;
 
         let thumbnail_arc = Arc::new(ThumbnailClass {
-            manager: Arc::new(Mutex::new(self.clone())),
             name: name.clone(),
             bitmap: Some(thumbnail_bitmap),
             allocated: true,
@@ -282,7 +278,6 @@ impl ThumbnailManagerClass {
             .unwrap_or(filename)
             .to_string();
         let thumbnail = Arc::new(ThumbnailClass {
-            manager: Arc::new(Mutex::new(self.clone())),
             name: name.clone(),
             bitmap: Some(bitmap),
             allocated: true,
@@ -369,43 +364,36 @@ impl Clone for ThumbnailManagerClass {
     }
 }
 
-fn thumbnail_manager_cell() -> &'static OnceLock<Arc<Mutex<ThumbnailManagerClass>>> {
-    static CELL: OnceLock<Arc<Mutex<ThumbnailManagerClass>>> = OnceLock::new();
-    &CELL
+thread_local! {
+    /// C++ kept the thumbnail manager as a plain singleton on the game thread.
+    static THUMBNAIL_MANAGER: RefCell<ThumbnailManagerClass> =
+        RefCell::new(ThumbnailManagerClass::new());
 }
 
 /// Initialise the global thumbnail manager. Subsequent calls refresh the internal state instead of
 /// allocating an additional singleton, keeping legacy entry points working with safe Rust semantics.
-pub fn init_global_thumbnail_manager() -> Arc<Mutex<ThumbnailManagerClass>> {
-    let manager = ThumbnailManagerClass::new();
-    if let Err(existing) = thumbnail_manager_cell().set(manager.clone()) {
-        if let Ok(mut guard) = existing.lock() {
-            if let Ok(source) = manager.lock() {
-                *guard = source.clone();
-            } else {
-                guard.clear();
-            }
-        }
-        existing.clone()
-    } else {
-        manager
-    }
+pub fn init_global_thumbnail_manager() {
+    THUMBNAIL_MANAGER.with(|manager| {
+        let mut manager = manager.borrow_mut();
+        // Refresh rather than replace so cached thumbnails survive re-init.
+        let refreshed = ThumbnailManagerClass {
+            thumbnails: manager.thumbnails.clone(),
+            create_thumbnail_if_not_found: manager.create_thumbnail_if_not_found,
+        };
+        *manager = refreshed;
+    });
 }
 
-/// Access the global thumbnail manager if it has been initialised.
-pub fn get_global_thumbnail_manager() -> Option<Arc<Mutex<ThumbnailManagerClass>>> {
-    thumbnail_manager_cell().get().cloned()
+/// Run `f` with mutable access to the global thumbnail manager.
+pub fn with_global_thumbnail_manager<R>(f: impl FnOnce(&mut ThumbnailManagerClass) -> R) -> R {
+    THUMBNAIL_MANAGER.with(|manager| f(&mut manager.borrow_mut()))
 }
 
 /// Clear the global thumbnail manager’s contents without tearing down the singleton. This avoids
 /// `static mut` lifetime issues while still providing the semantic “shutdown” hook expected by the
 /// legacy API.
 pub fn shutdown_global_thumbnail_manager() {
-    if let Some(manager) = thumbnail_manager_cell().get() {
-        if let Ok(mut guard) = manager.lock() {
-            guard.clear();
-        }
-    }
+    THUMBNAIL_MANAGER.with_borrow_mut(|manager| manager.clear());
 }
 
 /// Create hash name from thumbnail name
@@ -587,7 +575,6 @@ mod tests {
         };
 
         let thumbnail = ThumbnailClass {
-            manager: Arc::new(Mutex::new(manager.clone())),
             name: "test_thumb".to_string(),
             bitmap: Some(vec![7u8; THUMBNAIL_SIZE * THUMBNAIL_SIZE * 4]),
             allocated: true,

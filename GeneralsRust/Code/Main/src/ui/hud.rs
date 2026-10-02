@@ -5,8 +5,8 @@
 //! RTS interface elements that appear during gameplay.
 
 use super::{
-    BeaconDot, ControlBarSelectionPanelState, Interactive, KeyCode, MinimapUIState, MouseButton,
-    Renderable, UIEvent, UIRenderContext, UnitDisplayInfo, color_for_player, layout, utils,
+    color_for_player, layout, utils, BeaconDot, ControlBarSelectionPanelState, Interactive,
+    KeyCode, MinimapUIState, MouseButton, Renderable, UIEvent, UIRenderContext, UnitDisplayInfo,
 };
 use crate::game_logic::ObjectId;
 use crate::localization;
@@ -1921,11 +1921,10 @@ mod tests {
             .handle_mouse_click(100, 100, MouseButton::Right)
             .expect("cancel event");
         assert!(matches!(ev, UIEvent::CancelStructurePlacement));
-        assert!(
-            hud.construction_panel
-                .pending_structure_placement()
-                .is_none()
-        );
+        assert!(hud
+            .construction_panel
+            .pending_structure_placement()
+            .is_none());
     }
 
     #[test]
@@ -1953,11 +1952,10 @@ mod tests {
             pending.as_slice(),
             [UIEvent::CancelStructurePlacement]
         ));
-        assert!(
-            hud.construction_panel
-                .pending_structure_placement()
-                .is_none()
-        );
+        assert!(hud
+            .construction_panel
+            .pending_structure_placement()
+            .is_none());
     }
 
     #[test]
@@ -2016,11 +2014,10 @@ mod tests {
             }
             other => panic!("expected PlaceStructureAt, got {other:?}"),
         }
-        assert!(
-            hud.construction_panel
-                .pending_structure_placement()
-                .is_none()
-        );
+        assert!(hud
+            .construction_panel
+            .pending_structure_placement()
+            .is_none());
     }
 
     fn construction_hotkey_queues_pending_ui_event_residual() {

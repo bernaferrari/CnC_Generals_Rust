@@ -1,64 +1,65 @@
 // Split from `message_stream/meta_event.rs` dump. Included by `meta_event_impl/mod.rs`.
 
+use std::cell::{Cell, RefCell};
+use std::thread::LocalKey;
+
+// THREAD: main thread only. Every one of these is GUI-thread meta-event state (key
+// remap table, cheat toggles, demo camera tweaks) that C++ kept as plain globals.
+// They are read and written by WND handlers, the shell menus and the unit tests,
+// all of which run on the GUI thread, so they live in one thread-local cell block.
+thread_local! {
+    static LOWER_DETAIL_TOGGLE_STATE: RefCell<LowerDetailToggleState> =
+        RefCell::new(LowerDetailToggleState::default());
+    static OBJECTIVE_MOVIE_INDEX: Cell<i32> = Cell::new(1);
+    static MOTION_BLUR_ZOOM_SATURATE: Cell<bool> = Cell::new(false);
+    static DEMO_CAMERA_ADJUST_STATE: RefCell<DemoCameraAdjustState> =
+        RefCell::new(DemoCameraAdjustState::default());
+    static HAND_OF_GOD_MODE: Cell<bool> = Cell::new(false);
+    static HURT_ME_MODE: Cell<bool> = Cell::new(false);
+    static DEBUG_SELECTION_MODE: Cell<bool> = Cell::new(false);
+    static BW_VIEW_MODE_STATE: Cell<u8> = Cell::new(0);
+    static CYCLE_LOD_LEVEL_STATE: Cell<DynamicGameLODLevel> =
+        Cell::new(DynamicGameLODLevel::VeryHigh);
+    static LAST_PLANE_LOCK_OBJECT_ID: Cell<Option<u32>> = Cell::new(None);
+    static VTUNE_ENABLED: Cell<bool> = Cell::new(false);
+    static SKATE_DISTANCE_OVERRIDE: Cell<f32> = Cell::new(0.0);
+}
+
+/// Run `f` with mutable access to the parsed CommandMap table.
+fn with_meta_map<R>(f: impl FnOnce(&mut MetaMap) -> R) -> R {
+    f(&mut get_meta_map().write().unwrap_or_else(|e| e.into_inner()))
+}
+
+/// Run `f` with shared access to the parsed CommandMap table.
+fn with_meta_map_ref<R>(f: impl FnOnce(&MetaMap) -> R) -> R {
+    f(&get_meta_map().read().unwrap_or_else(|e| e.into_inner()))
+}
+
 fn get_meta_map() -> &'static RwLock<MetaMap> {
     META_MAP.get_or_init(|| RwLock::new(MetaMap::default()))
 }
 
-fn get_lower_detail_toggle_state() -> &'static RwLock<LowerDetailToggleState> {
-    LOWER_DETAIL_TOGGLE_STATE.get_or_init(|| RwLock::new(LowerDetailToggleState::default()))
-}
-
-fn get_objective_movie_index() -> &'static RwLock<i32> {
-    OBJECTIVE_MOVIE_INDEX.get_or_init(|| RwLock::new(1))
-}
-
-fn get_motion_blur_zoom_saturate_state() -> &'static RwLock<bool> {
-    MOTION_BLUR_ZOOM_SATURATE.get_or_init(|| RwLock::new(false))
-}
-
-fn get_demo_camera_adjust_state() -> &'static RwLock<DemoCameraAdjustState> {
-    DEMO_CAMERA_ADJUST_STATE.get_or_init(|| RwLock::new(DemoCameraAdjustState::default()))
-}
-
-fn hand_of_god_mode_state() -> &'static RwLock<bool> {
-    HAND_OF_GOD_MODE.get_or_init(|| RwLock::new(false))
-}
-
-fn hurt_me_mode_state() -> &'static RwLock<bool> {
-    HURT_ME_MODE.get_or_init(|| RwLock::new(false))
-}
-
-fn debug_selection_mode_state() -> &'static RwLock<bool> {
-    DEBUG_SELECTION_MODE.get_or_init(|| RwLock::new(false))
-}
-
-fn bw_view_mode_state() -> &'static RwLock<u8> {
-    BW_VIEW_MODE_STATE.get_or_init(|| RwLock::new(0))
-}
-
-fn toggle_shared_bool_state(state: &'static RwLock<bool>) -> bool {
-    if let Ok(mut guard) = state.write() {
-        *guard = !*guard;
-        return *guard;
-    }
-    false
+fn toggle_shared_bool_state(state: &'static LocalKey<Cell<bool>>) -> bool {
+    state.with(|flag| {
+        let next = !flag.get();
+        flag.set(next);
+        next
+    })
 }
 
 #[cfg(test)]
-fn set_bool_state_for_tests(state: &'static RwLock<bool>, value: bool) {
-    if let Ok(mut guard) = state.write() {
-        *guard = value;
-    }
+fn set_bool_state_for_tests(state: &'static LocalKey<Cell<bool>>, value: bool) {
+    state.set(value);
 }
 
 #[cfg(test)]
-fn bool_state_for_tests(state: &'static RwLock<bool>) -> bool {
-    state.read().map(|guard| *guard).unwrap_or(false)
+fn bool_state_for_tests(state: &'static LocalKey<Cell<bool>>) -> bool {
+    state.with(Cell::get)
 }
 
 #[cfg(test)]
 fn bw_view_mode_for_tests() -> u8 {
-    bw_view_mode_state().read().map(|guard| *guard).unwrap_or(0)
+    BW_VIEW_MODE_STATE.with(Cell::get)
 }
 
 #[cfg(test)]
@@ -73,9 +74,7 @@ fn bw_view_wireframe_for_tests() -> (bool, bool) {
 
 #[cfg(test)]
 fn reset_bw_view_state_for_tests() {
-    if let Ok(mut mode) = bw_view_mode_state().write() {
-        *mode = 0;
-    }
+    BW_VIEW_MODE_STATE.set(0);
     script_set_3d_wireframe_mode(false);
     crate::display::view::with_tactical_view(|view| {
         view.update_view();
@@ -84,35 +83,32 @@ fn reset_bw_view_state_for_tests() {
 }
 
 fn set_demo_pitch_adjusting(enabled: bool) {
-    if let Ok(mut state) = get_demo_camera_adjust_state().write() {
-        state.is_pitching = enabled;
-    }
+    DEMO_CAMERA_ADJUST_STATE.with_borrow_mut(|state| state.is_pitching = enabled);
 }
 
 fn set_demo_fov_adjusting(enabled: bool) {
-    if let Ok(mut state) = get_demo_camera_adjust_state().write() {
+    DEMO_CAMERA_ADJUST_STATE.with_borrow_mut(|state| {
         state.is_changing_fov = enabled;
         if enabled {
             state.anchor = state.current_pos.clone();
         }
-    }
+    });
 }
 
 fn apply_demo_camera_adjust_from_mouse_position(pos: &ICoord2D) {
-    let (is_pitching, is_changing_fov, delta_y) = {
-        let Ok(mut state) = get_demo_camera_adjust_state().write() else {
-            return;
-        };
-
+    let adjustment = DEMO_CAMERA_ADJUST_STATE.with_borrow_mut(|state| {
         state.current_pos = pos.clone();
         if !state.is_pitching && !state.is_changing_fov {
             state.anchor = state.current_pos.clone();
-            return;
+            return None;
         }
 
         let delta_y = (state.current_pos.y - state.anchor.y) as f32;
         state.anchor = state.current_pos.clone();
-        (state.is_pitching, state.is_changing_fov, delta_y)
+        Some((state.is_pitching, state.is_changing_fov, delta_y))
+    });
+    let Some((is_pitching, is_changing_fov, delta_y)) = adjustment else {
+        return;
     };
 
     if delta_y.abs() < f32::EPSILON {
@@ -131,17 +127,12 @@ fn apply_demo_camera_adjust_from_mouse_position(pos: &ICoord2D) {
 
 #[cfg(test)]
 fn reset_demo_camera_adjust_state_for_tests() {
-    if let Ok(mut state) = get_demo_camera_adjust_state().write() {
-        *state = DemoCameraAdjustState::default();
-    }
+    DEMO_CAMERA_ADJUST_STATE.with_borrow_mut(|state| *state = DemoCameraAdjustState::default());
 }
 
 #[cfg(test)]
 fn demo_camera_adjust_state_for_tests() -> DemoCameraAdjustState {
-    get_demo_camera_adjust_state()
-        .read()
-        .map(|guard| guard.clone())
-        .unwrap_or_default()
+    DEMO_CAMERA_ADJUST_STATE.with_borrow(Clone::clone)
 }
 
 fn parse_extent_adjust_alias(name: &str) -> Option<ExtentAdjustSpec> {

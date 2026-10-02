@@ -6,7 +6,6 @@ use crate::common::coord::*;
 use crate::common::vector_ext::Vector3Ext;
 use crate::common::xfer::{Xfer, XferExt, XferVersion};
 use crate::common::*;
-use crate::compat::{ClassicState, legacy_transition, register_classic_state};
 use crate::game_logic::ai_internal_move_to_state::AIInternalMoveToState;
 use crate::helpers::{TheGameLogic, ThePartitionManager, game_logic_random_value};
 use crate::modules::AIUpdateInterfaceExt;
@@ -15,7 +14,7 @@ use crate::path::PATHFIND_CELL_SIZE_F;
 use crate::polygon_trigger::PolygonTrigger;
 use crate::state_machine::*;
 use crate::terrain::get_terrain_logic;
-use std::sync::{Arc, Mutex, RwLock, Weak};
+use std::sync::{Arc, RwLock, Weak};
 
 /// Wave 428: host-only path has no dual-world factory objects.
 #[inline]
@@ -23,14 +22,18 @@ fn dual_world_registry_unavailable() -> bool {
     crate::object::registry::OBJECT_REGISTRY.is_empty()
 }
 
-fn guard_attack_should_exit(
-    exit_conditions: &Arc<Mutex<ExitConditions>>,
-    goal_id: ObjectID,
-) -> bool {
-    let Ok(exit_guard) = exit_conditions.lock() else {
-        return false;
-    };
-    exit_guard.should_exit_for_goal(goal_id, TheGameLogic::get_frame())
+/// Resolve a guard machine's owner object from its id (C++ reached the owner
+/// through the machine pointer; the owned machine keeps only the id).
+fn guard_owner_arc_for_id(owner_id: ObjectID) -> Option<Arc<RwLock<Object>>> {
+    if owner_id == crate::common::INVALID_ID {
+        return None;
+    }
+    TheGameLogic::find_object_by_id(owner_id)
+        .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(owner_id))
+}
+
+fn guard_attack_should_exit(exit_conditions: &ExitConditions, goal_id: ObjectID) -> bool {
+    exit_conditions.should_exit_for_goal(goal_id, TheGameLogic::get_frame())
 }
 
 fn start_guard_attack_object(
@@ -223,311 +226,78 @@ pub struct ExitConditions {
     attack_give_up_frame: u32,
 }
 
-#[derive(Debug)]
-pub struct GuardSharedState {
-    machine: Weak<Mutex<StateMachine>>,
-    owner: Weak<RwLock<Object>>,
-    // One cell keeps the machine configuration and deferred transition request coherent across
-    // the contained state views that hold an Arc to this record.
-    fields: Mutex<GuardSharedFields>,
-}
-
-#[derive(Debug)]
-struct GuardSharedFields {
-    target_to_guard: ObjectID,
-    nemesis_to_attack: ObjectID,
-    position_to_guard: Coord3D,
-    area_to_guard: Option<Arc<PolygonTrigger>>,
-    guard_mode: GuardMode,
-    pending_state: Option<u32>,
-}
-
-impl GuardSharedState {
-    fn new(machine: &Arc<Mutex<StateMachine>>, owner: Weak<RwLock<Object>>) -> Self {
-        Self {
-            machine: Arc::downgrade(machine),
-            owner,
-            fields: Mutex::new(GuardSharedFields {
-                target_to_guard: crate::common::INVALID_ID,
-                nemesis_to_attack: crate::common::INVALID_ID,
-                position_to_guard: Coord3D::new(0.0, 0.0, 0.0),
-                area_to_guard: None,
-                guard_mode: GuardMode::Normal,
-                pending_state: None,
-            }),
-        }
-    }
-
-    fn owner(&self) -> Option<Arc<RwLock<Object>>> {
-        self.owner.upgrade()
-    }
-
-    fn request_state(&self, state: u32) {
-        if let Ok(mut fields) = self.fields.lock() {
-            fields.pending_state = Some(state);
-        }
-    }
-
-    fn take_pending_state(&self) -> Option<u32> {
-        self.fields
-            .lock()
-            .ok()
-            .and_then(|mut fields| fields.pending_state.take())
-    }
-
-    fn with_machine<F, R>(&self, f: F) -> Result<R, String>
-    where
-        F: FnOnce(&mut StateMachine) -> R,
-    {
-        let machine = self
-            .machine
-            .upgrade()
-            .ok_or_else(|| "guard state machine context lost".to_string())?;
-        let mut guard = machine
-            .lock()
-            .map_err(|_| "guard state machine lock poisoned".to_string())?;
-        Ok(f(&mut guard))
-    }
-
-    fn change_state(&self, state: GuardStateType) -> Result<(), String> {
-        self.with_machine(|machine| {
-            let _ = machine.set_current_state(state as u32);
-        })
-    }
-
-    fn get_target_to_guard(&self) -> ObjectID {
-        self.fields
-            .lock()
-            .map(|fields| fields.target_to_guard)
-            .unwrap_or(crate::common::INVALID_ID)
-    }
-
-    fn set_target_to_guard(&self, id: ObjectID) {
-        if let Ok(mut fields) = self.fields.lock() {
-            fields.target_to_guard = id;
-        }
-    }
-
-    fn get_nemesis_to_attack(&self) -> ObjectID {
-        self.fields
-            .lock()
-            .map(|fields| fields.nemesis_to_attack)
-            .unwrap_or(crate::common::INVALID_ID)
-    }
-
-    fn set_nemesis_to_attack(&self, id: ObjectID) {
-        if let Ok(mut fields) = self.fields.lock() {
-            fields.nemesis_to_attack = id;
-        }
-    }
-
-    fn get_position_to_guard(&self) -> Coord3D {
-        self.fields
-            .lock()
-            .map(|fields| fields.position_to_guard)
-            .unwrap_or_else(|_| Coord3D::new(0.0, 0.0, 0.0))
-    }
-
-    fn set_position_to_guard(&self, pos: Coord3D) {
-        if let Ok(mut fields) = self.fields.lock() {
-            fields.position_to_guard = pos;
-        }
-    }
-
-    fn get_guard_mode(&self) -> GuardMode {
-        self.fields
-            .lock()
-            .map(|fields| fields.guard_mode)
-            .unwrap_or(GuardMode::Normal)
-    }
-
-    fn get_area_to_guard(&self) -> Option<Arc<PolygonTrigger>> {
-        self.fields
-            .lock()
-            .ok()
-            .and_then(|fields| fields.area_to_guard.as_ref().map(Arc::clone))
-    }
-
-    fn set_area_to_guard(&self, area: Option<Arc<PolygonTrigger>>) {
-        if let Ok(mut fields) = self.fields.lock() {
-            fields.area_to_guard = area;
-        }
-    }
-
-    fn set_guard_mode(&self, guard_mode: GuardMode) {
-        if let Ok(mut fields) = self.fields.lock() {
-            fields.guard_mode = guard_mode;
-        }
-    }
-
-    fn sync_from_machine(
-        &self,
-        target_to_guard: ObjectID,
-        nemesis_to_attack: ObjectID,
-        position_to_guard: Coord3D,
-        area_to_guard: Option<Arc<PolygonTrigger>>,
-        guard_mode: GuardMode,
-    ) {
-        if let Ok(mut fields) = self.fields.lock() {
-            fields.target_to_guard = target_to_guard;
-            fields.nemesis_to_attack = nemesis_to_attack;
-            fields.position_to_guard = position_to_guard;
-            fields.area_to_guard = area_to_guard;
-            fields.guard_mode = guard_mode;
-        }
-    }
-
-    fn notify_state_change(&self) -> Result<(), String> {
-        // Guard state notifications are not wired to external systems yet.
-        Ok(())
-    }
-}
-
-fn update_machine_then_apply_pending_state(
-    machine: &mut StateMachine,
-    shared: &GuardSharedState,
-) -> StateReturnType {
-    // Child states request transitions while this machine is already borrowed. Apply the request
-    // only after the child update returns, preserving the legacy guard callback order.
-    let result = machine.update();
-    if let Some(state_id) = shared.take_pending_state() {
-        let _ = machine.set_current_state(state_id);
-    }
-    result
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Weak as StdWeak;
 
-    #[derive(Debug)]
-    struct DummyState;
-
-    impl StateImplementation for DummyState {
-        fn update(&mut self) -> StateReturnType {
-            StateReturnType::Continue
-        }
-    }
-
-    #[derive(Debug)]
-    struct QueueGuardTransition {
-        shared: Arc<GuardSharedState>,
-        update_finished: Arc<AtomicBool>,
-        destination: u32,
-    }
-
-    impl StateImplementation for QueueGuardTransition {
-        fn update(&mut self) -> StateReturnType {
-            self.shared.request_state(self.destination);
-            self.update_finished.store(true, Ordering::SeqCst);
-            StateReturnType::Continue
-        }
-    }
-
-    #[derive(Debug)]
-    struct CheckGuardTransitionOrder(Arc<AtomicBool>);
-
-    impl StateImplementation for CheckGuardTransitionOrder {
-        fn on_enter(&mut self) -> StateReturnType {
-            assert!(self.0.load(Ordering::SeqCst));
-            StateReturnType::Continue
-        }
-
-        fn update(&mut self) -> StateReturnType {
-            StateReturnType::Continue
-        }
+    #[test]
+    fn guard_machine_settles_in_idle_and_stays_there() {
+        // IDLE is the one guard state whose enter does not need the owner
+        // object, so it lands (and stays) even with no resolvable owner.
+        let mut machine = AIGuardMachine::new(StdWeak::new());
+        machine.set_state(GuardStateType::Idle);
+        assert_eq!(
+            machine.state_machine.get_current_state_id(),
+            Some(GuardStateType::Idle as u32)
+        );
     }
 
     #[test]
-    fn guard_shared_state_applies_state_transition() {
-        let machine = Arc::new(Mutex::new(StateMachine::new(
-            Some(Weak::new()),
-            "test_guard",
-        )));
-        {
-            let mut locked = machine.lock().unwrap();
-            locked.define_state(
-                GuardStateType::Inner as u32,
-                Box::new(DummyState),
-                None,
-                None,
-                None,
-            );
-            locked.define_state(
-                GuardStateType::Outer as u32,
-                Box::new(DummyState),
-                None,
-                None,
-                None,
-            );
-        }
+    fn guard_states_copy_their_machine_owner_and_flags() {
+        let machine = StateMachine::new_with_owner_id(77, "test_guard_states");
+        let inner = AIGuardInnerState::new(&machine);
+        let idle = AIGuardIdleState::new(&machine);
+        let aggressor = AIGuardAttackAggressorState::new(&machine);
 
-        let shared = GuardSharedState::new(&machine, Weak::new());
-        shared.change_state(GuardStateType::Inner).unwrap();
-        shared.change_state(GuardStateType::Outer).unwrap();
+        // The owner id was copied once at define time — the states' only link
+        // back to the machine that owns them.
+        assert_eq!(inner.get_machine_owner_id().ok(), Some(77));
+        assert_eq!(idle.get_machine_owner_id().ok(), Some(77));
+        assert_eq!(aggressor.get_machine_owner_id().ok(), Some(77));
 
-        let current = machine.lock().unwrap().get_current_state_id();
-        assert_eq!(current, Some(GuardStateType::Outer as u32));
+        assert!(idle.is_guard_idle());
+        assert!(!idle.is_attack());
+        assert!(!idle.is_busy()); // idle is the one guard state that is not busy
+        assert!(inner.is_attack() == false); // not attacking until it enters
+        assert_eq!(idle.get_name(), "AIGuardIdleState");
     }
 
     #[test]
-    fn guard_shared_fields_are_visible_across_state_handles_but_isolated_per_machine() {
+    fn guard_machine_fields_are_isolated_per_machine() {
         let owner_a = Arc::new(RwLock::new(Object::new_test(77, 100.0)));
-        let owner_b = Arc::new(RwLock::new(Object::new_test(77, 100.0)));
-        let machine_a = Arc::new(Mutex::new(StateMachine::new(Some(Weak::new()), "guard_a")));
-        let machine_b = Arc::new(Mutex::new(StateMachine::new(Some(Weak::new()), "guard_b")));
-        let shared_a = Arc::new(GuardSharedState::new(&machine_a, Arc::downgrade(&owner_a)));
-        let shared_b = Arc::new(GuardSharedState::new(&machine_b, Arc::downgrade(&owner_b)));
-        let child_view_a = Arc::clone(&shared_a);
+        let owner_b = Arc::new(RwLock::new(Object::new_test(78, 100.0)));
 
-        shared_a.set_nemesis_to_attack(101);
-        shared_b.set_nemesis_to_attack(202);
-        child_view_a.set_target_to_guard(303);
+        let mut machine_a = AIGuardMachine::new(Arc::downgrade(&owner_a));
+        let mut machine_b = AIGuardMachine::new(Arc::downgrade(&owner_b));
 
-        assert_eq!(child_view_a.get_nemesis_to_attack(), 101);
-        assert_eq!(shared_b.get_nemesis_to_attack(), 202);
-        assert_eq!(shared_a.get_target_to_guard(), 303);
-        assert_eq!(shared_b.get_target_to_guard(), crate::common::INVALID_ID);
+        machine_a.set_nemesis_id(101);
+        machine_b.set_nemesis_id(202);
+        machine_a.set_target_to_guard(Some(&owner_a));
+
+        assert_eq!(machine_a.get_nemesis_id(), 101);
+        assert_eq!(machine_b.get_nemesis_id(), 202);
+        assert_ne!(machine_a.target_to_guard, crate::common::INVALID_ID);
+        assert_eq!(machine_b.target_to_guard, crate::common::INVALID_ID);
     }
 
     #[test]
-    fn guard_pending_state_applies_only_after_child_update_returns() {
-        let machine = Arc::new(Mutex::new(StateMachine::new(
-            Some(Weak::new()),
-            "test_guard_pending_order",
-        )));
-        let shared = Arc::new(GuardSharedState::new(&machine, Weak::new()));
-        let update_finished = Arc::new(AtomicBool::new(false));
-        let destination = GuardStateType::Outer as u32;
-        {
-            let mut locked = machine.lock().unwrap();
-            locked.define_state(
-                GuardStateType::Inner as u32,
-                Box::new(QueueGuardTransition {
-                    shared: Arc::clone(&shared),
-                    update_finished: Arc::clone(&update_finished),
-                    destination,
-                }),
-                None,
-                None,
-                None,
-            );
-            locked.define_state(
-                destination,
-                Box::new(CheckGuardTransitionOrder(Arc::clone(&update_finished))),
-                None,
-                None,
-                None,
-            );
-            locked.init_default_state();
-            assert_eq!(
-                update_machine_then_apply_pending_state(&mut locked, &shared),
-                StateReturnType::Continue
-            );
-            assert_eq!(locked.get_current_state_id(), Some(destination));
-        }
-        assert!(update_finished.load(Ordering::SeqCst));
+    fn guard_pending_state_applies_after_the_step_returns() {
+        let mut machine = AIGuardMachine::new(StdWeak::new());
+        machine.set_state(GuardStateType::Idle);
+
+        // A state requests its transition mid-step through the loaned machine;
+        // the request is queued here the same way and applied by `update` only
+        // after the step's own transitions ran. IDLE re-entry is owner-free,
+        // so the applied request lands deterministically.
+        machine.pending_state = Some(GuardStateType::Idle as u32);
+        machine.update();
+
+        assert!(machine.pending_state.is_none(), "request must be consumed");
+        assert_eq!(
+            machine.state_machine.get_current_state_id(),
+            Some(GuardStateType::Idle as u32)
+        );
     }
 
     #[test]
@@ -575,28 +345,20 @@ mod tests {
     fn return_and_crate_construct_internal_move_helpers() {
         // C++ AIGuard.h:193 AIGuardReturnState : public AIInternalMoveToState
         // C++ AIGuard.cpp:744 AIGuardPickUpCrateState : public AIPickUpCrateState
-        let machine = Arc::new(Mutex::new(StateMachine::new(
-            Some(Weak::new()),
-            "test_guard_return",
-        )));
-        let shared = Arc::new(GuardSharedState::new(&machine, Weak::new()));
-        let ret = AIGuardReturnState::new(&machine, shared.clone());
+        let machine = StateMachine::new_with_owner_id(77, "test_guard_return");
+        let ret = AIGuardReturnState::new(&machine);
         let _ = ret.move_helper.get_adjusts_destination();
-        let crate_state = AIGuardPickUpCrateState::new(&machine, shared);
+        let crate_state = AIGuardPickUpCrateState::new(&machine);
         assert!(crate_state.crate_state.is_none());
     }
 
     #[test]
     fn inner_outer_aggressor_wrap_ai_attack_object_state() {
         // C++ AIGuard.cpp:397/520/815 construct AIAttackState, not a bare AttackStateMachine.
-        let machine = Arc::new(Mutex::new(StateMachine::new(
-            Some(Weak::new()),
-            "test_guard_attack",
-        )));
-        let shared = Arc::new(GuardSharedState::new(&machine, Weak::new()));
-        let inner = AIGuardInnerState::new(&machine, shared.clone());
-        let outer = AIGuardOuterState::new(&machine, shared.clone());
-        let agg = AIGuardAttackAggressorState::new(&machine, shared);
+        let machine = StateMachine::new_with_owner_id(77, "test_guard_attack");
+        let inner = AIGuardInnerState::new(&machine);
+        let outer = AIGuardOuterState::new(&machine);
+        let agg = AIGuardAttackAggressorState::new(&machine);
         let _: &Option<AIAttackObjectState> = &inner.attack_state;
         let _: &Option<AIAttackObjectState> = &outer.attack_state;
         let _: &Option<AIAttackObjectState> = &agg.attack_state;
@@ -709,12 +471,25 @@ impl ExitConditions {
 }
 
 /// Main guard state machine
+///
+/// C++ `AIGuardMachine` owns `StateMachine* m_stateMachine` and the guard
+/// configuration (`m_targetToGuard`, `m_nemesisToAttack`, ...) as plain
+/// members; the states reached it through the machine pointer
+/// (`getMachine()`). Ownership is inverted here: the machine is a plain owned
+/// field, states carry no handles, and the machine itself is loaned to each
+/// state hook via `StateImplementation::update_with_owner` /
+/// `on_enter_with_owner` — exactly the `this` context C++ passed through the
+/// `StateMachine::update` flow. Nothing in this module is shared for the
+/// machine: no Arc, no Mutex, no Weak. The only handle kept is `owner_id`,
+/// resolved through the id-keyed registries on every use.
 #[derive(Debug)]
 pub struct AIGuardMachine {
-    /// Base state machine
-    base: Arc<Mutex<StateMachine>>,
-    /// Shared state used by guard states
-    shared: Arc<GuardSharedState>,
+    /// The guard's own state machine (C++ `m_stateMachine`). Owned, not
+    /// shared: no Arc, no Mutex, no Weak. Taken out for each step so the
+    /// states can be loaned this whole machine.
+    state_machine: StateMachine,
+    /// Owner object id (C++ `getOwner()`), resolved per use.
+    owner_id: ObjectID,
     /// Object to guard by ID
     target_to_guard: ObjectID,
     /// Area to guard
@@ -725,112 +500,161 @@ pub struct AIGuardMachine {
     nemesis_to_attack: ObjectID,
     /// Guard mode
     guard_mode: GuardMode,
+    /// Transition a state requested while the machine was loaned out.
+    /// Applied by [`AIGuardMachine::update`] after the step returns,
+    /// preserving the legacy guard callback order.
+    pending_state: Option<u32>,
 }
 
 impl AIGuardMachine {
+    /// C++ `AIGuardMachine::AIGuardMachine(Object* owner)` split in two: this
+    /// constructor keeps only the owner's id, then builds the machine and
+    /// enters the default state — the same order as before, whose state
+    /// definition + `initDefaultState()` ran inside the constructor.
     pub fn new(owner: Weak<RwLock<Object>>) -> Self {
-        let base = Arc::new(Mutex::new(StateMachine::new(
-            Some(owner.clone()),
-            "AIGuardMachine",
-        )));
-        let shared = Arc::new(GuardSharedState::new(&base, owner));
+        let owner_id = owner
+            .upgrade()
+            .and_then(|arc| arc.read().ok().map(|owner_ref| owner_ref.get_id()))
+            .unwrap_or(crate::common::INVALID_ID);
 
         let mut machine = Self {
-            base,
-            shared,
+            state_machine: StateMachine::empty(),
+            owner_id,
             target_to_guard: crate::common::INVALID_ID,
             area_to_guard: None,
             position_to_guard: Coord3D::new(0.0, 0.0, 0.0),
             nemesis_to_attack: crate::common::INVALID_ID,
             guard_mode: GuardMode::Normal,
+            pending_state: None,
         };
-
-        // Define states - order matters: first state is default
-        machine.define_guard_states();
-        if let Ok(mut guard) = machine.base.lock() {
-            let _ = guard.init_default_state();
-        }
+        machine.build_state_machine();
         machine
     }
 
-    fn define_guard_states(&mut self) {
-        let shared = self.shared.clone();
-        let base_arc = self.base.clone();
+    /// Defines the guard states and enters the default one. Runs once, the
+    /// first time the machine is needed (C++ `AIGuardMachine` ctor tail +
+    /// `initDefaultState()`).
+    fn build_state_machine(&mut self) {
+        if !self.state_machine.is_empty() {
+            return;
+        }
+        let mut machine = StateMachine::new_with_owner_id(self.owner_id, "AIGuardMachine");
+        self.define_guard_states(&mut machine);
+        // Order matters: the first defined state (INNER) is the default, and
+        // C++ enters it with `initDefaultState()` right in the ctor.
+        let _ = machine.init_default_state_with_owner(self);
+        self.state_machine = machine;
+    }
 
-        let mut base = self.base.lock().expect("guard state machine lock poisoned");
-        let attack_aggressor_conditions_inner = vec![legacy_transition(
-            guard_attack_aggressor_inner,
-            GuardStateType::AttackAggressor as u32,
+    /// C++ `AIGuardMachine` ctor state definitions (`AIGuard.cpp:101-127`):
+    /// define the six states, their success/failure links and the
+    /// ATTACK_AGGRESSOR condition. States register directly (no legacy
+    /// adapter) so their hooks can receive the loaned machine via
+    /// `update_with_owner` / `on_enter_with_owner`.
+    fn define_guard_states(&self, machine: &mut StateMachine) {
+        let inner_id = GuardStateType::Inner as u32;
+        let idle_id = GuardStateType::Idle as u32;
+        let outer_id = GuardStateType::Outer as u32;
+        let return_id = GuardStateType::Return as u32;
+        let crate_id = GuardStateType::GetCrate as u32;
+        let aggressor_id = GuardStateType::AttackAggressor as u32;
+
+        let attack_aggressor_conditions = vec![StateConditionInfo::new(
+            guard_attack_aggressor_condition,
+            aggressor_id,
             StateTransitionUserData::new(),
             "has_attacked_me_and_i_can_return_fire",
         )];
-        let attack_aggressor_conditions_return = vec![legacy_transition(
-            guard_attack_aggressor_return,
-            GuardStateType::AttackAggressor as u32,
-            StateTransitionUserData::new(),
-            "has_attacked_me_and_i_can_return_fire",
-        )];
-        let attack_aggressor_conditions_idle = vec![legacy_transition(
-            guard_attack_aggressor_idle,
-            GuardStateType::AttackAggressor as u32,
-            StateTransitionUserData::new(),
-            "has_attacked_me_and_i_can_return_fire",
-        )];
 
-        register_classic_state(
-            &mut *base,
-            GuardStateType::Inner as u32,
-            AIGuardInnerState::new(&base_arc, shared.clone()),
-            Some(GuardStateType::Outer as u32),
-            Some(GuardStateType::Outer as u32),
-            &attack_aggressor_conditions_inner,
+        machine.define_state(
+            inner_id,
+            Box::new(AIGuardInnerState::new(machine)),
+            Some(outer_id),
+            Some(outer_id),
+            Some(&attack_aggressor_conditions),
         );
 
-        register_classic_state(
-            &mut *base,
-            GuardStateType::Return as u32,
-            AIGuardReturnState::new(&base_arc, shared.clone()),
-            Some(GuardStateType::Idle as u32),
-            Some(GuardStateType::Inner as u32),
-            &attack_aggressor_conditions_return,
+        machine.define_state(
+            return_id,
+            Box::new(AIGuardReturnState::new(machine)),
+            Some(idle_id),
+            Some(inner_id),
+            Some(&attack_aggressor_conditions),
         );
 
-        register_classic_state(
-            &mut *base,
-            GuardStateType::Idle as u32,
-            AIGuardIdleState::new(&base_arc, shared.clone()),
-            Some(GuardStateType::Inner as u32),
-            Some(GuardStateType::Return as u32),
-            &attack_aggressor_conditions_idle,
+        machine.define_state(
+            idle_id,
+            Box::new(AIGuardIdleState::new(machine)),
+            Some(inner_id),
+            Some(return_id),
+            Some(&attack_aggressor_conditions),
         );
 
-        register_classic_state(
-            &mut *base,
-            GuardStateType::Outer as u32,
-            AIGuardOuterState::new(&base_arc, shared.clone()),
-            Some(GuardStateType::GetCrate as u32),
-            Some(GuardStateType::GetCrate as u32),
-            &[],
+        machine.define_state(
+            outer_id,
+            Box::new(AIGuardOuterState::new(machine)),
+            Some(crate_id),
+            Some(crate_id),
+            None,
         );
 
-        register_classic_state(
-            &mut *base,
-            GuardStateType::GetCrate as u32,
-            AIGuardPickUpCrateState::new(&base_arc, shared.clone()),
-            Some(GuardStateType::Return as u32),
-            Some(GuardStateType::Return as u32),
-            &[],
+        machine.define_state(
+            crate_id,
+            Box::new(AIGuardPickUpCrateState::new(machine)),
+            Some(return_id),
+            Some(return_id),
+            None,
         );
 
-        register_classic_state(
-            &mut *base,
-            GuardStateType::AttackAggressor as u32,
-            AIGuardAttackAggressorState::new(&base_arc, shared.clone()),
-            Some(GuardStateType::Inner as u32),
-            Some(GuardStateType::Inner as u32),
-            &[],
+        machine.define_state(
+            aggressor_id,
+            Box::new(AIGuardAttackAggressorState::new(machine)),
+            Some(inner_id),
+            Some(inner_id),
+            None,
         );
     }
+
+    // ---- loan-safe accessors -------------------------------------------------
+    //
+    // `friend_*` methods run while a step has loaned `self` to a state, so
+    // they must never touch `state_machine` (it is an empty placeholder during
+    // the loan). Transitions are queued through
+    // [`AIGuardMachine::friend_request_state`] and applied by `update`.
+
+    fn friend_request_state(&mut self, state: u32) {
+        self.pending_state = Some(state);
+    }
+
+    fn friend_owner_arc(&self) -> Option<Arc<RwLock<Object>>> {
+        guard_owner_arc_for_id(self.owner_id)
+    }
+
+    fn friend_target_to_guard(&self) -> ObjectID {
+        self.target_to_guard
+    }
+
+    fn friend_position_to_guard(&self) -> Coord3D {
+        self.position_to_guard
+    }
+
+    fn friend_area_to_guard(&self) -> Option<Arc<PolygonTrigger>> {
+        self.area_to_guard.clone()
+    }
+
+    fn friend_guard_mode(&self) -> GuardMode {
+        self.guard_mode
+    }
+
+    fn friend_nemesis_to_attack(&self) -> ObjectID {
+        self.nemesis_to_attack
+    }
+
+    fn friend_set_nemesis_to_attack(&mut self, id: ObjectID) {
+        self.nemesis_to_attack = id;
+    }
+
+    // ---- public API ----------------------------------------------------------
 
     pub fn find_target_to_guard_by_id(&self) -> Option<Arc<RwLock<Object>>> {
         if self.target_to_guard == crate::common::INVALID_ID {
@@ -849,7 +673,6 @@ impl AIGuardMachine {
         } else {
             crate::common::INVALID_ID
         };
-        self.shared.set_target_to_guard(self.target_to_guard);
     }
 
     pub fn get_position_to_guard(&self) -> &Coord3D {
@@ -858,7 +681,6 @@ impl AIGuardMachine {
 
     pub fn set_target_position_to_guard(&mut self, pos: &Coord3D) {
         self.position_to_guard = *pos;
-        self.shared.set_position_to_guard(*pos);
     }
 
     pub fn get_area_to_guard(&self) -> Option<&Arc<PolygonTrigger>> {
@@ -867,16 +689,14 @@ impl AIGuardMachine {
 
     pub fn set_area_to_guard(&mut self, area: Option<Arc<PolygonTrigger>>) {
         self.area_to_guard = area;
-        self.shared.set_area_to_guard(self.area_to_guard.clone());
     }
 
     pub fn set_nemesis_id(&mut self, id: ObjectID) {
         self.nemesis_to_attack = id;
-        self.shared.set_nemesis_to_attack(id);
     }
 
     pub fn get_nemesis_id(&self) -> ObjectID {
-        self.shared.get_nemesis_to_attack()
+        self.nemesis_to_attack
     }
 
     pub fn get_guard_mode(&self) -> GuardMode {
@@ -885,58 +705,59 @@ impl AIGuardMachine {
 
     pub fn set_guard_mode(&mut self, guard_mode: GuardMode) {
         self.guard_mode = guard_mode;
-        self.shared.set_guard_mode(guard_mode);
     }
 
     pub fn init_default_state(&mut self) -> StateReturnType {
-        let Ok(mut guard) = self.base.lock() else {
+        if self.state_machine.is_empty() {
             return StateReturnType::Failure;
-        };
-        guard.init_default_state()
+        }
+        let mut machine = std::mem::replace(&mut self.state_machine, StateMachine::empty());
+        let result = machine.init_default_state_with_owner(self);
+        self.state_machine = machine;
+        result
     }
 
     pub fn set_state(&mut self, state: GuardStateType) -> StateReturnType {
-        let Ok(mut guard) = self.base.lock() else {
+        if self.state_machine.is_empty() {
             return StateReturnType::Failure;
-        };
-        guard.set_current_state(state as u32)
+        }
+        let mut machine = std::mem::replace(&mut self.state_machine, StateMachine::empty());
+        let result = machine.set_current_state_with_owner(state as u32, self);
+        self.state_machine = machine;
+        result
     }
 
     pub fn halt(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let Ok(mut guard) = self.base.lock() else {
-            return Ok(());
-        };
-        guard.halt()
+        self.state_machine.halt()
     }
 
     pub fn is_in_attack_state(&self) -> bool {
-        self.base
-            .lock()
-            .map(|machine| machine.is_in_attack_state())
-            .unwrap_or(false)
+        self.state_machine.is_in_attack_state()
     }
 
     pub fn is_in_guard_idle_state(&self) -> bool {
-        self.base
-            .lock()
-            .map(|machine| machine.is_in_guard_idle_state())
-            .unwrap_or(false)
+        self.state_machine.is_in_guard_idle_state()
     }
 
+    /// One machine step. Child states request transitions through
+    /// [`AIGuardMachine::friend_request_state`] while the machine is already
+    /// loaned to them; the request is applied only after the child update
+    /// returns, preserving the legacy guard callback order.
     pub fn update(&mut self) -> StateReturnType {
-        let Ok(mut guard) = self.base.lock() else {
+        if self.state_machine.is_empty() {
             return StateReturnType::Failure;
-        };
-        update_machine_then_apply_pending_state(&mut guard, &self.shared)
+        }
+        let mut machine = std::mem::replace(&mut self.state_machine, StateMachine::empty());
+        let result = machine.update_with_owner(self);
+        if let Some(state_id) = self.pending_state.take() {
+            let _ = machine.set_current_state_with_owner(state_id, self);
+        }
+        self.state_machine = machine;
+        result
     }
 
     pub fn look_for_inner_target(&mut self) -> bool {
-        let Some(owner_arc) = self
-            .base
-            .lock()
-            .ok()
-            .and_then(|machine| machine.get_owner())
-        else {
+        let Some(owner_arc) = self.friend_owner_arc() else {
             return false;
         };
         let Ok(owner_guard) = owner_arc.read() else {
@@ -959,7 +780,7 @@ impl AIGuardMachine {
             }
         }
 
-        let area = self.get_area_to_guard().map(Arc::clone);
+        let area = self.area_to_guard.clone();
         let center = if let Some(area) = area.as_ref() {
             area.get_center_point()
         } else if let Some(target_arc) = self.find_target_to_guard_by_id() {
@@ -1006,13 +827,9 @@ impl AIGuardMachine {
             .map_err(|e| format!("Failed to xfer version: {:?}", e))?;
 
         if version >= 2 {
-            if let Ok(mut guard) = self.base.lock() {
-                guard.xfer(xfer).map_err(|e| e.to_string())?;
-            }
-        }
-
-        if !xfer.is_loading() {
-            self.nemesis_to_attack = self.shared.get_nemesis_to_attack();
+            self.state_machine
+                .xfer(xfer)
+                .map_err(|e| e.to_string())?;
         }
 
         xfer.xfer_object_id(&mut self.target_to_guard)
@@ -1044,42 +861,43 @@ impl AIGuardMachine {
             }
         }
 
-        self.shared.sync_from_machine(
-            self.target_to_guard,
-            self.nemesis_to_attack,
-            self.position_to_guard,
-            self.area_to_guard.clone(),
-            self.guard_mode,
-        );
-
         Ok(())
     }
 
     pub fn load_post_process(&mut self) -> Result<(), String> {
-        let mut guard = self
-            .base
-            .lock()
-            .map_err(|_| "guard state machine lock poisoned".to_string())?;
-        guard
-            .load_post_process()
-            .map_err(|e| format!("guard load_post_process: {e}"))
+        if self.state_machine.is_empty() {
+            return Ok(());
+        }
+        let mut machine = std::mem::replace(&mut self.state_machine, StateMachine::empty());
+        let result = machine
+            .load_post_process_with_owner(self)
+            .map_err(|e| format!("guard load_post_process: {e}"));
+        self.state_machine = machine;
+        result
     }
 }
 
 // State implementations
+//
+// C++ guard states reached the machine through the machine pointer
+// (`getMachine()`); the machine is owned by `AIGuardMachine` here, so states
+// embed only the legacy `State` bookkeeping (id/name plus the machine's owner
+// id copied once at define time) and receive the loaned machine through
+// `update_with_owner` / `on_enter_with_owner` — the loaned-machine equivalent
+// of C++'s `getMachine()`.
 
 /// Shared helper for guard state implementations
 #[derive(Debug)]
 pub struct GuardState {
     base: State,
-    shared: Arc<GuardSharedState>,
 }
 
 impl GuardState {
-    fn new(machine: &Arc<Mutex<StateMachine>>, shared: Arc<GuardSharedState>, name: &str) -> Self {
+    fn new(machine: &StateMachine, name: &str) -> Self {
+        // `State::new` copies the machine's owner id and attaches NO machine
+        // handle: the machine owns its states, never the other way round.
         Self {
-            base: State::with_machine(Some(Arc::downgrade(machine)), name),
-            shared,
+            base: State::new(machine, name),
         }
     }
 
@@ -1091,57 +909,36 @@ impl GuardState {
         &mut self.base
     }
 
-    fn change_state(&self, state: GuardStateType) -> Result<(), String> {
-        self.shared.change_state(state)
+    fn owner_arc(&self) -> Option<Arc<RwLock<Object>>> {
+        guard_owner_arc_for_id(self.base.owner_id)
     }
 
-    fn with_machine<F, R>(&self, f: F) -> Result<R, String>
-    where
-        F: FnOnce(&mut StateMachine) -> R,
-    {
-        self.shared.with_machine(f)
+    fn downcast_machine(owner: &mut dyn std::any::Any) -> Option<&mut AIGuardMachine> {
+        owner.downcast_mut::<AIGuardMachine>()
     }
+}
 
-    fn get_target_to_guard(&self) -> ObjectID {
-        self.shared.get_target_to_guard()
-    }
-
-    fn get_nemesis_to_attack(&self) -> ObjectID {
-        self.shared.get_nemesis_to_attack()
-    }
-
-    fn set_nemesis_to_attack(&self, id: ObjectID) {
-        self.shared.set_nemesis_to_attack(id);
-    }
-
-    fn get_position_to_guard(&self) -> Coord3D {
-        self.shared.get_position_to_guard()
-    }
-
-    fn get_guard_mode(&self) -> GuardMode {
-        self.shared.get_guard_mode()
-    }
-
-    fn get_area_to_guard(&self) -> Option<Arc<PolygonTrigger>> {
-        self.shared.get_area_to_guard()
-    }
+/// Owner of the state currently being tested for a conditional transition
+/// (C++ `getMachine()->getOwner()`), resolved through the copied owner id.
+fn guard_state_owner_arc(state: &dyn StateImplementation) -> Option<Arc<RwLock<Object>>> {
+    guard_owner_arc_for_id(state.get_machine_owner_id().ok()?)
 }
 
 /// Inner guard state - attack anything within area
 #[derive(Debug)]
 pub struct AIGuardInnerState {
     base: GuardState,
-    exit_conditions: Arc<Mutex<ExitConditions>>,
+    exit_conditions: ExitConditions,
     is_attacking: bool,
     attack_state: Option<AIAttackObjectState>,
     enter_state: Option<AIEnterState>,
 }
 
 impl AIGuardInnerState {
-    pub fn new(machine: &Arc<Mutex<StateMachine>>, shared: Arc<GuardSharedState>) -> Self {
+    pub fn new(machine: &StateMachine) -> Self {
         Self {
-            base: GuardState::new(machine, shared, "AIGuardInner"),
-            exit_conditions: Arc::new(Mutex::new(ExitConditions::new())),
+            base: GuardState::new(machine, "AIGuardInner"),
+            exit_conditions: ExitConditions::new(),
             is_attacking: false,
             attack_state: None,
             enter_state: None,
@@ -1151,43 +948,15 @@ impl AIGuardInnerState {
     pub fn is_attack(&self) -> bool {
         self.is_attacking
     }
-}
 
-impl StateImplementation for AIGuardInnerState {
-    fn on_enter(&mut self) -> StateReturnType {
-        self.classic_on_enter().unwrap_or(StateReturnType::Failure)
-    }
-
-    fn load_post_process(&mut self) -> Result<(), String> {
-        let _ = self.on_enter();
-        Ok(())
-    }
-
-    fn update(&mut self) -> StateReturnType {
-        self.classic_on_update().unwrap_or(StateReturnType::Failure)
-    }
-
-    fn on_exit(&mut self, status: StateExitType) {
-        let _ = self.classic_on_exit(status);
-    }
-}
-
-impl ClassicState for AIGuardInnerState {
-    fn base_state(&self) -> &State {
-        self.base.state()
-    }
-
-    fn base_state_mut(&mut self) -> &mut State {
-        self.base.state_mut()
-    }
-
-    fn classic_on_enter(&mut self) -> Result<StateReturnType, String> {
-        let owner = self
-            .base
-            .shared
-            .owner()
+    fn classic_on_enter(
+        &mut self,
+        machine: &mut AIGuardMachine,
+    ) -> Result<StateReturnType, String> {
+        let owner = machine
+            .friend_owner_arc()
             .ok_or_else(|| "guard inner missing owner".to_string())?;
-        let nemesis_id = self.base.get_nemesis_to_attack();
+        let nemesis_id = machine.friend_nemesis_to_attack();
         let Some(nemesis) = (nemesis_id != crate::common::INVALID_ID)
             .then(|| get_legacy_object(nemesis_id))
             .flatten()
@@ -1227,8 +996,8 @@ impl ClassicState for AIGuardInnerState {
             return Ok(StateReturnType::Success);
         }
 
-        let mut center = self.base.get_position_to_guard();
-        let target_to_guard = self.base.get_target_to_guard();
+        let mut center = machine.friend_position_to_guard();
+        let target_to_guard = machine.friend_target_to_guard();
         if target_to_guard != crate::common::INVALID_ID {
             if let Some(target_arc) = get_legacy_object(target_to_guard) {
                 if let Ok(target_guard) = target_arc.read() {
@@ -1237,15 +1006,15 @@ impl ClassicState for AIGuardInnerState {
             }
         }
 
-        if let Ok(mut exit_guard) = self.exit_conditions.lock() {
+        {
             let radius = owner
                 .read()
                 .ok()
                 .map(|g| AIGuardMachine::get_std_guard_range(g.get_id()))
                 .unwrap_or(100.0);
-            exit_guard.set_center(center);
-            exit_guard.set_radius_sqr(radius * radius);
-            exit_guard.set_conditions(
+            self.exit_conditions.set_center(center);
+            self.exit_conditions.set_radius_sqr(radius * radius);
+            self.exit_conditions.set_conditions(
                 exit_conditions::ATTACK_EXIT_IF_OUTSIDE_RADIUS
                     | exit_conditions::ATTACK_EXIT_IF_NO_UNIT_FOUND,
             );
@@ -1268,15 +1037,16 @@ impl ClassicState for AIGuardInnerState {
         }
     }
 
-    fn classic_on_update(&mut self) -> Result<StateReturnType, String> {
+    fn classic_on_update(
+        &mut self,
+        machine: &mut AIGuardMachine,
+    ) -> Result<StateReturnType, String> {
         if let Some(attack_state) = self.attack_state.as_mut() {
-            let target_to_guard = self.base.get_target_to_guard();
+            let target_to_guard = machine.friend_target_to_guard();
             if target_to_guard != crate::common::INVALID_ID {
                 if let Some(target_arc) = get_legacy_object(target_to_guard) {
                     if let Ok(target_guard) = target_arc.read() {
-                        if let Ok(mut exit_guard) = self.exit_conditions.lock() {
-                            exit_guard.set_center(*target_guard.get_position());
-                        }
+                        self.exit_conditions.set_center(*target_guard.get_position());
                     }
                 }
             }
@@ -1302,7 +1072,7 @@ impl ClassicState for AIGuardInnerState {
         }
         self.is_attacking = false;
 
-        if let Some(owner) = self.base.shared.owner() {
+        if let Some(owner) = self.base.owner_arc() {
             if let Ok(owner_guard) = owner.read() {
                 if let Some(team_arc) = owner_guard.get_team() {
                     if let Ok(mut team_guard) = team_arc.write() {
@@ -1313,13 +1083,85 @@ impl ClassicState for AIGuardInnerState {
         }
         Ok(())
     }
+}
 
-    fn classic_is_attack(&self) -> bool {
+impl StateImplementation for AIGuardInnerState {
+    /// Guard states are only stepped through their owner's machine, which
+    /// always loans the machine via `update_with_owner`; there is no owner-free
+    /// step to run here.
+    fn update(&mut self) -> StateReturnType {
+        StateReturnType::Failure
+    }
+
+    fn on_enter_with_owner(&mut self, owner: &mut dyn std::any::Any) -> StateReturnType {
+        match GuardState::downcast_machine(owner) {
+            Some(machine) => self.classic_on_enter(machine).unwrap_or(StateReturnType::Failure),
+            None => StateReturnType::Failure,
+        }
+    }
+
+    fn update_with_owner(&mut self, owner: &mut dyn std::any::Any) -> StateReturnType {
+        match GuardState::downcast_machine(owner) {
+            Some(machine) => self.classic_on_update(machine).unwrap_or(StateReturnType::Failure),
+            None => StateReturnType::Failure,
+        }
+    }
+
+    fn on_exit(&mut self, status: StateExitType) {
+        let _ = self.classic_on_exit(status);
+    }
+
+    /// C++ `AIGuardInnerState::loadPostProcess` re-runs `onEnter` to rebuild
+    /// the attack child against the owner's live fields.
+    fn load_post_process_with_owner(
+        &mut self,
+        owner: &mut dyn std::any::Any,
+    ) -> Result<(), String> {
+        match GuardState::downcast_machine(owner) {
+            Some(machine) => {
+                let _ = self.classic_on_enter(machine);
+                Ok(())
+            }
+            None => Ok(()),
+        }
+    }
+
+    fn note_step_owner(&mut self, owner: std::sync::Arc<std::sync::RwLock<Object>>) {
+        if let Ok(owner_guard) = owner.read() {
+            self.base.base.owner_id = owner_guard.get_id();
+        }
+    }
+
+    fn get_machine_owner_id(&self) -> Result<crate::common::ObjectID, String> {
+        if self.base.base.owner_id == crate::common::INVALID_ID {
+            Err("state machine owner not attached".to_string())
+        } else {
+            Ok(self.base.base.owner_id)
+        }
+    }
+
+    fn bind_goal_object_id(&mut self, id: crate::common::ObjectID) {
+        self.base.base.goal_object_id = id;
+    }
+
+    fn is_attack(&self) -> bool {
         self.is_attack()
     }
 
-    fn classic_is_busy(&self) -> bool {
+    fn is_busy(&self) -> bool {
         true
+    }
+
+    fn get_name(&self) -> &str {
+        self.base.state().get_name()
+    }
+
+    fn get_id(&self) -> StateId {
+        self.base.state().get_id()
+    }
+
+    fn set_id(&mut self, id: StateId) {
+        self.base.state_mut().set_id(id);
     }
 }
 
@@ -1332,9 +1174,9 @@ pub struct AIGuardIdleState {
 }
 
 impl AIGuardIdleState {
-    pub fn new(machine: &Arc<Mutex<StateMachine>>, shared: Arc<GuardSharedState>) -> Self {
+    pub fn new(machine: &StateMachine) -> Self {
         Self {
-            base: GuardState::new(machine, shared, "AIGuardIdleState"),
+            base: GuardState::new(machine, "AIGuardIdleState"),
             next_enemy_scan_time: 0,
             guardee_pos: Coord3D::new(0.0, 0.0, 0.0),
         }
@@ -1343,32 +1185,11 @@ impl AIGuardIdleState {
     pub fn is_guard_idle(&self) -> bool {
         true
     }
-}
 
-impl StateImplementation for AIGuardIdleState {
-    fn on_enter(&mut self) -> StateReturnType {
-        self.classic_on_enter().unwrap_or(StateReturnType::Failure)
-    }
-
-    fn update(&mut self) -> StateReturnType {
-        self.classic_on_update().unwrap_or(StateReturnType::Failure)
-    }
-
-    fn on_exit(&mut self, status: StateExitType) {
-        let _ = self.classic_on_exit(status);
-    }
-}
-
-impl ClassicState for AIGuardIdleState {
-    fn base_state(&self) -> &State {
-        self.base.state()
-    }
-
-    fn base_state_mut(&mut self) -> &mut State {
-        self.base.state_mut()
-    }
-
-    fn classic_on_enter(&mut self) -> Result<StateReturnType, String> {
+    fn classic_on_enter(
+        &mut self,
+        _machine: &mut AIGuardMachine,
+    ) -> Result<StateReturnType, String> {
         // C++ AIGuard.cpp:678-685 only arms the scan timer. m_guardeePos stays
         // at its zero default until update sees a per-axis move.
         let now = TheGameLogic::get_frame();
@@ -1377,7 +1198,10 @@ impl ClassicState for AIGuardIdleState {
         Ok(StateReturnType::Continue)
     }
 
-    fn classic_on_update(&mut self) -> Result<StateReturnType, String> {
+    fn classic_on_update(
+        &mut self,
+        machine: &mut AIGuardMachine,
+    ) -> Result<StateReturnType, String> {
         let now = TheGameLogic::get_frame();
         if now < self.next_enemy_scan_time {
             return Ok(StateReturnType::Sleep(self.next_enemy_scan_time - now));
@@ -1385,10 +1209,8 @@ impl ClassicState for AIGuardIdleState {
 
         self.next_enemy_scan_time = now.saturating_add(get_guard_enemy_scan_rate());
 
-        let owner = self
-            .base
-            .shared
-            .owner()
+        let owner = machine
+            .friend_owner_arc()
             .ok_or_else(|| "guard idle missing owner".to_string())?;
         let owner_guard = owner
             .read()
@@ -1397,9 +1219,7 @@ impl ClassicState for AIGuardIdleState {
         if let Some(ai) = owner_guard.get_ai_update_interface() {
             if let Ok(ai_guard) = ai.lock() {
                 if ai_guard.get_crate_id() != crate::common::INVALID_ID {
-                    self.base
-                        .shared
-                        .request_state(GuardStateType::GetCrate as u32);
+                    machine.friend_request_state(GuardStateType::GetCrate as u32);
                     return Ok(StateReturnType::Sleep(
                         self.next_enemy_scan_time.saturating_sub(now),
                     ));
@@ -1412,7 +1232,7 @@ impl ClassicState for AIGuardIdleState {
                 if team_guard.attack_common_target() {
                     let team_target = team_guard.get_team_target_object();
                     if team_target != crate::common::INVALID_ID {
-                        self.base.set_nemesis_to_attack(team_target);
+                        machine.friend_set_nemesis_to_attack(team_target);
                         return Ok(StateReturnType::Success);
                     }
                 }
@@ -1421,27 +1241,27 @@ impl ClassicState for AIGuardIdleState {
 
         drop(owner_guard);
 
-        let target_id = self.base.get_target_to_guard();
+        let target_id = machine.friend_target_to_guard();
         let center = if target_id != crate::common::INVALID_ID {
             if let Some(target_arc) = get_legacy_object(target_id) {
                 target_arc
                     .read()
                     .ok()
                     .map(|target| *target.get_position())
-                    .unwrap_or_else(|| self.base.get_position_to_guard())
+                    .unwrap_or_else(|| machine.friend_position_to_guard())
             } else {
-                self.base.get_position_to_guard()
+                machine.friend_position_to_guard()
             }
         } else {
-            self.base.get_position_to_guard()
+            machine.friend_position_to_guard()
         };
 
-        let area = self.base.get_area_to_guard();
+        let area = machine.friend_area_to_guard();
         if let Some(target_id) =
-            scan_guard_inner_target(&owner, &center, self.base.get_guard_mode(), area.as_deref())
+            scan_guard_inner_target(&owner, &center, machine.friend_guard_mode(), area.as_deref())
         {
             if let Some(target_arc) = get_legacy_object(target_id) {
-                self.base.set_nemesis_to_attack(target_id);
+                machine.friend_set_nemesis_to_attack(target_id);
                 return Ok(StateReturnType::Success);
             }
         }
@@ -1460,14 +1280,61 @@ impl ClassicState for AIGuardIdleState {
 
         Ok(StateReturnType::Sleep(self.next_enemy_scan_time - now))
     }
+}
 
-    fn classic_on_exit(&mut self, _exit: StateExitType) -> Result<(), String> {
-        // Cleanup when exiting idle guard state
-        Ok(())
+impl StateImplementation for AIGuardIdleState {
+    fn update(&mut self) -> StateReturnType {
+        StateReturnType::Failure
     }
 
-    fn classic_is_guard_idle(&self) -> bool {
+    fn on_enter_with_owner(&mut self, owner: &mut dyn std::any::Any) -> StateReturnType {
+        match GuardState::downcast_machine(owner) {
+            Some(machine) => self.classic_on_enter(machine).unwrap_or(StateReturnType::Failure),
+            None => StateReturnType::Failure,
+        }
+    }
+
+    fn update_with_owner(&mut self, owner: &mut dyn std::any::Any) -> StateReturnType {
+        match GuardState::downcast_machine(owner) {
+            Some(machine) => self.classic_on_update(machine).unwrap_or(StateReturnType::Failure),
+            None => StateReturnType::Failure,
+        }
+    }
+
+    fn on_exit(&mut self, _status: StateExitType) {}
+
+    fn note_step_owner(&mut self, owner: std::sync::Arc<std::sync::RwLock<Object>>) {
+        if let Ok(owner_guard) = owner.read() {
+            self.base.base.owner_id = owner_guard.get_id();
+        }
+    }
+
+    fn get_machine_owner_id(&self) -> Result<crate::common::ObjectID, String> {
+        if self.base.base.owner_id == crate::common::INVALID_ID {
+            Err("state machine owner not attached".to_string())
+        } else {
+            Ok(self.base.base.owner_id)
+        }
+    }
+
+    fn bind_goal_object_id(&mut self, id: crate::common::ObjectID) {
+        self.base.base.goal_object_id = id;
+    }
+
+    fn is_guard_idle(&self) -> bool {
         true
+    }
+
+    fn get_name(&self) -> &str {
+        self.base.state().get_name()
+    }
+
+    fn get_id(&self) -> StateId {
+        self.base.state().get_id()
+    }
+
+    fn set_id(&mut self, id: StateId) {
+        self.base.state_mut().set_id(id);
     }
 }
 
@@ -1475,16 +1342,16 @@ impl ClassicState for AIGuardIdleState {
 #[derive(Debug)]
 pub struct AIGuardOuterState {
     base: GuardState,
-    exit_conditions: Arc<Mutex<ExitConditions>>,
+    exit_conditions: ExitConditions,
     is_attacking: bool,
     attack_state: Option<AIAttackObjectState>,
 }
 
 impl AIGuardOuterState {
-    pub fn new(machine: &Arc<Mutex<StateMachine>>, shared: Arc<GuardSharedState>) -> Self {
+    pub fn new(machine: &StateMachine) -> Self {
         Self {
-            base: GuardState::new(machine, shared, "AIGuardOuter"),
-            exit_conditions: Arc::new(Mutex::new(ExitConditions::new())),
+            base: GuardState::new(machine, "AIGuardOuter"),
+            exit_conditions: ExitConditions::new(),
             is_attacking: false,
             attack_state: None,
         }
@@ -1493,48 +1360,20 @@ impl AIGuardOuterState {
     pub fn is_attack(&self) -> bool {
         self.is_attacking
     }
-}
 
-impl StateImplementation for AIGuardOuterState {
-    fn on_enter(&mut self) -> StateReturnType {
-        self.classic_on_enter().unwrap_or(StateReturnType::Failure)
-    }
-
-    fn load_post_process(&mut self) -> Result<(), String> {
-        let _ = self.on_enter();
-        Ok(())
-    }
-
-    fn update(&mut self) -> StateReturnType {
-        self.classic_on_update().unwrap_or(StateReturnType::Failure)
-    }
-
-    fn on_exit(&mut self, status: StateExitType) {
-        let _ = self.classic_on_exit(status);
-    }
-}
-
-impl ClassicState for AIGuardOuterState {
-    fn base_state(&self) -> &State {
-        self.base.state()
-    }
-
-    fn base_state_mut(&mut self) -> &mut State {
-        self.base.state_mut()
-    }
-
-    fn classic_on_enter(&mut self) -> Result<StateReturnType, String> {
-        if matches!(self.base.get_guard_mode(), GuardMode::GuardWithoutPursuit) {
+    fn classic_on_enter(
+        &mut self,
+        machine: &mut AIGuardMachine,
+    ) -> Result<StateReturnType, String> {
+        if matches!(machine.friend_guard_mode(), GuardMode::GuardWithoutPursuit) {
             return Ok(StateReturnType::Success);
         }
 
-        let owner = self
-            .base
-            .shared
-            .owner()
+        let owner = machine
+            .friend_owner_arc()
             .ok_or_else(|| "guard outer missing owner".to_string())?;
         // C++ AIGuard.cpp:496 — getNemesisID only. No goal-object fallback.
-        let nemesis_id = self.base.get_nemesis_to_attack();
+        let nemesis_id = machine.friend_nemesis_to_attack();
         let Some(nemesis) = (if nemesis_id != crate::common::INVALID_ID {
             get_legacy_object(nemesis_id)
         } else {
@@ -1545,8 +1384,8 @@ impl ClassicState for AIGuardOuterState {
             return Ok(StateReturnType::Success);
         };
 
-        let target_to_guard = self.base.get_target_to_guard();
-        let mut center = self.base.get_position_to_guard();
+        let target_to_guard = machine.friend_target_to_guard();
+        let mut center = machine.friend_position_to_guard();
         if target_to_guard != crate::common::INVALID_ID {
             if let Some(target_arc) = get_legacy_object(target_to_guard) {
                 if let Ok(target_guard) = target_arc.read() {
@@ -1576,20 +1415,20 @@ impl ClassicState for AIGuardOuterState {
             })
         };
 
-        if let Some(area) = self.base.get_area_to_guard() {
+        if let Some(area) = machine.friend_area_to_guard() {
             if range < area.get_radius() {
                 range = area.get_radius();
             }
             center = area.get_center_point();
         }
 
-        if let Ok(mut exit_guard) = self.exit_conditions.lock() {
-            exit_guard.set_center(center);
-            exit_guard.set_radius_sqr(range * range);
-            exit_guard.set_attack_give_up_frame(
+        {
+            self.exit_conditions.set_center(center);
+            self.exit_conditions.set_radius_sqr(range * range);
+            self.exit_conditions.set_attack_give_up_frame(
                 TheGameLogic::get_frame().saturating_add(get_guard_chase_unit_frames()),
             );
-            exit_guard.set_conditions(
+            self.exit_conditions.set_conditions(
                 exit_conditions::ATTACK_EXIT_IF_EXPIRED_DURATION
                     | exit_conditions::ATTACK_EXIT_IF_OUTSIDE_RADIUS
                     | exit_conditions::ATTACK_EXIT_IF_NO_UNIT_FOUND,
@@ -1612,7 +1451,10 @@ impl ClassicState for AIGuardOuterState {
         }
     }
 
-    fn classic_on_update(&mut self) -> Result<StateReturnType, String> {
+    fn classic_on_update(
+        &mut self,
+        machine: &mut AIGuardMachine,
+    ) -> Result<StateReturnType, String> {
         // Wave 428: empty dual-world → Ok(Continue).
         if dual_world_registry_unavailable() {
             return Ok(StateReturnType::Continue);
@@ -1622,13 +1464,11 @@ impl ClassicState for AIGuardOuterState {
             return Ok(StateReturnType::Success);
         };
 
-        let target_to_guard = self.base.get_target_to_guard();
+        let target_to_guard = machine.friend_target_to_guard();
         if target_to_guard != crate::common::INVALID_ID {
             if let Some(target_arc) = get_legacy_object(target_to_guard) {
                 if let Ok(target_guard) = target_arc.read() {
-                    if let Ok(mut exit_guard) = self.exit_conditions.lock() {
-                        exit_guard.set_center(*target_guard.get_position());
-                    }
+                    self.exit_conditions.set_center(*target_guard.get_position());
                 }
             }
         }
@@ -1638,24 +1478,23 @@ impl ClassicState for AIGuardOuterState {
             if let Some(goal_pos) = crate::object::registry::OBJECT_REGISTRY
                 .with_object(goal_id, |goal_guard| *goal_guard.get_position())
             {
-                if let Ok(mut exit_guard) = self.exit_conditions.lock() {
+                {
                     let delta = Coord3D::new(
-                        exit_guard.center.x - goal_pos.x,
-                        exit_guard.center.y - goal_pos.y,
-                        exit_guard.center.z - goal_pos.z,
+                        self.exit_conditions.center.x - goal_pos.x,
+                        self.exit_conditions.center.y - goal_pos.y,
+                        self.exit_conditions.center.z - goal_pos.z,
                     );
-                    let owner = self
-                        .base
-                        .shared
-                        .owner()
-                        .ok_or_else(|| "guard outer missing owner".to_string())?;
-                    let vision = owner
-                        .read()
-                        .ok()
-                        .map(|g| AIGuardMachine::get_std_guard_range(g.get_id()))
+                    let vision = machine
+                        .friend_owner_arc()
+                        .and_then(|owner| {
+                            owner
+                                .read()
+                                .ok()
+                                .map(|g| AIGuardMachine::get_std_guard_range(g.get_id()))
+                        })
                         .unwrap_or(100.0);
                     if Vector3Ext::length_sqr(&delta) <= vision * vision {
-                        exit_guard.set_attack_give_up_frame(
+                        self.exit_conditions.set_attack_give_up_frame(
                             TheGameLogic::get_frame().saturating_add(get_guard_chase_unit_frames()),
                         );
                     }
@@ -1676,13 +1515,81 @@ impl ClassicState for AIGuardOuterState {
         self.is_attacking = false;
         Ok(())
     }
+}
 
-    fn classic_is_attack(&self) -> bool {
+impl StateImplementation for AIGuardOuterState {
+    fn update(&mut self) -> StateReturnType {
+        StateReturnType::Failure
+    }
+
+    fn on_enter_with_owner(&mut self, owner: &mut dyn std::any::Any) -> StateReturnType {
+        match GuardState::downcast_machine(owner) {
+            Some(machine) => self.classic_on_enter(machine).unwrap_or(StateReturnType::Failure),
+            None => StateReturnType::Failure,
+        }
+    }
+
+    fn update_with_owner(&mut self, owner: &mut dyn std::any::Any) -> StateReturnType {
+        match GuardState::downcast_machine(owner) {
+            Some(machine) => self.classic_on_update(machine).unwrap_or(StateReturnType::Failure),
+            None => StateReturnType::Failure,
+        }
+    }
+
+    fn on_exit(&mut self, status: StateExitType) {
+        let _ = self.classic_on_exit(status);
+    }
+
+    /// C++ `AIGuardOuterState::loadPostProcess` re-runs `onEnter`.
+    fn load_post_process_with_owner(
+        &mut self,
+        owner: &mut dyn std::any::Any,
+    ) -> Result<(), String> {
+        match GuardState::downcast_machine(owner) {
+            Some(machine) => {
+                let _ = self.classic_on_enter(machine);
+                Ok(())
+            }
+            None => Ok(()),
+        }
+    }
+
+    fn note_step_owner(&mut self, owner: std::sync::Arc<std::sync::RwLock<Object>>) {
+        if let Ok(owner_guard) = owner.read() {
+            self.base.base.owner_id = owner_guard.get_id();
+        }
+    }
+
+    fn get_machine_owner_id(&self) -> Result<crate::common::ObjectID, String> {
+        if self.base.base.owner_id == crate::common::INVALID_ID {
+            Err("state machine owner not attached".to_string())
+        } else {
+            Ok(self.base.base.owner_id)
+        }
+    }
+
+    fn bind_goal_object_id(&mut self, id: crate::common::ObjectID) {
+        self.base.base.goal_object_id = id;
+    }
+
+    fn is_attack(&self) -> bool {
         self.is_attack()
     }
 
-    fn classic_is_busy(&self) -> bool {
+    fn is_busy(&self) -> bool {
         true
+    }
+
+    fn get_name(&self) -> &str {
+        self.base.state().get_name()
+    }
+
+    fn get_id(&self) -> StateId {
+        self.base.state().get_id()
+    }
+
+    fn set_id(&mut self, id: StateId) {
+        self.base.state_mut().set_id(id);
     }
 }
 
@@ -1696,47 +1603,28 @@ pub struct AIGuardReturnState {
 }
 
 impl AIGuardReturnState {
-    pub fn new(machine: &Arc<Mutex<StateMachine>>, shared: Arc<GuardSharedState>) -> Self {
+    pub fn new(machine: &StateMachine) -> Self {
         Self {
-            base: GuardState::new(machine, shared, "AIGuardReturn"),
+            base: GuardState::new(machine, "AIGuardReturn"),
             next_return_scan_time: 0,
             goal_position: Coord3D::new(0.0, 0.0, 0.0),
-            move_helper: AIInternalMoveToState::new(machine, "AIGuardReturn".to_string())
-                .expect("AIInternalMoveToState bind"),
+            move_helper: AIInternalMoveToState::new_with_owner_id(
+                machine.get_owner_id(),
+                "AIGuardReturn".to_string(),
+            ),
         }
     }
-}
 
-impl StateImplementation for AIGuardReturnState {
-    fn on_enter(&mut self) -> StateReturnType {
-        self.classic_on_enter().unwrap_or(StateReturnType::Failure)
-    }
-
-    fn update(&mut self) -> StateReturnType {
-        self.classic_on_update().unwrap_or(StateReturnType::Failure)
-    }
-
-    fn on_exit(&mut self, status: StateExitType) {
-        let _ = self.classic_on_exit(status);
-    }
-}
-
-impl ClassicState for AIGuardReturnState {
-    fn base_state(&self) -> &State {
-        self.base.state()
-    }
-
-    fn base_state_mut(&mut self) -> &mut State {
-        self.base.state_mut()
-    }
-
-    fn classic_on_enter(&mut self) -> Result<StateReturnType, String> {
+    fn classic_on_enter(
+        &mut self,
+        machine: &mut AIGuardMachine,
+    ) -> Result<StateReturnType, String> {
         let now = TheGameLogic::get_frame();
         let scan_rate = get_guard_enemy_return_scan_rate();
         self.next_return_scan_time = now.saturating_add(game_logic_random_value(0, scan_rate));
 
-        self.goal_position = self.base.get_position_to_guard();
-        let target_to_guard = self.base.get_target_to_guard();
+        self.goal_position = machine.friend_position_to_guard();
+        let target_to_guard = machine.friend_target_to_guard();
         if target_to_guard != crate::common::INVALID_ID {
             if let Some(target_arc) = get_legacy_object(target_to_guard) {
                 if let Ok(target_guard) = target_arc.read() {
@@ -1744,20 +1632,17 @@ impl ClassicState for AIGuardReturnState {
                 }
             }
         }
-        if let Some(area) = self.base.get_area_to_guard() {
+        if let Some(area) = machine.friend_area_to_guard() {
             self.goal_position = area.get_center_point();
         }
 
-        let owner = self
-            .base
-            .shared
-            .owner()
-            .ok_or_else(|| "guard return missing owner".to_string())?;
-        if let Ok(owner_guard) = owner.read() {
-            if let Some(ai) = owner_guard.get_ai_update_interface() {
-                if let Ok(mut ai_guard) = ai.lock() {
-                    if ai_guard.is_doing_ground_movement() {
-                        let _ = ai_guard.adjust_destination(&mut self.goal_position);
+        if let Some(owner) = machine.friend_owner_arc() {
+            if let Ok(owner_guard) = owner.read() {
+                if let Some(ai) = owner_guard.get_ai_update_interface() {
+                    if let Ok(mut ai_guard) = ai.lock() {
+                        if ai_guard.is_doing_ground_movement() {
+                            let _ = ai_guard.adjust_destination(&mut self.goal_position);
+                        }
                     }
                 }
             }
@@ -1768,15 +1653,16 @@ impl ClassicState for AIGuardReturnState {
         self.move_helper.on_enter()
     }
 
-    fn classic_on_update(&mut self) -> Result<StateReturnType, String> {
+    fn classic_on_update(
+        &mut self,
+        machine: &mut AIGuardMachine,
+    ) -> Result<StateReturnType, String> {
         let now = TheGameLogic::get_frame();
         if now >= self.next_return_scan_time {
             self.next_return_scan_time = now.saturating_add(get_guard_enemy_return_scan_rate());
 
-            let owner = self
-                .base
-                .shared
-                .owner()
+            let owner = machine
+                .friend_owner_arc()
                 .ok_or_else(|| "guard return missing owner".to_string())?;
             if let Ok(owner_guard) = owner.read() {
                 if let Some(team_arc) = owner_guard.get_team() {
@@ -1784,36 +1670,33 @@ impl ClassicState for AIGuardReturnState {
                         if team_guard.attack_common_target() {
                             let team_target = team_guard.get_team_target_object();
                             if team_target != crate::common::INVALID_ID {
-                                self.base.set_nemesis_to_attack(team_target);
+                                machine.friend_set_nemesis_to_attack(team_target);
                                 return Ok(StateReturnType::Failure);
                             }
                         }
                     }
                 }
             }
-            let target_id = self.base.get_target_to_guard();
+            let target_id = machine.friend_target_to_guard();
             let center = if target_id != crate::common::INVALID_ID {
                 if let Some(target_arc) = get_legacy_object(target_id) {
                     target_arc
                         .read()
                         .ok()
                         .map(|target| *target.get_position())
-                        .unwrap_or_else(|| self.base.get_position_to_guard())
+                        .unwrap_or_else(|| machine.friend_position_to_guard())
                 } else {
-                    self.base.get_position_to_guard()
+                    machine.friend_position_to_guard()
                 }
             } else {
-                self.base.get_position_to_guard()
+                machine.friend_position_to_guard()
             };
-            let area = self.base.get_area_to_guard();
+            let area = machine.friend_area_to_guard();
 
-            if let Some(target) = scan_guard_inner_target(
-                &owner,
-                &center,
-                self.base.get_guard_mode(),
-                area.as_deref(),
-            ) {
-                self.base.set_nemesis_to_attack(target);
+            if let Some(target) =
+                scan_guard_inner_target(&owner, &center, machine.friend_guard_mode(), area.as_deref())
+            {
+                machine.friend_set_nemesis_to_attack(target);
                 return Ok(StateReturnType::Failure);
             }
         }
@@ -1826,9 +1709,63 @@ impl ClassicState for AIGuardReturnState {
         // C++ AIGuard.cpp:646 — AIInternalMoveToState::onExit(status)
         self.move_helper.on_exit(_exit)
     }
+}
 
-    fn classic_is_busy(&self) -> bool {
+impl StateImplementation for AIGuardReturnState {
+    fn update(&mut self) -> StateReturnType {
+        StateReturnType::Failure
+    }
+
+    fn on_enter_with_owner(&mut self, owner: &mut dyn std::any::Any) -> StateReturnType {
+        match GuardState::downcast_machine(owner) {
+            Some(machine) => self.classic_on_enter(machine).unwrap_or(StateReturnType::Failure),
+            None => StateReturnType::Failure,
+        }
+    }
+
+    fn update_with_owner(&mut self, owner: &mut dyn std::any::Any) -> StateReturnType {
+        match GuardState::downcast_machine(owner) {
+            Some(machine) => self.classic_on_update(machine).unwrap_or(StateReturnType::Failure),
+            None => StateReturnType::Failure,
+        }
+    }
+
+    fn on_exit(&mut self, status: StateExitType) {
+        let _ = self.classic_on_exit(status);
+    }
+
+    fn note_step_owner(&mut self, owner: std::sync::Arc<std::sync::RwLock<Object>>) {
+        if let Ok(owner_guard) = owner.read() {
+            self.base.base.owner_id = owner_guard.get_id();
+        }
+    }
+
+    fn get_machine_owner_id(&self) -> Result<crate::common::ObjectID, String> {
+        if self.base.base.owner_id == crate::common::INVALID_ID {
+            Err("state machine owner not attached".to_string())
+        } else {
+            Ok(self.base.base.owner_id)
+        }
+    }
+
+    fn bind_goal_object_id(&mut self, id: crate::common::ObjectID) {
+        self.base.base.goal_object_id = id;
+    }
+
+    fn is_busy(&self) -> bool {
         true
+    }
+
+    fn get_name(&self) -> &str {
+        self.base.state().get_name()
+    }
+
+    fn get_id(&self) -> StateId {
+        self.base.state().get_id()
+    }
+
+    fn set_id(&mut self, id: StateId) {
+        self.base.state_mut().set_id(id);
     }
 }
 
@@ -1840,42 +1777,19 @@ pub struct AIGuardPickUpCrateState {
 }
 
 impl AIGuardPickUpCrateState {
-    pub fn new(machine: &Arc<Mutex<StateMachine>>, shared: Arc<GuardSharedState>) -> Self {
+    pub fn new(machine: &StateMachine) -> Self {
         Self {
-            base: GuardState::new(machine, shared, "AIGuardPickUpCrate"),
+            base: GuardState::new(machine, "AIGuardPickUpCrate"),
             crate_state: None,
         }
     }
-}
 
-impl StateImplementation for AIGuardPickUpCrateState {
-    fn on_enter(&mut self) -> StateReturnType {
-        self.classic_on_enter().unwrap_or(StateReturnType::Failure)
-    }
-
-    fn update(&mut self) -> StateReturnType {
-        self.classic_on_update().unwrap_or(StateReturnType::Failure)
-    }
-
-    fn on_exit(&mut self, status: StateExitType) {
-        let _ = self.classic_on_exit(status);
-    }
-}
-
-impl ClassicState for AIGuardPickUpCrateState {
-    fn base_state(&self) -> &State {
-        self.base.state()
-    }
-
-    fn base_state_mut(&mut self) -> &mut State {
-        self.base.state_mut()
-    }
-
-    fn classic_on_enter(&mut self) -> Result<StateReturnType, String> {
-        let owner = self
-            .base
-            .shared
-            .owner()
+    fn classic_on_enter(
+        &mut self,
+        machine: &mut AIGuardMachine,
+    ) -> Result<StateReturnType, String> {
+        let owner = machine
+            .friend_owner_arc()
             .ok_or_else(|| "pick up crate missing owner".to_string())?;
 
         let owner_guard = owner
@@ -1915,9 +1829,64 @@ impl ClassicState for AIGuardPickUpCrateState {
         self.crate_state = None;
         Ok(())
     }
+}
 
-    fn classic_is_busy(&self) -> bool {
+impl StateImplementation for AIGuardPickUpCrateState {
+    fn update(&mut self) -> StateReturnType {
+        StateReturnType::Failure
+    }
+
+    fn on_enter_with_owner(&mut self, owner: &mut dyn std::any::Any) -> StateReturnType {
+        match GuardState::downcast_machine(owner) {
+            Some(machine) => self.classic_on_enter(machine).unwrap_or(StateReturnType::Failure),
+            None => StateReturnType::Failure,
+        }
+    }
+
+    fn update_with_owner(&mut self, owner: &mut dyn std::any::Any) -> StateReturnType {
+        match GuardState::downcast_machine(owner) {
+            // The crate wrapper needs no machine fields while stepping.
+            Some(_) => self.classic_on_update().unwrap_or(StateReturnType::Failure),
+            None => StateReturnType::Failure,
+        }
+    }
+
+    fn on_exit(&mut self, status: StateExitType) {
+        let _ = self.classic_on_exit(status);
+    }
+
+    fn note_step_owner(&mut self, owner: std::sync::Arc<std::sync::RwLock<Object>>) {
+        if let Ok(owner_guard) = owner.read() {
+            self.base.base.owner_id = owner_guard.get_id();
+        }
+    }
+
+    fn get_machine_owner_id(&self) -> Result<crate::common::ObjectID, String> {
+        if self.base.base.owner_id == crate::common::INVALID_ID {
+            Err("state machine owner not attached".to_string())
+        } else {
+            Ok(self.base.base.owner_id)
+        }
+    }
+
+    fn bind_goal_object_id(&mut self, id: crate::common::ObjectID) {
+        self.base.base.goal_object_id = id;
+    }
+
+    fn is_busy(&self) -> bool {
         true
+    }
+
+    fn get_name(&self) -> &str {
+        self.base.state().get_name()
+    }
+
+    fn get_id(&self) -> StateId {
+        self.base.state().get_id()
+    }
+
+    fn set_id(&mut self, id: StateId) {
+        self.base.state_mut().set_id(id);
     }
 }
 
@@ -1925,16 +1894,16 @@ impl ClassicState for AIGuardPickUpCrateState {
 #[derive(Debug)]
 pub struct AIGuardAttackAggressorState {
     base: GuardState,
-    exit_conditions: Arc<Mutex<ExitConditions>>,
+    exit_conditions: ExitConditions,
     is_attacking: bool,
     attack_state: Option<AIAttackObjectState>,
 }
 
 impl AIGuardAttackAggressorState {
-    pub fn new(machine: &Arc<Mutex<StateMachine>>, shared: Arc<GuardSharedState>) -> Self {
+    pub fn new(machine: &StateMachine) -> Self {
         Self {
-            base: GuardState::new(machine, shared, "AIGuardAttackAggressor"),
-            exit_conditions: Arc::new(Mutex::new(ExitConditions::new())),
+            base: GuardState::new(machine, "AIGuardAttackAggressor"),
+            exit_conditions: ExitConditions::new(),
             is_attacking: false,
             attack_state: None,
         }
@@ -1943,41 +1912,13 @@ impl AIGuardAttackAggressorState {
     pub fn is_attack(&self) -> bool {
         self.is_attacking
     }
-}
 
-impl StateImplementation for AIGuardAttackAggressorState {
-    fn on_enter(&mut self) -> StateReturnType {
-        self.classic_on_enter().unwrap_or(StateReturnType::Failure)
-    }
-
-    fn load_post_process(&mut self) -> Result<(), String> {
-        let _ = self.on_enter();
-        Ok(())
-    }
-
-    fn update(&mut self) -> StateReturnType {
-        self.classic_on_update().unwrap_or(StateReturnType::Failure)
-    }
-
-    fn on_exit(&mut self, status: StateExitType) {
-        let _ = self.classic_on_exit(status);
-    }
-}
-
-impl ClassicState for AIGuardAttackAggressorState {
-    fn base_state(&self) -> &State {
-        self.base.state()
-    }
-
-    fn base_state_mut(&mut self) -> &mut State {
-        self.base.state_mut()
-    }
-
-    fn classic_on_enter(&mut self) -> Result<StateReturnType, String> {
-        let owner = self
-            .base
-            .shared
-            .owner()
+    fn classic_on_enter(
+        &mut self,
+        machine: &mut AIGuardMachine,
+    ) -> Result<StateReturnType, String> {
+        let owner = machine
+            .friend_owner_arc()
             .ok_or_else(|| "guard aggressor missing owner".to_string())?;
 
         // C++ AIGuard.cpp:791-798 — last damage source always overwrites nemesis.
@@ -1998,10 +1939,10 @@ impl ClassicState for AIGuardAttackAggressorState {
             }
             source
         };
-        let existing_nemesis = self.base.get_nemesis_to_attack();
+        let existing_nemesis = machine.friend_nemesis_to_attack();
         let nemesis_id = last_damage_overrides_nemesis(last_damage_source, existing_nemesis);
         if nemesis_id != crate::common::INVALID_ID {
-            self.base.set_nemesis_to_attack(nemesis_id);
+            machine.friend_set_nemesis_to_attack(nemesis_id);
         }
 
         let Some(nemesis) = (if nemesis_id != crate::common::INVALID_ID {
@@ -2014,8 +1955,8 @@ impl ClassicState for AIGuardAttackAggressorState {
             return Ok(StateReturnType::Success);
         };
 
-        let mut center = self.base.get_position_to_guard();
-        let target_to_guard = self.base.get_target_to_guard();
+        let mut center = machine.friend_position_to_guard();
+        let target_to_guard = machine.friend_target_to_guard();
         if target_to_guard != crate::common::INVALID_ID {
             if let Some(target_arc) = get_legacy_object(target_to_guard) {
                 if let Ok(target_guard) = target_arc.read() {
@@ -2024,18 +1965,18 @@ impl ClassicState for AIGuardAttackAggressorState {
             }
         }
 
-        if let Ok(mut exit_guard) = self.exit_conditions.lock() {
+        {
             let radius = owner
                 .read()
                 .ok()
                 .map(|g| AIGuardMachine::get_std_guard_range(g.get_id()))
                 .unwrap_or(100.0);
-            exit_guard.set_center(center);
-            exit_guard.set_radius_sqr(radius * radius);
-            exit_guard.set_attack_give_up_frame(
+            self.exit_conditions.set_center(center);
+            self.exit_conditions.set_radius_sqr(radius * radius);
+            self.exit_conditions.set_attack_give_up_frame(
                 TheGameLogic::get_frame().saturating_add(get_guard_chase_unit_frames()),
             );
-            exit_guard.set_conditions(
+            self.exit_conditions.set_conditions(
                 exit_conditions::ATTACK_EXIT_IF_EXPIRED_DURATION
                     | exit_conditions::ATTACK_EXIT_IF_OUTSIDE_RADIUS
                     | exit_conditions::ATTACK_EXIT_IF_NO_UNIT_FOUND,
@@ -2059,18 +2000,19 @@ impl ClassicState for AIGuardAttackAggressorState {
         }
     }
 
-    fn classic_on_update(&mut self) -> Result<StateReturnType, String> {
+    fn classic_on_update(
+        &mut self,
+        machine: &mut AIGuardMachine,
+    ) -> Result<StateReturnType, String> {
         let Some(attack_state) = self.attack_state.as_mut() else {
             return Ok(StateReturnType::Success);
         };
 
-        let target_to_guard = self.base.get_target_to_guard();
+        let target_to_guard = machine.friend_target_to_guard();
         if target_to_guard != crate::common::INVALID_ID {
             if let Some(target_arc) = get_legacy_object(target_to_guard) {
                 if let Ok(target_guard) = target_arc.read() {
-                    if let Ok(mut exit_guard) = self.exit_conditions.lock() {
-                        exit_guard.set_center(*target_guard.get_position());
-                    }
+                    self.exit_conditions.set_center(*target_guard.get_position());
                 }
             }
         }
@@ -2087,7 +2029,7 @@ impl ClassicState for AIGuardAttackAggressorState {
         }
         self.is_attacking = false;
 
-        if let Some(owner) = self.base.shared.owner() {
+        if let Some(owner) = self.base.owner_arc() {
             if let Ok(owner_guard) = owner.read() {
                 if let Some(team_arc) = owner_guard.get_team() {
                     if let Ok(mut team_guard) = team_arc.write() {
@@ -2098,60 +2040,128 @@ impl ClassicState for AIGuardAttackAggressorState {
         }
         Ok(())
     }
+}
 
-    fn classic_is_attack(&self) -> bool {
+impl StateImplementation for AIGuardAttackAggressorState {
+    fn update(&mut self) -> StateReturnType {
+        StateReturnType::Failure
+    }
+
+    fn on_enter_with_owner(&mut self, owner: &mut dyn std::any::Any) -> StateReturnType {
+        match GuardState::downcast_machine(owner) {
+            Some(machine) => self.classic_on_enter(machine).unwrap_or(StateReturnType::Failure),
+            None => StateReturnType::Failure,
+        }
+    }
+
+    fn update_with_owner(&mut self, owner: &mut dyn std::any::Any) -> StateReturnType {
+        match GuardState::downcast_machine(owner) {
+            Some(machine) => self.classic_on_update(machine).unwrap_or(StateReturnType::Failure),
+            None => StateReturnType::Failure,
+        }
+    }
+
+    fn on_exit(&mut self, status: StateExitType) {
+        let _ = self.classic_on_exit(status);
+    }
+
+    /// C++ `AIGuardAttackAggressorState::loadPostProcess` re-runs `onEnter`.
+    fn load_post_process_with_owner(
+        &mut self,
+        owner: &mut dyn std::any::Any,
+    ) -> Result<(), String> {
+        match GuardState::downcast_machine(owner) {
+            Some(machine) => {
+                let _ = self.classic_on_enter(machine);
+                Ok(())
+            }
+            None => Ok(()),
+        }
+    }
+
+    fn note_step_owner(&mut self, owner: std::sync::Arc<std::sync::RwLock<Object>>) {
+        if let Ok(owner_guard) = owner.read() {
+            self.base.base.owner_id = owner_guard.get_id();
+        }
+    }
+
+    fn get_machine_owner_id(&self) -> Result<crate::common::ObjectID, String> {
+        if self.base.base.owner_id == crate::common::INVALID_ID {
+            Err("state machine owner not attached".to_string())
+        } else {
+            Ok(self.base.base.owner_id)
+        }
+    }
+
+    fn bind_goal_object_id(&mut self, id: crate::common::ObjectID) {
+        self.base.base.goal_object_id = id;
+    }
+
+    fn is_attack(&self) -> bool {
         self.is_attack()
     }
 
-    fn classic_is_busy(&self) -> bool {
+    fn is_busy(&self) -> bool {
         true
+    }
+
+    fn get_name(&self) -> &str {
+        self.base.state().get_name()
+    }
+
+    fn get_id(&self) -> StateId {
+        self.base.state().get_id()
+    }
+
+    fn set_id(&mut self, id: StateId) {
+        self.base.state_mut().set_id(id);
     }
 }
 
 /// Helper function to check if an object has attacked and can be retaliated against
 pub fn has_attacked_me_and_i_can_return_fire(machine: &StateMachine) -> bool {
-    if let Some(owner) = machine.get_owner() {
-        if let Ok(owner_ref) = owner.try_read() {
-            if let Some(body_module) = owner_ref.get_body_module() {
-                if let Ok(mut body_guard) = body_module.lock() {
-                    let last_attacker = body_guard.get_clearable_last_attacker();
-                    if last_attacker == crate::common::INVALID_ID {
-                        return false;
-                    }
+    machine.get_owner().as_ref().is_some_and(has_attacked_me_from_owner)
+}
 
-                    body_guard.clear_last_attacker();
-
-                    let Some(target_arc) = TheGameLogic::find_object_by_id(last_attacker) else {
-                        return false;
-                    };
-                    let Ok(target_guard) = target_arc.read() else {
-                        return false;
-                    };
-
-                    if owner_ref.relationship_to(&target_guard) != Relationship::Enemies {
-                        return false;
-                    }
-
-                    if target_guard.is_effectively_dead() {
-                        return false;
-                    }
-
-                    // C++ AIGuard.cpp:78 — isAbleToAttack before the specific-object test.
-                    if !owner_ref.is_able_to_attack() {
-                        return false;
-                    }
-
-                    matches!(
-                        owner_ref.get_able_to_attack_specific_object(
-                            AbleToAttackType::NewTarget,
-                            &target_guard,
-                            CommandSourceType::FromAi,
-                        ),
-                        CanAttackResult::Possible | CanAttackResult::PossibleAfterMoving
-                    )
-                } else {
-                    false
+fn has_attacked_me_from_owner(owner: &Arc<RwLock<Object>>) -> bool {
+    if let Ok(owner_ref) = owner.try_read() {
+        if let Some(body_module) = owner_ref.get_body_module() {
+            if let Ok(mut body_guard) = body_module.lock() {
+                let last_attacker = body_guard.get_clearable_last_attacker();
+                if last_attacker == crate::common::INVALID_ID {
+                    return false;
                 }
+
+                body_guard.clear_last_attacker();
+
+                let Some(target_arc) = TheGameLogic::find_object_by_id(last_attacker) else {
+                    return false;
+                };
+                let Ok(target_guard) = target_arc.read() else {
+                    return false;
+                };
+
+                if owner_ref.relationship_to(&target_guard) != Relationship::Enemies {
+                    return false;
+                }
+
+                if target_guard.is_effectively_dead() {
+                    return false;
+                }
+
+                // C++ AIGuard.cpp:78 — isAbleToAttack before the specific-object test.
+                if !owner_ref.is_able_to_attack() {
+                    return false;
+                }
+
+                matches!(
+                    owner_ref.get_able_to_attack_specific_object(
+                        AbleToAttackType::NewTarget,
+                        &target_guard,
+                        CommandSourceType::FromAi,
+                    ),
+                    CanAttackResult::Possible | CanAttackResult::PossibleAfterMoving
+                )
             } else {
                 false
             }
@@ -2163,31 +2173,12 @@ pub fn has_attacked_me_and_i_can_return_fire(machine: &StateMachine) -> bool {
     }
 }
 
-fn guard_attack_aggressor_common<T: ClassicState>(state: &T) -> Result<bool, String> {
-    let machine = state.base_state().get_machine()?;
-    let guard = machine
-        .lock()
-        .map_err(|_| "guard state machine lock poisoned".to_string())?;
-    Ok(has_attacked_me_and_i_can_return_fire(&guard))
-}
-
-fn guard_attack_aggressor_inner(
-    state: &AIGuardInnerState,
+/// C++ `AIGuardState`'s per-state `ATTACK_AGGRESSOR` condition. The states no
+/// longer carry a machine handle, so the owner comes from the state's copied
+/// owner id — the loaned-machine equivalent of `getMachine()->getOwner()`.
+fn guard_attack_aggressor_condition(
+    state: &dyn StateImplementation,
     _user_data: &StateTransitionUserData,
-) -> Result<bool, String> {
-    guard_attack_aggressor_common(state)
-}
-
-fn guard_attack_aggressor_return(
-    state: &AIGuardReturnState,
-    _user_data: &StateTransitionUserData,
-) -> Result<bool, String> {
-    guard_attack_aggressor_common(state)
-}
-
-fn guard_attack_aggressor_idle(
-    state: &AIGuardIdleState,
-    _user_data: &StateTransitionUserData,
-) -> Result<bool, String> {
-    guard_attack_aggressor_common(state)
+) -> bool {
+    guard_state_owner_arc(state).as_ref().is_some_and(has_attacked_me_from_owner)
 }

@@ -6,8 +6,8 @@ use std::collections::HashMap;
 use std::fs::{File, OpenOptions};
 use std::io::{BufReader, BufWriter, Read, Write};
 use std::path::PathBuf;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 static HOST_REPLAY_CONTROLS_HIDDEN: AtomicBool = AtomicBool::new(true);
@@ -484,8 +484,8 @@ impl ReplayManager {
         let event_type = replay_event_type_for_command(&command.command_type);
 
         // Serialize command data
-        let data =
-            bincode_legacy::serialize(command).map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
+        let data = bincode_legacy::serialize(command)
+            .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
 
         self.record_event_with_player(event_type, command.player_id, &data)?;
 
@@ -793,7 +793,8 @@ impl ReplayManager {
                     position: Option<[f32; 3]>,
                     kind: u8,
                 }
-                if let Ok(payload) = bincode_legacy::deserialize::<RadarReplayPayload>(&event.data) {
+                if let Ok(payload) = bincode_legacy::deserialize::<RadarReplayPayload>(&event.data)
+                {
                     let pos = payload.position.map(|p| glam::Vec3::new(p[0], p[1], p[2]));
                     let kind = match payload.kind {
                         1 => crate::game_logic::radar_notifications::RadarKind::Attack,

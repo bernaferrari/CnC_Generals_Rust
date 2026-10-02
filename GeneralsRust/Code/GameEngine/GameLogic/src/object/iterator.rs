@@ -38,25 +38,18 @@ impl Clump {
         Self { object_id, numeric }
     }
 
-    fn from_object(object: &Arc<RwLock<Object>>, numeric: Real) -> Self {
-        let object_id = object.read().ok().map(|g| g.get_id()).unwrap_or(INVALID_ID);
-        Self::new(object_id, numeric)
-    }
-
-    fn upgrade(&self) -> Option<Arc<RwLock<Object>>> {
-        if self.object_id == INVALID_ID {
-            return None;
-        }
-        crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id)
-    }
-
+    /// Registry membership without cloning an Arc handle (the old
+    /// `upgrade().is_some()` cloned one Arc per clump on every prune/sort).
     fn is_live(&self) -> bool {
-        self.upgrade().is_some()
+        if self.object_id == INVALID_ID {
+            return false;
+        }
+        OBJECT_REGISTRY.contains(self.object_id)
     }
 
+    /// Scoped registry borrow — no Arc handle crosses this boundary.
     fn build_cost(&self) -> Option<Int> {
-        self.upgrade()
-            .and_then(|obj| obj.read().ok().map(|o| o.get_build_cost()))
+        OBJECT_REGISTRY.with_object(self.object_id, |obj| obj.get_build_cost())
     }
 }
 
@@ -82,12 +75,6 @@ impl SimpleObjectIterator {
     /// Insert an object ID at the head of the iterator with an optional numeric sort key.
     pub fn insert_id(&mut self, object_id: ObjectID, numeric: Real) {
         self.clumps.insert(0, Clump::new(object_id, numeric));
-        self.cursor = 0;
-    }
-
-    /// Prefer [`Self::insert_id`].
-    pub fn insert(&mut self, object: &Arc<RwLock<Object>>, numeric: Real) {
-        self.clumps.insert(0, Clump::from_object(object, numeric));
         self.cursor = 0;
     }
 

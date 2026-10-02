@@ -1,9 +1,10 @@
 use crate::game_logic::victory::VictorySummary;
-use anyhow::{Result, anyhow};
+use anyhow::{anyhow, Result};
 use log::warn;
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex, OnceLock};
 
+// THREAD: process-wide handoff from the game thread to the results UI.
 static GAME_RESULTS_QUEUE: OnceLock<Arc<Mutex<GameResultsQueue>>> = OnceLock::new();
 
 /// Thread-safe FIFO queue for end-of-game summaries.

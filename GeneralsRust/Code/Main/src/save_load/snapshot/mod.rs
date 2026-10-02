@@ -138,9 +138,9 @@ pub use ai::*;
 pub use builder::*;
 pub use client_drawable::*;
 pub use game_client_save::{
-    CHUNK_GAME_CLIENT, capture_game_client_xfer_bytes, restore_game_client_from_xfer_bytes,
+    capture_game_client_xfer_bytes, restore_game_client_from_xfer_bytes,
     restore_objectless_from_client_drawables, stash_loaded_game_client_xfer,
-    take_loaded_game_client_xfer, validate_game_client_xfer_bytes,
+    take_loaded_game_client_xfer, validate_game_client_xfer_bytes, CHUNK_GAME_CLIENT,
 };
 pub use game_state::*;
 pub use gamelogic::system::shroud_manager::{
@@ -151,37 +151,35 @@ pub use hotkey_squad_persist::{
 };
 pub(crate) use legacy_bincode::*;
 pub use lifecycle_tail::{
-    ContainLink, LifecycleTail, ProducerLink, apply_lifecycle_tail_to_host, capture_lifecycle_tail,
-    contain_fixups_from_tail, decode_lifecycle_tail, encode_lifecycle_tail,
-    producer_fixups_from_tail,
+    apply_lifecycle_tail_to_host, capture_lifecycle_tail, contain_fixups_from_tail,
+    decode_lifecycle_tail, encode_lifecycle_tail, producer_fixups_from_tail, ContainLink,
+    LifecycleTail, ProducerLink,
 };
 pub use object::*;
 pub use particle_system_save::{
-    CHUNK_PARTICLE_SYSTEM, capture_particle_system_xfer_bytes,
-    restore_particle_system_from_xfer_bytes, stash_loaded_particle_system_xfer,
-    take_loaded_particle_system_xfer,
+    capture_particle_system_xfer_bytes, restore_particle_system_from_xfer_bytes,
+    stash_loaded_particle_system_xfer, take_loaded_particle_system_xfer, CHUNK_PARTICLE_SYSTEM,
 };
 pub use persist_v18::{
-    CameraPersist, WorldPersistV18, peek_pending_camera, set_pending_camera, take_pending_camera,
+    peek_pending_camera, set_pending_camera, take_pending_camera, CameraPersist, WorldPersistV18,
 };
 pub use player::*;
 pub use player_team_persist::{
-    CHUNK_PLAYERS, CHUNK_TEAM_FACTORY, apply_pending as apply_pending_player_team_chunks,
-    stamp_from_live as stamp_player_team_chunks,
+    apply_pending as apply_pending_player_team_chunks, stamp_from_live as stamp_player_team_chunks,
     stash_loaded_chunks as stash_loaded_player_team_chunks, write_players_block,
-    write_team_factory_block,
+    write_team_factory_block, CHUNK_PLAYERS, CHUNK_TEAM_FACTORY,
 };
 pub use special_powers::*;
 pub use terrain::*;
 pub use terrain_visual_save::{
-    CHUNK_TERRAIN_VISUAL, capture_terrain_visual_xfer_bytes,
-    restore_terrain_visual_from_xfer_bytes, stash_loaded_terrain_visual_xfer,
-    take_loaded_terrain_visual_xfer,
+    capture_terrain_visual_xfer_bytes, restore_terrain_visual_from_xfer_bytes,
+    stash_loaded_terrain_visual_xfer, take_loaded_terrain_visual_xfer, CHUNK_TERRAIN_VISUAL,
 };
 pub use types::*;
 pub use w3d_ghost_save::{
-    CHUNK_GHOST_OBJECT, capture_w3d_ghost_xfer_bytes, restore_w3d_ghost_manager_from_xfer_bytes,
+    capture_w3d_ghost_xfer_bytes, restore_w3d_ghost_manager_from_xfer_bytes,
     save_lock_live_w3d_ghosts, stash_loaded_w3d_ghost_xfer, take_loaded_w3d_ghost_xfer,
+    CHUNK_GHOST_OBJECT,
 };
 
 /// Concatenated live snapshot sources for residual `include_str` scans.

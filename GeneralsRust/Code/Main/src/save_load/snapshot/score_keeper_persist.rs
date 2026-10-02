@@ -15,7 +15,7 @@
 
 use crate::game_logic::{GameLogic, Player};
 use crate::save_load::{SaveLoadError, SaveLoadResult};
-use game_engine::common::rts::score_keeper::{MAX_PLAYER_COUNT, ScoreKeeper};
+use game_engine::common::rts::score_keeper::{ScoreKeeper, MAX_PLAYER_COUNT};
 use serde::{Deserialize, Serialize};
 
 const SCKP_MAGIC: &[u8; 4] = b"SCKP";

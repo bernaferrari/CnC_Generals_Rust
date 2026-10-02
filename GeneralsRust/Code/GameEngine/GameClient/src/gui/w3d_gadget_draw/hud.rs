@@ -173,23 +173,21 @@ pub(super) fn draw_radar_in_hud(x: i32, y: i32, width: i32, height: i32) {
     let _ = with_ui_renderer_mut(|renderer| {
         // C++ keeps `m_terrainTexture` resident and repaints it only on
         // `newMap`/`refreshTerrain`; key the upload on extent + generation.
-        let mut terrain_cache = radar_terrain_texture_cache()
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        if terrain_cache.texture.is_none()
-            || terrain_cache.map_extent_signature != Some(map_extent_signature)
-            || terrain_cache.layer_revision != terrain_generation
-        {
-            terrain_cache.texture = Some(renderer.create_texture_from_rgba(
-                game_engine::common::system::radar::RADAR_CELL_WIDTH,
-                game_engine::common::system::radar::RADAR_CELL_HEIGHT,
-                terrain_texture,
-            ));
-            terrain_cache.map_extent_signature = Some(map_extent_signature);
-            terrain_cache.layer_revision = terrain_generation;
-        }
-        let texture = terrain_cache.texture.clone();
-        drop(terrain_cache);
+        let texture = with_radar_terrain_texture_cache(|terrain_cache| {
+            if terrain_cache.texture.is_none()
+                || terrain_cache.map_extent_signature != Some(map_extent_signature)
+                || terrain_cache.layer_revision != terrain_generation
+            {
+                terrain_cache.texture = Some(renderer.create_texture_from_rgba(
+                    game_engine::common::system::radar::RADAR_CELL_WIDTH,
+                    game_engine::common::system::radar::RADAR_CELL_HEIGHT,
+                    terrain_texture,
+                ));
+                terrain_cache.map_extent_signature = Some(map_extent_signature);
+                terrain_cache.layer_revision = terrain_generation;
+            }
+            terrain_cache.texture.clone()
+        });
 
         let fill_color = [0.0, 0.0, 0.0, 1.0];
         let line_color = [50.0 / 255.0, 50.0 / 255.0, 50.0 / 255.0, 1.0];
@@ -285,23 +283,27 @@ pub(super) fn draw_radar_in_hud(x: i32, y: i32, width: i32, height: i32) {
             renderer.draw_textured_rect(rect, texture, [1.0, 1.0, 1.0, 1.0], Some(radar_uv), 0.0);
         }
 
-        let mut overlay_cache = radar_object_overlay_texture_cache()
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        if overlay_cache.texture.is_none()
-            || overlay_cache.map_extent_signature != Some(map_extent_signature)
-            || should_refresh_w3d_object_overlay(current_frame)
-        {
-            let object_overlay = radar.build_object_overlay_texture_rgba();
-            overlay_cache.texture = Some(renderer.create_texture_from_rgba(
-                game_engine::common::system::radar::RADAR_CELL_WIDTH,
-                game_engine::common::system::radar::RADAR_CELL_HEIGHT,
-                &object_overlay,
-            ));
-            overlay_cache.hero_object_ids = radar.build_hero_reticle_object_ids();
-            overlay_cache.map_extent_signature = Some(map_extent_signature);
-        }
-        if let Some(object_overlay) = overlay_cache.texture.clone() {
+        let (object_overlay, hero_object_ids) =
+            with_radar_object_overlay_texture_cache(|overlay_cache| {
+                if overlay_cache.texture.is_none()
+                    || overlay_cache.map_extent_signature != Some(map_extent_signature)
+                    || should_refresh_w3d_object_overlay(current_frame)
+                {
+                    let object_overlay = radar.build_object_overlay_texture_rgba();
+                    overlay_cache.texture = Some(renderer.create_texture_from_rgba(
+                        game_engine::common::system::radar::RADAR_CELL_WIDTH,
+                        game_engine::common::system::radar::RADAR_CELL_HEIGHT,
+                        &object_overlay,
+                    ));
+                    overlay_cache.hero_object_ids = radar.build_hero_reticle_object_ids();
+                    overlay_cache.map_extent_signature = Some(map_extent_signature);
+                }
+                (
+                    overlay_cache.texture.clone(),
+                    overlay_cache.hero_object_ids.clone(),
+                )
+            });
+        if let Some(object_overlay) = object_overlay {
             renderer.draw_textured_rect(
                 rect,
                 object_overlay,
@@ -310,29 +312,27 @@ pub(super) fn draw_radar_in_hud(x: i32, y: i32, width: i32, height: i32) {
                 0.0,
             );
         }
-        let hero_object_ids = overlay_cache.hero_object_ids.clone();
-        drop(overlay_cache);
 
         // C++ paints `m_shroudTexture` incrementally from `setShroudLevel`;
         // key the upload on extent + shroud revision instead of every frame.
         let shroud_revision = radar.shroud_revision();
-        let mut shroud_cache = radar_shroud_texture_cache()
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        if shroud_cache.texture.is_none()
-            || shroud_cache.map_extent_signature != Some(map_extent_signature)
-            || shroud_cache.layer_revision != shroud_revision
-        {
-            let shroud_texture = radar.build_shroud_texture_rgba();
-            shroud_cache.texture = Some(renderer.create_texture_from_rgba(
-                game_engine::common::system::radar::RADAR_CELL_WIDTH,
-                game_engine::common::system::radar::RADAR_CELL_HEIGHT,
-                &shroud_texture,
-            ));
-            shroud_cache.map_extent_signature = Some(map_extent_signature);
-            shroud_cache.layer_revision = shroud_revision;
-        }
-        if let Some(shroud_texture) = shroud_cache.texture.clone() {
+        let shroud_texture = with_radar_shroud_texture_cache(|shroud_cache| {
+            if shroud_cache.texture.is_none()
+                || shroud_cache.map_extent_signature != Some(map_extent_signature)
+                || shroud_cache.layer_revision != shroud_revision
+            {
+                let shroud_rgba = radar.build_shroud_texture_rgba();
+                shroud_cache.texture = Some(renderer.create_texture_from_rgba(
+                    game_engine::common::system::radar::RADAR_CELL_WIDTH,
+                    game_engine::common::system::radar::RADAR_CELL_HEIGHT,
+                    &shroud_rgba,
+                ));
+                shroud_cache.map_extent_signature = Some(map_extent_signature);
+                shroud_cache.layer_revision = shroud_revision;
+            }
+            shroud_cache.texture.clone()
+        });
+        if let Some(shroud_texture) = shroud_texture {
             renderer.draw_textured_rect(
                 rect,
                 shroud_texture,
@@ -341,7 +341,6 @@ pub(super) fn draw_radar_in_hud(x: i32, y: i32, width: i32, height: i32) {
                 0.0,
             );
         }
-        drop(shroud_cache);
 
         if !hero_object_ids.is_empty() {
             with_window_manager_ref(|manager| {
@@ -399,8 +398,7 @@ pub(super) fn draw_radar_in_hud(x: i32, y: i32, width: i32, height: i32) {
                 (points[2], points[0]),
             ];
             for (a, b) in edges {
-                if let Some((start, end)) =
-                    clip_line_to_rect(a, b, clip.0, clip.1, clip.2, clip.3)
+                if let Some((start, end)) = clip_line_to_rect(a, b, clip.0, clip.1, clip.2, clip.3)
                 {
                     renderer.draw_line_gradient(
                         glam::Vec2::new(start.x as f32, start.y as f32),

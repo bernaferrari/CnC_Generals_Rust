@@ -806,83 +806,53 @@ fn lock_texture_loader_slot() -> MutexGuard<'static, Option<TextureLoaderClass>>
     }
 }
 
-/// Scoped handle for the global texture loader.
-pub struct TextureLoaderHandle<'a> {
-    guard: MutexGuard<'a, Option<TextureLoaderClass>>,
+thread_local! {
+    /// C++ kept the texture loader singleton as a plain static on the game thread.
+    static TEXTURE_LOADER: RefCell<Option<TextureLoaderClass>> = const { RefCell::new(None) };
 }
 
-impl<'a> Deref for TextureLoaderHandle<'a> {
-    type Target = TextureLoaderClass;
-
-    fn deref(&self) -> &Self::Target {
-        self.guard
-            .as_ref()
-            .expect("texture loader must be initialized before use")
-    }
-}
-
-impl<'a> DerefMut for TextureLoaderHandle<'a> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        self.guard
-            .as_mut()
-            .expect("texture loader must be initialized before use")
-    }
+/// Run `f` with mutable access to the global texture loader, if initialized.
+pub fn with_texture_loader<R>(f: impl FnOnce(&mut TextureLoaderClass) -> R) -> Option<R> {
+    TEXTURE_LOADER.with_borrow_mut(|loader| {
+        let loader = loader.as_mut()?;
+        Some(f(loader))
+    })
 }
 
 /// Initialize global texture loader
 pub fn init_texture_loader() -> Result<()> {
-    let mut guard = lock_texture_loader_slot();
-    *guard = Some(TextureLoaderClass::new());
+    TEXTURE_LOADER.with_borrow_mut(|slot| *slot = Some(TextureLoaderClass::new()));
     Ok(())
-}
-
-/// Get global texture loader
-pub fn get_texture_loader() -> Option<TextureLoaderHandle<'static>> {
-    let guard = lock_texture_loader_slot();
-    if guard.is_none() {
-        None
-    } else {
-        Some(TextureLoaderHandle { guard })
-    }
 }
 
 /// Shutdown global texture loader
 pub fn shutdown_texture_loader() {
-    let mut guard = lock_texture_loader_slot();
-    *guard = None;
+    TEXTURE_LOADER.with_borrow_mut(|slot| *slot = None);
 }
 
 /// Quick texture loading functions
 pub fn load_texture(filename: &str) -> Result<Arc<TextureClass>> {
-    if let Some(mut loader) = get_texture_loader() {
-        loader.load_texture(filename)
-    } else {
+    with_texture_loader(|loader| loader.load_texture(filename)).unwrap_or_else(|| {
         Err(W3dError::NotInitialized(
             "Texture loader not initialized".to_string(),
         ))
-    }
+    })
 }
 
 pub fn load_texture_async(request: TextureLoadRequest) -> Result<()> {
-    if let Some(mut loader) = get_texture_loader() {
-        loader.load_texture_async(request)
-    } else {
+    with_texture_loader(|loader| loader.load_texture_async(request)).unwrap_or_else(|| {
         Err(W3dError::NotInitialized(
             "Texture loader not initialized".to_string(),
         ))
-    }
+    })
 }
 
 pub fn get_cached_texture(filename: &str) -> Option<Arc<TextureClass>> {
-    get_texture_loader().and_then(|mut loader| loader.get_cached_texture(filename))
+    with_texture_loader(|loader| loader.get_cached_texture(filename)).unwrap_or_default()
 }
 
 pub fn update_texture_loader() -> Result<()> {
-    if let Some(mut loader) = get_texture_loader() {
-        loader.update()
-    } else {
-        Ok(())
-    }
+    with_texture_loader(|loader| loader.update()).unwrap_or(Ok(()))
 }
 
 #[cfg(test)]

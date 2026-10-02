@@ -3,7 +3,8 @@
 //! This module provides integration between ww3d-assets and ww3d-renderer-3d,
 //! enabling loaded textures and meshes to be uploaded to GPU and used in rendering.
 
-use std::sync::{Arc, Mutex};
+use std::cell::RefCell;
+use std::sync::Arc;
 use ww3d_assets::{Material, TextureBase, TextureFormat as AssetTextureFormat};
 use ww3d_core::errors::{W3DError, W3DResult};
 use ww3d_gpu::device::GpuDevice;
@@ -215,7 +216,7 @@ pub fn upload_texture_to_gpu(
 /// Texture upload manager that caches GPU textures
 pub struct TextureUploadManager {
     device: Arc<GpuDevice>,
-    cache: Mutex<std::collections::HashMap<String, Arc<GpuTexture>>>,
+    cache: RefCell<std::collections::HashMap<String, Arc<GpuTexture>>>,
 }
 
 impl TextureUploadManager {
@@ -223,7 +224,7 @@ impl TextureUploadManager {
     pub fn new(device: Arc<GpuDevice>) -> Self {
         Self {
             device,
-            cache: Mutex::new(std::collections::HashMap::new()),
+            cache: RefCell::new(std::collections::HashMap::new()),
         }
     }
 
@@ -232,11 +233,8 @@ impl TextureUploadManager {
         let key = texture.name.clone();
 
         // Check cache first
-        {
-            let cache = self.cache.lock().unwrap();
-            if let Some(gpu_texture) = cache.get(&key) {
-                return Ok(Arc::clone(gpu_texture));
-            }
+        if let Some(gpu_texture) = self.cache.borrow().get(&key) {
+            return Ok(Arc::clone(gpu_texture));
         }
 
         // Upload texture
@@ -244,7 +242,7 @@ impl TextureUploadManager {
 
         // Cache it
         {
-            let mut cache = self.cache.lock().unwrap();
+            let mut cache = self.cache.borrow_mut();
             cache.insert(key, Arc::clone(&gpu_texture));
         }
 
@@ -253,13 +251,13 @@ impl TextureUploadManager {
 
     /// Clear the texture cache
     pub fn clear_cache(&self) {
-        let mut cache = self.cache.lock().unwrap();
+        let mut cache = self.cache.borrow_mut();
         cache.clear();
     }
 
     /// Get cache statistics
     pub fn cache_stats(&self) -> (usize, u64) {
-        let cache = self.cache.lock().unwrap();
+        let cache = self.cache.borrow();
         let count = cache.len();
         let total_memory: u64 = cache
             .values()

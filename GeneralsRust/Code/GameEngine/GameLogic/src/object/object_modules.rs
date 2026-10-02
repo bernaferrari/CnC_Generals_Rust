@@ -77,6 +77,9 @@ impl Object {
 
     pub fn is_stealthed(&self) -> bool {
         if let Some(handle) = &self.stealth {
+            // THREAD: the controller handle (shared Arc + mutex around
+            // StealthController) is cloned out through `get_stealth()`; its
+            // lock is the shared handle contract from the stealth lane.
             if let Ok(stealth) = handle.lock() {
                 return stealth.is_stealthed();
             }
@@ -356,22 +359,11 @@ impl Object {
     /// # C++ Reference
     /// Object.cpp:2847 - Object::findModule(NameKeyType key)
     pub fn find_module_by_name_key(&self, key: NameKeyType) -> Option<Arc<ModuleEntry>> {
-        // First search behavior modules (matching C++ order)
-        for behavior_arc in &self.behaviors {
-            let Ok(guard) = behavior_arc.lock() else {
-                continue;
-            };
-            // Check if this module has a matching name key via the Module trait
-            if guard.get_module_name_key() == key {
-                // Return a synthetic ModuleEntry for the behavior
-                drop(guard);
-                // We need to convert the behavior back to a module entry
-                // For now, search the modules list since behaviors is separate
-                break;
-            }
-        }
-
-        // Search through module entries by name key
+        // Search through module entries by name key. The C++-order behavior
+        // pass was a no-op here: it only matched-and-broke into this same
+        // entry search (behavior handles mirror module entries via
+        // `TemplateModuleBehavior`), so the per-behavior locks it took bought
+        // nothing.
         for entry in &self.modules {
             if entry.module_name_key() == key {
                 return Some(Arc::clone(entry));
@@ -528,6 +520,13 @@ impl Object {
 
     /// `get_behavior_modules()` == C++ Object.cpp:299-384 helper order, then template modules.
     pub(super) fn rebuild_behavior_list(&mut self) {
+        // THREAD: behavior-list elements are shared Arc + mutex handles
+        // (see the `behaviors` field type) handed out by
+        // `get_behavior_modules()` / `push_behavior_module_for_test()`;
+        // the per-element lock belongs to that public handle type, not to
+        // Object-owned state. The explicit element type keeps the pushes
+        // below coercing to the trait object instead of pinning a concrete
+        // element type on the first push.
         let mut behaviors: Vec<Arc<Mutex<dyn BehaviorModuleInterface>>> = Vec::new();
         if self.smc_helper.is_some() {
             behaviors.push(Arc::new(Mutex::new(CtorHelperBehavior {
@@ -932,7 +931,10 @@ impl Object {
             guard.upgrade_module_handles.clear();
 
             // Interface lists store indices into `modules`, populated in the
-            // same order as before (single walk over the module list).
+            // same order as before (single walk over the module list). Masks
+            // are snapshotted first: borrows through the write guard's deref
+            // are not place-disjoint, so the walk and the handle pushes
+            // cannot interleave against the same guard.
             let masks: Vec<ModuleInterfaceType> =
                 guard.modules.iter().map(|entry| entry.mask()).collect();
             for (index, mask) in masks.into_iter().enumerate() {
@@ -1072,23 +1074,26 @@ impl Object {
             guard.modules_ready = true;
         }
 
-        // C++ parity: after AI module construction, seed attitude from team prototype.
+        // C++ parity: after AI module construction, seed attitude from the team
+        // prototype, then apply battle plan bonuses (Object::onObjectCreated
+        // parity). One object read resolves both; the write is taken only when
+        // a battle plan is active, after the read guard is released.
         if let Ok(obj_guard) = object.read() {
             obj_guard.apply_team_ai_profile();
-        }
 
-        // Apply battle plan bonuses after modules are ready (C++ Object::onObjectCreated parity).
-        if let Ok(obj_guard) = object.read() {
-            if let Some(player_arc) = obj_guard.get_controlling_player() {
-                if let Ok(player_guard) = player_arc.read() {
-                    if player_guard.get_num_battle_plans_active() > 0 {
-                        drop(player_guard);
-                        drop(obj_guard);
-                        if let (Ok(player_guard), Ok(mut obj_guard)) =
-                            (player_arc.read(), object.write())
-                        {
-                            player_guard.apply_battle_plan_bonuses_for_object(&mut obj_guard);
-                        }
+            let player_arc = obj_guard.get_controlling_player();
+            let battle_plans_active = player_arc
+                .as_ref()
+                .and_then(|player| player.read().ok())
+                .map(|player| player.get_num_battle_plans_active() > 0)
+                .unwrap_or(false);
+            if battle_plans_active {
+                drop(obj_guard);
+                if let Some(player_arc) = player_arc {
+                    if let (Ok(player_guard), Ok(mut obj_guard)) =
+                        (player_arc.read(), object.write())
+                    {
+                        player_guard.apply_battle_plan_bonuses_for_object(&mut obj_guard);
                     }
                 }
             }

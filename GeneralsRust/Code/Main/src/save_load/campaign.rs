@@ -537,8 +537,8 @@ impl CampaignManager {
         let compressed = std::fs::read(&save_path)?;
         let data = compression::decompress(&compressed)?;
 
-        let save_state: MissionSaveState =
-            bincode_legacy::deserialize(&data).map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
+        let save_state: MissionSaveState = bincode_legacy::deserialize(&data)
+            .map_err(|e| SaveLoadError::Serialization(e.to_string()))?;
 
         self.mission_save_state = Some(save_state.clone());
         Ok(Some(save_state))

@@ -4,12 +4,12 @@
 //! C&C Generals save/load system from PopupSaveLoad.wnd.
 
 use super::{
-    ClickSpring, Interactive, KeyCode, MouseButton, Renderable, Screen, UIEvent, UIRenderContext,
-    layout, sound_files, utils,
+    layout, sound_files, utils, ClickSpring, Interactive, KeyCode, MouseButton, Renderable, Screen,
+    UIEvent, UIRenderContext,
 };
 use crate::localization;
 use crate::save_load::{
-    SaveFileType, SaveLoadManager, get_save_load_manager, init_save_load_system,
+    get_save_load_manager, init_save_load_system, SaveFileType, SaveLoadManager,
 };
 use log::info;
 use std::time::SystemTime;
@@ -989,11 +989,10 @@ mod tests {
         let (x, y) = SaveLoadMenu::click_rect(confirm);
         assert!(menu.handle_mouse_click(x, y, MouseButton::Left).is_none());
         assert_eq!(menu.dialog_state(), SaveLoadDialogState::OverwriteConfirm);
-        assert!(
-            menu.drain_pending_events()
-                .iter()
-                .all(|event| { !matches!(event, UIEvent::SaveGame { .. }) })
-        );
+        assert!(menu
+            .drain_pending_events()
+            .iter()
+            .all(|event| { !matches!(event, UIEvent::SaveGame { .. }) }));
     }
 
     #[test]

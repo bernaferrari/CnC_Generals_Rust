@@ -14,15 +14,15 @@ use crate::lan_api::{LanBridgeEvent, LanEventSender, LanGameInfo};
 use crate::security::SecurityManager;
 use crate::time::NetworkInstant;
 use chrono::{DateTime, Utc};
+use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::io::{Error as IoError, ErrorKind};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 use std::time::Duration;
-use parking_lot::Mutex;
 use tokio::net::UdpSocket;
-use tokio::sync::{Mutex as AsyncMutex, broadcast, watch};
+use tokio::sync::{broadcast, watch, Mutex as AsyncMutex, RwLock};
 use tokio::task::JoinSet;
 use tokio::time::interval;
 use tracing::{debug, info, trace, warn};
@@ -401,7 +401,8 @@ impl GameDiscovery {
             .decode(&data[DISCOVERY_MAGIC.len() + 1..], addr)
             .await
             .map_err(|err| NetworkError::transport(err.to_string()))?;
-        let payload: WirePayload = bincode_legacy::deserialize(&plaintext).map_err(Self::bincode_error)?;
+        let payload: WirePayload =
+            bincode_legacy::deserialize(&plaintext).map_err(Self::bincode_error)?;
 
         match payload {
             WirePayload::Query { .. } => {
@@ -722,8 +723,8 @@ impl GameDiscovery {
         target: SocketAddr,
         payload: WirePayload,
     ) -> Result<usize, IoError> {
-        let encoded =
-            bincode_legacy::serialize(&payload).map_err(|err| IoError::new(ErrorKind::Other, err))?;
+        let encoded = bincode_legacy::serialize(&payload)
+            .map_err(|err| IoError::new(ErrorKind::Other, err))?;
         let cipher = self.crypto.encode(&encoded, target).await;
         let mut buffer = Vec::with_capacity(DISCOVERY_MAGIC.len() + 1 + cipher.len());
         buffer.extend_from_slice(DISCOVERY_MAGIC);

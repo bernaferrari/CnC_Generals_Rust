@@ -829,7 +829,17 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
     };
     let mut rest = suffix;
     let version = take_u32(&mut rest)?;
-    if version != 1 && version != 2 && version != 3 && version != 4 && version != 5 && version != 6 && version != 7 && version != 8 && version != 9 && version != TMAI_VERSION {
+    if version != 1
+        && version != 2
+        && version != 3
+        && version != 4
+        && version != 5
+        && version != 6
+        && version != 7
+        && version != 8
+        && version != 9
+        && version != TMAI_VERSION
+    {
         return Err(SaveLoadError::Corrupted(format!(
             "unknown TMAI suffix version {version}"
         )));
@@ -1100,9 +1110,12 @@ fn apply_payload(game_logic: &mut GameLogic, payload: AiTeamPersistPayload) {
         object.can_path_through_units = order.can_path_through_units;
         object.last_command_source = order.last_command_source;
         object.pending_move = order.pending_move.map(arr_to_vec3);
-        object.safe_path_repulsor2 = (order.safe_path_repulsor2 != 0).then_some(ObjectId(order.safe_path_repulsor2));
-        object.move_away_from = (order.move_away_from != 0).then_some(ObjectId(order.move_away_from));
-        object.move_away_from_2 = (order.move_away_from_2 != 0).then_some(ObjectId(order.move_away_from_2));
+        object.safe_path_repulsor2 =
+            (order.safe_path_repulsor2 != 0).then_some(ObjectId(order.safe_path_repulsor2));
+        object.move_away_from =
+            (order.move_away_from != 0).then_some(ObjectId(order.move_away_from));
+        object.move_away_from_2 =
+            (order.move_away_from_2 != 0).then_some(ObjectId(order.move_away_from_2));
         object.move_away_frames = order.move_away_frames;
         object.locomotor_goal_type = match order.locomotor_goal_type {
             1 => crate::game_logic::LocoGoalType::PositionOnPath,
@@ -1429,7 +1442,10 @@ mod tests {
         assert_eq!(loaded.move_away_from, Some(ObjectId(7)));
         assert_eq!(loaded.move_away_from_2, Some(ObjectId(3)));
         assert_eq!(loaded.move_away_frames, 40);
-        assert_eq!(loaded.locomotor_goal_type, crate::game_logic::LocoGoalType::Angle);
+        assert_eq!(
+            loaded.locomotor_goal_type,
+            crate::game_logic::LocoGoalType::Angle
+        );
         assert!((loaded.locomotor_goal_angle - 1.25).abs() < 0.01);
         assert!(
             loaded.can_path_through_units,
@@ -1440,7 +1456,6 @@ mod tests {
             "m_lastCommandSource CMD_FROM_PLAYER must survive load"
         );
         assert_eq!(loaded.pending_move, Some(Vec3::new(12.0, 0.0, 8.0)));
-
     }
 
     #[test]
@@ -1611,7 +1626,10 @@ mod tests {
         apply_from_lifecycle_tail(&bytes, &mut logic).expect("apply v6");
         let loaded = logic.host_object(id).expect("ranger");
         assert_eq!(loaded.move_away_from, Some(ObjectId(7)));
-        assert_eq!(loaded.locomotor_goal_type, crate::game_logic::LocoGoalType::None);
+        assert_eq!(
+            loaded.locomotor_goal_type,
+            crate::game_logic::LocoGoalType::None
+        );
         assert!((loaded.locomotor_goal_angle).abs() < 0.01);
     }
 
@@ -1641,7 +1659,10 @@ mod tests {
         bytes.extend_from_slice(&encoded);
         apply_from_lifecycle_tail(&bytes, &mut logic).expect("apply v7");
         let loaded = logic.host_object(id).expect("ranger");
-        assert_eq!(loaded.locomotor_goal_type, crate::game_logic::LocoGoalType::Angle);
+        assert_eq!(
+            loaded.locomotor_goal_type,
+            crate::game_logic::LocoGoalType::Angle
+        );
         assert!((loaded.locomotor_goal_angle - 1.25).abs() < 0.01);
         assert_eq!(loaded.next_mood_check_time, 0);
     }

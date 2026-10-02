@@ -11,12 +11,11 @@ use crate::input_system::{RtsCommandEvent, RtsInputSystem};
 use crate::presentation_frame::PresentationFrame;
 use glam::{Vec2, Vec3};
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
 
 /// Input processor that bridges input system and game logic
 pub struct InputProcessor {
     /// Reference to the input system
-    input_system: Arc<Mutex<RtsInputSystem>>,
+    input_system: RtsInputSystem,
 
     /// Current player ID for command execution
     local_player_id: u32,
@@ -43,7 +42,7 @@ pub struct InputProcessor {
 impl InputProcessor {
     /// Create new input processor
     pub fn new(
-        input_system: Arc<Mutex<RtsInputSystem>>,
+        input_system: RtsInputSystem,
         local_player_id: u32,
         window_size: (f32, f32),
     ) -> Self {
@@ -97,12 +96,9 @@ impl InputProcessor {
     }
 
     /// Process input and execute game commands
-    pub async fn process_input(&mut self, game_logic: &Arc<std::sync::Mutex<GameLogic>>) {
+    pub fn process_input(&mut self, game_logic: &mut GameLogic) {
         // Get current frame from GameLogic
-        let current_frame = {
-            let logic = game_logic.lock().unwrap_or_else(|e| e.into_inner());
-            logic.get_frame()
-        };
+        let current_frame = game_logic.get_frame();
 
         // Skip if we already processed this frame
         if current_frame == self.last_frame {
@@ -145,7 +141,8 @@ impl InputProcessor {
 
         let mut resolved = Vec::new();
 
-        if let Ok(mut input) = self.input_system.try_lock() {
+        {
+            let input = &mut self.input_system;
             let shift = input.is_shift_pressed();
             let ctrl = input.is_ctrl_pressed();
             let window_size = self.window_size;
@@ -207,11 +204,10 @@ impl InputProcessor {
                     shift,
                     ctrl,
                 } => {
-                    self.handle_left_click(world_pos, shift, ctrl, game_logic)
-                        .await;
+                    self.handle_left_click(world_pos, shift, ctrl, game_logic);
                 }
                 ResolvedEvent::RightClick { world_pos } => {
-                    self.handle_right_click(world_pos, game_logic).await;
+                    self.handle_right_click(world_pos, game_logic);
                 }
                 ResolvedEvent::DragSelect {
                     start_screen,
@@ -227,21 +223,20 @@ impl InputProcessor {
                         end_world,
                         shift,
                         game_logic,
-                    )
-                    .await;
+                    );
                 }
                 ResolvedEvent::DoubleClickSelectSimilar { world_pos } => {
-                    self.select_similar_units(world_pos, game_logic).await;
+                    self.select_similar_units(world_pos, game_logic);
                 }
-                ResolvedEvent::SelectAll => self.select_all_units(game_logic).await,
-                ResolvedEvent::DeleteSelected => self.delete_selected_units(game_logic).await,
-                ResolvedEvent::CycleUnits => self.cycle_units(game_logic).await,
-                ResolvedEvent::TogglePause => self.toggle_pause(game_logic).await,
+                ResolvedEvent::SelectAll => self.select_all_units(game_logic),
+                ResolvedEvent::DeleteSelected => self.delete_selected_units(game_logic),
+                ResolvedEvent::CycleUnits => self.cycle_units(game_logic),
+                ResolvedEvent::TogglePause => self.toggle_pause(game_logic),
                 ResolvedEvent::AssignControlGroup { group } => {
-                    self.assign_control_group(group, game_logic).await;
+                    self.assign_control_group(group, game_logic);
                 }
                 ResolvedEvent::RecallControlGroup { group } => {
-                    self.select_control_group(group, game_logic).await;
+                    self.select_control_group(group, game_logic);
                 }
                 ResolvedEvent::ToggleDebug => self.toggle_debug_mode(),
                 ResolvedEvent::ToggleMusic => self.toggle_music(game_logic),
@@ -251,14 +246,14 @@ impl InputProcessor {
 
     /// Handle left mouse click for unit selection
 
-    async fn handle_left_click(
+    fn handle_left_click(
         &mut self,
         world_pos: Vec3,
         shift_pressed: bool,
         ctrl_pressed: bool,
-        game_logic: &Arc<std::sync::Mutex<GameLogic>>,
+        game_logic: &mut GameLogic,
     ) {
-        let mut logic = game_logic.lock().unwrap_or_else(|e| e.into_inner());
+        let mut logic = &mut *game_logic;
 
         // Wave 954: pick + friendly classify presentation-only.
         let clicked_object = self.find_object_at_position(world_pos, &logic);
@@ -311,12 +306,8 @@ impl InputProcessor {
 
     /// Handle right mouse click for movement/attack commands
 
-    async fn handle_right_click(
-        &mut self,
-        world_pos: Vec3,
-        game_logic: &Arc<std::sync::Mutex<GameLogic>>,
-    ) {
-        let mut logic = game_logic.lock().unwrap_or_else(|e| e.into_inner());
+    fn handle_right_click(&mut self, world_pos: Vec3, game_logic: &mut GameLogic) {
+        let mut logic = &mut *game_logic;
 
         let selected_objects = if let Some(player) = logic.get_player(self.local_player_id) {
             player.selected_objects.clone()
@@ -361,16 +352,16 @@ impl InputProcessor {
     }
 
     /// Handle box selection
-    async fn handle_box_selection(
+    fn handle_box_selection(
         &mut self,
         _start_screen: Vec2,
         _end_screen: Vec2,
         start_world: Vec3,
         end_world: Vec3,
         shift_pressed: bool,
-        game_logic: &Arc<std::sync::Mutex<GameLogic>>,
+        game_logic: &mut GameLogic,
     ) {
-        let mut logic = game_logic.lock().unwrap_or_else(|e| e.into_inner());
+        let mut logic = &mut *game_logic;
 
         let min_x = start_world.x.min(end_world.x);
         let max_x = start_world.x.max(end_world.x);
@@ -415,12 +406,8 @@ impl InputProcessor {
     }
 
     /// Select all friendly units matching the clicked unit's template (double-click behavior).
-    async fn select_similar_units(
-        &mut self,
-        world_pos: Vec3,
-        game_logic: &Arc<std::sync::Mutex<GameLogic>>,
-    ) {
-        let mut logic = game_logic.lock().unwrap_or_else(|e| e.into_inner());
+    fn select_similar_units(&mut self, world_pos: Vec3, game_logic: &mut GameLogic) {
+        let mut logic = &mut *game_logic;
 
         // Wave 949: presentation-only select-similar (no live GameLogic dual-read).
         let Some(frame) = self.presentation_frame.as_ref() else {
@@ -454,8 +441,8 @@ impl InputProcessor {
     }
 
     /// Select all player units
-    async fn select_all_units(&self, game_logic: &Arc<std::sync::Mutex<GameLogic>>) {
-        let mut logic = game_logic.lock().unwrap_or_else(|e| e.into_inner());
+    fn select_all_units(&self, game_logic: &mut GameLogic) {
+        let mut logic = &mut *game_logic;
 
         // Wave 949: presentation-only select-all (no live GameLogic dual-read).
         let mut all_units = Vec::new();
@@ -471,8 +458,8 @@ impl InputProcessor {
     }
 
     /// Delete selected units
-    async fn delete_selected_units(&self, game_logic: &Arc<std::sync::Mutex<GameLogic>>) {
-        let mut logic = game_logic.lock().unwrap_or_else(|e| e.into_inner());
+    fn delete_selected_units(&self, game_logic: &mut GameLogic) {
+        let mut logic = &mut *game_logic;
 
         let selected_objects = if let Some(player) = logic.get_player(self.local_player_id) {
             player.selected_objects.clone()
@@ -496,8 +483,8 @@ impl InputProcessor {
     }
 
     /// Cycle through units
-    async fn cycle_units(&self, game_logic: &Arc<std::sync::Mutex<GameLogic>>) {
-        let mut logic = game_logic.lock().unwrap_or_else(|e| e.into_inner());
+    fn cycle_units(&self, game_logic: &mut GameLogic) {
+        let mut logic = &mut *game_logic;
 
         // Wave 949: presentation-only unit cycle (no live GameLogic dual-read).
         let mut all_units: Vec<ObjectId> = if let Some(frame) = self.presentation_frame.as_ref() {
@@ -539,8 +526,8 @@ impl InputProcessor {
     }
 
     /// Toggle game pause
-    async fn toggle_pause(&self, game_logic: &Arc<std::sync::Mutex<GameLogic>>) {
-        let mut logic = game_logic.lock().unwrap_or_else(|e| e.into_inner());
+    fn toggle_pause(&self, game_logic: &mut GameLogic) {
+        let mut logic = &mut *game_logic;
         let is_paused = logic.is_paused();
         logic.set_paused(!is_paused);
 
@@ -552,12 +539,8 @@ impl InputProcessor {
     }
 
     /// Assign selected units to a control group
-    async fn assign_control_group(
-        &mut self,
-        group_num: u8,
-        game_logic: &Arc<std::sync::Mutex<GameLogic>>,
-    ) {
-        let logic = game_logic.lock().unwrap_or_else(|e| e.into_inner());
+    fn assign_control_group(&mut self, group_num: u8, game_logic: &mut GameLogic) {
+        let mut logic = &mut *game_logic;
 
         let selected_objects = if let Some(player) = logic.get_player(self.local_player_id) {
             player.selected_objects.clone()
@@ -581,12 +564,8 @@ impl InputProcessor {
 
     /// Select units in a control group
 
-    async fn select_control_group(
-        &mut self,
-        group_num: u8,
-        game_logic: &Arc<std::sync::Mutex<GameLogic>>,
-    ) {
-        let mut logic = game_logic.lock().unwrap_or_else(|e| e.into_inner());
+    fn select_control_group(&mut self, group_num: u8, game_logic: &mut GameLogic) {
+        let mut logic = &mut *game_logic;
 
         let Some(group) = self.control_groups.get(&group_num) else {
             println!("Control group {} is empty", group_num);
@@ -620,22 +599,20 @@ impl InputProcessor {
     }
 
     /// Toggle background music
-    fn toggle_music(&mut self, game_logic: &Arc<std::sync::Mutex<GameLogic>>) {
+    fn toggle_music(&mut self, game_logic: &mut GameLogic) {
         self.music_enabled = !self.music_enabled;
         println!(
             "Background music: {}",
             if self.music_enabled { "ON" } else { "OFF" }
         );
-        if let Ok(mut logic) = game_logic.try_lock() {
-            let event = if self.music_enabled {
-                crate::game_logic::AudioEventRequest::new("MusicEnable")
-                    .with_priority(255)
-                    .looping()
-            } else {
-                crate::game_logic::AudioEventRequest::new("MusicDisable").with_priority(255)
-            };
-            logic.queue_audio_event(event);
-        }
+        let event = if self.music_enabled {
+            crate::game_logic::AudioEventRequest::new("MusicEnable")
+                .with_priority(255)
+                .looping()
+        } else {
+            crate::game_logic::AudioEventRequest::new("MusicDisable").with_priority(255)
+        };
+        game_logic.queue_audio_event(event);
     }
 
     /// Find object at world position (simple distance-based selection)
@@ -690,13 +667,13 @@ impl InputProcessor {
     fn handle_left_click_internal(
         world_pos: Vec3,
         input: &mut RtsInputSystem,
-        game_logic: &Arc<std::sync::Mutex<GameLogic>>,
+        game_logic: &mut GameLogic,
     ) {
         println!("Left click at world position: {:?}", world_pos);
         // Implementation would handle unit selection logic
     }
 
-    fn handle_right_click_internal(world_pos: Vec3, game_logic: &Arc<std::sync::Mutex<GameLogic>>) {
+    fn handle_right_click_internal(world_pos: Vec3, game_logic: &mut GameLogic) {
         println!("Right click at world position: {:?}", world_pos);
         // Implementation would handle unit movement/attack commands
     }
@@ -705,32 +682,30 @@ impl InputProcessor {
         start_screen: Vec2,
         end_screen: Vec2,
         input: &mut RtsInputSystem,
-        game_logic: &Arc<std::sync::Mutex<GameLogic>>,
+        game_logic: &mut GameLogic,
         window_size: (f32, f32),
     ) {
         println!("Box selection from {:?} to {:?}", start_screen, end_screen);
         // Implementation would handle box selection of units
     }
 
-    fn select_all_units_internal(game_logic: &Arc<std::sync::Mutex<GameLogic>>) {
+    fn select_all_units_internal(game_logic: &mut GameLogic) {
         println!("Select all units command");
         // Implementation would select all player units
     }
 
-    fn delete_selected_units_internal(game_logic: &Arc<std::sync::Mutex<GameLogic>>) {
+    fn delete_selected_units_internal(game_logic: &mut GameLogic) {
         println!("Delete selected units command");
         // Implementation would destroy selected units
     }
 
-    fn toggle_pause_internal(game_logic: &Arc<std::sync::Mutex<GameLogic>>) {
-        if let Ok(mut logic) = game_logic.try_lock() {
-            let is_paused = logic.is_paused();
-            logic.set_paused(!is_paused);
-            println!("Game pause toggled: {}", !is_paused);
-        }
+    fn toggle_pause_internal(game_logic: &mut GameLogic) {
+        let is_paused = game_logic.is_paused();
+        game_logic.set_paused(!is_paused);
+        println!("Game pause toggled: {}", !is_paused);
     }
 
-    fn cycle_units_internal(game_logic: &Arc<std::sync::Mutex<GameLogic>>) {
+    fn cycle_units_internal(game_logic: &mut GameLogic) {
         println!("Cycle units command");
         // Implementation would cycle through available units
     }
@@ -776,7 +751,6 @@ mod tests {
     use crate::input_system::RtsInputSystem;
     use crate::presentation_frame::PresentationFrame;
     use crate::skirmish_config::{apply_skirmish_config, golden_skirmish_config};
-    use std::sync::{Arc, Mutex};
 
     #[test]
     fn input_processor_pick_prefers_presentation_pose() {
@@ -796,7 +770,7 @@ mod tests {
         if let Some(obj) = logic.host_object_mut(id) {
             obj.position = glam::Vec3::new(8888.0, 0.0, 8888.0);
         }
-        let input = Arc::new(Mutex::new(RtsInputSystem::new()));
+        let input = RtsInputSystem::new();
         let mut proc = InputProcessor::new(input, 0, (1024.0, 768.0));
         assert!(
             proc.find_object_at_position(glam::Vec3::new(12.0, 0.0, 18.0), &logic)

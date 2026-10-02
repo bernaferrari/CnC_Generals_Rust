@@ -254,6 +254,19 @@ pub trait StateImplementation: Any + AsAny + std::fmt::Debug + Send + Sync {
     fn load_post_process(&mut self) -> Result<(), String> {
         Ok(())
     }
+
+    /// Owner-aware [`load_post_process`](Self::load_post_process). Machines that
+    /// own their states outright (turret, guard) loan the owner so a restored
+    /// state can rebuild its child against the owner's live fields — the same
+    /// context C++ reached through the machine's `getOwnerAI()`. Default keeps
+    /// [`Self::load_post_process`].
+    fn load_post_process_with_owner(
+        &mut self,
+        owner: &mut dyn std::any::Any,
+    ) -> Result<(), String> {
+        let _ = owner;
+        self.load_post_process()
+    }
     /// Implements this state's behavior, decides when to change state
     fn update(&mut self) -> StateReturnType;
 
@@ -1061,6 +1074,22 @@ impl StateMachine {
         self.internal_set_state(self.default_state_id)
     }
 
+    /// [`init_default_state`](Self::init_default_state) with the owner AI loaned
+    /// to the entering default state (see
+    /// [`StateImplementation::on_enter_with_owner`]).
+    pub fn init_default_state_with_owner(&mut self, owner: &mut dyn std::any::Any) -> StateReturnType {
+        if self.default_state_inited {
+            return StateReturnType::Failure;
+        }
+
+        if self.default_state_id == INVALID_STATE_ID {
+            return StateReturnType::Failure;
+        }
+
+        self.default_state_inited = true;
+        self.set_state_entering_with_owner(self.default_state_id, owner)
+    }
+
     /// Change the current state of the machine
     pub fn set_current_state(&mut self, new_state_id: StateId) -> StateReturnType {
         if self.locked {
@@ -1836,6 +1865,24 @@ impl StateMachine {
         if let Some(id) = self.current_state_id {
             if let Some(state) = self.state_map.get_mut(&id) {
                 state.load_post_process().map_err(|e| {
+                    Box::new(std::io::Error::new(std::io::ErrorKind::Other, e))
+                        as Box<dyn std::error::Error + Send + Sync>
+                })?;
+            }
+        }
+        Ok(())
+    }
+
+    /// [`load_post_process`](Self::load_post_process) with the owner AI loaned to
+    /// the restored state (see
+    /// [`StateImplementation::load_post_process_with_owner`]).
+    pub fn load_post_process_with_owner(
+        &mut self,
+        owner: &mut dyn std::any::Any,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        if let Some(id) = self.current_state_id {
+            if let Some(state) = self.state_map.get_mut(&id) {
+                state.load_post_process_with_owner(owner).map_err(|e| {
                     Box::new(std::io::Error::new(std::io::ErrorKind::Other, e))
                         as Box<dyn std::error::Error + Send + Sync>
                 })?;

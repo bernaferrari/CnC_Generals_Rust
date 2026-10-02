@@ -12,11 +12,7 @@ fn dispatch_map_entry(record: &MetaMapRec) -> Option<GameMessageDisposition> {
                         guard.tivo_fast_mode = !guard.tivo_fast_mode;
                         guard.tivo_fast_mode
                     };
-                    TheInGameUI::message(if enabled {
-                        "GUI:FF_ON"
-                    } else {
-                        "GUI:FF_OFF"
-                    });
+                    TheInGameUI::message(if enabled { "GUI:FF_ON" } else { "GUI:FF_OFF" });
                 }
             }
             return Some(GameMessageDisposition::KeepMessage);
@@ -158,7 +154,7 @@ fn dispatch_map_entry(record: &MetaMapRec) -> Option<GameMessageDisposition> {
         .eq_ignore_ascii_case("DEMO_TOGGLE_HAND_OF_GOD_MODE")
     {
         if !TheGameLogic::is_in_multiplayer_game() {
-            let enabled = toggle_shared_bool_state(hand_of_god_mode_state());
+            let enabled = toggle_shared_bool_state(&HAND_OF_GOD_MODE);
             TheInGameUI::message(if enabled {
                 "Meta Hand-Of-God Mode is ON"
             } else {
@@ -174,7 +170,7 @@ fn dispatch_map_entry(record: &MetaMapRec) -> Option<GameMessageDisposition> {
         .eq_ignore_ascii_case("CHEAT_TOGGLE_HAND_OF_GOD_MODE")
     {
         if !TheGameLogic::is_in_multiplayer_game() {
-            let enabled = toggle_shared_bool_state(hand_of_god_mode_state());
+            let enabled = toggle_shared_bool_state(&HAND_OF_GOD_MODE);
             TheInGameUI::message(if enabled {
                 "Hand-Of-God Mode is ON"
             } else {
@@ -187,7 +183,7 @@ fn dispatch_map_entry(record: &MetaMapRec) -> Option<GameMessageDisposition> {
 
     if record.name.eq_ignore_ascii_case("DEMO_TOGGLE_HURT_ME_MODE") {
         if !TheGameLogic::is_in_multiplayer_game() {
-            let enabled = toggle_shared_bool_state(hurt_me_mode_state());
+            let enabled = toggle_shared_bool_state(&HURT_ME_MODE);
             TheInGameUI::message(if enabled {
                 "Hurt-Me Mode is ON"
             } else {
@@ -199,7 +195,7 @@ fn dispatch_map_entry(record: &MetaMapRec) -> Option<GameMessageDisposition> {
     }
 
     if record.name.eq_ignore_ascii_case("DEMO_DEBUG_SELECTION") {
-        let enabled = toggle_shared_bool_state(debug_selection_mode_state());
+        let enabled = toggle_shared_bool_state(&DEBUG_SELECTION_MODE);
         TheInGameUI::message(if enabled {
             "Debug-Selected-Item Mode is ON"
         } else {
@@ -483,14 +479,16 @@ fn dispatch_map_entry(record: &MetaMapRec) -> Option<GameMessageDisposition> {
         .eq_ignore_ascii_case("DEMO_NEXT_OBJECTIVE_MOVIE")
     {
         if TheGameLogic::is_in_game() {
-            let mut next = 1;
-            if let Ok(mut objective) = get_objective_movie_index().write() {
-                *objective += 1;
-                if *objective > 6 {
-                    *objective = 1;
+            let next = OBJECTIVE_MOVIE_INDEX.with(|objective| {
+                let next = objective.get() + 1;
+                if next > 6 {
+                    objective.set(1);
+                    1
+                } else {
+                    objective.set(next);
+                    next
                 }
-                next = *objective;
-            }
+            });
             let _ = TheInGameUI::play_movie(&format!("DemoObjective{next:02}"));
         }
         return Some(GameMessageDisposition::DestroyMessage);
@@ -498,9 +496,7 @@ fn dispatch_map_entry(record: &MetaMapRec) -> Option<GameMessageDisposition> {
 
     if let Some(movie_index) = parse_objective_movie_alias(&record.name) {
         if TheGameLogic::is_in_game() {
-            if let Ok(mut objective) = get_objective_movie_index().write() {
-                *objective = movie_index;
-            }
+            OBJECTIVE_MOVIE_INDEX.set(movie_index);
             let _ = TheInGameUI::play_movie(&format!("DemoObjective{movie_index:02}"));
         }
         return Some(GameMessageDisposition::DestroyMessage);

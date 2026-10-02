@@ -13,8 +13,8 @@
 //! Restore always replaces live orders so a load cannot leak the previous
 //! session's dest.
 
-use crate::game_logic::GameLogic;
 use crate::game_logic::host_cleanup_area::HostCleanupAreaOrder;
+use crate::game_logic::GameLogic;
 use crate::save_load::{SaveLoadError, SaveLoadResult};
 use serde::{Deserialize, Serialize};
 

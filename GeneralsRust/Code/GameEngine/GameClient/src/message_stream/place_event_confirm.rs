@@ -3,7 +3,7 @@
 //! Used by the crate translator and exported for the live host click path.
 
 use super::game_message::Coord3D;
-use crate::eva::{EvaMessage, get_eva};
+use crate::eva::{with_eva, EvaMessage};
 use crate::helpers::{PendingSpecialPower, TheInGameUI};
 use game_engine::common::system::build_assistant::CanMakeType as BuildCanMakeType;
 use gamelogic::common::audio::AudioEventRts;
@@ -20,7 +20,9 @@ pub fn placement_angle_from_world_drag(start: &Coord3D, end: &Coord3D) -> Option
     if dx.abs() <= f32::EPSILON && dy.abs() <= f32::EPSILON {
         return None;
     }
-    Some(game_engine::common::system::geometry::coord2d_to_angle(dx, dy))
+    Some(game_engine::common::system::geometry::coord2d_to_angle(
+        dx, dy,
+    ))
 }
 
 /// `BuildAssistant::isLineBuildTemplate` — KINDOF_LINEBUILD only.
@@ -121,9 +123,7 @@ pub fn can_make_unit_for_place(
 
 pub fn play_can_make_failure(failure: BuildCanMakeType) {
     if failure == BuildCanMakeType::NoMoney {
-        if let Ok(mut eva) = get_eva().lock() {
-            eva.set_should_play(EvaMessage::InsufficientFunds);
-        }
+        with_eva(|eva| eva.set_should_play(EvaMessage::InsufficientFunds));
     }
     if let Some(message) = failure_message_for_can_make(failure) {
         TheInGameUI::message(message);

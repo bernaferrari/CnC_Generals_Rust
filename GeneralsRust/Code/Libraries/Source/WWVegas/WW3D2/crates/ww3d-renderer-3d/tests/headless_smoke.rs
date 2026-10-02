@@ -12,6 +12,11 @@ lazy_static! {
 
 #[test]
 fn headless_wrapper_supports_basic_lifecycle() {
+    // All three tests here share the process-wide GPU device authority; this
+    // test must hold the same lock as its siblings or its `new_headless` can
+    // race another test's acquisition and fail with AlreadyInitialised.
+    let _guard = ENGINE_TEST_MUTEX.lock().expect("engine mutex poisoned");
+
     let mut wrapper = WgpuWrapper::new_headless((32, 32), wgpu::TextureFormat::Bgra8Unorm)
         .expect("failed to construct headless wrapper");
 

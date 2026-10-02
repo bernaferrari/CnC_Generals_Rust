@@ -7,6 +7,7 @@
 //! cross that boundary as typed data rather than through the legacy singleton.
 
 use std::{
+    cell::RefCell,
     collections::VecDeque,
     sync::{Mutex, OnceLock},
 };
@@ -48,9 +49,15 @@ struct HostOptionsBridge {
     requests: VecDeque<HostOptionsRequest>,
 }
 
-fn host_options_bridge() -> &'static Mutex<HostOptionsBridge> {
-    static BRIDGE: OnceLock<Mutex<HostOptionsBridge>> = OnceLock::new();
-    BRIDGE.get_or_init(|| Mutex::new(HostOptionsBridge::default()))
+// THREAD: main thread only — published by GUI-thread OptionsMenu WND callbacks
+// and drained by the host on the same thread.
+thread_local! {
+    static HOST_OPTIONS_BRIDGE: RefCell<HostOptionsBridge> =
+        RefCell::new(HostOptionsBridge::default());
+}
+
+fn with_host_options_bridge<R>(f: impl FnOnce(&mut HostOptionsBridge) -> R) -> R {
+    HOST_OPTIONS_BRIDGE.with_borrow_mut(f)
 }
 
 /// Enable or disable Main-host delivery for OptionsMenu camera preferences.
@@ -59,71 +66,62 @@ fn host_options_bridge() -> &'static Mutex<HostOptionsBridge> {
 /// disabled. Changing owners drops only unconsumed preference updates; Main
 /// retains the preference it has already applied.
 pub fn set_host_options_bridge_enabled(enabled: bool) {
-    let mut bridge = host_options_bridge()
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
-    if bridge.enabled != enabled {
-        bridge.enabled = enabled;
-        bridge.requests.clear();
-    }
+    with_host_options_bridge(|bridge| {
+        if bridge.enabled != enabled {
+            bridge.enabled = enabled;
+            bridge.requests.clear();
+        }
+    });
 }
 
 /// Drain the camera-preference requests published by live OptionsMenu WND
 /// callbacks.
 pub fn take_host_options_requests() -> Vec<HostOptionsRequest> {
-    host_options_bridge()
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
-        .requests
-        .drain(..)
-        .collect()
+    with_host_options_bridge(|bridge| bridge.requests.drain(..).collect())
 }
 
 /// Publish an OptionsMenu update only when Main owns its live effect.
 /// Returning `false` preserves the standalone legacy callback behaviour.
 pub(crate) fn publish_host_move_rmb_scroll_anchor(enabled: bool) -> bool {
-    let mut bridge = host_options_bridge()
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
-    if !bridge.enabled {
-        return false;
-    }
-    bridge
-        .requests
-        .push_back(HostOptionsRequest::MoveRmbScrollAnchor { enabled });
-    true
+    with_host_options_bridge(|bridge| {
+        if !bridge.enabled {
+            return false;
+        }
+        bridge
+            .requests
+            .push_back(HostOptionsRequest::MoveRmbScrollAnchor { enabled });
+        true
+    })
 }
 
 /// Publish an Alternate Mouse update only when Main owns physical world
 /// input.  Returning `false` deliberately leaves the standalone GameClient
 /// compatibility path untouched.
 pub(crate) fn publish_host_alternate_mouse(enabled: bool) -> bool {
-    let mut bridge = host_options_bridge()
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
-    if !bridge.enabled {
-        return false;
-    }
-    bridge
-        .requests
-        .push_back(HostOptionsRequest::AlternateMouse { enabled });
-    true
+    with_host_options_bridge(|bridge| {
+        if !bridge.enabled {
+            return false;
+        }
+        bridge
+            .requests
+            .push_back(HostOptionsRequest::AlternateMouse { enabled });
+        true
+    })
 }
 
 /// Publish a DrawRMBScrollAnchor update only when Main owns the active
 /// camera-drag presentation.  The setting remains process/UI state rather
 /// than savegame state, just like its moving-anchor sibling.
 pub(crate) fn publish_host_draw_rmb_scroll_anchor(enabled: bool) -> bool {
-    let mut bridge = host_options_bridge()
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
-    if !bridge.enabled {
-        return false;
-    }
-    bridge
-        .requests
-        .push_back(HostOptionsRequest::DrawRmbScrollAnchor { enabled });
-    true
+    with_host_options_bridge(|bridge| {
+        if !bridge.enabled {
+            return false;
+        }
+        bridge
+            .requests
+            .push_back(HostOptionsRequest::DrawRmbScrollAnchor { enabled });
+        true
+    })
 }
 
 #[cfg(test)]

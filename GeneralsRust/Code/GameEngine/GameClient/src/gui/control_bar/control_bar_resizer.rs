@@ -2,8 +2,7 @@
 //!
 //! Ported from `ControlBarResizer.cpp`.
 
-
-use std::sync::RwLock;
+use std::cell::RefCell;
 
 /// Mirrors the C++ `ResizerWindow` data blob.
 #[derive(Debug, Clone)]
@@ -32,16 +31,19 @@ impl ResizerWindow {
 /// The original C++ implementation applies positions directly to `GameWindow`s.
 /// The Rust UI stack is transitioning to layout-driven sizing, so we persist the same authored
 /// data here and provide deterministic scaling calculations.
+// THREAD: main thread only — the resizer is residual/test scaffolding driven by
+// the GUI thread's menu callbacks, so its window list and the singleton slot
+// below are plain cells instead of locks.
 #[derive(Debug)]
 pub struct IniControlBarResizer {
-    windows: RwLock<Vec<ResizerWindow>>,
+    windows: RefCell<Vec<ResizerWindow>>,
     base_resolution: (u32, u32),
 }
 
 impl Default for IniControlBarResizer {
     fn default() -> Self {
         Self {
-            windows: RwLock::new(Vec::new()),
+            windows: RefCell::new(Vec::new()),
             base_resolution: (800, 600),
         }
     }
@@ -53,19 +55,15 @@ impl IniControlBarResizer {
     }
 
     pub fn add_window(&self, window: ResizerWindow) {
-        if let Ok(mut windows) = self.windows.write() {
-            windows.push(window);
-        }
+        self.windows.borrow_mut().push(window);
     }
 
     pub fn clear(&self) {
-        if let Ok(mut windows) = self.windows.write() {
-            windows.clear();
-        }
+        self.windows.borrow_mut().clear();
     }
 
     pub fn window_count(&self) -> usize {
-        self.windows.read().map(|w| w.len()).unwrap_or(0)
+        self.windows.borrow().len()
     }
 
     pub fn set_base_resolution(&mut self, width: u32, height: u32) {
@@ -79,16 +77,15 @@ impl IniControlBarResizer {
         let scale_x = width as f32 / base_w as f32;
         let scale_y = height as f32 / base_h as f32;
 
-        if let Ok(windows) = self.windows.read() {
-            log::trace!(
-                "ControlBarResizer resize {} windows to {}x{} (scale {:.3}, {:.3})",
-                windows.len(),
-                width,
-                height,
-                scale_x,
-                scale_y
-            );
-        }
+        let windows = self.windows.borrow();
+        log::trace!(
+            "ControlBarResizer resize {} windows to {}x{} (scale {:.3}, {:.3})",
+            windows.len(),
+            width,
+            height,
+            scale_x,
+            scale_y
+        );
 
         Ok(())
     }
@@ -124,10 +121,12 @@ fn residual_cb_resizer_action_store(action: ResidualControlBarResizerAction) {
     RESIDUAL_CB_RESIZER_ACTION.store(action as u8, std::sync::atomic::Ordering::Relaxed);
 }
 
-fn residual_cb_resizer() -> &'static std::sync::Mutex<IniControlBarResizer> {
-    static RESIZER: std::sync::OnceLock<std::sync::Mutex<IniControlBarResizer>> =
-        std::sync::OnceLock::new();
-    RESIZER.get_or_init(|| std::sync::Mutex::new(IniControlBarResizer::new()))
+thread_local! {
+    static RESIZER: RefCell<IniControlBarResizer> = RefCell::new(IniControlBarResizer::new());
+}
+
+fn with_residual_cb_resizer<R>(f: impl FnOnce(&mut IniControlBarResizer) -> R) -> R {
+    RESIZER.with_borrow_mut(f)
 }
 
 /// Residual: last ControlBar resizer residual action.
@@ -169,43 +168,37 @@ pub fn simulate_control_bar_resizer_add_window(name: &str) -> bool {
     if name.is_empty() {
         return false;
     }
-    let Ok(resizer) = residual_cb_resizer().lock() else {
-        return false;
-    };
-    resizer.add_window(ResizerWindow::new(name));
-    residual_cb_resizer_sync(&resizer);
+    with_residual_cb_resizer(|resizer| {
+        resizer.add_window(ResizerWindow::new(name));
+        residual_cb_resizer_sync(resizer);
+    });
     residual_cb_resizer_action_store(ResidualControlBarResizerAction::AddWindow);
     residual_control_bar_resizer_window_count() > 0
 }
 
 /// Residual: clear residual resizer windows.
 pub fn simulate_control_bar_resizer_clear() -> bool {
-    let Ok(resizer) = residual_cb_resizer().lock() else {
-        return false;
-    };
-    resizer.clear();
-    residual_cb_resizer_sync(&resizer);
+    with_residual_cb_resizer(|resizer| {
+        resizer.clear();
+        residual_cb_resizer_sync(resizer);
+    });
     residual_cb_resizer_action_store(ResidualControlBarResizerAction::Clear);
     residual_control_bar_resizer_window_count() == 0
 }
 
 /// Residual: set base resolution residual (default 800x600 retail).
 pub fn simulate_control_bar_resizer_set_base_resolution(width: u32, height: u32) -> bool {
-    let Ok(mut resizer) = residual_cb_resizer().lock() else {
-        return false;
-    };
-    resizer.set_base_resolution(width, height);
-    residual_cb_resizer_sync(&resizer);
+    with_residual_cb_resizer(|resizer| {
+        resizer.set_base_resolution(width, height);
+        residual_cb_resizer_sync(resizer);
+    });
     residual_cb_resizer_action_store(ResidualControlBarResizerAction::SetBaseResolution);
     residual_control_bar_resizer_base_resolution() == (width.max(1), height.max(1))
 }
 
 /// Residual: resize residual without GameWindow apply.
 pub fn simulate_control_bar_resizer_resize(width: u32, height: u32) -> bool {
-    let Ok(resizer) = residual_cb_resizer().lock() else {
-        return false;
-    };
-    match resizer.resize(width, height) {
+    match with_residual_cb_resizer(|resizer| resizer.resize(width, height)) {
         Ok(()) => {
             residual_cb_resizer_action_store(ResidualControlBarResizerAction::Resize);
             true
@@ -216,10 +209,7 @@ pub fn simulate_control_bar_resizer_resize(width: u32, height: u32) -> bool {
 
 /// Residual: get optimal size residual.
 pub fn simulate_control_bar_resizer_get_optimal_size() -> (u32, u32) {
-    let Ok(resizer) = residual_cb_resizer().lock() else {
-        return (0, 0);
-    };
-    let size = resizer.get_optimal_size();
+    let size = with_residual_cb_resizer(|resizer| resizer.get_optimal_size());
     residual_cb_resizer_action_store(ResidualControlBarResizerAction::GetOptimal);
     size
 }

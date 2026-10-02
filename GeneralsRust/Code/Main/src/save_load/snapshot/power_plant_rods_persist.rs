@@ -67,8 +67,9 @@ pub fn apply_from_lifecycle_tail(bytes: &[u8], game_logic: &mut GameLogic) -> Sa
             "PPRD payload truncated".to_string(),
         ));
     }
-    let payload: PowerPlantRodsPersistPayload = bincode_legacy::deserialize(&rest[..payload_len])
-        .map_err(|err| SaveLoadError::Corrupted(format!("PPRD payload decode: {err}")))?;
+    let payload: PowerPlantRodsPersistPayload =
+        bincode_legacy::deserialize(&rest[..payload_len])
+            .map_err(|err| SaveLoadError::Corrupted(format!("PPRD payload decode: {err}")))?;
     apply_payload(game_logic, payload);
     Ok(())
 }

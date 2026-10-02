@@ -12,6 +12,20 @@ fn stream_contains_clear_game_data() -> bool {
     )
 }
 
+/// Collision snapshot lifted out of the object guard so neither the
+/// GameLogic map borrow nor the registry scoped borrow has to span the
+/// collision-system calls.
+fn collision_position_snapshot(
+    obj: &Object,
+) -> (ObjectID, Coord3D, CollisionGeometryInfo) {
+    let pos = obj.get_position();
+    (
+        obj.get_id(),
+        *pos,
+        map_collision_geometry(&obj.get_geometry_info(), obj.get_template_geometry_type()),
+    )
+}
+
 impl GameLogic {
     /// **THE MAIN GAME LOOP** - Execute one simulation frame
     ///
@@ -447,16 +461,10 @@ impl GameLogic {
         self.event_queue.clear();
         self.radar_updates.clear();
 
-        // Clear temporary flags on objects
-        for obj_id in &self.all_objects {
-            if let Some(obj_ref) = self.objects.get(obj_id) {
-                if let Ok(_obj) = obj_ref.write() {
-                    // Clear frame-based flags
-                    // (In full implementation, this would clear selection updates,
-                    // temporary status bits, etc.)
-                }
-            }
-        }
+        // Temporary flag clearing is still a stub (C++ clears selection
+        // updates / temporary status bits here). Deliberately no per-object
+        // write pass: the previous loop took a write lock on every live
+        // object every frame and mutated nothing.
 
         Ok(())
     }
@@ -821,8 +829,9 @@ impl GameLogic {
                     _ => None,
                 });
                 if let (Some(id), Some(dest)) = (obj_id, dest) {
-                    if let Some(obj_arc) = self.find_object_by_id(id) {
-                        if let Ok(mut obj) = obj_arc.write() {
+                    // Scoped map borrow — no Arc handle clone.
+                    if let Some(obj_entry) = self.objects.get(&id) {
+                        if let Ok(mut obj) = obj_entry.write() {
                             let _ = obj.set_rally_point(&dest);
                         }
                     }
@@ -1033,22 +1042,23 @@ impl GameLogic {
         if !collision_ids.is_empty() {
             let _ = with_collision_system_mut(|system| {
                 for obj_id in collision_ids {
-                    let obj_arc = match self
-                        .find_object_by_id(obj_id)
-                        .or_else(|| OBJECT_REGISTRY.get_object(obj_id))
-                    {
-                        Some(v) => v,
-                        None => continue,
-                    };
-                    let Ok(obj) = obj_arc.read() else {
+                    // GameLogic-owned lookup first: a registry store miss
+                    // while the GameLogic lock is held would warn and drop
+                    // the object (C++ GameLogic.h:386-397 is a plain array
+                    // index, never a miss). Registry scoped borrow covers
+                    // factory-only registrations. Neither path retains an
+                    // Arc handle.
+                    let snapshot = self
+                        .objects
+                        .get(&obj_id)
+                        .and_then(|entry| entry.read().ok())
+                        .map(|obj| collision_position_snapshot(&obj))
+                        .or_else(|| {
+                            OBJECT_REGISTRY.with_object(obj_id, collision_position_snapshot)
+                        });
+                    let Some((id, pos, geom)) = snapshot else {
                         continue;
                     };
-                    let id = obj.get_id();
-                    let pos = obj.get_position();
-                    let geom = map_collision_geometry(
-                        &obj.get_geometry_info(),
-                        obj.get_template_geometry_type(),
-                    );
                     if system
                         .update_object_position(
                             id,
@@ -1081,16 +1091,19 @@ impl GameLogic {
             // lock (GameLogic.h:386-397). Mirror the collision loop above:
             // GameLogic-owned lookup first, registry fallback, so a registry
             // store miss while the GameLogic lock is held does not silently
-            // skip shroud look/unlook maintenance.
-            let Some(obj_arc) = self
-                .find_object_by_id(obj_id)
-                .or_else(|| OBJECT_REGISTRY.get_object(obj_id))
-            else {
-                continue;
-            };
-            if let Ok(mut object_guard) = obj_arc.write() {
-                object_guard.handle_partition_cell_maintenance();
-            }
+            // skip shroud look/unlook maintenance. Both paths are scoped —
+            // no Arc handle crosses this boundary.
+            let cell_maintained = self
+                .objects
+                .get(&obj_id)
+                .and_then(|entry| entry.write().ok())
+                .map(|mut object_guard| object_guard.handle_partition_cell_maintenance())
+                .or_else(|| {
+                    OBJECT_REGISTRY.with_object_mut(obj_id, |object_guard| {
+                        object_guard.handle_partition_cell_maintenance()
+                    })
+                });
+            let _ = cell_maintained;
         }
 
         // Update physics engine (terrain-aware simulation)

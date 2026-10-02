@@ -26,15 +26,15 @@
 
 //! Wave 957: host_object/host_objects authority dual-read seal.
 use crate::game_logic::script_loader::{find_map_file, load_map_scripts};
-use crate::game_logic::victory_conditions::{VictoryType, victory_rules_for_map};
+use crate::game_logic::victory_conditions::{victory_rules_for_map, VictoryType};
 use crate::game_logic::{GameLogic, GameMode, Resources};
 use crate::map_frame_scenario::resolve_first_map;
-use crate::save_load::SaveLoadManager;
 use crate::save_load::campaign::{
     CampaignId, CampaignManager, MissionCompletionData, MissionDifficulty, MissionInfo,
     MissionObjective, MissionStatus, ObjectiveReward, ObjectiveTarget, ObjectiveType,
 };
-use crate::save_load::game_state::global_campaign_manager;
+use crate::save_load::game_state::with_global_campaign_manager;
+use crate::save_load::SaveLoadManager;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -241,15 +241,11 @@ fn sample_mission(map_name: &str) -> MissionInfo {
 }
 
 fn register_global_mission(map_name: &str) -> bool {
-    let Ok(mgr_arc) = global_campaign_manager() else {
-        return false;
-    };
-    let Ok(mut mgr) = mgr_arc.lock() else {
-        return false;
-    };
-    mgr.mission_definitions
-        .insert(MISSION_ID.into(), sample_mission(map_name));
-    true
+    with_global_campaign_manager(|mgr| {
+        mgr.mission_definitions
+            .insert(MISSION_ID.into(), sample_mission(map_name));
+    })
+    .is_ok()
 }
 
 fn count_scripts_in_map(path: &Path) -> (bool, usize) {
@@ -363,26 +359,24 @@ pub fn run_golden_campaign_ex(
 
     // Ensure Campaign.ini residual table (usa_01 / MD_USA01 + objectives) is
     // present on the global manager when available.
-    if let Ok(mgr_arc) = global_campaign_manager() {
-        if let Ok(mut mgr) = mgr_arc.lock() {
-            let _ = mgr.init();
-            // Re-apply residual mission keys after init (init may load table).
+    let _ = with_global_campaign_manager(|mgr| {
+        let _ = mgr.init();
+        // Re-apply residual mission keys after init (init may load table).
+        mgr.mission_definitions
+            .insert(MISSION_ID.into(), sample_mission(&victory_map_key));
+        if let Some((id, path)) = &campaign_resolved {
             mgr.mission_definitions
-                .insert(MISSION_ID.into(), sample_mission(&victory_map_key));
-            if let Some((id, path)) = &campaign_resolved {
+                .insert(format!("{MISSION_ID}_ID"), sample_mission(id));
+            mgr.mission_definitions.insert(
+                format!("{MISSION_ID}_PATH"),
+                sample_mission(path.to_str().unwrap_or(id)),
+            );
+            if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
                 mgr.mission_definitions
-                    .insert(format!("{MISSION_ID}_ID"), sample_mission(id));
-                mgr.mission_definitions.insert(
-                    format!("{MISSION_ID}_PATH"),
-                    sample_mission(path.to_str().unwrap_or(id)),
-                );
-                if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
-                    mgr.mission_definitions
-                        .insert(format!("{MISSION_ID}_STEM"), sample_mission(stem));
-                }
+                    .insert(format!("{MISSION_ID}_STEM"), sample_mission(stem));
             }
         }
-    }
+    });
 
     let campaign_started = progression
         .start_campaign(CampaignId::USACampaign, "golden_campaign")

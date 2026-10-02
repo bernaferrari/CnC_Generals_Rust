@@ -2180,11 +2180,9 @@ mod tests {
 
         let save_path = manager.get_save_path("test_save");
         assert!(save_path.to_string_lossy().contains("test_save"));
-        assert!(
-            save_path
-                .to_string_lossy()
-                .ends_with(&format!(".{}", SAVE_EXTENSION))
-        );
+        assert!(save_path
+            .to_string_lossy()
+            .ends_with(&format!(".{}", SAVE_EXTENSION)));
 
         let temp_path = manager.get_temp_path("test_temp");
         assert!(temp_path.to_string_lossy().contains("test_temp"));
@@ -2370,7 +2368,8 @@ mod tests {
                 .is_none(),
             "v4 predecessor records must default the v5 collector tail"
         );
-        let current_payload = bincode_legacy::serialize(&migrated).expect("serialize current snapshot");
+        let current_payload =
+            bincode_legacy::serialize(&migrated).expect("serialize current snapshot");
         let (current_round_trip, current_path) = decode_bincode_world_snapshot(&current_payload)
             .expect("current production snapshot should remain readable");
         assert_eq!(current_path, BincodeWorldSnapshotDecodePath::Current);
