@@ -3,19 +3,19 @@ use crate::common::{DefaultThingTemplate, KindOf};
 use crate::player::{Player, PlayerList, player_list};
 use crate::team::Team;
 
-struct CompletionFixture {
+pub(crate) struct CompletionFixture {
     previous_players: Option<PlayerList>,
     previous_objects: Option<crate::object_manager::ObjectManager>,
     previous_script: Option<crate::scripting::engine::ScriptEngine>,
     previous_names: Option<crate::scripting::events::NamedObjectTrackerState>,
     previous_ai: Option<crate::ai::integration::AiIntegrationManager>,
-    player: Arc<RwLock<Player>>,
-    builder: Arc<RwLock<Object>>,
-    structure: Arc<RwLock<Object>>,
+    pub(crate) player: Arc<RwLock<Player>>,
+    pub(crate) builder: Arc<RwLock<Object>>,
+    pub(crate) structure: Arc<RwLock<Object>>,
 }
 
 impl CompletionFixture {
-    fn new(power: i32) -> Self {
+    pub(crate) fn new(power: i32) -> Self {
         let previous_objects = Some(std::mem::replace(
             &mut *crate::object_manager::get_object_manager().write().unwrap(),
             crate::object_manager::ObjectManager::new(),
@@ -93,7 +93,7 @@ impl CompletionFixture {
         }
     }
 
-    fn complete(&self, rebuild: bool) {
+    pub(crate) fn complete(&self, rebuild: bool) {
         let mut dozer = DozerAIUpdate::new(
             DozerAIUpdateData::default(),
             self.builder.read().unwrap().get_id(),

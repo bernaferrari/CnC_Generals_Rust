@@ -1068,10 +1068,6 @@ impl WorkerAIUpdate {
                 }
             }
 
-            target_guard.handle_partition_cell_maintenance();
-            target_guard.update_upgrade_modules_from_player();
-            target_guard.on_build_complete();
-
             let template = target_guard.get_template();
             target_display_name = Some(template.get_name().as_str().to_string());
             target_pos = Some(*target_guard.get_position());
@@ -1083,6 +1079,16 @@ impl WorkerAIUpdate {
             crate::player::Player::on_structure_construction_complete(
                 &player, builder_id, target, is_rebuild,
             );
+            // WorkerAIUpdate.cpp uses DozerPrimaryStateMachine: player and AI
+            // notification precedes create hooks, and requires a controller.
+            if let Ok(mut target_guard) = target.write() {
+                target_guard.on_build_complete();
+            }
+        }
+
+        if let Ok(mut target_guard) = target.write() {
+            target_guard.handle_partition_cell_maintenance();
+            target_guard.update_upgrade_modules_from_player();
         }
 
         if let Ok(owner_guard) = owner.read() {
@@ -1302,3 +1308,7 @@ mod worker_dozer_parity_tests {
         assert_eq!(worker.get_number_boxes(), 0);
     }
 }
+
+#[cfg(test)]
+#[path = "construction_tests.rs"]
+mod construction_tests;
