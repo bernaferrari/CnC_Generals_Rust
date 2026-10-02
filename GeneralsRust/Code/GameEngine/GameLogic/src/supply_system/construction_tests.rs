@@ -187,7 +187,9 @@ fn worker_create_modules_observe_completed_player_and_ai_phases() {
                     }
                     .to_owned(),
                     health: if ai { 75.0 } else { 100.0 },
-                    cached_id: Some(fixture.structure.read().unwrap().get_id()),
+                    // C++ AI explicitly adds the completed build-list object
+                    // to cache; human notification only records the frame.
+                    cached_id: ai.then(|| fixture.structure.read().unwrap().get_id()),
                     supply_plan: ai.then_some((true, 1, -1)),
                     supply_center_registered: false,
                 })]
@@ -285,7 +287,7 @@ fn real_supply_center_create_completes_without_relocking_its_object() {
             build_list_pending: false,
             name: "CompletionScriptName".into(),
             health: 100.0,
-            cached_id: Some(fixture.structure.read().unwrap().get_id()),
+            cached_id: None,
             supply_plan: None,
             supply_center_registered: true,
         })]
@@ -419,10 +421,7 @@ fn worker_runs_real_player_upgrade_grant_after_notification() {
         assert_eq!(views.len(), 1);
         assert_eq!(view.money_spent, 700);
         assert_eq!(view.buildings_built, 1);
-        assert_eq!(
-            view.cached_id,
-            Some(fixture.structure.read().unwrap().get_id())
-        );
+        assert_eq!(view.cached_id, None);
         drop(views);
         // Object dispatch itself respects the module's completed flag.
         fixture.structure.write().unwrap().on_build_complete();

@@ -4,6 +4,7 @@
 
 use std::sync::Arc;
 
+use crate::common::ObjectID;
 use crate::object::create::CreateModule;
 use crate::player::ThePlayerList;
 use game_engine::common::system::{Snapshotable, Xfer};
@@ -20,6 +21,24 @@ impl SupplyWarehouseCreate {
             base: CreateModule::new(thing),
         }
     }
+
+    fn register_supply_warehouse(&self, object_id: ObjectID) {
+        if object_id == 0 {
+            return;
+        }
+
+        if let Ok(list_guard) = ThePlayerList().read() {
+            for player_arc in list_guard.iter().rev() {
+                let Ok(mut player_guard) = player_arc.write() else {
+                    continue;
+                };
+                let Some(manager) = player_guard.get_resource_manager_mut() else {
+                    continue;
+                };
+                manager.add_supply_warehouse(object_id);
+            }
+        }
+    }
 }
 
 impl CreateInterface for SupplyWarehouseCreate {
@@ -30,20 +49,14 @@ impl CreateInterface for SupplyWarehouseCreate {
             .as_object()
             .map(|obj| obj.get_object_id())
             .unwrap_or_default();
-        if object_id == 0 {
-            return;
-        }
+        self.register_supply_warehouse(object_id);
+    }
 
-        if let Ok(list_guard) = ThePlayerList().read() {
-            for player_arc in list_guard.iter() {
-                let Ok(mut player_guard) = player_arc.write() else {
-                    continue;
-                };
-                let Some(manager) = player_guard.get_resource_manager_mut() else {
-                    continue;
-                };
-                manager.add_supply_warehouse(object_id);
-            }
+    fn on_create_with_owner(&self, owner: &mut dyn std::any::Any) {
+        // Object::init_object already holds its owner mutably. The Thing
+        // handle would acquire the same object lock a second time.
+        if let Some(object) = owner.downcast_ref::<crate::object::Object>() {
+            self.register_supply_warehouse(object.get_id());
         }
     }
 

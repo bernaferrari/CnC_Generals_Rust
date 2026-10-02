@@ -202,7 +202,16 @@ fn dozer_completion_scores_notifies_scripts_and_survives_player_xfer() {
             crate::scripting::engine::get_named_object_tracker()
                 .get_object_id("CompletionScriptName")
                 .unwrap(),
-            Some(fixture.structure.read().unwrap().get_id())
+            None // C++ notification only invalidates frame-keyed conditions.
+        );
+        assert_eq!(
+            crate::scripting::engine::get_script_engine()
+                .read()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .get_frame_object_count_changed(),
+            crate::helpers::TheGameLogic::get_frame() as u32
         );
         let mut player = fixture.player.write().unwrap();
         let loaded = roundtrip_player(&mut player);

@@ -39,3 +39,6 @@ pub use lock_weapon_create::{LockWeaponCreate, LockWeaponCreateModuleData};
 pub type LockWeaponCreateData = LockWeaponCreateModuleData;
 
 pub use eva_announce_client_create::{EvaAnnounceClientCreate, EvaAnnounceClientCreateData};
+
+#[cfg(test)]
+mod supply_create_tests;

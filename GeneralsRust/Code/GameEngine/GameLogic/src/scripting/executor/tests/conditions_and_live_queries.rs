@@ -49,12 +49,14 @@ fn named_flash_sets_drawable_flash_count_for_presentation() {
     let mut dispatcher = ScriptActionDispatcher::new(Arc::new(RwLock::new(ScriptContext::new())));
     dispatcher.do_named_flash(&action).unwrap();
 
-    let guard = drawable.read().unwrap();
-    assert_eq!(
-        guard.get_flash_count(),
-        4,
-        "2s * 30fps / 15 frames-per-flash"
-    );
+    {
+        let guard = drawable.read().unwrap();
+        assert_eq!(
+            guard.get_flash_count(),
+            4,
+            "2s * 30fps / 15 frames-per-flash"
+        );
+    }
 
     get_object_manager().write().unwrap().reset();
     get_named_object_tracker().clear().unwrap();
