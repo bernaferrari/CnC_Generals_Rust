@@ -54,32 +54,45 @@ impl Player {
             self.enable_radar();
         }
 
-        let obj_manager = get_object_manager();
-        if let Ok(manager) = obj_manager.read() {
-            let object_ids = manager.get_objects_owned_by_player(self.player_index as UnsignedInt);
+        Self::apply_power_brownout_to_owned_objects(self.player_index, is_brown_out);
+        Ok(())
+    }
 
-            for obj_id in object_ids {
-                let Some(obj_arc) = manager.get_object(obj_id) else {
-                    continue;
-                };
-                let Ok(obj_instance) = obj_arc.write() else {
-                    continue;
-                };
-                let __base_arc = obj_instance.base();
-                let Ok(mut base_obj) = __base_arc.write() else {
-                    continue;
-                };
-                if base_obj.is_kind_of(KindOf::Powered) {
-                    if is_brown_out {
-                        base_obj.set_disabled(DisabledType::DisabledUnderpowered);
-                    } else {
-                        base_obj.clear_disabled(DisabledType::DisabledUnderpowered);
-                    }
+    /// Execute the object phase of C++ Player::onPowerBrownOutChange.
+    /// The driving callback must release its player borrow first: disabling an
+    /// object may look up its player and notify radar or power modules.
+    pub(super) fn apply_power_brownout_to_owned_objects(
+        player_index: PlayerIndex,
+        is_brown_out: bool,
+    ) {
+        let manager = get_object_manager();
+        let object_ids = manager
+            .read()
+            .ok()
+            .map(|manager| manager.get_objects_owned_by_player(player_index as UnsignedInt))
+            .unwrap_or_default();
+        for object_id in object_ids {
+            // Resolve each live object in order, rather than retaining future
+            // objects that a preceding module callback might destroy.
+            let object = manager.read().ok().and_then(|manager| {
+                manager
+                    .get_object(object_id)
+                    .and_then(|slot| slot.read().ok().and_then(|instance| instance.base_object()))
+            });
+            let Some(object) = object else {
+                continue;
+            };
+            let Ok(mut object) = object.write() else {
+                continue;
+            };
+            if object.is_kind_of(KindOf::Powered) {
+                if is_brown_out {
+                    object.set_disabled(DisabledType::DisabledUnderpowered);
+                } else {
+                    object.clear_disabled(DisabledType::DisabledUnderpowered);
                 }
             }
         }
-
-        Ok(())
     }
 
     pub fn get_player_color(&self) -> Color {

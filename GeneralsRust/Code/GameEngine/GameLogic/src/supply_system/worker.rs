@@ -497,7 +497,8 @@ impl WorkerAIUpdate {
             if let Err(err) = bridge.try_remove_scaffolding() {
                 log::debug!(
                     "WorkerAIUpdate::remove_bridge_scaffolding failed for bridge {}: {}",
-                    bridge_id, err
+                    bridge_id,
+                    err
                 );
             }
             break;
@@ -861,33 +862,33 @@ impl WorkerAIUpdate {
                     let can_heal = !target_is_bridge_tower
                         || !Self::bridge_scaffold_blocks_heal(task.target_id);
                     if can_heal {
-                    let health = {
-                        let max_health = if let Ok(tg) = target.read() {
-                            tg.get_body_module()
-                                .map(|b| b.get_max_health())
-                                .unwrap_or(0.0)
-                        } else {
-                            0.0
+                        let health = {
+                            let max_health = if let Ok(tg) = target.read() {
+                                tg.get_body_module()
+                                    .map(|b| b.get_max_health())
+                                    .unwrap_or(0.0)
+                            } else {
+                                0.0
+                            };
+                            max_health * repair_rate * SECONDS_PER_LOGICFRAME_REAL
                         };
-                        max_health * repair_rate * SECONDS_PER_LOGICFRAME_REAL
-                    };
-                    let healed = if let Ok(mut tw) = target.write() {
-                        match tw.attempt_healing_from_sole_benefactor_id(
-                            health,
-                            self.object_id,
-                            2,
-                        ) {
-                            Ok(ok) => ok,
-                            Err(_) => false,
+                        let healed = if let Ok(mut tw) = target.write() {
+                            match tw.attempt_healing_from_sole_benefactor_id(
+                                health,
+                                self.object_id,
+                                2,
+                            ) {
+                                Ok(ok) => ok,
+                                Err(_) => false,
+                            }
+                        } else {
+                            false
+                        };
+                        if !healed {
+                            self.dozer_task = None;
+                            clear_current(self);
+                            return;
                         }
-                    } else {
-                        false
-                    };
-                    if !healed {
-                        self.dozer_task = None;
-                        clear_current(self);
-                        return;
-                    }
                     }
                 }
                 WorkerDozerTaskType::ResumeConstruction => {
@@ -1078,19 +1079,10 @@ impl WorkerAIUpdate {
         }
 
         if let Some(player) = controlling_player {
-            if let Ok(mut player_guard) = player.write() {
-                let builder_id = owner.read().ok().map(|g| g.get_id());
-                let structure_id = target
-                    .read()
-                    .ok()
-                    .map(|g| g.get_id())
-                    .unwrap_or(crate::common::INVALID_ID);
-                player_guard.on_structure_construction_complete_id(
-                    builder_id,
-                    structure_id,
-                    is_rebuild,
-                );
-            }
+            let builder_id = owner.read().ok().map(|guard| guard.get_id());
+            crate::player::Player::on_structure_construction_complete(
+                &player, builder_id, target, is_rebuild,
+            );
         }
 
         if let Ok(owner_guard) = owner.read() {
@@ -1310,4 +1302,3 @@ mod worker_dozer_parity_tests {
         assert_eq!(worker.get_number_boxes(), 0);
     }
 }
-

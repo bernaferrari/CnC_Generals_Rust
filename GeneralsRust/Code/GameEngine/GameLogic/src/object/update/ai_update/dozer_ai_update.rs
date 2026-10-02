@@ -670,9 +670,12 @@ impl DozerAIUpdate {
                 location: end_pos,
             };
             if task == DozerTask::Build {
-                let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(target_id, |target_write| {
-                    target_write.set_builder(Some(&owner_guard));
-                    });
+                let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(
+                    target_id,
+                    |target_write| {
+                        target_write.set_builder(Some(&owner_guard));
+                    },
+                );
             }
             self.tasks[task.as_index()].target_id = target_id;
         }
@@ -711,12 +714,13 @@ impl DozerAIUpdate {
                 point.valid = false;
             }
         }
-        let _ = crate::object::registry::OBJECT_REGISTRY.with_object(self.object_id, |owner_guard| {
-            if let Some(ai) = owner_guard.get_ai_update_interface() {
-                if let Ok(mut ai_guard) = ai.lock() {
-                    let _ = ai_guard.ai_idle();
+        let _ =
+            crate::object::registry::OBJECT_REGISTRY.with_object(self.object_id, |owner_guard| {
+                if let Some(ai) = owner_guard.get_ai_update_interface() {
+                    if let Ok(mut ai_guard) = ai.lock() {
+                        let _ = ai_guard.ai_idle();
+                    }
                 }
-            }
             });
     }
 
@@ -726,11 +730,14 @@ impl DozerAIUpdate {
             return;
         }
 
-        let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(self.object_id, |owner_guard| {
-            if task == DozerTask::Build || task == DozerTask::Repair {
-                owner_guard.clear_model_condition_state(MODELCONDITION_ACTIVELY_CONSTRUCTING);
-            }
-            });
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(
+            self.object_id,
+            |owner_guard| {
+                if task == DozerTask::Build || task == DozerTask::Repair {
+                    owner_guard.clear_model_condition_state(MODELCONDITION_ACTIVELY_CONSTRUCTING);
+                }
+            },
+        );
     }
 
     pub fn on_delete(&mut self) {
@@ -747,10 +754,11 @@ impl DozerAIUpdate {
         for task in [DozerTask::Build, DozerTask::Repair, DozerTask::Fortify] {
             let target_id = self.get_task_target(task);
             if target_id != INVALID_ID {
-                let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(target_id, |guard| {
-                    guard.clear_model_condition_state(
-                        ModelConditionFlags::ACTIVELY_BEING_CONSTRUCTED,
-                    );
+                let _ =
+                    crate::object::registry::OBJECT_REGISTRY.with_object_mut(target_id, |guard| {
+                        guard.clear_model_condition_state(
+                            ModelConditionFlags::ACTIVELY_BEING_CONSTRUCTED,
+                        );
                     });
             }
         }
@@ -937,8 +945,6 @@ impl DozerAIUpdate {
         let mut target_pos: Option<Coord3D> = None;
         let mut controlling_player: Option<Arc<RwLock<crate::player::Player>>> = None;
 
-        let mut structure_id = crate::common::INVALID_ID;
-
         if let Ok(mut target_guard) = target.write() {
             target_guard.clear_status(
                 crate::common::ObjectStatusMaskType::from_status(
@@ -972,17 +978,15 @@ impl DozerAIUpdate {
             }
             target_pos = Some(*target_guard.get_position());
             controlling_player = target_guard.get_controlling_player();
-            structure_id = target_guard.get_id();
         }
 
         if let Some(player) = controlling_player {
-            if let Ok(mut player_guard) = player.write() {
-                player_guard.on_structure_construction_complete_id(
-                    Some(self.object_id),
-                    structure_id,
-                    is_rebuild,
-                );
-            }
+            crate::player::Player::on_structure_construction_complete(
+                &player,
+                Some(self.object_id),
+                target,
+                is_rebuild,
+            );
         }
 
         if let Ok(mut target_guard) = target.write() {
@@ -1715,3 +1719,7 @@ mod tests {
         assert!((parsed - 45.0).abs() < f32::EPSILON);
     }
 }
+
+#[cfg(test)]
+#[path = "construction_callback_tests.rs"]
+mod construction_callback_tests;
