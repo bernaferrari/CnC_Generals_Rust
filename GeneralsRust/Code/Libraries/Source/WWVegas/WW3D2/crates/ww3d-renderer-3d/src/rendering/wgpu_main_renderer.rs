@@ -89,20 +89,6 @@ pub struct WgpuMainRenderer {
     shadow_caster_count_hint: u32,
 }
 
-#[cfg(target_arch = "wasm32")]
-// SAFETY: wasm32-only. The wgpu state lives behind `Arc<Mutex<WgpuWrapper>>`/
-// `Arc<Mutex<Renderer>>` (handles `Rc`-backed, `!Send`) and the callbacks are
-// plain `RefCell`s here. wasm32 has no threads, so no handle or `RefCell` can
-// ever cross a thread boundary; the impl only satisfies the bounds of the
-// global renderer registry. Native keeps auto traits (and uses `Mutex`).
-unsafe impl Send for WgpuMainRenderer {}
-#[cfg(target_arch = "wasm32")]
-// SAFETY: same wasm32-only scope: the target is single-threaded, so
-// `&WgpuMainRenderer` is never accessed from two threads; the `RefCell`
-// callback vectors and the mutex-guarded wgpu state cannot be entered
-// re-entrantly from a second thread.
-unsafe impl Sync for WgpuMainRenderer {}
-
 #[derive(Debug)]
 struct LegacyFrameClock {
     last_instant: Instant,
@@ -476,12 +462,9 @@ impl WgpuMainRenderer {
                 let surface_handle = backend.surface();
                 let surface_config = backend.surface_config().clone();
 
-                let mut renderer_guard = self
-                    .renderer
-                    .lock()
-                    .map_err(|_| {
-                        RendererError::InvalidOperation("renderer mutex poisoned".into())
-                    })?;
+                let mut renderer_guard = self.renderer.lock().map_err(|_| {
+                    RendererError::InvalidOperation("renderer mutex poisoned".into())
+                })?;
 
                 let msaa_samples = if self.config.anti_aliasing { 4 } else { 1 };
                 backend.set_msaa_samples(msaa_samples);
@@ -573,16 +556,22 @@ impl WgpuMainRenderer {
         Ok(())
     }
 
+    /// Queue work for this renderer's driving frame. Native callbacks retain
+    /// Send; browser GPU handles follow wgpu's same-thread callback contract.
     pub fn enqueue_post_frame_callback<F>(&mut self, callback: F)
     where
-        F: FnOnce(&mut ww3d_engine::RenderFrame) -> RendererResult<()> + Send + 'static,
+        F: FnOnce(&mut ww3d_engine::RenderFrame) -> RendererResult<()>
+            + wgpu::WasmNotSend
+            + 'static,
     {
         self.post_frame_callbacks.push(Box::new(callback));
     }
 
     pub fn enqueue_pre_scene_callback<F>(&mut self, callback: F)
     where
-        F: FnOnce(&mut ww3d_engine::RenderFrame) -> RendererResult<()> + Send + 'static,
+        F: FnOnce(&mut ww3d_engine::RenderFrame) -> RendererResult<()>
+            + wgpu::WasmNotSend
+            + 'static,
     {
         self.pre_scene_callbacks.push(Box::new(callback));
     }
@@ -763,27 +752,14 @@ impl From<&MainRendererStats> for FrameStats {
 pub(crate) struct WgpuCoreBridge {
     stats: Rc<RefCell<FrameStats>>,
     ready: Arc<AtomicBool>,
-    sorting_enabled: Arc<AtomicBool>,
-    static_sort_enabled: Arc<AtomicBool>,
-    decals_enabled: Arc<AtomicBool>,
+    sorting_enabled: bool,
+    static_sort_enabled: bool,
+    decals_enabled: bool,
     /// THREAD: same shared renderer handle as [`WgpuMainRenderer::renderer`] —
     /// the host frame pump reaches the renderer through the registered backend
     /// via this handle, so game thread and host meet here.
     _renderer: SharedRendererHandle,
 }
-
-#[cfg(target_arch = "wasm32")]
-// SAFETY: wasm32-only. Every field is an `Arc` to a mutex/atomic, so the only
-// `!Send` contributor is the `Rc`-backed wgpu state inside the shared
-// `Renderer`; wasm32 has no threads, so that state can never be reached from
-// another thread. The impl only satisfies the bounds of the slots storing the
-// bridge. Native keeps the auto traits.
-unsafe impl Send for WgpuCoreBridge {}
-#[cfg(target_arch = "wasm32")]
-// SAFETY: same wasm32-only scope: the target is single-threaded, so
-// `&WgpuCoreBridge` is never accessed from two threads; the shared
-// `Mutex`es/`AtomicBool`s are uncontended by construction.
-unsafe impl Sync for WgpuCoreBridge {}
 
 impl WgpuCoreBridge {
     fn new(
@@ -794,9 +770,9 @@ impl WgpuCoreBridge {
         Self {
             stats,
             ready,
-            sorting_enabled: Arc::new(AtomicBool::new(true)),
-            static_sort_enabled: Arc::new(AtomicBool::new(true)),
-            decals_enabled: Arc::new(AtomicBool::new(true)),
+            sorting_enabled: true,
+            static_sort_enabled: true,
+            decals_enabled: true,
             _renderer: renderer,
         }
     }
@@ -825,32 +801,32 @@ impl RendererBackend for WgpuCoreBridge {
     }
 
     fn set_sorting_enabled(&mut self, enabled: bool) -> W3DResult<()> {
-        self.sorting_enabled.store(enabled, Ordering::Release);
+        self.sorting_enabled = enabled;
         Ok(())
     }
 
     fn is_sorting_enabled(&self) -> bool {
-        self.sorting_enabled.load(Ordering::Acquire)
+        self.sorting_enabled
     }
 
     fn set_static_sort_lists_enabled(&mut self, enabled: bool) -> W3DResult<()> {
-        self.static_sort_enabled.store(enabled, Ordering::Release);
+        self.static_sort_enabled = enabled;
         mesh_system::StaticSortManager::set_static_sort_lists_enabled(enabled);
         Ok(())
     }
 
     fn are_static_sort_lists_enabled(&self) -> bool {
-        self.static_sort_enabled.load(Ordering::Acquire)
+        self.static_sort_enabled
     }
 
     fn set_decals_enabled(&mut self, enabled: bool) -> W3DResult<()> {
-        self.decals_enabled.store(enabled, Ordering::Release);
+        self.decals_enabled = enabled;
         mesh_system::StaticSortManager::set_decals_enabled(enabled);
         Ok(())
     }
 
     fn are_decals_enabled(&self) -> bool {
-        self.decals_enabled.load(Ordering::Acquire)
+        self.decals_enabled
     }
 
     fn as_any(&self) -> &dyn std::any::Any {
@@ -958,3 +934,7 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+#[path = "wgpu_main_renderer_callback_tests.rs"]
+mod callback_tests;
