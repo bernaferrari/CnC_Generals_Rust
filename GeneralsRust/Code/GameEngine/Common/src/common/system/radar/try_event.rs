@@ -31,7 +31,9 @@ pub fn should_suppress_event(
         if event.event_type != event_type {
             continue;
         }
-        if current_frame.saturating_sub(event.create_frame) < FRAMES_BETWEEN_EVENTS {
+        // C++ subtracts UnsignedInt frame values, so rollback and natural
+        // frame-counter wrap use modulo-u32 elapsed age.
+        if current_frame.wrapping_sub(event.create_frame) < FRAMES_BETWEEN_EVENTS {
             return true;
         }
     }

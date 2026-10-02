@@ -57,7 +57,7 @@ impl Object {
             register_legacy_object(&object_arc);
         }
 
-        if let Err(err) = Self::init_modules_for(&object_arc, &thing_template) {
+        if let Err(err) = Self::init_modules_for(&object_arc, thing_template.as_ref()) {
             if object_id != INVALID_ID {
                 OBJECT_REGISTRY.unregister_object(object_id);
                 unregister_legacy_object(object_id);
@@ -1110,11 +1110,14 @@ impl Object {
         // Objects that were spawned from something need to tell their spawner that they have died
         if self.producer_id != INVALID_ID {
             let mut spawn_damage = damage_info.clone();
-            let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(self.producer_id, |spawner| {
-                spawner.with_spawn_behavior_full_interface(|spawn_behavior| {
-                    let _ = spawn_behavior.on_spawn_death(self.id, &mut spawn_damage);
-                });
-            });
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(
+                self.producer_id,
+                |spawner| {
+                    spawner.with_spawn_behavior_full_interface(|spawn_behavior| {
+                        let _ = spawn_behavior.on_spawn_death(self.id, &mut spawn_damage);
+                    });
+                },
+            );
         }
 
         // Handle partition cell maintenance
@@ -1201,11 +1204,8 @@ impl Object {
         module_data.initial_health = max_health;
         // Element type is anchored by `obj.body = Some(body)` below.
         let body = Arc::new(Mutex::new(
-                crate::object::body::active_body::ActiveBody::new_with_owner(
-                    module_data,
-                    obj.get_id(),
-                ),
-            ));
+            crate::object::body::active_body::ActiveBody::new_with_owner(module_data, obj.get_id()),
+        ));
         obj.body = Some(body);
         obj.install_ctor_helpers();
         obj
@@ -1230,11 +1230,8 @@ impl Object {
         module_data.initial_health = max_health;
         // Element type is anchored by `obj.body = Some(body)` below.
         let body = Arc::new(Mutex::new(
-                crate::object::body::active_body::ActiveBody::new_with_owner(
-                    module_data,
-                    obj.get_id(),
-                ),
-            ));
+            crate::object::body::active_body::ActiveBody::new_with_owner(module_data, obj.get_id()),
+        ));
         obj.body = Some(body);
         obj.install_ctor_helpers();
         obj

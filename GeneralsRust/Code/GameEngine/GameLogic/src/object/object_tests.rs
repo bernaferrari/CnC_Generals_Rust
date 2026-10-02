@@ -304,7 +304,11 @@ mod tests {
         use game_engine::system::xfer_save::XferSave;
         use std::io::Cursor;
 
-        let mut saved = Object::new_test(42, 100.0);
+        let template: Arc<dyn ThingTemplate> =
+            Arc::new(CtorSpecTemplate::named("BodySnapshotProbe").with_active_body());
+        let saved_owner =
+            Object::new_with_id(template.clone(), 42, ObjectStatusMaskType::NONE, None).unwrap();
+        let mut saved = saved_owner.write().unwrap();
         assert!(saved.set_health(55.0).is_ok());
         if let Some(helper) = saved.status_damage_helper() {
             helper.set_frame_to_heal_for_test(77);
@@ -318,7 +322,10 @@ mod tests {
             saved.xfer(&mut save);
         }
 
-        let mut loaded = Object::new_test(1, 100.0);
+        drop(saved);
+        let loaded_owner =
+            Object::new_with_id(template, 43, ObjectStatusMaskType::NONE, None).unwrap();
+        let mut loaded = loaded_owner.write().unwrap();
         {
             let cursor = Cursor::new(&bytes);
             let mut load = XferLoad::new(cursor, 1);
@@ -340,6 +347,9 @@ mod tests {
             loaded.status_damage_helper().unwrap().get_status_to_heal(),
             ObjectStatusTypes::Stealthed
         );
+        drop(loaded);
+        crate::helpers::TheGameLogic::remove_object(42);
+        crate::helpers::TheGameLogic::remove_object(43);
     }
 
     #[test]
@@ -350,16 +360,18 @@ mod tests {
         OBJECT_REGISTRY.register_object(id, &object);
         {
             let mut owner = object.write().unwrap();
-            owner.temp_weapon_bonus_helper = Some(Box::new(
-                crate::object::helper::TempWeaponBonusHelper::new(
+            owner.temp_weapon_bonus_helper =
+                Some(Box::new(crate::object::helper::TempWeaponBonusHelper::new(
                     id,
                     crate::object::helper::TempWeaponBonusHelperModuleData::new(),
-                ),
-            ));
+                )));
             let frame = crate::helpers::TheGameLogic::get_frame();
             owner.do_status_damage(ObjectStatusTypes::Wet, 12.75);
             assert!(owner.test_status(ObjectStatusTypes::Wet));
-            assert_eq!(owner.status_damage_helper().unwrap().get_frame_to_heal(), frame + 12);
+            assert_eq!(
+                owner.status_damage_helper().unwrap().get_frame_to_heal(),
+                frame + 12
+            );
             owner.do_status_damage(ObjectStatusTypes::Masked, 0.0);
             assert!(!owner.test_status(ObjectStatusTypes::Wet));
             assert!(owner.test_status(ObjectStatusTypes::Masked));
@@ -367,7 +379,11 @@ mod tests {
             owner.do_temp_weapon_bonus(WeaponBonusConditionType::FrenzyOne, 12);
             owner.do_temp_weapon_bonus(WeaponBonusConditionType::FrenzyTwo, 0);
             assert_eq!(
-                owner.temp_weapon_bonus_helper.as_ref().unwrap().get_current_bonus(),
+                owner
+                    .temp_weapon_bonus_helper
+                    .as_ref()
+                    .unwrap()
+                    .get_current_bonus(),
                 WeaponBonusConditionType::FrenzyTwo
             );
             assert_eq!(
@@ -378,8 +394,17 @@ mod tests {
             owner.update(0.0).unwrap();
             assert!(!owner.test_status(ObjectStatusTypes::Masked));
             assert!(!owner.status_damage_helper().unwrap().has_active_status());
-            assert!(!owner.temp_weapon_bonus_helper.as_ref().unwrap().has_active_bonus());
-            assert_eq!(owner.get_weapon_bonus_condition(), WeaponBonusConditionFlags::empty());
+            assert!(
+                !owner
+                    .temp_weapon_bonus_helper
+                    .as_ref()
+                    .unwrap()
+                    .has_active_bonus()
+            );
+            assert_eq!(
+                owner.get_weapon_bonus_condition(),
+                WeaponBonusConditionFlags::empty()
+            );
         }
         OBJECT_REGISTRY.unregister_object(id);
     }
@@ -621,8 +646,9 @@ mod tests {
             "C++ Object.cpp:458-462 requires a post-install onObjectCreated pass"
         );
 
-        let mut obj = Object::new_test(0x0C12, 100.0);
-        obj.invoke_on_object_created_after_install();
+        let object = Arc::new(RwLock::new(Object::new_test(0x0C12, 100.0)));
+        Object::invoke_on_object_created_after_install(&object).unwrap();
+        let obj = object.read().unwrap();
         let siblings = Object::last_on_created_sibling_count();
         assert!(
             siblings >= 3,
@@ -759,6 +785,25 @@ mod tests {
                 module_tag: crate::common::AsciiString::from("ModuleTag_InactiveBody"),
                 data: std::sync::Arc::new(game_engine::common::thing::module::BaseModuleData::new()),
                 interface_mask: game_engine::common::thing::module::ModuleInterfaceType::NONE,
+            });
+            self
+        }
+
+        fn with_active_body(mut self) -> Self {
+            let mut data = ActiveBodyModuleData::default();
+            data.max_health = 100.0;
+            data.initial_health = 100.0;
+            game_engine::common::thing::module::ModuleData::set_module_tag_name_key(
+                &mut data,
+                game_engine::common::name_key_generator::NameKeyGenerator::name_to_key(
+                    "ModuleTag_ActiveBody",
+                ),
+            );
+            self.behaviors.push(TemplateModuleInfo {
+                name: "ActiveBody".into(),
+                module_tag: "ModuleTag_ActiveBody".into(),
+                data: Arc::new(data),
+                interface_mask: ModuleInterfaceType::BODY,
             });
             self
         }
