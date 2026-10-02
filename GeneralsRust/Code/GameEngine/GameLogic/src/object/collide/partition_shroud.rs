@@ -10,6 +10,32 @@ use std::collections::HashMap;
 
 const MAX_PLAYER_COUNT: usize = 16;
 
+/// C++ `PartitionData::getShroudedStatus` counts cells before applying object rules.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct PartitionCellShroudCounts {
+    pub total: usize,
+    pub shrouded: usize,
+    pub fogged: usize,
+}
+
+impl PartitionCellShroudCounts {
+    pub(crate) fn sample(
+        cells: impl IntoIterator<Item = (i32, i32)>,
+        mut status: impl FnMut(i32, i32) -> CellShroudStatus,
+    ) -> Self {
+        let mut counts = Self::default();
+        for (x, y) in cells {
+            counts.total += 1;
+            match status(x, y) {
+                CellShroudStatus::Shrouded => counts.shrouded += 1,
+                CellShroudStatus::Fogged => counts.fogged += 1,
+                CellShroudStatus::Clear => {}
+            }
+        }
+        counts
+    }
+}
+
 /// C++ `PartitionCell::ShroudLevel::m_currentShroud`:
 /// `1` = shrouded, `0` = fogged, `<0` = lookers present (clear).
 #[derive(Debug, Clone)]
@@ -60,27 +86,49 @@ impl PartitionShroudGrid {
         )
     }
 
-    fn level_at(&self, x: i32, y: i32, player_index: usize) -> i16 {
-        self.levels
-            .get(&(x, y))
-            .and_then(|row| row.get(player_index).copied())
-            .unwrap_or(1)
-    }
-
     /// C++ `PartitionCell::getShroudStatusForPlayer`.
     pub fn cell_status(&self, player_index: i32, x: i32, y: i32) -> CellShroudStatus {
-        if player_index < 0 {
-            return CellShroudStatus::Shrouded;
-        }
-        let idx = player_index as usize;
-        if idx >= MAX_PLAYER_COUNT {
-            return CellShroudStatus::Shrouded;
-        }
-        match self.level_at(x, y, idx) {
+        self.known_cell_status(player_index, x, y)
+            .unwrap_or(CellShroudStatus::Shrouded)
+    }
+
+    /// Sparse compatibility grids must distinguish a known shrouded cell from
+    /// a missing cell. A known cell remains authoritative for every player.
+    pub(crate) fn known_cell_status(
+        &self,
+        player_index: i32,
+        x: i32,
+        y: i32,
+    ) -> Option<CellShroudStatus> {
+        let row = self.levels.get(&(x, y))?;
+        let level = row.get(player_index as usize).copied().unwrap_or(1);
+        Some(match level {
             1 => CellShroudStatus::Shrouded,
             0 => CellShroudStatus::Fogged,
             _ => CellShroudStatus::Clear,
-        }
+        })
+    }
+
+    /// Sample a footprint from one explicitly borrowed grid, without locks or
+    /// retained cell copies. Call again after movement or coverage changes.
+    pub fn count_cells(
+        &self,
+        player_index: i32,
+        cells: impl IntoIterator<Item = (i32, i32)>,
+    ) -> PartitionCellShroudCounts {
+        PartitionCellShroudCounts::sample(cells, |x, y| self.cell_status(player_index, x, y))
+    }
+
+    pub(crate) fn count_cells_with_fallback(
+        &self,
+        player_index: i32,
+        cells: impl IntoIterator<Item = (i32, i32)>,
+        mut fallback: impl FnMut(i32, i32) -> CellShroudStatus,
+    ) -> PartitionCellShroudCounts {
+        PartitionCellShroudCounts::sample(cells, |x, y| {
+            self.known_cell_status(player_index, x, y)
+                .unwrap_or_else(|| fallback(x, y))
+        })
     }
 
     pub fn status_at_world(&self, player_index: i32, loc: &Coord3D) -> CellShroudStatus {
@@ -228,6 +276,10 @@ impl PartitionShroudGrid {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "partition_shroud_counts_tests.rs"]
+mod counts_tests;
 
 impl PartitionManager {
     /// C++ `getShroudStatusForPlayer(player, loc)` on the 40wu partition grid.

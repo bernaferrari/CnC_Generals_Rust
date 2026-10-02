@@ -46,7 +46,7 @@ pub mod object_types;
 mod partition_data;
 pub mod partition_manager;
 pub use partition_data::{
-    PartitionData, partition_cell_shroud_status, stamp_partition_cell_covers,
+    PartitionData, partition_cell_shroud_counts, partition_cell_shroud_status, stamp_partition_cell_covers,
     stamp_partition_cell_lookers,
 };
 

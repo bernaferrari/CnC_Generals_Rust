@@ -799,7 +799,10 @@ impl GameLogic {
         unit.is_attack_path = false;
         unit.num_frames_blocked = 0;
         unit.is_blocked_and_stuck = false;
-        unit.set_locomotor_goal_position_on_path();
+        // C++ safe doPathfind assigns the path and returns before setting a goal.
+        if !unit.is_safe_path {
+            unit.set_locomotor_goal_position_on_path();
+        }
         unit.path_timestamp = self.frame;
         unit.refresh_follow_path_extra_distance();
         unit.record_host_movement();
@@ -1433,10 +1436,7 @@ impl GameLogic {
                     let repulsed = gamelogic::ai::the_ai()
                         .read()
                         .ok()
-                        .and_then(|ai| {
-                            Some(ai.get_ai_data())
-                                .map(|data| data.repulsed_distance)
-                        })
+                        .map(|ai| ai.get_ai_data().repulsed_distance)
                         .unwrap_or(0.0);
                     let radius = vision + repulsed;
                     let missing = glam::Vec3::new(-1000.0, -1000.0, 0.0);

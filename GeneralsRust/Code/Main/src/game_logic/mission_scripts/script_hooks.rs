@@ -3,7 +3,6 @@
 /// Notification queues drained by the GameClient tick, in C++ order.
 #[derive(Default)]
 struct ScriptNotificationQueues {
-    runtime: MissionScriptRuntime,
     pending_warehouse_set_values: Vec<(String, i32)>,
     messages: Vec<String>,
     sounds: Vec<String>,
@@ -100,7 +99,9 @@ impl MissionScriptHooks {
             return;
         }
         if let Ok(mut queue) = self.notifications.lock() {
-            queue.pending_warehouse_set_values.push((name.to_string(), cash));
+            queue
+                .pending_warehouse_set_values
+                .push((name.to_string(), cash));
         }
     }
 
@@ -112,8 +113,8 @@ impl MissionScriptHooks {
     }
 
     pub fn clear_warehouse_set_values(&self) {
-        if let Ok(mut queue) = self.pending_warehouse_set_values.lock() {
-            queue.clear();
+        if let Ok(mut queue) = self.notifications.lock() {
+            queue.pending_warehouse_set_values.clear();
         }
     }
 
@@ -133,35 +134,9 @@ impl MissionScriptHooks {
             pending_script_enabled_updates,
             notifications: Mutex::new(ScriptNotificationQueues::default()),
 
-            popup_message_requests: Mutex::new(Vec::new()),
-            view_guardband_requests: Mutex::new(Vec::new()),
-            camera_bw_mode_requests: Mutex::new(Vec::new()),
-            skybox_enabled_updates: Mutex::new(Vec::new()),
-            camera_motion_blur_requests: Mutex::new(Vec::new()),
-            cameo_flash_requests: Mutex::new(Vec::new()),
-            named_timer_mutations: Mutex::new(Vec::new()),
-            named_timer_display_updates: Mutex::new(Vec::new()),
-            superweapon_display_enabled_updates: Mutex::new(Vec::new()),
-            superweapon_object_display_mutations: Mutex::new(Vec::new()),
-            cinematic_text: Mutex::new(Vec::new()),
-            military_captions: Mutex::new(Vec::new()),
-            letterbox_events: Mutex::new(Vec::new()),
-            movie_requests: Mutex::new(Vec::new()),
-            radar_movie_requests: Mutex::new(Vec::new()),
-            objective_updates: Mutex::new(Vec::new()),
-            effect_requests: Mutex::new(Vec::new()),
-            radar_event_requests: Mutex::new(Vec::new()),
-            radar_enabled_updates: Mutex::new(Vec::new()),
-            radar_forced_updates: Mutex::new(Vec::new()),
-            weather_visibility_updates: Mutex::new(Vec::new()),
-            music_stop_requests: Mutex::new(Vec::new()),
-            oversize_terrain_requests: Mutex::new(Vec::new()),
-            border_shroud_levels: Mutex::new(Vec::new()),
+            completion: Mutex::new(AudioCompletionTracking::default()),
             camera_movement_finished: AtomicBool::new(true),
             frame_counter: AtomicU64::new(0),
-            speech_complete_frame: Mutex::new(HashMap::new()),
-            speech_handles: Mutex::new(HashMap::new()),
-            audio_complete_frame: Mutex::new(HashMap::new()),
         }))
     }
 
@@ -218,13 +193,13 @@ impl MissionScriptHooks {
     }
 
     pub fn push_message(&self, text: String) {
-        if let Ok(mut queue) = self.messages.lock() {
+        if let Ok(mut queue) = self.notifications.lock() {
             let localized = localization::localize_with_args(
                 "hud.script.broadcast",
                 "Transmission: {message}",
                 &[("message", text.as_str())],
             );
-            queue.push(localized);
+            queue.messages.push(localized);
         }
     }
 
@@ -345,7 +320,9 @@ impl MissionScriptHooks {
         request: CameraModFinalSpeedMultiplierRequest,
     ) {
         if let Ok(mut queue) = self.notifications.lock() {
-            queue.camera_mod_final_speed_multiplier_requests.push(request);
+            queue
+                .camera_mod_final_speed_multiplier_requests
+                .push(request);
         }
     }
 
@@ -454,7 +431,9 @@ impl MissionScriptHooks {
 
     pub fn push_military_caption(&self, text: String, duration_ms: i32) {
         if let Ok(mut queue) = self.notifications.lock() {
-            queue.military_captions.push(MilitaryCaptionRequest { text, duration_ms });
+            queue
+                .military_captions
+                .push(MilitaryCaptionRequest { text, duration_ms });
         }
     }
 
@@ -609,10 +588,12 @@ impl MissionScriptHooks {
         }
         let now = self.frame_counter.load(Ordering::Relaxed);
         if let Ok(mut state) = self.completion.lock() {
-            state.speech_complete_frame
+            state
+                .speech_complete_frame
                 .insert(name.to_string(), speech_completion_frame(now, name));
             if handle != 0 {
-                state.speech_handles
+                state
+                    .speech_handles
                     .entry(name.to_string())
                     .or_default()
                     .push(handle);
@@ -675,7 +656,9 @@ impl MissionScriptHooks {
             None => {
                 // C++ first HAS_FINISHED_SPEECH query starts the TheAudio timer.
                 let done_frame = speech_completion_frame(now, name);
-                state.speech_complete_frame.insert(name.to_string(), done_frame);
+                state
+                    .speech_complete_frame
+                    .insert(name.to_string(), done_frame);
                 done_frame
             }
         };
@@ -701,7 +684,9 @@ impl MissionScriptHooks {
             Some(done_frame) => done_frame,
             None => {
                 let done_frame = speech_completion_frame(now, name);
-                state.audio_complete_frame.insert(name.to_string(), done_frame);
+                state
+                    .audio_complete_frame
+                    .insert(name.to_string(), done_frame);
                 done_frame
             }
         };
@@ -854,7 +839,11 @@ impl MissionScriptHooks {
     ) -> Vec<CameraModFinalSpeedMultiplierRequest> {
         self.notifications
             .lock()
-            .map(|mut q| q.camera_mod_final_speed_multiplier_requests.drain(..).collect())
+            .map(|mut q| {
+                q.camera_mod_final_speed_multiplier_requests
+                    .drain(..)
+                    .collect()
+            })
             .unwrap_or_default()
     }
 
@@ -1105,7 +1094,11 @@ impl MissionScriptHooks {
     ) -> Vec<NamedSpecialPowerCountdownMutation> {
         self.notifications
             .lock()
-            .map(|mut q| q.named_special_power_countdown_mutations.drain(..).collect())
+            .map(|mut q| {
+                q.named_special_power_countdown_mutations
+                    .drain(..)
+                    .collect()
+            })
             .unwrap_or_default()
     }
 

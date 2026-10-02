@@ -1879,29 +1879,25 @@ mod tests {
         struct Restore(f32);
         impl Drop for Restore {
             fn drop(&mut self) {
-                if let Ok(ai) = gamelogic::ai::the_ai().write() {
-                    if let Ok(mut data) = ai.get_ai_data().write() {
-                        data.repulsed_distance = self.0;
-                    }
+                if let Ok(mut ai) = gamelogic::ai::the_ai().write() {
+                    ai.update_ai_data(|data| data.repulsed_distance = self.0);
                 }
             }
         }
         let previous = gamelogic::ai::the_ai()
             .read()
             .ok()
-            .and_then(|ai| ai.get_ai_data().read().ok().map(|d| d.repulsed_distance))
+            .map(|ai| ai.get_ai_data().repulsed_distance)
             .unwrap_or(0.0);
         let _restore = Restore(previous);
         let mut logic = GameLogic::new();
-        if let Ok(ai) = gamelogic::ai::the_ai().write() {
-            if let Ok(mut data) = ai.get_ai_data().write() {
-                data.repulsed_distance = 40.0;
-            }
+        if let Ok(mut ai) = gamelogic::ai::the_ai().write() {
+            ai.update_ai_data(|data| data.repulsed_distance = 40.0);
         }
         let seen = gamelogic::ai::the_ai()
             .read()
             .ok()
-            .and_then(|ai| ai.get_ai_data().read().ok().map(|d| d.repulsed_distance))
+            .map(|ai| ai.get_ai_data().repulsed_distance)
             .unwrap_or(-1.0);
         assert_eq!(seen, 40.0, "repulsed_distance must be visible to the queue");
         let id = ObjectId(9631);
