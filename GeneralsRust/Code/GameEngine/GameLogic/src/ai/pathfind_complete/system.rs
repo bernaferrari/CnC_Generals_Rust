@@ -58,7 +58,7 @@ pub struct PathfindingSystem {
     /// C++ m_wallHeight
     pub(crate) wall_height: f32,
     /// C++ m_cumulativeCellsAllocated
-    pub(crate) cumulative_cells_allocated: AtomicI32,
+    pub(crate) cumulative_cells_allocated: i32,
     /// C++ m_moveAlliesDepth (LatchRestore recursion guard)
     pub(crate) move_allies_depth: i32,
     /// Residual open/closed cell counts for cleanOpenAndClosedLists.

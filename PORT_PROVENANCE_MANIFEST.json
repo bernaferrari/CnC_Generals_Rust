@@ -40469,6 +40469,13 @@
           },
           {
             "cargo_reachable": true,
+            "classification": "test",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/ai/pathfind_complete/counter_tests.rs"
+          },
+          {
+            "cargo_reachable": true,
             "classification": "implementation",
             "owned_source_ranges": [],
             "owned_symbols": [],
@@ -140930,7 +140937,7 @@
     }
   ],
   "generator": "GeneralsRust/Code/Main/scripts/generate_port_provenance.py",
-  "input_digest": "565cc25bc5635b677dd91126802d1e7e88e8e8446fc25115d6f092f697afecca",
+  "input_digest": "dbeb546cbd94587af7aceb11360f178880be738923c2bf488c5fab07f10806cf",
   "metric_contract": {
     "behavior_requires_explicit_evidence": true,
     "candidate_mapping_is_reviewed": false,
@@ -141191,7 +141198,7 @@
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/Common/src/common/audio/game_audio.rs",
-      "sha256": "730fcd0b1be9ccb3147d9c09ddaec48a5cf699857854a84802178c460c19c3c6",
+      "sha256": "b3e23b3b33a79bc1b89acffd90105fdb8fbfe2e0e9620868d2839a177bfed56c",
       "symbol_index_status": "indexed",
       "symbols": [
         {
@@ -166794,11 +166801,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 1080,
+        "end_line": 1078,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/ai/pathfind_complete/classify.rs",
-      "sha256": "013edbabb384c0a332beb7fc4284cac42a0063ea35663669012a36d67a5ea8af",
+      "sha256": "56fc4a69e2f5bea92680a0ac7bfb4660647a6f7dfd27566d5d7b61a86db21967",
       "symbol_index_status": "indexed",
       "symbols": [
         {
@@ -166838,77 +166845,77 @@
         },
         {
           "kind": "fn",
-          "line": 560,
+          "line": 558,
           "name": "xfer"
         },
         {
           "kind": "fn",
-          "line": 566,
+          "line": 564,
           "name": "load_post_process"
         },
         {
           "kind": "fn",
-          "line": 572,
+          "line": 570,
           "name": "move_allies"
         },
         {
           "kind": "fn",
-          "line": 705,
+          "line": 703,
           "name": "classify_map"
         },
         {
           "kind": "fn",
-          "line": 721,
+          "line": 719,
           "name": "expand_cliff_cells_like_cpp"
         },
         {
           "kind": "fn",
-          "line": 781,
+          "line": 779,
           "name": "classify_map_cell"
         },
         {
           "kind": "fn",
-          "line": 816,
+          "line": 814,
           "name": "classify_object_footprint"
         },
         {
           "kind": "fn",
-          "line": 821,
+          "line": 819,
           "name": "classify_object_footprint_ex"
         },
         {
           "kind": "fn",
-          "line": 866,
+          "line": 864,
           "name": "classify_fence"
         },
         {
           "kind": "const",
-          "line": 878,
+          "line": 876,
           "name": "STEP_SIZE"
         },
         {
           "kind": "fn",
-          "line": 923,
+          "line": 921,
           "name": "internal_classify_object_footprint"
         },
         {
           "kind": "const",
-          "line": 943,
+          "line": 941,
           "name": "STEP_SIZE"
         },
         {
           "kind": "fn",
-          "line": 1020,
+          "line": 1018,
           "name": "remove_object_footprint"
         },
         {
           "kind": "fn",
-          "line": 1035,
+          "line": 1033,
           "name": "set_or_clear_obstacle_cell"
         },
         {
           "kind": "fn",
-          "line": 1067,
+          "line": 1065,
           "name": "refresh_pinched_bounds"
         }
       ]
@@ -166921,7 +166928,7 @@
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/ai/pathfind_complete/construct.rs",
-      "sha256": "06ef1c50bf9e6c73e89deb63543249ef893db5ab9fd1baba55dc4a7d8894ae12",
+      "sha256": "ce0605f883220725a26aef42adb387cd6852d4ad3bd9942d05f4059a05506bcb",
       "symbol_index_status": "indexed",
       "symbols": [
         {
@@ -166983,13 +166990,46 @@
     },
     {
       "cargo_reachable": true,
+      "classification": "test",
+      "file_range": {
+        "end_line": 92,
+        "start_line": 1
+      },
+      "path": "GeneralsRust/Code/GameEngine/GameLogic/src/ai/pathfind_complete/counter_tests.rs",
+      "sha256": "1ae23598c89d6a508eb93dfbfbed0a55c743b165a5eb2391681bf5cafc9c4b39",
+      "symbol_index_status": "indexed",
+      "symbols": [
+        {
+          "kind": "fn",
+          "line": 4,
+          "name": "crc_bytes"
+        },
+        {
+          "kind": "fn",
+          "line": 12,
+          "name": "counter_cleanup_crc_and_reset_use_the_driving_pathfinder"
+        },
+        {
+          "kind": "fn",
+          "line": 64,
+          "name": "version_only_xfer_does_not_load_or_reset_runtime_counter"
+        },
+        {
+          "kind": "fn",
+          "line": 83,
+          "name": "owned_counter_keeps_previous_atomic_wrapping_arithmetic"
+        }
+      ]
+    },
+    {
+      "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
         "end_line": 582,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/ai/pathfind_complete/find_path.rs",
-      "sha256": "0c040b617cbd68da93d8306b65e46bf77cfa149429fcb4cb53de7ea73a0d5285",
+      "sha256": "0b5d806a0e25bccb75dcb00ac04903b6243590245610a63adece81b53c997fa5",
       "symbol_index_status": "indexed",
       "symbols": [
         {
@@ -167329,11 +167369,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 64,
+        "end_line": 65,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/ai/pathfind_complete/mod.rs",
-      "sha256": "ce4590b8d7fa9e33a1599e98605c26a301cc09bb474f92976c48e1f171e5a2e4",
+      "sha256": "042b7527dbcfc0bb7c4dee8364ce9a0fb12526717bfcf4cb9e0af8141c05aecb",
       "symbol_index_status": "indexed",
       "symbols": []
     },
@@ -167341,11 +167381,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 1215,
+        "end_line": 1213,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/ai/pathfind_complete/occupancy.rs",
-      "sha256": "c1597ad29aeefe6bd3ca20cf1446cad3c1961527c61fce4c644ac209aef43d89",
+      "sha256": "a2118d04a6180b18e7bd96b4cd7bfc3265ebf07efde649880eceaf2ffb44f7a3",
       "symbol_index_status": "indexed",
       "symbols": [
         {
@@ -167690,7 +167730,7 @@
         },
         {
           "kind": "fn",
-          "line": 1210,
+          "line": 1208,
           "name": "note_open_closed_cells"
         }
       ]
@@ -167846,7 +167886,7 @@
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/ai/pathfind_complete/system.rs",
-      "sha256": "36585f40710c4011e03950efda4ba08c46da328ac779d15cd0859fbb60edbe4f",
+      "sha256": "e60576da4b996566da27d3d1d758ddb4c5014cefca3d932ed8747ac9930f9d46",
       "symbol_index_status": "indexed",
       "symbols": [
         {
@@ -167928,11 +167968,11 @@
       "cargo_reachable": true,
       "classification": "test",
       "file_range": {
-        "end_line": 3862,
+        "end_line": 3860,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/ai/pathfind_complete/tests.rs",
-      "sha256": "4232064a906659f3a022379214ca2262515ca050dfff4955b3a1aa27ea048d3b",
+      "sha256": "bdf6f4859926143a9b2df1e3faedd584ad289feeda4465c442d96c9fa5375f4f",
       "symbol_index_status": "indexed",
       "symbols": [
         {
@@ -168632,382 +168672,382 @@
         },
         {
           "kind": "fn",
-          "line": 2536,
+          "line": 2534,
           "name": "hierarchical_bridge_jumps_cpp_surface"
         },
         {
           "kind": "fn",
-          "line": 2548,
+          "line": 2546,
           "name": "hierarchical_bridge_jumps_from_live_bridge"
         },
         {
           "kind": "fn",
-          "line": 2571,
+          "line": 2569,
           "name": "build_actual_path_center_in_cell_cpp_surface"
         },
         {
           "kind": "fn",
-          "line": 2587,
+          "line": 2585,
           "name": "build_actual_path_respects_center_flag"
         },
         {
           "kind": "fn",
-          "line": 2623,
+          "line": 2621,
           "name": "check_for_movement_can_crush_cpp_surface"
         },
         {
           "kind": "fn",
-          "line": 2638,
+          "line": 2636,
           "name": "update_goal_bridge_end_stamps_ground"
         },
         {
           "kind": "fn",
-          "line": 2663,
+          "line": 2661,
           "name": "update_goal_bridge_end_cpp_surface"
         },
         {
           "kind": "fn",
-          "line": 2676,
+          "line": 2674,
           "name": "tall_building_segment_uses_obstacle_id_cpp_surface"
         },
         {
           "kind": "fn",
-          "line": 2691,
+          "line": 2689,
           "name": "tall_building_segment_finds_obstacle_id_building"
         },
         {
           "kind": "fn",
-          "line": 2716,
+          "line": 2714,
           "name": "clear_cell_for_diameter_fence_and_pos_cpp_surface"
         },
         {
           "kind": "fn",
-          "line": 2732,
+          "line": 2730,
           "name": "clear_cell_for_diameter_allows_crusher_through_fence"
         },
         {
           "kind": "fn",
-          "line": 2750,
+          "line": 2748,
           "name": "update_pos_stamps_pos_unit_not_goal"
         },
         {
           "kind": "fn",
-          "line": 2766,
+          "line": 2764,
           "name": "check_for_movement_flag_semantics_cpp_surface"
         },
         {
           "kind": "fn",
-          "line": 2784,
+          "line": 2782,
           "name": "check_for_movement_ally_moving_from_pos_without_goal"
         },
         {
           "kind": "fn",
-          "line": 2819,
+          "line": 2817,
           "name": "cell_occupancy_flags_match_cpp_setters"
         },
         {
           "kind": "fn",
-          "line": 2831,
+          "line": 2829,
           "name": "snap_closest_avoids_fixed_when_radius_zero"
         },
         {
           "kind": "fn",
-          "line": 2844,
+          "line": 2842,
           "name": "snap_closest_fixed_uses_pos_goal_flags_cpp_surface"
         },
         {
           "kind": "fn",
-          "line": 2859,
+          "line": 2857,
           "name": "find_attack_path_range_los_during_search_cpp_surface"
         },
         {
           "kind": "fn",
-          "line": 2875,
+          "line": 2873,
           "name": "find_attack_path_human_logical_extent_cpp_surface"
         },
         {
           "kind": "fn",
-          "line": 2889,
+          "line": 2887,
           "name": "check_for_adjust_ex_human_extent_cpp_surface"
         },
         {
           "kind": "fn",
-          "line": 2911,
+          "line": 2909,
           "name": "path_destination_uses_check_for_adjust_ex_cpp_surface"
         },
         {
           "kind": "fn",
-          "line": 2926,
+          "line": 2924,
           "name": "are_connected_uses_effective_zone_cpp_surface"
         },
         {
           "kind": "fn",
-          "line": 2940,
+          "line": 2938,
           "name": "are_connected_ground_cliff_merge"
         },
         {
           "kind": "fn",
-          "line": 2965,
+          "line": 2963,
           "name": "move_allies_uses_pos_unit_cpp_surface"
         },
         {
           "kind": "fn",
-          "line": 2981,
+          "line": 2979,
           "name": "get_move_away_returns_path_result"
         },
         {
           "kind": "fn",
-          "line": 3011,
+          "line": 3009,
           "name": "check_path_cost_astar_cpp_surface"
         },
         {
           "kind": "fn",
-          "line": 3024,
+          "line": 3022,
           "name": "check_path_cost_straight_line_cheaper_than_detour_gate"
         },
         {
           "kind": "fn",
-          "line": 3049,
+          "line": 3047,
           "name": "refresh_logical_extent_from_terrain_cpp_surface"
         },
         {
           "kind": "fn",
-          "line": 3063,
+          "line": 3061,
           "name": "process_queue_calls_do_pathfind_cpp_surface"
         },
         {
           "kind": "fn",
-          "line": 3077,
+          "line": 3075,
           "name": "find_safe_path_astar_cpp_surface"
         },
         {
           "kind": "fn",
-          "line": 3093,
+          "line": 3091,
           "name": "find_safe_path_moves_outside_repulsor"
         },
         {
           "kind": "fn",
-          "line": 3123,
+          "line": 3121,
           "name": "find_path_hierarchical_precheck_cpp_surface"
         },
         {
           "kind": "fn",
-          "line": 3139,
+          "line": 3137,
           "name": "find_path_still_works_open_ground"
         },
         {
           "kind": "fn",
-          "line": 3160,
+          "line": 3158,
           "name": "find_path_blocked_wall_returns_cpp_failure"
         },
         {
           "kind": "fn",
-          "line": 3188,
+          "line": 3186,
           "name": "find_closest_path_astar_cpp_surface"
         },
         {
           "kind": "fn",
-          "line": 3206,
+          "line": 3204,
           "name": "find_closest_path_open_ground_reaches_goal"
         },
         {
           "kind": "fn",
-          "line": 3227,
+          "line": 3225,
           "name": "internal_find_hierarchical_path_cpp_surface"
         },
         {
           "kind": "fn",
-          "line": 3244,
+          "line": 3242,
           "name": "hierarchical_path_open_ground"
         },
         {
           "kind": "fn",
-          "line": 3258,
+          "line": 3256,
           "name": "classify_bridge_cells_cpp_surface"
         },
         {
           "kind": "fn",
-          "line": 3275,
+          "line": 3273,
           "name": "add_bridge_runs_classify_clearance"
         },
         {
           "kind": "fn",
-          "line": 3288,
+          "line": 3286,
           "name": "build_actual_path_ally_block_cpp_surface"
         },
         {
           "kind": "fn",
-          "line": 3302,
+          "line": 3300,
           "name": "find_path_ex_ally_cost_cpp_surface"
         },
         {
           "kind": "fn",
-          "line": 3326,
+          "line": 3324,
           "name": "optimize_path_blocked_cpp_surface"
         },
         {
           "kind": "fn",
-          "line": 3339,
+          "line": 3337,
           "name": "ally_moving_cost_requires_near_start_cpp_surface"
         },
         {
           "kind": "fn",
-          "line": 3351,
+          "line": 3349,
           "name": "downhill_only_astar_cpp_surface"
         },
         {
           "kind": "fn",
-          "line": 3376,
+          "line": 3374,
           "name": "tunneling_dozer_astar_cpp_surface"
         },
         {
           "kind": "fn",
-          "line": 3398,
+          "line": 3396,
           "name": "examine_cells_line_seed_cpp_surface"
         },
         {
           "kind": "fn",
-          "line": 3423,
+          "line": 3421,
           "name": "tunneling_dynamic_clear_cpp_surface"
         },
         {
           "kind": "fn",
-          "line": 3444,
+          "line": 3442,
           "name": "find_attack_path_astar_cpp_surface"
         },
         {
           "kind": "fn",
-          "line": 3459,
+          "line": 3457,
           "name": "human_logical_extent_astar_cpp_surface"
         },
         {
           "kind": "fn",
-          "line": 3482,
+          "line": 3480,
           "name": "human_logical_extent_blocks_out_of_map_neighbor"
         },
         {
           "kind": "fn",
-          "line": 3531,
+          "line": 3529,
           "name": "is_attack_view_blocked_by_obstacle_cpp_surface"
         },
         {
           "kind": "fn",
-          "line": 3548,
+          "line": 3546,
           "name": "attack_los_blocks_opaque_obstacle_on_line"
         },
         {
           "kind": "fn",
-          "line": 3589,
+          "line": 3587,
           "name": "register_test_object"
         },
         {
           "kind": "fn",
-          "line": 3610,
+          "line": 3608,
           "name": "dozer_hack_steps_non_enemy_obstacle_not_enemy"
         },
         {
           "kind": "const",
-          "line": 3616,
+          "line": 3614,
           "name": "DOZER_ID"
         },
         {
           "kind": "const",
-          "line": 3618,
+          "line": 3616,
           "name": "ALLY_OBS_ID"
         },
         {
           "kind": "const",
-          "line": 3619,
+          "line": 3617,
           "name": "ENEMY_OBS_ID"
         },
         {
           "kind": "const",
-          "line": 3620,
+          "line": 3618,
           "name": "MISSING_OBS_ID"
         },
         {
           "kind": "const",
-          "line": 3621,
+          "line": 3619,
           "name": "DOZER_TEAM"
         },
         {
           "kind": "const",
-          "line": 3622,
+          "line": 3620,
           "name": "ENEMY_TEAM"
         },
         {
           "kind": "struct",
-          "line": 3640,
+          "line": 3638,
           "name": "Unreg"
         },
         {
           "kind": "fn",
-          "line": 3642,
+          "line": 3640,
           "name": "drop"
         },
         {
           "kind": "fn",
-          "line": 3729,
+          "line": 3727,
           "name": "process_queue_skips_snapshot_after_do_pathfind"
         },
         {
           "kind": "const",
-          "line": 3733,
+          "line": 3731,
           "name": "ID"
         },
         {
           "kind": "const",
-          "line": 3735,
+          "line": 3733,
           "name": "LIVE_SENTINEL_ID"
         },
         {
           "kind": "const",
-          "line": 3736,
+          "line": 3734,
           "name": "REPLACED_ID"
         },
         {
           "kind": "struct",
-          "line": 3737,
+          "line": 3735,
           "name": "Unreg"
         },
         {
           "kind": "fn",
-          "line": 3739,
+          "line": 3737,
           "name": "drop"
         },
         {
           "kind": "struct",
-          "line": 3751,
+          "line": 3749,
           "name": "CountingAi"
         },
         {
           "kind": "fn",
-          "line": 3755,
+          "line": 3753,
           "name": "update"
         },
         {
           "kind": "fn",
-          "line": 3758,
+          "line": 3756,
           "name": "is_moving"
         },
         {
           "kind": "fn",
-          "line": 3761,
+          "line": 3759,
           "name": "is_idle"
         },
         {
           "kind": "fn",
-          "line": 3764,
+          "line": 3762,
           "name": "set_movement_target"
         },
         {
           "kind": "fn",
-          "line": 3767,
+          "line": 3765,
           "name": "do_pathfind"
         },
         {
           "kind": "fn",
-          "line": 3835,
+          "line": 3833,
           "name": "cell_center_height_samples_the_requested_bridge_slot"
         }
       ]

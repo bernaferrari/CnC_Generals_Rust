@@ -69,7 +69,7 @@ impl PathfindingSystem {
             is_tunneling: false,
             ignore_obstacle_id: INVALID_ID,
             wall_height: 0.0,
-            cumulative_cells_allocated: AtomicI32::new(0),
+            cumulative_cells_allocated: 0,
             move_allies_depth: 0,
             open_list_count: 0,
             closed_list_count: 0,
@@ -187,7 +187,7 @@ impl PathfindingSystem {
 
         // C++ processPathfindQueue: refresh m_logicalExtent from terrain extent.
         self.refresh_logical_extent();
-        self.cumulative_cells_allocated.store(0, Ordering::Relaxed);
+        self.cumulative_cells_allocated = 0;
 
         // C++ while (m_cumulativeCellsAllocated < PATHFIND_CELLS_PER_FRAME && queue nonempty)
         let cell_budget = max_per_frame.max(1).min(PATHFIND_CELLS_PER_FRAME);

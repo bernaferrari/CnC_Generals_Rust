@@ -1191,7 +1191,7 @@ impl PathfindingSystem {
     }
 
     pub fn cumulative_cells_allocated(&self) -> i32 {
-        self.cumulative_cells_allocated.load(Ordering::Relaxed)
+        self.cumulative_cells_allocated
     }
 
     /// C++ `Pathfinder::cleanOpenAndClosedLists` (AIPathfind.cpp:4788-4824).
@@ -1201,9 +1201,7 @@ impl PathfindingSystem {
         count += self.closed_list_count;
         self.open_list_count = 0;
         self.closed_list_count = 0;
-        let _ = self
-            .cumulative_cells_allocated
-            .fetch_add(count, Ordering::Relaxed);
+        self.cumulative_cells_allocated = self.cumulative_cells_allocated.wrapping_add(count);
     }
 
     /// Track residual open-list cell allocation (A* bookkeeping).

@@ -256,10 +256,14 @@ pub fn zh_install_roots() -> Vec<PathBuf> {
 
 /// Extracted archive trees (loose files after `.big` unpack).
 pub fn extracted_asset_roots() -> Vec<PathBuf> {
+    extracted_asset_roots_from(&discovery_roots())
+}
+
+fn extracted_asset_roots_from(roots: &[PathBuf]) -> Vec<PathBuf> {
     let mut out = Vec::new();
     let mut seen = HashSet::new();
-    for root in discovery_roots() {
-        let (_, extracted) = scan_from(&root, MAX_SCAN_DEPTH);
+    for root in roots {
+        let (_, extracted) = scan_from(root, MAX_SCAN_DEPTH);
         for path in extracted {
             push_unique(&mut out, &mut seen, path);
         }
@@ -376,9 +380,9 @@ pub fn ini_bytes_are_authoritative(bytes: &[u8]) -> bool {
         let token = line.split_whitespace().next().unwrap_or("");
         let mut chars = token.chars();
         match chars.next() {
-            Some(c) if c.is_ascii_uppercase() || c == '_' => {
-                token.chars().all(|ch| ch.is_ascii_alphanumeric() || ch == '_')
-            }
+            Some(c) if c.is_ascii_uppercase() || c == '_' => token
+                .chars()
+                .all(|ch| ch.is_ascii_alphanumeric() || ch == '_'),
             _ => false,
         }
     };
@@ -399,7 +403,8 @@ fn ini_text_mixes_unrelated_catalogs(text: &str) -> bool {
         let Some(token) = code.split_whitespace().next() else {
             continue;
         };
-        if token.eq_ignore_ascii_case("end") || !token.starts_with(|c: char| c.is_ascii_alphabetic())
+        if token.eq_ignore_ascii_case("end")
+            || !token.starts_with(|c: char| c.is_ascii_alphabetic())
         {
             continue;
         }
@@ -411,61 +416,10 @@ fn ini_text_mixes_unrelated_catalogs(text: &str) -> bool {
     false
 }
 
-/// Resolve a C++ `Data\\INI\\...` virtual path against cwd, install, and extracted trees.
-///
-/// C++ `AudioManager::init` (GameAudio.cpp:187-202) loads `Data\\INI\\Music.ini` etc.
-/// through the virtual file system. Live Rust cargo tests / extracted BIG trees
-/// often keep those files under `INIZH/Data/INI` rather than `cwd/Data/INI`.
-pub fn resolve_data_ini_file(virtual_path: &str) -> Option<PathBuf> {
-    let normalized = virtual_path.replace('\\', "/");
-    let rel = Path::new(&normalized);
-    if rel.is_file() {
-        return Some(rel.to_path_buf());
-    }
-
-    let mut seen = HashSet::new();
-    let mut consider = |candidate: PathBuf| -> Option<PathBuf> {
-        if !seen.insert(path_key(&candidate)) {
-            return None;
-        }
-        if !candidate.is_file() || !ini_loose_override_is_authoritative(&candidate) {
-            return None;
-        }
-        Some(candidate)
-    };
-
-    if let Some(found) = consider(rel.to_path_buf()) {
-        return Some(found);
-    }
-
-    for root in discovery_roots() {
-        if let Some(found) = consider(root.join(rel)) {
-            return Some(found);
-        }
-        if let Some(found) = consider(root.join("INIZH").join(rel)) {
-            return Some(found);
-        }
-    }
-
-    for extracted in extracted_asset_roots() {
-        if let Some(found) = consider(extracted.join(rel)) {
-            return Some(found);
-        }
-        if let Some(found) = consider(extracted.join("INIZH").join(rel)) {
-            return Some(found);
-        }
-        if extracted
-            .file_name()
-            .is_some_and(|name| name.to_string_lossy().eq_ignore_ascii_case("INIZH"))
-        {
-            if let Some(found) = consider(extracted.join(rel)) {
-                return Some(found);
-            }
-        }
-    }
-
-    None
-}
+#[path = "install_layout/ini_resolver.rs"]
+mod ini_resolver;
+pub(crate) use ini_resolver::DataIniResolver;
+pub use ini_resolver::resolve_data_ini_file;
 
 /// Locate `genseczh.big` / `GensecZH.big` on CD roots or a discovered install.
 pub fn find_genseczh_big() -> Option<PathBuf> {
@@ -526,7 +480,11 @@ mod tests {
         let patch = dir.join("Patch.ini");
         fs::write(&fragment, b" effective only against infantry.\r\nEnd\r\n").unwrap();
         fs::write(&table, b"\x00Data\\INI\\CommandMap.ini\x00").unwrap();
-        fs::write(&patch, b"; patch\r\nGameData\r\n  MapName = NoName.map\r\nEnd\r\n").unwrap();
+        fs::write(
+            &patch,
+            b"; patch\r\nGameData\r\n  MapName = NoName.map\r\nEnd\r\n",
+        )
+        .unwrap();
         assert!(!ini_loose_override_is_authoritative(&fragment));
         assert!(!ini_loose_override_is_authoritative(&table));
         assert!(ini_loose_override_is_authoritative(&patch));

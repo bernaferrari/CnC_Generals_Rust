@@ -3477,9 +3477,9 @@ pub fn load_audio_event_inis() {
     ];
 
     let mut ini = crate::common::ini::INI::new();
+    let mut resolver = crate::common::system::install_layout::DataIniResolver::new();
     for virtual_path in AUDIO_INI_FILES {
-        let Some(path) = crate::common::system::install_layout::resolve_data_ini_file(virtual_path)
-        else {
+        let Some(path) = resolver.resolve(virtual_path) else {
             continue;
         };
         if let Err(err) = ini.load(&path, crate::common::ini::INILoadType::Overwrite) {
