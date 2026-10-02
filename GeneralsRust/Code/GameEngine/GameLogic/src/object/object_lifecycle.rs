@@ -291,7 +291,7 @@ impl Object {
             modules_ready: false,
             single_use_command_used: false,
             is_receiving_difficulty_bonus: false,
-            destroyed: false,
+            lifecycle: ObjectLifecycle::Alive,
 
             #[cfg(any(debug_assertions, feature = "internal"))]
             has_died_already: false,
@@ -367,73 +367,70 @@ impl Object {
         }
     }
 
-    /// Called during object destruction
+    /// C++ Object::onDestroy: notify modules immediately, retaining their
+    /// state and the client association until processDestroyList deletes us.
     pub fn on_destroy(&mut self) {
-        self.on_destroy_with_game_logic_services(|object_id, action| match action {
+        if self.lifecycle != ObjectLifecycle::Alive {
+            return;
+        }
+        self.lifecycle = ObjectLifecycle::DestroyNotified;
+        self.status.set_status(ObjectStatusTypes::Destroyed);
+        self.on_destroy_internal();
+    }
+
+    /// Standalone deletion adapter; a GameLogic owner uses the borrowed
+    /// services below rather than discovering another world during cleanup.
+    pub(crate) fn run_destructor_tail(&mut self) {
+        self.finish_destroy_with_game_logic_services(|object_id, action| match action {
             ObjectDestroyServiceAction::UnregisterUpdateModule(update_module) => {
                 let _ = crate::helpers::TheGameLogic::unregister_update_module(
                     object_id,
                     update_module,
                 );
             }
-            ObjectDestroyServiceAction::QueueTriggerAreaRefresh => {
-                crate::helpers::TheGameLogic::queue_objects_changed_trigger_areas(object_id);
+            ObjectDestroyServiceAction::MarkTriggerAreasChanged => {
+                crate::helpers::TheGameLogic::mark_objects_changed_trigger_areas();
             }
             ObjectDestroyServiceAction::NotifyObjectCountChanged => {
                 crate::helpers::TheScriptEngine::notify_of_object_creation_or_destruction();
             }
+            ObjectDestroyServiceAction::SendObjectDestroyed => {
+                if let Some(client) = crate::helpers::TheGameClient::get() {
+                    client.clear_object_model_draws(object_id);
+                }
+            }
         });
     }
 
-    /// Run destruction using immediate services borrowed from the owning
-    /// GameLogic. The named actions keep both effects on the same owner borrow
-    /// and preserve their original call sites.
-    pub(crate) fn on_destroy_with_game_logic_services(
+    /// Finish logical deletion even if a query Arc keeps Rust storage alive.
+    pub(crate) fn finish_destroy_with_game_logic_services(
         &mut self,
         mut service: impl FnMut(ObjectID, ObjectDestroyServiceAction),
     ) {
-        if self.destroyed {
+        if self.lifecycle == ObjectLifecycle::Finalized {
             return;
         }
-        self.destroyed = true;
-        self.status.set_status(ObjectStatusTypes::Destroyed);
-
-        let _ = crate::scripting::engine::get_named_object_tracker().unregister_object(self.id);
-
+        self.on_destroy();
+        self.lifecycle = ObjectLifecycle::Finalized;
         for module in self.update_module_registrations.drain(..) {
             service(
                 self.id,
                 ObjectDestroyServiceAction::UnregisterUpdateModule(module),
             );
         }
-
-        self.on_destroy_internal();
         self.run_destructor_tail_with_game_logic_service(&mut service);
     }
 
-    /// C++ `Object::~Object` after `onDestroy`: pathfinder, scripts, radar,
-    /// `sendObjectDestroyed`, clear team/group, ControlBar dirty.
-    pub(crate) fn run_destructor_tail(&mut self) {
-        self.run_destructor_tail_with_game_logic_service(&mut |object_id, action| match action {
-            ObjectDestroyServiceAction::QueueTriggerAreaRefresh => {
-                crate::helpers::TheGameLogic::queue_objects_changed_trigger_areas(object_id);
-            }
-            ObjectDestroyServiceAction::NotifyObjectCountChanged => {
-                crate::helpers::TheScriptEngine::notify_of_object_creation_or_destruction();
-            }
-            ObjectDestroyServiceAction::UnregisterUpdateModule(_) => {}
-        });
-    }
-
+    /// C++ Object::~Object: pathfinder, frame stamps, radar, client, team,
+    /// group, module release, then named-script cleanup.
     fn run_destructor_tail_with_game_logic_service(
         &mut self,
         service: &mut impl FnMut(ObjectID, ObjectDestroyServiceAction),
     ) {
         let pos = *self.get_position();
         let footprint = crate::ai::object_footprint_positions(self).unwrap_or_else(|| vec![pos]);
-        // THREAD: the destructor tail touches sibling-family globals owned by
-        // their own lanes (AI/pathfinder, radar, script engine); those locks
-        // are the cross-family contracts and stay.
+        // Pathfinder/radar/script adapters remain separate ownership work.
+        // GameLogic services always use the driving owner's borrow.
         let ai_store = crate::ai::the_ai();
         if let Ok(ai) = ai_store.read() {
             if let Some(pf) = ai.pathfinder() {
@@ -445,7 +442,7 @@ impl Object {
         }
 
         if !self.is_kind_of(KindOf::Projectile) && !self.is_kind_of(KindOf::Inert) {
-            service(self.id, ObjectDestroyServiceAction::QueueTriggerAreaRefresh);
+            service(self.id, ObjectDestroyServiceAction::MarkTriggerAreasChanged);
             service(
                 self.id,
                 ObjectDestroyServiceAction::NotifyObjectCountChanged,
@@ -460,22 +457,7 @@ impl Object {
             self.radar_data = None;
         }
 
-        // C++ Object::~Object tail calls GameLogic::sendObjectDestroyed
-        // (GameLogic.cpp:4134) as a plain virtual call — no global lock
-        // exists in C++. The Rust global GameLogic mutex is held across the
-        // ENTIRE update (game_logic_impl/globals.rs update_game_logic), so
-        // objects destroyed by destroyObject / processDestroyList mid-update
-        // can never take it here: the try_lock used to silently skip the
-        // drawable/client unbind for exactly those objects. Mirror the
-        // send_object_destroyed body directly instead — it touches only the
-        // game-client bridge, never GameLogic state, so it is safe without
-        // the lock.
-        if let Ok(logic) = crate::system::game_logic::get_game_logic().try_lock() {
-            logic.send_object_destroyed(self.id);
-        } else if let Some(client) = crate::helpers::TheGameClient::get() {
-            client.clear_object_model_draws(self.id);
-            log::trace!("sendObjectDestroyed: obj={}", self.id);
-        }
+        service(self.id, ObjectDestroyServiceAction::SendObjectDestroyed);
 
         let _ = self.set_team(None);
 
@@ -486,9 +468,26 @@ impl Object {
         }
         self.group_id = None;
 
+        // C++ deletes modules only after team/group cleanup. Release interface
+        // proxies too: each refers to the same module, not an independent state.
+        self.ai = None;
+        self.physics = None;
+        self.upgrade_module_handles.clear();
+        self.behaviors.clear();
+        self.modules.clear();
+        self.body = None;
+        self.modules_ready = false;
+        if let Some(drawable) = self.drawable.take() {
+            if let Ok(mut drawable) = drawable.write() {
+                drawable.clear_modules();
+            }
+        }
+
+        let object_id = self.id;
+        self.id = INVALID_ID;
         if let Ok(mut engine) = crate::scripting::engine::get_script_engine().write() {
             if let Some(engine) = engine.as_mut() {
-                engine.notify_of_object_destruction(self.id);
+                engine.notify_of_object_destruction(object_id);
             }
         }
 
@@ -513,10 +512,10 @@ impl Object {
             let _ = self.on_removed_from(container_id);
         }
 
-        self.upgrade_module_handles.clear();
-
-        let mut modules = std::mem::take(&mut self.modules);
-        for entry in modules.drain(..) {
+        // Keep sibling modules discoverable during synchronous onDelete.
+        // These temporary handles do not extend the owning object's lifetime.
+        let modules = self.modules.clone();
+        for entry in modules {
             entry.with_module(|module| {
                 if let Some(upgrade) = super::module_upgrade_kind(module) {
                     upgrade.into_interface().on_delete(self);
@@ -530,20 +529,9 @@ impl Object {
                 }
             });
         }
-        self.modules = modules;
-
-        if let Some(drawable) = &self.drawable {
-            if let Ok(mut drawable_guard) = drawable.write() {
-                drawable_guard.clear_modules();
-            }
-        }
-        self.drawable = None;
-
         // Match C++ Object::onDestroy -> handlePartitionCellMaintenance.
         // This clears partition/shroud/value/threat bookkeeping before the object is fully removed.
         self.handle_partition_cell_maintenance();
-
-        self.modules_ready = false;
     }
 
     // Core identification methods
@@ -1287,7 +1275,7 @@ impl Object {
 
 impl Drop for Object {
     fn drop(&mut self) {
-        self.on_destroy();
+        self.run_destructor_tail();
     }
 }
 

@@ -577,6 +577,89 @@ mod tests {
     }
 
     #[test]
+    fn destroy_preserves_module_storage_until_owner_deletion() {
+        let _lock = crate::test_sync::lock();
+        struct Probe {
+            events: Arc<Mutex<Vec<&'static str>>>,
+            data: Arc<game_engine::common::thing::module::BaseModuleData>,
+        }
+        impl game_engine::common::system::snapshot::Snapshotable for Probe {
+            fn crc(&self, _: &mut dyn game_engine::common::system::Xfer) -> Result<(), String> {
+                Ok(())
+            }
+            fn xfer(
+                &mut self,
+                _: &mut dyn game_engine::common::system::Xfer,
+            ) -> Result<(), String> {
+                Ok(())
+            }
+            fn load_post_process(&mut self) -> Result<(), String> {
+                Ok(())
+            }
+        }
+        impl Module for Probe {
+            fn get_module_data(&self) -> &dyn ModuleData {
+                self.data.as_ref()
+            }
+            fn on_delete(&mut self) {
+                self.events.lock().unwrap().push("on_delete");
+            }
+        }
+        impl Drop for Probe {
+            fn drop(&mut self) {
+                self.events.lock().unwrap().push("drop");
+            }
+        }
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let data = Arc::new(game_engine::common::thing::module::BaseModuleData::new());
+        let mut object = Object::new_test(0xD153, 100.0);
+        object.modules.push(Arc::new(ModuleEntry::new(
+            "DestructionProbe".into(),
+            "ModuleTag_DestructionProbe".into(),
+            ModuleInterfaceType::NONE,
+            data.clone(),
+            Box::new(Probe {
+                events: events.clone(),
+                data,
+            }),
+        )));
+        let object = Arc::new(RwLock::new(object));
+        let mut owner = crate::system::game_logic::GameLogic::new();
+        owner.register_object(object.clone()).unwrap();
+        owner.destroy_object(0xD153);
+        assert_eq!(
+            *events.lock().unwrap(),
+            ["on_delete"],
+            "C++ onDestroy calls onDelete, retaining the module for the rest of the frame"
+        );
+        assert!(
+            object
+                .read()
+                .unwrap()
+                .installed_module_tags()
+                .iter()
+                .any(|tag| tag == "ModuleTag_DestructionProbe")
+        );
+        owner.process_destroy_list().unwrap();
+        assert_eq!(object.read().unwrap().get_id(), INVALID_ID);
+        assert_eq!(*events.lock().unwrap(), ["on_delete", "drop"]);
+        assert!(
+            !object
+                .read()
+                .unwrap()
+                .installed_module_tags()
+                .iter()
+                .any(|tag| tag == "ModuleTag_DestructionProbe")
+        );
+        drop(object);
+        assert_eq!(
+            *events.lock().unwrap(),
+            ["on_delete", "drop"],
+            "a retained Rust query handle must not repeat C++ deletion callbacks"
+        );
+    }
+
+    #[test]
     fn destroy_tail_runs_radar_team_group_pathfinder_script_control_bar() {
         let src = include_str!("object_lifecycle.rs");
         let tail = src
@@ -597,6 +680,7 @@ mod tests {
         let mut obj = Object::new_test(0xD151, 100.0);
         obj.on_destroy();
         assert!(obj.is_destroyed());
+        obj.run_destructor_tail();
         assert!(obj.get_group_id().is_none());
         assert!(obj.get_team().is_none());
     }

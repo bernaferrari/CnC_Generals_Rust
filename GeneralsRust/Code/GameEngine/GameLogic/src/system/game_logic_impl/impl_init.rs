@@ -148,6 +148,10 @@ impl GameLogic {
     pub fn reset(&mut self) {
         info!("GameLogic::reset() - Resetting game state");
 
+        // C++ reset destroys objects before resetting their systems/clock.
+        self.destroy_all_objects_immediate();
+        self.objects_changed_trigger_areas.clear();
+        self.frame_objects_changed_trigger_areas = 0;
         self.frame = 0;
         self.game_time = 0.0;
         self.is_in_update = false;

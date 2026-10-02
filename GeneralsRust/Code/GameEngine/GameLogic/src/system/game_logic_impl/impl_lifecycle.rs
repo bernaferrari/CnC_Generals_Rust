@@ -18,13 +18,16 @@ impl GameLogic {
             ObjectDestroyServiceAction::UnregisterUpdateModule(module) => {
                 self.unregister_update_module(object_id, module);
             }
-            ObjectDestroyServiceAction::QueueTriggerAreaRefresh => {
-                self.queue_objects_changed_trigger_areas(object_id);
+            ObjectDestroyServiceAction::MarkTriggerAreasChanged => {
+                self.update_objects_changed_trigger_areas();
             }
             ObjectDestroyServiceAction::NotifyObjectCountChanged => {
                 crate::helpers::TheScriptEngine::notify_of_object_count_changed_at_frame(
                     self.frame,
                 );
+            }
+            ObjectDestroyServiceAction::SendObjectDestroyed => {
+                self.send_object_destroyed(object_id);
             }
         }
     }
@@ -77,36 +80,23 @@ impl GameLogic {
                 }
             }
 
+            self.remove_updates_for_object(obj_id);
+            self.all_objects.retain(|&id| id != obj_id);
+            OBJECT_REGISTRY.unregister_object(obj_id);
+
             if let Some(obj_ref) = self.objects.remove(&obj_id) {
                 if let Ok(obj_read) = obj_ref.read() {
                     object_position = Some(*obj_read.get_position());
                 }
 
                 if let Ok(mut obj_write) = obj_ref.write() {
-                    // C++ Object::onDestroy already ran in destroyObject.
-                    // If this id was queued without destroyObject, finish
-                    // contain-eject / module onDelete / partition here.
-                    if !obj_write.is_destroyed() {
-                        obj_write.on_destroy_with_game_logic_services(|object_id, action| {
-                            self.apply_object_destroy_service(object_id, action);
-                        });
-                    }
                     obj_write.set_next_object_id(None);
                     obj_write.set_prev_object_id(None);
+                    obj_write.finish_destroy_with_game_logic_services(|object_id, action| {
+                        self.apply_object_destroy_service(object_id, action);
+                    });
                 }
-
-                // Remove all update-module registrations for this object regardless of
-                // whether it used `on_destroy()` prior to cleanup.
-                self.remove_updates_for_object(obj_id);
-
-                // Keep the script named-object cache in sync (C++ ScriptEngine::addObjectToCache parity).
-                // Safe to call even if the object was never registered or had no name.
-                let _ =
-                    crate::scripting::engine::get_named_object_tracker().unregister_object(obj_id);
             }
-
-            // Remove from object list
-            self.all_objects.retain(|&id| id != obj_id);
 
             // Remove from objects map
             if let Some(pos) = object_position {
@@ -135,9 +125,6 @@ impl GameLogic {
             // - Remove from team/group
             // - Award experience to killer
             // - Spawn death effects
-
-            // Unregister from global registry
-            OBJECT_REGISTRY.unregister_object(obj_id);
 
             trace!("Destroyed object {}", obj_id);
         }
@@ -344,9 +331,7 @@ impl GameLogic {
                     let is_wall = obj.is_kind_of(KindOf::WalkOnTopOfWall);
                     let has_special_power = obj.has_any_special_power();
                     let is_local = obj.is_locally_controlled();
-                    obj.on_destroy_with_game_logic_services(|object_id, action| {
-                        self.apply_object_destroy_service(object_id, action);
-                    });
+                    obj.on_destroy();
                     (is_wall, has_special_power, is_local)
                 } else {
                     (false, false, false)
@@ -645,12 +630,8 @@ impl GameLogic {
     }
 
     pub fn update_objects_changed_trigger_areas(&mut self) {
-        while let Some(object_id) = self.objects_changed_trigger_areas.pop_front() {
-            trace!(
-                "GameLogic::update_objects_changed_trigger_areas(object_id={})",
-                object_id
-            );
-        }
+        // C++ GameLogic.h:183 — this is a frame stamp, not a work queue.
+        self.frame_objects_changed_trigger_areas = self.frame;
     }
 
     /// Get object by ID (for command executor)
@@ -741,6 +722,7 @@ impl GameLogic {
     }
 
     pub fn clear_all_objects(&mut self) {
+        self.destroy_all_objects_immediate();
         if let Ok(mut ghost_manager) = crate::object::THE_W3D_GHOST_OBJECT_MANAGER.write() {
             self.partition_manager
                 .clear_ghost_objects(&mut ghost_manager);
@@ -869,7 +851,7 @@ impl GameLogic {
     /// Iterates all live objects, destroys every one, then immediately
     /// processes the destroy list. Used during `reset()`.
     pub fn destroy_all_objects_immediate(&mut self) {
-        let all_ids: Vec<ObjectID> = self.all_objects.drain(..).collect();
+        let all_ids = self.all_objects.clone();
         for obj_id in &all_ids {
             self.destroy_object(*obj_id);
         }

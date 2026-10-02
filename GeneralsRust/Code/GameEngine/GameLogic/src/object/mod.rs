@@ -2244,8 +2244,17 @@ pub(crate) enum PendingProducedExit {
 /// Immediate GameLogic-owned work emitted while an Object is being destroyed.
 pub(crate) enum ObjectDestroyServiceAction {
     UnregisterUpdateModule(UpdateModulePtr),
-    QueueTriggerAreaRefresh,
+    MarkTriggerAreasChanged,
     NotifyObjectCountChanged,
+    SendObjectDestroyed,
+}
+
+/// Runtime cleanup phase; save data continues to use the C++ status bits.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ObjectLifecycle {
+    Alive,
+    DestroyNotified,
+    Finalized,
 }
 
 /// Main Object struct - the core game entity
@@ -2508,9 +2517,8 @@ pub struct Object {
     single_use_command_used: bool,
     is_receiving_difficulty_bonus: bool,
 
-    /// Guard flag to prevent double destruction when `on_destroy()` is called
-    /// both explicitly and via `Drop`.
-    destroyed: bool,
+    /// onDestroy and the destructor run at distinct C++ frame boundaries.
+    lifecycle: ObjectLifecycle,
 
     #[cfg(any(debug_assertions, feature = "internal"))]
     has_died_already: bool,

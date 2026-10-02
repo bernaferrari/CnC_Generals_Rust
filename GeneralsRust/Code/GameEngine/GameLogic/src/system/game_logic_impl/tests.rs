@@ -11,7 +11,9 @@ mod tests {
         TEST_STATE_LOCK
             .get_or_init(|| Mutex::new(()))
             .lock()
-            .expect("test state lock poisoned")
+            // This mutex contains only a serialization token, not game state.
+            // One failed assertion must not skip every later independent test.
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
     fn player_runtime_fixture_path(tag: &str) -> std::path::PathBuf {
@@ -856,7 +858,7 @@ mod tests {
             fn drop(&mut self) {
                 *crate::scripting::engine::get_script_engine()
                     .write()
-                    .expect("restore script engine") = self.0.take();
+                    .unwrap_or_else(|poisoned| poisoned.into_inner()) = self.0.take();
             }
         }
         let script_store = crate::scripting::engine::get_script_engine();
@@ -877,23 +879,98 @@ mod tests {
         let ambient = get_game_logic();
         let ambient_guard = ambient.lock().expect("hold unrelated GameLogic");
         logic.destroy_object(0xD152);
+        let count_changed_frame = script_store
+            .read()
+            .expect("script engine")
+            .as_ref()
+            .unwrap()
+            .get_frame_object_count_changed();
         assert_eq!(
-            script_store
-                .read()
-                .expect("script engine")
-                .as_ref()
-                .unwrap()
-                .get_frame_object_count_changed(),
-            73,
-            "C++ ScriptEngine::notifyOfObjectCreationOrDestruction records the driving frame"
+            count_changed_frame, 9,
+            "C++ onDestroy leaves count notification for end-of-frame deletion"
         );
-        assert_eq!(logic.objects_changed_trigger_areas.back(), Some(&0xD152));
+        assert_eq!(logic.get_frame_objects_changed_trigger_areas(), 0);
+        logic.frame = 74;
         logic
             .process_destroy_list()
             .expect("finish real owner cleanup");
+        assert_eq!(
+            script_store
+                .read()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .get_frame_object_count_changed(),
+            74,
+            "C++ destructor records the driving deletion frame"
+        );
+        assert_eq!(logic.get_frame_objects_changed_trigger_areas(), 74);
+        assert!(logic.objects_changed_trigger_areas.is_empty());
+        // A retained query handle must not rerun deletion when finally dropped.
+        logic.frame = 75;
+        drop(object);
+        assert_eq!(
+            script_store
+                .read()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .get_frame_object_count_changed(),
+            74
+        );
         assert!(!logic.objects.contains_key(&0xD152));
         assert!(!logic.all_objects.contains(&0xD152));
         assert!(logic.dead_objects.is_empty());
+        drop(ambient_guard);
+    }
+
+    #[test]
+    fn destroy_keeps_scheduler_registration_until_process_destroy_list() {
+        let _lock = test_state_lock();
+        use crate::modules::{UpdateModuleDummy, UpdateModulePtr};
+        let mut world = GameLogic::new();
+        let object = Arc::new(RwLock::new(Object::new_test(0xD155, 100.0)));
+        let module: UpdateModulePtr = Arc::new(RwLock::new(UpdateModuleDummy));
+        object
+            .write()
+            .unwrap()
+            .attach_update_module_registration(module.clone());
+        world.objects.insert(0xD155, object.clone());
+        world.all_objects.push(0xD155);
+        world.register_sleepy_update_module(0xD155, module, 100);
+        assert_eq!(world.sleepy_update_count(), 1);
+        world.destroy_object(0xD155);
+        assert_eq!(
+            world.sleepy_update_count(),
+            1,
+            "C++ removes scheduler entries during processDestroyList, after onDestroy"
+        );
+        world.process_destroy_list().unwrap();
+        assert_eq!(world.sleepy_update_count(), 0);
+        assert!(!world.module_lookup.contains_key(&0xD155));
+        drop(object);
+    }
+
+    #[test]
+    fn reset_finalizes_retained_objects_on_the_driving_owner() {
+        let _lock = test_state_lock();
+        let mut world = GameLogic::new();
+        world.frame = 91;
+        let object = Arc::new(RwLock::new(Object::new_test(0xD154, 100.0)));
+        world.objects.insert(0xD154, object.clone());
+        world.all_objects.push(0xD154);
+        // Reset must finish logical deletion, not wait for this query handle.
+        let ambient = get_game_logic();
+        let ambient_guard = ambient.lock().unwrap();
+        world.reset();
+        assert!(object.read().unwrap().is_destroyed());
+        assert_eq!(object.read().unwrap().get_id(), INVALID_ID);
+        assert!(object.read().unwrap().get_body_module().is_none());
+        assert!(world.objects.is_empty());
+        assert!(world.all_objects.is_empty());
+        assert!(world.dead_objects.is_empty());
+        assert_eq!(world.get_frame_objects_changed_trigger_areas(), 0);
+        drop(object);
         drop(ambient_guard);
     }
 
@@ -915,15 +992,11 @@ mod tests {
             logic.dead_objects.contains(&77),
             "queued for processDestroyList"
         );
-        assert_eq!(
-            logic.objects_changed_trigger_areas.back(),
-            Some(&77),
-            "current Rust teardown queues trigger refresh before cleanup (phase audit: hq-i6v43)"
-        );
+        assert!(logic.objects_changed_trigger_areas.is_empty());
         assert_eq!(
             logic.get_frame_objects_changed_trigger_areas(),
-            logic.frame,
-            "the immediate queue sink must mark the owning GameLogic frame"
+            0,
+            "C++ onDestroy does not run the destructor's trigger frame notification"
         );
     }
 

@@ -24,7 +24,7 @@ impl Object {
     /// Walk real modules in install order and run `on_delete` (no ticking).
     pub fn walk_modules_on_delete(&mut self) -> Vec<String> {
         let tags = self.installed_module_tags();
-        self.on_destroy_internal();
+        self.on_destroy();
         tags
     }
 }
