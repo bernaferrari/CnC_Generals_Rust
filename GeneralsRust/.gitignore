@@ -64,3 +64,4 @@ rust-project.json
 
 # Authored launcher sources, not Cargo build output.
 !/Code/Tools/Launcher/Toolkit/Debug/
+GeneralsRust/Code/GameEngine/GameClient/UserData/
