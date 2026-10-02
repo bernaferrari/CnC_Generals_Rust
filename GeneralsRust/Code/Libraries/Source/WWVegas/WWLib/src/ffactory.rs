@@ -96,8 +96,7 @@ pub struct FileAutoPtr {
 
 impl FileAutoPtr {
     pub fn new(factory: Arc<dyn FileFactoryClass>, filename: &str) -> Self {
-        let mut file = factory.get_file(filename);
-        file.set_name(filename);
+        let file = factory.get_file(filename);
         Self { file, factory }
     }
 
@@ -128,15 +127,21 @@ impl FileFactoryClass for RawFileFactory {
 }
 
 pub struct SimpleFileFactory {
-    sub_directory: Mutex<String>,
-    strip_path: Mutex<bool>,
+    // Shared asset-I/O configuration, not mutable simulation state.
+    // C++ ffactory.cpp also serializes SubDirectory with one critical section.
+    state: Mutex<SimpleFactoryState>,
+}
+
+#[derive(Clone, Default)]
+struct SimpleFactoryState {
+    sub_directory: String,
+    strip_path: bool,
 }
 
 impl Default for SimpleFileFactory {
     fn default() -> Self {
         Self {
-            sub_directory: Mutex::new(String::new()),
-            strip_path: Mutex::new(false),
+            state: Mutex::new(SimpleFactoryState::default()),
         }
     }
 }
@@ -147,15 +152,15 @@ impl SimpleFileFactory {
     }
 
     pub fn get_sub_directory(&self) -> String {
-        self.sub_directory
+        self.state
             .lock()
-            .map(|value| value.clone())
+            .map(|value| value.sub_directory.clone())
             .unwrap_or_default()
     }
 
     pub fn set_sub_directory(&self, sub_directory: &str) {
-        if let Ok(mut guard) = self.sub_directory.lock() {
-            *guard = sub_directory.to_string();
+        if let Ok(mut state) = self.state.lock() {
+            state.sub_directory = sub_directory.to_string();
         }
     }
 
@@ -164,9 +169,9 @@ impl SimpleFileFactory {
         if sub.is_empty() {
             return;
         }
-        if let Ok(mut guard) = self.sub_directory.lock() {
-            sub.push_str(guard.as_str());
-            *guard = sub;
+        if let Ok(mut state) = self.state.lock() {
+            sub.push_str(state.sub_directory.as_str());
+            state.sub_directory = sub;
         }
     }
 
@@ -175,63 +180,59 @@ impl SimpleFileFactory {
         if sub.is_empty() {
             return;
         }
-        if let Ok(mut guard) = self.sub_directory.lock() {
-            if !guard.is_empty() && !guard.ends_with(';') {
-                guard.push(';');
+        if let Ok(mut state) = self.state.lock() {
+            if !state.sub_directory.is_empty() && !state.sub_directory.ends_with(';') {
+                state.sub_directory.push(';');
             }
-            guard.push_str(&sub);
+            state.sub_directory.push_str(&sub);
         }
     }
 
     pub fn get_strip_path(&self) -> bool {
-        self.strip_path.lock().map(|v| *v).unwrap_or(false)
+        self.state
+            .lock()
+            .map(|state| state.strip_path)
+            .unwrap_or(false)
     }
 
     pub fn set_strip_path(&self, enabled: bool) {
-        if let Ok(mut guard) = self.strip_path.lock() {
-            *guard = enabled;
+        if let Ok(mut state) = self.state.lock() {
+            state.strip_path = enabled;
         }
     }
 
-    fn should_strip_path(&self) -> bool {
-        self.strip_path.lock().map(|v| *v).unwrap_or(false)
+    fn configuration(&self) -> SimpleFactoryState {
+        self.state
+            .lock()
+            .map(|state| state.clone())
+            .unwrap_or_default()
     }
 }
 
 impl FileFactoryClass for SimpleFileFactory {
     fn get_file(&self, filename: &str) -> FactoryFile {
-        let stripped_name = if self.should_strip_path() {
+        // Take one consistent snapshot and release the lock before opening files.
+        let config = self.configuration();
+        let stripped_name = if config.strip_path {
             strip_path(filename)
         } else {
             filename.to_string()
         };
-
         let mut file = BufferedFile::new();
         let mut new_name = stripped_name.clone();
-
-        if !is_full_path(&new_name) {
-            if let Ok(guard) = self.sub_directory.lock() {
-                if !guard.is_empty() {
-                    if guard.contains(';') {
-                        let mut found = false;
-                        for path in guard.split(';').filter(|p| !p.is_empty()) {
-                            new_name = format!("{}{}", path, stripped_name);
-                            file.set_name(&new_name);
-                            if file.open(FileRights::READ).is_ok() {
-                                file.close();
-                                found = true;
-                                break;
-                            }
-                        }
-                        if !found {
-                            if let Some(last) = guard.split(';').filter(|p| !p.is_empty()).last() {
-                                new_name = format!("{}{}", last, stripped_name);
-                            }
-                        }
-                    } else {
-                        new_name = format!("{}{}", guard.as_str(), stripped_name);
+        if !is_full_path(&new_name) && !config.sub_directory.is_empty() {
+            if config.sub_directory.contains(';') {
+                // C++ Get_File keeps the last candidate when every Open fails.
+                for path in config.sub_directory.split(';').filter(|p| !p.is_empty()) {
+                    new_name = format!("{}{}", path, stripped_name);
+                    file.set_name(&new_name);
+                    if file.open(FileRights::READ).is_ok() {
+                        file.close();
+                        break;
                     }
                 }
+            } else {
+                new_name = format!("{}{}", config.sub_directory, stripped_name);
             }
         }
 
@@ -273,14 +274,12 @@ fn is_full_path(path: &str) -> bool {
     Path::new(path).is_absolute()
 }
 
-static DEFAULT_FILE_FACTORY: OnceLock<Arc<SimpleFileFactory>> = OnceLock::new();
 static DEFAULT_WRITING_FACTORY: OnceLock<Arc<RawFileFactory>> = OnceLock::new();
 static DEFAULT_SIMPLE_FACTORY: OnceLock<Arc<SimpleFileFactory>> = OnceLock::new();
 
 pub fn the_file_factory() -> Arc<dyn FileFactoryClass> {
-    DEFAULT_FILE_FACTORY
-        .get_or_init(|| Arc::new(SimpleFileFactory::new()))
-        .clone()
+    // Both C++ accessors point at _DefaultFileFactory (ffactory.cpp:15-17).
+    the_simple_file_factory()
 }
 
 pub fn the_writing_file_factory() -> Arc<dyn FileFactoryClass> {
@@ -294,3 +293,7 @@ pub fn the_simple_file_factory() -> Arc<SimpleFileFactory> {
         .get_or_init(|| Arc::new(SimpleFileFactory::new()))
         .clone()
 }
+
+#[cfg(test)]
+#[path = "ffactory_tests.rs"]
+mod tests;
