@@ -19,18 +19,18 @@ impl ScriptEvaluator {
         let unit_name = unit_param.get_string();
         let area_name = area_param.get_string();
 
-        if dual_world_registry_unavailable() {
-            // C++ evaluateNamedInsideArea: getUnitNamed + pointInTrigger. No dead/inert filter.
-            return Ok(crate::scripting::host_script_named_unit_in_named_area(
-                unit_name, area_name,
-            )
-            .unwrap_or(false));
-        }
-
         let trigger = match self.get_trigger_area(area_name) {
             Some(trigger) => trigger,
             None => return Ok(false),
         };
+
+        if dual_world_registry_unavailable() {
+            // ScriptConditions.cpp:397-415 tests position against this world's
+            // qualified polygon, with no dead/inert filter or foreign AABB.
+            return Ok(
+                crate::scripting::conditions::host_named_unit_point_in_trigger(unit_name, &trigger),
+            );
+        }
 
         let tracker = get_named_object_tracker();
         let Some(object_id) = tracker.get_object_id(unit_name).ok().flatten() else {

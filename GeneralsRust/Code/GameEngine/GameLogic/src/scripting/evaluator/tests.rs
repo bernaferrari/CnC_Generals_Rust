@@ -1289,6 +1289,71 @@ fn live_named_inside_uses_point_in_trigger_not_aabb() {
 }
 
 #[test]
+fn named_inside_uses_interleaved_owners_with_identical_trigger_ids() {
+    let _lock = crate::test_sync::lock();
+    crate::object::registry::OBJECT_REGISTRY.clear();
+    crate::scripting::clear_host_script_query_snapshot();
+    let near = wave14_triangle_area();
+    let far = crate::polygon_trigger::PolygonTrigger::new(
+        near.get_id(),
+        near.get_trigger_name().clone(),
+        vec![
+            crate::common::ICoord3D::new(100, 100, 0),
+            crate::common::ICoord3D::new(120, 100, 0),
+            crate::common::ICoord3D::new(100, 120, 0),
+        ],
+    );
+    let first = Arc::new(std::sync::Mutex::new(
+        crate::scripting::HostTriggerWorld::default(),
+    ));
+    first.lock().unwrap().set_trigger_areas(&[near.clone()]);
+    crate::scripting::set_host_script_query_snapshot(crate::scripting::HostScriptQuerySnapshot {
+        named: [("Scout".into(), 7)].into_iter().collect(),
+        objects: vec![crate::scripting::HostScriptQueryObject {
+            id: 7,
+            name: "Scout".into(),
+            x: 2.0,
+            z: 2.0,
+            alive: true,
+            // C++ NAMED_INSIDE tests position even for inert/dead objects.
+            kind_inert: true,
+            effectively_dead: true,
+            ..Default::default()
+        }],
+        // An empty explicit owner must not fall back to this host AABB.
+        areas: [("Wave14PolyPad".into(), (0.0, 0.0, 20.0, 20.0))]
+            .into_iter()
+            .collect(),
+        ..Default::default()
+    });
+    let second = Arc::new(std::sync::Mutex::new(
+        crate::scripting::HostTriggerWorld::default(),
+    ));
+    second.lock().unwrap().set_trigger_areas(&[far]);
+    let a = ScriptEvaluator::new_with_host_trigger_world(get_script_engine(), first.clone());
+    let b = ScriptEvaluator::new_with_host_trigger_world(get_script_engine(), second.clone());
+    let mut condition = Condition::new(ConditionType::NamedInsideArea);
+    condition
+        .add_parameter(Parameter::with_string(ParameterType::Unit, "Scout".into()))
+        .unwrap();
+    condition
+        .add_parameter(Parameter::with_string(
+            ParameterType::TriggerArea,
+            "Wave14PolyPad".into(),
+        ))
+        .unwrap();
+    assert!(a.evaluate_condition(&mut condition).unwrap());
+    assert!(!b.evaluate_condition(&mut condition).unwrap());
+    assert!(a.evaluate_condition(&mut condition).unwrap());
+    second.lock().unwrap().set_trigger_areas(&[near]);
+    assert!(b.evaluate_condition(&mut condition).unwrap());
+    first.lock().unwrap().set_trigger_areas(&[]);
+    assert!(!a.evaluate_condition(&mut condition).unwrap());
+    assert!(b.evaluate_condition(&mut condition).unwrap());
+    crate::scripting::clear_host_script_query_snapshot();
+}
+
+#[test]
 fn live_named_entered_exited_use_two_frame_host_flags() {
     let _lock = crate::test_sync::lock();
     crate::object::registry::OBJECT_REGISTRY.clear();
@@ -1380,9 +1445,22 @@ fn live_named_entered_exited_use_two_frame_host_flags() {
         ))
         .unwrap();
     assert!(
-        evaluator.evaluate_condition(&mut exited).unwrap(),
-        "C++ Object::didExit must fire on the live empty-registry path"
+        !evaluator.evaluate_condition(&mut exited).unwrap(),
+        "C++ checks the previous integer position for exit, which was still inside at frame 21"
     );
+    {
+        let mut world = host_trigger_world.lock().expect("trigger world");
+        world.set_current_frame(22);
+        world.update_object_flags(7, 19.0, 18.0, 22, false, Some("teamUSA"));
+    }
+    assert!(
+        evaluator.evaluate_condition(&mut exited).unwrap(),
+        "C++ Object::didExit fires once the previous integer position is outside"
+    );
+    host_trigger_world.lock().unwrap().set_current_frame(23);
+    assert!(evaluator.evaluate_condition(&mut exited).unwrap());
+    host_trigger_world.lock().unwrap().set_current_frame(24);
+    assert!(!evaluator.evaluate_condition(&mut exited).unwrap());
 
     let mut team_inside = Condition::new(ConditionType::TeamInsideAreaEntirely);
     team_inside

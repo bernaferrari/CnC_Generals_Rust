@@ -489,7 +489,6 @@ impl TheRadar {
         Ok(created)
     }
 
-
     pub fn refresh_terrain(&self) {
         let radar = get_radar_system();
         let radar_lock = radar.write();
@@ -586,7 +585,6 @@ impl TheTacticalView {
     }
 }
 
-
 /// Terrain visual effects bridge (matching C++ TheTerrainVisual).
 pub struct TheTerrainVisual;
 
@@ -616,9 +614,7 @@ pub fn register_terrain_visual_lighting_changed_hook(hook: Option<fn()>) {
 }
 
 /// Register the live GameClient `TheTerrainRenderObject->addProp` hook.
-pub fn register_terrain_visual_add_prop_hook(
-    hook: Option<fn(u32, [f32; 3], f32, f32, &str)>,
-) {
+pub fn register_terrain_visual_add_prop_hook(hook: Option<fn(u32, [f32; 3], f32, f32, &str)>) {
     if let Ok(mut slot) = TERRAIN_VISUAL_ADD_PROP.lock() {
         *slot = hook;
     }
@@ -768,7 +764,6 @@ impl TheTerrainVisual {
     pub fn set_water_transform_z(&self, height: Real) {
         crate::terrain_water::set_transform_z(height);
     }
-
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -944,6 +939,16 @@ impl TheScriptEngine {
         }
     }
 
+    /// The driving GameLogic already owns the frame; do not discover and
+    /// lock an ambient GameLogic while that owner's destruction borrow is live.
+    pub(crate) fn notify_of_object_count_changed_at_frame(frame: u32) {
+        if let Ok(mut guard) = crate::scripting::engine::get_script_engine().write() {
+            if let Some(engine) = guard.as_mut() {
+                engine.set_frame_object_count_changed(frame);
+            }
+        }
+    }
+
     pub fn notify_of_completed_video(video_name: &str) {
         if let Ok(mut guard) = crate::scripting::engine::get_script_engine().write() {
             if let Some(engine) = guard.as_mut() {
@@ -1021,7 +1026,6 @@ impl TheVictoryConditions {
         LOCAL_PLAYER_DEFEATED.store(defeated, Ordering::Relaxed);
     }
 
-
     /// C++ `VictoryConditions::isLocalAlliedDefeat`: last alliance standing
     /// (or observer when that latch is set). Not "all my allies are dead".
     pub fn is_local_allied_defeat() -> Bool {
@@ -1044,9 +1048,7 @@ impl TheVictoryConditions {
         }
         leftover_local_player_is_individually_defeated()
     }
-
 }
-
 
 fn leftover_player_is_playable_living(player: &crate::player::Player) -> bool {
     !player.is_player_observer()
@@ -1055,10 +1057,7 @@ fn leftover_player_is_playable_living(player: &crate::player::Player) -> bool {
 }
 
 /// C++ `areAllies`: mutual ALLIES and not the same player.
-fn leftover_players_are_allies(
-    a: &crate::player::Player,
-    b: &crate::player::Player,
-) -> bool {
+fn leftover_players_are_allies(a: &crate::player::Player, b: &crate::player::Player) -> bool {
     if a.get_player_index() == b.get_player_index() {
         return false;
     }
@@ -1087,7 +1086,6 @@ fn leftover_player_list_is_local_allied_defeat() -> bool {
             continue;
         }
         if let Some(first_arc) = &first_living {
-
             let Ok(first) = first_arc.read() else {
                 continue;
             };
@@ -1134,8 +1132,10 @@ fn leftover_local_player_is_individually_defeated() -> bool {
     };
     list.get_local_player()
         .and_then(|player| {
-            player.read().ok().map(|guard| guard.is_defeated() || guard.is_player_dead())
+            player
+                .read()
+                .ok()
+                .map(|guard| guard.is_defeated() || guard.is_player_dead())
         })
         .unwrap_or(false)
 }
-

@@ -534,8 +534,8 @@ mod tests {
     #[test]
     fn test_object_list_links_relink_on_cleanup() {
         let _guard = test_state_lock();
-        use crate::object::registry::OBJECT_REGISTRY;
         use crate::object::Object;
+        use crate::object::registry::OBJECT_REGISTRY;
         use std::sync::{Arc, RwLock};
 
         OBJECT_REGISTRY.clear();
@@ -614,8 +614,8 @@ mod tests {
     fn load_post_process_rebuilds_sleepy_queue_from_object_modules() {
         let _guard = test_state_lock();
         use crate::modules::{UpdateModuleDummy, UpdateModulePtr};
-        use crate::object::registry::OBJECT_REGISTRY;
         use crate::object::Object;
+        use crate::object::registry::OBJECT_REGISTRY;
         use std::sync::{Arc, RwLock};
 
         OBJECT_REGISTRY.clear();
@@ -644,8 +644,8 @@ mod tests {
     #[test]
     fn game_state_post_process_load_updates_partition_after_snapshots() {
         let _guard = test_state_lock();
-        use crate::object::registry::OBJECT_REGISTRY;
         use crate::object::Object;
+        use crate::object::registry::OBJECT_REGISTRY;
 
         OBJECT_REGISTRY.clear();
         let _ = get_game_logic();
@@ -699,8 +699,8 @@ mod tests {
     #[test]
     fn empty_registry_falls_back_to_game_logic_objects_like_cpp() {
         let _guard = test_state_lock();
-        use crate::object::registry::OBJECT_REGISTRY;
         use crate::object::Object;
+        use crate::object::registry::OBJECT_REGISTRY;
         use std::sync::{Arc, RwLock};
 
         OBJECT_REGISTRY.clear();
@@ -728,8 +728,8 @@ mod tests {
     #[test]
     fn test_register_object_sets_link_ids() {
         let _guard = test_state_lock();
-        use crate::object::registry::OBJECT_REGISTRY;
         use crate::object::Object;
+        use crate::object::registry::OBJECT_REGISTRY;
         use std::sync::{Arc, RwLock};
 
         OBJECT_REGISTRY.clear();
@@ -848,6 +848,56 @@ mod tests {
     }
 
     #[test]
+    fn destruction_notification_uses_driving_frame_without_relocking_game_logic() {
+        let _test_lock = crate::test_sync::lock();
+        let _state_lock = test_state_lock();
+        struct RestoreScriptEngine(Option<crate::scripting::engine::ScriptEngine>);
+        impl Drop for RestoreScriptEngine {
+            fn drop(&mut self) {
+                *crate::scripting::engine::get_script_engine()
+                    .write()
+                    .expect("restore script engine") = self.0.take();
+            }
+        }
+        let script_store = crate::scripting::engine::get_script_engine();
+        let mut script = crate::scripting::engine::ScriptEngine::new().expect("script engine");
+        script.set_frame_object_count_changed(9);
+        let _restore = RestoreScriptEngine(
+            script_store
+                .write()
+                .expect("install script engine")
+                .replace(script),
+        );
+        let mut logic = GameLogic::new();
+        logic.frame = 73;
+        let object = Arc::new(RwLock::new(Object::new_test(0xD152, 100.0)));
+        logic.objects.insert(0xD152, Arc::clone(&object));
+        logic.all_objects.push(0xD152);
+        // This unrelated owner must neither provide the frame nor be re-entered.
+        let ambient = get_game_logic();
+        let ambient_guard = ambient.lock().expect("hold unrelated GameLogic");
+        logic.destroy_object(0xD152);
+        assert_eq!(
+            script_store
+                .read()
+                .expect("script engine")
+                .as_ref()
+                .unwrap()
+                .get_frame_object_count_changed(),
+            73,
+            "C++ ScriptEngine::notifyOfObjectCreationOrDestruction records the driving frame"
+        );
+        assert_eq!(logic.objects_changed_trigger_areas.back(), Some(&0xD152));
+        logic
+            .process_destroy_list()
+            .expect("finish real owner cleanup");
+        assert!(!logic.objects.contains_key(&0xD152));
+        assert!(!logic.all_objects.contains(&0xD152));
+        assert!(logic.dead_objects.is_empty());
+        drop(ambient_guard);
+    }
+
+    #[test]
     fn destroy_object_runs_on_destroy_same_frame_like_cpp() {
         let mut logic = GameLogic::new();
         let mut obj = Object::new_test(77, 100.0);
@@ -868,7 +918,7 @@ mod tests {
         assert_eq!(
             logic.objects_changed_trigger_areas.back(),
             Some(&77),
-            "C++ onDestroy queues unit-count trigger refresh before cleanup"
+            "current Rust teardown queues trigger refresh before cleanup (phase audit: hq-i6v43)"
         );
         assert_eq!(
             logic.get_frame_objects_changed_trigger_areas(),
@@ -902,7 +952,7 @@ mod tests {
         // C++ GameLogic.cpp:3969-3980 — WALK_ON_TOP_OF_WALL pathfinder removal
         // and ControlBar::markUIDirty for local special-power objects.
         use crate::common::{DefaultThingTemplate, KindOf};
-        use crate::control_bar::{register_control_bar_ui_hooks, ControlBarUiHooks};
+        use crate::control_bar::{ControlBarUiHooks, register_control_bar_ui_hooks};
         use crate::object::special_power_types::SpecialPowerType;
         use std::sync::atomic::{AtomicU32, Ordering};
 
@@ -925,7 +975,8 @@ mod tests {
         assert!(obj.has_any_special_power());
         assert!(obj.is_kind_of(KindOf::WalkOnTopOfWall));
 
-        let ai_store = crate::ai::the_ai(); if let Ok(ai) = ai_store.read() {
+        let ai_store = crate::ai::the_ai();
+        if let Ok(ai) = ai_store.read() {
             if let Some(pf) = ai.pathfinder() {
                 if let Ok(mut pf) = pf.write() {
                     pf.add_wall_piece(88);
@@ -1595,7 +1646,6 @@ mod tests {
         assert_eq!(cell.current_shroud[0], -2);
         assert_eq!(cell.active_shroud_level[0], 3);
     }
-
 
     #[test]
     fn test_partition_add_object() {

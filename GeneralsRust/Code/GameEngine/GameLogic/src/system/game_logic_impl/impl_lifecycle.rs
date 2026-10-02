@@ -7,6 +7,28 @@ thread_local! {
 }
 
 impl GameLogic {
+    /// Execute object cleanup services synchronously on the driving owner.
+    fn apply_object_destroy_service(
+        &mut self,
+        object_id: ObjectID,
+        action: crate::object::ObjectDestroyServiceAction,
+    ) {
+        use crate::object::ObjectDestroyServiceAction;
+        match action {
+            ObjectDestroyServiceAction::UnregisterUpdateModule(module) => {
+                self.unregister_update_module(object_id, module);
+            }
+            ObjectDestroyServiceAction::QueueTriggerAreaRefresh => {
+                self.queue_objects_changed_trigger_areas(object_id);
+            }
+            ObjectDestroyServiceAction::NotifyObjectCountChanged => {
+                crate::helpers::TheScriptEngine::notify_of_object_count_changed_at_frame(
+                    self.frame,
+                );
+            }
+        }
+    }
+
     pub fn cleanup_dead_objects(&mut self) -> Result<(), GameLogicError> {
         // Wave 344: empty dual-world → Ok(()). Still clean live dead-list.
         if dual_world_registry_unavailable() && self.dead_objects.is_empty() {
@@ -66,14 +88,7 @@ impl GameLogic {
                     // contain-eject / module onDelete / partition here.
                     if !obj_write.is_destroyed() {
                         obj_write.on_destroy_with_game_logic_services(|object_id, action| {
-                            match action {
-                                crate::object::ObjectDestroyServiceAction::UnregisterUpdateModule(
-                                    update_module,
-                                ) => self.unregister_update_module(object_id, update_module),
-                                crate::object::ObjectDestroyServiceAction::QueueTriggerAreaRefresh => {
-                                    self.queue_objects_changed_trigger_areas(object_id)
-                                }
-                            }
+                            self.apply_object_destroy_service(object_id, action);
                         });
                     }
                     obj_write.set_next_object_id(None);
@@ -330,14 +345,7 @@ impl GameLogic {
                     let has_special_power = obj.has_any_special_power();
                     let is_local = obj.is_locally_controlled();
                     obj.on_destroy_with_game_logic_services(|object_id, action| {
-                        match action {
-                            crate::object::ObjectDestroyServiceAction::UnregisterUpdateModule(
-                                update_module,
-                            ) => self.unregister_update_module(object_id, update_module),
-                            crate::object::ObjectDestroyServiceAction::QueueTriggerAreaRefresh => {
-                                self.queue_objects_changed_trigger_areas(object_id)
-                            }
-                        }
+                        self.apply_object_destroy_service(object_id, action);
                     });
                     (is_wall, has_special_power, is_local)
                 } else {
@@ -348,7 +356,8 @@ impl GameLogic {
             };
 
         if is_wall {
-            let ai_store = the_ai(); if let Ok(ai) = ai_store.read() {
+            let ai_store = the_ai();
+            if let Ok(ai) = ai_store.read() {
                 if let Some(pf) = ai.pathfinder() {
                     if let Ok(mut pf) = pf.write() {
                         pf.remove_wall_piece(object_id);
@@ -511,7 +520,6 @@ impl GameLogic {
             return Err("Cannot start game: global map_name is empty".to_string());
         }
 
-
         // C++ GameLogic.cpp:1254-1256 — always clear campaign win before map load.
         clear_campaign_victorious_for_new_game();
 
@@ -635,7 +643,6 @@ impl GameLogic {
     pub fn get_frame_objects_changed_trigger_areas(&self) -> UnsignedInt {
         self.frame_objects_changed_trigger_areas
     }
-
 
     pub fn update_objects_changed_trigger_areas(&mut self) {
         while let Some(object_id) = self.objects_changed_trigger_areas.pop_front() {
@@ -1009,7 +1016,6 @@ impl GameLogic {
         crate::system::game_initialization::GameInitializer::load_map_ini(map_name);
     }
 
-
     // =========================================================================
     // C++ Parity: bindObjectAndDrawable / sendObjectDestroyed
     // =========================================================================
@@ -1082,7 +1088,9 @@ fn apply_challenge_the_player_relationships() {
     for other_arc in others {
         let rel = if Arc::ptr_eq(&other_arc, &local_arc) {
             crate::common::Relationship::Allies
-        } else if civilian.as_ref().is_some_and(|c| Arc::ptr_eq(&other_arc, c))
+        } else if civilian
+            .as_ref()
+            .is_some_and(|c| Arc::ptr_eq(&other_arc, c))
             || neutral.as_ref().is_some_and(|n| Arc::ptr_eq(&other_arc, n))
         {
             crate::common::Relationship::Neutral

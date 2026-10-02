@@ -1272,6 +1272,11 @@ fn player_conditions_use_host_census_instead_of_stale_leftover_player() {
     // Live host OBJECT_REGISTRY is empty; leftover Player money/energy/objects
     // are unsynced. C++ ScriptConditions read the same Player as the HUD.
     let _test_lock = crate::test_sync::lock();
+    let engine = ScriptEngine::new().expect("census engine");
+    engine.with_active_for_test(assert_live_player_census_conditions);
+}
+
+fn assert_live_player_census_conditions() {
     crate::object::registry::OBJECT_REGISTRY.clear();
     crate::scripting::clear_host_script_query_snapshot();
     player_list().write().unwrap().clear();
@@ -1289,8 +1294,8 @@ fn player_conditions_use_host_census_instead_of_stale_leftover_player() {
     template_counts.insert("americawarfactory".into(), 1);
     template_counts.insert("americainfantryranger".into(), 2);
     template_counts.insert("americacommandcenter".into(), 1);
-    let mut template_counts_ignore_dead = template_counts.clone();
     template_counts.insert("americatankcrusader".into(), 1);
+    let template_counts_ignore_dead = template_counts.clone();
     snap.player_census.insert(
         "plyramerica".into(),
         crate::scripting::HostScriptPlayerCensus {
@@ -2833,6 +2838,7 @@ fn player_sell_everything_sells_faction_structures_like_cxx() {
     const FACTORY_ID: ObjectID = 8710;
     const CC_ID: ObjectID = 8711;
     const UNIT_ID: ObjectID = 8712;
+    let _registered = RegisteredScriptObjects(vec![FACTORY_ID, CC_ID, UNIT_ID]);
 
     let player = Arc::new(RwLock::new(crate::player::Player::new(0)));
     player.write().unwrap().set_display_name(PLAYER_NAME);
@@ -2908,6 +2914,7 @@ fn damage_members_of_team_applies_unresistable_damage() {
 
     const TEAM_NAME: &str = "ExecutorDamageTeam";
     const MEMBER_ID: ObjectID = 8720;
+    let _registered = RegisteredScriptObjects(vec![MEMBER_ID]);
 
     let team = {
         let mut factory = get_team_factory().lock().unwrap_or_else(|e| e.into_inner());

@@ -589,7 +589,7 @@ mod tests {
         assert!(tail.contains("group_guard.remove"), "group remove");
         assert!(
             tail.contains("notify_of_object_destruction")
-                && tail.contains("notify_of_object_creation_or_destruction"),
+                && tail.contains("ObjectDestroyServiceAction::NotifyObjectCountChanged"),
             "script notify"
         );
         assert!(tail.contains("mark_ui_dirty"), "ControlBar dirty");
