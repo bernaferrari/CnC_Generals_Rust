@@ -667,8 +667,8 @@ impl GameEngine {
             network.update(delta_time)?;
         }
 
-        if let Some(mut cd_manager) = get_cd_manager() {
-            cd_manager.update();
+        if let Some(cd_manager) = get_cd_manager() {
+            cd_manager.borrow_mut().update();
         }
 
         // C++ GameEngine.cpp:749 — network-present gates on isFrameDataReady only;

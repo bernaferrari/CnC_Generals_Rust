@@ -16,8 +16,9 @@
 use crate::common::ascii_string::AsciiString;
 use crate::common::global_data;
 use crate::common::system::kind_of::KindOfMask;
-use once_cell::sync::OnceCell;
+use std::cell::RefCell;
 use std::collections::VecDeque;
+use once_cell::sync::OnceCell;
 use std::sync::{Arc, Mutex, MutexGuard};
 
 /// Construction completion constant
@@ -151,30 +152,21 @@ pub struct SellObjectSnapshot {
     pub player_index: u32,
 }
 
-fn backend_cell() -> &'static Mutex<Option<Arc<dyn BuildAssistantBackend>>> {
-    static BACKEND: OnceCell<Mutex<Option<Arc<dyn BuildAssistantBackend>>>> = OnceCell::new();
-    BACKEND.get_or_init(|| Mutex::new(None))
+// THREAD: C++ plain static; driven only by the single game/client thread.
+thread_local! {
+    static BACKEND: RefCell<Option<Arc<dyn BuildAssistantBackend>>> = const { RefCell::new(None) };
 }
 
 pub fn set_build_assistant_backend(backend: Arc<dyn BuildAssistantBackend>) {
-    let mut guard = backend_cell()
-        .lock()
-        .expect("Build assistant backend lock poisoned");
-    *guard = Some(backend);
+    BACKEND.with_borrow_mut(|backend_slot| *backend_slot = Some(backend));
 }
 
 pub fn clear_build_assistant_backend() {
-    let mut guard = backend_cell()
-        .lock()
-        .expect("Build assistant backend lock poisoned");
-    *guard = None;
+    BACKEND.with_borrow_mut(|backend_slot| *backend_slot = None);
 }
 
 fn get_build_assistant_backend() -> Option<Arc<dyn BuildAssistantBackend>> {
-    backend_cell()
-        .lock()
-        .expect("Build assistant backend lock poisoned")
-        .clone()
+    BACKEND.with_borrow(|backend_slot| backend_slot.clone())
 }
 
 /// Object ID type

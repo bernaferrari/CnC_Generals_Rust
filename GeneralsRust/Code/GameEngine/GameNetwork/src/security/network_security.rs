@@ -5,11 +5,10 @@
 
 use crate::error::{NetworkError, NetworkResult};
 use crate::time::NetworkInstant;
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::net::IpAddr;
-use std::sync::Arc;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use tokio::sync::RwLock;
+use std::sync::{Mutex, MutexGuard};
+use std::time::{Duration, SystemTime};
 use log;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -292,24 +291,34 @@ pub enum DDoSAction {
     NotifyAdmin,
 }
 
+/// Mutable network-security state, guarded as one bundle.
+#[derive(Debug, Default)]
+struct NetworkSecurityState {
+    /// Rate limiting states per IP
+    ip_rate_limits: HashMap<IpAddr, RateLimitState>,
+    /// Rate limiting states per player
+    player_rate_limits: HashMap<u8, RateLimitState>,
+    /// Active connections
+    connections: HashMap<Uuid, ConnectionInfo>,
+    /// IP whitelist
+    ip_whitelist: HashSet<IpAddr>,
+    /// IP blacklist
+    ip_blacklist: HashSet<IpAddr>,
+    /// DDoS detections
+    ddos_detections: Vec<DDoSDetection>,
+    /// Attack statistics per IP
+    attack_stats: HashMap<IpAddr, AttackMetrics>,
+}
+
 /// Network security manager
 pub struct NetworkSecurityManager {
     /// Configuration
     config: NetworkSecurityConfig,
-    /// Rate limiting states per IP
-    ip_rate_limits: Arc<RwLock<HashMap<IpAddr, RateLimitState>>>,
-    /// Rate limiting states per player
-    player_rate_limits: Arc<RwLock<HashMap<u8, RateLimitState>>>,
-    /// Active connections
-    connections: Arc<RwLock<HashMap<Uuid, ConnectionInfo>>>,
-    /// IP whitelist
-    ip_whitelist: Arc<RwLock<std::collections::HashSet<IpAddr>>>,
-    /// IP blacklist
-    ip_blacklist: Arc<RwLock<std::collections::HashSet<IpAddr>>>,
-    /// DDoS detections
-    ddos_detections: Arc<RwLock<Vec<DDoSDetection>>>,
-    /// Attack statistics per IP
-    attack_stats: Arc<RwLock<HashMap<IpAddr, AttackMetrics>>>,
+    /// THREAD: single bundle for all mutable network-security state. Methods take
+    /// `&self` because the manager is shared across connection-handling tasks; this
+    /// lock serializes those short, synchronous critical sections (no awaits are
+    /// ever made while a guard is alive).
+    state: Mutex<NetworkSecurityState>,
 }
 
 impl NetworkSecurityManager {
@@ -327,14 +336,14 @@ impl NetworkSecurityManager {
 
         Self {
             config,
-            ip_rate_limits: Arc::new(RwLock::new(HashMap::new())),
-            player_rate_limits: Arc::new(RwLock::new(HashMap::new())),
-            connections: Arc::new(RwLock::new(HashMap::new())),
-            ip_whitelist: Arc::new(RwLock::new(std::collections::HashSet::new())),
-            ip_blacklist: Arc::new(RwLock::new(std::collections::HashSet::new())),
-            ddos_detections: Arc::new(RwLock::new(Vec::new())),
-            attack_stats: Arc::new(RwLock::new(HashMap::new())),
+            state: Mutex::new(NetworkSecurityState::default()),
         }
+    }
+
+    fn lock_state(&self) -> MutexGuard<'_, NetworkSecurityState> {
+        self.state
+            .lock()
+            .expect("NetworkSecurityManager state lock poisoned")
     }
 
     /// Check if a request should be allowed (rate limiting)
@@ -371,18 +380,16 @@ impl NetworkSecurityManager {
             return Ok(true);
         }
 
+        let state = self.lock_state();
+
         // Check blacklist
-        if self.config.access_control.enable_blacklist {
-            let blacklist = self.ip_blacklist.read().await;
-            if blacklist.contains(&ip) {
-                return Ok(false);
-            }
+        if self.config.access_control.enable_blacklist && state.ip_blacklist.contains(&ip) {
+            return Ok(false);
         }
 
         // Check whitelist mode
         if self.config.access_control.whitelist_mode {
-            let whitelist = self.ip_whitelist.read().await;
-            return Ok(whitelist.contains(&ip));
+            return Ok(state.ip_whitelist.contains(&ip));
         }
 
         Ok(true)
@@ -390,130 +397,69 @@ impl NetworkSecurityManager {
 
     /// Check IP-based rate limiting
     async fn check_ip_rate_limit(&self, ip: IpAddr) -> NetworkResult<bool> {
-        let mut rate_limits = self.ip_rate_limits.write().await;
-        let state = rate_limits.entry(ip).or_insert_with(RateLimitState::new);
-
-        if state.is_blocked() {
-            return Ok(false);
-        }
-
-        let now = NetworkInstant::now();
-        let window_duration = Duration::from_secs(self.config.rate_limiting.window_duration_seconds);
-
-        // Clean up old requests
-        state.requests.retain(|&request_time| now.duration_since(request_time) < window_duration);
-
-        // Check rate limit
-        let requests_in_window = state.requests.len() as u32;
-        if requests_in_window >= self.config.rate_limiting.requests_per_second_per_ip {
-            state.violations += 1;
-            
-            // Block if too many violations
-            if state.violations >= self.config.rate_limiting.violation_threshold {
-                state.blocked_until = Some(now + Duration::from_secs(self.config.rate_limiting.block_duration_seconds));
-                warn!("IP {} blocked for rate limit violations", ip);
-                return Ok(false);
-            }
-            
-            return Ok(false);
-        }
-
-        // Update token bucket
-        self.update_token_bucket(state, now, 
-                                 self.config.rate_limiting.requests_per_second_per_ip as f64,
-                                 self.config.rate_limiting.burst_capacity_per_ip as f64);
-
-        if state.tokens < 1.0 {
-            return Ok(false);
-        }
-
-        // Allow request
-        state.requests.push_back(now);
-        state.tokens -= 1.0;
-
-        Ok(true)
+        let mut state = self.lock_state();
+        Ok(enforce_rate_limit(
+            &mut state.ip_rate_limits,
+            "IP",
+            ip,
+            self.config.rate_limiting.requests_per_second_per_ip,
+            self.config.rate_limiting.burst_capacity_per_ip,
+            &self.config.rate_limiting,
+        ))
     }
 
     /// Check player-based rate limiting
     async fn check_player_rate_limit(&self, player_id: u8) -> NetworkResult<bool> {
-        let mut rate_limits = self.player_rate_limits.write().await;
-        let state = rate_limits.entry(player_id).or_insert_with(RateLimitState::new);
-
-        if state.is_blocked() {
-            return Ok(false);
-        }
-
-        let now = NetworkInstant::now();
-        let window_duration = Duration::from_secs(self.config.rate_limiting.window_duration_seconds);
-
-        // Clean up old requests
-        state.requests.retain(|&request_time| now.duration_since(request_time) < window_duration);
-
-        // Check rate limit
-        let requests_in_window = state.requests.len() as u32;
-        if requests_in_window >= self.config.rate_limiting.requests_per_second_per_player {
-            state.violations += 1;
-            
-            if state.violations >= self.config.rate_limiting.violation_threshold {
-                state.blocked_until = Some(now + Duration::from_secs(self.config.rate_limiting.block_duration_seconds));
-                warn!("Player {} blocked for rate limit violations", player_id);
-                return Ok(false);
-            }
-            
-            return Ok(false);
-        }
-
-        // Update token bucket
-        self.update_token_bucket(state, now,
-                                 self.config.rate_limiting.requests_per_second_per_player as f64,
-                                 self.config.rate_limiting.burst_capacity_per_player as f64);
-
-        if state.tokens < 1.0 {
-            return Ok(false);
-        }
-
-        // Allow request
-        state.requests.push_back(now);
-        state.tokens -= 1.0;
-
-        Ok(true)
-    }
-
-    /// Update token bucket for rate limiting
-    fn update_token_bucket(&self, state: &mut RateLimitState, now: NetworkInstant, rate: f64, capacity: f64) {
-        let elapsed = now.duration_since(state.last_update).as_secs_f64();
-        state.tokens = (state.tokens + elapsed * rate).min(capacity);
-        state.last_update = now;
+        let mut state = self.lock_state();
+        Ok(enforce_rate_limit(
+            &mut state.player_rate_limits,
+            "Player",
+            player_id,
+            self.config.rate_limiting.requests_per_second_per_player,
+            self.config.rate_limiting.burst_capacity_per_player,
+            &self.config.rate_limiting,
+        ))
     }
 
     /// Register new connection
     pub async fn register_connection(&self, connection_id: Uuid, remote_addr: IpAddr, player_id: Option<u8>) -> NetworkResult<bool> {
         // Check DDoS protection
         if self.config.enable_ddos_protection {
-            if let Some(detection) = self.check_ddos_patterns(remote_addr).await? {
+            let detection = {
+                let state = self.lock_state();
+                Self::check_ddos_patterns(
+                    &state.connections,
+                    remote_addr,
+                    &self.config.ddos_protection,
+                )?
+            };
+
+            if let Some(detection) = detection {
                 warn!("DDoS attack detected from {}: {:?}", remote_addr, detection.attack_type);
-                
+
                 // Auto-block if severe
                 let should_block = detection.confidence > 0.9;
-                
+
                 // Store detection
                 {
-                    let mut detections = self.ddos_detections.write().await;
-                    detections.push(detection);
+                    let mut state = self.lock_state();
+                    state.ddos_detections.push(detection);
                 }
-                
+
                 if should_block {
                     self.add_to_blacklist(remote_addr).await;
                 }
-                
+
                 return Ok(false);
             }
         }
 
         // Check connection limits
         let connections_count = {
-            let connections = self.connections.read().await;
-            connections.values()
+            let state = self.lock_state();
+            state
+                .connections
+                .values()
                 .filter(|conn| conn.remote_addr == remote_addr)
                 .count() as u32
         };
@@ -537,8 +483,8 @@ impl NetworkSecurityManager {
         };
 
         {
-            let mut connections = self.connections.write().await;
-            connections.insert(connection_id, connection_info);
+            let mut state = self.lock_state();
+            state.connections.insert(connection_id, connection_info);
         }
 
         debug!("Registered connection {} from {}", connection_id, remote_addr);
@@ -547,9 +493,9 @@ impl NetworkSecurityManager {
 
     /// Update connection activity
     pub async fn update_connection_activity(&self, connection_id: Uuid, bytes_sent: u64, bytes_received: u64, packets_sent: u64, packets_received: u64) -> NetworkResult<()> {
-        let mut connections = self.connections.write().await;
-        
-        if let Some(connection) = connections.get_mut(&connection_id) {
+        let mut state = self.lock_state();
+
+        if let Some(connection) = state.connections.get_mut(&connection_id) {
             connection.last_activity = NetworkInstant::now();
             connection.bytes_sent += bytes_sent;
             connection.bytes_received += bytes_received;
@@ -560,9 +506,12 @@ impl NetworkSecurityManager {
         Ok(())
     }
 
-    /// Check for DDoS attack patterns
-    async fn check_ddos_patterns(&self, remote_addr: IpAddr) -> NetworkResult<Option<DDoSDetection>> {
-        let connections = self.connections.read().await;
+    /// Check for DDoS attack patterns against the current connection table.
+    fn check_ddos_patterns(
+        connections: &HashMap<Uuid, ConnectionInfo>,
+        remote_addr: IpAddr,
+        ddos_config: &DDoSProtectionConfig,
+    ) -> NetworkResult<Option<DDoSDetection>> {
         let now = NetworkInstant::now();
 
         // Count recent connections from this IP
@@ -574,7 +523,7 @@ impl NetworkSecurityManager {
             .count() as u32;
 
         // Check connection rate threshold
-        if recent_connections > self.config.ddos_protection.connection_rate_threshold {
+        if recent_connections > ddos_config.connection_rate_threshold {
             let metrics = AttackMetrics {
                 connections_per_minute: recent_connections,
                 packets_per_second: 0,
@@ -587,10 +536,10 @@ impl NetworkSecurityManager {
                 detection_id: Uuid::new_v4(),
                 source_ip: remote_addr,
                 attack_type: DDoSAttackType::ConnectionFlood,
-                confidence: (recent_connections as f64 / self.config.ddos_protection.connection_rate_threshold as f64 - 1.0).min(1.0),
+                confidence: (recent_connections as f64 / ddos_config.connection_rate_threshold as f64 - 1.0).min(1.0),
                 metrics,
                 detected_at: SystemTime::now(),
-                recommended_action: if recent_connections > self.config.ddos_protection.connection_rate_threshold * 2 {
+                recommended_action: if recent_connections > ddos_config.connection_rate_threshold * 2 {
                     DDoSAction::TemporaryBlock { duration_seconds: self.config.ddos_protection.auto_block_duration_seconds }
                 } else {
                     DDoSAction::RateLimit
@@ -616,7 +565,7 @@ impl NetworkSecurityManager {
         let packets_per_second = (total_packets as f64 / duration_seconds).round() as u32;
         let bytes_per_second = (total_bytes as f64 / duration_seconds).round() as u64;
 
-        if packets_per_second > self.config.ddos_protection.packet_rate_threshold {
+        if packets_per_second > ddos_config.packet_rate_threshold {
             let metrics = AttackMetrics {
                 connections_per_minute: recent_connections,
                 packets_per_second,
@@ -630,7 +579,7 @@ impl NetworkSecurityManager {
                 source_ip: remote_addr,
                 attack_type: DDoSAttackType::PacketFlood,
                 confidence: (packets_per_second as f64
-                    / self.config.ddos_protection.packet_rate_threshold as f64
+                    / ddos_config.packet_rate_threshold as f64
                     - 1.0)
                     .min(1.0),
                 metrics,
@@ -639,7 +588,7 @@ impl NetworkSecurityManager {
             }));
         }
 
-        if bytes_per_second > self.config.ddos_protection.bandwidth_threshold {
+        if bytes_per_second > ddos_config.bandwidth_threshold {
             let metrics = AttackMetrics {
                 connections_per_minute: recent_connections,
                 packets_per_second,
@@ -653,7 +602,7 @@ impl NetworkSecurityManager {
                 source_ip: remote_addr,
                 attack_type: DDoSAttackType::BandwidthFlood,
                 confidence: (bytes_per_second as f64
-                    / self.config.ddos_protection.bandwidth_threshold as f64
+                    / ddos_config.bandwidth_threshold as f64
                     - 1.0)
                     .min(1.0),
                 metrics,
@@ -667,22 +616,22 @@ impl NetworkSecurityManager {
 
     /// Add IP to whitelist
     pub async fn add_to_whitelist(&self, ip: IpAddr) {
-        let mut whitelist = self.ip_whitelist.write().await;
-        whitelist.insert(ip);
+        let mut state = self.lock_state();
+        state.ip_whitelist.insert(ip);
         info!("Added {} to IP whitelist", ip);
     }
 
     /// Add IP to blacklist
     pub async fn add_to_blacklist(&self, ip: IpAddr) {
-        let mut blacklist = self.ip_blacklist.write().await;
-        blacklist.insert(ip);
+        let mut state = self.lock_state();
+        state.ip_blacklist.insert(ip);
         warn!("Added {} to IP blacklist", ip);
     }
 
     /// Remove IP from blacklist
     pub async fn remove_from_blacklist(&self, ip: IpAddr) -> bool {
-        let mut blacklist = self.ip_blacklist.write().await;
-        let removed = blacklist.remove(&ip);
+        let mut state = self.lock_state();
+        let removed = state.ip_blacklist.remove(&ip);
         if removed {
             info!("Removed {} from IP blacklist", ip);
         }
@@ -691,8 +640,8 @@ impl NetworkSecurityManager {
 
     /// Unregister connection
     pub async fn unregister_connection(&self, connection_id: Uuid) {
-        let mut connections = self.connections.write().await;
-        if let Some(connection) = connections.remove(&connection_id) {
+        let mut state = self.lock_state();
+        if let Some(connection) = state.connections.remove(&connection_id) {
             debug!("Unregistered connection {} from {}", connection_id, connection.remote_addr);
         }
     }
@@ -702,61 +651,111 @@ impl NetworkSecurityManager {
         let now = NetworkInstant::now();
         let cleanup_duration = Duration::from_secs(3600); // 1 hour
 
-        // Clean up expired rate limit states
-        {
-            let mut ip_limits = self.ip_rate_limits.write().await;
-            ip_limits.retain(|_, state| {
-                !state.requests.is_empty() || state.blocked_until.map_or(false, |blocked| now < blocked)
-            });
-        }
+        let mut state = self.lock_state();
 
-        {
-            let mut player_limits = self.player_rate_limits.write().await;
-            player_limits.retain(|_, state| {
-                !state.requests.is_empty() || state.blocked_until.map_or(false, |blocked| now < blocked)
-            });
-        }
+        // Clean up expired rate limit states
+        state.ip_rate_limits.retain(|_, state| {
+            !state.requests.is_empty() || state.blocked_until.map_or(false, |blocked| now < blocked)
+        });
+
+        state.player_rate_limits.retain(|_, state| {
+            !state.requests.is_empty() || state.blocked_until.map_or(false, |blocked| now < blocked)
+        });
 
         // Clean up idle connections
-        {
-            let mut connections = self.connections.write().await;
-            let idle_timeout = Duration::from_secs(self.config.connection_limits.idle_timeout_seconds);
-            connections.retain(|_, conn| now.duration_since(conn.last_activity) < idle_timeout);
-        }
+        let idle_timeout = Duration::from_secs(self.config.connection_limits.idle_timeout_seconds);
+        state
+            .connections
+            .retain(|_, conn| now.duration_since(conn.last_activity) < idle_timeout);
 
         // Clean up old DDoS detections
-        {
-            let mut detections = self.ddos_detections.write().await;
-            let cutoff = SystemTime::now() - Duration::from_secs(86400); // 24 hours
-            detections.retain(|detection| detection.detected_at > cutoff);
-        }
+        let cutoff = SystemTime::now() - Duration::from_secs(86400); // 24 hours
+        state
+            .ddos_detections
+            .retain(|detection| detection.detected_at > cutoff);
 
         Ok(())
     }
 
     /// Get network security statistics
     pub async fn get_stats(&self) -> NetworkSecurityStats {
-        let ip_limits = self.ip_rate_limits.read().await;
-        let player_limits = self.player_rate_limits.read().await;
-        let connections = self.connections.read().await;
-        let whitelist = self.ip_whitelist.read().await;
-        let blacklist = self.ip_blacklist.read().await;
-        let detections = self.ddos_detections.read().await;
+        let state = self.lock_state();
 
-        let blocked_ips = ip_limits.values().filter(|state| state.is_blocked()).count();
-        let blocked_players = player_limits.values().filter(|state| state.is_blocked()).count();
+        let blocked_ips = state
+            .ip_rate_limits
+            .values()
+            .filter(|state| state.is_blocked())
+            .count();
+        let blocked_players = state
+            .player_rate_limits
+            .values()
+            .filter(|state| state.is_blocked())
+            .count();
 
         NetworkSecurityStats {
-            total_connections: connections.len(),
+            total_connections: state.connections.len(),
             blocked_ips,
             blocked_players,
-            whitelisted_ips: whitelist.len(),
-            blacklisted_ips: blacklist.len(),
-            ddos_detections: detections.len(),
+            whitelisted_ips: state.ip_whitelist.len(),
+            blacklisted_ips: state.ip_blacklist.len(),
+            ddos_detections: state.ddos_detections.len(),
             rate_limiting_enabled: self.config.enable_rate_limiting,
             ddos_protection_enabled: self.config.enable_ddos_protection,
         }
     }
+}
+
+/// Shared IP/player rate-limit enforcement. Returns `true` when the request is
+/// allowed.
+fn enforce_rate_limit<K: Eq + Copy + std::fmt::Display>(
+    states: &mut HashMap<K, RateLimitState>,
+    label: &str,
+    key: K,
+    limit: u32,
+    burst_capacity: u32,
+    config: &RateLimitConfig,
+) -> bool {
+    let state = states.entry(key).or_insert_with(RateLimitState::new);
+
+    if state.is_blocked() {
+        return false;
+    }
+
+    let now = NetworkInstant::now();
+    let window_duration = Duration::from_secs(config.window_duration_seconds);
+
+    // Clean up old requests
+    state.requests.retain(|&request_time| now.duration_since(request_time) < window_duration);
+
+    // Check rate limit
+    let requests_in_window = state.requests.len() as u32;
+    if requests_in_window >= limit {
+        state.violations += 1;
+
+        // Block if too many violations
+        if state.violations >= config.violation_threshold {
+            state.blocked_until = Some(now + Duration::from_secs(config.block_duration_seconds));
+            warn!("{} {} blocked for rate limit violations", label, key);
+            return false;
+        }
+
+        return false;
+    }
+
+    // Update token bucket
+    let elapsed = now.duration_since(state.last_update).as_secs_f64();
+    state.tokens = (state.tokens + elapsed * limit as f64).min(burst_capacity as f64);
+    state.last_update = now;
+
+    if state.tokens < 1.0 {
+        return false;
+    }
+
+    // Allow request
+    state.requests.push_back(now);
+    state.tokens -= 1.0;
+
+    true
 }
 
 /// Network security statistics

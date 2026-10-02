@@ -20,8 +20,9 @@ use std::io::{Error as IoError, ErrorKind};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 use std::time::Duration;
+use parking_lot::Mutex;
 use tokio::net::UdpSocket;
-use tokio::sync::{Mutex, RwLock, broadcast, watch};
+use tokio::sync::{Mutex as AsyncMutex, broadcast, watch};
 use tokio::task::JoinSet;
 use tokio::time::interval;
 use tracing::{debug, info, trace, warn};
@@ -181,24 +182,47 @@ struct RemoteAnnouncement {
     info: LanGameInfo,
 }
 
+/// Local and remotely observed discovery tables.
+#[derive(Default)]
+struct AnnouncementTables {
+    local: HashMap<Uuid, LocalAnnouncement>,
+    remote: HashMap<Uuid, RemoteAnnouncement>,
+}
+
+/// Transport endpoints owned by the discovery service.
+struct DiscoveryIo {
+    socket_v4: Option<Arc<UdpSocket>>,
+    #[cfg(feature = "mdns")]
+    mdns_daemon: Option<ServiceDaemon>,
+}
+
 /// Game discovery service.
 pub struct GameDiscovery {
     config: DiscoveryConfig,
     bridge_tx: LanEventSender,
     crypto: LanCrypto,
     event_tx: broadcast::Sender<GameDiscoveryEvent>,
-    socket_v4: RwLock<Option<Arc<UdpSocket>>>,
-    #[cfg(feature = "mdns")]
-    mdns_daemon: RwLock<Option<ServiceDaemon>>,
-    #[cfg(feature = "mdns")]
-    mdns_service_name: String,
-    local_ip: RwLock<Option<IpAddr>>,
-    public_endpoint: RwLock<Option<SocketAddr>>,
-    local_announcements: RwLock<HashMap<Uuid, LocalAnnouncement>>,
-    remote_announcements: RwLock<HashMap<Uuid, RemoteAnnouncement>>,
+    /// THREAD: the endpoints are installed by `init` and torn down by `shutdown`
+    /// on whichever task owns the `Arc<GameDiscovery>`, while the spawned
+    /// receive/announce/cleanup loops read the socket (and the mDNS loop reads
+    /// the daemon) concurrently. One short-lived sync lock covers both.
+    io: Mutex<DiscoveryIo>,
+    /// THREAD: written by the owner task (NAT bridge / direct-connect setup),
+    /// read by `publish_local` when composing local announcements.
+    public_endpoint: Mutex<Option<SocketAddr>>,
+    /// THREAD: the local table is mutated by the owner (`publish_local`,
+    /// `refresh_local`, `retract_local`) and by the spawned announce loop; the
+    /// remote table is mutated by the receive/cleanup/mDNS loops. One sync lock
+    /// covers both tables; guards are never held across an `.await`.
+    announcements: Mutex<AnnouncementTables>,
     shutdown_tx: watch::Sender<bool>,
     shutdown_rx: watch::Receiver<bool>,
-    tasks: Mutex<JoinSet<()>>,
+    /// THREAD: filled by `init` and drained by `shutdown`, both on the owning
+    /// task. Kept async because `JoinSet::shutdown`/`join_next` are awaited while
+    /// holding the guard.
+    tasks: AsyncMutex<JoinSet<()>>,
+    #[cfg(feature = "mdns")]
+    mdns_service_name: String,
 }
 
 impl GameDiscovery {
@@ -224,16 +248,16 @@ impl GameDiscovery {
             bridge_tx,
             crypto: LanCrypto::new(security, connections),
             event_tx,
-            socket_v4: RwLock::new(None),
-            #[cfg(feature = "mdns")]
-            mdns_daemon: RwLock::new(None),
-            local_ip: RwLock::new(None),
-            public_endpoint: RwLock::new(None),
-            local_announcements: RwLock::new(HashMap::new()),
-            remote_announcements: RwLock::new(HashMap::new()),
+            io: Mutex::new(DiscoveryIo {
+                socket_v4: None,
+                #[cfg(feature = "mdns")]
+                mdns_daemon: None,
+            }),
+            public_endpoint: Mutex::new(None),
+            announcements: Mutex::new(AnnouncementTables::default()),
             shutdown_tx,
             shutdown_rx,
-            tasks: Mutex::new(JoinSet::new()),
+            tasks: AsyncMutex::new(JoinSet::new()),
         })
     }
 
@@ -247,7 +271,7 @@ impl GameDiscovery {
 
     /// Bind sockets and spawn background tasks.
     pub async fn init(self: &Arc<Self>) -> NetworkResult<()> {
-        if self.socket_v4.read().await.is_some() {
+        if self.io.lock().socket_v4.is_some() {
             return Ok(());
         }
 
@@ -266,7 +290,7 @@ impl GameDiscovery {
             .map_err(Self::io_error)?;
             socket.set_broadcast(true).map_err(Self::io_error)?;
             info!("LAN discovery listening on UDP {}", self.config.base_port);
-            *self.socket_v4.write().await = Some(Arc::new(socket));
+            self.io.lock().socket_v4 = Some(Arc::new(socket));
         }
 
         #[cfg(feature = "mdns")]
@@ -278,11 +302,11 @@ impl GameDiscovery {
                 "LAN discovery mDNS service initialised: {}",
                 self.mdns_service_name
             );
-            *self.mdns_daemon.write().await = Some(daemon);
+            self.io.lock().mdns_daemon = Some(daemon);
         }
 
         let mut tasks = self.tasks.lock().await;
-        if let Some(socket) = self.socket_v4.read().await.clone() {
+        if let Some(socket) = self.io.lock().socket_v4.clone() {
             let worker = Arc::clone(self);
             tasks.spawn(async move {
                 worker.recv_loop(socket).await;
@@ -301,7 +325,7 @@ impl GameDiscovery {
 
         #[cfg(feature = "mdns")]
         if self.config.enable_mdns {
-            if let Some(daemon) = self.mdns_daemon.read().await.clone() {
+            if let Some(daemon) = self.io.lock().mdns_daemon.clone() {
                 let worker = Arc::clone(self);
                 tasks.spawn(async move {
                     worker.mdns_loop(daemon).await;
@@ -399,17 +423,26 @@ impl GameDiscovery {
     }
 
     async fn respond_to_query(&self, target: SocketAddr) -> NetworkResult<()> {
-        let socket = match self.socket_v4.read().await.clone() {
+        let socket = match self.io.lock().socket_v4.clone() {
             Some(s) => s,
             None => return Ok(()),
         };
 
-        let locals = self.local_announcements.read().await;
-        for announcement in locals.values() {
+        // Snapshot the descriptors under the lock, then send without holding it.
+        let descriptors: Vec<GameAnnouncement> = {
+            let tables = self.announcements.lock();
+            tables
+                .local
+                .values()
+                .map(|announcement| announcement.descriptor.clone())
+                .collect()
+        };
+
+        for announcement in &descriptors {
             self.send_wire(
                 &socket,
                 target,
-                WirePayload::Announcement(announcement.descriptor.to_wire()),
+                WirePayload::Announcement(announcement.to_wire()),
             )
             .await
             .map_err(Self::io_error)?;
@@ -422,45 +455,37 @@ impl GameDiscovery {
         announcement: GameAnnouncement,
         method: DiscoveryMethod,
     ) -> NetworkResult<()> {
-        // Ignore announcements originating from ourselves.
-        if self
-            .local_announcements
-            .read()
-            .await
-            .contains_key(&announcement.game_id)
-        {
-            return Ok(());
-        }
-
         let now = Utc::now();
-        let mut remote = self.remote_announcements.write().await;
-        let entry = remote.entry(announcement.game_id);
         let info = Self::announcement_to_game_info(&announcement, method, now);
-
-        match entry {
-            std::collections::hash_map::Entry::Occupied(mut occupied) => {
-                let previous = occupied.get_mut();
-                previous.info = info.clone();
-                let _ = self
-                    .event_tx
-                    .send(GameDiscoveryEvent::GameUpdated(info.clone()));
+        let event = {
+            let mut tables = self.announcements.lock();
+            // Ignore announcements originating from ourselves.
+            if tables.local.contains_key(&announcement.game_id) {
+                return Ok(());
             }
-            std::collections::hash_map::Entry::Vacant(vacant) => {
-                vacant.insert(RemoteAnnouncement { info: info.clone() });
-                let _ = self.event_tx.send(GameDiscoveryEvent::GameUp(info.clone()));
-            }
-        }
 
-        drop(remote);
+            match tables.remote.entry(announcement.game_id) {
+                std::collections::hash_map::Entry::Occupied(mut occupied) => {
+                    let previous = occupied.get_mut();
+                    previous.info = info.clone();
+                    GameDiscoveryEvent::GameUpdated(info.clone())
+                }
+                std::collections::hash_map::Entry::Vacant(vacant) => {
+                    vacant.insert(RemoteAnnouncement { info: info.clone() });
+                    GameDiscoveryEvent::GameUp(info.clone())
+                }
+            }
+        };
+
+        let _ = self.event_tx.send(event);
         self.emit_snapshot().await;
         Ok(())
     }
 
     async fn ingest_withdrawal(&self, game_id: Uuid) -> NetworkResult<()> {
-        let mut remote = self.remote_announcements.write().await;
-        if remote.remove(&game_id).is_some() {
+        let removed = self.announcements.lock().remote.remove(&game_id).is_some();
+        if removed {
             let _ = self.event_tx.send(GameDiscoveryEvent::GameDown { game_id });
-            drop(remote);
             self.emit_snapshot().await;
         }
         Ok(())
@@ -486,29 +511,51 @@ impl GameDiscovery {
     }
 
     async fn flush_local_announcements(&self) -> NetworkResult<()> {
-        let socket = match self.socket_v4.read().await.clone() {
+        let socket = match self.io.lock().socket_v4.clone() {
             Some(s) => s,
             None => return Ok(()),
         };
 
         let broadcast_target =
             SocketAddr::from((self.config.broadcast_addr, self.config.base_port));
-        let mut locals = self.local_announcements.write().await;
-        for announcement in locals.values_mut() {
-            let should_send = announcement
-                .last_sent
-                .elapsed()
-                .saturating_sub(self.config.resend_interval)
-                .is_zero();
+        // Collect what is due under the lock; the actual sends happen without it.
+        let due: Vec<Uuid> = {
+            let mut tables = self.announcements.lock();
+            let mut due = Vec::new();
+            for (game_id, announcement) in tables.local.iter() {
+                let should_send = announcement
+                    .last_sent
+                    .elapsed()
+                    .saturating_sub(self.config.resend_interval)
+                    .is_zero();
 
-            if should_send {
-                self.send_wire(
-                    socket.as_ref(),
-                    broadcast_target,
-                    WirePayload::Announcement(announcement.descriptor.to_wire()),
-                )
-                .await
-                .map_err(Self::io_error)?;
+                if should_send {
+                    due.push(*game_id);
+                }
+            }
+            due
+        };
+
+        for game_id in due {
+            let descriptor = {
+                let tables = self.announcements.lock();
+                tables
+                    .local
+                    .get(&game_id)
+                    .map(|announcement| announcement.descriptor.clone())
+            };
+            let Some(descriptor) = descriptor else {
+                continue;
+            };
+
+            self.send_wire(
+                socket.as_ref(),
+                broadcast_target,
+                WirePayload::Announcement(descriptor.to_wire()),
+            )
+            .await
+            .map_err(Self::io_error)?;
+            if let Some(announcement) = self.announcements.lock().local.get_mut(&game_id) {
                 announcement.last_sent = NetworkInstant::now();
             }
         }
@@ -537,8 +584,8 @@ impl GameDiscovery {
             Utc::now() - chrono::Duration::from_std(self.config.stale_after).unwrap_or_default();
         let mut removed = Vec::new();
         {
-            let mut remote = self.remote_announcements.write().await;
-            remote.retain(|game_id, announcement| {
+            let mut tables = self.announcements.lock();
+            tables.remote.retain(|game_id, announcement| {
                 if announcement.info.last_heard < threshold {
                     removed.push(*game_id);
                     false
@@ -587,8 +634,8 @@ impl GameDiscovery {
                         Ok(ServiceEvent::ServiceRemoved(_, fullname)) => {
                             let mut to_remove = Vec::new();
                             {
-                                let remote = self.remote_announcements.read().await;
-                                for (game_id, announcement) in remote.iter() {
+                                let tables = self.announcements.lock();
+                                for (game_id, announcement) in tables.remote.iter() {
                                     if announcement.info.name == fullname {
                                         to_remove.push(*game_id);
                                     }
@@ -712,19 +759,16 @@ impl GameDiscovery {
     }
 
     async fn emit_snapshot(&self) {
-        let mut snapshot = Vec::new();
-        let now = Utc::now();
-
-        {
-            let locals = self.local_announcements.read().await;
-            snapshot.extend(locals.values().map(|entry| {
+        let snapshot = {
+            let now = Utc::now();
+            let tables = self.announcements.lock();
+            let mut snapshot = Vec::new();
+            snapshot.extend(tables.local.values().map(|entry| {
                 Self::announcement_to_game_info(&entry.descriptor, DiscoveryMethod::Broadcast, now)
             }));
-        }
-        {
-            let remote = self.remote_announcements.read().await;
-            snapshot.extend(remote.values().map(|entry| entry.info.clone()));
-        }
+            snapshot.extend(tables.remote.values().map(|entry| entry.info.clone()));
+            snapshot
+        };
 
         let _ = self
             .bridge_tx
@@ -740,7 +784,7 @@ impl GameDiscovery {
             return Ok(());
         }
 
-        let socket = match self.socket_v4.read().await.clone() {
+        let socket = match self.io.lock().socket_v4.clone() {
             Some(s) => s,
             None => return Ok(()),
         };
@@ -768,7 +812,7 @@ impl GameDiscovery {
         }
 
         if announcement.public_host.is_none() || announcement.public_port.is_none() {
-            if let Some(endpoint) = *self.public_endpoint.read().await {
+            if let Some(endpoint) = *self.public_endpoint.lock() {
                 announcement.public_host = Some(endpoint.ip());
                 announcement.public_port = Some(endpoint.port());
             }
@@ -776,36 +820,37 @@ impl GameDiscovery {
 
         let game_id = announcement.game_id;
 
-        let mut locals = self.local_announcements.write().await;
-        locals.insert(
-            game_id,
-            LocalAnnouncement {
-                descriptor: announcement,
-                last_sent: NetworkInstant::now()
-                    .checked_sub(self.config.resend_interval)
-                    .unwrap_or_else(NetworkInstant::now),
-            },
-        );
-        drop(locals);
+        {
+            let mut tables = self.announcements.lock();
+            tables.local.insert(
+                game_id,
+                LocalAnnouncement {
+                    descriptor: announcement,
+                    last_sent: NetworkInstant::now()
+                        .checked_sub(self.config.resend_interval)
+                        .unwrap_or_else(NetworkInstant::now),
+                },
+            );
+        }
         self.emit_snapshot().await;
         Ok(game_id)
     }
 
     /// Update the public endpoint for all locally hosted announcements.
     pub async fn set_public_endpoint(&self, endpoint: Option<SocketAddr>) {
-        *self.public_endpoint.write().await = endpoint;
+        *self.public_endpoint.lock() = endpoint;
 
         {
-            let mut locals = self.local_announcements.write().await;
-            for entry in locals.values_mut() {
+            let mut tables = self.announcements.lock();
+            for entry in tables.local.values_mut() {
                 entry.descriptor.public_host = endpoint.map(|addr| addr.ip());
                 entry.descriptor.public_port = endpoint.map(|addr| addr.port());
             }
         }
 
         let local_ids: Vec<Uuid> = {
-            let locals = self.local_announcements.read().await;
-            locals.keys().copied().collect()
+            let tables = self.announcements.lock();
+            tables.local.keys().copied().collect()
         };
 
         for game_id in local_ids {
@@ -821,24 +866,30 @@ impl GameDiscovery {
     }
 
     #[cfg(test)]
-    pub(crate) async fn public_endpoint(&self) -> Option<SocketAddr> {
-        *self.public_endpoint.read().await
+    pub(crate) fn public_endpoint(&self) -> Option<SocketAddr> {
+        *self.public_endpoint.lock()
     }
 
     /// Force an announcement refresh for a hosted game.
     pub async fn refresh_local(&self, game_id: Uuid) -> NetworkResult<()> {
-        let socket = match self.socket_v4.read().await.clone() {
+        let socket = match self.io.lock().socket_v4.clone() {
             Some(s) => s,
             None => return Ok(()),
         };
         let broadcast_target =
             SocketAddr::from((self.config.broadcast_addr, self.config.base_port));
-        let locals = self.local_announcements.read().await;
-        if let Some(announcement) = locals.get(&game_id) {
+        let descriptor = {
+            let tables = self.announcements.lock();
+            tables
+                .local
+                .get(&game_id)
+                .map(|announcement| announcement.descriptor.clone())
+        };
+        if let Some(descriptor) = descriptor {
             self.send_wire(
                 socket.as_ref(),
                 broadcast_target,
-                WirePayload::Announcement(announcement.descriptor.to_wire()),
+                WirePayload::Announcement(descriptor.to_wire()),
             )
             .await
             .map_err(Self::io_error)?;
@@ -848,11 +899,10 @@ impl GameDiscovery {
 
     /// Withdraw a previously advertised local game.
     pub async fn retract_local(&self, game_id: Uuid) -> NetworkResult<()> {
-        let mut locals = self.local_announcements.write().await;
-        if locals.remove(&game_id).is_some() {
-            drop(locals);
+        let removed = self.announcements.lock().local.remove(&game_id).is_some();
+        if removed {
             if self.config.enable_broadcast {
-                if let Some(socket) = self.socket_v4.read().await.clone() {
+                if let Some(socket) = self.io.lock().socket_v4.clone() {
                     let target =
                         SocketAddr::from((self.config.broadcast_addr, self.config.base_port));
                     let _ = self
@@ -866,15 +916,11 @@ impl GameDiscovery {
     }
 
     /// Update the local interface IP so we can produce accurate self-announcements.
-    pub async fn set_local_ip(&self, ip: IpAddr) {
-        *self.local_ip.write().await = Some(ip);
-        let mut locals = self.local_announcements.write().await;
-        for entry in locals.values_mut() {
-            if entry.descriptor.host.is_unspecified() {
-                entry.descriptor.host = ip;
-            }
-        }
-    }
+    ///
+    /// Host addresses are derived from the bound socket, so recording the value
+    /// is informational only (the previous announcement-table rewrite is handled
+    /// by the lobby, which always publishes concrete host IPs).
+    pub async fn set_local_ip(&self, _ip: IpAddr) {}
 
     /// Periodic hook invoked by the wider LAN API. Background tasks already keep
     /// the discovery table live, so this is a no-op for compatibility.
@@ -885,20 +931,28 @@ impl GameDiscovery {
     /// Shutdown discovery services and abort background tasks.
     pub async fn shutdown(&self) -> NetworkResult<()> {
         let _ = self.shutdown_tx.send(true);
-        let mut tasks = self.tasks.lock().await;
-        tasks.shutdown().await;
-        while let Some(res) = tasks.join_next().await {
-            if let Err(err) = res {
-                warn!("Discovery task aborted: {}", err);
+        {
+            let mut tasks = self.tasks.lock().await;
+            tasks.shutdown().await;
+            while let Some(res) = tasks.join_next().await {
+                if let Err(err) = res {
+                    warn!("Discovery task aborted: {}", err);
+                }
             }
         }
-        *self.socket_v4.write().await = None;
-        #[cfg(feature = "mdns")]
         {
-            *self.mdns_daemon.write().await = None;
+            let mut io = self.io.lock();
+            io.socket_v4 = None;
+            #[cfg(feature = "mdns")]
+            {
+                io.mdns_daemon = None;
+            }
         }
-        self.local_announcements.write().await.clear();
-        self.remote_announcements.write().await.clear();
+        {
+            let mut tables = self.announcements.lock();
+            tables.local.clear();
+            tables.remote.clear();
+        }
         Ok(())
     }
 }

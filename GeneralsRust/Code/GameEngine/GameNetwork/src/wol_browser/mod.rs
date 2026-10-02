@@ -16,20 +16,37 @@ pub mod web_browser;
 use crate::error::{NetworkError, NetworkResult};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::sync::Arc;
-use tokio::sync::{RwLock, broadcast, mpsc};
+use std::sync::{Arc, Mutex};
+use tokio::sync::{broadcast, mpsc};
 use tracing::{debug, error, info, instrument, warn};
+
+/// Handle to the download table shared with the spawned download workers
+/// (see `WolBrowser::downloads`).
+type SharedDownloads = Arc<Mutex<HashMap<String, DownloadTask>>>;
 
 /// Westwood Online Browser interface
 pub struct WolBrowser {
     /// Browser configuration
     config: WolBrowserConfig,
     /// Current browser state
-    state: Arc<RwLock<BrowserState>>,
+    ///
+    /// Owner-only: only `WolBrowser`'s own methods read or write it, so it is
+    /// a plain field.
+    state: BrowserState,
     /// Navigation history
-    history: Arc<RwLock<NavigationHistory>>,
+    ///
+    /// Owner-only: only `WolBrowser`'s own methods read or write it, so it is
+    /// a plain field.
+    history: NavigationHistory,
     /// Active downloads
-    downloads: Arc<RwLock<HashMap<String, DownloadTask>>>,
+    ///
+    /// THREAD: the `WolBrowser` owner inserts/cancels/lists downloads, while
+    /// each spawned `download_worker` flips its entry between
+    /// `Downloading`/`Completed` and the `download_manager_task` reaps
+    /// finished entries -- all on the tokio runtime.  That is the real
+    /// cross-task boundary; every critical section below is await-free, hence
+    /// a plain `std` mutex.
+    downloads: SharedDownloads,
     /// Event sender
     event_tx: broadcast::Sender<WolBrowserEvent>,
     /// Command receiver
@@ -238,9 +255,9 @@ impl WolBrowser {
 
         Ok(Self {
             config: WolBrowserConfig::default(),
-            state: Arc::new(RwLock::new(BrowserState::default())),
-            history: Arc::new(RwLock::new(NavigationHistory::default())),
-            downloads: Arc::new(RwLock::new(HashMap::new())),
+            state: BrowserState::default(),
+            history: NavigationHistory::default(),
+            downloads: Arc::new(Mutex::new(HashMap::new())),
             event_tx,
             command_rx,
             task_handles: Vec::new(),
@@ -281,11 +298,19 @@ impl WolBrowser {
 
         // Cancel all downloads
         {
-            let mut downloads = self.downloads.write().await;
-            for (id, _) in downloads.iter() {
-                let _ = self.cancel_download(id.clone()).await;
+            let download_ids: Vec<String> = {
+                let downloads = self.downloads.lock().expect("download table poisoned");
+                downloads.keys().cloned().collect()
+            };
+
+            for id in download_ids {
+                let _ = self.cancel_download(id).await;
             }
-            downloads.clear();
+
+            self.downloads
+                .lock()
+                .expect("download table poisoned")
+                .clear();
         }
 
         // Stop background tasks
@@ -304,15 +329,12 @@ impl WolBrowser {
 
     /// Navigate to URL
     #[instrument(skip(self))]
-    pub async fn navigate_to_url(&self, url: String) -> NetworkResult<()> {
+    pub async fn navigate_to_url(&mut self, url: String) -> NetworkResult<()> {
         info!("Navigating to: {}", url);
 
         // Update state
-        {
-            let mut state = self.state.write().await;
-            state.is_loading = true;
-            state.current_url = Some(url.clone());
-        }
+        self.state.is_loading = true;
+        self.state.current_url = Some(url.clone());
 
         // Send navigation event
         let _ = self
@@ -320,10 +342,7 @@ impl WolBrowser {
             .send(WolBrowserEvent::PageLoadStarted(url.clone()));
 
         // Add to history
-        {
-            let mut history = self.history.write().await;
-            history.add_navigation(url.clone());
-        }
+        self.history.add_navigation(url.clone());
 
         self.fetch_page(url).await?;
 
@@ -332,11 +351,8 @@ impl WolBrowser {
 
     /// Go back in history
     #[instrument(skip(self))]
-    pub async fn go_back(&self) -> NetworkResult<()> {
-        let url = {
-            let mut history = self.history.write().await;
-            history.go_back()
-        };
+    pub async fn go_back(&mut self) -> NetworkResult<()> {
+        let url = self.history.go_back();
 
         if let Some(url) = url {
             self.navigate_to_url(url).await?;
@@ -349,11 +365,8 @@ impl WolBrowser {
 
     /// Go forward in history
     #[instrument(skip(self))]
-    pub async fn go_forward(&self) -> NetworkResult<()> {
-        let url = {
-            let mut history = self.history.write().await;
-            history.go_forward()
-        };
+    pub async fn go_forward(&mut self) -> NetworkResult<()> {
+        let url = self.history.go_forward();
 
         if let Some(url) = url {
             self.navigate_to_url(url).await?;
@@ -366,11 +379,8 @@ impl WolBrowser {
 
     /// Reload current page
     #[instrument(skip(self))]
-    pub async fn reload(&self) -> NetworkResult<()> {
-        let current_url = {
-            let state = self.state.read().await;
-            state.current_url.clone()
-        };
+    pub async fn reload(&mut self) -> NetworkResult<()> {
+        let current_url = self.state.current_url.clone();
 
         if let Some(url) = current_url {
             self.navigate_to_url(url).await?;
@@ -383,11 +393,8 @@ impl WolBrowser {
 
     /// Stop loading
     #[instrument(skip(self))]
-    pub async fn stop_loading(&self) -> NetworkResult<()> {
-        {
-            let mut state = self.state.write().await;
-            state.is_loading = false;
-        }
+    pub async fn stop_loading(&mut self) -> NetworkResult<()> {
+        self.state.is_loading = false;
 
         info!("Stopped loading current page");
         Ok(())
@@ -405,13 +412,7 @@ impl WolBrowser {
             script.chars().take(50).collect::<String>()
         );
 
-        let html = self
-            .state
-            .read()
-            .await
-            .page_html
-            .clone()
-            .unwrap_or_default();
+        let html = self.state.page_html.clone().unwrap_or_default();
         Ok(html)
     }
 
@@ -426,7 +427,7 @@ impl WolBrowser {
 
         // Check concurrent download limit
         {
-            let downloads = self.downloads.read().await;
+            let downloads = self.downloads.lock().expect("download table poisoned");
             let active_downloads = downloads
                 .values()
                 .filter(|d| matches!(d.status, DownloadStatus::Downloading))
@@ -456,7 +457,7 @@ impl WolBrowser {
 
         // Add to downloads
         {
-            let mut downloads = self.downloads.write().await;
+            let mut downloads = self.downloads.lock().expect("download table poisoned");
             downloads.insert(download_id.clone(), task.clone());
         }
 
@@ -475,7 +476,7 @@ impl WolBrowser {
     /// Cancel download
     #[instrument(skip(self))]
     pub async fn cancel_download(&self, download_id: String) -> NetworkResult<()> {
-        let mut downloads = self.downloads.write().await;
+        let mut downloads = self.downloads.lock().expect("download table poisoned");
 
         if let Some(task) = downloads.get_mut(&download_id) {
             task.status = DownloadStatus::Cancelled;
@@ -494,23 +495,22 @@ impl WolBrowser {
 
     /// Get browser state
     pub async fn get_state(&self) -> BrowserState {
-        self.state.read().await.clone()
+        self.state.clone()
     }
 
     /// Get navigation history
     pub async fn get_history(&self) -> Vec<String> {
-        let history = self.history.read().await;
-        let mut all_history = history.back_stack.clone();
-        if let Some(current) = history.get_current() {
+        let mut all_history = self.history.back_stack.clone();
+        if let Some(current) = self.history.get_current() {
             all_history.push(current);
         }
-        all_history.extend(history.forward_stack.iter().rev().cloned());
+        all_history.extend(self.history.forward_stack.iter().rev().cloned());
         all_history
     }
 
     /// Get active downloads
     pub async fn get_active_downloads(&self) -> Vec<DownloadTask> {
-        let downloads = self.downloads.read().await;
+        let downloads = self.downloads.lock().expect("download table poisoned");
         downloads
             .values()
             .filter(|d| {
@@ -572,7 +572,7 @@ impl WolBrowser {
         Ok(())
     }
 
-    async fn fetch_page(&self, url: String) -> NetworkResult<()> {
+    async fn fetch_page(&mut self, url: String) -> NetworkResult<()> {
         let client = reqwest::Client::builder()
             .user_agent(self.config.user_agent.clone())
             .timeout(std::time::Duration::from_secs(15))
@@ -592,15 +592,14 @@ impl WolBrowser {
             .and_then(|(_, rest)| rest.split_once("</title>"))
             .map(|(t, _)| t.trim().to_string())
             .unwrap_or_else(|| url.clone());
-        {
-            let mut state = self.state.write().await;
-            state.is_loading = false;
-            state.page_title = Some(title.clone());
-            state.page_html = Some(body);
-            state.can_go_back = self.history.read().await.can_go_back();
-            state.can_go_forward = self.history.read().await.can_go_forward();
-            state.is_secure = url.starts_with("https://");
-        }
+        let can_go_back = self.history.can_go_back();
+        let can_go_forward = self.history.can_go_forward();
+        self.state.is_loading = false;
+        self.state.page_title = Some(title.clone());
+        self.state.page_html = Some(body);
+        self.state.can_go_back = can_go_back;
+        self.state.can_go_forward = can_go_forward;
+        self.state.is_secure = url.starts_with("https://");
         let _ = self.event_tx.send(WolBrowserEvent::PageLoadFinished {
             url,
             title: Some(title),
@@ -626,12 +625,12 @@ impl WolBrowser {
         download_id: String,
         url: String,
         download_dir: String,
-        downloads: Arc<RwLock<HashMap<String, DownloadTask>>>,
+        downloads: SharedDownloads,
         event_tx: broadcast::Sender<WolBrowserEvent>,
     ) {
         // Update status to downloading
         {
-            let mut downloads_lock = downloads.write().await;
+            let mut downloads_lock = downloads.lock().expect("download table poisoned");
             if let Some(task) = downloads_lock.get_mut(&download_id) {
                 task.status = DownloadStatus::Downloading;
             }
@@ -646,7 +645,7 @@ impl WolBrowser {
 
             // Check if cancelled
             {
-                let downloads_lock = downloads.read().await;
+                let downloads_lock = downloads.lock().expect("download table poisoned");
                 if let Some(task) = downloads_lock.get(&download_id) {
                     if matches!(task.status, DownloadStatus::Cancelled) {
                         return;
@@ -656,7 +655,7 @@ impl WolBrowser {
 
             // Update progress
             {
-                let mut downloads_lock = downloads.write().await;
+                let mut downloads_lock = downloads.lock().expect("download table poisoned");
                 if let Some(task) = downloads_lock.get_mut(&download_id) {
                     task.downloaded = downloaded as u64;
                     if task.size.is_none() {
@@ -675,7 +674,7 @@ impl WolBrowser {
 
         // Mark as completed
         {
-            let mut downloads_lock = downloads.write().await;
+            let mut downloads_lock = downloads.lock().expect("download table poisoned");
             if let Some(task) = downloads_lock.get_mut(&download_id) {
                 task.status = DownloadStatus::Completed;
                 task.downloaded = total_size as u64;
@@ -692,7 +691,7 @@ impl WolBrowser {
 
     /// Download manager background task
     async fn download_manager_task(
-        downloads: Arc<RwLock<HashMap<String, DownloadTask>>>,
+        downloads: SharedDownloads,
         event_tx: broadcast::Sender<WolBrowserEvent>,
     ) {
         let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(30));
@@ -700,8 +699,9 @@ impl WolBrowser {
         loop {
             interval.tick().await;
 
-            // Clean up completed downloads
-            let mut downloads_lock = downloads.write().await;
+            // Clean up completed downloads.  The guard is dropped at the end
+            // of this iteration, before the next `tick().await`.
+            let mut downloads_lock = downloads.lock().expect("download table poisoned");
             let completed_ids: Vec<String> = downloads_lock
                 .iter()
                 .filter(|(_, task)| {
@@ -781,7 +781,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_browser_creation() {
-        let browser = WolBrowser::new().await.unwrap();
+        let mut browser = WolBrowser::new().await.unwrap();
         let state = browser.get_state().await;
         assert!(!state.is_loading);
         assert!(state.current_url.is_none());
@@ -789,7 +789,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_navigation_history() {
-        let browser = WolBrowser::new().await.unwrap();
+        let mut browser = WolBrowser::new().await.unwrap();
 
         browser
             .navigate_to_url("http://example.com".to_string())
@@ -824,7 +824,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_download_management() {
-        let browser = WolBrowser::new().await.unwrap();
+        let mut browser = WolBrowser::new().await.unwrap();
 
         let download_id = browser
             .start_download(

@@ -14,10 +14,10 @@ use rand::rand_core::UnwrapErr;
 use rand::rngs::SysRng;
 use std::collections::HashMap;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::net::UdpSocket;
-use tokio::sync::{Mutex, RwLock};
+use tokio::sync::RwLock;
 use tokio::task::JoinHandle;
 use tokio::time::{sleep, timeout};
 use tracing::{debug, info, warn};
@@ -141,16 +141,31 @@ pub struct NatTraversalManager {
     /// Local port
     local_port: u16,
     /// Detected NAT behavior
-    nat_behavior: Arc<RwLock<NatBehavior>>,
+    ///
+    /// THREAD: written by the owner's `detect_nat_behavior` and read by
+    /// `nat_behavior`; no spawned task touches it, so it is a plain field.
+    nat_behavior: NatBehavior,
     /// Detected NAT type
-    nat_type: Arc<RwLock<NatType>>,
+    ///
+    /// THREAD: same single-owner story as `nat_behavior`.
+    nat_type: NatType,
     /// Port allocation pattern
-    port_pattern: Arc<RwLock<Option<PortAllocationPattern>>>,
+    ///
+    /// THREAD: same single-owner story as `nat_behavior`.
+    port_pattern: Option<PortAllocationPattern>,
     /// STUN service for external address discovery
     nat_service: Arc<NatService>,
     /// Active peer connections
+    ///
+    /// THREAD: mutated by the owner's probe/handshake methods and read by the
+    /// keepalive task spawned in `start_keepalive`. The async lock is kept
+    /// because `update_peer_connections` intentionally holds the write guard
+    /// across probe `.await`s.
     peers: Arc<RwLock<HashMap<u8, PeerConnection>>>,
     /// Keepalive task handle
+    ///
+    /// THREAD: only `start_keepalive`/`stop_keepalive` (owner) touch it; the
+    /// critical section never spans an `.await`.
     keepalive_task: Mutex<Option<JoinHandle<()>>>,
     /// UDP socket for PROBE/KEEPALIVE
     socket: Arc<UdpSocket>,
@@ -172,9 +187,9 @@ impl NatTraversalManager {
             local_id,
             local_addr,
             local_port,
-            nat_behavior: Arc::new(RwLock::new(NatBehavior::UNKNOWN)),
-            nat_type: Arc::new(RwLock::new(NatType::Unknown)),
-            port_pattern: Arc::new(RwLock::new(None)),
+            nat_behavior: NatBehavior::UNKNOWN,
+            nat_type: NatType::Unknown,
+            port_pattern: None,
             nat_service,
             peers: Arc::new(RwLock::new(HashMap::new())),
             keepalive_task: Mutex::new(None),
@@ -198,7 +213,7 @@ impl NatTraversalManager {
             Some(b) => b,
             None => {
                 warn!("No STUN binding available, assuming unknown NAT");
-                *self.nat_type.write().await = NatType::Unknown;
+                self.nat_type = NatType::Unknown;
                 return Ok(NatType::Unknown);
             }
         };
@@ -208,7 +223,7 @@ impl NatTraversalManager {
             && binding.address.port() == self.local_port
         {
             info!("No NAT detected - open internet connection");
-            *self.nat_type.write().await = NatType::OpenInternet;
+            self.nat_type = NatType::OpenInternet;
             return Ok(NatType::OpenInternet);
         }
 
@@ -222,7 +237,7 @@ impl NatTraversalManager {
 
         if mangled_ports.is_empty() {
             warn!("Could not query mangler servers for NAT type detection");
-            *self.nat_type.write().await = NatType::Unknown;
+            self.nat_type = NatType::Unknown;
             return Ok(NatType::Unknown);
         }
 
@@ -248,7 +263,7 @@ impl NatTraversalManager {
         };
 
         info!("Detected NAT type: {:?}", nat_type);
-        *self.nat_type.write().await = nat_type;
+        self.nat_type = nat_type;
         Ok(nat_type)
     }
 
@@ -263,7 +278,7 @@ impl NatTraversalManager {
         if external_binding.is_none() {
             warn!("No external address available");
             behavior.insert(NatBehavior::SIMPLE);
-            *self.nat_behavior.write().await = behavior;
+            self.nat_behavior = behavior;
             return Ok(behavior);
         }
 
@@ -273,7 +288,7 @@ impl NatTraversalManager {
         if external_addr.ip() == IpAddr::V4(self.local_addr) {
             info!("No NAT detected");
             behavior = NatBehavior::SIMPLE;
-            *self.nat_behavior.write().await = behavior;
+            self.nat_behavior = behavior;
             return Ok(behavior);
         }
 
@@ -282,7 +297,7 @@ impl NatTraversalManager {
 
         if mangled_ports.is_empty() {
             warn!("Failed to communicate with mangler servers");
-            *self.nat_behavior.write().await = behavior;
+            self.nat_behavior = behavior;
             return Ok(behavior);
         }
 
@@ -305,8 +320,8 @@ impl NatTraversalManager {
             }
         }
 
-        *self.port_pattern.write().await = pattern;
-        *self.nat_behavior.write().await = behavior;
+        self.port_pattern = pattern;
+        self.nat_behavior = behavior;
 
         info!("Detected NAT behavior: {:?}", behavior);
         Ok(behavior)
@@ -596,7 +611,7 @@ impl NatTraversalManager {
 
     /// Start keepalive task to maintain NAT bindings.
     async fn start_keepalive(&self) {
-        let mut guard = self.keepalive_task.lock().await;
+        let mut guard = self.keepalive_task.lock().unwrap();
         if guard.is_some() {
             return;
         }
@@ -630,24 +645,24 @@ impl NatTraversalManager {
 
     /// Stop keepalive task.
     pub async fn stop_keepalive(&self) {
-        if let Some(handle) = self.keepalive_task.lock().await.take() {
+        if let Some(handle) = self.keepalive_task.lock().unwrap().take() {
             handle.abort();
         }
     }
 
     /// Get current NAT behavior.
     pub async fn nat_behavior(&self) -> NatBehavior {
-        *self.nat_behavior.read().await
+        self.nat_behavior
     }
 
     /// Get current NAT type.
     pub async fn nat_type(&self) -> NatType {
-        *self.nat_type.read().await
+        self.nat_type
     }
 
     /// Get port allocation pattern.
     pub async fn port_pattern(&self) -> Option<PortAllocationPattern> {
-        self.port_pattern.read().await.clone()
+        self.port_pattern.clone()
     }
 
     /// Predict next ports for symmetric NAT connection establishment.
@@ -662,7 +677,7 @@ impl NatTraversalManager {
         previous_mappings: &[(SocketAddr, u16)],
         count: usize,
     ) -> Vec<u16> {
-        let pattern = self.port_pattern.read().await.clone();
+        let pattern = self.port_pattern.clone();
 
         if previous_mappings.is_empty() {
             // No data, return sequential ports from local port
@@ -839,6 +854,12 @@ impl Default for TheNat {
     }
 }
 
+/// Global C++-parity NAT state.
+///
+/// THREAD: written by `the_nat_establish` (runs on the async task that drives
+/// hole-punching) and read by `the_nat_state`/`the_nat_update`/
+/// `the_nat_failed_reason` from the game thread — a genuine process-wide
+/// cross-thread boundary, hence the single static mutex.
 static THE_NAT: std::sync::Mutex<TheNat> = std::sync::Mutex::new(TheNat {
     manager: None,
     state: NatState::Idle,

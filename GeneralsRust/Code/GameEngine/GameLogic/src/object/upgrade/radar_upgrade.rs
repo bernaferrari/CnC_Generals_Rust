@@ -171,11 +171,9 @@ impl RadarUpgrade {
         let disable_proof = self.data.is_disable_proof();
         let object_id = self.object_id;
         match OBJECT_REGISTRY.with_object_mut(self.object_id, |object_guard| {
-            if let Some(player) = object_guard.get_controlling_player() {
-                if let Ok(mut player_guard) = player.write() {
-                    player_guard.add_radar(disable_proof);
-                }
-            }
+            object_guard.with_controlling_player_mut(|player_guard| {
+                player_guard.add_radar(disable_proof);
+            });
 
             if let Some(radar_module) = object_guard.find_update_module("RadarUpdate") {
                 radar_module.with_module(|module| {
@@ -271,11 +269,9 @@ impl UpgradeModuleInterface for RadarUpgrade {
             return;
         }
 
-        if let Some(player) = object.get_controlling_player() {
-            if let Ok(mut player_guard) = player.write() {
-                player_guard.remove_radar(self.data.is_disable_proof());
-            }
-        }
+        object.with_controlling_player_mut(|player_guard| {
+            player_guard.remove_radar(self.data.is_disable_proof());
+        });
 
         self.applied = false;
     }

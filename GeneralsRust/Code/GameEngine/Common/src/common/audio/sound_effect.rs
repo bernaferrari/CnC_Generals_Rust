@@ -4,8 +4,10 @@
 //! including 2D and 3D sound effects, sound pooling, priority management,
 //! and integration with the BIG file system for loading C&C audio assets.
 
+use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, VecDeque, BTreeMap};
-use std::sync::{Arc, RwLock, Mutex};
+// THREAD: std Mutex stays for the rodio sink handles (shared with the audio thread).
+use std::sync::{Arc, Mutex};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 use std::thread;
@@ -187,6 +189,7 @@ impl SoundEffectDescriptor {
 pub struct ActiveSoundEffect {
     pub handle: AudioHandle,
     pub descriptor_id: String,
+    // THREAD: kept locked - rodio sink handles shared with the audio thread.
     pub sink: Option<Arc<Mutex<Sink>>>,
     pub spatial_sink: Option<Arc<Mutex<SpatialSink>>>,
     pub start_time: Instant,
@@ -484,31 +487,35 @@ impl SoundPool {
 }
 
 /// Main Sound Effect Manager
+///
+/// THREAD: no worker thread is spawned here and the manager is only touched
+/// from the owning thread, so the locks became `Cell`/`RefCell`. The rodio
+/// sink handles inside `ActiveSoundEffect` stay locked.
 pub struct SoundEffectManager {
     // Audio system components
     stream_handle: Arc<OutputStreamHandle>,
     audio_cache: Arc<AudioFileCache>,
     spatial_processor: Option<Arc<SpatialAudioProcessor>>,
-    
+
     // Sound management
-    descriptors: RwLock<HashMap<String, SoundEffectDescriptor>>,
-    active_sounds: Arc<RwLock<HashMap<AudioHandle, ActiveSoundEffect>>>,
-    instance_tracker: RwLock<SoundInstanceTracker>,
-    sound_pool: Mutex<SoundPool>,
-    
+    descriptors: RefCell<HashMap<String, SoundEffectDescriptor>>,
+    active_sounds: RefCell<HashMap<AudioHandle, ActiveSoundEffect>>,
+    instance_tracker: RefCell<SoundInstanceTracker>,
+    sound_pool: RefCell<SoundPool>,
+
     // Handle generation
-    next_handle: Mutex<AudioHandle>,
-    
+    next_handle: Cell<AudioHandle>,
+
     // Volume controls
-    master_volume: RwLock<Real>,
-    category_volumes: RwLock<HashMap<SoundCategory, Real>>,
-    
+    master_volume: Cell<Real>,
+    category_volumes: RefCell<HashMap<SoundCategory, Real>>,
+
     // Listener position for 3D audio
-    listener_position: RwLock<Position3D>,
-    
+    listener_position: RefCell<Position3D>,
+
     // Statistics
-    stats: RwLock<SoundEffectStats>,
-    
+    stats: RefCell<SoundEffectStats>,
+
     // Configuration
     max_concurrent_sounds: usize,
     priority_culling_enabled: bool,
@@ -546,15 +553,15 @@ impl SoundEffectManager {
             stream_handle: stream_handle.clone(),
             audio_cache,
             spatial_processor: None,
-            descriptors: RwLock::new(HashMap::new()),
-            active_sounds: Arc::new(RwLock::new(HashMap::new())),
-            instance_tracker: RwLock::new(SoundInstanceTracker::new()),
-            sound_pool: Mutex::new(SoundPool::new(stream_handle, 32, 16)),
-            next_handle: Mutex::new(50000), // Start sound effect handles at 50000
-            master_volume: RwLock::new(1.0),
-            category_volumes: RwLock::new(category_volumes),
-            listener_position: RwLock::new(Position3D::zero()),
-            stats: RwLock::new(SoundEffectStats::default()),
+            descriptors: RefCell::new(HashMap::new()),
+            active_sounds: RefCell::new(HashMap::new()),
+            instance_tracker: RefCell::new(SoundInstanceTracker::new()),
+            sound_pool: RefCell::new(SoundPool::new(stream_handle, 32, 16)),
+            next_handle: Cell::new(50000), // Start sound effect handles at 50000
+            master_volume: Cell::new(1.0),
+            category_volumes: RefCell::new(category_volumes),
+            listener_position: RefCell::new(Position3D::zero()),
+            stats: RefCell::new(SoundEffectStats::default()),
             max_concurrent_sounds: 128,
             priority_culling_enabled: true,
         }
@@ -567,7 +574,7 @@ impl SoundEffectManager {
 
     /// Register sound effect descriptors
     pub fn register_sounds(&self, descriptors: Vec<SoundEffectDescriptor>) {
-        let mut desc_map = self.descriptors.write().unwrap();
+        let mut desc_map = self.descriptors.borrow_mut();
         
         for descriptor in descriptors {
             // Preload if requested
@@ -593,46 +600,44 @@ impl SoundEffectManager {
     pub fn play_sound(&self, sound_id: &str, position: Option<Position3D>, volume_override: Real) 
         -> Result<AudioHandle, Box<dyn std::error::Error>> 
     {
-        let descriptors = self.descriptors.read().unwrap();
+        let descriptors = self.descriptors.borrow();
         let descriptor = descriptors.get(sound_id)
             .ok_or_else(|| format!("Sound descriptor '{}' not found", sound_id))?
             .clone();
         drop(descriptors);
 
         // Check if we can play this sound
-        let instance_tracker = self.instance_tracker.read().unwrap();
+        let instance_tracker = self.instance_tracker.borrow();
         if !instance_tracker.can_play(sound_id, &descriptor) {
             return Err("Sound cannot be played due to instance limits or timing constraints".into());
         }
         drop(instance_tracker);
 
         // Check concurrent sound limits
-        let active_sounds = self.active_sounds.read().unwrap();
-        if active_sounds.len() >= self.max_concurrent_sounds {
-            if self.priority_culling_enabled {
-                // Try to cull lower priority sounds
-                drop(active_sounds);
-                self.cull_low_priority_sounds(descriptor.base_priority as Int + descriptor.category.priority_modifier())?;
-            } else {
-                return Err("Too many concurrent sounds playing".into());
+        {
+            let active_count = self.active_sounds.borrow().len();
+            if active_count >= self.max_concurrent_sounds {
+                if self.priority_culling_enabled {
+                    // Try to cull lower priority sounds
+                    self.cull_low_priority_sounds(descriptor.base_priority as Int + descriptor.category.priority_modifier())?;
+                } else {
+                    return Err("Too many concurrent sounds playing".into());
+                }
             }
-        } else {
-            drop(active_sounds);
         }
 
         // Generate audio handle
         let handle = {
-            let mut next_handle = self.next_handle.lock().unwrap();
-            let handle = *next_handle;
-            *next_handle += 1;
+            let handle = self.next_handle.get();
+            self.next_handle.set(handle + 1);
             handle
         };
 
         // Calculate final volume
-        let master_volume = *self.master_volume.read().unwrap();
-        let category_volumes = self.category_volumes.read().unwrap();
+        let master_volume = self.master_volume.get();
+        let category_volumes = self.category_volumes.borrow();
         let category_volume = category_volumes.get(&descriptor.category).copied().unwrap_or(1.0);
-        
+
         let randomized_volume = descriptor.base_volume + 
             (rand::random::<Real>() - 0.5) * 2.0 * descriptor.volume_variance;
         let final_volume = (volume_override * master_volume * category_volume * randomized_volume).clamp(0.0, 1.0);
@@ -675,7 +680,7 @@ impl SoundEffectManager {
                 return Err("Trying to play non-3D sound with 3D position".into());
             }
 
-            let mut sound_pool = self.sound_pool.lock().unwrap();
+            let mut sound_pool = self.sound_pool.borrow_mut();
             let mut spatial_sink = sound_pool.get_3d_sink()?;
             
             // Set 3D properties
@@ -694,7 +699,7 @@ impl SoundEffectManager {
             ActiveSoundEffect::new_3d(handle, sound_id.to_string(), spatial_sink, position, final_volume, final_pitch, priority)
         } else {
             // 2D sound
-            let mut sound_pool = self.sound_pool.lock().unwrap();
+            let mut sound_pool = self.sound_pool.borrow_mut();
             let sink = sound_pool.get_2d_sink()?;
             
             sink.set_volume(final_volume);
@@ -706,20 +711,20 @@ impl SoundEffectManager {
 
         // Add to tracking
         {
-            let mut instance_tracker = self.instance_tracker.write().unwrap();
+            let mut instance_tracker = self.instance_tracker.borrow_mut();
             instance_tracker.add_instance(sound_id.to_string(), handle);
         }
 
         {
-            let mut active_sounds = self.active_sounds.write().unwrap();
+            let mut active_sounds = self.active_sounds.borrow_mut();
             active_sounds.insert(handle, active_sound);
         }
 
         // Update statistics
         {
-            let mut stats = self.stats.write().unwrap();
+            let mut stats = self.stats.borrow_mut();
             stats.total_sounds_played += 1;
-            stats.active_sounds = active_sounds.len();
+            stats.active_sounds = self.active_sounds.borrow().len();
         }
 
         Ok(handle)
@@ -727,16 +732,16 @@ impl SoundEffectManager {
 
     /// Stop a playing sound
     pub fn stop_sound(&self, handle: AudioHandle, fade_out: bool) -> bool {
-        let mut active_sounds = self.active_sounds.write().unwrap();
-        
+        let mut active_sounds = self.active_sounds.borrow_mut();
+
         if let Some(sound) = active_sounds.get_mut(&handle) {
             if fade_out {
-                let descriptors = self.descriptors.read().unwrap();
+                let descriptors = self.descriptors.borrow();
                 let fade_duration = descriptors.get(&sound.descriptor_id)
                     .map(|d| d.fade_out_time)
                     .unwrap_or(Duration::from_millis(250));
                 drop(descriptors);
-                
+
                 sound.start_fade(0.0, fade_duration);
             } else {
                 sound.stop();
@@ -750,7 +755,7 @@ impl SoundEffectManager {
 
     /// Pause a playing sound
     pub fn pause_sound(&self, handle: AudioHandle) -> bool {
-        let active_sounds = self.active_sounds.read().unwrap();
+        let active_sounds = self.active_sounds.borrow();
         if let Some(sound) = active_sounds.get(&handle) {
             sound.pause();
             true
@@ -761,7 +766,7 @@ impl SoundEffectManager {
 
     /// Resume a paused sound
     pub fn resume_sound(&self, handle: AudioHandle) -> bool {
-        let active_sounds = self.active_sounds.read().unwrap();
+        let active_sounds = self.active_sounds.borrow();
         if let Some(sound) = active_sounds.get(&handle) {
             sound.resume();
             true
@@ -773,10 +778,10 @@ impl SoundEffectManager {
     /// Set master volume for all sound effects
     pub fn set_master_volume(&self, volume: Real) {
         let clamped_volume = volume.clamp(0.0, 1.0);
-        *self.master_volume.write().unwrap() = clamped_volume;
-        
+        self.master_volume.set(clamped_volume);
+
         // Update all active sounds
-        let active_sounds = self.active_sounds.read().unwrap();
+        let active_sounds = self.active_sounds.borrow();
         for sound in active_sounds.values() {
             sound.set_volume(sound.volume * clamped_volume);
         }
@@ -786,18 +791,18 @@ impl SoundEffectManager {
     pub fn set_category_volume(&self, category: SoundCategory, volume: Real) {
         let clamped_volume = volume.clamp(0.0, 1.0);
         {
-            let mut category_volumes = self.category_volumes.write().unwrap();
+            let mut category_volumes = self.category_volumes.borrow_mut();
             category_volumes.insert(category, clamped_volume);
         }
 
         // Update active sounds in this category
-        let descriptors = self.descriptors.read().unwrap();
-        let active_sounds = self.active_sounds.read().unwrap();
-        
+        let descriptors = self.descriptors.borrow();
+        let active_sounds = self.active_sounds.borrow();
+
         for sound in active_sounds.values() {
             if let Some(descriptor) = descriptors.get(&sound.descriptor_id) {
                 if descriptor.category == category {
-                    let master_volume = *self.master_volume.read().unwrap();
+                    let master_volume = self.master_volume.get();
                     sound.set_volume(sound.volume * master_volume * clamped_volume);
                 }
             }
@@ -806,11 +811,11 @@ impl SoundEffectManager {
 
     /// Update listener position for 3D audio
     pub fn set_listener_position(&self, position: Position3D) {
-        *self.listener_position.write().unwrap() = position;
-        
+        *self.listener_position.borrow_mut() = position;
+
         // Update 3D sounds with new listener position
         if let Some(spatial_processor) = &self.spatial_processor {
-            let active_sounds = self.active_sounds.read().unwrap();
+            let active_sounds = self.active_sounds.borrow();
             
             for sound in active_sounds.values() {
                 if let Some(sound_position) = sound.position {
@@ -833,14 +838,14 @@ impl SoundEffectManager {
 
     /// Get current statistics
     pub fn get_stats(&self) -> SoundEffectStats {
-        self.stats.read().unwrap().clone()
+        self.stats.borrow().clone()
     }
 
     /// Stop all sounds in a category
     pub fn stop_category(&self, category: SoundCategory, fade_out: bool) {
-        let descriptors = self.descriptors.read().unwrap();
-        let active_sounds = self.active_sounds.read().unwrap();
-        
+        let descriptors = self.descriptors.borrow();
+        let active_sounds = self.active_sounds.borrow();
+
         let handles_to_stop: Vec<AudioHandle> = active_sounds.iter()
             .filter(|(_, sound)| {
                 descriptors.get(&sound.descriptor_id)
@@ -849,10 +854,10 @@ impl SoundEffectManager {
             })
             .map(|(&handle, _)| handle)
             .collect();
-        
+
         drop(active_sounds);
         drop(descriptors);
-        
+
         for handle in handles_to_stop {
             self.stop_sound(handle, fade_out);
         }
@@ -860,10 +865,10 @@ impl SoundEffectManager {
 
     /// Stop all sounds
     pub fn stop_all_sounds(&self, fade_out: bool) {
-        let active_sounds = self.active_sounds.read().unwrap();
+        let active_sounds = self.active_sounds.borrow();
         let handles: Vec<AudioHandle> = active_sounds.keys().cloned().collect();
         drop(active_sounds);
-        
+
         for handle in handles {
             self.stop_sound(handle, fade_out);
         }
@@ -871,12 +876,12 @@ impl SoundEffectManager {
 
     /// Get the number of active sounds
     pub fn get_active_sound_count(&self) -> usize {
-        self.active_sounds.read().unwrap().len()
+        self.active_sounds.borrow().len()
     }
 
     /// Check if a specific sound is playing
     pub fn is_sound_playing(&self, handle: AudioHandle) -> bool {
-        let active_sounds = self.active_sounds.read().unwrap();
+        let active_sounds = self.active_sounds.borrow();
         active_sounds.get(&handle)
             .map(|sound| sound.is_playing())
             .unwrap_or(false)
@@ -925,7 +930,7 @@ impl SoundEffectManager {
     }
 
     fn cull_low_priority_sounds(&self, required_priority: Int) -> Result<(), Box<dyn std::error::Error>> {
-        let mut active_sounds = self.active_sounds.write().unwrap();
+        let mut active_sounds = self.active_sounds.borrow_mut();
         let mut sounds_to_remove = Vec::new();
 
         // Find sounds with lower priority
@@ -941,16 +946,16 @@ impl SoundEffectManager {
 
         // Sort by priority (lowest first) and remove some
         sounds_to_remove.sort_by_key(|&handle| active_sounds[&handle].priority);
-        
+
         // Remove up to half of the lower priority sounds
         let to_remove = sounds_to_remove.len().min(10); // Don't remove too many at once
-        
+
         for &handle in &sounds_to_remove[..to_remove] {
             if let Some(sound) = active_sounds.remove(&handle) {
                 sound.stop();
-                self.instance_tracker.write().unwrap().remove_instance(handle);
-                
-                let mut stats = self.stats.write().unwrap();
+                self.instance_tracker.borrow_mut().remove_instance(handle);
+
+                let mut stats = self.stats.borrow_mut();
                 stats.sounds_culled += 1;
             }
         }
@@ -959,13 +964,13 @@ impl SoundEffectManager {
     }
 
     fn update_fading_sounds(&self) {
-        let mut active_sounds = self.active_sounds.write().unwrap();
+        let mut active_sounds = self.active_sounds.borrow_mut();
         let mut finished_sounds = Vec::new();
 
         for (&handle, sound) in active_sounds.iter_mut() {
             if sound.is_fading {
                 sound.update_fade();
-                
+
                 // Check if fade to zero is complete
                 if sound.target_volume == 0.0 && !sound.is_fading {
                     finished_sounds.push(handle);
@@ -980,7 +985,7 @@ impl SoundEffectManager {
     }
 
     fn cleanup_finished_sounds(&self) {
-        let mut active_sounds = self.active_sounds.write().unwrap();
+        let mut active_sounds = self.active_sounds.borrow_mut();
         let mut finished_sounds = Vec::new();
 
         for (&handle, sound) in active_sounds.iter() {
@@ -997,8 +1002,8 @@ impl SoundEffectManager {
     fn cleanup_finished_sound(&self, handle: AudioHandle, active_sounds: &mut HashMap<AudioHandle, ActiveSoundEffect>) {
         if let Some(sound) = active_sounds.remove(&handle) {
             // Return sink to pool if possible
-            let mut sound_pool = self.sound_pool.lock().unwrap();
-            
+            let mut sound_pool = self.sound_pool.borrow_mut();
+
             if let Some(sink) = sound.sink {
                 if let Ok(sink) = Arc::try_unwrap(sink) {
                     if let Ok(sink) = sink.into_inner() {
@@ -1014,13 +1019,13 @@ impl SoundEffectManager {
             }
 
             // Remove from instance tracker
-            self.instance_tracker.write().unwrap().remove_instance(handle);
+            self.instance_tracker.borrow_mut().remove_instance(handle);
         }
     }
 
     fn update_3d_sounds(&self) {
         if let Some(spatial_processor) = &self.spatial_processor {
-            let active_sounds = self.active_sounds.read().unwrap();
+            let active_sounds = self.active_sounds.borrow();
             
             for sound in active_sounds.values() {
                 if let Some(position) = sound.position {
@@ -1041,10 +1046,10 @@ impl SoundEffectManager {
     }
 
     fn update_statistics(&self) {
-        let active_count = self.active_sounds.read().unwrap().len();
+        let active_count = self.active_sounds.borrow().len();
         let (cache_size, _, cache_entries) = self.audio_cache.cache_info();
-        
-        let mut stats = self.stats.write().unwrap();
+
+        let mut stats = self.stats.borrow_mut();
         stats.active_sounds = active_count;
         stats.memory_used = cache_size;
         // Other stats would be updated based on actual measurements

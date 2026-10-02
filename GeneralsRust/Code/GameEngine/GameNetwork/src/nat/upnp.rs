@@ -21,11 +21,10 @@
 
 use crate::error::{NetworkError, NetworkResult};
 use crate::time::NetworkInstant;
+use parking_lot::Mutex;
 use std::net::{IpAddr, UdpSocket as StdUdpSocket};
-use std::sync::Arc;
 use std::time::Duration;
 use tokio::net::UdpSocket;
-use tokio::sync::RwLock;
 use tokio::time::timeout;
 use tracing::{info, warn};
 
@@ -152,12 +151,22 @@ impl PortMapping {
     }
 }
 
+/// Mutable state of a [`UPnPClient`].
+///
+/// THREAD: a `UPnPClient` is never cloned into a spawned task — every method
+/// runs on the owning call site — so the discovered gateway, the applied port
+/// mappings and the cached local IP share one plain mutex instead of one lock
+/// per field. Critical sections copy values out and never span an `.await`.
+struct UpnpState {
+    gateway: Option<UPnPGateway>,
+    port_mappings: Vec<PortMapping>,
+    local_ip: Option<IpAddr>,
+}
+
 /// UPnP client for automatic port forwarding.
 pub struct UPnPClient {
     config: UPnPConfig,
-    gateway: Arc<RwLock<Option<UPnPGateway>>>,
-    port_mappings: Arc<RwLock<Vec<PortMapping>>>,
-    local_ip: Arc<RwLock<Option<IpAddr>>>,
+    state: Mutex<UpnpState>,
 }
 
 impl UPnPClient {
@@ -165,15 +174,17 @@ impl UPnPClient {
     pub fn new(config: UPnPConfig) -> Self {
         Self {
             config,
-            gateway: Arc::new(RwLock::new(None)),
-            port_mappings: Arc::new(RwLock::new(Vec::new())),
-            local_ip: Arc::new(RwLock::new(None)),
+            state: Mutex::new(UpnpState {
+                gateway: None,
+                port_mappings: Vec::new(),
+                local_ip: None,
+            }),
         }
     }
 
     /// Check if UPnP is available (gateway discovered).
     pub async fn is_available(&self) -> bool {
-        self.gateway.read().await.is_some()
+        self.state.lock().gateway.is_some()
     }
 
     /// Discover UPnP gateway on the local network.
@@ -200,16 +211,19 @@ impl UPnPClient {
             "UPnP gateway configured"
         );
 
-        *self.gateway.write().await = Some(gateway);
+        self.state.lock().gateway = Some(gateway);
 
         Ok(())
     }
 
     /// Add a port mapping to the gateway.
     pub async fn add_port_mapping(&self, mapping: PortMapping) -> NetworkResult<()> {
-        let gateway = self.gateway.read().await;
-        let gateway = gateway
+        let gateway = self
+            .state
+            .lock()
+            .gateway
             .as_ref()
+            .cloned()
             .ok_or_else(|| NetworkError::nat("No UPnP gateway available"))?;
 
         info!(
@@ -229,7 +243,7 @@ impl UPnPClient {
         };
 
         self.soap_add_port_mapping(
-            gateway,
+            &gateway,
             mapping.external_port,
             mapping.internal_port,
             &internal_ip.to_string(),
@@ -239,17 +253,19 @@ impl UPnPClient {
         )
         .await?;
 
-        let mut mappings = self.port_mappings.write().await;
-        mappings.push(mapping);
+        self.state.lock().port_mappings.push(mapping);
 
         Ok(())
     }
 
     /// Remove a port mapping from the gateway.
     pub async fn remove_port_mapping(&self, mapping: &PortMapping) -> NetworkResult<()> {
-        let gateway = self.gateway.read().await;
-        let gateway = gateway
+        let gateway = self
+            .state
+            .lock()
+            .gateway
             .as_ref()
+            .cloned()
             .ok_or_else(|| NetworkError::nat("No UPnP gateway available"))?;
 
         info!(
@@ -258,24 +274,28 @@ impl UPnPClient {
             "Removing UPnP port mapping"
         );
 
-        self.soap_delete_port_mapping(gateway, mapping.external_port, &mapping.protocol)
+        self.soap_delete_port_mapping(&gateway, mapping.external_port, &mapping.protocol)
             .await?;
 
-        let mut mappings = self.port_mappings.write().await;
-        mappings
-            .retain(|m| m.external_port != mapping.external_port || m.protocol != mapping.protocol);
+        let mut state = self.state.lock();
+        state.port_mappings.retain(|m| {
+            m.external_port != mapping.external_port || m.protocol != mapping.protocol
+        });
 
         Ok(())
     }
 
     /// Get the external IP address from the gateway.
     pub async fn get_external_ip(&self) -> NetworkResult<IpAddr> {
-        let gateway = self.gateway.read().await;
-        let gateway = gateway
+        let gateway = self
+            .state
+            .lock()
+            .gateway
             .as_ref()
+            .cloned()
             .ok_or_else(|| NetworkError::nat("No UPnP gateway available"))?;
 
-        let ip_str = self.soap_get_external_ip(gateway).await?;
+        let ip_str = self.soap_get_external_ip(&gateway).await?;
 
         ip_str
             .parse()
@@ -284,7 +304,7 @@ impl UPnPClient {
 
     /// Get all current port mappings.
     pub async fn get_port_mappings(&self) -> Vec<PortMapping> {
-        self.port_mappings.read().await.clone()
+        self.state.lock().port_mappings.clone()
     }
 
     /// Renew a port mapping (refresh its lease).
@@ -297,7 +317,7 @@ impl UPnPClient {
     pub async fn cleanup(&self) {
         info!("Cleaning up UPnP port mappings...");
 
-        let mappings = self.port_mappings.read().await.clone();
+        let mappings = self.state.lock().port_mappings.clone();
 
         for mapping in mappings {
             if let Err(err) = self.remove_port_mapping(&mapping).await {
@@ -316,7 +336,7 @@ impl UPnPClient {
     /// Get the local IP address.
     async fn get_local_ip(&self) -> NetworkResult<IpAddr> {
         // Check cache first
-        if let Some(ip) = *self.local_ip.read().await {
+        if let Some(ip) = self.state.lock().local_ip {
             return Ok(ip);
         }
 
@@ -333,7 +353,7 @@ impl UPnPClient {
             .map_err(|e| NetworkError::nat(format!("Failed to get local address: {}", e)))?;
 
         let ip = local_addr.ip();
-        *self.local_ip.write().await = Some(ip);
+        self.state.lock().local_ip = Some(ip);
 
         Ok(ip)
     }

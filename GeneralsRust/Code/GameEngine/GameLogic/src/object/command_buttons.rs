@@ -106,8 +106,7 @@ impl Object {
             command_set: None,
         };
         let player_index = self
-            .get_controlling_player()
-            .and_then(|p| p.read().ok().map(|g| g.get_player_index() as u32))
+            .with_controlling_player(|g| g.get_player_index() as u32)
             .unwrap_or(0);
         let owning_player = build_assistant::Player { player_index };
         let mut assistant_template =

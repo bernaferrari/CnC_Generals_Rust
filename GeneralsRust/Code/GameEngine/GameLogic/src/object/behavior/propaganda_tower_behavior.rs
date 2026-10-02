@@ -300,17 +300,11 @@ impl PropagandaTowerBehavior {
         };
 
         match upgrade.get_upgrade_type() {
-            UpgradeType::Player => {
-                if let Some(player) = tower.get_controlling_player() {
-                    if let Ok(player_guard) = player.read() {
-                        player_guard.has_upgrade_complete(upgrade)
-                    } else {
-                        false
-                    }
-                } else {
-                    false
-                }
-            }
+            UpgradeType::Player => tower
+                .with_controlling_player(|player_guard| {
+                    player_guard.has_upgrade_complete(upgrade)
+                })
+                .unwrap_or(false),
             UpgradeType::Object => tower.has_upgrade(upgrade),
             _ => false,
         }

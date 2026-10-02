@@ -138,7 +138,6 @@ pub mod handles;
 pub mod level;
 pub mod list;
 pub mod listener;
-pub mod lock;
 pub mod logical;
 pub mod logical_listener;
 pub mod logical_sound;

@@ -8,10 +8,9 @@
 // The command-line interface
 // Author: Matthew D. Campbell, September 2001
 
-use once_cell::sync::OnceCell;
+use std::cell::RefCell;
 use std::env;
 use std::path::Path;
-use std::sync::Mutex;
 
 use log::debug;
 
@@ -662,32 +661,25 @@ pub fn parse_command_line() -> CommandLineParser {
     parser
 }
 
-/// Global static parser instance (equivalent to the C++ global variables)
-static GLOBAL_PARSER: OnceCell<Mutex<CommandLineParser>> = OnceCell::new();
+// Global static parser instance (equivalent to the C++ global variables)
+// THREAD: C++ plain static; driven only by the single game/client thread.
+thread_local! {
+    static GLOBAL_PARSER: RefCell<Option<CommandLineParser>> = const { RefCell::new(None) };
+}
 
 /// Initialize the global command line parser
 pub fn initialize_command_line_parser() {
-    let parser = parse_command_line();
-    if GLOBAL_PARSER.set(Mutex::new(parser)).is_err() {
-        if let Some(existing) = GLOBAL_PARSER.get() {
-            let mut guard = existing.lock().expect("Global parser mutex poisoned");
-            *guard = parse_command_line();
-        }
-    }
+    GLOBAL_PARSER.with_borrow_mut(|slot| {
+        *slot = Some(parse_command_line());
+    });
 }
 
-/// Get reference to global parser
-pub fn get_global_parser() -> std::sync::MutexGuard<'static, CommandLineParser> {
-    GLOBAL_PARSER
-        .get()
-        .expect("Command line parser not initialized")
-        .lock()
-        .expect("Global parser mutex poisoned")
-}
-
-/// Get mutable reference to global parser
-pub fn get_global_parser_mut() -> std::sync::MutexGuard<'static, CommandLineParser> {
-    get_global_parser()
+/// Run `f` with the global parser (initializing it first if needed).
+pub fn with_global_parser<R>(f: impl FnOnce(&mut CommandLineParser) -> R) -> R {
+    GLOBAL_PARSER.with_borrow_mut(|slot| {
+        let parser = slot.get_or_insert_with(parse_command_line);
+        f(parser)
+    })
 }
 
 #[cfg(test)]

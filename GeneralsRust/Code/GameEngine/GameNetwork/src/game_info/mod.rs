@@ -7,7 +7,8 @@
 
 use once_cell::sync::OnceCell;
 use serde::{Deserialize, Serialize};
-use std::sync::{Arc, RwLock};
+use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, Ordering};
+use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Maximum number of player slots (matches C++ MAX_SLOTS = 8)
@@ -114,23 +115,45 @@ impl Default for LocalSlotView {
     }
 }
 
-static LOCAL_SLOT_VIEW: OnceCell<RwLock<LocalSlotView>> = OnceCell::new();
-
-fn local_slot_view_cell() -> &'static RwLock<LocalSlotView> {
-    LOCAL_SLOT_VIEW.get_or_init(|| RwLock::new(LocalSlotView::default()))
+/// C++ keeps the local slot view in plain globals written once during game setup
+/// and read from slot queries. Each field is its own atomic; `has_local` doubles as
+/// the release/acquire gate so a reader that observes it also observes the values
+/// written before it.
+#[derive(Debug)]
+struct LocalSlotViewCell {
+    local_ip: AtomicU32,
+    local_team: AtomicI32,
+    local_orig_player_template: AtomicI32,
+    has_local: AtomicBool,
 }
 
+static LOCAL_SLOT_VIEW: LocalSlotViewCell = LocalSlotViewCell {
+    local_ip: AtomicU32::new(0),
+    local_team: AtomicI32::new(-1),
+    local_orig_player_template: AtomicI32::new(PLAYERTEMPLATE_RANDOM),
+    has_local: AtomicBool::new(false),
+};
+
 fn update_local_slot_view(view: LocalSlotView) {
-    if let Ok(mut guard) = local_slot_view_cell().write() {
-        *guard = view;
-    }
+    let cell = &LOCAL_SLOT_VIEW;
+    cell.local_ip.store(view.local_ip, Ordering::Relaxed);
+    cell.local_team.store(view.local_team, Ordering::Relaxed);
+    cell.local_orig_player_template
+        .store(view.local_orig_player_template, Ordering::Relaxed);
+    cell.has_local.store(view.has_local, Ordering::Release);
 }
 
 fn get_local_slot_view() -> LocalSlotView {
-    local_slot_view_cell()
-        .read()
-        .map(|guard| *guard)
-        .unwrap_or_default()
+    let cell = &LOCAL_SLOT_VIEW;
+    let has_local = cell.has_local.load(Ordering::Acquire);
+    LocalSlotView {
+        local_ip: cell.local_ip.load(Ordering::Relaxed),
+        local_team: cell.local_team.load(Ordering::Relaxed),
+        local_orig_player_template: cell
+            .local_orig_player_template
+            .load(Ordering::Relaxed),
+        has_local,
+    }
 }
 
 fn is_slot_local_ally(slot: &GameSlot) -> bool {

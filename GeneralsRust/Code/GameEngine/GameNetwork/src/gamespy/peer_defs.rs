@@ -3,7 +3,7 @@
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::fs::File;
 use std::io::{BufRead, BufReader};
-use std::sync::{Arc, Mutex, OnceLock, RwLock};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::config::MAX_SLOTS;
@@ -806,15 +806,21 @@ fn now_timestamp() -> u64 {
         .unwrap_or(0)
 }
 
-static THE_GAMESPY_INFO: OnceLock<Arc<Mutex<GameSpyInfo>>> = OnceLock::new();
+/// THREAD: C++-parity global GameSpy session info. GUI/game threads read and
+/// mutate it (profile id, motd, staging room state) from many threads; this
+/// single mutex is the only cross-thread handoff and is never held across an
+/// `.await`.
+type SharedGameSpyInfo = Arc<Mutex<GameSpyInfo>>;
 
-pub fn init_gamespy_info() -> Arc<Mutex<GameSpyInfo>> {
+static THE_GAMESPY_INFO: OnceLock<SharedGameSpyInfo> = OnceLock::new();
+
+pub fn init_gamespy_info() -> SharedGameSpyInfo {
     THE_GAMESPY_INFO
         .get_or_init(|| Arc::new(Mutex::new(GameSpyInfo::new())))
         .clone()
 }
 
-pub fn get_gamespy_info() -> Option<Arc<Mutex<GameSpyInfo>>> {
+pub fn get_gamespy_info() -> Option<SharedGameSpyInfo> {
     THE_GAMESPY_INFO.get().cloned()
 }
 

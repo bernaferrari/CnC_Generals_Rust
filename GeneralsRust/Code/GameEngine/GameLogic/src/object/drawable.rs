@@ -1080,6 +1080,17 @@ fn stealth_look_from_u32(value: u32) -> StealthLookType {
 }
 
 /// Drawable object data and behavior
+///
+/// Ownership: a `Drawable` is shared, never single-owner. The authoritative
+/// owner is the client registry (`TheGameClient` `ClientVisualState::drawables`,
+/// which also owns objectless drawables); `Object::drawable`, sibling
+/// `Attachment::drawable` refs, chinook `RopeInfo::rope_drawable`, and garrison
+/// `GarrisonPointData::effect` all hold live clones, and the presentation frame
+/// reads registry entries at render time. The `Arc` is therefore structural.
+/// Likewise `DrawModuleEntry::module` is a `Mutex` because
+/// `DrawableModuleHandle`/`LaserDrawInterfaceHandle` hand `Arc<DrawModuleEntry>`
+/// clones out to callers (weapon/scripting/action-manager modules) that mutate
+/// modules through a shared borrow.
 #[derive(Debug)]
 #[allow(dead_code)]
 pub struct Drawable {

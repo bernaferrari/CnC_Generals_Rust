@@ -1721,22 +1721,20 @@ impl UnitAIUpdate {
 
         let mut nationalism = false;
         let mut fanaticism = false;
-        if let Some(player) = obj_guard.get_controlling_player() {
-            if let Ok(player_guard) = player.read() {
-                if let Ok(center) = get_upgrade_center().read() {
-                    if let Some(upgrade) = center.find_upgrade("Upgrade_Nationalism") {
-                        if player_guard.has_upgrade_complete(&upgrade) {
-                            nationalism = true;
-                        }
+        obj_guard.with_controlling_player(|player_guard| {
+            if let Ok(center) = get_upgrade_center().read() {
+                if let Some(upgrade) = center.find_upgrade("Upgrade_Nationalism") {
+                    if player_guard.has_upgrade_complete(&upgrade) {
+                        nationalism = true;
                     }
-                    if let Some(upgrade) = center.find_upgrade("Upgrade_Fanaticism") {
-                        if player_guard.has_upgrade_complete(&upgrade) {
-                            fanaticism = true;
-                        }
+                }
+                if let Some(upgrade) = center.find_upgrade("Upgrade_Fanaticism") {
+                    if player_guard.has_upgrade_complete(&upgrade) {
+                        fanaticism = true;
                     }
                 }
             }
-        }
+        });
 
         let mut horde = false;
         let mut allow_nationalism = true;
@@ -2119,15 +2117,16 @@ impl UnitAIUpdate {
         let Ok(owner_guard) = owner_arc.read() else {
             return 0;
         };
-        let Some(player_arc) = owner_guard.get_controlling_player() else {
-            return 0;
-        };
-        let Ok(player_guard) = player_arc.read() else {
+        let Some(controller_is_human) = owner_guard
+            .with_controlling_player(|player_guard| {
+                player_guard.get_player_type() == crate::player::PlayerType::Human
+            })
+        else {
             return 0;
         };
 
         let mut value = 0u32;
-        if player_guard.get_player_type() == crate::player::PlayerType::Human {
+        if controller_is_human {
             value |= mood_matrix_parameters::CONTROLLER_PLAYER;
         } else {
             value |= mood_matrix_parameters::CONTROLLER_AI;

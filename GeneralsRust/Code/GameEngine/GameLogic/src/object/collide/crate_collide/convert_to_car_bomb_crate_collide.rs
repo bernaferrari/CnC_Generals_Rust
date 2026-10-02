@@ -363,15 +363,9 @@ impl ConvertToCarBombCrateCollide {
 
         // Transfer ownership to terrorist's team.
         {
-            let new_team = if let Some(player) = obj_guard.get_controlling_player() {
-                if let Ok(player_guard) = player.read() {
-                    player_guard.get_default_team()
-                } else {
-                    None
-                }
-            } else {
-                None
-            };
+            let new_team = obj_guard
+                .with_controlling_player(|player_guard| player_guard.get_default_team())
+                .unwrap_or(None);
             drop(obj_guard);
 
             if let Some(team) = new_team {

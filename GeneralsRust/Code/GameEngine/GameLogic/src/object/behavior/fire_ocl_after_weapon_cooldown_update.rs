@@ -116,10 +116,10 @@ impl FireOCLAfterWeaponCooldownUpdate {
 
     fn build_upgrade_mask(&self, obj: &GameObject) -> UpgradeMask {
         let mut mask = obj.completed_upgrades();
-        if let Some(player) = obj.get_controlling_player() {
-            if let Ok(player_guard) = player.read() {
-                mask |= player_guard.get_completed_upgrade_mask();
-            }
+        if let Some(player_mask) = obj.with_controlling_player(|player_guard| {
+            player_guard.get_completed_upgrade_mask()
+        }) {
+            mask |= player_mask;
         }
         UpgradeMask::from_bits_retain(mask.bits())
     }

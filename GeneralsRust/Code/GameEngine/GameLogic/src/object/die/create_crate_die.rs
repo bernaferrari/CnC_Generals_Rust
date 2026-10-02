@@ -213,13 +213,11 @@ impl CreateCrateDie {
         let Some(killer) = killer else {
             return false;
         };
-        let Some(player_arc) = killer.get_controlling_player() else {
-            return false;
-        };
-        let Ok(player_guard) = player_arc.read() else {
-            return false;
-        };
-        player_guard.has_science(template.killer_science)
+        killer
+            .with_controlling_player(|player_guard| {
+                player_guard.has_science(template.killer_science)
+            })
+            .unwrap_or(false)
     }
 
     /// Select which specific crate to create from a list using weighted distribution
@@ -306,13 +304,10 @@ impl CreateCrateDie {
             return;
         }
 
-        let Some(player_arc) = owner.get_controlling_player() else {
-            return;
-        };
-        let Ok(player_guard) = player_arc.read() else {
-            return;
-        };
-        let Some(team_arc) = player_guard.get_default_team() else {
+        let Some(team_arc) = owner
+            .with_controlling_player(|player_guard| player_guard.get_default_team())
+            .unwrap_or(None)
+        else {
             return;
         };
         let _ = OBJECT_REGISTRY.with_object_mut(crate_id, |crate_obj| {
@@ -389,14 +384,11 @@ impl DieModuleInterface for CreateCrateDie {
                     self.set_crate_team(crate_id, object);
                 }
 
-                let computer = killer_obj.and_then(|killer| killer.get_controlling_player()).and_then(
-                    |player| {
-                        player
-                            .read()
-                            .ok()
-                            .map(|guard| guard.get_player_type() == PlayerType::Computer)
-                    },
-                );
+                let computer = killer_obj.and_then(|killer| {
+                    killer.with_controlling_player(|guard| {
+                        guard.get_player_type() == PlayerType::Computer
+                    })
+                });
                 if computer == Some(true) {
                     if let Some(ai) = killer_obj.and_then(|killer| killer.get_ai_update_interface()) {
                         if let Ok(mut ai_guard) = ai.lock() {

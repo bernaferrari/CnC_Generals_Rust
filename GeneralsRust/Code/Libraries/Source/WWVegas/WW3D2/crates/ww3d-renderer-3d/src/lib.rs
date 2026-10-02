@@ -312,9 +312,7 @@ impl Renderer {
         let renderer = WW3D::get_current_renderer()
             .ok_or_else(|| Error::NotInitialized("renderer not active".to_string()))?;
         let binding = renderer.handle();
-        let mut backend_guard = binding
-            .lock()
-            .map_err(|_| Error::InvalidOperation("renderer backend poisoned".to_string()))?;
+        let mut backend_guard = binding.borrow_mut();
 
         let handle = backend_guard
             .as_any_mut()
@@ -461,14 +459,6 @@ impl Renderer {
     /// Get buffer manager
     pub fn buffer_manager(&self) -> &ww3d_gpu::buffer::BufferManager {
         &self.buffer_manager
-    }
-
-    /// Install an asset manager so render subsystems can stream resources on demand.
-    pub fn set_asset_manager(
-        &mut self,
-        asset_manager: Arc<Mutex<AssetManager>>,
-    ) -> RendererResult<()> {
-        self.mesh_render_manager.set_asset_manager(asset_manager)
     }
 
     /// Install the host's archive-backed pass-texture resolver so W3D pass

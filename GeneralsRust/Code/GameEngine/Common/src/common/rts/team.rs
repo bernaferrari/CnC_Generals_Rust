@@ -4,6 +4,7 @@
 //! Ported from GeneralsMD/Code/GameEngine/Source/Common/RTS/Team.cpp
 
 use std::collections::HashMap;
+use std::cell::RefCell;
 use std::sync::{Arc, LazyLock, Mutex};
 
 // Re-export Relationship from game_common for convenience
@@ -35,27 +36,27 @@ use crate::common::well_known_keys::{
     key_team_unit_type7,
 };
 
-static TEAM_HOME_WAYPOINT_RESOLVER: LazyLock<Mutex<Option<fn(&str) -> Option<Coord3D>>>> =
-    LazyLock::new(|| Mutex::new(None));
+// THREAD: C++ plain static; driven only by the single game/client thread.
+thread_local! {
+    static TEAM_HOME_WAYPOINT_RESOLVER: RefCell<Option<fn(&str) -> Option<Coord3D>>> =
+        const { RefCell::new(None) };
+}
 
 /// GameLogic registers terrain waypoint lookup so leftover `from_dict` can resolve `teamHome`.
 pub fn set_team_home_waypoint_resolver(resolver: fn(&str) -> Option<Coord3D>) {
-    if let Ok(mut guard) = TEAM_HOME_WAYPOINT_RESOLVER.lock() {
+    TEAM_HOME_WAYPOINT_RESOLVER.with_borrow_mut(|guard| {
         *guard = Some(resolver);
-    }
+    });
 }
 
 pub fn clear_team_home_waypoint_resolver() {
-    if let Ok(mut guard) = TEAM_HOME_WAYPOINT_RESOLVER.lock() {
+    TEAM_HOME_WAYPOINT_RESOLVER.with_borrow_mut(|guard| {
         *guard = None;
-    }
+    });
 }
 
 fn resolve_team_home_waypoint(name: &str) -> Option<Coord3D> {
-    TEAM_HOME_WAYPOINT_RESOLVER
-        .lock()
-        .ok()
-        .and_then(|guard| guard.and_then(|resolver| resolver(name)))
+    TEAM_HOME_WAYPOINT_RESOLVER.with_borrow(|guard| guard.and_then(|resolver| resolver(name)))
 }
 
 /// Invalid object ID constant (corresponds to C++ INVALID_ID)
@@ -3155,23 +3156,26 @@ pub trait TeamCommandSink: Send + Sync {
     }
 }
 
-static TEAM_COMMAND_SINK: LazyLock<Mutex<Option<Arc<dyn TeamCommandSink>>>> =
-    LazyLock::new(|| Mutex::new(None));
+// THREAD: C++ plain static; driven only by the single game/client thread.
+thread_local! {
+    static TEAM_COMMAND_SINK: RefCell<Option<Arc<dyn TeamCommandSink>>> =
+        const { RefCell::new(None) };
+}
 
 pub fn set_team_command_sink(sink: Arc<dyn TeamCommandSink>) {
-    if let Ok(mut guard) = TEAM_COMMAND_SINK.lock() {
+    TEAM_COMMAND_SINK.with_borrow_mut(|guard| {
         *guard = Some(sink);
-    }
+    });
 }
 
 pub fn clear_team_command_sink() {
-    if let Ok(mut guard) = TEAM_COMMAND_SINK.lock() {
+    TEAM_COMMAND_SINK.with_borrow_mut(|guard| {
         *guard = None;
-    }
+    });
 }
 
 pub fn get_team_command_sink() -> Option<Arc<dyn TeamCommandSink>> {
-    TEAM_COMMAND_SINK.lock().ok().and_then(|g| g.clone())
+    TEAM_COMMAND_SINK.with_borrow(|guard| guard.clone())
 }
 
 static THE_TEAM_FACTORY: LazyLock<Arc<Mutex<TeamFactory>>> =

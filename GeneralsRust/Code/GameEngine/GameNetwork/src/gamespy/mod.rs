@@ -17,7 +17,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::{RwLock, broadcast, mpsc};
+use tokio::sync::{broadcast, mpsc};
 use tracing::{info, instrument, warn};
 
 pub mod buddy;
@@ -72,29 +72,31 @@ pub use ping_thread::*;
 pub use staging_room::*;
 pub use thread_utils::*;
 
-/// GameSpy global interface
+/// GameSpy global interface. Every subsystem is owned outright by this struct
+/// and no handle is shared with a spawned task, so all fields are plain values;
+/// mutation flows through `&mut self` methods.
 pub struct GameSpyInterface {
     /// Chat system
-    chat: Arc<RwLock<GameSpyChat>>,
-    /// Configuration (shared mutable)
-    config: Arc<RwLock<GameSpyConfig>>,
+    chat: GameSpyChat,
+    /// Configuration
+    config: GameSpyConfig,
     /// Ladder system
-    ladder: Arc<RwLock<LadderSystem>>,
+    ladder: LadderSystem,
     /// Peer networking
-    peer: Arc<RwLock<PeerSystem>>,
+    peer: PeerSystem,
     /// Staging room
-    staging_room: Arc<RwLock<StagingRoom>>,
+    staging_room: StagingRoom,
     /// Buddy list
-    buddy: Arc<RwLock<BuddySystem>>,
+    buddy: BuddySystem,
     /// Game results
-    game_results: Arc<RwLock<GameResultsSystem>>,
+    game_results: GameResultsSystem,
     /// Persistent storage
-    storage: Arc<RwLock<PersistentStorage>>,
+    storage: PersistentStorage,
     /// Ping service
-    ping_service: Arc<RwLock<PingService>>,
+    ping_service: PingService,
 
     /// Global state
-    is_connected: Arc<RwLock<bool>>,
+    connected: bool,
     local_player_id: Option<String>,
 
     /// Event channels
@@ -108,16 +110,10 @@ impl GameSpyInterface {
         let (event_tx, _) = broadcast::channel(1000);
         let (command_tx, command_rx) = mpsc::channel(1000);
 
-        let config = Arc::new(RwLock::new(GameSpyConfig::new().await?));
-        let storage_root = {
-            let cfg = config.read().await;
-            cfg.storage_directory()
-        };
-        let storage = Arc::new(RwLock::new(PersistentStorage::new(&storage_root).await?));
-        let transport_cfg_result = {
-            let cfg = config.read().await;
-            cfg.chat_transport_config()
-        };
+        let config = GameSpyConfig::new().await?;
+        let storage_root = config.storage_directory();
+        let storage = PersistentStorage::new(&storage_root).await?;
+        let transport_cfg_result = config.chat_transport_config();
 
         let chat_instance = match transport_cfg_result {
             Ok(transport_config) => {
@@ -147,19 +143,17 @@ impl GameSpyInterface {
         };
 
         Ok(Self {
-            chat: Arc::new(RwLock::new(chat_instance)),
-            config: config.clone(),
-            ladder: Arc::new(RwLock::new(
-                LadderSystem::new(config.clone(), storage.clone()).await?,
-            )),
-            peer: Arc::new(RwLock::new(PeerSystem::new().await?)),
-            staging_room: Arc::new(RwLock::new(StagingRoom::new().await?)),
-            buddy: Arc::new(RwLock::new(BuddySystem::new().await?)),
-            game_results: Arc::new(RwLock::new(GameResultsSystem::new().await?)),
-            storage: storage.clone(),
-            ping_service: Arc::new(RwLock::new(PingService::new().await?)),
+            chat: chat_instance,
+            config,
+            ladder: LadderSystem::new().await?,
+            peer: PeerSystem::new().await?,
+            staging_room: StagingRoom::new().await?,
+            buddy: BuddySystem::new().await?,
+            game_results: GameResultsSystem::new().await?,
+            storage,
+            ping_service: PingService::new().await?,
 
-            is_connected: Arc::new(RwLock::new(false)),
+            connected: false,
             local_player_id: None,
 
             event_tx,
@@ -173,10 +167,7 @@ impl GameSpyInterface {
         info!("Initializing GameSpy for player: {}", player_id);
 
         self.local_player_id = Some(player_id.clone());
-        {
-            let chat = self.chat.read().await;
-            chat.set_local_player_id(player_id.clone()).await;
-        }
+        self.chat.set_local_player_id(player_id.clone()).await;
 
         // Connect to GameSpy master server
         self.connect_to_gamespy(player_id, password).await?;
@@ -187,23 +178,17 @@ impl GameSpyInterface {
         // Load persistent data
         self.load_persistent_data().await?;
 
-        *self.is_connected.write().await = true;
+        self.connected = true;
         info!("GameSpy initialization complete");
 
         Ok(())
     }
 
     /// Update the chat authentication token and seamlessly reconnect the chat transport.
-    pub async fn update_chat_auth_token(&self, token: Option<String>) -> NetworkResult<()> {
-        {
-            let mut cfg = self.config.write().await;
-            cfg.set_chat_auth_token(token);
-        }
+    pub async fn update_chat_auth_token(&mut self, token: Option<String>) -> NetworkResult<()> {
+        self.config.set_chat_auth_token(token);
 
-        let transport_config = {
-            let cfg = self.config.read().await;
-            cfg.chat_transport_config()
-        }?;
+        let transport_config = self.config.chat_transport_config()?;
 
         let endpoint = transport_config.endpoint.clone();
         let mut chat_source = "remote";
@@ -226,10 +211,8 @@ impl GameSpyInterface {
         }
         new_chat.start().await?;
 
-        let mut chat_guard = self.chat.write().await;
-        let old_chat = std::mem::replace(&mut *chat_guard, new_chat);
-        // stop after swap to release write lock quickly
-        drop(chat_guard);
+        // Swap after the replacement is running; stop the old one afterwards.
+        let old_chat = std::mem::replace(&mut self.chat, new_chat);
         if let Err(err) = old_chat.stop().await {
             warn!("Failed to stop old chat transport cleanly: {}", err);
         }
@@ -244,10 +227,8 @@ impl GameSpyInterface {
     /// Connect to GameSpy master server
     async fn connect_to_gamespy(&self, player_id: String, password: String) -> NetworkResult<()> {
         info!("Connecting to GameSpy master server");
-        {
-            let config = self.config.read().await;
-            config.validate_credentials(&player_id, &password)?;
-        }
+        self.config
+            .validate_credentials(&player_id, &password)?;
 
         let peer_queue = crate::gamespy::peer_thread::init_peer_message_queue();
         if let Ok(mut queue) = peer_queue.lock() {
@@ -259,8 +240,7 @@ impl GameSpyInterface {
         crate::gamespy::persistent_storage_thread::init_ps_message_queue();
 
         let (master, _chat, ladder) = {
-            let config = self.config.read().await;
-            let (m, c, l) = config.get_server_urls();
+            let (m, c, l) = self.config.get_server_urls();
             (m.to_string(), c.to_string(), l.to_string())
         };
 
@@ -301,55 +281,38 @@ impl GameSpyInterface {
     }
 
     /// Start all GameSpy subsystems
-    async fn start_subsystems(&self) -> NetworkResult<()> {
+    async fn start_subsystems(&mut self) -> NetworkResult<()> {
         // Start chat system
-        {
-            let chat = self.chat.write().await;
-            chat.start().await?;
-        }
+        self.chat.start().await?;
 
         // Start ladder system
-        {
-            let mut ladder = self.ladder.write().await;
-            ladder.start().await?;
-        }
+        self.ladder.start(&self.storage).await?;
 
         // Start peer system
-        {
-            let mut peer = self.peer.write().await;
-            peer.start().await?;
-        }
+        self.peer.start().await?;
 
         // Start buddy system
-        {
-            let mut buddy = self.buddy.write().await;
-            buddy.start().await?;
-        }
+        self.buddy.start().await?;
 
         // Start ping service
-        {
-            let mut ping = self.ping_service.write().await;
-            ping.start().await?;
-        }
+        self.ping_service.start().await?;
 
         Ok(())
     }
 
     /// Load persistent data
-    async fn load_persistent_data(&self) -> NetworkResult<()> {
+    async fn load_persistent_data(&mut self) -> NetworkResult<()> {
         if let Some(player_id) = &self.local_player_id {
-            let storage = self.storage.read().await;
-
             // Load buddy list
-            if let Ok(buddies) = storage.load_buddy_list(player_id).await {
-                let mut buddy_system = self.buddy.write().await;
-                buddy_system.set_buddy_list(buddies);
+            if let Ok(buddies) = self.storage.load_buddy_list(player_id).await {
+                self.buddy.set_buddy_list(buddies);
             }
 
             // Load player stats
-            if let Ok(stats) = storage.load_player_stats(player_id).await {
-                let mut ladder = self.ladder.write().await;
-                ladder.update_player_stats(player_id.clone(), stats).await;
+            if let Ok(stats) = self.storage.load_player_stats(player_id).await {
+                self.ladder
+                    .update_player_stats(&self.storage, player_id.clone(), stats)
+                    .await;
             }
         }
 
@@ -361,33 +324,14 @@ impl GameSpyInterface {
     pub async fn shutdown(&mut self) -> NetworkResult<()> {
         info!("Shutting down GameSpy");
 
-        *self.is_connected.write().await = false;
+        self.connected = false;
 
         // Shutdown all subsystems in reverse order
-        {
-            let mut ping = self.ping_service.write().await;
-            ping.stop().await?;
-        }
-
-        {
-            let mut buddy = self.buddy.write().await;
-            buddy.stop().await?;
-        }
-
-        {
-            let mut peer = self.peer.write().await;
-            peer.stop().await?;
-        }
-
-        {
-            let mut ladder = self.ladder.write().await;
-            ladder.stop().await?;
-        }
-
-        {
-            let chat = self.chat.write().await;
-            chat.stop().await?;
-        }
+        self.ping_service.stop().await?;
+        self.buddy.stop().await?;
+        self.peer.stop().await?;
+        self.ladder.stop().await?;
+        self.chat.stop().await?;
 
         // Save persistent data
         self.save_persistent_data().await?;
@@ -399,21 +343,13 @@ impl GameSpyInterface {
     /// Save persistent data
     async fn save_persistent_data(&self) -> NetworkResult<()> {
         if let Some(player_id) = &self.local_player_id {
-            let storage = self.storage.read().await;
-
             // Save buddy list
-            {
-                let buddy_system = self.buddy.read().await;
-                let buddies = buddy_system.get_buddy_list().await;
-                storage.save_buddy_list(player_id, buddies).await?;
-            }
+            let buddies = self.buddy.get_buddy_list().await;
+            self.storage.save_buddy_list(player_id, buddies).await?;
 
             // Save player stats
-            {
-                let ladder = self.ladder.read().await;
-                if let Some(stats) = ladder.get_player_stats(player_id).await {
-                    storage.save_player_stats(player_id, stats).await?;
-                }
+            if let Some(stats) = self.ladder.get_player_stats(player_id).await {
+                self.storage.save_player_stats(player_id, stats).await?;
             }
         }
 
@@ -422,32 +358,27 @@ impl GameSpyInterface {
 
     /// Send chat message
     pub async fn send_chat(&self, message: String, room: Option<String>) -> NetworkResult<()> {
-        let chat = self.chat.read().await;
-        chat.send_message(message, room).await
+        self.chat.send_message(message, room).await
     }
 
     /// Join chat room
     pub async fn join_chat_room(&self, room_name: String) -> NetworkResult<()> {
-        let chat = self.chat.read().await;
-        chat.join_room(room_name).await
+        self.chat.join_room(room_name).await
     }
 
     /// Leave chat room
     pub async fn leave_chat_room(&self, room_name: String) -> NetworkResult<()> {
-        let chat = self.chat.read().await;
-        chat.leave_room(room_name).await
+        self.chat.leave_room(room_name).await
     }
 
     /// Add buddy
-    pub async fn add_buddy(&self, buddy_id: String) -> NetworkResult<()> {
-        let buddy = self.buddy.read().await;
-        buddy.add_buddy(buddy_id).await
+    pub async fn add_buddy(&mut self, buddy_id: String) -> NetworkResult<()> {
+        self.buddy.add_buddy(buddy_id).await
     }
 
     /// Remove buddy
-    pub async fn remove_buddy(&self, buddy_id: String) -> NetworkResult<()> {
-        let buddy = self.buddy.read().await;
-        buddy.remove_buddy(buddy_id).await
+    pub async fn remove_buddy(&mut self, buddy_id: String) -> NetworkResult<()> {
+        self.buddy.remove_buddy(buddy_id).await
     }
 
     /// Send game invitation
@@ -456,26 +387,24 @@ impl GameSpyInterface {
         player_id: String,
         game_settings: GameSettings,
     ) -> NetworkResult<()> {
-        let staging = self.staging_room.read().await;
-        staging.send_invite(player_id, game_settings).await
+        self.staging_room
+            .send_invite(player_id, game_settings)
+            .await
     }
 
     /// Accept game invitation
     pub async fn accept_game_invite(&self, invite_id: String) -> NetworkResult<()> {
-        let staging = self.staging_room.read().await;
-        staging.accept_invite(invite_id).await
+        self.staging_room.accept_invite(invite_id).await
     }
 
     /// Create custom game
     pub async fn create_custom_game(&self, settings: GameSettings) -> NetworkResult<String> {
-        let staging = self.staging_room.read().await;
-        staging.create_game(settings).await
+        self.staging_room.create_game(settings).await
     }
 
     /// Join custom game
     pub async fn join_custom_game(&self, game_id: String) -> NetworkResult<()> {
-        let staging = self.staging_room.read().await;
-        staging.join_game(game_id).await
+        self.staging_room.join_game(game_id).await
     }
 
     /// Start matchmaking
@@ -483,31 +412,27 @@ impl GameSpyInterface {
         &self,
         preferences: MatchmakingPreferences,
     ) -> NetworkResult<()> {
-        let ladder = self.ladder.read().await;
-        ladder.start_matchmaking(preferences).await
+        self.ladder.start_matchmaking(preferences).await
     }
 
     /// Cancel matchmaking
     pub async fn cancel_matchmaking(&self) -> NetworkResult<()> {
-        let ladder = self.ladder.read().await;
-        ladder.cancel_matchmaking().await
+        self.ladder.cancel_matchmaking().await
     }
 
     /// Report game results
-    pub async fn report_game_results(&self, results: GameResults) -> NetworkResult<()> {
-        let game_results = self.game_results.read().await;
-        game_results.report_results(results).await
+    pub async fn report_game_results(&mut self, results: GameResults) -> NetworkResult<()> {
+        self.game_results.report_results(results).await
     }
 
     /// Get ping to server
     pub async fn get_ping(&self, server: String) -> NetworkResult<u32> {
-        let ping = self.ping_service.read().await;
-        ping.get_ping(server).await
+        self.ping_service.get_ping(server).await
     }
 
     /// Check if connected to GameSpy
     pub async fn is_connected(&self) -> bool {
-        *self.is_connected.read().await
+        self.connected
     }
 
     /// Get event receiver
@@ -524,8 +449,8 @@ impl GameSpyInterface {
         }
 
         // Check various subsystem states
-        let chat_connected = self.chat.read().await.is_connected();
-        let in_matchmaking = self.ladder.read().await.is_in_matchmaking().await;
+        let chat_connected = self.chat.is_connected();
+        let in_matchmaking = self.ladder.is_in_matchmaking().await;
 
         match (chat_connected, in_matchmaking) {
             (true, true) => GameSpyStatus::Matchmaking,
@@ -714,7 +639,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_update_chat_auth_token_falls_back() {
-        let gamespy = GameSpyInterface::new().await.unwrap();
+        let mut gamespy = GameSpyInterface::new().await.unwrap();
         gamespy
             .update_chat_auth_token(Some("test-token".to_string()))
             .await

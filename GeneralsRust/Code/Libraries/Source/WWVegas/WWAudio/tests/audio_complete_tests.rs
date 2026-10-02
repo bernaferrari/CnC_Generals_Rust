@@ -163,7 +163,7 @@ fn test_voice_system_priority() {
         voice_volume: 1.0,
     };
 
-    let voice_system = VoiceSystem::new(Arc::clone(&mixer), config);
+    let mut voice_system = VoiceSystem::new(Arc::clone(&mixer), config);
 
     let source = Arc::new(create_test_source());
 
@@ -257,7 +257,7 @@ fn test_3d_audio_cone_attenuation() {
 #[test]
 fn test_audio_events() {
     let mixer = create_test_mixer();
-    let event_system = AudioEventSystem::new(Arc::clone(&mixer));
+    let mut event_system = AudioEventSystem::new(Arc::clone(&mixer));
 
     let events_received = Arc::new(std::sync::Mutex::new(Vec::new()));
     let events_clone = Arc::clone(&events_received);
@@ -287,7 +287,7 @@ fn test_audio_events() {
 #[test]
 fn test_volume_control_buses() {
     let mixer = create_test_mixer();
-    let event_system = AudioEventSystem::new(Arc::clone(&mixer));
+    let mut event_system = AudioEventSystem::new(Arc::clone(&mixer));
 
     // Set category volumes
     event_system.set_category_volume(AudioCategory::Music, 0.5);
@@ -327,7 +327,7 @@ fn test_audio_fader() {
 #[test]
 fn test_master_volume() {
     let mixer = create_test_mixer();
-    let event_system = AudioEventSystem::new(Arc::clone(&mixer));
+    let mut event_system = AudioEventSystem::new(Arc::clone(&mixer));
 
     event_system.set_master_volume(0.5);
     assert!((event_system.master_volume() - 0.5).abs() < 0.01);

@@ -7,7 +7,7 @@
 */
 
 use glam::{Mat4, Vec2, Vec3};
-use std::sync::{Mutex, OnceLock};
+use std::cell::RefCell;
 use thiserror::Error;
 
 /// Errors that can occur in the shatter system
@@ -884,26 +884,38 @@ impl ShatterSystem {
     }
 }
 
-/// Global shatter system instance
-static SHATTER_SYSTEM: OnceLock<Mutex<ShatterSystem>> = OnceLock::new();
+thread_local! {
+    /// C++ kept the CSG shatter system as a plain file static on the game thread.
+    static SHATTER_SYSTEM: RefCell<Option<ShatterSystem>> = const { RefCell::new(None) };
+}
 
-pub fn get_shatter_system() -> &'static Mutex<ShatterSystem> {
-    SHATTER_SYSTEM.get_or_init(|| {
-        let mut system = ShatterSystem::new();
-        system.init();
-        Mutex::new(system)
+fn shatter_system_slot<R>(f: impl FnOnce(&mut ShatterSystem) -> R) -> Option<R> {
+    SHATTER_SYSTEM.with_borrow_mut(|slot| {
+        let system = slot.as_mut()?;
+        Some(f(system))
     })
 }
 
+pub fn with_shatter_system<R>(f: impl FnOnce(&mut ShatterSystem) -> R) -> Option<R> {
+    shatter_system_slot(f)
+}
+
 pub fn init_shatter_system() {
-    let _ = get_shatter_system();
+    SHATTER_SYSTEM.with_borrow_mut(|slot| {
+        let needs_init = slot.is_none();
+        let system = slot.get_or_insert_with(ShatterSystem::new);
+        if needs_init {
+            system.init();
+        }
+    });
 }
 
 pub fn shutdown_shatter_system() {
-    if let Some(system) = SHATTER_SYSTEM.get() {
-        let mut sys = system.lock().unwrap();
-        sys.release_fragments();
-    }
+    SHATTER_SYSTEM.with_borrow_mut(|slot| {
+        if let Some(system) = slot.as_mut() {
+            system.release_fragments();
+        }
+    });
 }
 
 #[cfg(test)]
@@ -939,9 +951,8 @@ mod tests {
     #[test]
     fn test_shatter_system_init() {
         init_shatter_system();
-        let system = get_shatter_system();
-        let sys = system.lock().unwrap();
-        assert!(!sys.patterns.is_empty());
+        let has_patterns = with_shatter_system(|sys| !sys.patterns.is_empty());
+        assert!(has_patterns.expect("shatter system initialized"));
     }
 
     #[test]

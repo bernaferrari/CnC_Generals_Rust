@@ -17,19 +17,21 @@ mod tests {
         TransferProgress, TransferType,
     };
     use crate::transport::Transport;
-    use parking_lot::Mutex;
     use std::collections::HashMap;
     use std::net::SocketAddr;
     use std::path::PathBuf;
     use std::sync::Arc;
+    use std::sync::mpsc;
     use tempfile::TempDir;
     use tokio::fs::File;
     use tokio::io::AsyncWriteExt;
     use uuid::Uuid;
 
-    // Test progress callback implementation
+    // Test progress callback implementation. The transfer machinery owns the
+    // callback and fires it from its tasks, so events flow to the test through
+    // a channel instead of a shared lock.
     struct TestProgressCallback {
-        events: Arc<Mutex<Vec<ProgressEvent>>>,
+        events: mpsc::Sender<ProgressEvent>,
     }
 
     #[derive(Debug, Clone)]
@@ -41,39 +43,34 @@ mod tests {
     }
 
     impl TestProgressCallback {
-        fn new() -> (Self, Arc<Mutex<Vec<ProgressEvent>>>) {
-            let events = Arc::new(Mutex::new(Vec::new()));
-            (
-                Self {
-                    events: events.clone(),
-                },
-                events,
-            )
+        fn new() -> (Self, mpsc::Receiver<ProgressEvent>) {
+            let (events_tx, events_rx) = mpsc::channel();
+            (Self { events: events_tx }, events_rx)
         }
     }
 
     impl ProgressCallback for TestProgressCallback {
         fn on_started(&self, progress: &TransferProgress) {
-            self.events
-                .lock()
-                .push(ProgressEvent::Started(progress.transfer_id));
+            let _ = self
+                .events
+                .send(ProgressEvent::Started(progress.transfer_id));
         }
 
         fn on_progress(&self, progress: &TransferProgress) {
-            self.events.lock().push(ProgressEvent::Progress(
+            let _ = self.events.send(ProgressEvent::Progress(
                 progress.transfer_id,
                 progress.bytes_transferred,
             ));
         }
 
         fn on_completed(&self, progress: &TransferProgress) {
-            self.events
-                .lock()
-                .push(ProgressEvent::Completed(progress.transfer_id));
+            let _ = self
+                .events
+                .send(ProgressEvent::Completed(progress.transfer_id));
         }
 
         fn on_failed(&self, progress: &TransferProgress, error: &crate::error::NetworkError) {
-            self.events.lock().push(ProgressEvent::Failed(
+            let _ = self.events.send(ProgressEvent::Failed(
                 progress.transfer_id,
                 error.to_string(),
             ));
@@ -167,7 +164,7 @@ mod tests {
         let transport = create_test_transport();
         let manager = FileTransferManager::new(transport);
 
-        let (callback, events) = TestProgressCallback::new();
+        let (callback, _events) = TestProgressCallback::new();
         manager.set_progress_callback(Arc::new(callback));
 
         // Note: Full integration test would require actual transfer

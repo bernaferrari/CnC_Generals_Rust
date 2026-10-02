@@ -164,13 +164,7 @@ impl ObjectDataProvider for GameLogicObjectDataProvider {
 
     fn get_controlling_player_type(&self, id: ObjectHandle) -> CommonPlayerType {
         with_object(id, |obj| {
-            let Some(player) = obj.get_controlling_player() else {
-                return CommonPlayerType::Human;
-            };
-            player
-                .read()
-                .ok()
-                .map(|guard| convert_player_type(guard.get_player_type()))
+            obj.with_controlling_player(|guard| convert_player_type(guard.get_player_type()))
                 .unwrap_or(CommonPlayerType::Human)
         })
         .unwrap_or(CommonPlayerType::Human)

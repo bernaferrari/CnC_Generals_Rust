@@ -441,15 +441,21 @@ impl GameSpyPeerMessageQueue {
     }
 }
 
-static THE_GAMESPY_PEER_QUEUE: OnceLock<Arc<Mutex<GameSpyPeerMessageQueue>>> = OnceLock::new();
+/// THREAD: C++-parity global peer message queue. Game/GUI threads push
+/// requests and drain responses while the GameSpy peer worker drains requests
+/// and pushes responses; this single mutex is the only cross-thread handoff
+/// and is never held across an `.await`.
+type SharedPeerQueue = Arc<Mutex<GameSpyPeerMessageQueue>>;
 
-pub fn init_peer_message_queue() -> Arc<Mutex<GameSpyPeerMessageQueue>> {
+static THE_GAMESPY_PEER_QUEUE: OnceLock<SharedPeerQueue> = OnceLock::new();
+
+pub fn init_peer_message_queue() -> SharedPeerQueue {
     THE_GAMESPY_PEER_QUEUE
         .get_or_init(|| Arc::new(Mutex::new(GameSpyPeerMessageQueue::default())))
         .clone()
 }
 
-pub fn get_peer_message_queue() -> Option<Arc<Mutex<GameSpyPeerMessageQueue>>> {
+pub fn get_peer_message_queue() -> Option<SharedPeerQueue> {
     THE_GAMESPY_PEER_QUEUE.get().cloned()
 }
 

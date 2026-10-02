@@ -104,15 +104,11 @@ impl UpdateModuleInterface for AutoFindHealingUpdate {
             return UpdateSleepTime::None;
         };
 
-        let is_human_player = if let Some(player) = obj.get_controlling_player() {
-            if let Ok(player_guard) = player.read() {
+        let is_human_player = obj
+            .with_controlling_player(|player_guard| {
                 player_guard.get_player_type() == PlayerType::Human
-            } else {
-                false
-            }
-        } else {
-            false
-        };
+            })
+            .unwrap_or(false);
         if is_human_player {
             return UpdateSleepTime::None;
         }

@@ -1,4 +1,4 @@
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use crate::{channel::AudioChannel, error::Result};
 
@@ -7,21 +7,14 @@ use super::{base_handle::BaseSoundHandle, sound2d_handle::Sound2DHandle};
 /// Stream handle analogue (`SoundStreamHandleClass`)
 pub struct SoundStreamHandle {
     pub base: BaseSoundHandle,
-    channel: Arc<Mutex<AudioChannel>>,
     sample_handle: Sound2DHandle,
 }
 
 impl SoundStreamHandle {
     pub fn new(channel: AudioChannel) -> Self {
-        let arc = Arc::new(Mutex::new(channel));
-        let mixer = {
-            let guard = arc.lock().expect("Channel lock poisoned");
-            guard.mixer()
-        };
         Self {
             base: BaseSoundHandle::new(),
-            channel: Arc::clone(&arc),
-            sample_handle: Sound2DHandle::with_shared_channel_and_mixer(arc, mixer),
+            sample_handle: Sound2DHandle::new(channel),
         }
     }
 
@@ -87,7 +80,6 @@ impl Clone for SoundStreamHandle {
     fn clone(&self) -> Self {
         Self {
             base: self.base.clone(),
-            channel: Arc::clone(&self.channel),
             sample_handle: self.sample_handle.clone(),
         }
     }

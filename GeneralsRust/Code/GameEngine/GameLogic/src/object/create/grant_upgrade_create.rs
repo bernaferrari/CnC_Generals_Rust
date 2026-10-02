@@ -118,13 +118,11 @@ impl GrantUpgradeCreate {
         } else {
             obj.give_upgrade(&upgrade);
             if record_granted {
-                if let Some(player) = obj.get_controlling_player() {
-                    if let Ok(mut player_guard) = player.write() {
-                        player_guard
-                            .get_academy_stats_mut()
-                            .record_upgrade(&upgrade, true);
-                    }
-                }
+                let _ = obj.with_controlling_player_mut(|player_guard| {
+                    player_guard
+                        .get_academy_stats_mut()
+                        .record_upgrade(&upgrade, true);
+                });
             }
         }
         if let Some(player) = granted_player {

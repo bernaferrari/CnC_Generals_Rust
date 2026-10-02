@@ -7,9 +7,9 @@ use crate::error::{NetworkError, NetworkResult};
 use crate::security::auth::AuthToken;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
-use tokio::sync::{RwLock, broadcast};
+use tokio::sync::broadcast;
 use tokio::task::JoinHandle;
 use tokio::time::Duration;
 use tracing::{debug, info, warn};
@@ -95,20 +95,44 @@ pub enum LobbyEvent {
     ChatMessage { player_id: Uuid, message: String },
 }
 
+/// Lobby state that is shared with the lobby's background tasks.
+///
+/// Only `state` and `last_activity` ever leave the owning `Lobby` (the timeout
+/// task reads both and may write `state`; the deferred game-start task writes
+/// `state`), so they travel together behind this single handle instead of one
+/// lock per field.
+#[derive(Debug, Clone, Copy)]
+struct LobbySharedState {
+    /// Current lobby state
+    state: LobbyState,
+    /// Time of the last lobby activity
+    last_activity: SystemTime,
+}
+
 /// Game lobby for multiplayer sessions
 pub struct Lobby {
     /// Unique lobby identifier
     id: Uuid,
     /// Lobby name
     name: String,
-    /// Current lobby state
-    state: Arc<RwLock<LobbyState>>,
+
+    /// Current lobby state + activity stamp.
+    ///
+    /// THREAD: the `Lobby` owner writes it from `join`/`leave`/`start_game`/
+    /// `shutdown`; the detached timeout task spawned by `start_timeout_task`
+    /// reads it every minute and may write `Closed`, and the deferred task
+    /// spawned by `start_game` writes `InGame` after the load delay.  Both
+    /// tasks run on the tokio runtime, so this is the one real cross-task
+    /// boundary in the lobby.  Every critical section below is await-free,
+    /// hence a plain `std` mutex.
+    shared: Arc<Mutex<LobbySharedState>>,
+
     /// Players in the lobby
-    players: Arc<RwLock<HashMap<Uuid, LobbyPlayer>>>,
+    players: HashMap<Uuid, LobbyPlayer>,
     /// Game configuration
-    config: Arc<RwLock<GameConfig>>,
+    config: GameConfig,
     /// Host player ID
-    host_id: Arc<RwLock<Option<Uuid>>>,
+    host_id: Option<Uuid>,
 
     // Event broadcasting
     event_tx: broadcast::Sender<LobbyEvent>,
@@ -124,7 +148,6 @@ pub struct Lobby {
 
     // Statistics
     created_at: SystemTime,
-    last_activity: Arc<RwLock<SystemTime>>,
 }
 
 impl Lobby {
@@ -153,10 +176,13 @@ impl Lobby {
         Ok(Self {
             id: lobby_id,
             name,
-            state: Arc::new(RwLock::new(LobbyState::Open)),
-            players: Arc::new(RwLock::new(players)),
-            config: Arc::new(RwLock::new(GameConfig::default())),
-            host_id: Arc::new(RwLock::new(Some(host_id))),
+            shared: Arc::new(Mutex::new(LobbySharedState {
+                state: LobbyState::Open,
+                last_activity: SystemTime::now(),
+            })),
+            players,
+            config: GameConfig::default(),
+            host_id: Some(host_id),
             event_tx,
             heartbeat_task: None,
             timeout_task: None,
@@ -164,7 +190,6 @@ impl Lobby {
             lobby_timeout: Duration::from_secs(300), // 5 minutes
             heartbeat_interval: Duration::from_secs(30),
             created_at: SystemTime::now(),
-            last_activity: Arc::new(RwLock::new(SystemTime::now())),
         })
     }
 
@@ -214,8 +239,7 @@ impl Lobby {
 
     /// Start timeout task for lobby cleanup
     async fn start_timeout_task(&mut self) {
-        let state = self.state.clone();
-        let last_activity = self.last_activity.clone();
+        let shared = self.shared.clone();
         let timeout_duration = self.lobby_timeout;
         let mut shutdown_rx = self.shutdown_tx.subscribe();
 
@@ -225,15 +249,17 @@ impl Lobby {
             loop {
                 tokio::select! {
                     _ = check_interval.tick() => {
-                        let current_state = *state.read().await;
-                        let last_activity_time = *last_activity.read().await;
-
                         // Check if lobby should timeout (only if open and inactive)
-                        if matches!(current_state, LobbyState::Open | LobbyState::Full) {
-                            if last_activity_time.elapsed().unwrap_or(Duration::from_secs(0)) > timeout_duration {
+                        let mut shared = shared.lock().expect("lobby shared state poisoned");
+                        if matches!(shared.state, LobbyState::Open | LobbyState::Full) {
+                            if shared
+                                .last_activity
+                                .elapsed()
+                                .unwrap_or(Duration::from_secs(0))
+                                > timeout_duration
+                            {
                                 warn!("Lobby timeout reached, closing");
-                                let mut state_lock = state.write().await;
-                                *state_lock = LobbyState::Closed;
+                                shared.state = LobbyState::Closed;
                             }
                         }
                     }
@@ -250,26 +276,22 @@ impl Lobby {
     }
 
     /// Join lobby
-    pub async fn join(&self, player_name: String, auth_token: AuthToken) -> NetworkResult<Uuid> {
-        let mut players = self.players.write().await;
-        let mut state = self.state.write().await;
-
+    pub async fn join(&mut self, player_name: String, auth_token: AuthToken) -> NetworkResult<Uuid> {
         // Check if lobby is open
-        if !matches!(*state, LobbyState::Open) {
+        if !matches!(self.state(), LobbyState::Open) {
             return Err(NetworkError::generic(
                 "Lobby is not accepting new players".to_string(),
             ));
         }
 
         // Check if lobby is full
-        let config = self.config.read().await;
-        if players.len() >= config.max_players as usize {
-            *state = LobbyState::Full;
+        if self.players.len() >= self.config.max_players as usize {
+            self.set_state(LobbyState::Full);
             return Err(NetworkError::generic("Lobby is full".to_string()));
         }
 
         // Find next available position
-        let position = self.find_next_position(&players)?;
+        let position = Self::find_next_position(&self.players)?;
 
         // Create new player
         let player_id = Uuid::new_v4();
@@ -283,22 +305,19 @@ impl Lobby {
             joined_at: SystemTime::now(),
         };
 
-        players.insert(player_id, player.clone());
+        self.players.insert(player_id, player.clone());
 
         // Update lobby state if full
-        if players.len() >= config.max_players as usize {
-            *state = LobbyState::Full;
+        if self.players.len() >= self.config.max_players as usize {
+            self.set_state(LobbyState::Full);
         }
 
         // Update activity
-        {
-            let mut last_activity = self.last_activity.write().await;
-            *last_activity = SystemTime::now();
-        }
+        self.touch_activity();
 
         // Broadcast player joined event
         let _ = self.event_tx.send(LobbyEvent::PlayerJoined(player));
-        if matches!(*state, LobbyState::Full) {
+        if matches!(self.state(), LobbyState::Full) {
             let _ = self
                 .event_tx
                 .send(LobbyEvent::StateChanged(LobbyState::Full));
@@ -313,41 +332,33 @@ impl Lobby {
     }
 
     /// Leave lobby
-    pub async fn leave(&self, player_id: Uuid) -> NetworkResult<()> {
-        let mut players = self.players.write().await;
-        let mut state = self.state.write().await;
-
-        let player = players
+    pub async fn leave(&mut self, player_id: Uuid) -> NetworkResult<()> {
+        let player = self
+            .players
             .remove(&player_id)
             .ok_or_else(|| NetworkError::generic("Player not found in lobby".to_string()))?;
 
         // If this was the host, transfer host to another player
-        {
-            let mut host_id = self.host_id.write().await;
-            if *host_id == Some(player_id) {
-                *host_id = players.keys().next().copied();
-                if let Some(new_host_id) = *host_id {
-                    info!("Host transferred to player {}", new_host_id);
-                }
+        if self.host_id == Some(player_id) {
+            self.host_id = self.players.keys().next().copied();
+            if let Some(new_host_id) = self.host_id {
+                info!("Host transferred to player {}", new_host_id);
             }
         }
 
         // Update lobby state
-        if matches!(*state, LobbyState::Full) && !players.is_empty() {
-            *state = LobbyState::Open;
-        } else if players.is_empty() {
-            *state = LobbyState::Closed;
+        if matches!(self.state(), LobbyState::Full) && !self.players.is_empty() {
+            self.set_state(LobbyState::Open);
+        } else if self.players.is_empty() {
+            self.set_state(LobbyState::Closed);
         }
 
         // Update activity
-        {
-            let mut last_activity = self.last_activity.write().await;
-            *last_activity = SystemTime::now();
-        }
+        self.touch_activity();
 
         // Broadcast events
         let _ = self.event_tx.send(LobbyEvent::PlayerLeft(player_id));
-        if matches!(*state, LobbyState::Open) {
+        if matches!(self.state(), LobbyState::Open) {
             let _ = self
                 .event_tx
                 .send(LobbyEvent::StateChanged(LobbyState::Open));
@@ -359,11 +370,10 @@ impl Lobby {
     }
 
     /// Set player ready state
-    pub async fn set_player_ready(&self, player_id: Uuid, ready: bool) -> NetworkResult<()> {
-        let mut players = self.players.write().await;
-
+    pub async fn set_player_ready(&mut self, player_id: Uuid, ready: bool) -> NetworkResult<()> {
         let player_name = {
-            let player = players
+            let player = self
+                .players
                 .get_mut(&player_id)
                 .ok_or_else(|| NetworkError::generic("Player not found in lobby".to_string()))?;
 
@@ -372,10 +382,7 @@ impl Lobby {
         };
 
         // Update activity
-        {
-            let mut last_activity = self.last_activity.write().await;
-            *last_activity = SystemTime::now();
-        }
+        self.touch_activity();
 
         // Broadcast ready state change
         let _ = self
@@ -383,8 +390,8 @@ impl Lobby {
             .send(LobbyEvent::PlayerReadyChanged(player_id, ready));
 
         // Check if all players are ready
-        let all_ready = players.values().all(|p| p.ready);
-        if all_ready && players.len() > 1 {
+        let all_ready = self.players.values().all(|p| p.ready);
+        if all_ready && self.players.len() > 1 {
             // Need at least 2 players
             info!("All players ready, game can start");
         }
@@ -396,29 +403,22 @@ impl Lobby {
 
     /// Update game configuration (host only)
     pub async fn update_config(
-        &self,
+        &mut self,
         player_id: Uuid,
         new_config: GameConfig,
     ) -> NetworkResult<()> {
         // Verify player is host
-        let host_id = self.host_id.read().await;
-        if *host_id != Some(player_id) {
+        if self.host_id != Some(player_id) {
             return Err(NetworkError::generic(
                 "Only host can change game configuration".to_string(),
             ));
         }
 
         // Update configuration
-        {
-            let mut config = self.config.write().await;
-            *config = new_config.clone();
-        }
+        self.config = new_config.clone();
 
         // Update activity
-        {
-            let mut last_activity = self.last_activity.write().await;
-            *last_activity = SystemTime::now();
-        }
+        self.touch_activity();
 
         // Broadcast configuration change
         let _ = self.event_tx.send(LobbyEvent::ConfigChanged(new_config));
@@ -429,18 +429,16 @@ impl Lobby {
     }
 
     /// Start game (host only)
-    pub async fn start_game(&self, player_id: Uuid) -> NetworkResult<()> {
+    pub async fn start_game(&mut self, player_id: Uuid) -> NetworkResult<()> {
         // Verify player is host
-        let host_id = self.host_id.read().await;
-        if *host_id != Some(player_id) {
+        if self.host_id != Some(player_id) {
             return Err(NetworkError::generic(
                 "Only host can start the game".to_string(),
             ));
         }
 
         // Check if all players are ready
-        let players = self.players.read().await;
-        let all_ready = players.values().all(|p| p.ready);
+        let all_ready = self.players.values().all(|p| p.ready);
 
         if !all_ready {
             return Err(NetworkError::generic(
@@ -448,17 +446,14 @@ impl Lobby {
             ));
         }
 
-        if players.len() < 2 {
+        if self.players.len() < 2 {
             return Err(NetworkError::generic(
                 "Need at least 2 players to start".to_string(),
             ));
         }
 
         // Change state to starting
-        {
-            let mut state = self.state.write().await;
-            *state = LobbyState::Starting;
-        }
+        self.set_state(LobbyState::Starting);
 
         // Broadcast game starting
         let _ = self
@@ -466,18 +461,15 @@ impl Lobby {
             .send(LobbyEvent::StateChanged(LobbyState::Starting));
         let _ = self.event_tx.send(LobbyEvent::GameStarting);
 
-        info!("Game starting with {} players", players.len());
+        info!("Game starting with {} players", self.players.len());
 
         // Transition to in-game after a delay (simulating loading)
-        let state = self.state.clone();
+        let shared = self.shared.clone();
         let event_tx = self.event_tx.clone();
         tokio::spawn(async move {
             tokio::time::sleep(Duration::from_secs(3)).await;
 
-            {
-                let mut state_lock = state.write().await;
-                *state_lock = LobbyState::InGame;
-            }
+            shared.lock().expect("lobby shared state poisoned").state = LobbyState::InGame;
 
             let _ = event_tx.send(LobbyEvent::StateChanged(LobbyState::InGame));
         });
@@ -486,18 +478,14 @@ impl Lobby {
     }
 
     /// Send chat message
-    pub async fn send_chat(&self, player_id: Uuid, message: String) -> NetworkResult<()> {
+    pub async fn send_chat(&mut self, player_id: Uuid, message: String) -> NetworkResult<()> {
         // Verify player is in lobby
-        let players = self.players.read().await;
-        if !players.contains_key(&player_id) {
+        if !self.players.contains_key(&player_id) {
             return Err(NetworkError::generic("Player not in lobby".to_string()));
         }
 
         // Update activity
-        {
-            let mut last_activity = self.last_activity.write().await;
-            *last_activity = SystemTime::now();
-        }
+        self.touch_activity();
 
         // Broadcast chat message
         let _ = self
@@ -514,11 +502,11 @@ impl Lobby {
 
     /// Get lobby information
     pub async fn get_info(&self) -> LobbyInfo {
-        let state = *self.state.read().await;
-        let players: Vec<LobbyPlayer> = self.players.read().await.values().cloned().collect();
+        let state = self.state();
+        let players: Vec<LobbyPlayer> = self.players.values().cloned().collect();
         let player_count = players.len() as u8;
-        let config = self.config.read().await.clone();
-        let host_id = *self.host_id.read().await;
+        let config = self.config.clone();
+        let host_id = self.host_id;
 
         LobbyInfo {
             id: self.id,
@@ -555,10 +543,7 @@ impl Lobby {
         }
 
         // Close lobby
-        {
-            let mut state = self.state.write().await;
-            *state = LobbyState::Closed;
-        }
+        self.set_state(LobbyState::Closed);
 
         // Broadcast closure
         let _ = self
@@ -568,8 +553,26 @@ impl Lobby {
         Ok(())
     }
 
+    /// Read the current lobby state (shared with the background tasks).
+    fn state(&self) -> LobbyState {
+        self.shared.lock().expect("lobby shared state poisoned").state
+    }
+
+    /// Set the current lobby state (shared with the background tasks).
+    fn set_state(&mut self, state: LobbyState) {
+        self.shared.lock().expect("lobby shared state poisoned").state = state;
+    }
+
+    /// Stamp the lobby as recently active (shared with the background tasks).
+    fn touch_activity(&mut self) {
+        self.shared
+            .lock()
+            .expect("lobby shared state poisoned")
+            .last_activity = SystemTime::now();
+    }
+
     /// Find next available position in lobby
-    fn find_next_position(&self, players: &HashMap<Uuid, LobbyPlayer>) -> NetworkResult<u8> {
+    fn find_next_position(players: &HashMap<Uuid, LobbyPlayer>) -> NetworkResult<u8> {
         for position in 0..8 {
             // Max 8 players
             if !players.values().any(|p| p.position == position) {

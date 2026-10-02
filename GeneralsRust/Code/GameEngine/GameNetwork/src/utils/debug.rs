@@ -11,9 +11,8 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt;
-use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
-use tokio::sync::{mpsc, RwLock};
+use tokio::sync::mpsc;
 use uuid::Uuid;
 
 use crate::diagnostics::{AlertSeverity, DiagnosticAlert, HealthStatus};
@@ -71,27 +70,31 @@ pub enum DebugLevel {
 }
 
 /// Ultra-modern debugging toolkit
+///
+/// All captured state is owned by the debugger itself: nothing here is cloned
+/// into a spawned task, so every collection is a plain field mutated through
+/// `&mut self` accessors.
 pub struct NetworkDebugger {
     config: DebugConfig,
     start_time: Instant,
 
     // Packet capture system
-    packet_captures: Arc<RwLock<Vec<PacketCapture>>>,
+    packet_captures: Vec<PacketCapture>,
 
     // Connection state tracking
-    connection_states: Arc<RwLock<HashMap<String, ConnectionDebugInfo>>>,
+    connection_states: HashMap<String, ConnectionDebugInfo>,
 
     // Performance profiler
-    profiler: Arc<RwLock<PerformanceProfiler>>,
+    profiler: PerformanceProfiler,
 
     // Debug console
     console_channel: Option<mpsc::UnboundedSender<DebugCommand>>,
 
     // Memory tracker
-    memory_tracker: Arc<RwLock<MemoryTracker>>,
+    memory_tracker: MemoryTracker,
 
     // Event log
-    debug_events: Arc<RwLock<Vec<DebugEvent>>>,
+    debug_events: Vec<DebugEvent>,
 }
 
 /// Captured packet information
@@ -289,15 +292,15 @@ impl NetworkDebugger {
         Self {
             config: config.clone(),
             start_time: Instant::now(),
-            packet_captures: Arc::new(RwLock::new(Vec::new())),
-            connection_states: Arc::new(RwLock::new(HashMap::new())),
-            profiler: Arc::new(RwLock::new(PerformanceProfiler {
+            packet_captures: Vec::new(),
+            connection_states: HashMap::new(),
+            profiler: PerformanceProfiler {
                 profiles: HashMap::new(),
                 active_spans: HashMap::new(),
-            })),
+            },
             console_channel: None,
-            memory_tracker: Arc::new(RwLock::new(MemoryTracker::default())),
-            debug_events: Arc::new(RwLock::new(Vec::new())),
+            memory_tracker: MemoryTracker::default(),
+            debug_events: Vec::new(),
         }
     }
 
@@ -327,7 +330,7 @@ impl NetworkDebugger {
     /// Capture a network packet for inspection
     #[instrument(skip(self, payload), fields(direction = ?direction, size = size, packet_type = packet_type))]
     pub async fn capture_packet(
-        &self,
+        &mut self,
         direction: PacketDirection,
         size: usize,
         packet_type: String,
@@ -356,14 +359,11 @@ impl NetworkDebugger {
             metadata: HashMap::new(),
         };
 
-        {
-            let mut captures = self.packet_captures.write().await;
-            captures.push(capture);
+        self.packet_captures.push(capture);
 
-            // Rotate old captures if we exceed the limit
-            if captures.len() > self.config.max_captured_packets {
-                captures.remove(0);
-            }
+        // Rotate old captures if we exceed the limit
+        if self.packet_captures.len() > self.config.max_captured_packets {
+            self.packet_captures.remove(0);
         }
 
         // Log packet capture event
@@ -393,7 +393,7 @@ impl NetworkDebugger {
     /// Update connection state for debugging
     #[instrument(skip(self), fields(connection_id = connection_id, state = ?state))]
     pub async fn update_connection_state(
-        &self,
+        &mut self,
         connection_id: String,
         remote_address: String,
         state: ConnectionDebugState,
@@ -408,30 +408,29 @@ impl NetworkDebugger {
             .as_secs();
 
         {
-            let mut connections = self.connection_states.write().await;
-            let connection_info =
-                connections
-                    .entry(connection_id.clone())
-                    .or_insert_with(|| ConnectionDebugInfo {
-                        connection_id: connection_id.clone(),
-                        remote_address: remote_address.clone(),
-                        state: ConnectionDebugState::Connecting,
-                        established_at: now,
-                        last_activity: now,
-                        bytes_sent: 0,
-                        bytes_received: 0,
-                        packets_sent: 0,
-                        packets_received: 0,
-                        round_trip_time: None,
-                        quality_metrics: ConnectionQualityMetrics {
-                            latency_ms: 0.0,
-                            jitter_ms: 0.0,
-                            packet_loss_rate: 0.0,
-                            throughput_mbps: 0.0,
-                            stability_score: 100.0,
-                        },
-                        error_history: Vec::new(),
-                    });
+            let connection_info = self
+                .connection_states
+                .entry(connection_id.clone())
+                .or_insert_with(|| ConnectionDebugInfo {
+                    connection_id: connection_id.clone(),
+                    remote_address: remote_address.clone(),
+                    state: ConnectionDebugState::Connecting,
+                    established_at: now,
+                    last_activity: now,
+                    bytes_sent: 0,
+                    bytes_received: 0,
+                    packets_sent: 0,
+                    packets_received: 0,
+                    round_trip_time: None,
+                    quality_metrics: ConnectionQualityMetrics {
+                        latency_ms: 0.0,
+                        jitter_ms: 0.0,
+                        packet_loss_rate: 0.0,
+                        throughput_mbps: 0.0,
+                        stability_score: 100.0,
+                    },
+                    error_history: Vec::new(),
+                });
 
             connection_info.state = state;
             connection_info.last_activity = now;
@@ -460,7 +459,7 @@ impl NetworkDebugger {
 
     /// Start profiling a network operation
     #[instrument(skip(self), fields(operation = operation))]
-    pub async fn start_profile(&self, operation: String) -> NetworkResult<String> {
+    pub async fn start_profile(&mut self, operation: String) -> NetworkResult<String> {
         if !self.config.enable_profiling {
             return Ok(String::new());
         }
@@ -472,10 +471,7 @@ impl NetworkDebugger {
             metadata: HashMap::new(),
         };
 
-        {
-            let mut profiler = self.profiler.write().await;
-            profiler.active_spans.insert(span_id.clone(), span);
-        }
+        self.profiler.active_spans.insert(span_id.clone(), span);
 
         if self.config.verbosity_level >= DebugLevel::Trace {
             debug!("⏱️  Started profiling: {} ({})", operation, span_id);
@@ -486,18 +482,22 @@ impl NetworkDebugger {
 
     /// End profiling and record performance data
     #[instrument(skip(self), fields(span_id = span_id, success = success))]
-    pub async fn end_profile(&self, span_id: String, success: bool) -> NetworkResult<()> {
+    pub async fn end_profile(&mut self, span_id: String, success: bool) -> NetworkResult<()> {
         if !self.config.enable_profiling || span_id.is_empty() {
             return Ok(());
         }
 
         let end_time = Instant::now();
 
-        let mut profiler = self.profiler.write().await;
-        if let Some(span) = profiler.active_spans.remove(&span_id) {
-            let duration = end_time.duration_since(span.start_time);
+        let Some(span) = self.profiler.active_spans.remove(&span_id) else {
+            return Ok(());
+        };
 
-            let profile = profiler
+        let duration = end_time.duration_since(span.start_time);
+
+        {
+            let profile = self
+                .profiler
                 .profiles
                 .entry(span.operation.clone())
                 .or_insert_with(|| PerformanceProfile {
@@ -524,44 +524,44 @@ impl NetworkDebugger {
             if !success {
                 profile.error_count += 1;
             }
+        }
 
-            if self.config.verbosity_level >= DebugLevel::Trace {
-                debug!(
-                    "⏱️  Completed profiling: {} in {:.2}ms (success: {})",
+        if self.config.verbosity_level >= DebugLevel::Trace {
+            debug!(
+                "⏱️  Completed profiling: {} in {:.2}ms (success: {})",
+                span.operation,
+                duration.as_secs_f64() * 1000.0,
+                success
+            );
+        }
+
+        // Check for performance anomalies
+        if duration > Duration::from_millis(500) {
+            let mut metadata = HashMap::new();
+            metadata.insert("operation".to_string(), span.operation.clone());
+            metadata.insert(
+                "duration_ms".to_string(),
+                (duration.as_secs_f64() * 1000.0).to_string(),
+            );
+
+            self.log_event(
+                DebugEventType::PerformanceAnomaly,
+                format!(
+                    "Slow operation detected: {} took {:.2}ms",
                     span.operation,
-                    duration.as_secs_f64() * 1000.0,
-                    success
-                );
-            }
-
-            // Check for performance anomalies
-            if duration > Duration::from_millis(500) {
-                let mut metadata = HashMap::new();
-                metadata.insert("operation".to_string(), span.operation.clone());
-                metadata.insert(
-                    "duration_ms".to_string(),
-                    (duration.as_secs_f64() * 1000.0).to_string(),
-                );
-
-                self.log_event(
-                    DebugEventType::PerformanceAnomaly,
-                    format!(
-                        "Slow operation detected: {} took {:.2}ms",
-                        span.operation,
-                        duration.as_secs_f64() * 1000.0
-                    ),
-                    metadata,
-                    DebugEventSeverity::Warning,
-                )
-                .await;
-            }
+                    duration.as_secs_f64() * 1000.0
+                ),
+                metadata,
+                DebugEventSeverity::Warning,
+            )
+            .await;
         }
 
         Ok(())
     }
 
     /// Record memory allocation for leak detection
-    pub async fn record_allocation(&self, size: u64, location: String) -> NetworkResult<String> {
+    pub async fn record_allocation(&mut self, size: u64, location: String) -> NetworkResult<String> {
         if !self.config.enable_memory_debugging {
             return Ok(String::new());
         }
@@ -574,29 +574,25 @@ impl NetworkDebugger {
             still_alive: true,
         };
 
-        {
-            let mut tracker = self.memory_tracker.write().await;
-            tracker
-                .allocations
-                .insert(allocation_id.clone(), allocation);
-            tracker.total_allocated += size;
-            tracker.allocation_count += 1;
+        let tracker = &mut self.memory_tracker;
+        tracker.allocations.insert(allocation_id.clone(), allocation);
+        tracker.total_allocated += size;
+        tracker.allocation_count += 1;
 
-            if tracker.total_allocated > tracker.peak_usage {
-                tracker.peak_usage = tracker.total_allocated;
-            }
+        if tracker.total_allocated > tracker.peak_usage {
+            tracker.peak_usage = tracker.total_allocated;
         }
 
         Ok(allocation_id)
     }
 
     /// Record memory deallocation
-    pub async fn record_deallocation(&self, allocation_id: String) -> NetworkResult<()> {
+    pub async fn record_deallocation(&mut self, allocation_id: String) -> NetworkResult<()> {
         if !self.config.enable_memory_debugging || allocation_id.is_empty() {
             return Ok(());
         }
 
-        let mut tracker = self.memory_tracker.write().await;
+        let tracker = &mut self.memory_tracker;
         if let Some(allocation) = tracker.allocations.get_mut(&allocation_id) {
             allocation.still_alive = false;
             tracker.total_allocated = tracker.total_allocated.saturating_sub(allocation.size);
@@ -609,12 +605,12 @@ impl NetworkDebugger {
     #[instrument(skip(self))]
     pub async fn generate_debug_report(&self) -> NetworkResult<String> {
         let uptime = self.start_time.elapsed();
-        let packet_count = self.packet_captures.read().await.len();
-        let connection_count = self.connection_states.read().await.len();
-        let event_count = self.debug_events.read().await.len();
+        let packet_count = self.packet_captures.len();
+        let connection_count = self.connection_states.len();
+        let event_count = self.debug_events.len();
 
         let memory_stats = {
-            let tracker = self.memory_tracker.read().await;
+            let tracker = &self.memory_tracker;
             format!(
                 "Current: {:.2} MB, Peak: {:.2} MB, Allocations: {}",
                 tracker.total_allocated as f64 / 1_048_576.0,
@@ -624,8 +620,7 @@ impl NetworkDebugger {
         };
 
         let top_operations = {
-            let profiler = self.profiler.read().await;
-            let mut operations: Vec<_> = profiler.profiles.values().collect();
+            let mut operations: Vec<_> = self.profiler.profiles.values().collect();
             operations.sort_by(|a, b| b.total_calls.cmp(&a.total_calls));
             operations
                 .iter()
@@ -753,7 +748,7 @@ impl NetworkDebugger {
     }
 
     async fn log_event(
-        &self,
+        &mut self,
         event_type: DebugEventType,
         description: String,
         metadata: HashMap<String, String>,
@@ -771,12 +766,11 @@ impl NetworkDebugger {
             severity,
         };
 
-        let mut events = self.debug_events.write().await;
-        events.push(event);
+        self.debug_events.push(event);
 
         // Keep only last 10000 events to prevent memory growth
-        if events.len() > 10000 {
-            events.remove(0);
+        if self.debug_events.len() > 10000 {
+            self.debug_events.remove(0);
         }
     }
 
@@ -835,7 +829,7 @@ mod tests {
             enable_packet_capture: true,
             ..Default::default()
         };
-        let debugger = NetworkDebugger::new(config);
+        let mut debugger = NetworkDebugger::new(config);
 
         let headers = HashMap::new();
         let payload = b"test payload";
@@ -853,10 +847,12 @@ mod tests {
             .await
             .unwrap();
 
-        let captures = debugger.packet_captures.read().await;
-        assert_eq!(captures.len(), 1);
-        assert_eq!(captures[0].size, payload.len());
-        assert!(matches!(captures[0].direction, PacketDirection::Outgoing));
+        assert_eq!(debugger.packet_captures.len(), 1);
+        assert_eq!(debugger.packet_captures[0].size, payload.len());
+        assert!(matches!(
+            debugger.packet_captures[0].direction,
+            PacketDirection::Outgoing
+        ));
     }
 
     #[tokio::test]
@@ -865,7 +861,7 @@ mod tests {
             enable_connection_tracking: true,
             ..Default::default()
         };
-        let debugger = NetworkDebugger::new(config);
+        let mut debugger = NetworkDebugger::new(config);
 
         debugger
             .update_connection_state(
@@ -876,10 +872,9 @@ mod tests {
             .await
             .unwrap();
 
-        let connections = debugger.connection_states.read().await;
-        assert!(connections.contains_key("conn-1"));
+        assert!(debugger.connection_states.contains_key("conn-1"));
         assert!(matches!(
-            connections["conn-1"].state,
+            debugger.connection_states["conn-1"].state,
             ConnectionDebugState::Connected
         ));
     }
@@ -890,7 +885,7 @@ mod tests {
             enable_profiling: true,
             ..Default::default()
         };
-        let debugger = NetworkDebugger::new(config);
+        let mut debugger = NetworkDebugger::new(config);
 
         let span_id = debugger
             .start_profile("test_operation".to_string())
@@ -902,10 +897,9 @@ mod tests {
 
         debugger.end_profile(span_id, true).await.unwrap();
 
-        let profiler = debugger.profiler.read().await;
-        assert!(profiler.profiles.contains_key("test_operation"));
+        assert!(debugger.profiler.profiles.contains_key("test_operation"));
 
-        let profile = &profiler.profiles["test_operation"];
+        let profile = &debugger.profiler.profiles["test_operation"];
         assert_eq!(profile.total_calls, 1);
         assert!(profile.total_duration >= Duration::from_millis(10));
     }
@@ -916,7 +910,7 @@ mod tests {
             enable_memory_debugging: true,
             ..Default::default()
         };
-        let debugger = NetworkDebugger::new(config);
+        let mut debugger = NetworkDebugger::new(config);
 
         let allocation_id = debugger
             .record_allocation(1024, "test_location".to_string())
@@ -924,17 +918,14 @@ mod tests {
             .unwrap();
 
         {
-            let tracker = debugger.memory_tracker.read().await;
+            let tracker = &debugger.memory_tracker;
             assert_eq!(tracker.total_allocated, 1024);
             assert_eq!(tracker.allocation_count, 1);
         }
 
         debugger.record_deallocation(allocation_id).await.unwrap();
 
-        {
-            let tracker = debugger.memory_tracker.read().await;
-            assert_eq!(tracker.total_allocated, 0);
-        }
+        assert_eq!(debugger.memory_tracker.total_allocated, 0);
     }
 
     #[tokio::test]

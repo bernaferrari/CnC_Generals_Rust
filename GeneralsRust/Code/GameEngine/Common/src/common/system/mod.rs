@@ -73,7 +73,7 @@ pub use radar::{
 pub use registry::{
     get_registry_game_name, get_registry_language, get_registry_map_pack_version,
     get_registry_user_data, get_registry_version, get_string_from_registry,
-    get_unsigned_int_from_registry, zh_registry,
+    get_unsigned_int_from_registry,
 };
 pub use scene_submission::{SceneLineDesc, SceneLineId, SceneSubmission};
 pub use snapshot::Snapshotable;

@@ -10,11 +10,11 @@ use rand::Rng;
 use rand::rand_core::UnwrapErr;
 use rand::rngs::SysRng;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Duration;
 use tokio::net::{UdpSocket, lookup_host};
-use tokio::sync::{Mutex as AsyncMutex, RwLock, mpsc, watch};
+use tokio::sync::{mpsc, watch};
 use tokio::task::JoinHandle;
 use tokio::time::{sleep, timeout};
 use tracing::{debug, info, warn};
@@ -77,13 +77,26 @@ impl NatBinding {
     }
 }
 
+/// Shared mutable state of a [`NatService`], common to all clones.
+///
+/// THREAD: `NatService` is `Clone` and clones are handed to the background
+/// refresh task spawned by `start_auto_refresh`, so the cached STUN binding
+/// and the refresh task handle are genuinely shared across tasks. One mutex
+/// bundles them; every critical section is short and never spans an `.await`.
+#[derive(Debug)]
+struct NatServiceState {
+    /// Last binding discovered via STUN, if any.
+    external_addr: Option<NatBinding>,
+    /// Background refresh task, if running.
+    refresh_task: Option<JoinHandle<()>>,
+}
+
 /// Handles NAT traversal, caching, background refresh and notifications.
 #[derive(Debug, Clone)]
 pub struct NatService {
     config: NatConfig,
-    external_addr: Arc<RwLock<Option<NatBinding>>>,
+    state: Arc<Mutex<NatServiceState>>,
     notify: watch::Sender<Option<NatBinding>>,
-    refresh_task: Arc<AsyncMutex<Option<JoinHandle<()>>>>,
     consecutive_failures: Arc<AtomicU32>,
 }
 
@@ -92,9 +105,11 @@ impl NatService {
         let (notify, _rx) = watch::channel(None);
         Self {
             config,
-            external_addr: Arc::new(RwLock::new(None)),
+            state: Arc::new(Mutex::new(NatServiceState {
+                external_addr: None,
+                refresh_task: None,
+            })),
             notify,
-            refresh_task: Arc::new(AsyncMutex::new(None)),
             consecutive_failures: Arc::new(AtomicU32::new(0)),
         }
     }
@@ -106,7 +121,7 @@ impl NatService {
 
     /// Returns the cached NAT binding with metadata, if present.
     pub async fn current_binding(&self) -> Option<NatBinding> {
-        self.external_addr.read().await.clone()
+        self.state.lock().external_addr.clone()
     }
 
     /// Subscribe to binding updates. The returned receiver immediately yields
@@ -124,8 +139,8 @@ impl NatService {
     /// Start automatic refresh in the background. Multiple invocations are
     /// ignored once a task is active.
     pub async fn start_auto_refresh(&self, transport: Arc<Transport>) {
-        let mut task_guard = self.refresh_task.lock().await;
-        if task_guard.is_some() {
+        let mut state = self.state.lock();
+        if state.refresh_task.is_some() {
             return;
         }
 
@@ -172,13 +187,12 @@ impl NatService {
             }
         });
 
-        *task_guard = Some(handle);
+        state.refresh_task = Some(handle);
     }
 
     /// Stop the background refresh task if it is running.
     pub async fn stop_auto_refresh(&self) {
-        let mut guard = self.refresh_task.lock().await;
-        if let Some(handle) = guard.take() {
+        if let Some(handle) = self.state.lock().refresh_task.take() {
             handle.abort();
         }
     }
@@ -234,8 +248,8 @@ impl NatService {
         binding: Option<NatBinding>,
         transport: &Transport,
     ) -> NetworkResult<Option<SocketAddr>> {
-        let mut guard = self.external_addr.write().await;
-        let changed = match (&*guard, &binding) {
+        let mut guard = self.state.lock();
+        let changed = match (&guard.external_addr, &binding) {
             (Some(current), Some(new)) => current.address != new.address,
             (None, Some(_)) | (Some(_), None) => true,
             (None, None) => false,
@@ -257,7 +271,7 @@ impl NatService {
             self.consecutive_failures.fetch_add(1, Ordering::Relaxed);
         }
 
-        *guard = binding.clone();
+        guard.external_addr = binding.clone();
         drop(guard);
 
         if changed {

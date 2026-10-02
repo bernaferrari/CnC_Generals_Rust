@@ -6,8 +6,7 @@
 //! up their class information without relying on `static mut`.
 
 use crate::classid::{ClassID, RenderObjClassId};
-use once_cell::sync::Lazy;
-use std::{any::TypeId, collections::HashMap, fmt, sync::RwLock};
+use std::{any::TypeId, cell::RefCell, collections::HashMap, fmt};
 
 #[derive(Clone, Copy, Debug)]
 struct ClassRecord {
@@ -16,10 +15,11 @@ struct ClassRecord {
     type_id: Option<TypeId>,
 }
 
-static REGISTRY_BY_ID: Lazy<RwLock<HashMap<u32, ClassRecord>>> =
-    Lazy::new(|| RwLock::new(HashMap::new()));
-static REGISTRY_BY_TYPE: Lazy<RwLock<HashMap<TypeId, u32>>> =
-    Lazy::new(|| RwLock::new(HashMap::new()));
+thread_local! {
+    /// C++ kept the class registry in plain globals driven from the game thread.
+    static REGISTRY_BY_ID: RefCell<HashMap<u32, ClassRecord>> = RefCell::new(HashMap::new());
+    static REGISTRY_BY_TYPE: RefCell<HashMap<TypeId, u32>> = RefCell::new(HashMap::new());
+}
 
 const CLASSID_NAME_TABLE: &[(u32, &str)] = &[
     (ClassID::IndirectTextureClass as u32, "IndirectTextureClass"),
@@ -160,55 +160,58 @@ pub fn register_class<T: 'static>(id: u32, name: &'static str) -> Result<(), Cla
     register_class_name(id, name)?;
 
     let type_id = TypeId::of::<T>();
-    let mut by_type = REGISTRY_BY_TYPE
-        .write()
-        .expect("class registry poisoned (type)");
-    if let Some(existing_id) = by_type.get(&type_id) {
-        let existing = *REGISTRY_BY_ID
-            .read()
-            .expect("class registry poisoned (id)")
-            .get(existing_id)
-            .expect("type map and id map out of sync");
+    let duplicated = REGISTRY_BY_TYPE.with(|by_type| {
+        let mut by_type = by_type.borrow_mut();
+        if let Some(existing_id) = by_type.get(&type_id) {
+            let existing = REGISTRY_BY_ID.with_borrow(|by_id| {
+                let record = by_id
+                    .get(existing_id)
+                    .expect("type map and id map out of sync");
+                (record.id, record.name)
+            });
+            return Some(existing);
+        }
+        by_type.insert(type_id, id);
+        None
+    });
+
+    if let Some((existing_id, existing_name)) = duplicated {
         return Err(ClassRegistryError::TypeAlreadyRegistered {
-            id: existing.id,
-            name: existing.name,
+            id: existing_id,
+            name: existing_name,
         });
     }
-    by_type.insert(type_id, id);
 
-    if let Some(record) = REGISTRY_BY_ID
-        .write()
-        .expect("class registry poisoned (id)")
-        .get_mut(&id)
-    {
-        record.type_id = Some(type_id);
-    }
+    REGISTRY_BY_ID.with_borrow_mut(|by_id| {
+        if let Some(record) = by_id.get_mut(&id) {
+            record.type_id = Some(type_id);
+        }
+    });
     Ok(())
 }
 
 /// Registers a class identifier without binding it to a Rust type.
 pub fn register_class_name(id: u32, name: &'static str) -> Result<(), ClassRegistryError> {
-    let mut by_id = REGISTRY_BY_ID
-        .write()
-        .expect("class registry poisoned (id)");
-    if let Some(existing) = by_id.get(&id) {
-        if existing.name == name {
-            return Ok(());
+    REGISTRY_BY_ID.with_borrow_mut(|by_id| {
+        if let Some(existing) = by_id.get(&id) {
+            if existing.name == name {
+                return Ok(());
+            }
+            return Err(ClassRegistryError::IdAlreadyRegistered {
+                id,
+                existing_name: existing.name,
+            });
         }
-        return Err(ClassRegistryError::IdAlreadyRegistered {
+        by_id.insert(
             id,
-            existing_name: existing.name,
-        });
-    }
-    by_id.insert(
-        id,
-        ClassRecord {
-            id,
-            name,
-            type_id: None,
-        },
-    );
-    Ok(())
+            ClassRecord {
+                id,
+                name,
+                type_id: None,
+            },
+        );
+        Ok(())
+    })
 }
 
 /// Registers all builtin WW3D class names so lookups succeed even before Rust
@@ -224,62 +227,40 @@ pub fn register_builtin_class_names() {
 
 /// Looks up the human-readable name for a class identifier.
 pub fn class_name_from_id(id: u32) -> Option<&'static str> {
-    REGISTRY_BY_ID
-        .read()
-        .ok()
-        .and_then(|map| map.get(&id).map(|record| record.name))
+    REGISTRY_BY_ID.with_borrow(|map| map.get(&id).map(|record| record.name))
 }
 
 /// Returns the class identifier that was registered for the supplied type.
 pub fn class_id_for_type<T: 'static>() -> Option<u32> {
     let type_id = TypeId::of::<T>();
-    REGISTRY_BY_TYPE
-        .read()
-        .ok()
-        .and_then(|map| map.get(&type_id).copied())
+    REGISTRY_BY_TYPE.with_borrow(|map| map.get(&type_id).copied())
 }
 
 /// Returns the `TypeId` associated with a class identifier, if one is known.
 pub fn type_id_from_class(id: u32) -> Option<TypeId> {
-    REGISTRY_BY_ID
-        .read()
-        .ok()
-        .and_then(|map| map.get(&id).and_then(|record| record.type_id))
+    REGISTRY_BY_ID.with_borrow(|map| map.get(&id).and_then(|record| record.type_id))
 }
 
 /// Convenience helper to check whether a class identifier has been registered.
 pub fn is_class_registered(id: u32) -> bool {
-    REGISTRY_BY_ID.read().is_ok_and(|map| map.contains_key(&id))
+    REGISTRY_BY_ID.with_borrow(|map| map.contains_key(&id))
 }
 
 #[cfg(test)]
 pub(crate) fn clear_registry_for_test() {
-    REGISTRY_BY_ID
-        .write()
-        .expect("class registry poisoned (id)")
-        .clear();
-    REGISTRY_BY_TYPE
-        .write()
-        .expect("class registry poisoned (type)")
-        .clear();
+    REGISTRY_BY_ID.with_borrow_mut(|map| map.clear());
+    REGISTRY_BY_TYPE.with_borrow_mut(|map| map.clear());
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use once_cell::sync::Lazy;
-    use std::sync::Mutex;
-
-    // Tests mutate the global registry; serialize them so concurrent execution
-    // does not wipe entries created by a sibling test.
-    static TEST_GUARD: Lazy<Mutex<()>> = Lazy::new(|| Mutex::new(()));
 
     struct Dummy;
     struct Other;
 
     #[test]
     fn registers_and_queries_class() {
-        let _guard = TEST_GUARD.lock().expect("test guard poisoned");
         clear_registry_for_test();
         register_class::<Dummy>(0x1234, "DummyClass").expect("registration succeeds");
         assert_eq!(class_name_from_id(0x1234), Some("DummyClass"));
@@ -289,7 +270,6 @@ mod tests {
 
     #[test]
     fn duplicate_id_is_rejected() {
-        let _guard = TEST_GUARD.lock().expect("test guard poisoned");
         clear_registry_for_test();
         register_class::<Dummy>(0x2000, "DummyClass").expect("first registration");
         let err = register_class::<Other>(0x2000, "OtherClass").unwrap_err();
@@ -304,7 +284,6 @@ mod tests {
 
     #[test]
     fn duplicate_type_is_rejected() {
-        let _guard = TEST_GUARD.lock().expect("test guard poisoned");
         clear_registry_for_test();
         register_class::<Dummy>(0x2000, "DummyClass").expect("first registration");
         let err = register_class::<Dummy>(0x2001, "DummyAgain").unwrap_err();
@@ -319,7 +298,6 @@ mod tests {
 
     #[test]
     fn builtin_names_register_without_error() {
-        let _guard = TEST_GUARD.lock().expect("test guard poisoned");
         clear_registry_for_test();
         register_builtin_class_names();
         assert_eq!(

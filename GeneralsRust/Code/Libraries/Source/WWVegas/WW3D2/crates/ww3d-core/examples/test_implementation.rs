@@ -80,13 +80,14 @@ fn main() -> W3DResult<()> {
 
     // Test 7: Asset manager
     println!("\n7. Testing Asset Manager...");
-    let asset_mgr = global_asset_manager();
     let test_mesh = create_quad_mesh("asset_quad".to_string(), 1.0);
-    let handle = asset_mgr.register_mesh("asset_quad".to_string(), test_mesh);
+    let (handle, stats) = with_global_asset_manager(|asset_mgr| {
+        let handle = asset_mgr.register_mesh("asset_quad".to_string(), test_mesh);
+        let stats = asset_mgr.cache_stats();
+        (handle, stats)
+    });
     println!("   Registered mesh asset: {}", handle.name());
     println!("   Asset loaded: {}", handle.is_loaded());
-
-    let stats = asset_mgr.cache_stats();
     println!("   Cache stats: {} total assets", stats.total_count());
 
     // Test 8: Render object traits

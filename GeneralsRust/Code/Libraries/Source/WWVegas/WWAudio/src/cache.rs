@@ -1,7 +1,6 @@
 //! Audio caching system for efficient memory management.
 
 use crate::{AudioSource, Priority, error::Result};
-use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -35,10 +34,13 @@ pub struct CacheItem {
 }
 
 /// Audio cache manager
+///
+/// Plain owned state: the cache is only touched from the load path on the
+/// thread that owns the AudioSystem, so no shared lock is required.
 pub struct AudioCache {
     config: CacheConfig,
-    items: Arc<RwLock<HashMap<String, CacheItem>>>,
-    stats: Arc<RwLock<CacheStats>>,
+    items: HashMap<String, CacheItem>,
+    stats: CacheStats,
 }
 
 impl AudioCache {
@@ -46,51 +48,47 @@ impl AudioCache {
     pub fn new(config: CacheConfig) -> Self {
         Self {
             config,
-            items: Arc::new(RwLock::new(HashMap::new())),
-            stats: Arc::new(RwLock::new(CacheStats {
+            items: HashMap::new(),
+            stats: CacheStats {
                 total_size: 0,
                 used_size: 0,
                 item_count: 0,
                 hit_rate: 0.0,
                 miss_count: 0,
                 hit_count: 0,
-            })),
+            },
         }
     }
 
     /// Get cached item
-    pub async fn get(&self, key: &str) -> Result<Option<Arc<AudioSource>>> {
-        let mut items = self.items.write();
-
-        if let Some(item) = items.get_mut(key) {
+    pub fn get(&mut self, key: &str) -> Result<Option<Arc<AudioSource>>> {
+        if let Some(item) = self.items.get_mut(key) {
             item.access_count = item.access_count.saturating_add(1);
             item.last_accessed = std::time::Instant::now();
             let data = std::sync::Arc::clone(&item.source);
-            drop(items);
 
-            let mut stats = self.stats.write();
-            stats.hit_count = stats.hit_count.saturating_add(1);
-            stats.hit_rate = compute_hit_rate(stats.hit_count, stats.miss_count);
+            self.stats.hit_count = self.stats.hit_count.saturating_add(1);
+            self.stats.hit_rate =
+                compute_hit_rate(self.stats.hit_count, self.stats.miss_count);
             Ok(Some(data))
         } else {
-            drop(items);
-            let mut stats = self.stats.write();
-            stats.miss_count = stats.miss_count.saturating_add(1);
-            stats.hit_rate = compute_hit_rate(stats.hit_count, stats.miss_count);
+            self.stats.miss_count = self.stats.miss_count.saturating_add(1);
+            self.stats.hit_rate =
+                compute_hit_rate(self.stats.hit_count, self.stats.miss_count);
             Ok(None)
         }
     }
 
     /// Store item in cache
-    pub async fn put(
-        &self,
+    pub fn put(
+        &mut self,
         key: String,
         source: Arc<AudioSource>,
         priority: Priority,
     ) -> Result<()> {
         let data_len = source.metadata().file_size;
-        let mut items = self.items.write();
-        let mut stats = self.stats.write();
+        let items = &mut self.items;
+        let stats = &mut self.stats;
 
         if let Some(existing) = items.get(&key) {
             stats.used_size = stats
@@ -138,9 +136,9 @@ impl AudioCache {
     }
 
     /// Remove item from cache
-    pub async fn remove(&self, key: &str) -> Result<bool> {
-        let mut items = self.items.write();
-        let mut stats = self.stats.write();
+    pub fn remove(&mut self, key: &str) -> Result<bool> {
+        let items = &mut self.items;
+        let stats = &mut self.stats;
 
         if let Some(entry) = items.remove(key) {
             stats.used_size = stats
@@ -156,18 +154,17 @@ impl AudioCache {
 
     /// Get cache statistics
     pub fn stats(&self) -> CacheStats {
-        self.stats.read().clone()
+        self.stats.clone()
     }
 
     /// Clear all cached items
-    pub async fn clear(&self) -> Result<()> {
-        let mut items = self.items.write();
-        items.clear();
+    pub fn clear(&mut self) -> Result<()> {
+        self.items.clear();
 
-        let mut stats = self.stats.write();
-        stats.used_size = 0;
-        stats.item_count = 0;
-        stats.hit_rate = compute_hit_rate(stats.hit_count, stats.miss_count);
+        self.stats.used_size = 0;
+        self.stats.item_count = 0;
+        self.stats.hit_rate =
+            compute_hit_rate(self.stats.hit_count, self.stats.miss_count);
         Ok(())
     }
 }

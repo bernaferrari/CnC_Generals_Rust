@@ -192,32 +192,31 @@ impl AutoDepositUpdate {
             Err(_) => return 0,
         };
 
-        let player = match obj_read.get_controlling_player() {
-            Some(p) => p,
-            None => return 0, // Matches C++ line 198
-        };
-
         // Loop through upgrade pairs. Matches C++ lines 201-215
-        let Ok(player_guard) = player.read() else {
-            return 0;
-        };
+        let Some(boost) = obj_read.with_controlling_player(|player_guard| {
+            let upgrade_center = get_upgrade_center();
+            let Ok(center_guard) = upgrade_center.read() else {
+                return 0;
+            };
 
-        let upgrade_center = get_upgrade_center();
-        let Ok(center_guard) = upgrade_center.read() else {
-            return 0;
-        };
-
-        // C++ caches the first findUpgrade in a function-local static, so later pairs
-        // never resolve their own template. Only the first pair can grant a boost.
-        if let Some(upgrade_pair) = self.module_data.upgrade_boost.first() {
-            if let Some(template) = center_guard.find_upgrade(upgrade_pair.upgrade_type.as_str()) {
-                if player_guard.has_upgrade_complete(&template) {
-                    return upgrade_pair.boost_amount;
+            // C++ caches the first findUpgrade in a function-local static, so later pairs
+            // never resolve their own template. Only the first pair can grant a boost.
+            if let Some(upgrade_pair) = self.module_data.upgrade_boost.first() {
+                if let Some(template) =
+                    center_guard.find_upgrade(upgrade_pair.upgrade_type.as_str())
+                {
+                    if player_guard.has_upgrade_complete(&template) {
+                        return upgrade_pair.boost_amount;
+                    }
                 }
             }
-        }
 
-        0 // Matches C++ line 217
+            0 // Matches C++ line 217
+        }) else {
+            return 0; // Matches C++ line 198 — no controlling player
+        };
+
+        boost
     }
 }
 
@@ -273,22 +272,20 @@ impl UpdateModuleInterface for AutoDepositUpdate {
 
             // Deposit actual money if configured. Matches C++ lines 145-149
             if self.module_data.is_actual_money {
-                if let Some(player) = obj_read.get_controlling_player() {
-                    if let Ok(mut player_guard) = player.write() {
-                        if money_amount > 0 {
-                            let _ = player_guard.get_money_mut().deposit(money_amount as u32);
-                        } else if money_amount < 0 {
-                            let _ = player_guard
-                                .get_money_mut()
-                                .withdraw((-money_amount) as u32);
-                        }
-                        if self.module_data.deposit_amount > 0 {
-                            player_guard
-                                .get_score_keeper_mut()
-                                .add_money_earned(self.module_data.deposit_amount as u32);
-                        }
+                obj_read.with_controlling_player_mut(|player_guard| {
+                    if money_amount > 0 {
+                        let _ = player_guard.get_money_mut().deposit(money_amount as u32);
+                    } else if money_amount < 0 {
+                        let _ = player_guard
+                            .get_money_mut()
+                            .withdraw((-money_amount) as u32);
                     }
-                }
+                    if self.module_data.deposit_amount > 0 {
+                        player_guard
+                            .get_score_keeper_mut()
+                            .add_money_earned(self.module_data.deposit_amount as u32);
+                    }
+                });
             }
 
             // Determine if we should display floating money text. Matches C++ lines 151-160
@@ -314,13 +311,11 @@ impl UpdateModuleInterface for AutoDepositUpdate {
                     pos.y += game_client_random_value_real(-depth, depth);
                 }
 
-                if let Some(player) = obj_read.get_controlling_player() {
-                    if let Ok(player_guard) = player.read() {
-                        let mut color = player_guard.get_player_color();
-                        color.a |= 230;
-                        let _ = TheInGameUI::add_floating_text(&text, &pos, color);
-                    }
-                }
+                obj_read.with_controlling_player(|player_guard| {
+                    let mut color = player_guard.get_player_color();
+                    color.a |= 230;
+                    let _ = TheInGameUI::add_floating_text(&text, &pos, color);
+                });
             }
         }
 

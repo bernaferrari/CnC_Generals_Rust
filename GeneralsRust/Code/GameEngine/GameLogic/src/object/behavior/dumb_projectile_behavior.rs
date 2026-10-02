@@ -888,13 +888,11 @@ impl DumbProjectileBehavior {
             let _ = fx.do_fx_obj_ids(other_id, None, None);
         }
         let _ = OBJECT_REGISTRY.with_object(self.object_id, |projectile_guard| {
-            if let Some(player_arc) = projectile_guard.get_controlling_player() {
-                if let Ok(mut player_guard) = player_arc.write() {
-                    player_guard
-                        .get_academy_stats_mut()
-                        .record_cleared_garrisoned_building();
-                }
-            }
+            projectile_guard.with_controlling_player_mut(|player_guard| {
+                player_guard
+                    .get_academy_stats_mut()
+                    .record_cleared_garrisoned_building();
+            })
         });
         let _ = TheGameLogic::destroy_object_by_id(self.owner_object_id());
         true

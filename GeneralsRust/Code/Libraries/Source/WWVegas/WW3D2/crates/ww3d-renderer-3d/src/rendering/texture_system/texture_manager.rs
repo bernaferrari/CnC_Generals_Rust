@@ -12,8 +12,6 @@ use crate::rendering::texture_system::{
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use wgpu::{Device, Queue, Sampler};
-use ww3d_assets::AssetManager;
-
 /// Complete texture management system
 pub struct TextureManager {
     /// Asset-integrated texture loader
@@ -39,26 +37,17 @@ pub struct TextureManagerStats {
 }
 
 impl TextureManager {
-    pub fn new(
-        device: Arc<Device>,
-        queue: Arc<Queue>,
-        asset_manager: Arc<Mutex<AssetManager>>,
-    ) -> RendererResult<Self> {
-        Self::with_archive_reader(device, queue, asset_manager, None)
+    pub fn new(device: Arc<Device>, queue: Arc<Queue>) -> RendererResult<Self> {
+        Self::with_archive_reader(device, queue, None)
     }
 
     pub fn with_archive_reader(
         device: Arc<Device>,
         queue: Arc<Queue>,
-        asset_manager: Arc<Mutex<AssetManager>>,
         archive_reader: Option<Arc<dyn ArchiveFileReader>>,
     ) -> RendererResult<Self> {
-        let asset_loader = AssetTextureLoader::with_archive_reader(
-            device.clone(),
-            queue,
-            asset_manager,
-            archive_reader,
-        )?;
+        let asset_loader =
+            AssetTextureLoader::with_archive_reader(device.clone(), queue, archive_reader)?;
         let cache_config = TextureCacheConfig::default();
         let file_cache = TextureFileCache::new_with_config("textures", cache_config);
         let sampler_manager = TextureSamplerManager::new(device);

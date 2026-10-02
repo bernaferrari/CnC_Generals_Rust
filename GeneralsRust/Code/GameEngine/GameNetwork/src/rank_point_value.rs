@@ -48,6 +48,10 @@ impl Default for RankPoints {
     }
 }
 
+/// THREAD: the values are read (never written after init) from GameClient GUI
+/// callbacks (wol_lobby_menu / wol_welcome_menu) and from `calculate_rank` on
+/// the GameSpy persistent-storage thread, so the read lock stays part of the
+/// public accessor's contract.
 static THE_RANK_POINTS: OnceLock<Arc<RwLock<RankPoints>>> = OnceLock::new();
 
 pub fn get_rank_point_values() -> Arc<RwLock<RankPoints>> {

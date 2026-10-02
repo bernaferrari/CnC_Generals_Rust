@@ -12,6 +12,7 @@ use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use parking_lot::Mutex;
 use tokio::sync::{RwLock, Notify};
 use tokio::time::interval;
 use serde::{Deserialize, Serialize};
@@ -250,11 +251,29 @@ pub struct NetworkQuality {
     pub stability_score: u8,
 }
 
+/// Time-series buffers used for trend analysis.
+///
+/// THREAD: `latency` is appended by `record_packet_received` (any task that
+/// records a packet) and read by `calculate_jitter`/`analyze_trends`; all
+/// three buffers are trimmed by `cleanup_old_data` on the periodic collection
+/// task spawned by `start_monitoring`. Shared with those tasks through the
+/// `Arc<DiagnosticsCollector>` clones; sections never span an `.await`, so a
+/// plain sync mutex is sufficient.
+struct HistoryBuffers {
+    latency: VecDeque<(NetworkInstant, Duration)>,
+    throughput: VecDeque<(NetworkInstant, f64)>,
+    errors: VecDeque<(NetworkInstant, EnhancedError)>,
+}
+
 /// Ultra-modern diagnostic collector with predictive analytics
 pub struct DiagnosticsCollector {
     start_time: NetworkInstant,
+    /// THREAD: written by `record_*` on any caller task and read by the three
+    /// monitoring tasks spawned in `start_monitoring`. The async lock is kept
+    /// because `record_packet_sent`/`record_packet_received` deliberately hold
+    /// the guard across the alert-check `.await`s.
     stats: Arc<RwLock<NetworkDiagnostics>>,
-    
+
     // Atomic counters for high-performance updates
     packets_sent: AtomicU64,
     packets_received: AtomicU64,
@@ -262,19 +281,17 @@ pub struct DiagnosticsCollector {
     bytes_received: AtomicU64,
     errors_count: AtomicU64,
     active_connections: AtomicUsize,
-    
-    // Time-series data for trend analysis
-    latency_history: Arc<RwLock<VecDeque<(NetworkInstant, Duration)>>>,
-    throughput_history: Arc<RwLock<VecDeque<(NetworkInstant, f64)>>>,
-    error_history: Arc<RwLock<VecDeque<(NetworkInstant, EnhancedError)>>>,
-    
+
+    // Time-series data for trend analysis (see `HistoryBuffers` for the
+    // thread boundary)
+    history: Arc<Mutex<HistoryBuffers>>,
+
     // Alert system
-    alert_notifier: Arc<Notify>,
+    alert_notifier: Notify,
     alert_thresholds: AlertThresholds,
-    
+
     // Performance monitoring
     collection_start: NetworkInstant,
-    last_gc_time: Arc<RwLock<NetworkInstant>>,
 }
 
 /// Alert thresholds configuration
@@ -342,13 +359,14 @@ impl DiagnosticsCollector {
             bytes_received: AtomicU64::new(0),
             errors_count: AtomicU64::new(0),
             active_connections: AtomicUsize::new(0),
-            latency_history: Arc::new(RwLock::new(VecDeque::with_capacity(1000))),
-            throughput_history: Arc::new(RwLock::new(VecDeque::with_capacity(1000))),
-            error_history: Arc::new(RwLock::new(VecDeque::with_capacity(1000))),
-            alert_notifier: Arc::new(Notify::new()),
+            history: Arc::new(Mutex::new(HistoryBuffers {
+                latency: VecDeque::with_capacity(1000),
+                throughput: VecDeque::with_capacity(1000),
+                errors: VecDeque::with_capacity(1000),
+            })),
+            alert_notifier: Notify::new(),
             alert_thresholds: thresholds,
             collection_start: now,
-            last_gc_time: Arc::new(RwLock::new(now)),
         }
     }
     
@@ -444,10 +462,10 @@ impl DiagnosticsCollector {
         
         // Update latency history for trend analysis
         {
-            let mut latency_hist = self.latency_history.write().await;
-            latency_hist.push_back((now, processing_time));
-            if latency_hist.len() > 1000 {
-                latency_hist.pop_front();
+            let mut history = self.history.lock();
+            history.latency.push_back((now, processing_time));
+            if history.latency.len() > 1000 {
+                history.latency.pop_front();
             }
         }
         
@@ -560,16 +578,18 @@ impl DiagnosticsCollector {
     
     /// Calculate network jitter from latency history
     async fn calculate_jitter(&self, stats: &mut NetworkDiagnostics) {
-        let latency_hist = self.latency_history.read().await;
-        if latency_hist.len() < 2 {
-            return;
-        }
-        
-        let latencies: Vec<f64> = latency_hist
-            .iter()
-            .map(|(_, duration)| duration.as_secs_f64() * 1000.0) // Convert to ms
-            .collect();
-            
+        let latencies: Vec<f64> = {
+            let history = self.history.lock();
+            if history.latency.len() < 2 {
+                return;
+            }
+            history
+                .latency
+                .iter()
+                .map(|(_, duration)| duration.as_secs_f64() * 1000.0) // Convert to ms
+                .collect()
+        };
+
         if latencies.len() >= 2 {
             let mut jitter_sum = 0.0;
             for window in latencies.windows(2) {
@@ -933,37 +953,29 @@ impl DiagnosticsCollector {
     /// Clean up old historical data to prevent memory leaks
     async fn cleanup_old_data(&self) {
         let cutoff = NetworkInstant::now() - Duration::from_secs(300); // Keep 5 minutes of history
-        
-        {
-            let mut latency_hist = self.latency_history.write().await;
-            while let Some((timestamp, _)) = latency_hist.front() {
-                if *timestamp < cutoff {
-                    latency_hist.pop_front();
-                } else {
-                    break;
-                }
+
+        let mut history = self.history.lock();
+        while let Some((timestamp, _)) = history.latency.front() {
+            if *timestamp < cutoff {
+                history.latency.pop_front();
+            } else {
+                break;
             }
         }
-        
-        {
-            let mut throughput_hist = self.throughput_history.write().await;
-            while let Some((timestamp, _)) = throughput_hist.front() {
-                if *timestamp < cutoff {
-                    throughput_hist.pop_front();
-                } else {
-                    break;
-                }
+
+        while let Some((timestamp, _)) = history.throughput.front() {
+            if *timestamp < cutoff {
+                history.throughput.pop_front();
+            } else {
+                break;
             }
         }
-        
-        {
-            let mut error_hist = self.error_history.write().await;
-            while let Some((timestamp, _)) = error_hist.front() {
-                if *timestamp < cutoff {
-                    error_hist.pop_front();
-                } else {
-                    break;
-                }
+
+        while let Some((timestamp, _)) = history.errors.front() {
+            if *timestamp < cutoff {
+                history.errors.pop_front();
+            } else {
+                break;
             }
         }
     }
@@ -1099,20 +1111,23 @@ impl DiagnosticsCollector {
     async fn analyze_trends(&self) {
         // This would implement sophisticated trend analysis
         // For now, basic implementation
-        
-        let latency_hist = self.latency_history.read().await;
-        if latency_hist.len() >= 10 {
-            let recent_latencies: Vec<f64> = latency_hist
+
+        let recent_latencies: Vec<f64> = {
+            let history = self.history.lock();
+            history
+                .latency
                 .iter()
                 .rev()
                 .take(10)
                 .map(|(_, duration)| duration.as_secs_f64() * 1000.0)
-                .collect();
-                
+                .collect()
+        };
+
+        if recent_latencies.len() >= 10 {
             // Simple trend detection (rising/falling)
             let first_half_avg: f64 = recent_latencies[5..].iter().sum::<f64>() / 5.0;
             let second_half_avg: f64 = recent_latencies[..5].iter().sum::<f64>() / 5.0;
-            
+
             if second_half_avg > first_half_avg * 1.2 {
                 warn!("Latency trend: increasing significantly");
             }
@@ -1132,13 +1147,10 @@ impl Clone for DiagnosticsCollector {
             bytes_received: AtomicU64::new(self.bytes_received.load(Ordering::Relaxed)),
             errors_count: AtomicU64::new(self.errors_count.load(Ordering::Relaxed)),
             active_connections: AtomicUsize::new(self.active_connections.load(Ordering::Relaxed)),
-            latency_history: Arc::clone(&self.latency_history),
-            throughput_history: Arc::clone(&self.throughput_history),
-            error_history: Arc::clone(&self.error_history),
-            alert_notifier: Arc::clone(&self.alert_notifier),
+            history: Arc::clone(&self.history),
+            alert_notifier: self.alert_notifier.clone(),
             alert_thresholds: self.alert_thresholds.clone(),
             collection_start: self.collection_start,
-            last_gc_time: Arc::clone(&self.last_gc_time),
         }
     }
 }

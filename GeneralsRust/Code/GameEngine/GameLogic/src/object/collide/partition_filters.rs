@@ -631,7 +631,7 @@ impl PartitionFilterStealthedAndUndetected {
         Self { obj_id, allow }
     }
 
-    fn source_player(&self) -> Option<std::sync::Arc<std::sync::RwLock<crate::player::Player>>> {
+    fn with_source_player<R>(&self, f: impl FnOnce(&crate::player::Player) -> R) -> Option<R> {
         // Wave 266: empty dual-world → None.
         if dual_world_registry_unavailable() {
             return None;
@@ -639,7 +639,7 @@ impl PartitionFilterStealthedAndUndetected {
 
         crate::object::registry::OBJECT_REGISTRY
             .get_object(self.obj_id)
-            .and_then(|source| source.read().ok()?.get_controlling_player())
+            .and_then(|source| source.read().ok()?.with_controlling_player(f))
     }
 
     fn disguised_as_enemy_for_source(&self, target: &crate::object::Object) -> Option<bool> {
@@ -656,27 +656,22 @@ impl PartitionFilterStealthedAndUndetected {
             return None;
         };
 
-        let Some(source_player) = self.source_player() else {
-            return None;
-        };
-        let Ok(source_player) = source_player.read() else {
-            return None;
-        };
+        self.with_source_player(|source_player| {
+            let other_player = ThePlayerList()
+                .read()
+                .ok()
+                .and_then(|list| list.get_player(disguised_player_index).cloned());
+            let Some(other_team) =
+                other_player.and_then(|player| player.read().ok()?.get_default_team())
+            else {
+                return None;
+            };
+            let Ok(other_team) = other_team.read() else {
+                return None;
+            };
 
-        let other_player = ThePlayerList()
-            .read()
-            .ok()
-            .and_then(|list| list.get_player(disguised_player_index).cloned());
-        let Some(other_team) =
-            other_player.and_then(|player| player.read().ok()?.get_default_team())
-        else {
-            return None;
-        };
-        let Ok(other_team) = other_team.read() else {
-            return None;
-        };
-
-        Some(source_player.get_relationship_with_team(&other_team) == Relationship::Enemies)
+            Some(source_player.get_relationship_with_team(&other_team) == Relationship::Enemies)
+        })
     }
 
     fn neutral_container_hides_enemy_stealth_units(&self, target: &crate::object::Object) -> bool {
@@ -707,29 +702,26 @@ impl PartitionFilterStealthedAndUndetected {
             return false;
         }
 
-        let Some(source_player) = self.source_player() else {
-            return false;
-        };
-        let Ok(source_player_guard) = source_player.read() else {
-            return false;
-        };
-        let Some(victim_player) =
-            contain.get_apparent_controlling_player(Some(&source_player_guard))
-        else {
-            return false;
-        };
-        let Some(victim_team) = victim_player
-            .read()
-            .ok()
-            .and_then(|player| player.get_default_team())
-        else {
-            return false;
-        };
-        let Ok(victim_team) = victim_team.read() else {
-            return false;
-        };
+        self.with_source_player(|source_player_guard| {
+            let Some(victim_player) =
+                contain.get_apparent_controlling_player(Some(source_player_guard))
+            else {
+                return false;
+            };
+            let Some(victim_team) = victim_player
+                .read()
+                .ok()
+                .and_then(|player| player.get_default_team())
+            else {
+                return false;
+            };
+            let Ok(victim_team) = victim_team.read() else {
+                return false;
+            };
 
-        source_player_guard.get_relationship_with_team(&victim_team) == Relationship::Enemies
+            source_player_guard.get_relationship_with_team(&victim_team) == Relationship::Enemies
+        })
+        .unwrap_or(false)
     }
 }
 
@@ -1054,38 +1046,37 @@ impl super::partition_manager::PartitionFilter for PartitionFilterRejectBuilding
 
                 let accept = crate::object::registry::OBJECT_REGISTRY
                     .with_object(self.obj_id, |src_guard| {
-                        let Some(my_player) = src_guard.get_controlling_player() else {
-                            return false;
-                        };
-
-                        let Ok(my_guard) = my_player.read() else {
-                            return false;
-                        };
-                        let other_player = other_guard
-                            .get_contain()
-                            .and_then(|contain| {
-                                contain.lock().ok().and_then(|guard| {
-                                    guard.get_apparent_controlling_player(Some(&my_guard))
+                        let Some(rel) = src_guard.with_controlling_player(|my_guard| {
+                            let other_player = other_guard
+                                .get_contain()
+                                .and_then(|contain| {
+                                    contain.lock().ok().and_then(|guard| {
+                                        guard.get_apparent_controlling_player(Some(my_guard))
+                                    })
                                 })
-                            })
-                            .or_else(|| other_guard.get_controlling_player());
+                                .or_else(|| other_guard.get_controlling_player());
 
-                        let Some(other_default_team) = other_player.and_then(|player| {
-                            player
-                                .read()
-                                .ok()
-                                .and_then(|guard| guard.get_default_team())
+                            let Some(other_default_team) = other_player.and_then(|player| {
+                                player
+                                    .read()
+                                    .ok()
+                                    .and_then(|guard| guard.get_default_team())
+                            }) else {
+                                return None;
+                            };
+
+                            Some(
+                                other_default_team
+                                    .read()
+                                    .ok()
+                                    .map(|other_team_guard| {
+                                        my_guard.get_relationship_with_team(&other_team_guard)
+                                    })
+                                    .unwrap_or(Relationship::Neutral),
+                            )
                         }) else {
                             return false;
                         };
-
-                        let rel = other_default_team
-                            .read()
-                            .ok()
-                            .map(|other_team_guard| {
-                                my_guard.get_relationship_with_team(&other_team_guard)
-                            })
-                            .unwrap_or(Relationship::Neutral);
 
                         if rel != Relationship::Enemies {
                             return false;

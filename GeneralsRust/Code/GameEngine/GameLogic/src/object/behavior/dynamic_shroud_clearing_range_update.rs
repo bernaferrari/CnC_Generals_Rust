@@ -565,8 +565,11 @@ impl DynamicShroudClearingRangeUpdate {
             crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
                 .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
         })
-        .and_then(|obj| obj.read().ok().and_then(|o| o.get_controlling_player()))
-        .and_then(|player| player.read().ok().map(|p| p.get_player_index()));
+        .and_then(|obj| {
+            obj.read()
+                .ok()
+                .and_then(|o| o.with_controlling_player(|p| p.get_player_index()))
+        });
         let local_index = ThePlayerList()
             .read()
             .ok()

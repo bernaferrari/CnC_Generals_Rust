@@ -25,9 +25,8 @@
 //-----------------------------------------------------------------------------
 ///////////////////////////////////////////////////////////////////////////////
 
-use once_cell::sync::Lazy;
+use std::cell::RefCell;
 use std::collections::HashMap;
-use std::sync::{Mutex, RwLock};
 
 /// Language identifiers
 /// IMPORTANT: Make sure this enum is identical to the one in Noxstring tool
@@ -128,19 +127,21 @@ impl LanguageId {
     }
 }
 
-/// Global language setting
-static CURRENT_LANGUAGE: Mutex<LanguageId> = Mutex::new(LanguageId::Us);
-static LOCALIZED_STRINGS: Lazy<RwLock<HashMap<String, String>>> =
-    Lazy::new(|| RwLock::new(HashMap::new()));
+// Global language setting
+// THREAD: C++ plain statics; driven only by the single game/client thread.
+thread_local! {
+    static CURRENT_LANGUAGE: RefCell<LanguageId> = RefCell::new(LanguageId::Us);
+    static LOCALIZED_STRINGS: RefCell<HashMap<String, String>> = RefCell::new(HashMap::new());
+}
 
 /// Get the current language
 pub fn get_current_language() -> LanguageId {
-    *CURRENT_LANGUAGE.lock().unwrap()
+    CURRENT_LANGUAGE.with_borrow(|language| *language)
 }
 
 /// Set the current language
 pub fn set_current_language(language: LanguageId) {
-    *CURRENT_LANGUAGE.lock().unwrap() = language;
+    CURRENT_LANGUAGE.with_borrow_mut(|current| *current = language);
 }
 
 /// Language utility functions
@@ -207,16 +208,14 @@ impl Language {
 
     /// Register or replace a localized string in the runtime table.
     pub fn register_localized_string<K: Into<String>, V: Into<String>>(key: K, value: V) {
-        if let Ok(mut table) = LOCALIZED_STRINGS.write() {
+        LOCALIZED_STRINGS.with_borrow_mut(|table| {
             table.insert(key.into(), value.into());
-        }
+        });
     }
 
     /// Clear all runtime localized strings.
     pub fn clear_localized_strings() {
-        if let Ok(mut table) = LOCALIZED_STRINGS.write() {
-            table.clear();
-        }
+        LOCALIZED_STRINGS.with_borrow_mut(|table| table.clear());
     }
 
     /// Get localized string from runtime table, falling back to original key.
@@ -227,16 +226,15 @@ impl Language {
         }
 
         let lookup = trimmed.strip_prefix("LOC:").unwrap_or(trimmed);
-        if let Ok(table) = LOCALIZED_STRINGS.read() {
+        LOCALIZED_STRINGS.with_borrow(|table| {
             if let Some(value) = table.get(lookup) {
                 return value.clone();
             }
             if let Some(value) = table.get(trimmed) {
                 return value.clone();
             }
-        }
-
-        lookup.to_string()
+            lookup.to_string()
+        })
     }
 
     /// Format localized string with indexed replacements (`{0}`, `{1}`, ...).

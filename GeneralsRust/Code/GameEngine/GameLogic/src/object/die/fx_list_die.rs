@@ -320,17 +320,13 @@ impl FXListDie {
         if object.completed_upgrades().intersects(conflicting_bits) {
             return true;
         }
-        if let Some(player_arc) = object.get_controlling_player() {
-            if let Ok(player_guard) = player_arc.read() {
-                if player_guard
+        object
+            .with_controlling_player(|player_guard| {
+                player_guard
                     .get_completed_upgrade_mask()
                     .intersects(conflicting_bits)
-                {
-                    return true;
-                }
-            }
-        }
-        false
+            })
+            .unwrap_or(false)
     }
 
     /// Play the death FX

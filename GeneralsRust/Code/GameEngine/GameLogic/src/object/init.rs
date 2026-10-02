@@ -102,15 +102,14 @@ impl Object {
             return;
         }
 
-        let Some(player) = self.get_controlling_player() else {
+        let Some((player_type, difficulty)) = self.with_controlling_player(|player_guard| {
+            (
+                player_guard.get_player_type(),
+                player_guard.get_player_difficulty(),
+            )
+        }) else {
             return;
         };
-        let Ok(player_guard) = player.read() else {
-            return;
-        };
-        let player_type = player_guard.get_player_type();
-        let difficulty = player_guard.get_player_difficulty();
-        drop(player_guard);
 
         let type_idx = match player_type {
             PlayerType::Human => 0,

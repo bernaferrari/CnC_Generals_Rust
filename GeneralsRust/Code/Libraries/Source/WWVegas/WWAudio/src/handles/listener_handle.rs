@@ -8,6 +8,9 @@ use crate::{
 
 /// Listener handle analogue (`ListenerHandleClass`)
 pub struct ListenerHandle {
+    // THREAD: handle clones share one Listener3D on the game thread, and a
+    // handle can be dropped on a thread-pool worker by the delayed-release
+    // queue, so the shared listener keeps its shared, locked handle
     listener: Arc<Mutex<Listener3D>>,
 }
 

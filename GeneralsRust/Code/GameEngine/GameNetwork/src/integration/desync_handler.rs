@@ -10,7 +10,6 @@ use std::collections::{BTreeMap, HashMap};
 use std::fs::File;
 use std::io::Write;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tracing::{error, info, warn};
 
@@ -101,19 +100,21 @@ impl DesyncRecord {
 }
 
 /// Desync handler that detects and responds to desynchronization
-pub struct DesyncHandler<G: GameState> {
-    game_state: Arc<Mutex<G>>,
+///
+/// The handler owns only its own bookkeeping; the game state is passed in by
+/// the caller (which owns it) wherever the state must be inspected or mutated,
+/// so no shared lock is required.
+pub struct DesyncHandler {
     strategy: DesyncStrategy,
     desync_history: Vec<DesyncRecord>,
     max_history: usize,
     dump_directory: Option<PathBuf>,
 }
 
-impl<G: GameState> DesyncHandler<G> {
+impl DesyncHandler {
     /// Create a new desync handler with default settings
-    pub fn new(game_state: Arc<Mutex<G>>) -> Self {
+    pub fn new() -> Self {
         Self {
-            game_state,
             strategy: DesyncStrategy::DisconnectVote,
             desync_history: Vec::new(),
             max_history: 10,
@@ -122,13 +123,8 @@ impl<G: GameState> DesyncHandler<G> {
     }
 
     /// Create a desync handler with custom settings
-    pub fn with_settings(
-        game_state: Arc<Mutex<G>>,
-        strategy: DesyncStrategy,
-        dump_directory: Option<PathBuf>,
-    ) -> Self {
+    pub fn with_settings(strategy: DesyncStrategy, dump_directory: Option<PathBuf>) -> Self {
         Self {
-            game_state,
             strategy,
             desync_history: Vec::new(),
             max_history: 10,
@@ -178,8 +174,16 @@ impl<G: GameState> DesyncHandler<G> {
     }
 
     /// Handle desynchronization according to configured strategy
-    pub fn handle_desync(
+    ///
+    /// # Arguments
+    /// * `game` - The game state to notify about the desync
+    /// * `frame` - Frame number the desync was detected at
+    /// * `local_crc` - CRC computed locally
+    /// * `remote_crc` - CRC reported by the desynced player
+    /// * `desynced_player` - The player whose CRC mismatched
+    pub fn handle_desync<G: GameState>(
         &mut self,
+        game: &mut G,
         frame: FrameNumber,
         local_crc: CRCValue,
         remote_crc: CRCValue,
@@ -192,17 +196,11 @@ impl<G: GameState> DesyncHandler<G> {
 
         // Save state dump if directory configured
         if let Some(ref dir) = self.dump_directory {
-            self.save_state_dump(frame, dir)?;
+            self.save_state_dump(game, frame, dir)?;
         }
 
         // Notify game state
-        let mut game = self
-            .game_state
-            .lock()
-            .map_err(|e| NetworkError::generic(format!("Failed to lock game state: {}", e)))?;
-
         game.handle_desync(frame, local_crc, remote_crc);
-        drop(game);
 
         // Apply strategy
         match self.strategy {
@@ -229,12 +227,12 @@ impl<G: GameState> DesyncHandler<G> {
     }
 
     /// Save game state dump for debugging
-    fn save_state_dump(&self, frame: FrameNumber, directory: &PathBuf) -> NetworkResult<()> {
-        let game = self
-            .game_state
-            .lock()
-            .map_err(|e| NetworkError::generic(format!("Failed to lock game state: {}", e)))?;
-
+    fn save_state_dump<G: GameState>(
+        &self,
+        game: &G,
+        frame: FrameNumber,
+        directory: &PathBuf,
+    ) -> NetworkResult<()> {
         let timestamp = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
@@ -301,6 +299,12 @@ impl<G: GameState> DesyncHandler<G> {
     /// Set directory for state dumps
     pub fn set_dump_directory(&mut self, directory: PathBuf) {
         self.dump_directory = Some(directory);
+    }
+}
+
+impl Default for DesyncHandler {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -455,8 +459,7 @@ mod tests {
 
     #[test]
     fn test_detect_desync_synchronized() {
-        let game_state = Arc::new(Mutex::new(MockGameState::new()));
-        let mut handler = DesyncHandler::new(game_state);
+        let mut handler = DesyncHandler::new();
 
         let mut remote_crcs = HashMap::new();
         remote_crcs.insert(0, 0x12345678);
@@ -469,8 +472,7 @@ mod tests {
 
     #[test]
     fn test_detect_desync_desynchronized() {
-        let game_state = Arc::new(Mutex::new(MockGameState::new()));
-        let mut handler = DesyncHandler::new(game_state);
+        let mut handler = DesyncHandler::new();
 
         let mut remote_crcs = HashMap::new();
         remote_crcs.insert(0, 0x12345678);
@@ -492,8 +494,7 @@ mod tests {
 
     #[test]
     fn test_desync_handler_stores_history() {
-        let game_state = Arc::new(Mutex::new(MockGameState::new()));
-        let mut handler = DesyncHandler::new(game_state);
+        let mut handler = DesyncHandler::new();
 
         let mut remote_crcs = HashMap::new();
         remote_crcs.insert(1, 0x87654321);

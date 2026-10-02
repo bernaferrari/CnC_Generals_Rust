@@ -326,15 +326,21 @@ fn map_for_key<'a>(stats: &'a mut PSPlayerStats, key: &str) -> Option<&'a mut Pe
     }
 }
 
-static THE_GAMESPY_PS_QUEUE: OnceLock<Arc<Mutex<GameSpyPSMessageQueue>>> = OnceLock::new();
+/// THREAD: C++-parity global persistent-storage queue. GUI threads push stats
+/// requests and drain responses while the PS worker drains requests and pushes
+/// responses; this single mutex is the only cross-thread handoff and is never
+/// held across an `.await`.
+type SharedPSQueue = Arc<Mutex<GameSpyPSMessageQueue>>;
 
-pub fn init_ps_message_queue() -> Arc<Mutex<GameSpyPSMessageQueue>> {
+static THE_GAMESPY_PS_QUEUE: OnceLock<SharedPSQueue> = OnceLock::new();
+
+pub fn init_ps_message_queue() -> SharedPSQueue {
     THE_GAMESPY_PS_QUEUE
         .get_or_init(|| Arc::new(Mutex::new(GameSpyPSMessageQueue::default())))
         .clone()
 }
 
-pub fn get_ps_message_queue() -> Option<Arc<Mutex<GameSpyPSMessageQueue>>> {
+pub fn get_ps_message_queue() -> Option<SharedPSQueue> {
     THE_GAMESPY_PS_QUEUE.get().cloned()
 }
 

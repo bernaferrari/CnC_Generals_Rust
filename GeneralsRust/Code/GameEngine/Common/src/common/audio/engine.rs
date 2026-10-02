@@ -7,9 +7,10 @@
 //! - Low-latency audio processing
 //! - Cross-platform audio backend support
 
-use parking_lot::{Mutex as ParkingMutex, RwLock as ParkingRwLock};
+use parking_lot::RwLock as ParkingRwLock;
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -327,18 +328,31 @@ pub enum AudioResponse {
     },
 }
 
-/// High-performance audio engine
-pub struct AudioEngine {
-    /// Engine configuration
-    config: AudioEngineConfig,
+/// Engine state handed to the audio worker thread.
+///
+/// THREAD: genuinely cross-thread. `AudioEngine::start` spawns the audio
+/// processing thread (`audio_thread_main`), which reads and writes these, so
+/// they keep their locks.
+struct AudioEngineShared {
     /// Currently active audio sources
     sources: Arc<ParkingRwLock<HashMap<AudioHandle, AudioSource>>>,
-    /// Next available handle
-    next_handle: Arc<ParkingMutex<AudioHandle>>,
     /// Audio listener parameters
     listener: Arc<ParkingRwLock<AudioListener>>,
     /// Master volume controls
     master_volumes: Arc<ParkingRwLock<HashMap<AudioAffect, f32>>>,
+}
+
+/// High-performance audio engine
+pub struct AudioEngine {
+    /// Engine configuration
+    config: AudioEngineConfig,
+    /// State shared with the audio worker thread
+    // THREAD: locked inside `AudioEngineShared` (shared with the worker thread).
+    shared: Arc<AudioEngineShared>,
+    /// Next available handle
+    // THREAD: only bumped from the owning thread; atomic only so `allocate_handle`
+    // can stay `&self`.
+    next_handle: AtomicU32,
     /// Command channel for thread communication
     command_sender: Option<Sender<AudioCommand>>,
     command_receiver: Option<Receiver<AudioCommand>>,
@@ -378,10 +392,12 @@ impl AudioEngine {
 
         let engine = Self {
             config,
-            sources: Arc::new(ParkingRwLock::new(HashMap::new())),
-            next_handle: Arc::new(ParkingMutex::new(1)),
-            listener: Arc::new(ParkingRwLock::new(AudioListener::default())),
-            master_volumes: Arc::new(ParkingRwLock::new(master_volumes)),
+            shared: Arc::new(AudioEngineShared {
+                sources: Arc::new(ParkingRwLock::new(HashMap::new())),
+                listener: Arc::new(ParkingRwLock::new(AudioListener::default())),
+                master_volumes: Arc::new(ParkingRwLock::new(master_volumes)),
+            }),
+            next_handle: AtomicU32::new(1),
             command_sender: Some(command_sender),
             command_receiver: Some(command_receiver),
             response_sender: Some(response_sender),
@@ -409,9 +425,7 @@ impl AudioEngine {
         // Start audio processing thread
         let command_receiver = self.command_receiver.take().unwrap();
         let response_sender = self.response_sender.clone().unwrap();
-        let sources = Arc::clone(&self.sources);
-        let listener = Arc::clone(&self.listener);
-        let master_volumes = Arc::clone(&self.master_volumes);
+        let shared = Arc::clone(&self.shared);
         let running = Arc::clone(&self.running);
 
         #[cfg(feature = "audio")]
@@ -423,9 +437,7 @@ impl AudioEngine {
             Self::audio_thread_main(
                 command_receiver,
                 response_sender,
-                sources,
-                listener,
-                master_volumes,
+                shared,
                 running,
                 config,
                 #[cfg(feature = "audio")]
@@ -460,10 +472,7 @@ impl AudioEngine {
 
     /// Allocate a new audio handle
     pub fn allocate_handle(&self) -> AudioHandle {
-        let mut next = self.next_handle.lock();
-        let handle = *next;
-        *next += 1;
-        handle
+        self.next_handle.fetch_add(1, Ordering::Relaxed)
     }
 
     /// Play an audio file
@@ -570,7 +579,7 @@ impl AudioEngine {
 
     /// Check if a source is currently playing
     pub fn is_playing(&self, handle: AudioHandle) -> bool {
-        let sources = self.sources.read();
+        let sources = self.shared.sources.read();
         if let Some(source) = sources.get(&handle) {
             source.is_playing()
         } else {
@@ -580,7 +589,7 @@ impl AudioEngine {
 
     /// Get the number of active audio sources
     pub fn active_source_count(&self) -> usize {
-        let sources = self.sources.read();
+        let sources = self.shared.sources.read();
         sources.len()
     }
 
@@ -602,9 +611,7 @@ impl AudioEngine {
     fn audio_thread_main(
         command_receiver: Receiver<AudioCommand>,
         response_sender: Sender<AudioResponse>,
-        sources: Arc<ParkingRwLock<HashMap<AudioHandle, AudioSource>>>,
-        listener: Arc<ParkingRwLock<AudioListener>>,
-        master_volumes: Arc<ParkingRwLock<HashMap<AudioAffect, f32>>>,
+        shared: Arc<AudioEngineShared>,
         running: Arc<std::sync::atomic::AtomicBool>,
         config: AudioEngineConfig,
         output_stream_handle: OutputStreamHandle,
@@ -629,7 +636,7 @@ impl AudioEngine {
                         looping,
                         spatial_params,
                         fade_in,
-                        &sources,
+                        &shared,
                         &output_stream_handle,
                         &response_sender,
                     ) {
@@ -640,24 +647,24 @@ impl AudioEngine {
                     }
                 }
                 Ok(AudioCommand::Stop { handle, fade_out }) => {
-                    Self::handle_stop_command(handle, fade_out, &sources, &response_sender);
+                    Self::handle_stop_command(handle, fade_out, &shared, &response_sender);
                 }
                 Ok(AudioCommand::Pause { handle }) => {
-                    Self::handle_pause_command(handle, &sources, &response_sender);
+                    Self::handle_pause_command(handle, &shared, &response_sender);
                 }
                 Ok(AudioCommand::Resume { handle }) => {
-                    Self::handle_resume_command(handle, &sources, &response_sender);
+                    Self::handle_resume_command(handle, &shared, &response_sender);
                 }
                 Ok(AudioCommand::SetVolume { handle, volume }) => {
-                    Self::handle_set_volume_command(handle, volume, &sources);
+                    Self::handle_set_volume_command(handle, volume, &shared);
                 }
                 Ok(AudioCommand::UpdateListener {
                     listener: new_listener,
                 }) => {
-                    *listener.write() = new_listener;
+                    *shared.listener.write() = new_listener;
                 }
                 Ok(AudioCommand::SetMasterVolume { affect, volume }) => {
-                    master_volumes.write().insert(affect, volume);
+                    shared.master_volumes.write().insert(affect, volume);
                 }
                 Ok(AudioCommand::Shutdown) => {
                     running.store(false, std::sync::atomic::Ordering::Relaxed);
@@ -667,7 +674,7 @@ impl AudioEngine {
             }
 
             // Clean up finished sources
-            Self::cleanup_finished_sources(&sources, &response_sender);
+            Self::cleanup_finished_sources(&shared, &response_sender);
 
             // Small delay to prevent busy waiting
             thread::sleep(Duration::from_millis(1));
@@ -678,9 +685,7 @@ impl AudioEngine {
     fn audio_thread_main(
         _command_receiver: Receiver<AudioCommand>,
         _response_sender: Sender<AudioResponse>,
-        _sources: Arc<ParkingRwLock<HashMap<AudioHandle, AudioSource>>>,
-        _listener: Arc<ParkingRwLock<AudioListener>>,
-        _master_volumes: Arc<ParkingRwLock<HashMap<AudioAffect, f32>>>,
+        _shared: Arc<AudioEngineShared>,
         _running: Arc<std::sync::atomic::AtomicBool>,
         _config: AudioEngineConfig,
     ) {
@@ -696,7 +701,7 @@ impl AudioEngine {
         looping: bool,
         spatial_params: Option<Audio3DParams>,
         fade_in: Option<Duration>,
-        sources: &Arc<ParkingRwLock<HashMap<AudioHandle, AudioSource>>>,
+        shared: &AudioEngineShared,
         output_stream_handle: &OutputStreamHandle,
         response_sender: &Sender<AudioResponse>,
     ) -> Result<(), Box<dyn std::error::Error>> {
@@ -738,7 +743,7 @@ impl AudioEngine {
             audio_source.sink = Some(sink);
         }
 
-        sources.write().insert(handle, audio_source);
+        shared.sources.write().insert(handle, audio_source);
 
         let _ = response_sender.send(AudioResponse::SourceStateChanged {
             handle,
@@ -752,10 +757,10 @@ impl AudioEngine {
     fn handle_stop_command(
         handle: AudioHandle,
         fade_out: Option<Duration>,
-        sources: &Arc<ParkingRwLock<HashMap<AudioHandle, AudioSource>>>,
+        shared: &AudioEngineShared,
         response_sender: &Sender<AudioResponse>,
     ) {
-        let mut sources_guard = sources.write();
+        let mut sources_guard = shared.sources.write();
         if let Some(source) = sources_guard.get_mut(&handle) {
             source.state = if fade_out.is_some() {
                 AudioSourceState::FadingOut
@@ -780,10 +785,10 @@ impl AudioEngine {
     #[cfg(feature = "audio")]
     fn handle_pause_command(
         handle: AudioHandle,
-        sources: &Arc<ParkingRwLock<HashMap<AudioHandle, AudioSource>>>,
+        shared: &AudioEngineShared,
         response_sender: &Sender<AudioResponse>,
     ) {
-        let mut sources_guard = sources.write();
+        let mut sources_guard = shared.sources.write();
         if let Some(source) = sources_guard.get_mut(&handle) {
             source.state = AudioSourceState::Paused;
 
@@ -804,10 +809,10 @@ impl AudioEngine {
     #[cfg(feature = "audio")]
     fn handle_resume_command(
         handle: AudioHandle,
-        sources: &Arc<ParkingRwLock<HashMap<AudioHandle, AudioSource>>>,
+        shared: &AudioEngineShared,
         response_sender: &Sender<AudioResponse>,
     ) {
-        let mut sources_guard = sources.write();
+        let mut sources_guard = shared.sources.write();
         if let Some(source) = sources_guard.get_mut(&handle) {
             source.state = AudioSourceState::Playing;
 
@@ -829,9 +834,9 @@ impl AudioEngine {
     fn handle_set_volume_command(
         handle: AudioHandle,
         volume: f32,
-        sources: &Arc<ParkingRwLock<HashMap<AudioHandle, AudioSource>>>,
+        shared: &AudioEngineShared,
     ) {
-        let mut sources_guard = sources.write();
+        let mut sources_guard = shared.sources.write();
         if let Some(source) = sources_guard.get_mut(&handle) {
             source.volume = volume;
 
@@ -846,13 +851,13 @@ impl AudioEngine {
 
     #[cfg(feature = "audio")]
     fn cleanup_finished_sources(
-        sources: &Arc<ParkingRwLock<HashMap<AudioHandle, AudioSource>>>,
+        shared: &AudioEngineShared,
         response_sender: &Sender<AudioResponse>,
     ) {
         let mut to_remove = Vec::new();
 
         {
-            let sources_guard = sources.read();
+            let sources_guard = shared.sources.read();
             for (handle, source) in sources_guard.iter() {
                 if source.is_finished() {
                     to_remove.push(*handle);
@@ -861,7 +866,7 @@ impl AudioEngine {
         }
 
         if !to_remove.is_empty() {
-            let mut sources_guard = sources.write();
+            let mut sources_guard = shared.sources.write();
             for handle in to_remove {
                 sources_guard.remove(&handle);
                 let _ = response_sender.send(AudioResponse::SourceFinished { handle });
@@ -878,7 +883,7 @@ impl AudioEngine {
         _looping: bool,
         _spatial_params: Option<Audio3DParams>,
         _fade_in: Option<Duration>,
-        _sources: &Arc<ParkingRwLock<HashMap<AudioHandle, AudioSource>>>,
+        _shared: &AudioEngineShared,
         _response_sender: &Sender<AudioResponse>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         Ok(())
@@ -888,7 +893,7 @@ impl AudioEngine {
     fn handle_stop_command(
         _handle: AudioHandle,
         _fade_out: Option<Duration>,
-        _sources: &Arc<ParkingRwLock<HashMap<AudioHandle, AudioSource>>>,
+        _shared: &AudioEngineShared,
         _response_sender: &Sender<AudioResponse>,
     ) {
     }
@@ -896,7 +901,7 @@ impl AudioEngine {
     #[cfg(not(feature = "audio"))]
     fn handle_pause_command(
         _handle: AudioHandle,
-        _sources: &Arc<ParkingRwLock<HashMap<AudioHandle, AudioSource>>>,
+        _shared: &AudioEngineShared,
         _response_sender: &Sender<AudioResponse>,
     ) {
     }
@@ -904,7 +909,7 @@ impl AudioEngine {
     #[cfg(not(feature = "audio"))]
     fn handle_resume_command(
         _handle: AudioHandle,
-        _sources: &Arc<ParkingRwLock<HashMap<AudioHandle, AudioSource>>>,
+        _shared: &AudioEngineShared,
         _response_sender: &Sender<AudioResponse>,
     ) {
     }
@@ -913,13 +918,13 @@ impl AudioEngine {
     fn handle_set_volume_command(
         _handle: AudioHandle,
         _volume: f32,
-        _sources: &Arc<ParkingRwLock<HashMap<AudioHandle, AudioSource>>>,
+        _shared: &AudioEngineShared,
     ) {
     }
 
     #[cfg(not(feature = "audio"))]
     fn cleanup_finished_sources(
-        _sources: &Arc<ParkingRwLock<HashMap<AudioHandle, AudioSource>>>,
+        _shared: &AudioEngineShared,
         _response_sender: &Sender<AudioResponse>,
     ) {
     }

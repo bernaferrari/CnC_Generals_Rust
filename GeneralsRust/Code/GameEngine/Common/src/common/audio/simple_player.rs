@@ -130,17 +130,24 @@ pub enum PlayerStatus {
 pub struct SimplePlayer {
     ref_count: AtomicUsize,
 
+    // THREAD: written by the playback worker thread spawned in
+    // `start_playback_thread`, so these keep their lock.
     status: Arc<Mutex<PlayerStatus>>,
-    url: Arc<Mutex<Option<PathBuf>>>,
-    format: Arc<Mutex<WaveFormat>>,
+
+    // THREAD: owner-thread only (never touched by the playback thread), plain fields.
+    url: Option<PathBuf>,
+    format: WaveFormat,
+    audio_buffers: VecDeque<AudioBuffer>,
 
     buffers_outstanding: Arc<AtomicUsize>,
-    audio_buffers: Arc<Mutex<VecDeque<AudioBuffer>>>,
 
+    // THREAD: completion_handler / event_queue / current_handle / last_error are
+    // read or written by the playback worker thread, so they keep their lock.
     completion_handler: Arc<Mutex<Option<Box<dyn Fn(HResult) + Send + Sync>>>>,
     event_queue: Arc<Mutex<VecDeque<PlayerEvent>>>,
 
-    playback_thread: Arc<Mutex<Option<thread::JoinHandle<()>>>>,
+    // THREAD: joined only from the owning thread; the worker never sees this handle.
+    playback_thread: Option<thread::JoinHandle<()>>,
     should_stop: Arc<AtomicBool>,
 
     audio_engine: AudioEngine,
@@ -164,13 +171,13 @@ impl SimplePlayer {
         Ok(SimplePlayer {
             ref_count: AtomicUsize::new(1),
             status: Arc::new(Mutex::new(PlayerStatus::Idle)),
-            url: Arc::new(Mutex::new(None)),
-            format: Arc::new(Mutex::new(WaveFormat::default())),
+            url: None,
+            format: WaveFormat::default(),
             buffers_outstanding: Arc::new(AtomicUsize::new(0)),
-            audio_buffers: Arc::new(Mutex::new(VecDeque::new())),
+            audio_buffers: VecDeque::new(),
             completion_handler: Arc::new(Mutex::new(None)),
             event_queue: Arc::new(Mutex::new(VecDeque::new())),
-            playback_thread: Arc::new(Mutex::new(None)),
+            playback_thread: None,
             should_stop: Arc::new(AtomicBool::new(false)),
             audio_engine: engine,
             current_handle: Arc::new(Mutex::new(None)),
@@ -203,10 +210,7 @@ impl SimplePlayer {
         };
 
         // Store the URL
-        {
-            let mut url_guard = self.url.lock().unwrap();
-            *url_guard = Some(file_path.clone());
-        }
+        self.url = Some(file_path.clone());
 
         // Store completion handler
         {
@@ -235,7 +239,7 @@ impl SimplePlayer {
             let _ = self.audio_engine.stop_source(handle);
         }
 
-        if let Some(handle) = self.playback_thread.lock().unwrap().take() {
+        if let Some(handle) = self.playback_thread.take() {
             let _ = handle.join();
         }
 
@@ -363,10 +367,7 @@ impl SimplePlayer {
             buffers_outstanding.store(0, Ordering::Relaxed);
         });
 
-        {
-            let mut thread_guard = self.playback_thread.lock().unwrap();
-            *thread_guard = Some(thread_handle);
-        }
+        self.playback_thread = Some(thread_handle);
 
         S_OK
     }

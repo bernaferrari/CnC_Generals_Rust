@@ -103,18 +103,14 @@ impl CreateInterface for VeterancyGainCreate {
             let Ok(mut object_guard) = object_arc.write() else {
                 return;
             };
-            let Some(player) = object_guard.get_controlling_player() else {
-                return;
-            };
-            let Ok(player_guard) = player.read() else {
-                return;
-            };
 
             let science_required = self.module_data.science_required;
-            if science_required != SCIENCE_INVALID && !player_guard.has_science(science_required) {
+            let science_ok = object_guard.with_controlling_player(|player_guard| {
+                science_required == SCIENCE_INVALID || player_guard.has_science(science_required)
+            });
+            if !science_ok.unwrap_or(false) {
                 return;
             }
-            drop(player_guard);
 
             object_guard.with_experience_tracker_mut(|tracker_guard| {
                 if tracker_guard.is_trainable() {

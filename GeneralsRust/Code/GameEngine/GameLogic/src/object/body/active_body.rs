@@ -59,13 +59,11 @@ fn record_neutral_vehicle_sniped() {
 }
 
 fn record_cleared_garrison_for_object(victim: &Object) {
-    if let Some(player) = victim.get_controlling_player() {
-        if let Ok(mut guard) = player.write() {
-            guard
-                .get_academy_stats_mut()
-                .record_cleared_garrisoned_building();
-        }
-    }
+    victim.with_controlling_player_mut(|guard| {
+        guard
+            .get_academy_stats_mut()
+            .record_cleared_garrisoned_building();
+    });
 }
 
 fn play_object_template_sound(owner: &Object, mut event: crate::common::audio::AudioEventRts) {
@@ -85,10 +83,8 @@ fn play_voice_fear(owner: &Object) {
     }
     let pos = *owner.get_position();
     event.set_position(&(pos.x, pos.y, pos.z));
-    if let Some(player) = owner.get_controlling_player() {
-        if let Ok(guard) = player.read() {
-            event.set_player_index(guard.get_player_index() as u32);
-        }
+    if let Some(index) = owner.with_controlling_player(|guard| guard.get_player_index()) {
+        event.set_player_index(index as u32);
     }
     if let Some(audio) = TheAudio::get() {
         audio.add_audio_event(&event);
@@ -111,11 +107,7 @@ fn should_retaliate_against_aggressor(obj: &Object, damager: &Object) -> bool {
     if dist_sqr > max_dist * max_dist {
         return false;
     }
-    if obj
-        .get_controlling_player()
-        .and_then(|p| p.read().ok().map(|g| g.get_player_type()))
-        != Some(PlayerType::Human)
-    {
+    if obj.with_controlling_player(|g| g.get_player_type()) != Some(PlayerType::Human) {
         return false;
     }
     if obj.is_kind_of(KindOf::Drone) {
@@ -149,18 +141,13 @@ fn should_retaliate(obj: &Object) -> bool {
 }
 
 pub(crate) fn retaliate_nearby_friends(victim: &Object, damager: &Object) {
-    let Some(controlling_player) = victim.get_controlling_player() else {
-        return;
-    };
-    let Ok(player_guard) = controlling_player.read() else {
-        return;
-    };
-    if !player_guard.is_logical_retaliation_mode_enabled()
-        || player_guard.get_player_type() != PlayerType::Human
-    {
+    let eligible = victim.with_controlling_player(|player_guard| {
+        player_guard.is_logical_retaliation_mode_enabled()
+            && player_guard.get_player_type() == PlayerType::Human
+    });
+    if eligible != Some(true) {
         return;
     }
-    drop(player_guard);
     if !should_retaliate_against_aggressor(victim, damager) {
         return;
     }
@@ -1790,16 +1777,14 @@ impl ActiveBody {
                     // try_read: the owner's write guard may be held by this
                     // thread while the body mutates (self-sourced damage).
                     if let Ok(owner_guard) = owner.try_read() {
-                        if let Some(victim_player) = owner_guard.get_controlling_player() {
-                            let src_index = OBJECT_REGISTRY.with_object(last_source_id, |src| {
-                                src.get_controlling_player()
-                                    .and_then(|p| p.read().ok().map(|g| g.get_player_index()))
-                            });
-                            if let Some(Some(src_index)) = src_index {
-                                if let Ok(mut player) = victim_player.write() {
-                                    player.set_attacked_by(src_index);
-                                }
-                            }
+                        let src_index = owner_guard.with_controlling_player(|_| {
+                            OBJECT_REGISTRY.with_object(last_source_id, |src| {
+                                src.with_controlling_player(|g| g.get_player_index())
+                            })
+                        });
+                        if let Some(Some(src_index)) = src_index {
+                            owner_guard
+                                .with_controlling_player_mut(|player| player.set_attacked_by(src_index));
                         }
                     }
                 }

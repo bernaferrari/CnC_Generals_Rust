@@ -12,8 +12,8 @@
 //!
 //! Rust conversion: 2025
 
-use once_cell::sync::OnceCell;
-use std::sync::{Mutex, MutexGuard};
+use std::cell::RefCell;
+use std::rc::Rc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::common::ascii_string::AsciiString;
@@ -322,30 +322,31 @@ impl ProtectionManager {
     }
 }
 
-/// Global protection manager instance
-static PROTECTION_MANAGER: OnceCell<Mutex<ProtectionManager>> = OnceCell::new();
+// THREAD: C++ plain static; driven only by the single game/client thread.
+thread_local! {
+    static PROTECTION_MANAGER: RefCell<Option<Rc<RefCell<ProtectionManager>>>> =
+        const { RefCell::new(None) };
+}
 
 /// Initialize the global protection manager
 pub fn init_protection_manager(config: Option<ProtectionConfig>) {
     let config = config.unwrap_or_default();
 
-    if PROTECTION_MANAGER.get().is_none() {
-        let mut manager = ProtectionManager::new(config.clone());
-        let _ = manager.init();
-        let _ = PROTECTION_MANAGER.set(Mutex::new(manager));
-    } else if let Some(cell) = PROTECTION_MANAGER.get() {
-        if let Ok(mut guard) = cell.lock() {
-            *guard = ProtectionManager::new(config);
-            let _ = guard.init();
+    PROTECTION_MANAGER.with_borrow_mut(|cell| {
+        if cell.is_none() {
+            let mut manager = ProtectionManager::new(config.clone());
+            let _ = manager.init();
+            *cell = Some(Rc::new(RefCell::new(manager)));
+        } else if let Some(manager) = cell {
+            *manager.borrow_mut() = ProtectionManager::new(config);
+            let _ = manager.borrow_mut().init();
         }
-    }
+    });
 }
 
 /// Get reference to the global protection manager
-pub fn get_protection_manager() -> Option<MutexGuard<'static, ProtectionManager>> {
-    PROTECTION_MANAGER
-        .get()
-        .map(|cell| cell.lock().expect("ProtectionManager mutex poisoned"))
+pub fn get_protection_manager() -> Option<Rc<RefCell<ProtectionManager>>> {
+    PROTECTION_MANAGER.with_borrow(|cell| cell.clone())
 }
 
 /// Utility functions for copy protection

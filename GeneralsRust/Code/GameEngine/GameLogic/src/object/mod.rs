@@ -2386,13 +2386,16 @@ pub struct Object {
     // Modules - using Arc<Mutex<>> for thread safety
     behaviors: Vec<Arc<Mutex<dyn BehaviorModuleInterface>>>,
     modules: Vec<Arc<ModuleEntry>>,
-    body_module_handles: Vec<Arc<ModuleEntry>>,
-    die_module_handles: Vec<Arc<ModuleEntry>>,
-    update_module_handles: Vec<Arc<ModuleEntry>>,
+    // Interface handle lists index into `modules` (C++ keeps m_moduleList plus
+    // small friend arrays; entries are never removed individually, so the
+    // indices stay stable until the list is released in onDestroy).
+    body_module_handles: Vec<usize>,
+    die_module_handles: Vec<usize>,
+    update_module_handles: Vec<usize>,
     update_module_registrations: Vec<UpdateModulePtr>,
-    collide_module_handles: Vec<Arc<ModuleEntry>>,
-    contain_module_handles: Vec<Arc<ModuleEntry>>,
-    upgrade_module_handles: Vec<Arc<ModuleEntry>>,
+    collide_module_handles: Vec<usize>,
+    contain_module_handles: Vec<usize>,
+    upgrade_module_handles: Vec<usize>,
     body: Option<Arc<Mutex<dyn BodyModuleInterface>>>,
     contain: Option<Arc<Mutex<dyn ContainModuleInterface>>>,
     stealth: Option<StealthUpdateHandle>,
@@ -2486,7 +2489,16 @@ pub struct Object {
     safe_occlusion_frame: UnsignedInt,
     carrier_deck_height: Real,
 
-    // Drawable association
+    // Drawable association. NOT single-owner: this is a shared handle, not the
+    // owner. The authoritative owner is the client-side registry
+    // (`TheGameClient` `ClientVisualState::drawables`), which also holds
+    // objectless drawables (beams, lockon cursors, ropes). Other live borrows
+    // of the same `Arc`: `Drawable.attachments`, chinook `RopeInfo::
+    // rope_drawable`, garrison `GarrisonPointData::effect`, and the
+    // presentation frame, which reads registry entries at render time
+    // (`Main/src/presentation_frame/queries.rs`). C++ mirrors this with the
+    // Drawable owned by the client DrawableManager and `Object::m_drawable` a
+    // raw pointer; `Option<Box<Drawable>>` would orphan objectless drawables.
     drawable: Option<Arc<RwLock<Drawable>>>,
 
     // Visibility flags for rendering (per-player fog-of-war)

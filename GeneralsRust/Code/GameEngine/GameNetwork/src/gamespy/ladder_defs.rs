@@ -221,15 +221,21 @@ impl LadderList {
     }
 }
 
-static THE_LADDER_LIST: OnceLock<Arc<RwLock<LadderList>>> = OnceLock::new();
+/// THREAD: C++-parity global ladder list. GUI threads read (and reload) it
+/// from menu code while the ladder loader may refresh entries; this single
+/// RwLock is the only cross-thread handoff and is never held across an
+/// `.await`.
+type SharedLadderList = Arc<RwLock<LadderList>>;
 
-pub fn init_ladder_list(config: &GameSpyConfig) -> Arc<RwLock<LadderList>> {
+static THE_LADDER_LIST: OnceLock<SharedLadderList> = OnceLock::new();
+
+pub fn init_ladder_list(config: &GameSpyConfig) -> SharedLadderList {
     THE_LADDER_LIST
         .get_or_init(|| Arc::new(RwLock::new(LadderList::new(config))))
         .clone()
 }
 
-pub fn get_ladder_list() -> Option<Arc<RwLock<LadderList>>> {
+pub fn get_ladder_list() -> Option<SharedLadderList> {
     THE_LADDER_LIST.get().cloned()
 }
 

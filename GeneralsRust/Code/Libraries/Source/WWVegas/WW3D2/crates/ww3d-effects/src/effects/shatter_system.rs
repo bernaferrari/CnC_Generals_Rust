@@ -8,8 +8,8 @@
 //! - dynamesh.h (dynamic mesh functionality)
 
 use glam::{Quat, Vec2, Vec3};
+use std::cell::RefCell;
 use std::collections::HashMap;
-use std::sync::{Mutex, OnceLock};
 use ww3d_core::errors::{W3DError, W3DResult as Result};
 use ww3d_renderer_3d::bounding_volumes::aabox::AABoxClass;
 use ww3d_renderer_3d::mesh::mesh_core::MeshClass;
@@ -506,34 +506,30 @@ const BPT_EPSILON: f32 = 0.0001;
 #[allow(dead_code)] // C++ parity
 const BPT_COINCIDENCE_EPSILON: f32 = 0.000001;
 
-fn shatter_system_store() -> &'static Mutex<Option<ShatterSystem>> {
-    static STORE: OnceLock<Mutex<Option<ShatterSystem>>> = OnceLock::new();
-    STORE.get_or_init(|| Mutex::new(None))
+thread_local! {
+    /// C++ kept the shatter system as a plain file static on the game thread.
+    static SHATTER_SYSTEM_SLOT: RefCell<Option<ShatterSystem>> = const { RefCell::new(None) };
 }
 
 fn with_shatter_system_mut<R, F>(f: F) -> Option<R>
 where
     F: FnOnce(&mut ShatterSystem) -> R,
 {
-    let mut slot = shatter_system_store().lock().ok()?;
-    let system = slot.as_mut()?;
-    Some(f(system))
+    SHATTER_SYSTEM_SLOT.with_borrow_mut(|slot| {
+        let system = slot.as_mut()?;
+        Some(f(system))
+    })
 }
 
 /// Initialize shatter system
 pub fn init_shatter_system() -> Result<()> {
-    let mut slot = shatter_system_store()
-        .lock()
-        .expect("shatter system lock poisoned");
-    *slot = Some(ShatterSystem::new());
+    SHATTER_SYSTEM_SLOT.with_borrow_mut(|slot| *slot = Some(ShatterSystem::new()));
     Ok(())
 }
 
 /// Shutdown shatter system
 pub fn shutdown_shatter_system() {
-    if let Ok(mut slot) = shatter_system_store().lock() {
-        *slot = None;
-    }
+    SHATTER_SYSTEM_SLOT.with_borrow_mut(|slot| *slot = None);
 }
 
 /// Quick shatter function

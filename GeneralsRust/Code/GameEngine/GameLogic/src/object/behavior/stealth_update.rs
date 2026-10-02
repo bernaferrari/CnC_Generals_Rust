@@ -677,12 +677,9 @@ impl StealthUpdate {
         let Ok(owner_guard) = owner_arc.read() else {
             return false;
         };
-        let Some(player_arc) = owner_guard.get_controlling_player() else {
-            return false;
-        };
 
         let mut has_black_market = false;
-        if let Ok(player_guard) = player_arc.read() {
+        owner_guard.with_controlling_player(|player_guard| {
             let _ = player_guard.iterate_object_ids(|object_id| {
                 if has_black_market {
                     return Ok(());
@@ -721,7 +718,7 @@ impl StealthUpdate {
 
                 Ok(())
             });
-        }
+        });
 
         has_black_market
     }

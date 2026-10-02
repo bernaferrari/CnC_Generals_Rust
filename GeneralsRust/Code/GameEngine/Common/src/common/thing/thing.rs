@@ -15,58 +15,79 @@ use crate::common::{
     system::{Coord3D, Matrix3D, kind_of::KindOfMask},
     thing::thing_template::ThingTemplate,
 };
-use std::sync::{Arc, Mutex, OnceLock};
+use std::cell::RefCell;
+use std::sync::Arc;
 
 /// Kind of type enumeration for object classification
 pub type KindOfType = u32;
 pub type KindOfMaskType = u64;
 
-/// Global terrain height provider, registered from GameLogic during init.
-/// Returns ground height at (x, y). Falls back to 0.0 if not registered.
-static GROUND_HEIGHT_PROVIDER: OnceLock<Mutex<Box<dyn Fn(f32, f32) -> f32 + Send + Sync>>> =
-    OnceLock::new();
+// Global terrain height provider, registered from GameLogic during init.
+// Returns ground height at (x, y). Falls back to 0.0 if not registered.
+// THREAD: C++ plain static; driven only by the single game/client thread.
+thread_local! {
+    static GROUND_HEIGHT_PROVIDER: RefCell<Option<Box<dyn Fn(f32, f32) -> f32 + Send + Sync>>>
+        = const { RefCell::new(None) };
+}
 
-/// Global underwater check provider, registered from GameLogic during init.
-/// Returns (is_underwater, water_level). Falls back to (false, 0.0) if not registered.
-static UNDERWATER_PROVIDER: OnceLock<Mutex<Box<dyn Fn(f32, f32) -> (bool, f32) + Send + Sync>>> =
-    OnceLock::new();
+// Global underwater check provider, registered from GameLogic during init.
+// Returns (is_underwater, water_level). Falls back to (false, 0.0) if not registered.
+// THREAD: C++ plain static; driven only by the single game/client thread.
+thread_local! {
+    static UNDERWATER_PROVIDER: RefCell<Option<Box<dyn Fn(f32, f32) -> (bool, f32) + Send + Sync>>>
+        = const { RefCell::new(None) };
+}
 
 /// Register a terrain height provider from the GameLogic layer.
 /// This is called once during game initialization.
 pub fn register_terrain_height_provider(
     provider: impl Fn(f32, f32) -> f32 + Send + Sync + 'static,
 ) {
-    GROUND_HEIGHT_PROVIDER.get_or_init(|| Mutex::new(Box::new(provider)));
+    GROUND_HEIGHT_PROVIDER.with_borrow_mut(|slot| {
+        if slot.is_none() {
+            *slot = Some(Box::new(provider));
+        }
+    });
 }
 
 /// Register an underwater check provider from the GameLogic layer.
 pub fn register_underwater_provider(
     provider: impl Fn(f32, f32) -> (bool, f32) + Send + Sync + 'static,
 ) {
-    UNDERWATER_PROVIDER.get_or_init(|| Mutex::new(Box::new(provider)));
+    UNDERWATER_PROVIDER.with_borrow_mut(|slot| {
+        if slot.is_none() {
+            *slot = Some(Box::new(provider));
+        }
+    });
 }
 
-/// C++ `TerrainLogic::alignOnTerrain(angle, pos, stickToGround, mtx)`.
-static ALIGN_ON_TERRAIN: OnceLock<
-    Mutex<Box<dyn Fn(Real, &Coord3D, bool, &mut Matrix3D) + Send + Sync>>,
-> = OnceLock::new();
+// C++ `TerrainLogic::alignOnTerrain(angle, pos, stickToGround, mtx)`.
+// THREAD: C++ plain static; driven only by the single game/client thread.
+thread_local! {
+    static ALIGN_ON_TERRAIN:
+        RefCell<Option<Box<dyn Fn(Real, &Coord3D, bool, &mut Matrix3D) + Send + Sync>>>
+        = const { RefCell::new(None) };
+}
 
 /// Register GameLogic `TerrainLogic::align_on_terrain` for STICK_TO_TERRAIN_SLOPE.
 pub fn register_align_on_terrain(
     provider: impl Fn(Real, &Coord3D, bool, &mut Matrix3D) + Send + Sync + 'static,
 ) {
-    let _ = ALIGN_ON_TERRAIN.set(Mutex::new(Box::new(provider)));
+    ALIGN_ON_TERRAIN.with_borrow_mut(|slot| {
+        if slot.is_none() {
+            *slot = Some(Box::new(provider));
+        }
+    });
 }
 
 fn align_on_terrain(angle: Real, pos: &Coord3D, stick_to_ground: bool, mtx: &mut Matrix3D) -> bool {
-    let Some(provider) = ALIGN_ON_TERRAIN.get() else {
-        return false;
-    };
-    let Ok(guard) = provider.lock() else {
-        return false;
-    };
-    guard(angle, pos, stick_to_ground, mtx);
-    true
+    ALIGN_ON_TERRAIN.with_borrow_mut(|slot| match slot.as_deref_mut() {
+        Some(provider) => {
+            provider(angle, pos, stick_to_ground, mtx);
+            true
+        }
+        None => false,
+    })
 }
 
 /// Cache flags for optimizing recalculations
@@ -226,21 +247,17 @@ impl BaseThing {
     /// Get ground height at coordinates via the registered terrain provider.
     /// Returns 0.0 if no provider is registered (before terrain init).
     fn get_ground_height(&self, x: Real, y: Real) -> Real {
-        GROUND_HEIGHT_PROVIDER
-            .get()
-            .and_then(|p| p.lock().ok())
-            .map(|f| f(x, y))
-            .unwrap_or(0.0)
+        GROUND_HEIGHT_PROVIDER.with_borrow(|slot| {
+            slot.as_deref().map_or(0.0, |f| f(x, y))
+        })
     }
 
     /// Check if underwater and get water level via the registered provider.
     /// Returns (false, 0.0) if no provider is registered.
     fn is_underwater(&self, x: Real, y: Real) -> (bool, Real) {
-        UNDERWATER_PROVIDER
-            .get()
-            .and_then(|p| p.lock().ok())
-            .map(|f| f(x, y))
-            .unwrap_or((false, 0.0))
+        UNDERWATER_PROVIDER.with_borrow(|slot| {
+            slot.as_deref().map_or((false, 0.0), |f| f(x, y))
+        })
     }
 
     /// C++ `getUnitDirectionVector2D`: Cos/Sin of cached angle, then VALID_DIRVECTOR.

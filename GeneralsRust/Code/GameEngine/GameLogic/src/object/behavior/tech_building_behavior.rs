@@ -210,9 +210,7 @@ impl UpdateModuleInterface for TechBuildingBehavior {
         // Update our model condition for the captured status
         let is_playable_side = self
             .with_object(|obj_guard| {
-                obj_guard
-                    .get_controlling_player()
-                    .and_then(|player| player.read().ok().map(|p| p.is_playable_side()))
+                obj_guard.with_controlling_player(|p| p.is_playable_side())
             })?
             .unwrap_or(false);
 

@@ -1,13 +1,11 @@
 //! Audio-specific list and collection utilities.
 
 use crate::error::Result;
-use parking_lot::RwLock;
 use std::collections::{HashMap, VecDeque};
-use std::sync::Arc;
 
-/// Thread-safe audio list with priority ordering
+/// Audio list with priority ordering, owned by its creator.
 pub struct AudioList<T> {
-    items: Arc<RwLock<Vec<AudioListItem<T>>>>,
+    items: Vec<AudioListItem<T>>,
     capacity: usize,
     auto_sort: bool,
 }
@@ -20,15 +18,15 @@ pub struct AudioListItem<T> {
     pub timestamp: std::time::Instant,
 }
 
-/// Audio queue for FIFO operations
+/// Audio queue for FIFO operations, owned by its creator.
 pub struct AudioQueue<T> {
-    queue: Arc<RwLock<VecDeque<T>>>,
+    queue: VecDeque<T>,
     max_size: usize,
 }
 
-/// Audio hash map with priority-based eviction
+/// Audio hash map with priority-based eviction, owned by its creator.
 pub struct AudioHashMap<K, V> {
-    map: Arc<RwLock<HashMap<K, AudioMapEntry<V>>>>,
+    map: HashMap<K, AudioMapEntry<V>>,
     max_entries: usize,
 }
 
@@ -45,15 +43,15 @@ impl<T> AudioList<T> {
     /// Create new audio list
     pub fn new(capacity: usize, auto_sort: bool) -> Self {
         Self {
-            items: Arc::new(RwLock::new(Vec::with_capacity(capacity))),
+            items: Vec::with_capacity(capacity),
             capacity,
             auto_sort,
         }
     }
 
     /// Add item with priority
-    pub fn add(&self, data: T, priority: crate::Priority) -> Result<()> {
-        let mut items = self.items.write();
+    pub fn add(&mut self, data: T, priority: crate::Priority) -> Result<()> {
+        let items = &mut self.items;
 
         if items.len() >= self.capacity {
             // Remove lowest priority item
@@ -83,8 +81,8 @@ impl<T> AudioList<T> {
     }
 
     /// Remove item by index
-    pub fn remove(&self, index: usize) -> Option<T> {
-        let mut items = self.items.write();
+    pub fn remove(&mut self, index: usize) -> Option<T> {
+        let items = &mut self.items;
         if index < items.len() {
             Some(items.remove(index).data)
         } else {
@@ -97,8 +95,7 @@ impl<T> AudioList<T> {
     where
         T: Clone,
     {
-        let items = self.items.read();
-        items.get(index).cloned()
+        self.items.get(index).cloned()
     }
 
     /// Get all items with minimum priority
@@ -106,8 +103,7 @@ impl<T> AudioList<T> {
     where
         T: Clone,
     {
-        let items = self.items.read();
-        items
+        self.items
             .iter()
             .filter(|item| item.priority >= min_priority)
             .cloned()
@@ -115,36 +111,34 @@ impl<T> AudioList<T> {
     }
 
     /// Clear all items
-    pub fn clear(&self) {
-        let mut items = self.items.write();
-        items.clear();
+    pub fn clear(&mut self) {
+        self.items.clear();
     }
 
     /// Get current size
     pub fn len(&self) -> usize {
-        self.items.read().len()
+        self.items.len()
     }
 
     /// Check if empty
     pub fn is_empty(&self) -> bool {
-        self.items.read().is_empty()
+        self.items.is_empty()
     }
 
     /// Manually sort by priority
-    pub fn sort(&self) {
-        let mut items = self.items.write();
-        items.sort_by(|a, b| b.priority.cmp(&a.priority));
+    pub fn sort(&mut self) {
+        self.items.sort_by(|a, b| b.priority.cmp(&a.priority));
     }
 
     /// Remove items older than duration
-    pub fn cleanup_old(&self, max_age: std::time::Duration) -> usize {
-        let mut items = self.items.write();
+    pub fn cleanup_old(&mut self, max_age: std::time::Duration) -> usize {
         let now = std::time::Instant::now();
-        let initial_len = items.len();
+        let initial_len = self.items.len();
 
-        items.retain(|item| now.duration_since(item.timestamp) <= max_age);
+        self.items
+            .retain(|item| now.duration_since(item.timestamp) <= max_age);
 
-        initial_len - items.len()
+        initial_len - self.items.len()
     }
 }
 
@@ -152,14 +146,14 @@ impl<T> AudioQueue<T> {
     /// Create new audio queue
     pub fn new(max_size: usize) -> Self {
         Self {
-            queue: Arc::new(RwLock::new(VecDeque::with_capacity(max_size))),
+            queue: VecDeque::with_capacity(max_size),
             max_size,
         }
     }
 
     /// Push item to back of queue
-    pub fn push(&self, item: T) -> Result<()> {
-        let mut queue = self.queue.write();
+    pub fn push(&mut self, item: T) -> Result<()> {
+        let queue = &mut self.queue;
 
         if queue.len() >= self.max_size {
             queue.pop_front(); // Remove oldest
@@ -170,9 +164,8 @@ impl<T> AudioQueue<T> {
     }
 
     /// Pop item from front of queue
-    pub fn pop(&self) -> Option<T> {
-        let mut queue = self.queue.write();
-        queue.pop_front()
+    pub fn pop(&mut self) -> Option<T> {
+        self.queue.pop_front()
     }
 
     /// Peek at front item without removing
@@ -180,24 +173,22 @@ impl<T> AudioQueue<T> {
     where
         T: Clone,
     {
-        let queue = self.queue.read();
-        queue.front().cloned()
+        self.queue.front().cloned()
     }
 
     /// Get queue size
     pub fn len(&self) -> usize {
-        self.queue.read().len()
+        self.queue.len()
     }
 
     /// Check if queue is empty
     pub fn is_empty(&self) -> bool {
-        self.queue.read().is_empty()
+        self.queue.is_empty()
     }
 
     /// Clear all items
-    pub fn clear(&self) {
-        let mut queue = self.queue.write();
-        queue.clear();
+    pub fn clear(&mut self) {
+        self.queue.clear();
     }
 }
 
@@ -209,14 +200,14 @@ where
     /// Create new audio hash map
     pub fn new(max_entries: usize) -> Self {
         Self {
-            map: Arc::new(RwLock::new(HashMap::with_capacity(max_entries))),
+            map: HashMap::with_capacity(max_entries),
             max_entries,
         }
     }
 
     /// Insert item with priority
-    pub fn insert(&self, key: K, value: V, priority: crate::Priority) -> Result<()> {
-        let mut map = self.map.write();
+    pub fn insert(&mut self, key: K, value: V, priority: crate::Priority) -> Result<()> {
+        let map = &mut self.map;
 
         // If at capacity, evict lowest priority item
         if map.len() >= self.max_entries && !map.contains_key(&key) {
@@ -241,9 +232,8 @@ where
     }
 
     /// Get item and update access statistics
-    pub fn get(&self, key: &K) -> Option<V> {
-        let mut map = self.map.write();
-        if let Some(entry) = map.get_mut(key) {
+    pub fn get(&mut self, key: &K) -> Option<V> {
+        if let Some(entry) = self.map.get_mut(key) {
             entry.access_count += 1;
             entry.last_accessed = std::time::Instant::now();
             Some(entry.value.clone())
@@ -253,37 +243,33 @@ where
     }
 
     /// Remove item
-    pub fn remove(&self, key: &K) -> Option<V> {
-        let mut map = self.map.write();
-        map.remove(key).map(|entry| entry.value)
+    pub fn remove(&mut self, key: &K) -> Option<V> {
+        self.map.remove(key).map(|entry| entry.value)
     }
 
     /// Check if key exists
     pub fn contains_key(&self, key: &K) -> bool {
-        let map = self.map.read();
-        map.contains_key(key)
+        self.map.contains_key(key)
     }
 
     /// Get map size
     pub fn len(&self) -> usize {
-        self.map.read().len()
+        self.map.len()
     }
 
     /// Check if map is empty
     pub fn is_empty(&self) -> bool {
-        self.map.read().is_empty()
+        self.map.is_empty()
     }
 
     /// Clear all items
-    pub fn clear(&self) {
-        let mut map = self.map.write();
-        map.clear();
+    pub fn clear(&mut self) {
+        self.map.clear();
     }
 
     /// Get all keys
     pub fn keys(&self) -> Vec<K> {
-        let map = self.map.read();
-        map.keys().cloned().collect()
+        self.map.keys().cloned().collect()
     }
 }
 
@@ -309,34 +295,3 @@ where
     }
 }
 
-impl<T> Clone for AudioList<T> {
-    fn clone(&self) -> Self {
-        Self {
-            items: self.items.clone(),
-            capacity: self.capacity,
-            auto_sort: self.auto_sort,
-        }
-    }
-}
-
-impl<T> Clone for AudioQueue<T> {
-    fn clone(&self) -> Self {
-        Self {
-            queue: self.queue.clone(),
-            max_size: self.max_size,
-        }
-    }
-}
-
-impl<K, V> Clone for AudioHashMap<K, V>
-where
-    K: Eq + std::hash::Hash + Clone,
-    V: Clone,
-{
-    fn clone(&self) -> Self {
-        Self {
-            map: self.map.clone(),
-            max_entries: self.max_entries,
-        }
-    }
-}

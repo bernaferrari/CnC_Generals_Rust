@@ -587,25 +587,24 @@ impl AIFollowWaypointPathAsTeamState {
         }
 
         if self.core.move_as_group {
-            if let Some(player) = owner_guard.get_controlling_player() {
-                if let Ok(player_guard) = player.read() {
-                    if player_guard.is_skirmish_ai() {
-                        if let Some(group_id) = owner_guard.get_group_id() {
-                            let ai_store = the_ai(); if let Ok(ai_lock) = ai_store.read() {
-                                if let Some(group) = ai_lock.find_group(group_id) {
-                                    if let Ok(group_guard) = group.read() {
-                                        if let Some(center) = group_guard.get_center() {
-                                            let dx = center.x - self.core.goal_position.x;
-                                            let dy = center.y - self.core.goal_position.y;
-                                            let dist = (dx * dx + dy * dy).sqrt();
-                                            let num = group_guard.get_count() as f32;
-                                            let fudge = ai_lock
-                                                .get_ai_data()
-                                                .skirmish_group_fudge_value;
-                                            if dist <= num * fudge {
-                                                status = StateReturnType::Success;
-                                            }
-                                        }
+            let is_skirmish_ai = owner_guard
+                .with_controlling_player(|player_guard| player_guard.is_skirmish_ai())
+                .unwrap_or(false);
+            if is_skirmish_ai {
+                if let Some(group_id) = owner_guard.get_group_id() {
+                    let ai_store = the_ai(); if let Ok(ai_lock) = ai_store.read() {
+                        if let Some(group) = ai_lock.find_group(group_id) {
+                            if let Ok(group_guard) = group.read() {
+                                if let Some(center) = group_guard.get_center() {
+                                    let dx = center.x - self.core.goal_position.x;
+                                    let dy = center.y - self.core.goal_position.y;
+                                    let dist = (dx * dx + dy * dy).sqrt();
+                                    let num = group_guard.get_count() as f32;
+                                    let fudge = ai_lock
+                                        .get_ai_data()
+                                        .skirmish_group_fudge_value;
+                                    if dist <= num * fudge {
+                                        status = StateReturnType::Success;
                                     }
                                 }
                             }

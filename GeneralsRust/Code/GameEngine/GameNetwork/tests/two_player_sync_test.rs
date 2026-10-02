@@ -11,7 +11,7 @@
 
 use game_network::{NetCommand, TransportMessage, TransportProtocol, UdpConfig, UdpTransport};
 use std::net::SocketAddr;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::Duration;
 use tokio::time::sleep;
 
@@ -67,10 +67,10 @@ struct TwoPlayerTestContext {
     client_transport: Arc<UdpTransport>,
     server_addr: SocketAddr,
     client_addr: SocketAddr,
-    server_state: Arc<Mutex<SimpleGameState>>,
-    client_state: Arc<Mutex<SimpleGameState>>,
-    server_crcs: Arc<Mutex<Vec<u32>>>,
-    client_crcs: Arc<Mutex<Vec<u32>>>,
+    server_state: SimpleGameState,
+    client_state: SimpleGameState,
+    server_crcs: Vec<u32>,
+    client_crcs: Vec<u32>,
 }
 
 impl TwoPlayerTestContext {
@@ -100,10 +100,10 @@ impl TwoPlayerTestContext {
             client_transport,
             server_addr,
             client_addr,
-            server_state: Arc::new(Mutex::new(SimpleGameState::new())),
-            client_state: Arc::new(Mutex::new(SimpleGameState::new())),
-            server_crcs: Arc::new(Mutex::new(Vec::new())),
-            client_crcs: Arc::new(Mutex::new(Vec::new())),
+            server_state: SimpleGameState::new(),
+            client_state: SimpleGameState::new(),
+            server_crcs: Vec::new(),
+            client_crcs: Vec::new(),
         })
     }
 
@@ -113,30 +113,28 @@ impl TwoPlayerTestContext {
         Ok(())
     }
 
-    async fn simulate_frame(&self, frame: u32) -> Result<(), Box<dyn std::error::Error>> {
+    async fn simulate_frame(&mut self, frame: u32) -> Result<(), Box<dyn std::error::Error>> {
         // Both server and client execute the same frame
         // Server state
         {
-            let mut state = self.server_state.lock().unwrap();
-            state.apply_frame_info(frame);
-            state.advance_frame();
-            let crc = state.compute_crc();
-            self.server_crcs.lock().unwrap().push(crc);
+            self.server_state.apply_frame_info(frame);
+            self.server_state.advance_frame();
+            let crc = self.server_state.compute_crc();
+            self.server_crcs.push(crc);
         }
 
         // Client state (deterministic)
         {
-            let mut state = self.client_state.lock().unwrap();
-            state.apply_frame_info(frame);
-            state.advance_frame();
-            let crc = state.compute_crc();
-            self.client_crcs.lock().unwrap().push(crc);
+            self.client_state.apply_frame_info(frame);
+            self.client_state.advance_frame();
+            let crc = self.client_state.compute_crc();
+            self.client_crcs.push(crc);
         }
 
         // Verify CRCs match
         {
-            let server_crc = *self.server_crcs.lock().unwrap().last().unwrap();
-            let client_crc = *self.client_crcs.lock().unwrap().last().unwrap();
+            let server_crc = *self.server_crcs.last().unwrap();
+            let client_crc = *self.client_crcs.last().unwrap();
 
             assert_eq!(
                 server_crc, client_crc,
@@ -148,7 +146,7 @@ impl TwoPlayerTestContext {
         Ok(())
     }
 
-    async fn run_game_loop(&self, num_frames: u32) -> Result<(), Box<dyn std::error::Error>> {
+    async fn run_game_loop(&mut self, num_frames: u32) -> Result<(), Box<dyn std::error::Error>> {
         for frame in 0..num_frames {
             self.simulate_frame(frame).await?;
 
@@ -172,24 +170,27 @@ fn allocate_ephemeral_port() -> u16 {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore]
 async fn test_two_player_frame_sync() -> Result<(), Box<dyn std::error::Error>> {
-    let ctx = TwoPlayerTestContext::setup().await?;
+    let mut ctx = TwoPlayerTestContext::setup().await?;
 
     // Run 10 frames of synchronized gameplay
     ctx.run_game_loop(10).await?;
 
     // Verify both players have same state
-    let server_state = ctx.server_state.lock().unwrap();
-    let client_state = ctx.client_state.lock().unwrap();
-
-    assert_eq!(server_state.frame, client_state.frame);
-    assert_eq!(server_state.player_pos, client_state.player_pos);
-    assert_eq!(server_state.player_health, client_state.player_health);
+    assert_eq!(ctx.server_state.frame, ctx.client_state.frame);
+    assert_eq!(ctx.server_state.player_pos, ctx.client_state.player_pos);
+    assert_eq!(
+        ctx.server_state.player_health,
+        ctx.client_state.player_health
+    );
 
     // Verify CRC history matches
-    let server_crcs = ctx.server_crcs.lock().unwrap();
-    let client_crcs = ctx.client_crcs.lock().unwrap();
-    assert_eq!(server_crcs.len(), client_crcs.len());
-    for (i, (s, c)) in server_crcs.iter().zip(client_crcs.iter()).enumerate() {
+    assert_eq!(ctx.server_crcs.len(), ctx.client_crcs.len());
+    for (i, (s, c)) in ctx
+        .server_crcs
+        .iter()
+        .zip(ctx.client_crcs.iter())
+        .enumerate()
+    {
         assert_eq!(s, c, "CRC mismatch at frame {}", i);
     }
 
@@ -201,19 +202,14 @@ async fn test_two_player_frame_sync() -> Result<(), Box<dyn std::error::Error>> 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 #[ignore]
 async fn test_frame_state_sync() -> Result<(), Box<dyn std::error::Error>> {
-    let ctx = TwoPlayerTestContext::setup().await?;
+    let mut ctx = TwoPlayerTestContext::setup().await?;
 
     // Execute one frame
     ctx.simulate_frame(5).await?;
 
     // Verify both players have same frame number
-    {
-        let server_state = ctx.server_state.lock().unwrap();
-        let client_state = ctx.client_state.lock().unwrap();
-
-        assert_eq!(server_state.frame, client_state.frame);
-        assert_eq!(server_state.frame, 6); // advanced from 5
-    }
+    assert_eq!(ctx.server_state.frame, ctx.client_state.frame);
+    assert_eq!(ctx.server_state.frame, 6); // advanced from 5
 
     ctx.cleanup().await?;
     Ok(())

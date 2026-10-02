@@ -8,27 +8,27 @@
 //! - Rank calculations and promotions
 
 use crate::error::{NetworkError, NetworkResult};
-use crate::gamespy::{GameSpyEvent, MatchmakingPreferences};
+use crate::gamespy::{GameSpyEvent, MatchmakingPreferences, PersistentStorage};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::sync::Arc;
-use tokio::sync::{RwLock, broadcast};
+use tokio::sync::broadcast;
 use tracing::{debug, error, info, instrument, warn};
 
-/// Ladder system
+/// Ladder system. All state is owned by the GameSpy interface task; no handle
+/// escapes into a spawned task, so the fields are plain values and mutation
+/// goes through `&mut self` accessors. Persistent storage is not owned here —
+/// the owner passes its `&PersistentStorage` to the calls that persist.
 pub struct LadderSystem {
     /// Ladder configuration
     config: LadderConfig,
     /// Player rankings
-    rankings: Arc<RwLock<HashMap<String, PlayerRanking>>>,
+    rankings: HashMap<String, PlayerRanking>,
     /// Active tournaments
-    tournaments: Arc<RwLock<HashMap<String, Tournament>>>,
+    tournaments: HashMap<String, Tournament>,
     /// Ladder statistics
-    stats: Arc<RwLock<LadderStats>>,
+    stats: LadderStats,
     /// Event sender
     event_tx: broadcast::Sender<GameSpyEvent>,
-    /// Persistent storage
-    storage: Arc<RwLock<crate::gamespy::PersistentStorage>>,
 }
 
 /// Ladder configuration
@@ -163,38 +163,29 @@ impl Default for LadderConfig {
 
 impl LadderSystem {
     /// Create new ladder system
-    pub async fn new(
-        _config: Arc<RwLock<crate::gamespy::config::GameSpyConfig>>,
-        storage: Arc<RwLock<crate::gamespy::PersistentStorage>>,
-    ) -> NetworkResult<Self> {
+    pub async fn new() -> NetworkResult<Self> {
         let (event_tx, _) = broadcast::channel(1000);
 
         Ok(Self {
             config: LadderConfig::default(),
-            rankings: Arc::new(RwLock::new(HashMap::new())),
-            tournaments: Arc::new(RwLock::new(HashMap::new())),
-            stats: Arc::new(RwLock::new(LadderStats::default())),
+            rankings: HashMap::new(),
+            tournaments: HashMap::new(),
+            stats: LadderStats::default(),
             event_tx,
-            storage,
         })
     }
 
     /// Start ladder system
-    #[instrument(skip(self))]
-    pub async fn start(&mut self) -> NetworkResult<()> {
+    #[instrument(skip(self, storage))]
+    pub async fn start(&mut self, storage: &PersistentStorage) -> NetworkResult<()> {
         info!("Starting GameSpy ladder system");
-        let existing = {
-            let storage = self.storage.read().await;
-            storage.load_all_player_stats().await?
-        };
+        let existing = storage.load_all_player_stats().await?;
 
         if !existing.is_empty() {
-            let mut rankings = self.rankings.write().await;
             for ranking in existing {
-                rankings.insert(ranking.player_id.clone(), ranking);
+                self.rankings.insert(ranking.player_id.clone(), ranking);
             }
-            drop(rankings);
-            self.recalculate_stats().await;
+            self.recalculate_stats();
         }
         Ok(())
     }
@@ -226,38 +217,36 @@ impl LadderSystem {
 
     /// Get player stats
     pub async fn get_player_stats(&self, player_id: &str) -> Option<PlayerRanking> {
-        let rankings = self.rankings.read().await;
-        rankings.get(player_id).cloned()
+        self.rankings.get(player_id).cloned()
     }
 
     /// Update player stats
-    pub async fn update_player_stats(&mut self, player_id: String, ranking: PlayerRanking) {
-        {
-            let mut rankings = self.rankings.write().await;
-            rankings.insert(player_id.clone(), ranking.clone());
-        }
+    pub async fn update_player_stats(
+        &mut self,
+        storage: &PersistentStorage,
+        player_id: String,
+        ranking: PlayerRanking,
+    ) {
+        self.rankings.insert(player_id.clone(), ranking.clone());
 
-        if let Err(err) = self
-            .storage
-            .read()
-            .await
-            .save_player_stats(&player_id, ranking)
-            .await
-        {
+        if let Err(err) = storage.save_player_stats(&player_id, ranking).await {
             warn!("Failed to persist player stats {}: {}", player_id, err);
         }
 
-        self.recalculate_stats().await;
+        self.recalculate_stats();
     }
 
     /// Report match result
-    #[instrument(skip(self))]
-    pub async fn report_match_result(&self, winner: String, loser: String) -> NetworkResult<()> {
+    #[instrument(skip(self, storage))]
+    pub async fn report_match_result(
+        &mut self,
+        storage: &PersistentStorage,
+        winner: String,
+        loser: String,
+    ) -> NetworkResult<()> {
         // Update rankings based on match result
-        let mut rankings = self.rankings.write().await;
-
         // Get or create rankings
-        let mut winner_stats = rankings.remove(&winner).unwrap_or_else(|| PlayerRanking {
+        let mut winner_stats = self.rankings.remove(&winner).unwrap_or_else(|| PlayerRanking {
             player_id: winner.clone(),
             points: 1000,
             rank: RankTier::Bronze,
@@ -268,7 +257,7 @@ impl LadderSystem {
             last_activity: chrono::Utc::now(),
         });
 
-        let mut loser_stats = rankings.remove(&loser).unwrap_or_else(|| PlayerRanking {
+        let mut loser_stats = self.rankings.remove(&loser).unwrap_or_else(|| PlayerRanking {
             player_id: loser.clone(),
             points: 1000,
             rank: RankTier::Bronze,
@@ -299,20 +288,17 @@ impl LadderSystem {
         loser_stats.rank = Self::calculate_rank(loser_stats.points);
 
         // Put back in rankings
-        rankings.insert(winner.clone(), winner_stats.clone());
-        rankings.insert(loser.clone(), loser_stats.clone());
-        drop(rankings);
+        self.rankings.insert(winner.clone(), winner_stats.clone());
+        self.rankings.insert(loser.clone(), loser_stats.clone());
 
-        let storage = self.storage.read().await;
         if let Err(err) = storage.save_player_stats(&winner, winner_stats).await {
             warn!("Failed to persist winner stats {}: {}", winner, err);
         }
         if let Err(err) = storage.save_player_stats(&loser, loser_stats).await {
             warn!("Failed to persist loser stats {}: {}", loser, err);
         }
-        drop(storage);
 
-        self.recalculate_stats().await;
+        self.recalculate_stats();
 
         Ok(())
     }
@@ -332,19 +318,17 @@ impl LadderSystem {
 
     /// Get top players
     pub async fn get_top_players(&self, limit: usize) -> Vec<PlayerRanking> {
-        let rankings = self.rankings.read().await;
-        let mut players: Vec<_> = rankings.values().cloned().collect();
+        let mut players: Vec<_> = self.rankings.values().cloned().collect();
         players.sort_by(|a, b| b.points.cmp(&a.points));
         players.into_iter().take(limit).collect()
     }
 
     /// Get player rank
     pub async fn get_player_rank(&self, player_id: &str) -> Option<usize> {
-        let rankings = self.rankings.read().await;
-        let player_points = rankings.get(player_id)?.points;
+        let player_points = self.rankings.get(player_id)?.points;
 
         let mut rank = 1;
-        for (_, ranking) in rankings.iter() {
+        for ranking in self.rankings.values() {
             if ranking.points > player_points {
                 rank += 1;
             }
@@ -359,18 +343,18 @@ impl LadderSystem {
         false
     }
 
-    async fn recalculate_stats(&self) {
-        let rankings = self.rankings.read().await;
-        let total_players = rankings.len() as u64;
-        let total_games: u64 = rankings
+    fn recalculate_stats(&mut self) {
+        let total_players = self.rankings.len() as u64;
+        let total_games: u64 = self
+            .rankings
             .values()
             .map(|player| player.games_played as u64)
             .sum();
 
-        let mut stats = self.stats.write().await;
-        stats.total_players = total_players;
-        stats.total_games = total_games;
-        stats.peak_concurrent = stats
+        self.stats.total_players = total_players;
+        self.stats.total_games = total_games;
+        self.stats.peak_concurrent = self
+            .stats
             .peak_concurrent
             .max(total_players.min(u64::from(u32::MAX)) as u32);
     }

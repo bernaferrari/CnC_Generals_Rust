@@ -23,7 +23,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
-use tokio::sync::{RwLock, Semaphore, broadcast, mpsc};
+use tokio::sync::{RwLock, Semaphore, broadcast};
 use tokio::task::JoinHandle;
 use tokio::time::{interval, timeout};
 use tracing::{debug, error, info, trace, warn};
@@ -297,8 +297,10 @@ pub struct EnhancedConnectionManager {
     #[cfg(not(feature = "performance"))]
     connections: Arc<RwLock<HashMap<u8, Arc<Connection>>>>,
 
-    /// Connection state machines
-    connection_states: Arc<RwLock<HashMap<u8, ConnectionStateMachine>>>,
+    /// THREAD: per-player tables (state machines, file transfers, disconnect
+    /// votes) written by the game thread through `&self` accessors and never
+    /// touched by a spawned task, so one short-critical-section lock suffices.
+    tables: Arc<RwLock<ManagerTables>>,
 
     /// Reliability layer
     reliability: ReliabilityLayer,
@@ -310,24 +312,12 @@ pub struct EnhancedConnectionManager {
     config: ConnectionConfig,
     frame_config: FrameSyncConfig,
 
-    /// File transfers
-    active_transfers: Arc<RwLock<HashMap<Uuid, FileTransferState>>>,
-
-    /// Disconnect votes
-    disconnect_votes: Arc<RwLock<HashMap<u8, DisconnectVote>>>,
-
-    /// Statistics
-    global_stats: Arc<RwLock<ManagerStats>>,
-
     /// Message routing and processing
-    command_queue: Arc<RwLock<VecDeque<(u8, NetCommand)>>>,
     frame_timer: Option<JoinHandle<()>>,
     message_processor: Option<JoinHandle<()>>,
 
     /// Control channels
     shutdown_tx: broadcast::Sender<()>,
-    command_tx: mpsc::Sender<NetCommand>,
-    command_rx: Arc<RwLock<mpsc::Receiver<NetCommand>>>,
 
     /// Semaphores for rate limiting
     connection_semaphore: Arc<Semaphore>,
@@ -335,7 +325,27 @@ pub struct EnhancedConnectionManager {
 
     /// Frame counter
     frame_counter: AtomicU64,
-    last_frame_time: Arc<RwLock<NetworkInstant>>,
+
+    /// THREAD: run state shared with the message-processor task - the game thread
+    /// enqueues commands and reads statistics while that task drains the queue, so
+    /// the queue, statistics, and last-frame timestamp travel as one bundle.
+    run_state: Arc<RwLock<ManagerRun>>,
+}
+
+/// Per-player tables owned by the connection manager (see `Manager::tables`).
+#[derive(Default)]
+struct ManagerTables {
+    connection_states: HashMap<u8, ConnectionStateMachine>,
+    active_transfers: HashMap<Uuid, FileTransferState>,
+    disconnect_votes: HashMap<u8, DisconnectVote>,
+}
+
+/// Queue/statistics bundle shared with the message-processor task
+/// (see `Manager::run_state`).
+struct ManagerRun {
+    command_queue: VecDeque<(u8, NetCommand)>,
+    global_stats: ManagerStats,
+    last_frame_time: NetworkInstant,
 }
 
 /// Manager-wide statistics
@@ -381,7 +391,6 @@ impl EnhancedConnectionManager {
         info!("Creating enhanced connection manager");
 
         let (shutdown_tx, _) = broadcast::channel(16);
-        let (command_tx, command_rx) = mpsc::channel(10000);
 
         let connection_pool = ConnectionPool::with_config(transport.clone(), pool_config);
         let reliability = ReliabilityLayer::with_config(ReliabilityConfig::default());
@@ -393,24 +402,22 @@ impl EnhancedConnectionManager {
             connections: Arc::new(DashMap::new()),
             #[cfg(not(feature = "performance"))]
             connections: Arc::new(RwLock::new(HashMap::new())),
-            connection_states: Arc::new(RwLock::new(HashMap::new())),
+            tables: Arc::new(RwLock::new(ManagerTables::default())),
             reliability,
             frame_sync: Arc::new(RwLock::new(FrameSync::new(frame_config.clone()))),
             config,
             frame_config,
-            active_transfers: Arc::new(RwLock::new(HashMap::new())),
-            disconnect_votes: Arc::new(RwLock::new(HashMap::new())),
-            global_stats: Arc::new(RwLock::new(ManagerStats::default())),
-            command_queue: Arc::new(RwLock::new(VecDeque::new())),
             frame_timer: None,
             message_processor: None,
             shutdown_tx,
-            command_tx,
-            command_rx: Arc::new(RwLock::new(command_rx)),
+            run_state: Arc::new(RwLock::new(ManagerRun {
+                command_queue: VecDeque::new(),
+                global_stats: ManagerStats::default(),
+                last_frame_time: NetworkInstant::now(),
+            })),
             connection_semaphore: Arc::new(Semaphore::new(8)), // Max 8 players
             command_semaphore: Arc::new(Semaphore::new(1000)),
             frame_counter: AtomicU64::new(0),
-            last_frame_time: Arc::new(RwLock::new(NetworkInstant::now())),
         };
 
         Ok(manager)
@@ -477,13 +484,13 @@ impl EnhancedConnectionManager {
 
         // Initialize state machine
         {
-            let mut states = self.connection_states.write().await;
+            let mut tables = self.tables.write().await;
             let mut state_machine = ConnectionStateMachine::new();
             state_machine.transition_to(
                 DetailedConnectionState::ConnectingInitiate,
                 TransitionReason::UserAction,
             )?;
-            states.insert(player_id, state_machine);
+            tables.connection_states.insert(player_id, state_machine);
         }
 
         // Add to frame sync
@@ -503,9 +510,9 @@ impl EnhancedConnectionManager {
 
         // Update statistics
         {
-            let mut stats = self.global_stats.write().await;
-            stats.total_connections += 1;
-            stats.active_connections += 1;
+            let mut run = self.run_state.write().await;
+            run.global_stats.total_connections += 1;
+            run.global_stats.active_connections += 1;
         }
 
         info!("Successfully added connection for player {}", player_id);
@@ -551,16 +558,16 @@ impl EnhancedConnectionManager {
             frame_sync.remove_player(player_id);
         }
 
-        // Remove state machine
         {
-            let mut states = self.connection_states.write().await;
-            states.remove(&player_id);
+            let mut tables = self.tables.write().await;
+            tables.connection_states.remove(&player_id);
         }
 
         // Update statistics
         {
-            let mut stats = self.global_stats.write().await;
-            stats.active_connections = stats.active_connections.saturating_sub(1);
+            let mut run = self.run_state.write().await;
+            run.global_stats.active_connections =
+                run.global_stats.active_connections.saturating_sub(1);
         }
 
         info!("Successfully removed connection for player {}", player_id);
@@ -648,10 +655,11 @@ impl EnhancedConnectionManager {
             // Process commands for this frame
             for command in commands {
                 // Add to command queue for processing
-                {
-                    let mut queue = self.command_queue.write().await;
-                    queue.push_back((command.player_id, command));
-                }
+                self.run_state
+                    .write()
+                    .await
+                    .command_queue
+                    .push_back((command.player_id, command));
             }
 
             // Update frame sync
@@ -660,25 +668,22 @@ impl EnhancedConnectionManager {
                 frame_sync.advance_frame();
             }
 
-            // Update statistics
+            // Update statistics (the queue bundle also carries the frame timer)
             {
-                let mut stats = self.global_stats.write().await;
-                stats.frames_executed += 1;
+                let mut run = self.run_state.write().await;
+                run.global_stats.frames_executed += 1;
 
-                let frame_time = {
-                    let mut last_time = self.last_frame_time.write().await;
-                    let now = NetworkInstant::now();
-                    let elapsed = now.duration_since(*last_time).as_millis() as f64;
-                    *last_time = now;
-                    elapsed
-                };
+                let now = NetworkInstant::now();
+                let frame_time =
+                    now.duration_since(run.last_frame_time).as_millis() as f64;
+                run.last_frame_time = now;
 
                 // Update average frame time
-                if stats.average_frame_time_ms == 0.0 {
-                    stats.average_frame_time_ms = frame_time;
+                if run.global_stats.average_frame_time_ms == 0.0 {
+                    run.global_stats.average_frame_time_ms = frame_time;
                 } else {
-                    stats.average_frame_time_ms =
-                        stats.average_frame_time_ms * 0.9 + frame_time * 0.1;
+                    run.global_stats.average_frame_time_ms =
+                        run.global_stats.average_frame_time_ms * 0.9 + frame_time * 0.1;
                 }
             }
         }
@@ -724,8 +729,7 @@ impl EnhancedConnectionManager {
 
     /// Start message processor
     async fn start_message_processor(&mut self) -> NetworkResult<()> {
-        let command_queue = self.command_queue.clone();
-        let global_stats = self.global_stats.clone();
+        let run_state = self.run_state.clone();
         let mut shutdown_rx = self.shutdown_tx.subscribe();
 
         let handle = tokio::spawn(async move {
@@ -738,7 +742,8 @@ impl EnhancedConnectionManager {
                     _ = interval.tick() => {
                         // Process queued commands
                         let commands_to_process = {
-                            let mut queue = command_queue.write().await;
+                            let mut run = run_state.write().await;
+                            let queue = &mut run.command_queue;
                             let mut commands = Vec::new();
 
                             // Process up to 100 commands per tick to avoid blocking
@@ -763,7 +768,8 @@ impl EnhancedConnectionManager {
 
                             // Update statistics
                             {
-                                let mut stats = global_stats.write().await;
+                                let mut run = run_state.write().await;
+                                let stats = &mut run.global_stats;
                                 stats.messages_processed += commands_count as u64;
 
                                 // Update commands per second periodically
@@ -793,7 +799,7 @@ impl EnhancedConnectionManager {
 
     /// Get comprehensive manager statistics
     pub async fn get_stats(&self) -> ManagerStats {
-        let mut stats = self.global_stats.read().await.clone();
+        let mut stats = self.run_state.read().await.global_stats.clone();
 
         // Update real-time stats
         #[cfg(feature = "performance")]
@@ -1127,8 +1133,11 @@ impl EnhancedConnectionManager {
                 completion_status: [(command.player_id, true)].into_iter().collect(),
             };
 
-            let mut transfers = self.active_transfers.write().await;
-            transfers.insert(transfer_id, state);
+            self.tables
+                .write()
+                .await
+                .active_transfers
+                .insert(transfer_id, state);
         }
         Ok(())
     }
@@ -1167,7 +1176,8 @@ impl EnhancedConnectionManager {
     /// Vote for player disconnect
     /// Matches C++ ConnectionManager::voteForPlayerDisconnect()
     pub async fn vote_for_player_disconnect(&self, target_player: u8) -> NetworkResult<()> {
-        let mut votes = self.disconnect_votes.write().await;
+        let mut tables = self.tables.write().await;
+        let votes = &mut tables.disconnect_votes;
 
         let vote = votes
             .entry(target_player)
@@ -1294,8 +1304,8 @@ impl EnhancedConnectionManager {
     /// Get file transfer progress
     /// Matches C++ ConnectionManager::getFileTransferProgress()
     pub async fn get_file_transfer_progress(&self, player_id: u8, _path: &str) -> i32 {
-        let transfers = self.active_transfers.read().await;
-        for (_, state) in transfers.iter() {
+        let tables = self.tables.read().await;
+        for (_, state) in tables.active_transfers.iter() {
             if state.participants.contains(&player_id) {
                 return ((state.transferred as f64 / state.total_size as f64) * 100.0) as i32;
             }
@@ -1306,8 +1316,7 @@ impl EnhancedConnectionManager {
     /// Check if all queues are empty
     /// Matches C++ ConnectionManager::areAllQueuesEmpty()
     pub async fn are_all_queues_empty(&self) -> bool {
-        let queue = self.command_queue.read().await;
-        queue.is_empty()
+        self.run_state.read().await.command_queue.is_empty()
     }
 }
 

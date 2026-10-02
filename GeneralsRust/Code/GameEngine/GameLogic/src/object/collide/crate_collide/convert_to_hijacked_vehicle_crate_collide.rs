@@ -343,9 +343,9 @@ impl ConvertToHijackedVehicleCrateCollide {
         // Transfer ownership to hijacker's team.
         {
             let new_team = hijacker.read().ok().and_then(|hijacker_guard| {
-                hijacker_guard.get_controlling_player().and_then(|player_arc| {
-                    player_arc.read().ok().and_then(|player_guard| player_guard.get_default_team())
-                })
+                hijacker_guard
+                    .with_controlling_player(|player_guard| player_guard.get_default_team())
+                    .unwrap_or(None)
             });
 
             if let Some(team) = new_team {

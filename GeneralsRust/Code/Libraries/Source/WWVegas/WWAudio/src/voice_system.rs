@@ -14,7 +14,7 @@ use log::{debug, trace, warn};
 use std::{
     collections::{HashMap, VecDeque},
     sync::{
-        Arc, Mutex,
+        Arc,
         atomic::{AtomicU64, Ordering},
     },
     time::{Duration, Instant},
@@ -106,17 +106,21 @@ impl Default for VoiceSystemConfig {
 }
 
 /// Voice playback system - matches C++ LogicalSound voice management
+///
+/// Plain owned state: the voice system is driven from the game loop
+/// (`play_*` / `update`) and only forwards commands to the mixer, so the
+/// queue and bookkeeping tables need no lock.
 pub struct VoiceSystem {
     mixer: Arc<AudioMixer>,
     config: VoiceSystemConfig,
 
     next_request_id: AtomicU64,
-    voice_queue: Arc<Mutex<VecDeque<VoiceRequest>>>,
-    active_voices: Arc<Mutex<HashMap<u64, ActiveVoice>>>,
+    voice_queue: VecDeque<VoiceRequest>,
+    active_voices: HashMap<u64, ActiveVoice>,
 
     // Voice ducking for priority management
     ducking_enabled: bool,
-    ducked_voices: Arc<Mutex<HashMap<VoiceHandle, f32>>>, // Handle -> original volume
+    ducked_voices: HashMap<VoiceHandle, f32>, // Handle -> original volume
 }
 
 impl VoiceSystem {
@@ -125,16 +129,16 @@ impl VoiceSystem {
             mixer,
             config,
             next_request_id: AtomicU64::new(1),
-            voice_queue: Arc::new(Mutex::new(VecDeque::new())),
-            active_voices: Arc::new(Mutex::new(HashMap::new())),
+            voice_queue: VecDeque::new(),
+            active_voices: HashMap::new(),
             ducking_enabled: true,
-            ducked_voices: Arc::new(Mutex::new(HashMap::new())),
+            ducked_voices: HashMap::new(),
         }
     }
 
     /// Play a voice with automatic priority management
     pub fn play_voice(
-        &self,
+        &mut self,
         source: Arc<AudioSource>,
         category: VoiceCategory,
         priority: Option<Priority>,
@@ -155,50 +159,31 @@ impl VoiceSystem {
             submitted_at: Instant::now(),
         };
 
-        let mut queue = self.voice_queue.lock().unwrap();
-
         // Check if we should play immediately or queue
-        let active_count = self.active_voices.lock().unwrap().len();
-
-        if active_count < self.config.max_concurrent_voices {
+        if self.active_voices.len() < self.config.max_concurrent_voices {
             // Can play immediately
-            drop(queue);
             self.start_voice_playback(request);
+        } else if request.interrupt_lower_priority
+            && self.try_interrupt_lower_priority(&request)
+        {
+            self.start_voice_playback(request);
+        } else if self.voice_queue.len() < self.config.max_queue_size {
+            // Queue it
+            self.voice_queue.push_back(request);
         } else {
-            // Need to queue or interrupt
-            if request.interrupt_lower_priority {
-                // Try to stop lower priority voices
-                if self.try_interrupt_lower_priority(&request) {
-                    drop(queue);
-                    self.start_voice_playback(request);
-                } else {
-                    // Queue it
-                    if queue.len() < self.config.max_queue_size {
-                        queue.push_back(request);
-                    } else {
-                        warn!("Voice queue full, dropping request {}", request_id);
-                    }
-                }
-            } else {
-                // Queue without interrupting
-                if queue.len() < self.config.max_queue_size {
-                    queue.push_back(request);
-                } else {
-                    warn!("Voice queue full, dropping request {}", request_id);
-                }
-            }
+            warn!("Voice queue full, dropping request {}", request_id);
         }
 
         request_id
     }
 
     /// Play a unit response voice (convenience method)
-    pub fn play_unit_response(&self, source: Arc<AudioSource>) -> u64 {
+    pub fn play_unit_response(&mut self, source: Arc<AudioSource>) -> u64 {
         self.play_voice(source, VoiceCategory::UnitResponse, None, None)
     }
 
     /// Play tactical alert voice (high priority)
-    pub fn play_tactical_alert(&self, source: Arc<AudioSource>) -> u64 {
+    pub fn play_tactical_alert(&mut self, source: Arc<AudioSource>) -> u64 {
         self.play_voice(
             source,
             VoiceCategory::TacticalAlert,
@@ -208,7 +193,7 @@ impl VoiceSystem {
     }
 
     /// Play mission dialogue
-    pub fn play_mission_dialogue(&self, source: Arc<AudioSource>) -> u64 {
+    pub fn play_mission_dialogue(&mut self, source: Arc<AudioSource>) -> u64 {
         self.play_voice(
             source,
             VoiceCategory::MissionDialogue,
@@ -218,9 +203,8 @@ impl VoiceSystem {
     }
 
     /// Stop a specific voice by request ID
-    pub fn stop_voice(&self, request_id: u64) {
-        let mut active = self.active_voices.lock().unwrap();
-        if let Some(active_voice) = active.remove(&request_id) {
+    pub fn stop_voice(&mut self, request_id: u64) {
+        if let Some(active_voice) = self.active_voices.remove(&request_id) {
             self.mixer
                 .stop_voice(active_voice.voice_handle, VoiceStopReason::Command);
             debug!("Stopped voice request {}", request_id);
@@ -228,9 +212,9 @@ impl VoiceSystem {
     }
 
     /// Stop all voices of a specific category
-    pub fn stop_category(&self, category: VoiceCategory) {
-        let mut active = self.active_voices.lock().unwrap();
-        let to_stop: Vec<_> = active
+    pub fn stop_category(&mut self, category: VoiceCategory) {
+        let to_stop: Vec<_> = self
+            .active_voices
             .iter()
             .filter(|(_, v)| v.category == category)
             .map(|(id, v)| (*id, v.voice_handle))
@@ -238,15 +222,14 @@ impl VoiceSystem {
 
         for (request_id, handle) in to_stop {
             self.mixer.stop_voice(handle, VoiceStopReason::Command);
-            active.remove(&request_id);
+            self.active_voices.remove(&request_id);
             debug!("Stopped voice {} in category {:?}", request_id, category);
         }
     }
 
     /// Stop all active voices
-    pub fn stop_all(&self) {
-        let mut active = self.active_voices.lock().unwrap();
-        for (request_id, voice) in active.drain() {
+    pub fn stop_all(&mut self) {
+        for (request_id, voice) in self.active_voices.drain() {
             self.mixer
                 .stop_voice(voice.voice_handle, VoiceStopReason::Command);
             debug!("Stopped voice {}", request_id);
@@ -254,7 +237,7 @@ impl VoiceSystem {
     }
 
     /// Update the voice system (call from game loop)
-    pub fn update(&self, _delta: Duration) {
+    pub fn update(&mut self, _delta: Duration) {
         // Clean up completed voices
         self.cleanup_completed_voices();
 
@@ -292,22 +275,22 @@ impl VoiceSystem {
 
     /// Check if a specific voice is currently playing
     pub fn is_voice_playing(&self, request_id: u64) -> bool {
-        self.active_voices.lock().unwrap().contains_key(&request_id)
+        self.active_voices.contains_key(&request_id)
     }
 
     /// Get count of active voices
     pub fn active_voice_count(&self) -> usize {
-        self.active_voices.lock().unwrap().len()
+        self.active_voices.len()
     }
 
     /// Get count of queued voices
     pub fn queued_voice_count(&self) -> usize {
-        self.voice_queue.lock().unwrap().len()
+        self.voice_queue.len()
     }
 
     // Internal methods
 
-    fn start_voice_playback(&self, request: VoiceRequest) {
+    fn start_voice_playback(&mut self, request: VoiceRequest) {
         let descriptor = VoiceDescriptor {
             source: Arc::clone(&request.source),
             params: VoiceParams {
@@ -336,10 +319,7 @@ impl VoiceSystem {
             expires_at: now + timeout_duration,
         };
 
-        self.active_voices
-            .lock()
-            .unwrap()
-            .insert(request.id, active_voice);
+        self.active_voices.insert(request.id, active_voice);
 
         debug!(
             "Started voice playback {} (category: {:?}, priority: {:?})",
@@ -347,21 +327,18 @@ impl VoiceSystem {
         );
     }
 
-    fn try_interrupt_lower_priority(&self, new_request: &VoiceRequest) -> bool {
-        let active = self.active_voices.lock().unwrap();
-
+    fn try_interrupt_lower_priority(&mut self, new_request: &VoiceRequest) -> bool {
         // Find lowest priority voice
-        let lowest = active.iter().min_by_key(|(_, v)| v.priority);
+        let target = self
+            .active_voices
+            .iter()
+            .min_by_key(|(_, v)| v.priority)
+            .map(|(id, v)| (*id, v.voice_handle, v.priority));
 
-        if let Some((request_id, voice)) = lowest {
-            if voice.priority < new_request.priority {
-                let request_id = *request_id;
-                let handle = voice.voice_handle;
-                let old_priority = voice.priority;
-                drop(active);
-
+        if let Some((request_id, handle, old_priority)) = target {
+            if old_priority < new_request.priority {
                 self.mixer.stop_voice(handle, VoiceStopReason::Command);
-                self.active_voices.lock().unwrap().remove(&request_id);
+                self.active_voices.remove(&request_id);
 
                 debug!(
                     "Interrupted voice {} (priority {:?}) for new voice {} (priority {:?})",
@@ -374,11 +351,10 @@ impl VoiceSystem {
         false
     }
 
-    fn cleanup_completed_voices(&self) {
-        let mut active = self.active_voices.lock().unwrap();
+    fn cleanup_completed_voices(&mut self) {
         let mut to_remove = Vec::new();
 
-        for (request_id, voice) in active.iter() {
+        for (request_id, voice) in self.active_voices.iter() {
             // Check if voice is still playing via mixer
             if let Some(timeline) = self.mixer.voice_timeline(voice.voice_handle) {
                 if matches!(timeline.state, crate::mixer::VoicePlaybackState::Completed) {
@@ -391,17 +367,16 @@ impl VoiceSystem {
         }
 
         for request_id in to_remove {
-            active.remove(&request_id);
+            self.active_voices.remove(&request_id);
             trace!("Removed completed voice {}", request_id);
         }
     }
 
-    fn timeout_expired_voices(&self) {
+    fn timeout_expired_voices(&mut self) {
         let now = Instant::now();
-        let mut active = self.active_voices.lock().unwrap();
         let mut to_stop = Vec::new();
 
-        for (request_id, voice) in active.iter() {
+        for (request_id, voice) in self.active_voices.iter() {
             if now >= voice.expires_at {
                 to_stop.push((*request_id, voice.voice_handle));
             }
@@ -409,50 +384,52 @@ impl VoiceSystem {
 
         for (request_id, handle) in to_stop {
             self.mixer.stop_voice(handle, VoiceStopReason::Command);
-            active.remove(&request_id);
+            self.active_voices.remove(&request_id);
             debug!("Timed out voice {}", request_id);
         }
     }
 
-    fn process_queue(&self) {
-        let active_count = self.active_voices.lock().unwrap().len();
-
-        if active_count < self.config.max_concurrent_voices {
-            let mut queue = self.voice_queue.lock().unwrap();
-
+    fn process_queue(&mut self) {
+        if self.active_voices.len() < self.config.max_concurrent_voices {
             // Take one voice from queue
-            if let Some(request) = queue.pop_front() {
-                drop(queue);
+            if let Some(request) = self.voice_queue.pop_front() {
                 self.start_voice_playback(request);
             }
         }
     }
 
-    fn update_ducking(&self) {
-        let active = self.active_voices.lock().unwrap();
-
+    fn update_ducking(&mut self) {
         // Find highest priority voice
-        let highest_priority = active.values().map(|v| v.priority).max();
+        let highest_priority = self.active_voices.values().map(|v| v.priority).max();
 
         if let Some(max_priority) = highest_priority {
-            // Duck voices with lower priority
-            for voice in active.values() {
-                if voice.priority < max_priority {
-                    self.duck_voice(voice.voice_handle, 0.3); // Duck to 30%
-                } else {
-                    self.restore_voice(voice.voice_handle);
-                }
+            let duck: Vec<VoiceHandle> = self
+                .active_voices
+                .values()
+                .filter(|v| v.priority < max_priority)
+                .map(|v| v.voice_handle)
+                .collect();
+            let restore: Vec<VoiceHandle> = self
+                .active_voices
+                .values()
+                .filter(|v| v.priority >= max_priority)
+                .map(|v| v.voice_handle)
+                .collect();
+
+            for handle in duck {
+                self.duck_voice(handle, 0.3); // Duck to 30%
+            }
+            for handle in restore {
+                self.restore_voice(handle);
             }
         }
     }
 
-    fn duck_voice(&self, handle: VoiceHandle, duck_volume: f32) {
-        let mut ducked = self.ducked_voices.lock().unwrap();
-
-        if !ducked.contains_key(&handle) {
+    fn duck_voice(&mut self, handle: VoiceHandle, duck_volume: f32) {
+        if !self.ducked_voices.contains_key(&handle) {
             // First time ducking this voice, save original volume
-            if let Some(timeline) = self.mixer.voice_timeline(handle) {
-                ducked.insert(handle, 1.0); // Assume original was 1.0
+            if self.mixer.voice_timeline(handle).is_some() {
+                self.ducked_voices.insert(handle, 1.0); // Assume original was 1.0
 
                 // Update voice with ducked volume
                 let mut params = VoiceParams::default();
@@ -462,20 +439,16 @@ impl VoiceSystem {
         }
     }
 
-    fn restore_voice(&self, handle: VoiceHandle) {
-        let mut ducked = self.ducked_voices.lock().unwrap();
-
-        if let Some(original_volume) = ducked.remove(&handle) {
+    fn restore_voice(&mut self, handle: VoiceHandle) {
+        if let Some(original_volume) = self.ducked_voices.remove(&handle) {
             let mut params = VoiceParams::default();
             params.gain = original_volume;
             self.mixer.update_voice_params(handle, params);
         }
     }
 
-    fn restore_all_ducked_voices(&self) {
-        let mut ducked = self.ducked_voices.lock().unwrap();
-
-        for (handle, original_volume) in ducked.drain() {
+    fn restore_all_ducked_voices(&mut self) {
+        for (handle, original_volume) in self.ducked_voices.drain() {
             let mut params = VoiceParams::default();
             params.gain = original_volume;
             self.mixer.update_voice_params(handle, params);

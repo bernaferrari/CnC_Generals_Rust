@@ -1581,12 +1581,7 @@ impl GameLogic {
                         .get(id)
                         .and_then(|obj| obj.read().ok())
                         .and_then(|guard| {
-                            guard.get_controlling_player().and_then(|player| {
-                                player
-                                    .read()
-                                    .ok()
-                                    .map(|p| p.get_player_index() == *player_index)
-                            })
+                            guard.with_controlling_player(|p| p.get_player_index() == *player_index)
                         })
                         .unwrap_or(false)
                 })

@@ -14,11 +14,10 @@ use super::crc_validator::GameStateCRCValidator;
 use super::desync_handler::{DesyncHandler, DesyncStatus, DesyncStrategy};
 use super::game_state::{CRCValue, FrameNumber, GameState, PlayerId};
 use crate::commands::GameCommandData;
-use crate::error::{NetworkError, NetworkResult};
+use crate::error::NetworkResult;
 use crate::time::NetworkInstant;
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tracing::{debug, error};
 
@@ -70,12 +69,15 @@ pub struct GameLoopStats {
 /// - Command execution
 /// - CRC validation
 /// - Desync detection
+///
+/// The executor owns the game state outright and drives the sub-components
+/// from a single call site, so no shared lock is needed.
 pub struct GameLoopExecutor<G: GameState> {
-    game_state: Arc<Mutex<G>>,
+    game_state: G,
     config: GameLoopConfig,
-    command_executor: CommandExecutor<G>,
-    crc_validator: GameStateCRCValidator<G>,
-    desync_handler: DesyncHandler<G>,
+    command_executor: CommandExecutor,
+    crc_validator: GameStateCRCValidator,
+    desync_handler: DesyncHandler,
     stats: GameLoopStats,
     frame_time_samples: Vec<f64>,
     max_frame_samples: usize,
@@ -83,13 +85,12 @@ pub struct GameLoopExecutor<G: GameState> {
 
 impl<G: GameState> GameLoopExecutor<G> {
     /// Create a new game loop executor
-    pub fn new(game_state: Arc<Mutex<G>>, config: GameLoopConfig) -> Self {
-        let command_executor = CommandExecutor::new(game_state.clone());
+    pub fn new(game_state: G, config: GameLoopConfig) -> Self {
+        let command_executor = CommandExecutor::new();
 
-        let crc_validator = GameStateCRCValidator::new(game_state.clone());
+        let crc_validator = GameStateCRCValidator::new();
 
         let desync_handler = DesyncHandler::with_settings(
-            game_state.clone(),
             config.desync_strategy,
             config.dump_directory.clone(),
         );
@@ -120,35 +121,25 @@ impl<G: GameState> GameLoopExecutor<G> {
         let start_time = NetworkInstant::now();
 
         // Get current frame before execution
-        let frame = {
-            let game = self
-                .game_state
-                .lock()
-                .map_err(|e| NetworkError::generic(format!("Failed to lock game state: {}", e)))?;
-            game.current_frame()
-        };
+        let frame = self.game_state.current_frame();
 
         debug!("Executing frame {} with {} commands", frame, commands.len());
 
         // Execute all commands in order
-        let executed_count = self.command_executor.execute_commands(&commands)?;
+        let executed_count = self
+            .command_executor
+            .execute_commands(&mut self.game_state, &commands)?;
 
         self.stats.commands_executed += executed_count as u64;
 
         // Advance frame
-        {
-            let mut game = self
-                .game_state
-                .lock()
-                .map_err(|e| NetworkError::generic(format!("Failed to lock game state: {}", e)))?;
-            game.advance_frame();
-        }
+        self.game_state.advance_frame();
 
         self.stats.frames_executed += 1;
 
         // Compute CRC if needed
         let crc = if self.config.enable_crc_validation && frame % self.config.crc_interval == 0 {
-            let crc_value = self.crc_validator.compute_crc(frame)?;
+            let crc_value = self.crc_validator.compute_crc(&self.game_state, frame)?;
             self.stats.crcs_computed += 1;
             debug!("Frame {} CRC: {:08x}", frame, crc_value);
             Some(crc_value)
@@ -176,7 +167,7 @@ impl<G: GameState> GameLoopExecutor<G> {
         }
 
         // Compute local CRC
-        let local_crc = self.crc_validator.compute_crc(frame)?;
+        let local_crc = self.crc_validator.compute_crc(&self.game_state, frame)?;
 
         // Detect desync
         let status = self
@@ -202,8 +193,13 @@ impl<G: GameState> GameLoopExecutor<G> {
                 // Handle each desynced player
                 for &player_id in &desynced_players {
                     if let Some(&remote_crc) = remote_crcs.get(&player_id) {
-                        self.desync_handler
-                            .handle_desync(frame, local_crc, remote_crc, player_id)?;
+                        self.desync_handler.handle_desync(
+                            &mut self.game_state,
+                            frame,
+                            local_crc,
+                            remote_crc,
+                            player_id,
+                        )?;
                     }
                 }
 
@@ -244,12 +240,7 @@ impl<G: GameState> GameLoopExecutor<G> {
 
     /// Get current frame number
     pub fn current_frame(&self) -> NetworkResult<FrameNumber> {
-        let game = self
-            .game_state
-            .lock()
-            .map_err(|e| NetworkError::generic(format!("Failed to lock game state: {}", e)))?;
-
-        Ok(game.current_frame())
+        Ok(self.game_state.current_frame())
     }
 
     /// Get target frame duration
@@ -278,9 +269,9 @@ pub mod example {
     ///
     /// ```rust,ignore
     /// // Initialize
-    /// let game_state = Arc::new(Mutex::new(MyGameState::new()));
+    /// let game_state = MyGameState::new();
     /// let config = GameLoopConfig::default();
-    /// let mut game_loop = GameLoopExecutor::new(game_state.clone(), config);
+    /// let mut game_loop = GameLoopExecutor::new(game_state, config);
     /// let mut network = NetworkInterface::new();
     ///
     /// // Main loop
@@ -405,7 +396,7 @@ mod tests {
 
     #[test]
     fn test_game_loop_executor_creation() {
-        let game_state = Arc::new(Mutex::new(MockGameState::new()));
+        let game_state = MockGameState::new();
         let config = GameLoopConfig::default();
         let executor = GameLoopExecutor::new(game_state, config);
 
@@ -414,9 +405,9 @@ mod tests {
 
     #[test]
     fn test_execute_frame() {
-        let game_state = Arc::new(Mutex::new(MockGameState::new()));
+        let game_state = MockGameState::new();
         let config = GameLoopConfig::default();
-        let mut executor = GameLoopExecutor::new(game_state.clone(), config);
+        let mut executor = GameLoopExecutor::new(game_state, config);
 
         let commands = vec![(
             0,
@@ -439,15 +430,14 @@ mod tests {
         assert_eq!(executor.get_stats().commands_executed, 1);
 
         // Verify frame advanced
-        let game = game_state.lock().unwrap();
-        assert_eq!(game.current_frame(), 1);
+        assert_eq!(executor.current_frame().unwrap(), 1);
     }
 
     #[test]
     fn test_execute_multiple_frames() {
-        let game_state = Arc::new(Mutex::new(MockGameState::new()));
+        let game_state = MockGameState::new();
         let config = GameLoopConfig::default();
-        let mut executor = GameLoopExecutor::new(game_state.clone(), config);
+        let mut executor = GameLoopExecutor::new(game_state, config);
 
         for _ in 0..10 {
             let commands = vec![];
@@ -456,18 +446,17 @@ mod tests {
 
         assert_eq!(executor.get_stats().frames_executed, 10);
 
-        let game = game_state.lock().unwrap();
-        assert_eq!(game.current_frame(), 10);
+        assert_eq!(executor.current_frame().unwrap(), 10);
     }
 
     #[test]
     fn test_crc_validation_synchronized() {
-        let game_state = Arc::new(Mutex::new(MockGameState::new()));
+        let game_state = MockGameState::new();
         let config = GameLoopConfig {
             crc_interval: 1, // Validate every frame
             ..Default::default()
         };
-        let mut executor = GameLoopExecutor::new(game_state.clone(), config);
+        let mut executor = GameLoopExecutor::new(game_state, config);
 
         // Execute frame
         let (frame, crc_opt) = executor.execute_frame(vec![]).unwrap();
@@ -486,7 +475,7 @@ mod tests {
 
     #[test]
     fn test_crc_validation_desynchronized() {
-        let game_state = Arc::new(Mutex::new(MockGameState::new()));
+        let game_state = MockGameState::new();
         let config = GameLoopConfig {
             crc_interval: 1,
             ..Default::default()
@@ -511,7 +500,7 @@ mod tests {
 
     #[test]
     fn test_frame_timing_stats() {
-        let game_state = Arc::new(Mutex::new(MockGameState::new()));
+        let game_state = MockGameState::new();
         let config = GameLoopConfig::default();
         let mut executor = GameLoopExecutor::new(game_state, config);
 

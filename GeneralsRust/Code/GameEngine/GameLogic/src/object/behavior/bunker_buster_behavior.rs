@@ -323,14 +323,12 @@ impl BunkerBusterBehavior {
 
         // Check if upgrade is required and active
         if let Some(upgrade) = &self.upgrade_required_resolved {
-            let Some(player_arc) = object_guard.get_controlling_player() else {
+            if object_guard
+                .with_controlling_player(|player_guard| player_guard.has_upgrade_complete(upgrade))
+                != Some(true)
+            {
                 return;
-            };
-            if let Ok(player_guard) = player_arc.read() {
-                if !player_guard.has_upgrade_complete(upgrade) {
-                    return;
-                }
-            };
+            }
         }
 
         // Find the target object
@@ -349,10 +347,7 @@ impl BunkerBusterBehavior {
                         if let Ok(mut contain_guard) = contain_handle.lock() {
                             if contain_guard.is_bustable() {
                                 let source_player_mask = object_guard
-                                    .get_controlling_player()
-                                    .and_then(|player| {
-                                        player.read().ok().map(|p| p.get_player_mask())
-                                    })
+                                    .with_controlling_player(|p| p.get_player_mask())
                                     .unwrap_or_else(PlayerMaskType::none);
 
                                 if let Some(weapon_template) =

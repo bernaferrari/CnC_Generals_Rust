@@ -11,7 +11,6 @@ use crate::{
     },
 };
 use log::{debug, info};
-use parking_lot::RwLock;
 use std::{
     sync::Arc,
     time::{Duration, Instant},
@@ -57,7 +56,9 @@ pub struct AudioChannel {
     pub id: u32,
     pub priority: Priority,
     pub is_playing: bool,
-    state: Arc<RwLock<ChannelState>>,
+    /// Owned playback state; only the game-thread owner of the channel
+    /// mutates it (every mutating method takes `&mut self`).
+    state: ChannelState,
     config: ChannelConfig,
     current_source: Option<crate::AudioSource>,
     start_time: Option<Instant>,
@@ -93,7 +94,7 @@ impl AudioChannel {
             id,
             priority,
             is_playing: false,
-            state: Arc::new(RwLock::new(ChannelState::Stopped)),
+            state: ChannelState::Stopped,
             config,
             current_source: None,
             start_time: None,
@@ -164,8 +165,7 @@ impl AudioChannel {
         self.position = Duration::ZERO;
 
         {
-            let mut state = self.state.write();
-            *state = ChannelState::Playing;
+            self.state = ChannelState::Playing;
         }
 
         if let Some(fade_duration) = self.config.fade_in_duration {
@@ -201,8 +201,7 @@ impl AudioChannel {
         }
 
         {
-            let mut state = self.state.write();
-            *state = ChannelState::Paused;
+            self.state = ChannelState::Paused;
         }
 
         // Update position before pausing
@@ -232,8 +231,7 @@ impl AudioChannel {
         }
 
         {
-            let mut state = self.state.write();
-            *state = ChannelState::Playing;
+            self.state = ChannelState::Playing;
         }
 
         self.is_playing = true;
@@ -260,10 +258,7 @@ impl AudioChannel {
             self.start_fade_out(fade_duration);
 
             // Set state to stopping, not stopped yet
-            {
-                let mut state = self.state.write();
-                *state = ChannelState::Stopping;
-            }
+            self.state = ChannelState::Stopping;
         } else {
             // Immediate stop
             self.stop_immediately_with_reason(VoiceStopReason::Command);
@@ -280,10 +275,7 @@ impl AudioChannel {
     pub fn stop_immediately_with_reason(&mut self, reason: VoiceStopReason) {
         self.stop_mixer_voice(reason);
 
-        {
-            let mut state = self.state.write();
-            *state = ChannelState::Stopped;
-        }
+        self.state = ChannelState::Stopped;
 
         self.is_playing = false;
         self.current_source = None;
@@ -307,7 +299,7 @@ impl AudioChannel {
 
     /// Get current channel state
     pub fn state(&self) -> ChannelState {
-        *self.state.read()
+        self.state
     }
 
     /// Wait for playback completion - matches C++ completion waiting

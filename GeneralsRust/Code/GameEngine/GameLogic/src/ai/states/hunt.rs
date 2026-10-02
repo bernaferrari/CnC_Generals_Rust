@@ -131,13 +131,7 @@ impl AIHuntState {
 
         if victim.is_none() {
             let units_should_hunt = owner
-                .get_controlling_player()
-                .and_then(|player| {
-                    player
-                        .read()
-                        .ok()
-                        .map(|guard| guard.get_units_should_hunt())
-                })
+                .with_controlling_player(|guard| guard.get_units_should_hunt())
                 .unwrap_or(false);
             if units_should_hunt {
                 let ai_store = the_ai();let fallback_id = ai_store.read().ok().and_then(|ai| {
@@ -270,13 +264,7 @@ impl ClassicState for AIHuntState {
             self.next_enemy_scan_time = now.saturating_add(ENEMY_SCAN_RATE);
 
             let units_should_hunt = owner_guard
-                .get_controlling_player()
-                .and_then(|player| {
-                    player
-                        .read()
-                        .ok()
-                        .map(|guard| guard.get_units_should_hunt())
-                })
+                .with_controlling_player(|guard| guard.get_units_should_hunt())
                 .unwrap_or(false);
             let victim = self.find_hunt_victim(&owner_guard);
             drop(owner_guard);

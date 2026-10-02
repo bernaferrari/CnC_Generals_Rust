@@ -328,19 +328,13 @@ impl DieModuleInterface for RebuildHoleExposeDie {
             return;
         }
 
-        let Some(player) = object.get_controlling_player() else {
-            return;
-        };
-        let Ok(player_guard) = player.read() else {
-            return;
-        };
-        if player_guard.get_player_type() == crate::player::PlayerType::Neutral {
+        let player_active = object.with_controlling_player(|player_guard| {
+            player_guard.get_player_type() != crate::player::PlayerType::Neutral
+                && player_guard.is_player_active()
+        });
+        if !player_active.unwrap_or(false) {
             return;
         }
-        if !player_guard.is_player_active() {
-            return;
-        }
-        drop(player_guard);
 
         if object
             .get_status_bits()

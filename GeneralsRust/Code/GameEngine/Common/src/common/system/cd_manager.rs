@@ -13,8 +13,8 @@
 //! Created: 11/26/01 TR
 //! Rust conversion: 2025
 
-use once_cell::sync::OnceCell;
-use std::sync::{Mutex, MutexGuard};
+use std::cell::RefCell;
+use std::rc::Rc;
 
 use crate::common::ascii_string::AsciiString;
 
@@ -232,28 +232,28 @@ impl CDManagerInterface for CDManager {
     }
 }
 
-/// Global CD manager instance
-static CD_MANAGER: OnceCell<Mutex<Box<dyn CDManagerInterface + Send + Sync>>> = OnceCell::new();
+// THREAD: C++ plain static; driven only by the single game/client thread.
+thread_local! {
+    static CD_MANAGER: RefCell<Option<Rc<RefCell<Box<dyn CDManagerInterface>>>>> =
+        const { RefCell::new(None) };
+}
 
 /// Initialize the global CD manager
 pub fn init_cd_manager() {
-    let mut manager = CDManager::new();
+    let mut manager = Box::new(CDManager::new());
     let _ = manager.init();
 
-    if CD_MANAGER.get().is_none() {
-        let _ = CD_MANAGER.set(Mutex::new(Box::new(manager)));
-    } else if let Some(cell) = CD_MANAGER.get() {
-        if let Ok(mut guard) = cell.lock() {
-            *guard = Box::new(manager);
+    CD_MANAGER.with_borrow_mut(|cell| match cell {
+        Some(manager_cell) => *manager_cell.borrow_mut() = manager,
+        None => {
+            *cell = Some(Rc::new(RefCell::new(manager)));
         }
-    }
+    });
 }
 
 /// Get reference to the global CD manager
-pub fn get_cd_manager() -> Option<MutexGuard<'static, Box<dyn CDManagerInterface + Send + Sync>>> {
-    CD_MANAGER
-        .get()
-        .map(|cell| cell.lock().expect("CDManager mutex poisoned"))
+pub fn get_cd_manager() -> Option<Rc<RefCell<Box<dyn CDManagerInterface>>>> {
+    CD_MANAGER.with_borrow(|cell| cell.clone())
 }
 
 #[cfg(test)]

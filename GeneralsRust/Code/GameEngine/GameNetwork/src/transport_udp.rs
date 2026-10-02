@@ -13,10 +13,11 @@ use crate::error::{NetworkError, NetworkResult};
 use crate::observability::telemetry;
 use crate::time::NetworkInstant;
 use crate::transport::{TransportMessage, TransportMetrics, TransportProtocol};
-use parking_lot::RwLock as SyncRwLock;
+use parking_lot::Mutex as SyncMutex;
 use std::collections::HashMap;
 use std::net::SocketAddr;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::Duration;
 use tokio::net::UdpSocket;
 use tokio::sync::broadcast;
@@ -179,22 +180,60 @@ pub fn xor_decrypt(data: &mut [u8]) {
     }
 }
 
+/// Configuration plus the NAT-discovered public address.
+///
+/// THREAD: read by `bind`/`send_message`/`update`/`config` and written by
+/// `set_bind_address`/`set_public_address`, all through the shared
+/// `Arc<Transport>` handle from arbitrary tasks (game loop, NAT service,
+/// bridge). One lock guards the small bundle; sections never span `.await`.
+struct TransportSettings {
+    config: TransportConfig,
+    public_address: Option<SocketAddr>,
+}
+
+/// Socket and receive-loop task created by `bind`.
+///
+/// THREAD: written by `bind`/`shutdown` and read by `send_message`, all on
+/// the shared `Arc<Transport>` handle from arbitrary tasks. Sections never
+/// span an `.await` (the socket handle is cloned out before any send).
+struct UdpRuntime {
+    socket: Option<Arc<UdpSocket>>,
+    receive_task: Option<JoinHandle<()>>,
+}
+
+/// Receive-side state shared with the spawned datagram loop.
+///
+/// THREAD: `inbound` is pushed by the receive task spawned in `bind` and
+/// drained by `receive_messages()` on any caller task; `active_connections`
+/// and `connection_births` are written by both the receive task and the
+/// owner's `update`/`shutdown`. One mutex bundles them; sections never span
+/// an `.await`.
+struct UdpSharedState {
+    inbound: Vec<TransportMessage>,
+    active_connections: HashMap<SocketAddr, NetworkInstant>,
+    connection_births: HashMap<SocketAddr, NetworkInstant>,
+}
+
+/// Per-transport throughput counters, shared with the receive task.
+struct UdpCounters {
+    packets_sent: AtomicU64,
+    packets_received: AtomicU64,
+    bytes_sent: AtomicU64,
+    bytes_received: AtomicU64,
+}
+
 /// UDP-based transport
 pub struct Transport {
-    config: SyncRwLock<TransportConfig>,
-    socket: Arc<Mutex<Option<Arc<UdpSocket>>>>,
-    is_bound: Arc<SyncRwLock<bool>>,
-    inbound_messages: Arc<Mutex<Vec<TransportMessage>>>,
-    outbound_messages: Arc<Mutex<Vec<TransportMessage>>>,
-    packets_sent: Arc<SyncRwLock<u64>>,
-    packets_received: Arc<SyncRwLock<u64>>,
-    bytes_sent: Arc<SyncRwLock<u64>>,
-    bytes_received: Arc<SyncRwLock<u64>>,
-    active_connections: Arc<Mutex<HashMap<SocketAddr, NetworkInstant>>>,
-    connection_births: Arc<Mutex<HashMap<SocketAddr, NetworkInstant>>>,
+    settings: SyncMutex<TransportSettings>,
+    runtime: SyncMutex<UdpRuntime>,
+    shared: Arc<SyncMutex<UdpSharedState>>,
+    counters: Arc<UdpCounters>,
+    /// Outbound log: appended by `send_message`, cleared by `shutdown`. Only
+    /// the owning handle's methods touch it.
+    outbound_messages: SyncMutex<Vec<TransportMessage>>,
+    /// Set by `bind`, cleared by `shutdown`, read by `is_ready`.
+    is_bound: AtomicBool,
     shutdown_tx: broadcast::Sender<()>,
-    receive_task: Arc<Mutex<Option<JoinHandle<()>>>>,
-    public_address: SyncRwLock<Option<SocketAddr>>,
 }
 
 impl Transport {
@@ -230,20 +269,28 @@ impl Transport {
         let (shutdown_tx, _) = broadcast::channel(4);
 
         Ok(Self {
-            config: SyncRwLock::new(config),
-            socket: Arc::new(Mutex::new(None)),
-            is_bound: Arc::new(SyncRwLock::new(false)),
-            inbound_messages: Arc::new(Mutex::new(Vec::new())),
-            outbound_messages: Arc::new(Mutex::new(Vec::new())),
-            packets_sent: Arc::new(SyncRwLock::new(0)),
-            packets_received: Arc::new(SyncRwLock::new(0)),
-            bytes_sent: Arc::new(SyncRwLock::new(0)),
-            bytes_received: Arc::new(SyncRwLock::new(0)),
-            active_connections: Arc::new(Mutex::new(HashMap::new())),
-            connection_births: Arc::new(Mutex::new(HashMap::new())),
+            settings: SyncMutex::new(TransportSettings {
+                config,
+                public_address: None,
+            }),
+            runtime: SyncMutex::new(UdpRuntime {
+                socket: None,
+                receive_task: None,
+            }),
+            shared: Arc::new(SyncMutex::new(UdpSharedState {
+                inbound: Vec::new(),
+                active_connections: HashMap::new(),
+                connection_births: HashMap::new(),
+            })),
+            counters: Arc::new(UdpCounters {
+                packets_sent: AtomicU64::new(0),
+                packets_received: AtomicU64::new(0),
+                bytes_sent: AtomicU64::new(0),
+                bytes_received: AtomicU64::new(0),
+            }),
+            outbound_messages: SyncMutex::new(Vec::new()),
+            is_bound: AtomicBool::new(false),
             shutdown_tx,
-            receive_task: Arc::new(Mutex::new(None)),
-            public_address: SyncRwLock::new(None),
         })
     }
 
@@ -262,55 +309,67 @@ impl Transport {
         let (shutdown_tx, _) = broadcast::channel(4);
 
         Arc::new(Self {
-            config: SyncRwLock::new(config),
-            socket: Arc::new(Mutex::new(None)),
-            is_bound: Arc::new(SyncRwLock::new(false)),
-            inbound_messages: Arc::new(Mutex::new(Vec::new())),
-            outbound_messages: Arc::new(Mutex::new(Vec::new())),
-            packets_sent: Arc::new(SyncRwLock::new(0)),
-            packets_received: Arc::new(SyncRwLock::new(0)),
-            bytes_sent: Arc::new(SyncRwLock::new(0)),
-            bytes_received: Arc::new(SyncRwLock::new(0)),
-            active_connections: Arc::new(Mutex::new(HashMap::new())),
-            connection_births: Arc::new(Mutex::new(HashMap::new())),
+            settings: SyncMutex::new(TransportSettings {
+                config,
+                public_address: None,
+            }),
+            runtime: SyncMutex::new(UdpRuntime {
+                socket: None,
+                receive_task: None,
+            }),
+            shared: Arc::new(SyncMutex::new(UdpSharedState {
+                inbound: Vec::new(),
+                active_connections: HashMap::new(),
+                connection_births: HashMap::new(),
+            })),
+            counters: Arc::new(UdpCounters {
+                packets_sent: AtomicU64::new(0),
+                packets_received: AtomicU64::new(0),
+                bytes_sent: AtomicU64::new(0),
+                bytes_received: AtomicU64::new(0),
+            }),
+            outbound_messages: SyncMutex::new(Vec::new()),
+            is_bound: AtomicBool::new(false),
             shutdown_tx,
-            receive_task: Arc::new(Mutex::new(None)),
-            public_address: SyncRwLock::new(None),
         })
     }
 
     /// Bind socket to configured address
     pub async fn bind(&self) -> NetworkResult<()> {
-        let config = self.config.read().clone();
+        let (bind_address, enable_broadcast) = {
+            let settings = self.settings.lock();
+            (
+                settings.config.bind_address,
+                settings.config.enable_broadcast,
+            )
+        };
 
-        if *self.is_bound.read() {
+        if self.is_bound.load(Ordering::SeqCst) {
             return Ok(());
         }
 
-        let socket = UdpSocket::bind(config.bind_address)
+        let socket = UdpSocket::bind(bind_address)
             .await
             .map_err(|e| NetworkError::transport(format!("Failed to bind UDP socket: {}", e)))?;
 
-        if config.enable_broadcast {
+        if enable_broadcast {
             socket.set_broadcast(true).map_err(|e| {
                 NetworkError::transport(format!("Failed to enable broadcast: {}", e))
             })?;
         }
 
-        *self.socket.lock().unwrap() = Some(Arc::new(socket));
-        *self.is_bound.write() = true;
+        self.runtime.lock().socket = Some(Arc::new(socket));
+        self.is_bound.store(true, Ordering::SeqCst);
 
         // Spawn receive task
         let receive_socket = self
-            .socket
+            .runtime
             .lock()
-            .unwrap()
+            .socket
             .clone()
             .ok_or_else(|| NetworkError::transport("Socket not bound"))?;
-        let inbound = self.inbound_messages.clone();
-        let packets_rx = self.packets_received.clone();
-        let bytes_rx = self.bytes_received.clone();
-        let active_conns = self.active_connections.clone();
+        let shared = Arc::clone(&self.shared);
+        let counters = Arc::clone(&self.counters);
         let mut shutdown = self.shutdown_tx.subscribe();
 
         let receive_handle = tokio::spawn(async move {
@@ -321,16 +380,12 @@ impl Transport {
                     _ = shutdown.recv() => break,
                     result = receive_socket.recv_from(&mut buffer) => {
                         if let Ok((len, src)) = result {
-                            {
-                                let mut pkt_cnt = packets_rx.write();
-                                *pkt_cnt += 1;
-                                let mut byte_cnt = bytes_rx.write();
-                                *byte_cnt += len as u64;
-                            }
+                            counters.packets_received.fetch_add(1, Ordering::Relaxed);
+                            counters.bytes_received.fetch_add(len as u64, Ordering::Relaxed);
 
                             {
-                                let mut conns = active_conns.lock().unwrap();
-                                conns.insert(src, NetworkInstant::now());
+                                let mut state = shared.lock();
+                                state.active_connections.insert(src, NetworkInstant::now());
                             }
 
                             if let Some(telem) = telemetry() {
@@ -353,8 +408,8 @@ impl Transport {
                                 continue;
                             }
 
-                            let mut msgs = inbound.lock().unwrap();
-                            msgs.push(
+                            let mut state = shared.lock();
+                            state.inbound.push(
                                 TransportMessage::new(payload.to_vec(), TransportProtocol::Udp)
                                     .with_source(src),
                             );
@@ -364,9 +419,9 @@ impl Transport {
             }
         });
 
-        *self.receive_task.lock().unwrap() = Some(receive_handle);
+        self.runtime.lock().receive_task = Some(receive_handle);
 
-        info!("UDP transport bound to {}", config.bind_address);
+        info!("UDP transport bound to {}", bind_address);
         Ok(())
     }
 
@@ -382,7 +437,7 @@ impl Transport {
             .destination
             .ok_or_else(|| NetworkError::transport("Destination address required"))?;
 
-        let max_packet_size = self.config.read().max_packet_size;
+        let max_packet_size = self.settings.lock().config.max_packet_size;
         let max_payload_size = max_packet_size.saturating_sub(PACKET_HEADER_SIZE_BYTES);
 
         if message.data.len() > max_payload_size {
@@ -394,9 +449,9 @@ impl Transport {
         }
 
         let socket = self
-            .socket
+            .runtime
             .lock()
-            .unwrap()
+            .socket
             .clone()
             .ok_or_else(|| NetworkError::transport("Socket not bound"))?;
 
@@ -418,16 +473,14 @@ impl Transport {
             .map_err(|e| NetworkError::transport(format!("UDP send failed: {}", e)))?;
 
         {
-            let mut msgs = self.outbound_messages.lock().unwrap();
+            let mut msgs = self.outbound_messages.lock();
             msgs.push(message);
         }
 
-        {
-            let mut pkt_cnt = self.packets_sent.write();
-            *pkt_cnt += 1;
-            let mut byte_cnt = self.bytes_sent.write();
-            *byte_cnt += packet.len() as u64;
-        }
+        self.counters.packets_sent.fetch_add(1, Ordering::Relaxed);
+        self.counters
+            .bytes_sent
+            .fetch_add(packet.len() as u64, Ordering::Relaxed);
 
         if let Some(telem) = telemetry() {
             telem.record_packet_sent(packet.len());
@@ -438,18 +491,18 @@ impl Transport {
 
     /// Receive all pending messages
     pub async fn receive_messages(&self) -> NetworkResult<Vec<TransportMessage>> {
-        Ok(self.inbound_messages.lock().unwrap().drain(..).collect())
+        Ok(self.shared.lock().inbound.drain(..).collect())
     }
 
     /// Update transport (process timeouts, etc)
     pub async fn update(&self) -> NetworkResult<()> {
         let now = NetworkInstant::now();
-        let idle_timeout = self.config.read().max_idle_timeout;
+        let idle_timeout = self.settings.lock().config.max_idle_timeout;
 
         let mut to_remove = Vec::new();
         {
-            let conns = self.active_connections.lock().unwrap();
-            for (addr, last_seen) in conns.iter() {
+            let state = self.shared.lock();
+            for (addr, last_seen) in state.active_connections.iter() {
                 if now.duration_since(*last_seen) > idle_timeout {
                     to_remove.push(*addr);
                 }
@@ -457,15 +510,14 @@ impl Transport {
         }
 
         if !to_remove.is_empty() {
-            let mut conns = self.active_connections.lock().unwrap();
-            let mut births = self.connection_births.lock().unwrap();
+            let mut state = self.shared.lock();
             for addr in to_remove {
-                conns.remove(&addr);
-                births.remove(&addr);
+                state.active_connections.remove(&addr);
+                state.connection_births.remove(&addr);
 
                 if let Some(telem) = telemetry() {
                     telem.record_connection_closed(idle_timeout);
-                    telem.set_active_connections(conns.len());
+                    telem.set_active_connections(state.active_connections.len());
                 }
             }
         }
@@ -477,17 +529,20 @@ impl Transport {
     pub async fn shutdown(&self) -> NetworkResult<()> {
         let _ = self.shutdown_tx.send(());
 
-        if let Some(task) = self.receive_task.lock().unwrap().take() {
+        if let Some(task) = self.runtime.lock().receive_task.take() {
             task.abort();
         }
 
-        *self.socket.lock().unwrap() = None;
-        *self.is_bound.write() = false;
+        self.runtime.lock().socket = None;
+        self.is_bound.store(false, Ordering::SeqCst);
 
-        self.inbound_messages.lock().unwrap().clear();
-        self.outbound_messages.lock().unwrap().clear();
-        self.active_connections.lock().unwrap().clear();
-        self.connection_births.lock().unwrap().clear();
+        {
+            let mut state = self.shared.lock();
+            state.inbound.clear();
+            state.active_connections.clear();
+            state.connection_births.clear();
+        }
+        self.outbound_messages.lock().clear();
 
         Ok(())
     }
@@ -495,39 +550,39 @@ impl Transport {
     /// Get metrics
     pub async fn metrics(&self) -> TransportMetrics {
         TransportMetrics {
-            packets_sent: *self.packets_sent.read(),
-            packets_received: *self.packets_received.read(),
-            bytes_sent: *self.bytes_sent.read(),
-            bytes_received: *self.bytes_received.read(),
+            packets_sent: self.counters.packets_sent.load(Ordering::Relaxed),
+            packets_received: self.counters.packets_received.load(Ordering::Relaxed),
+            bytes_sent: self.counters.bytes_sent.load(Ordering::Relaxed),
+            bytes_received: self.counters.bytes_received.load(Ordering::Relaxed),
         }
     }
 
     pub async fn packets_sent(&self) -> u64 {
-        *self.packets_sent.read()
+        self.counters.packets_sent.load(Ordering::Relaxed)
     }
 
     pub async fn packets_received(&self) -> u64 {
-        *self.packets_received.read()
+        self.counters.packets_received.load(Ordering::Relaxed)
     }
 
     pub async fn bytes_sent(&self) -> u64 {
-        *self.bytes_sent.read()
+        self.counters.bytes_sent.load(Ordering::Relaxed)
     }
 
     pub async fn bytes_received(&self) -> u64 {
-        *self.bytes_received.read()
+        self.counters.bytes_received.load(Ordering::Relaxed)
     }
 
     pub async fn is_bound(&self) -> bool {
-        *self.is_bound.read()
+        self.is_bound.load(Ordering::SeqCst)
     }
 
     pub fn is_ready(&self) -> bool {
-        *self.is_bound.read()
+        self.is_bound.load(Ordering::SeqCst)
     }
 
     pub fn config(&self) -> TransportConfig {
-        self.config.read().clone()
+        self.settings.lock().config.clone()
     }
 
     pub fn set_bind_address(&self, bind_address: SocketAddr) -> NetworkResult<()> {
@@ -536,16 +591,16 @@ impl Transport {
                 "Cannot change bind address after binding",
             ));
         }
-        self.config.write().bind_address = bind_address;
+        self.settings.lock().config.bind_address = bind_address;
         Ok(())
     }
 
     pub fn set_public_address(&self, address: Option<SocketAddr>) {
-        *self.public_address.write() = address;
+        self.settings.lock().public_address = address;
     }
 
     pub fn public_address(&self) -> Option<SocketAddr> {
-        *self.public_address.read()
+        self.settings.lock().public_address
     }
 }
 

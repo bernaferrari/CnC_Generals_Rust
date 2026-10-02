@@ -13,9 +13,11 @@
 //!   * Break ties by picking the candidate with the fewest extraneous "yes"
 //!     bits (bits set in the candidate but not in the query).
 
+use std::sync::Mutex;
+
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::marker::PhantomData;
-use std::sync::RwLock;
 
 /// Bit-set behaviour required by the sparse match helper.
 pub trait SparseBitSet: Sized {
@@ -63,12 +65,15 @@ pub trait SparseMatchCandidate<B: SparseBitSet> {
 }
 
 /// Cache of best matches for sparse bit-set lookups.
+///
+/// The cache lives inside templates shared as `Arc<ThingTemplate>`, so it
+/// must stay `Sync`: a mutex, not a `RefCell`.
 #[derive(Debug, Default)]
 pub struct SparseMatchFinder<M, B>
 where
     B: SparseBitSet,
 {
-    cache: RwLock<HashMap<Vec<u8>, usize>>,
+    cache: Mutex<HashMap<Vec<u8>, usize>>,
     _marker: PhantomData<fn() -> (M, B)>,
 }
 
@@ -78,7 +83,7 @@ where
 {
     fn clone(&self) -> Self {
         Self {
-            cache: RwLock::new(HashMap::new()),
+            cache: Mutex::new(HashMap::new()),
             _marker: PhantomData,
         }
     }
@@ -92,7 +97,7 @@ where
     /// Create an empty finder.
     pub fn new() -> Self {
         Self {
-            cache: RwLock::new(HashMap::new()),
+            cache: Mutex::new(HashMap::new()),
             _marker: PhantomData,
         }
     }
@@ -100,9 +105,10 @@ where
     /// Drop any cached matches. Call this whenever the backing vector
     /// is mutated (items added/removed).
     pub fn clear(&self) {
-        if let Ok(mut guard) = self.cache.write() {
-            guard.clear();
-        }
+        self.cache
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clear();
     }
 
     /// Find the best-matching candidate for `bits` within `candidates`.
@@ -110,12 +116,15 @@ where
     /// Returns `None` if the candidate set is empty.
     pub fn find_best<'a>(&self, candidates: &'a [M], bits: &B) -> Option<&'a M> {
         let key = bits.key_bytes();
-        if let Ok(cache) = self.cache.read() {
-            if let Some(&cached_index) = cache.get(&key) {
-                if let Some(candidate) = candidates.get(cached_index) {
-                    return Some(candidate);
-                }
-            }
+        let cached_index = self
+            .cache
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .get(&key)
+            .copied()
+            .filter(|index| candidates.get(*index).is_some());
+        if let Some(index) = cached_index {
+            return candidates.get(index);
         }
 
         let mut best_index: Option<usize> = None;
@@ -140,9 +149,10 @@ where
         }
 
         if let Some(index) = best_index {
-            if let Ok(mut cache) = self.cache.write() {
-                cache.insert(key, index);
-            }
+            self.cache
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .insert(key, index);
             candidates.get(index)
         } else {
             None

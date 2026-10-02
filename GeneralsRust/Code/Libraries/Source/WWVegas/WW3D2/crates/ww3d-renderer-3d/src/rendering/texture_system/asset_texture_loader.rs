@@ -12,13 +12,11 @@ use crate::rendering::texture_system::tga_loader::load_tga_from_memory;
 use log::warn;
 use std::collections::HashMap;
 use std::path::Path;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use wgpu::{
     Device, Extent3d, Origin3d, Queue, TexelCopyBufferLayout, TexelCopyTextureInfo,
     TextureDescriptor, TextureDimension, TextureUsages,
 };
-use ww3d_assets::AssetManager;
-
 /// Trait for reading files from BIG archives (or any virtual file system).
 /// The caller provides an implementation that bridges to the concrete archive system.
 pub trait ArchiveFileReader: Send + Sync {
@@ -29,7 +27,6 @@ pub trait ArchiveFileReader: Send + Sync {
 /// Asset-integrated texture loader
 pub struct AssetTextureLoader {
     base_loader: TextureLoader,
-    asset_manager: Arc<Mutex<AssetManager>>,
     /// Optional archive reader for loading textures from BIG archives.
     /// When present, `load_asset_data` checks archives first, then falls back to the filesystem.
     archive_reader: Option<Arc<dyn ArchiveFileReader>>,
@@ -39,25 +36,19 @@ pub struct AssetTextureLoader {
 }
 
 impl AssetTextureLoader {
-    pub fn new(
-        device: Arc<Device>,
-        queue: Arc<Queue>,
-        asset_manager: Arc<Mutex<AssetManager>>,
-    ) -> RendererResult<Self> {
-        Self::with_archive_reader(device, queue, asset_manager, None)
+    pub fn new(device: Arc<Device>, queue: Arc<Queue>) -> RendererResult<Self> {
+        Self::with_archive_reader(device, queue, None)
     }
 
     pub fn with_archive_reader(
         device: Arc<Device>,
         queue: Arc<Queue>,
-        asset_manager: Arc<Mutex<AssetManager>>,
         archive_reader: Option<Arc<dyn ArchiveFileReader>>,
     ) -> RendererResult<Self> {
         let base_loader = TextureLoader::new(device, queue)?;
 
         Ok(Self {
             base_loader,
-            asset_manager,
             archive_reader,
             texture_cache: HashMap::new(),
             search_paths: vec![
@@ -147,16 +138,11 @@ impl AssetTextureLoader {
 
     /// Load texture from asset manager (.big archives, etc.)
     fn load_texture_from_assets(&self, filename: &str) -> RendererResult<TextureBaseClass> {
-        let asset_manager = self
-            .asset_manager
-            .lock()
-            .map_err(|_| Error::InvalidData("Failed to lock asset manager".to_string()))?;
-
         // Try different search paths within archives
         for search_path in &self.search_paths {
             let asset_path = format!("{}{}", search_path, filename);
 
-            if let Some(data) = self.load_asset_data(&asset_manager, &asset_path)? {
+            if let Some(data) = self.load_asset_data(&asset_path)? {
                 return self.load_texture_from_memory(&data, filename);
             }
         }
@@ -169,13 +155,7 @@ impl AssetTextureLoader {
 
     /// Load raw asset data. Tries the archive reader first (BIG archives),
     /// then falls back to the local filesystem — matching C++ lookup order.
-    fn load_asset_data(
-        &self,
-        asset_manager: &AssetManager,
-        asset_path: &str,
-    ) -> RendererResult<Option<Vec<u8>>> {
-        let _ = asset_manager;
-
+    fn load_asset_data(&self, asset_path: &str) -> RendererResult<Option<Vec<u8>>> {
         if let Some(ref reader) = self.archive_reader {
             if let Some(data) = reader.read_from_archive(asset_path) {
                 if !data.is_empty() {

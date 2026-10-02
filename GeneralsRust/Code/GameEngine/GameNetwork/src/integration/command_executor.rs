@@ -4,10 +4,9 @@
 //! It handles command execution, validation, and error reporting.
 
 #[allow(unused_imports)]
-use super::game_state::{GameState, GameStateResult, PlayerId};
+use super::game_state::{GameState, PlayerId};
 use crate::commands::GameCommandData;
-use crate::error::{NetworkError, NetworkResult};
-use std::sync::{Arc, Mutex};
+use crate::error::NetworkResult;
 use tracing::{debug, error, warn};
 
 /// Statistics about command execution
@@ -26,17 +25,18 @@ pub struct ExecutionStats {
 /// - Executing commands on the game state
 /// - Tracking execution statistics
 /// - Handling execution errors
-pub struct CommandExecutor<G: GameState> {
-    game_state: Arc<Mutex<G>>,
+///
+/// The executor owns no state: the caller hands it the game state it owns for
+/// the duration of a call, so no shared lock is needed.
+pub struct CommandExecutor {
     stats: ExecutionStats,
     enable_validation: bool,
 }
 
-impl<G: GameState> CommandExecutor<G> {
+impl CommandExecutor {
     /// Create a new command executor
-    pub fn new(game_state: Arc<Mutex<G>>) -> Self {
+    pub fn new() -> Self {
         Self {
-            game_state,
             stats: ExecutionStats::default(),
             enable_validation: true,
         }
@@ -45,9 +45,8 @@ impl<G: GameState> CommandExecutor<G> {
     /// Create a new command executor with validation disabled
     ///
     /// This can be used for testing or when validation is performed elsewhere.
-    pub fn new_without_validation(game_state: Arc<Mutex<G>>) -> Self {
+    pub fn new_without_validation() -> Self {
         Self {
-            game_state,
             stats: ExecutionStats::default(),
             enable_validation: false,
         }
@@ -56,14 +55,16 @@ impl<G: GameState> CommandExecutor<G> {
     /// Execute a single network command
     ///
     /// # Arguments
+    /// * `game` - The game state to execute against
     /// * `command` - The command data from the network
     /// * `player_id` - The player who issued the command
     ///
     /// # Returns
     /// * `Ok(())` if command executed successfully
     /// * `Err(NetworkError)` if execution failed
-    pub fn execute_command(
+    pub fn execute_command<G: GameState>(
         &mut self,
+        game: &mut G,
         command: &GameCommandData,
         player_id: PlayerId,
     ) -> NetworkResult<()> {
@@ -73,12 +74,6 @@ impl<G: GameState> CommandExecutor<G> {
             "Executing command type {} from player {} for entity {:?}",
             command.command_type, player_id, command.target_id
         );
-
-        // Lock game state
-        let mut game = self
-            .game_state
-            .lock()
-            .map_err(|e| NetworkError::generic(format!("Failed to lock game state: {}", e)))?;
 
         // Validate command if enabled
         if self.enable_validation {
@@ -116,19 +111,21 @@ impl<G: GameState> CommandExecutor<G> {
     /// execution stops and an error is returned.
     ///
     /// # Arguments
+    /// * `game` - The game state to execute against
     /// * `commands` - List of (player_id, command) tuples
     ///
     /// # Returns
     /// * `Ok(count)` - Number of commands executed successfully
     /// * `Err(NetworkError)` - First error encountered
-    pub fn execute_commands(
+    pub fn execute_commands<G: GameState>(
         &mut self,
+        game: &mut G,
         commands: &[(PlayerId, GameCommandData)],
     ) -> NetworkResult<usize> {
         let mut executed = 0;
 
         for (player_id, command) in commands {
-            self.execute_command(command, *player_id)?;
+            self.execute_command(game, command, *player_id)?;
             executed += 1;
         }
 
@@ -154,51 +151,27 @@ impl<G: GameState> CommandExecutor<G> {
     pub fn is_validation_enabled(&self) -> bool {
         self.enable_validation
     }
+}
 
-    /// Get reference to game state (for reading)
-    ///
-    /// This locks the game state, so the lock should be released quickly.
-    pub fn with_game_state<F, R>(&self, f: F) -> NetworkResult<R>
-    where
-        F: FnOnce(&G) -> R,
-    {
-        let game = self
-            .game_state
-            .lock()
-            .map_err(|e| NetworkError::generic(format!("Failed to lock game state: {}", e)))?;
-
-        Ok(f(&*game))
-    }
-
-    /// Get mutable reference to game state (for writing)
-    ///
-    /// This locks the game state, so the lock should be released quickly.
-    pub fn with_game_state_mut<F, R>(&mut self, f: F) -> NetworkResult<R>
-    where
-        F: FnOnce(&mut G) -> R,
-    {
-        let mut game = self
-            .game_state
-            .lock()
-            .map_err(|e| NetworkError::generic(format!("Failed to lock game state: {}", e)))?;
-
-        Ok(f(&mut *game))
+impl Default for CommandExecutor {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
 /// Batch command executor for processing multiple frames at once
 ///
 /// This is useful for catching up after lag or processing recorded replays.
-pub struct BatchCommandExecutor<G: GameState> {
-    executor: CommandExecutor<G>,
+pub struct BatchCommandExecutor {
+    executor: CommandExecutor,
     commands_per_frame: Vec<(u32, Vec<(PlayerId, GameCommandData)>)>,
 }
 
-impl<G: GameState> BatchCommandExecutor<G> {
+impl BatchCommandExecutor {
     /// Create a new batch executor
-    pub fn new(game_state: Arc<Mutex<G>>) -> Self {
+    pub fn new() -> Self {
         Self {
-            executor: CommandExecutor::new(game_state),
+            executor: CommandExecutor::new(),
             commands_per_frame: Vec::new(),
         }
     }
@@ -211,7 +184,7 @@ impl<G: GameState> BatchCommandExecutor<G> {
     /// Execute all frames in order
     ///
     /// Frames are sorted by frame number before execution.
-    pub fn execute_all(&mut self) -> NetworkResult<usize> {
+    pub fn execute_all<G: GameState>(&mut self, game: &mut G) -> NetworkResult<usize> {
         // Sort by frame number
         self.commands_per_frame.sort_by_key(|(frame, _)| *frame);
 
@@ -220,12 +193,11 @@ impl<G: GameState> BatchCommandExecutor<G> {
         for (frame, commands) in &self.commands_per_frame {
             debug!("Executing batch frame {}", frame);
 
-            match self.executor.execute_commands(commands) {
+            match self.executor.execute_commands(game, commands) {
                 Ok(count) => {
                     total_executed += count;
                     // Advance frame after all commands executed
-                    self.executor
-                        .with_game_state_mut(|game| game.advance_frame())?;
+                    game.advance_frame();
                 }
                 Err(e) => {
                     error!("Batch execution failed at frame {}: {}", frame, e);
@@ -245,6 +217,12 @@ impl<G: GameState> BatchCommandExecutor<G> {
     /// Get number of pending frames
     pub fn pending_frames(&self) -> usize {
         self.commands_per_frame.len()
+    }
+}
+
+impl Default for BatchCommandExecutor {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -285,7 +263,10 @@ mod tests {
             }
         }
 
-        fn execute_command(&mut self, command: &GameCommandData) -> GameStateResult<()> {
+        fn execute_command(
+            &mut self,
+            command: &GameCommandData,
+        ) -> super::super::game_state::GameStateResult<()> {
             if self.should_fail {
                 return Err(super::super::game_state::GameStateError::ExecutionFailed(
                     "Mock failure".to_string(),
@@ -334,8 +315,7 @@ mod tests {
 
     #[test]
     fn test_command_executor_creation() {
-        let game_state = Arc::new(Mutex::new(MockGameState::new()));
-        let executor = CommandExecutor::new(game_state);
+        let executor = CommandExecutor::new();
 
         assert!(executor.is_validation_enabled());
         assert_eq!(executor.get_stats().total_commands, 0);
@@ -343,8 +323,8 @@ mod tests {
 
     #[test]
     fn test_execute_single_command() {
-        let game_state = Arc::new(Mutex::new(MockGameState::new()));
-        let mut executor = CommandExecutor::new(game_state.clone());
+        let mut game_state = MockGameState::new();
+        let mut executor = CommandExecutor::new();
 
         let command = GameCommandData {
             command_type: 1,
@@ -354,7 +334,7 @@ mod tests {
             checksum: 0,
         };
 
-        let result = executor.execute_command(&command, 0);
+        let result = executor.execute_command(&mut game_state, &command, 0);
         assert!(result.is_ok());
 
         let stats = executor.get_stats();
@@ -363,14 +343,13 @@ mod tests {
         assert_eq!(stats.failed_commands, 0);
 
         // Verify command was executed
-        let game = game_state.lock().unwrap();
-        assert_eq!(game.executed_commands.len(), 1);
+        assert_eq!(game_state.executed_commands.len(), 1);
     }
 
     #[test]
     fn test_execute_multiple_commands() {
-        let game_state = Arc::new(Mutex::new(MockGameState::new()));
-        let mut executor = CommandExecutor::new(game_state.clone());
+        let mut game_state = MockGameState::new();
+        let mut executor = CommandExecutor::new();
 
         let commands = vec![
             (
@@ -395,12 +374,11 @@ mod tests {
             ),
         ];
 
-        let result = executor.execute_commands(&commands);
+        let result = executor.execute_commands(&mut game_state, &commands);
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), 2);
 
-        let game = game_state.lock().unwrap();
-        assert_eq!(game.executed_commands.len(), 2);
+        assert_eq!(game_state.executed_commands.len(), 2);
     }
 
     #[test]
@@ -408,8 +386,7 @@ mod tests {
         let mut mock = MockGameState::new();
         mock.should_fail = true;
 
-        let game_state = Arc::new(Mutex::new(mock));
-        let mut executor = CommandExecutor::new(game_state);
+        let mut executor = CommandExecutor::new();
 
         let command = GameCommandData {
             command_type: 1,
@@ -419,7 +396,7 @@ mod tests {
             checksum: 0,
         };
 
-        let result = executor.execute_command(&command, 0);
+        let result = executor.execute_command(&mut mock, &command, 0);
         assert!(result.is_err());
 
         let stats = executor.get_stats();
@@ -430,8 +407,8 @@ mod tests {
 
     #[test]
     fn test_batch_executor() {
-        let game_state = Arc::new(Mutex::new(MockGameState::new()));
-        let mut batch_executor = BatchCommandExecutor::new(game_state.clone());
+        let mut game_state = MockGameState::new();
+        let mut batch_executor = BatchCommandExecutor::new();
 
         // Add commands for frame 0
         batch_executor.add_frame(
@@ -463,12 +440,11 @@ mod tests {
             )],
         );
 
-        let result = batch_executor.execute_all();
+        let result = batch_executor.execute_all(&mut game_state);
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), 2);
 
         // Verify frames advanced
-        let game = game_state.lock().unwrap();
-        assert_eq!(game.current_frame(), 2);
+        assert_eq!(game_state.current_frame(), 2);
     }
 }

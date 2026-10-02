@@ -10,9 +10,9 @@
 //! - Sound effect categories and tagging
 
 use dashmap::DashMap;
-use parking_lot::{Mutex, RwLock};
 use rand::{RngExt, rng};
 use smallvec::SmallVec;
+use std::cell::{Cell, RefCell};
 use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -370,31 +370,34 @@ impl SoundPool {
 }
 
 /// Sound effect manager with advanced features
+///
+/// THREAD: no OS thread is spawned here and the manager is only touched from
+/// the owning (GameLogic/client) thread, so every lock became a `Cell`/`RefCell`.
 pub struct SoundEffectManager {
     /// Sound effect descriptors
-    descriptors: RwLock<HashMap<String, SoundEffectDescriptor>>,
+    descriptors: RefCell<HashMap<String, SoundEffectDescriptor>>,
     /// Active sound effects by handle
-    active_sounds: RwLock<HashMap<AudioHandle, ActiveSoundEffect>>,
+    active_sounds: RefCell<HashMap<AudioHandle, ActiveSoundEffect>>,
     /// Active sounds by category
-    category_sounds: RwLock<HashMap<SoundCategory, Vec<AudioHandle>>>,
+    category_sounds: RefCell<HashMap<SoundCategory, Vec<AudioHandle>>>,
     /// Sound pools for performance
-    sound_pools: RwLock<HashMap<String, SoundPool>>,
+    sound_pools: RefCell<HashMap<String, SoundPool>>,
     /// Asset manager
     asset_manager: Arc<AudioAssetManager>,
     /// Spatial audio processor
     spatial_processor: Arc<SpatialAudioProcessor>,
     /// Last played times for cooldown management
-    last_played: RwLock<HashMap<String, Instant>>,
+    last_played: RefCell<HashMap<String, Instant>>,
     /// Global settings
-    master_volume: RwLock<f32>,
-    category_volumes: RwLock<HashMap<SoundCategory, f32>>,
-    distance_lod_enabled: RwLock<bool>,
-    max_distance_lod: RwLock<f32>,
+    master_volume: Cell<f32>,
+    category_volumes: RefCell<HashMap<SoundCategory, f32>>,
+    distance_lod_enabled: Cell<bool>,
+    max_distance_lod: Cell<f32>,
     /// Performance metrics
-    total_sounds_played: parking_lot::Mutex<usize>,
-    sounds_culled: parking_lot::Mutex<usize>,
+    total_sounds_played: Cell<usize>,
+    sounds_culled: Cell<usize>,
     /// Listener position for distance calculations
-    listener_position: RwLock<Position3D>,
+    listener_position: RefCell<Position3D>,
 }
 
 impl SoundEffectManager {
@@ -419,32 +422,32 @@ impl SoundEffectManager {
         }
 
         Self {
-            descriptors: RwLock::new(HashMap::new()),
-            active_sounds: RwLock::new(HashMap::new()),
-            category_sounds: RwLock::new(HashMap::new()),
-            sound_pools: RwLock::new(HashMap::new()),
+            descriptors: RefCell::new(HashMap::new()),
+            active_sounds: RefCell::new(HashMap::new()),
+            category_sounds: RefCell::new(HashMap::new()),
+            sound_pools: RefCell::new(HashMap::new()),
             asset_manager,
             spatial_processor,
-            last_played: RwLock::new(HashMap::new()),
-            master_volume: RwLock::new(1.0),
-            category_volumes: RwLock::new(category_volumes),
-            distance_lod_enabled: RwLock::new(true),
-            max_distance_lod: RwLock::new(500.0),
-            total_sounds_played: parking_lot::Mutex::new(0),
-            sounds_culled: parking_lot::Mutex::new(0),
-            listener_position: RwLock::new(Position3D::default()),
+            last_played: RefCell::new(HashMap::new()),
+            master_volume: Cell::new(1.0),
+            category_volumes: RefCell::new(category_volumes),
+            distance_lod_enabled: Cell::new(true),
+            max_distance_lod: Cell::new(500.0),
+            total_sounds_played: Cell::new(0),
+            sounds_culled: Cell::new(0),
+            listener_position: RefCell::new(Position3D::default()),
         }
     }
 
     /// Register a sound effect descriptor
     pub fn register_sound(&self, descriptor: SoundEffectDescriptor) {
         let id = descriptor.id.clone();
-        self.descriptors.write().insert(id, descriptor);
+        self.descriptors.borrow_mut().insert(id, descriptor);
     }
 
     /// Register multiple sound effects from a configuration
     pub fn register_sounds(&self, descriptors: Vec<SoundEffectDescriptor>) {
-        let mut desc_map = self.descriptors.write();
+        let mut desc_map = self.descriptors.borrow_mut();
         for descriptor in descriptors {
             let id = descriptor.id.clone();
             desc_map.insert(id, descriptor);
@@ -460,7 +463,7 @@ impl SoundEffectManager {
     ) -> Result<AudioHandle, Box<dyn std::error::Error>> {
         // Get sound descriptor
         let descriptor = {
-            let descriptors = self.descriptors.read();
+            let descriptors = self.descriptors.borrow();
             descriptors
                 .get(sound_id)
                 .cloned()
@@ -469,7 +472,7 @@ impl SoundEffectManager {
 
         // Check cooldown
         {
-            let last_played = self.last_played.read();
+            let last_played = self.last_played.borrow();
             if let Some(last_time) = last_played.get(sound_id) {
                 if last_time.elapsed() < Duration::from_millis(descriptor.cooldown_ms) {
                     return Err("Sound is on cooldown".into());
@@ -485,7 +488,7 @@ impl SoundEffectManager {
 
         // Check category limits
         let category_count = {
-            let category_sounds = self.category_sounds.read();
+            let category_sounds = self.category_sounds.borrow();
             category_sounds
                 .get(&descriptor.category)
                 .map(|sounds| sounds.len())
@@ -505,7 +508,7 @@ impl SoundEffectManager {
         };
 
         if should_skip {
-            *self.sounds_culled.lock() += 1;
+            self.sounds_culled.set(self.sounds_culled.get() + 1);
             return Err("Sound culled due to distance LOD".into());
         }
 
@@ -514,12 +517,13 @@ impl SoundEffectManager {
         let file_path = descriptor.get_random_file(&mut rng);
 
         // Calculate final volume
-        let category_volume = *self
+        let category_volume = self
             .category_volumes
-            .read()
+            .borrow()
             .get(&descriptor.category)
-            .unwrap_or(&1.0);
-        let master_volume = *self.master_volume.read();
+            .copied()
+            .unwrap_or(1.0);
+        let master_volume = self.master_volume.get();
         let final_volume = volume * volume_multiplier * category_volume * master_volume;
 
         // Try to get from sound pool first
@@ -541,35 +545,37 @@ impl SoundEffectManager {
         active_sound.volume = final_volume;
 
         if let Some(pos) = position {
-            active_sound.distance_to_listener = pos.distance_to(&*self.listener_position.read());
+            active_sound.distance_to_listener = pos.distance_to(&self.listener_position.borrow());
         }
 
         // Add to active sounds
-        self.active_sounds.write().insert(handle, active_sound);
+        self.active_sounds.borrow_mut().insert(handle, active_sound);
 
         // Add to category tracking
         self.category_sounds
-            .write()
+            .borrow_mut()
             .entry(descriptor.category)
             .or_default()
             .push(handle);
 
         // Update cooldown
         self.last_played
-            .write()
+            .borrow_mut()
             .insert(sound_id.to_string(), Instant::now());
 
         // Update statistics
-        *self.total_sounds_played.lock() += 1;
+        self.total_sounds_played.set(self.total_sounds_played.get() + 1);
 
         Ok(handle)
     }
 
     /// Stop a sound effect
     pub fn stop_sound(&self, handle: AudioHandle) {
-        if let Some(active_sound) = self.active_sounds.write().remove(&handle) {
-            if let Some(category_sounds) =
-                self.category_sounds.write().get_mut(&active_sound.category)
+        if let Some(active_sound) = self.active_sounds.borrow_mut().remove(&handle) {
+            if let Some(category_sounds) = self
+                .category_sounds
+                .borrow_mut()
+                .get_mut(&active_sound.category)
             {
                 category_sounds.retain(|&h| h != handle);
             }
@@ -581,7 +587,7 @@ impl SoundEffectManager {
     /// Stop all sounds in a category
     pub fn stop_category(&self, category: SoundCategory) {
         let handles_to_stop: Vec<AudioHandle> = {
-            let category_sounds = self.category_sounds.read();
+            let category_sounds = self.category_sounds.borrow();
             category_sounds
                 .get(&category)
                 .map(|sounds| sounds.clone())
@@ -595,27 +601,27 @@ impl SoundEffectManager {
 
     /// Set master volume
     pub fn set_master_volume(&self, volume: f32) {
-        *self.master_volume.write() = volume.clamp(0.0, 2.0);
+        self.master_volume.set(volume.clamp(0.0, 2.0));
         self.update_all_volumes();
     }
 
     /// Set category volume
     pub fn set_category_volume(&self, category: SoundCategory, volume: f32) {
         self.category_volumes
-            .write()
+            .borrow_mut()
             .insert(category, volume.clamp(0.0, 2.0));
         self.update_category_volumes(category);
     }
 
     /// Set listener position for distance calculations
     pub fn set_listener_position(&self, position: Position3D) {
-        *self.listener_position.write() = position;
+        *self.listener_position.borrow_mut() = position;
         self.update_distance_lod();
     }
 
     /// Enable/disable distance LOD
     pub fn set_distance_lod_enabled(&self, enabled: bool) {
-        *self.distance_lod_enabled.write() = enabled;
+        self.distance_lod_enabled.set(enabled);
     }
 
     /// Create a sound pool for performance optimization
@@ -624,7 +630,7 @@ impl SoundEffectManager {
 
         let mut audio_data = Vec::new();
         for sound_id in sound_ids {
-            if let Some(descriptor) = self.descriptors.read().get(&sound_id) {
+            if let Some(descriptor) = self.descriptors.borrow().get(&sound_id) {
                 let data = self
                     .asset_manager
                     .load_audio(&descriptor.file_path, LoadOptions::default());
@@ -635,7 +641,7 @@ impl SoundEffectManager {
         }
 
         pool.preload(audio_data);
-        self.sound_pools.write().insert(pool_name, pool);
+        self.sound_pools.borrow_mut().insert(pool_name, pool);
     }
 
     /// Update all active sounds (call each frame)
@@ -647,12 +653,12 @@ impl SoundEffectManager {
 
     /// Get performance statistics
     pub fn get_stats(&self) -> SoundEffectStats {
-        let active_count = self.active_sounds.read().len();
-        let total_played = *self.total_sounds_played.lock();
-        let culled_count = *self.sounds_culled.lock();
+        let active_count = self.active_sounds.borrow().len();
+        let total_played = self.total_sounds_played.get();
+        let culled_count = self.sounds_culled.get();
 
         let mut category_counts = HashMap::new();
-        for (category, sounds) in self.category_sounds.read().iter() {
+        for (category, sounds) in self.category_sounds.borrow().iter() {
             category_counts.insert(*category, sounds.len());
         }
 
@@ -672,13 +678,13 @@ impl SoundEffectManager {
         descriptor: &SoundEffectDescriptor,
         position: &Position3D,
     ) -> bool {
-        if !*self.distance_lod_enabled.read() {
+        if !self.distance_lod_enabled.get() {
             return false;
         }
 
-        let listener_pos = self.listener_position.read();
+        let listener_pos = self.listener_position.borrow();
         let distance = position.distance_to(&*listener_pos);
-        let max_distance = *self.max_distance_lod.read();
+        let max_distance = self.max_distance_lod.get();
 
         // Skip if beyond maximum distance
         if distance > max_distance {
@@ -697,7 +703,7 @@ impl SoundEffectManager {
 
     fn cull_sounds_in_category(&self, category: SoundCategory, new_priority: AudioPriority) {
         let handles_to_cull: Vec<AudioHandle> = {
-            let active_sounds = self.active_sounds.read();
+            let active_sounds = self.active_sounds.borrow();
             let mut candidates = Vec::new();
 
             for (handle, sound) in active_sounds.iter() {
@@ -727,13 +733,13 @@ impl SoundEffectManager {
 
         for handle in handles_to_cull {
             self.stop_sound(handle);
-            *self.sounds_culled.lock() += 1;
+            self.sounds_culled.set(self.sounds_culled.get() + 1);
         }
     }
 
     fn try_get_from_pool(&self, sound_id: &str) -> Option<AudioHandle> {
         // Try to get from sound pool if available
-        let mut pools = self.sound_pools.write();
+        let mut pools = self.sound_pools.borrow_mut();
         if let Some(pool) = pools.get_mut(sound_id) {
             pool.acquire()
         } else {
@@ -742,7 +748,7 @@ impl SoundEffectManager {
     }
 
     fn return_to_pool(&self, sound_id: &str, handle: AudioHandle) {
-        let mut pools = self.sound_pools.write();
+        let mut pools = self.sound_pools.borrow_mut();
         if let Some(pool) = pools.get_mut(sound_id) {
             pool.release(handle);
         }
@@ -837,7 +843,7 @@ impl SoundEffectManager {
 
     fn cull_finished_sounds(&self) {
         let handles_to_remove: Vec<AudioHandle> = {
-            let active_sounds = self.active_sounds.read();
+            let active_sounds = self.active_sounds.borrow();
             active_sounds
                 .iter()
                 .filter(|(_, sound)| sound.is_finished())
@@ -851,15 +857,15 @@ impl SoundEffectManager {
     }
 
     fn update_distance_lod(&self) {
-        if !*self.distance_lod_enabled.read() {
+        if !self.distance_lod_enabled.get() {
             return;
         }
 
-        let listener_pos = *self.listener_position.read();
+        let listener_pos = *self.listener_position.borrow();
         let mut sounds_to_update = Vec::new();
 
         {
-            let mut active_sounds = self.active_sounds.write();
+            let mut active_sounds = self.active_sounds.borrow_mut();
             for (handle, sound) in active_sounds.iter_mut() {
                 if let Some(position) = sound.position {
                     let new_distance = position.distance_to(&listener_pos);
@@ -897,10 +903,10 @@ impl SoundEffectManager {
     }
 
     fn update_all_volumes(&self) {
-        let master_volume = *self.master_volume.read();
-        let category_volumes = self.category_volumes.read();
+        let master_volume = self.master_volume.get();
+        let category_volumes = self.category_volumes.borrow();
 
-        for (handle, sound) in self.active_sounds.read().iter() {
+        for (handle, sound) in self.active_sounds.borrow().iter() {
             let category_volume = category_volumes.get(&sound.category).unwrap_or(&1.0);
             let final_volume = sound.volume * master_volume * category_volume;
 
@@ -910,10 +916,15 @@ impl SoundEffectManager {
     }
 
     fn update_category_volumes(&self, category: SoundCategory) {
-        let master_volume = *self.master_volume.read();
-        let category_volume = *self.category_volumes.read().get(&category).unwrap_or(&1.0);
+        let master_volume = self.master_volume.get();
+        let category_volume = self
+            .category_volumes
+            .borrow()
+            .get(&category)
+            .copied()
+            .unwrap_or(1.0);
 
-        for (handle, sound) in self.active_sounds.read().iter() {
+        for (handle, sound) in self.active_sounds.borrow().iter() {
             if sound.category == category {
                 let final_volume = sound.volume * master_volume * category_volume;
 
@@ -925,7 +936,7 @@ impl SoundEffectManager {
 
     fn update_spatial_audio(&self) {
         // Update spatial audio processor with current sounds
-        for (handle, sound) in self.active_sounds.read().iter() {
+        for (handle, sound) in self.active_sounds.borrow().iter() {
             if let Some(position) = sound.position {
                 // Update spatial source in processor
                 // self.spatial_processor.update_source(*handle, position);
@@ -934,7 +945,7 @@ impl SoundEffectManager {
     }
 
     fn get_pool_hit_ratios(&self) -> HashMap<String, f32> {
-        let pools = self.sound_pools.read();
+        let pools = self.sound_pools.borrow();
         pools
             .iter()
             .map(|(name, pool)| (name.clone(), pool.hit_ratio()))

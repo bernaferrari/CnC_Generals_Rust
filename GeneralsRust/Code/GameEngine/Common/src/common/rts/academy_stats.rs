@@ -10,9 +10,9 @@ use crate::common::random_value::get_game_client_random_value;
 use crate::common::time;
 
 use super::handles::{CommandSetHandle, FrameNumber, PlayerHandle, ThingTemplateHandle};
-use once_cell::sync::OnceCell;
+use std::cell::RefCell;
 use std::sync::atomic::{AtomicU32, Ordering};
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 
 static LOCAL_PLAYER_MINES: AtomicU32 = AtomicU32::new(0);
 static NEUTRAL_VEHICLES_SNIPED: AtomicU32 = AtomicU32::new(0);
@@ -60,33 +60,29 @@ pub struct AcademyTemplateContext {
 type AcademyTemplateContextProvider =
     Arc<dyn Fn(PlayerHandle) -> Option<AcademyTemplateContext> + Send + Sync>;
 
-static ACADEMY_TEMPLATE_CONTEXT_PROVIDER: OnceCell<RwLock<Option<AcademyTemplateContextProvider>>> =
-    OnceCell::new();
+// THREAD: C++ plain static; driven only by the single game/client thread.
+thread_local! {
+    static ACADEMY_TEMPLATE_CONTEXT_PROVIDER: RefCell<Option<AcademyTemplateContextProvider>> =
+        const { RefCell::new(None) };
+}
 
 pub fn set_academy_template_context_provider<F>(provider: F)
 where
     F: Fn(PlayerHandle) -> Option<AcademyTemplateContext> + Send + Sync + 'static,
 {
-    let provider_slot = ACADEMY_TEMPLATE_CONTEXT_PROVIDER.get_or_init(|| RwLock::new(None));
-    *provider_slot
-        .write()
-        .expect("AcademyTemplateContext provider lock poisoned") = Some(Arc::new(provider));
+    ACADEMY_TEMPLATE_CONTEXT_PROVIDER.with_borrow_mut(|slot| {
+        *slot = Some(Arc::new(provider));
+    });
 }
 
 pub fn clear_academy_template_context_provider() {
-    if let Some(provider_slot) = ACADEMY_TEMPLATE_CONTEXT_PROVIDER.get() {
-        *provider_slot
-            .write()
-            .expect("AcademyTemplateContext provider lock poisoned") = None;
-    }
+    ACADEMY_TEMPLATE_CONTEXT_PROVIDER.with_borrow_mut(|slot| {
+        *slot = None;
+    });
 }
 
 fn query_academy_template_context(player: PlayerHandle) -> Option<AcademyTemplateContext> {
-    let provider_slot = ACADEMY_TEMPLATE_CONTEXT_PROVIDER.get()?;
-    let provider = provider_slot
-        .read()
-        .expect("AcademyTemplateContext provider lock poisoned")
-        .clone()?;
+    let provider = ACADEMY_TEMPLATE_CONTEXT_PROVIDER.with_borrow(|slot| slot.clone())?;
     provider(player)
 }
 

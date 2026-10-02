@@ -4,13 +4,13 @@
 
 use crate::error::{NetworkError, NetworkResult};
 use crate::gamespy::{PlayerRanking, RankTier};
+use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use tokio::fs;
 use tokio::io::AsyncWriteExt;
-use tokio::sync::RwLock;
-use tracing::{debug, info, warn};
+use tracing::{debug, warn};
 
 #[derive(Debug, Serialize, Deserialize, Default)]
 struct BuddyListSnapshot {
@@ -22,6 +22,13 @@ struct PlayerStatsSnapshot {
     stats: PlayerRanking,
 }
 
+/// In-memory mirror of the persisted buddy lists and player stats.
+#[derive(Default)]
+struct StorageCaches {
+    buddies: HashMap<String, HashSet<String>>,
+    stats: HashMap<String, PlayerRanking>,
+}
+
 /// Persistent storage facade mirroring the legacy GameSpy storage service.
 /// Data is cached in-memory for fast access and synchronised to disk in a
 /// simple JSON format for resilience.
@@ -29,8 +36,10 @@ pub struct PersistentStorage {
     root: PathBuf,
     buddies_dir: PathBuf,
     stats_dir: PathBuf,
-    cached_buddies: RwLock<HashMap<String, HashSet<String>>>,
-    cached_stats: RwLock<HashMap<String, PlayerRanking>>,
+    /// THREAD: shared behind `Arc` between the GameSpy interface task and the
+    /// ladder system it drives; one mutex guards the whole cache bundle and is
+    /// never held across an `.await`.
+    caches: Mutex<StorageCaches>,
 }
 
 impl PersistentStorage {
@@ -59,8 +68,7 @@ impl PersistentStorage {
             root,
             buddies_dir,
             stats_dir,
-            cached_buddies: RwLock::new(HashMap::new()),
-            cached_stats: RwLock::new(HashMap::new()),
+            caches: Mutex::new(StorageCaches::default()),
         })
     }
 
@@ -78,10 +86,10 @@ impl PersistentStorage {
         player_id: &str,
         buddies: HashSet<String>,
     ) -> NetworkResult<()> {
-        {
-            let mut cache = self.cached_buddies.write().await;
-            cache.insert(player_id.to_string(), buddies.clone());
-        }
+        self.caches
+            .lock()
+            .buddies
+            .insert(player_id.to_string(), buddies.clone());
 
         let snapshot = BuddyListSnapshot { buddies };
         let payload = serde_json::to_vec_pretty(&snapshot).map_err(|err| {
@@ -93,7 +101,8 @@ impl PersistentStorage {
 
     /// Load the buddy list for the player from cache or disk.
     pub async fn load_buddy_list(&self, player_id: &str) -> NetworkResult<HashSet<String>> {
-        if let Some(cached) = self.cached_buddies.read().await.get(player_id).cloned() {
+        let cached = self.caches.lock().buddies.get(player_id).cloned();
+        if let Some(cached) = cached {
             return Ok(cached);
         }
 
@@ -108,10 +117,10 @@ impl PersistentStorage {
                             err
                         ))
                     })?;
-                {
-                    let mut cache = self.cached_buddies.write().await;
-                    cache.insert(player_id.to_string(), snapshot.buddies.clone());
-                }
+                self.caches
+                    .lock()
+                    .buddies
+                    .insert(player_id.to_string(), snapshot.buddies.clone());
                 Ok(snapshot.buddies)
             }
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(HashSet::new()),
@@ -129,10 +138,10 @@ impl PersistentStorage {
         player_id: &str,
         stats: PlayerRanking,
     ) -> NetworkResult<()> {
-        {
-            let mut cache = self.cached_stats.write().await;
-            cache.insert(player_id.to_string(), stats.clone());
-        }
+        self.caches
+            .lock()
+            .stats
+            .insert(player_id.to_string(), stats.clone());
 
         let payload = serde_json::to_vec_pretty(&PlayerStatsSnapshot { stats }).map_err(|err| {
             NetworkError::generic(format!("Failed to serialise player stats: {}", err))
@@ -143,7 +152,8 @@ impl PersistentStorage {
 
     /// Load player stats, returning a default bronze ranking if none exist yet.
     pub async fn load_player_stats(&self, player_id: &str) -> NetworkResult<PlayerRanking> {
-        if let Some(cached) = self.cached_stats.read().await.get(player_id).cloned() {
+        let cached = self.caches.lock().stats.get(player_id).cloned();
+        if let Some(cached) = cached {
             return Ok(cached);
         }
 
@@ -158,10 +168,10 @@ impl PersistentStorage {
                             err
                         ))
                     })?;
-                {
-                    let mut cache = self.cached_stats.write().await;
-                    cache.insert(player_id.to_string(), snapshot.stats.clone());
-                }
+                self.caches
+                    .lock()
+                    .stats
+                    .insert(player_id.to_string(), snapshot.stats.clone());
                 Ok(snapshot.stats)
             }
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
@@ -212,8 +222,10 @@ impl PersistentStorage {
                 match fs::read(entry.path()).await {
                     Ok(bytes) => match serde_json::from_slice::<PlayerStatsSnapshot>(&bytes) {
                         Ok(snapshot) => {
-                            let mut cache = self.cached_stats.write().await;
-                            cache.insert(snapshot.stats.player_id.clone(), snapshot.stats.clone());
+                            self.caches.lock().stats.insert(
+                                snapshot.stats.player_id.clone(),
+                                snapshot.stats.clone(),
+                            );
                             results.push(snapshot.stats);
                         }
                         Err(err) => warn!(

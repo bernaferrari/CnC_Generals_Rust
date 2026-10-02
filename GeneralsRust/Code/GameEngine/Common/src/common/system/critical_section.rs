@@ -12,7 +12,7 @@
 //!
 //! Rust conversion: 2025
 
-use once_cell::sync::OnceCell;
+use std::cell::RefCell;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
@@ -384,27 +384,26 @@ impl Default for CriticalSectionManager {
     }
 }
 
-/// Global critical section manager instance
-static CRITICAL_SECTION_MANAGER: OnceCell<std::sync::Mutex<CriticalSectionManager>> =
-    OnceCell::new();
+// THREAD: C++ plain static; driven only by the single game/client thread.
+thread_local! {
+    static CRITICAL_SECTION_MANAGER: RefCell<Option<CriticalSectionManager>> =
+        const { RefCell::new(None) };
+}
 
 /// Initialize the global critical section manager
 pub fn init_critical_section_manager() {
-    if CRITICAL_SECTION_MANAGER.get().is_none() {
-        let _ = CRITICAL_SECTION_MANAGER.set(std::sync::Mutex::new(CriticalSectionManager::new()));
-    } else if let Some(manager) = CRITICAL_SECTION_MANAGER.get() {
-        if let Ok(mut guard) = manager.lock() {
-            *guard = CriticalSectionManager::new();
-        }
-    }
+    CRITICAL_SECTION_MANAGER.with_borrow_mut(|manager| {
+        *manager = Some(CriticalSectionManager::new());
+    });
 }
 
 /// Get a reference to a named critical section
 pub fn get_critical_section(name: &str) -> Option<Arc<FastCriticalSection>> {
-    CRITICAL_SECTION_MANAGER
-        .get()
-        .and_then(|manager| manager.lock().ok())
-        .map(|mut manager| manager.get_section(name))
+    CRITICAL_SECTION_MANAGER.with_borrow_mut(|manager| {
+        manager
+            .as_mut()
+            .map(|manager| manager.get_section(name))
+    })
 }
 
 #[cfg(test)]

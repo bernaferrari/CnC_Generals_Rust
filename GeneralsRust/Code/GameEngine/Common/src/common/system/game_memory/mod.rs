@@ -16,8 +16,9 @@ pub use dma::DynamicMemoryAllocator;
 pub use pool::MemoryPool;
 pub use ptr_identity::{debug_block_header_from_user, debug_write_header_pointer_fields};
 
+use std::cell::RefCell;
 use std::collections::HashMap;
-use std::sync::Mutex;
+use std::rc::Rc;
 
 /// Central manager for all MemoryPools and DynamicMemoryAllocators.
 pub struct MemoryPoolFactory {
@@ -118,51 +119,50 @@ impl Default for MemoryPoolFactory {
     }
 }
 
-lazy_static::lazy_static! {
-    static ref THE_FACTORY: Mutex<MemoryPoolFactory> = Mutex::new(MemoryPoolFactory::new());
+// THREAD: C++ plain static; driven only by the single game/client thread.
+thread_local! {
+    static THE_FACTORY: Rc<RefCell<MemoryPoolFactory>> =
+        Rc::new(RefCell::new(MemoryPoolFactory::new()));
 }
 
 pub fn init_memory_manager() {
-    let mut factory = THE_FACTORY.lock().unwrap();
-    factory.dmas.clear();
-    factory.create_dynamic_memory_allocator(&[]);
+    THE_FACTORY.with(|factory| {
+        let mut factory = factory.borrow_mut();
+        factory.dmas.clear();
+        factory.create_dynamic_memory_allocator(&[]);
+    });
 }
 
 pub fn shutdown_memory_manager() {
-    let mut factory = THE_FACTORY.lock().unwrap();
-    factory.dmas.clear();
-    factory.pools.clear();
+    THE_FACTORY.with(|factory| {
+        let mut factory = factory.borrow_mut();
+        factory.dmas.clear();
+        factory.pools.clear();
+    });
 }
 
-pub fn get_memory_pool_factory() -> &'static Mutex<MemoryPoolFactory> {
-    &THE_FACTORY
+pub fn get_memory_pool_factory() -> Rc<RefCell<MemoryPoolFactory>> {
+    THE_FACTORY.with(Rc::clone)
 }
 
 pub fn dma_allocate(num_bytes: usize) -> *mut u8 {
-    THE_FACTORY
-        .lock()
-        .unwrap()
-        .primary_dma_mut()
-        .allocate_bytes(num_bytes)
+    THE_FACTORY.with(|factory| factory.borrow_mut().primary_dma_mut().allocate_bytes(num_bytes))
 }
 
 pub fn dma_allocate_do_not_zero(num_bytes: usize) -> *mut u8 {
-    THE_FACTORY
-        .lock()
-        .unwrap()
-        .primary_dma_mut()
-        .allocate_bytes_do_not_zero(num_bytes)
+    THE_FACTORY.with(|factory| {
+        factory
+            .borrow_mut()
+            .primary_dma_mut()
+            .allocate_bytes_do_not_zero(num_bytes)
+    })
 }
 
 pub fn dma_free(ptr: *mut u8) {
     if ptr.is_null() {
         return;
     }
-    THE_FACTORY
-        .lock()
-        .unwrap()
-        .primary_dma_mut()
-        .free_bytes(ptr);
+    THE_FACTORY.with(|factory| factory.borrow_mut().primary_dma_mut().free_bytes(ptr));
 }
 
 pub fn create_pool(
@@ -171,14 +171,16 @@ pub fn create_pool(
     initial_count: usize,
     overflow_count: usize,
 ) -> *mut MemoryPool {
-    THE_FACTORY.lock().unwrap().create_memory_pool(
-        pool_name,
-        allocation_size,
-        initial_count,
-        overflow_count,
-    )
+    THE_FACTORY.with(|factory| {
+        factory.borrow_mut().create_memory_pool(
+            pool_name,
+            allocation_size,
+            initial_count,
+            overflow_count,
+        )
+    })
 }
 
 pub fn find_pool(pool_name: &str) -> Option<*mut MemoryPool> {
-    THE_FACTORY.lock().unwrap().find_memory_pool(pool_name)
+    THE_FACTORY.with(|factory| factory.borrow().find_memory_pool(pool_name))
 }

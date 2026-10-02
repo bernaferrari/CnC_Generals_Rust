@@ -10,8 +10,8 @@
 use configparser::ini::Ini;
 use glam::{Mat4, Vec3, Vec4};
 use std::collections::HashMap;
+use std::cell::RefCell;
 use std::path::Path;
-use std::sync::{Mutex, OnceLock};
 use ww3d_core::errors::{W3DError, W3DResult};
 use ww3d_renderer_3d::{
     core::error::{Error as RendererError, RendererResult},
@@ -895,35 +895,30 @@ fn extract_list(
         .unwrap_or_default()
 }
 
-/// Global dazzle manager storage
-fn dazzle_manager_store() -> &'static Mutex<Option<DazzleManager>> {
-    static STORE: OnceLock<Mutex<Option<DazzleManager>>> = OnceLock::new();
-    STORE.get_or_init(|| Mutex::new(None))
+thread_local! {
+    /// C++ kept the dazzle manager as a plain file static on the game thread.
+    static DAZZLE_MANAGER_SLOT: RefCell<Option<DazzleManager>> = const { RefCell::new(None) };
 }
 
 fn with_dazzle_manager_mut<R, F>(f: F) -> Option<R>
 where
     F: FnOnce(&mut DazzleManager) -> R,
 {
-    let mut slot = dazzle_manager_store().lock().ok()?;
-    let manager = slot.as_mut()?;
-    Some(f(manager))
+    DAZZLE_MANAGER_SLOT.with_borrow_mut(|slot| {
+        let manager = slot.as_mut()?;
+        Some(f(manager))
+    })
 }
 
 /// Initialize dazzle system
 pub fn init_dazzle_system(device: &wgpu::Device, queue: &wgpu::Queue) -> Result<()> {
-    let mut slot = dazzle_manager_store()
-        .lock()
-        .expect("dazzle manager lock poisoned");
-    *slot = Some(DazzleManager::new(device, queue));
+    DAZZLE_MANAGER_SLOT.with_borrow_mut(|slot| *slot = Some(DazzleManager::new(device, queue)));
     Ok(())
 }
 
 /// Shutdown dazzle system
 pub fn shutdown_dazzle_system() {
-    if let Ok(mut slot) = dazzle_manager_store().lock() {
-        *slot = None;
-    }
+    DAZZLE_MANAGER_SLOT.with_borrow_mut(|slot| *slot = None);
 }
 
 /// Quick dazzle creation function

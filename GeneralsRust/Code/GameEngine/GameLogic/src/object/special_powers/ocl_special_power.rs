@@ -182,8 +182,7 @@ impl OclSpecialPower {
 
         let upgraded_ocl = crate::object::registry::OBJECT_REGISTRY
             .with_object(self.owner_object_id, |owner_guard| {
-                owner_guard.get_controlling_player().and_then(|player| {
-                    let player_guard = player.read().ok()?;
+                owner_guard.with_controlling_player(|player_guard| {
                     self.data
                         .upgrade_ocl
                         .iter()

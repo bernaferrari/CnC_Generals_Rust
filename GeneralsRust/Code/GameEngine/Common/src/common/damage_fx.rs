@@ -9,9 +9,9 @@
 // Desc:   DamageFX descriptions
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
-use once_cell::sync::OnceCell;
+use std::cell::RefCell;
 use std::collections::HashMap;
-use std::sync::Mutex;
+use std::rc::Rc;
 
 use crate::common::name_key_generator::{NameKeyGenerator, NameKeyType};
 
@@ -250,31 +250,29 @@ impl DamageFXStore {
     }
 }
 
-/// Global damage FX store instance
-static DAMAGE_FX_STORE: OnceCell<Mutex<DamageFXStore>> = OnceCell::new();
+// Global damage FX store instance
+// THREAD: C++ plain static; driven only by the single game/client thread.
+thread_local! {
+    static DAMAGE_FX_STORE: Rc<RefCell<DamageFXStore>> = Rc::new(RefCell::new(DamageFXStore::new()));
+}
 
 /// Initialize the global damage FX store
 pub fn initialize_damage_fx_store() {
-    let store = DamageFXStore::new();
-    if DAMAGE_FX_STORE.set(Mutex::new(store)).is_err() {
-        if let Some(existing) = DAMAGE_FX_STORE.get() {
-            let mut guard = existing.lock().expect("DamageFX store mutex poisoned");
-            *guard = DamageFXStore::new();
-        }
-    }
+    DAMAGE_FX_STORE.with(|store| {
+        let mut store = store.borrow_mut();
+        *store = DamageFXStore::new();
+    });
 }
 
-/// Get reference to the global damage FX store
-pub fn get_damage_fx_store() -> std::sync::MutexGuard<'static, DamageFXStore> {
-    DAMAGE_FX_STORE
-        .get()
-        .expect("DamageFX store not initialized")
-        .lock()
-        .expect("DamageFX store mutex poisoned")
+/// Get a handle to the global damage FX store (`borrow` for reads,
+/// `borrow_mut` for writes).
+pub fn get_damage_fx_store() -> Rc<RefCell<DamageFXStore>> {
+    DAMAGE_FX_STORE.with(Rc::clone)
 }
 
-/// Get mutable reference to the global damage FX store
-pub fn get_damage_fx_store_mut() -> std::sync::MutexGuard<'static, DamageFXStore> {
+/// Get a handle to the global damage FX store (`borrow` for reads,
+/// `borrow_mut` for writes).
+pub fn get_damage_fx_store_mut() -> Rc<RefCell<DamageFXStore>> {
     get_damage_fx_store()
 }
 

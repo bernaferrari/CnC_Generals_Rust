@@ -1749,10 +1749,7 @@ impl AI {
                         }
                         if (qualifiers & search_qualifiers::UNFOGGED) != 0 {
                             let player_index = me_guard
-                                .get_controlling_player()
-                                .and_then(|player| {
-                                    player.read().ok().map(|guard| guard.get_player_index())
-                                })
+                                .with_controlling_player(|guard| guard.get_player_index())
                                 .unwrap_or(-1);
                             if target.get_shrouded_status(player_index)
                                 != crate::common::ObjectShroudStatus::Clear
@@ -2042,13 +2039,7 @@ impl AI {
             .with_object(object, |obj_guard| {
                 let range = obj_guard.get_vision_range();
                 let player_is_human = obj_guard
-                    .get_controlling_player()
-                    .and_then(|player| {
-                        player
-                            .read()
-                            .ok()
-                            .map(|guard| guard.get_player_type() == PlayerType::Human)
-                    })
+                    .with_controlling_player(|guard| guard.get_player_type() == PlayerType::Human)
                     .unwrap_or(false);
                 let attitude = obj_guard.get_ai_update_interface().and_then(|ai_update| {
                     ai_update

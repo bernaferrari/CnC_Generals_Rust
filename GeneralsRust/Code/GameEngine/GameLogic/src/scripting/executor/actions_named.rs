@@ -559,8 +559,7 @@ impl ScriptActionDispatcher {
             (unit_obj.read(), building_obj.read())
         {
             let player_mask = unit_guard
-                .get_controlling_player()
-                .and_then(|p| p.read().ok().map(|player| player.get_player_mask()))
+                .with_controlling_player(|player| player.get_player_mask())
                 .unwrap_or_else(crate::common::PlayerMaskType::none);
 
             if !building_guard.is_kind_of(crate::common::KindOf::Structure) {

@@ -10,7 +10,8 @@
 
 use glam::{Mat4, Vec2, Vec3, Vec4};
 use std::sync::atomic::{AtomicU32, Ordering};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::cell::RefCell;
+use std::sync::Arc;
 use ww3d_core::errors::{W3DError, W3DResult};
 use ww3d_core::w3d_format::{W3dTexCoordStruct, W3dTriangleStruct, W3dVectorStruct};
 use ww3d_renderer_3d::{
@@ -33,18 +34,19 @@ fn renderer_error_to_w3d(err: RendererError) -> W3DError {
     W3DError::UnknownWithMessage(err.to_string())
 }
 
-fn streak_renderer_store() -> &'static Mutex<Option<StreakRenderer>> {
-    static STORE: OnceLock<Mutex<Option<StreakRenderer>>> = OnceLock::new();
-    STORE.get_or_init(|| Mutex::new(None))
+thread_local! {
+    /// C++ kept the streak renderer as a plain file static on the game thread.
+    static STREAK_RENDERER_SLOT: RefCell<Option<StreakRenderer>> = const { RefCell::new(None) };
 }
 
 fn with_streak_renderer_mut<R, F>(f: F) -> Option<R>
 where
     F: FnOnce(&mut StreakRenderer) -> R,
 {
-    let mut slot = streak_renderer_store().lock().ok()?;
-    let renderer = slot.as_mut()?;
-    Some(f(renderer))
+    STREAK_RENDERER_SLOT.with_borrow_mut(|slot| {
+        let renderer = slot.as_mut()?;
+        Some(f(renderer))
+    })
 }
 
 /// Streak rendering mode
@@ -803,9 +805,7 @@ pub fn init_streak_renderer(max_streaks: usize) -> Result<()> {
 
 /// Shutdown global streak renderer
 pub fn shutdown_streak_renderer() {
-    if let Ok(mut slot) = streak_renderer_store().lock() {
-        *slot = None;
-    }
+    STREAK_RENDERER_SLOT.with_borrow_mut(|slot| *slot = None);
 }
 
 /// Quick streak functions

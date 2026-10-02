@@ -9,7 +9,7 @@
 //! - Memory-mapped file support for large assets
 
 use dashmap::DashMap;
-use parking_lot::{Mutex, RwLock};
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fs::{File, metadata};
 use std::io::{BufReader, Read, Seek, SeekFrom};
@@ -363,7 +363,9 @@ impl std::fmt::Debug for LoadingTask {
 /// Audio asset manager with caching and streaming support
 pub struct AudioAssetManager {
     /// Main asset cache
-    cache: DashMap<String, Arc<RwLock<CacheEntry>>>,
+    // THREAD: entries are only touched from the owning thread (the background
+    // loader workers only drain the channel), so no per-entry lock is needed.
+    cache: DashMap<String, CacheEntry>,
     /// Maximum cache size in bytes
     max_cache_size: usize,
     /// Current cache size in bytes
@@ -373,7 +375,9 @@ pub struct AudioAssetManager {
     /// Background loading workers
     _loading_workers: Vec<std::thread::JoinHandle<()>>,
     /// Asset search directories
-    search_paths: RwLock<Vec<PathBuf>>,
+    // THREAD: only the owning thread reads/writes this; the spawned loader
+    // workers never touch it, so a RefCell replaces the RwLock.
+    search_paths: RefCell<Vec<PathBuf>>,
     /// File system watcher (for asset reloading)
     #[cfg(feature = "notify")]
     _watcher: Option<notify::RecommendedWatcher>,
@@ -406,7 +410,7 @@ impl AudioAssetManager {
             current_cache_size: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
             loading_queue: Arc::new(task_sender),
             _loading_workers: workers,
-            search_paths: RwLock::new(vec![PathBuf::from("./assets/audio")]),
+            search_paths: RefCell::new(vec![PathBuf::from("./assets/audio")]),
             #[cfg(feature = "notify")]
             _watcher: None,
         }
@@ -414,7 +418,7 @@ impl AudioAssetManager {
 
     /// Add a search path for audio assets
     pub fn add_search_path<P: AsRef<Path>>(&self, path: P) {
-        self.search_paths.write().push(path.as_ref().to_path_buf());
+        self.search_paths.borrow_mut().push(path.as_ref().to_path_buf());
     }
 
     /// Load an audio asset synchronously
@@ -510,7 +514,7 @@ impl AudioAssetManager {
     /// Remove an asset from the cache
     pub fn unload_asset(&self, asset_name: &str) {
         if let Some((_, entry)) = self.cache.remove(asset_name) {
-            let size = entry.read().data.memory_usage();
+            let size = entry.data.memory_usage();
             self.current_cache_size
                 .fetch_sub(size, std::sync::atomic::Ordering::Relaxed);
         }
@@ -543,7 +547,7 @@ impl AudioAssetManager {
         let now = Instant::now();
 
         for entry in self.cache.iter() {
-            let cache_entry = entry.value().read();
+            let cache_entry = entry.value();
 
             // Check if entry has expired and has no references
             if now.duration_since(cache_entry.last_accessed) > CACHE_TTL
@@ -559,7 +563,7 @@ impl AudioAssetManager {
 
         for key in to_remove {
             if let Some((_, entry)) = self.cache.remove(&key) {
-                let size = entry.read().data.memory_usage();
+                let size = entry.data.memory_usage();
                 self.current_cache_size
                     .fetch_sub(size, std::sync::atomic::Ordering::Relaxed);
             }
@@ -575,7 +579,7 @@ impl AudioAssetManager {
         }
 
         // Search in configured search paths
-        let search_paths = self.search_paths.read();
+        let search_paths = self.search_paths.borrow();
         for search_path in search_paths.iter() {
             let full_path = search_path.join(asset_name);
             if full_path.exists() {
@@ -867,8 +871,7 @@ impl AudioAssetManager {
 
     /// Get audio data from cache
     fn get_from_cache(&self, asset_name: &str) -> Option<AudioData> {
-        if let Some(entry) = self.cache.get(asset_name) {
-            let mut cache_entry = entry.value().write();
+        if let Some(mut cache_entry) = self.cache.get_mut(asset_name) {
             cache_entry.last_accessed = Instant::now();
             cache_entry
                 .reference_count
@@ -898,7 +901,7 @@ impl AudioAssetManager {
             priority: CachePriority::Normal,
         };
 
-        self.cache.insert(asset_name, Arc::new(RwLock::new(entry)));
+        self.cache.insert(asset_name, entry);
         self.current_cache_size
             .fetch_add(size, std::sync::atomic::Ordering::Relaxed);
     }
@@ -913,7 +916,7 @@ impl AudioAssetManager {
             .cache
             .iter()
             .filter_map(|entry| {
-                let cache_entry = entry.value().read();
+                let cache_entry = entry.value();
                 if cache_entry
                     .reference_count
                     .load(std::sync::atomic::Ordering::Relaxed)

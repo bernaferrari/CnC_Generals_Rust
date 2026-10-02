@@ -9,10 +9,12 @@ use crate::lan_api::crypto::LanCrypto;
 use crate::lan_api::{LanBridgeEvent, LanEventSender};
 use crate::security::SecurityManager;
 use crate::time::NetworkInstant;
+use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
 use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, SystemTime};
 use tokio::net::UdpSocket;
 use tokio::sync::{Notify, RwLock};
@@ -272,33 +274,41 @@ impl ChatStats {
     }
 }
 
+/// Chat bookkeeping shared between the owning task and the spawned receiver loop.
+struct ChatState {
+    history: ChatHistory,
+    stats: ChatStats,
+}
+
 /// LAN chat system
 pub struct LanChat {
     /// Maximum message length
     max_message_length: usize,
     /// Base UDP port for LAN communication
     base_port: u16,
-    /// Chat history
-    history: Arc<RwLock<ChatHistory>>,
-    /// UDP socket for chat communication
+    /// THREAD: history and stats are written by the spawned socket receiver task
+    /// and by the owner task (`send_message`, `add_player`, ...). One short-lived
+    /// sync lock covers both; guards never span an `.await`.
+    state: Arc<Mutex<ChatState>>,
+    /// THREAD: the socket is installed by the owner task (`init`) and cleared on
+    /// `shutdown`, while the spawned receiver loop polls it for datagrams.
     socket: Arc<RwLock<Option<UdpSocket>>>,
     /// Encryption helper shared with lobby/discovery.
     crypto: LanCrypto,
-    /// Known players for chat
-    players: Arc<RwLock<HashMap<IpAddr, String>>>,
+    /// Known players for chat (owner task only)
+    players: HashMap<IpAddr, String>,
     /// Bridge into the parent [`LanApi`] background task.
     bridge_tx: LanEventSender,
-    /// Background tasks
-    tasks: Arc<RwLock<Vec<tokio::task::JoinHandle<()>>>>,
-    /// Whether chat is active
-    is_active: Arc<RwLock<bool>>,
-    /// Chat statistics
-    stats: Arc<RwLock<ChatStats>>,
-    /// Message rate limiting
-    rate_limiter: Arc<RwLock<RateLimiter>>,
-    /// Local player info
-    local_player_name: Arc<RwLock<String>>,
-    local_player_ip: Arc<RwLock<Option<IpAddr>>>,
+    /// Background tasks (owner task only)
+    tasks: Vec<tokio::task::JoinHandle<()>>,
+    /// THREAD: polled by the spawned receiver/stats tasks, flipped by the owner
+    /// task in `init`/`shutdown`.
+    is_active: Arc<AtomicBool>,
+    /// Message rate limiting (owner task only)
+    rate_limiter: RateLimiter,
+    /// Local player info (owner task only)
+    local_player_name: String,
+    local_player_ip: Option<IpAddr>,
     shutdown_notify: Arc<Notify>,
 }
 
@@ -362,17 +372,19 @@ impl LanChat {
         Ok(Self {
             max_message_length,
             base_port,
-            history: Arc::new(RwLock::new(ChatHistory::new(1000))),
+            state: Arc::new(Mutex::new(ChatState {
+                history: ChatHistory::new(1000),
+                stats: ChatStats::default(),
+            })),
             socket: Arc::new(RwLock::new(None)),
             crypto: LanCrypto::new(security, connections),
-            players: Arc::new(RwLock::new(HashMap::new())),
+            players: HashMap::new(),
             bridge_tx,
-            tasks: Arc::new(RwLock::new(Vec::new())),
-            is_active: Arc::new(RwLock::new(false)),
-            stats: Arc::new(RwLock::new(ChatStats::default())),
-            rate_limiter: Arc::new(RwLock::new(RateLimiter::new(10, Duration::from_secs(60)))),
-            local_player_name: Arc::new(RwLock::new("Player".to_string())),
-            local_player_ip: Arc::new(RwLock::new(None)),
+            tasks: Vec::new(),
+            is_active: Arc::new(AtomicBool::new(false)),
+            rate_limiter: RateLimiter::new(10, Duration::from_secs(60)),
+            local_player_name: "Player".to_string(),
+            local_player_ip: None,
             shutdown_notify: Arc::new(Notify::new()),
         })
     }
@@ -381,7 +393,7 @@ impl LanChat {
     pub async fn init(&mut self) -> NetworkResult<()> {
         info!("Initializing LAN chat system");
 
-        *self.is_active.write().await = true;
+        self.is_active.store(true, Ordering::Relaxed);
         self.shutdown_notify = Arc::new(Notify::new());
 
         // Initialize UDP socket for chat
@@ -408,7 +420,7 @@ impl LanChat {
     }
 
     /// Start background tasks
-    async fn start_background_tasks(&self) {
+    async fn start_background_tasks(&mut self) {
         // Start message receiver
         self.start_message_receiver().await;
 
@@ -417,11 +429,10 @@ impl LanChat {
     }
 
     /// Start message receiver task
-    async fn start_message_receiver(&self) {
+    async fn start_message_receiver(&mut self) {
         let socket = Arc::clone(&self.socket);
         let bridge_tx = self.bridge_tx.clone();
-        let history = Arc::clone(&self.history);
-        let stats = Arc::clone(&self.stats);
+        let state = Arc::clone(&self.state);
         let is_active = Arc::clone(&self.is_active);
         let shutdown = Arc::clone(&self.shutdown_notify);
         let crypto = self.crypto.clone();
@@ -452,7 +463,7 @@ impl LanChat {
                     }
                 }
 
-                if !*is_active.read().await {
+                if !is_active.load(Ordering::Relaxed) {
                     continue;
                 }
 
@@ -474,13 +485,9 @@ impl LanChat {
                                         );
 
                                         {
-                                            let mut hist = history.write().await;
-                                            hist.add_message(message.clone());
-                                        }
-
-                                        {
-                                            let mut stats_guard = stats.write().await;
-                                            stats_guard.record_received(
+                                            let mut state = state.lock();
+                                            state.history.add_message(message.clone());
+                                            state.stats.record_received(
                                                 message.sender_ip,
                                                 message.sender_name.clone(),
                                                 message.chat_type,
@@ -510,12 +517,12 @@ impl LanChat {
             debug!("Chat message receiver stopped");
         });
 
-        self.tasks.write().await.push(handle);
+        self.tasks.push(handle);
     }
 
     /// Start stats updater task
-    async fn start_stats_updater(&self) {
-        let stats = Arc::clone(&self.stats);
+    async fn start_stats_updater(&mut self) {
+        let state = Arc::clone(&self.state);
         let is_active = Arc::clone(&self.is_active);
         let shutdown = Arc::clone(&self.shutdown_notify);
 
@@ -528,18 +535,18 @@ impl LanChat {
                         break;
                     }
                     _ = tick.tick() => {
-                        if !*is_active.read().await {
+                        if !is_active.load(Ordering::Relaxed) {
                             continue;
                         }
 
-                        let mut stats_guard = stats.write().await;
-                        if let Some(last_activity) = stats_guard.last_activity {
+                        let mut state = state.lock();
+                        if let Some(last_activity) = state.stats.last_activity {
                             if SystemTime::now()
                                 .duration_since(last_activity)
                                 .unwrap_or_default()
                                 > Duration::from_secs(300)
                             {
-                                stats_guard.active_participants.clear();
+                                state.stats.active_participants.clear();
                             }
                         }
                     }
@@ -549,17 +556,17 @@ impl LanChat {
             debug!("Chat stats updater stopped");
         });
 
-        self.tasks.write().await.push(handle);
+        self.tasks.push(handle);
     }
 
     /// Set local player information
-    pub async fn set_local_player(&self, name: String, ip: IpAddr) {
-        *self.local_player_name.write().await = name;
-        *self.local_player_ip.write().await = Some(ip);
+    pub async fn set_local_player(&mut self, name: String, ip: IpAddr) {
+        self.local_player_name = name;
+        self.local_player_ip = Some(ip);
     }
 
     /// Send a chat message
-    pub async fn send_message(&self, message: String, chat_type: ChatType) -> NetworkResult<()> {
+    pub async fn send_message(&mut self, message: String, chat_type: ChatType) -> NetworkResult<()> {
         // Validate message length
         if message.len() > self.max_message_length {
             return Err(NetworkError::invalid_command(format!(
@@ -570,18 +577,15 @@ impl LanChat {
         }
 
         // Check rate limiting
-        {
-            let mut limiter = self.rate_limiter.write().await;
-            if !limiter.can_send() {
-                return Err(NetworkError::invalid_command(
-                    "Rate limit exceeded".to_string(),
-                ));
-            }
+        if !self.rate_limiter.can_send() {
+            return Err(NetworkError::invalid_command(
+                "Rate limit exceeded".to_string(),
+            ));
         }
 
         // Get local player info
-        let sender_name = self.local_player_name.read().await.clone();
-        let sender_ip = match *self.local_player_ip.read().await {
+        let sender_name = self.local_player_name.clone();
+        let sender_ip = match self.local_player_ip {
             Some(ip) => ip,
             None => {
                 return Err(NetworkError::invalid_command(
@@ -593,16 +597,11 @@ impl LanChat {
         // Create message
         let chat_message = ChatMessage::new(sender_name, sender_ip, message, chat_type);
 
-        // Add to local history
+        // Add to local history and update stats
         {
-            let mut history = self.history.write().await;
-            history.add_message(chat_message.clone());
-        }
-
-        // Update stats
-        {
-            let mut stats = self.stats.write().await;
-            stats.record_sent(chat_type);
+            let mut state = self.state.lock();
+            state.history.add_message(chat_message.clone());
+            state.stats.record_sent(chat_type);
         }
 
         // Broadcast message
@@ -614,7 +613,7 @@ impl LanChat {
 
     /// Send a private message
     pub async fn send_private_message(
-        &self,
+        &mut self,
         target_ip: IpAddr,
         message: String,
     ) -> NetworkResult<()> {
@@ -628,18 +627,15 @@ impl LanChat {
         }
 
         // Check rate limiting
-        {
-            let mut limiter = self.rate_limiter.write().await;
-            if !limiter.can_send() {
-                return Err(NetworkError::invalid_command(
-                    "Rate limit exceeded".to_string(),
-                ));
-            }
+        if !self.rate_limiter.can_send() {
+            return Err(NetworkError::invalid_command(
+                "Rate limit exceeded".to_string(),
+            ));
         }
 
         // Get local player info
-        let sender_name = self.local_player_name.read().await.clone();
-        let sender_ip = match *self.local_player_ip.read().await {
+        let sender_name = self.local_player_name.clone();
+        let sender_ip = match self.local_player_ip {
             Some(ip) => ip,
             None => {
                 return Err(NetworkError::invalid_command(
@@ -653,8 +649,8 @@ impl LanChat {
 
         // Add to local history
         {
-            let mut history = self.history.write().await;
-            history.add_message(chat_message.clone());
+            let mut state = self.state.lock();
+            state.history.add_message(chat_message.clone());
         }
 
         // Send to specific target
@@ -666,9 +662,7 @@ impl LanChat {
 
     /// Broadcast a message to all players
     async fn broadcast_message(&self, message: &ChatMessage) -> NetworkResult<()> {
-        let players = self.players.read().await;
-
-        for &player_ip in players.keys() {
+        for &player_ip in self.players.keys() {
             if player_ip != message.sender_ip {
                 // Don't send to sender
                 if let Err(e) = self.send_message_to(message, player_ip).await {
@@ -700,28 +694,24 @@ impl LanChat {
     }
 
     /// Add a player to the chat system
-    pub async fn add_player(&self, ip: IpAddr, name: String) {
-        let mut players = self.players.write().await;
-        players.insert(ip, name.clone());
+    pub async fn add_player(&mut self, ip: IpAddr, name: String) {
+        self.players.insert(ip, name.clone());
 
         // Send system message about player joining
         let system_msg = ChatMessage::system(format!("{} joined the chat", name));
-        let mut history = self.history.write().await;
-        history.add_message(system_msg);
+        self.state.lock().history.add_message(system_msg);
 
         debug!("Added player to chat: {} ({})", name, ip);
     }
 
     /// Remove a player from the chat system
-    pub async fn remove_player(&self, ip: IpAddr) -> Option<String> {
-        let mut players = self.players.write().await;
-        let player_name = players.remove(&ip);
+    pub async fn remove_player(&mut self, ip: IpAddr) -> Option<String> {
+        let player_name = self.players.remove(&ip);
 
         if let Some(ref name) = player_name {
             // Send system message about player leaving
             let system_msg = ChatMessage::system(format!("{} left the chat", name));
-            let mut history = self.history.write().await;
-            history.add_message(system_msg);
+            self.state.lock().history.add_message(system_msg);
 
             debug!("Removed player from chat: {} ({})", name, ip);
         }
@@ -731,8 +721,9 @@ impl LanChat {
 
     /// Get recent chat messages
     pub async fn get_recent_messages(&self, count: usize) -> Vec<ChatMessage> {
-        let history = self.history.read().await;
-        history
+        let state = self.state.lock();
+        state
+            .history
             .get_recent_messages(count)
             .into_iter()
             .cloned()
@@ -741,8 +732,9 @@ impl LanChat {
 
     /// Get messages for a specific player
     pub async fn get_messages_for_player(&self, player_ip: IpAddr) -> Vec<ChatMessage> {
-        let history = self.history.read().await;
-        history
+        let state = self.state.lock();
+        state
+            .history
             .get_messages_for_player(player_ip)
             .into_iter()
             .cloned()
@@ -751,15 +743,14 @@ impl LanChat {
 
     /// Clear chat history
     pub async fn clear_history(&self) {
-        let mut history = self.history.write().await;
-        history.clear();
+        self.state.lock().history.clear();
 
         info!("Chat history cleared");
     }
 
     /// Get chat statistics
     pub async fn get_stats(&self) -> ChatStats {
-        self.stats.read().await.clone()
+        self.state.lock().stats.clone()
     }
 
     /// Update chat system
@@ -773,21 +764,17 @@ impl LanChat {
     pub async fn shutdown(&mut self) -> NetworkResult<()> {
         info!("Shutting down LAN chat system");
 
-        *self.is_active.write().await = false;
+        self.is_active.store(false, Ordering::Relaxed);
         self.shutdown_notify.notify_waiters();
 
-        let mut tasks = self.tasks.write().await;
-        for handle in tasks.drain(..) {
+        for handle in self.tasks.drain(..) {
             handle.abort();
             let _ = handle.await;
         }
 
         *self.socket.write().await = None;
 
-        {
-            let mut players = self.players.write().await;
-            players.clear();
-        }
+        self.players.clear();
 
         info!("LAN chat system shut down successfully");
         self.shutdown_notify = Arc::new(Notify::new());
@@ -929,28 +916,29 @@ mod tests {
         let chat = LanChat::new(100, 8086, tx).await.unwrap();
 
         assert_eq!(chat.max_message_length, 100);
-        assert!(!*chat.is_active.read().await);
+        assert!(!chat.is_active.load(Ordering::Relaxed));
 
-        let history = chat.history.read().await;
-        assert!(history.is_empty());
+        let state = chat.state.lock();
+        assert!(state.history.is_empty());
     }
 
     #[tokio::test]
     async fn test_player_management() {
         let (tx, _rx) = lan_event_channel();
-        let chat = LanChat::new(100, 8086, tx).await.unwrap();
+        let mut chat = LanChat::new(100, 8086, tx).await.unwrap();
 
         let ip = IpAddr::V4(Ipv4Addr::new(192, 168, 1, 100));
 
         // Add player
         chat.add_player(ip, "TestPlayer".to_string()).await;
 
-        let players = chat.players.read().await;
-        assert_eq!(players.get(&ip), Some(&"TestPlayer".to_string()));
+        assert_eq!(chat.players.get(&ip), Some(&"TestPlayer".to_string()));
 
         // Check system message was added
-        let history = chat.history.read().await;
-        assert_eq!(history.len(), 1);
-        assert!(history.get_recent_messages(1)[0].message.contains("joined"));
+        let state = chat.state.lock();
+        assert_eq!(state.history.len(), 1);
+        assert!(state.history.get_recent_messages(1)[0]
+            .message
+            .contains("joined"));
     }
 }

@@ -8,7 +8,7 @@
 use crate::error::{NetworkError, NetworkResult};
 use crate::observability::telemetry;
 use crate::time::NetworkInstant;
-use parking_lot::RwLock as SyncRwLock;
+use parking_lot::{Mutex as SyncMutex, RwLock as SyncRwLock};
 use quinn::crypto::rustls::{QuicClientConfig, QuicServerConfig};
 use quinn::{ClientConfig, Connection, Endpoint, SendStream, ServerConfig};
 use rcgen::generate_simple_self_signed;
@@ -16,9 +16,10 @@ use rustls::pki_types::{CertificateDer, PrivatePkcs8KeyDer};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
 use std::net::SocketAddr;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
-use tokio::sync::{Notify, RwLock, broadcast};
+use tokio::sync::{Notify, broadcast};
 use tokio::task::JoinHandle;
 use tracing::{debug, info, warn};
 
@@ -212,33 +213,97 @@ fn build_transport_configs(
     Ok((server_config, Arc::new(client_config)))
 }
 
-/// QUIC transport implementation.
-pub struct Transport {
-    config: SyncRwLock<TransportConfig>,
-    runtime: RwLock<TransportRuntime>,
-    client_endpoint: Arc<Endpoint>,
-    connection_tasks: Arc<RwLock<HashMap<SocketAddr, Vec<JoinHandle<()>>>>>,
-    connections: Arc<RwLock<HashMap<SocketAddr, Connection>>>,
-    packets_sent: Arc<RwLock<u64>>,
-    packets_received: Arc<RwLock<u64>>,
-    bytes_sent: Arc<RwLock<u64>>,
-    bytes_received: Arc<RwLock<u64>>,
-    outbound_messages: Arc<RwLock<Vec<TransportMessage>>>,
-    inbound_messages: Arc<RwLock<Vec<TransportMessage>>>,
-    active_connections: Arc<RwLock<HashMap<SocketAddr, NetworkInstant>>>,
-    connection_births: Arc<RwLock<HashMap<SocketAddr, NetworkInstant>>>,
-    shutdown_tx: broadcast::Sender<()>,
-    incoming_uni_streams: Arc<RwLock<VecDeque<(SocketAddr, quinn::RecvStream)>>>,
-    incoming_uni_notify: Arc<Notify>,
-    public_address: SyncRwLock<Option<SocketAddr>>,
-    client_config: Arc<ClientConfig>,
+/// Configuration plus the NAT-discovered public address.
+///
+/// THREAD: read by `bind`/`get_or_connect`/`update`/`config` and written by
+/// `set_bind_address`/`set_public_address`, all through the shared
+/// `Arc<Transport>` handle from arbitrary tasks (game loop, NAT service,
+/// bridge). One lock guards the small bundle; sections never span `.await`.
+struct TransportSettings {
+    config: TransportConfig,
+    public_address: Option<SocketAddr>,
 }
 
+/// Endpoint state owned by `bind`/`shutdown`.
+///
+/// THREAD: mutated by `bind`/`shutdown` and read by `get_or_connect`,
+/// `is_bound` and `is_ready` on the shared `Arc<Transport>` handle from
+/// arbitrary tasks. Sections never span an `.await`.
 struct TransportRuntime {
-    endpoint: Option<Arc<Endpoint>>,
+    endpoint: Option<Endpoint>,
     incoming_task: Option<JoinHandle<()>>,
     is_bound: bool,
     server_config: Option<ServerConfig>,
+}
+
+/// Connection registry shared between the owning handle and the spawned QUIC
+/// tasks.
+///
+/// THREAD: `connections`/`connection_tasks`/`active_connections`/
+/// `connection_births` are written by the endpoint accept loop and by the
+/// per-connection datagram and uni-stream tasks spawned in
+/// `spawn_incoming_processor`/`register_connection`, and read/drained by the
+/// owner's `get_or_connect`/`update`/`shutdown` on the shared
+/// `Arc<Transport>` handle. `inbound` receives datagrams from those tasks and
+/// is drained by `receive_messages`; `uni_streams` receives accepted
+/// uni-streams and is popped by `recv_uni_stream`. One mutex bundles them;
+/// every critical section is short and never spans an `.await`.
+struct SharedTransportState {
+    connections: HashMap<SocketAddr, Connection>,
+    connection_tasks: HashMap<SocketAddr, Vec<JoinHandle<()>>>,
+    active_connections: HashMap<SocketAddr, NetworkInstant>,
+    connection_births: HashMap<SocketAddr, NetworkInstant>,
+    inbound: Vec<TransportMessage>,
+    uni_streams: VecDeque<(SocketAddr, quinn::RecvStream)>,
+}
+
+/// Per-transport throughput counters, shared with the spawned tasks.
+struct TransportCounters {
+    packets_sent: AtomicU64,
+    packets_received: AtomicU64,
+    bytes_sent: AtomicU64,
+    bytes_received: AtomicU64,
+}
+
+/// QUIC transport implementation.
+pub struct Transport {
+    settings: SyncRwLock<TransportSettings>,
+    runtime: SyncMutex<TransportRuntime>,
+    shared: Arc<SyncMutex<SharedTransportState>>,
+    counters: Arc<TransportCounters>,
+    /// Outbound log: appended by `send_message`, cleared by `shutdown`. Only
+    /// the owning handle's methods touch it.
+    outbound_messages: SyncMutex<Vec<TransportMessage>>,
+    /// Wakes `recv_uni_stream` when a uni-stream is queued by a spawned task.
+    incoming_uni_notify: Arc<Notify>,
+    /// Dedicated client endpoint used before `bind` (and after shutdown).
+    client_endpoint: Endpoint,
+    shutdown_tx: broadcast::Sender<()>,
+    client_config: Arc<ClientConfig>,
+}
+
+impl TransportCounters {
+    fn new() -> Self {
+        Self {
+            packets_sent: AtomicU64::new(0),
+            packets_received: AtomicU64::new(0),
+            bytes_sent: AtomicU64::new(0),
+            bytes_received: AtomicU64::new(0),
+        }
+    }
+}
+
+impl SharedTransportState {
+    fn new() -> Self {
+        Self {
+            connections: HashMap::new(),
+            connection_tasks: HashMap::new(),
+            active_connections: HashMap::new(),
+            connection_births: HashMap::new(),
+            inbound: Vec::new(),
+            uni_streams: VecDeque::new(),
+        }
+    }
 }
 
 impl Transport {
@@ -266,28 +331,22 @@ impl Transport {
         client_endpoint.set_default_client_config((*client_config).clone());
 
         Ok(Self {
-            config: SyncRwLock::new(config),
-            runtime: RwLock::new(TransportRuntime {
+            settings: SyncRwLock::new(TransportSettings {
+                config,
+                public_address: None,
+            }),
+            runtime: SyncMutex::new(TransportRuntime {
                 endpoint: None,
                 incoming_task: None,
                 is_bound: false,
                 server_config: Some(server_config),
             }),
-            client_endpoint: Arc::new(client_endpoint),
-            connection_tasks: Arc::new(RwLock::new(HashMap::new())),
-            connections: Arc::new(RwLock::new(HashMap::new())),
-            packets_sent: Arc::new(RwLock::new(0)),
-            packets_received: Arc::new(RwLock::new(0)),
-            bytes_sent: Arc::new(RwLock::new(0)),
-            bytes_received: Arc::new(RwLock::new(0)),
-            outbound_messages: Arc::new(RwLock::new(Vec::new())),
-            inbound_messages: Arc::new(RwLock::new(Vec::new())),
-            active_connections: Arc::new(RwLock::new(HashMap::new())),
-            connection_births: Arc::new(RwLock::new(HashMap::new())),
-            shutdown_tx,
-            incoming_uni_streams: Arc::new(RwLock::new(VecDeque::new())),
+            shared: Arc::new(SyncMutex::new(SharedTransportState::new())),
+            counters: Arc::new(TransportCounters::new()),
+            outbound_messages: SyncMutex::new(Vec::new()),
             incoming_uni_notify: Arc::new(Notify::new()),
-            public_address: SyncRwLock::new(None),
+            client_endpoint,
+            shutdown_tx,
             client_config,
         })
     }
@@ -325,38 +384,32 @@ impl Transport {
         client_endpoint.set_default_client_config((*client_config).clone());
 
         Arc::new(Self {
-            config: SyncRwLock::new(config),
-            runtime: RwLock::new(TransportRuntime {
+            settings: SyncRwLock::new(TransportSettings {
+                config,
+                public_address: None,
+            }),
+            runtime: SyncMutex::new(TransportRuntime {
                 endpoint: None,
                 incoming_task: None,
                 is_bound: false,
                 server_config: Some(server_config),
             }),
-            client_endpoint: Arc::new(client_endpoint),
-            connection_tasks: Arc::new(RwLock::new(HashMap::new())),
-            connections: Arc::new(RwLock::new(HashMap::new())),
-            packets_sent: Arc::new(RwLock::new(0)),
-            packets_received: Arc::new(RwLock::new(0)),
-            bytes_sent: Arc::new(RwLock::new(0)),
-            bytes_received: Arc::new(RwLock::new(0)),
-            outbound_messages: Arc::new(RwLock::new(Vec::new())),
-            inbound_messages: Arc::new(RwLock::new(Vec::new())),
-            active_connections: Arc::new(RwLock::new(HashMap::new())),
-            connection_births: Arc::new(RwLock::new(HashMap::new())),
-            shutdown_tx,
-            incoming_uni_streams: Arc::new(RwLock::new(VecDeque::new())),
+            shared: Arc::new(SyncMutex::new(SharedTransportState::new())),
+            counters: Arc::new(TransportCounters::new()),
+            outbound_messages: SyncMutex::new(Vec::new()),
             incoming_uni_notify: Arc::new(Notify::new()),
-            public_address: SyncRwLock::new(None),
+            client_endpoint,
+            shutdown_tx,
             client_config,
         })
     }
 
     /// Bind to the configured local address and start accepting connections.
     pub async fn bind(&self) -> NetworkResult<()> {
-        let config_snapshot = self.config.read().clone();
+        let config_snapshot = self.settings.read().config.clone();
 
         let server_config = {
-            let mut runtime = self.runtime.write().await;
+            let mut runtime = self.runtime.lock();
             if runtime.is_bound {
                 return Ok(());
             }
@@ -375,12 +428,11 @@ impl Transport {
                 NetworkError::transport(format!("Failed to bind QUIC endpoint: {}", err))
             })?;
         endpoint.set_default_client_config((*self.client_config).clone());
-        let endpoint = Arc::new(endpoint);
 
         let incoming_handle = self.spawn_incoming_processor(endpoint.clone());
 
         {
-            let mut runtime = self.runtime.write().await;
+            let mut runtime = self.runtime.lock();
             runtime.endpoint = Some(endpoint);
             runtime.incoming_task = Some(incoming_handle);
             runtime.is_bound = true;
@@ -389,15 +441,9 @@ impl Transport {
         Ok(())
     }
 
-    fn spawn_incoming_processor(&self, endpoint: Arc<Endpoint>) -> JoinHandle<()> {
-        let inbound_messages = self.inbound_messages.clone();
-        let packets_received = self.packets_received.clone();
-        let bytes_received = self.bytes_received.clone();
-        let active_connections = self.active_connections.clone();
-        let connection_births = self.connection_births.clone();
-        let connections = self.connections.clone();
-        let connection_tasks = self.connection_tasks.clone();
-        let incoming_uni_streams = self.incoming_uni_streams.clone();
+    fn spawn_incoming_processor(&self, endpoint: Endpoint) -> JoinHandle<()> {
+        let shared = Arc::clone(&self.shared);
+        let counters = Arc::clone(&self.counters);
         let incoming_uni_notify = self.incoming_uni_notify.clone();
         let shutdown_rx = self.shutdown_tx.subscribe();
 
@@ -415,14 +461,8 @@ impl Transport {
                                 Ok(connection) => {
                                     register_connection(
                                         connection,
-                                        inbound_messages.clone(),
-                                        packets_received.clone(),
-                                        bytes_received.clone(),
-                                        active_connections.clone(),
-                                        connection_births.clone(),
-                                        connections.clone(),
-                                        connection_tasks.clone(),
-                                        incoming_uni_streams.clone(),
+                                        Arc::clone(&shared),
+                                        Arc::clone(&counters),
                                         incoming_uni_notify.clone(),
                                         shutdown_rx.resubscribe(),
                                     ).await;
@@ -441,14 +481,14 @@ impl Transport {
     }
 
     async fn get_or_connect(&self, addr: SocketAddr) -> NetworkResult<Connection> {
-        if let Some(existing) = self.connections.read().await.get(&addr) {
+        if let Some(existing) = self.shared.lock().connections.get(&addr) {
             return Ok(existing.clone());
         }
 
-        let config_snapshot = self.config.read().clone();
+        let server_name = self.settings.read().config.server_name.clone();
 
         let endpoint = {
-            let runtime = self.runtime.read().await;
+            let runtime = self.runtime.lock();
             runtime
                 .endpoint
                 .clone()
@@ -456,7 +496,7 @@ impl Transport {
         };
 
         let connecting = endpoint
-            .connect(addr, &config_snapshot.server_name)
+            .connect(addr, &server_name)
             .map_err(|err| {
                 NetworkError::transport(format!("Failed to initiate QUIC connection: {}", err))
             })?;
@@ -468,14 +508,8 @@ impl Transport {
         let connection_clone = connection.clone();
         register_connection(
             connection_clone,
-            self.inbound_messages.clone(),
-            self.packets_received.clone(),
-            self.bytes_received.clone(),
-            self.active_connections.clone(),
-            self.connection_births.clone(),
-            self.connections.clone(),
-            self.connection_tasks.clone(),
-            self.incoming_uni_streams.clone(),
+            Arc::clone(&self.shared),
+            Arc::clone(&self.counters),
             self.incoming_uni_notify.clone(),
             self.shutdown_tx.subscribe(),
         )
@@ -496,10 +530,7 @@ impl Transport {
     pub async fn recv_uni_stream(&self) -> NetworkResult<(SocketAddr, quinn::RecvStream)> {
         let mut shutdown_rx = self.shutdown_tx.subscribe();
         loop {
-            if let Some(item) = {
-                let mut guard = self.incoming_uni_streams.write().await;
-                guard.pop_front()
-            } {
+            if let Some(item) = self.shared.lock().uni_streams.pop_front() {
                 return Ok(item);
             }
 
@@ -532,17 +563,10 @@ impl Transport {
                 NetworkError::transport(format!("Failed to send QUIC datagram: {}", err))
             })?;
 
-        {
-            let mut outbound = self.outbound_messages.write().await;
-            outbound.push(message);
-        }
+        self.outbound_messages.lock().push(message);
 
-        {
-            let mut sent = self.packets_sent.write().await;
-            *sent += 1;
-            let mut bytes = self.bytes_sent.write().await;
-            *bytes += payload_len;
-        }
+        self.counters.packets_sent.fetch_add(1, Ordering::Relaxed);
+        self.counters.bytes_sent.fetch_add(payload_len, Ordering::Relaxed);
 
         if let Some(telemetry) = telemetry() {
             telemetry.record_packet_sent(payload_len as usize);
@@ -558,16 +582,16 @@ impl Transport {
 
     /// Receive pending messages.
     pub async fn receive_messages(&self) -> NetworkResult<Vec<TransportMessage>> {
-        let mut inbound = self.inbound_messages.write().await;
-        Ok(inbound.drain(..).collect())
+        let mut shared = self.shared.lock();
+        Ok(shared.inbound.drain(..).collect())
     }
 
     /// Update transport state.
     pub async fn update(&self) -> NetworkResult<()> {
         let mut finished = Vec::new();
         {
-            let tasks = self.connection_tasks.read().await;
-            for (addr, handles) in tasks.iter() {
+            let shared = self.shared.lock();
+            for (addr, handles) in shared.connection_tasks.iter() {
                 if handles.iter().all(|handle| handle.is_finished()) {
                     finished.push(*addr);
                 }
@@ -575,15 +599,16 @@ impl Transport {
         }
 
         if !finished.is_empty() {
-            let mut removed = Vec::with_capacity(finished.len());
-            {
-                let mut task_map = self.connection_tasks.write().await;
+            let removed = {
+                let mut shared = self.shared.lock();
+                let mut removed = Vec::with_capacity(finished.len());
                 for addr in &finished {
-                    if let Some(handles) = task_map.remove(addr) {
+                    if let Some(handles) = shared.connection_tasks.remove(addr) {
                         removed.push((*addr, handles));
                     }
                 }
-            }
+                removed
+            };
 
             for (addr, handles) in removed {
                 for handle in handles {
@@ -592,15 +617,15 @@ impl Transport {
                     }
                 }
 
-                self.connections.write().await.remove(&addr);
-                let duration = {
-                    let mut births = self.connection_births.write().await;
-                    births.remove(&addr).map(|started| started.elapsed())
-                };
-                let remaining = {
-                    let mut active = self.active_connections.write().await;
-                    active.remove(&addr);
-                    active.len()
+                let (duration, remaining) = {
+                    let mut shared = self.shared.lock();
+                    shared.connections.remove(&addr);
+                    let duration = shared
+                        .connection_births
+                        .remove(&addr)
+                        .map(|started| started.elapsed());
+                    shared.active_connections.remove(&addr);
+                    (duration, shared.active_connections.len())
                 };
                 if let Some(telemetry) = telemetry() {
                     let observed = duration.unwrap_or_else(|| Duration::from_secs(0));
@@ -612,11 +637,11 @@ impl Transport {
 
         // Drop idle connections if they exceeded the configured timeout
         let now = NetworkInstant::now();
-        let idle_timeout = self.config.read().max_idle_timeout;
+        let idle_timeout = self.settings.read().config.max_idle_timeout;
         let mut to_close = Vec::new();
         {
-            let active = self.active_connections.read().await;
-            for (addr, last_seen) in active.iter() {
+            let shared = self.shared.lock();
+            for (addr, last_seen) in shared.active_connections.iter() {
                 if now.duration_since(*last_seen) > idle_timeout {
                     to_close.push(*addr);
                 }
@@ -624,23 +649,23 @@ impl Transport {
         }
 
         for addr in to_close {
-            if let Some(conn) = self.connections.write().await.remove(&addr) {
+            if let Some(conn) = self.shared.lock().connections.remove(&addr) {
                 conn.close(0u32.into(), b"idle timeout");
             }
-            if let Some(handles) = self.connection_tasks.write().await.remove(&addr) {
+            if let Some(handles) = self.shared.lock().connection_tasks.remove(&addr) {
                 for handle in handles {
                     handle.abort();
                 }
             }
 
-            let duration = {
-                let mut births = self.connection_births.write().await;
-                births.remove(&addr).map(|started| started.elapsed())
-            };
-            let remaining = {
-                let mut active = self.active_connections.write().await;
-                active.remove(&addr);
-                active.len()
+            let (duration, remaining) = {
+                let mut shared = self.shared.lock();
+                let duration = shared
+                    .connection_births
+                    .remove(&addr)
+                    .map(|started| started.elapsed());
+                shared.active_connections.remove(&addr);
+                (duration, shared.active_connections.len())
             };
 
             if let Some(telemetry) = telemetry() {
@@ -658,7 +683,7 @@ impl Transport {
         let _ = self.shutdown_tx.send(());
 
         let (incoming_handle, endpoint_handle) = {
-            let mut runtime = self.runtime.write().await;
+            let mut runtime = self.runtime.lock();
             let incoming = runtime.incoming_task.take();
             let endpoint = runtime.endpoint.take();
             runtime.is_bound = false;
@@ -671,11 +696,13 @@ impl Transport {
             }
         }
 
-        let mut tasks = self.connection_tasks.write().await;
-        for (_, handles) in tasks.drain() {
-            for handle in handles {
-                if !handle.is_finished() {
-                    handle.abort();
+        {
+            let mut shared = self.shared.lock();
+            for (_, handles) in shared.connection_tasks.drain() {
+                for handle in handles {
+                    if !handle.is_finished() {
+                        handle.abort();
+                    }
                 }
             }
         }
@@ -687,62 +714,62 @@ impl Transport {
             .close(0u32.into(), b"transport shutdown");
 
         self.incoming_uni_notify.notify_waiters();
-        self.incoming_uni_streams.write().await.clear();
 
-        self.connections.write().await.clear();
-        self.active_connections.write().await.clear();
-        self.inbound_messages.write().await.clear();
-        self.outbound_messages.write().await.clear();
+        {
+            let mut shared = self.shared.lock();
+            shared.uni_streams.clear();
+            shared.connections.clear();
+            shared.active_connections.clear();
+            shared.inbound.clear();
+        }
+        self.outbound_messages.lock().clear();
 
         Ok(())
     }
 
     /// Get packets sent count (async)
     pub async fn packets_sent(&self) -> u64 {
-        *self.packets_sent.read().await
+        self.counters.packets_sent.load(Ordering::Relaxed)
     }
 
     /// Get packets received count (async)
     pub async fn packets_received(&self) -> u64 {
-        *self.packets_received.read().await
+        self.counters.packets_received.load(Ordering::Relaxed)
     }
 
     /// Get bytes sent count (async)
     pub async fn bytes_sent(&self) -> u64 {
-        *self.bytes_sent.read().await
+        self.counters.bytes_sent.load(Ordering::Relaxed)
     }
 
     /// Get bytes received count (async)
     pub async fn bytes_received(&self) -> u64 {
-        *self.bytes_received.read().await
+        self.counters.bytes_received.load(Ordering::Relaxed)
     }
 
     /// Snapshot aggregate metrics.
     pub async fn metrics(&self) -> TransportMetrics {
         TransportMetrics {
-            packets_sent: *self.packets_sent.read().await,
-            packets_received: *self.packets_received.read().await,
-            bytes_sent: *self.bytes_sent.read().await,
-            bytes_received: *self.bytes_received.read().await,
+            packets_sent: self.counters.packets_sent.load(Ordering::Relaxed),
+            packets_received: self.counters.packets_received.load(Ordering::Relaxed),
+            bytes_sent: self.counters.bytes_sent.load(Ordering::Relaxed),
+            bytes_received: self.counters.bytes_received.load(Ordering::Relaxed),
         }
     }
 
     /// Determine whether the transport is bound to a socket.
     pub async fn is_bound(&self) -> bool {
-        self.runtime.read().await.is_bound
+        self.runtime.lock().is_bound
     }
 
     /// Check if transport is bound and ready
     pub fn is_ready(&self) -> bool {
-        self.runtime
-            .try_read()
-            .map(|rt| rt.is_bound)
-            .unwrap_or(false)
+        self.runtime.try_lock().map(|rt| rt.is_bound).unwrap_or(false)
     }
 
     /// Get transport configuration snapshot
     pub fn config(&self) -> TransportConfig {
-        self.config.read().clone()
+        self.settings.read().config.clone()
     }
 
     /// Update bind address for subsequent bind attempts.
@@ -753,31 +780,25 @@ impl Transport {
             ));
         }
 
-        self.config.write().bind_address = bind_address;
+        self.settings.write().config.bind_address = bind_address;
         Ok(())
     }
 
     /// Set the discovered public address (e.g., from NAT traversal).
     pub fn set_public_address(&self, address: Option<SocketAddr>) {
-        *self.public_address.write() = address;
+        self.settings.write().public_address = address;
     }
 
     /// Retrieve the public address if known.
     pub fn public_address(&self) -> Option<SocketAddr> {
-        *self.public_address.read()
+        self.settings.read().public_address
     }
 }
 
 async fn register_connection(
     connection: Connection,
-    inbound_messages: Arc<RwLock<Vec<TransportMessage>>>,
-    packets_received: Arc<RwLock<u64>>,
-    bytes_received: Arc<RwLock<u64>>,
-    active_connections: Arc<RwLock<HashMap<SocketAddr, NetworkInstant>>>,
-    connection_births: Arc<RwLock<HashMap<SocketAddr, NetworkInstant>>>,
-    connections: Arc<RwLock<HashMap<SocketAddr, Connection>>>,
-    connection_tasks: Arc<RwLock<HashMap<SocketAddr, Vec<JoinHandle<()>>>>>,
-    incoming_uni_streams: Arc<RwLock<VecDeque<(SocketAddr, quinn::RecvStream)>>>,
+    shared: Arc<SyncMutex<SharedTransportState>>,
+    counters: Arc<TransportCounters>,
     incoming_uni_notify: Arc<Notify>,
     shutdown_rx: broadcast::Receiver<()>,
 ) {
@@ -786,36 +807,25 @@ async fn register_connection(
 
     let handshake_started = NetworkInstant::now();
 
-    {
-        let mut map = connections.write().await;
-        map.insert(remote_addr, connection.clone());
-    }
-
     let active_count = {
-        let mut active = active_connections.write().await;
-        active.insert(remote_addr, handshake_started);
-        active.len()
+        let mut state = shared.lock();
+        state.connections.insert(remote_addr, connection.clone());
+        state
+            .active_connections
+            .insert(remote_addr, handshake_started);
+        state
+            .connection_births
+            .insert(remote_addr, handshake_started);
+        state.active_connections.len()
     };
-
-    {
-        let mut births = connection_births.write().await;
-        births.insert(remote_addr, handshake_started);
-    }
 
     if let Some(telemetry) = telemetry() {
         telemetry.record_connection_established();
         telemetry.set_active_connections(active_count);
     }
 
-    let inbound_messages_clone = inbound_messages.clone();
-    let packets_received_clone = packets_received.clone();
-    let bytes_received_clone = bytes_received.clone();
-    let active_connections_clone = active_connections.clone();
-    let connection_births_clone = connection_births.clone();
-    let connections_clone = connections.clone();
-    let incoming_uni_streams_clone = incoming_uni_streams.clone();
-    let incoming_uni_notify_clone = incoming_uni_notify.clone();
-    let active_connections_stream = active_connections.clone();
+    let shared_datagram = Arc::clone(&shared);
+    let counters_datagram = Arc::clone(&counters);
 
     let mut datagram_shutdown = shutdown_rx.resubscribe();
     let mut stream_shutdown = shutdown_rx;
@@ -832,21 +842,25 @@ async fn register_connection(
                     match result {
                         Ok(data) => {
                             {
-                                let mut queue = inbound_messages_clone.write().await;
-                                queue.push(
+                                let mut state = shared_datagram.lock();
+                                state.inbound.push(
                                     TransportMessage::new(data.to_vec(), TransportProtocol::Quic)
                                         .with_source(remote_addr),
                                 );
                             }
 
-                            *packets_received_clone.write().await += 1;
-                            *bytes_received_clone.write().await += data.len() as u64;
+                            counters_datagram
+                                .packets_received
+                                .fetch_add(1, Ordering::Relaxed);
+                            counters_datagram
+                                .bytes_received
+                                .fetch_add(data.len() as u64, Ordering::Relaxed);
                             if let Some(telemetry) = telemetry() {
                                 telemetry.record_packet_received(data.len(), Duration::from_secs(0));
                             }
-                            active_connections_clone
-                                .write()
-                                .await
+                            shared_datagram
+                                .lock()
+                                .active_connections
                                 .insert(remote_addr, NetworkInstant::now());
                         }
                         Err(err) => {
@@ -859,15 +873,18 @@ async fn register_connection(
         }
 
         let connection_duration = {
-            let mut births = connection_births_clone.write().await;
-            births.remove(&remote_addr).map(|started| started.elapsed())
+            let mut state = shared_datagram.lock();
+            state
+                .connection_births
+                .remove(&remote_addr)
+                .map(|started| started.elapsed())
         };
         let active_remaining = {
-            let mut active = active_connections_clone.write().await;
-            active.remove(&remote_addr);
-            active.len()
+            let mut state = shared_datagram.lock();
+            state.active_connections.remove(&remote_addr);
+            state.active_connections.len()
         };
-        connections_clone.write().await.remove(&remote_addr);
+        shared_datagram.lock().connections.remove(&remote_addr);
         if let Some(telemetry) = telemetry() {
             let duration = connection_duration.unwrap_or_else(|| Duration::from_secs(0));
             telemetry.record_connection_closed(duration);
@@ -877,6 +894,7 @@ async fn register_connection(
     });
 
     let uni_connection = connection.clone();
+    let shared_stream = Arc::clone(&shared);
     let stream_task = tokio::spawn(async move {
         loop {
             tokio::select! {
@@ -888,13 +906,13 @@ async fn register_connection(
                     match result {
                         Ok(recv_stream) => {
                             {
-                                let mut queue = incoming_uni_streams_clone.write().await;
-                                queue.push_back((remote_addr, recv_stream));
+                                let mut state = shared_stream.lock();
+                                state.uni_streams.push_back((remote_addr, recv_stream));
                             }
-                            incoming_uni_notify_clone.notify_one();
-                            active_connections_stream
-                                .write()
-                                .await
+                            incoming_uni_notify.notify_one();
+                            shared_stream
+                                .lock()
+                                .active_connections
                                 .insert(remote_addr, NetworkInstant::now());
                         }
                         Err(err) => {
@@ -907,11 +925,13 @@ async fn register_connection(
         }
     });
 
-    if let Some(existing) = connection_tasks
-        .write()
-        .await
-        .insert(remote_addr, vec![datagram_task, stream_task])
-    {
+    let existing = {
+        let mut state = shared.lock();
+        state
+            .connection_tasks
+            .insert(remote_addr, vec![datagram_task, stream_task])
+    };
+    if let Some(existing) = existing {
         for handle in existing {
             if !handle.is_finished() {
                 handle.abort();

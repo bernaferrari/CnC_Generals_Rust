@@ -12,12 +12,13 @@ use crate::gamespy::{ChatMessage, ChatMessageType, GameSpyEvent};
 use crate::time::NetworkInstant;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
+use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
-use tokio::sync::{Mutex, RwLock, broadcast, mpsc};
+use tokio::sync::{broadcast, mpsc};
 use tokio::task::JoinHandle;
 use tokio::time::sleep;
 use tracing::{debug, error, info, instrument, trace, warn};
@@ -90,21 +91,50 @@ enum MessageDirection {
     Outgoing,
 }
 
+/// Mutable chat session state. Guarded by the single mutex in [`ChatShared`];
+/// every helper below takes `&mut ChatState` so no code path ever holds two
+/// chat locks at once.
+#[derive(Default)]
+struct ChatState {
+    rooms: HashMap<String, ChatRoom>,
+    private_chats: HashMap<String, PrivateChat>,
+    current_room: Option<String>,
+    local_player_id: String,
+    message_history: VecDeque<ChatMessage>,
+    language_filter: LanguageFilter,
+    last_sent: Option<LastSentMessage>,
+    tasks: Vec<JoinHandle<()>>,
+}
+
+/// THREAD: shared between the task that owns the `GameSpyChat` handle (all
+/// user-facing calls routed through `GameSpyInterface`) and the background
+/// tasks spawned by `start_background_tasks` (history heartbeat + inbound
+/// transport pump, which receive an `Arc` clone). One mutex guards the whole
+/// bundle; it is never held across an `.await`.
+struct ChatShared {
+    state: Mutex<ChatState>,
+    is_connected: Arc<AtomicBool>,
+}
+
+impl ChatShared {
+    fn new() -> Self {
+        Self {
+            state: Mutex::new(ChatState {
+                message_history: VecDeque::with_capacity(DEFAULT_HISTORY_CAPACITY),
+                ..ChatState::default()
+            }),
+            is_connected: Arc::new(AtomicBool::new(false)),
+        }
+    }
+}
+
 /// GameSpy chat system
 #[derive(Clone)]
 pub struct GameSpyChat {
     event_tx: broadcast::Sender<GameSpyEvent>,
     transport: Arc<dyn ChatTransport + Send + Sync>,
-    rooms: Arc<RwLock<HashMap<String, ChatRoom>>>,
-    private_chats: Arc<RwLock<HashMap<String, PrivateChat>>>,
-    current_room: Arc<RwLock<Option<String>>>,
-    local_player_id: Arc<RwLock<String>>,
+    shared: Arc<ChatShared>,
     colors: ChatColors,
-    message_history: Arc<RwLock<VecDeque<ChatMessage>>>,
-    language_filter: Arc<RwLock<LanguageFilter>>,
-    is_connected: Arc<AtomicBool>,
-    task_handles: Arc<Mutex<Vec<JoinHandle<()>>>>,
-    dedupe_guard: Arc<Mutex<Option<LastSentMessage>>>,
     max_history: usize,
 }
 
@@ -124,31 +154,21 @@ impl GameSpyChat {
         Ok(Self {
             event_tx,
             transport,
-            rooms: Arc::new(RwLock::new(HashMap::new())),
-            private_chats: Arc::new(RwLock::new(HashMap::new())),
-            current_room: Arc::new(RwLock::new(None)),
-            local_player_id: Arc::new(RwLock::new(String::new())),
+            shared: Arc::new(ChatShared::new()),
             colors: ChatColors::default(),
-            message_history: Arc::new(RwLock::new(VecDeque::with_capacity(
-                DEFAULT_HISTORY_CAPACITY,
-            ))),
-            language_filter: Arc::new(RwLock::new(LanguageFilter::default())),
-            is_connected: Arc::new(AtomicBool::new(false)),
-            task_handles: Arc::new(Mutex::new(Vec::new())),
-            dedupe_guard: Arc::new(Mutex::new(None)),
             max_history: DEFAULT_HISTORY_CAPACITY,
         })
     }
 
     /// Set local player ID
     pub async fn set_local_player_id(&self, player_id: String) {
-        *self.local_player_id.write().await = player_id;
+        self.shared.state.lock().local_player_id = player_id;
     }
 
     /// Start chat system
     #[instrument(skip(self))]
     pub async fn start(&self) -> NetworkResult<()> {
-        if self.is_connected.swap(true, Ordering::SeqCst) {
+        if self.shared.is_connected.swap(true, Ordering::SeqCst) {
             return Ok(());
         }
 
@@ -162,14 +182,14 @@ impl GameSpyChat {
     /// Stop chat system
     #[instrument(skip(self))]
     pub async fn stop(&self) -> NetworkResult<()> {
-        if !self.is_connected.swap(false, Ordering::SeqCst) {
+        if !self.shared.is_connected.swap(false, Ordering::SeqCst) {
             return Ok(());
         }
 
         info!("Stopping GameSpy chat system");
 
-        let mut handles = self.task_handles.lock().await;
-        for handle in handles.drain(..) {
+        let mut state = self.shared.state.lock();
+        for handle in state.tasks.drain(..) {
             handle.abort();
         }
 
@@ -211,17 +231,16 @@ impl GameSpyChat {
         self.transport.join_room(&normalized).await?;
 
         {
-            let mut rooms = self.rooms.write().await;
-            let entry = rooms
+            let mut state = self.shared.state.lock();
+            let local_player = state.local_player_id.clone();
+            let entry = state
+                .rooms
                 .entry(normalized.clone())
                 .or_insert_with(|| ChatRoom::new(normalized.clone()));
             entry.record_activity();
-            entry
-                .users
-                .insert(self.local_player_id.read().await.clone());
+            entry.users.insert(local_player);
+            state.current_room = Some(normalized.clone());
         }
-
-        *self.current_room.write().await = Some(normalized.clone());
 
         Ok(())
     }
@@ -257,14 +276,15 @@ impl GameSpyChat {
             return Err(NetworkError::generic("Chat system not connected"));
         }
 
-        let rooms = self.rooms.read().await;
-        Ok(rooms.keys().cloned().collect())
+        let state = self.shared.state.lock();
+        Ok(state.rooms.keys().cloned().collect())
     }
 
     /// Get message history
     pub async fn get_message_history(&self, count: usize) -> Vec<ChatMessage> {
-        let history = self.message_history.read().await;
-        history
+        let state = self.shared.state.lock();
+        state
+            .message_history
             .iter()
             .rev()
             .take(count)
@@ -281,8 +301,8 @@ impl GameSpyChat {
         participant: &str,
         count: usize,
     ) -> Vec<ChatMessage> {
-        let private_chats = self.private_chats.read().await;
-        if let Some(private_chat) = private_chats.get(participant) {
+        let state = self.shared.state.lock();
+        if let Some(private_chat) = state.private_chats.get(participant) {
             private_chat
                 .messages
                 .iter()
@@ -300,7 +320,7 @@ impl GameSpyChat {
 
     /// Check if connected
     pub fn is_connected(&self) -> bool {
-        self.is_connected.load(Ordering::Relaxed)
+        self.shared.is_connected.load(Ordering::Relaxed)
     }
 
     /// Process incoming chat message from the transport/backend.
@@ -334,22 +354,18 @@ impl GameSpyChat {
             return Ok(());
         }
 
-        if self.should_suppress(&normalized, &target).await {
+        if self.should_suppress(&normalized, &target) {
             warn!(?target, "Suppressing duplicate chat message");
             return Ok(());
         }
 
-        let filtered = {
-            let filter = self.language_filter.read().await;
-            filter.filter_message(&normalized)
-        };
-
-        let sender = {
-            let id = self.local_player_id.read().await;
-            if id.is_empty() {
+        let (filtered, sender) = {
+            let state = self.shared.state.lock();
+            let filtered = state.language_filter.filter_message(&normalized);
+            if state.local_player_id.is_empty() {
                 return Err(NetworkError::generic("Local player ID not configured"));
             }
-            id.clone()
+            (filtered, state.local_player_id.clone())
         };
 
         let room = match &target {
@@ -386,48 +402,55 @@ impl GameSpyChat {
         message: &ChatMessage,
         direction: MessageDirection,
     ) -> NetworkResult<()> {
-        self.append_history(message).await;
+        let mut state = self.shared.state.lock();
+
+        Self::append_history(&mut state, message, self.max_history);
 
         match target {
             ChatTarget::Global => {}
             ChatTarget::Room(room_name) => {
-                let mut rooms = self.rooms.write().await;
-                let entry = rooms
+                let entry = state
+                    .rooms
                     .entry(room_name.clone())
                     .or_insert_with(|| ChatRoom::new(room_name.clone()));
                 entry.record_activity();
                 entry.users.insert(message.sender.clone());
             }
             ChatTarget::Private(participant) => {
-                self.add_private_message(participant.clone(), message, direction)
-                    .await;
+                Self::add_private_message(
+                    &mut state,
+                    participant,
+                    message,
+                    direction,
+                    self.max_history,
+                );
             }
         }
 
         Ok(())
     }
 
-    async fn append_history(&self, message: &ChatMessage) {
-        let mut history = self.message_history.write().await;
-        history.push_back(message.clone());
-        while history.len() > self.max_history {
-            history.pop_front();
+    fn append_history(state: &mut ChatState, message: &ChatMessage, max_history: usize) {
+        state.message_history.push_back(message.clone());
+        while state.message_history.len() > max_history {
+            state.message_history.pop_front();
         }
     }
 
-    async fn add_private_message(
-        &self,
-        participant: String,
+    fn add_private_message(
+        state: &mut ChatState,
+        participant: &str,
         message: &ChatMessage,
         direction: MessageDirection,
+        max_history: usize,
     ) {
-        let mut private_chats = self.private_chats.write().await;
-        let entry = private_chats
-            .entry(participant.clone())
-            .or_insert_with(|| PrivateChat::new(participant.clone()));
+        let entry = state
+            .private_chats
+            .entry(participant.to_string())
+            .or_insert_with(|| PrivateChat::new(participant.to_string()));
 
         entry.messages.push_back(message.clone());
-        while entry.messages.len() > self.max_history {
+        while entry.messages.len() > max_history {
             entry.messages.pop_front();
         }
 
@@ -438,31 +461,29 @@ impl GameSpyChat {
     }
 
     async fn leave_room_internal(&self, room_name: &str) -> NetworkResult<()> {
-        let local_player = self.local_player_id.read().await.clone();
-
         {
-            let mut rooms = self.rooms.write().await;
-            if let Some(room) = rooms.get_mut(room_name) {
+            let mut state = self.shared.state.lock();
+            let local_player = state.local_player_id.clone();
+            if let Some(room) = state.rooms.get_mut(room_name) {
                 room.users.remove(&local_player);
                 room.record_activity();
                 if room.users.is_empty() {
-                    rooms.remove(room_name);
+                    state.rooms.remove(room_name);
                 }
             }
-        }
 
-        let mut current = self.current_room.write().await;
-        if current.as_deref() == Some(room_name) {
-            *current = None;
+            if state.current_room.as_deref() == Some(room_name) {
+                state.current_room = None;
+            }
         }
 
         info!("Left room: {}", room_name);
         Ok(())
     }
 
-    async fn should_suppress(&self, normalized: &str, target: &ChatTarget) -> bool {
-        let mut guard = self.dedupe_guard.lock().await;
-        if let Some(last) = guard.as_ref() {
+    fn should_suppress(&self, normalized: &str, target: &ChatTarget) -> bool {
+        let mut state = self.shared.state.lock();
+        if let Some(last) = state.last_sent.as_ref() {
             if last.target == *target
                 && last.normalized == normalized
                 && last.timestamp.elapsed() < self.duplicate_window()
@@ -471,7 +492,7 @@ impl GameSpyChat {
             }
         }
 
-        *guard = Some(LastSentMessage {
+        state.last_sent = Some(LastSentMessage {
             normalized: normalized.to_string(),
             target: target.clone(),
             timestamp: NetworkInstant::now(),
@@ -480,28 +501,30 @@ impl GameSpyChat {
     }
 
     async fn start_background_tasks(&self) -> NetworkResult<()> {
-        let is_connected = Arc::clone(&self.is_connected);
-        let message_history = Arc::clone(&self.message_history);
+        let shared = Arc::clone(&self.shared);
         let max_history = self.max_history;
         let task = tokio::spawn(async move {
-            while is_connected.load(Ordering::Relaxed) {
+            while shared.is_connected.load(Ordering::Relaxed) {
                 sleep(Duration::from_secs(BACKGROUND_HEARTBEAT_SECS)).await;
-                if !is_connected.load(Ordering::Relaxed) {
+                if !shared.is_connected.load(Ordering::Relaxed) {
                     break;
                 }
 
-                let mut history = message_history.write().await;
-                if history.len() > max_history {
-                    let overflow = history.len() - max_history;
+                let mut state = shared.state.lock();
+                if state.message_history.len() > max_history {
+                    let overflow = state.message_history.len() - max_history;
                     for _ in 0..overflow {
-                        history.pop_front();
+                        state.message_history.pop_front();
                     }
                 }
-                trace!(history_len = history.len(), "Chat history maintenance tick");
+                trace!(
+                    history_len = state.message_history.len(),
+                    "Chat history maintenance tick"
+                );
             }
         });
 
-        self.task_handles.lock().await.push(task);
+        self.shared.state.lock().tasks.push(task);
 
         if let Some(mut inbound_rx) = self.transport.subscribe() {
             let chat_clone = self.clone();
@@ -516,7 +539,7 @@ impl GameSpyChat {
                     }
                 }
             });
-            self.task_handles.lock().await.push(inbound_task);
+            self.shared.state.lock().tasks.push(inbound_task);
         }
 
         Ok(())
@@ -929,8 +952,8 @@ mod tests {
         }
 
         {
-            let rooms = chat.rooms.read().await;
-            let room = rooms.get("#test").expect("room state recorded");
+            let state = chat.shared.state.lock();
+            let room = state.rooms.get("#test").expect("room state recorded");
             assert!(room.users.contains("Opponent"));
             assert!(room.users.contains("Tester"));
         }

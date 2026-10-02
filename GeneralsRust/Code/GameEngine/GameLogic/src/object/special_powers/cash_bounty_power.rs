@@ -114,15 +114,12 @@ impl CashBountyPower {
         let Ok(owner_guard) = owner.read() else {
             return;
         };
-        let Some(player) = owner_guard.get_controlling_player() else {
-            return;
-        };
         let bounty = self.find_bounty();
-        if let Ok(mut player_write) = player.write() {
+        owner_guard.with_controlling_player_mut(|player_write| {
             if bounty > player_write.get_cash_bounty() {
                 player_write.set_cash_bounty(bounty);
             }
-        }
+        });
     }
 
     /// Apply the bounty if the player already has the required science.
@@ -134,22 +131,17 @@ impl CashBountyPower {
         let Ok(owner_guard) = owner.read() else {
             return;
         };
-        let Some(player) = owner_guard.get_controlling_player() else {
-            return;
-        };
-        let Ok(player_guard) = player.read() else {
-            return;
-        };
-
-        let required_science = self
-            .data
-            .base
-            .special_power_template
-            .as_ref()
-            .map(|t| t.get_required_science())
-            .unwrap_or(ScienceType::default());
-        if player_guard.has_science(required_science) {
-            drop(player_guard);
+        let has_required_science = owner_guard.with_controlling_player(|player_guard| {
+            let required_science = self
+                .data
+                .base
+                .special_power_template
+                .as_ref()
+                .map(|t| t.get_required_science())
+                .unwrap_or(ScienceType::default());
+            player_guard.has_science(required_science)
+        });
+        if has_required_science == Some(true) {
             self.apply_bounty();
         }
     }

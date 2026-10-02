@@ -15,7 +15,7 @@
 //! timing with a fallback to timeGetTime() for systems without high-resolution counters.
 //! This Rust version uses std::time::Instant for cross-platform high-resolution timing.
 
-use std::sync::{Mutex, OnceLock};
+use std::sync::OnceLock;
 use std::time::{Duration, Instant};
 
 #[cfg(windows)]
@@ -79,31 +79,11 @@ impl std::ops::Sub<TimeStamp> for TimeStamp {
 /// Timer function type - equivalent to the C++ function pointer
 type TimerFunc = fn() -> TimeStamp;
 
-/// Static timer state, equivalent to the original C++ static variables
-struct TimerState {
-    _last_time: TimeStamp,
-    _interval: TimeStamp,
-    _timeout: TimeStamp,
-    timer_func: Option<TimerFunc>,
-    #[cfg(windows)]
-    timer_millis_scale: u64,
-}
-
-static TIMER_STATE: OnceLock<Mutex<TimerState>> = OnceLock::new();
-
-/// Initialize the timer state
-fn get_timer_state() -> &'static Mutex<TimerState> {
-    TIMER_STATE.get_or_init(|| {
-        Mutex::new(TimerState {
-            _last_time: TimeStamp::ZERO,
-            _interval: TimeStamp::ZERO,
-            _timeout: TimeStamp::ZERO,
-            timer_func: None,
-            #[cfg(windows)]
-            timer_millis_scale: 0,
-        })
-    })
-}
+/// Selected timer function, equivalent to the original C++ static variable.
+///
+/// The value is written once by `init_audio_timer` and only read afterwards,
+/// and a `fn` pointer is `Send + Sync`, so no lock is needed.
+static TIMER_FUNC: OnceLock<TimerFunc> = OnceLock::new();
 
 /// High-resolution timer implementation (equivalent to highResGetTime)
 ///
@@ -202,9 +182,6 @@ fn failsafe_get_time() -> TimeStamp {
 /// For the hi res counter we precalculate the millisecond scaling factor to
 /// convert hi res ticks to millisecond usage.
 pub fn init_audio_timer() {
-    let state = get_timer_state();
-    let mut guard = state.lock().unwrap();
-
     // In Rust, std::time::Instant is always high-resolution when available
     // We can check the resolution to decide which timer to use
     #[cfg(windows)]
@@ -218,17 +195,17 @@ pub fn init_audio_timer() {
 
         if elapsed.as_nanos() > 0 && elapsed.as_nanos() < 1_000_000 {
             // High resolution timer available (sub-millisecond precision)
-            guard.timer_func = Some(high_res_get_time);
+            let _ = TIMER_FUNC.set(high_res_get_time);
         } else {
             // Fall back to failsafe timer
-            guard.timer_func = Some(failsafe_get_time);
+            let _ = TIMER_FUNC.set(failsafe_get_time);
         }
     }
 
     #[cfg(not(windows))]
     {
         // On non-Windows systems, Instant is always high-resolution when available
-        guard.timer_func = Some(high_res_get_time);
+        let _ = TIMER_FUNC.set(high_res_get_time);
     }
 }
 
@@ -241,10 +218,7 @@ pub fn init_audio_timer() {
 ///
 /// Current timestamp in milliseconds since timer initialization
 pub fn audio_get_time() -> TimeStamp {
-    let state = get_timer_state();
-    let guard = state.lock().unwrap();
-
-    match guard.timer_func {
+    match TIMER_FUNC.get() {
         Some(func) => func(),
         None => TimeStamp::ZERO,
     }

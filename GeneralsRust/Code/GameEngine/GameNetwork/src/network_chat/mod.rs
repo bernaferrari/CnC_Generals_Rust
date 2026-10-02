@@ -22,13 +22,11 @@ pub use chat_moderation::*;
 use crate::error::{NetworkError, NetworkResult};
 use crate::gamespy::{ChatMessage, ChatMessageType, GameSpyEvent};
 use crate::lan_api::chat::{ChatMessage as LanChatMessage, ChatType as LanChatType};
-use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
-use tokio::sync::{broadcast, mpsc, RwLock};
-use tracing::{debug, info, warn};
+use std::collections::HashSet;
+use tokio::sync::{broadcast, mpsc};
+use tracing::{debug, info};
 
 /// Unified chat message that works across all network backends
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -123,21 +121,26 @@ pub enum ModerationActionType {
 }
 
 /// Network-integrated chat system
+///
+/// Single-owner state: the identity, the sub-systems and the player/channel
+/// sets below are only touched from this struct's own methods (mutators take
+/// `&mut self`), and no handle is ever handed to a spawned task, so they are
+/// all plain fields.
 pub struct NetworkChatSystem {
     /// Local player ID
-    local_player_id: Arc<RwLock<u32>>,
+    local_player_id: u32,
     /// Local player name
-    local_player_name: Arc<RwLock<String>>,
+    local_player_name: String,
     /// Chat router for message routing
-    router: Arc<ChatRouter>,
+    router: ChatRouter,
     /// Message filter
-    filter: Arc<ChatFilter>,
+    filter: ChatFilter,
     /// Chat history manager
-    history: Arc<ChatHistoryManager>,
+    history: ChatHistoryManager,
     /// Typing indicator tracker
-    typing: Arc<TypingIndicator>,
+    typing: TypingIndicator,
     /// Moderation system
-    moderation: Arc<ChatModeration>,
+    moderation: ChatModeration,
     /// Event sender
     event_tx: broadcast::Sender<ChatEvent>,
     /// GameSpy event receiver
@@ -145,11 +148,11 @@ pub struct NetworkChatSystem {
     /// LAN chat event receiver
     lan_rx: mpsc::UnboundedReceiver<LanChatMessage>,
     /// Active chat channels
-    active_channels: Arc<RwLock<HashSet<ChatChannel>>>,
+    active_channels: HashSet<ChatChannel>,
     /// Muted players
-    muted_players: Arc<RwLock<HashSet<u32>>>,
+    muted_players: HashSet<u32>,
     /// Blocked players
-    blocked_players: Arc<RwLock<HashSet<u32>>>,
+    blocked_players: HashSet<u32>,
 }
 
 /// Chat events
@@ -175,19 +178,19 @@ impl NetworkChatSystem {
         let (lan_tx, lan_rx) = mpsc::unbounded_channel();
 
         Ok(Self {
-            local_player_id: Arc::new(RwLock::new(local_player_id)),
-            local_player_name: Arc::new(RwLock::new(local_player_name)),
-            router: Arc::new(ChatRouter::new()),
-            filter: Arc::new(ChatFilter::new()),
-            history: Arc::new(ChatHistoryManager::new(1000)),
-            typing: Arc::new(TypingIndicator::new()),
-            moderation: Arc::new(ChatModeration::new()),
+            local_player_id,
+            local_player_name,
+            router: ChatRouter::new(),
+            filter: ChatFilter::new(),
+            history: ChatHistoryManager::new(1000),
+            typing: TypingIndicator::new(),
+            moderation: ChatModeration::new(),
             event_tx,
             gamespy_rx,
             lan_rx,
-            active_channels: Arc::new(RwLock::new(HashSet::new())),
-            muted_players: Arc::new(RwLock::new(HashSet::new())),
-            blocked_players: Arc::new(RwLock::new(HashSet::new())),
+            active_channels: HashSet::new(),
+            muted_players: HashSet::new(),
+            blocked_players: HashSet::new(),
         })
     }
 
@@ -196,12 +199,9 @@ impl NetworkChatSystem {
         info!("Initializing network chat system");
 
         // Add default channels
-        {
-            let mut channels = self.active_channels.write().await;
-            channels.insert(ChatChannel::Global);
-            channels.insert(ChatChannel::Allies);
-            channels.insert(ChatChannel::Observers);
-        }
+        self.active_channels.insert(ChatChannel::Global);
+        self.active_channels.insert(ChatChannel::Allies);
+        self.active_channels.insert(ChatChannel::Observers);
 
         // Start event processing
         self.start_event_processing().await;
@@ -212,12 +212,12 @@ impl NetworkChatSystem {
 
     /// Send a chat message
     pub async fn send_message(
-        &self,
+        &mut self,
         message: String,
         channel: ChatChannel,
     ) -> NetworkResult<()> {
         // Check if player is muted
-        let local_id = *self.local_player_id.read().await;
+        let local_id = self.local_player_id;
         if self.moderation.is_player_muted(local_id).await {
             return Err(NetworkError::invalid_command("You are muted".to_string()));
         }
@@ -226,7 +226,7 @@ impl NetworkChatSystem {
         let (filtered_message, was_filtered) = self.filter.filter_message(&message);
 
         // Create unified message
-        let sender_name = self.local_player_name.read().await.clone();
+        let sender_name = self.local_player_name.clone();
         let chat_message = UnifiedChatMessage {
             id: uuid::Uuid::new_v4().to_string(),
             sender_id: local_id,
@@ -259,12 +259,12 @@ impl NetworkChatSystem {
 
     /// Send an emote
     pub async fn send_emote(
-        &self,
+        &mut self,
         emote: String,
         channel: ChatChannel,
     ) -> NetworkResult<()> {
-        let local_id = *self.local_player_id.read().await;
-        let sender_name = self.local_player_name.read().await.clone();
+        let local_id = self.local_player_id;
+        let sender_name = self.local_player_name.clone();
 
         let chat_message = UnifiedChatMessage {
             id: uuid::Uuid::new_v4().to_string(),
@@ -293,7 +293,7 @@ impl NetworkChatSystem {
 
     /// Send private message
     pub async fn send_private_message(
-        &self,
+        &mut self,
         target_player: u32,
         message: String,
     ) -> NetworkResult<()> {
@@ -301,13 +301,10 @@ impl NetworkChatSystem {
     }
 
     /// Set typing status
-    pub async fn set_typing(&self, is_typing: bool) {
-        let local_id = *self.local_player_id.read().await;
-        let local_name = self.local_player_name.read().await.clone();
-
+    pub async fn set_typing(&mut self, is_typing: bool) {
         let status = TypingStatus {
-            player_id: local_id,
-            player_name: local_name,
+            player_id: self.local_player_id,
+            player_name: self.local_player_name.clone(),
             is_typing,
             timestamp: Utc::now(),
         };
@@ -317,14 +314,14 @@ impl NetworkChatSystem {
     }
 
     /// Mute a player
-    pub async fn mute_player(&self, player_id: u32, duration_seconds: Option<u64>) {
-        self.muted_players.write().await.insert(player_id);
+    pub async fn mute_player(&mut self, player_id: u32, duration_seconds: Option<u64>) {
+        self.muted_players.insert(player_id);
         self.moderation.mute_player(player_id, duration_seconds).await;
 
         let action = ModerationAction {
             action: ModerationActionType::Mute,
             target_player: player_id,
-            moderator: *self.local_player_id.read().await,
+            moderator: self.local_player_id,
             reason: "Muted by player".to_string(),
             duration_seconds,
             timestamp: Utc::now(),
@@ -333,8 +330,8 @@ impl NetworkChatSystem {
     }
 
     /// Block a player
-    pub async fn block_player(&self, player_id: u32) {
-        self.blocked_players.write().await.insert(player_id);
+    pub async fn block_player(&mut self, player_id: u32) {
+        self.blocked_players.insert(player_id);
         info!("Blocked player: {}", player_id);
     }
 
@@ -350,12 +347,12 @@ impl NetworkChatSystem {
 
     /// Check if player is muted
     pub async fn is_player_muted(&self, player_id: u32) -> bool {
-        self.muted_players.read().await.contains(&player_id)
+        self.muted_players.contains(&player_id)
     }
 
     /// Check if player is blocked
     pub async fn is_player_blocked(&self, player_id: u32) -> bool {
-        self.blocked_players.read().await.contains(&player_id)
+        self.blocked_players.contains(&player_id)
     }
 
     /// Process incoming GameSpy chat event
@@ -378,7 +375,7 @@ impl NetworkChatSystem {
     }
 
     /// Handle incoming unified message
-    async fn handle_incoming_message(&self, msg: UnifiedChatMessage) -> NetworkResult<()> {
+    async fn handle_incoming_message(&mut self, msg: UnifiedChatMessage) -> NetworkResult<()> {
         // Check if sender is blocked
         if self.is_player_blocked(msg.sender_id).await {
             debug!("Dropping message from blocked player: {}", msg.sender_id);

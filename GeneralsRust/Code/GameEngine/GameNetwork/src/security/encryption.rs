@@ -99,6 +99,11 @@ impl KeyStore {
 
 /// Authenticated encryption provider backed by AES-256-GCM.
 pub struct EncryptionProvider {
+    /// THREAD: single lock for the whole key cache (`KeyStore` bundles the active
+    /// key, its predecessors and the rotation counters). The provider is shared as
+    /// `Arc<EncryptionProvider>` (see `SecurityManager::encryption_provider`), so
+    /// encrypt/decrypt/rotate run on arbitrary tasks. Critical sections are short
+    /// and synchronous; no guard is held across an `.await`.
     keys: RwLock<KeyStore>,
     rng: SystemRandom,
 }

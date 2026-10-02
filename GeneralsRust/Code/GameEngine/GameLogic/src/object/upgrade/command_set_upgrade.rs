@@ -163,15 +163,15 @@ impl UpgradeModuleInterface for CommandSetUpgrade {
                 if let Some(template) = upgrade {
                     let mask_bits = UpgradeMaskType::from_bits_retain(template.mask().bits());
 
-                    if let Some(player) = object_guard.get_controlling_player() {
-                        if let Ok(player_guard) = player.read() {
-                            if player_guard
+                    if object_guard
+                        .with_controlling_player(|player_guard| {
+                            player_guard
                                 .get_completed_upgrade_mask()
                                 .intersects(mask_bits)
-                            {
-                                use_alt = true;
-                            }
-                        }
+                        })
+                        == Some(true)
+                    {
+                        use_alt = true;
                     }
 
                     if !use_alt && object_guard.completed_upgrades().intersects(mask_bits) {

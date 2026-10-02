@@ -311,15 +311,15 @@ impl DieModuleInterface for FireWeaponWhenDeadBehavior {
             return Ok(());
         }
 
-        if let Some(player) = obj_read.get_controlling_player() {
-            if let Ok(player_guard) = player.read() {
-                if player_guard
+        if obj_read
+            .with_controlling_player(|player_guard| {
+                player_guard
                     .get_completed_upgrade_mask()
                     .intersects(conflicting_mask)
-                {
-                    return Ok(());
-                }
-            }
+            })
+            .unwrap_or(false)
+        {
+            return Ok(());
         }
 
         // Fire death weapon. Matches C++ lines 90-94

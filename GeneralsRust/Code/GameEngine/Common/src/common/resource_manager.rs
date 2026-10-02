@@ -8,7 +8,8 @@ use log::{debug, error, info, warn};
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, RwLock};
+use std::cell::RefCell;
+use std::sync::{Arc, Mutex};
 
 /// Resource types that the engine can handle
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -49,15 +50,15 @@ pub type ResourceResult<T> = Result<T>;
 /// More specialized managers can extend this for specific resource types.
 pub struct ResourceManager {
     /// Loaded resources cache
-    resources: Arc<RwLock<HashMap<NameKeyType, Arc<ResourceData>>>>,
+    resources: RefCell<HashMap<NameKeyType, Arc<ResourceData>>>,
     /// Canonical resource names keyed by name-key
-    resource_names: Arc<RwLock<HashMap<NameKeyType, String>>>,
+    resource_names: RefCell<HashMap<NameKeyType, String>>,
     /// Search paths for resources
     search_paths: Vec<PathBuf>,
     /// Resource type mappings by file extension
     type_mappings: HashMap<String, ResourceType>,
     /// Load statistics
-    stats: Arc<Mutex<LoadStats>>,
+    stats: RefCell<LoadStats>,
 }
 
 #[derive(Debug, Default)]
@@ -73,8 +74,8 @@ impl ResourceManager {
     /// Create a new resource manager with default configuration
     pub fn new() -> Self {
         let mut manager = Self {
-            resources: Arc::new(RwLock::new(HashMap::new())),
-            resource_names: Arc::new(RwLock::new(HashMap::new())),
+            resources: RefCell::new(HashMap::new()),
+            resource_names: RefCell::new(HashMap::new()),
             search_paths: vec![
                 PathBuf::from("Data"),
                 PathBuf::from("Mods"),
@@ -82,7 +83,7 @@ impl ResourceManager {
                 PathBuf::from("."), // Current directory as fallback
             ],
             type_mappings: HashMap::new(),
-            stats: Arc::new(Mutex::new(LoadStats::default())),
+            stats: RefCell::new(LoadStats::default()),
         };
 
         manager.setup_default_type_mappings();
@@ -183,10 +184,9 @@ impl ResourceManager {
 
         // Check cache first
         {
-            let resources = self.resources.read().unwrap();
+            let resources = self.resources.borrow();
             if let Some(resource) = resources.get(&key) {
-                let mut stats = self.stats.lock().unwrap();
-                stats.cache_hits += 1;
+                self.stats.borrow_mut().cache_hits += 1;
                 debug!("Resource cache hit: {}", resource_name);
                 return Ok(resource.clone());
             }
@@ -227,11 +227,11 @@ impl ResourceManager {
 
         // Cache the resource
         {
-            let mut resources = self.resources.write().unwrap();
+            let mut resources = self.resources.borrow_mut();
             resources.insert(key, resource_data.clone());
         }
         {
-            let mut names = self.resource_names.write().unwrap();
+            let mut names = self.resource_names.borrow_mut();
             names
                 .entry(key)
                 .or_insert_with(|| resource_name.to_string());
@@ -239,7 +239,7 @@ impl ResourceManager {
 
         // Update statistics
         {
-            let mut stats = self.stats.lock().unwrap();
+            let mut stats = self.stats.borrow_mut();
             stats.total_loaded += 1;
             stats.total_size += metadata.len();
             stats.load_time += load_time;
@@ -267,8 +267,7 @@ impl ResourceManager {
                 error!("Failed to preload resource {}: {}", resource_name, err);
                 failed.push(resource_name);
 
-                let mut stats = self.stats.lock().unwrap();
-                stats.load_failures += 1;
+                self.stats.borrow_mut().load_failures += 1;
             }
         }
 
@@ -289,30 +288,26 @@ impl ResourceManager {
     /// Check if a resource is already loaded
     pub fn is_loaded(&self, resource_name: &str) -> bool {
         let key = NameKeyGenerator::name_to_key_lowercase(resource_name);
-        let resources = self.resources.read().unwrap();
-        resources.contains_key(&key)
+        self.resources.borrow().contains_key(&key)
     }
 
     /// Unload a specific resource from cache
     pub fn unload_resource(&self, resource_name: &str) -> bool {
         let key = NameKeyGenerator::name_to_key_lowercase(resource_name);
-        let mut resources = self.resources.write().unwrap();
-        let removed = resources.remove(&key).is_some();
+        let removed = self.resources.borrow_mut().remove(&key).is_some();
         if removed {
-            let mut names = self.resource_names.write().unwrap();
-            names.remove(&key);
+            self.resource_names.borrow_mut().remove(&key);
         }
         removed
     }
 
     /// Clear all loaded resources
     pub fn clear_cache(&self) {
-        let mut resources = self.resources.write().unwrap();
+        let mut resources = self.resources.borrow_mut();
         let count = resources.len();
         resources.clear();
         {
-            let mut names = self.resource_names.write().unwrap();
-            names.clear();
+            self.resource_names.borrow_mut().clear();
         }
 
         info!("Cleared resource cache ({} resources)", count);
@@ -327,8 +322,8 @@ impl ResourceManager {
             .map(|name| NameKeyGenerator::name_to_key_lowercase(name))
             .collect();
 
-        let mut resources = self.resources.write().unwrap();
-        let mut names = self.resource_names.write().unwrap();
+        let mut resources = self.resources.borrow_mut();
+        let mut names = self.resource_names.borrow_mut();
         let before_count = resources.len();
         resources.retain(|key, _| exclusion_keys.contains(key));
         names.retain(|key, _| exclusion_keys.contains(key));
@@ -345,7 +340,7 @@ impl ResourceManager {
 
     /// Get resource loading statistics
     pub fn get_stats(&self) -> LoadStats {
-        let stats = self.stats.lock().unwrap();
+        let stats = self.stats.borrow();
         LoadStats {
             total_loaded: stats.total_loaded,
             total_size: stats.total_size,
@@ -357,13 +352,13 @@ impl ResourceManager {
 
     /// Get list of currently loaded resources
     pub fn get_loaded_resources(&self) -> Vec<String> {
-        let names = self.resource_names.read().unwrap();
+        let names = self.resource_names.borrow();
         names.values().cloned().collect()
     }
 
     /// Get total memory usage of loaded resources
     pub fn get_memory_usage(&self) -> u64 {
-        let resources = self.resources.read().unwrap();
+        let resources = self.resources.borrow();
         resources.values().map(|r| r.info.size).sum()
     }
 }

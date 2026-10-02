@@ -15,6 +15,8 @@
 //! - Squad system (hotkey squads and current selection)
 //! - Resource gathering management
 
+use std::cell::RefCell;
+
 use crate::common::global_data;
 use crate::common::ini::get_rank_info_store;
 use crate::common::rts::player_template::PlayerTemplate;
@@ -29,7 +31,7 @@ use crate::common::system::{
 };
 use crate::common::thing::{BuildableStatus, ThingTemplate, get_thing_factory};
 use std::collections::{HashMap, HashSet};
-use std::sync::{Arc, LazyLock, Mutex, Weak};
+use std::sync::{Arc, Weak};
 
 /// Object ID type used throughout the game engine
 pub type ObjectID = u32;
@@ -220,23 +222,26 @@ pub trait PlayerObjectWorld: Send + Sync + std::fmt::Debug {
     }
 }
 
-static PLAYER_OBJECT_WORLD: LazyLock<Mutex<Option<Arc<dyn PlayerObjectWorld>>>> =
-    LazyLock::new(|| Mutex::new(None));
+// THREAD: C++ plain static; driven only by the single game/client thread.
+thread_local! {
+    static PLAYER_OBJECT_WORLD: RefCell<Option<Arc<dyn PlayerObjectWorld>>> =
+        const { RefCell::new(None) };
+}
 
 pub fn set_player_object_world(world: Arc<dyn PlayerObjectWorld>) {
-    if let Ok(mut guard) = PLAYER_OBJECT_WORLD.lock() {
-        *guard = Some(world);
-    }
+    PLAYER_OBJECT_WORLD.with_borrow_mut(|slot| {
+        *slot = Some(world);
+    });
 }
 
 pub fn clear_player_object_world() {
-    if let Ok(mut guard) = PLAYER_OBJECT_WORLD.lock() {
-        *guard = None;
-    }
+    PLAYER_OBJECT_WORLD.with_borrow_mut(|slot| {
+        *slot = None;
+    });
 }
 
 pub fn get_player_object_world() -> Option<Arc<dyn PlayerObjectWorld>> {
-    PLAYER_OBJECT_WORLD.lock().ok().and_then(|g| g.clone())
+    PLAYER_OBJECT_WORLD.with_borrow(|slot| slot.clone())
 }
 
 // =========================================================

@@ -5,12 +5,11 @@
 //! persistence for the Rust-era engine.
 
 use directories::ProjectDirs;
-use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
-use std::sync::LazyLock;
 
 use thiserror::Error;
 
@@ -51,7 +50,7 @@ pub enum RegistryValue {
 #[derive(Debug)]
 pub struct Registry {
     storage_path: Option<PathBuf>,
-    values: RwLock<HashMap<String, RegistryValue>>,
+    values: RefCell<HashMap<String, RegistryValue>>,
 }
 
 impl Registry {
@@ -73,7 +72,7 @@ impl Registry {
     pub fn in_memory() -> Self {
         Self {
             storage_path: None,
-            values: RwLock::new(HashMap::new()),
+            values: RefCell::new(HashMap::new()),
         }
     }
 
@@ -106,13 +105,13 @@ impl Registry {
 
         Ok(Self {
             storage_path: Some(path),
-            values: RwLock::new(values),
+            values: RefCell::new(values),
         })
     }
 
     /// Retrieve a clone of a registry value if present.
     pub fn get(&self, key: &str) -> Option<RegistryValue> {
-        self.values.read().get(key).cloned()
+        self.values.borrow().get(key).cloned()
     }
 
     /// Read a string value from the registry.
@@ -185,9 +184,10 @@ impl Registry {
 
     /// Remove a key from the registry if present.
     pub fn remove(&self, key: &str) -> Result<(), RegistryError> {
-        let mut values = self.values.write();
-        values.remove(key);
-        drop(values);
+        {
+            let mut values = self.values.borrow_mut();
+            values.remove(key);
+        }
         self.persist()
     }
 
@@ -198,12 +198,12 @@ impl Registry {
 
     /// Enumerate all keys currently stored.
     pub fn keys(&self) -> Vec<String> {
-        self.values.read().keys().cloned().collect::<Vec<_>>()
+        self.values.borrow().keys().cloned().collect::<Vec<_>>()
     }
 
     fn set_value(&self, key: &str, value: RegistryValue) -> Result<(), RegistryError> {
         {
-            let mut values = self.values.write();
+            let mut values = self.values.borrow_mut();
             values.insert(key.to_string(), value);
         }
         self.persist()
@@ -220,7 +220,7 @@ impl Registry {
             }
         }
 
-        let snapshot = self.values.read().clone();
+        let snapshot = self.values.borrow().clone();
         let json = serde_json::to_vec_pretty(&snapshot)?;
         fs::write(path, json)?;
         Ok(())
@@ -241,11 +241,14 @@ const DEFAULT_REGISTRY_LANGUAGE: &str = "english";
 const DEFAULT_REGISTRY_SKU: &str = "GeneralsMPTest";
 const DEFAULT_REGISTRY_VERSION: u32 = 65536;
 
-static ZH_REGISTRY: LazyLock<Registry> = LazyLock::new(Registry::new);
+// THREAD: C++ plain static; driven only by the single game/client thread.
+thread_local! {
+    static ZH_REGISTRY: RefCell<Registry> = RefCell::new(Registry::new());
+}
 
-/// Process-wide ZH config store (JSON-backed, with C++ key names).
-pub fn zh_registry() -> &'static Registry {
-    &ZH_REGISTRY
+/// Run `body` with the process-wide ZH config store (JSON-backed, C++ key names).
+fn with_zh_registry<R>(body: impl FnOnce(&Registry) -> R) -> R {
+    ZH_REGISTRY.with(|registry| body(&registry.borrow()))
 }
 
 fn registry_lookup_keys(path: &str, key: &str) -> Vec<String> {
@@ -389,13 +392,11 @@ pub fn get_string_from_registry(path: &str, key: &str) -> Option<String> {
             }
         }
     }
-    let registry = zh_registry();
-    for candidate in registry_lookup_keys(path, key) {
-        if let Ok(value) = registry.read_string(&candidate) {
-            return Some(value);
-        }
-    }
-    None
+    with_zh_registry(|registry| {
+        registry_lookup_keys(path, key)
+            .into_iter()
+            .find_map(|candidate| registry.read_string(&candidate).ok())
+    })
 }
 
 /// C++ `GetUnsignedIntFromRegistry`. HKLM on Windows, then the JSON store.
@@ -411,13 +412,11 @@ pub fn get_unsigned_int_from_registry(path: &str, key: &str) -> Option<u32> {
             }
         }
     }
-    let registry = zh_registry();
-    for candidate in registry_lookup_keys(path, key) {
-        if let Ok(value) = registry.read_dword(&candidate) {
-            return Some(value);
-        }
-    }
-    None
+    with_zh_registry(|registry| {
+        registry_lookup_keys(path, key)
+            .into_iter()
+            .find_map(|candidate| registry.read_dword(&candidate).ok())
+    })
 }
 
 /// C++ `setStringInRegistry` for the Zero Hour HKLM key, then the JSON store.
@@ -434,7 +433,7 @@ pub fn set_string_in_registry(path: &str, key: &str, value: &str) -> bool {
     let Some(full) = full else {
         return false;
     };
-    zh_registry().write_string(&full, value).is_ok()
+    with_zh_registry(|registry| registry.write_string(&full, value).is_ok())
 }
 
 /// C++ `setUnsignedIntInRegistry` for the Zero Hour HKLM key, then the JSON store.
@@ -449,7 +448,7 @@ pub fn set_unsigned_int_in_registry(path: &str, key: &str, value: u32) -> bool {
     let Some(full) = full else {
         return false;
     };
-    zh_registry().write_dword(&full, value).is_ok()
+    with_zh_registry(|registry| registry.write_dword(&full, value).is_ok())
 }
 
 
@@ -535,15 +534,18 @@ mod tests {
 
     #[test]
     fn zh_hklm_language_is_readable() {
-        let registry = zh_registry();
         let full = format!("{}\\Language", ZH_REGISTRY_ROOT);
-        registry
-            .write_string(&full, "german")
-            .expect("seed zh language");
+        with_zh_registry(|registry| {
+            registry
+                .write_string(&full, "german")
+                .expect("seed zh language");
+        });
         assert_eq!(
             get_string_from_registry("", "Language").as_deref(),
             Some("german")
         );
-        registry.remove(&full).ok();
+        with_zh_registry(|registry| {
+            registry.remove(&full).ok();
+        });
     }
 }

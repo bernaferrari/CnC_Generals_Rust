@@ -3,25 +3,28 @@
 //! Provides profanity filtering and spam prevention for chat messages
 
 use std::collections::{HashSet, VecDeque};
-use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tokio::sync::RwLock;
 
 /// Chat message filter
+///
+/// Single-owner state: the word list, detector and knobs are only touched from
+/// this struct's own methods (mutators take `&mut self`), so they are plain
+/// fields.  The defaults that used to be installed from a detached one-shot
+/// task are now installed synchronously in `new`.
 #[derive(Clone)]
 pub struct ChatFilter {
     /// Profanity word list
-    profanity_words: Arc<RwLock<HashSet<String>>>,
+    profanity_words: HashSet<String>,
     /// Spam detection
-    spam_detector: Arc<RwLock<SpamDetector>>,
+    spam_detector: SpamDetector,
     /// Whether filtering is enabled
-    filter_enabled: Arc<RwLock<bool>>,
+    filter_enabled: bool,
     /// Replacement character
-    replacement_char: Arc<RwLock<char>>,
+    replacement_char: char,
 }
 
 /// Spam detector for preventing message spam
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct SpamDetector {
     /// Message history for duplicate detection
     message_history: VecDeque<String>,
@@ -111,24 +114,21 @@ impl Default for SpamDetector {
 impl ChatFilter {
     /// Create new chat filter
     pub fn new() -> Self {
-        let filter = Self {
-            profanity_words: Arc::new(RwLock::new(HashSet::new())),
-            spam_detector: Arc::new(RwLock::new(SpamDetector::new())),
-            filter_enabled: Arc::new(RwLock::new(true)),
-            replacement_char: Arc::new(RwLock::new('*')),
+        let mut filter = Self {
+            profanity_words: HashSet::new(),
+            spam_detector: SpamDetector::new(),
+            filter_enabled: true,
+            replacement_char: '*',
         };
 
         // Initialize default profanity list
-        let filter_clone = filter.clone();
-        tokio::spawn(async move {
-            filter_clone.initialize_default_profanity_list().await;
-        });
+        filter.initialize_default_profanity_list();
 
         filter
     }
 
     /// Initialize default profanity word list
-    async fn initialize_default_profanity_list(&self) {
+    fn initialize_default_profanity_list(&mut self) {
         let default_words = vec![
             // Add default profanity words here
             // This is a placeholder - real implementation would have comprehensive list
@@ -137,9 +137,8 @@ impl ChatFilter {
             "badword3".to_string(),
         ];
 
-        let mut profanity = self.profanity_words.write().await;
         for word in default_words {
-            profanity.insert(word.to_lowercase());
+            self.profanity_words.insert(word.to_lowercase());
         }
     }
 
@@ -176,46 +175,42 @@ impl ChatFilter {
     }
 
     /// Check if message is spam
-    pub async fn is_spam(&self, message: &str) -> bool {
-        let mut detector = self.spam_detector.write().await;
-        detector.is_spam(message)
+    pub async fn is_spam(&mut self, message: &str) -> bool {
+        self.spam_detector.is_spam(message)
     }
 
     /// Add profanity word to filter
-    pub async fn add_profanity_word(&self, word: String) {
-        let mut profanity = self.profanity_words.write().await;
-        profanity.insert(word.to_lowercase());
+    pub async fn add_profanity_word(&mut self, word: String) {
+        self.profanity_words.insert(word.to_lowercase());
     }
 
     /// Remove profanity word from filter
-    pub async fn remove_profanity_word(&self, word: &str) {
-        let mut profanity = self.profanity_words.write().await;
-        profanity.remove(&word.to_lowercase());
+    pub async fn remove_profanity_word(&mut self, word: &str) {
+        self.profanity_words.remove(&word.to_lowercase());
     }
 
     /// Enable or disable filtering
-    pub async fn set_enabled(&self, enabled: bool) {
-        *self.filter_enabled.write().await = enabled;
+    pub async fn set_enabled(&mut self, enabled: bool) {
+        self.filter_enabled = enabled;
     }
 
     /// Check if filtering is enabled
     pub async fn is_enabled(&self) -> bool {
-        *self.filter_enabled.read().await
+        self.filter_enabled
     }
 
     /// Set replacement character
-    pub async fn set_replacement_char(&self, ch: char) {
-        *self.replacement_char.write().await = ch;
+    pub async fn set_replacement_char(&mut self, ch: char) {
+        self.replacement_char = ch;
     }
 
     /// Reset spam detector
-    pub async fn reset_spam_detector(&self) {
-        let mut detector = self.spam_detector.write().await;
-        detector.reset();
+    pub async fn reset_spam_detector(&mut self) {
+        self.spam_detector.reset();
     }
 
     /// Validate message before sending
-    pub async fn validate_message(&self, message: &str) -> Result<(), String> {
+    pub async fn validate_message(&mut self, message: &str) -> Result<(), String> {
         // Check empty
         if message.trim().is_empty() {
             return Err("Message cannot be empty".to_string());
@@ -284,13 +279,13 @@ mod tests {
 
     #[tokio::test]
     async fn test_filter_creation() {
-        let filter = ChatFilter::new();
+        let mut filter = ChatFilter::new();
         assert!(filter.is_enabled().await);
     }
 
     #[tokio::test]
     async fn test_message_validation() {
-        let filter = ChatFilter::new();
+        let mut filter = ChatFilter::new();
 
         // Empty message
         assert!(filter.validate_message("").await.is_err());
@@ -301,7 +296,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_enable_disable() {
-        let filter = ChatFilter::new();
+        let mut filter = ChatFilter::new();
 
         filter.set_enabled(false).await;
         assert!(!filter.is_enabled().await);

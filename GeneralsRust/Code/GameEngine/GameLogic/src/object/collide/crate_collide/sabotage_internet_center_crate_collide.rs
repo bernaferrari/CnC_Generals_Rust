@@ -372,17 +372,13 @@ impl SabotageInternetCenterCrateCollide {
         }
 
         // This loop goes before DISABLED_HACKED. The hacked timer uses the normal disabled path.
-        if let Some(controlling_player) = other
-            .read()
-            .ok()
-            .and_then(|other_lock| other_lock.get_controlling_player())
-        {
-            if let Ok(player_guard) = controlling_player.read() {
+        let _ = other.read().ok().and_then(|other_lock| {
+            other_lock.with_controlling_player(|player_guard| {
                 let _ = player_guard.iterate_object_ids(|obj_id| {
                     disable_internet_center_spy_vision(obj_id, disable_frame)
                 });
-            }
-        }
+            })
+        });
 
         if let Ok(mut other_lock) = other.write() {
             other_lock.set_disabled_until(DisabledType::DisabledHacked, disable_frame);

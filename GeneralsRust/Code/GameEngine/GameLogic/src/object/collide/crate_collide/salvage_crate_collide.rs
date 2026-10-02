@@ -634,21 +634,18 @@ impl SalvageCrateCollide {
             return Ok(());
         };
 
-        let owner = {
-            let Ok(guard) = other.read() else {
-                return Ok(());
-            };
-            guard.get_controlling_player()
-        };
-
-        let Some(player_arc) = owner else {
+        if other
+            .read()
+            .ok()
+            .and_then(|guard| {
+                guard.with_controlling_player_mut(|player| {
+                    player.get_academy_stats_mut().record_salvage_collected();
+                })
+            })
+            .is_none()
+        {
             return Ok(());
-        };
-
-        let Ok(mut player) = player_arc.write() else {
-            return Ok(());
-        };
-        player.get_academy_stats_mut().record_salvage_collected();
+        }
         Ok(())
     }
 }

@@ -23,7 +23,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
-use tokio::sync::{Mutex, RwLock, mpsc, watch};
+use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn};
 
 // ---------------------------------------------------------------------------
@@ -147,17 +147,21 @@ pub struct NetworkBridge {
     /// Configuration.
     config: BridgeConfig,
     /// Connected players (slot -> player info).
-    players: Arc<RwLock<HashMap<u8, BridgePlayer>>>,
+    ///
+    /// THREAD: owned by the bridge. `NetworkBridge` spawns no tasks and is driven
+    /// from the game thread, so this is a plain table rather than a shared lock;
+    /// mutating methods take `&mut self`.
+    players: HashMap<u8, BridgePlayer>,
     /// Event channel for game logic.
     event_tx: mpsc::UnboundedSender<BridgeEvent>,
-    /// Event receiver (held by game logic).
-    event_rx: Mutex<Option<mpsc::UnboundedReceiver<BridgeEvent>>>,
+    /// Event receiver (held by game logic). Taken exactly once by the owner.
+    event_rx: Option<mpsc::UnboundedReceiver<BridgeEvent>>,
     /// Outgoing command channel (from game logic / synchronizer to bridge).
     outgoing_tx: mpsc::UnboundedSender<GameNetCommand>,
-    /// Outgoing command receiver.
-    outgoing_rx: Mutex<Option<mpsc::UnboundedReceiver<GameNetCommand>>>,
+    /// Outgoing command receiver. Taken exactly once by the owner.
+    outgoing_rx: Option<mpsc::UnboundedReceiver<GameNetCommand>>,
     /// Running flag.
-    running: Arc<std::sync::atomic::AtomicBool>,
+    running: std::sync::atomic::AtomicBool,
 }
 
 impl NetworkBridge {
@@ -169,12 +173,12 @@ impl NetworkBridge {
         Self {
             transport,
             config,
-            players: Arc::new(RwLock::new(HashMap::new())),
+            players: HashMap::new(),
             event_tx,
-            event_rx: Mutex::new(Some(event_rx)),
+            event_rx: Some(event_rx),
             outgoing_tx,
-            outgoing_rx: Mutex::new(Some(outgoing_rx)),
-            running: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            outgoing_rx: Some(outgoing_rx),
+            running: std::sync::atomic::AtomicBool::new(false),
         }
     }
 
@@ -186,18 +190,18 @@ impl NetworkBridge {
     /// Take the event receiver (call once, typically at game start).
     ///
     /// Returns `None` if already taken.
-    pub async fn take_event_receiver(&self) -> Option<mpsc::UnboundedReceiver<BridgeEvent>> {
-        self.event_rx.lock().await.take()
+    pub async fn take_event_receiver(&mut self) -> Option<mpsc::UnboundedReceiver<BridgeEvent>> {
+        self.event_rx.take()
     }
 
     /// Take the outgoing command receiver (called by the pump loop).
-    pub async fn take_outgoing_receiver(&self) -> Option<mpsc::UnboundedReceiver<GameNetCommand>> {
-        self.outgoing_rx.lock().await.take()
+    pub async fn take_outgoing_receiver(&mut self) -> Option<mpsc::UnboundedReceiver<GameNetCommand>> {
+        self.outgoing_rx.take()
     }
 
     /// Connect to a remote player at the given address.
     pub async fn connect_to_player(
-        &self,
+        &mut self,
         slot: u8,
         name: String,
         address: SocketAddr,
@@ -219,7 +223,7 @@ impl NetworkBridge {
             last_received_frame: 0,
             command_sender: None,
         };
-        self.players.write().await.insert(slot, player.clone());
+        self.players.insert(slot, player.clone());
 
         // Notify game logic.
         let _ = self.event_tx.send(BridgeEvent::PlayerJoined {
@@ -233,8 +237,8 @@ impl NetworkBridge {
     }
 
     /// Disconnect a player.
-    pub async fn disconnect_player(&self, slot: u8, reason: PlayerLeaveReason) {
-        if let Some(player) = self.players.write().await.remove(&slot) {
+    pub async fn disconnect_player(&mut self, slot: u8, reason: PlayerLeaveReason) {
+        if let Some(player) = self.players.remove(&slot) {
             info!(
                 "Player '{}' (slot {}) disconnected: {:?}",
                 player.name, slot, reason
@@ -248,9 +252,9 @@ impl NetworkBridge {
     }
 
     /// Notify that a player has finished loading.
-    pub async fn set_player_loaded(&self, slot: u8) -> NetworkResult<()> {
-        let mut players = self.players.write().await;
-        let player = players
+    pub async fn set_player_loaded(&mut self, slot: u8) -> NetworkResult<()> {
+        let player = self
+            .players
             .get_mut(&slot)
             .ok_or_else(|| NetworkError::player(format!("slot {} not connected", slot)))?;
         player.loaded = true;
@@ -258,9 +262,9 @@ impl NetworkBridge {
     }
 
     /// Set a player's ready state.
-    pub async fn set_player_ready(&self, slot: u8, ready: bool) -> NetworkResult<()> {
-        let mut players = self.players.write().await;
-        let player = players
+    pub async fn set_player_ready(&mut self, slot: u8, ready: bool) -> NetworkResult<()> {
+        let player = self
+            .players
             .get_mut(&slot)
             .ok_or_else(|| NetworkError::player(format!("slot {} not connected", slot)))?;
         player.ready = ready;
@@ -269,7 +273,7 @@ impl NetworkBridge {
 
     /// Check if all connected players are loaded.
     pub async fn all_players_loaded(&self) -> bool {
-        let players = self.players.read().await;
+        let players = &self.players;
         if players.is_empty() {
             return false;
         }
@@ -278,7 +282,7 @@ impl NetworkBridge {
 
     /// Check if all connected players are ready.
     pub async fn all_players_ready(&self) -> bool {
-        let players = self.players.read().await;
+        let players = &self.players;
         if players.is_empty() {
             return false;
         }
@@ -287,17 +291,17 @@ impl NetworkBridge {
 
     /// Get the number of connected players.
     pub async fn player_count(&self) -> usize {
-        self.players.read().await.len()
+        self.players.len()
     }
 
     /// Get player info by slot.
     pub async fn get_player(&self, slot: u8) -> Option<BridgePlayer> {
-        self.players.read().await.get(&slot).cloned()
+        self.players.get(&slot).cloned()
     }
 
     /// Get all player addresses (for the transport layer to maintain connections).
     pub async fn player_addresses(&self) -> Vec<SocketAddr> {
-        let players = self.players.read().await;
+        let players = &self.players;
         players.values().map(|p| p.address).collect()
     }
 
@@ -440,7 +444,7 @@ impl NetworkBridge {
     /// Send a command to a specific player.
     pub async fn send_command_to(&self, cmd: &GameNetCommand, slot: u8) -> NetworkResult<()> {
         let address = {
-            let players = self.players.read().await;
+            let players = &self.players;
             players
                 .get(&slot)
                 .map(|p| p.address)
@@ -472,7 +476,7 @@ impl NetworkBridge {
     /// Process incoming messages and emit bridge events.
     ///
     /// Should be called every frame by the game loop.
-    pub async fn process_incoming(&self) {
+    pub async fn process_incoming(&mut self) {
         let commands = self.receive_commands().await;
 
         for cmd in commands {
@@ -499,7 +503,7 @@ impl NetworkBridge {
                 }
                 NetCommandType::KeepAlive => {
                     // Update last seen frame for the player.
-                    if let Some(player) = self.players.write().await.get_mut(&cmd.player_id) {
+                    if let Some(player) = self.players.get_mut(&cmd.player_id) {
                         player.last_received_frame = cmd.execution_frame;
                     }
                 }

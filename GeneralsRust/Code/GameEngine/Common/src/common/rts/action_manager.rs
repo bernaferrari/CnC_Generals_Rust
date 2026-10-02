@@ -7,8 +7,9 @@
 //! in the world and to other objects. The purpose is to assist UI logic
 //! and validate network commands.
 
+use std::cell::RefCell;
 use std::collections::VecDeque;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 
 use super::handles::ObjectHandle;
 
@@ -220,38 +221,38 @@ pub trait ObjectDataProvider: Send + Sync {
 // GLOBAL DATA PROVIDER
 // ================================================================================================
 
-/// Global data provider instance (set by GameLogic at startup).
-///
-/// In C++, ActionManager accessed Object* pointers directly. In Rust,
-/// the Common crate cannot depend on GameLogic, so we inject an
-/// `ObjectDataProvider` through this global. GameLogic sets it during
-/// initialization via `set_object_data_provider()`.
-///
-/// Stored as `RwLock<Option<Arc<...>>>` so GameLogic can install a provider
-/// that reads `OBJECT_REGISTRY` / GameLogic objects, and tests can set/clear
-/// a mock without `static mut`.
-static OBJECT_DATA_PROVIDER: RwLock<Option<Arc<dyn ObjectDataProvider + Send + Sync>>> =
-    RwLock::new(None);
+// Global data provider instance (set by GameLogic at startup).
+//
+// In C++, ActionManager accessed Object* pointers directly. In Rust,
+// the Common crate cannot depend on GameLogic, so we inject an
+// `ObjectDataProvider` through this global. GameLogic sets it during
+// initialization via `set_object_data_provider()`.
+//
+// Stored as a thread-local `RefCell<Option<Arc<...>>>` so GameLogic can install a
+// provider that reads `OBJECT_REGISTRY` / GameLogic objects, and tests can set/clear
+// a mock without `static mut`.
+// THREAD: C++ plain static; driven only by the single game/client thread.
+thread_local! {
+    static OBJECT_DATA_PROVIDER: RefCell<Option<Arc<dyn ObjectDataProvider + Send + Sync>>> =
+        const { RefCell::new(None) };
+}
 
 fn write_provider(
     provider: Option<Arc<dyn ObjectDataProvider + Send + Sync>>,
 ) -> Option<Arc<dyn ObjectDataProvider + Send + Sync>> {
-    match OBJECT_DATA_PROVIDER.write() {
-        Ok(mut guard) => std::mem::replace(&mut *guard, provider),
-        Err(poisoned) => std::mem::replace(&mut *poisoned.into_inner(), provider),
-    }
+    OBJECT_DATA_PROVIDER.with_borrow_mut(|slot| std::mem::replace(slot, provider))
 }
 
 /// Install the global object data provider. Called during GameLogic init.
 ///
 /// Replacing an existing provider is allowed (tests, GameLogic reset).
 pub fn set_object_data_provider(provider: Arc<dyn ObjectDataProvider + Send + Sync>) {
-    let _ = write_provider(Some(provider));
+    write_provider(Some(provider));
 }
 
 /// Remove the installed provider. Queries then use fail-closed defaults.
 pub fn clear_object_data_provider() {
-    let _ = write_provider(None);
+    write_provider(None);
 }
 
 /// True when GameLogic (or a test) has installed a provider.
@@ -259,12 +260,9 @@ pub fn object_data_provider_is_set() -> bool {
     get_provider().is_some()
 }
 
-/// Clone the installed provider, if any. Lock is not held across queries.
+/// Clone the installed provider, if any. Borrow is not held across queries.
 fn get_provider() -> Option<Arc<dyn ObjectDataProvider + Send + Sync>> {
-    match OBJECT_DATA_PROVIDER.read() {
-        Ok(guard) => guard.clone(),
-        Err(poisoned) => poisoned.into_inner().clone(),
-    }
+    OBJECT_DATA_PROVIDER.with_borrow(|slot| slot.clone())
 }
 
 // ================================================================================================
@@ -1244,14 +1242,6 @@ impl Object {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::{Mutex, MutexGuard, OnceLock};
-
-    fn provider_test_lock() -> MutexGuard<'static, ()> {
-        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-        LOCK.get_or_init(|| Mutex::new(()))
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-    }
 
     struct MockObjectDataProvider;
 
@@ -1418,8 +1408,8 @@ mod tests {
     #[test]
     fn test_object_null_without_provider() {
         // Without a data provider registered, is_null returns true (fallback)
-        // since the provider can't validate the handle.
-        let _guard = provider_test_lock();
+        // since the provider can't validate the handle. The provider slot is
+        // thread-local, so each test thread sees its own isolated state.
         clear_object_data_provider();
         let obj = Object::from_id(1);
         assert!(obj.is_null());
@@ -1429,7 +1419,6 @@ mod tests {
     #[test]
     fn test_object_fallback_defaults_without_provider() {
         // Without a provider, all methods return safe fallback values.
-        let _guard = provider_test_lock();
         clear_object_data_provider();
         let obj = Object::from_id(99);
         assert_eq!(obj.get_relationship(&obj), Relationship::Neutral);
@@ -1475,7 +1464,6 @@ mod tests {
 
     #[test]
     fn test_object_queries_reach_installed_provider() {
-        let _guard = provider_test_lock();
         clear_object_data_provider();
         let live = Object::from_id(42);
         let other = Object::from_id(1);

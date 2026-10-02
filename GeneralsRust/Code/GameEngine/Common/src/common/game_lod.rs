@@ -1,10 +1,11 @@
 // game_lod.rs - Game Level of Detail system
 // Loads GameLOD.ini and exposes dynamic LOD parameters used by gameplay systems.
 
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fs;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{OnceLock, RwLock};
+use std::sync::OnceLock;
 
 use crate::common::ini::ini_game_data::{GlobalData, get_global_data};
 use crate::common::ini::ini_game_lod::{
@@ -93,57 +94,22 @@ impl GameLod {
     }
 }
 
-static DYNAMIC_LOD_NAME: OnceLock<RwLock<String>> = OnceLock::new();
-static DYNAMIC_LOD_SLOW_DEATH: OnceLock<RwLock<HashMap<String, f32>>> = OnceLock::new();
-static STATIC_LOD_NAME: OnceLock<RwLock<String>> = OnceLock::new();
-static CURRENT_STATIC_LOD_NAME: OnceLock<RwLock<String>> = OnceLock::new();
-static IDEAL_STATIC_LOD_NAME: OnceLock<RwLock<String>> = OnceLock::new();
-static MEM_PASSED_OVERRIDE: OnceLock<RwLock<Option<bool>>> = OnceLock::new();
-static CPU_FREQ_MHZ_OVERRIDE: OnceLock<RwLock<Option<i32>>> = OnceLock::new();
-static CPU_TYPE_OVERRIDE: OnceLock<RwLock<Option<CpuType>>> = OnceLock::new();
-static VIDEO_CHIP_OVERRIDE: OnceLock<RwLock<Option<ChipsetType>>> = OnceLock::new();
-static RAM_MB_OVERRIDE: OnceLock<RwLock<Option<i32>>> = OnceLock::new();
+// THREAD: these mirror C++ `GameLODManager` plain file statics. LOD probing and
+// the options menu all run on the single game/client thread (see
+// `GameClient/src/core/mod.rs`), so there is no cross-thread boundary and no lock.
+thread_local! {
+    static DYNAMIC_LOD_NAME: RefCell<String> = RefCell::new("High".to_string());
+    static DYNAMIC_LOD_SLOW_DEATH: RefCell<HashMap<String, f32>> = RefCell::new(HashMap::new());
+    static STATIC_LOD_NAME: RefCell<String> = RefCell::new("Medium".to_string());
+    static CURRENT_STATIC_LOD_NAME: RefCell<String> = RefCell::new("Unknown".to_string());
+    static IDEAL_STATIC_LOD_NAME: RefCell<String> = RefCell::new("Unknown".to_string());
+    static MEM_PASSED_OVERRIDE: RefCell<Option<bool>> = RefCell::new(None);
+    static CPU_FREQ_MHZ_OVERRIDE: RefCell<Option<i32>> = RefCell::new(None);
+    static CPU_TYPE_OVERRIDE: RefCell<Option<CpuType>> = RefCell::new(None);
+    static VIDEO_CHIP_OVERRIDE: RefCell<Option<ChipsetType>> = RefCell::new(None);
+    static RAM_MB_OVERRIDE: RefCell<Option<i32>> = RefCell::new(None);
+}
 static SKIP_OPTIONS_PERSIST: AtomicBool = AtomicBool::new(false);
-
-fn dynamic_lod_name() -> &'static RwLock<String> {
-    DYNAMIC_LOD_NAME.get_or_init(|| RwLock::new("High".to_string()))
-}
-
-fn dynamic_lod_slow_death() -> &'static RwLock<HashMap<String, f32>> {
-    DYNAMIC_LOD_SLOW_DEATH.get_or_init(|| RwLock::new(HashMap::new()))
-}
-
-fn static_lod_name() -> &'static RwLock<String> {
-    STATIC_LOD_NAME.get_or_init(|| RwLock::new("Medium".to_string()))
-}
-
-fn current_static_lod_name() -> &'static RwLock<String> {
-    CURRENT_STATIC_LOD_NAME.get_or_init(|| RwLock::new("Unknown".to_string()))
-}
-
-fn ideal_static_lod_name() -> &'static RwLock<String> {
-    IDEAL_STATIC_LOD_NAME.get_or_init(|| RwLock::new("Unknown".to_string()))
-}
-
-fn mem_passed_override() -> &'static RwLock<Option<bool>> {
-    MEM_PASSED_OVERRIDE.get_or_init(|| RwLock::new(None))
-}
-
-fn cpu_freq_mhz_override() -> &'static RwLock<Option<i32>> {
-    CPU_FREQ_MHZ_OVERRIDE.get_or_init(|| RwLock::new(None))
-}
-
-fn cpu_type_override() -> &'static RwLock<Option<CpuType>> {
-    CPU_TYPE_OVERRIDE.get_or_init(|| RwLock::new(None))
-}
-
-fn video_chip_override() -> &'static RwLock<Option<ChipsetType>> {
-    VIDEO_CHIP_OVERRIDE.get_or_init(|| RwLock::new(None))
-}
-
-fn ram_mb_override() -> &'static RwLock<Option<i32>> {
-    RAM_MB_OVERRIDE.get_or_init(|| RwLock::new(None))
-}
 
 fn canonical_static_lod_name(value: &str) -> Option<&'static str> {
     match value.trim().to_ascii_lowercase().as_str() {
@@ -215,9 +181,7 @@ fn detected_cpu_frequency_mhz() -> Option<i32> {
 }
 
 pub fn set_dynamic_lod(name: &str) {
-    if let Ok(mut guard) = dynamic_lod_name().write() {
-        *guard = name.to_string();
-    }
+    DYNAMIC_LOD_NAME.with(|cell| *cell.borrow_mut() = name.to_string());
 }
 
 pub fn set_dynamic_lod_from_string(value: &str) {
@@ -239,32 +203,22 @@ pub fn set_dynamic_lod_from_string(value: &str) {
 }
 
 pub fn get_dynamic_lod() -> String {
-    dynamic_lod_name()
-        .read()
-        .map(|guard| guard.clone())
-        .unwrap_or_else(|_| "High".to_string())
+    DYNAMIC_LOD_NAME.with(|cell| cell.borrow().clone())
 }
 
 pub fn set_static_lod_from_string(value: &str) {
     let Some(mapped) = canonical_static_lod_name(value) else {
         return;
     };
-    if let Ok(mut guard) = static_lod_name().write() {
-        *guard = mapped.to_string();
-    }
+    STATIC_LOD_NAME.with(|cell| *cell.borrow_mut() = mapped.to_string());
     if mapped != "Custom"
-        && current_static_lod_name()
-            .read()
-            .map(|guard| guard.as_str() == mapped)
-            .unwrap_or(false)
+        && CURRENT_STATIC_LOD_NAME.with(|cell| cell.borrow().as_str() == mapped)
     {
         return;
     }
     apply_static_lod_level(mapped);
     if mapped != "Unknown" {
-        if let Ok(mut guard) = current_static_lod_name().write() {
-            *guard = mapped.to_string();
-        }
+        CURRENT_STATIC_LOD_NAME.with(|cell| *cell.borrow_mut() = mapped.to_string());
     }
 }
 
@@ -424,26 +378,18 @@ fn refresh_custom_static_lod_info_from_global(
 }
 
 pub fn get_static_lod() -> String {
-    static_lod_name()
-        .read()
-        .map(|guard| guard.clone())
-        .unwrap_or_else(|_| "Medium".to_string())
+    STATIC_LOD_NAME.with(|cell| cell.borrow().clone())
 }
 
 pub fn set_ideal_static_lod_from_string(value: &str) {
     let Some(mapped) = canonical_static_lod_name(value) else {
         return;
     };
-    if let Ok(mut guard) = ideal_static_lod_name().write() {
-        *guard = mapped.to_string();
-    }
+    IDEAL_STATIC_LOD_NAME.with(|cell| *cell.borrow_mut() = mapped.to_string());
 }
 
 pub fn get_ideal_static_lod() -> String {
-    ideal_static_lod_name()
-        .read()
-        .map(|guard| guard.clone())
-        .unwrap_or_else(|_| "Unknown".to_string())
+    IDEAL_STATIC_LOD_NAME.with(|cell| cell.borrow().clone())
 }
 
 /// Matches C++ GameLODManager::didMemPass.
@@ -453,7 +399,7 @@ pub fn get_ideal_static_lod() -> String {
 /// detection is unavailable so low-level load-screen code does not trigger
 /// graphics/display probing.
 pub fn did_mem_pass() -> bool {
-    if let Some(value) = mem_passed_override().read().ok().and_then(|guard| *guard) {
+    if let Some(value) = MEM_PASSED_OVERRIDE.with(|cell| *cell.borrow()) {
         return value;
     }
 
@@ -465,12 +411,10 @@ pub fn did_mem_pass() -> bool {
 }
 
 pub fn is_really_low_mhz() -> bool {
-    let Some(cpu_freq_mhz) = cpu_freq_mhz_override()
-        .read()
-        .ok()
-        .and_then(|guard| *guard)
-        .or_else(detected_cpu_frequency_mhz)
-    else {
+    let cpu_freq_mhz = CPU_FREQ_MHZ_OVERRIDE
+        .with(|cell| *cell.borrow())
+        .or_else(detected_cpu_frequency_mhz);
+    let Some(cpu_freq_mhz) = cpu_freq_mhz else {
         return false;
     };
 
@@ -479,36 +423,26 @@ pub fn is_really_low_mhz() -> bool {
 
 #[doc(hidden)]
 pub fn set_mem_passed_override_for_tests(value: Option<bool>) {
-    if let Ok(mut guard) = mem_passed_override().write() {
-        *guard = value;
-    }
+    MEM_PASSED_OVERRIDE.with(|cell| *cell.borrow_mut() = value);
 }
 
 #[doc(hidden)]
 pub fn set_cpu_freq_mhz_override_for_tests(value: Option<i32>) {
-    if let Ok(mut guard) = cpu_freq_mhz_override().write() {
-        *guard = value;
-    }
+    CPU_FREQ_MHZ_OVERRIDE.with(|cell| *cell.borrow_mut() = value);
 }
 
 #[doc(hidden)]
 pub fn reset_static_lod_state_for_tests() {
     SKIP_OPTIONS_PERSIST.store(true, Ordering::Relaxed);
-    if let Ok(mut guard) = static_lod_name().write() {
-        *guard = "Medium".to_string();
-    }
-    if let Ok(mut guard) = current_static_lod_name().write() {
-        *guard = "Unknown".to_string();
-    }
-    if let Ok(mut guard) = ideal_static_lod_name().write() {
-        *guard = "Unknown".to_string();
-    }
+    STATIC_LOD_NAME.with(|cell| *cell.borrow_mut() = "Medium".to_string());
+    CURRENT_STATIC_LOD_NAME.with(|cell| *cell.borrow_mut() = "Unknown".to_string());
+    IDEAL_STATIC_LOD_NAME.with(|cell| *cell.borrow_mut() = "Unknown".to_string());
     set_mem_passed_override_for_tests(None);
     set_hardware_overrides_for_tests(None, None, None, None);
 }
 
 fn probe_cpu_type() -> CpuType {
-    if let Some(value) = cpu_type_override().read().ok().and_then(|guard| *guard) {
+    if let Some(value) = CPU_TYPE_OVERRIDE.with(|cell| *cell.borrow()) {
         return value;
     }
     // Presets only name P3/P4/K7. Modern hardware is treated as P4 so the
@@ -517,7 +451,7 @@ fn probe_cpu_type() -> CpuType {
 }
 
 fn probe_video_chip() -> ChipsetType {
-    if let Some(value) = video_chip_override().read().ok().and_then(|guard| *guard) {
+    if let Some(value) = VIDEO_CHIP_OVERRIDE.with(|cell| *cell.borrow()) {
         return value;
     }
     // C++ unknown video becomes TNT2. Modern wgpu/Metal is at least R300.
@@ -525,7 +459,7 @@ fn probe_video_chip() -> ChipsetType {
 }
 
 fn probe_ram_mb() -> i32 {
-    if let Some(value) = ram_mb_override().read().ok().and_then(|guard| *guard) {
+    if let Some(value) = RAM_MB_OVERRIDE.with(|cell| *cell.borrow()) {
         return value;
     }
     detected_physical_memory_bytes()
@@ -534,10 +468,8 @@ fn probe_ram_mb() -> i32 {
 }
 
 fn probe_cpu_mhz() -> i32 {
-    cpu_freq_mhz_override()
-        .read()
-        .ok()
-        .and_then(|guard| *guard)
+    CPU_FREQ_MHZ_OVERRIDE
+        .with(|cell| *cell.borrow())
         .or_else(detected_cpu_frequency_mhz)
         .unwrap_or(2000)
 }
@@ -575,15 +507,11 @@ pub fn find_static_lod_level() -> String {
     let name = matched.to_str();
     set_ideal_static_lod_from_string(name);
 
-    let current_unknown = current_static_lod_name()
-        .read()
-        .map(|guard| guard.eq_ignore_ascii_case("Unknown"))
-        .unwrap_or(true);
+    let current_unknown =
+        CURRENT_STATIC_LOD_NAME.with(|cell| cell.borrow().eq_ignore_ascii_case("Unknown"));
     persist_recommended_static_lod(name, current_unknown);
     if current_unknown {
-        if let Ok(mut guard) = static_lod_name().write() {
-            *guard = name.to_string();
-        }
+        STATIC_LOD_NAME.with(|cell| *cell.borrow_mut() = name.to_string());
     }
     name.to_string()
 }
@@ -591,10 +519,8 @@ pub fn find_static_lod_level() -> String {
 /// C++ W3DDisplay::init / Options first-open: if static LOD is still
 /// UNKNOWN, apply `findStaticLODLevel()`.
 pub fn ensure_static_lod_applied() {
-    let unknown = current_static_lod_name()
-        .read()
-        .map(|guard| guard.eq_ignore_ascii_case("Unknown"))
-        .unwrap_or(true);
+    let unknown =
+        CURRENT_STATIC_LOD_NAME.with(|cell| cell.borrow().eq_ignore_ascii_case("Unknown"));
     if unknown {
         let level = find_static_lod_level();
         set_static_lod_from_string(&level);
@@ -608,16 +534,10 @@ pub fn set_hardware_overrides_for_tests(
     video: Option<ChipsetType>,
     ram_mb: Option<i32>,
 ) {
-    if let Ok(mut guard) = cpu_type_override().write() {
-        *guard = cpu;
-    }
+    CPU_TYPE_OVERRIDE.with(|cell| *cell.borrow_mut() = cpu);
     set_cpu_freq_mhz_override_for_tests(mhz);
-    if let Ok(mut guard) = video_chip_override().write() {
-        *guard = video;
-    }
-    if let Ok(mut guard) = ram_mb_override().write() {
-        *guard = ram_mb;
-    }
+    VIDEO_CHIP_OVERRIDE.with(|cell| *cell.borrow_mut() = video);
+    RAM_MB_OVERRIDE.with(|cell| *cell.borrow_mut() = ram_mb);
 }
 
 pub fn prefers_low_res_movies() -> bool {
@@ -630,29 +550,28 @@ pub fn prefers_low_res_movies() -> bool {
 fn ensure_game_lod_loaded() {
     load_game_lod_ini_presets_and_options();
 
-    let mut map_guard = match dynamic_lod_slow_death().write() {
-        Ok(guard) => guard,
-        Err(_) => return,
-    };
-    if !map_guard.is_empty() {
-        return;
-    }
-
-    let mut files = Vec::new();
-    let default_path = "Data/INI/Default/GameLOD.ini";
-    let override_path = "Data/INI/GameLOD.ini";
-    if std::path::Path::new(default_path).exists() {
-        files.push(default_path.to_string());
-    }
-    if std::path::Path::new(override_path).exists() {
-        files.push(override_path.to_string());
-    }
-
-    for path in files {
-        if let Ok(contents) = fs::read_to_string(&path) {
-            parse_game_lod_ini(&contents, &mut map_guard);
+    DYNAMIC_LOD_SLOW_DEATH.with(|cell| {
+        let mut map_guard = cell.borrow_mut();
+        if !map_guard.is_empty() {
+            return;
         }
-    }
+
+        let mut files = Vec::new();
+        let default_path = "Data/INI/Default/GameLOD.ini";
+        let override_path = "Data/INI/GameLOD.ini";
+        if std::path::Path::new(default_path).exists() {
+            files.push(default_path.to_string());
+        }
+        if std::path::Path::new(override_path).exists() {
+            files.push(override_path.to_string());
+        }
+
+        for path in files {
+            if let Ok(contents) = fs::read_to_string(&path) {
+                parse_game_lod_ini(&contents, &mut map_guard);
+            }
+        }
+    });
 }
 
 /// C++ `GameLODManager::init`: load GameLOD.ini, GameLODPresets.ini, snapshot

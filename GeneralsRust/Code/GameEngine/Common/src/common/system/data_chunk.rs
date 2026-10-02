@@ -14,9 +14,9 @@
 use super::compression::{
     CompressionLevel, compress_data, decompress_data, get_preferred_compression, is_data_compressed,
 };
-use once_cell::sync::OnceCell;
+use std::cell::RefCell;
 use std::collections::HashMap;
-use std::sync::{Mutex, MutexGuard};
+use std::rc::Rc;
 
 /// Data chunk header information
 #[derive(Debug, Clone)]
@@ -426,25 +426,27 @@ impl Default for DataChunkManager {
     }
 }
 
-/// Global chunk manager instance
-static CHUNK_MANAGER: OnceCell<Mutex<DataChunkManager>> = OnceCell::new();
+// THREAD: C++ plain static; driven only by the single game/client thread.
+thread_local! {
+    static CHUNK_MANAGER: RefCell<Option<Rc<RefCell<DataChunkManager>>>> =
+        const { RefCell::new(None) };
+}
 
 /// Initialize the global chunk manager
 pub fn init_chunk_manager(memory_limit: Option<usize>) {
     let limit = memory_limit.unwrap_or(64 * 1024 * 1024);
 
-    if CHUNK_MANAGER.get().is_none() {
-        let _ = CHUNK_MANAGER.set(Mutex::new(DataChunkManager::new(limit)));
-    } else if let Some(cell) = CHUNK_MANAGER.get() {
-        if let Ok(mut guard) = cell.lock() {
-            *guard = DataChunkManager::new(limit);
+    CHUNK_MANAGER.with_borrow_mut(|manager| match manager {
+        Some(manager) => *manager.borrow_mut() = DataChunkManager::new(limit),
+        None => {
+            *manager = Some(Rc::new(RefCell::new(DataChunkManager::new(limit))));
         }
-    }
+    });
 }
 
 /// Get reference to the global chunk manager
-pub fn get_chunk_manager() -> Option<MutexGuard<'static, DataChunkManager>> {
-    CHUNK_MANAGER.get().and_then(|manager| manager.lock().ok())
+pub fn get_chunk_manager() -> Option<Rc<RefCell<DataChunkManager>>> {
+    CHUNK_MANAGER.with_borrow(|manager| manager.clone())
 }
 
 #[cfg(test)]

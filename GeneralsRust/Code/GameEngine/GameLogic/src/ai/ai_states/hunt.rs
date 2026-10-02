@@ -239,13 +239,7 @@ impl AIState for AIHuntState {
 
             self.next_enemy_scan_time = current_frame + LOGICFRAMES_PER_SECOND;
             let units_should_hunt = owner
-                .get_controlling_player()
-                .and_then(|player_arc| {
-                    player_arc
-                        .read()
-                        .ok()
-                        .map(|player| player.get_units_should_hunt())
-                })
+                .with_controlling_player(|player| player.get_units_should_hunt())
                 .unwrap_or(true);
             drop(owner);
 

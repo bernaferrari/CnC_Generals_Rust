@@ -15,8 +15,7 @@ use ring::{constant_time, digest, hmac, rand, signature};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::convert::TryFrom;
-use std::sync::Arc;
-use tokio::sync::RwLock;
+use std::sync::{Arc, Mutex, MutexGuard};
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
@@ -236,25 +235,36 @@ impl CommandRateTracker {
     }
 }
 
+/// Mutable security state, guarded as one bundle.
+#[derive(Debug, Default)]
+struct SecurityState {
+    /// Player authentication data
+    player_auth: HashMap<u8, PlayerAuth>,
+
+    /// Command rate trackers per player
+    rate_trackers: HashMap<u8, CommandRateTracker>,
+
+    /// Security events log
+    security_events: Vec<SecurityEvent>,
+
+    /// Banned players
+    banned_players: HashSet<u8>,
+
+    /// Failed authentication attempts
+    auth_failures: HashMap<u8, u32>,
+}
+
 /// Main security manager
 pub struct SecurityManager {
     /// Configuration
     config: SecurityConfig,
 
-    /// Player authentication data
-    player_auth: Arc<RwLock<HashMap<u8, PlayerAuth>>>,
-
-    /// Command rate trackers per player
-    rate_trackers: Arc<RwLock<HashMap<u8, CommandRateTracker>>>,
-
-    /// Security events log
-    security_events: Arc<RwLock<Vec<SecurityEvent>>>,
-
-    /// Banned players
-    banned_players: Arc<RwLock<HashSet<u8>>>,
-
-    /// Failed authentication attempts
-    auth_failures: Arc<RwLock<HashMap<u8, u32>>>,
+    /// THREAD: single bundle for all mutable security state. `SecurityManager` is
+    /// shared as `Arc<SecurityManager>` between connection tasks, LAN lobby
+    /// handlers and the crypto path, so all `&self` methods serialize their short,
+    /// synchronous critical sections here. No guard is ever held across an
+    /// `.await` (security-event logging re-locks after the state update).
+    state: Mutex<SecurityState>,
 
     /// Cryptographic keys
     signing_key: signature::Ed25519KeyPair,
@@ -296,17 +306,19 @@ impl SecurityManager {
 
         Ok(Self {
             config,
-            player_auth: Arc::new(RwLock::new(HashMap::new())),
-            rate_trackers: Arc::new(RwLock::new(HashMap::new())),
-            security_events: Arc::new(RwLock::new(Vec::new())),
-            banned_players: Arc::new(RwLock::new(HashSet::new())),
-            auth_failures: Arc::new(RwLock::new(HashMap::new())),
+            state: Mutex::new(SecurityState::default()),
             signing_key,
             hmac_key,
             key_exchange,
             encryption,
             anti_cheat: Arc::new(AntiCheatDetector::new()),
         })
+    }
+
+    fn lock_state(&self) -> MutexGuard<'_, SecurityState> {
+        self.state
+            .lock()
+            .expect("SecurityManager state lock poisoned")
     }
 
     /// Authenticate a player
@@ -324,50 +336,44 @@ impl SecurityManager {
         let username: String = username.into();
         let auth_token: String = auth_token.into();
         // Check if player is banned
-        {
-            let banned = self.banned_players.read().await;
-            if banned.contains(&player_id) {
-                return Err(NetworkError::security(format!(
-                    "player {} is banned",
-                    player_id
-                )));
-            }
+        if self.lock_state().banned_players.contains(&player_id) {
+            return Err(NetworkError::security(format!(
+                "player {} is banned",
+                player_id
+            )));
         }
 
         // Validate authentication token (in real implementation, this would verify with auth server)
         if !self.validate_auth_token(&username, &auth_token).await? {
             // Record authentication failure
-            {
-                let mut failures = self.auth_failures.write().await;
-                let count = failures.entry(player_id).or_insert(0);
+            let failures = {
+                let mut state = self.lock_state();
+                let count = state.auth_failures.entry(player_id).or_insert(0);
                 *count += 1;
+                *count
+            };
 
-                if *count >= self.config.max_auth_failures {
-                    // Too many failures, ban player temporarily
-                    let mut banned = self.banned_players.write().await;
-                    banned.insert(player_id);
+            if failures >= self.config.max_auth_failures {
+                // Too many failures, ban player temporarily
+                self.lock_state().banned_players.insert(player_id);
 
-                    self.log_security_event(
-                        SecurityViolation::AuthenticationFailure {
-                            player_id,
-                            reason: "too many failed attempts".to_string(),
-                            attempts: *count,
-                        },
-                        SecuritySeverity::High,
-                        Some(SecurityAction::TempBan { duration_hours: 1 }),
-                    )
-                    .await;
-                }
+                self.log_security_event(
+                    SecurityViolation::AuthenticationFailure {
+                        player_id,
+                        reason: "too many failed attempts".to_string(),
+                        attempts: failures,
+                    },
+                    SecuritySeverity::High,
+                    Some(SecurityAction::TempBan { duration_hours: 1 }),
+                )
+                .await;
             }
 
             return Err(NetworkError::security("invalid authentication token"));
         }
 
         // Clear any previous authentication failures
-        {
-            let mut failures = self.auth_failures.write().await;
-            failures.remove(&player_id);
-        }
+        self.lock_state().auth_failures.remove(&player_id);
 
         // Create player authentication record
         let player_auth = PlayerAuth {
@@ -383,10 +389,9 @@ impl SecurityManager {
         };
 
         // Store authentication
-        {
-            let mut auth_map = self.player_auth.write().await;
-            auth_map.insert(player_id, player_auth.clone());
-        }
+        self.lock_state()
+            .player_auth
+            .insert(player_id, player_auth.clone());
 
         if let Ok(bytes) = <[u8; 32]>::try_from(player_auth.public_key.as_slice()) {
             if let Ok(public_key) = Ed25519VerifyingKey::from_bytes(&bytes) {
@@ -413,8 +418,11 @@ impl SecurityManager {
 
     /// Deauthenticate and clean up state for a player.
     pub async fn deauthenticate_player(&self, player_id: u8) {
-        self.player_auth.write().await.remove(&player_id);
-        self.rate_trackers.write().await.remove(&player_id);
+        {
+            let mut state = self.lock_state();
+            state.player_auth.remove(&player_id);
+            state.rate_trackers.remove(&player_id);
+        }
         let _ = self.key_exchange.remove_trusted_identity(player_id).await;
     }
 
@@ -424,8 +432,9 @@ impl SecurityManager {
         session_id: Uuid,
         shared_key: Option<[u8; 32]>,
     ) -> NetworkResult<()> {
-        let mut auth_map = self.player_auth.write().await;
-        let auth = auth_map
+        let mut state = self.lock_state();
+        let auth = state
+            .player_auth
             .get_mut(&player_id)
             .ok_or_else(|| NetworkError::security("player not authenticated"))?;
 
@@ -532,8 +541,9 @@ impl SecurityManager {
 
     /// Fetch the active secure session key for a player, if established.
     pub async fn secure_session_key(&self, player_id: u8) -> NetworkResult<[u8; 32]> {
-        let auth_map = self.player_auth.read().await;
-        let auth = auth_map
+        let state = self.lock_state();
+        let auth = state
+            .player_auth
             .get(&player_id)
             .ok_or_else(|| NetworkError::security("player not authenticated"))?;
 
@@ -556,14 +566,17 @@ impl SecurityManager {
     /// Validate and process a command
     pub async fn validate_command(&self, command: &NetCommand) -> NetworkResult<()> {
         // Check if player is authenticated
-        let player_auth = {
-            let auth_map = self.player_auth.read().await;
-            auth_map.get(&command.player_id).cloned()
-        };
-
-        let player_auth = player_auth.ok_or_else(|| {
-            NetworkError::security(format!("player {} not authenticated", command.player_id))
-        })?;
+        let player_auth = self
+            .lock_state()
+            .player_auth
+            .get(&command.player_id)
+            .cloned()
+            .ok_or_else(|| {
+                NetworkError::security(format!(
+                    "player {} not authenticated",
+                    command.player_id
+                ))
+            })?;
 
         // Check rate limiting
         if self.config.enable_rate_limiting {
@@ -581,11 +594,8 @@ impl SecurityManager {
         }
 
         // Update last activity
-        {
-            let mut auth_map = self.player_auth.write().await;
-            if let Some(auth) = auth_map.get_mut(&command.player_id) {
-                auth.last_activity = Utc::now();
-            }
+        if let Some(auth) = self.lock_state().player_auth.get_mut(&command.player_id) {
+            auth.last_activity = Utc::now();
         }
 
         Ok(())
@@ -593,12 +603,14 @@ impl SecurityManager {
 
     /// Check command rate limiting
     async fn check_rate_limit(&self, command: &NetCommand) -> NetworkResult<()> {
-        let mut trackers = self.rate_trackers.write().await;
-        let tracker = trackers.entry(command.player_id).or_insert_with(|| {
-            CommandRateTracker::new(1) // 1 second window
-        });
+        let current_rate = {
+            let mut state = self.lock_state();
+            let tracker = state.rate_trackers.entry(command.player_id).or_insert_with(|| {
+                CommandRateTracker::new(1) // 1 second window
+            });
 
-        let current_rate = tracker.add_command(command.timestamp);
+            tracker.add_command(command.timestamp)
+        };
 
         if current_rate > self.config.max_commands_per_second {
             self.log_security_event(
@@ -715,12 +727,12 @@ impl SecurityManager {
 
         // Store event
         {
-            let mut events = self.security_events.write().await;
-            events.push(event);
+            let mut state = self.lock_state();
+            state.security_events.push(event);
 
             // Limit event history
-            if events.len() > 10000 {
-                events.drain(0..1000); // Remove oldest 1000 events
+            if state.security_events.len() > 10000 {
+                state.security_events.drain(0..1000); // Remove oldest 1000 events
             }
         }
 
@@ -758,14 +770,12 @@ impl SecurityManager {
                     "Temporarily banned player {} for {} hours",
                     player_id, duration_hours
                 );
-                let mut banned = self.banned_players.write().await;
-                banned.insert(player_id);
+                self.lock_state().banned_players.insert(player_id);
                 // In real implementation, would also set expiration time
             }
             SecurityAction::PermBan => {
                 info!("Permanently banned player {}", player_id);
-                let mut banned = self.banned_players.write().await;
-                banned.insert(player_id);
+                self.lock_state().banned_players.insert(player_id);
             }
         }
     }
@@ -785,43 +795,37 @@ impl SecurityManager {
 
     /// Check if player is authenticated
     pub async fn is_player_authenticated(&self, player_id: u8) -> bool {
-        let auth_map = self.player_auth.read().await;
-        auth_map.contains_key(&player_id)
+        self.lock_state().player_auth.contains_key(&player_id)
     }
 
     /// Get player authentication info
     pub async fn get_player_auth(&self, player_id: u8) -> Option<PlayerAuth> {
-        let auth_map = self.player_auth.read().await;
-        auth_map.get(&player_id).cloned()
+        self.lock_state().player_auth.get(&player_id).cloned()
     }
 
     /// Remove player authentication
     pub async fn logout_player(&self, player_id: u8) {
-        let mut auth_map = self.player_auth.write().await;
-        auth_map.remove(&player_id);
-
-        let mut trackers = self.rate_trackers.write().await;
-        trackers.remove(&player_id);
+        let mut state = self.lock_state();
+        state.player_auth.remove(&player_id);
+        state.rate_trackers.remove(&player_id);
 
         info!("Player {} logged out", player_id);
     }
 
     /// Get security statistics
     pub async fn get_security_stats(&self) -> SecurityStats {
-        let events = self.security_events.read().await;
-        let auth_count = self.player_auth.read().await.len();
-        let banned_count = self.banned_players.read().await.len();
+        let state = self.lock_state();
 
         let mut event_counts = HashMap::new();
-        for event in events.iter() {
+        for event in state.security_events.iter() {
             let key = std::mem::discriminant(&event.violation);
             *event_counts.entry(format!("{:?}", key)).or_insert(0) += 1;
         }
 
         SecurityStats {
-            authenticated_players: auth_count,
-            banned_players: banned_count,
-            total_security_events: events.len(),
+            authenticated_players: state.player_auth.len(),
+            banned_players: state.banned_players.len(),
+            total_security_events: state.security_events.len(),
             event_counts,
         }
     }
@@ -831,19 +835,18 @@ impl SecurityManager {
         let now = Utc::now();
         let session_timeout = chrono::Duration::minutes(self.config.session_timeout_minutes as i64);
 
+        let mut state = self.lock_state();
+
         // Remove expired sessions
-        {
-            let mut auth_map = self.player_auth.write().await;
-            auth_map
-                .retain(|_, auth| now.signed_duration_since(auth.last_activity) < session_timeout);
-        }
+        state
+            .player_auth
+            .retain(|_, auth| now.signed_duration_since(auth.last_activity) < session_timeout);
 
         // Clean up old security events
-        {
-            let mut events = self.security_events.write().await;
-            let cutoff = now - chrono::Duration::hours(24); // Keep 24 hours
-            events.retain(|event| event.timestamp > cutoff);
-        }
+        let cutoff = now - chrono::Duration::hours(24); // Keep 24 hours
+        state
+            .security_events
+            .retain(|event| event.timestamp > cutoff);
 
         Ok(())
     }
@@ -860,8 +863,11 @@ pub struct SecurityStats {
 
 /// Anti-cheat detection system
 pub struct AntiCheatDetector {
-    /// Player behavior patterns
-    player_patterns: Arc<RwLock<HashMap<u8, PlayerBehaviorPattern>>>,
+    /// THREAD: shared through `Arc<AntiCheatDetector>` from every
+    /// `SecurityManager::validate_command` call site, so per-player behavior
+    /// histories are updated from concurrent command-validation tasks. Critical
+    /// sections are synchronous.
+    player_patterns: Mutex<HashMap<u8, PlayerBehaviorPattern>>,
 }
 
 /// Player behavior pattern tracking
@@ -876,47 +882,46 @@ struct PlayerBehaviorPattern {
 impl AntiCheatDetector {
     fn new() -> Self {
         Self {
-            player_patterns: Arc::new(RwLock::new(HashMap::new())),
+            player_patterns: Mutex::new(HashMap::new()),
         }
+    }
+
+    fn lock_patterns(&self) -> MutexGuard<'_, HashMap<u8, PlayerBehaviorPattern>> {
+        self.player_patterns
+            .lock()
+            .expect("AntiCheatDetector pattern lock poisoned")
     }
 
     async fn validate_command(&self, command: &NetCommand) -> NetworkResult<()> {
         // Update player behavior pattern
-        {
-            let mut patterns = self.player_patterns.write().await;
-            let pattern =
-                patterns
-                    .entry(command.player_id)
-                    .or_insert_with(|| PlayerBehaviorPattern {
-                        command_timings: Vec::new(),
-                        command_types: HashMap::new(),
-                        suspicious_score: 0.0,
-                        last_update: Utc::now(),
-                    });
+        let mut patterns = self.lock_patterns();
+        let pattern = patterns
+            .entry(command.player_id)
+            .or_insert_with(|| PlayerBehaviorPattern {
+                command_timings: Vec::new(),
+                command_types: HashMap::new(),
+                suspicious_score: 0.0,
+                last_update: Utc::now(),
+            });
 
-            // Track command timing
-            pattern.command_timings.push(command.timestamp);
-            if pattern.command_timings.len() > 100 {
-                pattern.command_timings.remove(0);
-            }
-
-            // Track command types
-            *pattern
-                .command_types
-                .entry(command.command_type)
-                .or_insert(0) += 1;
-            pattern.last_update = Utc::now();
-
-            // Analyze for suspicious patterns
-            self.analyze_behavior_pattern(command.player_id, pattern)
-                .await?;
+        // Track command timing
+        pattern.command_timings.push(command.timestamp);
+        if pattern.command_timings.len() > 100 {
+            pattern.command_timings.remove(0);
         }
 
-        Ok(())
+        // Track command types
+        *pattern
+            .command_types
+            .entry(command.command_type)
+            .or_insert(0) += 1;
+        pattern.last_update = Utc::now();
+
+        // Analyze for suspicious patterns
+        Self::analyze_behavior_pattern(command.player_id, pattern)
     }
 
-    async fn analyze_behavior_pattern(
-        &self,
+    fn analyze_behavior_pattern(
         player_id: u8,
         pattern: &mut PlayerBehaviorPattern,
     ) -> NetworkResult<()> {
@@ -1095,8 +1100,9 @@ mod tests {
 
         assert_eq!(client_shared, host_shared);
 
-        let host_sessions = host_manager.player_auth.read().await;
-        let session_meta = host_sessions
+        let session_meta = host_manager
+            .lock_state()
+            .player_auth
             .get(&1)
             .and_then(|auth| auth.secure_session.clone())
             .expect("expected secure session metadata for peer");

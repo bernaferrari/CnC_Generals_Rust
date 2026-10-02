@@ -9,8 +9,7 @@ use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey as Ed2
 use ring::{digest, rand::SystemRandom};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::sync::Arc;
-use tokio::sync::RwLock;
+use std::sync::{Mutex, MutexGuard};
 use tracing::{info, warn};
 use uuid::Uuid;
 use x25519_dalek::{EphemeralSecret, PublicKey as X25519PublicKey};
@@ -188,16 +187,27 @@ pub enum KeyExchangeMessage {
     },
 }
 
+/// Active sessions and trusted peer identities for a key exchange provider.
+#[derive(Debug, Default)]
+struct KeyExchangeSessions {
+    /// Active key exchange sessions
+    sessions: HashMap<Uuid, KeyExchangeSession>,
+    /// Trusted peer identities (peer_id -> Ed25519 public key)
+    trusted_identities: HashMap<u8, Ed25519PublicKey>,
+}
+
 /// Secure key exchange provider
 pub struct KeyExchangeProvider {
     /// Configuration
     config: KeyExchangeConfig,
     /// Our long-term identity keypair (Ed25519)
     identity_keypair: SigningKey,
-    /// Active key exchange sessions
-    sessions: Arc<RwLock<HashMap<Uuid, KeyExchangeSession>>>,
-    /// Trusted peer identities (peer_id -> Ed25519 public key)
-    trusted_identities: Arc<RwLock<HashMap<u8, Ed25519PublicKey>>>,
+    /// THREAD: sessions and trusted identities form one bundle. The provider is
+    /// shared as `Arc<KeyExchangeProvider>` (owned by `SecurityManager`, itself
+    /// shared across connection tasks), so handshake steps coming from different
+    /// tasks are serialized here. Critical sections are synchronous; no guard is
+    /// held across an `.await`.
+    sessions: Mutex<KeyExchangeSessions>,
 }
 
 impl KeyExchangeProvider {
@@ -230,8 +240,7 @@ impl KeyExchangeProvider {
         Ok(Self {
             config,
             identity_keypair,
-            sessions: Arc::new(RwLock::new(HashMap::new())),
-            trusted_identities: Arc::new(RwLock::new(HashMap::new())),
+            sessions: Mutex::new(KeyExchangeSessions::default()),
         })
     }
 
@@ -240,10 +249,16 @@ impl KeyExchangeProvider {
         self.identity_keypair.verifying_key().clone()
     }
 
+    fn lock_sessions(&self) -> MutexGuard<'_, KeyExchangeSessions> {
+        self.sessions
+            .lock()
+            .expect("KeyExchangeProvider session lock poisoned")
+    }
+
     /// Add trusted peer identity
     pub async fn add_trusted_identity(&self, peer_id: u8, public_key: Ed25519PublicKey) {
-        let mut identities = self.trusted_identities.write().await;
-        identities.insert(peer_id, public_key);
+        let mut store = self.lock_sessions();
+        store.trusted_identities.insert(peer_id, public_key);
         info!(
             "Added trusted identity for peer {}: {}",
             peer_id,
@@ -253,8 +268,8 @@ impl KeyExchangeProvider {
 
     /// Remove trusted peer identity
     pub async fn remove_trusted_identity(&self, peer_id: u8) -> bool {
-        let mut identities = self.trusted_identities.write().await;
-        identities.remove(&peer_id).is_some()
+        let mut store = self.lock_sessions();
+        store.trusted_identities.remove(&peer_id).is_some()
     }
 
     /// Initiate key exchange with peer
@@ -267,8 +282,8 @@ impl KeyExchangeProvider {
 
         // Check session limit
         {
-            let sessions = self.sessions.read().await;
-            if sessions.len() >= self.config.max_concurrent_sessions {
+            let store = self.lock_sessions();
+            if store.sessions.len() >= self.config.max_concurrent_sessions {
                 return Err(NetworkError::resource_exhausted(
                     "too many concurrent key exchange sessions",
                 ));
@@ -308,8 +323,8 @@ impl KeyExchangeProvider {
 
         // Store session
         {
-            let mut sessions = self.sessions.write().await;
-            sessions.insert(session_id, session);
+            let mut store = self.lock_sessions();
+            store.sessions.insert(session_id, session);
         }
 
         info!(
@@ -348,8 +363,8 @@ impl KeyExchangeProvider {
 
             // Check if client is trusted
             {
-                let identities = self.trusted_identities.read().await;
-                if let Some(trusted_key) = identities.get(&peer_id) {
+                let store = self.lock_sessions();
+                if let Some(trusted_key) = store.trusted_identities.get(&peer_id) {
                     if trusted_key.as_bytes() != client_ed25519_public.as_bytes() {
                         return Err(NetworkError::security("client identity not trusted"));
                     }
@@ -419,8 +434,8 @@ impl KeyExchangeProvider {
 
             // Store session
             {
-                let mut sessions = self.sessions.write().await;
-                sessions.insert(session_id, session);
+                let mut store = self.lock_sessions();
+                store.sessions.insert(session_id, session);
             }
 
             info!(
@@ -453,35 +468,42 @@ impl KeyExchangeProvider {
             signature,
         } = message
         {
-            // Get our session
-            let mut sessions = self.sessions.write().await;
-            let session = sessions
-                .get_mut(&session_id)
-                .ok_or_else(|| NetworkError::security("unknown session"))?;
-
-            if session.state != KeyExchangeState::HandshakeInitiated {
-                return Err(NetworkError::security("invalid session state for response"));
-            }
-
             // Verify server identity
             let server_ed25519_public = Ed25519PublicKey::try_from(server_identity.as_slice())
                 .map_err(|e| {
                     NetworkError::security(format!("invalid server identity key: {:?}", e))
                 })?;
 
-            // Check if server is trusted
-            {
-                let identities = self.trusted_identities.read().await;
-                if let Some(trusted_key) = identities.get(&session.peer_id) {
-                    if trusted_key.as_bytes() != server_ed25519_public.as_bytes() {
-                        return Err(NetworkError::security("server identity not trusted"));
-                    }
-                } else {
-                    warn!(
-                        "Server peer {} not in trusted identities, proceeding with caution",
-                        session.peer_id
-                    );
+            let mut store = self.lock_sessions();
+
+            // Look up the session and its trusted identity up front so the mutable
+            // session borrow below does not overlap the identity lookup.
+            let (session_peer_id, trusted_key) = {
+                let session = store
+                    .sessions
+                    .get(&session_id)
+                    .ok_or_else(|| NetworkError::security("unknown session"))?;
+
+                if session.state != KeyExchangeState::HandshakeInitiated {
+                    return Err(NetworkError::security("invalid session state for response"));
                 }
+
+                (
+                    session.peer_id,
+                    store.trusted_identities.get(&session.peer_id).cloned(),
+                )
+            };
+
+            // Check if server is trusted
+            if let Some(trusted_key) = &trusted_key {
+                if trusted_key.as_bytes() != server_ed25519_public.as_bytes() {
+                    return Err(NetworkError::security("server identity not trusted"));
+                }
+            } else {
+                warn!(
+                    "Server peer {} not in trusted identities, proceeding with caution",
+                    session_peer_id
+                );
             }
 
             // Verify signature
@@ -505,6 +527,11 @@ impl KeyExchangeProvider {
                 <[u8; 32]>::try_from(server_public_key.as_slice())
                     .map_err(|_| NetworkError::security("invalid server public key length"))?,
             );
+
+            let session = store
+                .sessions
+                .get_mut(&session_id)
+                .ok_or_else(|| NetworkError::security("unknown session"))?;
 
             let ephemeral_secret = session
                 .ephemeral_secret
@@ -551,20 +578,28 @@ impl KeyExchangeProvider {
             signature,
         } = message
         {
-            let mut sessions = self.sessions.write().await;
-            let session = sessions
+            let mut store = self.lock_sessions();
+
+            // Resolve the client identity first (immutable lookups) so the mutable
+            // session borrow below does not overlap the trusted-identities map.
+            let client_identity = {
+                let session = store
+                    .sessions
+                    .get(&session_id)
+                    .ok_or_else(|| NetworkError::security("unknown session"))?;
+
+                if session.state != KeyExchangeState::HandshakeResponse {
+                    return Err(NetworkError::security("invalid session state for confirm"));
+                }
+
+                store.trusted_identities.get(&session.peer_id).cloned()
+            }
+            .ok_or_else(|| NetworkError::security("unknown client identity"))?;
+
+            let session = store
+                .sessions
                 .get_mut(&session_id)
                 .ok_or_else(|| NetworkError::security("unknown session"))?;
-
-            if session.state != KeyExchangeState::HandshakeResponse {
-                return Err(NetworkError::security("invalid session state for confirm"));
-            }
-
-            // Get client identity for verification
-            let identities = self.trusted_identities.read().await;
-            let client_identity = identities
-                .get(&session.peer_id)
-                .ok_or_else(|| NetworkError::security("unknown client identity"))?;
 
             // Verify signature
             let signature_data =
@@ -603,8 +638,9 @@ impl KeyExchangeProvider {
 
     /// Get completed session key material
     pub async fn get_session_key(&self, session_id: Uuid) -> NetworkResult<[u8; 32]> {
-        let sessions = self.sessions.read().await;
-        let session = sessions
+        let store = self.lock_sessions();
+        let session = store
+            .sessions
             .get(&session_id)
             .ok_or_else(|| NetworkError::security("unknown session"))?;
 
@@ -619,14 +655,14 @@ impl KeyExchangeProvider {
 
     /// Lookup the peer identifier associated with a session id.
     pub async fn peer_for_session(&self, session_id: Uuid) -> Option<u8> {
-        let sessions = self.sessions.read().await;
-        sessions.get(&session_id).map(|session| session.peer_id)
+        let store = self.lock_sessions();
+        store.sessions.get(&session_id).map(|session| session.peer_id)
     }
 
     /// Get session for peer
     pub async fn get_session_for_peer(&self, peer_id: u8) -> Option<Uuid> {
-        let sessions = self.sessions.read().await;
-        for (session_id, session) in sessions.iter() {
+        let store = self.lock_sessions();
+        for (session_id, session) in store.sessions.iter() {
             if session.peer_id == peer_id && session.state == KeyExchangeState::Completed {
                 return Some(*session_id);
             }
@@ -636,12 +672,14 @@ impl KeyExchangeProvider {
 
     /// Clean up expired sessions
     pub async fn cleanup_expired_sessions(&self) -> usize {
-        let mut sessions = self.sessions.write().await;
-        let initial_count = sessions.len();
+        let mut store = self.lock_sessions();
+        let initial_count = store.sessions.len();
 
-        sessions.retain(|_, session| !session.is_expired(self.config.session_timeout_seconds));
+        store
+            .sessions
+            .retain(|_, session| !session.is_expired(self.config.session_timeout_seconds));
 
-        let removed = initial_count - sessions.len();
+        let removed = initial_count - store.sessions.len();
         if removed > 0 {
             info!("Cleaned up {} expired key exchange sessions", removed);
         }
@@ -712,18 +750,17 @@ impl KeyExchangeProvider {
 
     /// Get key exchange statistics
     pub async fn get_stats(&self) -> KeyExchangeStats {
-        let sessions = self.sessions.read().await;
-        let identities = self.trusted_identities.read().await;
+        let store = self.lock_sessions();
 
         let mut state_counts = HashMap::new();
-        for session in sessions.values() {
+        for session in store.sessions.values() {
             *state_counts.entry(session.state).or_insert(0) += 1;
         }
 
         KeyExchangeStats {
             algorithm: self.config.algorithm,
-            total_sessions: sessions.len(),
-            trusted_identities: identities.len(),
+            total_sessions: store.sessions.len(),
+            trusted_identities: store.trusted_identities.len(),
             state_counts,
         }
     }

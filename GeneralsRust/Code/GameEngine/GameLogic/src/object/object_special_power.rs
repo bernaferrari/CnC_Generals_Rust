@@ -39,7 +39,7 @@ impl Object {
 
     /// Set creator id on SpecialPowerCompletionDie modules, if present.
     pub fn set_special_power_completion_creator(&mut self, creator_id: ObjectID) {
-        for entry in &self.die_module_handles {
+        for entry in self.interface_entries(&self.die_module_handles) {
             entry.with_module(|module| {
                 if let Some(die_module) = module_die_kind(module) {
                     die_module.into_interface().set_creator(creator_id);

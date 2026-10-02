@@ -1190,13 +1190,7 @@ impl AutoHealBehavior {
         let forbidden_kind_of = self.module_data.forbidden_kind_of.clone();
         let skip_self = self.module_data.skip_self_for_healing;
         let healing_delay = self.module_data.healing_delay;
-        let Some((controlling_player, healer_id)) =
-            self.with_object(|obj_read| (obj_read.get_controlling_player(), obj_read.get_id()))
-        else {
-            return Ok(UPDATE_SLEEP_FOREVER);
-        };
-
-        let Some(player) = controlling_player else {
+        let Some(healer_id) = self.with_object(|obj_read| obj_read.get_id()) else {
             return Ok(UPDATE_SLEEP_FOREVER);
         };
         let mut helper = AutoHealPlayerScanHelper::new();
@@ -1205,16 +1199,22 @@ impl AutoHealBehavior {
         helper.the_healer = Some(healer_id);
         helper.skip_self_for_healing = skip_self;
 
-        player
-            .read()
-            .map_err(|e| format!("auto-heal player lock poisoned: {}", e))?
-            .iterate_object_ids(|candidate_id| {
-                helper
-                    .check_for_auto_heal(candidate_id)
-                    .map_err(|e| crate::common::GameError::ModuleError(e.to_string()))?;
-                Ok(())
+        let Some(iter_result) = self
+            .with_object(|obj_read| {
+                obj_read.with_controlling_player(|player_guard| {
+                    player_guard.iterate_object_ids(|candidate_id| {
+                        helper
+                            .check_for_auto_heal(candidate_id)
+                            .map_err(|e| crate::common::GameError::ModuleError(e.to_string()))?;
+                        Ok(())
+                    })
+                })
             })
-            .map_err(|e| format!("auto-heal iterate_objects failed: {:?}", e))?;
+            .flatten()
+        else {
+            return Ok(UPDATE_SLEEP_FOREVER); // no controlling player / lock poisoned
+        };
+        iter_result.map_err(|e| format!("auto-heal iterate_objects failed: {:?}", e))?;
 
         for heal_id in helper.object_list {
             self.pulse_heal_object_id(heal_id)?;

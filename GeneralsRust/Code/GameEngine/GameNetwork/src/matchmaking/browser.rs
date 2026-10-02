@@ -11,7 +11,6 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::net::IpAddr;
 use std::sync::Arc;
-use tokio::sync::RwLock;
 use tracing::{debug, info};
 use uuid::Uuid;
 
@@ -290,24 +289,29 @@ impl BrowserGame {
 }
 
 /// Game browser for discovering and filtering games
+///
+/// Single-owner state: the game tables, the filter/sort knobs and the refresh
+/// stamp are only touched from this struct's own methods (mutators take
+/// `&mut self`), so they are plain fields.  Only the matchmaking service is
+/// shared, and it arrives pre-wrapped in an `Arc`.
 pub struct GameBrowser {
     /// LAN games discovered
-    lan_games: Arc<RwLock<HashMap<Uuid, BrowserGame>>>,
+    lan_games: HashMap<Uuid, BrowserGame>,
 
     /// Online matchmaking games
-    online_games: Arc<RwLock<HashMap<Uuid, BrowserGame>>>,
+    online_games: HashMap<Uuid, BrowserGame>,
 
     /// Current filter settings
-    filter: Arc<RwLock<GameFilter>>,
+    filter: GameFilter,
 
     /// Current sort type
-    sort_type: Arc<RwLock<GameSortType>>,
+    sort_type: GameSortType,
 
     /// Friend list for filtering
-    friend_list: Arc<RwLock<Vec<String>>>,
+    friend_list: Vec<String>,
 
     /// Sort by friends first
-    sort_friends_first: Arc<RwLock<bool>>,
+    sort_friends_first: bool,
 
     /// Reference to matchmaking service (optional)
     matchmaking_service: Option<Arc<MatchmakingService>>,
@@ -316,22 +320,22 @@ pub struct GameBrowser {
     refresh_interval: std::time::Duration,
 
     /// Last refresh time
-    last_refresh: Arc<RwLock<std::time::Instant>>,
+    last_refresh: std::time::Instant,
 }
 
 impl GameBrowser {
     /// Create new game browser
     pub fn new() -> Self {
         Self {
-            lan_games: Arc::new(RwLock::new(HashMap::new())),
-            online_games: Arc::new(RwLock::new(HashMap::new())),
-            filter: Arc::new(RwLock::new(GameFilter::default())),
-            sort_type: Arc::new(RwLock::new(GameSortType::default())),
-            friend_list: Arc::new(RwLock::new(Vec::new())),
-            sort_friends_first: Arc::new(RwLock::new(true)),
+            lan_games: HashMap::new(),
+            online_games: HashMap::new(),
+            filter: GameFilter::default(),
+            sort_type: GameSortType::default(),
+            friend_list: Vec::new(),
+            sort_friends_first: true,
             matchmaking_service: None,
             refresh_interval: std::time::Duration::from_secs(5),
-            last_refresh: Arc::new(RwLock::new(std::time::Instant::now())),
+            last_refresh: std::time::Instant::now(),
         }
     }
 
@@ -343,75 +347,73 @@ impl GameBrowser {
     }
 
     /// Update LAN games list
-    pub async fn update_lan_games(&self, games: Vec<LanGameInfo>) {
-        let mut lan_games = self.lan_games.write().await;
-
+    pub async fn update_lan_games(&mut self, games: Vec<LanGameInfo>) {
         // Convert to browser games
         for game in games {
             let browser_game = BrowserGame::from_lan_game(&game);
-            lan_games.insert(game.game_id, browser_game);
+            self.lan_games.insert(game.game_id, browser_game);
         }
 
         // Remove stale games (not seen in last update)
         let now = Utc::now();
         let stale_timeout = chrono::Duration::seconds(30);
-        lan_games.retain(|_, game| now.signed_duration_since(game.last_seen) < stale_timeout);
+        self.lan_games
+            .retain(|_, game| now.signed_duration_since(game.last_seen) < stale_timeout);
 
-        debug!("Updated LAN games list: {} games", lan_games.len());
+        debug!("Updated LAN games list: {} games", self.lan_games.len());
     }
 
     /// Update ping for a game
-    pub async fn update_game_ping(&self, game_id: Uuid, ping_ms: u32) {
-        if let Some(game) = self.lan_games.write().await.get_mut(&game_id) {
+    pub async fn update_game_ping(&mut self, game_id: Uuid, ping_ms: u32) {
+        if let Some(game) = self.lan_games.get_mut(&game_id) {
             game.ping_ms = Some(ping_ms);
-        } else if let Some(game) = self.online_games.write().await.get_mut(&game_id) {
+        } else if let Some(game) = self.online_games.get_mut(&game_id) {
             game.ping_ms = Some(ping_ms);
         }
     }
 
     /// Update friends in a game
-    pub async fn update_game_friends(&self, game_id: Uuid, friends: Vec<String>) {
-        if let Some(game) = self.lan_games.write().await.get_mut(&game_id) {
+    pub async fn update_game_friends(&mut self, game_id: Uuid, friends: Vec<String>) {
+        if let Some(game) = self.lan_games.get_mut(&game_id) {
             game.friends_in_game = friends;
-        } else if let Some(game) = self.online_games.write().await.get_mut(&game_id) {
+        } else if let Some(game) = self.online_games.get_mut(&game_id) {
             game.friends_in_game = friends;
         }
     }
 
     /// Refresh online games from matchmaking service
-    pub async fn refresh_online_games(&self) -> NetworkResult<()> {
-        if let Some(ref matchmaking) = self.matchmaking_service {
+    pub async fn refresh_online_games(&mut self) -> NetworkResult<()> {
+        let matchmaking = self.matchmaking_service.clone();
+
+        if let Some(matchmaking) = matchmaking {
             let lobbies = matchmaking.get_lobbies(LobbyFilter::default()).await;
 
-            let mut online_games = self.online_games.write().await;
-            online_games.clear();
+            self.online_games.clear();
 
             for lobby in lobbies {
                 let browser_game = BrowserGame::from_matchmaking_lobby(&lobby);
-                online_games.insert(lobby.lobby_id, browser_game);
+                self.online_games.insert(lobby.lobby_id, browser_game);
             }
 
-            debug!("Refreshed online games: {} games", online_games.len());
+            debug!("Refreshed online games: {} games", self.online_games.len());
         }
 
-        *self.last_refresh.write().await = std::time::Instant::now();
+        self.last_refresh = std::time::Instant::now();
         Ok(())
     }
 
     /// Get filtered and sorted game list
     pub async fn get_games(&self) -> Vec<BrowserGame> {
-        let filter = self.filter.read().await.clone();
-        let sort_type = *self.sort_type.read().await;
-        let friend_list = self.friend_list.read().await.clone();
-        let sort_friends_first = *self.sort_friends_first.read().await;
+        let filter = self.filter.clone();
+        let sort_type = self.sort_type;
+        let friend_list = self.friend_list.clone();
+        let sort_friends_first = self.sort_friends_first;
 
         // Combine LAN and online games
-        let lan_games = self.lan_games.read().await;
-        let online_games = self.online_games.read().await;
-
-        let mut games: Vec<BrowserGame> = lan_games
+        let mut games: Vec<BrowserGame> = self
+            .lan_games
             .values()
-            .chain(online_games.values())
+            .chain(self.online_games.values())
             .filter(|game| game.matches_filter(&filter, &friend_list))
             .cloned()
             .collect();
@@ -463,51 +465,51 @@ impl GameBrowser {
     }
 
     /// Set filter
-    pub async fn set_filter(&self, filter: GameFilter) {
-        *self.filter.write().await = filter;
+    pub async fn set_filter(&mut self, filter: GameFilter) {
+        self.filter = filter;
         info!("Game browser filter updated");
     }
 
     /// Set sort type
-    pub async fn set_sort_type(&self, sort_type: GameSortType) {
-        *self.sort_type.write().await = sort_type;
+    pub async fn set_sort_type(&mut self, sort_type: GameSortType) {
+        self.sort_type = sort_type;
         info!("Game browser sort changed to {:?}", sort_type);
     }
 
     /// Set friend list for filtering
-    pub async fn set_friend_list(&self, friends: Vec<String>) {
-        *self.friend_list.write().await = friends;
+    pub async fn set_friend_list(&mut self, friends: Vec<String>) {
+        self.friend_list = friends;
     }
 
     /// Set whether to sort friends first
-    pub async fn set_sort_friends_first(&self, enabled: bool) {
-        *self.sort_friends_first.write().await = enabled;
+    pub async fn set_sort_friends_first(&mut self, enabled: bool) {
+        self.sort_friends_first = enabled;
     }
 
     /// Get current filter
     pub async fn get_filter(&self) -> GameFilter {
-        self.filter.read().await.clone()
+        self.filter.clone()
     }
 
     /// Get current sort type
     pub async fn get_sort_type(&self) -> GameSortType {
-        *self.sort_type.read().await
+        self.sort_type
     }
 
     /// Clear all games
-    pub async fn clear(&self) {
-        self.lan_games.write().await.clear();
-        self.online_games.write().await.clear();
+    pub async fn clear(&mut self) {
+        self.lan_games.clear();
+        self.online_games.clear();
         info!("Game browser cleared");
     }
 
     /// Get game by ID
     pub async fn get_game(&self, game_id: Uuid) -> Option<BrowserGame> {
-        if let Some(game) = self.lan_games.read().await.get(&game_id) {
+        if let Some(game) = self.lan_games.get(&game_id) {
             return Some(game.clone());
         }
 
-        if let Some(game) = self.online_games.read().await.get(&game_id) {
+        if let Some(game) = self.online_games.get(&game_id) {
             return Some(game.clone());
         }
 
@@ -516,15 +518,12 @@ impl GameBrowser {
 
     /// Check if refresh is needed
     pub async fn needs_refresh(&self) -> bool {
-        let last_refresh = *self.last_refresh.read().await;
-        last_refresh.elapsed() >= self.refresh_interval
+        self.last_refresh.elapsed() >= self.refresh_interval
     }
 
     /// Get game count
     pub async fn get_game_count(&self) -> usize {
-        let lan_count = self.lan_games.read().await.len();
-        let online_count = self.online_games.read().await.len();
-        lan_count + online_count
+        self.lan_games.len() + self.online_games.len()
     }
 }
 

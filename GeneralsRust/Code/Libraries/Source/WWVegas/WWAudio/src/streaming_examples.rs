@@ -3,7 +3,7 @@
 //! This module provides comprehensive examples of how to use the streaming system
 //! converted from the original C++ WPAudio implementation.
 
-use crate::aud_stream_buffering::{
+use crate::aud_stream_buffering::{AccessId,
     StreamAccessType, StreamBuffer, StreamBuffering, StreamDataBlock,
 };
 use crate::aud_streamer::{
@@ -219,8 +219,10 @@ pub async fn example_stream_buffering() -> Result<()> {
     println!("Created {} buffers of 2KB each", buffer_count);
 
     // Acquire input and output access
-    let input_access = stream_buffer.acquire_access(StreamAccessType::Input)?;
-    let output_access = stream_buffer.acquire_access(StreamAccessType::Output)?;
+    let input_id = StreamAccessType::Input as AccessId;
+    let output_id = StreamAccessType::Output as AccessId;
+    stream_buffer.acquire_access(StreamAccessType::Input)?;
+    stream_buffer.acquire_access(StreamAccessType::Output)?;
 
     println!(
         "Stream buffer total size: {} bytes",
@@ -240,12 +242,14 @@ pub async fn example_stream_buffering() -> Result<()> {
     let mut input_data = test_data.to_vec();
 
     println!("Transferring {} bytes into stream...", input_data.len());
-    let bytes_in = input_access.transfer(&mut input_data).await?;
+    let bytes_in = stream_buffer
+        .transfer(input_id, &mut input_data)
+        .await?;
     println!("Successfully transferred {} bytes", bytes_in);
 
     // Read data back
     let mut output_data = vec![0u8; test_data.len()];
-    let bytes_out = output_access.transfer(&mut output_data).await?;
+    let bytes_out = stream_buffer.transfer(output_id, &mut output_data).await?;
     println!("Successfully read {} bytes", bytes_out);
 
     // Verify data integrity
@@ -256,10 +260,6 @@ pub async fn example_stream_buffering() -> Result<()> {
     }
 
     // Release access
-    let input_id = input_access.get_id();
-    let output_id = output_access.get_id();
-    drop(input_access);
-    drop(output_access);
     stream_buffer.release_access(input_id)?;
     stream_buffer.release_access(output_id)?;
 
@@ -394,11 +394,13 @@ pub async fn benchmark_streaming_performance() -> Result<()> {
     let data_size = 1024 * 1024; // 1MB test data
     let test_data = vec![0x42u8; data_size];
 
-    let input_access = stream_buffer.acquire_access(StreamAccessType::Input)?;
+    stream_buffer.acquire_access(StreamAccessType::Input)?;
 
     let start = Instant::now();
     let mut data_copy = test_data.clone();
-    let transferred = input_access.transfer(&mut data_copy).await?;
+    let transferred = stream_buffer
+        .transfer(StreamAccessType::Input as AccessId, &mut data_copy)
+        .await?;
     let transfer_time = start.elapsed();
 
     let throughput = (transferred as f64 / 1024.0 / 1024.0) / transfer_time.as_secs_f64();
@@ -408,12 +410,13 @@ pub async fn benchmark_streaming_performance() -> Result<()> {
     );
 
     // Benchmark random access
-    let output_access = stream_buffer.acquire_access(StreamAccessType::Output)?;
+    stream_buffer.acquire_access(StreamAccessType::Output)?;
+    let output_id = StreamAccessType::Output as AccessId;
 
     let start = Instant::now();
     for _ in 0..1000 {
-        output_access.get_block().await?;
-        output_access.advance(256).await?;
+        stream_buffer.get_block(output_id).await?;
+        stream_buffer.advance(output_id, 256).await?;
     }
     let access_time = start.elapsed();
 
@@ -423,11 +426,7 @@ pub async fn benchmark_streaming_performance() -> Result<()> {
     let buffer_memory = buffer_count * 64 * 1024;
     println!("Total buffer memory: {} KB", buffer_memory / 1024);
 
-    let input_id = input_access.get_id();
-    let output_id = output_access.get_id();
-    drop(input_access);
-    drop(output_access);
-    stream_buffer.release_access(input_id)?;
+    stream_buffer.release_access(StreamAccessType::Input as AccessId)?;
     stream_buffer.release_access(output_id)?;
 
     println!("Performance benchmark completed!");
@@ -514,19 +513,21 @@ mod tests {
             .acquire_access(StreamAccessType::Input)
             .unwrap();
         assert_eq!(input_access.get_id(), StreamAccessType::Input as u32);
+        drop(input_access);
 
         let output_access = stream_buffer
             .acquire_access(StreamAccessType::Output)
             .unwrap();
         assert_eq!(output_access.get_id(), StreamAccessType::Output as u32);
+        drop(output_access);
 
         // Test access release
-        let input_id = input_access.get_id();
-        let output_id = output_access.get_id();
-        drop(input_access);
-        drop(output_access);
-        stream_buffer.release_access(input_id).unwrap();
-        stream_buffer.release_access(output_id).unwrap();
+        stream_buffer
+            .release_access(StreamAccessType::Input as AccessId)
+            .unwrap();
+        stream_buffer
+            .release_access(StreamAccessType::Output as AccessId)
+            .unwrap();
     }
 
     #[tokio::test]
@@ -534,10 +535,10 @@ mod tests {
         let mut stream_buffer = StreamBuffering::new();
         stream_buffer.create_buffers(2, 1024, 8).unwrap();
 
-        let input_access = stream_buffer
+        stream_buffer
             .acquire_access(StreamAccessType::Input)
             .unwrap();
-        let output_access = stream_buffer
+        stream_buffer
             .acquire_access(StreamAccessType::Output)
             .unwrap();
 
@@ -547,8 +548,14 @@ mod tests {
         let mut output_data = vec![0u8; test_pattern.len()];
 
         // Transfer data
-        let bytes_in = input_access.transfer(&mut input_data).await.unwrap();
-        let bytes_out = output_access.transfer(&mut output_data).await.unwrap();
+        let bytes_in = stream_buffer
+            .transfer(StreamAccessType::Input as AccessId, &mut input_data)
+            .await
+            .unwrap();
+        let bytes_out = stream_buffer
+            .transfer(StreamAccessType::Output as AccessId, &mut output_data)
+            .await
+            .unwrap();
 
         // Verify integrity
         assert_eq!(bytes_in, test_pattern.len());
@@ -556,11 +563,11 @@ mod tests {
         assert_eq!(&output_data[..bytes_out], test_pattern);
 
         // Clean up
-        let input_id = input_access.get_id();
-        let output_id = output_access.get_id();
-        drop(input_access);
-        drop(output_access);
-        stream_buffer.release_access(input_id).unwrap();
-        stream_buffer.release_access(output_id).unwrap();
+        stream_buffer
+            .release_access(StreamAccessType::Input as AccessId)
+            .unwrap();
+        stream_buffer
+            .release_access(StreamAccessType::Output as AccessId)
+            .unwrap();
     }
 }

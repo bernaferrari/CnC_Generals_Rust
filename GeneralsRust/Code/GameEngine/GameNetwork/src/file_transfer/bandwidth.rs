@@ -9,16 +9,26 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::time::sleep;
 
+/// Mutable token-bucket state of a throttle.
+#[derive(Debug)]
+struct ThrottleState {
+    /// Maximum bytes per second
+    max_bytes_per_second: u64,
+    /// Current token count (bytes available)
+    tokens: f64,
+    /// Last refill time
+    last_refill: NetworkInstant,
+    /// Bucket capacity (max burst size)
+    bucket_capacity: f64,
+}
+
 /// Bandwidth throttler using token bucket algorithm
 pub struct BandwidthThrottle {
-    /// Maximum bytes per second
-    max_bytes_per_second: Arc<Mutex<u64>>,
-    /// Current token count (bytes available)
-    tokens: Arc<Mutex<f64>>,
-    /// Last refill time
-    last_refill: Arc<Mutex<NetworkInstant>>,
-    /// Bucket capacity (max burst size)
-    bucket_capacity: Arc<Mutex<f64>>,
+    /// THREAD: the token bucket is the only shared mutable state; the throttle is
+    /// handed out as `Arc<BandwidthThrottle>` (see `BandwidthManager`) so concurrent
+    /// transfer tasks call `acquire`/`try_acquire` on the same instance. Critical
+    /// sections are synchronous and never held across an `.await`.
+    state: Mutex<ThrottleState>,
 }
 
 impl BandwidthThrottle {
@@ -30,10 +40,12 @@ impl BandwidthThrottle {
     pub fn new(max_bytes_per_second: u64, burst_multiplier: f64) -> Self {
         let capacity = max_bytes_per_second as f64 * burst_multiplier;
         Self {
-            max_bytes_per_second: Arc::new(Mutex::new(max_bytes_per_second)),
-            tokens: Arc::new(Mutex::new(capacity)),
-            last_refill: Arc::new(Mutex::new(NetworkInstant::now())),
-            bucket_capacity: Arc::new(Mutex::new(capacity)),
+            state: Mutex::new(ThrottleState {
+                max_bytes_per_second,
+                tokens: capacity,
+                last_refill: NetworkInstant::now(),
+                bucket_capacity: capacity,
+            }),
         }
     }
 
@@ -44,43 +56,36 @@ impl BandwidthThrottle {
 
     /// Update the bandwidth limit
     pub fn set_limit(&self, max_bytes_per_second: u64) {
-        let mut limit = self.max_bytes_per_second.lock();
-        *limit = max_bytes_per_second;
+        let mut state = self.state.lock();
+        state.max_bytes_per_second = max_bytes_per_second;
 
-        let burst_multiplier = {
-            let capacity = self.bucket_capacity.lock();
-            let current_limit = *limit as f64;
-            if current_limit > 0.0 {
-                *capacity / current_limit
-            } else {
-                2.0
-            }
+        // Preserve the original capacity propagation: the multiplier is derived
+        // from the (already updated) limit so the burst window stays stable.
+        let current_limit = max_bytes_per_second as f64;
+        let burst_multiplier = if current_limit > 0.0 {
+            state.bucket_capacity / current_limit
+        } else {
+            2.0
         };
 
-        let new_capacity = max_bytes_per_second as f64 * burst_multiplier;
-        *self.bucket_capacity.lock() = new_capacity;
+        state.bucket_capacity = max_bytes_per_second as f64 * burst_multiplier;
     }
 
     /// Get current bandwidth limit
     pub fn limit(&self) -> u64 {
-        *self.max_bytes_per_second.lock()
+        self.state.lock().max_bytes_per_second
     }
 
     /// Refill tokens based on elapsed time
     fn refill_tokens(&self) {
+        let mut state = self.state.lock();
         let now = NetworkInstant::now();
-        let mut last_refill = self.last_refill.lock();
-        let elapsed = now.duration_since(*last_refill).as_secs_f64();
+        let elapsed = now.duration_since(state.last_refill).as_secs_f64();
 
         if elapsed > 0.0 {
-            let rate = *self.max_bytes_per_second.lock() as f64;
-            let new_tokens = elapsed * rate;
-
-            let mut tokens = self.tokens.lock();
-            let capacity = *self.bucket_capacity.lock();
-            *tokens = (*tokens + new_tokens).min(capacity);
-
-            *last_refill = now;
+            let new_tokens = elapsed * state.max_bytes_per_second as f64;
+            state.tokens = (state.tokens + new_tokens).min(state.bucket_capacity);
+            state.last_refill = now;
         }
     }
 
@@ -97,23 +102,22 @@ impl BandwidthThrottle {
         loop {
             self.refill_tokens();
 
-            let mut tokens = self.tokens.lock();
-            if *tokens >= bytes {
-                *tokens -= bytes;
-                drop(tokens);
-                return start.elapsed();
-            }
+            let wait_time = {
+                let mut state = self.state.lock();
+                if state.tokens >= bytes {
+                    state.tokens -= bytes;
+                    return start.elapsed();
+                }
 
-            // Calculate wait time for tokens to refill
-            let rate = *self.max_bytes_per_second.lock() as f64;
-            let needed = bytes - *tokens;
-            let wait_time = if rate > 0.0 {
-                Duration::from_secs_f64(needed / rate)
-            } else {
-                Duration::from_millis(1)
+                // Calculate wait time for tokens to refill
+                let rate = state.max_bytes_per_second as f64;
+                let needed = bytes - state.tokens;
+                if rate > 0.0 {
+                    Duration::from_secs_f64(needed / rate)
+                } else {
+                    Duration::from_millis(1)
+                }
             };
-
-            drop(tokens);
 
             // Sleep for a portion of the wait time to allow other operations
             sleep(wait_time.min(Duration::from_millis(10))).await;
@@ -126,11 +130,11 @@ impl BandwidthThrottle {
     pub fn try_acquire(&self, bytes: usize) -> bool {
         self.refill_tokens();
 
-        let mut tokens = self.tokens.lock();
+        let mut state = self.state.lock();
         let bytes = bytes as f64;
 
-        if *tokens >= bytes {
-            *tokens -= bytes;
+        if state.tokens >= bytes {
+            state.tokens -= bytes;
             true
         } else {
             false
@@ -140,16 +144,17 @@ impl BandwidthThrottle {
     /// Get current available tokens
     pub fn available_tokens(&self) -> u64 {
         self.refill_tokens();
-        *self.tokens.lock() as u64
+        self.state.lock().tokens as u64
     }
 
     /// Get statistics about throttle usage
     pub fn stats(&self) -> ThrottleStats {
         self.refill_tokens();
+        let state = self.state.lock();
         ThrottleStats {
-            max_bytes_per_second: *self.max_bytes_per_second.lock(),
-            available_tokens: *self.tokens.lock() as u64,
-            bucket_capacity: *self.bucket_capacity.lock() as u64,
+            max_bytes_per_second: state.max_bytes_per_second,
+            available_tokens: state.tokens as u64,
+            bucket_capacity: state.bucket_capacity as u64,
         }
     }
 }

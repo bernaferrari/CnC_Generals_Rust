@@ -15,7 +15,6 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::time::{Duration, Instant};
 use tokio::net::UdpSocket;
-use tokio::sync::RwLock;
 use tokio::time::{sleep, timeout};
 use tracing::info;
 
@@ -145,12 +144,16 @@ impl MockStunServer {
 // ============================================================================
 
 /// Mock UPnP gateway for testing port mapping functionality.
+///
+/// The mapping table is owned outright: no clone of the gateway is moved into a
+/// spawned task in these tests, so the table is a plain `Vec` mutated through
+/// `&mut self`.
 struct MockUPnPGateway {
     location_url: String,
     control_url: String,
     service_type: String,
     external_ip: IpAddr,
-    port_mappings: Arc<RwLock<Vec<PortMapping>>>,
+    port_mappings: Vec<PortMapping>,
     discovery_responses: Arc<AtomicU32>,
     should_respond_ssdp: Arc<AtomicBool>,
 }
@@ -162,7 +165,7 @@ impl MockUPnPGateway {
             control_url: "http://192.168.1.1:5000/ctl/IPConn".to_string(),
             service_type: "urn:schemas-upnp-org:service:WANIPConnection:1".to_string(),
             external_ip,
-            port_mappings: Arc::new(RwLock::new(Vec::new())),
+            port_mappings: Vec::new(),
             discovery_responses: Arc::new(AtomicU32::new(0)),
             should_respond_ssdp: Arc::new(AtomicBool::new(true)),
         }
@@ -176,21 +179,21 @@ impl MockUPnPGateway {
         self.discovery_responses.load(Ordering::SeqCst)
     }
 
-    async fn add_mapping(&self, mapping: PortMapping) {
-        let mut mappings = self.port_mappings.write().await;
+    async fn add_mapping(&mut self, mapping: PortMapping) {
         // Remove existing mapping with same port/protocol
-        mappings
-            .retain(|m| m.external_port != mapping.external_port || m.protocol != mapping.protocol);
-        mappings.push(mapping);
+        self.port_mappings.retain(|m| {
+            m.external_port != mapping.external_port || m.protocol != mapping.protocol
+        });
+        self.port_mappings.push(mapping);
     }
 
-    async fn remove_mapping(&self, external_port: u16, protocol: &str) {
-        let mut mappings = self.port_mappings.write().await;
-        mappings.retain(|m| m.external_port != external_port || m.protocol != protocol);
+    async fn remove_mapping(&mut self, external_port: u16, protocol: &str) {
+        self.port_mappings
+            .retain(|m| m.external_port != external_port || m.protocol != protocol);
     }
 
     async fn get_mappings(&self) -> Vec<PortMapping> {
-        self.port_mappings.read().await.clone()
+        self.port_mappings.clone()
     }
 
     fn build_ssdp_response(&self) -> String {
@@ -562,7 +565,7 @@ async fn test_upnp_port_mapping_simulation() {
 
     // Create mock UPnP gateway
     let external_ip = IpAddr::V4(Ipv4Addr::new(203, 0, 113, 100));
-    let gateway = Arc::new(MockUPnPGateway::new(external_ip));
+    let mut gateway = MockUPnPGateway::new(external_ip);
 
     // Simulate gateway discovery
     metrics.upnp_gateway_discoveries += 1;
@@ -635,7 +638,7 @@ async fn test_upnp_port_forwarding_lifecycle() {
     let start_time = Instant::now();
 
     let external_ip = IpAddr::V4(Ipv4Addr::new(198, 51, 100, 1));
-    let gateway = Arc::new(MockUPnPGateway::new(external_ip));
+    let mut gateway = MockUPnPGateway::new(external_ip);
 
     // Step 1: Discover gateway
     metrics.upnp_gateway_discoveries += 1;
@@ -774,8 +777,8 @@ async fn test_nat_traversal_full_workflow() {
     if p1_nat_type.requires_hole_punching() || p2_nat_type.requires_hole_punching() {
         info!("NAT requires hole punching, using UPnP");
 
-        let gateway1 = Arc::new(MockUPnPGateway::new(p1_addr.ip()));
-        let gateway2 = Arc::new(MockUPnPGateway::new(p2_addr.ip()));
+        let mut gateway1 = MockUPnPGateway::new(p1_addr.ip());
+        let mut gateway2 = MockUPnPGateway::new(p2_addr.ip());
 
         // Player 1 forwards port
         let p1_mapping = PortMapping::udp(
@@ -834,9 +837,9 @@ async fn test_upnp_error_handling() {
 
     // Test 1: No gateway found
     info!("Test case: No UPnP gateway found");
-    let gateway = Arc::new(MockUPnPGateway::new(IpAddr::V4(Ipv4Addr::new(
+    let gateway = MockUPnPGateway::new(IpAddr::V4(Ipv4Addr::new(
         192, 168, 1, 1,
-    ))));
+    )));
     gateway.set_should_respond(false);
 
     // Attempting discovery would fail (simulated)
@@ -852,9 +855,9 @@ async fn test_upnp_error_handling() {
 
     // Test 3: Port already mapped (conflict)
     info!("Test case: Port mapping conflict");
-    let gateway = Arc::new(MockUPnPGateway::new(IpAddr::V4(Ipv4Addr::new(
+    let mut gateway = MockUPnPGateway::new(IpAddr::V4(Ipv4Addr::new(
         203, 0, 113, 50,
-    ))));
+    )));
 
     let mapping1 = PortMapping::udp(
         8088,
