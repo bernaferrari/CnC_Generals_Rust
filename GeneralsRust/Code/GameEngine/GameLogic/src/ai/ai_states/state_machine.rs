@@ -128,19 +128,27 @@ impl AIStateMachine {
         state_type: AIStateType,
         frame_limit: u32,
     ) -> StateReturnType {
-        // Create temporary state
-        let temp_state: Box<dyn AIState> = match state_type {
+        // AIStates.cpp:929-949: reset the previous override synchronously,
+        // and retain the replacement only if its entry continues.
+        if let Some(mut previous) = self.temporary_state.take() {
+            previous.on_exit(&mut self.context, StateExitType::Reset);
+        }
+        self.temporary_state_frame_end = None;
+
+        let mut temp_state: Box<dyn AIState> = match state_type {
             AIStateType::MoveOutOfTheWay => Box::new(AIMoveOutOfTheWayState::new()),
             AIStateType::MoveAndTighten => Box::new(AIMoveAndTightenState::new()),
-            _ => return StateReturnType::Failed, // Only certain states can be temporary
+            _ => return StateReturnType::Failed,
         };
-
-        let mut temp_state = temp_state;
         let result = temp_state.on_enter(&mut self.context);
+        if result != StateReturnType::Continue {
+            temp_state.on_exit(&mut self.context, StateExitType::Normal);
+            return result;
+        }
 
+        let frame_limit = frame_limit.min(60 * LOGICFRAMES_PER_SECOND);
+        self.temporary_state_frame_end = Some(TheGameLogic::get_frame().wrapping_add(frame_limit));
         self.temporary_state = Some(temp_state);
-        self.temporary_state_frame_end = Some(frame_limit);
-
         result
     }
 
@@ -392,4 +400,3 @@ impl AiCommandInterface for AIStateMachine {
         Ok(())
     }
 }
-

@@ -79,6 +79,8 @@ pub struct GameLogic {
     /// from GameWorld `PlayerData` (economy writeback). This map is a read-view
     /// plus residual UI/selection fields.
     pub(super) players: HashMap<u32, Player>,
+    /// C++ GameLogic::m_rankLevelLimit; awards and scripts use this match's cap.
+    pub(super) rank_level_limit: i32,
     /// Exact Campaign/Challenge PlayerTemplate binding for each host player.
     ///
     /// This is deliberately GameLogic session state rather than a `Player`
@@ -1372,6 +1374,15 @@ pub struct GameLogic {
     pub(super) install_multiplayer_scripts: bool,
 }
 impl GameLogic {
+    pub fn rank_level_limit(&self) -> i32 {
+        self.rank_level_limit
+    }
+
+    /// C++ GameLogic.h:206-209; changing the cap does not reset player ranks.
+    pub fn set_rank_level_limit(&mut self, limit: i32) {
+        self.rank_level_limit = limit.max(1);
+    }
+
     /// Freeze a Send-safe W3DModelDraw identity for one admitted object
     /// generation. Mutable playback remains owned by the RenderPipeline.
     pub(crate) fn live_draw_playback_identity(

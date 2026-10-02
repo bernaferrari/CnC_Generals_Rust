@@ -280,14 +280,6 @@
       "constructs": 2,
       "undocumented": 0
     },
-    "Code/GameEngine/GameLogic/src/ai/ai_player/tests.rs": {
-      "constructs": 2,
-      "undocumented": 0
-    },
-    "Code/GameEngine/GameLogic/src/ai/state_machine.rs": {
-      "constructs": 1,
-      "undocumented": 0
-    },
     "Code/GameEngine/GameLogic/src/ai/turret_ai_full.rs": {
       "constructs": 2,
       "undocumented": 0

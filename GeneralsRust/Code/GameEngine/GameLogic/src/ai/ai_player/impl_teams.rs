@@ -14,7 +14,8 @@ impl AIPlayer {
     pub fn queue_units(&mut self) -> bool {
         let _ = self.queue_supply_truck();
 
-        let ai_store = the_ai();let max_recruit = ai_store
+        let ai_store = the_ai();
+        let max_recruit = ai_store
             .read()
             .ok()
             .and_then(|ai| Some(&*ai.get_ai_data()).map(|d| d.max_recruit_distance))
@@ -202,7 +203,8 @@ impl AIPlayer {
             .unwrap_or_default();
 
         let mut desired = 0;
-        let ai_store = the_ai(); if let Ok(ai_guard) = ai_store.read() {
+        let ai_store = the_ai();
+        if let Ok(ai_guard) = ai_store.read() {
             {
                 let ai_data = ai_guard.get_ai_data();
                 for info in &ai_data.side_info {
@@ -477,6 +479,20 @@ impl AIPlayer {
             tg.set_controlling_player_id(Some(self.player_id as UnsignedInt));
         }
 
+        let mut team = TeamInQueue::new();
+        team.team_name = Some(team_name.to_string());
+        team.team = Some(team_arc);
+        team.priority_build = priority_build;
+        team.frame_started = TheGameLogic::get_frame();
+        team.work_orders = orders;
+
+        if priority_build {
+            self.team_build_queue.push_front(team);
+        } else {
+            self.team_build_queue.push_back(team);
+        }
+        self.team_delay = 0;
+
         // C++: if executeActions, friend_executeAction(productionCondition action, team).
         if proto.get_execute_actions_on_create() {
             let cond = proto.get_production_condition().to_string();
@@ -502,19 +518,6 @@ impl AIPlayer {
             }
         }
 
-        let mut team = TeamInQueue::new();
-        team.team_name = Some(team_name.to_string());
-        team.team = Some(team_arc);
-        team.priority_build = priority_build;
-        team.frame_started = TheGameLogic::get_frame();
-        team.work_orders = orders;
-
-        if priority_build {
-            self.team_build_queue.push_front(team);
-        } else {
-            self.team_build_queue.push_back(team);
-        }
-        self.team_delay = 0;
         log::debug!("{} - starting team build.", team_name);
         Ok(())
     }

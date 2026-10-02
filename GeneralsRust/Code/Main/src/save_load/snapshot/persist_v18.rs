@@ -399,7 +399,7 @@ fn capture_persist_v18_impl(
 ) -> WorldPersistV18 {
     let mut persist = WorldPersistV18::default();
 
-    persist.rank_level_limit = TheGameLogic::get_rank_level_limit();
+    persist.rank_level_limit = game_logic.rank_level_limit();
     persist.show_behind_building_markers = TheGameLogic::get_show_behind_building_markers();
     persist.draw_icon_ui = TheGameLogic::get_draw_icon_ui();
     persist.show_dynamic_lod = TheGameLogic::get_show_dynamic_lod();
@@ -678,14 +678,13 @@ fn capture_persist_v18_impl(
 }
 
 pub fn restore_persist_v18(persist: &WorldPersistV18, game_logic: &mut GameLogic) {
-    TheGameLogic::set_rank_level_limit(persist.rank_level_limit);
+    game_logic.set_rank_level_limit(persist.rank_level_limit);
     TheGameLogic::set_show_behind_building_markers(persist.show_behind_building_markers);
     TheGameLogic::set_draw_icon_ui(persist.draw_icon_ui);
     TheGameLogic::set_show_dynamic_lod(persist.show_dynamic_lod);
     TheGameLogic::set_hulk_max_lifetime_override(persist.script_hulk_max_lifetime_override);
     TheGameLogic::set_rank_points_to_add_at_game_start(persist.rank_points_to_add_at_game_start);
     if let Ok(mut leftover) = gamelogic::system::game_logic::get_game_logic().lock() {
-        leftover.set_rank_level_limit(persist.rank_level_limit);
         leftover.restore_buildable_status_overrides(persist.buildable_overrides.clone());
         leftover.restore_control_bar_overrides_raw(
             persist

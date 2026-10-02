@@ -12,9 +12,9 @@ use crate::ai::pathfind::Path;
 use crate::ai::squad::Squad;
 use crate::ai::tn_guard::{AITNGuardMachine, TNGuardStateType};
 use crate::ai::{
-    AiCommandInterface, AiCommandParams, GuardMode, MoodMatrixAction, PartitionFilter, the_ai,
+    AiCommandInterface, AiCommandParams, GuardMode, MoodMatrixAction, PartitionFilter,
     mood_matrix_adjustment, mood_matrix_parameters, resolve_attack_priority_info_for_object,
-    search_qualifiers,
+    search_qualifiers, the_ai,
 };
 use crate::attack::{AbleToAttackType, CanAttackResult};
 use crate::command_button::CommandButton;
@@ -852,10 +852,7 @@ fn attack_on_exit_clears_leech_range_mode() {
         set.weapon_templates[0] = Some(Arc::new(tmpl));
         owner.weapon_set.add_weapon_template_set(set);
         let flags = crate::weapon::WeaponSetFlags::new();
-        owner
-            .weapon_set
-            .update_weapon_set(id, &flags)
-            .expect("update weapon set");
+        owner.refresh_weapon_set().expect("update weapon set");
         owner
             .weapon_set
             .get_weapon_in_slot_mut(WeaponSlotType::Primary)

@@ -6,14 +6,36 @@ mod tests {
     use std::fs;
     use std::sync::{Arc, Mutex, OnceLock, RwLock};
 
-    pub(super) fn test_state_lock() -> std::sync::MutexGuard<'static, ()> {
+    pub(super) struct TestStateGuard {
+        _lock: std::sync::MutexGuard<'static, ()>,
+    }
+
+    fn clear_test_adapters() {
+        // Dispose admitted objects through their owner before clearing the
+        // lookup/partition adapters. Never abandon a strong global fixture.
+        get_game_logic().lock().unwrap().clear_all_objects();
+        OBJECT_REGISTRY.clear();
+        with_collision_system_mut(|system| system.clear()).unwrap();
+        crate::ai::integration::initialize_ai_integration().unwrap();
+        player_list().write().unwrap().clear();
+        crate::helpers::TheGameLogic::clear_start_new_game_request();
+    }
+
+    impl Drop for TestStateGuard {
+        fn drop(&mut self) {
+            clear_test_adapters();
+        }
+    }
+
+    pub(super) fn test_state_lock() -> TestStateGuard {
         static TEST_STATE_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-        TEST_STATE_LOCK
+        let lock = TEST_STATE_LOCK
             .get_or_init(|| Mutex::new(()))
             .lock()
-            // This mutex contains only a serialization token, not game state.
-            // One failed assertion must not skip every later independent test.
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            // This mutex owns only a serialization token, not game state.
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        clear_test_adapters();
+        TestStateGuard { _lock: lock }
     }
 
     fn player_runtime_fixture_path(tag: &str) -> std::path::PathBuf {
@@ -37,45 +59,6 @@ mod tests {
             .expect("open player runtime save");
         xfer_player_list_runtime_state(&mut xfer).expect("save player runtime state");
         xfer.close().expect("close player runtime save");
-    }
-
-    fn write_legacy_v1_player_runtime_fixture(path: &std::path::Path) {
-        let players = player_list();
-        let players = players.read().expect("player list lock");
-        let mut xfer = XferSave::new();
-        xfer.open(path.to_string_lossy().into_owned())
-            .expect("open legacy player runtime fixture");
-
-        let mut version: XferVersion = 1;
-        xfer.xfer_version(&mut version, 1)
-            .expect("legacy v1 version");
-        let mut player_count = players.get_player_count() as i32;
-        xfer.xfer_int(&mut player_count)
-            .expect("legacy player count");
-        for player_arc in players.iter() {
-            let player = player_arc.read().expect("player lock");
-            let mut money = player.get_money().get_money();
-            xfer.xfer_int(&mut money).expect("legacy money");
-            let mut power_production = player.get_energy().production();
-            xfer.xfer_int(&mut power_production)
-                .expect("legacy power production");
-            let mut power_consumption = player.get_energy().consumption();
-            xfer.xfer_int(&mut power_consumption)
-                .expect("legacy power consumption");
-            let mut power_sabotaged = player.get_energy().get_power_sabotaged_till_frame();
-            xfer.xfer_unsigned_int(&mut power_sabotaged)
-                .expect("legacy power sabotage frame");
-            let mut defeated = player.is_defeated();
-            xfer.xfer_bool(&mut defeated).expect("legacy defeated");
-            let mut observer = player.is_player_observer();
-            xfer.xfer_bool(&mut observer).expect("legacy observer");
-            let mut rank_level = player.get_rank_level();
-            xfer.xfer_int(&mut rank_level).expect("legacy rank");
-            let mut science_points = player.get_science_purchase_points();
-            xfer.xfer_int(&mut science_points)
-                .expect("legacy science points");
-        }
-        xfer.close().expect("close legacy player runtime fixture");
     }
 
     fn load_player_runtime_fixture(path: &std::path::Path) -> Result<(), XferStatus> {
@@ -184,31 +167,51 @@ mod tests {
 
         drop(loaded);
         drop(players);
-        // Do not destroy this minimal fixture object here: its normal destroy
-        // path performs a pathfinder registry read while holding the object's
-        // write lock.  It is isolated by this test's unique ID and does not
-        // affect the following Player fixtures.
+        // The fixture guard deletes the admitted object through GameLogic.
         crate::ai::integration::initialize_ai_integration().expect("clear AI integration");
         let _ = fs::remove_file(path);
     }
 
     #[test]
-    fn player_runtime_v1_fixture_loads_without_consuming_v2_tail() {
+    fn player_list_cpp_v1_transfers_player_v8_and_leaves_next_field() {
         let _lock = test_state_lock();
-        let path = player_runtime_fixture_path("legacy_v1");
+        let path = player_runtime_fixture_path("cpp_v1");
         crate::ai::integration::initialize_ai_integration().expect("reset AI integration");
 
         let mut source = Player::new(0);
+        source.init_from_dict_defaults();
         source.get_money_mut().set_money(7_654);
-        assert!(source.set_rank_level(4), "source rank");
+        source.set_rank_level(4);
+        // C++ setRankLevel clamps to the authored rank count. Verify the
+        // actual saved value, rather than assuming this fixture loaded Rank.ini.
+        let saved_rank = source.get_rank_level();
         source.add_science_purchase_points(9);
+        let saved_science_points = source.get_science_purchase_points();
         reset_player_runtime_fixture(source);
-        write_legacy_v1_player_runtime_fixture(&path);
+        // C++ PlayerList.cpp:424 writes list v1 followed by Player.cpp:3975 v8.
+        // The retired Rust scalar-only runtime payload was never this format.
+        let mut sentinel = 0x3C71_AB90u32;
+        let mut save = XferSave::new();
+        save.open(path.to_string_lossy().into_owned()).unwrap();
+        xfer_player_list_runtime_state(&mut save).unwrap();
+        save.xfer_unsigned_int(&mut sentinel).unwrap();
+        save.close().unwrap();
+        let bytes = fs::read(&path).unwrap();
+        assert_eq!(&bytes[..6], &[1, 1, 0, 0, 0, 8]);
 
         let mut destination = Player::new(0);
         destination.init_from_dict_defaults();
         reset_player_runtime_fixture(destination);
-        load_player_runtime_fixture(&path).expect("v1 player runtime load");
+        let mut load = XferLoad::new();
+        load.open(path.to_string_lossy().into_owned()).unwrap();
+        xfer_player_list_runtime_state(&mut load).expect("C++ PlayerList v1 load");
+        let mut next_field = 0u32;
+        load.xfer_unsigned_int(&mut next_field).unwrap();
+        load.close().unwrap();
+        assert_eq!(
+            next_field, sentinel,
+            "Player payload ends before its sibling field"
+        );
 
         let players = player_list();
         let players = players.read().expect("player list lock");
@@ -218,8 +221,8 @@ mod tests {
             .read()
             .expect("loaded player lock");
         assert_eq!(loaded.get_money().get_money(), 7_654);
-        assert_eq!(loaded.get_rank_level(), 4);
-        assert_eq!(loaded.get_science_purchase_points(), 9);
+        assert_eq!(loaded.get_rank_level(), saved_rank);
+        assert_eq!(loaded.get_science_purchase_points(), saved_science_points);
         assert!(loaded.get_resource_manager().is_some());
         assert!(loaded.get_tunnel_system().is_some());
 
@@ -280,6 +283,7 @@ mod tests {
 
     #[test]
     fn time_freeze_matches_cpp_tactical_and_script_conditions() {
+        let _fixture = test_state_lock();
         assert!(should_freeze_time(true, false, false));
         assert!(!should_freeze_time(true, true, false));
         assert!(should_freeze_time(false, true, true));
@@ -288,6 +292,7 @@ mod tests {
 
     #[test]
     fn test_game_logic_creation() {
+        let _fixture = test_state_lock();
         let logic = GameLogic::new();
         assert_eq!(logic.frame, 0);
         assert_eq!(logic.game_time, 0.0);
@@ -367,6 +372,7 @@ mod tests {
 
     #[test]
     fn test_game_logic_reset() {
+        let _fixture = test_state_lock();
         let mut logic = GameLogic::new();
         logic.frame = 100;
         logic.game_time = 3.33;
@@ -377,6 +383,7 @@ mod tests {
 
     #[test]
     fn control_bar_overrides_preserve_null_and_button_slots_like_cpp() {
+        let _fixture = test_state_lock();
         let mut logic = GameLogic::new();
 
         logic.set_control_bar_override("AmericaVehicleCommandSet", 0, Some("Command_Construct"));
@@ -399,6 +406,7 @@ mod tests {
 
     #[test]
     fn control_bar_overrides_xfer_as_cpp_key_value_sentinel_list() {
+        let _fixture = test_state_lock();
         let mut overrides = HashMap::new();
         overrides.insert(
             "0AmericaVehicleCommandSet".to_string(),
@@ -435,6 +443,7 @@ mod tests {
 
     #[test]
     fn test_object_id_allocation() {
+        let _fixture = test_state_lock();
         let mut logic = GameLogic::new();
         let id1 = logic.allocate_object_id();
         let id2 = logic.allocate_object_id();
@@ -755,6 +764,7 @@ mod tests {
 
     #[test]
     fn test_frame_events_cleared() {
+        let _fixture = test_state_lock();
         let mut logic = GameLogic::new();
         logic.event_queue.push(GameEvent::ObjectCreated(1));
         logic.radar_updates.push(RadarUpdate {
@@ -770,6 +780,7 @@ mod tests {
 
     #[test]
     fn test_radar_updates_promoted_to_events() {
+        let _fixture = test_state_lock();
         let mut logic = GameLogic::new();
         logic.radar_updates.push(RadarUpdate {
             player_id: 1,
@@ -796,6 +807,7 @@ mod tests {
 
     #[test]
     fn test_update_loop_phases() {
+        let _fixture = test_state_lock();
         let mut logic = GameLogic::new();
 
         // Should not allow re-entrant calls
@@ -807,11 +819,15 @@ mod tests {
         logic.is_in_update = false;
         let result = logic.update(0);
         assert!(result.is_ok());
-        assert_eq!(logic.frame, 0);
+        assert_eq!(
+            logic.frame, 1,
+            "C++ GameLogic.cpp:3801 increments after the tick"
+        );
     }
 
     #[test]
     fn test_command_queue() {
+        let _fixture = test_state_lock();
         let mut logic = GameLogic::new();
         let command = GameCommand::MoveUnit {
             player_id: 0,
@@ -830,6 +846,7 @@ mod tests {
 
     #[test]
     fn test_physics_damage_queue() {
+        let _fixture = test_state_lock();
         let mut logic = GameLogic::new();
         logic.queue_damage(1, 2, 50.0);
 
@@ -838,6 +855,7 @@ mod tests {
 
     #[test]
     fn test_game_mode_checks() {
+        let _fixture = test_state_lock();
         let mut logic = GameLogic::new();
 
         logic.set_game_mode(GAME_SINGLE_PLAYER);
@@ -976,6 +994,7 @@ mod tests {
 
     #[test]
     fn destroy_object_runs_on_destroy_same_frame_like_cpp() {
+        let _fixture = test_state_lock();
         let mut logic = GameLogic::new();
         let mut obj = Object::new_test(77, 100.0);
         let _ = obj.set_position(&Coord3D::new(5.0, 6.0, 7.0));
@@ -1002,6 +1021,7 @@ mod tests {
 
     #[test]
     fn cleanup_dead_objects_processes_same_frame_cascade_like_cpp() {
+        let _fixture = test_state_lock();
         // C++ GameLogic.cpp:2449-2510 — iterator re-evaluates end() so a
         // sub-object queued during processDestroyList is deleted same frame.
         let mut logic = GameLogic::new();
@@ -1022,6 +1042,7 @@ mod tests {
 
     #[test]
     fn destroy_object_removes_wall_piece_and_marks_special_power_ui_dirty() {
+        let _fixture = test_state_lock();
         // C++ GameLogic.cpp:3969-3980 — WALK_ON_TOP_OF_WALL pathfinder removal
         // and ControlBar::markUIDirty for local special-power objects.
         use crate::common::{DefaultThingTemplate, KindOf};
@@ -1081,6 +1102,7 @@ mod tests {
     }
     #[test]
     fn crate_update_does_not_run_client_drawable_updates() {
+        let _fixture = test_state_lock();
         // C++ GameLogic.cpp:3548-3803 has no ClientUpdate / updateDrawables.
         // hq-um5t: those extras belong on GameClient, not the logic tick.
         let src = include_str!("impl_update.rs");
@@ -1103,14 +1125,41 @@ mod tests {
 
     #[test]
     fn xfer_v10_writes_toc_and_object_blocks() {
+        let _fixture = test_state_lock();
         use game_engine::{Xfer, XferLoad, XferSave};
 
         let mut save_logic = GameLogic::new();
         save_logic.frame = 42;
-        let mut obj = Object::new_test(11, 100.0);
-        let _ = obj.set_position(&Coord3D::new(1.0, 2.0, 3.0));
+        use game_engine::common::thing::thing_factory::{get_thing_factory, init_thing_factory};
+        if get_thing_factory().unwrap().is_none() {
+            init_thing_factory().unwrap();
+        }
+        get_thing_factory()
+            .unwrap()
+            .as_mut()
+            .unwrap()
+            .new_template("CppObjectTocFixture");
+        let template =
+            crate::helpers::TheThingFactory::find_template("CppObjectTocFixture").unwrap();
+        let obj = Object::new_with_id(template, 11, ObjectStatusMaskType::none(), None).unwrap();
+        obj.write()
+            .unwrap()
+            .set_position(&Coord3D::new(1.0, 2.0, 3.0))
+            .unwrap();
+        save_logic.register_object(obj).unwrap();
+        // C++ skips an unrecognized template's block, then resumes at the
+        // following object. Register last so prepend order tests this first.
+        assert!(crate::helpers::TheThingFactory::find_template("MissingCppTocFixture").is_none());
+        let missing = Object::new_raw(
+            Arc::new(crate::common::DefaultThingTemplate::new(
+                "MissingCppTocFixture".into(),
+            )),
+            12,
+            ObjectStatusMaskType::none(),
+            None,
+        );
         save_logic
-            .register_object(std::sync::Arc::new(std::sync::RwLock::new(obj)))
+            .register_object(Arc::new(RwLock::new(missing)))
             .unwrap();
 
         let path = std::env::temp_dir().join(format!(
@@ -1136,9 +1185,16 @@ mod tests {
         let _ = std::fs::remove_file(&path);
         assert_eq!(load_logic.frame, 42);
         assert!(
-            load_logic.find_toc_entry_by_name("TestObject").is_some(),
+            load_logic
+                .find_toc_entry_by_name("CppObjectTocFixture")
+                .is_some(),
             "C++ xferObjectTOC must survive roundtrip"
         );
+        assert!(
+            load_logic.find_object_by_id(12).is_none(),
+            "C++ skips unknown templates instead of inventing objects"
+        );
+        assert_eq!(load_logic.all_objects.len(), 1);
         let loaded = load_logic
             .find_object_by_id(11)
             .expect("object from TOC block");
@@ -1151,17 +1207,11 @@ mod tests {
             1,
             "C++ GameLogic::xfer must not xfer m_nextObjectID"
         );
-        let xfer_src = include_str!("xfer_helpers.rs");
-        assert!(
-            xfer_src.contains("TheThingFactory::find_template")
-                && xfer_src.contains("Object::new_with_id")
-                && xfer_src.contains("new_for_xfer_load"),
-            "load must ThingFactory::newObject then xferSnapshot (fallback new_for_xfer_load)"
-        );
     }
 
     #[test]
     fn xfer_v10_includes_sell_list_and_does_not_write_next_object_id() {
+        let _fixture = test_state_lock();
         use game_engine::{Xfer, XferLoad, XferSave};
 
         game_engine::common::system::build_assistant::init_build_assistant();
@@ -1283,6 +1333,7 @@ mod tests {
 
     #[test]
     fn test_sleepy_update_ordering() {
+        let _fixture = test_state_lock();
         let _logic = GameLogic::new();
 
         let entry1 = SleepyUpdateEntry {
@@ -1308,23 +1359,26 @@ mod tests {
 
     #[test]
     fn test_fixed_delta_time_constant() {
+        let _fixture = test_state_lock();
         // Verify fixed timestep is correct for 30 FPS
         assert!((FIXED_DELTA_TIME - 1.0 / 30.0).abs() < 0.00001);
     }
 
     #[test]
     fn test_frame_counting() {
+        let _fixture = test_state_lock();
         let mut logic = GameLogic::new();
 
         for frame in 0..100 {
             let result = logic.update(frame);
             assert!(result.is_ok());
-            assert_eq!(logic.get_frame(), frame);
+            assert_eq!(logic.get_frame(), frame + 1, "C++ increments at tick end");
         }
     }
 
     #[test]
     fn test_game_time_accumulation() {
+        let _fixture = test_state_lock();
         let mut logic = GameLogic::new();
         logic.init();
 
@@ -1339,6 +1393,7 @@ mod tests {
 
     #[test]
     fn test_multiple_commands_processed() {
+        let _fixture = test_state_lock();
         let mut logic = GameLogic::new();
 
         // Queue multiple commands
@@ -1361,6 +1416,7 @@ mod tests {
 
     #[test]
     fn test_world_dimensions() {
+        let _fixture = test_state_lock();
         let mut logic = GameLogic::new();
         logic.set_dimensions(1024.0, 768.0);
 
@@ -1370,6 +1426,7 @@ mod tests {
 
     #[test]
     fn set_defaults_uses_cpp_default_world_dimensions() {
+        let _fixture = test_state_lock();
         let mut logic = GameLogic::new();
         logic.set_dimensions(1024.0, 768.0);
         logic.frame = 99;
@@ -1389,6 +1446,7 @@ mod tests {
 
     #[test]
     fn test_loading_flags() {
+        let _fixture = test_state_lock();
         let mut logic = GameLogic::new();
 
         assert!(!logic.is_loading_map());
@@ -1402,6 +1460,7 @@ mod tests {
 
     #[test]
     fn test_new_game_start_request_waits_for_movie_gate() {
+        let _fixture = test_state_lock();
         let mut logic = GameLogic::new();
 
         crate::helpers::TheGameLogic::clear_start_new_game_request();
@@ -1420,6 +1479,7 @@ mod tests {
 
     #[test]
     fn test_game_event_queue_cleared_each_frame() {
+        let _fixture = test_state_lock();
         let mut logic = GameLogic::new();
 
         // Add an event
@@ -1433,6 +1493,7 @@ mod tests {
 
     #[test]
     fn test_move_command_parsing() {
+        let _fixture = test_state_lock();
         let cmd = GameCommand::MoveUnit {
             player_id: 0,
             unit_ids: vec![1, 2, 3],
@@ -1455,6 +1516,7 @@ mod tests {
 
     #[test]
     fn test_attack_command_parsing() {
+        let _fixture = test_state_lock();
         let cmd = GameCommand::AttackTarget {
             player_id: 1,
             attacker_ids: vec![5, 6],
@@ -1477,6 +1539,7 @@ mod tests {
 
     #[test]
     fn test_build_command_parsing() {
+        let _fixture = test_state_lock();
         let cmd = GameCommand::BuildStructure {
             player_id: 0,
             builder_id: 10,
@@ -1502,6 +1565,7 @@ mod tests {
 
     #[test]
     fn test_special_power_command_parsing() {
+        let _fixture = test_state_lock();
         let cmd = GameCommand::UseSpecialPower {
             player_id: 0,
             power_name: "Carpet Bomb".to_string(),
@@ -1524,6 +1588,7 @@ mod tests {
 
     #[test]
     fn test_radar_update_creation() {
+        let _fixture = test_state_lock();
         let update = RadarUpdate {
             player_id: 0,
             position: (250.0, 250.0),
@@ -1537,6 +1602,7 @@ mod tests {
 
     #[test]
     fn test_all_radar_event_types() {
+        let _fixture = test_state_lock();
         let events = vec![
             RadarEventType::UnitCreated,
             RadarEventType::UnitDestroyed,
@@ -1549,6 +1615,7 @@ mod tests {
 
     #[test]
     fn test_game_mode_single_player() {
+        let _fixture = test_state_lock();
         let mut logic = GameLogic::new();
         logic.set_game_mode(GAME_SINGLE_PLAYER);
 
@@ -1559,6 +1626,7 @@ mod tests {
 
     #[test]
     fn test_game_mode_lan() {
+        let _fixture = test_state_lock();
         let mut logic = GameLogic::new();
         logic.set_game_mode(GAME_LAN);
 
@@ -1569,6 +1637,7 @@ mod tests {
 
     #[test]
     fn test_game_mode_internet() {
+        let _fixture = test_state_lock();
         let mut logic = GameLogic::new();
         logic.set_game_mode(GAME_INTERNET);
 
@@ -1579,6 +1648,7 @@ mod tests {
 
     #[test]
     fn test_game_mode_skirmish() {
+        let _fixture = test_state_lock();
         let mut logic = GameLogic::new();
         logic.set_game_mode(GAME_SKIRMISH);
 
@@ -1589,6 +1659,7 @@ mod tests {
 
     #[test]
     fn test_physics_world_damage_queuing() {
+        let _fixture = test_state_lock();
         let mut physics = PhysicsWorld::new();
 
         physics.queue_damage(10, 20, 50.0);
@@ -1599,6 +1670,7 @@ mod tests {
 
     #[test]
     fn test_object_id_allocation_sequential() {
+        let _fixture = test_state_lock();
         let mut logic = GameLogic::new();
 
         let id1 = logic.allocate_object_id();
@@ -1612,6 +1684,7 @@ mod tests {
 
     #[test]
     fn test_update_not_reentrant() {
+        let _fixture = test_state_lock();
         let mut logic = GameLogic::new();
 
         // Set update flag
@@ -1631,36 +1704,42 @@ mod tests {
 
     #[test]
     fn test_error_display_object_not_found() {
+        let _fixture = test_state_lock();
         let err = GameLogicError::ObjectNotFound(999);
         assert!(err.to_string().contains("999"));
     }
 
     #[test]
     fn test_error_display_physics_error() {
+        let _fixture = test_state_lock();
         let err = GameLogicError::PhysicsError("collision failed".to_string());
         assert!(err.to_string().contains("collision failed"));
     }
 
     #[test]
     fn test_error_display_script_error() {
+        let _fixture = test_state_lock();
         let err = GameLogicError::ScriptError("condition syntax".to_string());
         assert!(err.to_string().contains("condition syntax"));
     }
 
     #[test]
     fn test_error_display_ai_error() {
+        let _fixture = test_state_lock();
         let err = GameLogicError::AIError("pathfinding failed".to_string());
         assert!(err.to_string().contains("pathfinding failed"));
     }
 
     #[test]
     fn test_error_display_command_error() {
+        let _fixture = test_state_lock();
         let err = GameLogicError::CommandError("invalid target".to_string());
         assert!(err.to_string().contains("invalid target"));
     }
 
     #[test]
     fn test_partition_manager_creation() {
+        let _fixture = test_state_lock();
         let mut partition = PartitionManager::new();
         let result = partition.update();
         assert!(result.is_ok());
@@ -1722,6 +1801,7 @@ mod tests {
 
     #[test]
     fn test_partition_add_object() {
+        let _fixture = test_state_lock();
         let mut partition = PartitionManager::new();
         partition.add_object(1, (100.0, 100.0, 0.0));
         // If no panic, test succeeds
@@ -1730,6 +1810,7 @@ mod tests {
 
     #[test]
     fn test_partition_remove_object() {
+        let _fixture = test_state_lock();
         let mut partition = PartitionManager::new();
         partition.add_object(1, (100.0, 100.0, 0.0));
         partition.remove_object(1);
@@ -1765,6 +1846,7 @@ mod tests {
 
     #[test]
     fn partition_ghost_snapshots_only_on_clear_to_fogged_and_frees_on_clear() {
+        let _fixture = test_state_lock();
         use crate::common::ObjectShroudStatus;
         use crate::object::w3d_ghost_object::FrozenW3DGhostSceneEvent;
 
@@ -1826,6 +1908,7 @@ mod tests {
 
     #[test]
     fn partition_ghost_orphan_survives_parent_then_releases_after_memory_clears() {
+        let _fixture = test_state_lock();
         use crate::common::ObjectShroudStatus;
 
         let mut partition = PartitionManager::new();
@@ -1860,18 +1943,21 @@ mod tests {
 
     #[test]
     fn test_empty_object_list() {
+        let _fixture = test_state_lock();
         let logic = GameLogic::new();
         assert_eq!(logic.all_objects.len(), 0);
     }
 
     #[test]
     fn test_empty_dead_objects_list() {
+        let _fixture = test_state_lock();
         let logic = GameLogic::new();
         assert_eq!(logic.dead_objects.len(), 0);
     }
 
     #[test]
     fn test_clear_multiple_times() {
+        let _fixture = test_state_lock();
         let mut logic = GameLogic::new();
 
         for _ in 0..10 {
@@ -1883,6 +1969,7 @@ mod tests {
 
     #[test]
     fn test_reset_temporary_flags() {
+        let _fixture = test_state_lock();
         let mut logic = GameLogic::new();
         let result = logic.reset_temporary_flags();
         assert!(result.is_ok());
@@ -1890,17 +1977,19 @@ mod tests {
 
     #[test]
     fn test_consecutive_frames() {
+        let _fixture = test_state_lock();
         let mut logic = GameLogic::new();
 
         for frame in 0..10 {
             let result = logic.update(frame);
             assert!(result.is_ok(), "Frame {} update failed", frame);
-            assert_eq!(logic.get_frame(), frame);
+            assert_eq!(logic.get_frame(), frame + 1, "C++ increments at tick end");
         }
     }
 
     #[test]
     fn test_game_time_matches_frame_count() {
+        let _fixture = test_state_lock();
         let mut logic = GameLogic::new();
 
         for frame in 0..60 {
@@ -1916,6 +2005,7 @@ mod tests {
 
     #[test]
     fn test_object_event_structure() {
+        let _fixture = test_state_lock();
         let events = vec![
             GameEvent::ObjectCreated(1),
             GameEvent::ObjectDestroyed(2),
@@ -1935,6 +2025,7 @@ mod tests {
 
     #[test]
     fn test_pending_damage_structure() {
+        let _fixture = test_state_lock();
         let damage = PendingDamage {
             target_id: 10,
             attacker_id: 20,
@@ -1950,6 +2041,7 @@ mod tests {
 
     #[test]
     fn test_pending_collision_structure() {
+        let _fixture = test_state_lock();
         let collision = PendingCollision {
             object_a: 1,
             object_b: 2,
@@ -1963,6 +2055,7 @@ mod tests {
 
     #[test]
     fn test_game_command_enum_variants() {
+        let _fixture = test_state_lock();
         let commands = vec![
             GameCommand::MoveUnit {
                 player_id: 0,

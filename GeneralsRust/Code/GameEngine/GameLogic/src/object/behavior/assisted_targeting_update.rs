@@ -462,23 +462,28 @@ const ASSISTED_TARGETING_UPDATE_FIELDS: &[FieldParse<AssistedTargetingUpdateModu
 mod tests {
     use super::*;
     use crate::object::Object;
-    use crate::weapon::{WeaponSetFlags, WeaponTemplate, WeaponTemplateSet};
+    use crate::weapon::{WeaponTemplate, WeaponTemplateSet};
 
     #[test]
     fn is_free_to_assist_uses_current_weapon_not_assist_slot() {
-        let object = Arc::new(RwLock::new(Object::new_test(41, 100.0)));
+        let object = Arc::new(RwLock::new(Object::new_test(0xA5515701, 100.0)));
+        OBJECT_REGISTRY.register_object(0xA5515701, &object);
         let mut set = WeaponTemplateSet::new();
         let mut template = WeaponTemplate::new("ReadyPrimary".to_string());
         template.clip_size = 1;
         set.set_weapon_template(WeaponSlotType::Primary, Arc::new(template));
         {
             let mut object_guard = object.write().unwrap();
-            let object_id = object_guard.get_id();
+            // C++ isFreeToAssist first requires an attack-capable owner.
+            object_guard.set_status(
+                crate::common::ObjectStatusMaskType::from_status(
+                    crate::common::ObjectStatusTypes::CanAttack,
+                ),
+                true,
+            );
+            assert!(object_guard.is_able_to_attack());
             object_guard.weapon_set.add_weapon_template_set(set);
-            object_guard
-                .weapon_set
-                .update_weapon_set(object_id, &WeaponSetFlags::new())
-                .unwrap();
+            object_guard.refresh_weapon_set().unwrap();
             assert!(object_guard.get_current_weapon().is_some());
             assert_eq!(
                 object_guard
@@ -500,5 +505,6 @@ mod tests {
         let assisted = AssistedTargetingUpdate::new(Arc::clone(&object), module_data).unwrap();
 
         assert!(assisted.is_free_to_assist());
+        OBJECT_REGISTRY.unregister_object(0xA5515701);
     }
 }

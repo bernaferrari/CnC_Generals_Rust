@@ -320,6 +320,26 @@ impl UnitAIUpdate {
             destination = self.requested_destination;
         }
 
+        // C++ AIUpdate.cpp:1648-1696: ground shortcuts belong to computePath,
+        // after the request reaches the pathfind queue, never requestPath.
+        if self.should_force_direct_path_for_off_map_start(&destination)
+            && self.install_direct_path_from_current_position(&destination)
+        {
+            return Ok(true);
+        }
+        if (self.get_current_state_id() == Some(u32::from(AIStateType::FollowExitProductionPath))
+            || self.current_command == Some(crate::ai::AiCommandType::FollowExitProductionPath))
+            && self.can_path_through_units
+            && self.install_direct_path_from_current_position(&destination)
+        {
+            let _ = self.set_can_path_through_units(false);
+            return Ok(true);
+        }
+        if self.should_use_direct_path_for_line_passable_non_final_goal(&destination)
+            && self.install_direct_path_from_current_position(&destination)
+        {
+            return Ok(true);
+        }
         if self.try_install_closest_path_for_invalid_destination(&destination)? {
             return Ok(true);
         }
@@ -925,11 +945,22 @@ impl UnitAIUpdate {
         self.destroy_path();
         self.set_locomotor_goal_none();
 
-        if let Some(unit) = get_unit_arc(self.unit_id) {
-            if let Ok(guard) = unit.read() {
-                if let Ok(mut object) = guard.base_arc().write() {
-                    object.clear_model_condition_state(ModelConditionFlags::MOVING);
-                }
+        // C++ friend_endingMove clears m_isMoving (AIUpdate.cpp:2030-2033),
+        // and update consumes completion after clearing path/goal (1018-1044).
+        // Keep the Rust movement companion inactive too: idle/movement queries
+        // read it. Do not stop_movement(), which also discards future waypoints.
+        let base = get_unit_arc(self.unit_id).and_then(|unit| {
+            let mut guard = unit.write().ok()?;
+            if guard.is_movement_active() {
+                guard.movement_state = MovementState::Idle;
+            }
+            guard.target_position = None;
+            guard.current_speed = 0.0;
+            Some(guard.base_arc())
+        });
+        if let Some(base) = base {
+            if let Ok(mut object) = base.write() {
+                object.clear_model_condition_state(ModelConditionFlags::MOVING);
             }
         }
 

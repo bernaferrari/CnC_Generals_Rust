@@ -463,6 +463,10 @@ impl UnitAIUpdate {
             .is_some_and(|hack| hack.is_hacking_packing_or_unpacking());
         let desired_speed = self.get_desired_speed();
         let is_idle = self.is_idle();
+        // AIUpdate.cpp:4287-4344 reads the current owner/controller and
+        // locomotor surfaces. Capture it before the owner's exclusive borrow;
+        // publishing the fields below does not change any of those inputs.
+        let mood_value = self.get_mood_matrix_value();
         if let Some(owner_id) = self.owner_object_id() {
             crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner_id, |owner| {
                 owner.ai_fire_attack_ok = attack_ok;
@@ -502,7 +506,7 @@ impl UnitAIUpdate {
                 owner.ai_fire_next_mood_check = next_mood_check;
                 owner.ai_fire_idle_mood_adjust = idle_mood_adjust;
                 owner.ai_fire_crate_id = crate_id;
-                owner.ai_fire_mood_value = self.get_mood_matrix_value();
+                owner.ai_fire_mood_value = mood_value;
                 owner.ai_fire_idle_attack_target =
                     (idle_attack != crate::common::INVALID_ID).then_some(idle_attack);
                 owner.ai_pending_move_crate = None;

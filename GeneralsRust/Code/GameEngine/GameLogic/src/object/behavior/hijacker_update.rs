@@ -437,25 +437,54 @@ mod tests {
         // on BOTH hijacker and vehicle, not just the tracker level.
         let hijacker = Arc::new(RwLock::new(GameObject::new_test(9309, 100.0)));
         let target = Arc::new(RwLock::new(GameObject::new_test(9310, 100.0)));
-        let mut hijacker_tracker = Box::new(ExperienceTracker::new(9309));
-        let mut target_tracker = Box::new(ExperienceTracker::new(9310));
-        target_tracker
-            .set_veterancy_level(VeterancyLevel::Elite);
-        hijacker.write().unwrap().experience_tracker = Some(hijacker_tracker);
-        target.write().unwrap().experience_tracker = Some(target_tracker);
+        hijacker.write().unwrap().experience_tracker = Some(Box::new(ExperienceTracker::new(9309)));
+        target.write().unwrap().experience_tracker = Some(Box::new(ExperienceTracker::new(9310)));
+        // C++ ExperienceTracker.cpp:82-95 only notifies on a level change.
+        // Initialize the vehicle through its Object so its existing Elite
+        // tracker and side effects agree before the unchanged-level merge.
+        assert!(
+            target
+                .write()
+                .unwrap()
+                .set_veterancy_level_with_side_effects(VeterancyLevel::Elite, false,)
+        );
+        assert!(
+            target
+                .read()
+                .unwrap()
+                .test_weapon_set_flag(WeaponSetType::Elite)
+        );
+        assert_eq!(
+            hijacker.read().unwrap().get_veterancy_level(),
+            VeterancyLevel::Regular
+        );
         OBJECT_REGISTRY.register_object(9309, &hijacker);
         OBJECT_REGISTRY.register_object(9310, &target);
 
         let mut update = HijackerUpdate::new(Arc::clone(&hijacker), module_data()).unwrap();
         update.configure_hijacked_vehicle(9310);
         assert!(matches!(update.update_simple(), UpdateSleepTime::None));
+        assert_eq!(
+            hijacker.read().unwrap().get_veterancy_level(),
+            VeterancyLevel::Elite
+        );
+        assert_eq!(
+            target.read().unwrap().get_veterancy_level(),
+            VeterancyLevel::Elite
+        );
 
         assert!(
-            hijacker.read().unwrap().test_weapon_set_flag(WeaponSetType::Elite),
+            hijacker
+                .read()
+                .unwrap()
+                .test_weapon_set_flag(WeaponSetType::Elite),
             "hijacker weapon set must follow the merged Elite level"
         );
         assert!(
-            target.read().unwrap().test_weapon_set_flag(WeaponSetType::Elite),
+            target
+                .read()
+                .unwrap()
+                .test_weapon_set_flag(WeaponSetType::Elite),
             "vehicle weapon set must follow the merged Elite level"
         );
 

@@ -147,8 +147,9 @@ bitflags! {
 #[cfg(test)]
 mod tests {
     use super::{
-        engine_geometry_to_logic, geometry_type_from_u32, geometry_type_to_u32, EngineGeometryInfo,
-        EngineGeometryType, GeometryExtentModType, GeometryInfo, ObjectStatusMaskType,
+        EngineGeometryInfo, EngineGeometryType, GeometryExtentModType, GeometryInfo,
+        ObjectStatusMaskType, engine_geometry_to_logic, geometry_type_from_u32,
+        geometry_type_to_u32,
     };
 
     #[test]
@@ -204,16 +205,71 @@ mod tests {
 
     #[test]
     fn engine_geometry_to_logic_preserves_type_and_small_flag() {
-        let engine_geometry =
-            EngineGeometryInfo::new(EngineGeometryType::Cylinder, true, 12.0, 8.0, 4.0);
+        // Geometry.cpp:61-85: sphere/cylinder use equal radii; box keeps both.
+        // Inputs are authored radii, not diameters.
+        for (kind, expected_minor, expected_height, expected_below) in [
+            (EngineGeometryType::Sphere, 12.0, 12.0, 12.0),
+            (EngineGeometryType::Cylinder, 12.0, 8.0, 0.0),
+            (EngineGeometryType::Box, 4.0, 8.0, 0.0),
+        ] {
+            for small in [false, true] {
+                let engine_geometry = EngineGeometryInfo::new(kind, small, 12.0, 8.0, 4.0);
+                let logic_geometry = engine_geometry_to_logic(&engine_geometry);
+                assert_eq!(logic_geometry.geometry_type, kind);
+                assert_eq!(logic_geometry.is_small, small);
+                assert_eq!(logic_geometry.get_major_radius(), 12.0);
+                assert_eq!(logic_geometry.get_minor_radius(), expected_minor);
+                assert_eq!(
+                    logic_geometry.get_max_height_above_position(),
+                    expected_height
+                );
+                assert_eq!(
+                    logic_geometry.get_max_height_below_position(),
+                    expected_below
+                );
+                let expected_circle = if kind == EngineGeometryType::Box {
+                    160.0_f32.sqrt()
+                } else {
+                    12.0
+                };
+                let expected_sphere = if kind == EngineGeometryType::Box {
+                    176.0_f32.sqrt()
+                } else {
+                    12.0
+                };
+                assert!(
+                    (logic_geometry.get_bounding_circle_radius() - expected_circle).abs() < 1e-5
+                );
+                assert!(
+                    (logic_geometry.get_bounding_sphere_radius() - expected_sphere).abs() < 1e-5
+                );
+            }
+        }
+    }
+    #[test]
+    fn geometry_radii_keep_cpp_axis_identity_and_shape_specific_bounds() {
+        let box_geometry = engine_geometry_to_logic(&EngineGeometryInfo::new(
+            EngineGeometryType::Box,
+            false,
+            4.0,
+            8.0,
+            12.0,
+        ));
+        assert_eq!(box_geometry.get_major_radius(), 4.0);
+        assert_eq!(box_geometry.get_minor_radius(), 12.0);
+        assert!((box_geometry.get_bounding_circle_radius() - 160.0_f32.sqrt()).abs() < 1e-5);
+        assert!((box_geometry.get_bounding_sphere_radius() - 176.0_f32.sqrt()).abs() < 1e-5);
 
-        let logic_geometry = engine_geometry_to_logic(&engine_geometry);
-
-        assert_eq!(logic_geometry.geometry_type, EngineGeometryType::Cylinder);
-        assert!(logic_geometry.is_small);
-        assert_eq!(logic_geometry.get_major_radius(), 6.0);
-        assert_eq!(logic_geometry.get_minor_radius(), 2.0);
-        assert_eq!(logic_geometry.get_max_height_above_position(), 8.0);
+        let tall_cylinder = engine_geometry_to_logic(&EngineGeometryInfo::new(
+            EngineGeometryType::Cylinder,
+            false,
+            4.0,
+            20.0,
+            12.0,
+        ));
+        assert_eq!(tall_cylinder.get_minor_radius(), 4.0);
+        assert_eq!(tall_cylinder.get_bounding_circle_radius(), 4.0);
+        assert_eq!(tall_cylinder.get_bounding_sphere_radius(), 10.0);
     }
 }
 
@@ -245,4 +301,3 @@ pub type ProductionID = u32;
 
 /// Invalid production ID constant
 pub const PRODUCTIONID_INVALID: ProductionID = 0;
-

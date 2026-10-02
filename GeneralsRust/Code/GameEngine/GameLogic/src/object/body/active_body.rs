@@ -3075,6 +3075,10 @@ mod death_flooded_tests {
 
     #[test]
     fn attempt_damage_water_death_flooded_records_last_death_type() {
+        // ActiveBody.cpp:547 compares against unsigned frame - 1. At frame zero,
+        // the initial FFFFFFFF timestamp takes the attacker-preference branch.
+        // Environmental damage has no attacker, so record this blow at logic frame one.
+        let _frame = crate::system::game_logic::enter_update_frame(1);
         let mut module_data = ActiveBodyModuleData::default();
         module_data.max_health = 10.0;
         module_data.initial_health = 10.0;
@@ -3100,6 +3104,7 @@ mod death_flooded_tests {
         assert_eq!(last.input.death_type, DeathType::Flooded);
         assert_eq!(last.damage_type, DamageType::Water);
         assert_eq!(last.death_type, DeathType::Flooded);
+        assert_eq!(body.get_last_damage_timestamp(), 1);
     }
 
     #[derive(Debug)]

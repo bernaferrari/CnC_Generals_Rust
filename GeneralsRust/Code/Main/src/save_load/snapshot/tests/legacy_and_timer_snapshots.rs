@@ -1097,7 +1097,6 @@ fn snapshot_pre_v17_defaults_scoring_and_empty_pools() {
 
 #[test]
 fn snapshot_round_trips_v18_ui_script_radar_water_drawable() {
-    gamelogic::helpers::TheGameLogic::set_rank_level_limit(8);
     gamelogic::helpers::TheGameLogic::set_draw_icon_ui(false);
     gamelogic::helpers::TheGameLogic::set_hulk_max_lifetime_override(42);
     gamelogic::helpers::TheGameLogic::set_rank_points_to_add_at_game_start(15);
@@ -1115,6 +1114,7 @@ fn snapshot_round_trips_v18_ui_script_radar_water_drawable() {
         )]);
     });
     let mut source = GameLogic::new();
+    source.set_rank_level_limit(8);
     source.upsert_script_named_timer("LaunchClock", "Launch in", true);
     source.restore_script_named_timer_display_shown(false);
     source.restore_script_superweapon_display_enabled(false);
@@ -1150,7 +1150,6 @@ fn snapshot_round_trips_v18_ui_script_radar_water_drawable() {
         "PlyrAmerica"
     );
 
-    gamelogic::helpers::TheGameLogic::set_rank_level_limit(1000);
     gamelogic::helpers::TheGameLogic::set_draw_icon_ui(true);
     gamelogic::helpers::TheGameLogic::set_hulk_max_lifetime_override(-1);
     gamelogic::helpers::TheGameLogic::set_rank_points_to_add_at_game_start(0);
@@ -1158,7 +1157,7 @@ fn snapshot_round_trips_v18_ui_script_radar_water_drawable() {
     builder
         .restore_from_snapshot(&snapshot, &mut restored)
         .expect("restore");
-    assert_eq!(gamelogic::helpers::TheGameLogic::get_rank_level_limit(), 8);
+    assert_eq!(restored.rank_level_limit(), 8);
     assert!(!gamelogic::helpers::TheGameLogic::get_draw_icon_ui());
     assert_eq!(
         gamelogic::helpers::TheGameLogic::get_hulk_max_lifetime_override(),
@@ -1191,7 +1190,6 @@ fn snapshot_round_trips_v18_ui_script_radar_water_drawable() {
         assert!((reveals[0].2 - 250.0).abs() < f32::EPSILON);
         assert_eq!(reveals[0].3, "PlyrAmerica");
     });
-    gamelogic::helpers::TheGameLogic::set_rank_level_limit(1000);
     gamelogic::helpers::TheGameLogic::set_draw_icon_ui(true);
     gamelogic::helpers::TheGameLogic::set_hulk_max_lifetime_override(-1);
     gamelogic::helpers::TheGameLogic::set_rank_points_to_add_at_game_start(0);

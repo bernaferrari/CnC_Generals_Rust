@@ -345,6 +345,18 @@ impl Object {
         self.weapon_bonus_multiplier
     }
 
+    /// Rebuild weapons from this owner's current conditions without borrowing it again.
+    /// C++ WeaponSet::updateWeaponSet receives the already borrowed Object.
+    pub fn refresh_weapon_set(&mut self) -> crate::GameLogicResult<()> {
+        let source_flags = self.weapon_bonus_condition;
+        let container_id = self.get_contained_by();
+        self.weapon_set
+            .update_weapon_set(self.id, &self.cur_weapon_set_flags, || {
+                source_flags
+                    | crate::weapon::weapon_bonus::container_passenger_bonus_flags(container_id)
+            })
+    }
+
     /// Set/unset the player-upgrade weapon set flag.
     /// C++: obj->setWeaponSetFlag(WEAPONSET_PLAYER_UPGRADE)
     pub fn set_weapon_set_flag_player_upgrade(&mut self, flag: bool) {
@@ -355,9 +367,7 @@ impl Object {
             self.cur_weapon_set_flags
                 .clear(crate::weapon::WeaponSetType::PlayerUpgrade);
         }
-        let _ = self
-            .weapon_set
-            .update_weapon_set(self.id, &self.cur_weapon_set_flags);
+        let _ = self.refresh_weapon_set();
     }
 
     // Experience and veterancy
@@ -1407,9 +1417,7 @@ impl Object {
 
     pub fn set_weapon_set_flag(&mut self, flag: WeaponSetType) {
         self.cur_weapon_set_flags.set(flag);
-        let _ = self
-            .weapon_set
-            .update_weapon_set(self.id, &self.cur_weapon_set_flags);
+        let _ = self.refresh_weapon_set();
         if let Some(condition) = weapon_set_model_condition(flag) {
             self.set_model_condition_state(condition);
         }
@@ -1423,9 +1431,7 @@ impl Object {
 
     pub fn clear_weapon_set_flag(&mut self, flag: WeaponSetType) {
         self.cur_weapon_set_flags.clear(flag);
-        let _ = self
-            .weapon_set
-            .update_weapon_set(self.id, &self.cur_weapon_set_flags);
+        let _ = self.refresh_weapon_set();
         if let Some(condition) = weapon_set_model_condition(flag) {
             self.clear_model_condition_state(condition);
         }

@@ -1186,7 +1186,7 @@ impl GameLogic {
         let Some(player) = self.players.get_mut(&player_id) else {
             return false;
         };
-        player.set_rank_level_from_template(new_level, template.as_ref())
+        player.set_rank_level_from_template(new_level, template.as_ref(), self.rank_level_limit)
     }
 
     /// C++ ScriptActions skill/rank leftover drain.
@@ -1222,7 +1222,7 @@ impl GameLogic {
                     }
                 }
                 HostScriptRankRequest::SetRankLevelLimit { limit } => {
-                    gamelogic::helpers::TheGameLogic::set_rank_level_limit(limit);
+                    self.set_rank_level_limit(limit);
                 }
                 HostScriptRankRequest::AffectReceivingExperience { player, modifier } => {
                     let Some(pid) = self.host_player_id_for_script_token(&player) else {

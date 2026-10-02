@@ -302,6 +302,16 @@ impl BodyModuleInterface for InactiveBody {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::object::{Object, registry::OBJECT_REGISTRY};
+    use std::sync::{Arc, RwLock};
+
+    struct RegisteredOwner(Arc<RwLock<Object>>);
+
+    impl Drop for RegisteredOwner {
+        fn drop(&mut self) {
+            OBJECT_REGISTRY.unregister_object(9100);
+        }
+    }
 
     fn create_test_inactive_body() -> InactiveBody {
         let module_data = BodyModuleData::default();
@@ -355,13 +365,29 @@ mod tests {
 
     #[test]
     fn test_unresistable_damage_triggers_death() {
-        let mut body = create_test_inactive_body();
+        let owner = RegisteredOwner(Arc::new(RwLock::new(Object::new_test(9100, 100.0))));
+        OBJECT_REGISTRY.register_object(9100, &owner.0);
+        let mut body = InactiveBody::new_with_owner(BodyModuleData::default(), 9100);
+        assert!(owner.0.read().unwrap().is_effectively_dead());
 
         let mut damage_info = make_damage_info(DamageType::Unresistable, 100.0);
 
         // Unresistable damage should trigger death
         assert!(body.attempt_damage(&mut damage_info).is_ok());
         assert!(body.is_die_called());
+        #[cfg(any(debug_assertions, feature = "internal"))]
+        assert!(
+            owner.0.read().unwrap().has_died_already,
+            "owner onDie must execute"
+        );
+        assert!(!damage_info.output.no_effect);
+        assert_eq!(damage_info.output.actual_damage_dealt, 0.0);
+        assert_eq!(damage_info.output.actual_damage_clipped, 0.0);
+
+        // InactiveBody.cpp:80-83 calls onDie only once, even for repeated kill damage.
+        body.attempt_damage(&mut damage_info).unwrap();
+        assert!(body.is_die_called());
+        assert!(!damage_info.output.no_effect);
     }
 
     #[test]

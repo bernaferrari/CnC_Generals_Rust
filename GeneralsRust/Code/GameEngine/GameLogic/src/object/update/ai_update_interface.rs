@@ -3008,9 +3008,7 @@ mod tests {
         let mut template_set = crate::weapon::WeaponTemplateSet::new();
         template_set.set_weapon_template(WeaponSlotType::Primary, Arc::new(weapon_template));
         object.weapon_set.add_weapon_template_set(template_set);
-        object
-            .weapon_set
-            .update_weapon_set(object.get_id(), &crate::weapon::WeaponSetFlags::new())
+        object.refresh_weapon_set()
             .unwrap();
     }
 

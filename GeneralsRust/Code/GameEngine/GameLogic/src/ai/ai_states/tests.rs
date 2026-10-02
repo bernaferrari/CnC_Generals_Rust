@@ -53,16 +53,15 @@ mod tests {
     }
 
     #[test]
-    fn test_temporary_states() {
-        let mut machine = AIStateMachine::new(123, "TestMachine".to_string());
-
-        // Set a temporary state
+    fn test_temporary_state_without_existing_path_fails_and_clears_override() {
+        let mut machine = AIStateMachine::new(0xAD_0001, "TestMachine".to_string());
+        assert!(OBJECT_REGISTRY.get_object(0xAD_0001).is_none());
+        // C++ AIMoveOutOfTheWayState::onEnter requires an existing AI path.
+        // A missing owner cannot supply one; failed entry must not remain active.
         let result = machine.set_temporary_state(AIStateType::MoveOutOfTheWay, 100);
-        assert_eq!(result, StateReturnType::Continue);
-
-        // Check that temporary state is set
-        assert!(machine.temporary_state.is_some());
-        assert_eq!(machine.temporary_state_frame_end, Some(100));
+        assert_eq!(result, StateReturnType::Failed);
+        assert!(machine.temporary_state.is_none());
+        assert!(machine.temporary_state_frame_end.is_none());
     }
 
     #[test]
@@ -77,16 +76,21 @@ mod tests {
     }
 
     #[test]
-    fn test_ai_attack_state() {
+    fn test_ai_attack_state_rejects_unregistered_owner() {
         let mut attack_state = AIAttackState::new(false, true, false, false);
         assert!(attack_state.is_attack());
         assert_eq!(attack_state.get_state_type(), AIStateType::AttackObject);
 
         let mut context = AIStateMachineContext::default();
+        context.owner_id = 0xAD_0002;
         context.goal_object = Some(456);
+        assert!(OBJECT_REGISTRY.get_object(context.owner_id).is_none());
 
+        // No registered source, authored weapon, or target is supplied. C++
+        // chooseWeapon requires a real source and usable weapon; this fixture
+        // cannot enter a firing state.
         let result = attack_state.on_enter(&mut context);
-        assert_eq!(result, StateReturnType::Continue);
+        assert_eq!(result, StateReturnType::Failed);
     }
 
     #[test]
@@ -169,6 +173,65 @@ mod tests {
 
         // Check that temporary state is set
         assert!(machine.temporary_state.is_some());
-        assert_eq!(machine.temporary_state_frame_end, Some(100));
+        assert_eq!(
+            machine.temporary_state_frame_end,
+            Some(TheGameLogic::get_frame().wrapping_add(100))
+        );
+    }
+    #[test]
+    fn temporary_state_deadline_uses_logic_frame_and_cpp_one_minute_limit() {
+        let _frame = crate::system::game_logic::enter_update_frame(37);
+        let mut machine = AIStateMachine::new(123, "TemporaryDeadline".to_string());
+        machine.set_goal_position(Coord3D::new(50.0, 50.0, 0.0));
+        assert_eq!(
+            machine.set_temporary_state(AIStateType::MoveAndTighten, 100),
+            StateReturnType::Continue
+        );
+        assert_eq!(machine.temporary_state_frame_end, Some(137));
+        assert_eq!(
+            machine.set_temporary_state(AIStateType::MoveAndTighten, 10_000),
+            StateReturnType::Continue
+        );
+        assert_eq!(
+            machine.temporary_state_frame_end,
+            Some(37 + 60 * LOGICFRAMES_PER_SECOND)
+        );
+    }
+
+    #[derive(Debug)]
+    struct TemporaryExitProbe;
+
+    impl AIState for TemporaryExitProbe {
+        fn on_enter(&mut self, _context: &mut AIStateMachineContext) -> StateReturnType {
+            StateReturnType::Continue
+        }
+        fn update(&mut self, _context: &mut AIStateMachineContext) -> StateReturnType {
+            StateReturnType::Continue
+        }
+        fn on_exit(&mut self, context: &mut AIStateMachineContext, exit: StateExitType) {
+            assert_eq!(exit, StateExitType::Reset);
+            context.int_value += 1;
+            // Entry of the replacement must observe this synchronous effect.
+            context.goal_position = None;
+        }
+        fn get_state_type(&self) -> AIStateType {
+            AIStateType::MoveAndTighten
+        }
+    }
+
+    #[test]
+    fn replacement_resets_previous_override_before_entering_and_exits_failed_entry() {
+        let mut machine = AIStateMachine::new(0xAD_0003, "TemporaryReplacement".to_string());
+        machine.set_goal_position(Coord3D::new(10.0, 20.0, 0.0));
+        machine.temporary_state = Some(Box::new(TemporaryExitProbe));
+        machine.temporary_state_frame_end = Some(100);
+        assert_eq!(
+            machine.set_temporary_state(AIStateType::MoveOutOfTheWay, 100),
+            StateReturnType::Failed
+        );
+        assert_eq!(machine.context.int_value, 1);
+        assert!(machine.context.goal_position.is_none());
+        assert!(machine.temporary_state.is_none());
+        assert!(machine.temporary_state_frame_end.is_none());
     }
 }

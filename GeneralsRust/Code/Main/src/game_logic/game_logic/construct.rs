@@ -80,6 +80,7 @@ impl GameLogic {
             vision_last_shroud: HashMap::new(),
 
             players: HashMap::new(),
+            rank_level_limit: crate::game_logic::host_rank_ui_residual::RANK_LEVEL_LIMIT_DEFAULT_RESIDUAL,
             player_template_bindings: HashMap::new(),
             next_object_id: ObjectId(1), // Start at 1, 0 is invalid
             next_formation_id: 1,
@@ -777,6 +778,8 @@ impl GameLogic {
         self.vision_last_shroud.clear();
 
         self.players.clear();
+        self.rank_level_limit =
+            crate::game_logic::host_rank_ui_residual::RANK_LEVEL_LIMIT_DEFAULT_RESIDUAL;
         self.player_template_bindings.clear();
         self.next_object_id = ObjectId(1);
         self.next_formation_id = 1;

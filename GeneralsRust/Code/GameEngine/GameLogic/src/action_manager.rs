@@ -2876,9 +2876,7 @@ mod tests {
         let mut set = crate::weapon::WeaponTemplateSet::new();
         set.set_weapon_template(WeaponSlotType::Primary, Arc::new(template));
         obj.weapon_set.add_weapon_template_set(set);
-        obj.weapon_set
-            .update_weapon_set(obj.get_id(), &crate::weapon::WeaponSetFlags::new())
-            .expect("install killpilot weapon");
+        obj.refresh_weapon_set().expect("install killpilot weapon");
 
         let infantry = object_with_kinds(8924, 100.0, &[KindOf::Infantry]);
         assert!(!TheActionManager::can_fire_weapon_at_object(

@@ -10,6 +10,42 @@ use game_engine::common::system::xfer_load::XferLoad;
 use game_engine::common::system::xfer_save::XferSave;
 use std::io::Cursor;
 
+/// Exercise a loaded flat map through the production terrain/pathfinder setup.
+/// Legacy terrain is restored even when a fixture assertion unwinds. These tests
+/// still depend on that process-wide terrain slot and run serially with the
+/// other legacy-registry fixtures until terrain ownership is migrated.
+fn with_flat_pathfind_map(test: impl FnOnce()) {
+    struct RestoreTerrain(Option<crate::terrain::TerrainLogic>);
+    impl Drop for RestoreTerrain {
+        fn drop(&mut self) {
+            *crate::terrain::get_terrain_logic().write().unwrap() = self.0.take().unwrap();
+        }
+    }
+    let mut map = crate::system::map_loader::MapData::new();
+    map.width = 32;
+    map.height = 32;
+    map.heightmap = vec![0; 32 * 32];
+    map.boundaries = vec![ICoord2D::new(32, 32)];
+    let mut terrain = crate::terrain::TerrainLogic::new();
+    terrain.load_map_data(map);
+    let stores = Arc::new(crate::system::engine_stores::EngineStores::new_for_world());
+    stores
+        .ai()
+        .read()
+        .unwrap()
+        .pathfinder()
+        .unwrap()
+        .write()
+        .unwrap()
+        .rebuild_from_terrain(&terrain);
+    let previous = std::mem::replace(
+        &mut *crate::terrain::get_terrain_logic().write().unwrap(),
+        terrain,
+    );
+    let _restore = RestoreTerrain(Some(previous));
+    crate::system::engine_stores::with_active_stores(&stores, test);
+}
+
 fn unit_ai_update_without_unit() -> UnitAIUpdate {
     UnitAIUpdate::new(
         INVALID_ID,
@@ -39,10 +75,7 @@ fn add_primary_weapon(object: &mut Object, range: Real) {
     let mut template_set = crate::weapon::WeaponTemplateSet::new();
     template_set.set_weapon_template(WeaponSlotType::Primary, Arc::new(weapon_template));
     object.weapon_set.add_weapon_template_set(template_set);
-    object
-        .weapon_set
-        .update_weapon_set(object.get_id(), &crate::weapon::WeaponSetFlags::new())
-        .unwrap();
+    object.refresh_weapon_set().unwrap();
 }
 
 fn unit_ai_update_with_primary_weapon(
@@ -50,12 +83,6 @@ fn unit_ai_update_with_primary_weapon(
     owner_pos: Coord3D,
     weapon_range: Real,
 ) -> (Arc<RwLock<Object>>, Arc<RwLock<Unit>>, UnitAIUpdate) {
-    // Wave 258: empty dual-world → no factory object walks.
-
-    if dual_world_registry_unavailable() {
-        panic!("dual-world registry unavailable in test helper");
-    }
-
     let base_object = Arc::new(RwLock::new(Object::new_test(owner_id, 100.0)));
     {
         let mut object = base_object.write().unwrap();
@@ -259,6 +286,9 @@ fn request_path_for_off_map_start_uses_direct_path_like_cpp() {
 
     let destination = Coord3D::new(-50.0, -25.0, 9.0);
     ai.request_path(&destination, true).unwrap();
+    assert!(ai.waiting_for_path);
+    assert!(unit.read().unwrap().current_path.is_none());
+    assert!(ai.do_queued_pathfind_now().unwrap());
 
     let unit_guard = unit.read().unwrap();
     let path = unit_guard.current_path.as_ref().unwrap();
@@ -272,159 +302,171 @@ fn request_path_for_off_map_start_uses_direct_path_like_cpp() {
 
 #[test]
 fn request_path_for_exit_production_uses_direct_path_and_clears_unit_phasing_like_cpp() {
-    let base_object = Arc::new(RwLock::new(Object::new_test(45, 100.0)));
-    {
-        let mut object = base_object.write().unwrap();
-        let _ = object.set_position(&Coord3D::new(0.0, 0.0, 2.0));
-    }
-    let template = DefaultThingTemplate::new("GroundUnit".to_string());
-    let mut unit = Unit::new(Arc::clone(&base_object), &template).unwrap();
-    let loco_template = Arc::new(LocomotorTemplate::new_wheeled("GroundLoco".to_string()));
-    unit.locomotor_set
-        .add_locomotor("GroundLoco".to_string(), Locomotor::new(loco_template));
-    let unit = Arc::new(RwLock::new(unit));
-    let mut ai = UnitAIUpdate::new(
+    with_flat_pathfind_map(|| {
+        let base_object = Arc::new(RwLock::new(Object::new_test(45, 100.0)));
         {
-            let __u = &unit;
-            let __id = __u
-                .read()
-                .ok()
-                .map(|g| g.get_id())
-                .unwrap_or(crate::common::INVALID_ID);
-            crate::object::unit::register_unit(__id, __u);
-            __id
-        },
-        None,
-        None,
-        None,
-        None,
-        None,
-        #[cfg(feature = "allow_surrender")]
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-    );
-    ai.set_can_path_through_units(true).unwrap();
-    ai.current_command = Some(crate::ai::AiCommandType::FollowExitProductionPath);
+            let mut object = base_object.write().unwrap();
+            let _ = object.set_position(&Coord3D::new(10.0, 10.0, 2.0));
+        }
+        let template = DefaultThingTemplate::new("GroundUnit".to_string());
+        let mut unit = Unit::new(Arc::clone(&base_object), &template).unwrap();
+        let loco_template = Arc::new(LocomotorTemplate::new_wheeled("GroundLoco".to_string()));
+        unit.locomotor_set
+            .add_locomotor("GroundLoco".to_string(), Locomotor::new(loco_template));
+        let unit = Arc::new(RwLock::new(unit));
+        let mut ai = UnitAIUpdate::new(
+            {
+                let __u = &unit;
+                let __id = __u
+                    .read()
+                    .ok()
+                    .map(|g| g.get_id())
+                    .unwrap_or(crate::common::INVALID_ID);
+                crate::object::unit::register_unit(__id, __u);
+                __id
+            },
+            None,
+            None,
+            None,
+            None,
+            None,
+            #[cfg(feature = "allow_surrender")]
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        );
+        ai.set_can_path_through_units(true).unwrap();
+        ai.current_command = Some(crate::ai::AiCommandType::FollowExitProductionPath);
 
-    let destination = Coord3D::new(0.0, 0.0, 6.0);
-    ai.request_path(&destination, true).unwrap();
+        let destination = Coord3D::new(10.0, 10.0, 6.0);
+        ai.request_path(&destination, true).unwrap();
+        assert!(ai.waiting_for_path);
+        assert!(unit.read().unwrap().current_path.is_none());
+        assert!(ai.do_queued_pathfind_now().unwrap());
 
-    assert!(!ai.can_path_through_units);
-    assert_eq!(ai.queue_for_path_frame, 0);
-    let unit_guard = unit.read().unwrap();
-    assert_eq!(
-        unit_guard.current_path.as_ref().unwrap(),
-        &vec![Coord2D::new(0.0, 0.0), Coord2D::new(0.0, 0.0)]
-    );
-    assert_eq!(unit_guard.target_position, Some(destination));
+        assert!(!ai.can_path_through_units);
+        assert_eq!(ai.queue_for_path_frame, 0);
+        let unit_guard = unit.read().unwrap();
+        assert_eq!(
+            unit_guard.current_path.as_ref().unwrap(),
+            &vec![Coord2D::new(10.0, 10.0), Coord2D::new(10.0, 10.0)]
+        );
+        assert_eq!(unit_guard.target_position, Some(destination));
+    });
 }
 
 #[test]
 fn request_path_for_non_final_line_passable_ground_move_uses_direct_path_like_cpp() {
-    let base_object = Arc::new(RwLock::new(Object::new_test(46, 100.0)));
-    {
-        let mut object = base_object.write().unwrap();
-        let _ = object.set_position(&Coord3D::new(0.0, 0.0, 1.0));
-    }
-    let template = DefaultThingTemplate::new("GroundUnit".to_string());
-    let mut unit = Unit::new(Arc::clone(&base_object), &template).unwrap();
-    let loco_template = Arc::new(LocomotorTemplate::new_wheeled("GroundLoco".to_string()));
-    unit.locomotor_set
-        .add_locomotor("GroundLoco".to_string(), Locomotor::new(loco_template));
-    let unit = Arc::new(RwLock::new(unit));
-    let mut ai = UnitAIUpdate::new(
+    with_flat_pathfind_map(|| {
+        let base_object = Arc::new(RwLock::new(Object::new_test(46, 100.0)));
         {
-            let __u = &unit;
-            let __id = __u
-                .read()
-                .ok()
-                .map(|g| g.get_id())
-                .unwrap_or(crate::common::INVALID_ID);
-            crate::object::unit::register_unit(__id, __u);
-            __id
-        },
-        None,
-        None,
-        None,
-        None,
-        None,
-        #[cfg(feature = "allow_surrender")]
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-    );
+            let mut object = base_object.write().unwrap();
+            let _ = object.set_position(&Coord3D::new(0.0, 0.0, 1.0));
+        }
+        let template = DefaultThingTemplate::new("GroundUnit".to_string());
+        let mut unit = Unit::new(Arc::clone(&base_object), &template).unwrap();
+        let loco_template = Arc::new(LocomotorTemplate::new_wheeled("GroundLoco".to_string()));
+        unit.locomotor_set
+            .add_locomotor("GroundLoco".to_string(), Locomotor::new(loco_template));
+        let unit = Arc::new(RwLock::new(unit));
+        let mut ai = UnitAIUpdate::new(
+            {
+                let __u = &unit;
+                let __id = __u
+                    .read()
+                    .ok()
+                    .map(|g| g.get_id())
+                    .unwrap_or(crate::common::INVALID_ID);
+                crate::object::unit::register_unit(__id, __u);
+                __id
+            },
+            None,
+            None,
+            None,
+            None,
+            None,
+            #[cfg(feature = "allow_surrender")]
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        );
 
-    let destination = Coord3D::new(16.0, 0.0, 3.0);
-    ai.retry_path = true;
-    ai.request_path(&destination, false).unwrap();
+        let destination = Coord3D::new(16.0, 0.0, 3.0);
+        ai.retry_path = true;
+        ai.request_path(&destination, false).unwrap();
+        assert!(ai.waiting_for_path);
+        assert!(unit.read().unwrap().current_path.is_none());
+        assert!(ai.do_queued_pathfind_now().unwrap());
 
-    assert!(!ai.retry_path);
-    assert_eq!(ai.queue_for_path_frame, 0);
-    let unit_guard = unit.read().unwrap();
-    assert_eq!(
-        unit_guard.current_path.as_ref().unwrap(),
-        &vec![Coord2D::new(0.0, 0.0), Coord2D::new(16.0, 0.0)]
-    );
-    assert_eq!(unit_guard.target_position, Some(destination));
+        assert!(!ai.retry_path);
+        assert_eq!(ai.queue_for_path_frame, 0);
+        let unit_guard = unit.read().unwrap();
+        assert_eq!(
+            unit_guard.current_path.as_ref().unwrap(),
+            &vec![Coord2D::new(0.0, 0.0), Coord2D::new(16.0, 0.0)]
+        );
+        assert_eq!(unit_guard.target_position, Some(destination));
+    });
 }
 
 #[test]
 fn line_passable_direct_path_requires_non_final_goal_like_cpp() {
-    let base_object = Arc::new(RwLock::new(Object::new_test(47, 100.0)));
-    {
-        let mut object = base_object.write().unwrap();
-        let _ = object.set_position(&Coord3D::new(0.0, 0.0, 1.0));
-    }
-    let template = DefaultThingTemplate::new("GroundUnit".to_string());
-    let mut unit = Unit::new(Arc::clone(&base_object), &template).unwrap();
-    let loco_template = Arc::new(LocomotorTemplate::new_wheeled("GroundLoco".to_string()));
-    unit.locomotor_set
-        .add_locomotor("GroundLoco".to_string(), Locomotor::new(loco_template));
-    let unit = Arc::new(RwLock::new(unit));
-    let mut ai = UnitAIUpdate::new(
+    with_flat_pathfind_map(|| {
+        let base_object = Arc::new(RwLock::new(Object::new_test(47, 100.0)));
         {
-            let __u = &unit;
-            let __id = __u
-                .read()
-                .ok()
-                .map(|g| g.get_id())
-                .unwrap_or(crate::common::INVALID_ID);
-            crate::object::unit::register_unit(__id, __u);
-            __id
-        },
-        None,
-        None,
-        None,
-        None,
-        None,
-        #[cfg(feature = "allow_surrender")]
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-    );
-    let destination = Coord3D::new(16.0, 0.0, 3.0);
+            let mut object = base_object.write().unwrap();
+            let _ = object.set_position(&Coord3D::new(0.0, 0.0, 1.0));
+        }
+        let template = DefaultThingTemplate::new("GroundUnit".to_string());
+        let mut unit = Unit::new(Arc::clone(&base_object), &template).unwrap();
+        let loco_template = Arc::new(LocomotorTemplate::new_wheeled("GroundLoco".to_string()));
+        unit.locomotor_set
+            .add_locomotor("GroundLoco".to_string(), Locomotor::new(loco_template));
+        let unit = Arc::new(RwLock::new(unit));
+        let mut ai = UnitAIUpdate::new(
+            {
+                let __u = &unit;
+                let __id = __u
+                    .read()
+                    .ok()
+                    .map(|g| g.get_id())
+                    .unwrap_or(crate::common::INVALID_ID);
+                crate::object::unit::register_unit(__id, __u);
+                __id
+            },
+            None,
+            None,
+            None,
+            None,
+            None,
+            #[cfg(feature = "allow_surrender")]
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        );
+        let destination = Coord3D::new(16.0, 0.0, 3.0);
 
-    ai.is_final_goal = true;
-    assert!(!ai.should_use_direct_path_for_line_passable_non_final_goal(&destination));
+        ai.is_final_goal = true;
+        assert!(!ai.should_use_direct_path_for_line_passable_non_final_goal(&destination));
 
-    ai.is_final_goal = false;
-    assert!(ai.should_use_direct_path_for_line_passable_non_final_goal(&destination));
+        ai.is_final_goal = false;
+        assert!(ai.should_use_direct_path_for_line_passable_non_final_goal(&destination));
+    });
 }
 
 #[test]
@@ -467,9 +509,9 @@ fn invalid_destination_without_ready_pathfinder_returns_failure_like_cpp() {
         None,
     );
 
-    assert!(!ai
-        .try_install_closest_path_for_invalid_destination(&Coord3D::new(-5.0, 0.0, 3.0))
-        .unwrap());
+    assert!(
+        !ai.try_install_closest_path_for_invalid_destination(&Coord3D::new(-5.0, 0.0, 3.0)).unwrap()
+    );
 
     assert!(ai.retry_path);
     assert_eq!(ai.queue_for_path_frame, 0);
@@ -531,9 +573,9 @@ fn stuck_old_path_failure_stops_and_waits_like_cpp() {
     ai.locomotor_goal_type = 1;
     ai.locomotor_goal_data = Coord3D::new(20.0, 0.0, 0.0);
 
-    assert!(ai
-        .try_install_closest_path_for_invalid_destination(&Coord3D::new(-5.0, 0.0, 3.0))
-        .unwrap());
+    assert!(
+        ai.try_install_closest_path_for_invalid_destination(&Coord3D::new(-5.0, 0.0, 3.0)).unwrap()
+    );
 
     assert_eq!(
         ai.queue_for_path_frame,
@@ -543,7 +585,7 @@ fn stuck_old_path_failure_stops_and_waits_like_cpp() {
     assert!(!ai.is_blocked);
     assert!(!ai.blocked_and_stuck);
     assert_eq!(ai.locomotor_goal_type, 0);
-    assert_eq!(ai.locomotor_goal_data, Coord3D::ZERO);
+    assert_eq!(ai.locomotor_goal_data, Coord3D::new(20.0, 0.0, 0.0));
     assert!(ai.current_path_snapshot.is_none());
     let unit_guard = unit.read().unwrap();
     assert!(unit_guard.current_path.is_none());
@@ -729,6 +771,12 @@ fn update_consumes_completed_movement_cleanup_like_cpp() {
     unit.current_path = Some(vec![Coord2D::new(1.0, 1.0), Coord2D::new(2.0, 2.0)]);
     unit.target_position = Some(Coord3D::new(2.0, 2.0, 0.0));
     unit.movement_state = MovementState::Moving;
+    unit.current_speed = 7.0;
+    unit.waypoint_queue.push(crate::waypoint::Waypoint::new(
+        6001,
+        Coord3D::new(5.0, 5.0, 0.0),
+        "Next".to_string(),
+    ));
     let unit = Arc::new(RwLock::new(unit));
 
     let mut ai = UnitAIUpdate::new(
@@ -761,7 +809,10 @@ fn update_consumes_completed_movement_cleanup_like_cpp() {
         Coord3D::new(1.0, 1.0, 0.0),
         Coord3D::new(2.0, 2.0, 0.0),
     ]);
-    ai.movement_complete = true;
+    ai.friend_starting_move();
+    assert!(ai.cpp_is_moving);
+    ai.friend_ending_move();
+    assert!(!ai.cpp_is_moving);
     ai.queue_for_path_frame = TheGameLogic::get_frame().saturating_add(20);
     ai.ignore_obstacle_id = 1234;
     ai.locomotor_goal_type = 2;
@@ -773,12 +824,28 @@ fn update_consumes_completed_movement_cleanup_like_cpp() {
     assert_eq!(ai.queue_for_path_frame, 0);
     assert_eq!(ai.ignore_obstacle_id, INVALID_ID);
     assert_eq!(ai.locomotor_goal_type, 0);
-    assert_eq!(ai.locomotor_goal_data, Coord3D::ZERO);
+    assert_eq!(ai.locomotor_goal_data, Coord3D::new(2.0, 2.0, 0.0));
     assert!(ai.current_path_snapshot.is_none());
 
     let unit_guard = unit.read().unwrap();
     assert!(unit_guard.current_path.is_none());
     assert_eq!(unit_guard.movement_state, MovementState::Idle);
+    assert!(unit_guard.target_position.is_none());
+    assert_eq!(unit_guard.current_speed, 0.0);
+    assert_eq!(unit_guard.waypoint_queue.len(), 1);
+    assert_eq!(unit_guard.waypoint_queue[0].id, 6001);
+    drop(unit_guard);
+    assert!(ai.is_idle());
+    assert!(!ai.is_moving());
+
+    // A non-movement transition is not erased by movement completion.
+    unit.write().unwrap().movement_state = MovementState::Attacking;
+    ai.friend_ending_move();
+    ai.update().unwrap();
+    let unit_guard = unit.read().unwrap();
+    assert_eq!(unit_guard.movement_state, MovementState::Attacking);
+    assert_eq!(unit_guard.waypoint_queue.len(), 1);
+    assert_eq!(unit_guard.waypoint_queue[0].id, 6001);
 }
 
 #[test]
@@ -881,71 +948,77 @@ fn destroy_path_clears_attack_and_locomotor_goal_like_cpp() {
     assert!(!ai.waiting_for_path);
     assert!(!ai.is_attack_path);
     assert_eq!(ai.locomotor_goal_type, 0);
-    assert_eq!(ai.locomotor_goal_data, Coord3D::ZERO);
+    assert_eq!(ai.locomotor_goal_data, Coord3D::new(8.0, 0.0, 0.0));
 
     let unit_guard = unit.read().unwrap();
     assert!(unit_guard.current_path.is_none());
-    assert_eq!(unit_guard.movement_state, MovementState::Idle);
+    drop(unit_guard);
+    assert!(!ai.is_moving());
 }
 
 #[test]
 fn request_path_waits_until_queued_pathfind_installs_path_like_cpp() {
-    let base_object = Arc::new(RwLock::new(Object::new_test(50, 100.0)));
-    {
-        let mut object = base_object.write().unwrap();
-        let _ = object.set_position(&Coord3D::new(0.0, 0.0, 1.0));
-    }
-    let template = DefaultThingTemplate::new("GroundUnit".to_string());
-    let mut unit = Unit::new(Arc::clone(&base_object), &template).unwrap();
-    let loco_template = Arc::new(LocomotorTemplate::new_wheeled("GroundLoco".to_string()));
-    unit.locomotor_set
-        .add_locomotor("GroundLoco".to_string(), Locomotor::new(loco_template));
-    let unit = Arc::new(RwLock::new(unit));
-    let mut ai = UnitAIUpdate::new(
+    with_flat_pathfind_map(|| {
+        let base_object = Arc::new(RwLock::new(Object::new_test(50, 100.0)));
         {
-            let __u = &unit;
-            let __id = __u
-                .read()
-                .ok()
-                .map(|g| g.get_id())
-                .unwrap_or(crate::common::INVALID_ID);
-            crate::object::unit::register_unit(__id, __u);
-            __id
-        },
-        None,
-        None,
-        None,
-        None,
-        None,
-        #[cfg(feature = "allow_surrender")]
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-    );
-    let destination = Coord3D::new(0.0, 0.0, 0.0);
+            let mut object = base_object.write().unwrap();
+            let _ = object.set_position(&Coord3D::new(0.0, 0.0, 1.0));
+        }
+        let template = DefaultThingTemplate::new("GroundUnit".to_string());
+        let mut unit = Unit::new(Arc::clone(&base_object), &template).unwrap();
+        let loco_template = Arc::new(LocomotorTemplate::new_wheeled("GroundLoco".to_string()));
+        unit.locomotor_set
+            .add_locomotor("GroundLoco".to_string(), Locomotor::new(loco_template));
+        let unit = Arc::new(RwLock::new(unit));
+        let mut ai = UnitAIUpdate::new(
+            {
+                let __u = &unit;
+                let __id = __u
+                    .read()
+                    .ok()
+                    .map(|g| g.get_id())
+                    .unwrap_or(crate::common::INVALID_ID);
+                crate::object::unit::register_unit(__id, __u);
+                __id
+            },
+            None,
+            None,
+            None,
+            None,
+            None,
+            #[cfg(feature = "allow_surrender")]
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        );
+        let destination = Coord3D::new(0.0, 0.0, 0.0);
 
-    ai.request_path(&destination, true).unwrap();
+        ai.request_path(&destination, true).unwrap();
 
-    assert!(ai.waiting_for_path);
-    assert!(ai.is_waiting_for_path());
-    {
+        assert!(ai.waiting_for_path);
+        assert!(ai.is_waiting_for_path());
+        {
+            let unit_guard = unit.read().unwrap();
+            assert!(unit_guard.target_position.is_none());
+            assert!(unit_guard.current_path.is_none());
+        }
+
+        ai.update().unwrap();
+        assert!(ai.waiting_for_path);
+        // C++ AI::update/processPathfindQueue invokes doPathfind separately.
+        assert!(ai.do_queued_pathfind_now().unwrap());
+
+        assert!(!ai.waiting_for_path);
+        assert!(!ai.is_waiting_for_path());
         let unit_guard = unit.read().unwrap();
-        assert!(unit_guard.target_position.is_none());
-        assert!(unit_guard.current_path.is_none());
-    }
-
-    ai.update().unwrap();
-
-    assert!(!ai.waiting_for_path);
-    assert!(!ai.is_waiting_for_path());
-    let unit_guard = unit.read().unwrap();
-    assert!(unit_guard.target_position.is_some());
-    assert!(unit_guard.current_path.is_some());
+        assert!(unit_guard.target_position.is_some());
+        assert!(unit_guard.current_path.is_some());
+    });
 }
 
 #[test]
@@ -1000,131 +1073,146 @@ fn request_attack_path_enters_wait_state_before_repath_delay_like_cpp() {
 
 #[test]
 fn queued_attack_path_object_in_range_finishes_without_move_path_like_cpp() {
-    let owner_id = 58;
-    let victim_id = 158;
-    let (_base_object, unit, mut ai) =
-        unit_ai_update_with_primary_weapon(owner_id, Coord3D::new(0.0, 0.0, 0.0), 100.0);
-    let victim = Arc::new(RwLock::new(Object::new_test(victim_id, 100.0)));
-    {
-        let mut object = victim.write().unwrap();
-        let _ = object.set_position(&Coord3D::new(20.0, 0.0, 0.0));
-    }
-    crate::object::registry::OBJECT_REGISTRY.register_object(victim_id, &victim);
-    crate::ai::object_registry::register_legacy_object(&victim);
+    with_flat_pathfind_map(|| {
+        let owner_id = 58;
+        let victim_id = 158;
+        let (_base_object, unit, mut ai) =
+            unit_ai_update_with_primary_weapon(owner_id, Coord3D::new(0.0, 0.0, 0.0), 100.0);
+        let victim = Arc::new(RwLock::new(Object::new_test(victim_id, 100.0)));
+        {
+            let mut object = victim.write().unwrap();
+            let _ = object.set_position(&Coord3D::new(20.0, 0.0, 0.0));
+        }
+        crate::object::registry::OBJECT_REGISTRY.register_object(victim_id, &victim);
+        crate::ai::object_registry::register_legacy_object(&victim);
 
-    ai.request_attack_path(victim_id, &Coord3D::new(20.0, 0.0, 0.0))
-        .unwrap();
-    ai.update().unwrap();
+        ai.request_attack_path(victim_id, &Coord3D::new(20.0, 0.0, 0.0))
+            .unwrap();
+        ai.update().unwrap();
+        assert!(ai.waiting_for_path);
+        // C++ AI::update/processPathfindQueue invokes doPathfind separately.
+        assert!(ai.do_queued_pathfind_now().unwrap());
 
-    assert!(!ai.is_attack_path);
-    assert!(!ai.waiting_for_path);
-    assert!(ai.current_path_snapshot.is_none());
-    let unit_guard = unit.read().unwrap();
-    assert!(unit_guard.target_position.is_none());
-    assert!(unit_guard.current_path.is_none());
+        assert!(!ai.is_attack_path);
+        assert!(!ai.waiting_for_path);
+        assert!(ai.current_path_snapshot.is_none());
+        let unit_guard = unit.read().unwrap();
+        assert!(unit_guard.target_position.is_none());
+        assert!(unit_guard.current_path.is_none());
 
-    crate::object::registry::OBJECT_REGISTRY.unregister_object(owner_id);
-    crate::object::registry::OBJECT_REGISTRY.unregister_object(victim_id);
-    crate::ai::object_registry::unregister_legacy_object(owner_id);
-    crate::ai::object_registry::unregister_legacy_object(victim_id);
+        crate::object::registry::OBJECT_REGISTRY.unregister_object(owner_id);
+        crate::object::registry::OBJECT_REGISTRY.unregister_object(victim_id);
+        crate::ai::object_registry::unregister_legacy_object(owner_id);
+        crate::ai::object_registry::unregister_legacy_object(victim_id);
+    });
 }
 
 #[test]
 fn queued_attack_path_position_in_range_finishes_without_move_path_like_cpp() {
-    let owner_id = 59;
-    let (_base_object, unit, mut ai) =
-        unit_ai_update_with_primary_weapon(owner_id, Coord3D::new(0.0, 0.0, 0.0), 100.0);
+    with_flat_pathfind_map(|| {
+        let owner_id = 59;
+        let (_base_object, unit, mut ai) =
+            unit_ai_update_with_primary_weapon(owner_id, Coord3D::new(0.0, 0.0, 0.0), 100.0);
 
-    ai.request_attack_path(INVALID_ID, &Coord3D::new(30.0, 0.0, 0.0))
-        .unwrap();
-    ai.update().unwrap();
+        ai.request_attack_path(INVALID_ID, &Coord3D::new(30.0, 0.0, 0.0))
+            .unwrap();
+        ai.update().unwrap();
+        assert!(ai.waiting_for_path);
+        // C++ AI::update/processPathfindQueue invokes doPathfind separately.
+        assert!(ai.do_queued_pathfind_now().unwrap());
 
-    assert!(!ai.is_attack_path);
-    assert!(!ai.waiting_for_path);
-    assert!(ai.current_path_snapshot.is_none());
-    let unit_guard = unit.read().unwrap();
-    assert!(unit_guard.target_position.is_none());
-    assert!(unit_guard.current_path.is_none());
+        assert!(!ai.is_attack_path);
+        assert!(!ai.waiting_for_path);
+        assert!(ai.current_path_snapshot.is_none());
+        let unit_guard = unit.read().unwrap();
+        assert!(unit_guard.target_position.is_none());
+        assert!(unit_guard.current_path.is_none());
 
-    crate::object::registry::OBJECT_REGISTRY.unregister_object(owner_id);
-    crate::ai::object_registry::unregister_legacy_object(owner_id);
+        crate::object::registry::OBJECT_REGISTRY.unregister_object(owner_id);
+        crate::ai::object_registry::unregister_legacy_object(owner_id);
+    });
 }
 
 #[test]
 fn queued_attack_path_fallback_clears_attack_and_tracks_live_victim_like_cpp() {
-    let owner_id = 57;
-    let victim_id = 157;
-    let base_object = Arc::new(RwLock::new(Object::new_test(owner_id, 100.0)));
-    {
-        let mut object = base_object.write().unwrap();
-        let _ = object.set_position(&Coord3D::new(0.0, 0.0, 1.0));
-    }
-    let victim = Arc::new(RwLock::new(Object::new_test(victim_id, 100.0)));
-    {
-        let mut object = victim.write().unwrap();
-        let _ = object.set_position(&Coord3D::new(20.0, 0.0, 0.0));
-    }
-    crate::object::registry::OBJECT_REGISTRY.register_object(owner_id, &base_object);
-    crate::object::registry::OBJECT_REGISTRY.register_object(victim_id, &victim);
-    crate::ai::object_registry::register_legacy_object(&base_object);
-    crate::ai::object_registry::register_legacy_object(&victim);
-
-    let template = DefaultThingTemplate::new("GroundUnit".to_string());
-    let mut unit = Unit::new(Arc::clone(&base_object), &template).unwrap();
-    let loco_template = Arc::new(LocomotorTemplate::new_wheeled("GroundLoco".to_string()));
-    unit.locomotor_set
-        .add_locomotor("GroundLoco".to_string(), Locomotor::new(loco_template));
-    let unit = Arc::new(RwLock::new(unit));
-    let mut ai = UnitAIUpdate::new(
+    with_flat_pathfind_map(|| {
+        let owner_id = 57;
+        let victim_id = 157;
+        let base_object = Arc::new(RwLock::new(Object::new_test(owner_id, 100.0)));
         {
-            let __u = &unit;
-            let __id = __u
-                .read()
-                .ok()
-                .map(|g| g.get_id())
-                .unwrap_or(crate::common::INVALID_ID);
-            crate::object::unit::register_unit(__id, __u);
-            __id
-        },
-        None,
-        None,
-        None,
-        None,
-        None,
-        #[cfg(feature = "allow_surrender")]
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-    );
+            let mut object = base_object.write().unwrap();
+            let _ = object.set_position(&Coord3D::new(0.0, 0.0, 1.0));
+        }
+        let victim = Arc::new(RwLock::new(Object::new_test(victim_id, 100.0)));
+        {
+            let mut object = victim.write().unwrap();
+            let _ = object.set_position(&Coord3D::new(20.0, 0.0, 0.0));
+        }
+        crate::object::registry::OBJECT_REGISTRY.register_object(owner_id, &base_object);
+        crate::object::registry::OBJECT_REGISTRY.register_object(victim_id, &victim);
+        crate::ai::object_registry::register_legacy_object(&base_object);
+        crate::ai::object_registry::register_legacy_object(&victim);
 
-    ai.request_attack_path(victim_id, &Coord3D::new(10.0, 0.0, 0.0))
-        .unwrap();
+        let template = DefaultThingTemplate::new("GroundUnit".to_string());
+        let mut unit = Unit::new(Arc::clone(&base_object), &template).unwrap();
+        let loco_template = Arc::new(LocomotorTemplate::new_wheeled("GroundLoco".to_string()));
+        unit.locomotor_set
+            .add_locomotor("GroundLoco".to_string(), Locomotor::new(loco_template));
+        let unit = Arc::new(RwLock::new(unit));
+        let mut ai = UnitAIUpdate::new(
+            {
+                let __u = &unit;
+                let __id = __u
+                    .read()
+                    .ok()
+                    .map(|g| g.get_id())
+                    .unwrap_or(crate::common::INVALID_ID);
+                crate::object::unit::register_unit(__id, __u);
+                __id
+            },
+            None,
+            None,
+            None,
+            None,
+            None,
+            #[cfg(feature = "allow_surrender")]
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        );
 
-    assert!(ai.is_attack_path);
-    assert_eq!(ai.requested_destination, Coord3D::new(10.0, 0.0, 0.0));
+        ai.request_attack_path(victim_id, &Coord3D::new(10.0, 0.0, 0.0))
+            .unwrap();
 
-    ai.update().unwrap();
+        assert!(ai.is_attack_path);
+        assert_eq!(ai.requested_destination, Coord3D::new(10.0, 0.0, 0.0));
 
-    assert!(!ai.is_attack_path);
-    assert!(!ai.waiting_for_path);
-    assert_eq!(ai.requested_destination, Coord3D::new(20.0, 0.0, 0.0));
-    assert_eq!(ai.ignore_obstacle_id, victim_id);
-    let unit_guard = unit.read().unwrap();
-    assert_eq!(
-        unit_guard.target_position,
-        Some(Coord3D::new(20.0, 0.0, 0.0))
-    );
-    assert!(unit_guard.current_path.is_some());
+        ai.update().unwrap();
+        assert!(ai.waiting_for_path);
+        // C++ AI::update/processPathfindQueue invokes doPathfind separately.
+        assert!(ai.do_queued_pathfind_now().unwrap());
 
-    crate::object::registry::OBJECT_REGISTRY.unregister_object(owner_id);
-    crate::object::registry::OBJECT_REGISTRY.unregister_object(victim_id);
-    crate::ai::object_registry::unregister_legacy_object(owner_id);
-    crate::ai::object_registry::unregister_legacy_object(victim_id);
+        assert!(!ai.is_attack_path);
+        assert!(!ai.waiting_for_path);
+        assert_eq!(ai.requested_destination, Coord3D::new(20.0, 0.0, 0.0));
+        assert_eq!(ai.ignore_obstacle_id, victim_id);
+        let unit_guard = unit.read().unwrap();
+        assert_eq!(
+            unit_guard.target_position,
+            Some(Coord3D::new(20.0, 0.0, 0.0))
+        );
+        assert!(unit_guard.current_path.is_some());
+
+        crate::object::registry::OBJECT_REGISTRY.unregister_object(owner_id);
+        crate::object::registry::OBJECT_REGISTRY.unregister_object(victim_id);
+        crate::ai::object_registry::unregister_legacy_object(owner_id);
+        crate::ai::object_registry::unregister_legacy_object(victim_id);
+    });
 }
 
 #[test]
@@ -1179,64 +1267,69 @@ fn request_approach_path_enters_wait_state_before_repath_delay_like_cpp() {
 
 #[test]
 fn request_approach_path_defers_closest_path_until_queued_update_like_cpp() {
-    let base_object = Arc::new(RwLock::new(Object::new_test(56, 100.0)));
-    {
-        let mut object = base_object.write().unwrap();
-        let _ = object.set_position(&Coord3D::new(0.0, 0.0, 1.0));
-    }
-    let template = DefaultThingTemplate::new("GroundUnit".to_string());
-    let mut unit = Unit::new(Arc::clone(&base_object), &template).unwrap();
-    let loco_template = Arc::new(LocomotorTemplate::new_wheeled("GroundLoco".to_string()));
-    unit.locomotor_set
-        .add_locomotor("GroundLoco".to_string(), Locomotor::new(loco_template));
-    let unit = Arc::new(RwLock::new(unit));
-    let mut ai = UnitAIUpdate::new(
+    with_flat_pathfind_map(|| {
+        let base_object = Arc::new(RwLock::new(Object::new_test(56, 100.0)));
         {
-            let __u = &unit;
-            let __id = __u
-                .read()
-                .ok()
-                .map(|g| g.get_id())
-                .unwrap_or(crate::common::INVALID_ID);
-            crate::object::unit::register_unit(__id, __u);
-            __id
-        },
-        None,
-        None,
-        None,
-        None,
-        None,
-        #[cfg(feature = "allow_surrender")]
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-    );
-    let old_destination = Coord3D::new(10.0, 0.0, 0.0);
-    ai.set_path_from_coords(&[Coord3D::new(0.0, 0.0, 1.0), old_destination])
-        .unwrap();
-    ai.path_timestamp = 0;
-    let approach_destination = Coord3D::new(24.0, 0.0, 0.0);
+            let mut object = base_object.write().unwrap();
+            let _ = object.set_position(&Coord3D::new(0.0, 0.0, 1.0));
+        }
+        let template = DefaultThingTemplate::new("GroundUnit".to_string());
+        let mut unit = Unit::new(Arc::clone(&base_object), &template).unwrap();
+        let loco_template = Arc::new(LocomotorTemplate::new_wheeled("GroundLoco".to_string()));
+        unit.locomotor_set
+            .add_locomotor("GroundLoco".to_string(), Locomotor::new(loco_template));
+        let unit = Arc::new(RwLock::new(unit));
+        let mut ai = UnitAIUpdate::new(
+            {
+                let __u = &unit;
+                let __id = __u
+                    .read()
+                    .ok()
+                    .map(|g| g.get_id())
+                    .unwrap_or(crate::common::INVALID_ID);
+                crate::object::unit::register_unit(__id, __u);
+                __id
+            },
+            None,
+            None,
+            None,
+            None,
+            None,
+            #[cfg(feature = "allow_surrender")]
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        );
+        let old_destination = Coord3D::new(10.0, 0.0, 0.0);
+        ai.set_path_from_coords(&[Coord3D::new(0.0, 0.0, 1.0), old_destination])
+            .unwrap();
+        ai.path_timestamp = 0;
+        let approach_destination = Coord3D::new(24.0, 0.0, 0.0);
 
-    ai.request_approach_path(&approach_destination).unwrap();
+        ai.request_approach_path(&approach_destination).unwrap();
 
-    assert!(ai.waiting_for_path);
-    {
+        assert!(ai.waiting_for_path);
+        {
+            let unit_guard = unit.read().unwrap();
+            assert_eq!(unit_guard.target_position, Some(old_destination));
+            assert!(unit_guard.current_path.is_some());
+        }
+
+        ai.update().unwrap();
+        assert!(ai.waiting_for_path);
+        // C++ AI::update/processPathfindQueue invokes doPathfind separately.
+        assert!(ai.do_queued_pathfind_now().unwrap());
+
+        assert!(!ai.waiting_for_path);
         let unit_guard = unit.read().unwrap();
-        assert_eq!(unit_guard.target_position, Some(old_destination));
         assert!(unit_guard.current_path.is_some());
-    }
-
-    ai.update().unwrap();
-
-    assert!(!ai.waiting_for_path);
-    let unit_guard = unit.read().unwrap();
-    assert!(unit_guard.current_path.is_some());
-    assert_eq!(unit_guard.target_position, Some(approach_destination));
+        assert_eq!(unit_guard.target_position, Some(approach_destination));
+    });
 }
 
 #[test]
@@ -1266,74 +1359,79 @@ fn request_safe_path_enters_wait_state_before_repath_delay_like_cpp() {
 
 #[test]
 fn request_safe_path_defers_safe_pathfind_until_queued_update_like_cpp() {
-    let owner_id = 55;
-    let repulsor_id = 155;
-    let base_object = Arc::new(RwLock::new(Object::new_test(owner_id, 100.0)));
-    {
-        let mut object = base_object.write().unwrap();
-        let _ = object.set_position(&Coord3D::new(100.0, 100.0, 1.0));
-        object.set_vision_range(30.0);
-    }
-    let repulsor = Arc::new(RwLock::new(Object::new_test(repulsor_id, 100.0)));
-    {
-        let mut object = repulsor.write().unwrap();
-        let _ = object.set_position(&Coord3D::new(100.0, 100.0, 0.0));
-    }
-    crate::object::registry::OBJECT_REGISTRY.register_object(owner_id, &base_object);
-    crate::object::registry::OBJECT_REGISTRY.register_object(repulsor_id, &repulsor);
-
-    let template = DefaultThingTemplate::new("GroundUnit".to_string());
-    let mut unit = Unit::new(Arc::clone(&base_object), &template).unwrap();
-    let loco_template = Arc::new(LocomotorTemplate::new_wheeled("GroundLoco".to_string()));
-    unit.locomotor_set
-        .add_locomotor("GroundLoco".to_string(), Locomotor::new(loco_template));
-    let unit = Arc::new(RwLock::new(unit));
-    let mut ai = UnitAIUpdate::new(
+    with_flat_pathfind_map(|| {
+        let owner_id = 55;
+        let repulsor_id = 155;
+        let base_object = Arc::new(RwLock::new(Object::new_test(owner_id, 100.0)));
         {
-            let __u = &unit;
-            let __id = __u
-                .read()
-                .ok()
-                .map(|g| g.get_id())
-                .unwrap_or(crate::common::INVALID_ID);
-            crate::object::unit::register_unit(__id, __u);
-            __id
-        },
-        None,
-        None,
-        None,
-        None,
-        None,
-        #[cfg(feature = "allow_surrender")]
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-    );
+            let mut object = base_object.write().unwrap();
+            let _ = object.set_position(&Coord3D::new(100.0, 100.0, 1.0));
+            object.set_vision_range(30.0);
+        }
+        let repulsor = Arc::new(RwLock::new(Object::new_test(repulsor_id, 100.0)));
+        {
+            let mut object = repulsor.write().unwrap();
+            let _ = object.set_position(&Coord3D::new(100.0, 100.0, 0.0));
+        }
+        crate::object::registry::OBJECT_REGISTRY.register_object(owner_id, &base_object);
+        crate::object::registry::OBJECT_REGISTRY.register_object(repulsor_id, &repulsor);
 
-    assert!(ai.request_safe_path(repulsor_id).unwrap());
+        let template = DefaultThingTemplate::new("GroundUnit".to_string());
+        let mut unit = Unit::new(Arc::clone(&base_object), &template).unwrap();
+        let loco_template = Arc::new(LocomotorTemplate::new_wheeled("GroundLoco".to_string()));
+        unit.locomotor_set
+            .add_locomotor("GroundLoco".to_string(), Locomotor::new(loco_template));
+        let unit = Arc::new(RwLock::new(unit));
+        let mut ai = UnitAIUpdate::new(
+            {
+                let __u = &unit;
+                let __id = __u
+                    .read()
+                    .ok()
+                    .map(|g| g.get_id())
+                    .unwrap_or(crate::common::INVALID_ID);
+                crate::object::unit::register_unit(__id, __u);
+                __id
+            },
+            None,
+            None,
+            None,
+            None,
+            None,
+            #[cfg(feature = "allow_surrender")]
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        );
 
-    assert!(ai.waiting_for_path);
-    assert!(ai.pending_safe_path.is_none());
-    {
+        assert!(ai.request_safe_path(repulsor_id).unwrap());
+
+        assert!(ai.waiting_for_path);
+        assert!(ai.pending_safe_path.is_none());
+        {
+            let unit_guard = unit.read().unwrap();
+            assert!(unit_guard.current_path.is_none());
+            assert!(unit_guard.target_position.is_none());
+        }
+
+        ai.update().unwrap();
+        assert!(ai.waiting_for_path);
+        // C++ AI::update/processPathfindQueue invokes doPathfind separately.
+        assert!(ai.do_queued_pathfind_now().unwrap());
+
+        assert!(!ai.waiting_for_path);
         let unit_guard = unit.read().unwrap();
-        assert!(unit_guard.current_path.is_none());
-        assert!(unit_guard.target_position.is_none());
-    }
+        assert!(unit_guard.current_path.is_some());
+        assert!(unit_guard.target_position.is_some());
 
-    ai.update().unwrap();
-
-    assert!(!ai.waiting_for_path);
-    let unit_guard = unit.read().unwrap();
-    assert!(unit_guard.current_path.is_some());
-    assert!(unit_guard.target_position.is_some());
-
-    crate::object::registry::OBJECT_REGISTRY.unregister_object(owner_id);
-    crate::object::registry::OBJECT_REGISTRY.unregister_object(repulsor_id);
+        crate::object::registry::OBJECT_REGISTRY.unregister_object(owner_id);
+        crate::object::registry::OBJECT_REGISTRY.unregister_object(repulsor_id);
+    });
 }
 
 #[test]

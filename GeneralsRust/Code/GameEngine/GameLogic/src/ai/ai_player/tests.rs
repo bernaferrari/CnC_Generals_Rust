@@ -1,15 +1,12 @@
 use super::*;
 
-#[allow(dead_code)]
-fn set_var(key: &str, value: &str) {
-    // SAFETY: AI env toggles; test access is serialized (--test-threads=1 convention).
-    unsafe { std::env::set_var(key, value) }
-}
-
-#[allow(dead_code)]
-fn remove_var(key: &str) {
-    // SAFETY: AI env toggles; test access is serialized (--test-threads=1 convention).
-    unsafe { std::env::remove_var(key) }
+// Source contracts remain tied to the live split implementation. A fixed byte
+// window can silently exclude behavior when ownership plumbing changes size.
+fn production_method<'a>(source: &'a str, signature: &str) -> &'a str {
+    let start = source.find(signature).expect("mapped production method");
+    let method = &source[start..];
+    let end = method.find("\n    }\n").expect("production method end");
+    &method[..end + 6]
 }
 
 #[test]
@@ -429,19 +426,8 @@ fn check_queued_teams_no_factory_residual_like_cpp() {
 
 #[test]
 fn set_ai_difficulty_only_sets_field_like_cpp() {
-    let src = crate::ai::ai_player::AI_PLAYER_SRC;
-    let prod = src
-        .split("#[cfg(test)]")
-        .next()
-        .expect("production before tests");
-    let i = prod
-        .find("pub fn set_ai_difficulty(&mut self, difficulty: GameDifficulty)")
-        .expect("setAIDifficulty");
-    let end = prod[i..]
-        .find("pub fn select_skillset")
-        .map(|o| i + o)
-        .unwrap_or(prod.len().min(i + 400));
-    let w = &prod[i..end];
+    let window = production_method(include_str!("impl_teams.rs"), "pub fn set_ai_difficulty(");
+    let w = window;
     assert!(
         w.contains("self.difficulty = difficulty")
             && !w.contains("team_seconds")
@@ -576,11 +562,25 @@ fn update_with_frame_source_order_matches_cpp_do_methods() {
 
 #[test]
 fn host_attack_disabled_by_default_like_cpp_update() {
-    // Unset env in test process may inherit; function treats missing as false.
-    remove_var("GENERALS_AI_HOST_ATTACK");
-    assert!(!AIPlayer::host_attack_enabled());
-    remove_var("GENERALS_AI_HOST_ANALYSIS");
-    assert!(!AIPlayer::host_analysis_enabled());
+    // Check the real environment-reading entry points in an isolated child.
+    // Other tests may concurrently read the parent's process environment.
+    const CHILD: &str = "GENERALS_AI_DEFAULT_FLAG_TEST_CHILD";
+    if std::env::var_os(CHILD).is_some() {
+        assert!(!AIPlayer::host_attack_enabled());
+        assert!(!AIPlayer::host_analysis_enabled());
+        return;
+    }
+    let result = std::process::Command::new(std::env::current_exe().expect("test executable"))
+        .args([
+            "ai::ai_player::tests::host_attack_disabled_by_default_like_cpp_update",
+            "--exact",
+        ])
+        .env(CHILD, "1")
+        .env_remove("GENERALS_AI_HOST_ATTACK")
+        .env_remove("GENERALS_AI_HOST_ANALYSIS")
+        .output()
+        .expect("isolated default-flag test");
+    assert!(result.status.success(), "{}", String::from_utf8_lossy(&result.stderr));
 }
 
 #[test]
@@ -963,12 +963,11 @@ fn build_structure_with_dozer_cpp_surface() {
 
 #[test]
 fn calc_closest_construction_zone_location_cpp_surface() {
-    let src = crate::ai::ai_player::AI_PLAYER_SRC;
-    let prod = src.split("#[cfg(test)]").next().expect("production");
-    let i = prod
-        .find("pub fn calc_closest_construction_zone_location")
-        .expect("calcClosestConstructionZoneLocation");
-    let w = &prod[i..prod.len().min(i + 5000)];
+    let window = production_method(
+        include_str!("impl_build.rs"),
+        "pub fn calc_closest_construction_zone_location(",
+    );
+    let w = window;
     assert!(
         w.contains("LocalLegalToBuildOptions::NO_OBJECT_OVERLAP")
             && w.contains("LocalLegalToBuildOptions::CLEAR_PATH")
@@ -982,12 +981,11 @@ fn calc_closest_construction_zone_location_cpp_surface() {
 
 #[test]
 fn find_valid_build_location_cpp_surface() {
-    let src = crate::ai::ai_player::AI_PLAYER_SRC;
-    let prod = src.split("#[cfg(test)]").next().expect("production");
-    let i = prod
-        .find("fn find_valid_build_location(")
-        .expect("find_valid_build_location");
-    let w = &prod[i..prod.len().min(i + 3500)];
+    let window = production_method(
+        include_str!("impl_build.rs"),
+        "fn find_valid_build_location(",
+    );
+    let w = window;
     assert!(
         w.contains("LocalLegalToBuildOptions::NO_OBJECT_OVERLAP")
             && w.contains("LocalLegalToBuildOptions::CLEAR_PATH")
@@ -1043,18 +1041,25 @@ fn process_base_building_calls_build_structure_with_dozer() {
 
 #[test]
 fn compute_center_uses_build_list_like_cpp() {
-    let src = crate::ai::ai_player::AI_PLAYER_SRC;
-    let i = src
-        .find("pub fn compute_center_and_radius_of_base")
-        .expect("compute");
-    let window = &src[i..src.len().min(i + 3500)];
-    assert!(
-        window.contains("get_build_list()")
-            && window.contains("get_bounding_circle_radius")
-            && window.contains("* 0.4")
-            && window.contains("max_rad_sqr")
-            && !window.contains("get_all_objects()"),
-        "computeCenterAndRadiusOfBase must average build-list locations + geom*0.4"
+    let method = production_method(
+        include_str!("impl_select.rs"),
+        "pub fn compute_center_and_radius_of_base(",
+    );
+    assert!(method.contains("get_build_list()"));
+    assert!(method.contains("get_bounding_circle_radius"));
+    assert!(method.contains("leftover_compute_center_and_radius_of_base(&entries)"));
+    assert!(!method.contains("get_all_objects()"));
+
+    // AIPlayer.cpp:3051-3106 averages authored locations, then adds 0.4 of
+    // each building radius to both absolute axes before taking max hypot.
+    let (set, x, y, radius) =
+        leftover_compute_center_and_radius_of_base(&[(0.0, 0.0, 10.0), (20.0, 0.0, 5.0)]);
+    assert!(set);
+    assert_eq!((x, y), (10.0, 0.0));
+    assert!((radius - 212.0_f32.sqrt()).abs() < 1e-5);
+    assert_eq!(
+        leftover_compute_center_and_radius_of_base(&[]),
+        (false, 0.0, 0.0, 0.0)
     );
 }
 
@@ -1082,19 +1087,8 @@ fn on_structure_produced_applies_map_props_and_script() {
 
 #[test]
 fn new_map_cpp_surface() {
-    let src = crate::ai::ai_player::AI_PLAYER_SRC;
-    let prod = src
-        .split("#[cfg(test)]")
-        .next()
-        .expect("production before tests");
-    let i = prod.find("pub fn new_map(&mut self)").expect("newMap");
-    let end = prod[i..]
-        .find("/// Start training for a work order")
-        .or_else(|| prod[i..].find("pub(crate) fn start_training"))
-        .or_else(|| prod[i..].find("fn start_training_internal"))
-        .map(|o| i + o)
-        .unwrap_or(prod.len().min(i + 8000));
-    let w = &prod[i..end];
+    let window = production_method(include_str!("impl_update.rs"), "pub fn new_map(");
+    let w = window;
     assert!(
         w.contains("original_entries")
             && w.contains("add_to_build_list")
@@ -1174,11 +1168,11 @@ fn build_structure_now_at_cpp_surface() {
 
 #[test]
 fn check_for_supply_center_cpp_surface() {
-    let src = crate::ai::ai_player::AI_PLAYER_SRC;
-    let i = src
-        .find("C++ `AIPlayer::checkForSupplyCenter`")
-        .expect("checkForSupplyCenter");
-    let window = &src[i..src.len().min(i + 2500)];
+    let window = production_method(
+        include_str!("impl_teams.rs"),
+        "pub fn check_for_supply_center(",
+    );
+    let w = window;
     assert!(
         window.contains("SupplyCenterDockUpdate")
             && window.contains("set_supply_building(true)")
@@ -1190,19 +1184,8 @@ fn check_for_supply_center_cpp_surface() {
 
 #[test]
 fn queue_supply_truck_cpp_surface() {
-    let src = crate::ai::ai_player::AI_PLAYER_SRC;
-    let prod = src
-        .split("#[cfg(test)]")
-        .next()
-        .expect("production before tests");
-    let i = prod
-        .find("fn queue_supply_truck(&mut self)")
-        .expect("queueSupplyTruck");
-    let end = prod[i..]
-        .find("fn count_player_harvesters")
-        .map(|o| i + o)
-        .unwrap_or(prod.len().min(i + 4000));
-    let window = &prod[i..end];
+    let window = production_method(include_str!("impl_economy.rs"), "fn queue_supply_truck(");
+    let w = window;
     assert!(
         window.contains("truck_in_queue")
             && window.contains("is_resource_gatherer")
@@ -1387,19 +1370,8 @@ fn build_upgrade_cpp_surface() {
 
 #[test]
 fn find_supply_center_cpp_surface() {
-    let src = crate::ai::ai_player::AI_PLAYER_SRC;
-    let prod = src
-        .split("#[cfg(test)]")
-        .next()
-        .expect("production before tests");
-    let i = prod
-        .find("fn find_supply_center(&self, minimum_cash: i32)")
-        .expect("findSupplyCenter");
-    let end = prod[i..]
-        .find("fn find_valid_build_location")
-        .map(|o| i + o)
-        .unwrap_or(prod.len().min(i + 6000));
-    let w = &prod[i..end];
+    let window = production_method(include_str!("impl_build.rs"), "fn find_supply_center(");
+    let w = window;
     assert!(
         w.contains("KindOf::SupplySource")
             && w.contains("SupplyWarehouseDockUpdate")
@@ -1423,11 +1395,11 @@ fn find_supply_center_cpp_surface() {
 
 #[test]
 fn build_specific_ai_team_cpp_surface() {
-    let src = crate::ai::ai_player::AI_PLAYER_SRC;
-    let i = src
-        .find("C++ `AIPlayer::buildSpecificAITeam`")
-        .expect("buildSpecificAITeam");
-    let w = &src[i..src.len().min(i + 7000)];
+    let window = production_method(
+        include_str!("impl_teams.rs"),
+        "pub fn build_specific_ai_team(",
+    );
+    let w = window;
     assert!(
         w.contains("get_can_build_units")
             && w.contains("is_singleton")
@@ -1437,8 +1409,24 @@ fn build_specific_ai_team_cpp_surface() {
             && w.contains("order.required = true")
             && w.contains("self.team_delay = 0")
             && w.contains("even minUnits==0")
-            && w.contains("execute_action_sequence"),
+            && w.contains("friend_execute_action"),
         "buildSpecificAITeam must queue min=0 required orders and run executeActions"
+    );
+    // AIPlayer.cpp:2468-2499 admits populated queue state and wakes its timer
+    // before executing the synchronous production-condition action.
+    let front = w
+        .find("self.team_build_queue.push_front(team)")
+        .expect("priority queue");
+    let back = w
+        .find("self.team_build_queue.push_back(team)")
+        .expect("normal queue");
+    let delay = w.find("self.team_delay = 0").expect("wake team update");
+    let action = w
+        .find("e.friend_execute_action(")
+        .expect("production action");
+    assert!(
+        front < delay && back < delay && delay < action,
+        "production script must see the queued team and cleared delay"
     );
 }
 
@@ -1523,21 +1511,15 @@ fn solo_base_defense_and_on_structure_cpp_surface() {
 
 #[test]
 fn build_paths_use_placement_view_angle_like_cpp() {
-    let src = crate::ai::ai_player::AI_PLAYER_SRC;
-    let i = src
-        .find("pub fn build_by_supplies")
-        .expect("build_by_supplies");
-    let w = &src[i..src.len().min(i + 2500)];
+    let source = include_str!("impl_build.rs");
+    let supplies = production_method(source, "pub fn build_by_supplies(");
     assert!(
-        w.contains("get_placement_view_angle()"),
+        supplies.contains("get_placement_view_angle()"),
         "buildBySupplies must use ThingTemplate placement view angle (C++)"
     );
-    let j = src
-        .find("fn build_specific_building_near_location")
-        .expect("near_location");
-    let w2 = &src[j..src.len().min(j + 1200)];
+    let near = production_method(source, "pub fn build_specific_building_near_location(");
     assert!(
-        w2.contains("get_placement_view_angle()"),
+        near.contains("get_placement_view_angle()"),
         "buildSpecificBuildingNearLocation must use placement view angle"
     );
 }
@@ -1576,19 +1558,8 @@ fn guard_supply_center_uses_script_cmd_source_like_cpp() {
 
 #[test]
 fn build_by_supplies_cpp_surface() {
-    let src = crate::ai::ai_player::AI_PLAYER_SRC;
-    let prod = src
-        .split("#[cfg(test)]")
-        .next()
-        .expect("production before tests");
-    let i = prod
-        .find("pub fn build_by_supplies(")
-        .expect("buildBySupplies");
-    let end = prod[i..]
-        .find("pub fn build_specific_building_near_location")
-        .map(|o| i + o)
-        .unwrap_or(prod.len().min(i + 4000));
-    let w = &prod[i..end];
+    let window = production_method(include_str!("impl_build.rs"), "pub fn build_by_supplies(");
+    let w = window;
     assert!(
         w.contains("find_supply_center")
             && w.contains("add_to_priority_build_list")
@@ -1675,11 +1646,11 @@ fn build_specific_ai_building_solo_is_noop_surface() {
 
 #[test]
 fn get_player_superweapon_value_cpp_surface() {
-    let src = crate::ai::ai_player::AI_PLAYER_SRC;
-    let i = src
-        .find("C++ `AIPlayer::getPlayerSuperweaponValue`")
-        .expect("getPlayerSuperweaponValue");
-    let window = &src[i..src.len().min(i + 3500)];
+    let window = production_method(
+        include_str!("impl_select.rs"),
+        "fn get_player_superweapon_value(",
+    );
+    let w = window;
     assert!(
         window.contains("FSBaseDefense")
             && window.contains("TechBaseDefense")

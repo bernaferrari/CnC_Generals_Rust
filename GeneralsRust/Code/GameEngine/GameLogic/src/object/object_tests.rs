@@ -28,13 +28,13 @@ mod tests {
         assert!(Object::is_above_terrain_height(100.0, 0.0));
 
         let mut obj = Object::new_test(88_010, 100.0);
-        obj.set_geometry_info_z(0.0);
+        obj.set_position(&Coord3D::new(0.0, 0.0, 0.0)).unwrap();
         assert!(
             !obj.is_above_terrain(),
             "on ground (z == stub ground 0) is not above terrain"
         );
 
-        obj.set_geometry_info_z(100.0);
+        obj.set_position(&Coord3D::new(0.0, 0.0, 100.0)).unwrap();
         assert!(
             obj.is_above_terrain(),
             "z >> stub ground height 0 is above terrain"
@@ -215,7 +215,7 @@ mod tests {
 
         assert_eq!(
             ModuleUpdateProxy::dispatch_update(&mut module),
-            Some(UpdateSleepTime::Frames(1))
+            Some(UpdateSleepTime::None)
         );
     }
 
@@ -1186,12 +1186,21 @@ mod tests {
     #[test]
     fn test_heal_completely_already_dead() {
         let mut obj = Object::new_test(1, 100.0);
+        let data = ActiveBodyModuleData {
+            max_health: 100.0,
+            initial_health: 0.0,
+            ..Default::default()
+        };
+        obj.body = Some(Arc::new(Mutex::new(ActiveBody::new_with_owner(
+            data,
+            obj.get_id(),
+        ))));
         obj.set_effectively_dead(true);
-
-        // Cannot heal dead object
-        let result = obj.heal_completely();
-        assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), ObjectError::AlreadyDead));
+        // CPP Object.cpp:1949 delegates to ActiveBody.cpp:792. A dead
+        // non-bridge is a successful no-op, not an ObjectError.
+        assert!(obj.heal_completely().is_ok());
+        assert_eq!(obj.get_health(), 0.0);
+        assert!(obj.is_effectively_dead());
     }
 
     #[test]
@@ -1259,6 +1268,9 @@ mod tests {
 
     #[test]
     fn attempt_damage_water_death_flooded_stores_last_death_type() {
+        // CPP ActiveBody.cpp:547 compares the unsigned previous frame.
+        // At frame 0, -1 equals the initial timestamp sentinel (0xffffffff).
+        let _frame = crate::system::game_logic::enter_update_frame(1);
         // C++ ObjectCreationList diesOnBadLand / WaveGuideUpdate:
         // do not call kill(); attemptDamage with DAMAGE_WATER + DEATH_FLOODED.
         let mut obj = Object::new_test(42, 10.0);
@@ -1353,8 +1365,7 @@ mod tests {
         let mut template_set = WeaponTemplateSet::new();
         template_set.set_weapon_template(WeaponSlotType::Primary, Arc::new(weapon_template));
         obj.weapon_set.add_weapon_template_set(template_set);
-        obj.weapon_set
-            .update_weapon_set(obj.get_id(), &crate::weapon::WeaponSetFlags::new())
+        obj.refresh_weapon_set()
             .expect("install primary weapon slot");
 
         assert!(obj.get_weapon_in_slot(WeaponSlotType::Primary).is_some());
@@ -1365,38 +1376,23 @@ mod tests {
 
     #[test]
     fn test_death_system_basic() {
-        // Create a test object with active body
         let mut obj = Object::new_test(1, 100.0);
-
-        // Create and attach an active body module
-        let mut module_data = ActiveBodyModuleData::default();
-        module_data.max_health = 100.0;
-        module_data.initial_health = 100.0;
-        let active_body = ActiveBody::new_with_owner(module_data, obj.get_id());
-
-        // Object should start alive
-        assert!(!obj.is_effectively_dead());
-        assert_eq!(obj.get_health(), 100.0);
-
-        // Apply lethal damage
         let mut damage_info = DamageInfo {
             input: DamageInfoInput {
                 damage_type: DamageType::Unresistable,
                 amount: 150.0,
                 source_id: 2,
-                kill: false,
                 ..Default::default()
             },
             ..Default::default()
         };
-
-        // Note: In the real implementation, this would go through the body module
-        // For this test, we simulate the death directly
-        obj.handle_death(Some(&damage_info));
-
-        // Object should now be dead
+        obj.attempt_damage(&mut damage_info).unwrap();
         assert!(obj.is_effectively_dead());
-        assert!(obj.test_status(ObjectStatusTypes::Destroyed));
+        assert_eq!(obj.get_health(), 0.0);
+        assert!(damage_info.output.killed_target);
+        // CPP Object::onDie leaves disposal to authored Die modules.
+        // This module-less corpse has not had GameLogic::destroyObject called.
+        assert!(!obj.test_status(ObjectStatusTypes::Destroyed));
     }
 
     #[test]
@@ -2844,7 +2840,11 @@ mod visibility_tests {
 
             // Verify death state
             assert!(obj_guard.is_effectively_dead());
-            assert!(obj_guard.status.test_status(ObjectStatusTypes::Destroyed));
+            // C++ Object::onDie runs DieModules; GameLogic::destroyObject
+            // owns logical destruction. This fixture has no deleting DieModule.
+            assert!(!obj_guard.status.test_status(ObjectStatusTypes::Destroyed));
+            #[cfg(any(debug_assertions, feature = "internal"))]
+            assert!(obj_guard.has_died_already, "on_die must have executed");
         }
     }
 
@@ -2918,7 +2918,11 @@ mod visibility_tests {
 
             // Verify death state
             assert!(obj_guard.is_effectively_dead());
-            assert!(obj_guard.status.test_status(ObjectStatusTypes::Destroyed));
+            // C++ Object::onDie runs DieModules; GameLogic::destroyObject
+            // owns logical destruction. This fixture has no deleting DieModule.
+            assert!(!obj_guard.status.test_status(ObjectStatusTypes::Destroyed));
+            #[cfg(any(debug_assertions, feature = "internal"))]
+            assert!(obj_guard.has_died_already, "on_die must have executed");
         }
     }
 }

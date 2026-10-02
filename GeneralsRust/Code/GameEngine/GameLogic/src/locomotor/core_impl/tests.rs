@@ -333,10 +333,14 @@ mod tests {
     /// `turnFactor = |actualSpeed|/turnSpeed` so a stopped truck has turnAmount 0.
     #[test]
     fn wheeled_turn_factor_zero_speed_does_not_spin() {
-        let template = Arc::new(LocomotorTemplate::new_wheeled("Humvee".to_string()));
+        let mut template = LocomotorTemplate::new_wheeled("Humvee".to_string());
+        template.min_turn_speed = template.max_speed / 4.0;
+        let template = Arc::new(template);
         let mut loco = Locomotor::new(template);
         let current = Coord3D::new(0.0, 0.0, 0.0);
-        let target = Coord3D::new(0.0, 100.0, 0.0);
+        // Stay below C++'s 15-degree look-ahead gate (Locomotor.cpp:1340-1389).
+        // Without map terrain a sharp turn takes the full-rate invalid-terrain branch.
+        let target = Coord3D::new(100.0, 10.0, 0.0);
         let dt = 1.0 / LOGICFRAMES_PER_SECOND as Real;
         let (_pos, angle, _speed) = loco.move_towards(
             current,
@@ -356,11 +360,17 @@ mod tests {
     /// C++ Locomotor.cpp:1438-1444: turnAmount scales with |actualSpeed|/turnSpeed.
     #[test]
     fn wheeled_turn_factor_scales_with_speed() {
-        let template = Arc::new(LocomotorTemplate::new_wheeled("Humvee".to_string()));
+        let mut template = LocomotorTemplate::new_wheeled("Humvee".to_string());
+        template.min_turn_speed = template.max_speed / 4.0;
+        let template = Arc::new(template);
         let mut slow = Locomotor::new(template.clone());
+        let turn_speed = template.min_turn_speed;
+        let max_turn_rate = template.max_turn_rate;
         let mut fast = Locomotor::new(template);
         let current = Coord3D::new(0.0, 0.0, 0.0);
-        let target = Coord3D::new(0.0, 100.0, 0.0);
+        // Stay below C++'s 15-degree look-ahead gate (Locomotor.cpp:1340-1389).
+        // Without map terrain a sharp turn takes the full-rate invalid-terrain branch.
+        let target = Coord3D::new(100.0, 10.0, 0.0);
         let dt = 1.0 / LOGICFRAMES_PER_SECOND as Real;
         let (_, slow_angle, _) = slow.move_towards(
             current,
@@ -385,6 +395,10 @@ mod tests {
             "faster wheeled unit must turn more (fast={fast_angle}, slow={slow_angle})"
         );
         assert!(slow_angle.abs() > 0.0, "rolling wheels must still turn");
+        let expected_slow = (1.0 / turn_speed) * max_turn_rate * dt;
+        let expected_fast = max_turn_rate * dt; // 10 / turn_speed exceeds the C++ cap of 1.
+        assert!((slow_angle - expected_slow).abs() < 1.0e-7);
+        assert!((fast_angle - expected_fast).abs() < 1.0e-7);
     }
 
     /// C++ `locoUpdate_moveTowardsPosition` (Locomotor.cpp:941-946, 1393-1396):
