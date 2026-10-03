@@ -9,6 +9,7 @@ pub mod assets;
 pub mod chunk_reader;
 pub mod dazzle;
 pub mod hlod_anim_pose;
+pub mod image;
 pub mod loader;
 pub mod loaders;
 pub use loaders::{animation_loader, hierarchy_loader, mesh_loader};

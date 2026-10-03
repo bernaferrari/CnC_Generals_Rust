@@ -1358,15 +1358,17 @@ END
         let _ = std::fs::remove_file(&path);
         result.unwrap();
 
-        let generals = get_challenge_generals();
-        let persona = &generals.positions[0];
-        assert_eq!(
-            persona.player_template_name,
-            "FactionAmericaAirForceGeneral"
-        );
-        assert!(persona.starts_enabled);
-        assert_eq!(persona.taunt_sound1, "Taunts_Grainger061");
-        assert_eq!(persona.campaign, "CHALLENGE_0");
+        {
+            let generals = get_challenge_generals();
+            let persona = &generals.positions[0];
+            assert_eq!(
+                persona.player_template_name,
+                "FactionAmericaAirForceGeneral"
+            );
+            assert!(persona.starts_enabled);
+            assert_eq!(persona.taunt_sound1, "Taunts_Grainger061");
+            assert_eq!(persona.campaign, "CHALLENGE_0");
+        }
 
         let mut generals = get_challenge_generals_mut();
         *generals = original;

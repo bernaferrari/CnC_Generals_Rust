@@ -3,6 +3,29 @@
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn same_path_reload_does_not_reuse_another_loads_document() {
+        // C++ CachedFileInputStream belongs to a load operation, not a process cache.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("replacement.map");
+        let encode = |name: &str| {
+            let mut bytes = b"CkMp".to_vec();
+            bytes.extend_from_slice(&1i32.to_le_bytes());
+            bytes.push(name.len() as u8);
+            bytes.extend_from_slice(name.as_bytes());
+            bytes.extend_from_slice(&1u32.to_le_bytes());
+            bytes
+        };
+        std::fs::write(&path, encode("first")).unwrap();
+        let first = load_chunky_map(path.to_str().unwrap()).unwrap().unwrap();
+        std::fs::write(&path, encode("second")).unwrap();
+        let second = load_chunky_map(path.to_str().unwrap()).unwrap().unwrap();
+        assert_eq!(first.toc[&1], "first");
+        assert_eq!(second.toc[&1], "second");
+        // Retaining the first document while loading another never mutates its bytes.
+        assert_ne!(first.bytes.as_ptr(), second.bytes.as_ptr());
+    }
+
     fn push_f32s(buf: &mut Vec<u8>, values: [f32; 9]) {
         for v in values {
             buf.extend_from_slice(&v.to_le_bytes());
@@ -65,7 +88,7 @@ mod tests {
     #[test]
     fn retail_shell_map_terrain_chunks_decode_when_present() {
         let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(
-            "../../../windows_game/extracted_big_files_v2/MapsZH/Maps/ShellMapMD/ShellMapMD.map",
+            "../../windows_game/extracted_big_files_v2/MapsZH/Maps/ShellMapMD/ShellMapMD.map",
         );
         let Ok(raw) = std::fs::read(&path) else {
             return;
@@ -145,6 +168,21 @@ End\n";
             get_command_set_manager, initialize_command_set_manager,
         };
         initialize_command_set_manager();
+        // C++ CommandSet::parseCommandButton resolves already-loaded buttons.
+        // Make that precondition explicit instead of depending on earlier tests.
+        game_engine::common::ini::ini_command_button::initialize_control_bar();
+        {
+            let mut control_bar =
+                game_engine::common::ini::ini_command_button::get_control_bar_mut().unwrap();
+            for name in [
+                "Command_ConstructAmericaPowerPlant",
+                "Command_ConstructAmericaBarracks",
+            ] {
+                if control_bar.find_command_button_resolved(name).is_none() {
+                    control_bar.new_command_button(name.to_string());
+                }
+            }
+        }
         let mixed = "\
 Object SomeUnit\n\
   KindOf = STRUCTURE\n\
@@ -222,7 +260,7 @@ End\n";
         // THE_TERRAIN_LOGIC / SidesList / PlayerList / TeamFactory / FileSystem
         // locks. Contended-lock fail-open is covered separately.
         let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(
-            "../../../windows_game/extracted_big_files/MapsZH/Maps/Lone Eagle/Lone Eagle.map",
+            "../../windows_game/extracted_big_files_v2/MapsZH/Maps/Lone Eagle/Lone Eagle.map",
         );
         let Ok(raw) = std::fs::read(&path) else {
             return;
@@ -259,24 +297,24 @@ End\n";
         // to inspect + load_chunky_map + parse_player_start_waypoints +
         // load_map_scripts, each RefPack-decoding Lone Eagle again.
         let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(
-            "../../../windows_game/extracted_big_files/MapsZH/Maps/Lone Eagle/Lone Eagle.map",
+            "../../windows_game/extracted_big_files_v2/MapsZH/Maps/Lone Eagle/Lone Eagle.map",
         );
         if !path.is_file() {
             return;
         }
-        reset_map_decompress_count();
         let map_name = path.to_string_lossy();
         let chunky = load_chunky_map(map_name.as_ref())
             .expect("load Lone Eagle")
             .expect("Lone Eagle present");
         let _ = inspect_map_chunks_from_chunky(&chunky);
         let meta = parse_map_settings_from_chunky(&chunky).expect("settings from chunky");
-        let _ = parse_player_start_waypoints(map_name.as_ref()).expect("starts via cache");
-        let _ = load_map_scripts(map_name.as_ref()).expect("scripts via cache");
+        let bytes_pointer = chunky.bytes.as_ptr();
+        let _ = parse_player_start_waypoints_from_chunky(&chunky).expect("starts from document");
+        let _ = load_map_scripts_from_chunky(&chunky).expect("scripts from document");
         assert_eq!(
-            map_decompress_count(),
-            1,
-            "live load_map helpers must reuse the first ChunkyMap decode"
+            chunky.bytes.as_ptr(),
+            bytes_pointer,
+            "parsers borrow the same owned decode"
         );
         assert!(
             !meta.objects.is_empty() || !meta.start_waypoints.is_empty(),

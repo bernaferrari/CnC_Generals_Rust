@@ -169,8 +169,8 @@ impl Default for AIData {
             guard_inner_modifier_human: 0.0,
             guard_outer_modifier_human: 0.0,
             guard_chase_unit_frames: 0,
-            guard_enemy_scan_rate: 30,
-            guard_enemy_return_scan_rate: 60,
+            guard_enemy_scan_rate: 15,
+            guard_enemy_return_scan_rate: 30,
             wall_height: 0.0,
             alert_range_modifier: 0.0,
             aggressive_range_modifier: 0.0,
@@ -279,9 +279,7 @@ pub fn get_ai_data_store() -> Arc<RwLock<AIDataStore>> {
 }
 
 /// Install a world bundle's AIData store and return the store it replaced.
-pub fn install_ai_data_store(
-    store: Arc<RwLock<AIDataStore>>,
-) -> Option<Arc<RwLock<AIDataStore>>> {
+pub fn install_ai_data_store(store: Arc<RwLock<AIDataStore>>) -> Option<Arc<RwLock<AIDataStore>>> {
     let mut active = AI_DATA_ACTIVE
         .write()
         .unwrap_or_else(|poisoned| poisoned.into_inner());

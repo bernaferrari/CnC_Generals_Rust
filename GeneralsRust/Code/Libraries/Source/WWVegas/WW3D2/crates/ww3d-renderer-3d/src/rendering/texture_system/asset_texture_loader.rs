@@ -4,6 +4,7 @@
 //! asset manager, enabling loading of textures from .big archives and other
 //! asset sources.
 
+use super::image_upload_format::image_format_to_wgpu;
 use crate::core::error::{Error, RendererResult};
 use crate::rendering::texture_system::dds_loader::{DdsTextureType, load_dds_from_memory};
 use crate::rendering::texture_system::texture_base::{PoolType, TexAssetType, TextureBaseClass};
@@ -232,7 +233,7 @@ impl AssetTextureLoader {
                 DdsTextureType::CubeMap => TextureDimension::D2,
                 DdsTextureType::Volume => TextureDimension::D3,
             },
-            format: dds_data.format,
+            format: image_format_to_wgpu(dds_data.format),
             usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
             view_formats: &[],
         };
@@ -339,7 +340,7 @@ impl AssetTextureLoader {
             &tga_data.data,
             tga_data.width,
             tga_data.height,
-            tga_data.format,
+            image_format_to_wgpu(tga_data.format),
             false,
         )
     }

@@ -4143,6 +4143,8 @@ dependencies = [
  "game_engine",
  "game_network",
  "gamelogic",
+ "generals_particles",
+ "generals_ui",
  "gilrs",
  "glam 0.33.7",
  "gltf",
@@ -4419,6 +4421,7 @@ dependencies = [
  "game_engine",
  "game_network",
  "game_pathfinding",
+ "generals_map",
  "glam 0.33.7",
  "kdtree",
  "lazy_static",
@@ -4514,6 +4517,7 @@ dependencies = [
  "gamelogic",
  "generals_compression",
  "generals_game_domain",
+ "generals_map",
  "generals_presentation",
  "glam 0.33.7",
  "image",
@@ -4549,6 +4553,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "generals_map"
+version = "0.1.0"
+
+[[package]]
+name = "generals_particles"
+version = "0.1.0"
+dependencies = [
+ "glam 0.33.7",
+]
+
+[[package]]
 name = "generals_presentation"
 version = "0.1.0"
 dependencies = [
@@ -4556,6 +4571,10 @@ dependencies = [
  "glam 0.33.7",
  "serde",
 ]
+
+[[package]]
+name = "generals_ui"
+version = "0.1.0"
 
 [[package]]
 name = "generator"

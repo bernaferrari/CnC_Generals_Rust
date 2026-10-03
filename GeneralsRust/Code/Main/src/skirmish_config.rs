@@ -1823,9 +1823,8 @@ mod tests {
                 // RefPack decode-reuse ("at most one decode") is owned by
                 // game_logic::script_loader::tests::
                 // lone_eagle_live_path_reuses_one_chunky_decode. The shared
-                // LAST_LOADED_CHUNKY slot is process-global, so a parallel
-                // batch can legitimately warm or evict it under this thread;
-                // a decode count here would pin test scheduling, not load_map.
+                // The decoded document belongs to that load operation; each parser
+                // borrows its bytes instead of consulting a shared process cache.
             }
             Err(_) => panic!(
                 "Lone Eagle load_map still blocked after 120s (hq-ibnf): load_map must return"

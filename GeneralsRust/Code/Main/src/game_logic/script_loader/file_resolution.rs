@@ -248,9 +248,6 @@ pub fn load_chunky_map(map_name: &str) -> LoaderResult<Option<ChunkyMap>> {
     let Some(path) = locate_map_file(map_name) else {
         return Ok(None);
     };
-    if let Some(cached) = cached_chunky_for(&path) {
-        return Ok(Some(cached));
-    }
 
     let raw_bytes = read_file_bytes_for_runtime(&path).ok_or_else(|| {
         configuration_error(format!(
@@ -270,13 +267,5 @@ pub fn load_chunky_map(map_name: &str) -> LoaderResult<Option<ChunkyMap>> {
         })?
     };
 
-    let (toc, body_offset) = parse_chunk_toc(&bytes)?;
-    let chunky = ChunkyMap {
-        source: path,
-        toc,
-        body_offset,
-        bytes,
-    };
-    remember_loaded_chunky(&chunky);
-    Ok(Some(chunky))
+    Ok(Some(ChunkyMap::decode(path, bytes)?))
 }

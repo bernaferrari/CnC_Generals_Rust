@@ -390,10 +390,10 @@ End
         fs::create_dir_all(temp_root.join("windows_game/extracted_big_files/INIZH/Data/INI"))
             .unwrap();
         fs::create_dir_all(
-            temp_root.join("windows_game/extracted_big_files_v2/INI/Default"),
+            temp_root.join("windows_game/extracted_big_files_v2/INIZH/Data/INI/Default"),
         )
         .unwrap();
-        fs::create_dir_all(temp_root.join("windows_game/extracted_big_files_v2/INI"))
+        fs::create_dir_all(temp_root.join("windows_game/extracted_big_files_v2/INIZH/Data/INI"))
             .unwrap();
 
         for path in [
@@ -404,10 +404,10 @@ End
             ),
             temp_root.join("windows_game/extracted_big_files/INIZH/Data/INI/ShellMenuScheme.ini"),
             temp_root.join(
-                "windows_game/extracted_big_files_v2/INI/Default/ShellMenuScheme.ini",
+                "windows_game/extracted_big_files_v2/INIZH/Data/INI/Default/ShellMenuScheme.ini",
             ),
             temp_root
-                .join("windows_game/extracted_big_files_v2/INI/ShellMenuScheme.ini"),
+                .join("windows_game/extracted_big_files_v2/INIZH/Data/INI/ShellMenuScheme.ini"),
         ] {
             fs::write(path, b"").unwrap();
         }
@@ -438,12 +438,12 @@ End
             )
             .unwrap(),
             fs::canonicalize(temp_root.join(
-                "windows_game/extracted_big_files_v2/INI/Default/ShellMenuScheme.ini",
+                "windows_game/extracted_big_files_v2/INIZH/Data/INI/Default/ShellMenuScheme.ini",
             ))
             .unwrap(),
             fs::canonicalize(
                 temp_root
-                    .join("windows_game/extracted_big_files_v2/INI/ShellMenuScheme.ini"),
+                    .join("windows_game/extracted_big_files_v2/INIZH/Data/INI/ShellMenuScheme.ini"),
             )
             .unwrap(),
         ];
@@ -490,6 +490,41 @@ End
         top_window.borrow_mut().set_size(120, 80).unwrap();
         manager.register_window(top_window.clone(), AnimationType::SlideTop, false, 100, 0);
         assert_eq!(top_window.borrow().get_position(), (25, -760));
+    }
+
+    #[test]
+    fn shell_animation_adapter_updates_actual_window_and_restores_without_shared_model_state() {
+        let mut first = AnimateWindowManager::new();
+        let mut second = AnimateWindowManager::new();
+        let first_window = Rc::new(RefCell::new(GameWindow::new()));
+        let second_window = Rc::new(RefCell::new(GameWindow::new()));
+        first_window.borrow_mut().set_position(25, 40).unwrap();
+        second_window.borrow_mut().set_position(90, 100).unwrap();
+        first.register_window(
+            first_window.clone(),
+            AnimationType::SlideRight,
+            true,
+            100,
+            0,
+        );
+        second.register_window(
+            second_window.clone(),
+            AnimationType::SlideBottomTimed,
+            true,
+            100,
+            0,
+        );
+        let now = Instant::now() + Duration::from_secs(1);
+        first.update_at(now);
+        second.update_at(now);
+        assert_eq!(first_window.borrow().get_position(), (785, 40));
+        assert_eq!(second_window.borrow().get_position(), (90, 100));
+        second.reverse_animate_window();
+        second.update_at(Instant::now() + Duration::from_secs(1));
+        assert_eq!(second_window.borrow().get_position(), (90, 900));
+        first.reset();
+        assert_eq!(first_window.borrow().get_position(), (25, 40));
+        assert_eq!(second_window.borrow().get_position(), (90, 900));
     }
 
     #[test]

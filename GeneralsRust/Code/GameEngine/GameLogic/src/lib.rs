@@ -341,6 +341,12 @@ pub fn update() -> GameLogicResult<()> {
     Ok(())
 }
 
+impl From<generals_map::DecodeError> for GameLogicError {
+    fn from(error: generals_map::DecodeError) -> Self {
+        Self::Configuration(error.to_string())
+    }
+}
+
 /// Get the current version of the game logic system
 pub fn version() -> &'static str {
     env!("CARGO_PKG_VERSION")
