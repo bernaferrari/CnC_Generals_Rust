@@ -75,7 +75,6 @@ fn apply_transport_death_scatter(
     container_id: ObjectId,
     container_pos: glam::Vec3,
     bounding_radius: f32,
-    now: u32,
 ) -> glam::Vec3 {
     let leftover = gamelogic::object::contain::open_contain::leftover_scatter_to_nearby_position(
         container_pos.x,
@@ -96,7 +95,9 @@ fn apply_transport_death_scatter(
     // through ignore_collisions_with; scatter does not start a collision timer.
     unit.ignored_obstacle_id = Some(container_id);
     unit.ignore_collisions_with = Some(container_id);
-    unit.next_mood_check_time = now;
+    // TransportContain.cpp:389–393 scatters before wakeUpAndAttemptToTarget.
+    // The move makes the rider active, so AIUpdate.cpp:4430 preserves its
+    // mood deadline and jitter flag even when ResetMoodCheckTimeOnExit is true.
     if crate::gameworld_shadow::gameworld_movement_authority_live() {
         crate::game_logic::host_move_log::record(
             unit.id,
@@ -655,7 +656,6 @@ impl GameLogic {
                                     event.id,
                                     eject_origin,
                                     scatter_radius,
-                                    self.frame,
                                 ))
                             } else {
                                 let angle =
@@ -1598,6 +1598,7 @@ mod tests {
             r.health.current = 100.0;
             r.max_health = 100.0;
             r.next_mood_check_time = 9999;
+            r.randomly_offset_mood_check = false;
         }
         logic.mark_object_for_destruction(transport, None);
         logic.process_destroy_list();
@@ -1638,9 +1639,10 @@ mod tests {
             "orientation must match the leftover scatter angle"
         );
         assert_eq!(
-            r.next_mood_check_time, 42,
-            "ResetMoodCheckTimeOnExit wakes the rider immediately"
+            r.next_mood_check_time, 9999,
+            "death scatter starts movement before the idle-only mood wake"
         );
+        assert!(!r.randomly_offset_mood_check);
         let audio =
             gamelogic::object::contain::open_contain::leftover_last_on_removing_template_call()
                 .expect("onRemoving template audio");

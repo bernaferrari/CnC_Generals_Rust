@@ -6,21 +6,23 @@ thread_local! {
         const { std::cell::RefCell::new(None) };
 }
 
-struct CurUpdateModuleGuard;
+// Temporary legacy publication must restore an outer synchronous update.
+// New scheduling callbacks use their explicit context instead of this slot.
+struct CurUpdateModuleGuard {
+    previous: Option<UpdateModulePtr>,
+}
 
 impl Drop for CurUpdateModuleGuard {
     fn drop(&mut self) {
         CUR_UPDATE_MODULE.with(|slot| {
-            slot.borrow_mut().take();
+            *slot.borrow_mut() = self.previous.take();
         });
     }
 }
 
 fn enter_cur_update_module(module: &UpdateModulePtr) -> CurUpdateModuleGuard {
-    CUR_UPDATE_MODULE.with(|slot| {
-        *slot.borrow_mut() = Some(Arc::clone(module));
-    });
-    CurUpdateModuleGuard
+    let previous = CUR_UPDATE_MODULE.with(|slot| slot.borrow_mut().replace(Arc::clone(module)));
+    CurUpdateModuleGuard { previous }
 }
 
 pub(crate) fn is_cur_update_module(module: &UpdateModulePtr) -> bool {
@@ -39,26 +41,98 @@ fn disabled_module_should_process(
     !object_disabled.any() || object_disabled.intersects(module_disabled_types)
 }
 
+/// Borrow only scheduling state, not the mutable match or an ambient singleton.
+struct SleepyUpdateContext<'a> {
+    queue: &'a mut SleepyUpdateQueue,
+    normal: &'a mut Vec<NormalUpdateEntry>,
+    lookup: &'a mut HashMap<ObjectID, Vec<ModuleIdentity>>,
+    current: &'a UpdateModulePtr,
+    now: UnsignedInt,
+}
+
+fn awaken_registered_update(
+    queue: &mut SleepyUpdateQueue,
+    module: &UpdateModulePtr,
+    now: UnsignedInt,
+    wake: UnsignedInt,
+) {
+    let wake = wake.min(UPDATE_SLEEP_FOREVER_FRAMES);
+    let Some(entry) = queue.entry_for(module) else {
+        return;
+    };
+    // C++ GameLogic.cpp:2971–2982: already awake must still run this frame.
+    if entry.wake_frame == wake
+        || (now > 0 && entry.wake_frame == now && wake == now.saturating_add(1))
+    {
+        return;
+    }
+    let phase = module.read().ok().map(|update| update.get_update_phase());
+    queue.reschedule(module, wake, phase);
+}
+
+impl UpdateScheduleContext for SleepyUpdateContext<'_> {
+    fn frame(&self) -> u32 {
+        self.now
+    }
+
+    fn awaken(&mut self, module: &UpdateModulePtr, wake_frame: u32) {
+        // C++ GameLogic.cpp:2965–2969: this update's returned sleep wins.
+        if !Arc::ptr_eq(self.current, module) {
+            awaken_registered_update(self.queue, module, self.now, wake_frame);
+        }
+    }
+
+    fn unregister(&mut self, module: &UpdateModulePtr) {
+        unregister_registered_update(self.queue, self.normal, self.lookup, module);
+    }
+}
+
+// Registration metadata belongs to the canonical list/heap entry. Remove only
+// its owner's keys; admitting a new module must not scan every match object.
+fn remove_registration_identity(
+    lookup: &mut HashMap<ObjectID, Vec<ModuleIdentity>>,
+    owner: ObjectID,
+    identity: ModuleIdentity,
+) {
+    if let Some(modules) = lookup.get_mut(&owner) {
+        modules.retain(|entry| *entry != identity);
+        if modules.is_empty() {
+            lookup.remove(&owner);
+        }
+    }
+}
+
+fn unregister_registered_update(
+    queue: &mut SleepyUpdateQueue,
+    normal: &mut Vec<NormalUpdateEntry>,
+    lookup: &mut HashMap<ObjectID, Vec<ModuleIdentity>>,
+    module: &UpdateModulePtr,
+) {
+    let sleepy_owner = queue.erase(module).map(|entry| entry.object_id);
+    let normal_owner = normal
+        .iter()
+        .find(|entry| Arc::ptr_eq(&entry.module, module))
+        .map(|entry| entry.object_id);
+    if normal_owner.is_some() {
+        normal.retain(|entry| !Arc::ptr_eq(&entry.module, module));
+    }
+    let identity = ModuleIdentity::of(module);
+    for owner in [sleepy_owner, normal_owner].into_iter().flatten() {
+        remove_registration_identity(lookup, owner, identity);
+    }
+}
+
 impl GameLogic {
     fn process_sleepy_updates(&mut self, current_frame: UnsignedInt) {
-        let mut processed = 0usize;
-        let mut requeue: Vec<SleepyUpdateEntry> = Vec::new();
-
-        // C++ lines 3698-3713: While loop processes all ready updates
+        // C++ GameLogic.cpp:3698–3736 keeps a module registered during update,
+        // then rebalances it immediately before executing the next callback.
         while let Some(entry) = self.sleepy_updates.peek() {
-            // C++ line 3710: Check if wake frame has arrived
             if entry.wake_frame > current_frame {
-                // No more entries ready to wake
                 break;
             }
-
-            let mut entry = self
-                .sleepy_updates
-                .pop()
-                .expect("Heap became empty after peek");
-
-            let (module_disabled_mask, phase) = entry
-                .module
+            let object_id = entry.object_id;
+            let module = Arc::clone(&entry.module);
+            let (module_disabled_mask, phase) = module
                 .read()
                 .map(|module| {
                     (
@@ -68,82 +142,69 @@ impl GameLogic {
                 })
                 .unwrap_or((DisabledMaskType::empty(), SleepyUpdatePhase::Normal));
 
-            // Scoped map borrow for the disabled-flag check — no Arc handle
-            // clone per entry. A missing object still drops the entry (its
-            // module belongs to a dead object); a poisoned lock still reads
-            // as "not disabled".
-            let object_disabled = match self.objects.get(&entry.object_id) {
-                Some(obj_ref) => obj_ref.read().ok().map(|obj| obj.get_disabled_flags()),
-                None => continue,
+            let object_disabled = match self.objects.get(&object_id) {
+                Some(object) => object.read().ok().map(|object| object.get_disabled_flags()),
+                None => {
+                    self.unregister_update_module(object_id, module);
+                    continue;
+                }
             };
-            let should_process = match object_disabled {
-                Some(mask) => disabled_module_should_process(mask, module_disabled_mask),
-                None => true,
-            };
-
-            // Update the module and get next wake time
-            // C++ lines 3717-3732: Check disabled flags and call update()
-            let next_wake;
-            if should_process {
-                let _cur = enter_cur_update_module(&entry.module);
-                match entry.module.write() {
-                    Ok(mut module) => match module.update() {
-                        Ok(sleep_time) => {
-                            processed += 1;
-                            match sleep_time {
-                                UpdateSleepTime::Forever => {
-                                    // C++ friend_setNextCallFrame(now + FOREVER) then clamp.
-                                    next_wake = Some(UPDATE_SLEEP_FOREVER_FRAMES);
-                                }
-                                UpdateSleepTime::None => {
-                                    next_wake = Some(current_frame.saturating_add(1));
-                                }
-                                UpdateSleepTime::Frames(frames) => {
-                                    let sleep_frames = frames.max(1);
-                                    let wake = current_frame
-                                        .saturating_add(sleep_frames)
-                                        .min(UPDATE_SLEEP_FOREVER_FRAMES);
-                                    next_wake = Some(wake);
-                                }
+            let should_process = object_disabled
+                .map(|mask| disabled_module_should_process(mask, module_disabled_mask))
+                .unwrap_or(true);
+            let sleep = if should_process {
+                // Legacy callers still use this bridge; explicit scheduling
+                // callbacks below do not discover it or lock GameLogic again.
+                let _cur = enter_cur_update_module(&module);
+                match module.write() {
+                    Ok(mut update) => {
+                        let mut context = SleepyUpdateContext {
+                            queue: &mut self.sleepy_updates,
+                            normal: &mut self.normal_updates,
+                            lookup: &mut self.module_lookup,
+                            current: &module,
+                            now: current_frame,
+                        };
+                        match update.update_scheduled(&mut context) {
+                            Ok(sleep) => sleep,
+                            Err(error) => {
+                                warn!(
+                                    "Sleepy update module for object {} failed: {}",
+                                    object_id, error
+                                );
+                                UpdateSleepTime::None
                             }
                         }
-                        Err(e) => {
-                            warn!(
-                                "Sleepy update module for object {} failed: {}",
-                                entry.object_id, e
-                            );
-                            // Retry next frame
-                            next_wake = Some(current_frame.saturating_add(1));
-                        }
-                    },
+                    }
                     Err(_) => {
                         warn!(
                             "Sleepy update module lock poisoned for object {}",
-                            entry.object_id
+                            object_id
                         );
-                        next_wake = Some(current_frame.saturating_add(1));
+                        UpdateSleepTime::None
                     }
                 }
             } else {
-                next_wake = Some(current_frame.saturating_add(1));
-            }
-
-            // Requeue for next wake (C++ line 3735-3736)
-            if let Some(wake_frame) = next_wake {
-                entry.phase = entry
-                    .module
+                UpdateSleepTime::None
+            };
+            let next_wake = match sleep {
+                UpdateSleepTime::Forever => UPDATE_SLEEP_FOREVER_FRAMES,
+                UpdateSleepTime::None => current_frame
+                    .saturating_add(1)
+                    .min(UPDATE_SLEEP_FOREVER_FRAMES),
+                UpdateSleepTime::Frames(frames) => current_frame
+                    .saturating_add(frames.max(1))
+                    .min(UPDATE_SLEEP_FOREVER_FRAMES),
+            };
+            // An explicit callback can unregister itself. Never resurrect it.
+            if self.sleepy_updates.index_of(&module).is_some() {
+                let phase = module
                     .read()
-                    .map(|module| module.get_update_phase())
+                    .map(|update| update.get_update_phase())
                     .unwrap_or(phase);
-                entry.wake_frame = wake_frame;
-                requeue.push(entry);
+                self.sleepy_updates
+                    .reschedule(&module, next_wake, Some(phase));
             }
-        }
-
-        // Re-add entries back to heap (C++ line 3737: rebalanceSleepyUpdate)
-        // BinaryHeap automatically maintains heap property on push
-        for entry in requeue {
-            self.sleepy_updates.push(entry);
         }
     }
 
@@ -152,113 +213,38 @@ impl GameLogic {
         module: &UpdateModulePtr,
         when_to_wake_up: UnsignedInt,
     ) {
-        let now = self.frame;
-        if when_to_wake_up < now {
+        if when_to_wake_up < self.frame {
             warn!(
                 "setWakeFrame frame {} is in the past (now={})",
-                when_to_wake_up, now
+                when_to_wake_up, self.frame
             );
         }
-
-        // C++ GameLogic.cpp:2965-2969 — ignore awaken from inside the current module update.
-        if is_cur_update_module(module) {
-            return;
-        }
-
-        // C++ UpdateModule.h friend_setNextCallFrame: anything > FOREVER is still FOREVER.
-        let when_to_wake_up = when_to_wake_up.min(UPDATE_SLEEP_FOREVER_FRAMES);
-
-        let existing = self
-            .sleepy_updates
-            .iter()
-            .find(|entry| Arc::ptr_eq(&entry.module, module))
-            .map(|entry| (entry.object_id, entry.wake_frame, entry.phase));
-
-        if let Some((object_id, current_wake, phase)) = existing {
-            // C++ GameLogic.cpp:2971-2972 — already scheduled for this frame.
-            if current_wake == when_to_wake_up {
-                return;
-            }
-            // C++ GameLogic.cpp:2974-2982 — already awake at `now`; UPDATE_SLEEP_NONE
-            // (now+1) must not defer this frame.
-            if now > 0 && current_wake == now && when_to_wake_up == now.saturating_add(1) {
-                return;
-            }
-
-            let mut heap = BinaryHeap::new();
-            while let Some(entry) = self.sleepy_updates.pop() {
-                if !Arc::ptr_eq(&entry.module, module) {
-                    heap.push(entry);
-                }
-            }
-            heap.push(SleepyUpdateEntry {
-                wake_frame: when_to_wake_up,
-                phase,
-                object_id,
-                module: Arc::clone(module),
-            });
-            self.sleepy_updates = heap;
-            return;
-        }
-
-        // C++ GameLogic.cpp:3018-3021: not yet in the heap (ctor / init). Remember the
-        // requested wake only if we already know the owning object; never invent id 0.
-        let obj_id = self
-            .module_lookup
-            .iter()
-            .find(|(_, mods)| mods.iter().any(|m| Arc::ptr_eq(m, module)))
-            .map(|(id, _)| *id);
-
-        if let Some(object_id) = obj_id {
-            let phase = module
-                .read()
-                .map(|m| m.get_update_phase())
-                .unwrap_or(SleepyUpdatePhase::Normal);
-            self.sleepy_updates.push(SleepyUpdateEntry {
-                wake_frame: when_to_wake_up,
-                phase,
-                object_id,
-                module: Arc::clone(module),
-            });
+        if !is_cur_update_module(module) {
+            awaken_registered_update(
+                &mut self.sleepy_updates,
+                module,
+                self.frame,
+                when_to_wake_up,
+            );
         }
     }
 
-    /// C++ parity: GameLogic::rebalanceSleepyUpdate() (GameLogic.cpp line 2881)
-    ///
-    /// The Rust BinaryHeap auto-rebalances on push/pop, so this is a no-op
-    /// that exists for API parity with C++.
-    pub fn rebalance_sleepy_update(&mut self, _index: usize) {
-        // BinaryHeap auto-rebalances; no manual work needed
+    /// C++ GameLogic.cpp:2881: parent first, then child, with strict priorities.
+    pub fn rebalance_sleepy_update(&mut self, index: usize) {
+        self.sleepy_updates.rebalance(index);
     }
 
-    /// C++ parity: GameLogic::rebalanceParentSleepyUpdate() (GameLogic.cpp line 2773)
-    ///
-    /// In C++, this bubbles an element up the heap. BinaryHeap handles this
-    /// automatically, so this is a no-op for parity.
-    pub fn rebalance_parent_sleepy_update(&mut self, _index: usize) -> usize {
-        0
+    pub fn rebalance_parent_sleepy_update(&mut self, index: usize) -> usize {
+        self.sleepy_updates.rebalance_parent(index)
     }
 
-    /// C++ parity: GameLogic::rebalanceChildSleepyUpdate() (GameLogic.cpp line 2799)
-    ///
-    /// In C++, this sifts an element down the heap. BinaryHeap handles this
-    /// automatically, so this is a no-op for parity.
-    pub fn rebalance_child_sleepy_update(&mut self, _index: usize) -> usize {
-        0
+    pub fn rebalance_child_sleepy_update(&mut self, index: usize) -> usize {
+        self.sleepy_updates.rebalance_child(index)
     }
 
-    /// C++ parity: GameLogic::validateSleepyUpdate() (GameLogic.cpp line 2693)
-    ///
-    /// Debug validation of the sleepy update heap. In C++ this checks parent/child
-    /// priority ordering and index consistency. In Rust, BinaryHeap maintains
-    /// invariants automatically.
-    #[cfg(debug_assertions)]
     pub fn validate_sleepy_update(&self) {
-        // BinaryHeap maintains its own invariants
+        self.sleepy_updates.validate();
     }
-
-    #[cfg(not(debug_assertions))]
-    pub fn validate_sleepy_update(&self) {}
 
     /// Process normal (every-frame) update modules
     fn process_normal_updates(&mut self) {
@@ -333,12 +319,13 @@ impl GameLogic {
 
     /// Register a normal (every-frame) update module
     pub fn register_normal_update_module(&mut self, object_id: ObjectID, module: UpdateModulePtr) {
-        let entry = self.module_lookup.entry(object_id).or_insert_with(Vec::new);
-        entry.retain(|existing| !Arc::ptr_eq(existing, &module));
-        entry.push(module.clone());
+        // Move one registration between categories/owners, never duplicate it.
+        self.unregister_update_module(object_id, Arc::clone(&module));
+        self.module_lookup
+            .entry(object_id)
+            .or_default()
+            .push(ModuleIdentity::of(&module));
 
-        self.normal_updates
-            .retain(|tracked| !Arc::ptr_eq(&tracked.module, &module));
         self.normal_updates
             .push(NormalUpdateEntry { object_id, module });
     }
@@ -350,9 +337,12 @@ impl GameLogic {
         module: UpdateModulePtr,
         wake_frame: UnsignedInt,
     ) {
-        let entry = self.module_lookup.entry(object_id).or_insert_with(Vec::new);
-        entry.retain(|existing| !Arc::ptr_eq(existing, &module));
-        entry.push(module.clone());
+        // Move one registration between categories/owners, never duplicate it.
+        self.unregister_update_module(object_id, Arc::clone(&module));
+        self.module_lookup
+            .entry(object_id)
+            .or_default()
+            .push(ModuleIdentity::of(&module));
 
         // C++ GameLogic.cpp:3872-3899 — wake 0 (ctor never called setWakeFrame) becomes
         // the current frame, or 1 when the world is still on frame 0, so the module
@@ -362,17 +352,6 @@ impl GameLogic {
         } else {
             wake_frame.min(UPDATE_SLEEP_FOREVER_FRAMES)
         };
-
-        // Remove existing entry if present
-        if !self.sleepy_updates.is_empty() {
-            let mut heap = BinaryHeap::new();
-            while let Some(entry) = self.sleepy_updates.pop() {
-                if !Arc::ptr_eq(&entry.module, &module) {
-                    heap.push(entry);
-                }
-            }
-            self.sleepy_updates = heap;
-        }
 
         let phase = module
             .read()
@@ -420,49 +399,25 @@ impl GameLogic {
         false
     }
 
-
     /// Unregister an update module
-    pub fn unregister_update_module(&mut self, object_id: ObjectID, module: UpdateModulePtr) {
-        self.normal_updates
-            .retain(|entry| !Arc::ptr_eq(&entry.module, &module));
-
-        if !self.sleepy_updates.is_empty() {
-            let mut heap = BinaryHeap::new();
-            while let Some(entry) = self.sleepy_updates.pop() {
-                if !Arc::ptr_eq(&entry.module, &module) {
-                    heap.push(entry);
-                }
-            }
-            self.sleepy_updates = heap;
-        }
-
-        if let Some(list) = self.module_lookup.get_mut(&object_id) {
-            list.retain(|existing| !Arc::ptr_eq(existing, &module));
-            if list.is_empty() {
-                self.module_lookup.remove(&object_id);
-            }
-        }
+    pub fn unregister_update_module(&mut self, _object_id: ObjectID, module: UpdateModulePtr) {
+        unregister_registered_update(
+            &mut self.sleepy_updates,
+            &mut self.normal_updates,
+            &mut self.module_lookup,
+            &module,
+        );
     }
 
     /// Remove all update modules for an object
     fn remove_updates_for_object(&mut self, object_id: ObjectID) {
         if let Some(entries) = self.module_lookup.remove(&object_id) {
-            self.normal_updates.retain(|tracked| {
-                !entries
-                    .iter()
-                    .any(|registered| Arc::ptr_eq(registered, &tracked.module))
-            });
-        }
-
-        if !self.sleepy_updates.is_empty() {
-            let mut heap = BinaryHeap::new();
-            while let Some(entry) = self.sleepy_updates.pop() {
-                if entry.object_id != object_id {
-                    heap.push(entry);
-                }
+            for module in entries {
+                self.sleepy_updates.erase_identity(module);
             }
-            self.sleepy_updates = heap;
         }
+        self.normal_updates
+            .retain(|entry| entry.object_id != object_id);
     }
 
     /// PARITY_NOTE: GameLogic::pushSleepyUpdate(UpdateModulePtr) C++ line 2907.
@@ -475,7 +430,13 @@ impl GameLogic {
 
     /// PARITY_NOTE: GameLogic::popSleepyUpdate() C++ line 2930.
     pub fn pop_sleepy_update(&mut self) -> Option<SleepyUpdateEntry> {
-        self.sleepy_updates.pop()
+        let entry = self.sleepy_updates.pop()?;
+        remove_registration_identity(
+            &mut self.module_lookup,
+            entry.object_id,
+            ModuleIdentity::of(&entry.module),
+        );
+        Some(entry)
     }
 
     /// PARITY_NOTE: GameLogic::peekSleepyUpdate() C++ line 2920.
@@ -485,21 +446,18 @@ impl GameLogic {
 
     /// PARITY_NOTE: GameLogic::eraseSleepyUpdate(Int i) C++ line 2737.
     pub fn erase_sleepy_update(&mut self, target_module: &UpdateModulePtr) {
-        let mut heap = BinaryHeap::new();
-        while let Some(entry) = self.sleepy_updates.pop() {
-            if !Arc::ptr_eq(&entry.module, target_module) {
-                heap.push(entry);
-            }
+        if let Some(entry) = self.sleepy_updates.erase(target_module) {
+            remove_registration_identity(
+                &mut self.module_lookup,
+                entry.object_id,
+                ModuleIdentity::of(target_module),
+            );
         }
-        self.sleepy_updates = heap;
     }
 
-    /// PARITY_NOTE: GameLogic::remakeSleepyUpdate() C++ line 2890.
+    /// C++ GameLogic.cpp:2890: bottom-up child rebalancing, including equal ties.
     pub fn remake_sleepy_update(&mut self) {
-        let entries: Vec<SleepyUpdateEntry> = self.sleepy_updates.drain().collect();
-        for entry in entries {
-            self.sleepy_updates.push(entry);
-        }
+        self.sleepy_updates.remake();
     }
 
     pub fn sleepy_update_count(&self) -> usize {
@@ -509,15 +467,11 @@ impl GameLogic {
     fn refresh_global_weapon_bonuses(&mut self) {
         self.global_weapon_bonus_set = build_global_weapon_bonus_set();
     }
-
 }
 
 #[cfg(test)]
 impl GameLogic {
-    fn sleepy_entry_for(
-        &self,
-        module: &UpdateModulePtr,
-    ) -> Option<(ObjectID, UnsignedInt)> {
+    fn sleepy_entry_for(&self, module: &UpdateModulePtr) -> Option<(ObjectID, UnsignedInt)> {
         self.sleepy_updates
             .iter()
             .find(|entry| Arc::ptr_eq(&entry.module, module))
@@ -540,9 +494,7 @@ mod sleepy_parity_tests {
     }
 
     impl UpdateModuleInterface for CountingUpdate {
-        fn update(
-            &mut self,
-        ) -> Result<UpdateSleepTime, Box<dyn std::error::Error + Send + Sync>> {
+        fn update(&mut self) -> Result<UpdateSleepTime, Box<dyn std::error::Error + Send + Sync>> {
             self.count.fetch_add(1, Ordering::SeqCst);
             Ok(self.sleep)
         }
@@ -586,7 +538,10 @@ mod sleepy_parity_tests {
             .sleepy_entry_for(&module)
             .expect("module stays on heap");
         assert_eq!(object_id, 11);
-        assert_eq!(wake, 10, "inside-update awaken must not rewrite the wake frame");
+        assert_eq!(
+            wake, 10,
+            "inside-update awaken must not rewrite the wake frame"
+        );
     }
 
     #[test]
@@ -615,7 +570,8 @@ mod sleepy_parity_tests {
         let mut logic = GameLogic::new();
         logic.frame = 3;
         let (first, _first_ticks) = counting_ptr(DisabledMaskType::empty(), UpdateSleepTime::None);
-        let (second, _second_ticks) = counting_ptr(DisabledMaskType::empty(), UpdateSleepTime::None);
+        let (second, _second_ticks) =
+            counting_ptr(DisabledMaskType::empty(), UpdateSleepTime::None);
         logic.register_sleepy_update_module(100, Arc::clone(&first), 20);
         logic.register_sleepy_update_module(200, Arc::clone(&second), 30);
 
@@ -729,3 +685,6 @@ mod sleepy_parity_tests {
         assert_eq!(wake, 1);
     }
 }
+
+#[cfg(test)]
+mod sleepy_context_tests;

@@ -321,9 +321,11 @@ fn dozer_structure_repair_residual_walk_into_range_recovers_hp() {
     ensure_test_dozer_template(&mut game_logic);
     ensure_test_structure_template(&mut game_logic);
 
-    // Outside INTERACT_RANGE (14): must approach before healing.
+    // DozerAIUpdate.cpp:44/320–322 uses bounding-sphere distance with
+    // MIN_ACTION_TOLERANCE=70, not the UI interaction range. Start well outside.
+
     let dozer_id = game_logic
-        .create_object("TestDozer", Team::USA, Vec3::new(55.0, 0.0, 0.0))
+        .create_object("TestDozer", Team::USA, Vec3::new(200.0, 0.0, 0.0))
         .expect("dozer");
     let structure_id = game_logic
         .create_object("TestBuilding", Team::USA, Vec3::new(0.0, 0.0, 0.0))
@@ -371,8 +373,10 @@ fn dozer_structure_repair_residual_walk_into_range_recovers_hp() {
         .expect("structure")
         .health
         .current;
-    // May still be equal if not in range; allow equal on first frame.
-    let _ = mid;
+    assert_eq!(
+        mid, before,
+        "a still-distant dozer must not heal on its first step"
+    );
 
     let mut recovered = false;
     for _ in 0..900 {

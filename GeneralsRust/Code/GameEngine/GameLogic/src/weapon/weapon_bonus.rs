@@ -14,8 +14,14 @@ impl Weapon {
         source: ObjectId,
         extra_bonus_flags: WeaponBonusConditionFlags,
     ) -> WeaponBonus {
-        let mut bonus = WeaponBonus::new();
         let mut flags = extra_bonus_flags;
+        if let Some(source) = self.caller_source(source) {
+            // Object fire already borrowed the exact source and combined the
+            // passenger mask. C++ reads that same Object directly here.
+            flags.union(source.bonus_flags);
+            return self.bonus_from_flags(flags);
+        }
+        let mut bonus = WeaponBonus::new();
 
         if let Some((source_flags, container_id)) = OBJECT_REGISTRY.with_object(source, |guard| {
             (

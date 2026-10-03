@@ -1,10 +1,10 @@
 //! C++ `Weapon::isWithinAttackRange` (Weapon.cpp:2135-2207).
 
+use crate::common::GeometryInfo;
 use crate::common::{Coord3D, KindOf};
 use crate::helpers::ThePartitionManager;
 use crate::object::registry::OBJECT_REGISTRY;
 use crate::terrain::BridgeAttackInfo;
-use crate::common::GeometryInfo;
 
 use super::helpers::{ObjectId, dual_world_registry_unavailable};
 use super::masks_enums::{WeaponBonus, WeaponBonusConditionFlags};
@@ -17,21 +17,10 @@ impl Weapon {
         target_obj: Option<ObjectId>,
         target_pos: Option<&Coord3D>,
     ) -> bool {
-        if dual_world_registry_unavailable() {
-            return false;
-        }
-
-        let Some((source_pos, source_radius, source_geom)) =
-            OBJECT_REGISTRY.with_object(source_obj, |guard| {
-                (
-                    *guard.get_position(),
-                    guard.get_geometry_info().get_bounding_circle_radius(),
-                    *guard.get_geometry_info(),
-                )
-            })
-        else {
+        let Some((source_pos, source_geom)) = self.range_source(source_obj) else {
             return false;
         };
+        let source_radius = source_geom.get_bounding_circle_radius();
         let bonus = self.compute_bonus(source_obj, WeaponBonusConditionFlags::new());
         self.is_within_attack_range_from_source(
             &source_pos,
@@ -70,15 +59,8 @@ impl Weapon {
             return false;
         };
 
-        let Some((target_pos, target_radius, is_bridge, is_structure)) = OBJECT_REGISTRY
-            .with_object(target_id, |guard| {
-                (
-                    *guard.get_position(),
-                    guard.get_geometry_info().get_bounding_circle_radius(),
-                    guard.is_kind_of(KindOf::Bridge),
-                    guard.is_kind_of(KindOf::Structure),
-                )
-            })
+        let Some((target_pos, target_radius, is_bridge, is_structure)) =
+            self.range_target(target_id)
         else {
             return false;
         };
@@ -111,11 +93,85 @@ impl Weapon {
             let Some(partition) = ThePartitionManager::get() else {
                 return false;
             };
-            let hits = partition.iterate_potential_collisions(&source_pos, &source_geom, 0.0);
+            let borrowed_source = self
+                .caller_held_source
+                .as_ref()
+                .map(|source| (source.id, source.position));
+            let hits = partition.iterate_potential_collisions_with_source(
+                &source_pos,
+                &source_geom,
+                0.0,
+                borrowed_source,
+            );
             return hits.iter().any(|&id| id == target_id);
         }
 
         true
+    }
+
+    /// C++ Weapon.cpp:2211–2238: no minimum range means no distance query.
+    pub fn is_too_close(
+        &self,
+        source_obj: ObjectId,
+        target_obj: Option<ObjectId>,
+        target_pos: Option<&Coord3D>,
+    ) -> bool {
+        let min_range = self.template.get_minimum_attack_range();
+        if min_range == 0.0 {
+            return false;
+        }
+        let Some((source_pos, source_geom)) = self.range_source(source_obj) else {
+            return false;
+        };
+        let (target_pos, target_radius) = if let Some(target_id) = target_obj {
+            let Some((position, radius, _, _)) = self.range_target(target_id) else {
+                return false;
+            };
+            (position, radius)
+        } else if let Some(pos) = target_pos {
+            (*pos, 0.0)
+        } else {
+            return false;
+        };
+        boundary_dist_sqr(
+            &source_pos,
+            source_geom.get_bounding_circle_radius(),
+            &target_pos,
+            target_radius,
+        ) < min_range * min_range
+    }
+
+    fn range_source(&self, id: ObjectId) -> Option<(Coord3D, GeometryInfo)> {
+        if let Some(source) = self.caller_source(id) {
+            return Some((source.position, source.geometry));
+        }
+        if dual_world_registry_unavailable() {
+            return None;
+        }
+        OBJECT_REGISTRY.with_object(id, |source| {
+            (*source.get_position(), *source.get_geometry_info())
+        })
+    }
+
+    fn range_target(&self, id: ObjectId) -> Option<(Coord3D, f32, bool, bool)> {
+        // Self-targets are legal queries in C++; the same borrowed Object must
+        // not be reacquired as a target while the caller holds its write guard.
+        if let Some(source) = self.caller_source(id) {
+            return Some((
+                source.position,
+                source.geometry.get_bounding_circle_radius(),
+                source.is_bridge,
+                source.is_structure,
+            ));
+        }
+        OBJECT_REGISTRY.with_object(id, |target| {
+            (
+                *target.get_position(),
+                target.get_geometry_info().get_bounding_circle_radius(),
+                target.is_kind_of(KindOf::Bridge),
+                target.is_kind_of(KindOf::Structure),
+            )
+        })
     }
 }
 

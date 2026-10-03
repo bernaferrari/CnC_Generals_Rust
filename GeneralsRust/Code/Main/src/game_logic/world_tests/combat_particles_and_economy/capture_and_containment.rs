@@ -1219,6 +1219,13 @@ fn supply_lines_drop_off_yields_more_cash_than_without() {
 
     fn run_one_drop_off(with_supply_lines: bool) -> (u32, u32, u32, bool) {
         let mut game_logic = GameLogic::new();
+        crate::game_logic::host_upgrade_rules::register_test_upgrade(
+            &game_logic,
+            UPGRADE_AMERICA_SUPPLY_LINES,
+            "PLAYER",
+            800,
+            30,
+        );
         let mut player = Player::new(0, Team::USA, "USA", true);
         player.resources.supplies = 1000;
         game_logic.add_player(player);
@@ -1262,11 +1269,22 @@ fn supply_lines_drop_off_yields_more_cash_than_without() {
                 modifier_keys: crate::command_system::ModifierKeys::default(),
             });
             game_logic.process_commands();
-            game_logic.update();
-            // C++ research advances on the producer's Upgrade.ini BuildTime
-            // (Upgrade_AmericaSupplyLines BuildTime = 30s; retail residual
-            // table 900 frames) — one 1/30s frame must not instant-complete.
-            game_logic.update_with_dt(30.0);
+            // ProductionUpdate.cpp:687-702 increments one construction
+            // frame per update; Upgrade.cpp:143 converts 30 seconds to 900
+            // frames. The live update API intentionally drops catch-up time.
+            for _ in 0..899 {
+                game_logic.update_with_dt(1.0 / 30.0);
+            }
+            let player = game_logic.get_player(0).unwrap();
+            assert!(player.has_queued_upgrade(UPGRADE_AMERICA_SUPPLY_LINES));
+            assert!(!player.has_unlocked_upgrade(UPGRADE_AMERICA_SUPPLY_LINES));
+            game_logic.update_with_dt(1.0 / 30.0);
+            assert!(
+                !game_logic
+                    .get_player(0)
+                    .unwrap()
+                    .has_queued_upgrade(UPGRADE_AMERICA_SUPPLY_LINES)
+            );
             assert!(
                 game_logic
                     .get_player(0)
@@ -1367,10 +1385,32 @@ fn supply_lines_does_not_boost_non_chinook_collector() {
     use crate::game_logic::object::AIState;
 
     let mut game_logic = GameLogic::new();
+    crate::game_logic::host_upgrade_rules::register_test_upgrade(
+        &game_logic,
+        UPGRADE_AMERICA_SUPPLY_LINES,
+        "PLAYER",
+        800,
+        30,
+    );
     let mut player = Player::new(0, Team::USA, "USA", true);
     player.resources.supplies = 1000;
     game_logic.add_player(player);
-    ensure_test_dozer_template(&mut game_logic);
+    // SupplyCenterDockUpdate.cpp:66-76 requires SupplyTruckAIInterface;
+    // a dozer without that interface cannot prove the exclusion contract.
+    // SupplyTruckAIUpdate.h:196 returns zero upgraded boost for a truck.
+    let mut truck = ThingTemplate::new("ChinaVehicleSupplyTruck");
+    truck
+        .add_kind_of(KindOf::Harvester)
+        .add_kind_of(KindOf::Vehicle)
+        .set_health(100.0);
+    truck.supply_truck_metadata = Some(crate::game_logic::SupplyTruckMetadata {
+        max_boxes: 4,
+        warehouse_scan_distance: 700.0,
+        warehouse_delay_frames: 0,
+        center_delay_frames: 0,
+        upgraded_supply_boost: 0,
+    });
+    game_logic.templates.insert(truck.name.clone(), truck);
 
     let mut supply = ThingTemplate::new("AmericaSupplyCenter");
     supply
@@ -1379,7 +1419,7 @@ fn supply_lines_does_not_boost_non_chinook_collector() {
         .add_kind_of(KindOf::Selectable)
         .set_health(100.0);
     // C++ AmericaSupplyCenter authors SupplyCenterDockUpdate (dock-approach
-    // capacity keys on the parsed dock kind) — author it so the dozer's
+    // capacity keys on the parsed dock kind) — author it so the truck's
     // drop-off below actually runs instead of failing closed.
     supply.dock_kind = crate::game_logic::DockKind::SupplyCenter;
     game_logic
@@ -1400,11 +1440,16 @@ fn supply_lines_does_not_boost_non_chinook_collector() {
         modifier_keys: crate::command_system::ModifierKeys::default(),
     });
     game_logic.process_commands();
-    game_logic.update();
-    // C++ research advances on the producer's Upgrade.ini BuildTime
-    // (Upgrade_AmericaSupplyLines BuildTime = 30s → 900 frames) — one
-    // 1/30s frame must not instant-complete it.
-    game_logic.update_with_dt(30.0);
+    for _ in 0..899 {
+        game_logic.update_with_dt(1.0 / 30.0);
+    }
+    let player = game_logic.get_player(0).unwrap();
+    assert!(player.has_queued_upgrade(UPGRADE_AMERICA_SUPPLY_LINES));
+    assert!(!player.has_unlocked_upgrade(UPGRADE_AMERICA_SUPPLY_LINES));
+    game_logic.update_with_dt(1.0 / 30.0);
+    let player = game_logic.get_player(0).unwrap();
+    assert!(!player.has_queued_upgrade(UPGRADE_AMERICA_SUPPLY_LINES));
+    assert!(player.has_unlocked_upgrade(UPGRADE_AMERICA_SUPPLY_LINES));
     assert!(
         game_logic
             .host_upgrades()
@@ -1412,15 +1457,40 @@ fn supply_lines_does_not_boost_non_chinook_collector() {
     );
 
     const CARGO: u32 = 400;
-    let dozer_id = game_logic
-        .create_object("TestDozer", Team::USA, Vec3::new(0.0, 0.0, 0.0))
-        .expect("dozer");
+    let truck_id = game_logic
+        .create_object_for_player("ChinaVehicleSupplyTruck", 0, Vec3::ZERO)
+        .expect("truck");
     {
-        let dozer = game_logic.host_object_mut(dozer_id).expect("dozer mut");
-        dozer.set_stored_supplies(CARGO);
-        dozer.set_ai_state(AIState::ReturningResources);
+        let truck = game_logic.host_object_mut(truck_id).expect("truck mut");
+        truck.set_stored_supplies(CARGO);
+        truck.set_ai_state(AIState::ReturningResources);
     }
-    game_logic.update();
+    let cash_before = game_logic.get_player(0).unwrap().resources.supplies;
+    // The first update enters DockingCenter; even a zero authored delay
+    // performs the action on the following update.
+    game_logic.update_with_dt(1.0 / 30.0);
+    game_logic.update_with_dt(1.0 / 30.0);
+    let dropoffs = game_logic.take_supply_dropoff_events();
+    assert_eq!(
+        dropoffs.len(),
+        1,
+        "the truck must actually deliver its cargo"
+    );
+    assert_eq!(dropoffs[0].carrier_id, truck_id);
+    assert_eq!(dropoffs[0].player_id, 0);
+    assert_eq!(dropoffs[0].carried_amount, CARGO);
+    assert_eq!(
+        game_logic
+            .host_object(truck_id)
+            .unwrap()
+            .stored_resources
+            .supplies,
+        0
+    );
+    assert_eq!(
+        game_logic.get_player(0).unwrap().resources.supplies,
+        cash_before + CARGO
+    );
     assert_eq!(
         game_logic.supply_lines_bonus_cash_total(),
         0,

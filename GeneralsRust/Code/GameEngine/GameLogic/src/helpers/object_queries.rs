@@ -63,6 +63,15 @@ impl ThePartitionManager {
         pos: &Coord3D,
         radius: Real,
     ) -> Vec<crate::common::ObjectID> {
+        self.get_objects_in_range_with_source(pos, radius, None)
+    }
+
+    fn get_objects_in_range_with_source(
+        &self,
+        pos: &Coord3D,
+        radius: Real,
+        borrowed_source: Option<(crate::common::ObjectID, Coord3D)>,
+    ) -> Vec<crate::common::ObjectID> {
         // Wave 281: empty dual-world → no objects.
         if dual_world_registry_unavailable() {
             return Vec::new();
@@ -84,6 +93,13 @@ impl ThePartitionManager {
         candidate_ids
             .into_iter()
             .filter_map(|id| {
+                if let Some((source_id, source_pos)) = borrowed_source {
+                    if id == source_id {
+                        let dx = source_pos.x - pos.x;
+                        let dy = source_pos.y - pos.y;
+                        return (dx * dx + dy * dy <= radius_sqr).then_some(id);
+                    }
+                }
                 OBJECT_REGISTRY
                     .with_object(id, |obj_guard| {
                         let obj_pos = obj_guard.get_position();
@@ -108,8 +124,20 @@ impl ThePartitionManager {
         geometry: &GeometryInfo,
         _orientation: Real,
     ) -> Vec<crate::common::ObjectID> {
+        self.iterate_potential_collisions_with_source(pos, geometry, _orientation, None)
+    }
+
+    /// Same ordered candidate/filter query while the caller already borrows
+    /// one source Object. Only its matching ID uses that supplied position.
+    pub(crate) fn iterate_potential_collisions_with_source(
+        &self,
+        pos: &Coord3D,
+        geometry: &GeometryInfo,
+        _orientation: Real,
+        borrowed_source: Option<(crate::common::ObjectID, Coord3D)>,
+    ) -> Vec<crate::common::ObjectID> {
         let radius = geometry.get_bounding_circle_radius().max(1.0);
-        self.get_objects_in_range(pos, radius)
+        self.get_objects_in_range_with_source(pos, radius, borrowed_source)
     }
 
     /// Find a legal position around a point (matching C++ PartitionManager::findPositionAround).
@@ -196,7 +224,8 @@ impl ThePartitionManager {
                 }
 
                 if (options.flags & FPF_CLEAR_CELLS_ONLY) != 0 {
-                    let ai_store = crate::ai::the_ai(); if let Ok(ai) = ai_store.read() {
+                    let ai_store = crate::ai::the_ai();
+                    if let Ok(ai) = ai_store.read() {
                         if let Some(ps) = ai.pathfinding_system() {
                             if let Ok(ps_guard) = ps.read() {
                                 if !ps_guard.is_cell_clear_at(&pos, layer) {
@@ -845,7 +874,8 @@ impl ThePartitionManager {
         is_threat: bool,
         add: bool,
     ) {
-        let Ok(mut pm) = crate::object::collide::partition_manager::PARTITION_MANAGER.write() else {
+        let Ok(mut pm) = crate::object::collide::partition_manager::PARTITION_MANAGER.write()
+        else {
             return;
         };
         let bits = player_mask.bits();
@@ -1081,8 +1111,8 @@ fn partition_filter_allows(
     candidate: &crate::object::Object,
     filters: &[crate::common::types::PartitionFilter],
 ) -> bool {
-    use crate::common::types::PartitionFilter;
     use crate::common::Relationship;
+    use crate::common::types::PartitionFilter;
     use crate::object::ObjectScriptStatusBit;
 
     for filter in filters {

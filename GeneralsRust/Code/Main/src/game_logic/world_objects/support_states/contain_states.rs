@@ -127,10 +127,32 @@ impl GameLogic {
     }
 
     /// C++ TransportContain `ResetMoodCheckTimeOnExit` → `wakeUpAndAttemptToTarget`.
-    pub(crate) fn reset_rider_mood_check_on_exit(&mut self, rider_id: ObjectId) {
+    pub(crate) fn reset_rider_mood_check_on_exit(
+        &mut self,
+        container_id: ObjectId,
+        rider_id: ObjectId,
+    ) {
+        let reset = self.objects.get(&container_id).is_some_and(|container| {
+            let data = &container.thing.template.contain_module;
+            data.reset_mood_check_time_on_exit
+                && matches!(
+                    data.kind,
+                    ContainModuleKind::Transport
+                        | ContainModuleKind::RiderChange
+                        | ContainModuleKind::RailedTransport
+                        | ContainModuleKind::InternetHack
+                )
+        });
+        if !reset {
+            return;
+        }
         let now = self.frame;
         if let Some(unit) = self.objects.get_mut(&rider_id) {
-            unit.next_mood_check_time = now;
+            // AIUpdate.cpp:4428–4438: active passengers keep both fields.
+            if unit.ai_state == AIState::Idle {
+                unit.next_mood_check_time = now;
+                unit.randomly_offset_mood_check = true;
+            }
         }
     }
 }

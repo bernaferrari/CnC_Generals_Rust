@@ -272,6 +272,9 @@ pub struct ContainModuleMetadata {
     /// No retail Object INI authors this; do not invent a hull-velocity kick.
     #[serde(default)]
     pub keep_container_velocity_on_exit: bool,
+    /// C++ TransportContainModuleData::m_resetMoodCheckTimeOnExit (default true).
+    #[serde(default = "default_reset_mood_check_time_on_exit")]
+    pub reset_mood_check_time_on_exit: bool,
     /// C++ `OpenContainModuleData::m_doorOpenTime` (default 1 frame).
     /// `0` is DeliverPayloadAIUpdate's opt-out so this module never diddles doors.
     #[serde(default = "default_door_open_time")]
@@ -322,6 +325,10 @@ const fn default_door_open_time() -> u32 {
     1
 }
 
+const fn default_reset_mood_check_time_on_exit() -> bool {
+    true
+}
+
 impl Default for ContainModuleMetadata {
     fn default() -> Self {
         Self {
@@ -348,6 +355,7 @@ impl Default for ContainModuleMetadata {
             allow_inside_kind_of: 0,
             forbid_inside_kind_of: 0,
             keep_container_velocity_on_exit: false,
+            reset_mood_check_time_on_exit: true,
             door_open_time: 1,
         }
     }
@@ -1807,7 +1815,8 @@ pub struct ThingTemplate {
     /// None identifies legacy/catalog-less templates; Some retains authored rows,
     /// including an explicitly empty set, without consulting an ambient catalog.
     #[serde(default)]
-    pub authored_locomotor_sets: Option<Vec<crate::game_logic::host_upgrade_module_residuals::AuthoredLocomotorSet>>,
+    pub authored_locomotor_sets:
+        Option<Vec<crate::game_logic::host_upgrade_module_residuals::AuthoredLocomotorSet>>,
     /// C++ CreateCrateDieModuleData::m_crateNameList residual (CrateData names).
     #[serde(default)]
     pub create_crate_data: Vec<String>,

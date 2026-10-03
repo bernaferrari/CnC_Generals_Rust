@@ -1927,6 +1927,11 @@ impl GameLogic {
         if let (true, Some(cid)) = (walk, container_id) {
             return self.unit_command_exit_via_open_contain(id, cid);
         }
+        // TransportContain::onRemoving wakes only previously idle AI, before
+        // exitObjectViaDoor replaces the AI state with an exit/follow order.
+        if let Some(cid) = container_id {
+            self.reset_rider_mood_check_on_exit(cid, id);
+        }
         let go_aggressive = container_id
             .and_then(|cid| self.objects.get(&cid))
             .is_some_and(|c| c.transport_go_aggressive_on_exit());
@@ -1948,20 +1953,6 @@ impl GameLogic {
         unit.set_status_moving(false);
         unit.set_status_attacking(false);
         drop(unit);
-        let reset_mood = container_id.is_some_and(|cid| {
-            self.objects.get(&cid).is_some_and(|c| {
-                matches!(
-                    c.thing.template.contain_module.kind,
-                    crate::game_logic::ContainModuleKind::Transport
-                        | crate::game_logic::ContainModuleKind::RiderChange
-                        | crate::game_logic::ContainModuleKind::RailedTransport
-                        | crate::game_logic::ContainModuleKind::InternetHack
-                )
-            })
-        });
-        if reset_mood {
-            self.reset_rider_mood_check_on_exit(id);
-        }
         if let Some(cid) = container_id {
             self.play_container_removing_template_sounds(cid, id);
         }
@@ -2838,44 +2829,6 @@ mod tests {
     }
 
     #[test]
-    fn capture_kick_exit_drop_resets_mood_check_time() {
-        // hq-j0ggx: garrison capture kick uses unit_command_exit_drop.
-        let mut logic = GameLogic::new();
-        logic.frame = 55;
-        let mut bunker_t = ThingTemplate::new("KICK_BUNKER");
-        bunker_t.add_kind_of(KindOf::Structure).set_health(500.0);
-        bunker_t.contain_module = crate::game_logic::ContainModuleMetadata {
-            kind: crate::game_logic::ContainModuleKind::Garrison,
-            slots: Some(5),
-            ..Default::default()
-        };
-        logic.templates.insert("KICK_BUNKER".into(), bunker_t);
-        let mut ranger_t = ThingTemplate::new("KICK_RANGER");
-        ranger_t.add_kind_of(KindOf::Infantry).set_health(100.0);
-        logic.templates.insert("KICK_RANGER".into(), ranger_t);
-        let bunker = logic
-            .create_object("KICK_BUNKER", Team::USA, glam::Vec3::ZERO)
-            .unwrap();
-        let ranger = logic
-            .create_object("KICK_RANGER", Team::USA, glam::Vec3::new(1.0, 0.0, 0.0))
-            .unwrap();
-        assert!(logic.host_object_mut(bunker).unwrap().add_occupant(ranger));
-        if let Some(u) = logic.host_object_mut(ranger) {
-            u.set_contained_by(Some(bunker));
-            u.next_mood_check_time = 9999;
-        }
-        assert!(logic.unit_command_exit_drop(ranger, glam::Vec3::new(4.0, 0.0, 0.0)));
-        let u = logic.host_object(ranger).unwrap();
-        assert_eq!(u.next_mood_check_time, 55);
-        let audio =
-            gamelogic::object::contain::open_contain::leftover_last_on_removing_template_call()
-                .expect("capture kick onRemoving audio");
-        assert_eq!(audio.container_template, "KICK_BUNKER");
-        assert_eq!(audio.rider_template, "KICK_RANGER");
-        assert_eq!(audio.rider_id, ranger.0);
-    }
-
-    #[test]
     fn add_upgrade_to_queue_refuses_command_set_without_button() {
         let mut logic = GameLogic::new();
         let mut tmpl = ThingTemplate::new("AmericaBarracks");
@@ -2899,3 +2852,7 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+#[path = "unit_commands_exit_mood_tests.rs"]
+mod exit_mood_tests;
