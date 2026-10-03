@@ -732,9 +732,26 @@ mod stealth_upgrade_tests {
     #[test]
     fn test_invalid_player_id() {
         let mut manager = StealthUpgradeManager::new();
+        let last_player = crate::common::MAX_PLAYER_COUNT - 1;
+        let invalid_player = crate::common::MAX_PLAYER_COUNT;
 
-        assert!(manager.check_black_market_available(8).is_err());
+        assert!(!manager.check_black_market_available(last_player).unwrap());
+        manager
+            .set_black_market_available(last_player, true)
+            .unwrap();
+        assert!(manager.check_black_market_available(last_player).unwrap());
+        assert!(
+            manager
+                .check_black_market_available(invalid_player)
+                .is_err()
+        );
+        assert!(
+            manager
+                .set_black_market_available(invalid_player, false)
+                .is_err()
+        );
         assert!(manager.set_black_market_available(255, true).is_err());
+        assert!(manager.check_black_market_available(last_player).unwrap());
     }
 
     #[test]

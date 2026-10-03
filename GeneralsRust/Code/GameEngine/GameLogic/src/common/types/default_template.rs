@@ -546,12 +546,9 @@ impl ThingTemplate for DefaultThingTemplate {
         mods.production_cost_change_by_kind =
             player.get_production_cost_change_based_on_kind_of(self.kind_of_mask());
 
-        let global_mods =
-            crate::object::production::build_cost_calculator::GlobalBuildModifiers::from_global_data();
-        let calc =
-            crate::object::production::build_cost_calculator::BuildCostCalculator::with_modifiers(
-                global_mods,
-            );
+        // CPP calcCostToBuild has no GlobalData dependency; only build time
+        // needs the power/factory rules. Cost reads the borrowed Player alone.
+        let calc = crate::object::production::build_cost_calculator::BuildCostCalculator::new();
         calc.calc_cost_to_build(self.get_build_cost(), &mods)
     }
 

@@ -8,12 +8,10 @@
 
 use super::draw_module::*;
 use crate::common::*;
-use crate::helpers::TheGameLogic;
 use crate::helpers::{remove_scene_line, submit_scene_line, update_scene_line};
-use crate::object::drawable::DrawableArcExt;
 use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{SceneLineDesc, SceneLineId, Snapshotable, Xfer, XferVersion};
-use game_engine::common::thing::module::{Module, ModuleData};
+use game_engine::common::thing::module::{LaserUpdateInterface, Module, ModuleData};
 use std::any::Any;
 
 #[derive(Debug, Clone)]
@@ -418,7 +416,6 @@ impl Snapshotable for W3DLaserDrawModuleData {
 
 pub struct W3DLaserDraw {
     data: W3DLaserDrawModuleData,
-    owner_id: Option<ObjectID>,
     self_dirty: bool,
     start_pos: Coord3D,
     end_pos: Coord3D,
@@ -429,11 +426,37 @@ pub struct W3DLaserDraw {
     scene_line_ids: Vec<Option<SceneLineId>>,
 }
 
+/// Positions and width consumed from the driving Drawable at this DRAW ordinal.
+/// This is temporary render input, never a second owner of LaserUpdate state.
+#[derive(Clone, Copy)]
+pub(crate) struct LaserDrawInput {
+    start_pos: Coord3D,
+    end_pos: Coord3D,
+    width_scale: Real,
+}
+
+impl LaserDrawInput {
+    pub(crate) fn consume(update: &mut dyn LaserUpdateInterface, self_dirty: bool) -> Option<Self> {
+        // W3DLaserDraw.cpp:243-247: the current draw clears dirty before geometry.
+        // A later DRAW ordinal sees that mutation unless its own selfDirty wins.
+        if !update.is_dirty() && !self_dirty {
+            return None;
+        }
+        update.set_dirty(false);
+        let start = update.get_start_pos();
+        let end = update.get_end_pos();
+        Some(Self {
+            start_pos: Coord3D::new(start[0], start[1], start[2]),
+            end_pos: Coord3D::new(end[0], end[1], end[2]),
+            width_scale: update.get_width_scale(),
+        })
+    }
+}
+
 impl W3DLaserDraw {
     pub fn new(data: W3DLaserDrawModuleData) -> Self {
         Self {
             data,
-            owner_id: None,
             self_dirty: true,
             start_pos: Coord3D::origin(),
             end_pos: Coord3D::origin(),
@@ -445,8 +468,8 @@ impl W3DLaserDraw {
         }
     }
 
-    pub fn bind_owner_id(&mut self, owner_id: ObjectID) {
-        self.owner_id = Some(owner_id);
+    pub fn bind_owner_id(&mut self, _owner_id: ObjectID) {
+        // The driving Drawable supplies its own sibling update at draw time.
         self.self_dirty = true;
     }
 
@@ -457,59 +480,6 @@ impl W3DLaserDraw {
 
     pub fn is_self_dirty(&self) -> bool {
         self.self_dirty
-    }
-
-    fn refresh_from_laser_update(&mut self) -> bool {
-        let Some(owner_id) = self.owner_id else {
-            return false;
-        };
-        let Some(object) = TheGameLogic::find_object_by_id(owner_id) else {
-            return false;
-        };
-        let Ok(obj_guard) = object.read() else {
-            return false;
-        };
-        let Some(drawable) = obj_guard.get_drawable() else {
-            return false;
-        };
-
-        let mut update_positions = None;
-        let mut width_scale = None;
-        let mut modules = drawable.get_draw_modules();
-        let client_modules = obj_guard.client_update_modules();
-        if modules.is_empty() {
-            modules = client_modules;
-        } else {
-            modules.extend(client_modules);
-        }
-        for module in modules {
-            let mut matched = false;
-            module.with_module(|module| {
-                if let Some(laser_update) = module.get_laser_update_interface() {
-                    matched = true;
-                    if laser_update.is_dirty() || self.self_dirty {
-                        update_positions =
-                            Some((laser_update.get_start_pos(), laser_update.get_end_pos()));
-                        laser_update.set_dirty(false);
-                    }
-                    width_scale = Some(laser_update.get_width_scale());
-                }
-            });
-            if matched {
-                break;
-            }
-        }
-
-        if let Some((start, end)) = update_positions {
-            self.start_pos = Coord3D::new(start[0], start[1], start[2]);
-            self.end_pos = Coord3D::new(end[0], end[1], end[2]);
-            self.self_dirty = false;
-        }
-        if let Some(width) = width_scale {
-            self.width_scale = width;
-        }
-
-        update_positions.is_some()
     }
 
     fn ensure_lines(&mut self) {
@@ -601,15 +571,13 @@ impl Module for W3DLaserDraw {
     }
 }
 
-impl DrawModule for W3DLaserDraw {
-    fn do_draw_module(&mut self, transform_mtx: &Matrix3D) {
-        let _ = transform_mtx;
-
-        let needs_update = self.refresh_from_laser_update();
-
-        if !needs_update {
-            return;
-        }
+impl W3DLaserDraw {
+    /// Render the canonical laser using its driving Drawable's current update.
+    pub(crate) fn draw_from_update(&mut self, input: LaserDrawInput) {
+        self.start_pos = input.start_pos;
+        self.end_pos = input.end_pos;
+        self.width_scale = input.width_scale;
+        self.self_dirty = false;
 
         self.ensure_lines();
 
@@ -733,6 +701,14 @@ impl DrawModule for W3DLaserDraw {
             }
         }
     }
+}
+
+impl DrawModule for W3DLaserDraw {
+    fn do_draw_module(&mut self, _transform_mtx: &Matrix3D) {
+        // Laser draw requires its owner's LaserUpdate, as in C++. Drawable::draw
+        // supplies that input explicitly through draw_from_update. An isolated
+        // module has no sibling and follows the C++ missing-update early return.
+    }
 
     fn set_shadows_enabled(&mut self, enable: bool) {
         let _ = enable;
@@ -846,6 +822,10 @@ fn color_from_real(r: Real, g: Real, b: Real, a: Real) -> Color {
         real_to_color_channel(a),
     )
 }
+
+#[cfg(test)]
+#[path = "laser_owner_dispatch_tests.rs"]
+mod owner_dispatch_tests;
 
 #[cfg(test)]
 mod tests {

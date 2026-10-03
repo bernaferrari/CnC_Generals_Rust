@@ -494,13 +494,28 @@ mod stealth_tests {
     fn test_stealth_invalid_player() {
         let mut manager = StealthManager::new();
         manager.register_object(1).unwrap();
+        let last_player = MAX_PLAYER_COUNT - 1;
+        manager
+            .set_stealth_status(1, last_player, StealthStatus::Invisible)
+            .unwrap();
+        assert_eq!(
+            manager.get_stealth_status(1, last_player).unwrap(),
+            StealthStatus::Invisible
+        );
+        assert!(manager.is_invisible_to_player(1, last_player).unwrap());
 
-        // Invalid player ID should fail
+        // C++ PlayerList.cpp:66-73 rejects the first slot beyond MAX_PLAYER_COUNT.
         assert!(
             manager
-                .set_stealth_status(1, 8, StealthStatus::Invisible)
+                .set_stealth_status(1, MAX_PLAYER_COUNT, StealthStatus::Revealed)
                 .is_err()
         );
+        assert!(manager.get_stealth_status(1, MAX_PLAYER_COUNT).is_err());
+        assert!(manager.is_invisible_to_player(1, MAX_PLAYER_COUNT).is_err());
         assert!(manager.get_stealth_status(1, 255).is_err());
+        assert_eq!(
+            manager.get_stealth_status(1, last_player).unwrap(),
+            StealthStatus::Invisible
+        );
     }
 }

@@ -435,18 +435,14 @@ impl crate::common::ThingTemplate for EngineThingTemplateAdapter {
             crate::object::production::build_cost_calculator::PlayerBuildModifiers::default();
         mods.production_cost_change_percent =
             player.get_production_cost_change_percent(self.get_name().as_str());
-        mods.handicap_cost_multiplier = player
-            .get_handicap()
-            .get_cost_multiplier_for_template(self);
+        mods.handicap_cost_multiplier =
+            player.get_handicap().get_cost_multiplier_for_template(self);
         mods.production_cost_change_by_kind =
             player.get_production_cost_change_based_on_kind_of(self.kindof_mask);
 
-        let global_mods =
-            crate::object::production::build_cost_calculator::GlobalBuildModifiers::from_global_data();
-        let calc =
-            crate::object::production::build_cost_calculator::BuildCostCalculator::with_modifiers(
-                global_mods,
-            );
+        // CPP calcCostToBuild has no GlobalData dependency; only build time
+        // needs the power/factory rules. Cost reads the borrowed Player alone.
+        let calc = crate::object::production::build_cost_calculator::BuildCostCalculator::new();
         calc.calc_cost_to_build(self.get_build_cost(), &mods)
     }
 
@@ -740,8 +736,8 @@ impl TheThingFactory {
         std::sync::Arc<std::sync::RwLock<crate::object::Object>>,
         Box<dyn std::error::Error + Send + Sync>,
     > {
-        use crate::object_manager::get_object_manager;
         use crate::object_manager::ObjectCreationFlags;
+        use crate::object_manager::get_object_manager;
         use crate::team::get_team_factory;
 
         let template_name = Self::resolve_build_variation_name(&template);
@@ -757,12 +753,7 @@ impl TheThingFactory {
         let object_id = get_object_manager()
             .write()
             .map_err(|_| "ObjectManager lock poisoned")?
-            .create_object(
-                &template_name,
-                Coord3D::new(0.0, 0.0, 0.0),
-                team_arc,
-                flags,
-            )
+            .create_object(&template_name, Coord3D::new(0.0, 0.0, 0.0), team_arc, flags)
             .map_err(|e| e.to_string())?;
 
         let base = get_object_manager()
@@ -804,8 +795,8 @@ impl TheThingFactory {
         std::sync::Arc<std::sync::RwLock<crate::object::Object>>,
         Box<dyn std::error::Error + Send + Sync>,
     > {
-        use crate::object_manager::get_object_manager;
         use crate::object_manager::ObjectCreationFlags;
+        use crate::object_manager::get_object_manager;
 
         let template_name = Self::resolve_build_variation_name(&template);
 
@@ -859,8 +850,8 @@ impl TheThingFactory {
         std::sync::Arc<std::sync::RwLock<crate::object::Object>>,
         Box<dyn std::error::Error + Send + Sync>,
     > {
-        use crate::object_manager::get_object_manager;
         use crate::object_manager::ObjectCreationFlags;
+        use crate::object_manager::get_object_manager;
         use crate::team::get_team_factory;
 
         let template_name = Self::resolve_build_variation_name(&template);
@@ -878,12 +869,7 @@ impl TheThingFactory {
         let object_id = get_object_manager()
             .write()
             .map_err(|_| "ObjectManager lock poisoned")?
-            .create_object(
-                &template_name,
-                Coord3D::new(0.0, 0.0, 0.0),
-                team_arc,
-                flags,
-            )
+            .create_object(&template_name, Coord3D::new(0.0, 0.0, 0.0), team_arc, flags)
             .map_err(|e| e.to_string())?;
 
         let base = get_object_manager()
@@ -936,7 +922,10 @@ impl TheFXListStore {
             store.add_fx_list(Definition::new(name.into()));
         }
         FXList::from_authored_name(
-            &store.find_fx_list(name).expect("admitted FX definition").name,
+            &store
+                .find_fx_list(name)
+                .expect("admitted FX definition")
+                .name,
         )
     }
 }

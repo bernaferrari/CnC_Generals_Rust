@@ -2098,6 +2098,27 @@ mod map_side_dict_tests {
     }
 
     #[test]
+    fn live_build_cost_preserves_cpp_rounding_before_handicap() {
+        let mut logic = GameLogic::new();
+        let mut player = Player::new(0, Team::USA, "P", true);
+        player.map_side.handicap_build_cost_generic = 0.9;
+        player.add_kind_of_production_cost_change("VEHICLE", -0.1);
+        logic.add_player(player);
+        let mut template = ThingTemplate::new("ExactRoundingVehicle");
+        template.add_kind_of(KindOf::Vehicle);
+        logic
+            .templates
+            .insert("ExactRoundingVehicle".into(), template);
+
+        // Compiled ThingTemplate.cpp yields (100 * 0.9) * 0.9 = 81.
+        // Combining the two factors first incorrectly charges 80.
+        assert_eq!(
+            logic.modified_build_cost_supplies(0, "ExactRoundingVehicle", 100),
+            81
+        );
+    }
+
+    #[test]
     fn has_radar_honors_disable_proof_through_brownout() {
         // C++ Player.cpp:3207-3213 — disable-proof van stays up when radar_disabled.
         let mut player = Player::new(0, Team::GLA, "GLA", true);

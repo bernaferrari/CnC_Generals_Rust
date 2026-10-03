@@ -1131,19 +1131,47 @@ mod stealth_detection_comprehensive_tests {
     fn test_invalid_player_ids_gracefully_handled() {
         let mut stealth = StealthManager::new();
         let mut events = DetectionEventManager::new();
+        let last_player = crate::common::MAX_PLAYER_COUNT - 1;
+        let invalid_player = crate::common::MAX_PLAYER_COUNT;
 
         stealth.register_object(1).unwrap();
+        stealth
+            .set_stealth_status(1, last_player, StealthStatus::Invisible)
+            .unwrap();
+        assert_eq!(
+            stealth.get_stealth_status(1, last_player).unwrap(),
+            StealthStatus::Invisible
+        );
+        assert!(
+            events
+                .register_detection(1, 2, 100, last_player, last_player)
+                .is_ok()
+        );
+        assert!(
+            events
+                .create_eva_message(EvaMessageType::EnemyDetected, last_player, 2)
+                .is_ok()
+        );
 
-        // Invalid player ID (> 7)
+        // The engine limit is independent of the eight-player skirmish lobby.
         assert!(
             stealth
-                .set_stealth_status(1, 8, StealthStatus::Invisible)
+                .set_stealth_status(1, invalid_player, StealthStatus::Invisible)
                 .is_err()
         );
         assert!(stealth.get_stealth_status(1, 255).is_err());
 
         // Event manager with invalid player
-        assert!(events.register_detection(1, 2, 100, 8, 0).is_err());
+        assert!(
+            events
+                .register_detection(1, 2, 100, invalid_player, 0)
+                .is_err()
+        );
+        assert!(
+            events
+                .register_detection(1, 2, 100, 0, invalid_player)
+                .is_err()
+        );
         assert!(
             events
                 .create_eva_message(EvaMessageType::EnemyDetected, 255, 2)

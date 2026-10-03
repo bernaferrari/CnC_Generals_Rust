@@ -6,6 +6,13 @@
 use crate::common::*;
 use game_engine::common::global_data;
 
+/// C++ ThingTemplate::calcCostToBuild's ordered Real arithmetic, before the
+/// caller converts to its cost type. Keeping handicap separate preserves the
+/// original f32 rounding in both the owned host and module-based simulation.
+pub fn apply_build_cost_modifiers(base_cost: f32, faction_modifier: f32, handicap: f32) -> f32 {
+    base_cost * faction_modifier * handicap
+}
+
 /// Global constants for build time modifiers
 /// Matches C++ GlobalData in TheGlobalData
 #[derive(Debug, Clone)]
@@ -148,11 +155,13 @@ impl BuildCostCalculator {
         // Apply KindOf-based modifier
         let total_modifier = faction_modifier * player_modifiers.production_cost_change_by_kind;
 
-        // Apply handicap
-        let final_modifier = total_modifier * player_modifiers.handicap_cost_multiplier;
-
-        // C++ returns a Real expression as Int, truncating at conversion.
-        ((base_cost as f32) * final_modifier) as i32
+        // C++ multiplies base cost by faction before applying handicap. Do
+        // not regroup the factors: f32 rounding can change the integer cost.
+        apply_build_cost_modifiers(
+            base_cost as f32,
+            total_modifier,
+            player_modifiers.handicap_cost_multiplier,
+        ) as i32
     }
 
     /// Calculate time to build a unit/structure in logic frames
@@ -348,6 +357,19 @@ mod tests {
     }
 
     #[test]
+    fn cpp_cost_multiplication_preserves_float_operation_order() {
+        let calc = BuildCostCalculator::new();
+        let mods = PlayerBuildModifiers {
+            production_cost_change_percent: -0.1,
+            handicap_cost_multiplier: 0.9,
+            ..PlayerBuildModifiers::default()
+        };
+        // Compiled ThingTemplate.cpp:1508-1518 yields 81. Regrouping the
+        // two discounts first produces 80.99999 and wrongly charges 80.
+        assert_eq!(calc.calc_cost_to_build(100, &mods), 81);
+    }
+
+    #[test]
     fn test_basic_time_calculation() {
         let calc = BuildCostCalculator::new();
         let mods = PlayerBuildModifiers::default();
@@ -371,7 +393,8 @@ mod tests {
         assert_eq!(calc.calc_time_to_build(100.0, &mods, None), 1);
 
         mods.energy_supply_ratio = 0.5;
-        assert_eq!(calc.calc_time_to_build(10.0, &mods, None), 1);
+        // CPP applies the power penalty after setting buildTime to one.
+        assert_eq!(calc.calc_time_to_build(10.0, &mods, None), 2);
     }
 
     #[test]
@@ -384,14 +407,18 @@ mod tests {
         let base_time = calc.calc_time_to_build(10.0, &mods, None);
         assert_eq!(base_time, 300);
 
-        // 50% energy = slower (default penalty modifier is 0.5)
-        // 50% short * 0.5 modifier = 25% penalty
-        // penalty_rate = 1.0 - 0.25 = 0.75
-        // time = 300 / 0.75 = 400
+        // With penalty modifier 1.0, half power gives rate 0.5.
+        // CPP stores 300 / 0.5 = 600 frames.
         mods.energy_supply_ratio = 0.5;
         let penalized_time = calc.calc_time_to_build(10.0, &mods, None);
         assert!(penalized_time > base_time);
-        assert_eq!(penalized_time, 400);
+        assert_eq!(penalized_time, 600);
+
+        // CPP caps production speed whenever energy is below full supply.
+        mods.energy_supply_ratio = 0.99;
+        assert_eq!(calc.calc_time_to_build(10.0, &mods, None), 375);
+        mods.energy_supply_ratio = 1.5;
+        assert_eq!(calc.calc_time_to_build(10.0, &mods, None), 300);
 
         // Zero energy = minimum speed
         // With default min of 0.5, time = 300 / 0.5 = 600
@@ -454,10 +481,10 @@ mod tests {
 
         // Base: 10 seconds = 300 frames
         // After faction: 300 * 0.8 = 240 frames
-        // After energy: 240 / 0.9 = 266 frames after C++ truncation
-        // After factory: 266 * 0.8 = 212 frames after C++ truncation
+        // After energy: 240 / 0.8 = 300 frames
+        // After factory: 300 * 0.8 = 240 frames
         let time = calc.calc_time_to_build(10.0, &mods, Some(&context));
-        assert_eq!(time, 212);
+        assert_eq!(time, 240);
     }
 
     #[test]
