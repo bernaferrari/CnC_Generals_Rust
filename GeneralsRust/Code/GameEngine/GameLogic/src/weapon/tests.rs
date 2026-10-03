@@ -10,6 +10,12 @@ use std::sync::{Arc, RwLock};
 mod test_fixture;
 use test_fixture::{AdmittedWeaponBodies, ScopedWeaponFixture};
 
+#[path = "historic_window_tests.rs"]
+mod historic_window_tests;
+
+#[path = "canonical_contract_tests.rs"]
+mod canonical_contract_tests;
+
 fn weapon_range_test_guard() -> std::sync::MutexGuard<'static, ()> {
     // Share isolation with other registry-mutating weapon tests (e.g.
     // weapon_template collision checks) so parallel suites cannot clear

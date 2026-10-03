@@ -25,11 +25,6 @@ pub use crate::game_logic::host_live_dock_update_dual_world_empty_gate_residual_
     honesty_live_dock_update_dual_world_empty_gate_nav_commands_residual_wave355,
     simulate_live_dock_update_dual_world_empty_gate_honesty,
 };
-pub use crate::game_logic::host_live_weapon_template_dual_world_empty_gate_residual_wave356::{
-    honesty_live_weapon_template_dual_world_empty_gate_method_names_residual_wave356,
-    honesty_live_weapon_template_dual_world_empty_gate_nav_commands_residual_wave356,
-    simulate_live_weapon_template_dual_world_empty_gate_honesty,
-};
 pub use crate::game_logic::host_live_railroad_guide_ai_dual_world_empty_gate_residual_wave357::{
     honesty_live_railroad_guide_ai_dual_world_empty_gate_method_names_residual_wave357,
     honesty_live_railroad_guide_ai_dual_world_empty_gate_nav_commands_residual_wave357,

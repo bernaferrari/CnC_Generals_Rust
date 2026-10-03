@@ -32,9 +32,6 @@ pub(super) struct Waves281320 {
     pub live_hijacker_update_dual_world_empty_gate_method_names_wave288_ok: bool,
     pub live_hijacker_update_dual_world_empty_gate_nav_commands_wave288_ok: bool,
     pub live_hijacker_update_dual_world_empty_gate_live_wave288_ok: bool,
-    pub live_weapon_impl_dual_world_empty_gate_method_names_wave289_ok: bool,
-    pub live_weapon_impl_dual_world_empty_gate_nav_commands_wave289_ok: bool,
-    pub live_weapon_impl_dual_world_empty_gate_live_wave289_ok: bool,
     pub live_async_player_dual_world_empty_gate_method_names_wave290_ok: bool,
     pub live_async_player_dual_world_empty_gate_nav_commands_wave290_ok: bool,
     pub live_async_player_dual_world_empty_gate_live_wave290_ok: bool,
@@ -181,12 +178,6 @@ pub(super) fn evaluate(
             honesty_live_hijacker_update_dual_world_empty_gate_nav_commands_residual_wave288(),
         live_hijacker_update_dual_world_empty_gate_live_wave288_ok:
             simulate_live_hijacker_update_dual_world_empty_gate_honesty(),
-        live_weapon_impl_dual_world_empty_gate_method_names_wave289_ok:
-            honesty_live_weapon_impl_dual_world_empty_gate_method_names_residual_wave289(),
-        live_weapon_impl_dual_world_empty_gate_nav_commands_wave289_ok:
-            honesty_live_weapon_impl_dual_world_empty_gate_nav_commands_residual_wave289(),
-        live_weapon_impl_dual_world_empty_gate_live_wave289_ok:
-            simulate_live_weapon_impl_dual_world_empty_gate_honesty(),
         live_async_player_dual_world_empty_gate_method_names_wave290_ok:
             honesty_live_async_player_dual_world_empty_gate_method_names_residual_wave290(),
         live_async_player_dual_world_empty_gate_nav_commands_wave290_ok:

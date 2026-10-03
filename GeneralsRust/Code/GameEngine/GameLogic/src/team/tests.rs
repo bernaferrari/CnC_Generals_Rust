@@ -9,6 +9,64 @@
 mod tests {
     use super::*;
 
+    /// Keep the original roster alive until this fixture's factory has unlinked
+    /// its prototypes. Constructors do not publish a TeamFactory.
+    struct TeamPrototypeOwnerFixture {
+        factory: Option<TeamFactory>,
+        player: Arc<RwLock<crate::player::Player>>,
+        previous_players: Option<crate::player::PlayerList>,
+    }
+
+    impl TeamPrototypeOwnerFixture {
+        fn new(owner: &str) -> Self {
+            let mut player = crate::player::Player::new(7);
+            player.set_player_name_key(NameKeyGenerator::name_to_key(owner));
+            let player = Arc::new(RwLock::new(player));
+            let mut players = crate::player::PlayerList::new();
+            players.add_player(Arc::clone(&player));
+            players.set_local_player_index(7);
+            let mut fixture = Self {
+                factory: Some(TeamFactory::new()),
+                player,
+                previous_players: None,
+            };
+            fixture.previous_players = Some(std::mem::replace(
+                &mut *player_list().write().expect("fixture roster admission"),
+                players,
+            ));
+            fixture
+        }
+
+        fn factory(&mut self) -> &mut TeamFactory {
+            self.factory.as_mut().expect("live fixture factory")
+        }
+    }
+
+    impl Drop for TeamPrototypeOwnerFixture {
+        fn drop(&mut self) {
+            let unwinding = std::thread::panicking();
+            let retirement = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                if let Some(mut factory) = self.factory.take() {
+                    // Team.cpp819–824: unlink while the original owner is live.
+                    factory.reset();
+                    drop(factory);
+                }
+            }));
+            if let Some(previous) = self.previous_players.take() {
+                *player_list()
+                    .write()
+                    .unwrap_or_else(|error| error.into_inner()) = previous;
+            }
+            if let Err(error) = retirement {
+                if unwinding {
+                    eprintln!("team fixture retirement failed during unwind");
+                } else {
+                    std::panic::resume_unwind(error);
+                }
+            }
+        }
+    }
+
     #[test]
     fn init_team_parses_unit_and_reinforcement_fields_from_dict() {
         let mut factory = TeamFactory::new();
@@ -210,7 +268,27 @@ mod tests {
         let i = src
             .find("pub fn flush_pending_team_script_events")
             .expect("flush");
-        let w = &src[i..src.len().min(i + 900)];
+        let open = i + src[i..].find('{').expect("flush body");
+        let mut depth = 0;
+        let close = src[open..]
+            .char_indices()
+            .find_map(|(offset, character)| {
+                match character {
+                    '{' => depth += 1,
+                    '}' => {
+                        depth -= 1;
+                        if depth == 0 {
+                            return Some(open + offset);
+                        }
+                    }
+                    _ => {}
+                }
+                None
+            })
+            .expect("complete flush body");
+        // This is a source contract, not evidence of executed script actions.
+        // Examine only the complete function, independent of preamble length.
+        let w = &src[open..=close];
         assert!(
             w.contains("run_script")
                 && w.contains("Some(event.team_name.as_str())")
@@ -321,10 +399,12 @@ mod tests {
         let default_team = factory
             .create_inactive_team("DefaultRecruitableTeam")
             .expect("default team should be created");
-        assert!(!default_team
-            .read()
-            .expect("team read lock")
-            .is_recruitable());
+        assert!(
+            !default_team
+                .read()
+                .expect("team read lock")
+                .is_recruitable()
+        );
 
         let mut recruitable_dict = Dict::new();
         recruitable_dict.set_ascii_string(key_team_name(), "RecruitableTeamTrue");
@@ -341,10 +421,12 @@ mod tests {
         let recruitable_team = factory
             .create_inactive_team("RecruitableTeamTrue")
             .expect("recruitable team should be created");
-        assert!(recruitable_team
-            .read()
-            .expect("team read lock")
-            .is_recruitable());
+        assert!(
+            recruitable_team
+                .read()
+                .expect("team read lock")
+                .is_recruitable()
+        );
     }
 
     #[test]
@@ -548,9 +630,7 @@ mod tests {
                 Some(&dict),
             )
             .expect("prototype");
-        let team = factory
-            .create_team("HostCensusTeam")
-            .expect("team");
+        let team = factory.create_team("HostCensusTeam").expect("team");
 
         crate::scripting::set_host_script_query_snapshot(
             crate::scripting::HostScriptQuerySnapshot {
@@ -562,12 +642,9 @@ mod tests {
                 team_instance_ids: [("HostCensusTeam".into(), vec![11, 12])]
                     .into_iter()
                     .collect(),
-                team_ids: [
-                    (1u32, vec![11, 12]),
-                    (0u32, vec![99]),
-                ]
-                .into_iter()
-                .collect(),
+                team_ids: [(1u32, vec![11, 12]), (0u32, vec![99])]
+                    .into_iter()
+                    .collect(),
                 ..Default::default()
             },
         );
@@ -597,9 +674,7 @@ mod tests {
             "OnEnemySighted must fire from host snapshot vision"
         );
         assert!(
-            !first
-                .iter()
-                .any(|e| e.script_name == "OnIdleHostCensus"),
+            !first.iter().any(|e| e.script_name == "OnIdleHostCensus"),
             "OnIdle needs two consecutive idle frames"
         );
 
@@ -609,15 +684,11 @@ mod tests {
         }
         let second = drain_pending_team_script_events();
         assert!(
-            !second
-                .iter()
-                .any(|e| e.script_name == "OnCreateHostCensus"),
+            !second.iter().any(|e| e.script_name == "OnCreateHostCensus"),
             "OnCreate must run only once"
         );
         assert!(
-            second
-                .iter()
-                .any(|e| e.script_name == "OnIdleHostCensus"),
+            second.iter().any(|e| e.script_name == "OnIdleHostCensus"),
             "OnIdle fires on the second consecutive idle frame"
         );
 
@@ -669,9 +740,7 @@ mod tests {
                 Some(&dict),
             )
             .expect("prototype");
-        let team = factory
-            .create_team("NoSnapDestroyed")
-            .expect("team");
+        let team = factory.create_team("NoSnapDestroyed").expect("team");
         {
             let mut guard = team.write().expect("write");
             guard.add_member(7);
@@ -680,13 +749,10 @@ mod tests {
         }
         let queued = drain_pending_team_script_events();
         assert!(
-            !queued
-                .iter()
-                .any(|e| e.script_name == "OnDestroyedNoSnap"),
+            !queued.iter().any(|e| e.script_name == "OnDestroyedNoSnap"),
             "empty registry without host snapshot must not treat members as dead"
         );
     }
-
 
     #[test]
     fn update_removes_empty_active_non_singleton_teams() {
@@ -750,10 +816,12 @@ mod tests {
                 .unwrap_or_default(),
             "GenericHookScript3"
         );
-        assert!(prototype
-            .get_generic_script(1)
-            .map(|s| s.is_empty())
-            .unwrap_or(true));
+        assert!(
+            prototype
+                .get_generic_script(1)
+                .map(|s| s.is_empty())
+                .unwrap_or(true)
+        );
     }
 
     #[test]
@@ -766,10 +834,11 @@ mod tests {
         prototype.set_generic_script(0, AsciiString::from("DefinitelyMissingScript"));
         let prototype = Arc::new(prototype);
 
-        assert!(team
-            .read()
-            .expect("team read lock")
-            .should_attempt_generic_script(0));
+        assert!(
+            team.read()
+                .expect("team read lock")
+                .should_attempt_generic_script(0)
+        );
 
         execute_pending_team_generic_script_evals(vec![PendingTeamGenericScriptEval {
             team: team.clone(),
@@ -780,10 +849,12 @@ mod tests {
             current_player_name: None,
         }]);
 
-        assert!(!team
-            .read()
-            .expect("team read lock")
-            .should_attempt_generic_script(0));
+        assert!(
+            !team
+                .read()
+                .expect("team read lock")
+                .should_attempt_generic_script(0)
+        );
     }
 
     #[test]
@@ -825,11 +896,12 @@ mod tests {
         team.set_override_team_relationship(2, Relationship::Enemies);
         team.set_override_team_relationship(3, Relationship::Allies);
         assert!(team.remove_override_team_relationship(TEAM_ID_INVALID));
-        assert!(team
-            .team_relations
-            .as_ref()
-            .map(|m| m.map.is_empty())
-            .unwrap_or(true));
+        assert!(
+            team.team_relations
+                .as_ref()
+                .map(|m| m.map.is_empty())
+                .unwrap_or(true)
+        );
     }
 
     #[test]
@@ -838,11 +910,12 @@ mod tests {
         team.set_override_player_relationship(0, Relationship::Enemies);
         team.set_override_player_relationship(1, Relationship::Allies);
         assert!(team.remove_override_player_relationship(crate::player::PLAYER_INDEX_INVALID));
-        assert!(team
-            .player_relations
-            .as_ref()
-            .map(|m| m.is_empty())
-            .unwrap_or(true));
+        assert!(
+            team.player_relations
+                .as_ref()
+                .map(|m| m.is_empty())
+                .unwrap_or(true)
+        );
     }
 
     #[test]
@@ -1007,22 +1080,22 @@ mod tests {
 
     #[test]
     fn init_team_links_prototype_onto_owning_player_list() {
+        let _isolation = crate::object::registry::test_isolation_lock()
+            .lock()
+            .expect("team owner fixture isolation");
         let owner = "HqFslr2Owner";
-        let key = NameKeyGenerator::name_to_key(owner);
-        let player_arc = {
-            let mut player = crate::player::Player::new(91);
-            player.set_player_name_key(key);
-            Arc::new(RwLock::new(player))
+        let mut fixture = TeamPrototypeOwnerFixture::new(owner);
+        let player_arc = Arc::clone(&fixture.player);
+        let admitted = {
+            let players = player_list().read().expect("admitted fixture roster");
+            players.get_player(7).cloned()
         };
-        {
-            let Ok(mut list) = player_list().write() else {
-                return;
-            };
-            list.add_player(Arc::clone(&player_arc));
-        }
-
-        let mut factory = TeamFactory::new();
-        let proto = factory
+        assert!(Arc::ptr_eq(
+            &admitted.expect("valid fixture slot"),
+            &player_arc
+        ));
+        let proto = fixture
+            .factory()
             .init_team(
                 AsciiString::from("HqFslr2AttackTeam"),
                 AsciiString::from(owner),
@@ -1030,24 +1103,97 @@ mod tests {
                 None,
             )
             .expect("prototype");
-        {
+        let linked = {
             let player = player_arc.read().expect("player");
-            assert!(
-                player
-                    .get_player_team_prototypes()
-                    .iter()
-                    .any(|existing| Arc::ptr_eq(existing, &proto)),
-                "init_team must add the prototype to the owning player list"
-            );
-        }
-        factory.reset();
-        let player = player_arc.read().expect("player");
-        assert!(
-            !player
+            player
                 .get_player_team_prototypes()
                 .iter()
-                .any(|existing| Arc::ptr_eq(existing, &proto)),
+                .any(|existing| Arc::ptr_eq(existing, &proto))
+        };
+        assert!(
+            linked,
+            "init_team must add the prototype to the owning player list"
+        );
+        fixture.factory().reset();
+        let linked = {
+            let player = player_arc.read().expect("player");
+            player
+                .get_player_team_prototypes()
+                .iter()
+                .any(|existing| Arc::ptr_eq(existing, &proto))
+        };
+        assert!(
+            !linked,
             "factory reset must unlink the prototype from the owning player"
+        );
+    }
+
+    #[test]
+    fn team_owner_fixture_unlinks_before_restoring_exact_roster_on_unwind() {
+        // Keep isolation outside the intentional assertion unwind.
+        let _isolation = crate::object::registry::test_isolation_lock()
+            .lock()
+            .expect("team owner fixture isolation");
+        let (previous_players, previous_local) = {
+            let players = player_list().read().expect("original roster");
+            (
+                players.iter().cloned().collect::<Vec<_>>(),
+                players.get_local_player_index(),
+            )
+        };
+        let mut pins = None;
+        let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let mut fixture = TeamPrototypeOwnerFixture::new("TeamOwnerUnwind");
+            let proto = fixture
+                .factory()
+                .init_team(
+                    "TeamOwnerUnwindPrototype".into(),
+                    "TeamOwnerUnwind".into(),
+                    false,
+                    None,
+                )
+                .expect("actual owner-linked prototype");
+            let player = Arc::clone(&fixture.player);
+            let linked = player
+                .read()
+                .expect("fixture owner")
+                .get_player_team_prototypes()
+                .iter()
+                .any(|existing| Arc::ptr_eq(existing, &proto));
+            pins = Some((player, proto));
+            assert!(linked, "actual prototype linked before intentional unwind");
+            panic!("intentional team fixture assertion unwind");
+        }));
+        let panic = outcome.expect_err("fixture must reach the deliberate unwind");
+        assert_eq!(
+            panic.downcast_ref::<&str>().copied(),
+            Some("intentional team fixture assertion unwind")
+        );
+        let (player, proto) = pins.expect("retained fixture owner and prototype");
+        let linked = player
+            .read()
+            .expect("retained fixture owner")
+            .get_player_team_prototypes()
+            .iter()
+            .any(|existing| Arc::ptr_eq(existing, &proto));
+        assert!(
+            !linked,
+            "fixture factory unlinks before restoring another roster"
+        );
+        let (restored_players, restored_local) = {
+            let players = player_list().read().expect("restored roster");
+            (
+                players.iter().cloned().collect::<Vec<_>>(),
+                players.get_local_player_index(),
+            )
+        };
+        assert_eq!(restored_local, previous_local);
+        assert_eq!(restored_players.len(), previous_players.len());
+        assert!(
+            restored_players
+                .iter()
+                .zip(&previous_players)
+                .all(|(restored, previous)| Arc::ptr_eq(restored, previous))
         );
     }
 
@@ -1101,5 +1247,4 @@ mod tests {
             vec![(2, Relationship::Allies)]
         );
     }
-
 }

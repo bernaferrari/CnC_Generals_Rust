@@ -137,6 +137,9 @@ pub mod test_sync {
     }
 }
 
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod test_process;
+
 // Re-export commonly used types from the AI module
 pub use ai::{
     AI, AiCommandInterface, AiCommandParams, AiCommandType, AiData, AiError, AiGroup, AttitudeType,

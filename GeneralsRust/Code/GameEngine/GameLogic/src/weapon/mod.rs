@@ -11,16 +11,13 @@
 //! - Projectile management
 //! - Target validation and range checking
 
-// Existing child modules (unchanged).
+// Projectile paths, damage, and weapon-set behavior.
 pub mod bezier; // Bezier curve system for projectile flight paths
 pub mod damage_system;
 mod projectile_launch_cast;
-mod weapon;
 pub mod weapon_set;
-mod weapon_store;
-mod weapon_template;
 
-// Leftover god-file split (canonical types live here, re-exported below).
+// Runtime rules, instances, and services, re-exported below.
 mod audio_event;
 mod crc_snapshot;
 pub(crate) mod helpers;
@@ -33,11 +30,9 @@ mod weapon_instance;
 mod weapon_instance_combat;
 mod weapon_range;
 
-// Phase 12 consolidation: leftover `template` / `weapon_instance` / `store`
-// are the single public Weapon / WeaponTemplate / WeaponStore stack.
-// Leftover `weapon.rs`, `weapon_template.rs`, and `weapon_store.rs` stay as
-// private modules so their working tests keep compiling; they are not a
-// second public type stack (C++ Weapon.cpp has one definition of each).
+// One runtime stack: `template`, `weapon_instance`, and `store` provide
+// WeaponTemplate, Weapon, and WeaponStore to the production WeaponSet.
+// Behavioral contracts are tested through these canonical types.
 
 // Export damage constants from the canonical damage module
 pub use crate::damage::HUGE_DAMAGE_AMOUNT;

@@ -124,15 +124,21 @@ impl WeaponStore {
 
     fn import_common_weapon_templates(&mut self) {
         game_engine::common::ini::ini_weapon::initialize_weapon_store();
-        let Some(common) = game_engine::common::ini::ini_weapon::get_weapon_store() else {
-            return;
+        // Admission resolves authored references through the same parser store.
+        // Own the immutable rows in authored order and release its guard before
+        // calling admission; otherwise reference lookup reenters that write lock.
+        let sources = {
+            let Some(common) = game_engine::common::ini::ini_weapon::get_weapon_store() else {
+                return;
+            };
+            let common_count = common.iter_templates().count();
+            if common_count == self.last_imported_common_count {
+                return;
+            }
+            self.last_imported_common_count = common_count;
+            common.iter_templates().cloned().collect::<Vec<_>>()
         };
-        let common_count = common.iter_templates().count();
-        if common_count == self.last_imported_common_count {
-            return;
-        }
-        self.last_imported_common_count = common_count;
-        for source in common.iter_templates() {
+        for source in &sources {
             let name = source.name.as_str();
             if name.is_empty() || self.weapon_templates.contains_key(name) {
                 continue;
@@ -197,9 +203,8 @@ impl WeaponStore {
             template.collide_mask = WeaponCollideMask::new(source.collide_mask);
             template.damage_type = DamageType::from_u32(source.damage_type_index as u32);
             template.death_type = DeathType::from_u32(source.death_type_index as u32);
-            template.damage_status_type = ObjectStatusTypes::new(
-                source.damage_status_type.max(0) as u32,
-            );
+            template.damage_status_type =
+                ObjectStatusTypes::new(source.damage_status_type.max(0) as u32);
             let sound = source.effects.sound_effect.as_str().trim();
             if !sound.is_empty() {
                 template.fire_sound = crate::weapon::AudioEventRts::new(sound.to_string());
@@ -217,7 +222,10 @@ impl WeaponStore {
             if let Some(name) = source.historic_bonus_weapon.as_deref() {
                 template.set_historic_bonus_weapon_name(name);
             }
-            template.fire_fx = source.fire_fx.clone().map(|name| name.map(|name| FXList::new(&name)));
+            template.fire_fx = source
+                .fire_fx
+                .clone()
+                .map(|name| name.map(|name| FXList::new(&name)));
             template.projectile_detonate_fx = source
                 .projectile_detonate_fx
                 .clone()
@@ -243,8 +251,14 @@ impl WeaponStore {
                     }
                 }
             }
-            if bonus_set.get_bonus(WeaponBonusConditionType::Garrisoned).is_some()
-                || source.weapon_bonus.iter().flatten().any(|value| (*value - 1.0).abs() > f32::EPSILON)
+            if bonus_set
+                .get_bonus(WeaponBonusConditionType::Garrisoned)
+                .is_some()
+                || source
+                    .weapon_bonus
+                    .iter()
+                    .flatten()
+                    .any(|value| (*value - 1.0).abs() > f32::EPSILON)
             {
                 template.extra_bonus = Some(bonus_set);
             }
@@ -606,7 +620,6 @@ impl WeaponStore {
             .map_err(|err| GameLogicError::ModuleError(err.to_string()))?;
         Ok(())
     }
-
 }
 
 impl Default for WeaponStore {

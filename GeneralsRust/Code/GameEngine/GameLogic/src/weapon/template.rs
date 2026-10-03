@@ -1208,7 +1208,7 @@ impl WeaponTemplate {
     /// C++ Weapon.cpp:1169-1186 trimOldHistoricDamage — global historicDamageLimit.
     pub fn trim_old_historic_damage(&self) {
         let limit = game_engine::common::global_data::read().historic_damage_limit;
-        let expiration = TheGameLogic::get_frame().saturating_sub(limit);
+        let expiration = TheGameLogic::get_frame().wrapping_sub(limit);
         if let Ok(mut damage_list) = self.historic_damage.lock() {
             while let Some(front) = damage_list.front() {
                 if front.frame <= expiration {
@@ -1314,7 +1314,7 @@ impl WeaponTemplate {
 
         let current_frame = TheGameLogic::get_frame();
         let rad_sqr = self.historic_bonus_radius * self.historic_bonus_radius;
-        let oldest = current_frame.saturating_sub(self.historic_bonus_time);
+        let oldest = current_frame.wrapping_sub(self.historic_bonus_time);
         let count = if let Ok(list) = self.historic_damage.lock() {
             list.iter()
                 .filter(|info| {

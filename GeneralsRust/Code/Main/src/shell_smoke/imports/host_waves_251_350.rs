@@ -190,11 +190,6 @@ pub use crate::game_logic::host_live_hijacker_update_dual_world_empty_gate_resid
     honesty_live_hijacker_update_dual_world_empty_gate_nav_commands_residual_wave288,
     simulate_live_hijacker_update_dual_world_empty_gate_honesty,
 };
-pub use crate::game_logic::host_live_weapon_dual_world_empty_gate_residual_wave289::{
-    honesty_live_weapon_impl_dual_world_empty_gate_method_names_residual_wave289,
-    honesty_live_weapon_impl_dual_world_empty_gate_nav_commands_residual_wave289,
-    simulate_live_weapon_impl_dual_world_empty_gate_honesty,
-};
 pub use crate::game_logic::host_live_async_player_dual_world_empty_gate_residual_wave290::{
     honesty_live_async_player_dual_world_empty_gate_method_names_residual_wave290,
     honesty_live_async_player_dual_world_empty_gate_nav_commands_residual_wave290,

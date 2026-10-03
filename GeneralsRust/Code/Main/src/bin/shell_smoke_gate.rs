@@ -922,9 +922,6 @@ fn main() {
         && r.live_hijacker_update_dual_world_empty_gate_nav_commands_wave288_ok
         && r.live_hijacker_update_dual_world_empty_gate_live_wave288_ok
         // Wave 289 residual honesty (weapon dual-world empty gates).
-        && r.live_weapon_impl_dual_world_empty_gate_method_names_wave289_ok
-        && r.live_weapon_impl_dual_world_empty_gate_nav_commands_wave289_ok
-        && r.live_weapon_impl_dual_world_empty_gate_live_wave289_ok
         // Wave 290 residual honesty (async player dual-world empty gates).
         && r.live_async_player_dual_world_empty_gate_method_names_wave290_ok
         && r.live_async_player_dual_world_empty_gate_nav_commands_wave290_ok
@@ -1182,9 +1179,6 @@ fn main() {
         && r.live_dock_update_dual_world_empty_gate_nav_commands_wave355_ok
         && r.live_dock_update_dual_world_empty_gate_live_wave355_ok
         // Wave 356 residual honesty (weapon template dual-world empty gates).
-        && r.live_weapon_template_dual_world_empty_gate_method_names_wave356_ok
-        && r.live_weapon_template_dual_world_empty_gate_nav_commands_wave356_ok
-        && r.live_weapon_template_dual_world_empty_gate_live_wave356_ok
         // Wave 357 residual honesty (railroad guide ai dual-world empty gates).
         && r.live_railroad_guide_ai_dual_world_empty_gate_method_names_wave357_ok
         && r.live_railroad_guide_ai_dual_world_empty_gate_nav_commands_wave357_ok

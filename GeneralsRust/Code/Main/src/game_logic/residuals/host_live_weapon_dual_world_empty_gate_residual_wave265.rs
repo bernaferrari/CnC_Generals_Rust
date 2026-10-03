@@ -1,12 +1,15 @@
 //! Wave 265 residual peels: Weapon module dual-world empty short-circuits.
 //! When `OBJECT_REGISTRY` is empty (host-only presentation path), weapon
-//! range/LOS/damage helpers fail-closed without dual-world factory walks.
+//! ID-based range/damage/radius helpers fail-closed without dual-world factory walks.
+//! An explicitly borrowed range source is accepted before the registry gate.
 //! Never flips shell `playable_claim`. Network deferred.
 //!
 //! Orthogonal to Wave 264 Object mod dual-world empty-gate residual.
 //!
 //! Sources:
-//! - `GameLogic/src/weapon/mod.rs` dual_world_registry_unavailable
+//! - `GameLogic/src/weapon/helpers.rs` registry availability
+//! - `GameLogic/src/weapon/weapon_range.rs` range source resolution
+//! - `GameLogic/src/weapon/weapon_instance_combat.rs` damage and radius queries
 //!
 //! Fail-closed:
 //! - Shell `playable_claim` stays false; network deferred
@@ -85,18 +88,16 @@ fn fn_body<'a>(src: &'a str, name: &str) -> Option<&'a str> {
     crate::game_logic::residuals::harness::last_rust_fn_body(src, short)
 }
 
-/// Source residual: Weapon module empty dual-world short-circuits.
-pub fn honesty_weapon_dual_world_empty_gate_source() -> bool {
-    // 2026-08-15: weapon god-file split — scan WEAPON_SRC, not the facade.
-    let g = crate::game_logic::residuals::WEAPON_SRC;
-    if !(g.contains("Wave 265")
-        && g.contains("fn dual_world_registry_unavailable")
-        && (g.contains("let _host_empty") || g.contains("OBJECT_REGISTRY.is_empty()"))
-        && g.contains("OBJECT_REGISTRY.is_empty()"))
-    {
+/// Source contract for the canonical ID adapters and borrowed range source.
+/// This checks declaration/delegation paths, not executable gameplay parity.
+fn weapon_empty_gate_source_contract(g: &str) -> bool {
+    let Some(helper) = fn_body(g, "fn dual_world_registry_unavailable(") else {
         return false;
-    }
+    };
     let Some(range) = fn_body(g, "fn is_within_attack_range(") else {
+        return false;
+    };
+    let Some(source) = fn_body(g, "fn range_source(") else {
         return false;
     };
     let Some(damage) = fn_body(g, "fn deal_damage(") else {
@@ -105,11 +106,37 @@ pub fn honesty_weapon_dual_world_empty_gate_source() -> bool {
     let Some(find) = fn_body(g, "fn find_objects_in_radius(") else {
         return false;
     };
-    range.contains("dual_world_registry_unavailable")
-        && damage.contains("dual_world_registry_unavailable")
+    let Some(find_with_source) = fn_body(g, "fn find_objects_in_radius_with_source(") else {
+        return false;
+    };
+    let Some(borrowed_at) = source.find("self.caller_source(id)") else {
+        return false;
+    };
+    let Some(empty_at) = source.find("dual_world_registry_unavailable()") else {
+        return false;
+    };
+    g.contains("mod weapon_range;")
+        && g.contains("mod weapon_instance_combat;")
+        && helper.contains("OBJECT_REGISTRY.is_empty()")
+        && range.contains("self.range_source(source_obj)")
+        && range.contains("return false")
+        && range.contains("self.is_within_attack_range_from_source(")
+        && borrowed_at < empty_at
+        && source.contains("return Some((source.position, source.geometry))")
+        && source.contains("return None")
+        && source.contains("OBJECT_REGISTRY.with_object(id")
+        && damage.contains("dual_world_registry_unavailable()")
         && damage.contains("return 0.0")
-        && find.contains("dual_world_registry_unavailable")
-        && find.contains("Ok(Vec::new())")
+        && find.contains(
+            "self.find_objects_in_radius_with_source(source_obj_id, center, radius, None)",
+        )
+        && find_with_source.contains("dual_world_registry_unavailable()")
+        && find_with_source.contains("Ok(Vec::new())")
+}
+
+/// Source residual: canonical Weapon adapters preserve empty-registry results.
+pub fn honesty_weapon_dual_world_empty_gate_source() -> bool {
+    weapon_empty_gate_source_contract(crate::game_logic::residuals::WEAPON_SRC)
 }
 
 /// Live residual: source honesty pack latches.
@@ -121,6 +148,27 @@ pub fn simulate_live_weapon_dual_world_empty_gate_honesty() -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn canonical_range_contract_requires_borrowed_source_before_registry_gate() {
+        let source = crate::game_logic::residuals::WEAPON_SRC;
+        let without_borrow = source.replace("self.caller_source(id)", "None");
+        assert!(!weapon_empty_gate_source_contract(&without_borrow));
+        let without_range_module = source.replace("mod weapon_range;", "");
+        assert!(!weapon_empty_gate_source_contract(&without_range_module));
+    }
+
+    #[test]
+    fn canonical_radius_contract_requires_wrapper_and_gated_implementation() {
+        let source = crate::game_logic::residuals::WEAPON_SRC;
+        let without_delegate = source.replace(
+            "self.find_objects_in_radius_with_source(source_obj_id, center, radius, None)",
+            "Ok(Vec::new())",
+        );
+        assert!(!weapon_empty_gate_source_contract(&without_delegate));
+        let without_empty_result = source.replace("return Ok(Vec::new());", "return Err(error);");
+        assert!(!weapon_empty_gate_source_contract(&without_empty_result));
+    }
 
     #[test]
     fn method_names_residual() {

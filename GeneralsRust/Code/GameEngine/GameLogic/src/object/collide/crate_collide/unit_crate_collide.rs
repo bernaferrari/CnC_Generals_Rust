@@ -397,7 +397,12 @@ const UNIT_CRATE_COLLIDE_FIELDS: &[FieldParse<UnitCrateCollideModuleData>] = &[
 ];
 
 #[cfg(test)]
+#[path = "unit_crate_test_fixture.rs"]
+mod actual_test_fixture;
+
+#[cfg(test)]
 mod tests {
+    use super::actual_test_fixture::UnitCrateFixture;
     use super::*;
     use crate::common::KindOf;
     use crate::player::{Player, PlayerIndex};
@@ -627,23 +632,113 @@ mod tests {
     fn test_unit_crate_execute_behavior() {
         let _lock = crate::test_sync::lock();
         let _audio_guard = AudioEventsGuard::disabled();
-
-        ensure_template_exists("Infantry");
-        setup_player_with_team(0, "Player1Team");
+        let mut fixture = UnitCrateFixture::new();
+        let game_obj = fixture.create_picker();
+        let picker_id = game_obj.read().unwrap().get_id();
+        let before = fixture.created().expect("exact picker admission");
+        assert_eq!(before.len(), 1);
+        assert!(Arc::ptr_eq(&before[0].1, &game_obj));
 
         let module_data = UnitCrateCollideModuleData {
             unit_count: 2,
-            unit_type: "Infantry".to_string(),
+            unit_type: UnitCrateFixture::TEMPLATE.to_string(),
             ..Default::default()
         };
-
         let unit_crate = UnitCrateCollide::new(1, module_data);
-        let game_obj = create_object_for_player("Infantry", 0, Coord3D::new(10.0, 20.0, 0.0));
-
-        // Test that the behavior executes successfully
         let result = unit_crate.execute_crate_behavior_internal(&game_obj);
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), true);
+
+        // CPP UnitCrateCollide.cpp:45–65 creates exactly two actual units on
+        // the default team, then copies picker orientation and nearby position.
+        let created = fixture.created().expect("actual unit-crate spawns");
+        assert_eq!(created.len(), 3, "picker plus two factory-created units");
+        let spawned: Vec<_> = created.iter().filter(|(id, _)| *id != picker_id).collect();
+        assert_eq!(spawned.len(), 2);
+        for (_, object) in spawned {
+            let (orientation, position, infantry) = {
+                let object = object.read().unwrap();
+                (
+                    object.get_orientation(),
+                    *object.get_position(),
+                    object.is_kind_of(KindOf::Infantry),
+                )
+            };
+            assert!(infantry);
+            assert_eq!(orientation, 0.625);
+            let dx = position.x - 128.0;
+            let dy = position.y - 128.0;
+            assert!(dx * dx + dy * dy <= 20.0 * 20.0 + 0.001);
+        }
+        fixture
+            .retire()
+            .expect("normal exact unit-crate retirement");
+        assert!(fixture.created().unwrap().is_empty());
+    }
+
+    #[test]
+    fn unit_crate_fixture_retires_spawns_and_restores_roster_on_unwind() {
+        use std::panic::{AssertUnwindSafe, catch_unwind};
+
+        let _lock = crate::test_sync::lock();
+        let _audio_guard = AudioEventsGuard::disabled();
+        let baseline = UnitCrateFixture::admissions().unwrap();
+        let (players, local_index) = {
+            let list = player_list().read().unwrap();
+            (
+                list.iter().cloned().collect::<Vec<_>>(),
+                list.get_local_player_index(),
+            )
+        };
+        let seed = game_engine::common::random_value::get_game_logic_random_seed_state();
+        let result = catch_unwind(AssertUnwindSafe(|| {
+            let fixture = UnitCrateFixture::new();
+            let picker = fixture.create_picker();
+            let unit_crate = UnitCrateCollide::new(
+                1,
+                UnitCrateCollideModuleData {
+                    unit_count: 2,
+                    unit_type: UnitCrateFixture::TEMPLATE.to_string(),
+                    ..Default::default()
+                },
+            );
+            assert!(unit_crate.execute_crate_behavior_internal(&picker).unwrap());
+            assert_eq!(fixture.created().unwrap().len(), 3);
+            panic!("exercise unit-crate fixture assertion unwinding");
+        }));
+        let panic = result.expect_err("fixture must reach the deliberate unwind");
+        assert_eq!(
+            panic.downcast_ref::<&str>().copied(),
+            Some("exercise unit-crate fixture assertion unwinding")
+        );
+        let restored = UnitCrateFixture::admissions().unwrap();
+        assert_eq!(restored.len(), baseline.len());
+        for (id, original) in baseline {
+            assert!(
+                restored
+                    .iter()
+                    .any(|(live_id, object)| { *live_id == id && Arc::ptr_eq(object, &original) })
+            );
+        }
+        let (restored_players, restored_local_index) = {
+            let list = player_list().read().unwrap();
+            (
+                list.iter().cloned().collect::<Vec<_>>(),
+                list.get_local_player_index(),
+            )
+        };
+        assert_eq!(restored_local_index, local_index);
+        assert_eq!(restored_players.len(), players.len());
+        assert!(
+            restored_players
+                .iter()
+                .zip(&players)
+                .all(|(restored, original)| { Arc::ptr_eq(restored, original) })
+        );
+        assert_eq!(
+            game_engine::common::random_value::get_game_logic_random_seed_state(),
+            seed
+        );
     }
 
     #[test]
@@ -695,12 +790,10 @@ mod tests {
         // This exercises the real ThingFactory -> ObjectFactory -> initObject
         // path. initObject sends its creation notification while the factory
         // still owns the object's write guard.
-        let object = create_object_for_player(
-            "Infantry",
-            2,
-            Coord3D::new(13.0, 17.0, 0.0),
-        );
-        let guard = object.read().expect("factory-created object remains readable");
+        let object = create_object_for_player("Infantry", 2, Coord3D::new(13.0, 17.0, 0.0));
+        let guard = object
+            .read()
+            .expect("factory-created object remains readable");
         assert_ne!(guard.get_id(), 0);
         assert_eq!(guard.get_position().x, 13.0);
         assert_eq!(guard.get_position().y, 17.0);

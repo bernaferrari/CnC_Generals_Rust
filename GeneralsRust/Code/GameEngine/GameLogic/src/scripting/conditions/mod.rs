@@ -16,6 +16,9 @@ mod player;
 mod registry;
 mod team;
 
+#[cfg(test)]
+mod bridge_condition_test_fixture;
+
 pub use super::{ScriptContext, ScriptValue};
 pub use registry::ConditionRegistry;
 
@@ -82,7 +85,7 @@ pub trait ScriptCondition: Send + Sync {
 
 #[cfg(test)]
 mod tests {
-    use super::leftover::{BridgeBrokenCondition, BridgeRepairedCondition, GameTimeCondition};
+    use super::leftover::GameTimeCondition;
     use super::logic::{FlagComparisonCondition, VariableEqualsCondition};
     use super::object::ObjectHealthCondition;
     use super::player::{PlayerHasResourceCondition, ResearchCompleteCondition};
@@ -214,83 +217,7 @@ mod tests {
 
     #[tokio::test]
     async fn bridge_conditions_use_terrain_bridge_damage_state() {
-        use crate::common::{AsciiString, BodyDamageType};
-        use crate::terrain::{BridgeInfo, get_terrain_logic};
-
-        let bridge_name = "RegistryBridgeDamageState";
-        let bridge_id = 0x00B1_D6E0;
-        get_named_object_tracker()
-            .register_named_object(bridge_name.to_string(), bridge_id)
-            .expect("register bridge name");
-
-        {
-            let mut terrain = get_terrain_logic().write().expect("terrain write lock");
-            terrain.reset();
-            let mut info = BridgeInfo::new();
-            info.bridge_object_id = bridge_id;
-            info.cur_damage_state = BodyDamageType::Rubble;
-            info.damage_state_changed = true;
-            terrain.add_bridge_to_logic(info, AsciiString::from("TestBridgeTemplate"));
-        }
-
-        let context = ScriptContext {
-            game_time: Duration::from_secs(0),
-            active_player: None,
-            variables: HashMap::new(),
-            game_state: crate::scripting::GameStateContext {
-                map_name: "Test".to_string(),
-                game_mode: "Test".to_string(),
-                players: vec![],
-                objectives: vec![],
-            },
-            host_trigger_world: std::sync::Arc::new(std::sync::Mutex::new(Default::default())),
-        };
-        let mut params = HashMap::new();
-        params.insert(
-            "bridge_name".to_string(),
-            ScriptValue::String(bridge_name.to_string()),
-        );
-
-        assert!(
-            BridgeBrokenCondition
-                .evaluate(&params, &context)
-                .await
-                .expect("broken condition")
-        );
-        assert!(
-            !BridgeRepairedCondition
-                .evaluate(&params, &context)
-                .await
-                .expect("repaired condition")
-        );
-
-        {
-            let mut terrain = get_terrain_logic().write().expect("terrain write lock");
-            terrain.reset();
-            let mut info = BridgeInfo::new();
-            info.bridge_object_id = bridge_id;
-            info.cur_damage_state = BodyDamageType::Damaged;
-            info.damage_state_changed = true;
-            terrain.add_bridge_to_logic(info, AsciiString::from("TestBridgeTemplate"));
-        }
-
-        assert!(
-            !BridgeBrokenCondition
-                .evaluate(&params, &context)
-                .await
-                .expect("broken condition after repair")
-        );
-        assert!(
-            BridgeRepairedCondition
-                .evaluate(&params, &context)
-                .await
-                .expect("repaired condition after repair")
-        );
-
-        get_terrain_logic()
-            .write()
-            .expect("terrain write lock")
-            .reset();
+        super::bridge_condition_test_fixture::run_bounded_bridge_condition_scenario().await;
     }
 
     #[tokio::test]

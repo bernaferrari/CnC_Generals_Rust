@@ -167,9 +167,9 @@ pub fn engine_scan_src() -> &'static str {
 pub const WEAPON_SRC: &str = concat!(
     include_str!("../../../../GameEngine/GameLogic/src/weapon/mod.rs"),
     include_str!("../../../../GameEngine/GameLogic/src/weapon/helpers.rs"),
-    include_str!("../../../../GameEngine/GameLogic/src/weapon/weapon.rs"),
     include_str!("../../../../GameEngine/GameLogic/src/weapon/weapon_instance.rs"),
     include_str!("../../../../GameEngine/GameLogic/src/weapon/weapon_instance_combat.rs"),
+    include_str!("../../../../GameEngine/GameLogic/src/weapon/weapon_range.rs"),
     include_str!("../../../../GameEngine/GameLogic/src/weapon/damage_application.rs"),
     include_str!("../../../../GameEngine/GameLogic/src/weapon/template.rs"),
 );

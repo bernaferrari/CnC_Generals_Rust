@@ -325,6 +325,22 @@ impl Drawable {
             .get_body_module()
             .and_then(|body| body.lock().ok().map(|guard| guard.get_damage_state()))
             .unwrap_or(BodyDamageType::Pristine);
+        self.start_ambient_sound_for_damage(object, damage_state, time_of_day, only_if_permanent);
+    }
+
+    // C++ has separate query and explicit-state overloads. Body callbacks
+    // supply their current state while the body is already borrowed.
+    fn start_ambient_sound_for_damage(
+        &mut self,
+        object: &crate::object::Object,
+        damage_state: BodyDamageType,
+        time_of_day: TimeOfDay,
+        only_if_permanent: bool,
+    ) {
+        if !self.is_ambient_sound_enabled_effective() {
+            self.stop_ambient_sound();
+            return;
+        }
 
         if self.custom_sound_ambient_off && damage_state != BodyDamageType::Rubble {
             self.stop_ambient_sound();
@@ -387,7 +403,7 @@ impl Drawable {
         audio_event.set_time_of_day(time_of_day);
 
         if let Some(audio) = TheAudio::get() {
-            self.ambient_sound_handle = audio.add_audio_event(&audio_event);
+            self.ambient_sound_handle = audio.add_audio_event_for_owner(&audio_event, object);
         }
     }
 
@@ -503,6 +519,41 @@ impl Drawable {
     /// Fail-closed residual: this does **not** claim full animation/mesh swap parity —
     /// only the condition bit update (+ ambient restart when not loading a map).
     pub fn react_to_body_damage_state_change(&mut self, new_state: BodyDamageType) {
+        self.set_body_damage_model_conditions(new_state);
+        if !TheGameLogic::is_loading_map() {
+            if let Some(object) = self.object_ref.as_ref().and_then(|weak| weak.upgrade()) {
+                if let Ok(owner) = object.read() {
+                    self.restart_ambient_sound_for_damage(&owner, new_state);
+                }
+            }
+        }
+    }
+
+    /// Body evaluation already borrows the owner and the body. Reuse that
+    /// owner and state instead of rediscovering either through shared handles.
+    pub(crate) fn react_to_body_damage_state_change_with_owner(
+        &mut self,
+        new_state: BodyDamageType,
+        owner: &crate::object::Object,
+    ) {
+        self.set_body_damage_model_conditions(new_state);
+        if !TheGameLogic::is_loading_map() {
+            self.restart_ambient_sound_for_damage(owner, new_state);
+        }
+    }
+
+    fn restart_ambient_sound_for_damage(
+        &mut self,
+        owner: &crate::object::Object,
+        damage_state: BodyDamageType,
+    ) {
+        let time_of_day = TheGlobalData::get()
+            .map(|data| data.get_time_of_day())
+            .unwrap_or(TimeOfDay::Day);
+        self.start_ambient_sound_for_damage(owner, damage_state, time_of_day, false);
+    }
+
+    fn set_body_damage_model_conditions(&mut self, new_state: BodyDamageType) {
         // C++ TheDamageMap[BODYDAMAGETYPE_COUNT]: INVALID, DAMAGED, REALLY_DAMAGED, RUBBLE
         let clear = ModelConditionFlags::DAMAGED
             | ModelConditionFlags::REALLYDAMAGED
@@ -514,17 +565,5 @@ impl Drawable {
             BodyDamageType::Rubble => ModelConditionFlags::RUBBLE,
         };
         self.clear_and_set_model_condition_state(clear, set);
-
-        // C++: when loading map, ambient sound is deferred to onLevelStart so customizations apply.
-        if !TheGameLogic::is_loading_map() {
-            if let Some(object) = self.object_ref.as_ref().and_then(|weak| weak.upgrade()) {
-                if let Ok(obj_guard) = object.read() {
-                    let time_of_day = TheGlobalData::get()
-                        .map(|data| data.get_time_of_day())
-                        .unwrap_or(TimeOfDay::Day);
-                    self.start_ambient_sound(&obj_guard, time_of_day);
-                }
-            }
-        }
     }
 }

@@ -6,7 +6,9 @@
 //! Orthogonal to Wave 418 BuildPlacement dual-world empty-gate residual.
 //!
 //! Sources:
-//! - `GameLogic/src/weapon/weapon_set.rs`
+//! - `GameLogic/src/weapon/weapon_set.rs` selection
+//! - `GameLogic/src/weapon/weapon_set_able.rs` target legality and usability
+//! - `GameLogic/src/weapon/helpers.rs` child-module registry availability
 //!
 //! Fail-closed:
 //! - Shell `playable_claim` stays false; network deferred
@@ -22,7 +24,7 @@ pub const LIVE_WEAPON_SET_DUAL_WORLD_EMPTY_GATE_METHOD_NAMES_WAVE419: &[&str] = 
     "dual_world_registry_unavailable",
     "choose_best_weapon_for_target",
     "get_able_to_use_weapon_against_target",
-    "evaluate_weapon_against_target",
+    "get_able_to_attack_specific_object",
     "playable_claim = false",
 ];
 
@@ -50,7 +52,7 @@ pub fn honesty_live_weapon_set_dual_world_empty_gate_method_names_residual_wave4
         ) == Some(0)
         && residual_name_index(
             LIVE_WEAPON_SET_DUAL_WORLD_EMPTY_GATE_METHOD_NAMES_WAVE419,
-            "evaluate_weapon_against_target",
+            "get_able_to_attack_specific_object",
         ) == Some(3)
         && residual_name_index(
             LIVE_WEAPON_SET_DUAL_WORLD_EMPTY_GATE_METHOD_NAMES_WAVE419,
@@ -78,62 +80,56 @@ pub fn honesty_live_weapon_set_dual_world_empty_gate_residual_pack_wave419() -> 
         && honesty_live_weapon_set_dual_world_empty_gate_nav_commands_residual_wave419()
 }
 
-fn fn_body<'a>(src: &'a str, name: &str) -> Option<&'a str> {
-    let mut search_from = 0usize;
-    while let Some(rel) = src[search_from..].find(name) {
-        let i = search_from + rel;
-        let Some(b) = src[i..].find('{') else {
-            search_from = i + name.len();
-            continue;
-        };
-        let brace = i + b;
-        let mut depth = 0usize;
-        for (off, ch) in src[brace..].char_indices() {
-            match ch {
-                '{' => depth += 1,
-                '}' => {
-                    depth -= 1;
-                    if depth == 0 {
-                        let body = &src[i..brace + off + 1];
-                        if body.contains("dual_world_registry_unavailable") {
-                            return Some(body);
-                        }
-                        break;
-                    }
-                }
-                _ => {}
-            }
-        }
-        search_from = i + name.len();
-    }
-    None
+const WEAPON_SET_SOURCE: &str =
+    include_str!("../../../../GameEngine/GameLogic/src/weapon/weapon_set.rs");
+const WEAPON_SET_ABLE_SOURCE: &str =
+    include_str!("../../../../GameEngine/GameLogic/src/weapon/weapon_set_able.rs");
+const WEAPON_HELPERS_SOURCE: &str =
+    include_str!("../../../../GameEngine/GameLogic/src/weapon/helpers.rs");
+
+fn fn_body<'a>(source: &'a str, name: &str) -> Option<&'a str> {
+    crate::game_logic::residuals::harness::last_rust_fn_body(source, name)
 }
 
-/// Source residual: WeaponSet empty dual-world short-circuits.
+/// Check real canonical declarations and the imported child-module gate.
+/// The retired evaluate_weapon_against_target helper is not a production owner.
+fn weapon_set_empty_gate_source_contract(set: &str, able: &str, helpers: &str) -> bool {
+    let Some(set_helper) = fn_body(set, "dual_world_registry_unavailable") else {
+        return false;
+    };
+    let Some(child_helper) = fn_body(helpers, "dual_world_registry_unavailable") else {
+        return false;
+    };
+    let Some(choose) = fn_body(set, "choose_best_weapon_for_target") else {
+        return false;
+    };
+    let Some(use_target) = fn_body(able, "get_able_to_use_weapon_against_target") else {
+        return false;
+    };
+    let Some(specific) = fn_body(able, "get_able_to_attack_specific_object") else {
+        return false;
+    };
+    set.contains("mod weapon_set_able;")
+        && set.contains("#[path = \"weapon_set_able.rs\"]")
+        && able.contains("use super::super::helpers::dual_world_registry_unavailable;")
+        && set_helper.contains("OBJECT_REGISTRY.is_empty()")
+        && child_helper.contains("OBJECT_REGISTRY.is_empty()")
+        && choose.contains("dual_world_registry_unavailable()")
+        && choose.contains("return Ok(false)")
+        && use_target.contains("dual_world_registry_unavailable()")
+        && use_target.contains("return CanAttackResult::NotPossible")
+        && specific.contains("dual_world_registry_unavailable()")
+        && specific.contains("return CanAttackResult::NotPossible")
+        && specific.contains("self.get_able_to_use_weapon_against_target(")
+}
+
+/// Source residual: canonical WeaponSet targeting adapters fail closed.
 pub fn honesty_weapon_set_dual_world_empty_gate_source() -> bool {
-    let g = include_str!("../../../../GameEngine/GameLogic/src/weapon/weapon_set.rs");
-    if !(g.contains("Wave 419")
-        && g.contains("fn dual_world_registry_unavailable")
-        && g.contains("OBJECT_REGISTRY.is_empty()"))
-    {
-        return false;
-    }
-    let helper_ok = g.contains(
-        "fn dual_world_registry_unavailable() -> bool {\n    crate::object::registry::OBJECT_REGISTRY.is_empty()\n}",
-    );
-    let Some(choose) = fn_body(g, "fn choose_best_weapon_for_target(") else {
-        return false;
-    };
-    let Some(able) = fn_body(g, "fn get_able_to_use_weapon_against_target(") else {
-        return false;
-    };
-    let Some(eval) = fn_body(g, "fn evaluate_weapon_against_target(") else {
-        return false;
-    };
-    helper_ok
-        && choose.contains("Ok(false)")
-        && able.contains("NotPossible")
-        && eval.contains("NotPossible")
+    weapon_set_empty_gate_source_contract(
+        WEAPON_SET_SOURCE,
+        WEAPON_SET_ABLE_SOURCE,
+        WEAPON_HELPERS_SOURCE,
+    )
 }
 
 /// Live residual: source honesty pack latches.
@@ -145,6 +141,41 @@ pub fn simulate_live_weapon_set_dual_world_empty_gate_honesty() -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn canonical_target_contract_requires_reachable_able_child() {
+        assert!(!weapon_set_empty_gate_source_contract(
+            WEAPON_SET_SOURCE,
+            "",
+            WEAPON_HELPERS_SOURCE,
+        ));
+        let without_declaration = WEAPON_SET_SOURCE.replace("mod weapon_set_able;", "");
+        assert!(!weapon_set_empty_gate_source_contract(
+            &without_declaration,
+            WEAPON_SET_ABLE_SOURCE,
+            WEAPON_HELPERS_SOURCE,
+        ));
+    }
+
+    #[test]
+    fn canonical_target_contract_requires_real_import_and_empty_gate() {
+        let without_import = WEAPON_SET_ABLE_SOURCE.replace(
+            "use super::super::helpers::dual_world_registry_unavailable;",
+            "",
+        );
+        assert!(!weapon_set_empty_gate_source_contract(
+            WEAPON_SET_SOURCE,
+            &without_import,
+            WEAPON_HELPERS_SOURCE,
+        ));
+        let without_gate =
+            WEAPON_SET_ABLE_SOURCE.replace("if dual_world_registry_unavailable()", "if false");
+        assert!(!weapon_set_empty_gate_source_contract(
+            WEAPON_SET_SOURCE,
+            &without_gate,
+            WEAPON_HELPERS_SOURCE,
+        ));
+    }
 
     #[test]
     fn method_names_residual() {

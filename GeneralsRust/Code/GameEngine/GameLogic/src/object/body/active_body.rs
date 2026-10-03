@@ -2425,7 +2425,10 @@ impl BodyModuleInterface for ActiveBody {
             if let Ok(owner_guard) = owner.try_read() {
                 if let Some(drawable) = owner_guard.get_drawable() {
                     if let Ok(mut draw_guard) = drawable.write() {
-                        draw_guard.react_to_body_damage_state_change(damage_state);
+                        draw_guard.react_to_body_damage_state_change_with_owner(
+                            damage_state,
+                            &owner_guard,
+                        );
                     }
                 }
             }

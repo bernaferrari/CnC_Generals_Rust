@@ -396,10 +396,6 @@
       "constructs": 1,
       "undocumented": 0
     },
-    "Code/GameEngine/GameLogic/src/weapon/weapon.rs": {
-      "constructs": 3,
-      "undocumented": 0
-    },
     "Code/GameEngine/GameLogic/tests/crc_standalone_test.rs": {
       "constructs": 3,
       "undocumented": 0

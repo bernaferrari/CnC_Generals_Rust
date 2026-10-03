@@ -52,18 +52,25 @@ pub fn update_damage_state(bridge: &mut Bridge) {
         return;
     }
 
+    // Capture the remaining owner fact, then release its read guard before
+    // falling damage writes objects on this layer (including inspecting this
+    // bridge itself). C++ has no independently held object lock across this
+    // immediate phase; its borrowed bridge object remains the same identity.
+    let scaffold_present = cur_state == BodyDamageType::Rubble && bridge_has_scaffold(&obj_guard);
+    drop(obj_guard);
+
     bridge.bridge_info_mut().cur_damage_state = damage_state;
     let layer = bridge.get_layer();
 
     if damage_state == BodyDamageType::Rubble {
         change_bridge_state(layer, false);
         bridge.bridge_info_mut().damage_state_changed = true;
-        splat_units_on_bridge(bridge, &obj_guard);
+        splat_units_on_bridge(bridge);
     }
 
     if cur_state == BodyDamageType::Rubble {
         // C++: do not re-enable the layer while scaffolding is up.
-        if !bridge_has_scaffold(&obj_guard) {
+        if !scaffold_present {
             change_bridge_state(layer, true);
         }
         bridge.bridge_info_mut().damage_state_changed = true;
@@ -89,7 +96,7 @@ fn bridge_has_scaffold(bridge_obj: &Object) -> bool {
     false
 }
 
-fn splat_units_on_bridge(bridge: &Bridge, _bridge_obj: &Object) {
+fn splat_units_on_bridge(bridge: &Bridge) {
     let layer = bridge.get_layer();
     let ids = OBJECT_REGISTRY.get_all_object_ids();
     for id in ids {

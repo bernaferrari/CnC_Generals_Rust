@@ -145,7 +145,7 @@ MANUAL_CPP_TO_RUST: dict[tuple[str, str], str] = {
     ("Include", "GameLogic/Powers.h"): "GameLogic/src/special_power.rs",
     ("Include", "GameLogic/WeaponSetFlags.h"): "GameLogic/src/weapon/weapon_set.rs",
     ("Include", "GameLogic/WeaponSetType.h"): "GameLogic/src/weapon/weapon_set.rs",
-    ("Include", "GameLogic/WeaponStatus.h"): "GameLogic/src/weapon/weapon.rs",
+    ("Include", "GameLogic/WeaponStatus.h"): "GameLogic/src/weapon/masks_enums.rs",
 }
 
 

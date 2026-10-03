@@ -140972,7 +140972,7 @@
     }
   ],
   "generator": "GeneralsRust/Code/Main/scripts/generate_port_provenance.py",
-  "input_digest": "4680a918347b017cd5de8b956d435bfdccfedc8b25adc0cd3686f78dfeae23dc",
+  "input_digest": "a4ff29b8bbbc3554434f3c1bedcce5665403c289fdccc240646e911807812d19",
   "metric_contract": {
     "behavior_requires_explicit_evidence": true,
     "candidate_mapping_is_reviewed": false,
@@ -180885,11 +180885,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 3340,
+        "end_line": 3343,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/body/active_body.rs",
-      "sha256": "c3e08f73e211bbbde541f2648ea463a5289497739c120d45f059ae29646f17b4",
+      "sha256": "38144d847a5b588e6e3ebee5d60b7c2b9aca891750f866f6ffae9e666befdb90",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -181173,11 +181173,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 727,
+        "end_line": 820,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/collide/crate_collide/unit_crate_collide.rs",
-      "sha256": "1f9d5a167faab43fce1f9a126962edd82683910494dca69358c7d0dfd1c204a2",
+      "sha256": "a89212bf76821ce76f573171f11d5bae50fb9fc71e8ba620c2a0e1976428365a",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
