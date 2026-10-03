@@ -262,7 +262,7 @@ impl ObjectFactory {
         let template = self.get_or_load_template(template_name)?;
 
         // Determine object type from template
-        let object_type = self.determine_object_type(&template);
+        let object_type = self.determine_object_type(template.as_ref());
 
         // Allocate object ID
         let object_id = self.allocate_object_id();
@@ -298,7 +298,7 @@ impl ObjectFactory {
         // Create appropriate specialized object
         let game_object = match object_type {
             ObjectType::Unit => {
-                let mut unit = Unit::new(base_object.clone(), &template)?;
+                let mut unit = Unit::new(base_object.clone(), template.as_ref())?;
 
                 if !flags.contains(ObjectCreationFlags::NO_AI) {
                     let needs_supply_ai = template.is_kind_of(KindOf::Harvester);
@@ -748,12 +748,12 @@ impl ObjectFactory {
             }
 
             ObjectType::Structure => {
-                let structure = Structure::new(base_object.clone(), &template)?;
+                let structure = Structure::new(base_object.clone(), template.as_ref())?;
                 GameObjectInstance::Structure(structure)
             }
 
             ObjectType::SimpleObject => {
-                let simple_object = SimpleObject::new(base_object.clone(), &template)?;
+                let simple_object = SimpleObject::new(base_object.clone(), template.as_ref())?;
                 GameObjectInstance::SimpleObject(simple_object)
             }
 
@@ -765,7 +765,11 @@ impl ObjectFactory {
         // Create drawable if needed
         if !flags.contains(ObjectCreationFlags::NO_DRAWABLE) {
             let base_object_for_drawable = Arc::clone(&base_object);
-            self.create_drawable_for_object(object_id, &template, &base_object_for_drawable)?;
+            self.create_drawable_for_object(
+                object_id,
+                template.as_ref(),
+                &base_object_for_drawable,
+            )?;
         }
 
         // Collision registration is handled by GameLogic::register_object on base object creation.

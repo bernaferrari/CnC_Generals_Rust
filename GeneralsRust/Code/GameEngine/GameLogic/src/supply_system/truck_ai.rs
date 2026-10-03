@@ -151,23 +151,35 @@ impl SupplyTruckAIUpdate {
         }
     }
 
-    /// Update the supply truck AI state machine.
+    /// Standalone callback adapter. UnitAI lends its already borrowed AI instead.
     pub fn update(&mut self) -> StateReturnType {
-        if self.state_machine.is_none() {
-            if self.object_id != INVALID_ID {
-                self.state_machine = Some(SupplyTruckStateMachine::new(self.object_id));
-            } else {
-                return StateReturnType::Failure;
-            }
-        }
-
-        let status = if let Some(machine) = &mut self.state_machine {
-            machine.update()
-        } else {
-            StateReturnType::Failure
+        let Some(ai) = supply_owner_ai(self.object_id) else {
+            return StateReturnType::Failure;
         };
+        let Ok(mut ai) = ai.lock() else {
+            return StateReturnType::Failure;
+        };
+        self.update_with_ai(&mut *ai, true)
+    }
+
+    /// Execute this owner's supply state against the currently driving AI.
+    /// Availability describes current contain facts and is never retained.
+    pub fn update_with_ai(
+        &mut self,
+        ai: &mut dyn AIUpdateInterface,
+        availability: bool,
+    ) -> StateReturnType {
+        if self.object_id == INVALID_ID {
+            return StateReturnType::Failure;
+        }
+        let mut machine = self
+            .state_machine
+            .take()
+            .unwrap_or_else(|| SupplyTruckStateMachine::new(self.object_id));
+        let result = machine.update(self, ai, availability);
+        self.state_machine = Some(machine);
         self.sync_state_from_machine();
-        status
+        result
     }
 
     /// Handle idle command (matches C++ SupplyTruckAIUpdate::privateIdle).
@@ -189,11 +201,35 @@ impl SupplyTruckAIUpdate {
     /// Lose one box (when depositing at supply center)
     /// Matches C++ SupplyTruckAIUpdate::loseOneBox() - SupplyTruckAIUpdate.cpp:116
     pub fn lose_one_box(&mut self) -> bool {
+        if !self.decrement_one_box() {
+            return false;
+        }
+        self.update_drawable_supply_status();
+        true
+    }
+
+    fn decrement_one_box(&mut self) -> bool {
         if self.number_boxes == 0 {
             return false;
         }
         self.number_boxes -= 1;
-        self.update_drawable_supply_status();
+        true
+    }
+
+    /// Same C++ loss callback using the Drawable captured by the driving owner.
+    /// Decrement precedes the synchronous visual update; zero does no lookup.
+    pub(crate) fn lose_one_box_with_drawable(
+        &mut self,
+        drawable: Option<&std::sync::RwLock<crate::object::drawable::Drawable>>,
+    ) -> bool {
+        if !self.decrement_one_box() {
+            return false;
+        }
+        if let Some(drawable) = drawable {
+            if let Ok(mut drawable) = drawable.write() {
+                drawable.update_supply_status(self.data.max_boxes, self.number_boxes);
+            }
+        }
         true
     }
 
@@ -504,4 +540,3 @@ impl WorkerAIUpdateInterface for WorkerAIUpdate {
         );
     }
 }
-

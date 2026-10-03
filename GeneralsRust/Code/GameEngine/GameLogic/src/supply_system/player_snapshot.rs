@@ -169,12 +169,7 @@ impl Snapshotable for SupplyTruckAIUpdate {
         xfer_io(xfer.xfer_version(&mut version, 1))?;
 
         if let Some(state_machine) = &mut self.state_machine {
-            state_machine
-                .machine
-                .lock()
-                .map_err(|_| "SupplyTruckStateMachine lock poisoned".to_string())?
-                .xfer(xfer)
-                .map_err(|e| e.to_string())?;
+            state_machine.xfer(xfer).map_err(|e| e.to_string())?;
             self.sync_state_from_machine();
         } else {
             let mut state_disc = supply_truck_state_to_id(self.state);
@@ -325,4 +320,3 @@ impl Snapshotable for WorkerAIUpdate {
         Ok(())
     }
 }
-

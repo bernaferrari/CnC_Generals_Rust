@@ -1895,7 +1895,7 @@ impl ScriptConditionEvaluator {
             if !Arc::ptr_eq(&owner, &target_player_arc) {
                 continue;
             }
-            if !wanted_types.contains_template(Some(candidate.get_template())) {
+            if !wanted_types.contains_template(Some(candidate.get_template().as_ref())) {
                 continue;
             }
             return Ok(ScriptConditionResult::True);

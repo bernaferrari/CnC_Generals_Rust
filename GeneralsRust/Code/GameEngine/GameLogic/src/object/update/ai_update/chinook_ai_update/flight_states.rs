@@ -2,8 +2,8 @@
 
 use super::{
     CHINOOK_ARRIVE_THRESH_SQR, CHINOOK_BIGNUM, ChinookAIState, ChinookAIUpdate,
-    ChinookFlightStatus, chinook_dist_sqr, chinook_dump_owner_crate_visuals,
-    chinook_move_to_bldg_arrived, chinook_move_to_bldg_preferred_height,
+    ChinookFlightStatus, chinook_dist_sqr, chinook_move_to_bldg_arrived,
+    chinook_move_to_bldg_preferred_height,
 };
 use crate::ai::CommandSourceType;
 use crate::common::{Coord3D, KindOf, ObjectID, ObjectStatusMaskType, PathfindLayerEnum};
@@ -154,20 +154,26 @@ impl ChinookAIUpdate {
         let Some(owner) = TheGameLogic::find_object_by_id(self.object_id) else {
             return;
         };
-        let Ok(mut owner_guard) = owner.write() else {
-            return;
+        // Position search reads every admitted object, including this one.
+        // Capture its inputs before invoking callbacks instead of holding the
+        // owner write guard across a synchronous registry traversal.
+        let (physics, mut dest, radius) = {
+            let Ok(owner) = owner.read() else {
+                return;
+            };
+            (
+                owner.get_physics(),
+                *owner.get_position(),
+                owner.get_geometry_info().get_bounding_circle_radius(),
+            )
         };
-        if landing {
-            chinook_dump_owner_crate_visuals(&owner_guard, self.base.get_max_boxes());
-        }
-
-        if let Some(physics) = owner_guard.get_physics() {
+        let original_z = dest.z;
+        if let Some(physics) = physics {
             if let Ok(mut physics_guard) = physics.access() {
                 physics_guard.scrub_velocity_2d(0.0);
             }
         }
 
-        let mut dest = *owner_guard.get_position();
         let preferred = ai.get_preferred_height().unwrap_or(0.0);
         if let Some(terrain) = TheTerrainLogic::get() {
             let layer = terrain.get_highest_layer_for_destination(&dest);
@@ -175,8 +181,7 @@ impl ChinookAIUpdate {
             if landing {
                 let mut tmp = dest;
                 let mut options = crate::helpers::FindPositionOptions::default();
-                options.max_radius =
-                    owner_guard.get_geometry_info().get_bounding_circle_radius() * 100.0;
+                options.max_radius = radius * 100.0;
                 if let Some(partition) = ThePartitionManager::get() {
                     if partition.find_position_around_with_options(&dest, &options, &mut tmp) {
                         dest = tmp;
@@ -184,20 +189,26 @@ impl ChinookAIUpdate {
                         if let Ok(ai_guard) = ai_store.read() {
                             if let Some(pathfinder) = ai_guard.pathfinder() {
                                 if let Ok(pf) = pathfinder.read() {
-                                    pf.adjust_to_landing_destination(&*owner_guard, &mut dest);
+                                    if let Ok(owner) = owner.read() {
+                                        pf.adjust_to_landing_destination(&owner, &mut dest);
+                                    }
                                 }
                             }
                         }
                     }
                 }
                 let mut tmp = dest;
-                tmp.z = owner_guard.get_position().z;
+                tmp.z = original_z;
                 let layer = terrain.get_highest_layer_for_destination(&tmp);
                 dest.z = terrain.get_layer_height(dest.x, dest.y, layer);
-                owner_guard.set_layer(layer);
+                if let Ok(mut owner) = owner.write() {
+                    owner.set_layer(layer);
+                }
             } else {
                 dest.z += preferred;
-                owner_guard.set_layer(PathfindLayerEnum::Ground);
+                if let Ok(mut owner) = owner.write() {
+                    owner.set_layer(PathfindLayerEnum::Ground);
+                }
             }
         } else if !landing {
             dest.z += preferred;

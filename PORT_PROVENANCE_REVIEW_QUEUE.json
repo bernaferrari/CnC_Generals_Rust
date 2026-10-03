@@ -52932,6 +52932,11 @@
             },
             {
               "cargo_reachable": true,
+              "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/chinook_ai_update/runtime_tests.rs"
+            },
+            {
+              "cargo_reachable": true,
               "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/chinook_ai_update/snapshot.rs"
             },
@@ -57204,6 +57209,11 @@
             },
             {
               "cargo_reachable": true,
+              "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/chinook_ai_update/runtime_tests.rs"
+            },
+            {
+              "cargo_reachable": true,
               "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/chinook_ai_update/snapshot.rs"
             },
@@ -58186,6 +58196,11 @@
               "cargo_reachable": true,
               "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/chinook_ai_update/module_data.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/chinook_ai_update/runtime_tests.rs"
             },
             {
               "cargo_reachable": true,
@@ -188791,7 +188806,7 @@
       ]
     }
   ],
-  "provenance_input_digest": "6f97437bf0f6121b74d42c3d404a2c4474d3f38f00d8f8a1b313460561b6175b",
+  "provenance_input_digest": "50292aa0d14067088b8934b6e28815f3481b805d282ba23192942280e09d08bb",
   "schema_version": 1,
   "summary": {
     "maximum_packet_size": 15,

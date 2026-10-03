@@ -700,7 +700,7 @@ impl ScriptEvaluator {
                         if obj_guard.is_effectively_dead() || obj_guard.is_destroyed() {
                             continue;
                         }
-                        if types.contains_template(Some(obj_guard.get_template())) {
+                        if types.contains_template(Some(obj_guard.get_template().as_ref())) {
                             count += 1;
                         }
                     }
@@ -900,7 +900,7 @@ impl ScriptEvaluator {
                     let Ok(obj_guard) = obj_arc.read() else {
                         continue;
                     };
-                    if types.contains_template(Some(obj_guard.get_template())) {
+                    if types.contains_template(Some(obj_guard.get_template().as_ref())) {
                         if obj_guard.is_inside_trigger(&trigger) {
                             if Self::counts_for_unit_type_area_condition(
                                 obj_guard.is_effectively_dead(),
@@ -1124,7 +1124,7 @@ impl ScriptEvaluator {
                         continue;
                     }
 
-                    if types.contains_template(Some(nearby_guard.get_template()))
+                    if types.contains_template(Some(nearby_guard.get_template().as_ref()))
                         && nearby_guard
                             .get_controlling_player()
                             .is_some_and(|owner| Arc::ptr_eq(&owner, &target_player))
@@ -2226,7 +2226,7 @@ impl ScriptEvaluator {
                             continue;
                         };
                         if !obj_guard.is_destroyed()
-                            && types.contains_template(Some(obj_guard.get_template()))
+                            && types.contains_template(Some(obj_guard.get_template().as_ref()))
                         {
                             current_count += 1;
                         }

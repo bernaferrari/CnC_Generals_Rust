@@ -28,6 +28,8 @@ mod supply;
 mod update;
 
 #[cfg(test)]
+mod runtime_tests;
+#[cfg(test)]
 mod tests;
 
 pub use module_data::{ChinookAIUpdateData, ChinookAIUpdateModuleData};
@@ -89,16 +91,6 @@ fn chinook_dist_sqr(a: &Coord3D, b: &Coord3D) -> Real {
     let dy = a.y - b.y;
     let dz = a.z - b.z;
     dx * dx + dy * dy + dz * dz
-}
-
-/// C++ `while (ai->loseOneBox())` crate-visual dump (Drawable::updateDrawableSupplyStatus).
-fn chinook_dump_owner_crate_visuals(owner: &Object, max_boxes: i32) {
-    let Some(drawable) = owner.get_drawable() else {
-        return;
-    };
-    if let Ok(mut draw_guard) = drawable.try_write() {
-        draw_guard.update_supply_status(max_boxes, 0);
-    }
 }
 
 /// C++ `getObject()->isKindOf(KINDOF_CAN_ATTACK)` — not `OBJECT_STATUS_CAN_ATTACK`.

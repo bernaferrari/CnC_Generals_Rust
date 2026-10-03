@@ -58,7 +58,7 @@ impl ScriptEvaluator {
         let Ok(attacker_guard) = attacker_arc.read() else {
             return Ok(false);
         };
-        Ok(types.contains_template(Some(attacker_guard.get_template())))
+        Ok(types.contains_template(Some(attacker_guard.get_template().as_ref())))
     }
 
     fn evaluate_team_attacked_by_object_type_condition(
@@ -119,7 +119,7 @@ impl ScriptEvaluator {
                 let Ok(attacker_guard) = attacker_arc.read() else {
                     continue;
                 };
-                if types.contains_template(Some(attacker_guard.get_template())) {
+                if types.contains_template(Some(attacker_guard.get_template().as_ref())) {
                     return Ok(true);
                 }
             }
@@ -318,7 +318,6 @@ impl ScriptEvaluator {
             let tracker = get_named_object_tracker();
             return Ok(tracker.did_object_exist(unit_name).unwrap_or(false));
         }
-
 
         let tracker = get_named_object_tracker();
         if tracker.get_object_id(unit_name).ok().flatten().is_some() {

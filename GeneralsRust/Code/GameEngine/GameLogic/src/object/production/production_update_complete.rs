@@ -993,10 +993,10 @@ impl ProductionUpdateComplete {
             if let Some(template) = TheThingFactory::find_template(name) {
                 mods.handicap_cost_multiplier = player_guard
                     .get_handicap()
-                    .get_cost_multiplier_for_template(&template);
+                    .get_cost_multiplier_for_template(template.as_ref());
                 mods.handicap_time_multiplier = player_guard
                     .get_handicap()
-                    .get_build_time_multiplier_for_template(&template);
+                    .get_build_time_multiplier_for_template(template.as_ref());
                 mods.production_cost_change_percent =
                     player_guard.get_production_cost_change_percent(template.get_name().as_str());
                 mods.production_time_change_percent =

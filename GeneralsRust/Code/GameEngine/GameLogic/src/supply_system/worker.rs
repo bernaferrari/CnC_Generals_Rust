@@ -283,30 +283,36 @@ impl WorkerAIUpdate {
     /// Update the worker: dozer machine or supply-truck harvest machine.
     /// Matches C++ WorkerAIUpdate::update.
     pub fn update(&mut self) -> StateReturnType {
-        if self.state_machine.is_none() {
-            if self.object_id != INVALID_ID {
-                self.state_machine = Some(SupplyTruckStateMachine::new(self.object_id));
-            } else {
-                return StateReturnType::Failure;
-            }
-        }
+        let Some(ai) = supply_owner_ai(self.object_id) else {
+            return StateReturnType::Failure;
+        };
+        let Ok(mut ai) = ai.lock() else {
+            return StateReturnType::Failure;
+        };
+        self.update_with_ai(&mut *ai)
+    }
 
-        // C++: if m_workerMachine == AS_DOZER run the dozer machine; else harvest.
+    /// Execute against UnitAI's existing mutable borrow, never its cached mutex.
+    pub fn update_with_ai(&mut self, ai: &mut dyn AIUpdateInterface) -> StateReturnType {
+        if self.object_id == INVALID_ID {
+            return StateReturnType::Failure;
+        }
+        if self.state_machine.is_none() {
+            self.state_machine = Some(SupplyTruckStateMachine::new(self.object_id));
+        }
+        // WorkerAIUpdate::update selects the dozer machine before harvest.
         if self.is_acting_as_dozer() {
             self.update_dozer_task();
             return StateReturnType::Continue;
         }
-
-        let status = if let Some(machine) = &mut self.state_machine {
-            machine.update()
-        } else {
-            StateReturnType::Failure
-        };
+        let mut machine = self
+            .state_machine
+            .take()
+            .expect("worker supply machine initialized");
+        let status = machine.update(self, ai, true);
+        self.state_machine = Some(machine);
         self.sync_state_from_machine();
-
-        // If we are harvesting, we can be diverted to clear mines.  jba.
         self.set_harvest_mine_clearing_weapon_set();
-
         status
     }
 

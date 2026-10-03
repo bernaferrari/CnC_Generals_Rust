@@ -64,7 +64,9 @@ impl UnitAIUpdate {
         let idle_id = crate::ai::turret::TurretStateType::Idle.into();
         let still_idle = turret.get_current_state_id() == Some(idle_id);
         if still_idle {
-            let next = turret.get_sleep_until().min(self.get_next_mood_check_time());
+            let next = turret
+                .get_sleep_until()
+                .min(self.get_next_mood_check_time());
             turret.set_sleep_until(next);
         } else {
             turret.set_sleep_until(0);
@@ -77,11 +79,8 @@ impl UnitAIUpdate {
     /// [`TurretStateMachine::take_turret`], so the two borrows never alias.
     fn update_single_turret(unit_ai: &mut UnitAIUpdate, turret: &mut TurretAI) {
         turret.set_turrets_linked_cached(unit_ai.are_turrets_linked());
-        let adjust =
-            unit_ai.get_mood_matrix_action_adjustment(crate::ai::MoodMatrixAction::Attack);
-        turret.set_attack_ok_cached(
-            (adjust & crate::ai::mood_matrix_adjustment::ACTION_OK) != 0,
-        );
+        let adjust = unit_ai.get_mood_matrix_action_adjustment(crate::ai::MoodMatrixAction::Attack);
+        turret.set_attack_ok_cached((adjust & crate::ai::mood_matrix_adjustment::ACTION_OK) != 0);
         turret.set_goal_object_id_cached(unit_ai.get_goal_object_id());
         turret.set_last_command_source_cached(unit_ai.get_last_command_source());
         turret.set_next_mood_check_cached(unit_ai.get_next_mood_check_time());
@@ -398,11 +397,11 @@ impl UnitAIUpdate {
         }
 
         if let Some(mut supply_ai) = self.supply_truck_ai.take() {
-            supply_ai.update();
+            supply_ai.update_with_ai(self, true);
             self.supply_truck_ai = Some(supply_ai);
         }
         if let Some(mut worker_ai) = self.worker_ai.take() {
-            worker_ai.update();
+            worker_ai.update_with_ai(self);
             self.worker_ai = Some(worker_ai);
         }
 
@@ -1348,20 +1347,14 @@ impl UnitAIUpdate {
     }
     pub(super) fn get_turret_rot_and_pitch(&self, turret: TurretType) -> Option<(Real, Real)> {
         match turret {
-            TurretType::Primary => self
-                .turret_primary_machine
-                .as_ref()
-                .map(|machine| {
-                    let turret = machine.turret();
-                    (turret.get_turret_angle(), turret.get_turret_pitch())
-                }),
-            TurretType::Secondary => self
-                .turret_secondary_machine
-                .as_ref()
-                .map(|machine| {
-                    let turret = machine.turret();
-                    (turret.get_turret_angle(), turret.get_turret_pitch())
-                }),
+            TurretType::Primary => self.turret_primary_machine.as_ref().map(|machine| {
+                let turret = machine.turret();
+                (turret.get_turret_angle(), turret.get_turret_pitch())
+            }),
+            TurretType::Secondary => self.turret_secondary_machine.as_ref().map(|machine| {
+                let turret = machine.turret();
+                (turret.get_turret_angle(), turret.get_turret_pitch())
+            }),
             TurretType::Invalid => None,
         }
     }

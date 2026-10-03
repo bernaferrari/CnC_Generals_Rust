@@ -18,7 +18,6 @@ use crate::common::{
     AsciiString, Coord3D as LogicCoord3D, Coord3DExt, KindOf, ModelConditionFlags,
     SECONDS_PER_LOGICFRAME_REAL,
 };
-use crate::compat::{ClassicState, register_classic_state};
 use crate::helpers::{
     FindPositionOptions, TheAudio, TheGameLogic, TheGameText, TheInGameUI, ThePartitionManager,
 };
@@ -30,10 +29,7 @@ use crate::object::drawable::DrawableExt;
 use crate::object::production::get_construction_manager;
 use crate::player::player_list;
 use crate::resource;
-use crate::state_machine::{
-    State, StateConditionInfo, StateExitType, StateImplementation, StateMachine, StateReturnType,
-    StateTransitionUserData,
-};
+use crate::state_machine::StateReturnType;
 use game_engine::common::system::snapshot::Snapshotable;
 use game_engine::common::system::xfer::{Xfer, XferVersion};
 
@@ -65,3 +61,6 @@ pub const SUPPLY_SYSTEM_SRC: &str = concat!(
     include_str!("warehouse.rs"),
     include_str!("worker.rs"),
 );
+
+#[cfg(test)]
+mod truck_state_tests;

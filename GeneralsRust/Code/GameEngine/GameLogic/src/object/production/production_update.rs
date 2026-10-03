@@ -13,7 +13,6 @@ use super::prerequisite_checker::{
 use super::queue::{BuildQueue, BuildQueueEntry, ProductionType};
 use super::rally_point::RallyPointManager;
 use crate::common::*;
-use crate::object::ProductionBehaviorQueueKindMut;
 use crate::economy::{EconomyManager, IncomeSource};
 use crate::helpers::{TheGameLogic, TheThingFactory};
 use crate::modules::{
@@ -22,6 +21,7 @@ use crate::modules::{
     UpdateSleepTime,
 };
 use crate::object::Object;
+use crate::object::ProductionBehaviorQueueKindMut;
 use crate::player::{PlayerIndex, player_list};
 use crate::system::game_logic;
 use std::sync::{Arc, Mutex, RwLock};
@@ -181,10 +181,10 @@ impl ProductionUpdate {
         if let Some(template) = TheThingFactory::find_template(template_name) {
             mods.handicap_cost_multiplier = player
                 .get_handicap()
-                .get_cost_multiplier_for_template(&template);
+                .get_cost_multiplier_for_template(template.as_ref());
             mods.handicap_time_multiplier = player
                 .get_handicap()
-                .get_build_time_multiplier_for_template(&template);
+                .get_build_time_multiplier_for_template(template.as_ref());
             mods.production_cost_change_percent =
                 player.get_production_cost_change_percent(template.get_name().as_str());
             mods.production_time_change_percent =

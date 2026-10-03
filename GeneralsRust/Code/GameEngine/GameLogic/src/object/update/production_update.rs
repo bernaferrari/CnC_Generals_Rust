@@ -467,7 +467,7 @@ impl ProductionUpdate {
                     if let Some(template_id) = production.object_to_produce {
                         if let Some(thing_factory) = ctx.thing_factory.as_ref() {
                             if let Some(template) = thing_factory.get_template(template_id) {
-                                if !player.allowed_to_build(&template)
+                                if !player.allowed_to_build(template.as_ref())
                                     && !template.is_kind_of(KindOf::Dozer)
                                 {
                                     should_cancel = true;

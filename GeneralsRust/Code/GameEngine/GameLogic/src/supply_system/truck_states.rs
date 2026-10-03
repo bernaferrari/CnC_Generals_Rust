@@ -1,21 +1,14 @@
-// ============================================================================
-// SUPPLY TRUCK AI
-// ============================================================================
+// SupplyTruckAIUpdate.cpp:374–827. One owner and live borrowed AI queries.
 
-/// Supply truck AI state
-/// Matches C++ SupplyTruckAIUpdate states
+/// C++ SupplyTruckAIUpdate.h state IDs (not declaration order in the machine).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u32)]
 pub enum SupplyTruckState {
-    /// Not doing anything, should autopilot?
-    Idle,
-    /// Direct player involvement, off autopilot
-    Busy,
-    /// Search for warehouse or center and dock with it
-    Wanting,
-    /// Wanting failed, hang out at base until something changes
-    Regrouping,
-    /// Docking substates running
-    Docking,
+    Idle = 0,
+    Busy = 1,
+    Wanting = 2,
+    Regrouping = 3,
+    Docking = 4,
 }
 
 const ST_IDLE: u32 = 0;
@@ -23,715 +16,316 @@ const ST_BUSY: u32 = 1;
 const ST_WANTING: u32 = 2;
 const ST_REGROUPING: u32 = 3;
 const ST_DOCKING: u32 = 4;
-
 const REGROUP_SUCCESS_DISTANCE_SQUARED: Real = 225.0;
 
 fn resolve_supply_object(id: ObjectID) -> Result<Arc<RwLock<Object>>, String> {
-    // Wave 298: empty dual-world → not found.
-    if dual_world_registry_unavailable() {
-        return Err("Supply object unavailable on host-only path".into());
-    }
-
-    crate::helpers::TheGameLogic::find_object_by_id(id)
-        .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(id))
-        .ok_or_else(|| format!("SupplyTruck object {id} not found"))
+    TheGameLogic::find_object_by_id(id).ok_or_else(|| format!("SupplyTruck object {id} not found"))
 }
 
-fn owner_id_from_state(state: &dyn StateImplementation) -> Option<ObjectID> {
-    state
-        .get_machine_owner_id()
-        .ok()
-        .filter(|id| *id != INVALID_ID)
-}
-
-fn owner_from_state(state: &dyn StateImplementation) -> Option<Arc<RwLock<Object>>> {
-    let owner_id = owner_id_from_state(state)?;
-    resolve_supply_object(owner_id).ok()
-}
-
-fn owner_ai_from_state(
-    state: &dyn StateImplementation,
-) -> Option<Arc<std::sync::Mutex<dyn crate::modules::AIUpdateInterface>>> {
-    let owner_id = owner_id_from_state(state)?;
+/// Callback entry adapter only. Driving UnitAI uses update_with_ai instead.
+fn supply_owner_ai(owner_id: ObjectID) -> Option<Arc<Mutex<dyn AIUpdateInterface>>> {
     let owner = resolve_supply_object(owner_id).ok()?;
-    owner
-        .read()
-        .ok()
-        .and_then(|guard| guard.get_ai_update_interface())
-}
-fn owner_ai_and_truck(
-    state: &State,
-) -> Result<(ObjectID, Arc<Mutex<dyn AIUpdateInterface>>), String> {
-    let owner_id = state
-        .get_machine_owner_id()
-        .ok_or_else(|| "SupplyTruck state missing owner".to_string())?;
-    let owner = resolve_supply_object(owner_id)?;
-    let ai = owner
-        .read()
-        .map_err(|_| "SupplyTruck owner lock poisoned".to_string())?
-        .get_ai_update_interface()
-        .ok_or_else(|| "SupplyTruck owner missing AIUpdateInterface".to_string())?;
-    Ok((owner_id, ai))
+    let ai = owner.read().ok()?.get_ai_update_interface();
+    ai
 }
 
-fn with_supply_truck_interface<R>(
-    state: &State,
-    f: impl FnOnce(&mut dyn SupplyTruckAIInterface) -> R,
-) -> Result<R, String> {
-    let (_owner_id, ai) = owner_ai_and_truck(state)?;
-    let mut ai_guard = ai
-        .lock()
-        .map_err(|_| "SupplyTruck AI lock poisoned".to_string())?;
-    let truck = ai_guard
-        .get_supply_truck_ai_interface_mut()
-        .ok_or_else(|| "SupplyTruck AI interface missing".to_string())?;
-    Ok(f(truck))
-}
-
-#[derive(Debug)]
-struct SupplyTruckBusyState {
-    base: State,
-}
-
-impl SupplyTruckBusyState {
-    fn new(machine: &Arc<Mutex<StateMachine>>) -> Self {
-        Self {
-            base: State::with_machine(Some(Arc::downgrade(machine)), "SupplyTruckBusyState"),
-        }
-    }
-
-    fn on_enter(&mut self) -> Result<StateReturnType, String> {
-        if let Err(err) = with_supply_truck_interface(&self.base, |truck| {
-            truck.set_force_busy_state(false);
-        }) {
-            log::debug!("SupplyTruckBusyState::on_enter: {}", err);
-        }
-        Ok(StateReturnType::Continue)
-    }
-
-    fn update(&mut self) -> Result<StateReturnType, String> {
-        Ok(StateReturnType::Continue)
-    }
-
-    fn on_exit(&mut self, _exit: StateExitType) -> Result<(), String> {
-        Ok(())
-    }
-}
-
-impl ClassicState for SupplyTruckBusyState {
-    fn base_state(&self) -> &State {
-        &self.base
-    }
-
-    fn base_state_mut(&mut self) -> &mut State {
-        &mut self.base
-    }
-
-    fn classic_on_enter(&mut self) -> Result<StateReturnType, String> {
-        self.on_enter()
-    }
-
-    fn classic_on_update(&mut self) -> Result<StateReturnType, String> {
-        self.update()
-    }
-
-    fn classic_on_exit(&mut self, exit: StateExitType) -> Result<(), String> {
-        self.on_exit(exit)
-    }
-}
-
-#[derive(Debug)]
-struct SupplyTruckIdleState {
-    base: State,
-}
-
-impl SupplyTruckIdleState {
-    fn new(machine: &Arc<Mutex<StateMachine>>) -> Self {
-        Self {
-            base: State::with_machine(Some(Arc::downgrade(machine)), "SupplyTruckIdleState"),
-        }
-    }
-
-    fn on_enter(&mut self) -> Result<StateReturnType, String> {
-        Ok(StateReturnType::Continue)
-    }
-
-    fn update(&mut self) -> Result<StateReturnType, String> {
-        Ok(StateReturnType::Continue)
-    }
-
-    fn on_exit(&mut self, _exit: StateExitType) -> Result<(), String> {
-        Ok(())
-    }
-}
-
-impl ClassicState for SupplyTruckIdleState {
-    fn base_state(&self) -> &State {
-        &self.base
-    }
-
-    fn base_state_mut(&mut self) -> &mut State {
-        &mut self.base
-    }
-
-    fn classic_on_enter(&mut self) -> Result<StateReturnType, String> {
-        self.on_enter()
-    }
-
-    fn classic_on_update(&mut self) -> Result<StateReturnType, String> {
-        self.update()
-    }
-
-    fn classic_on_exit(&mut self, exit: StateExitType) -> Result<(), String> {
-        self.on_exit(exit)
-    }
-}
-
-#[derive(Debug)]
-struct SupplyTruckWantsToPickUpOrDeliverBoxesState {
-    base: State,
-}
-
-impl SupplyTruckWantsToPickUpOrDeliverBoxesState {
-    fn new(machine: &Arc<Mutex<StateMachine>>) -> Self {
-        Self {
-            base: State::with_machine(
-                Some(Arc::downgrade(machine)),
-                "SupplyTruckWantsToPickUpOrDeliverBoxesState",
-            ),
-        }
-    }
-
-    fn on_enter(&mut self) -> Result<StateReturnType, String> {
-        if let Err(err) = with_supply_truck_interface(&self.base, |truck| {
-            truck.set_force_wanting_state(false);
-        }) {
-            log::debug!(
-                "SupplyTruckWantsToPickUpOrDeliverBoxesState::on_enter: {}",
-                err
-            );
-        }
-        Ok(StateReturnType::Continue)
-    }
-
-    fn update(&mut self) -> Result<StateReturnType, String> {
-        let (owner_id, ai) = owner_ai_and_truck(&self.base)?;
-
-        let mut ai_guard = ai
-            .lock()
-            .map_err(|_| "SupplyTruck AI lock poisoned".to_string())?;
-        let truck = ai_guard
-            .get_supply_truck_ai_interface_mut()
-            .ok_or_else(|| "SupplyTruck AI interface missing".to_string())?;
-
-        if !truck.is_available_for_supplying() {
-            return Ok(StateReturnType::Failure);
-        }
-
-        let num_boxes = truck.get_number_boxes();
-        if num_boxes > 0 {
-            if let Some(best_center) = resource::find_best_supply_center(owner_id) {
-                let mut params =
-                    AiCommandParams::new(AiCommandType::Dock, CommandSourceType::FromAi);
-                params.obj = Some(best_center);
-                if let Err(err) = ai_guard.execute_command(&params) {
-                    log::debug!(
-                        "SupplyTruckWantsToPickUpOrDeliverBoxesState::update dock(center) failed: {}",
-                        err
-                    );
-                }
-                return Ok(StateReturnType::Success);
-            }
-        } else if let Some(best_warehouse) = resource::find_best_supply_warehouse(owner_id) {
-            let mut params = AiCommandParams::new(AiCommandType::Dock, CommandSourceType::FromAi);
-            params.obj = Some(best_warehouse);
-            if let Err(err) = ai_guard.execute_command(&params) {
-                log::debug!(
-                    "SupplyTruckWantsToPickUpOrDeliverBoxesState::update dock(warehouse) failed: {}",
-                    err
-                );
-            }
-            return Ok(StateReturnType::Success);
-        }
-
-        Ok(StateReturnType::Failure)
-    }
-
-    fn on_exit(&mut self, _exit: StateExitType) -> Result<(), String> {
-        Ok(())
-    }
-}
-
-impl ClassicState for SupplyTruckWantsToPickUpOrDeliverBoxesState {
-    fn base_state(&self) -> &State {
-        &self.base
-    }
-
-    fn base_state_mut(&mut self) -> &mut State {
-        &mut self.base
-    }
-
-    fn classic_on_enter(&mut self) -> Result<StateReturnType, String> {
-        self.on_enter()
-    }
-
-    fn classic_on_update(&mut self) -> Result<StateReturnType, String> {
-        self.update()
-    }
-
-    fn classic_on_exit(&mut self, exit: StateExitType) -> Result<(), String> {
-        self.on_exit(exit)
-    }
-}
-
-#[derive(Debug)]
-struct RegroupingState {
-    base: State,
-}
-
-impl RegroupingState {
-    fn new(machine: &Arc<Mutex<StateMachine>>) -> Self {
-        Self {
-            base: State::with_machine(Some(Arc::downgrade(machine)), "RegroupingState"),
-        }
-    }
-
-    fn on_enter(&mut self) -> Result<StateReturnType, String> {
-        let (owner_id, ai) = owner_ai_and_truck(&self.base)?;
-        let owner_arc = resolve_supply_object(owner_id)?;
-
-        {
-            let mut ai_guard = ai
-                .lock()
-                .map_err(|_| "SupplyTruck AI lock poisoned".to_string())?;
-            if let Err(err) = ai_guard.ignore_obstacle(None) {
-                log::debug!("RegroupingState::on_enter ignore_obstacle failed: {}", err);
-            }
-        }
-
-        let owner_guard = owner_arc
-            .read()
-            .map_err(|_| "SupplyTruck owner lock poisoned".to_string())?;
-        let owner_player_id = owner_guard
-            .get_controlling_player_id()
-            .ok_or_else(|| "SupplyTruck owner missing player".to_string())?;
-        let destination_object = crate::player::with_player(owner_player_id as i32, |owner_player_guard| {
-            find_regroup_target(&owner_guard, owner_player_guard)
-        })
-        .ok_or_else(|| "SupplyTruck owner player missing".to_string())?;
-        let Some(destination_object) = destination_object else {
-            return Ok(StateReturnType::Failure);
-        };
-
-        let destination_guard = destination_object
-            .read()
-            .map_err(|_| "Regroup target lock poisoned".to_string())?;
-        let dist_sq = ThePartitionManager::get_distance_squared(
-            &owner_guard,
-            &destination_guard,
-            crate::common::FROM_BOUNDING_SPHERE_2D,
-        );
-        if dist_sq < REGROUP_SUCCESS_DISTANCE_SQUARED {
-            return Ok(StateReturnType::Continue);
-        }
-
-        let mut destination = LogicCoord3D::ZERO;
-        let mut options = FindPositionOptions::default();
-        options.min_radius = 0.0;
-        options.max_radius = 100.0;
-
-        let can_find_destination = ThePartitionManager::get()
-            .map(|partition| {
-                partition.find_position_around_with_options(
-                    destination_guard.get_position(),
-                    &options,
-                    &mut destination,
-                )
-            })
-            .unwrap_or(false);
-        if !can_find_destination {
-            return Ok(StateReturnType::Failure);
-        }
-
-        let mut ai_guard = ai
-            .lock()
-            .map_err(|_| "SupplyTruck AI lock poisoned".to_string())?;
-        let mut params =
-            AiCommandParams::new(AiCommandType::MoveToPosition, CommandSourceType::FromAi);
-        params.pos = destination;
-        if let Err(err) = ai_guard.execute_command(&params) {
-            log::debug!("RegroupingState::on_enter move command failed: {}", err);
-        }
-
-        Ok(StateReturnType::Continue)
-    }
-
-    fn update(&mut self) -> Result<StateReturnType, String> {
-        let (_owner_id, ai) = owner_ai_and_truck(&self.base)?;
-        let ai_guard = ai
-            .lock()
-            .map_err(|_| "SupplyTruck AI lock poisoned".to_string())?;
-
-        if ai_guard.is_idle() {
-            return Ok(StateReturnType::Success);
-        }
-
-        Ok(StateReturnType::Continue)
-    }
-
-    fn on_exit(&mut self, _exit: StateExitType) -> Result<(), String> {
-        Ok(())
-    }
-}
-
-impl ClassicState for RegroupingState {
-    fn base_state(&self) -> &State {
-        &self.base
-    }
-
-    fn base_state_mut(&mut self) -> &mut State {
-        &mut self.base
-    }
-
-    fn classic_on_enter(&mut self) -> Result<StateReturnType, String> {
-        self.on_enter()
-    }
-
-    fn classic_on_update(&mut self) -> Result<StateReturnType, String> {
-        self.update()
-    }
-
-    fn classic_on_exit(&mut self, exit: StateExitType) -> Result<(), String> {
-        self.on_exit(exit)
-    }
-}
-
-#[derive(Debug)]
-struct DockingState {
-    base: State,
-}
-
-impl DockingState {
-    fn new(machine: &Arc<Mutex<StateMachine>>) -> Self {
-        Self {
-            base: State::with_machine(Some(Arc::downgrade(machine)), "DockingState"),
-        }
-    }
-
-    fn on_enter(&mut self) -> Result<StateReturnType, String> {
-        if let Err(err) = with_supply_truck_interface(&self.base, |truck| {
-            truck.set_force_wanting_state(false);
-        }) {
-            log::debug!("DockingState::on_enter: {}", err);
-        }
-        Ok(StateReturnType::Continue)
-    }
-
-    fn update(&mut self) -> Result<StateReturnType, String> {
-        Ok(StateReturnType::Continue)
-    }
-
-    fn on_exit(&mut self, _exit: StateExitType) -> Result<(), String> {
-        Ok(())
-    }
-}
-
-impl ClassicState for DockingState {
-    fn base_state(&self) -> &State {
-        &self.base
-    }
-
-    fn base_state_mut(&mut self) -> &mut State {
-        &mut self.base
-    }
-
-    fn classic_on_enter(&mut self) -> Result<StateReturnType, String> {
-        self.on_enter()
-    }
-
-    fn classic_on_update(&mut self) -> Result<StateReturnType, String> {
-        self.update()
-    }
-
-    fn classic_on_exit(&mut self, exit: StateExitType) -> Result<(), String> {
-        self.on_exit(exit)
-    }
-}
-
+/// Owned state-machine fields. The five C++ states have no snapshot payload.
+/// No callback stores an AI handle or independently lockable module state.
 #[derive(Debug)]
 struct SupplyTruckStateMachine {
-    machine: Arc<Mutex<StateMachine>>,
+    owner_id: ObjectID,
+    state: Option<SupplyTruckState>,
+    sleep_till: u32,
+    default_state_id: u32,
+    goal_object_id: ObjectID,
+    goal_position: LogicCoord3D,
+    locked: bool,
+    default_state_inited: bool,
 }
 
 impl SupplyTruckStateMachine {
     fn new(owner_id: ObjectID) -> Self {
-        let machine = Arc::new(Mutex::new(StateMachine::new_with_owner_id(
+        Self {
             owner_id,
-            "SupplyTruckStateMachine",
-        )));
-        let mut guard = machine
-            .lock()
-            .expect("SupplyTruckStateMachine lock poisoned");
-
-        let busy_conditions = vec![
-            StateConditionInfo::new(
-                Self::owner_idle,
-                ST_IDLE,
-                StateTransitionUserData::new(),
-                "owner_idle",
-            ),
-            StateConditionInfo::new(
-                Self::owner_docking,
-                ST_DOCKING,
-                StateTransitionUserData::new(),
-                "owner_docking",
-            ),
-        ];
-
-        let idle_conditions = vec![
-            StateConditionInfo::new(
-                Self::is_forced_into_busy_state,
-                ST_BUSY,
-                StateTransitionUserData::new(),
-                "forced_busy",
-            ),
-            StateConditionInfo::new(
-                Self::is_forced_into_wanting_state,
-                ST_WANTING,
-                StateTransitionUserData::new(),
-                "forced_wanting",
-            ),
-            StateConditionInfo::new(
-                Self::owner_docking,
-                ST_DOCKING,
-                StateTransitionUserData::new(),
-                "owner_docking",
-            ),
-            StateConditionInfo::new(
-                Self::owner_not_docking_or_idle,
-                ST_BUSY,
-                StateTransitionUserData::new(),
-                "owner_not_docking_or_idle",
-            ),
-        ];
-
-        let wanting_conditions = vec![
-            StateConditionInfo::new(
-                Self::owner_docking,
-                ST_DOCKING,
-                StateTransitionUserData::new(),
-                "owner_docking",
-            ),
-            StateConditionInfo::new(
-                Self::owner_not_docking_or_idle,
-                ST_BUSY,
-                StateTransitionUserData::new(),
-                "owner_not_docking_or_idle",
-            ),
-        ];
-
-        let regrouping_conditions = vec![StateConditionInfo::new(
-            Self::owner_player_commanded,
-            ST_BUSY,
-            StateTransitionUserData::new(),
-            "owner_player_commanded",
-        )];
-
-        let docking_conditions = vec![
-            StateConditionInfo::new(
-                Self::is_forced_into_busy_state,
-                ST_BUSY,
-                StateTransitionUserData::new(),
-                "forced_busy",
-            ),
-            StateConditionInfo::new(
-                Self::owner_available_for_supplying,
-                ST_WANTING,
-                StateTransitionUserData::new(),
-                "owner_available_for_supplying",
-            ),
-            StateConditionInfo::new(
-                Self::owner_not_docking_or_idle,
-                ST_BUSY,
-                StateTransitionUserData::new(),
-                "owner_not_docking_or_idle",
-            ),
-        ];
-
-        register_classic_state(
-            &mut guard,
-            ST_BUSY,
-            SupplyTruckBusyState::new(&machine),
-            Some(ST_BUSY),
-            Some(ST_BUSY),
-            &busy_conditions,
-        );
-
-        register_classic_state(
-            &mut guard,
-            ST_IDLE,
-            SupplyTruckIdleState::new(&machine),
-            Some(ST_BUSY),
-            Some(ST_BUSY),
-            &idle_conditions,
-        );
-
-        register_classic_state(
-            &mut guard,
-            ST_WANTING,
-            SupplyTruckWantsToPickUpOrDeliverBoxesState::new(&machine),
-            Some(ST_BUSY),
-            Some(ST_REGROUPING),
-            &wanting_conditions,
-        );
-
-        register_classic_state(
-            &mut guard,
-            ST_REGROUPING,
-            RegroupingState::new(&machine),
-            Some(ST_WANTING),
-            Some(ST_BUSY),
-            &regrouping_conditions,
-        );
-
-        register_classic_state(
-            &mut guard,
-            ST_DOCKING,
-            DockingState::new(&machine),
-            Some(ST_BUSY),
-            Some(ST_BUSY),
-            &docking_conditions,
-        );
-
-        let _ = guard.init_default_state();
-        drop(guard);
-        Self { machine }
-    }
-
-    fn update(&mut self) -> StateReturnType {
-        self.machine
-            .lock()
-            .map(|mut guard| guard.update())
-            .unwrap_or(StateReturnType::Failure)
+            state: None,
+            sleep_till: 0,
+            default_state_id: ST_BUSY,
+            goal_object_id: INVALID_ID,
+            goal_position: LogicCoord3D::ZERO,
+            locked: false,
+            default_state_inited: false,
+        }
     }
 
     fn current_state_id(&self) -> Option<u32> {
-        self.machine
-            .lock()
-            .ok()
-            .and_then(|guard| guard.get_current_state_id())
+        self.state.map(|state| state as u32)
     }
 
-    fn owner_docking(state: &dyn StateImplementation, _data: &StateTransitionUserData) -> bool {
-        let ai = match owner_ai_from_state(state) {
-            Some(ai) => ai,
-            None => return false,
-        };
-        ai.lock()
-            .ok()
-            .and_then(|guard| guard.get_current_command())
-            .map(|cmd| cmd == AiCommandType::Dock)
-            .unwrap_or(false)
-    }
-
-    fn owner_idle(state: &dyn StateImplementation, _data: &StateTransitionUserData) -> bool {
-        let ai = match owner_ai_from_state(state) {
-            Some(ai) => ai,
-            None => return false,
-        };
-        ai.lock().ok().map_or(false, |guard| guard.is_idle())
-    }
-
-    fn owner_available_for_supplying(
-        state: &dyn StateImplementation,
-        _data: &StateTransitionUserData,
-    ) -> bool {
-        let ai = match owner_ai_from_state(state) {
-            Some(ai) => ai,
-            None => return false,
-        };
-        let mut ai_guard = match ai.lock() {
-            Ok(guard) => guard,
-            Err(_) => return false,
-        };
-        if !ai_guard.is_idle() {
-            return false;
+    fn update(
+        &mut self,
+        truck: &mut dyn SupplyTruckAIInterface,
+        ai: &mut dyn AIUpdateInterface,
+        available: bool,
+    ) -> StateReturnType {
+        if !self.default_state_inited {
+            self.default_state_inited = true;
+            let Some(default) = Self::state_from_id(self.default_state_id) else {
+                return StateReturnType::Failure;
+            };
+            let _ = self.enter(default, truck, ai, available, 0);
         }
-        let Some(truck) = ai_guard.get_supply_truck_ai_interface_mut() else {
-            return false;
+        let Some(state) = self.state else {
+            return StateReturnType::Failure;
         };
-        truck.is_available_for_supplying()
-    }
-
-    fn owner_not_docking_or_idle(
-        state: &dyn StateImplementation,
-        _data: &StateTransitionUserData,
-    ) -> bool {
-        let ai = match owner_ai_from_state(state) {
-            Some(ai) => ai,
-            None => return false,
-        };
-        let ai_guard = match ai.lock() {
-            Ok(guard) => guard,
-            Err(_) => return false,
-        };
-        if ai_guard.is_idle() {
-            return false;
+        let now = TheGameLogic::get_frame();
+        if self.sleep_till != 0 && now < self.sleep_till {
+            return self.check(
+                state,
+                StateReturnType::Sleep(self.sleep_till.wrapping_sub(now)),
+                truck,
+                ai,
+                available,
+                0,
+            );
         }
-        ai_guard
-            .get_current_command()
-            .map(|cmd| cmd != AiCommandType::Dock)
-            .unwrap_or(true)
+        self.sleep_till = 0;
+        let status = match state {
+            SupplyTruckState::Wanting => self.seek_dock(truck, ai, available),
+            SupplyTruckState::Regrouping if ai.is_idle() => StateReturnType::Success,
+            _ => StateReturnType::Continue,
+        };
+        self.check(state, status, truck, ai, available, 0)
     }
 
-    fn is_forced_into_wanting_state(
-        state: &dyn StateImplementation,
-        _data: &StateTransitionUserData,
-    ) -> bool {
-        let ai = match owner_ai_from_state(state) {
-            Some(ai) => ai,
-            None => return false,
+    fn enter(
+        &mut self,
+        state: SupplyTruckState,
+        truck: &mut dyn SupplyTruckAIInterface,
+        ai: &mut dyn AIUpdateInterface,
+        available: bool,
+        depth: usize,
+    ) -> StateReturnType {
+        // All five outgoing C++ onExit hooks are empty.
+        self.sleep_till = 0;
+        self.state = Some(state);
+        let status = match state {
+            SupplyTruckState::Busy => {
+                truck.set_force_busy_state(false);
+                StateReturnType::Continue
+            }
+            SupplyTruckState::Wanting | SupplyTruckState::Docking => {
+                truck.set_force_wanting_state(false);
+                StateReturnType::Continue
+            }
+            SupplyTruckState::Regrouping => self.enter_regroup(ai),
+            SupplyTruckState::Idle => StateReturnType::Continue,
         };
-        let mut ai_guard = match ai.lock() {
-            Ok(guard) => guard,
-            Err(_) => return false,
-        };
-        let Some(truck) = ai_guard.get_supply_truck_ai_interface_mut() else {
-            return false;
-        };
-        truck.is_forced_into_wanting_state()
+        self.check(state, status, truck, ai, available, depth)
     }
 
-    fn is_forced_into_busy_state(
-        state: &dyn StateImplementation,
-        _data: &StateTransitionUserData,
-    ) -> bool {
-        let ai = match owner_ai_from_state(state) {
-            Some(ai) => ai,
-            None => return false,
+    fn check(
+        &mut self,
+        state: SupplyTruckState,
+        status: StateReturnType,
+        truck: &mut dyn SupplyTruckAIInterface,
+        ai: &mut dyn AIUpdateInterface,
+        available: bool,
+        depth: usize,
+    ) -> StateReturnType {
+        // StateMachine.cpp:94–100 rejects the twentieth recursive check.
+        if depth + 1 >= 20 {
+            return StateReturnType::Failure;
+        }
+        let next = if status.is_success() {
+            Some(if state == SupplyTruckState::Regrouping {
+                SupplyTruckState::Wanting
+            } else {
+                SupplyTruckState::Busy
+            })
+        } else if status.is_failure() {
+            Some(if state == SupplyTruckState::Wanting {
+                SupplyTruckState::Regrouping
+            } else {
+                SupplyTruckState::Busy
+            })
+        } else {
+            // Match the original ordered condition lists, querying the live AI.
+            let docking = |ai: &dyn AIUpdateInterface| {
+                ai.get_current_state_id() == Some(crate::ai::states::AIStateType::Dock as u32)
+            };
+            let not_docking_or_idle = |ai: &dyn AIUpdateInterface| !ai.is_idle() && !docking(ai);
+            match state {
+                SupplyTruckState::Busy if ai.is_idle() => Some(SupplyTruckState::Idle),
+                SupplyTruckState::Busy if docking(ai) => Some(SupplyTruckState::Docking),
+                SupplyTruckState::Idle | SupplyTruckState::Docking
+                    if truck.is_forced_into_busy_state() =>
+                {
+                    Some(SupplyTruckState::Busy)
+                }
+                SupplyTruckState::Idle if truck.is_forced_into_wanting_state() => {
+                    Some(SupplyTruckState::Wanting)
+                }
+                SupplyTruckState::Idle | SupplyTruckState::Wanting if docking(ai) => {
+                    Some(SupplyTruckState::Docking)
+                }
+                SupplyTruckState::Docking if available && ai.is_idle() => {
+                    Some(SupplyTruckState::Wanting)
+                }
+                SupplyTruckState::Idle | SupplyTruckState::Wanting | SupplyTruckState::Docking
+                    if not_docking_or_idle(ai) =>
+                {
+                    Some(SupplyTruckState::Busy)
+                }
+                SupplyTruckState::Regrouping
+                    if ai.get_last_command_source() == CommandSourceType::FromPlayer =>
+                {
+                    Some(SupplyTruckState::Busy)
+                }
+                _ => None,
+            }
         };
-        let mut ai_guard = match ai.lock() {
-            Ok(guard) => guard,
-            Err(_) => return false,
-        };
-        let Some(truck) = ai_guard.get_supply_truck_ai_interface_mut() else {
-            return false;
-        };
-        truck.is_forced_into_busy_state()
+        if let Some(next) = next {
+            self.enter(next, truck, ai, available, depth + 1)
+        } else {
+            status
+        }
     }
 
-    fn owner_player_commanded(
-        state: &dyn StateImplementation,
-        _data: &StateTransitionUserData,
-    ) -> bool {
-        let ai = match owner_ai_from_state(state) {
-            Some(ai) => ai,
-            None => return false,
+    fn seek_dock(
+        &self,
+        truck: &dyn SupplyTruckAIInterface,
+        ai: &mut dyn AIUpdateInterface,
+        available: bool,
+    ) -> StateReturnType {
+        if !available {
+            return StateReturnType::Failure;
+        }
+        let dock = if truck.get_number_boxes() > 0 {
+            resource::find_best_supply_center(self.owner_id)
+        } else {
+            resource::find_best_supply_warehouse(self.owner_id)
         };
-        ai.lock()
-            .ok()
-            .map(|guard| guard.get_last_command_source() == CommandSourceType::FromPlayer)
-            .unwrap_or(false)
+        let Some(dock) = dock else {
+            return StateReturnType::Failure;
+        };
+        let mut command = AiCommandParams::new(AiCommandType::Dock, CommandSourceType::FromAi);
+        command.obj = Some(dock);
+        if let Err(err) = ai.execute_command(&command) {
+            log::debug!("SupplyTruck dock command failed: {err}");
+        }
+        StateReturnType::Success
+    }
+
+    fn enter_regroup(&self, ai: &mut dyn AIUpdateInterface) -> StateReturnType {
+        let result = (|| -> Result<StateReturnType, String> {
+            let owner = resolve_supply_object(self.owner_id)?;
+            let player_id = owner
+                .read()
+                .map_err(|_| "SupplyTruck owner poisoned")?
+                .get_controlling_player_id()
+                .ok_or("SupplyTruck owner missing player")?;
+            // C++ checks the actual controlling player before ignoreObstacle.
+            // End this player borrow before the synchronous AI callback.
+            crate::player::with_player(player_id as i32, |_| ())
+                .ok_or("SupplyTruck player missing")?;
+            let _ = ai.ignore_obstacle(None);
+            let destination_object = {
+                let owner = owner.read().map_err(|_| "SupplyTruck owner poisoned")?;
+                crate::player::with_player(player_id as i32, |player| {
+                    find_regroup_target(&owner, player)
+                })
+                .ok_or("SupplyTruck player missing")?
+            };
+            let Some(target) = destination_object else {
+                return Ok(StateReturnType::Failure);
+            };
+            let position = {
+                let owner = owner.read().map_err(|_| "SupplyTruck owner poisoned")?;
+                let target = target
+                    .read()
+                    .map_err(|_| "SupplyTruck regroup target poisoned")?;
+                if ThePartitionManager::get_distance_squared(
+                    &owner,
+                    &target,
+                    crate::common::FROM_BOUNDING_SPHERE_2D,
+                ) < REGROUP_SUCCESS_DISTANCE_SQUARED
+                {
+                    return Ok(StateReturnType::Continue);
+                }
+                *target.get_position()
+            };
+            let mut destination = LogicCoord3D::ZERO;
+            let mut options = FindPositionOptions::default();
+            options.max_radius = 100.0;
+            if !ThePartitionManager::get().is_some_and(|partition| {
+                partition.find_position_around_with_options(&position, &options, &mut destination)
+            }) {
+                return Ok(StateReturnType::Failure);
+            }
+            let mut command =
+                AiCommandParams::new(AiCommandType::MoveToPosition, CommandSourceType::FromAi);
+            command.pos = destination;
+            let _ = ai.execute_command(&command);
+            Ok(StateReturnType::Continue)
+        })();
+        result.unwrap_or(StateReturnType::Failure)
+    }
+
+    fn state_from_id(id: u32) -> Option<SupplyTruckState> {
+        match id {
+            ST_IDLE => Some(SupplyTruckState::Idle),
+            ST_BUSY => Some(SupplyTruckState::Busy),
+            ST_WANTING => Some(SupplyTruckState::Wanting),
+            ST_REGROUPING => Some(SupplyTruckState::Regrouping),
+            ST_DOCKING => Some(SupplyTruckState::Docking),
+            _ => None,
+        }
+    }
+
+    /// Existing initialized Rust StateMachine.xfer envelope, byte for byte.
+    /// Supply states' C++ snapshot payloads are empty. No callbacks run on load.
+    fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        let mut version = 1;
+        xfer.xfer_version(&mut version, 1)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_unsigned_int(&mut self.sleep_till)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_unsigned_int(&mut self.default_state_id)
+            .map_err(|e| e.to_string())?;
+        let mut current = self
+            .current_state_id()
+            .unwrap_or(crate::state_machine::INVALID_STATE_ID);
+        xfer.xfer_unsigned_int(&mut current)
+            .map_err(|e| e.to_string())?;
+        if xfer.get_xfer_mode() == game_engine::common::system::XferMode::Load {
+            // Preserve the generic serializer's fallback to the default state
+            // before either current-state or debug-all-state payload handling.
+            self.state =
+                Self::state_from_id(current).or_else(|| Self::state_from_id(self.default_state_id));
+        }
+        let mut snapshot_all = false;
+        xfer.xfer_bool(&mut snapshot_all)
+            .map_err(|e| e.to_string())?;
+        // The prior generic Rust envelope also omitted debug all-state payloads.
+        if !snapshot_all && self.state.is_none() {
+            self.state = Self::state_from_id(self.default_state_id);
+            if self.state.is_none() {
+                return Err("SupplyTruck current/default state missing".into());
+            }
+        }
+        xfer.xfer_object_id(&mut self.goal_object_id)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_real(&mut self.goal_position.x)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_real(&mut self.goal_position.y)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_real(&mut self.goal_position.z)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_bool(&mut self.locked)
+            .map_err(|e| e.to_string())?;
+        xfer.xfer_bool(&mut self.default_state_inited)
+            .map_err(|e| e.to_string())?;
+        Ok(())
     }
 }
 
@@ -775,4 +369,3 @@ fn find_regroup_target(
     }
     None
 }
-

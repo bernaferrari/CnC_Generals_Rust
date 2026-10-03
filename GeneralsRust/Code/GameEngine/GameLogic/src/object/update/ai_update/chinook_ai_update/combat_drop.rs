@@ -2,7 +2,7 @@
 
 use super::{
     ChinookAIUpdate, ChinookCombatDropState, ChinookFlightStatus, INVALID_DRAWABLE_ID, RopeInfo,
-    chinook_dump_owner_crate_visuals, dual_world_registry_unavailable,
+    dual_world_registry_unavailable,
 };
 use crate::ai::{AiCommandParams, AiCommandType, CommandSourceType};
 use crate::common::{Coord3D, KindOf, LOGICFRAMES_PER_SECOND, Real, UnsignedInt};
@@ -76,25 +76,34 @@ impl ChinookAIUpdate {
         let Some(owner) = TheGameLogic::find_object_by_id(self.object_id) else {
             return false;
         };
-        let Ok(mut owner_guard) = owner.write() else {
+        let drawable = owner.read().ok().and_then(|owner| owner.get_drawable());
+        let Some(drawable) = drawable else {
             return false;
         };
-        let Some(drawable) = owner_guard.get_drawable() else {
-            return false;
-        };
-        let Ok(draw_guard) = drawable.read() else {
-            return false;
-        };
-
-        owner_guard.set_disabled(crate::common::DisabledType::Held);
+        {
+            let Ok(mut owner_guard) = owner.write() else {
+                return false;
+            };
+            owner_guard.set_disabled(crate::common::DisabledType::Held);
+        }
+        self.flight_status = ChinookFlightStatus::DoingCombatDrop;
         // C++ ChinookCombatDropState::onEnter: while (ai->loseOneBox()).
-        while self.base.lose_one_box() {}
+        // Each decrement notifies the already captured drawable before bone queries.
+        while self
+            .base
+            .lose_one_box_with_drawable(Some(drawable.as_ref()))
+        {}
         let now = TheGameLogic::get_frame();
         let rope_template = TheThingFactory::find_template(self.data.rope_name.as_str());
-        let mut rope_positions = draw_guard.get_pristine_bone_positions("RopeStart", 1, 32);
-        let mut drop_transforms = draw_guard.get_pristine_bone_transforms("RopeEnd", 1, 32);
-        drop(draw_guard);
-        chinook_dump_owner_crate_visuals(&owner_guard, self.base.get_max_boxes());
+        let (mut rope_positions, mut drop_transforms) = {
+            let Ok(draw_guard) = drawable.read() else {
+                return false;
+            };
+            (
+                draw_guard.get_pristine_bone_positions("RopeStart", 1, 32),
+                draw_guard.get_pristine_bone_transforms("RopeEnd", 1, 32),
+            )
+        };
 
         let mut num_ropes = self.data.num_ropes as usize;
         if num_ropes > rope_positions.len() {
@@ -109,6 +118,10 @@ impl ChinookAIUpdate {
 
         rope_positions.truncate(num_ropes);
         drop_transforms.truncate(num_ropes);
+
+        let Ok(owner_guard) = owner.read() else {
+            return false;
+        };
 
         let mut ropes = Vec::with_capacity(num_ropes);
         for i in 0..num_ropes {

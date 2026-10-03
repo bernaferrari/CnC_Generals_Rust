@@ -34,20 +34,21 @@ impl ScriptEvaluator {
         // a host object of that exact type is proof the template exists.
         if crate::helpers::TheThingFactory::find_template(&type_name).is_none() {
             let key = type_name.to_ascii_lowercase();
-            let host_has = crate::scripting::host_query_player_census(&player_name).is_some_and(
-                |c| {
+            let host_has =
+                crate::scripting::host_query_player_census(&player_name).is_some_and(|c| {
                     c.template_counts.contains_key(&key)
                         || c.template_counts_ignore_dead.contains_key(&key)
-                },
-            );
+                });
             if !host_has {
                 return Ok(false);
             }
         }
 
-        let count = if let Some(sum) =
-            crate::scripting::host_query_player_template_count(&player_name, &[type_name.clone()], false)
-        {
+        let count = if let Some(sum) = crate::scripting::host_query_player_template_count(
+            &player_name,
+            &[type_name.clone()],
+            false,
+        ) {
             sum
         } else {
             // Wave 343: empty dual-world → Ok(false).
@@ -71,7 +72,7 @@ impl ScriptEvaluator {
                 let Ok(obj_guard) = obj_arc.read() else {
                     continue;
                 };
-                if types.contains_template(Some(obj_guard.get_template())) {
+                if types.contains_template(Some(obj_guard.get_template().as_ref())) {
                     count += 1;
                 }
             }
@@ -140,15 +141,12 @@ impl ScriptEvaluator {
                     "BuildingEnteredByPlayer condition missing building parameter".to_string(),
                 )
             })?;
-            return Ok(
-                crate::scripting::host_building_entered_by_player(
-                    building_param.get_string(),
-                    player_param.get_string(),
-                )
-                .unwrap_or(false),
-            );
+            return Ok(crate::scripting::host_building_entered_by_player(
+                building_param.get_string(),
+                player_param.get_string(),
+            )
+            .unwrap_or(false));
         }
-
 
         let player_param = condition.get_parameter(0).ok_or_else(|| {
             GameLogicError::Configuration(
@@ -373,22 +371,21 @@ impl ScriptEvaluator {
             comparison
         );
 
-        let current_credits = if let Some(census) =
-            crate::scripting::host_query_player_census(player_name)
-        {
-            census.money
-        } else {
-            // C++ returns false when playerFromParam cannot resolve the Side.  Do
-            // not manufacture a zero-credit player: equality with zero would turn
-            // a missing player into a successful script condition.
-            let Some(player_arc) = self.resolve_player_from_param(player_param) else {
-                return Ok(false);
+        let current_credits =
+            if let Some(census) = crate::scripting::host_query_player_census(player_name) {
+                census.money
+            } else {
+                // C++ returns false when playerFromParam cannot resolve the Side.  Do
+                // not manufacture a zero-credit player: equality with zero would turn
+                // a missing player into a successful script condition.
+                let Some(player_arc) = self.resolve_player_from_param(player_param) else {
+                    return Ok(false);
+                };
+                let Ok(player) = player_arc.read() else {
+                    return Ok(false);
+                };
+                player.get_money().get_money()
             };
-            let Ok(player) = player_arc.read() else {
-                return Ok(false);
-            };
-            player.get_money().get_money()
-        };
 
         match comparison {
             0 => Ok(target_credits < current_credits),  // LessThan
@@ -608,8 +605,7 @@ impl ScriptEvaluator {
             return Ok(false);
         };
 
-        let mask =
-            (KindOf::Structure.cpp_mask()) | (KindOf::CountsForVictory.cpp_mask());
+        let mask = (KindOf::Structure.cpp_mask()) | (KindOf::CountsForVictory.cpp_mask());
         let count = player_guard.count_objects_by_kindof(mask, crate::common::KIND_OF_MASK_NONE);
 
         Ok(max_buildings >= count)
