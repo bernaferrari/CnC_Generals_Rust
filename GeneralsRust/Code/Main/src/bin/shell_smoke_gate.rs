@@ -1473,9 +1473,6 @@ fn main() {
         && r.live_wander_ai_dual_world_empty_gate_nav_commands_wave430_ok
         && r.live_wander_ai_dual_world_empty_gate_live_wave430_ok
         // Wave 431 residual honesty (subobjects upgrade dual-world empty gates).
-        && r.live_subobjects_upgrade_dual_world_empty_gate_method_names_wave431_ok
-        && r.live_subobjects_upgrade_dual_world_empty_gate_nav_commands_wave431_ok
-        && r.live_subobjects_upgrade_dual_world_empty_gate_live_wave431_ok
         // Wave 432 residual honesty (unit exit dual-world empty gates).
         && r.live_unit_exit_dual_world_empty_gate_method_names_wave432_ok
         && r.live_unit_exit_dual_world_empty_gate_nav_commands_wave432_ok

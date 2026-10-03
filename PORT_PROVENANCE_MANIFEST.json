@@ -7480,17 +7480,17 @@
       "id": "game_engine:Include/GameClient/FXList.h",
       "inventory_class": "required_runtime",
       "mapping": {
-        "candidate_status": "reachable_implementation_candidate",
+        "candidate_status": "no_reachable_implementation",
         "destinations": [
           {
             "cargo_reachable": true,
-            "classification": "implementation",
+            "classification": "test",
             "owned_source_ranges": [],
             "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/GameClient/src/fx_list.rs"
+            "path": "GeneralsRust/Code/GameEngine/GameClient/src/fx_list/borrowed_owner_tests.rs"
           }
         ],
-        "mode": "stem_inferred",
+        "mode": "split_inferred",
         "ownership_diagnostics": [],
         "range_validation": "not_required",
         "review_state": "unreviewed",
@@ -20249,17 +20249,17 @@
       "id": "game_engine:Include/GameLogic/Module/SubObjectsUpgrade.h",
       "inventory_class": "required_runtime",
       "mapping": {
-        "candidate_status": "reachable_implementation_candidate",
+        "candidate_status": "no_reachable_implementation",
         "destinations": [
           {
-            "cargo_reachable": true,
-            "classification": "implementation",
+            "cargo_reachable": false,
+            "classification": "test",
             "owned_source_ranges": [],
             "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/subobjects_upgrade.rs"
+            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/subobjects_upgrade/tests.rs"
           }
         ],
-        "mode": "stem_inferred",
+        "mode": "split_inferred",
         "ownership_diagnostics": [],
         "range_validation": "not_required",
         "review_state": "unreviewed",
@@ -33343,23 +33343,24 @@
         "status": "not_verified"
       },
       "blockers": [
+        "no_reachable_implementation",
         "unreviewed_mapping",
         "unreviewed_symbol_ownership"
       ],
       "id": "game_engine:Source/GameClient/FXList.cpp",
       "inventory_class": "required_runtime",
       "mapping": {
-        "candidate_status": "reachable_implementation_candidate",
+        "candidate_status": "no_reachable_implementation",
         "destinations": [
           {
             "cargo_reachable": true,
-            "classification": "implementation",
+            "classification": "test",
             "owned_source_ranges": [],
             "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/GameClient/src/fx_list.rs"
+            "path": "GeneralsRust/Code/GameEngine/GameClient/src/fx_list/borrowed_owner_tests.rs"
           }
         ],
-        "mode": "stem_inferred",
+        "mode": "split_inferred",
         "ownership_diagnostics": [],
         "range_validation": "not_required",
         "review_state": "unreviewed",
@@ -52877,23 +52878,24 @@
         "status": "not_verified"
       },
       "blockers": [
+        "no_reachable_implementation",
         "unreviewed_mapping",
         "unreviewed_symbol_ownership"
       ],
       "id": "game_engine:Source/GameLogic/Object/Upgrade/SubObjectsUpgrade.cpp",
       "inventory_class": "required_runtime",
       "mapping": {
-        "candidate_status": "reachable_implementation_candidate",
+        "candidate_status": "no_reachable_implementation",
         "destinations": [
           {
-            "cargo_reachable": true,
-            "classification": "implementation",
+            "cargo_reachable": false,
+            "classification": "test",
             "owned_source_ranges": [],
             "owned_symbols": [],
-            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/subobjects_upgrade.rs"
+            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/subobjects_upgrade/tests.rs"
           }
         ],
-        "mode": "stem_inferred",
+        "mode": "split_inferred",
         "ownership_diagnostics": [],
         "range_validation": "not_required",
         "review_state": "unreviewed",
@@ -140972,7 +140974,7 @@
     }
   ],
   "generator": "GeneralsRust/Code/Main/scripts/generate_port_provenance.py",
-  "input_digest": "a4ff29b8bbbc3554434f3c1bedcce5665403c289fdccc240646e911807812d19",
+  "input_digest": "8a475fcef983a08c97a308698f1e80fedf0831167add20b45dcaa1bbbd7e729f",
   "metric_contract": {
     "behavior_requires_explicit_evidence": true,
     "candidate_mapping_is_reviewed": false,
@@ -148959,13 +148961,13 @@
     },
     {
       "cargo_reachable": true,
-      "classification": "implementation",
+      "classification": "test",
       "file_range": {
-        "end_line": 2196,
+        "end_line": 160,
         "start_line": 1
       },
-      "path": "GeneralsRust/Code/GameEngine/GameClient/src/fx_list.rs",
-      "sha256": "a306efabd934b62ca521cfbf7519b6c15c14af2d670ded58be9424ac631b7671",
+      "path": "GeneralsRust/Code/GameEngine/GameClient/src/fx_list/borrowed_owner_tests.rs",
+      "sha256": "37f4ea55518d3771090624a3c8e50db69695bdc399a426d5914a83a629f84bbc",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -182742,14 +182744,14 @@
       "symbols": []
     },
     {
-      "cargo_reachable": true,
-      "classification": "implementation",
+      "cargo_reachable": false,
+      "classification": "test",
       "file_range": {
-        "end_line": 555,
+        "end_line": 461,
         "start_line": 1
       },
-      "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/subobjects_upgrade.rs",
-      "sha256": "2d5cbeeeca071d23753e0c3ac006e9919ad54d396edb66069da886e51956ff38",
+      "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/subobjects_upgrade/tests.rs",
+      "sha256": "57a3b811f5c6d0d92089e4cbf9a6f0f650f591d894aa0ca8810f463d7e5f3b9a",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -195600,7 +195602,7 @@
     "blockers_by_kind": {
       "duplicate_implementation_destination": 46,
       "missing_mapping": 21,
-      "no_reachable_implementation": 690,
+      "no_reachable_implementation": 692,
       "ownership_symbol": 6,
       "unreviewed_mapping": 1381,
       "unreviewed_source_range_ownership": 3,
@@ -195611,7 +195613,7 @@
         "behavior_evidence_units": 1,
         "behavior_verified": 1,
         "deferred_network": 47,
-        "reachable_implementation_candidates": 486,
+        "reachable_implementation_candidates": 484,
         "required": 539,
         "reviewed_path_implementations": 8,
         "source_range_ownership_reviewed": 3,
@@ -195666,11 +195668,11 @@
     "deferred_network_translation_units": 47,
     "duplicate_implementation_destinations": 23,
     "orphan_ownership_records": 0,
-    "reachable_implementation_candidates": 699,
+    "reachable_implementation_candidates": 697,
     "required_translation_units": 1389,
     "reviewed_path_implementations": 8,
     "source_range_ownership_reviewed": 3,
-    "strict_blockers": 3535,
+    "strict_blockers": 3537,
     "symbol_ownership_reviewed": 1,
     "translation_units": 1436
   }

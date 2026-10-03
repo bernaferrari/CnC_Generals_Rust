@@ -14,7 +14,6 @@ use super::{
 use crate::common::*;
 use game_engine::common::ini::INI;
 
-
 /// Central registry for upgrade templates
 /// Matches C++ UpgradeCenter from Upgrade.h
 #[derive(Clone)]
@@ -109,7 +108,8 @@ impl UpgradeCenter {
         template.friend_set_upgrade_mask(mask);
 
         let template = Arc::new(template);
-        self.upgrades.insert(template.get_name_key(), template.clone());
+        self.upgrades
+            .insert(template.get_name_key(), template.clone());
         self.upgrade_list.insert(0, template.clone());
 
         if name.as_str() == "DefaultUpgrade" {
@@ -271,9 +271,7 @@ where
     F: FnOnce(&UpgradeCenter) -> R,
 {
     let center = get_upgrade_center();
-    let center = center
-        .read()
-        .expect("UpgradeCenter lock poisoned");
+    let center = center.read().expect("UpgradeCenter lock poisoned");
     f(&center)
 }
 
@@ -282,9 +280,7 @@ where
     F: FnOnce(&mut UpgradeCenter) -> R,
 {
     let center = get_upgrade_center();
-    let mut center = center
-        .write()
-        .expect("UpgradeCenter lock poisoned");
+    let mut center = center.write().expect("UpgradeCenter lock poisoned");
     f(&mut center)
 }
 
@@ -312,6 +308,18 @@ mod tests {
 
     #[test]
     fn global_center_boot_creates_veterancy_templates() {
+        // This asserts engine boot, before authored upgrades mutate the shared
+        // center. Suite order must not supply (or overwrite) the fixture.
+        #[cfg(not(target_arch = "wasm32"))]
+        if matches!(
+            crate::test_process::run_bounded(
+                "upgrade::center::tests::global_center_boot_creates_veterancy_templates",
+                "GENERALS_UPGRADE_CENTER_BOOT_CHILD",
+            ),
+            crate::test_process::TestProcess::ParentVerified
+        ) {
+            return;
+        }
         with_upgrade_center(|center| {
             let veteran = center
                 .find_veterancy_upgrade("VETERAN")

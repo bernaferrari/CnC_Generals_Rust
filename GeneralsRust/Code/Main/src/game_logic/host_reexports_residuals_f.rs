@@ -766,12 +766,6 @@ pub use super::host_live_structure_topple_dual_world_empty_gate_residual_wave315
     simulate_live_structure_topple_dual_world_empty_gate_honesty,
 };
 #[cfg(any(test, feature = "host-residuals"))]
-pub use super::host_live_subobjects_upgrade_dual_world_empty_gate_residual_wave431::{
-    honesty_live_subobjects_upgrade_dual_world_empty_gate_method_names_residual_wave431,
-    honesty_live_subobjects_upgrade_dual_world_empty_gate_nav_commands_residual_wave431,
-    honesty_live_subobjects_upgrade_dual_world_empty_gate_residual_pack_wave431,
-    simulate_live_subobjects_upgrade_dual_world_empty_gate_honesty,
-};
 #[cfg(any(test, feature = "host-residuals"))]
 pub use super::host_live_supply_system_dual_world_empty_gate_residual_wave298::{
     honesty_live_supply_system_dual_world_empty_gate_method_names_residual_wave298,

@@ -82,6 +82,21 @@ impl FXListManagerInterface for FXListManagerBridge {
         let _ = do_named_fx_obj(&name, Some(object_id), None);
     }
 
+    fn do_fx_for_object(&self, fx_list: FXListId, object: &Object) {
+        let Some(name) = NameKeyGenerator::key_to_name(fx_list as NameKeyType) else {
+            log::debug!("FXListManager: unknown FXList id {}", fx_list);
+            return;
+        };
+        let Some(fx) = get_fx_list_store().find_fx_list(&name) else {
+            log::debug!("FXListManager: FXList '{}' not found", name);
+            return;
+        };
+        // C++ FXList::doFXObj receives the existing Object pointer. Keep the
+        // object nugget path (visibility, attachment, bones), and release the
+        // catalog lookup guard before any nugget callback.
+        fx.do_fx_obj(Some(object), None);
+    }
+
     fn do_fx_obj_with_source(
         &self,
         fx_list: FXListId,
@@ -2193,3 +2208,7 @@ mod tests {
         assert_eq!(pulses[0].pos, [1.0, 2.0, 3.0]);
     }
 }
+
+#[cfg(test)]
+#[path = "fx_list/borrowed_owner_tests.rs"]
+mod borrowed_owner_tests;

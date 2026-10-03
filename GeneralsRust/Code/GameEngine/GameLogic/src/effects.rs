@@ -232,6 +232,10 @@ mod tests {
                 .push((fx_list, object_id, None));
         }
 
+        fn do_fx_for_object(&self, fx_list: FXListId, object: &Object) {
+            self.do_fx_obj(fx_list, object.get_id());
+        }
+
         fn do_fx_obj_with_source(
             &self,
             fx_list: FXListId,

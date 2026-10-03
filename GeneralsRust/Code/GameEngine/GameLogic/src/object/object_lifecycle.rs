@@ -42,8 +42,9 @@ fn release_destroy_container(owner: &mut DeleteOwner<'_>) {
 }
 
 fn notify_deleted_module(module: &mut dyn engine_module::Module, owner: &mut DeleteOwner<'_>) {
-    if let Some(upgrade) = super::module_upgrade_kind(module) {
-        owner.with_mut(|object| upgrade.into_interface().on_delete(object));
+    if let Some(upgrade) = super::module_upgrade_kind(module).and_then(|kind| kind.into_interface())
+    {
+        owner.with_mut(|object| upgrade.on_delete(object));
     }
     if let Some(battle_plan) = module
         .as_any_mut()

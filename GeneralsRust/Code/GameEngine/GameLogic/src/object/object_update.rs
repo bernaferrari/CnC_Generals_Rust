@@ -494,12 +494,10 @@ impl Object {
             let upgrade_modules = self.modules.clone();
             for entry in &upgrade_modules {
                 entry.with_module(|module| {
-                    if let Some(upgrade) = super::module_upgrade_kind(module) {
-                        upgrade.into_interface().on_capture(
-                            self,
-                            old_owner.as_ref(),
-                            new_owner.as_ref(),
-                        );
+                    if let Some(upgrade) =
+                        super::module_upgrade_kind(module).and_then(|kind| kind.into_interface())
+                    {
+                        upgrade.on_capture(self, old_owner.as_ref(), new_owner.as_ref());
                     }
                 });
             }

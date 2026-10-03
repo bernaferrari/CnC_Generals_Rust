@@ -1407,6 +1407,10 @@ async fn create_explosion_dispatches_fx_at_position() {
         }
 
         fn do_fx_obj(&self, _fx_list: u32, _object_id: u32) {}
+
+        fn do_fx_for_object(&self, fx_list: u32, object: &crate::object::Object) {
+            self.do_fx_obj(fx_list, object.get_id());
+        }
     }
 
     let calls = Arc::new(Mutex::new(Vec::new()));

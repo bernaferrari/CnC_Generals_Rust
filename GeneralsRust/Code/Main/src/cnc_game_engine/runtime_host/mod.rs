@@ -251,7 +251,6 @@ impl CnCGameEngine {
             "click_live_guard_dual_world_empty_gate" => self.runtime_host_cmd_click_live_guard_dual_world_empty_gate(&args),
             "click_live_guard_retaliate_dual_world_empty_gate" => self.runtime_host_cmd_click_live_guard_retaliate_dual_world_empty_gate(&args),
             "click_live_wander_ai_dual_world_empty_gate" => self.runtime_host_cmd_click_live_wander_ai_dual_world_empty_gate(&args),
-            "click_live_subobjects_upgrade_dual_world_empty_gate" => self.runtime_host_cmd_click_live_subobjects_upgrade_dual_world_empty_gate(&args),
             "click_live_unit_exit_dual_world_empty_gate" => self.runtime_host_cmd_click_live_unit_exit_dual_world_empty_gate(&args),
             "click_live_owner_resolve_dual_world_empty_gate" => self.runtime_host_cmd_click_live_owner_resolve_dual_world_empty_gate(&args),
             "click_live_spy_vision_update_dual_world_empty_gate" => self.runtime_host_cmd_click_live_spy_vision_update_dual_world_empty_gate(&args),

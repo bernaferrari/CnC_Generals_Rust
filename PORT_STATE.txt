@@ -2,12 +2,12 @@
 # Inventory candidates, reviewed provenance, and behavioral proof are separate metrics.
 # No inventory percentage is a playable-game or behavioral-parity claim.
 SchemaVersion=1
-InputDigest=a4ff29b8bbbc3554434f3c1bedcce5665403c289fdccc240646e911807812d19
+InputDigest=8a475fcef983a08c97a308698f1e80fedf0831167add20b45dcaa1bbbd7e729f
 ScopedTranslationUnits=1436
 RequiredNonNetworkTranslationUnits=1389
 DeferredNetworkTranslationUnits=47
-ReachableImplementationCandidates=699
-ReachableImplementationCandidatePercent=50.32
+ReachableImplementationCandidates=697
+ReachableImplementationCandidatePercent=50.18
 ReviewedPathImplementations=8
 ReviewedPathImplementationPercent=0.58
 ReviewedSymbolOwnership=1
@@ -16,4 +16,4 @@ ReviewedSourceRangeOwnership=3
 ReviewedSourceRangeOwnershipPercent=0.22
 BehaviorVerified=1
 BehaviorVerifiedPercent=0.07
-StrictProvenanceBlockers=3535
+StrictProvenanceBlockers=3537

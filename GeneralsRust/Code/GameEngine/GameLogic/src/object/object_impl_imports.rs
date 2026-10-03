@@ -99,7 +99,6 @@ pub(super) use crate::object::registry::OBJECT_REGISTRY;
 pub(super) use crate::object::special_power_types::{SpecialPowerMask, SpecialPowerType};
 pub(super) use crate::object::upgrade::passengers_fire_upgrade::PassengersFireUpgradeHandle;
 pub(super) use crate::object::upgrade::status_bits_upgrade::StatusBitsUpgradeHandle;
-pub(super) use crate::object::upgrade::subobjects_upgrade::SubObjectsUpgradeHandle;
 pub(super) use crate::object_creation_list::nuggets::INVALID_ANGLE;
 pub(super) use crate::player::{Player, PlayerIndex, PlayerType, player_list};
 pub(super) use crate::scripting::engine::get_event_manager;

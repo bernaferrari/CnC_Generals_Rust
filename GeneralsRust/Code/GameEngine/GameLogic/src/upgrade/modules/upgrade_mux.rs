@@ -95,7 +95,7 @@ impl UpgradeMuxData {
     pub fn perform_upgrade_fx(&self, object: &mut Object) {
         if let Some(fx_list) = &self.fx_list_upgrade {
             if let Some(fx_mgr) = crate::helpers::get_fx_list_manager() {
-                fx_mgr.do_fx_obj(fx_list.id(), object.get_id());
+                fx_mgr.do_fx_for_object(fx_list.id(), object);
             } else {
                 log::debug!(
                     "Upgrade FX list requested for object {}, but FX manager is not registered",

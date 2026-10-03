@@ -442,7 +442,7 @@ impl Object {
         for entry in self.interface_entries(&self.upgrade_module_handles) {
             entry.with_module(|module| {
                 if let Some(upgrade) = module_upgrade_kind(module) {
-                    if upgrade.into_interface().can_upgrade(mask_to_check) {
+                    if upgrade.can_upgrade(mask_to_check) {
                         would = true;
                     }
                 }
@@ -507,6 +507,7 @@ impl Object {
             return;
         };
         let active_mask = manager.get_active_upgrades();
+        drop(player_guard);
         let active_bits = UpgradeMaskType::from_bits_retain(active_mask.bits());
         // C++ Object.cpp:2421-2436 — `maskToCheck = player | object` is only
         // the argument to `attemptUpgrade`. Never write player bits into
@@ -537,7 +538,7 @@ impl Object {
             entry.with_module(|module| {
                 if let Some(upgrade) = module_upgrade_kind(module) {
                     *matched_any_ref = true;
-                    upgrade.into_interface().remove_upgrade(mask);
+                    upgrade.remove_upgrade(mask);
                 }
             });
         }
@@ -559,9 +560,6 @@ impl Object {
             for handle in PassengersFireUpgradeHandle::for_object(self.id) {
                 modules.push(UpgradeModuleHandle::PassengersFire(handle));
             }
-            for handle in SubObjectsUpgradeHandle::for_object(self.id) {
-                modules.push(UpgradeModuleHandle::SubObjects(handle));
-            }
         }
         modules
     }
@@ -571,17 +569,37 @@ impl Object {
             return;
         }
         let mut matched_any = false;
-        for entry in self.interface_entries(&self.upgrade_module_handles) {
-            let matched_any_ref = &mut matched_any;
-            entry.with_module(|module| {
-                if let Some(upgrade) = module_upgrade_kind(module) {
-                    let upgrade = upgrade.into_interface();
-                    *matched_any_ref = true;
-                    if upgrade.can_upgrade(mask) {
-                        let _ = upgrade.apply_upgrade(mask);
+        // Preserve authored module order and the original mask snapshot. Only
+        // the effectful phase runs outside the installed module's guard.
+        for entry in self.interface_entry_snapshots(&self.upgrade_module_handles) {
+            let subobjects = entry.with_module(|module| {
+                let Some(upgrade) = module_upgrade_kind(module) else {
+                    return None;
+                };
+                matched_any = true;
+                match upgrade {
+                    UpgradeModuleKindMut::SubObjects(upgrade) => upgrade.prepare_upgrade(mask),
+                    other => {
+                        if let Some(upgrade) = other.into_interface() {
+                            if upgrade.can_upgrade(mask) {
+                                let _ = upgrade.apply_upgrade(mask);
+                            }
+                        }
+                        None
                     }
                 }
             });
+            if let Some(data) = subobjects {
+                data.upgrade_mux_data.perform_upgrade_fx(self);
+                data.upgrade_mux_data.process_upgrade_removal(self);
+                entry.with_module(|module| {
+                    if let Some(UpgradeModuleKindMut::SubObjects(upgrade)) =
+                        module_upgrade_kind(module)
+                    {
+                        upgrade.finish_upgrade(self);
+                    }
+                });
+            }
         }
 
         if !matched_any {
@@ -592,9 +610,6 @@ impl Object {
                         let _ = handle.apply(mask);
                     }
                     UpgradeModuleHandle::PassengersFire(handle) => {
-                        let _ = handle.apply(mask);
-                    }
-                    UpgradeModuleHandle::SubObjects(handle) => {
                         let _ = handle.apply(mask);
                     }
                 }
@@ -613,7 +628,6 @@ impl Object {
             match module {
                 UpgradeModuleHandle::StatusBits(handle) => handle.remove(mask_bits),
                 UpgradeModuleHandle::PassengersFire(handle) => handle.remove(mask_bits),
-                UpgradeModuleHandle::SubObjects(handle) => handle.remove(mask_bits),
             }
         }
     }

@@ -156,7 +156,6 @@ use crate::GameLogicResult;
 use crate::object::special_power_types::{SpecialPowerMask, SpecialPowerType};
 use crate::object::upgrade::passengers_fire_upgrade::PassengersFireUpgradeHandle;
 use crate::object::upgrade::status_bits_upgrade::StatusBitsUpgradeHandle;
-use crate::object::upgrade::subobjects_upgrade::SubObjectsUpgradeHandle;
 use crate::object_creation_list::nuggets::INVALID_ANGLE;
 use crate::player::{Player, PlayerIndex, PlayerType, player_list};
 use crate::scripting::engine::get_event_manager;
@@ -1068,11 +1067,33 @@ enum UpgradeModuleKindMut<'a> {
 }
 
 impl<'a> UpgradeModuleKindMut<'a> {
-    fn into_interface(self) -> &'a mut dyn UpgradeModuleInterface {
+    fn can_upgrade(self, mask: UpgradeMaskType) -> bool {
         match self {
+            Self::SubObjects(module) => module.can_upgrade(mask),
+            other => other
+                .into_interface()
+                .is_some_and(|module| module.can_upgrade(mask)),
+        }
+    }
+
+    fn remove_upgrade(self, mask: UpgradeMaskType) {
+        match self {
+            Self::SubObjects(module) => module.remove_upgrade(mask),
+            other => {
+                if let Some(module) = other.into_interface() {
+                    module.remove_upgrade(mask);
+                }
+            }
+        }
+    }
+
+    // SubObjects requires a borrowed owner and a staged callback; it cannot
+    // implement the ambient, ownerless compatibility interface.
+    fn into_interface(self) -> Option<&'a mut dyn UpgradeModuleInterface> {
+        Some(match self {
             Self::StatusBits(module) => module,
             Self::PassengersFire(module) => module,
-            Self::SubObjects(module) => module,
+            Self::SubObjects(_) => return None,
             Self::GrantScience(module) => module,
             Self::CommandSet(module) => module,
             Self::WeaponSet(module) => module,
@@ -1091,7 +1112,7 @@ impl<'a> UpgradeModuleKindMut<'a> {
             Self::UnpauseSpecialPower(module) => module,
             Self::ObjectCreation(module) => module,
             Self::AutoHeal(module) => module.behavior_mut(),
-        }
+        })
     }
 }
 
@@ -2580,7 +2601,6 @@ impl fmt::Debug for Object {
 enum UpgradeModuleHandle {
     StatusBits(StatusBitsUpgradeHandle),
     PassengersFire(PassengersFireUpgradeHandle),
-    SubObjects(SubObjectsUpgradeHandle),
 }
 
 #[derive(Debug, Clone, Copy, Default)]

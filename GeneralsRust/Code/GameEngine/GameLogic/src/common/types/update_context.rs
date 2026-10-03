@@ -765,11 +765,7 @@ pub trait ParticleSystemManagerInterface: std::fmt::Debug + Send + Sync {
     }
 
     /// C++ `ParticleSystem::setSizeMultiplier`.
-    fn set_particle_system_size_multiplier(
-        &self,
-        _system_id: ParticleSystemId,
-        _multiplier: Real,
-    ) {
+    fn set_particle_system_size_multiplier(&self, _system_id: ParticleSystemId, _multiplier: Real) {
     }
 
     /// C++ `ParticleSystem::trigger`.
@@ -783,7 +779,11 @@ pub trait ParticleSystemManagerInterface: std::fmt::Debug + Send + Sync {
     fn set_particle_lifetime_range(&self, _system_id: ParticleSystemId, _min: f32, _max: f32) {}
 
     /// C++ ParticleSystem::setInitialDelay.
-    fn set_particle_system_initial_delay(&self, _system_id: ParticleSystemId, _frames: UnsignedInt) {
+    fn set_particle_system_initial_delay(
+        &self,
+        _system_id: ParticleSystemId,
+        _frames: UnsignedInt,
+    ) {
     }
     fn destroy_attached_systems(&self, _object_id: ObjectID) {}
 }
@@ -887,6 +887,10 @@ pub trait FXListManagerInterface: std::fmt::Debug + Send + Sync {
 
     /// Execute FX on an object
     fn do_fx_obj(&self, fx_list: FXListId, object_id: ThingId);
+
+    /// Execute FX using the caller's already borrowed driving object.
+    /// Implementations must retain this identity and avoid reacquiring its lock.
+    fn do_fx_for_object(&self, fx_list: FXListId, object: &crate::object::Object);
 
     /// Execute FX on an object with an optional source object for orientation.
     fn do_fx_obj_with_source(
@@ -1063,4 +1067,3 @@ impl<'a> UpdateContext<'a> {
         crate::helpers::TheGameLogic::set_wake_frame(object_id.into(), sleep_time);
     }
 }
-

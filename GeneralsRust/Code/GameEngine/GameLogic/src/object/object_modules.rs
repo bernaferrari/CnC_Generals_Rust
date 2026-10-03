@@ -1222,16 +1222,13 @@ impl Object {
     }
 
     pub fn force_refresh_sub_object_upgrade_status(&mut self) {
-        for entry in self.interface_entries(&self.upgrade_module_handles) {
+        for entry in self.interface_entry_snapshots(&self.upgrade_module_handles) {
             entry.with_module(|module| {
                 if let Some(UpgradeModuleKindMut::SubObjects(sub_obj)) = module_upgrade_kind(module)
                 {
-                    sub_obj.force_refresh_upgrade();
+                    sub_obj.refresh_for_object(self);
                 }
             });
-        }
-        for handle in SubObjectsUpgradeHandle::for_object(self.id) {
-            handle.force_refresh();
         }
     }
 }

@@ -1,21 +1,10 @@
-use once_cell::sync::Lazy;
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex, RwLock, Weak};
+use std::sync::Arc;
 
-use crate::common::{AsciiString, LegacyModuleData, ObjectID, UpgradeMaskType};
-use crate::modules::UpgradeModuleInterface;
-use crate::object::registry::OBJECT_REGISTRY;
-use crate::upgrade::UpgradeMask;
-use crate::upgrade::modules::upgrade_mux::{UpgradeMux, UpgradeMuxData};
+use crate::common::{AsciiString, ObjectID, UpgradeMaskType};
+use crate::upgrade::modules::upgrade_mux::UpgradeMuxData;
 use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{Module, ModuleData, NameKeyType};
-
-/// Wave 431: host-only path has no dual-world factory objects.
-#[inline]
-fn dual_world_registry_unavailable() -> bool {
-    crate::object::registry::OBJECT_REGISTRY.is_empty()
-}
 
 /// Module data for SubObjectsUpgrade.
 #[derive(Debug, Clone)]
@@ -85,151 +74,11 @@ impl Snapshotable for SubObjectsUpgradeModuleData {
     }
 }
 
-/// Upgrade module that toggles sub-object visibility on the drawable.
+/// Mutable execution state belongs to the installed module, not an object-ID registry.
 pub struct SubObjectsUpgrade {
-    inner: Arc<Mutex<SubObjectsUpgradeInner>>,
     module_name_key: NameKeyType,
     data: Arc<SubObjectsUpgradeModuleData>,
-    object_id: ObjectID,
     applied: bool,
-}
-
-#[derive(Debug)]
-struct SubObjectsUpgradeInner {
-    data: Arc<SubObjectsUpgradeModuleData>,
-    mux: UpgradeMux,
-    object_id: ObjectID,
-}
-
-type SubObjectsUpgradeHandles = HashMap<ObjectID, Vec<Weak<Mutex<SubObjectsUpgradeInner>>>>;
-
-static SUBOBJECTS_UPGRADE_MODULES: Lazy<RwLock<SubObjectsUpgradeHandles>> =
-    Lazy::new(|| RwLock::new(HashMap::new()));
-
-/// Handle exposed to object runtime for applying/removing the upgrade.
-pub(crate) struct SubObjectsUpgradeHandle {
-    inner: Arc<Mutex<SubObjectsUpgradeInner>>,
-}
-
-impl SubObjectsUpgradeHandle {
-    fn new(inner: Arc<Mutex<SubObjectsUpgradeInner>>) -> Self {
-        Self { inner }
-    }
-
-    pub fn apply(&self, upgrade_mask: UpgradeMaskType) -> bool {
-        // Wave 431: empty dual-world → false.
-        if dual_world_registry_unavailable() {
-            return false;
-        }
-
-        let mut guard = self.inner.lock().expect("SubObjectsUpgrade inner poisoned");
-
-        let key_mask = UpgradeMask::from_bits_retain(upgrade_mask.bits());
-        if !guard.mux.would_upgrade(key_mask) {
-            return false;
-        }
-
-        let (activation, conflicting) = guard.mux.data.clone().get_upgrade_activation_masks();
-        let _ = activation;
-        let conflicting_bits = UpgradeMaskType::from_bits_retain(conflicting.to_bits());
-        let data = guard.data.clone();
-        let mux_data = guard.mux.data.clone();
-
-        let Some(applied) = OBJECT_REGISTRY.with_object_mut(guard.object_id, |object_guard| {
-            if object_guard
-                .completed_upgrades()
-                .intersects(conflicting_bits)
-            {
-                return false;
-            }
-
-            if object_guard
-                .with_controlling_player(|player_guard| {
-                    player_guard
-                        .get_completed_upgrade_mask()
-                        .intersects(conflicting_bits)
-                })
-                == Some(true)
-            {
-                return false;
-            }
-
-            mux_data.perform_upgrade_fx(object_guard);
-            mux_data.process_upgrade_removal(object_guard);
-            apply_subobject_visibility(object_guard, data.as_ref());
-            true
-        }) else {
-            log::warn!("SubObjectsUpgrade: Object {} not found", guard.object_id);
-            return false;
-        };
-        if !applied {
-            return false;
-        }
-        guard.mux.set_upgrade_executed(true);
-        true
-    }
-
-    pub fn remove(&self, _upgrade_mask: UpgradeMaskType) {
-        // C++ does not revert sub-object visibility for this upgrade.
-    }
-
-    pub fn force_refresh(&self) -> bool {
-        let guard = self.inner.lock().expect("SubObjectsUpgrade inner poisoned");
-        if !guard.mux.is_already_upgraded() {
-            return false;
-        }
-        apply_subobject_visibility_for_object(guard.object_id, guard.data.as_ref())
-    }
-
-    pub(crate) fn for_object(object_id: ObjectID) -> Vec<Self> {
-        let mut registry = SUBOBJECTS_UPGRADE_MODULES
-            .write()
-            .expect("subobjects upgrade registry poisoned");
-        if let Some(entries) = registry.get_mut(&object_id) {
-            let mut handles = Vec::new();
-            entries.retain(|weak| {
-                if let Some(upgrade) = weak.upgrade() {
-                    handles.push(SubObjectsUpgradeHandle::new(upgrade));
-                    true
-                } else {
-                    false
-                }
-            });
-            if entries.is_empty() {
-                registry.remove(&object_id);
-            }
-            handles
-        } else {
-            Vec::new()
-        }
-    }
-}
-
-fn register_subobjects_upgrade(object_id: ObjectID, inner: &Arc<Mutex<SubObjectsUpgradeInner>>) {
-    let mut registry = SUBOBJECTS_UPGRADE_MODULES
-        .write()
-        .expect("subobjects upgrade registry poisoned");
-    registry
-        .entry(object_id)
-        .or_default()
-        .push(Arc::downgrade(inner));
-}
-
-fn unregister_subobjects_upgrade(object_id: ObjectID, inner: &Arc<Mutex<SubObjectsUpgradeInner>>) {
-    let mut registry = SUBOBJECTS_UPGRADE_MODULES
-        .write()
-        .expect("subobjects upgrade registry poisoned");
-    if let Some(entries) = registry.get_mut(&object_id) {
-        entries.retain(|entry| {
-            entry
-                .upgrade()
-                .map(|strong| !Arc::ptr_eq(&strong, inner))
-                .unwrap_or(false)
-        });
-        if entries.is_empty() {
-            registry.remove(&object_id);
-        }
-    }
 }
 
 fn apply_subobject_visibility(
@@ -261,28 +110,52 @@ impl SubObjectsUpgrade {
     pub fn new(
         module_name_key: NameKeyType,
         data: Arc<SubObjectsUpgradeModuleData>,
-        object_id: ObjectID,
+        _object_id: ObjectID,
     ) -> Self {
-        let mux = UpgradeMux::new(data.upgrade_mux_data.clone());
-        let inner = Arc::new(Mutex::new(SubObjectsUpgradeInner {
-            data: Arc::clone(&data),
-            mux,
-            object_id,
-        }));
-        register_subobjects_upgrade(object_id, &inner);
         Self {
-            inner,
             module_name_key,
             data,
-            object_id,
             applied: false,
         }
     }
-}
 
-impl Drop for SubObjectsUpgrade {
-    fn drop(&mut self) {
-        unregister_subobjects_upgrade(self.object_id, &self.inner);
+    /// Eligibility is captured under the module borrow. The caller releases it
+    /// before FX/removals, which can synchronously reset this very module.
+    pub(crate) fn prepare_upgrade(
+        &self,
+        mask: UpgradeMaskType,
+    ) -> Option<Arc<SubObjectsUpgradeModuleData>> {
+        self.can_upgrade(mask).then(|| Arc::clone(&self.data))
+    }
+
+    /// C++ giveSelfUpgrade commits execution even if implementation skips the
+    /// drawable because a live object/player conflict remains after removals.
+    pub(crate) fn finish_upgrade(&mut self, object: &mut crate::object::Object) {
+        self.refresh_visibility(object);
+        self.applied = true;
+    }
+
+    pub(crate) fn refresh_for_object(&self, object: &mut crate::object::Object) {
+        if self.applied {
+            self.refresh_visibility(object);
+        }
+    }
+
+    fn refresh_visibility(&self, object: &mut crate::object::Object) {
+        let (_, conflicting) = self
+            .data
+            .upgrade_mux_data
+            .clone()
+            .get_upgrade_activation_masks();
+        let conflicting = UpgradeMaskType::from_bits_retain(conflicting.to_bits());
+        if object.completed_upgrades().intersects(conflicting)
+            || object.with_controlling_player(|player| {
+                player.get_completed_upgrade_mask().intersects(conflicting)
+            }) == Some(true)
+        {
+            return;
+        }
+        apply_subobject_visibility(object, &self.data);
     }
 }
 
@@ -310,22 +183,20 @@ impl Module for SubObjectsUpgrade {
 
 impl Snapshotable for SubObjectsUpgrade {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let mut version: u8 = 0;
+        // C++ base CRCs are empty; UpgradeMux CRC writes its version and flag.
+        let mut version = 1u8;
         xfer.xfer_version(&mut version, 1)
             .map_err(|e| e.to_string())?;
-        Ok(())
+        let mut executed = self.applied;
+        xfer.xfer_bool(&mut executed).map_err(|e| e.to_string())
     }
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let current_version: u8 = 1;
-        let mut version = current_version;
-        xfer.xfer_version(&mut version, current_version)
-            .map_err(|e| e.to_string())?;
-        crate::object::upgrade::upgrade_module::xfer_upgrade_module_state(xfer, &mut self.applied)?;
-        if let Ok(mut guard) = self.inner.lock() {
-            guard.mux.set_upgrade_executed(self.applied);
-        }
-        Ok(())
+        crate::object::upgrade::upgrade_module::xfer_upgrade_module_with_version(
+            xfer,
+            &mut self.applied,
+            "SubObjectsUpgrade",
+        )
     }
 
     fn load_post_process(&mut self) -> Result<(), String> {
@@ -333,8 +204,8 @@ impl Snapshotable for SubObjectsUpgrade {
     }
 }
 
-impl UpgradeModuleInterface for SubObjectsUpgrade {
-    fn can_upgrade(&self, upgrade_mask: UpgradeMaskType) -> bool {
+impl SubObjectsUpgrade {
+    pub(crate) fn can_upgrade(&self, upgrade_mask: UpgradeMaskType) -> bool {
         crate::object::upgrade::upgrade_module::mux_can_upgrade(
             &self.data.upgrade_mux_data,
             self.applied,
@@ -342,96 +213,14 @@ impl UpgradeModuleInterface for SubObjectsUpgrade {
         )
     }
 
-    fn apply_upgrade(&mut self, upgrade_mask: UpgradeMaskType) -> bool {
-        // Wave 431: empty dual-world → false.
-        if dual_world_registry_unavailable() {
-            return false;
-        }
-
-        if self.applied {
-            return false;
-        }
-        let mut guard = self.inner.lock().expect("SubObjectsUpgrade inner poisoned");
-
-        let key_mask = UpgradeMask::from_bits_retain(upgrade_mask.bits());
-        if !guard.mux.would_upgrade(key_mask) {
-            return false;
-        }
-
-        let (activation, conflicting) = guard.mux.data.clone().get_upgrade_activation_masks();
-        let _ = activation;
-        let conflicting_bits = UpgradeMaskType::from_bits_retain(conflicting.to_bits());
-        let data = guard.data.clone();
-        let mux_data = guard.mux.data.clone();
-
-        let Some(applied) = OBJECT_REGISTRY.with_object_mut(guard.object_id, |object_guard| {
-            if object_guard
-                .completed_upgrades()
-                .intersects(conflicting_bits)
-            {
-                return false;
-            }
-
-            if object_guard
-                .with_controlling_player(|player_guard| {
-                    player_guard
-                        .get_completed_upgrade_mask()
-                        .intersects(conflicting_bits)
-                })
-                == Some(true)
-            {
-                return false;
-            }
-
-            mux_data.perform_upgrade_fx(object_guard);
-            mux_data.process_upgrade_removal(object_guard);
-            apply_subobject_visibility(object_guard, data.as_ref());
-            true
-        }) else {
-            log::warn!("SubObjectsUpgrade: Object {} not found", guard.object_id);
-            return false;
-        };
-        if !applied {
-            return false;
-        }
-        guard.mux.set_upgrade_executed(true);
-        self.applied = true;
-        true
+    pub(crate) fn remove_upgrade(&mut self, upgrade_mask: UpgradeMaskType) {
+        // C++ resetUpgrade clears execution; it never undoes visibility.
+        crate::object::upgrade::upgrade_module::mux_reset_upgrade(
+            &self.data.upgrade_mux_data,
+            &mut self.applied,
+            upgrade_mask,
+        );
     }
-
-    fn remove_upgrade(&mut self, upgrade_mask: UpgradeMaskType) {
-        // C++ resetUpgrade: clear executed so RemovesUpgrades can re-arm.
-        // Does not revert sub-object visibility.
-        let mask = crate::upgrade::UpgradeMask::from_bits_retain(upgrade_mask.bits());
-        let mut guard = self.inner.lock().expect("SubObjectsUpgrade inner poisoned");
-        if guard.mux.reset_upgrade(mask) {
-            self.applied = false;
-        }
-    }
-
-    fn force_refresh_upgrade(&mut self) {
-        let guard = self.inner.lock().expect("SubObjectsUpgrade inner poisoned");
-        if guard.mux.is_already_upgraded() {
-            apply_subobject_visibility_for_object(guard.object_id, guard.data.as_ref());
-        }
-    }
-}
-
-#[allow(dead_code)]
-fn apply_subobject_visibility_for_object(
-    object_id: ObjectID,
-    data: &SubObjectsUpgradeModuleData,
-) -> bool {
-    // Wave 431: empty dual-world → false.
-    if dual_world_registry_unavailable() {
-        return false;
-    }
-
-    OBJECT_REGISTRY
-        .with_object_mut(object_id, |object_guard| {
-            apply_subobject_visibility(object_guard, data);
-        })
-        .is_some()
 }
 
 fn parse_show_sub_objects(
@@ -552,3 +341,6 @@ const SUBOBJECTS_UPGRADE_FIELDS: &[FieldParse<SubObjectsUpgradeModuleData>] = &[
         parse: parse_hide_sub_objects,
     },
 ];
+
+#[cfg(test)]
+mod tests;
