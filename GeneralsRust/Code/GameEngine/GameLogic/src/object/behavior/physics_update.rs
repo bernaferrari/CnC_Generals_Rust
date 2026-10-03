@@ -690,6 +690,16 @@ pub struct PhysicsBehaviorUpdate {
 }
 
 impl PhysicsBehaviorUpdate {
+    pub(in crate::object) fn physics_interface(&self) -> &(dyn PhysicsBehaviorTrait + 'static) {
+        &self.physics_handle
+    }
+
+    pub(in crate::object) fn physics_interface_mut(
+        &mut self,
+    ) -> &mut (dyn PhysicsBehaviorTrait + 'static) {
+        &mut self.physics_handle
+    }
+
     pub fn new(
         object: Arc<RwLock<GameObject>>,
         module_data: Arc<dyn ModuleData>,
@@ -1105,210 +1115,6 @@ impl UpdateModuleInterface for PhysicsBehaviorUpdate {
     }
 }
 
-/// Object.physics slot. The real `PhysicsBehaviorHandle` stays on the module.
-/// This arc is not that handle; methods lock the module and use the owned field.
-#[derive(Debug)]
-struct PhysicsModuleView {
-    module: crate::object::BehaviorModuleHandle,
-}
-
-impl PhysicsModuleView {
-    fn with_handle<R>(&self, f: impl FnOnce(&mut PhysicsBehaviorHandle) -> R) -> Option<R> {
-        self.module.with_module(|module| {
-            (module as &mut dyn Any)
-                .downcast_mut::<crate::contain_module_overrides::ActiveBehaviorModule<
-                    PhysicsBehaviorUpdate,
-                >>()
-                .map(|update| f(&mut update.behavior_mut().physics_handle))
-        })
-    }
-}
-
-impl PhysicsBehaviorTrait for PhysicsModuleView {
-    fn update(&mut self, dt: f32) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        self.with_handle(|handle| handle.update(dt))
-            .unwrap_or(Ok(()))
-    }
-
-    fn get_velocity(&self) -> Vec3 {
-        self.with_handle(|handle| handle.get_velocity())
-            .unwrap_or(Vec3::ZERO)
-    }
-
-    fn set_velocity(&mut self, velocity: &Vec3) {
-        let _ = self.with_handle(|handle| handle.set_velocity(velocity));
-    }
-
-    fn add_velocity_to(&mut self, velocity: &Vec3) {
-        let _ = self.with_handle(|handle| handle.add_velocity_to(velocity));
-    }
-
-    fn is_on_ground(&self) -> bool {
-        self.with_handle(|handle| handle.is_on_ground())
-            .unwrap_or(true)
-    }
-
-    fn apply_force(&mut self, force: &Vec3) {
-        let _ = self.with_handle(|handle| handle.apply_force(force));
-    }
-
-    fn set_yaw_rate(&mut self, rate: Real) {
-        let _ = self.with_handle(|handle| handle.set_yaw_rate(rate));
-    }
-
-    fn set_roll_rate(&mut self, rate: Real) {
-        let _ = self.with_handle(|handle| handle.set_roll_rate(rate));
-    }
-
-    fn set_pitch_rate(&mut self, rate: Real) {
-        let _ = self.with_handle(|handle| handle.set_pitch_rate(rate));
-    }
-
-    fn set_turning(&mut self, turning: i32) {
-        let _ = self.with_handle(|handle| handle.set_turning(turning));
-    }
-
-    fn set_mass(&mut self, mass: Real) {
-        let _ = self.with_handle(|handle| handle.set_mass(mass));
-    }
-
-    fn set_extra_friction(&mut self, friction: Real) {
-        let _ = self.with_handle(|handle| handle.set_extra_friction(friction));
-    }
-
-    fn set_extra_bounciness(&mut self, bounciness: Real) {
-        let _ = self.with_handle(|handle| handle.set_extra_bounciness(bounciness));
-    }
-
-    fn set_allow_bouncing(&mut self, allow: bool) {
-        let _ = self.with_handle(|handle| handle.set_allow_bouncing(allow));
-    }
-
-    fn set_allow_airborne_friction(&mut self, allow: bool) {
-        let _ = self.with_handle(|handle| handle.set_allow_airborne_friction(allow));
-    }
-
-    fn set_bounce_sound(&mut self, sound: Option<AudioEventRts>) {
-        let _ = self.with_handle(|handle| handle.set_bounce_sound(sound));
-    }
-
-    fn get_bounce_sound(&self) -> Option<AudioEventRts> {
-        self.with_handle(|handle| handle.get_bounce_sound())
-            .unwrap_or(None)
-    }
-
-    fn set_ignore_collisions_with(&mut self, obj_id: ObjectID) {
-        let _ = self.with_handle(|handle| handle.set_ignore_collisions_with(obj_id));
-    }
-
-    fn set_angles(&mut self, yaw: Real, pitch: Real, roll: Real) {
-        let _ = self.with_handle(|handle| handle.set_angles(yaw, pitch, roll));
-    }
-
-    fn get_mass(&self) -> Real {
-        self.with_handle(|handle| handle.get_mass()).unwrap_or(1.0)
-    }
-
-    fn apply_angular_velocity(&mut self, angular_velocity: &Vec3) {
-        let _ = self.with_handle(|handle| handle.apply_angular_velocity(angular_velocity));
-    }
-
-    fn apply_motive_force(&mut self, force: &Vec3) {
-        let _ = self.with_handle(|handle| handle.apply_motive_force(force));
-    }
-
-    fn get_turning(&self) -> Real {
-        self.with_handle(|handle| handle.get_turning())
-            .unwrap_or(0.0)
-    }
-
-    fn is_motive(&self) -> bool {
-        self.with_handle(|handle| handle.is_motive())
-            .unwrap_or(false)
-    }
-
-    fn get_acceleration(&self) -> Coord3D {
-        self.with_handle(|handle| handle.get_acceleration())
-            .unwrap_or(Coord3D::ZERO)
-    }
-
-    fn get_last_collidee(&self) -> ObjectID {
-        self.with_handle(|handle| handle.get_last_collidee())
-            .unwrap_or(crate::common::INVALID_ID)
-    }
-
-    fn get_ignore_collisions_with(&self) -> ObjectID {
-        self.with_handle(|handle| handle.get_ignore_collisions_with())
-            .unwrap_or(crate::common::INVALID_ID)
-    }
-
-    fn reset_dynamic_physics(&mut self) {
-        let _ = self.with_handle(|handle| handle.reset_dynamic_physics());
-    }
-
-    fn apply_shock(&mut self, force: &Coord3D) {
-        let _ = self.with_handle(|handle| handle.apply_shock(force));
-    }
-
-    fn apply_random_rotation(&mut self) {
-        let _ = self.with_handle(|handle| handle.apply_random_rotation());
-    }
-
-    fn set_stunned(&mut self, stunned: bool) {
-        let _ = self.with_handle(|handle| handle.set_stunned(stunned));
-    }
-
-    fn set_allow_to_fall(&mut self, allow: bool) {
-        let _ = self.with_handle(|handle| handle.set_allow_to_fall(allow));
-    }
-
-    fn get_allow_to_fall(&self) -> bool {
-        self.with_handle(|handle| handle.get_allow_to_fall())
-            .unwrap_or(false)
-    }
-
-    fn allow_to_fall(&self) -> bool {
-        self.get_allow_to_fall()
-    }
-
-    fn set_is_in_freefall(&mut self, allow: bool) {
-        let _ = self.with_handle(|handle| handle.set_is_in_freefall(allow));
-    }
-
-    fn get_is_in_freefall(&self) -> bool {
-        self.with_handle(|handle| handle.get_is_in_freefall())
-            .unwrap_or(false)
-    }
-
-    fn get_center_of_mass_offset(&self) -> Real {
-        self.with_handle(|handle| handle.get_center_of_mass_offset())
-            .unwrap_or(0.0)
-    }
-
-    fn set_stick_to_ground(&mut self, stick: bool) {
-        let _ = self.with_handle(|handle| handle.set_stick_to_ground(stick));
-    }
-
-    fn get_stick_to_ground(&self) -> bool {
-        self.with_handle(|handle| handle.get_stick_to_ground())
-            .unwrap_or(false)
-    }
-
-    fn get_forward_speed_2d(&self) -> Real {
-        self.with_handle(|handle| handle.get_forward_speed_2d())
-            .unwrap_or(0.0)
-    }
-
-    fn get_forward_speed_3d(&self) -> Real {
-        self.with_handle(|handle| handle.get_forward_speed_3d())
-            .unwrap_or(0.0)
-    }
-
-    fn clear_acceleration(&mut self) {
-        let _ = self.with_handle(|handle| handle.clear_acceleration());
-    }
-}
-
 impl BehaviorModuleInterface for PhysicsBehaviorUpdate {
     fn get_module_name(&self) -> &'static str {
         "PhysicsBehavior"
@@ -1343,9 +1149,9 @@ impl BehaviorModuleInterface for PhysicsBehaviorUpdate {
         self.physics_handle.state.yaw_angle = obj.get_orientation();
         let physics_name = AsciiString::from("PhysicsBehavior");
         if let Some(module) = obj.module_by_name(&physics_name) {
-            let view: Arc<Mutex<dyn PhysicsBehaviorTrait>> =
-                Arc::new(Mutex::new(PhysicsModuleView { module }));
-            obj.set_physics(Some(view));
+            obj.set_physics(Some(crate::object::PhysicsInterfaceHandle::from_module(
+                module,
+            )));
         }
 
         let now = TheGameLogic::get_frame();

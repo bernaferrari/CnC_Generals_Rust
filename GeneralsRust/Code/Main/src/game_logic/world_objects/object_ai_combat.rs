@@ -1016,6 +1016,7 @@ mod live_upgrade_mux_tests {
     }
 
     fn register_upgrade_completion_sounds(
+        logic: &GameLogic,
         name: &str,
         research_sound: Option<&str>,
         unit_specific_sound: Option<&str>,
@@ -1028,7 +1029,8 @@ mod live_upgrade_mux_tests {
             source.push_str(&format!("UnitSpecificSound = {sound}\n"));
         }
         source.push_str("End\n");
-        gamelogic::upgrade::center::with_upgrade_center_mut(|center| {
+        let mut center = logic.engine_stores.upgrade_center().write().unwrap();
+        {
             let mut ini = game_engine::common::ini::INI::new();
             ini.with_inline_source(&source, |ini| {
                 ini.read_line()?;
@@ -1037,7 +1039,7 @@ mod live_upgrade_mux_tests {
                     .map_err(|_| game_engine::common::ini::INIError::InvalidData)
             })
             .expect("register upgrade completion sounds");
-        });
+        }
     }
 
     fn upgrade_audio_fixture(upgrade_name: &str) -> (GameLogic, crate::game_logic::ObjectId) {
@@ -1064,8 +1066,8 @@ mod live_upgrade_mux_tests {
         const UPGRADE: &str = "Upgrade_TestAuthoredCompletionSounds_hq_ib5c9";
         const RESEARCH: &str = "TestResearchComplete_hq_ib5c9";
         const UNIT: &str = "TestUnitSpecificComplete_hq_ib5c9";
-        register_upgrade_completion_sounds(UPGRADE, Some(RESEARCH), Some(UNIT));
         let (mut logic, producer) = upgrade_audio_fixture(UPGRADE);
+        register_upgrade_completion_sounds(&logic, UPGRADE, Some(RESEARCH), Some(UNIT));
 
         logic.apply_host_upgrade_complete(Team::USA, 0, UPGRADE);
 
@@ -1102,8 +1104,8 @@ mod live_upgrade_mux_tests {
     fn absent_research_sound_uses_eva_but_keeps_authored_unit_sound() {
         const UPGRADE: &str = "Upgrade_TestUnitOnlyCompletionSound_hq_ib5c9";
         const UNIT: &str = "TestUnitOnlyComplete_hq_ib5c9";
-        register_upgrade_completion_sounds(UPGRADE, None, Some(UNIT));
         let (mut logic, producer) = upgrade_audio_fixture(UPGRADE);
+        register_upgrade_completion_sounds(&logic, UPGRADE, None, Some(UNIT));
 
         logic.apply_host_upgrade_complete(Team::USA, 0, UPGRADE);
 

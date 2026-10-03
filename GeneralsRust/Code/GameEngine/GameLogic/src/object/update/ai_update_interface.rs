@@ -1035,7 +1035,8 @@ impl AIUpdateInterface {
                 if victim_above {
                     true
                 } else {
-                    let ai_store = crate::ai::the_ai();let view_blocked = ai_store
+                    let ai_store = crate::ai::the_ai();
+                    let view_blocked = ai_store
                         .read()
                         .ok()
                         .and_then(|ai| ai.pathfinder())
@@ -1193,7 +1194,8 @@ impl AIUpdateInterface {
             return false;
         }
 
-        let ai_store = crate::ai::the_ai();let Some(pathfinder) = ai_store.read().ok().and_then(|ai| ai.pathfinder()) else {
+        let ai_store = crate::ai::the_ai();
+        let Some(pathfinder) = ai_store.read().ok().and_then(|ai| ai.pathfinder()) else {
             self.path_timestamp = TheGameLogic::get_frame();
             self.blocked_frames = 0;
             self.is_blocked_and_stuck = false;
@@ -1280,7 +1282,8 @@ impl AIUpdateInterface {
             return false;
         }
 
-        let ai_store = crate::ai::the_ai();let Some(pathfinder) = ai_store.read().ok().and_then(|ai| ai.pathfinder()) else {
+        let ai_store = crate::ai::the_ai();
+        let Some(pathfinder) = ai_store.read().ok().and_then(|ai| ai.pathfinder()) else {
             self.path_timestamp = TheGameLogic::get_frame();
             self.blocked_frames = 0;
             self.is_blocked_and_stuck = false;
@@ -1493,7 +1496,8 @@ impl AIUpdateInterface {
             return false;
         }
 
-        let ai_store = crate::ai::the_ai();let Some(pathfinder) = ai_store.read().ok().and_then(|ai| ai.pathfinder()) else {
+        let ai_store = crate::ai::the_ai();
+        let Some(pathfinder) = ai_store.read().ok().and_then(|ai| ai.pathfinder()) else {
             return false;
         };
         let Ok(mut pathfinder) = pathfinder.write() else {
@@ -1760,7 +1764,7 @@ impl AIUpdateInterface {
             return;
         };
         drop(owner);
-        if let Ok(mut phys) = physics.try_lock() {
+        if let Ok(mut phys) = physics.try_access() {
             loco.apply_physics_options(&mut *phys);
         }
     }
@@ -1771,7 +1775,7 @@ impl AIUpdateInterface {
             .with_object(self.owner_object_id, |owner| {
                 owner
                     .get_physics()
-                    .and_then(|physics| physics.lock().ok().map(|g| g.get_forward_speed_2d()))
+                    .and_then(|physics| physics.access().ok().map(|g| g.get_forward_speed_2d()))
                     .unwrap_or(self.cur_locomotor_speed)
             })
             .unwrap_or(self.cur_locomotor_speed)
@@ -1828,7 +1832,7 @@ impl AIUpdateInterface {
             let _ = owner.set_position(&new_pos);
             let _ = owner.set_orientation(new_angle);
             if let Some(physics) = owner.get_physics() {
-                if let Ok(mut physics) = physics.lock() {
+                if let Ok(mut physics) = physics.access() {
                     let delta_time = 1.0 / LOGICFRAMES_PER_SECOND as Real;
                     let velocity = (new_pos - old_pos) / delta_time;
                     physics.set_velocity(&velocity);
@@ -1921,10 +1925,8 @@ impl AIUpdateInterface {
             return None;
         };
 
-        let ai_store = crate::ai::the_ai();let pathfinder_arc = ai_store
-            .read()
-            .ok()
-            .and_then(|ai| ai.pathfinder())?;
+        let ai_store = crate::ai::the_ai();
+        let pathfinder_arc = ai_store.read().ok().and_then(|ai| ai.pathfinder())?;
         let pathfinder = pathfinder_arc.read().ok()?;
         let ignore_obstacle_id = if self.ignore_obstacle_id == INVALID_ID {
             None
@@ -2078,7 +2080,7 @@ impl AIUpdateInterface {
 
     fn physics_velocity(obj: &Object) -> (Vec3D, bool) {
         obj.get_physics()
-            .and_then(|physics| physics.lock().ok().map(|physics| physics.get_velocity()))
+            .and_then(|physics| physics.access().ok().map(|physics| physics.get_velocity()))
             .map(|velocity| (velocity, true))
             .unwrap_or((Vec3D::ZERO, false))
     }
@@ -2582,7 +2584,8 @@ impl AIUpdateInterface {
             return;
         }
         let now = TheGameLogic::get_frame();
-        if let Some(object) = crate::object::registry::OBJECT_REGISTRY.get_object(self.owner_object_id)
+        if let Some(object) =
+            crate::object::registry::OBJECT_REGISTRY.get_object(self.owner_object_id)
         {
             if let Ok(guard) = object.read() {
                 guard.reschedule_ai_update(now.saturating_add(1));
@@ -2832,9 +2835,9 @@ impl Snapshotable for AIUpdateInterfaceModule {
 
     fn load_post_process(&mut self) -> Result<(), String> {
         if let Some(runtime_ai) = &self.runtime_ai {
-            let mut guard = runtime_ai
-                .lock()
-                .map_err(|_| "AIUpdate runtime lock poisoned during load post process".to_string())?;
+            let mut guard = runtime_ai.lock().map_err(|_| {
+                "AIUpdate runtime lock poisoned during load post process".to_string()
+            })?;
             guard.load_post_process_path_cells();
         }
         Ok(())

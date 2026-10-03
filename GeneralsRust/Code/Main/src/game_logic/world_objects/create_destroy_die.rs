@@ -4,7 +4,6 @@
 use super::super::*;
 
 mod grant_upgrade;
-use grant_upgrade::{GrantUpgradeKind, host_grant_upgrade_kind};
 
 /// Zero the continuous-fire ramp state when a template re-seeds base weapons.
 fn reset_continuous_fire_state(object: &mut Object) {
@@ -3822,50 +3821,6 @@ impl GameLogic {
             self.preorder_create_reg.record_set();
         } else {
             self.preorder_create_reg.record_clear();
-        }
-    }
-
-    /// C++ GrantUpgradeCreate.cpp:108-117 — PLAYER vs OBJECT, never both.
-    /// Missing upgrade template: C++ DEBUG_ASSERTCRASH + return (skip).
-    pub(in super::super) fn apply_grant_upgrade_creates(
-        &mut self,
-        object_id: ObjectId,
-        grants: &[crate::game_logic::GrantUpgradeCreateMetadata],
-    ) {
-        if grants.is_empty() {
-            return;
-        }
-        let Some(obj) = self.objects.get(&object_id) else {
-            return;
-        };
-        let player_id = self.player_owner_for_host_object(obj);
-        let mut radar_upgrade = false;
-        for grant in grants {
-            match host_grant_upgrade_kind(self, &grant.upgrade_name) {
-                Some(GrantUpgradeKind::Player) => {
-                    if let Some(pid) = player_id {
-                        if let Some(player) = self.players.get_mut(&pid) {
-                            player.add_completed_upgrade(&grant.upgrade_name);
-                        }
-                    }
-                }
-                Some(GrantUpgradeKind::Object) => {
-                    if let Some(o) = self.objects.get_mut(&object_id) {
-                        o.apply_upgrade_tag(&grant.upgrade_name);
-                    }
-                    if crate::game_logic::host_upgrades::HostUpgradeKind::from_name(
-                        &grant.upgrade_name,
-                    ) == crate::game_logic::host_upgrades::HostUpgradeKind::Radar
-                    {
-                        radar_upgrade = true;
-                    }
-                }
-                None => {}
-            }
-        }
-        if radar_upgrade {
-            // C++ GrantUpgradeCreate → updateUpgradeModules → RadarUpgrade::extendRadar
-            self.maybe_start_radar_extend(object_id);
         }
     }
 

@@ -511,7 +511,7 @@ impl StealthUpdate {
             if let Ok(obj) = object.read() {
                 // Get velocity from physics module (C++ StealthUpdate.cpp:390)
                 if let Some(physics) = obj.get_physics() {
-                    if let Ok(phys_guard) = physics.lock() {
+                    if let Ok(phys_guard) = physics.access() {
                         return phys_guard.get_velocity().length();
                     }
                 }

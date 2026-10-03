@@ -51,14 +51,13 @@ struct ExitPrep {
     owner_id: ObjectID,
     end_pos: Coord3D,
     exit_path: Vec<Coord3D>,
-    /// Physics/AI arcs copied out of the exit object. Do not lock either while that guard is held.
-    physics: Option<Arc<Mutex<dyn crate::modules::PhysicsBehavior>>>,
+    /// Physics descriptor and existing AI handle detached before exit callbacks.
+    physics: Option<crate::object::PhysicsInterfaceHandle>,
     ai: Option<Arc<Mutex<dyn crate::modules::AIUpdateInterface>>>,
 }
 
 fn queue_produced_exit(obj_id: ObjectID, exit: crate::object::PendingProducedExit) {
-    let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id)
-    else {
+    let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id) else {
         return;
     };
     let mut owner = obj.write().unwrap_or_else(|err| err.into_inner());
@@ -66,10 +65,10 @@ fn queue_produced_exit(obj_id: ObjectID, exit: crate::object::PendingProducedExi
 }
 
 /// C++ reads `getAllowToFall`, sets false for `aiFollowPath`/`updateGoal`, then restores.
-/// One guard does both the read and the write. `std::Mutex` does not reenter: `WouldBlock`
-/// means this thread already holds the physics mutex, so do not lock it again.
-fn pause_allow_to_fall(physics: &Arc<Mutex<dyn PhysicsBehavior>>) -> Option<bool> {
-    let mut guard = match physics.try_lock() {
+/// One canonical-state borrow reads and writes, then ends before AI callbacks.
+/// `WouldBlock` means physics is already borrowed; never reenter that state.
+fn pause_allow_to_fall(physics: &crate::object::PhysicsInterfaceHandle) -> Option<bool> {
+    let mut guard = match physics.try_access() {
         Ok(guard) => guard,
         Err(std::sync::TryLockError::Poisoned(poisoned)) => poisoned.into_inner(),
         Err(std::sync::TryLockError::WouldBlock) => return None,
@@ -79,8 +78,8 @@ fn pause_allow_to_fall(physics: &Arc<Mutex<dyn PhysicsBehavior>>) -> Option<bool
     Some(previous)
 }
 
-fn restore_allow_to_fall(physics: &Arc<Mutex<dyn PhysicsBehavior>>, allow: bool) {
-    let mut guard = match physics.try_lock() {
+fn restore_allow_to_fall(physics: &crate::object::PhysicsInterfaceHandle, allow: bool) {
+    let mut guard = match physics.try_access() {
         Ok(guard) => guard,
         Err(std::sync::TryLockError::Poisoned(poisoned)) => poisoned.into_inner(),
         Err(std::sync::TryLockError::WouldBlock) => return,
@@ -1251,7 +1250,8 @@ impl OpenContain {
             return Ok(());
         }
 
-        let obj = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id)
+        let obj = crate::object::registry::OBJECT_REGISTRY
+            .get_object(obj_id)
             .ok_or("Contain object not found")?;
 
         let was_selected = obj
@@ -1297,8 +1297,7 @@ impl OpenContain {
         if !self.collide_enter_eject_foreign(other_id)? {
             return Ok(());
         }
-        let Some(other) = crate::object::registry::OBJECT_REGISTRY.get_object(other_id)
-        else {
+        let Some(other) = crate::object::registry::OBJECT_REGISTRY.get_object(other_id) else {
             return Ok(());
         };
         let valid = other
@@ -1317,8 +1316,7 @@ impl OpenContain {
         if other_id == crate::common::INVALID_ID || other_id == self.object_id {
             return Ok(false);
         }
-        let Some(other) = crate::object::registry::OBJECT_REGISTRY.get_object(other_id)
-        else {
+        let Some(other) = crate::object::registry::OBJECT_REGISTRY.get_object(other_id) else {
             return Ok(false);
         };
         let wants_enter = {
@@ -1342,8 +1340,7 @@ impl OpenContain {
         let other_player = other_guard.get_controlling_player();
         drop(other_guard);
         for rider_id in self.contained_object_ids.clone() {
-            let Some(rider) = crate::object::registry::OBJECT_REGISTRY.get_object(rider_id)
-            else {
+            let Some(rider) = crate::object::registry::OBJECT_REGISTRY.get_object(rider_id) else {
                 continue;
             };
             let Ok(rider_guard) = rider.try_read() else {
@@ -1403,7 +1400,8 @@ impl OpenContain {
             return Ok(());
         }
 
-        let is_stealth_garrison = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id)
+        let is_stealth_garrison = crate::object::registry::OBJECT_REGISTRY
+            .get_object(obj_id)
             .and_then(|obj| {
                 obj.read()
                     .ok()
@@ -1435,8 +1433,7 @@ impl OpenContain {
         if !self.contained_object_ids.iter().any(|&id| id == object_id) {
             return None;
         }
-        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(object_id)
-        else {
+        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(object_id) else {
             self.contained_object_ids.retain(|&id| id != object_id);
             return Some(false);
         };
@@ -1468,8 +1465,7 @@ impl OpenContain {
             return Ok(());
         }
 
-        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id)
-        else {
+        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id) else {
             return Ok(());
         };
 
@@ -1639,8 +1635,7 @@ impl OpenContain {
             return Ok(());
         }
 
-        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id)
-        else {
+        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id) else {
             return Ok(());
         };
 
@@ -1704,8 +1699,7 @@ impl OpenContain {
             return Ok(());
         }
 
-        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id)
-        else {
+        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id) else {
             return Ok(());
         };
 
@@ -1735,8 +1729,7 @@ impl OpenContain {
 
     /// C++ `rider->onRemovedFrom`, after `Contain::onRemoving` returns.
     pub fn note_removed_from(&self, obj_id: ObjectID) -> GameResult<()> {
-        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id)
-        else {
+        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id) else {
             return Ok(());
         };
         let container_id = self.get_object_id();
@@ -1792,8 +1785,7 @@ impl OpenContain {
         };
         let passenger_ids = self.contained_object_ids.clone();
         for obj_id in passenger_ids {
-            let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id)
-            else {
+            let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id) else {
                 continue;
             };
             let Ok(guard) = obj.try_read() else {
@@ -1978,8 +1970,7 @@ impl OpenContain {
     {
         self.iterate_contained_ids(
             |id| {
-                if let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(id)
-                {
+                if let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(id) {
                     func(obj)?;
                 }
                 Ok(())
@@ -2210,8 +2201,7 @@ impl OpenContain {
 
         self.remove_from_contain(obj_id, false)?;
 
-        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id)
-        else {
+        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id) else {
             return Ok(None);
         };
 
@@ -2303,8 +2293,7 @@ impl OpenContain {
             return Ok(());
         }
 
-        let Some(_obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id)
-        else {
+        let Some(_obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id) else {
             return Ok(());
         };
 
@@ -2317,8 +2306,8 @@ impl OpenContain {
         };
 
         // C++ clears allow-to-fall only around aiFollowPath + updateGoal, then restores
-        // the copied flag. The physics arc was taken in prepare_object; do not re-read
-        // the exit object or lock that mutex a second time on top of a held guard.
+        // the copied flag. The canonical descriptor was taken in prepare_object;
+        // release its state borrow before AI callbacks re-query that same module.
         // ignoreObstacle(NULL) already ran in prepare when this call owns the clear.
         let paused_allow_to_fall = if prep.ai.is_some() {
             prep.physics.as_ref().and_then(pause_allow_to_fall)
@@ -2373,8 +2362,7 @@ impl OpenContain {
             return Ok(());
         }
 
-        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id)
-        else {
+        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id) else {
             return Ok(());
         };
 
@@ -2444,8 +2432,7 @@ impl OpenContain {
         self.fire_point_size = count as i32;
         let mut cursor = 0;
         for obj_id in ids.iter().rev() {
-            let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(*obj_id)
-            else {
+            let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(*obj_id) else {
                 continue;
             };
             let Ok(mut guard) = obj.try_write() else {
@@ -2501,8 +2488,7 @@ impl OpenContain {
         if owner_id == crate::common::INVALID_ID {
             return Ok(());
         }
-        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id)
-        else {
+        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id) else {
             return Ok(());
         };
 
@@ -2582,8 +2568,7 @@ impl OpenContain {
         obj_id: ObjectID,
         add: bool,
     ) -> GameResult<()> {
-        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id)
-        else {
+        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id) else {
             return Ok(());
         };
 
@@ -2639,8 +2624,7 @@ impl OpenContain {
                 .map(|contain_guard| contain_guard.get_contained_objects().into_owned())
         });
         for child_id in contained_ids.unwrap_or_default() {
-            let Some(child) = crate::object::registry::OBJECT_REGISTRY.get_object(child_id)
-            else {
+            let Some(child) = crate::object::registry::OBJECT_REGISTRY.get_object(child_id) else {
                 continue;
             };
             let should_recurse = obj.try_read().ok().and_then(|obj_guard| {
@@ -2785,7 +2769,7 @@ impl ContainModuleInterface for OpenContain {
     fn can_contain(&self, object_id: ObjectID) -> bool {
         let _ = crate::object::registry::OBJECT_REGISTRY.with_object(object_id, |obj_guard| {
             return OpenContain::is_valid_container_for(self, &*obj_guard, true);
-            });
+        });
         false
     }
 
@@ -2944,8 +2928,7 @@ impl ContainModuleInterface for OpenContain {
             return Ok(());
         }
 
-        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id)
-        else {
+        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id) else {
             return Ok(());
         };
 
@@ -2961,8 +2944,7 @@ impl ContainModuleInterface for OpenContain {
             return Ok(());
         }
 
-        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id)
-        else {
+        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id) else {
             return Ok(());
         };
 
@@ -2987,8 +2969,7 @@ impl ContainModuleInterface for OpenContain {
             return Ok(());
         }
 
-        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id)
-        else {
+        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id) else {
             return Ok(());
         };
 
@@ -3008,8 +2989,7 @@ impl ContainModuleInterface for OpenContain {
             return Ok(());
         }
 
-        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id)
-        else {
+        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id) else {
             return Ok(());
         };
 
@@ -3057,8 +3037,7 @@ impl ContainModuleInterface for OpenContain {
             return;
         }
         for object_id in self.contained_object_ids.clone() {
-            let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(object_id)
-            else {
+            let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(object_id) else {
                 continue;
             };
             let Ok(obj_guard) = obj.read() else {
@@ -3542,32 +3521,8 @@ mod tests {
     }
 
     #[derive(Debug)]
-    struct DoorExitPhysics {
-        allow: bool,
-    }
-
-    impl crate::modules::PhysicsBehavior for DoorExitPhysics {
-        fn update(&mut self, _dt: f32) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-            Ok(())
-        }
-        fn get_velocity(&self) -> Coord3D {
-            Coord3D::new(0.0, 0.0, 0.0)
-        }
-        fn set_velocity(&mut self, _velocity: &Coord3D) {}
-        fn is_on_ground(&self) -> bool {
-            true
-        }
-        fn set_allow_to_fall(&mut self, allow: bool) {
-            self.allow = allow;
-        }
-        fn get_allow_to_fall(&self) -> bool {
-            self.allow
-        }
-    }
-
-    #[derive(Debug)]
     struct DoorExitAi {
-        physics: Arc<Mutex<dyn crate::modules::PhysicsBehavior>>,
+        physics: crate::object::PhysicsInterfaceHandle,
         samples: Arc<Mutex<Vec<bool>>>,
         ignores: Arc<Mutex<Vec<Option<ObjectID>>>>,
     }
@@ -3596,7 +3551,11 @@ mod tests {
             &mut self,
             _command: &crate::ai::AiCommandParams,
         ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-            let allow = self.physics.lock().expect("physics").get_allow_to_fall();
+            let allow = self
+                .physics
+                .try_access()
+                .expect("canonical physics borrow must end before the AI callback")
+                .get_allow_to_fall();
             self.samples.lock().expect("samples").push(allow);
             Ok(())
         }
@@ -3605,7 +3564,11 @@ mod tests {
             _goal: &Coord3D,
             _layer: crate::common::PathfindLayerEnum,
         ) -> Result<(), String> {
-            let allow = self.physics.lock().expect("physics").get_allow_to_fall();
+            let allow = self
+                .physics
+                .try_access()
+                .expect("canonical physics borrow must end before the AI callback")
+                .get_allow_to_fall();
             self.samples.lock().expect("samples").push(allow);
             Ok(())
         }
@@ -3616,19 +3579,48 @@ mod tests {
         let _lock = crate::test_sync::lock();
         let owner = test_object("DoorExitTransport", 93011);
         let rider = test_object("DoorExitRider", 93012);
-        let physics: Arc<Mutex<dyn crate::modules::PhysicsBehavior>> =
-            Arc::new(Mutex::new(DoorExitPhysics { allow: true }));
+        // Install the same owned physics module used by production objects. A
+        // shared fixture would miss an accidentally retained ModuleEntry borrow.
+        let data =
+            Arc::new(crate::object::behavior::physics_update::PhysicsBehaviorModuleData::default());
+        let behavior_data: Arc<dyn crate::common::ModuleData> = data.clone();
+        let data: Arc<dyn game_engine::common::thing::module::ModuleData> = data;
+        let update = crate::object::behavior::physics_update::PhysicsBehaviorUpdate::new(
+            Arc::clone(&rider),
+            behavior_data,
+        )
+        .expect("physics update");
+        let module = crate::contain_module_overrides::ActiveBehaviorModule::new(
+            "PhysicsBehavior",
+            Arc::clone(&data),
+            update,
+        );
+        let physics = {
+            let mut rider = rider.write().expect("rider write");
+            rider.install_module_for_test(
+                "PhysicsBehavior",
+                Box::new(module),
+                data,
+                game_engine::common::thing::module::ModuleInterfaceType::UPDATE,
+            );
+            crate::object::PhysicsInterfaceHandle::from_module(
+                rider
+                    .module_by_name(&crate::common::AsciiString::from("PhysicsBehavior"))
+                    .expect("installed physics"),
+            )
+        };
+        physics.access().expect("physics").set_allow_to_fall(true);
         let samples = Arc::new(Mutex::new(Vec::new()));
         let ignores = Arc::new(Mutex::new(Vec::new()));
         let ai: Arc<Mutex<dyn crate::modules::AIUpdateInterface>> =
             Arc::new(Mutex::new(DoorExitAi {
-                physics: Arc::clone(&physics),
+                physics: physics.clone(),
                 samples: Arc::clone(&samples),
                 ignores: Arc::clone(&ignores),
             }));
         {
             let mut rider_guard = rider.write().expect("rider write");
-            rider_guard.set_physics(Some(Arc::clone(&physics)));
+            rider_guard.set_physics(Some(physics.clone()));
             rider_guard.set_ai_update_interface(Some(ai));
         }
 
@@ -3648,7 +3640,7 @@ mod tests {
             "allow-to-fall stays set through adjust, then false for follow-path and updateGoal"
         );
         assert!(
-            physics.lock().expect("physics").get_allow_to_fall(),
+            physics.access().expect("physics").get_allow_to_fall(),
             "C++ restores the copied allow-to-fall flag after aiFollowPath"
         );
         assert_eq!(
@@ -3659,14 +3651,14 @@ mod tests {
 
         // Same-thread physics guard: pause must not lock again, and must not clobber the flag.
         {
-            let held = physics.lock().expect("hold physics");
+            let held = physics.access().expect("hold physics");
             assert!(super::pause_allow_to_fall(&physics).is_none());
             assert!(held.get_allow_to_fall());
         }
         assert_eq!(super::pause_allow_to_fall(&physics), Some(true));
-        assert!(!physics.lock().expect("physics").get_allow_to_fall());
+        assert!(!physics.access().expect("physics").get_allow_to_fall());
         super::restore_allow_to_fall(&physics, true);
-        assert!(physics.lock().expect("physics").get_allow_to_fall());
+        assert!(physics.access().expect("physics").get_allow_to_fall());
 
         OBJECT_REGISTRY.unregister_object(93011);
         OBJECT_REGISTRY.unregister_object(93012);

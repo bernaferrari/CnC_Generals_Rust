@@ -366,7 +366,7 @@ impl FormationGroup {
                 let position = *obj_guard.get_position();
                 let speed = obj_guard
                     .get_physics()
-                    .and_then(|phys| phys.lock().ok().map(|p| p.get_velocity().length()))
+                    .and_then(|phys| phys.access().ok().map(|p| p.get_velocity().length()))
                     .unwrap_or(0.0);
                 let health = obj_guard.get_health_percentage();
                 let rank = obj_guard.get_veterancy_level() as u32;

@@ -82,160 +82,143 @@ impl Unit {
                 if let (Some(path_state), Some(loc_guard)) =
                     (path_slot.as_mut(), loco_slot.as_mut())
                 {
-                    let ai_store = the_ai(); if let Ok(ai_guard) = ai_store.read() {
+                    let ai_store = the_ai();
+                    if let Ok(ai_guard) = ai_store.read() {
                         if let Some(pathfinding) = ai_guard.pathfinding_system() {
-                                let current_frame = TheGameLogic::get_frame() as u32;
-                                let delta_time =
-                                    (delta_time * self.movement_speed_multiplier) as f32;
+                            let current_frame = TheGameLogic::get_frame() as u32;
+                            let delta_time = (delta_time * self.movement_speed_multiplier) as f32;
 
-                                match update_movement_with_pathfinding(
-                                    unit_object_id,
-                                    loc_guard,
-                                    path_state,
-                                    &current_pos,
-                                    current_angle,
-                                    current_speed,
-                                    condition,
-                                    desired_speed,
-                                    current_frame,
-                                    delta_time,
-                                    pathfinding,
-                                ) {
-                                    Ok(Some((new_pos, new_angle, new_speed))) => {
-                                        if let Ok(mut obj_guard) = base_arc.write() {
-                                            let _ = obj_guard.set_position(&new_pos);
-                                            let _ = obj_guard.set_orientation(new_angle as Real);
-                                            if let Some(physics) = obj_guard.get_physics() {
-                                                if let Ok(mut phys_guard) = physics.lock() {
-                                                    let delta = new_pos - current_pos;
-                                                    let velocity = if delta_time > 0.0 {
-                                                        delta / delta_time.max(0.0001)
+                            match update_movement_with_pathfinding(
+                                unit_object_id,
+                                loc_guard,
+                                path_state,
+                                &current_pos,
+                                current_angle,
+                                current_speed,
+                                condition,
+                                desired_speed,
+                                current_frame,
+                                delta_time,
+                                pathfinding,
+                            ) {
+                                Ok(Some((new_pos, new_angle, new_speed))) => {
+                                    if let Ok(mut obj_guard) = base_arc.write() {
+                                        let _ = obj_guard.set_position(&new_pos);
+                                        let _ = obj_guard.set_orientation(new_angle as Real);
+                                        if let Some(physics) = obj_guard.get_physics() {
+                                            if let Ok(mut phys_guard) = physics.access() {
+                                                let delta = new_pos - current_pos;
+                                                let velocity = if delta_time > 0.0 {
+                                                    delta / delta_time.max(0.0001)
+                                                } else {
+                                                    Vec3D::ZERO
+                                                };
+                                                phys_guard.set_velocity(&velocity);
+                                                if delta_time > 0.0 {
+                                                    let mut yaw_delta = new_angle - current_angle;
+                                                    let two_pi = std::f32::consts::PI * 2.0;
+                                                    while yaw_delta > std::f32::consts::PI {
+                                                        yaw_delta -= two_pi;
+                                                    }
+                                                    while yaw_delta < -std::f32::consts::PI {
+                                                        yaw_delta += two_pi;
+                                                    }
+                                                    phys_guard.set_yaw_rate(
+                                                        (yaw_delta / delta_time.max(0.0001))
+                                                            as Real,
+                                                    );
+                                                    let turning = if yaw_delta > 0.0 {
+                                                        1
+                                                    } else if yaw_delta < 0.0 {
+                                                        -1
                                                     } else {
-                                                        Vec3D::ZERO
+                                                        0
                                                     };
-                                                    phys_guard.set_velocity(&velocity);
-                                                    if delta_time > 0.0 {
-                                                        let mut yaw_delta =
-                                                            new_angle - current_angle;
-                                                        let two_pi = std::f32::consts::PI * 2.0;
-                                                        while yaw_delta > std::f32::consts::PI {
-                                                            yaw_delta -= two_pi;
-                                                        }
-                                                        while yaw_delta < -std::f32::consts::PI {
-                                                            yaw_delta += two_pi;
-                                                        }
-                                                        phys_guard.set_yaw_rate(
-                                                            (yaw_delta / delta_time.max(0.0001))
-                                                                as Real,
-                                                        );
-                                                        let turning = if yaw_delta > 0.0 {
-                                                            1
-                                                        } else if yaw_delta < 0.0 {
-                                                            -1
-                                                        } else {
-                                                            0
-                                                        };
-                                                        phys_guard.set_turning(turning);
-                                                        if matches!(
-                                                            loc_guard.get_appearance(),
-                                                            LocomotorAppearance::Thrust
-                                                                | LocomotorAppearance::Wings
-                                                                | LocomotorAppearance::Hover
-                                                        ) {
-                                                            let pitch_rate = loc_guard
-                                                                .template
-                                                                .pitch_by_z_vel_coef
+                                                    phys_guard.set_turning(turning);
+                                                    if matches!(
+                                                        loc_guard.get_appearance(),
+                                                        LocomotorAppearance::Thrust
+                                                            | LocomotorAppearance::Wings
+                                                            | LocomotorAppearance::Hover
+                                                    ) {
+                                                        let pitch_rate =
+                                                            loc_guard.template.pitch_by_z_vel_coef
                                                                 * velocity.z;
-                                                            let mut pitch_rate = pitch_rate;
-                                                            if loc_guard.template.pitch_stiffness
-                                                                > 0.0
-                                                            {
-                                                                pitch_rate *= loc_guard
-                                                                    .template
-                                                                    .pitch_stiffness;
-                                                            }
-                                                            if loc_guard.template.pitch_damping
-                                                                > 0.0
-                                                            {
-                                                                pitch_rate *= (1.0
-                                                                    - loc_guard
-                                                                        .template
-                                                                        .pitch_damping)
-                                                                    .clamp(0.0, 1.0);
-                                                            }
-                                                            phys_guard.set_pitch_rate(pitch_rate);
-                                                            let mut roll_rate =
-                                                                loc_guard.template.thrust_roll
-                                                                    * new_speed;
-                                                            if loc_guard.template.roll_stiffness
-                                                                > 0.0
-                                                            {
-                                                                roll_rate *= loc_guard
-                                                                    .template
-                                                                    .roll_stiffness;
-                                                            }
-                                                            if loc_guard.template.roll_damping > 0.0
-                                                            {
-                                                                roll_rate *= (1.0
-                                                                    - loc_guard
-                                                                        .template
-                                                                        .roll_damping)
-                                                                    .clamp(0.0, 1.0);
-                                                            }
-                                                            if loc_guard.template.wobble_rate > 0.0
-                                                            {
-                                                                let frame =
-                                                                    TheGameLogic::get_frame()
-                                                                        as f32;
-                                                                let phase = (obj_guard.get_id()
-                                                                    as f32)
-                                                                    * 0.01;
-                                                                let wobble_min =
-                                                                    loc_guard.template.min_wobble;
-                                                                let wobble_max =
-                                                                    loc_guard.template.max_wobble;
-                                                                let wobble_amp = wobble_max
-                                                                    .max(wobble_min)
-                                                                    - wobble_min;
-                                                                if wobble_amp > 0.0 {
-                                                                    let wobble = (frame
-                                                                        * loc_guard
-                                                                            .template
-                                                                            .wobble_rate
-                                                                        + phase)
-                                                                        .sin()
-                                                                        * wobble_amp
-                                                                        + wobble_min;
-                                                                    roll_rate += wobble;
-                                                                }
-                                                            }
-                                                            phys_guard.set_roll_rate(roll_rate);
+                                                        let mut pitch_rate = pitch_rate;
+                                                        if loc_guard.template.pitch_stiffness > 0.0
+                                                        {
+                                                            pitch_rate *=
+                                                                loc_guard.template.pitch_stiffness;
                                                         }
+                                                        if loc_guard.template.pitch_damping > 0.0 {
+                                                            pitch_rate *= (1.0
+                                                                - loc_guard.template.pitch_damping)
+                                                                .clamp(0.0, 1.0);
+                                                        }
+                                                        phys_guard.set_pitch_rate(pitch_rate);
+                                                        let mut roll_rate =
+                                                            loc_guard.template.thrust_roll
+                                                                * new_speed;
+                                                        if loc_guard.template.roll_stiffness > 0.0 {
+                                                            roll_rate *=
+                                                                loc_guard.template.roll_stiffness;
+                                                        }
+                                                        if loc_guard.template.roll_damping > 0.0 {
+                                                            roll_rate *= (1.0
+                                                                - loc_guard.template.roll_damping)
+                                                                .clamp(0.0, 1.0);
+                                                        }
+                                                        if loc_guard.template.wobble_rate > 0.0 {
+                                                            let frame =
+                                                                TheGameLogic::get_frame() as f32;
+                                                            let phase =
+                                                                (obj_guard.get_id() as f32) * 0.01;
+                                                            let wobble_min =
+                                                                loc_guard.template.min_wobble;
+                                                            let wobble_max =
+                                                                loc_guard.template.max_wobble;
+                                                            let wobble_amp = wobble_max
+                                                                .max(wobble_min)
+                                                                - wobble_min;
+                                                            if wobble_amp > 0.0 {
+                                                                let wobble = (frame
+                                                                    * loc_guard
+                                                                        .template
+                                                                        .wobble_rate
+                                                                    + phase)
+                                                                    .sin()
+                                                                    * wobble_amp
+                                                                    + wobble_min;
+                                                                roll_rate += wobble;
+                                                            }
+                                                        }
+                                                        phys_guard.set_roll_rate(roll_rate);
                                                     }
                                                 }
                                             }
                                         }
-                                        self.facing_direction = new_angle as Real;
-                                        self.current_speed = new_speed;
-                                        path_step_done = true;
                                     }
-                                    Ok(None) => {
-                                        self.movement_state = MovementState::Idle;
-                                        self.target_position = None;
-                                        clear_path = true;
-                                        self.current_speed = 0.0;
-                                        completed_move = true;
+                                    self.facing_direction = new_angle as Real;
+                                    self.current_speed = new_speed;
+                                    path_step_done = true;
+                                }
+                                Ok(None) => {
+                                    self.movement_state = MovementState::Idle;
+                                    self.target_position = None;
+                                    clear_path = true;
+                                    self.current_speed = 0.0;
+                                    completed_move = true;
 
-                                        if !self.waypoint_queue.is_empty() {
-                                            let next_waypoint = self.waypoint_queue.remove(0);
-                                            handle_waypoint = Some(next_waypoint.position);
-                                        }
-                                    }
-                                    Err(_) => {
-                                        clear_path = true;
-                                        self.current_speed = 0.0;
+                                    if !self.waypoint_queue.is_empty() {
+                                        let next_waypoint = self.waypoint_queue.remove(0);
+                                        handle_waypoint = Some(next_waypoint.position);
                                     }
                                 }
+                                Err(_) => {
+                                    clear_path = true;
+                                    self.current_speed = 0.0;
+                                }
+                            }
                         }
                     }
                 }
@@ -348,7 +331,7 @@ impl Unit {
                                 let _ = obj_guard.set_position(&new_pos);
                                 let _ = obj_guard.set_orientation(new_angle as Real);
                                 if let Some(physics) = obj_guard.get_physics() {
-                                    if let Ok(mut phys_guard) = physics.lock() {
+                                    if let Ok(mut phys_guard) = physics.access() {
                                         let delta = new_pos - current;
                                         let velocity = if effective_delta > 0.0 {
                                             delta / effective_delta.max(0.0001)
@@ -382,13 +365,13 @@ impl Unit {
                                                     | LocomotorAppearance::Wings
                                                     | LocomotorAppearance::Hover
                                             ) {
-                                                let pitch_rate = loc_guard
-                                                    .template
-                                                    .pitch_by_z_vel_coef
-                                                    * velocity.z;
+                                                let pitch_rate =
+                                                    loc_guard.template.pitch_by_z_vel_coef
+                                                        * velocity.z;
                                                 let mut pitch_rate = pitch_rate;
                                                 if loc_guard.template.pitch_stiffness > 0.0 {
-                                                    pitch_rate *= loc_guard.template.pitch_stiffness;
+                                                    pitch_rate *=
+                                                        loc_guard.template.pitch_stiffness;
                                                 }
                                                 if loc_guard.template.pitch_damping > 0.0 {
                                                     pitch_rate *= (1.0
@@ -519,7 +502,9 @@ impl Unit {
         }
     }
     pub fn get_locomotor_surface_mask(&self) -> Option<LocomotorSurfaceTypeMask> {
-        self.locomotor_set.get_active().map(|loco| loco.get_legal_surfaces())
+        self.locomotor_set
+            .get_active()
+            .map(|loco| loco.get_legal_surfaces())
     }
     pub fn get_crusher_level(&self) -> u32 {
         self.base_arc()

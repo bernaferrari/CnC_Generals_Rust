@@ -2420,7 +2420,7 @@ pub struct Object {
     contain: Option<Arc<Mutex<dyn ContainModuleInterface>>>,
     stealth: Option<StealthUpdateHandle>,
     ai: Option<Arc<Mutex<dyn AIUpdateInterface>>>,
-    physics: Option<Arc<Mutex<dyn PhysicsBehavior>>>,
+    physics: Option<PhysicsInterfaceHandle>,
 
     // Helper modules
     repulsor_helper: Option<ObjectRepulsorHelper>,
@@ -2604,6 +2604,8 @@ fn weapon_set_model_condition(flag: WeaponSetType) -> Option<ModelConditionFlags
 }
 
 // Inherent Object methods and later trait impls live in sibling files.
+mod physics_interfaces;
+pub use physics_interfaces::{PhysicsInterfaceHandle, PhysicsInterfaceLease};
 mod behavior_interfaces;
 pub use behavior_interfaces::{
     BehaviorAccessError, BehaviorInterfaceHandle, BehaviorInterfaceLease,

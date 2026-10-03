@@ -721,7 +721,7 @@ impl BattleBusSlowDeathBehavior {
                 }
             }
             if let Some(physics) = obj_guard.get_physics() {
-                if let Ok(mut physics_guard) = physics.lock() {
+                if let Ok(mut physics_guard) = physics.access() {
                     physics_guard.clear_acceleration();
                     physics_guard.scrub_velocity_2d(0.0);
                 }
@@ -774,7 +774,7 @@ impl SlowDeathBehaviorInterface for BattleBusSlowDeathBehavior {
                     }
                 }
                 if let Some(physics) = obj_guard.get_physics() {
-                    if let Ok(mut physics_guard) = physics.lock() {
+                    if let Ok(mut physics_guard) = physics.access() {
                         physics_guard.clear_acceleration();
                         physics_guard.scrub_velocity_2d(0.0);
                         let throw_velocity = Coord3D::new(0.0, 0.0, throw_force);

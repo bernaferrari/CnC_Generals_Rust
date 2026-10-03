@@ -5,17 +5,20 @@
 //!
 //! Matches C++ AIStates.cpp::AIMoveToState and AIInternalMoveToState
 
-use crate::common::{
-    BodyDamageType as LogicBodyDamageType, Coord3D, ObjectID, Real, Vec3D,
-    SECONDS_PER_LOGICFRAME_REAL,
-};
-use crate::helpers::TheGameLogic;
-use crate::state_machine::{StateReturnType, StateExitType};
-use crate::ai::ai_states::{AIState, AIStateType, AIStateMachineContext};
+use crate::ai::ai_states::{AIState, AIStateMachineContext, AIStateType};
 use crate::ai::object_registry::OBJECT_REGISTRY;
 use crate::ai::the_ai;
-use crate::locomotor::{PathFollowingState, Locomotor, BodyDamageType as LocoBodyDamageType, update_movement_with_pathfinding};
+use crate::common::{
+    BodyDamageType as LogicBodyDamageType, Coord3D, ObjectID, Real, SECONDS_PER_LOGICFRAME_REAL,
+    Vec3D,
+};
+use crate::helpers::TheGameLogic;
+use crate::locomotor::{
+    BodyDamageType as LocoBodyDamageType, Locomotor, PathFollowingState,
+    update_movement_with_pathfinding,
+};
 use crate::modules::AIUpdateInterfaceExt;
+use crate::state_machine::{StateExitType, StateReturnType};
 /// Wave 422: host-only path has no dual-world factory objects.
 #[inline]
 fn dual_world_registry_unavailable() -> bool {
@@ -57,14 +60,9 @@ impl AIMoveToState {
         }
     }
 
-
     /// Check if unit has reached destination
     /// Matches C++ AIStates.cpp:2052-2114 update logic
-    fn check_destination_reached(
-        &self,
-        locomotor: &Locomotor,
-        current_pos: &Coord3D,
-    ) -> bool {
+    fn check_destination_reached(&self, locomotor: &Locomotor, current_pos: &Coord3D) -> bool {
         // Check if close enough to goal
         let delta = *current_pos - self.goal_position;
         let distance = (delta.x * delta.x + delta.y * delta.y).sqrt();
@@ -106,12 +104,12 @@ impl AIState for AIMoveToState {
             return StateReturnType::Failed;
         }
 
-        let Some(ai_handle) = OBJECT_REGISTRY.with_object(context.owner_id, |guard| {
-            guard.get_ai_update_interface()
-        }).flatten() else {
+        let Some(ai_handle) = OBJECT_REGISTRY
+            .with_object(context.owner_id, |guard| guard.get_ai_update_interface())
+            .flatten()
+        else {
             return StateReturnType::Failed;
         };
-
 
         let pathfinding = match the_ai().read().ok().and_then(|ai| ai.pathfinding_system()) {
             Some(system) => system,
@@ -125,18 +123,23 @@ impl AIState for AIMoveToState {
 
         let Some((current_pos, current_angle, condition)) =
             OBJECT_REGISTRY.with_object(context.owner_id, |guard| {
-            let damage_state = guard
-                .get_body()
-                .and_then(|body| body.lock().ok().map(|b| b.get_damage_state()))
-                .unwrap_or(LogicBodyDamageType::Pristine);
-            let condition = match damage_state {
-                LogicBodyDamageType::Pristine => LocoBodyDamageType::Pristine,
-                LogicBodyDamageType::Damaged => LocoBodyDamageType::Damaged,
-                LogicBodyDamageType::ReallyDamaged => LocoBodyDamageType::ReallyDamaged,
-                LogicBodyDamageType::Rubble => LocoBodyDamageType::Rubble,
-            };
-            (*guard.get_position(), guard.get_orientation() as f32, condition)
-        }) else {
+                let damage_state = guard
+                    .get_body()
+                    .and_then(|body| body.lock().ok().map(|b| b.get_damage_state()))
+                    .unwrap_or(LogicBodyDamageType::Pristine);
+                let condition = match damage_state {
+                    LogicBodyDamageType::Pristine => LocoBodyDamageType::Pristine,
+                    LogicBodyDamageType::Damaged => LocoBodyDamageType::Damaged,
+                    LogicBodyDamageType::ReallyDamaged => LocoBodyDamageType::ReallyDamaged,
+                    LogicBodyDamageType::Rubble => LocoBodyDamageType::Rubble,
+                };
+                (
+                    *guard.get_position(),
+                    guard.get_orientation() as f32,
+                    condition,
+                )
+            })
+        else {
             self.path_following = Some(path_state);
             return StateReturnType::Failed;
         };
@@ -195,7 +198,7 @@ impl AIState for AIMoveToState {
                     let _ = guard.set_position(&new_pos);
                     let _ = guard.set_orientation(new_angle as Real);
                     if let Some(physics) = guard.get_physics() {
-                        if let Ok(mut phys_guard) = physics.lock() {
+                        if let Ok(mut phys_guard) = physics.access() {
                             let delta = new_pos - current_pos;
                             let velocity = if delta_time > 0.0 {
                                 delta / delta_time.max(0.0001)
@@ -212,9 +215,8 @@ impl AIState for AIMoveToState {
                                 while yaw_delta < -std::f32::consts::PI {
                                     yaw_delta += two_pi;
                                 }
-                                phys_guard.set_yaw_rate(
-                                    (yaw_delta / delta_time.max(0.0001)) as Real,
-                                );
+                                phys_guard
+                                    .set_yaw_rate((yaw_delta / delta_time.max(0.0001)) as Real);
                             }
                         }
                     }
@@ -263,7 +265,7 @@ pub struct AIAttackMoveToState {
 impl AIAttackMoveToState {
     pub fn new() -> Self {
         let mut move_state = AIMoveToState::new();
-        move_state.is_move_to = false;  // Attack-move behaves slightly differently
+        move_state.is_move_to = false; // Attack-move behaves slightly differently
 
         Self {
             move_state,

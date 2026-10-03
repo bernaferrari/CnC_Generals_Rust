@@ -309,7 +309,7 @@ impl CollisionSystem {
         let Some(physics) = guard.get_physics() else {
             return false;
         };
-        let Ok(physics_guard) = physics.lock() else {
+        let Ok(physics_guard) = physics.access() else {
             return false;
         };
         physics_guard.get_ignore_collisions_with() == other_id
@@ -345,7 +345,7 @@ impl CollisionSystem {
                 let Some(physics) = guard.get_physics() else {
                     return false;
                 };
-                let Ok(physics_guard) = physics.lock() else {
+                let Ok(physics_guard) = physics.access() else {
                     return false;
                 };
                 physics_guard.get_ignore_collisions_with() == other_id
@@ -393,7 +393,7 @@ impl CollisionSystem {
                 let ai = guard.get_ai_update_interface()?;
                 let velocity = guard
                     .get_physics()
-                    .and_then(|physics| physics.lock().ok().map(|phys| phys.get_velocity()))
+                    .and_then(|physics| physics.access().ok().map(|phys| phys.get_velocity()))
                     .unwrap_or(Vec3D::ZERO);
                 (
                     guard.get_id(),
@@ -434,10 +434,10 @@ impl CollisionSystem {
                     guard.get_path_destination(),
                     guard.get_num_frames_blocked(),
                     {
-            let mut __back = false;
-            guard.with_cur_locomotor(&mut |loco| __back = loco.is_moving_backwards());
-            __back
-        },
+                        let mut __back = false;
+                        guard.with_cur_locomotor(&mut |loco| __back = loco.is_moving_backwards());
+                        __back
+                    },
                     {
                         let mut priority = LocomotorPriority::Middle;
                         guard.with_cur_locomotor(&mut |loco| {

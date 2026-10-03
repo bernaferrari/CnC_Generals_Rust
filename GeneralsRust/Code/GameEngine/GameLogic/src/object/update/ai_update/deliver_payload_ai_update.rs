@@ -478,11 +478,12 @@ impl DeliverPayloadAIUpdate {
             return;
         }
 
-        let _ = crate::object::registry::OBJECT_REGISTRY.with_object(self.owner_id, |owner_guard| {
-            if let Some(ai) = owner_guard.get_ai_update_interface() {
-                ai.ai_move_to_position(pos, false, CommandSourceType::FromAi);
-            }
-        });
+        let _ =
+            crate::object::registry::OBJECT_REGISTRY.with_object(self.owner_id, |owner_guard| {
+                if let Some(ai) = owner_guard.get_ai_update_interface() {
+                    ai.ai_move_to_position(pos, false, CommandSourceType::FromAi);
+                }
+            });
     }
 
     fn ai_set_allow_invalid_position(&self, allow: Bool) {
@@ -491,11 +492,12 @@ impl DeliverPayloadAIUpdate {
             return;
         }
 
-        let _ = crate::object::registry::OBJECT_REGISTRY.with_object(self.owner_id, |owner_guard| {
-            if let Some(ai) = owner_guard.get_ai_update_interface() {
-                ai.set_allow_invalid_position(allow);
-            }
-        });
+        let _ =
+            crate::object::registry::OBJECT_REGISTRY.with_object(self.owner_id, |owner_guard| {
+                if let Some(ai) = owner_guard.get_ai_update_interface() {
+                    ai.set_allow_invalid_position(allow);
+                }
+            });
     }
 
     fn ai_set_ultra_accurate(&self, ultra: Bool) {
@@ -504,11 +506,12 @@ impl DeliverPayloadAIUpdate {
             return;
         }
 
-        let _ = crate::object::registry::OBJECT_REGISTRY.with_object(self.owner_id, |owner_guard| {
-            if let Some(ai) = owner_guard.get_ai_update_interface() {
-                ai.set_ultra_accurate(ultra);
-            }
-        });
+        let _ =
+            crate::object::registry::OBJECT_REGISTRY.with_object(self.owner_id, |owner_guard| {
+                if let Some(ai) = owner_guard.get_ai_update_interface() {
+                    ai.set_ultra_accurate(ultra);
+                }
+            });
     }
 
     fn ai_is_moving(&self) -> bool {
@@ -519,9 +522,12 @@ impl DeliverPayloadAIUpdate {
 
         crate::object::registry::OBJECT_REGISTRY
             .with_object(self.owner_id, |owner_guard| {
-                owner_guard
-                    .get_ai_update_interface()
-                    .map(|ai| ai.lock().ok().map(|guard| guard.is_moving()).unwrap_or(false))
+                owner_guard.get_ai_update_interface().map(|ai| {
+                    ai.lock()
+                        .ok()
+                        .map(|guard| guard.is_moving())
+                        .unwrap_or(false)
+                })
             })
             .flatten()
             .unwrap_or(false)
@@ -770,7 +776,7 @@ impl DeliverPayloadAIUpdate {
         drop(owner_guard);
         let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(self.owner_id, |guard| {
             let _ = guard.clear_and_set_model_condition_flags(flags_to_clear, flags_to_set);
-            });
+        });
         self.drop_delay_left = self.module_data.door_delay;
         self.did_open = false;
     }
@@ -913,11 +919,11 @@ impl DeliverPayloadAIUpdate {
                             .as_ref()
                             .and_then(|obj| obj.read().ok())
                             .and_then(|guard| guard.get_physics())
-                            .and_then(|physics| physics.lock().ok().map(|p| p.get_velocity()));
+                            .and_then(|physics| physics.access().ok().map(|p| p.get_velocity()));
                         if let Some(owner_velocity) = owner_velocity {
                             if let Ok(item_guard) = item.write() {
                                 if let Some(physics) = item_guard.get_physics() {
-                                    if let Ok(mut phys_guard) = physics.lock() {
+                                    if let Ok(mut phys_guard) = physics.access() {
                                         phys_guard.apply_force(&owner_velocity);
                                     }
                                 }
@@ -1010,19 +1016,21 @@ impl DeliverPayloadAIUpdate {
                                                 .set_orientation(owner_guard.get_orientation());
 
                                             if self.data.inherit_transport_velocity {
-                                                let owner_velocity = owner_guard
-                                                    .get_physics()
-                                                    .and_then(|p| {
-                                                        p.lock().ok().map(|p| p.get_velocity())
+                                                let owner_velocity =
+                                                    owner_guard.get_physics().and_then(|p| {
+                                                        p.access().ok().map(|p| p.get_velocity())
                                                     });
                                                 if let Some(owner_velocity) = owner_velocity {
                                                     if let Some(physics) =
                                                         payload_guard.get_physics()
                                                     {
                                                         let mut starting_force = owner_velocity;
-                                                        if let Ok(mut phys_guard) = physics.lock() {
+                                                        if let Ok(mut phys_guard) = physics.access()
+                                                        {
                                                             starting_force *= phys_guard.get_mass();
-                                                            phys_guard.apply_motive_force(&starting_force);
+                                                            phys_guard.apply_motive_force(
+                                                                &starting_force,
+                                                            );
                                                         }
 
                                                         let mut back_position =
@@ -1054,8 +1062,7 @@ impl DeliverPayloadAIUpdate {
                                                     if let Some(physics) =
                                                         payload_guard.get_physics()
                                                     {
-                                                        if let Ok(mut phys_guard) =
-                                                            physics.lock()
+                                                        if let Ok(mut phys_guard) = physics.access()
                                                         {
                                                             phys_guard.set_pitch_rate(
                                                                 self.data.exit_pitch_rate,
@@ -1113,7 +1120,7 @@ impl DeliverPayloadAIUpdate {
             let mut flags_to_set = ModelConditionFlags::empty();
             flags_to_set.insert(MODELCONDITION_DOOR_1_CLOSING);
             let _ = guard.clear_and_set_model_condition_flags(flags_to_clear, flags_to_set);
-            });
+        });
     }
 
     fn enter_consider_new_approach(&mut self) -> StateReturnType {
@@ -1162,8 +1169,9 @@ impl DeliverPayloadAIUpdate {
             return StateReturnType::Continue;
         }
 
-        let _ = crate::object::registry::OBJECT_REGISTRY.with_object(self.owner_id, |owner_guard| {
-            self.ai_move_to_position(owner_guard.get_position());
+        let _ =
+            crate::object::registry::OBJECT_REGISTRY.with_object(self.owner_id, |owner_guard| {
+                self.ai_move_to_position(owner_guard.get_position());
             });
 
         let mut time_to_travel = 0.0;
@@ -1174,7 +1182,7 @@ impl DeliverPayloadAIUpdate {
         if let Some(owner) = TheGameLogic::find_object_by_id(self.owner_id) {
             if let Ok(owner_guard) = owner.write() {
                 if let Some(physics) = owner_guard.get_physics() {
-                    if let Ok(mut phys_guard) = physics.lock() {
+                    if let Ok(mut phys_guard) = physics.access() {
                         phys_guard.set_velocity(&Vec3D::ZERO);
                         phys_guard.set_yaw_rate(0.0);
                         phys_guard.set_pitch_rate(0.0);
@@ -1228,7 +1236,7 @@ impl DeliverPayloadAIUpdate {
         let _ = owner_guard.set_orientation(angle);
 
         if let Some(physics) = owner_guard.get_physics() {
-            if let Ok(mut phys_guard) = physics.lock() {
+            if let Ok(mut phys_guard) = physics.access() {
                 phys_guard.set_velocity(&Vec3D::ZERO);
                 phys_guard.set_yaw_rate(0.0);
                 phys_guard.set_pitch_rate(0.0);
@@ -1248,9 +1256,12 @@ impl DeliverPayloadAIUpdate {
         self.kill_delivery_decal();
 
         if self.data.self_destruct_object {
-            let _ = crate::object::registry::OBJECT_REGISTRY.with_object(self.owner_id, |owner_guard| {
-                let _ = TheGameLogic::destroy_object(&owner_guard);
-                });
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object(
+                self.owner_id,
+                |owner_guard| {
+                    let _ = TheGameLogic::destroy_object(&owner_guard);
+                },
+            );
             return StateReturnType::Continue;
         }
 
@@ -1300,10 +1311,13 @@ impl DeliverPayloadAIUpdate {
             return StateReturnType::Failure;
         };
         if let Some(physics) = owner_guard.get_physics() {
-            let Ok(physics) = physics.lock() else {
-                return StateReturnType::Failure;
+            let turning = {
+                let Ok(physics) = physics.access() else {
+                    return StateReturnType::Failure;
+                };
+                physics.get_turning()
             };
-            if physics.get_turning() != 0.0 {
+            if turning != 0.0 {
                 let (dir_x, dir_y) = owner_guard.get_unit_direction_vector_2d();
                 let current_direction = Coord3D::new(dir_x, dir_y, 0.0);
                 let dot = self.facing_direction_upon_delivery.x * current_direction.x
@@ -1324,13 +1338,14 @@ impl DeliverPayloadAIUpdate {
             return StateReturnType::Continue;
         }
 
-        let _ = crate::object::registry::OBJECT_REGISTRY.with_object(self.owner_id, |owner_guard| {
-            if let Some(contain) = owner_guard.get_contain() {
-                if contain.get_contained_count() > 0 {
-                    log::warn!("DeliverPayloadAIUpdate: cleanup before all items dropped.");
+        let _ =
+            crate::object::registry::OBJECT_REGISTRY.with_object(self.owner_id, |owner_guard| {
+                if let Some(contain) = owner_guard.get_contain() {
+                    if contain.get_contained_count() > 0 {
+                        log::warn!("DeliverPayloadAIUpdate: cleanup before all items dropped.");
+                    }
                 }
-            }
-            let _ = TheGameLogic::destroy_object(&owner_guard);
+                let _ = TheGameLogic::destroy_object(&owner_guard);
             });
 
         StateReturnType::Continue
@@ -1388,17 +1403,21 @@ impl DeliverPayloadAIUpdate {
 
             if let Some(slot) = self.data.strafing_weapon_slot {
                 if let Some(physics) = owner_guard.get_physics() {
-                    let Ok(physics) = physics.lock() else {
-                        return;
+                    // C++ copies the velocity before firing. Release the canonical
+                    // module borrow here: firing synchronously visits update modules.
+                    let mut velocity = {
+                        let Ok(physics) = physics.access() else {
+                            return;
+                        };
+                        physics.get_velocity()
                     };
-                    if physics.get_velocity().z < 5.0 {
+                    if velocity.z < 5.0 {
                         let start_dive_distance = self.data.dive_start_distance;
                         let end_dive_distance = end_dive_distance_sqr.sqrt();
                         let current_distance = current_distance_sqr.sqrt();
                         let denom = (start_dive_distance - end_dive_distance).max(0.001);
                         let dive_ratio = (start_dive_distance - current_distance) / denom;
 
-                        let mut velocity = physics.get_velocity();
                         velocity.z = 0.0;
                         if velocity.length() > 0.0 {
                             velocity = velocity.normalize();
@@ -1433,10 +1452,8 @@ impl DeliverPayloadAIUpdate {
                                     crate::weapon::WeaponSlotType::Tertiary
                                 }
                             };
-                            owner_guard.set_weapon_lock(
-                                weapon_slot,
-                                WeaponLockType::LockedTemporarily,
-                            );
+                            owner_guard
+                                .set_weapon_lock(weapon_slot, WeaponLockType::LockedTemporarily);
                             let _ = owner_guard.fire_current_weapon_at_position(&strafe_point);
                         }
 
@@ -1494,26 +1511,27 @@ impl DeliverPayloadAIUpdateInterface for DeliverPayloadAIUpdate {
         self.drop_delay_left = 0;
         self.did_open = false;
 
-        let _ = crate::object::registry::OBJECT_REGISTRY.with_object(self.owner_id, |owner_guard| {
-            if let Some(drawable) = owner_guard.get_drawable() {
-                if let Ok(mut draw_guard) = drawable.write() {
-                    let mut update_sub_objects = false;
-                    for i in 1..=self.data.visible_num_bones {
-                        if !self.data.visible_sub_object_name.is_empty() {
-                            let name = format!(
-                                "{}{:02}",
-                                self.data.visible_sub_object_name.as_str(),
-                                i
-                            );
-                            draw_guard.show_sub_object(&name, true);
-                            update_sub_objects = true;
+        let _ =
+            crate::object::registry::OBJECT_REGISTRY.with_object(self.owner_id, |owner_guard| {
+                if let Some(drawable) = owner_guard.get_drawable() {
+                    if let Ok(mut draw_guard) = drawable.write() {
+                        let mut update_sub_objects = false;
+                        for i in 1..=self.data.visible_num_bones {
+                            if !self.data.visible_sub_object_name.is_empty() {
+                                let name = format!(
+                                    "{}{:02}",
+                                    self.data.visible_sub_object_name.as_str(),
+                                    i
+                                );
+                                draw_guard.show_sub_object(&name, true);
+                                update_sub_objects = true;
+                            }
+                        }
+                        if update_sub_objects {
+                            draw_guard.update_sub_objects();
                         }
                     }
-                    if update_sub_objects {
-                        draw_guard.update_sub_objects();
-                    }
                 }
-            }
             });
 
         self.enter_state_impl(DeliverPayloadState::Approach);

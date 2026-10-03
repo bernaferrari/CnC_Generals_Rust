@@ -457,7 +457,7 @@ impl DrawModule for W3DTankTruckDraw {
                     direction = Coord3D::new(dir_x, dir_y, 0.0);
                 }
                 if let Some(physics) = owner_guard.get_physics() {
-                    if let Ok(physics_guard) = physics.lock() {
+                    if let Ok(physics_guard) = physics.access() {
                         let velocity = physics_guard.get_velocity();
                         self.current_velocity =
                             (velocity.x * velocity.x + velocity.y * velocity.y).sqrt();
@@ -472,7 +472,7 @@ impl DrawModule for W3DTankTruckDraw {
                         }
                     }
                 }
-                });
+            });
         }
         if self.max_velocity <= 0.0 {
             self.max_velocity = 1.0;

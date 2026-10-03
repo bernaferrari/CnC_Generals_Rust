@@ -1032,7 +1032,7 @@ impl DumbProjectileBehavior {
         if self.module_data.tumble_randomly {
             let _ = self.with_object(|obj_guard| {
                 if let Some(physics) = obj_guard.get_physics() {
-                    if let Ok(mut phys_guard) = physics.lock() {
+                    if let Ok(mut phys_guard) = physics.access() {
                         let min = -1.0 / std::f32::consts::PI;
                         let max = 1.0 / std::f32::consts::PI;
                         phys_guard.set_pitch_rate(get_game_logic_random_value_real(min, max));

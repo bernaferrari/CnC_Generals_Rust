@@ -1,4 +1,4 @@
-// PhysicsBehavior interface and Arc extension
+// PhysicsBehavior interface and canonical-state access extension
 //
 // Split from `modules.rs` for module-size parity.
 // Observable behavior is unchanged.
@@ -191,8 +191,6 @@ pub trait PhysicsBehavior: Send + Sync + std::fmt::Debug {
         signed_forward_speed_3d(vel.x, vel.y, vel.z, 1.0, 0.0, 0.0)
     }
 
-
-
     /// Clear current acceleration (matches C++ clearAcceleration).
     fn clear_acceleration(&mut self) {}
 
@@ -262,11 +260,7 @@ pub fn signed_forward_speed_2d(vel_x: Real, vel_y: Real, dir_x: Real, dir_y: Rea
     let vx = vel_x * dir_x;
     let vy = vel_y * dir_y;
     let speed = (vx * vx + vy * vy).sqrt();
-    if vx + vy >= 0.0 {
-        speed
-    } else {
-        -speed
-    }
+    if vx + vy >= 0.0 { speed } else { -speed }
 }
 
 /// C++ PhysicsUpdate.cpp:964-980 — signed 3D speed along `dir`.
@@ -282,21 +276,16 @@ pub fn signed_forward_speed_3d(
     let vy = vel_y * dir_y;
     let vz = vel_z * dir_z;
     let speed = (vx * vx + vy * vy + vz * vz).sqrt();
-    if vx + vy + vz >= 0.0 {
-        speed
-    } else {
-        -speed
-    }
+    if vx + vy + vz >= 0.0 { speed } else { -speed }
 }
 
-
-/// Extension for `Arc<Mutex<dyn PhysicsBehavior>>`.
+/// Physics operations through canonical module descriptors or existing shared storage.
 ///
 /// C++ `PhysicsBehavior` methods return the live velocity and apply writes.
 /// They do not turn a busy mutex into zero or a dropped set. `std::sync::Mutex`
 /// is not reentrant: a caller that already has `&mut dyn PhysicsBehavior` must
 /// use that reference (the fields) and must not call these methods on the same
-/// `Arc`.
+/// shared descriptor.
 pub trait PhysicsBehaviorExt {
     fn get_velocity(&self) -> Vec3D;
     fn set_velocity(&self, velocity: &Vec3D);
@@ -336,27 +325,52 @@ pub trait PhysicsBehaviorExt {
     fn reset_dynamic_physics(&self);
 }
 
+trait PhysicsStorageAccess {
+    fn with_ref<R>(&self, f: impl FnOnce(&dyn PhysicsBehavior) -> R) -> R;
+    fn with_mut<R>(&self, f: impl FnOnce(&mut dyn PhysicsBehavior) -> R) -> R;
+}
+
+impl PhysicsStorageAccess for Arc<Mutex<dyn PhysicsBehavior>> {
+    fn with_ref<R>(&self, f: impl FnOnce(&dyn PhysicsBehavior) -> R) -> R {
+        match self.lock() {
+            Ok(guard) => f(&*guard),
+            Err(poisoned) => f(&*poisoned.into_inner()),
+        }
+    }
+
+    fn with_mut<R>(&self, f: impl FnOnce(&mut dyn PhysicsBehavior) -> R) -> R {
+        match self.lock() {
+            Ok(mut guard) => f(&mut *guard),
+            Err(poisoned) => f(&mut *poisoned.into_inner()),
+        }
+    }
+}
+
+impl PhysicsStorageAccess for crate::object::PhysicsInterfaceHandle {
+    fn with_ref<R>(&self, f: impl FnOnce(&dyn PhysicsBehavior) -> R) -> R {
+        self.with_physics(|physics| f(physics))
+    }
+
+    fn with_mut<R>(&self, f: impl FnOnce(&mut dyn PhysicsBehavior) -> R) -> R {
+        self.with_physics(f)
+    }
+}
+
 fn with_physics_ref<R>(
-    physics: &Arc<Mutex<dyn PhysicsBehavior>>,
+    physics: &impl PhysicsStorageAccess,
     f: impl FnOnce(&dyn PhysicsBehavior) -> R,
 ) -> R {
-    match physics.lock() {
-        Ok(guard) => f(&*guard),
-        Err(poisoned) => f(&*poisoned.into_inner()),
-    }
+    physics.with_ref(f)
 }
 
 fn with_physics_mut<R>(
-    physics: &Arc<Mutex<dyn PhysicsBehavior>>,
+    physics: &impl PhysicsStorageAccess,
     f: impl FnOnce(&mut dyn PhysicsBehavior) -> R,
 ) -> R {
-    match physics.lock() {
-        Ok(mut guard) => f(&mut *guard),
-        Err(poisoned) => f(&mut *poisoned.into_inner()),
-    }
+    physics.with_mut(f)
 }
 
-impl PhysicsBehaviorExt for Arc<Mutex<dyn PhysicsBehavior>> {
+impl<T: PhysicsStorageAccess> PhysicsBehaviorExt for T {
     fn get_velocity(&self) -> Vec3D {
         with_physics_ref(self, |physics| physics.get_velocity())
     }
@@ -504,7 +518,6 @@ impl PhysicsBehaviorExt for Arc<Mutex<dyn PhysicsBehavior>> {
     }
 }
 
-
 #[cfg(test)]
 mod physics_behavior_default_tests {
     use super::*;
@@ -611,7 +624,4 @@ mod physics_behavior_default_tests {
         assert_eq!(vel.z, 0.5);
         assert!(guard.get_stick_to_ground());
     }
-
-
 }
-

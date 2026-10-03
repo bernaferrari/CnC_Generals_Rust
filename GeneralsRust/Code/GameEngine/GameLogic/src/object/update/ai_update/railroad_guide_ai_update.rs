@@ -824,7 +824,7 @@ impl RailroadBehavior {
         let mut has_bounce_sound = false;
 
         if let Some(physics) = victim.get_physics() {
-            let phys_guard = match physics.lock() {
+            let phys_guard = match physics.access() {
                 Ok(guard) => guard,
                 Err(poisoned) => poisoned.into_inner(),
             };
@@ -856,7 +856,7 @@ impl RailroadBehavior {
         impact.set_position(&(impact_position.x, impact_position.y, impact_position.z));
 
         if let Some(physics) = victim.get_physics() {
-            let phys_guard = match physics.lock() {
+            let phys_guard = match physics.access() {
                 Ok(guard) => guard,
                 Err(poisoned) => poisoned.into_inner(),
             };
@@ -1780,7 +1780,7 @@ impl RailroadBehavior {
             let scaled = delta * (self.pull_info.speed * 0.66).min(1.4);
             if self.pull_info.speed >= self.module_data.kill_speed_min {
                 other.kill(None, None);
-                match physics.lock() {
+                match physics.access() {
                     Ok(mut phys_guard) => {
                         phys_guard.set_pitch_rate(
                             crate::helpers::get_game_logic_random_value_real(-0.03, 0.03),
@@ -1824,18 +1824,18 @@ impl RailroadBehavior {
         delta_vel *= dot;
 
         let already_fast_infantry = victim_is_infantry
-            && match physics.lock() {
+            && match physics.access() {
                 Ok(phys_guard) => phys_guard.get_velocity().length() > 5.0,
                 Err(poisoned) => poisoned.into_inner().get_velocity().length() > 5.0,
             };
         if !already_fast_infantry {
-            match physics.lock() {
+            match physics.access() {
                 Ok(mut phys_guard) => phys_guard.add_velocity_to(&delta_vel),
                 Err(poisoned) => poisoned.into_inner().add_velocity_to(&delta_vel),
             }
         }
 
-        match physics.lock() {
+        match physics.access() {
             Ok(mut phys_guard) => {
                 phys_guard.set_allow_to_fall(true);
                 phys_guard.set_allow_bouncing(true);

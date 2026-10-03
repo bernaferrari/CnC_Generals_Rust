@@ -25,7 +25,6 @@ pub struct TruckDrawLivePhysics {
     pub turning: Real,
 }
 
-
 #[derive(Debug, Clone)]
 pub struct W3DTruckDrawModuleData {
     pub base: W3DModelDrawModuleData,
@@ -690,29 +689,29 @@ impl W3DTruckDraw {
                     if let Ok(ai_guard) = ai.lock() {
                         if ai_guard.has_nonempty_path() {
                             if let Some(point) = ai_guard.peek_cached_point_on_path() {
-                            let pos = *owner_guard.get_position();
-                            let facing = owner_guard.get_orientation();
-                            let angle_to_goal = relative_angle_2d(pos, facing, point);
-                            if angle_to_goal < 0.0 {
-                                if desired_cab < angle_to_goal {
-                                    desired_cab = angle_to_goal;
+                                let pos = *owner_guard.get_position();
+                                let facing = owner_guard.get_orientation();
+                                let angle_to_goal = relative_angle_2d(pos, facing, point);
+                                if angle_to_goal < 0.0 {
+                                    if desired_cab < angle_to_goal {
+                                        desired_cab = angle_to_goal;
+                                    }
+                                    if desired_cab > 0.0 {
+                                        desired_cab = 0.0;
+                                    }
+                                } else {
+                                    if desired_cab > angle_to_goal {
+                                        desired_cab = angle_to_goal;
+                                    }
+                                    if desired_cab < 0.0 {
+                                        desired_cab = 0.0;
+                                    }
                                 }
-                                if desired_cab > 0.0 {
-                                    desired_cab = 0.0;
-                                }
-                            } else {
-                                if desired_cab > angle_to_goal {
-                                    desired_cab = angle_to_goal;
-                                }
-                                if desired_cab < 0.0 {
-                                    desired_cab = 0.0;
-                                }
-                            }
                             }
                         }
                     }
                 }
-                });
+            });
         }
         let cab_index = self.bone_index(info, &self.data.cab_bone_name);
         let trailer_index = self.bone_index(info, &self.data.trailer_bone_name);
@@ -727,8 +726,7 @@ impl W3DTruckDraw {
             );
             if trailer_index != 0 {
                 let desired_trailer = -wheel_angle * self.data.trailer_rotation_factor;
-                let trailer_delta =
-                    (desired_trailer - self.cur_trailer_rotation) * cab_damping;
+                let trailer_delta = (desired_trailer - self.cur_trailer_rotation) * cab_damping;
                 self.cur_trailer_rotation += trailer_delta;
                 add(
                     &mut overrides,
@@ -808,7 +806,7 @@ impl DrawModule for W3DTruckDraw {
         let _ = crate::object::registry::OBJECT_REGISTRY.with_object(owner_id, |owner_guard| {
             airborne = owner_guard.is_significantly_above_terrain();
             if let Some(physics) = owner_guard.get_physics() {
-                if let Ok(physics_guard) = physics.lock() {
+                if let Ok(physics_guard) = physics.access() {
                     let velocity = physics_guard.get_velocity();
                     vel_x = velocity.x;
                     vel_y = velocity.y;
@@ -827,7 +825,7 @@ impl DrawModule for W3DTruckDraw {
                     });
                 }
             }
-            });
+        });
         let frames_airborne = TheGameClient::get()
             .and_then(|client| client.get_object_wheel_info(owner_id))
             .map(|info| info.frames_airborne)
@@ -938,9 +936,8 @@ fn truck_client_physics_active() -> bool {
     if !show {
         return false;
     }
-    let camera_frozen = crate::helpers::get_camera_view_bridge().is_some_and(|view| {
-        view.is_time_frozen() && !view.is_camera_movement_finished()
-    });
+    let camera_frozen = crate::helpers::get_camera_view_bridge()
+        .is_some_and(|view| view.is_time_frozen() && !view.is_camera_movement_finished());
     if camera_frozen
         || crate::helpers::TheScriptEngine::is_time_frozen_debug()
         || crate::helpers::TheScriptEngine::is_time_frozen_script()
@@ -985,5 +982,4 @@ mod tests {
         draw.bind_owner_id(313);
         assert_eq!(draw.owner_id(), Some(313));
     }
-
 }
