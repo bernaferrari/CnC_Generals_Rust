@@ -27,6 +27,7 @@ pub(crate) fn evaluate_and_execute_scripts_for_test(logic: &mut game_logic::Game
 }
 
 mod host_types;
+pub(crate) mod host_upgrade_rules;
 pub use host_types::*;
 // Child modules (`use super::*`) historically saw these parent imports.
 use glam::{Vec2, Vec3};

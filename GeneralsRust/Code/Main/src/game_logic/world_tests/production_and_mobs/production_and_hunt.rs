@@ -83,12 +83,11 @@ fn control_bar_queue_slot_cancel_releases_player_upgrade_state() {
 
     // Queue research through the coupled player + producer state that the
     // ControlBar's build-queue icon later cancels by slot.
-    assert!(
-        logic
-            .get_player_mut(0)
-            .expect("player")
-            .queue_upgrade(UPGRADE, &cost)
-    );
+    assert!(logic.get_player_mut(0).expect("player").queue_upgrade(
+        UPGRADE,
+        &cost,
+        gamelogic::upgrade::UpgradeType::Player
+    ));
     assert!(
         logic
             .host_object_mut(producer)
@@ -3591,4 +3590,3 @@ fn hijack_followup_tick_still_crosses_the_vehicle() {
         "hijack follow-up must path through the vehicle, xs={xs:?} wall={wall_x}"
     );
 }
-

@@ -3072,7 +3072,6 @@ impl GameLogic {
         }
     }
 
-
     /// True when the object is a DAM (battle dam) template residual.
     fn dam_template_at(&self, id: ObjectId) -> bool {
         self.objects
@@ -3103,7 +3102,11 @@ impl GameLogic {
         killer: Option<Team>,
         direct_destroy: bool,
     ) {
-        if self.objects.get(&id).is_some_and(|o| o.status.on_die_started) {
+        if self
+            .objects
+            .get(&id)
+            .is_some_and(|o| o.status.on_die_started)
+        {
             return;
         }
         if let Some(obj) = self.objects.get_mut(&id) {
@@ -3418,7 +3421,7 @@ impl GameLogic {
                 .map(|j| j.is_active())
                 .unwrap_or(false)
             {
-                    return true;
+                return true;
             }
             let deferred = obj.begin_jet_slow_death();
             return deferred;
@@ -3838,7 +3841,7 @@ impl GameLogic {
         let player_id = self.player_owner_for_host_object(obj);
         let mut radar_upgrade = false;
         for grant in grants {
-            match host_grant_upgrade_kind(&grant.upgrade_name) {
+            match host_grant_upgrade_kind(self, &grant.upgrade_name) {
                 Some(GrantUpgradeKind::Player) => {
                     if let Some(pid) = player_id {
                         if let Some(player) = self.players.get_mut(&pid) {

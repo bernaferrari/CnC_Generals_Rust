@@ -89,7 +89,7 @@ pub struct StructureBody {
     active_body: ActiveBody,
     /// Structure-specific configuration
     #[allow(dead_code)]
-    module_data: Arc<StructureBodyModuleData>,
+    module_data: StructureBodyModuleData,
     /// ID of the object that constructed this structure.
     constructor_object_id: ObjectId,
 }
@@ -101,7 +101,7 @@ impl StructureBody {
         active_body.set_treat_as_structure(true);
         Self {
             active_body,
-            module_data: Arc::new(module_data),
+            module_data,
             constructor_object_id: INVALID_ID,
         }
     }

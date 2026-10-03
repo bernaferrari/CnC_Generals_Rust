@@ -1152,10 +1152,11 @@ impl GameLogic {
                 continue;
             }
             // Ensure player unlocked set tracks PLAYER completions only.
+            let upgrade_type = self.upgrade_type(&ev.upgrade_name);
             if let Some(player) = self.players.get_mut(&ev.player_id) {
-                player.complete_researched_upgrade(&ev.upgrade_name);
+                player.complete_researched_upgrade(&ev.upgrade_name, upgrade_type);
             } else if let Some(player) = self.players.values_mut().find(|p| p.id == ev.player_id) {
-                player.complete_researched_upgrade(&ev.upgrade_name);
+                player.complete_researched_upgrade(&ev.upgrade_name, upgrade_type);
             }
             self.apply_host_upgrade_complete(team, ev.player_id, &ev.upgrade_name);
             n = n.saturating_add(1);

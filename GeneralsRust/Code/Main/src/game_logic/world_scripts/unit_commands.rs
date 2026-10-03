@@ -596,7 +596,6 @@ impl GameLogic {
         dest.z = world.z;
     }
 
-
     pub fn unit_command_guard_object(&mut self, id: ObjectId, target_id: ObjectId) -> bool {
         self.stamp_player_command_source(id);
         if self.note_hacker_ai_command(
@@ -706,9 +705,10 @@ impl GameLogic {
             return false;
         }
         let hard_miss = !path_ok
-            && self.objects.get(&id).is_some_and(|unit| {
-                unit.path_timestamp == self.frame && unit.retry_path
-            });
+            && self
+                .objects
+                .get(&id)
+                .is_some_and(|unit| unit.path_timestamp == self.frame && unit.retry_path);
         let deploy_blocked = !path_ok
             && self.objects.get(&id).is_some_and(|unit| {
                 unit.deploy_style
@@ -720,8 +720,7 @@ impl GameLogic {
             .get(&id)
             .map(|unit| unit.get_position())
             .unwrap_or(destination);
-        let already_there =
-            !path_ok && Self::route_is_already_there(start, destination, &[]);
+        let already_there = !path_ok && Self::route_is_already_there(start, destination, &[]);
         if let Some(unit) = self.objects.get_mut(&id) {
             end_hunt_on_player_parent_order(unit);
             if hard_miss {
@@ -872,7 +871,6 @@ impl GameLogic {
         }
         false
     }
-
 
     /// Wave 232: dozer construct — path/destination + Constructing AI state.
     /// C++ `findGoodBuildOrRepairPosition` docks at half major radius and
@@ -1361,7 +1359,7 @@ impl GameLogic {
                 unit.stop_moving();
                 unit.set_status_moving(false);
                 if unit.ai_state != AIState::Idle {
-                unit.set_ai_state(AIState::Idle);
+                    unit.set_ai_state(AIState::Idle);
                 }
                 if !deployed_direction {
                     aligning = unit
@@ -1491,14 +1489,10 @@ impl GameLogic {
                 )
             })
             .unwrap_or(((-1, -1), 0.0, 0));
-        let cell = self.pathfinding_system.grid.update_ground_goal_cell(
-            id.0,
-            player,
-            radius,
-            false,
-            old,
-            adjusted,
-        );
+        let cell = self
+            .pathfinding_system
+            .grid
+            .update_ground_goal_cell(id.0, player, radius, false, old, adjusted);
         if let Some(unit) = self.objects.get_mut(&id) {
             unit.pathfind_goal_cell = cell;
         }
@@ -1944,7 +1938,7 @@ impl GameLogic {
         unit.set_contained_by(None);
         unit.set_target(None);
         if unit.ai_state != AIState::Idle {
-        unit.set_ai_state(AIState::Idle);
+            unit.set_ai_state(AIState::Idle);
         }
         if go_aggressive {
             unit.set_ai_attitude(
@@ -2330,13 +2324,12 @@ impl GameLogic {
         research_secs: f32,
         cost: Resources,
     ) -> bool {
+        let object_scoped = self.is_object_scoped_upgrade(upgrade_name);
         let Some(obj) = self.objects.get_mut(&id) else {
             return false;
         };
         // C++ ProductionUpdate::queueUpgrade OBJECT hasUpgrade / !affectedByUpgrade.
-        if crate::game_logic::host_upgrades::is_object_scoped_upgrade(upgrade_name)
-            && obj.refuses_object_upgrade(upgrade_name)
-        {
+        if object_scoped && obj.refuses_object_upgrade(upgrade_name) {
             return false;
         }
         // C++ ProductionUpdate::queueUpgrade — STOP cheaters:

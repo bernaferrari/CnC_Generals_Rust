@@ -102,11 +102,10 @@ impl<'a> CommandExecutor<'a> {
         // GameLogic's UpgradeCenter rather than the object ThingTemplate map.
         // Use that parsed cost before falling back to the built-in retail
         // table, so mod/map overrides remain authoritative.
-        let parsed_cost = gamelogic::upgrade::center::with_upgrade_center(|center| {
-            center
-                .find_upgrade(upgrade_name)
-                .map(|template| template.get_cost())
-        });
+        let parsed_cost = self
+            .game_logic
+            .upgrade_template(upgrade_name)
+            .map(|template| template.get_cost());
         if let Some(cost) = parsed_cost.filter(|cost| *cost > 0) {
             return cost as u32;
         }
@@ -143,24 +142,13 @@ impl<'a> CommandExecutor<'a> {
     }
 
     /// C++ `UpgradeTemplate::calcTimeToBuild` source for a ControlBar
-    /// research entry.  Upgrade.ini is loaded into the global UpgradeCenter,
+    /// research entry.  Upgrade.ini is loaded into the driving world’s UpgradeCenter,
     /// not the ThingTemplate catalog, so querying the parsed template is what
     /// keeps the live queue in sync with retail and modded BuildTime values.
     /// A zero/missing value keeps the old minimum-one-logic-frame behavior
     /// only for unknown legacy entries.
     pub(super) fn resolve_upgrade_build_time_secs(&self, upgrade_name: &str) -> f32 {
-        let parsed_secs = gamelogic::upgrade::center::with_upgrade_center(|center| {
-            center
-                .find_upgrade(upgrade_name)
-                .map(|template| template.get_build_time())
-        });
-        let fallback_secs =
-            crate::game_logic::host_upgrades::HostUpgradeKind::from_name(upgrade_name)
-                .retail_build_time_secs();
-        parsed_secs
-            .filter(|seconds| seconds.is_finite() && *seconds > 0.0)
-            .unwrap_or(fallback_secs)
-            .max(1.0 / 30.0)
+        self.game_logic.upgrade_research_time_secs(upgrade_name)
     }
 
     pub(super) fn execute_purchase_science(
@@ -217,6 +205,7 @@ impl<'a> CommandExecutor<'a> {
 
         use crate::game_logic::buildings::DEFAULT_PRODUCTION_QUEUE_LIMIT;
 
+        let upgrade_type = self.game_logic.upgrade_type(upgrade_name);
         let mut seen_players = HashSet::new();
         let mut any = false;
         let cost = Resources {
@@ -246,7 +235,7 @@ impl<'a> CommandExecutor<'a> {
                         return false;
                     }
                     // C++ queueUpgrade OBJECT: hasUpgrade || !affectedByUpgrade.
-                    if crate::game_logic::host_upgrades::is_object_scoped_upgrade(upgrade_name)
+                    if upgrade_type == gamelogic::upgrade::UpgradeType::Object
                         && source.refuses_object_upgrade(upgrade_name)
                     {
                         return false;
@@ -309,7 +298,7 @@ impl<'a> CommandExecutor<'a> {
                 continue;
             }
             if let Some(player) = self.game_logic.get_player_mut(player_id) {
-                if player.queue_upgrade(upgrade_name, &cost) {
+                if player.queue_upgrade(upgrade_name, &cost, upgrade_type) {
                     recorded.push((player_id, team, unit_id));
                 }
             }
@@ -456,3 +445,7 @@ impl<'a> CommandExecutor<'a> {
         source.building_data.is_some() && source.is_alive() && source.is_constructed()
     }
 }
+
+#[cfg(test)]
+#[path = "upgrade_rules_tests.rs"]
+mod upgrade_rules_tests;

@@ -19,7 +19,6 @@ impl GameLogic {
     }
 
     pub(in super::super) fn update_construction(&mut self, object_ids: &[ObjectId], dt: f32) {
-
         // C++ parity: calcTimeToBuild applies the same power penalty to dozer
         // construction as to production queue speed.
         let player_power_factor = self.compute_player_power_factors();
@@ -124,9 +123,11 @@ impl GameLogic {
                     let site_template = obj.template_name.clone();
                     let build_owner_player_id = object_owner_player_ids.get(&id).copied().flatten();
                     let exclusive_builder = obj.builder_id.filter(|bid| {
-                        dozer_info.iter().any(|(did, _, _, _, slot, _, _, _, _, _)| {
-                            did == bid && *slot == Some(id)
-                        })
+                        dozer_info
+                            .iter()
+                            .any(|(did, _, _, _, slot, _, _, _, _, _)| {
+                                did == bid && *slot == Some(id)
+                            })
                     });
                     for (did, _, _, _, build_slot, live_target, _, _, ai_state, _) in &dozer_info {
                         if *build_slot == Some(id)
@@ -309,7 +310,11 @@ impl GameLogic {
             }
         }
         for did in arrived_moving {
-            if self.objects.get(&did).is_some_and(|dozer| dozer.ai_state == AIState::Moving) {
+            if self
+                .objects
+                .get(&did)
+                .is_some_and(|dozer| dozer.ai_state == AIState::Moving)
+            {
                 self.set_ai_state_decision_aware(did, AIState::Constructing);
             }
         }
@@ -399,20 +404,20 @@ impl GameLogic {
                     }
                 } else {
                     let radius = obj.selection_radius;
-                    let on_dock_walk = obj.dozer_dock_action.is_some_and(|dock| {
-                        match obj.movement.path.last() {
-                            Some(end) => {
-                                crate::game_logic::host_repair::dozer_within_action_dock(
-                                    *end, radius, dock,
-                                )
-                            }
-                            None => crate::game_logic::host_repair::dozer_within_action_dock(
-                                obj.get_position(),
-                                radius,
-                                dock,
-                            ),
-                        }
-                    });
+                    let on_dock_walk =
+                        obj.dozer_dock_action
+                            .is_some_and(|dock| match obj.movement.path.last() {
+                                Some(end) => {
+                                    crate::game_logic::host_repair::dozer_within_action_dock(
+                                        *end, radius, dock,
+                                    )
+                                }
+                                None => crate::game_logic::host_repair::dozer_within_action_dock(
+                                    obj.get_position(),
+                                    radius,
+                                    dock,
+                                ),
+                            });
                     if on_dock_walk {
                         if obj.target == Some(completed_id) {
                             obj.target = None;
@@ -470,7 +475,15 @@ impl GameLogic {
         if self.frame % 30 != 0 {
             return;
         }
-        let raw_dozers: Vec<(ObjectId, Vec3, f32, Option<u32>, crate::game_logic::Team, Option<ObjectId>, Option<Vec3>)> = self
+        let raw_dozers: Vec<(
+            ObjectId,
+            Vec3,
+            f32,
+            Option<u32>,
+            crate::game_logic::Team,
+            Option<ObjectId>,
+            Option<Vec3>,
+        )> = self
             .objects
             .values()
             .filter(|obj| obj.is_alive() && obj.can_construct())
@@ -486,7 +499,14 @@ impl GameLogic {
                 )
             })
             .collect();
-        let dozer_info: Vec<(ObjectId, Vec3, f32, Option<u32>, Option<ObjectId>, Option<Vec3>)> = raw_dozers
+        let dozer_info: Vec<(
+            ObjectId,
+            Vec3,
+            f32,
+            Option<u32>,
+            Option<ObjectId>,
+            Option<Vec3>,
+        )> = raw_dozers
             .into_iter()
             .map(|(id, pos, radius, owner_id, team, target, dock)| {
                 (
@@ -538,9 +558,7 @@ impl GameLogic {
             // pending path or an installed path being followed is a healthy
             // approach — the old speed threshold sat below dozer cruise speed
             // and re-pathed walking dozers every cycle.
-            if d.waiting_for_path
-                || d.status.moving
-                || d.movement.velocity.length_squared() > 1e-3
+            if d.waiting_for_path || d.status.moving || d.movement.velocity.length_squared() > 1e-3
             {
                 continue;
             }
@@ -712,20 +730,20 @@ impl GameLogic {
                     }
                 } else {
                     let radius = obj.selection_radius;
-                    let on_dock_walk = obj.dozer_dock_action.is_some_and(|dock| {
-                        match obj.movement.path.last() {
-                            Some(end) => {
-                                crate::game_logic::host_repair::dozer_within_action_dock(
-                                    *end, radius, dock,
-                                )
-                            }
-                            None => crate::game_logic::host_repair::dozer_within_action_dock(
-                                obj.get_position(),
-                                radius,
-                                dock,
-                            ),
-                        }
-                    });
+                    let on_dock_walk =
+                        obj.dozer_dock_action
+                            .is_some_and(|dock| match obj.movement.path.last() {
+                                Some(end) => {
+                                    crate::game_logic::host_repair::dozer_within_action_dock(
+                                        *end, radius, dock,
+                                    )
+                                }
+                                None => crate::game_logic::host_repair::dozer_within_action_dock(
+                                    obj.get_position(),
+                                    radius,
+                                    dock,
+                                ),
+                            });
                     if on_dock_walk {
                         if obj.target == Some(completed_id) {
                             obj.target = None;
@@ -1321,8 +1339,9 @@ impl GameLogic {
                     .get(&pid)
                     .map(|p| p.has_unlocked_upgrade(&upgrade_name))
                     .unwrap_or(false);
+                let upgrade_type = self.upgrade_type(&upgrade_name);
                 if let Some(player) = self.players.get_mut(&pid) {
-                    player.complete_researched_upgrade(&upgrade_name);
+                    player.complete_researched_upgrade(&upgrade_name, upgrade_type);
                     // record_upgrade_production_complete: leftover AcademyStats::recordUpgrade
                     // (FALSE) + ScoreKeeper::addMoneySpent (ProductionUpdate.cpp:874-879 / 931).
                 }
@@ -2200,15 +2219,17 @@ impl GameLogic {
                 }
             }
 
-            let mut base_pos = base.or_else(|| self.player_base_position(pid)).unwrap_or_else(|| {
-                let (bmin, bmax) = self.world_bounds();
-                let t = (pid as f32 + 1.0) / (self.players.len().max(1) as f32 + 1.0);
-                Vec3::new(
-                    bmin.x + (bmax.x - bmin.x) * t,
-                    0.0,
-                    bmin.z + (bmax.z - bmin.z) * 0.2,
-                )
-            });
+            let mut base_pos = base
+                .or_else(|| self.player_base_position(pid))
+                .unwrap_or_else(|| {
+                    let (bmin, bmax) = self.world_bounds();
+                    let t = (pid as f32 + 1.0) / (self.players.len().max(1) as f32 + 1.0);
+                    Vec3::new(
+                        bmin.x + (bmax.x - bmin.x) * t,
+                        0.0,
+                        bmin.z + (bmax.z - bmin.z) * 0.2,
+                    )
+                });
             if let Some(h) = self.terrain_height_at(Vec3::new(base_pos.x, 0.0, base_pos.z)) {
                 base_pos.y = h;
             }
@@ -2271,7 +2292,9 @@ impl GameLogic {
                             && !obj.is_kind_of(crate::game_logic::KindOf::Selectable)
                             && !obj.is_kind_of(crate::game_logic::KindOf::AlwaysSelectable)
                         {
-                            obj.thing.template.add_kind_of(crate::game_logic::KindOf::Selectable);
+                            obj.thing
+                                .template
+                                .add_kind_of(crate::game_logic::KindOf::Selectable);
                         }
                     }
                     gamelogic::player::notify_skirmish_starting_object(pid, unit_name, false);

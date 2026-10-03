@@ -10,16 +10,18 @@ pub(super) enum GrantUpgradeKind {
 /// C++ `TheUpgradeCenter->findUpgrade` then `getUpgradeType()`.
 /// Residual store covers tests / unloaded INI. Missing template → `None`
 /// (`GrantUpgradeCreate.cpp:102-105` returns without granting).
-pub(super) fn host_grant_upgrade_kind(name: &str) -> Option<GrantUpgradeKind> {
+pub(super) fn host_grant_upgrade_kind(
+    game_logic: &crate::game_logic::GameLogic,
+    name: &str,
+) -> Option<GrantUpgradeKind> {
     use crate::game_logic::host_sp_science_upgrade_player_team_residual_wave109::{
         UPGRADE_STORE_TABLE_WAVE109, UPGRADE_TYPE_OBJECT, upgrade_store_row_wave109,
     };
 
-    if let Some(kind) = gamelogic::upgrade::center::with_upgrade_center(|center| {
-        center
-            .find_upgrade(name)
-            .map(|template| template.get_upgrade_type())
-    }) {
+    if let Some(kind) = game_logic
+        .upgrade_template(name)
+        .map(|template| template.get_upgrade_type())
+    {
         return Some(match kind {
             gamelogic::upgrade::UpgradeType::Object => GrantUpgradeKind::Object,
             gamelogic::upgrade::UpgradeType::Player => GrantUpgradeKind::Player,

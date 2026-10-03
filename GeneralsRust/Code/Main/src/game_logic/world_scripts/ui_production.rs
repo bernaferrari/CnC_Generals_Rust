@@ -2149,7 +2149,7 @@ impl GameLogic {
         producer_id: ObjectId,
         upgrade_name: &str,
     ) -> bool {
-        crate::game_logic::host_upgrades::is_object_scoped_upgrade(upgrade_name)
+        self.is_object_scoped_upgrade(upgrade_name)
             && self
                 .objects
                 .get(&producer_id)

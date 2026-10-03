@@ -171,10 +171,10 @@ impl AIPlayer {
             store.get_active().map(|d| d.team_resources_to_build)
         };
         let ai_store = gamelogic::ai::the_ai();
-        let leftover = ai_store.read().ok().and_then(|ai| {
-            Some(ai.get_ai_data())
-                .map(|d| d.team_resources_to_build)
-        });
+        let leftover = ai_store
+            .read()
+            .ok()
+            .and_then(|ai| Some(ai.get_ai_data()).map(|d| d.team_resources_to_build));
         from_store
             .or(leftover)
             .filter(|m| *m > 0.0)
@@ -1353,10 +1353,11 @@ impl AIPlayer {
             let Some(producer_id) = self.find_upgrade_producer(game_logic, upgrade_name) else {
                 continue;
             };
+            let upgrade_type = game_logic.upgrade_type(upgrade_name);
             let Some(player) = game_logic.get_player_mut(self.player_id) else {
                 return;
             };
-            if !player.queue_upgrade(upgrade_name, &cost) {
+            if !player.queue_upgrade(upgrade_name, &cost, upgrade_type) {
                 continue;
             }
             let secs = kind
