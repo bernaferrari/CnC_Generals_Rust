@@ -29,17 +29,17 @@ use std::sync::{Arc, RwLock, Weak};
 #[derive(Clone, Debug)]
 pub struct JetSlowDeathBehaviorModuleData {
     pub base: BehaviorModuleData,
-    pub fx_on_ground_death: Option<Arc<FXList>>,
+    pub fx_on_ground_death: Option<FXList>,
     pub ocl_on_ground_death: Option<Arc<ObjectCreationList>>,
-    pub fx_initial_death: Option<Arc<FXList>>,
+    pub fx_initial_death: Option<FXList>,
     pub ocl_initial_death: Option<Arc<ObjectCreationList>>,
     pub delay_secondary_from_initial_death: UnsignedInt,
-    pub fx_secondary: Option<Arc<FXList>>,
+    pub fx_secondary: Option<FXList>,
     pub ocl_secondary: Option<Arc<ObjectCreationList>>,
-    pub fx_hit_ground: Option<Arc<FXList>>,
+    pub fx_hit_ground: Option<FXList>,
     pub ocl_hit_ground: Option<Arc<ObjectCreationList>>,
     pub delay_final_blow_up_from_hit_ground: UnsignedInt,
-    pub fx_final_blow_up: Option<Arc<FXList>>,
+    pub fx_final_blow_up: Option<FXList>,
     pub ocl_final_blow_up: Option<Arc<ObjectCreationList>>,
     pub death_loop_sound: AudioEventRts,
     pub roll_rate: Real,
@@ -85,7 +85,7 @@ fn token<'a>(tokens: &'a [&str]) -> Result<&'a str, INIError> {
     tokens.first().copied().ok_or(INIError::InvalidData)
 }
 
-fn parse_fx_slot(data: &mut Option<Arc<FXList>>, tokens: &[&str]) -> Result<(), INIError> {
+fn parse_fx_slot(data: &mut Option<FXList>, tokens: &[&str]) -> Result<(), INIError> {
     let name = token(tokens)?;
     *data = TheFXListStore::find_fx_list(name).or_else(|| {
         if name.eq_ignore_ascii_case("None") {
@@ -361,7 +361,7 @@ impl JetSlowDeathBehavior {
         })
     }
 
-    fn do_fx(&self, fx: &Option<Arc<FXList>>, object: &Arc<RwLock<GameObject>>) {
+    fn do_fx(&self, fx: &Option<FXList>, object: &Arc<RwLock<GameObject>>) {
         if let Some(fx) = fx {
             let _ = fx.do_fx_obj(object, None);
         }

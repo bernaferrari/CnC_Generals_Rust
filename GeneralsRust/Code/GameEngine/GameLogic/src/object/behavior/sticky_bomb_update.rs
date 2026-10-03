@@ -40,7 +40,7 @@ pub struct StickyBombUpdateModuleData {
     pub attach_to_bone: AsciiString,
     pub offset_z: Real,
     pub geometry_based_damage_weapon_template: Option<Arc<WeaponTemplate>>,
-    pub geometry_based_damage_fx: Option<Arc<FXList>>,
+    pub geometry_based_damage_fx: Option<FXList>,
 }
 
 impl Default for StickyBombUpdateModuleData {

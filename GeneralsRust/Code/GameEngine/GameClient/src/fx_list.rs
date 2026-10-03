@@ -8,7 +8,8 @@ use std::sync::{Arc, Mutex, OnceLock, RwLock};
 
 use glam::{Mat3, Vec3};
 
-use game_engine::common::ini::{register_block_parser, INIError, INILoadType, INIResult, INI};
+use game_engine::common::ini::ini_fx_list::CameraShakeType;
+use game_engine::common::ini::{INI, INIError, INILoadType, INIResult, register_block_parser};
 use game_engine::common::name_key_generator::{NameKeyGenerator, NameKeyType};
 
 use gamelogic::common::types::FXListManagerInterface;
@@ -17,11 +18,11 @@ use gamelogic::object::Object;
 
 use crate::display::cinematic_camera::CameraShakeSystem;
 use crate::display::view::{
-    with_tactical_view, CameraShakeType as ViewShakeKind, Point3 as ViewPoint3,
+    CameraShakeType as ViewShakeKind, Point3 as ViewPoint3, with_tactical_view,
 };
 use crate::effects::decals::DecalManager;
 use crate::effects::fxlist_integration::ParticleSystemFXNugget;
-use crate::effects::particle_manager::{get_particle_system_manager_mut, GameClientRandomVariable};
+use crate::effects::particle_manager::{GameClientRandomVariable, get_particle_system_manager_mut};
 use crate::effects::ray_effect_system::create_ray_effect_by_template;
 use crate::effects::tracer_fx::spawn_tracer_drawable_like_cpp;
 use crate::message_stream::game_message::Coord3D as MessageCoord3D;
@@ -37,8 +38,7 @@ impl FXListManagerInterface for FXListManagerBridge {
             return;
         };
 
-        let store = get_fx_list_store();
-        let Some(fx) = store.find_fx_list(&name) else {
+        let Some(fx) = get_fx_list_store().find_fx_list(&name) else {
             log::debug!("FXListManager: FXList '{}' not found", name);
             return;
         };
@@ -60,8 +60,7 @@ impl FXListManagerInterface for FXListManagerBridge {
             return;
         };
 
-        let store = get_fx_list_store();
-        let Some(fx) = store.find_fx_list(&name) else {
+        let Some(fx) = get_fx_list_store().find_fx_list(&name) else {
             log::debug!("FXListManager: FXList '{}' not found", name);
             return;
         };
@@ -143,8 +142,7 @@ fn host_fx_obj_is_visible(object_id: u32) -> bool {
 }
 
 fn do_named_fx_obj(name: &str, primary_id: Option<u32>, secondary_id: Option<u32>) -> bool {
-    let store = get_fx_list_store();
-    let Some(fx) = store.find_fx_list(name) else {
+    let Some(fx) = get_fx_list_store().find_fx_list(name) else {
         return false;
     };
     let leftover_primary = primary_id.and_then(gamelogic::helpers::TheGameLogic::find_object_by_id);
@@ -700,13 +698,13 @@ impl Default for FXList {
 }
 
 pub struct FXListStore {
-    fx_map: HashMap<NameKeyType, Arc<FXList>>,
+    fx_map: game_engine::common::ini::ini_fx_list::FxCatalog<Arc<FXList>>,
 }
 
 impl FXListStore {
     pub fn new() -> Self {
         Self {
-            fx_map: HashMap::new(),
+            fx_map: game_engine::common::ini::ini_fx_list::FxCatalog::default(),
         }
     }
 
@@ -714,13 +712,11 @@ impl FXListStore {
         if name.eq_ignore_ascii_case("None") {
             return None;
         }
-        let key = NameKeyGenerator::name_to_key(name) as NameKeyType;
-        self.fx_map.get(&key).cloned()
+        self.fx_map.find(name).cloned()
     }
 
     pub fn add_fx_list(&mut self, name: String, fx_list: FXList) {
-        let key = NameKeyGenerator::name_to_key(&name) as NameKeyType;
-        self.fx_map.insert(key, Arc::new(fx_list));
+        self.fx_map.insert(name, Arc::new(fx_list));
     }
 }
 
@@ -752,8 +748,7 @@ pub fn sound_names_for_fx_list(name: &str) -> Vec<String> {
     if name.is_empty() || name.eq_ignore_ascii_case("None") {
         return Vec::new();
     }
-    let store = get_fx_list_store();
-    let Some(fx) = store.find_fx_list(name) else {
+    let Some(fx) = get_fx_list_store().find_fx_list(name) else {
         return Vec::new();
     };
     fx.nuggets
@@ -788,47 +783,41 @@ fn parse_fx_list_definition(ini: &mut INI) -> INIResult<()> {
         .ok_or(INIError::InvalidData)?
         .to_string();
 
+    use game_engine::common::ini::ini_fx_list::{FXList as Definition, parse_fx_nugget_definition};
+    let mut definition = Definition::new(name.as_str().into());
     let mut fx_list = FXList::new();
-
     loop {
         ini.read_line()?;
         if ini.is_eof() {
             return Err(INIError::EndOfFile);
         }
-
-        let line_tokens = ini.get_line_tokens();
-        let Some(token) = line_tokens.first() else {
+        let tokens = ini.get_line_tokens();
+        let Some(kind) = tokens.first() else {
             continue;
         };
-
-        if token.eq_ignore_ascii_case("End") {
+        if kind.eq_ignore_ascii_case("End") {
             break;
         }
-
-        match token.to_ascii_uppercase().as_str() {
-            "SOUND" => parse_sound_nugget(ini, &mut fx_list)?,
-            "TRACER" => parse_tracer_nugget(ini, &mut fx_list)?,
-            "RAYEFFECT" => parse_ray_effect_nugget(ini, &mut fx_list)?,
-            "LIGHTPULSE" => parse_light_pulse_nugget(ini, &mut fx_list)?,
-            "VIEWSHAKE" => parse_view_shake_nugget(ini, &mut fx_list)?,
-            "TERRAINSCORCH" => parse_terrain_scorch_nugget(ini, &mut fx_list)?,
-            "PARTICLESYSTEM" => parse_particle_system_nugget(ini, &mut fx_list)?,
-            "FXLISTATBONEPOS" => parse_fx_list_at_bone_pos_nugget(ini, &mut fx_list)?,
-            other => {
-                return Err(INIError::InvalidData);
+        let kind = kind.to_string();
+        let mut fields = HashMap::new();
+        loop {
+            let Some((key, values)) = parse_block_field(ini)? else {
+                continue;
+            };
+            if key.eq_ignore_ascii_case("End") {
+                break;
             }
+            // C++ applies repeated fields in input order: last value wins.
+            fields.insert(key.to_ascii_uppercase(), values.join(" "));
         }
+        let nugget =
+            parse_fx_nugget_definition(&kind, &fields).map_err(|_| INIError::InvalidData)?;
+        fx_list.add_fx_nugget(executable_nugget(&nugget));
+        definition.add_nugget(nugget);
     }
-
-    get_fx_list_store_mut().add_fx_list(name.clone(), fx_list);
-    // C++ keeps a single TheFXListStore shared by logic and client
-    // (FXList.cpp:852-858). Register the same name in the GameLogic store so
-    // logic-side consumers (FXListDie, SlowDeath, InstantDeath, ...) resolve
-    // the authored FXList and dispatch through the FXListManager bridge.
-    gamelogic::helpers::TheFXListStore::register_fx_list(
-        &name,
-        gamelogic::effects::FXList::new(&name),
-    );
+    // Common owns authored definitions; this store is the derived client backend.
+    game_engine::common::ini::ini_fx_list::get_fx_list_store_mut().add_fx_list(definition);
+    get_fx_list_store_mut().add_fx_list(name, fx_list);
     Ok(())
 }
 
@@ -853,268 +842,120 @@ fn parse_block_field(ini: &mut INI) -> INIResult<Option<(String, Vec<String>)>> 
     Ok(Some((key.to_string(), values)))
 }
 
-fn parse_labeled_vec3(values: &[String], color: bool) -> INIResult<Vec3> {
-    let mut components = [None; 3];
-    for value in values {
-        let Some((label, raw)) = value.split_once(':') else {
-            continue;
+/// Compile immutable authored data into existing renderer/audio execution adapters.
+fn executable_nugget(
+    definition: &game_engine::common::ini::ini_fx_list::FXNugget,
+) -> Box<dyn FXNugget> {
+    use game_engine::common::ini::ini_fx_list::{Distribution, FXNugget as Rule, FxRandomVariable};
+    let vector = |(x, y, z)| Vec3::new(x, y, z);
+    let random = |range: &FxRandomVariable| {
+        let mut value = GameClientRandomVariable::new(range.minimum, range.maximum);
+        // Particle runtime encodes UNIFORM as 0; unsupported distributions
+        // return zero as in C++ release. CONSTANT falls through for unequal bounds.
+        value.distribution_type = match range.distribution {
+            Distribution::Constant | Distribution::Uniform => 0,
+            other => other as u32,
         };
-        // Two shipped offsets contain `Y:15:`.  The C++ parser accepts the
-        // numeric prefix, so keep that retail-compatible behavior here.
-        let number = INI::parse_real(raw.trim_end_matches(':'))?;
-        let index = match label.to_ascii_uppercase().as_str() {
-            "X" | "R" => 0,
-            "Y" | "G" => 1,
-            "Z" | "B" => 2,
-            _ => continue,
-        };
-        components[index] = Some(number);
-    }
-    let scale = if color { 1.0 / 255.0 } else { 1.0 };
-    Ok(Vec3::new(
-        components[0].ok_or(INIError::InvalidData)? * scale,
-        components[1].ok_or(INIError::InvalidData)? * scale,
-        components[2].ok_or(INIError::InvalidData)? * scale,
-    ))
-}
-
-fn parse_random_variable(values: &[String]) -> INIResult<GameClientRandomVariable> {
-    let Some(minimum) = values.first() else {
-        return Err(INIError::InvalidData);
+        value
     };
-    let maximum = values.get(1).unwrap_or(minimum);
-    let mut variable =
-        GameClientRandomVariable::new(INI::parse_real(minimum)?, INI::parse_real(maximum)?);
-    if values
-        .get(2)
-        .is_some_and(|kind| kind.eq_ignore_ascii_case("NORMAL"))
-    {
-        variable.distribution_type = 1;
+    match definition {
+        Rule::Sound { name } => Box::new(SoundFXNugget {
+            sound_name: name.as_str().into(),
+        }),
+        Rule::Tracer {
+            name,
+            bone_name,
+            speed,
+            decay_at,
+            length,
+            width,
+            color,
+            probability,
+        } => Box::new(TracerFXNugget {
+            tracer_name: name.as_str().into(),
+            bone_name: bone_name.as_str().into(),
+            speed: *speed,
+            decay_at: *decay_at,
+            length: *length,
+            width: *width,
+            color: vector(*color),
+            probability: *probability,
+        }),
+        Rule::RayEffect {
+            name,
+            primary_offset,
+            secondary_offset,
+        } => Box::new(RayEffectFXNugget {
+            template_name: name.as_str().into(),
+            primary_offset: vector(*primary_offset),
+            secondary_offset: vector(*secondary_offset),
+        }),
+        Rule::LightPulse {
+            color,
+            radius,
+            radius_as_percent_of_object_size,
+            increase_frames,
+            decrease_frames,
+        } => Box::new(LightPulseFXNugget {
+            color: vector(*color),
+            radius: *radius,
+            bounding_circle_pct: *radius_as_percent_of_object_size,
+            increase_frames: *increase_frames,
+            decrease_frames: *decrease_frames,
+        }),
+        Rule::ViewShake { shake_type } => Box::new(ViewShakeFXNugget {
+            shake_type: *shake_type,
+        }),
+        Rule::TerrainScorch {
+            scorch_type,
+            radius,
+        } => Box::new(TerrainScorchFXNugget {
+            scorch: *scorch_type as i32,
+            radius: *radius,
+        }),
+        Rule::ParticleSystem {
+            name,
+            count,
+            offset,
+            radius,
+            height,
+            initial_delay,
+            rotate_x,
+            rotate_y,
+            rotate_z,
+            orient_to_object,
+            ricochet,
+            attach_to_object,
+            create_at_ground_height,
+            use_callers_radius,
+        } => Box::new(ParticleSystemWrapper {
+            nugget: ParticleSystemFXNugget {
+                template_name: name.as_str().into(),
+                count: *count,
+                offset: vector(*offset),
+                radius: random(radius),
+                height: random(height),
+                delay: random(initial_delay),
+                rotate_x: *rotate_x,
+                rotate_y: *rotate_y,
+                rotate_z: *rotate_z,
+                orient_to_object: *orient_to_object,
+                ricochet: *ricochet,
+                attach_to_object: *attach_to_object,
+                create_at_ground_height: *create_at_ground_height,
+                use_callers_radius: *use_callers_radius,
+            },
+        }),
+        Rule::FXListAtBonePos {
+            fx_name,
+            bone_name,
+            orient_to_bone,
+        } => Box::new(FXListAtBonePosFXNugget {
+            fx_name: fx_name.as_str().into(),
+            bone_name: bone_name.as_str().into(),
+            orient_to_bone: *orient_to_bone,
+        }),
     }
-    Ok(variable)
-}
-
-fn parse_sound_nugget(ini: &mut INI, fx_list: &mut FXList) -> INIResult<()> {
-    let mut sound_name = String::new();
-    loop {
-        let Some((key, values)) = parse_block_field(ini)? else {
-            continue;
-        };
-        if key.eq_ignore_ascii_case("End") {
-            break;
-        }
-        if key.eq_ignore_ascii_case("Name") {
-            if let Some(value) = values.first() {
-                sound_name = INI::parse_ascii_string(value)?;
-            }
-        }
-    }
-    fx_list.add_fx_nugget(Box::new(SoundFXNugget { sound_name }));
-    Ok(())
-}
-
-fn parse_tracer_nugget(ini: &mut INI, fx_list: &mut FXList) -> INIResult<()> {
-    let mut nugget = TracerFXNugget::default();
-    loop {
-        let Some((key, values)) = parse_block_field(ini)? else {
-            continue;
-        };
-        if key.eq_ignore_ascii_case("End") {
-            break;
-        }
-        let Some(value) = values.first() else {
-            continue;
-        };
-        match key.to_ascii_uppercase().as_str() {
-            "TRACERNAME" => nugget.tracer_name = INI::parse_ascii_string(value)?,
-            "BONENAME" => nugget.bone_name = INI::parse_ascii_string(value)?,
-            "SPEED" => nugget.speed = INI::parse_velocity_real(value)?,
-            "DECAYAT" => nugget.decay_at = INI::parse_real(value)?,
-            "LENGTH" => nugget.length = INI::parse_real(value)?,
-            "WIDTH" => nugget.width = INI::parse_real(value)?,
-            "COLOR" => {
-                nugget.color = parse_labeled_vec3(&values, true)?;
-            }
-            "PROBABILITY" => nugget.probability = INI::parse_real(value)?,
-            _ => {}
-        }
-    }
-    fx_list.add_fx_nugget(Box::new(nugget));
-    Ok(())
-}
-
-fn parse_ray_effect_nugget(ini: &mut INI, fx_list: &mut FXList) -> INIResult<()> {
-    let mut nugget = RayEffectFXNugget::default();
-    loop {
-        let Some((key, values)) = parse_block_field(ini)? else {
-            continue;
-        };
-        if key.eq_ignore_ascii_case("End") {
-            break;
-        }
-        let Some(value) = values.first() else {
-            continue;
-        };
-        match key.to_ascii_uppercase().as_str() {
-            "NAME" => nugget.template_name = INI::parse_ascii_string(value)?,
-            "PRIMARYOFFSET" => {
-                nugget.primary_offset = parse_labeled_vec3(&values, false)?;
-            }
-            "SECONDARYOFFSET" => {
-                nugget.secondary_offset = parse_labeled_vec3(&values, false)?;
-            }
-            _ => {}
-        }
-    }
-    fx_list.add_fx_nugget(Box::new(nugget));
-    Ok(())
-}
-
-fn parse_light_pulse_nugget(ini: &mut INI, fx_list: &mut FXList) -> INIResult<()> {
-    let mut nugget = LightPulseFXNugget::default();
-    loop {
-        let Some((key, values)) = parse_block_field(ini)? else {
-            continue;
-        };
-        if key.eq_ignore_ascii_case("End") {
-            break;
-        }
-        let Some(value) = values.first() else {
-            continue;
-        };
-        match key.to_ascii_uppercase().as_str() {
-            "COLOR" => {
-                nugget.color = parse_labeled_vec3(&values, true)?;
-            }
-            "RADIUS" => nugget.radius = INI::parse_real(value)?,
-            "RADIUSASPERCENTOFOBJECTSIZE" => {
-                nugget.bounding_circle_pct = INI::parse_percent_to_real(value)?;
-            }
-            "INCREASETIME" => {
-                nugget.increase_frames = INI::parse_duration_unsigned_int(value)?;
-            }
-            "DECREASETIME" => {
-                nugget.decrease_frames = INI::parse_duration_unsigned_int(value)?;
-            }
-            _ => {}
-        }
-    }
-    fx_list.add_fx_nugget(Box::new(nugget));
-    Ok(())
-}
-
-fn parse_view_shake_nugget(ini: &mut INI, fx_list: &mut FXList) -> INIResult<()> {
-    let mut nugget = ViewShakeFXNugget::default();
-    loop {
-        let Some((key, values)) = parse_block_field(ini)? else {
-            continue;
-        };
-        if key.eq_ignore_ascii_case("End") {
-            break;
-        }
-        let Some(value) = values.first() else {
-            continue;
-        };
-        if key.to_ascii_uppercase().as_str() == "TYPE" {
-            if let Some(shake_type) = CameraShakeType::parse_shake_type(value) {
-                nugget.shake_type = shake_type;
-            }
-        }
-    }
-    fx_list.add_fx_nugget(Box::new(nugget));
-    Ok(())
-}
-
-fn parse_terrain_scorch_nugget(ini: &mut INI, fx_list: &mut FXList) -> INIResult<()> {
-    let mut nugget = TerrainScorchFXNugget::default();
-    loop {
-        let Some((key, values)) = parse_block_field(ini)? else {
-            continue;
-        };
-        if key.eq_ignore_ascii_case("End") {
-            break;
-        }
-        let Some(value) = values.first() else {
-            continue;
-        };
-        match key.to_ascii_uppercase().as_str() {
-            "TYPE" => {
-                if let Some(scorch) = ScorchType::parse_scorch_type(value) {
-                    nugget.scorch = scorch;
-                }
-            }
-            "RADIUS" => nugget.radius = INI::parse_real(value)?,
-            _ => {}
-        }
-    }
-    fx_list.add_fx_nugget(Box::new(nugget));
-    Ok(())
-}
-
-fn parse_particle_system_nugget(ini: &mut INI, fx_list: &mut FXList) -> INIResult<()> {
-    let mut nugget = ParticleSystemFXNugget::default();
-    loop {
-        let Some((key, values)) = parse_block_field(ini)? else {
-            continue;
-        };
-        if key.eq_ignore_ascii_case("End") {
-            break;
-        }
-        let Some(value) = values.first() else {
-            continue;
-        };
-        match key.to_ascii_uppercase().as_str() {
-            "NAME" => nugget.template_name = INI::parse_ascii_string(value)?,
-            "COUNT" => nugget.count = INI::parse_int(value)?,
-            "OFFSET" => {
-                let offset = parse_labeled_vec3(&values, false)?;
-                nugget.offset = Vec3::new(offset.x, offset.y, offset.z);
-            }
-            "RADIUS" => {
-                nugget.radius = parse_random_variable(&values)?;
-            }
-            "HEIGHT" => {
-                nugget.height = parse_random_variable(&values)?;
-            }
-            "INITIALDELAY" => {
-                nugget.delay = parse_random_variable(&values)?;
-            }
-            "ROTATEX" => nugget.rotate_x = INI::parse_angle_real(value)?,
-            "ROTATEY" => nugget.rotate_y = INI::parse_angle_real(value)?,
-            "ROTATEZ" => nugget.rotate_z = INI::parse_angle_real(value)?,
-            "ORIENTTOOBJECT" => nugget.orient_to_object = INI::parse_bool(value)?,
-            "RICOCHET" => nugget.ricochet = INI::parse_bool(value)?,
-            "ATTACHTOOBJECT" => nugget.attach_to_object = INI::parse_bool(value)?,
-            "CREATEATGROUNDHEIGHT" => nugget.create_at_ground_height = INI::parse_bool(value)?,
-            "USECALLERSRADIUS" => nugget.use_callers_radius = INI::parse_bool(value)?,
-            _ => {}
-        }
-    }
-    fx_list.add_fx_nugget(Box::new(ParticleSystemWrapper { nugget }));
-    Ok(())
-}
-
-fn parse_fx_list_at_bone_pos_nugget(ini: &mut INI, fx_list: &mut FXList) -> INIResult<()> {
-    let mut nugget = FXListAtBonePosFXNugget::default();
-    loop {
-        let Some((key, values)) = parse_block_field(ini)? else {
-            continue;
-        };
-        if key.eq_ignore_ascii_case("End") {
-            break;
-        }
-        let Some(value) = values.first() else {
-            continue;
-        };
-        match key.to_ascii_uppercase().as_str() {
-            "FX" => nugget.fx_name = INI::parse_ascii_string(value)?,
-            "BONENAME" => nugget.bone_name = INI::parse_ascii_string(value)?,
-            "ORIENTTOBONE" => nugget.orient_to_bone = INI::parse_bool(value)?,
-            _ => {}
-        }
-    }
-    fx_list.add_fx_nugget(Box::new(nugget));
-    Ok(())
 }
 
 struct SoundFXNugget {
@@ -1362,40 +1203,14 @@ impl FXNugget for LightPulseFXNugget {
     }
 }
 
-/// Camera shake types matching C++ View::CameraShakeType (View.h)
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-enum CameraShakeType {
-    Subtle,
-    #[default]
-    Normal,
-    Strong,
-    Severe,
-    CineExtreme,
-    CineInsane,
-}
-
-impl CameraShakeType {
-    fn parse_shake_type(value: &str) -> Option<Self> {
-        match value.trim().to_uppercase().as_str() {
-            "SUBTLE" => Some(CameraShakeType::Subtle),
-            "NORMAL" => Some(CameraShakeType::Normal),
-            "STRONG" => Some(CameraShakeType::Strong),
-            "SEVERE" => Some(CameraShakeType::Severe),
-            "CINE_EXTREME" => Some(CameraShakeType::CineExtreme),
-            "CINE_INSANE" => Some(CameraShakeType::CineInsane),
-            _ => None,
-        }
-    }
-
-    fn to_view_shake(self) -> ViewShakeKind {
-        match self {
-            CameraShakeType::Subtle => ViewShakeKind::Subtle,
-            CameraShakeType::Normal => ViewShakeKind::Normal,
-            CameraShakeType::Strong => ViewShakeKind::Strong,
-            CameraShakeType::Severe => ViewShakeKind::Severe,
-            CameraShakeType::CineExtreme => ViewShakeKind::CineExtreme,
-            CameraShakeType::CineInsane => ViewShakeKind::CineInsane,
-        }
+fn to_view_shake(kind: CameraShakeType) -> ViewShakeKind {
+    match kind {
+        CameraShakeType::Subtle => ViewShakeKind::Subtle,
+        CameraShakeType::Normal => ViewShakeKind::Normal,
+        CameraShakeType::Strong => ViewShakeKind::Strong,
+        CameraShakeType::Severe => ViewShakeKind::Severe,
+        CameraShakeType::CineExtreme => ViewShakeKind::CineExtreme,
+        CameraShakeType::CineInsane => ViewShakeKind::CineInsane,
     }
 }
 
@@ -1428,35 +1243,9 @@ impl FXNugget for ViewShakeFXNugget {
         with_tactical_view(|view| {
             view.shake(
                 &ViewPoint3::new(primary.x, primary.y, primary.z),
-                self.shake_type.to_view_shake(),
+                to_view_shake(self.shake_type),
             );
         });
-    }
-}
-
-/// Scorch types matching C++ Scorches enum (FXList.cpp:459-472)
-#[derive(Debug, Clone, Copy, Default)]
-enum ScorchType {
-    Scorch1 = 0,
-    Scorch2 = 1,
-    Scorch3 = 2,
-    Scorch4 = 3,
-    ShadowScorch = 4,
-    #[default]
-    Random = -1,
-}
-
-impl ScorchType {
-    fn parse_scorch_type(value: &str) -> Option<i32> {
-        match value.trim().to_uppercase().as_str() {
-            "SCORCH_1" => Some(0),
-            "SCORCH_2" => Some(1),
-            "SCORCH_3" => Some(2),
-            "SCORCH_4" => Some(3),
-            "SHADOW_SCORCH" => Some(4),
-            "RANDOM" => Some(-1),
-            _ => None,
-        }
     }
 }
 
@@ -1785,20 +1574,131 @@ mod tests {
     use super::*;
 
     #[test]
-    fn runtime_fx_parser_accepts_retail_labeled_values() {
-        let color = parse_labeled_vec3(&["R:255".into(), "G:128".into(), "B:0".into()], true)
-            .expect("retail color");
-        assert_eq!(color, Vec3::new(1.0, 128.0 / 255.0, 0.0));
+    fn dispatch_releases_catalog_guard_before_nugget_callbacks() {
+        struct WritesCatalog;
+        impl FXNugget for WritesCatalog {
+            fn do_fx_pos(
+                &self,
+                _: Option<&Coord3D>,
+                _: Option<&Matrix3D>,
+                _: f32,
+                _: Option<&Coord3D>,
+                _: f32,
+            ) {
+                let mut store = FX_LIST_STORE
+                    .get()
+                    .unwrap()
+                    .try_write()
+                    .expect("dispatch must release catalog read guard before callbacks");
+                store.add_fx_list("FX_CallbackAdmitted".into(), FXList::new());
+            }
+        }
+        let mut fx = FXList::new();
+        fx.add_fx_nugget(Box::new(WritesCatalog));
+        get_fx_list_store_mut().add_fx_list("FX_CallbackSource".into(), fx);
+        assert!(do_named_fx_obj("FX_CallbackSource", None, None));
+        assert!(
+            get_fx_list_store()
+                .find_fx_list("FX_CallbackAdmitted")
+                .is_some()
+        );
+    }
 
-        let offset = parse_labeled_vec3(&["X:1".into(), "Y:15:".into(), "Z:-2".into()], false)
-            .expect("retail offset with C++ numeric-prefix typo");
-        assert_eq!(offset, Vec3::new(1.0, 15.0, -2.0));
+    #[test]
+    fn shared_rules_feed_client_and_logic_without_consuming_rng() {
+        use game_engine::common::ini::ini_fx_list::{
+            Distribution, FXNugget as Rule, get_fx_list_store as authored_store,
+        };
+        use game_engine::common::random_value::{
+            get_game_client_random_value_real, init_random_with_seed,
+        };
+        let source = "FXList FX_SharedRulesAdapter\n Sound\n Name = Before\n End\n ParticleSystem\n Name = Smoke\n Radius = 3 17 UNIFORM\n Height = 2 8 GAUSSIAN\n End\n Sound\n Name = After\n End\nEnd\n";
+        init_random_with_seed(45678);
+        let expected = get_game_client_random_value_real(0.0, 1.0);
+        init_random_with_seed(45678);
+        let mut ini = INI::new();
+        ini.with_inline_source(source, |ini| {
+            ini.read_line()?;
+            parse_fx_list_definition(ini)
+        })
+        .unwrap();
+        assert_eq!(
+            get_game_client_random_value_real(0.0, 1.0),
+            expected,
+            "parsing does not sample ranges"
+        );
+        assert_eq!(
+            sound_names_for_fx_list("FX_SharedRulesAdapter"),
+            ["Before", "After"]
+        );
+        assert!(
+            gamelogic::helpers::TheFXListStore::find_fx_list("FX_SharedRulesAdapter").is_some()
+        );
+        let store = authored_store();
+        let authored = store.find_fx_list("FX_SharedRulesAdapter").unwrap();
+        assert_eq!(authored.nuggets.len(), 3);
+        let Rule::ParticleSystem { radius, height, .. } = &authored.nuggets[1] else {
+            panic!()
+        };
+        assert_eq!((radius.minimum, radius.maximum), (3.0, 17.0));
+        assert_eq!(height.distribution, Distribution::Gaussian);
+        assert_eq!(
+            get_fx_list_store()
+                .find_fx_list("FX_SharedRulesAdapter")
+                .unwrap()
+                .nuggets
+                .len(),
+            3
+        );
+    }
+
+    #[test]
+    fn owned_catalog_lookup_survives_a_different_name_key_namespace() {
+        let mut store = std::thread::spawn(|| {
+            NameKeyGenerator::init();
+            let mut store = FXListStore::new();
+            store.add_fx_list("FX_ClientCatalogExisting".into(), FXList::new());
+            store
+        })
+        .join()
+        .unwrap();
+        std::thread::spawn(move || {
+            NameKeyGenerator::init();
+            assert!(store.find_fx_list("FX_ClientCatalogMissing").is_none());
+            let previous = store.find_fx_list("FX_ClientCatalogExisting").unwrap();
+            assert!(store.find_fx_list("fx_clientcatalogexisting").is_none());
+            assert!(store.find_fx_list("nOnE").is_none());
+            store.add_fx_list("FX_ClientCatalogExisting".into(), FXList::new());
+            let replaced = store.find_fx_list("FX_ClientCatalogExisting").unwrap();
+            assert!(!Arc::ptr_eq(&previous, &replaced));
+            assert_eq!(NameKeyGenerator::name_to_key("FirstClientAmbientKey"), 1);
+        })
+        .join()
+        .unwrap();
+    }
+
+    #[test]
+    fn runtime_fx_parser_accepts_retail_labeled_values() {
+        use game_engine::common::ini::ini_fx_list::{FXNugget as Rule, parse_fx_nugget_definition};
+        let fields = HashMap::from([("Color".into(), "R:255 G:128 B:0".into())]);
+        let Rule::Tracer { color, .. } = parse_fx_nugget_definition("Tracer", &fields).unwrap()
+        else {
+            panic!()
+        };
+        assert_eq!(color, (1.0, 128.0 / 255.0, 0.0));
+        let fields = HashMap::from([("Offset".into(), "X:1 Y:15: Z:-2".into())]);
+        let Rule::ParticleSystem { offset, .. } =
+            parse_fx_nugget_definition("ParticleSystem", &fields).unwrap()
+        else {
+            panic!()
+        };
+        assert_eq!(offset, (1.0, 15.0, -2.0));
     }
 
     #[test]
     fn runtime_fx_parser_loads_complete_retail_file_when_present() {
         let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../../../../windows_game/extracted_big_files_v2/INI/FXList.ini");
+            .join("../../../windows_game/extracted_big_files_v2/INI/FXList.ini");
         let Ok(source) = std::fs::read_to_string(&path) else {
             return;
         };

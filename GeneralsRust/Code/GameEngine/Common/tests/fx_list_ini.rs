@@ -1,6 +1,21 @@
 use game_engine::common::ini::ini::INI;
 use game_engine::common::ini::ini_fx_list::{CameraShakeType, FXNugget, get_fx_list_store};
 use std::sync::Mutex;
+
+#[test]
+fn shared_fx_tracer_parser_preserves_cpp_units_and_defaults() {
+    use game_engine::common::ini::ini_fx_list::parse_fx_nugget_definition;
+    let fields = std::collections::HashMap::from([("Speed".into(), "900".into())]);
+    let FXNugget::Tracer {
+        name, speed, color, ..
+    } = parse_fx_nugget_definition("Tracer", &fields).unwrap()
+    else {
+        panic!("tracer rule expected")
+    };
+    assert_eq!(speed, 30.0, "C++ INI::parseVelocityReal divides by30");
+    assert_eq!(name.as_str(), "GenericTracer");
+    assert_eq!(color, (1.0, 1.0, 1.0));
+}
 use std::{fs, path::PathBuf};
 
 static FX_LIST_TEST_LOCK: Mutex<()> = Mutex::new(());
@@ -104,7 +119,7 @@ End
 fn retail_windows_game_fx_list_parses_end_to_end_when_present() {
     let _guard = FX_LIST_TEST_LOCK.lock().expect("FXList test lock");
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../../../windows_game/extracted_big_files_v2/INI/FXList.ini");
+        .join("../../../windows_game/extracted_big_files_v2/INI/FXList.ini");
     let Ok(source) = fs::read_to_string(&path) else {
         return;
     };

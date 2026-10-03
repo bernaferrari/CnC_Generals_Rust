@@ -74,7 +74,7 @@ fn parse_fx_ref(
     _ini: &mut INI,
     data: &mut BattleBusSlowDeathBehaviorModuleData,
     tokens: &[&str],
-    assign: impl Fn(&mut BattleBusSlowDeathBehaviorModuleData, Option<Arc<FXList>>),
+    assign: impl Fn(&mut BattleBusSlowDeathBehaviorModuleData, Option<FXList>),
 ) -> Result<(), INIError> {
     let value = first_value_token(tokens).ok_or(INIError::InvalidData)?;
     if value.eq_ignore_ascii_case("NONE") {
@@ -449,9 +449,9 @@ const BATTLE_BUS_SLOW_DEATH_FIELDS: &[FieldParse<BattleBusSlowDeathBehaviorModul
 pub struct BattleBusSlowDeathBehaviorModuleData {
     module_tag_name_key: NameKeyType,
     pub base: Arc<SlowDeathBehaviorModuleData>,
-    pub fx_start_undeath: Option<Arc<FXList>>,
+    pub fx_start_undeath: Option<FXList>,
     pub ocl_start_undeath: Option<Arc<ObjectCreationList>>,
-    pub fx_hit_ground: Option<Arc<FXList>>,
+    pub fx_hit_ground: Option<FXList>,
     pub ocl_hit_ground: Option<Arc<ObjectCreationList>>,
     pub throw_force: Real,
     pub percent_damage_to_passengers: Real,
@@ -659,7 +659,7 @@ impl BattleBusSlowDeathBehavior {
 
     fn execute_fx_at_object_id(
         &self,
-        fx: &Arc<FXList>,
+        fx: &FXList,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         fx.do_fx_obj_ids(self.object_id, None, None)
     }

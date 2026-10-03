@@ -1,9 +1,7 @@
 //! Effects system - FX and OCL helpers wired to game logic stores.
 
 use crate::common::types::FXListManagerInterface;
-use crate::common::{
-    AsciiString, Coord3D, FXListId, NameKeyGenerator, NameKeyType, ObjectID, Real,
-};
+use crate::common::{AsciiString, Coord3D, FXListId, NameKeyGenerator, ObjectID, Real};
 use crate::object::Object;
 use std::io;
 use std::sync::{Arc, RwLock};
@@ -17,20 +15,28 @@ pub type ParticleSystemID = crate::common::ParticleSystemId;
 /// Particle system handle (in this port, the runtime ID is the handle).
 pub type ParticleSystem = ParticleSystemID;
 
-/// FX list structure
+#[cfg(test)]
+#[path = "effects_catalog_tests.rs"]
+mod catalog_tests;
+
+/// Immutable named reference to a client FX definition. Module data already
+/// owns this value; its copy-on-write name needs no additional Arc wrapper.
 #[derive(Debug, Clone)]
 pub struct FXList {
     name: AsciiString,
-    name_key: NameKeyType,
 }
 
 impl FXList {
     pub fn new(name: &str) -> Self {
-        let name_key = NameKeyGenerator::name_to_key(name) as NameKeyType;
         Self {
             name: AsciiString::from(name),
-            name_key,
         }
+    }
+
+    /// Retain the canonical definition's immutable name buffer. No wrapper
+    /// allocation or ambient name-key work is needed when binding module data.
+    pub(crate) fn from_authored_name(name: &AsciiString) -> Self {
+        Self { name: name.clone() }
     }
 
     pub fn name(&self) -> &str {
@@ -38,7 +44,9 @@ impl FXList {
     }
 
     pub fn id(&self) -> FXListId {
-        self.name_key as FXListId
+        // The synchronous manager bridge decodes this ID in the calling
+        // namespace. Never retain another world's numeric name key here.
+        NameKeyGenerator::name_to_key(self.name()) as FXListId
     }
 
     fn resolve_id(&self, optional: Option<&str>) -> FXListId {
@@ -250,4 +258,3 @@ mod tests {
         assert_eq!(*calls.lock().unwrap(), vec![(fx.id(), 42, Some(77))]);
     }
 }
-

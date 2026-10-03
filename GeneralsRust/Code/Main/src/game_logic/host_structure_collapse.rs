@@ -512,29 +512,16 @@ pub fn collapse_ini_from_behavior_attrs(attrs: &[(&str, &str)]) -> HostStructure
     }
 }
 
-fn first_named_fx_slot<T>(list: &[Option<std::sync::Arc<T>>]) -> Option<String>
-where
-    T: FxNamed,
-{
+fn first_named_fx_slot(list: &[Option<gamelogic::effects::FXList>]) -> Option<String> {
     for slot in list {
         if let Some(fx) = slot {
-            let n = fx.fx_name().trim();
+            let n = fx.name().trim();
             if !n.is_empty() && !n.eq_ignore_ascii_case("None") {
                 return Some(n.to_string());
             }
         }
     }
     None
-}
-
-trait FxNamed {
-    fn fx_name(&self) -> &str;
-}
-
-impl FxNamed for gamelogic::effects::FXList {
-    fn fx_name(&self) -> &str {
-        self.name()
-    }
 }
 
 fn leftover_structure_collapse_module_peel(

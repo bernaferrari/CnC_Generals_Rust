@@ -160,7 +160,7 @@ pub struct FXBoneInfo {
 #[derive(Clone, Debug)]
 pub struct AngleFXInfo {
     pub angle: Real,
-    pub fx_list: Option<Arc<FXList>>,
+    pub fx_list: Option<FXList>,
 }
 
 #[derive(Clone, Debug)]
@@ -172,11 +172,11 @@ pub struct StructureToppleUpdateModuleData {
     pub structural_integrity: Real,
     pub structural_decay: Real,
     pub damage_fx_types: crate::damage::DamageTypeFlags,
-    pub topple_start_fx_list: Option<Arc<FXList>>,
-    pub topple_delay_fx_list: Option<Arc<FXList>>,
-    pub topple_fx_list: Option<Arc<FXList>>,
-    pub topple_done_fx_list: Option<Arc<FXList>>,
-    pub crushing_fx_list: Option<Arc<FXList>>,
+    pub topple_start_fx_list: Option<FXList>,
+    pub topple_delay_fx_list: Option<FXList>,
+    pub topple_fx_list: Option<FXList>,
+    pub topple_done_fx_list: Option<FXList>,
+    pub crushing_fx_list: Option<FXList>,
     pub crushing_weapon_name: AsciiString,
     pub min_topple_burst_delay: UnsignedInt,
     pub max_topple_burst_delay: UnsignedInt,
@@ -334,7 +334,7 @@ fn parse_damage_fx_types(
     Ok(())
 }
 
-fn parse_fx_list(data_field: &mut Option<Arc<FXList>>, tokens: &[&str]) -> Result<(), INIError> {
+fn parse_fx_list(data_field: &mut Option<FXList>, tokens: &[&str]) -> Result<(), INIError> {
     let token = first_value_token(tokens).ok_or(INIError::InvalidData)?;
     if token.eq_ignore_ascii_case("NONE") {
         *data_field = None;

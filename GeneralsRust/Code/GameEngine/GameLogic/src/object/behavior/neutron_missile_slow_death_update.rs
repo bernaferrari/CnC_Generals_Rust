@@ -70,7 +70,7 @@ pub struct NeutronMissileSlowDeathUpdateModuleData {
     pub base: BehaviorModuleData,
     pub probability_modifier: i32,
     pub scorch_size: Real,
-    pub fx_list: Option<Arc<FXList>>,
+    pub fx_list: Option<FXList>,
     pub blast_info: [BlastInfo; MAX_NEUTRON_BLASTS],
 }
 

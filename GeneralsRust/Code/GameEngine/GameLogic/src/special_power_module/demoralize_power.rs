@@ -7,7 +7,6 @@ use super::types::*;
 use crate::common::*;
 use crate::effects::FXList;
 use crate::helpers::TheAudio;
-use std::sync::Arc;
 
 /// Wave 403: host-only path has no dual-world factory objects.
 #[inline]
@@ -24,7 +23,7 @@ pub struct DemoralizeSpecialPowerData {
     pub base_duration_frames: UnsignedInt,
     pub bonus_duration_per_captured_frames: UnsignedInt,
     pub max_duration_frames: UnsignedInt,
-    pub fx_list: Option<Arc<FXList>>,
+    pub fx_list: Option<FXList>,
 }
 
 impl DemoralizeSpecialPowerData {

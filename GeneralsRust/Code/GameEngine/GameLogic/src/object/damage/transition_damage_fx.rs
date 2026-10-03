@@ -62,7 +62,7 @@ impl Default for FXLocInfo {
 
 #[derive(Debug, Clone)]
 pub struct FXDamageFXListInfo {
-    pub fx: Option<Arc<crate::common::FXList>>,
+    pub fx: Option<crate::common::FXList>,
     pub loc_info: FXLocInfo,
 }
 

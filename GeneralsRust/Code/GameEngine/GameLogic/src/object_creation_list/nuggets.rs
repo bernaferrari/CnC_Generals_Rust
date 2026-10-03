@@ -1092,7 +1092,7 @@ fn apply_debris_model_and_anims(
             initial: &set.anim_initial,
             flying: &set.anim_flying,
             final_anim: &set.anim_final,
-            final_fx: fx_arc.as_deref(),
+            final_fx: fx_arc.as_ref(),
         })
     } else {
         None

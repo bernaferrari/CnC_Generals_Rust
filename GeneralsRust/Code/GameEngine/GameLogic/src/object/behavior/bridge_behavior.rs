@@ -98,7 +98,7 @@ impl Default for TimeAndLocationInfo {
 #[derive(Debug, Clone)]
 pub struct BridgeFXInfo {
     pub fx_name: Option<AsciiString>,
-    pub fx: Option<Arc<FXList>>,
+    pub fx: Option<FXList>,
     pub time_and_location_info: TimeAndLocationInfo,
 }
 
@@ -420,12 +420,12 @@ pub struct BridgeBehavior {
     // Damage and repair effects
     pub damage_to_ocl:
         [[Option<Arc<ObjectCreationList>>; MAX_BRIDGE_BODY_FX]; BODYDAMAGETYPE_COUNT],
-    pub damage_to_fx: [[Option<Arc<FXList>>; MAX_BRIDGE_BODY_FX]; BODYDAMAGETYPE_COUNT],
+    pub damage_to_fx: [[Option<FXList>; MAX_BRIDGE_BODY_FX]; BODYDAMAGETYPE_COUNT],
     pub damage_to_sound: [AudioEventRTS; BODYDAMAGETYPE_COUNT],
 
     pub repair_to_ocl:
         [[Option<Arc<ObjectCreationList>>; MAX_BRIDGE_BODY_FX]; BODYDAMAGETYPE_COUNT],
-    pub repair_to_fx: [[Option<Arc<FXList>>; MAX_BRIDGE_BODY_FX]; BODYDAMAGETYPE_COUNT],
+    pub repair_to_fx: [[Option<FXList>; MAX_BRIDGE_BODY_FX]; BODYDAMAGETYPE_COUNT],
     pub repair_to_sound: [AudioEventRTS; BODYDAMAGETYPE_COUNT],
 
     // State
@@ -433,7 +433,7 @@ pub struct BridgeBehavior {
     pub scaffold_present: Bool,
     pub scaffold_object_id_list: Vec<ObjectID>,
     pub death_frame: UnsignedInt,
-    module_fx_handles: Vec<Option<Arc<FXList>>>,
+    module_fx_handles: Vec<Option<FXList>>,
     module_ocl_handles: Vec<Option<Arc<ObjectCreationList>>>,
 }
 
@@ -453,11 +453,11 @@ impl BridgeBehavior {
 
         let damage_to_ocl: [[Option<Arc<ObjectCreationList>>; MAX_BRIDGE_BODY_FX];
             BODYDAMAGETYPE_COUNT] = array::from_fn(|_| array::from_fn(|_| None));
-        let damage_to_fx: [[Option<Arc<FXList>>; MAX_BRIDGE_BODY_FX]; BODYDAMAGETYPE_COUNT] =
+        let damage_to_fx: [[Option<FXList>; MAX_BRIDGE_BODY_FX]; BODYDAMAGETYPE_COUNT] =
             array::from_fn(|_| array::from_fn(|_| None));
         let repair_to_ocl: [[Option<Arc<ObjectCreationList>>; MAX_BRIDGE_BODY_FX];
             BODYDAMAGETYPE_COUNT] = array::from_fn(|_| array::from_fn(|_| None));
-        let repair_to_fx: [[Option<Arc<FXList>>; MAX_BRIDGE_BODY_FX]; BODYDAMAGETYPE_COUNT] =
+        let repair_to_fx: [[Option<FXList>; MAX_BRIDGE_BODY_FX]; BODYDAMAGETYPE_COUNT] =
             array::from_fn(|_| array::from_fn(|_| None));
         let damage_to_sound: [AudioEventRTS; BODYDAMAGETYPE_COUNT] =
             array::from_fn(|_| AudioEventRTS::new());
@@ -1839,9 +1839,7 @@ impl DamageModuleInterface for BridgeBehavior {
 
             // Do repair FX and OCL
             for i in 0..MAX_BRIDGE_BODY_FX {
-                let fx = self.repair_to_fx[new_state_index][i]
-                    .as_ref()
-                    .map(|arc| arc.as_ref());
+                let fx = self.repair_to_fx[new_state_index][i].as_ref();
                 let ocl = self.repair_to_ocl[new_state_index][i]
                     .as_ref()
                     .map(|arc| arc.as_ref());
@@ -1853,9 +1851,7 @@ impl DamageModuleInterface for BridgeBehavior {
 
             // Do damage FX and OCL
             for i in 0..MAX_BRIDGE_BODY_FX {
-                let fx = self.damage_to_fx[new_state_index][i]
-                    .as_ref()
-                    .map(|arc| arc.as_ref());
+                let fx = self.damage_to_fx[new_state_index][i].as_ref();
                 let ocl = self.damage_to_ocl[new_state_index][i]
                     .as_ref()
                     .map(|arc| arc.as_ref());
@@ -1945,10 +1941,10 @@ impl UpdateModuleInterface for BridgeBehavior {
                     )?;
                     match spawn {
                         ModuleEffectSpawn::Position(pos) => {
-                            self.execute_fx_at_position(handle_arc.as_ref(), &pos)?;
+                            self.execute_fx_at_position(&handle_arc, &pos)?;
                         }
                         ModuleEffectSpawn::ParentObject => {
-                            self.execute_fx_at_position(handle_arc.as_ref(), &object_position)?;
+                            self.execute_fx_at_position(&handle_arc, &object_position)?;
                         }
                     }
                 }

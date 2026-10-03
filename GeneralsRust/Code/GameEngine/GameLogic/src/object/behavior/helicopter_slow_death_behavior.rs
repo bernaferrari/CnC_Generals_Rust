@@ -55,11 +55,11 @@ pub struct HelicopterSlowDeathBehaviorModuleData {
     pub blade_object_name: String,
     pub blade_bone: String,
     pub ocl_eject_pilot: Option<Arc<ObjectCreationList>>,
-    pub fx_blade: Option<Arc<FXList>>,
+    pub fx_blade: Option<FXList>,
     pub ocl_blade: Option<Arc<ObjectCreationList>>,
-    pub fx_hit_ground: Option<Arc<FXList>>,
+    pub fx_hit_ground: Option<FXList>,
     pub ocl_hit_ground: Option<Arc<ObjectCreationList>>,
-    pub fx_final_blow_up: Option<Arc<FXList>>,
+    pub fx_final_blow_up: Option<FXList>,
     pub ocl_final_blow_up: Option<Arc<ObjectCreationList>>,
     pub delay_from_ground_to_final_death: Real,
     pub final_rubble_object: String,
@@ -291,7 +291,7 @@ fn parse_blade_bone_name(
     Ok(())
 }
 
-fn parse_fx_slot(target: &mut Option<Arc<FXList>>, tokens: &[&str]) -> Result<(), INIError> {
+fn parse_fx_slot(target: &mut Option<FXList>, tokens: &[&str]) -> Result<(), INIError> {
     let name = token(tokens)?;
     *target = TheFXListStore::find_fx_list(name).or_else(|| {
         if name.eq_ignore_ascii_case("None") {

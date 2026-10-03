@@ -157,9 +157,13 @@ mod tests {
         let geom = GeometryInfo::new_box(160.0, 160.0, false);
         let cells = cells_touched_for_geometry(0.0, 0.0, &geom, 0.0);
         assert!(
-            cells.contains(&CellCoord { x: 2, y: 0 }),
-            "80wu half-extent box must occupy cell (2,0)"
+            cells.contains(&CellCoord { x: 1, y: 0 }),
+            "C++ samples the 80wu half-extent box at x=60 (cell1)"
         );
+        // C++ doRectFill uses ix < numStepsX (no +1 fudge). The
+        // positive X boundary is deliberately not an extra sample.
+        assert!(!cells.contains(&CellCoord { x: 2, y: 0 }));
+        assert!(cells.contains(&CellCoord { x: -2, y: 0 }));
         assert!(cells.contains(&CellCoord { x: 0, y: 0 }));
     }
 

@@ -97,7 +97,7 @@ pub struct SlowDeathBehaviorModuleData {
     pub destruction_altitude: Real,
     pub destruction_delay: UnsignedInt,
     pub destruction_delay_variance: UnsignedInt,
-    pub fx: [Vec<Option<Arc<FXList>>>; SlowDeathPhaseType::COUNT],
+    pub fx: [Vec<Option<FXList>>; SlowDeathPhaseType::COUNT],
     pub ocls: [Vec<Option<Arc<ObjectCreationList>>>; SlowDeathPhaseType::COUNT],
     pub weapons: [Vec<Option<Arc<WeaponTemplate>>>; SlowDeathPhaseType::COUNT],
     pub fling_force: Real,

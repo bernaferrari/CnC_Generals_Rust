@@ -2534,7 +2534,7 @@ impl Pathfinder {
     }
 
     /// Queue a pathfinding request (matches C++ Pathfinder::queueForPath).
-    pub fn queue_for_path_request(&self, request: ClassicPathRequest) -> Result<(), String> {
+    pub fn queue_for_path_request(&mut self, request: ClassicPathRequest) -> Result<(), String> {
         self.inner.queue_path_request(request)
     }
 

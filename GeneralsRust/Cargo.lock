@@ -4230,6 +4230,7 @@ dependencies = [
  "flate2",
  "futures",
  "generals_compression",
+ "generals_fx",
  "getrandom 0.3.4",
  "getrandom 0.4.2",
  "glam 0.33.7",
@@ -4477,6 +4478,10 @@ dependencies = [
  "thiserror 2.0.20",
  "zstd 0.14.0",
 ]
+
+[[package]]
+name = "generals_fx"
+version = "0.1.0"
 
 [[package]]
 name = "generals_game_domain"

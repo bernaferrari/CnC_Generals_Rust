@@ -47,8 +47,8 @@ pub const TOPPLE_OPTIONS_NO_FX: u32 = 0x0000_0002;
 #[derive(Clone, Debug)]
 pub struct ToppleUpdateModuleData {
     pub base: BehaviorModuleData,
-    pub topple_fx: Option<Arc<FXList>>,
-    pub bounce_fx: Option<Arc<FXList>>,
+    pub topple_fx: Option<FXList>,
+    pub bounce_fx: Option<FXList>,
     pub stump_name: AsciiString,
     pub initial_velocity_percent: Real,
     pub initial_accel_percent: Real,
@@ -87,7 +87,7 @@ impl ToppleUpdateModuleData {
     }
 }
 
-fn parse_fx_list(data_field: &mut Option<Arc<FXList>>, tokens: &[&str]) -> Result<(), INIError> {
+fn parse_fx_list(data_field: &mut Option<FXList>, tokens: &[&str]) -> Result<(), INIError> {
     let token = required_value(tokens)?;
     if token.eq_ignore_ascii_case("NONE") {
         *data_field = None;

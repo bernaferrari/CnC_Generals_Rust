@@ -76,7 +76,7 @@ pub struct StructureCollapseUpdateModuleData {
     pub max_shudder: Real,
     pub big_burst_frequency: i32,
     pub ocls: [Vec<Option<Arc<ObjectCreationList>>>; StructureCollapsePhaseType::COUNT],
-    pub fxs: [Vec<Option<Arc<FXList>>>; StructureCollapsePhaseType::COUNT],
+    pub fxs: [Vec<Option<FXList>>; StructureCollapsePhaseType::COUNT],
     pub ocl_count: [UnsignedInt; StructureCollapsePhaseType::COUNT],
     pub fx_count: [UnsignedInt; StructureCollapsePhaseType::COUNT],
 }

@@ -19,7 +19,7 @@ use crate::weapon::{WeaponTemplate, with_weapon_store};
 #[derive(Debug, Clone)]
 pub struct InstantDeathBehaviorModuleData {
     pub base: DieModuleData,
-    pub fx: Vec<Arc<FXList>>,
+    pub fx: Vec<FXList>,
     pub ocls: Vec<Arc<ObjectCreationList>>,
     pub weapons: Vec<Arc<WeaponTemplate>>,
 }

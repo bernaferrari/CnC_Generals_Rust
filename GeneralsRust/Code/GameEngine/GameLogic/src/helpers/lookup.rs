@@ -910,51 +910,34 @@ fn register_created_object_with_partition(
     partition.register_object_at(guard.get_id(), *guard.get_position());
 }
 
-/// TheFXListStore singleton - FX list storage system (matching C++ TheFXListStore)
+/// Startup adapter to the canonical Common authored definitions.
 pub struct TheFXListStore;
 
-static FX_LIST_STORE: Lazy<RwLock<HashMap<NameKeyType, Arc<FXList>>>> =
-    Lazy::new(|| RwLock::new(HashMap::new()));
-
 impl TheFXListStore {
-    /// Lookup an existing FX list without creating a placeholder entry.
-    pub fn lookup_fx_list(name: &str) -> Option<Arc<FXList>> {
-        if name.eq_ignore_ascii_case("None") {
-            return None;
-        }
-        let key = NameKeyGenerator::name_to_key(name) as NameKeyType;
-        FX_LIST_STORE
-            .read()
-            .ok()
-            .and_then(|store| store.get(&key).cloned())
+    pub fn lookup_fx_list(name: &str) -> Option<FXList> {
+        game_engine::common::ini::ini_fx_list::get_fx_list_store()
+            .find_fx_list(name)
+            .map(|definition| FXList::from_authored_name(&definition.name))
     }
 
-    /// Find FX list (matches C++ TheFXListStore::findFXList)
-    pub fn find_fx_list(name: &str) -> Option<Arc<FXList>> {
+    pub fn find_fx_list(name: &str) -> Option<FXList> {
         Self::lookup_fx_list(name)
     }
 
-    /// Register an FX list for later lookup. Returns the stored handle.
-    pub fn register_fx_list(name: &str, fx: FXList) -> Arc<FXList> {
-        let key = NameKeyGenerator::name_to_key(name) as NameKeyType;
-        let mut store = FX_LIST_STORE.write().expect("FX list store lock poisoned");
-        store.entry(key).or_insert_with(|| Arc::new(fx)).clone()
-    }
-
-    /// Ensure an FX list exists.
-    pub fn ensure_fx_list(name: &str) -> Arc<FXList> {
-        if name.eq_ignore_ascii_case("None") {
-            panic!("FXList name must be valid");
+    /// Startup/test admission preserves any already parsed authored definition.
+    pub fn ensure_fx_list(name: &str) -> FXList {
+        assert!(
+            !name.eq_ignore_ascii_case("None"),
+            "FXList name must be valid"
+        );
+        use game_engine::common::ini::ini_fx_list::{FXList as Definition, get_fx_list_store_mut};
+        let mut store = get_fx_list_store_mut();
+        if store.find_fx_list(name).is_none() {
+            store.add_fx_list(Definition::new(name.into()));
         }
-        if let Some(existing) = Self::lookup_fx_list(name) {
-            return existing;
-        }
-        let key = NameKeyGenerator::name_to_key(name) as NameKeyType;
-        let fx = Arc::new(FXList::new(name));
-        if let Ok(mut store) = FX_LIST_STORE.write() {
-            return store.entry(key).or_insert_with(|| Arc::clone(&fx)).clone();
-        }
-        fx
+        FXList::from_authored_name(
+            &store.find_fx_list(name).expect("admitted FX definition").name,
+        )
     }
 }
 
