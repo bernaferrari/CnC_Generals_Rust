@@ -42,12 +42,13 @@ fn disabled_module_should_process(
 }
 
 /// Borrow only scheduling state, not the mutable match or an ambient singleton.
-struct SleepyUpdateContext<'a> {
+struct UpdateExecutionContext<'a> {
     queue: &'a mut SleepyUpdateQueue,
     normal: &'a mut Vec<NormalUpdateEntry>,
     lookup: &'a mut HashMap<ObjectID, Vec<ModuleIdentity>>,
     current: &'a UpdateModulePtr,
     now: UnsignedInt,
+    normal_cursor: Option<&'a mut usize>,
 }
 
 fn awaken_registered_update(
@@ -70,7 +71,7 @@ fn awaken_registered_update(
     queue.reschedule(module, wake, phase);
 }
 
-impl UpdateScheduleContext for SleepyUpdateContext<'_> {
+impl UpdateScheduleContext for UpdateExecutionContext<'_> {
     fn frame(&self) -> u32 {
         self.now
     }
@@ -83,6 +84,19 @@ impl UpdateScheduleContext for SleepyUpdateContext<'_> {
     }
 
     fn unregister(&mut self, module: &UpdateModulePtr) {
+        // Removal is visible before the next callback. Keep the normal-list
+        // cursor on the next surviving entry, including self/earlier removal.
+        if let Some(cursor) = &mut self.normal_cursor {
+            if let Some(index) = self
+                .normal
+                .iter()
+                .position(|entry| Arc::ptr_eq(&entry.module, module))
+            {
+                if index < **cursor {
+                    **cursor -= 1;
+                }
+            }
+        }
         unregister_registered_update(self.queue, self.normal, self.lookup, module);
     }
 }
@@ -158,12 +172,13 @@ impl GameLogic {
                 let _cur = enter_cur_update_module(&module);
                 match module.write() {
                     Ok(mut update) => {
-                        let mut context = SleepyUpdateContext {
+                        let mut context = UpdateExecutionContext {
                             queue: &mut self.sleepy_updates,
                             normal: &mut self.normal_updates,
                             lookup: &mut self.module_lookup,
                             current: &module,
                             now: current_frame,
+                            normal_cursor: None,
                         };
                         match update.update_scheduled(&mut context) {
                             Ok(sleep) => sleep,
@@ -256,15 +271,23 @@ impl GameLogic {
         ];
 
         for phase in phases {
-            for entry in &self.normal_updates {
+            let mut cursor = 0;
+            while cursor < self.normal_updates.len() {
+                let entry = &self.normal_updates[cursor];
+                cursor += 1;
                 let (module_disabled_mask, module_phase) = entry
                     .module
                     .read()
                     .map(|module| {
-                        (
-                            module.get_disabled_types_to_process(),
-                            module.get_update_phase(),
-                        )
+                        let module_phase = module.get_update_phase();
+                        // Class phase is immutable. Only the selected phase
+                        // needs to borrow mutable module state for its mask.
+                        let disabled = if module_phase == phase {
+                            module.get_disabled_types_to_process()
+                        } else {
+                            DisabledMaskType::empty()
+                        };
+                        (disabled, module_phase)
                     })
                     .unwrap_or((DisabledMaskType::empty(), SleepyUpdatePhase::Normal));
                 if module_phase != phase {
@@ -287,20 +310,30 @@ impl GameLogic {
                     continue;
                 }
 
-                let _cur = enter_cur_update_module(&entry.module);
-                if let Ok(mut module) = entry.module.write() {
-                    match module.update() {
+                let object_id = entry.object_id;
+                let handle = Arc::clone(&entry.module);
+                let _cur = enter_cur_update_module(&handle);
+                if let Ok(mut module) = handle.write() {
+                    let mut context = UpdateExecutionContext {
+                        queue: &mut self.sleepy_updates,
+                        normal: &mut self.normal_updates,
+                        lookup: &mut self.module_lookup,
+                        current: &handle,
+                        now: self.frame,
+                        normal_cursor: Some(&mut cursor),
+                    };
+                    match module.update_scheduled(&mut context) {
                         Ok(UpdateSleepTime::None) => {}
                         Ok(other) => {
                             warn!(
                                 "Normal update module for object {} returned sleep {:?}",
-                                entry.object_id, other
+                                object_id, other
                             );
                         }
                         Err(e) => {
                             warn!(
                                 "Normal update module for object {} failed: {}",
-                                entry.object_id, e
+                                object_id, e
                             );
                         }
                     }
@@ -471,7 +504,10 @@ impl GameLogic {
 
 #[cfg(test)]
 impl GameLogic {
-    fn sleepy_entry_for(&self, module: &UpdateModulePtr) -> Option<(ObjectID, UnsignedInt)> {
+    pub(crate) fn sleepy_entry_for(
+        &self,
+        module: &UpdateModulePtr,
+    ) -> Option<(ObjectID, UnsignedInt)> {
         self.sleepy_updates
             .iter()
             .find(|entry| Arc::ptr_eq(&entry.module, module))

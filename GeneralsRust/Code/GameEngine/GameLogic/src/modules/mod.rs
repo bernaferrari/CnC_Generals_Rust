@@ -19,6 +19,9 @@ include!("special_power.rs");
 include!("extension_traits.rs");
 include!("tests.rs");
 
+#[cfg(test)]
+mod move_away_dispatch_tests;
+
 /// Concatenated live sources for residual `include_str!` scans.
 pub const MODULES_SRC: &str = concat!(
     include_str!("mod.rs"),

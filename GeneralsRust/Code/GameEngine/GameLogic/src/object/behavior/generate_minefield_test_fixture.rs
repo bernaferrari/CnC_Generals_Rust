@@ -13,6 +13,7 @@ pub(super) struct MinefieldFixture {
     pub id: u32,
     pub template: String,
     object: Arc<RwLock<Object>>,
+    added_objects: Vec<(u32, Arc<RwLock<Object>>)>,
     terrain: Option<crate::terrain::TerrainLogic>,
     seed: [u32; 6],
 }
@@ -60,6 +61,7 @@ impl MinefieldFixture {
             id,
             template,
             object,
+            added_objects: Vec::new(),
             terrain: Some(previous),
             seed: game_engine::common::random_value::get_game_logic_random_seed_state(),
         };
@@ -82,6 +84,43 @@ impl MinefieldFixture {
             .random_jitter(0.0)
             .on_death(on_death)
             .build(self.id)
+    }
+
+    /// Create a genuine authored obstruction and retain its exact retirement identity.
+    pub fn spawn_structure(&mut self, position: Coord3D) -> u32 {
+        let template_name = format!("OwnedMinefieldFixtureStructure{}", self.id);
+        let loaded = {
+            let mut factory = get_thing_factory().unwrap();
+            let factory = factory.as_mut().unwrap();
+            if factory.find_template(&template_name, false).is_none() {
+                let rules = format!(
+                    "Object {template_name}\n  KindOf = STRUCTURE\n  Geometry = CYLINDER\n  GeometryMajorRadius = 4.0\n  GeometryMinorRadius = 4.0\n  GeometryHeight = 4.0\nEnd\n"
+                );
+                Some(factory.load_ini_text(&rules))
+            } else {
+                None
+            }
+        };
+        if let Some(loaded) = loaded {
+            assert_eq!(loaded, 1);
+        }
+        let template = crate::helpers::TheThingFactory::find_template(&template_name)
+            .expect("authored structure template");
+        let object = crate::helpers::TheThingFactory::get()
+            .unwrap()
+            .new_object_optional_team(template, None)
+            .expect("actual factory structure");
+        let id = object.read().unwrap().get_id();
+        self.added_objects.push((id, Arc::clone(&object)));
+        let positioned = object.write().unwrap().set_position(&position);
+        positioned.expect("actual structure position");
+        // The factory registers its initial pose. set_position currently leaves
+        // this canonical cache stale (hq-0jgag), so use the same registration
+        // boundary with the actual new pose, never a fabricated candidate list.
+        crate::helpers::ThePartitionManager::get()
+            .unwrap()
+            .register_object_at(id, position);
+        id
     }
 
     pub fn assert_real_mines(&self, behavior: &GenerateMinefieldBehavior) -> Vec<u32> {
@@ -148,6 +187,17 @@ impl MinefieldFixture {
                 mines.push((mine.get_id(), object.clone()));
             }
         }
+        for (id, expected) in &self.added_objects {
+            let admitted = logic
+                .find_object_by_id(*id)
+                .ok_or_else(|| format!("added fixture {id} missing canonical admission"))?;
+            if !Arc::ptr_eq(&admitted, expected) {
+                return Err(format!("added fixture {id} canonical identity mismatch"));
+            }
+            if !mines.iter().any(|(candidate, _)| candidate == id) {
+                mines.push((*id, Arc::clone(expected)));
+            }
+        }
         let detached: Vec<_> = {
             let manager_handle = get_object_manager();
             let mut manager = manager_handle
@@ -206,4 +256,91 @@ impl Drop for MinefieldFixture {
             }
         }
     }
+}
+
+#[test]
+fn structure_rejection_consumes_orientation_before_next_real_mine() {
+    use game_engine::common::random_value::{
+        get_game_logic_random_seed_state, set_game_logic_random_seed_state,
+    };
+
+    let _guard = crate::test_sync::lock();
+    let mut fixture = MinefieldFixture::new(98_104);
+    let behavior = fixture.behavior(false);
+    let blocked = Coord3D::new(192.0, 192.0, 3.0);
+    let free = Coord3D::new(224.0, 192.0, 3.0);
+    let structure_id = fixture.spawn_structure(blocked);
+    let structure_kind = crate::object::registry::OBJECT_REGISTRY
+        .with_object(structure_id, |object| {
+            object.is_kind_of(crate::common::KindOf::Structure)
+        });
+    assert_eq!(structure_kind, Some(true));
+    let query_radius = behavior.mine_template_radius(&fixture.template).unwrap()
+        * (1.0 - behavior.config.skip_if_this_much_under_structure);
+    let partition = crate::helpers::ThePartitionManager::get().unwrap();
+    assert!(
+        partition
+            .get_objects_in_range(&blocked, query_radius)
+            .contains(&structure_id)
+    );
+    assert!(
+        !partition
+            .get_objects_in_range(&free, query_radius)
+            .contains(&structure_id)
+    );
+
+    // Read canonical facts under guards, but validate outside them. Exact
+    // IDs also prove rejection did not fabricate or create a mine.
+    let canonical_ids = || {
+        let ids = crate::system::game_logic::get_game_logic()
+            .lock()
+            .unwrap()
+            .get_all_object_ids()
+            .to_vec();
+        let mut ids = ids;
+        ids.sort_unstable();
+        ids
+    };
+    let before_ids = canonical_ids();
+    let before_seed = [0x1234, 0x5678, 0x9abc, 0xdef0, 0x1357, 0x2468];
+    set_game_logic_random_seed_state(before_seed);
+    let _rejected_orientation = behavior.random_value(-std::f32::consts::PI, std::f32::consts::PI);
+    let after_one_draw = get_game_logic_random_seed_state();
+    let expected_orientation = behavior.random_value(-std::f32::consts::PI, std::f32::consts::PI);
+    let after_two_draws = get_game_logic_random_seed_state();
+    set_game_logic_random_seed_state(before_seed);
+
+    // CPP GenerateMinefieldBehavior.cpp:170-197: valid terrain -> draw
+    // orientation -> real structure overlap -> rejection without creation.
+    let rejected = behavior.place_mine_at(&blocked, &fixture.template);
+    assert!(matches!(rejected, Err(BehaviorError::NoSpaceAvailable)));
+    assert_eq!(canonical_ids(), before_ids);
+    assert_eq!(get_game_logic_random_seed_state(), after_one_draw);
+
+    // CPP:199-212 creates a real mine using the following orientation.
+    // Authored templates have no build variations or random module hooks.
+    let mine_id = behavior
+        .place_mine_at(&free, &fixture.template)
+        .expect("unblocked actual factory mine");
+    let facts = crate::object::registry::OBJECT_REGISTRY
+        .with_object(mine_id, |mine| {
+            (
+                mine.get_producer_id(),
+                mine.get_template().get_name().as_str().to_owned(),
+                mine.is_kind_of(crate::common::KindOf::Mine),
+                *mine.get_position(),
+                mine.get_orientation(),
+            )
+        })
+        .expect("actual created mine");
+    assert_eq!(facts.0, fixture.id);
+    assert_eq!(facts.1, fixture.template);
+    assert!(facts.2);
+    assert_eq!(facts.3, free);
+    assert_eq!(facts.4, expected_orientation);
+    assert_eq!(get_game_logic_random_seed_state(), after_two_draws);
+    let mut expected_ids = before_ids;
+    expected_ids.push(mine_id);
+    expected_ids.sort_unstable();
+    assert_eq!(canonical_ids(), expected_ids);
 }

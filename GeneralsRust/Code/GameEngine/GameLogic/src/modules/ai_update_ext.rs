@@ -120,7 +120,11 @@ pub trait AIUpdateInterfaceExt {
         cmd_source: CommandSourceType,
     );
     fn is_idle(&self) -> bool;
-    fn get_next_mood_target_id(&self, use_existing_target: bool, ignore_attacked: bool) -> crate::common::ObjectID;
+    fn get_next_mood_target_id(
+        &self,
+        use_existing_target: bool,
+        ignore_attacked: bool,
+    ) -> crate::common::ObjectID;
     fn is_busy(&self) -> bool {
         !self.is_idle()
     }
@@ -551,27 +555,12 @@ impl AIUpdateInterfaceExt for Arc<Mutex<dyn AIUpdateInterface>> {
     }
 
     fn ai_move_away_from_unit(&self, obj_id: ObjectID, cmd_source: CommandSourceType) {
-        // Wave 340: empty dual-world → no-op.
-        if dual_world_registry_unavailable() {
-            return;
-        }
-
+        // C++ AI.h:814-819 forwards the command to the receiving AI. Its
+        // private handler owns dead/mobile/Jet restrictions; the collision
+        // caller owns the receiving infantry's busy/ability check. Looking up
+        // the other unit here can consult a different world and veto the wrong
+        // unit while holding this controller's lock.
         if let Ok(mut guard) = self.try_lock() {
-            if !guard.is_allowed_to_move_away_from_unit() {
-                return;
-            }
-            if let Some(other) = crate::helpers::TheGameLogic::find_object_by_id(obj_id) {
-                if let Ok(other_guard) = other.read() {
-                    if other_guard.test_status(crate::common::ObjectStatusTypes::IsUsingAbility)
-                        || other_guard
-                            .get_ai()
-                            .and_then(|ai| ai.lock().ok().map(|ai_guard| ai_guard.is_busy()))
-                            .unwrap_or(false)
-                    {
-                        return;
-                    }
-                }
-            }
             let mut params = crate::ai::AiCommandParams::new(
                 crate::ai::AiCommandType::MoveAwayFromUnit,
                 cmd_source,
@@ -762,7 +751,6 @@ impl AIUpdateInterfaceExt for Arc<Mutex<dyn AIUpdateInterface>> {
         }
     }
 
-
     fn set_turret_enabled(&self, turret: TurretType, enabled: bool) {
         if let Ok(mut guard) = self.try_lock() {
             guard.set_turret_enabled(turret, enabled);
@@ -814,7 +802,6 @@ impl AIUpdateInterfaceExt for Arc<Mutex<dyn AIUpdateInterface>> {
             None
         }
     }
-
 
     fn get_locomotor_distance_to_goal(&self) -> Real {
         if let Ok(guard) = self.try_lock() {
@@ -879,4 +866,3 @@ impl AIUpdateInterfaceExt for Arc<Mutex<dyn AIUpdateInterface>> {
         }
     }
 }
-

@@ -296,7 +296,7 @@ fn destroy_notification_updates_frame_without_recaching_destroyed_owner() {
     let _isolation = crate::object::registry::test_isolation_lock()
         .lock()
         .unwrap();
-    let fixture = CompletionFixture::new(0);
+    let mut fixture = CompletionFixture::new(0);
     fixture.structure.write().unwrap().init_object().unwrap();
     let tracker = crate::scripting::engine::get_named_object_tracker();
     crate::scripting::engine::get_script_engine()
@@ -310,7 +310,7 @@ fn destroy_notification_updates_frame_without_recaching_destroyed_owner() {
         tracker.get_object_id("CompletionScriptName").unwrap(),
         Some(fixture.structure.read().unwrap().get_id())
     );
-    let frame = crate::helpers::TheGameLogic::get_frame() as u32;
+    let frame = fixture.frame();
     crate::scripting::engine::get_script_engine()
         .write()
         .unwrap()
@@ -318,7 +318,7 @@ fn destroy_notification_updates_frame_without_recaching_destroyed_owner() {
         .unwrap()
         .set_frame_object_count_changed(frame.wrapping_add(1));
     let object_id = fixture.structure.read().unwrap().get_id();
-    fixture.structure.write().unwrap().on_destroy();
+    fixture.request_structure_destruction();
     assert_eq!(
         tracker.get_object_id("CompletionScriptName").unwrap(),
         Some(object_id),
@@ -331,7 +331,7 @@ fn destroy_notification_updates_frame_without_recaching_destroyed_owner() {
         .unwrap()
         .get_frame_object_count_changed();
     assert_eq!(changed, frame.wrapping_add(1));
-    fixture.structure.write().unwrap().run_destructor_tail();
+    fixture.finish_structure_destruction();
     assert_eq!(
         crate::scripting::engine::get_script_engine()
             .read()

@@ -272,26 +272,49 @@ impl Object {
             UpdateSleepTime::Frames(frames) => current_frame.saturating_add(frames),
         };
 
-        for module in &self.update_module_registrations {
+        for registration in &self.update_module_registrations {
             let _ = crate::helpers::TheGameLogic::register_update_module(
                 self.id,
-                module.clone(),
+                registration.module.clone(),
                 wake_frame,
             );
         }
     }
+    /// Change this owner's canonical detector and return its existing schedule
+    /// registrations. The caller applies the wake after releasing the Object
+    /// borrow; no lookup by ObjectID or new scheduling authority is involved.
+    /// C++ BattlePlanUpdate.cpp:752–767 / 824–833, StealthDetectorUpdate.cpp:82–85.
+    pub(crate) fn set_stealth_detector_enabled(
+        &self,
+        enabled: bool,
+        current_frame: UnsignedInt,
+    ) -> Option<(UnsignedInt, Vec<UpdateModulePtr>)> {
+        let (module_index, detector) = self.modules.iter().enumerate().find(|(_, entry)| {
+            entry.name() == "StealthDetectorUpdate"
+                && (entry.mask().0 & ModuleInterfaceType::UPDATE.0) != 0
+        })?;
+        let wake = detector.with_module(|module| {
+            module
+                .get_stealth_detector_control_interface()
+                .map(|control| control.set_sd_enabled(enabled, current_frame))
+        })?;
+        // The setter's module guard is already gone before querying proxies.
+        let registrations = self
+            .update_module_registrations
+            .iter()
+            .filter(|registration| registration.module_index == Some(module_index))
+            .map(|registration| registration.module.clone())
+            .collect();
+        Some((wake, registrations))
+    }
+
     /// Re-register one already-attached update module. C++ `setWakeFrame` does not touch the others.
     pub fn reschedule_named_update(&self, module_name: &str, wake_frame: UnsignedInt) {
-        for module in &self.update_module_registrations {
-            let matches = module
-                .read()
-                .ok()
-                .map(|proxy| proxy.module_name() == module_name)
-                .unwrap_or(false);
-            if matches {
+        for registration in &self.update_module_registrations {
+            if registration.module_name == module_name {
                 let _ = crate::helpers::TheGameLogic::register_update_module(
                     self.id,
-                    module.clone(),
+                    registration.module.clone(),
                     wake_frame,
                 );
             }
@@ -303,16 +326,11 @@ impl Object {
         if crate::helpers::TheGameLogic::ai_update_already_due(self.id, now) {
             return;
         }
-        for module in &self.update_module_registrations {
-            let matches = module
-                .read()
-                .ok()
-                .map(|proxy| proxy.module_name().contains("AIUpdate"))
-                .unwrap_or(false);
-            if matches {
+        for registration in &self.update_module_registrations {
+            if registration.module_name.contains("AIUpdate") {
                 let _ = crate::helpers::TheGameLogic::register_update_module(
                     self.id,
-                    module.clone(),
+                    registration.module.clone(),
                     wake_frame,
                 );
             }
@@ -320,13 +338,41 @@ impl Object {
     }
 
     /// Live update-module proxies registered at object create (C++ behavior modules).
-    pub fn update_module_registrations(&self) -> &[UpdateModulePtr] {
-        &self.update_module_registrations
+    pub fn update_module_registrations(
+        &self,
+    ) -> impl ExactSizeIterator<Item = &UpdateModulePtr> + '_ {
+        self.update_module_registrations
+            .iter()
+            .map(|registration| &registration.module)
     }
 
-    /// Test/restore helper: attach an already-built update proxy for loadPostProcess.
-    pub fn attach_update_module_registration(&mut self, module: UpdateModulePtr) {
-        self.update_module_registrations.push(module);
+    /// Attach an already-built proxy to exercise loadPostProcess in tests.
+    #[cfg(test)]
+    pub(crate) fn attach_update_module_registration(
+        &mut self,
+        module: UpdateModulePtr,
+        entry: Option<&Arc<ModuleEntry>>,
+    ) -> Result<(), String> {
+        let module_index = entry
+            .map(|entry| {
+                self.modules
+                    .iter()
+                    .position(|installed| Arc::ptr_eq(installed, entry))
+                    .ok_or("update entry does not belong to this Object")
+            })
+            .transpose()?;
+        let module_name = module
+            .read()
+            .map_err(|_| "update registration proxy poisoned")?
+            .module_name()
+            .into();
+        self.update_module_registrations
+            .push(InstalledUpdateRegistration {
+                module_index,
+                module_name,
+                module,
+            });
+        Ok(())
     }
 
     /// Check if object is moving

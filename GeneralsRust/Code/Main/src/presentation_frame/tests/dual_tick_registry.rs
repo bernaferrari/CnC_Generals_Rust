@@ -1664,7 +1664,9 @@ fn ai_stealth_helpers_registry_empty() {
             }),
         "compiled classic AI owns AIPlayer; the retired async archive must stay undeclared"
     );
-    let det = include_str!("../../../../GameEngine/GameLogic/src/stealth/detector.rs");
+    let det = include_str!(
+        "../../../../GameEngine/GameLogic/src/object/behavior/stealth_detector_update.rs"
+    );
     assert!(
         det.contains("OBJECT_REGISTRY.is_empty()")
             || det.contains("dual_world_registry_unavailable()"),

@@ -799,21 +799,6 @@ pub(super) fn assert_waves_244_304(r: &ShellSmokeResult) {
         r.detail
     );
     assert!(
-        r.live_stealth_detector_dual_world_empty_gate_method_names_wave297_ok,
-        "live stealth detector dual-world empty gate method names residual pack wave297: {}",
-        r.detail
-    );
-    assert!(
-        r.live_stealth_detector_dual_world_empty_gate_nav_commands_wave297_ok,
-        "live stealth detector dual-world empty gate nav commands residual pack wave297: {}",
-        r.detail
-    );
-    assert!(
-        r.live_stealth_detector_dual_world_empty_gate_live_wave297_ok,
-        "live stealth detector dual-world empty gate live residual wave297: {}",
-        r.detail
-    );
-    assert!(
         r.live_supply_system_dual_world_empty_gate_method_names_wave298_ok,
         "live supply system dual-world empty gate method names residual pack wave298: {}",
         r.detail

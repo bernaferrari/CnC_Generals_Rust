@@ -953,10 +953,6 @@ fn main() {
         && r.live_special_ability_dual_world_empty_gate_method_names_wave296_ok
         && r.live_special_ability_dual_world_empty_gate_nav_commands_wave296_ok
         && r.live_special_ability_dual_world_empty_gate_live_wave296_ok
-        // Wave 297 residual honesty (stealth detector dual-world empty gates).
-        && r.live_stealth_detector_dual_world_empty_gate_method_names_wave297_ok
-        && r.live_stealth_detector_dual_world_empty_gate_nav_commands_wave297_ok
-        && r.live_stealth_detector_dual_world_empty_gate_live_wave297_ok
         // Wave 298 residual honesty (supply system dual-world empty gates).
         && r.live_supply_system_dual_world_empty_gate_method_names_wave298_ok
         && r.live_supply_system_dual_world_empty_gate_nav_commands_wave298_ok
@@ -1121,10 +1117,6 @@ fn main() {
         && r.live_turret_ai_dual_world_empty_gate_method_names_wave338_ok
         && r.live_turret_ai_dual_world_empty_gate_nav_commands_wave338_ok
         && r.live_turret_ai_dual_world_empty_gate_live_wave338_ok
-        // Wave 339 residual honesty (stealth detector module dual-world empty gates).
-        && r.live_stealth_detector_module_dual_world_empty_gate_method_names_wave339_ok
-        && r.live_stealth_detector_module_dual_world_empty_gate_nav_commands_wave339_ok
-        && r.live_stealth_detector_module_dual_world_empty_gate_live_wave339_ok
         // Wave 340 residual honesty (modules dual-world empty gates).
         && r.live_modules_dual_world_empty_gate_method_names_wave340_ok
         && r.live_modules_dual_world_empty_gate_nav_commands_wave340_ok

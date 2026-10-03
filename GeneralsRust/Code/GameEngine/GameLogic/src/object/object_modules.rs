@@ -995,12 +995,17 @@ impl Object {
 
             let object_id = guard.id;
             guard.update_module_registrations.clear();
-            let update_handles: Vec<Arc<ModuleEntry>> = guard
+            let update_handles: Vec<(usize, Arc<ModuleEntry>)> = guard
                 .update_module_handles
                 .iter()
-                .filter_map(|index| guard.modules.get(*index).cloned())
+                .filter_map(|index| {
+                    guard
+                        .modules
+                        .get(*index)
+                        .map(|entry| (*index, entry.clone()))
+                })
                 .collect();
-            for entry in &update_handles {
+            for (module_index, entry) in &update_handles {
                 let proxy: UpdateModulePtr = Arc::new(RwLock::new(ModuleUpdateProxy::new(
                     Arc::clone(entry),
                     object_id,
@@ -1041,7 +1046,13 @@ impl Object {
                         err
                     );
                 }
-                guard.update_module_registrations.push(proxy);
+                guard
+                    .update_module_registrations
+                    .push(InstalledUpdateRegistration {
+                        module_index: Some(*module_index),
+                        module_name: entry.name().clone(),
+                        module: proxy,
+                    });
             }
 
             // Helpers first on m_behaviors, then template modules (Object.cpp:299-437).

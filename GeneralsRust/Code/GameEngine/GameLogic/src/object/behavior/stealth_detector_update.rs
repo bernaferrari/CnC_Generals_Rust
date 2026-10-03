@@ -588,26 +588,17 @@ impl StealthDetectorUpdate {
         self.enabled
     }
 
-    /// Set detector enabled state
-    pub fn set_enabled(&mut self, enabled: Bool) {
+    /// C++ StealthDetectorUpdate.cpp:82–85: change state and compute the wake.
+    /// Scheduling belongs to the driving owner; this operation cannot discover
+    /// another world or re-enter the Object/module/scheduler locks.
+    pub fn set_enabled(&mut self, enabled: Bool, current_frame: UnsignedInt) -> UnsignedInt {
         self.enabled = enabled;
-        let now = crate::helpers::TheGameLogic::get_frame();
         self.next_call_frame_and_phase = if enabled {
-            now.saturating_add(1)
+            current_frame.saturating_add(1)
         } else {
             UpdateSleepTime::Forever.to_u32()
         };
-        if self.object_id == crate::common::INVALID_ID {
-            return;
-        }
-        let Some(object) = crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-        else {
-            return;
-        };
-        if let Ok(guard) = object.read() {
-            guard.reschedule_named_update("StealthDetectorUpdate", self.next_call_frame_and_phase);
-        }
+        self.next_call_frame_and_phase
     }
 
     fn clear_grid_particles(&mut self) {
@@ -1040,8 +1031,8 @@ impl BehaviorModuleInterface for StealthDetectorUpdate {
 }
 
 impl StealthDetectorControlInterface for StealthDetectorUpdate {
-    fn set_sd_enabled(&mut self, enabled: bool) {
-        self.set_enabled(enabled);
+    fn set_sd_enabled(&mut self, enabled: bool, current_frame: u32) -> u32 {
+        self.set_enabled(enabled, current_frame)
     }
 }
 
@@ -1186,3 +1177,7 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+#[path = "stealth_detector_update_tests.rs"]
+pub(crate) mod stealth_detector_update_tests;

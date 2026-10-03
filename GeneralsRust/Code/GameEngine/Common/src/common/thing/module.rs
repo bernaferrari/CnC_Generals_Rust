@@ -519,7 +519,9 @@ pub trait SpyVisionControlInterface {
 }
 
 pub trait StealthDetectorControlInterface {
-    fn set_sd_enabled(&mut self, enabled: bool);
+    /// Mutate only this detector. The driving owner applies the returned wake
+    /// synchronously after releasing its module borrow (C++ setWakeFrame).
+    fn set_sd_enabled(&mut self, enabled: bool, current_frame: u32) -> u32;
 }
 
 pub trait StealthDisguiseControlInterface {

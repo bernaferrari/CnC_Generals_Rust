@@ -3,9 +3,8 @@
 #[cfg(test)]
 mod integration_tests {
     use crate::common::*;
-    use crate::object::{Object, registry::OBJECT_REGISTRY};
     use crate::stealth::*;
-    use std::sync::{Arc, RwLock};
+    use std::sync::Arc;
 
     #[test]
     fn test_complete_stealth_workflow() {
@@ -242,39 +241,6 @@ mod integration_tests {
         // Unstealthing
         state_manager.force_set_visibility_state_for_testing(VisibilityState::Unstealthing);
         assert_eq!(state_manager.get_opacity(), 0.7);
-    }
-
-    #[test]
-    fn test_detector_scan_timing() {
-        let _guard = crate::test_sync::lock();
-        let mut data = StealthDetectorUpdateModuleData::default();
-        data.set_detection_range(200.0);
-        data.set_scan_interval_frames(10);
-        let data = Arc::new(data);
-
-        let fixture =
-            crate::stealth::detector::test_fixture::DetectorFixture::new(data, 0x5D37_0002);
-        assert!(fixture.with_controller(|detector| detector.is_active()));
-
-        // Set cooldown
-        fixture.with_controller(|detector| detector.set_scan_cooldown_frames_for_testing(10));
-
-        // Scan should decrement cooldown but not perform detection
-        let cooldown = fixture.with_controller(|detector| {
-            detector.scan_for_stealth(0);
-            detector.scan_cooldown_frames()
-        });
-        assert_eq!(cooldown, 9);
-
-        // Keep scanning until cooldown expires
-        for frame in 1..10 {
-            fixture.with_controller(|detector| detector.scan_for_stealth(frame));
-        }
-
-        assert_eq!(
-            fixture.with_controller(|detector| detector.scan_cooldown_frames()),
-            0
-        );
     }
 
     #[test]

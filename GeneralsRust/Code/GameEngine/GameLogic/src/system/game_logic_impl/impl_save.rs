@@ -121,7 +121,6 @@ impl GameLogic {
         self.control_bar_overrides = entries.into_iter().collect();
     }
 
-
     // =========================================================================
     // C++ Parity: Object TOC for save/load
     // =========================================================================
@@ -233,7 +232,11 @@ impl GameLogic {
                 .objects
                 .get(&obj_id)
                 .and_then(|obj_ref| obj_ref.read().ok())
-                .map(|obj| obj.update_module_registrations().to_vec())
+                .map(|obj| {
+                    obj.update_module_registrations()
+                        .cloned()
+                        .collect::<Vec<_>>()
+                })
             else {
                 continue;
             };
@@ -243,5 +246,4 @@ impl GameLogic {
         }
         self.remake_sleepy_update();
     }
-
 }

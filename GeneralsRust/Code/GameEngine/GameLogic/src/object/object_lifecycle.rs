@@ -486,7 +486,7 @@ impl Object {
         for module in self.update_module_registrations.drain(..) {
             service(
                 self.id,
-                ObjectDestroyServiceAction::UnregisterUpdateModule(module),
+                ObjectDestroyServiceAction::UnregisterUpdateModule(module.module),
             );
         }
         self.run_destructor_tail_with_game_logic_service(&mut service);

@@ -1824,10 +1824,22 @@ impl ModuleEntry {
     }
 }
 
+/// Installed class identity is immutable. Wake selection must not inspect a
+/// proxy that may already be executing under its write guard.
+struct InstalledUpdateRegistration {
+    // Stable within this Object: entries append until registrations are retired.
+    module_index: Option<usize>,
+    module_name: AsciiString,
+    module: UpdateModulePtr,
+}
+
 struct ModuleUpdateProxy {
     entry: Arc<ModuleEntry>,
     object_id: ObjectID,
     module_name: AsciiString,
+    // C++ phases are fixed by the module class, not mutable update state
+    // (UpdateModule.h:134, AIUpdate.h:580, PhysicsUpdate.h:199).
+    phase: SleepyUpdatePhase,
 }
 
 fn module_with_downcast<T: 'static, F, R>(module: &mut dyn Module, func: F) -> Option<R>
@@ -1854,10 +1866,14 @@ where
 impl ModuleUpdateProxy {
     fn new(entry: Arc<ModuleEntry>, object_id: ObjectID) -> Self {
         let module_name = entry.name().clone();
+        let phase = entry
+            .with_module(Self::dispatch_phase)
+            .unwrap_or(SleepyUpdatePhase::Normal);
         Self {
             entry,
             object_id,
             module_name,
+            phase,
         }
     }
 
@@ -1935,9 +1951,10 @@ impl UpdateModuleInterface for ModuleUpdateProxy {
     }
 
     fn get_update_phase(&self) -> SleepyUpdatePhase {
-        self.entry
-            .with_module(Self::dispatch_phase)
-            .unwrap_or(SleepyUpdatePhase::Normal)
+        // Registration and wake changes can occur inside a module callback.
+        // Its entry is already borrowed there; immutable metadata needs no
+        // second acquisition of that module's mutex.
+        self.phase
     }
 
     fn module_name(&self) -> &str {
@@ -2422,7 +2439,7 @@ pub struct Object {
     body_module_handles: Vec<usize>,
     die_module_handles: Vec<usize>,
     update_module_handles: Vec<usize>,
-    update_module_registrations: Vec<UpdateModulePtr>,
+    update_module_registrations: Vec<InstalledUpdateRegistration>,
     collide_module_handles: Vec<usize>,
     contain_module_handles: Vec<usize>,
     upgrade_module_handles: Vec<usize>,
@@ -2652,3 +2669,6 @@ pub type ObjectId = ObjectID;
 
 #[cfg(test)]
 mod scheduled_proxy_fixture;
+
+#[cfg(test)]
+mod update_phase_metadata_tests;
