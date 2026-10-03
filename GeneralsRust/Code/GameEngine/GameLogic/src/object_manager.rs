@@ -1210,6 +1210,71 @@ impl ObjectManager {
         player_guard.remove_owned_object(object_id);
     }
 
+    /// Detach exactly one validated test fixture's bookkeeping before owner deletion.
+    #[cfg(test)]
+    pub(crate) fn detach_fixture_object_slot(
+        &mut self,
+        id: ObjectID,
+        expected: &Arc<RwLock<Object>>,
+        owner: &crate::system::game_logic::GameLogic,
+    ) -> Result<GameObjectInstance, String> {
+        let admitted = owner
+            .find_object_by_id(id)
+            .ok_or_else(|| format!("fixture {id} missing canonical admission"))?;
+        if !Arc::ptr_eq(&admitted, expected) {
+            return Err(format!("fixture {id} canonical identity mismatch"));
+        }
+        let slot = self
+            .objects
+            .get(&id)
+            .ok_or_else(|| format!("fixture {id} missing manager admission"))?;
+        {
+            let object = slot
+                .read()
+                .map_err(|_| format!("fixture {id} manager slot poisoned"))?;
+            if !Arc::ptr_eq(&object.base(), expected) {
+                return Err(format!("fixture {id} manager identity mismatch"));
+            }
+        }
+        let detached = self
+            .objects
+            .remove(&id)
+            .ok_or_else(|| format!("fixture {id} manager admission disappeared"))?
+            .into_inner();
+        self.spatial_partition.remove_object(id);
+        self.update_order.retain(|candidate| *candidate != id);
+        self.destroy_queue.retain(|candidate| *candidate != id);
+        Ok(detached)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn finish_fixture_object_slot_retirement(
+        &self,
+        id: ObjectID,
+        detached: GameObjectInstance,
+        expected: &Arc<RwLock<Object>>,
+        owner: &crate::system::game_logic::GameLogic,
+    ) -> Result<(), String> {
+        if owner.find_object_by_id(id).is_some() {
+            return Err(format!("fixture {id} remains canonically admitted"));
+        }
+        if OBJECT_REGISTRY.get_object(id).is_some() {
+            return Err(format!("fixture {id} remains discoverable"));
+        }
+        if detached.object_id() != id {
+            return Err(format!("fixture {id} detached identity mismatch"));
+        }
+        let retired_id = expected
+            .read()
+            .map_err(|_| format!("fixture {id} retired object poisoned"))?
+            .get_id();
+        if retired_id != INVALID_ID {
+            return Err(format!("fixture {id} canonical object was not finalized"));
+        }
+        self.unregister_player_ownership(id, &detached);
+        Ok(())
+    }
+
     /// Get object by ID
     /// Lock slot by ID (prefer `with_object` / `with_object_mut`).
     pub fn get_object(&self, object_id: ObjectID) -> Option<&ObjectSlot> {

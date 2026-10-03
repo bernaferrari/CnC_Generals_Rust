@@ -10,9 +10,7 @@ impl TerrainLogic {
     ///
     /// Uses ray casting algorithm for polygon containment test
     fn is_point_in_bridge(&self, x: f32, y: f32) -> Option<&crate::system::map_loader::BridgeData> {
-        let terrain_data = self.terrain_data.as_ref()?;
-
-        for bridge in &terrain_data.bridges {
+        for bridge in &self.authored_bridges {
             if self.point_in_polygon(x, y, &bridge.polygon) {
                 return Some(bridge);
             }

@@ -235,9 +235,11 @@ fn terrain_query_load_skips_new_map_finalization() {
         !terrain.water_grid_enabled,
         "query-mode load should skip the follow-up new_map side effects"
     );
-    assert!(terrain
-        .get_waypoint_by_name(&AsciiString::from("WaveGuide1"))
-        .is_some());
+    assert!(
+        terrain
+            .get_waypoint_by_name(&AsciiString::from("WaveGuide1"))
+            .is_some()
+    );
 }
 
 #[test]
@@ -290,7 +292,7 @@ fn w3d_reset_restores_empty_extent_state() {
     assert_eq!(terrain.map_min_z, 0.0);
     assert_eq!(terrain.map_max_z, 1.0);
     assert!(terrain.boundaries.is_empty());
-    assert!(terrain.terrain_data.is_none());
+    assert!(terrain.authored_bridges.is_empty());
     assert_eq!(terrain.get_extent().hi, Coord3D::new(0.0, 0.0, 1.0));
 }
 

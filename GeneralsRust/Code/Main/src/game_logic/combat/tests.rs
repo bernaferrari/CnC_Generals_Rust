@@ -1,7 +1,7 @@
 // Characterization coverage for the live C++ weapon/projectile behavior seams.
 
 #[cfg(test)]
-mod tests {
+pub(in crate::game_logic) mod tests {
     /// CombatSystem unit tests apply damage without a GameWorld shadow session,
     /// so host HP must mutate directly: publish the all-off authority context
     /// barrier (hq-e84zk retired the `GENERALS_GAMEWORLD_DAMAGE_AUTHORITY` env
@@ -23,8 +23,16 @@ mod tests {
     /// Mirrors the host_rng_residual RNG_TEST_LOCK precedent.
     static COMBAT_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
-    fn combat_test_guard() -> std::sync::MutexGuard<'static, ()> {
+    pub(in crate::game_logic) fn combat_test_guard() -> std::sync::MutexGuard<'static, ()> {
         COMBAT_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    pub(in crate::game_logic) fn queue_delayed_impact_for_test(
+        apply_frame: u32,
+        projectile: PendingProjectile,
+        position: Vec3,
+    ) {
+        queue_live_projectileless_delayed(apply_frame, projectile, position, None);
     }
 
     fn make_obj(
@@ -49,7 +57,7 @@ mod tests {
     /// A long coordinate flight keeps lifecycle tests away from ordinary
     /// target/ground collision, so the assertion exercises the parsed Object
     /// behavior which owns the C++ timeout result.
-    fn lifecycle_test_pending_projectile(
+    pub(in crate::game_logic) fn lifecycle_test_pending_projectile(
         projectile_object_name: &str,
         target_id: Option<ObjectId>,
         target_pos: Vec3,

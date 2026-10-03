@@ -993,6 +993,61 @@ mod tests {
     }
 
     #[test]
+    fn destroy_unknown_id_does_not_queue_or_discover_a_foreign_owner() {
+        let _fixture = test_state_lock();
+        // C++ GameLogic.cpp:3935-3942 rejects a null object. The Rust ID
+        // adapter must resolve against this GameLogic, never a different world.
+        let id = 0xD156;
+        let mut driving = GameLogic::new();
+        let mut foreign = GameLogic::new();
+        let foreign_object = Arc::new(RwLock::new(Object::new_test(id, 123.0)));
+        foreign.objects.insert(id, foreign_object.clone());
+        foreign.all_objects.push(id);
+
+        driving.destroy_object(id);
+        let queued = driving.dead_objects.clone();
+        let foreign_destroyed = foreign_object.read().unwrap().is_destroyed();
+        // Retire the fixture through its actual owner before asserting, so an
+        // expected regression failure cannot leak an ambient object reference.
+        foreign.destroy_object(id);
+        foreign.process_destroy_list().unwrap();
+
+        assert!(
+            queued.is_empty(),
+            "an absent owner must not enqueue deletion"
+        );
+        assert!(!foreign_destroyed, "same ID in another world is unrelated");
+        assert!(driving.event_queue.is_empty());
+        assert!(driving.objects_changed_trigger_areas.is_empty());
+    }
+
+    #[test]
+    fn destroy_unknown_id_cannot_delete_a_later_admitted_object() {
+        let _fixture = test_state_lock();
+        let id = 0xD157;
+        let mut driving = GameLogic::new();
+        driving.destroy_object(id);
+        let object = Arc::new(RwLock::new(Object::new_test(id, 100.0)));
+        driving.objects.insert(id, object.clone());
+        driving.all_objects.push(id);
+        driving.process_destroy_list().unwrap();
+        let retained = driving
+            .objects
+            .get(&id)
+            .is_some_and(|actual| Arc::ptr_eq(actual, &object));
+        let destroyed = object.read().unwrap().is_destroyed();
+        if retained {
+            driving.destroy_object(id);
+            driving.process_destroy_list().unwrap();
+        }
+        assert!(
+            retained,
+            "an earlier absent-ID request cannot target a future object"
+        );
+        assert!(!destroyed);
+    }
+
+    #[test]
     fn destroy_object_runs_on_destroy_same_frame_like_cpp() {
         let _fixture = test_state_lock();
         let mut logic = GameLogic::new();

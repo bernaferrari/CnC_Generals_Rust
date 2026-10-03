@@ -342,7 +342,32 @@ struct TargetSnapshot {
 impl TargetSnapshot {
     fn from_game_object(other: &dyn GameObject, owner: &dyn GameObject) -> Self {
         let relationship_with_owner = other.get_relationship(owner);
-        let mut snapshot = Self {
+        // C++ SquishCollide.cpp:73-91 uses the supplied collision object.
+        // Never rediscover it through an unrelated world's ObjectID adapter.
+        if let Some(handle) = other.as_object_handle() {
+            if let Ok(object) = handle.read() {
+                let position = object.get_position();
+                let velocity_xy = object.get_physics().and_then(|physics| {
+                    physics.access().ok().map(|guard| {
+                        let velocity = guard.get_velocity();
+                        (velocity.x, velocity.y)
+                    })
+                });
+                return Self {
+                    id: object.get_id(),
+                    position: Coord3D::new(position.x, position.y, position.z),
+                    relationship_with_owner,
+                    crusher_level: object.get_crusher_level(),
+                    velocity_xy,
+                    geometry: collision_geometry_from_logic(object.get_geometry_info()),
+                    orientation: object.get_orientation(),
+                };
+            }
+        }
+
+        // Handle-less collision adapters cannot supply physics/geometry. Keep
+        // their fallback data local, rather than binding a same-ID live object.
+        Self {
             id: other.get_id(),
             position: other.get_position(),
             relationship_with_owner,
@@ -350,20 +375,7 @@ impl TargetSnapshot {
             velocity_xy: None,
             geometry: CollisionGeometryInfo::new_cylinder(TARGET_COLLISION_RADIUS, 1.0, true),
             orientation: other.get_orientation(),
-        };
-
-        let _ = OBJECT_REGISTRY.with_object(snapshot.id, |object| {
-            snapshot.geometry = collision_geometry_from_logic(object.get_geometry_info());
-            snapshot.orientation = object.get_orientation();
-            if let Some(physics) = object.get_physics() {
-                snapshot.velocity_xy = physics.access().ok().map(|guard| {
-                    let velocity = guard.get_velocity();
-                    (velocity.x, velocity.y)
-                });
-            }
-        });
-
-        snapshot
+        }
     }
 
     fn intersects(&self, owner: &OwnerSnapshot) -> bool {
@@ -515,6 +527,37 @@ mod tests {
         let mut copy = data.clone();
         copy.set_module_tag_name_key(123);
         assert_eq!(copy.get_module_tag_name_key(), 123);
+    }
+
+    #[test]
+    fn target_snapshot_uses_supplied_object_with_same_id_in_another_world() {
+        let _lock = crate::test_sync::lock();
+        let id = 0xD15A;
+        let mut driving = crate::system::game_logic::GameLogic::new();
+        let mut foreign = crate::system::game_logic::GameLogic::new();
+        let target = Arc::new(RwLock::new(Object::new_test(id, 100.0)));
+        let unrelated = Arc::new(RwLock::new(Object::new_test(id, 100.0)));
+        for (object, radius, angle) in [(&target, 7.0, 1.0), (&unrelated, 2.0, -0.5)] {
+            let mut geometry = crate::common::GeometryInfo::default();
+            geometry.geometry_type = EngineGeometryType::Cylinder;
+            geometry.bounds.min = crate::common::Coord3D::new(-radius, -radius, 0.0);
+            geometry.bounds.max = crate::common::Coord3D::new(radius, radius, 3.0);
+            geometry.angle = angle;
+            object.write().unwrap().set_geometry_info(geometry);
+        }
+        // Each world owns its object; only the unrelated adapter is published.
+        // C++ SquishCollide.cpp:73-91 reads the supplied `other` pointer itself.
+        driving.track_object_in_update_list(target.clone()).unwrap();
+        foreign.register_object(unrelated.clone()).unwrap();
+        let snapshot = TargetSnapshot::from_game_object(&target, &target);
+        let radius = snapshot.geometry.get_major_radius();
+        let orientation = snapshot.orientation;
+        foreign.destroy_object(id);
+        foreign.process_destroy_list().unwrap();
+        driving.destroy_object(id);
+        driving.process_destroy_list().unwrap();
+        assert_eq!(radius, 7.0, "the other world's ID adapter is unrelated");
+        assert_eq!(orientation, 1.0);
     }
 
     #[test]

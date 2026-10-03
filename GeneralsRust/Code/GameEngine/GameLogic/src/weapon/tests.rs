@@ -1068,39 +1068,72 @@ fn projectile_collision_filter_applies_collide_mask() {
 // Week 3: Targeting Validation Tests
 // ============================================================================
 
+// C++ W3DTerrainLogic::isClearLineOfSight blocks when no heightmap is loaded.
+// These fixtures own their map and never consult or change process terrain.
+fn loaded_los_terrain(height: u8) -> crate::terrain::TerrainLogic {
+    let mut map = crate::system::map_loader::MapData::new();
+    map.width = 16;
+    map.height = 16;
+    map.heightmap = vec![height; 16 * 16];
+    let mut terrain = crate::terrain::TerrainLogic::new();
+    terrain.load_map_data(map);
+    terrain
+}
+
+#[test]
+fn terrain_los_uses_each_loaded_owner_and_blocks_missing_map() {
+    let from = Coord3D::new(0.0, 0.0, 100.0);
+    let to = Coord3D::new(100.0, 100.0, 100.0);
+    let clear = loaded_los_terrain(0);
+    let mut ridge = loaded_los_terrain(200);
+    let missing = crate::terrain::TerrainLogic::new();
+    assert!(clear.is_clear_line_of_sight(&from, &to));
+    assert!(!ridge.is_clear_line_of_sight(&from, &to));
+    assert!(!missing.is_clear_line_of_sight(&from, &to));
+    // Reloading one owner changes its samples without affecting the other.
+    let mut flat = crate::system::map_loader::MapData::new();
+    flat.width = 16;
+    flat.height = 16;
+    flat.heightmap = vec![0; 16 * 16];
+    ridge.load_map_data(flat);
+    assert!(ridge.is_clear_line_of_sight(&from, &to));
+    assert!(clear.is_clear_line_of_sight(&from, &to));
+    assert!(!missing.is_clear_line_of_sight(&from, &to));
+}
+
 #[test]
 fn test_check_line_of_sight_same_height() {
     // Targets at same height should have LOS
-    let weapon = create_test_weapon();
+    let terrain = loaded_los_terrain(0);
 
     let from = Coord3D::new(0.0, 0.0, 100.0);
     let to = Coord3D::new(100.0, 100.0, 100.0);
 
-    let los = weapon.check_line_of_sight(&from, &to);
+    let los = terrain.is_clear_line_of_sight(&from, &to);
     assert!(los, "Targets at same height should have LOS");
 }
 
 #[test]
 fn test_check_line_of_sight_small_height_diff() {
     // Small vertical differences should allow LOS
-    let weapon = create_test_weapon();
+    let terrain = loaded_los_terrain(0);
 
     let from = Coord3D::new(0.0, 0.0, 100.0);
     let to = Coord3D::new(100.0, 100.0, 200.0); // 100 units higher
 
-    let los = weapon.check_line_of_sight(&from, &to);
+    let los = terrain.is_clear_line_of_sight(&from, &to);
     assert!(los, "Small height difference (100 units) should allow LOS");
 }
 
 #[test]
 fn test_check_line_of_sight_large_height_diff() {
     // Large vertical differences are allowed when terrain raycast is clear.
-    let weapon = create_test_weapon();
+    let terrain = loaded_los_terrain(0);
 
     let from = Coord3D::new(0.0, 0.0, 0.0);
-    let to = Coord3D::new(100.0, 100.0, 600.0); // 600 units higher - exceeds limit
+    let to = Coord3D::new(100.0, 100.0, 600.0); // 600 units higher, over clear terrain
 
-    let los = weapon.check_line_of_sight(&from, &to);
+    let los = terrain.is_clear_line_of_sight(&from, &to);
     assert!(
         los,
         "Clear terrain LOS should pass even with large height differences"
@@ -1109,13 +1142,13 @@ fn test_check_line_of_sight_large_height_diff() {
 
 #[test]
 fn test_check_line_of_sight_exactly_at_limit() {
-    // Heights exactly at 500 unit limit should allow LOS
-    let weapon = create_test_weapon();
+    // There is no arbitrary 500-unit height-difference cutoff in C++.
+    let terrain = loaded_los_terrain(0);
 
     let from = Coord3D::new(0.0, 0.0, 0.0);
-    let to = Coord3D::new(100.0, 100.0, 500.0); // Exactly at limit
+    let to = Coord3D::new(100.0, 100.0, 500.0); // 500 units higher
 
-    let los = weapon.check_line_of_sight(&from, &to);
+    let los = terrain.is_clear_line_of_sight(&from, &to);
     assert!(
         los,
         "Height difference at exactly 500 units should allow LOS"
@@ -1125,24 +1158,24 @@ fn test_check_line_of_sight_exactly_at_limit() {
 #[test]
 fn test_check_line_of_sight_below_target() {
     // Can fire upward at higher target
-    let weapon = create_test_weapon();
+    let terrain = loaded_los_terrain(0);
 
     let from = Coord3D::new(0.0, 0.0, 100.0);
     let to = Coord3D::new(100.0, 100.0, 300.0); // Higher target
 
-    let los = weapon.check_line_of_sight(&from, &to);
+    let los = terrain.is_clear_line_of_sight(&from, &to);
     assert!(los, "Should be able to fire upward at higher target");
 }
 
 #[test]
 fn test_check_line_of_sight_above_target() {
     // Can fire downward at lower target
-    let weapon = create_test_weapon();
+    let terrain = loaded_los_terrain(0);
 
     let from = Coord3D::new(0.0, 0.0, 400.0);
     let to = Coord3D::new(100.0, 100.0, 100.0); // Lower target
 
-    let los = weapon.check_line_of_sight(&from, &to);
+    let los = terrain.is_clear_line_of_sight(&from, &to);
     assert!(los, "Should be able to fire downward at lower target");
 }
 
@@ -1263,24 +1296,20 @@ fn test_is_target_valid_missing_object() {
 
 #[test]
 fn test_targeting_priority_los_over_range() {
-    // LOS check should happen even if range is OK
-    let mut weapon = create_test_weapon();
-
-    // Setup: short-range LOS weapon
-    Arc::make_mut(&mut weapon.template).must_travel_pfx = true;
-    Arc::make_mut(&mut weapon.template).minimum_attack_range = 0.0;
-    Arc::make_mut(&mut weapon.template).attack_range = 200.0;
-
+    // This regression checks the loaded terrain query, not weapon firing
+    // priority. A 600-unit height difference alone does not obstruct a ray.
+    let terrain = loaded_los_terrain(0);
     let from = Coord3D::new(0.0, 0.0, 0.0);
-    let to = Coord3D::new(100.0, 100.0, 600.0); // In range but fails LOS
+    let to = Coord3D::new(100.0, 100.0, 600.0); // Clear flat terrain
 
-    let los = weapon.check_line_of_sight(&from, &to);
+    let los = terrain.is_clear_line_of_sight(&from, &to);
     assert!(los, "LOS should pass when terrain raycast is unobstructed");
 }
 
 #[test]
 fn test_falloff_with_team_check() {
-    // Verify that team checks happen after other validations
+    // Exercise independent relationship and loaded terrain queries; this
+    // does not establish firing-validation order.
     let weapon = create_test_weapon();
 
     let source_id = 1u32;
@@ -1290,26 +1319,28 @@ fn test_falloff_with_team_check() {
     let is_enemy = weapon.is_enemy_target(source_id, target_id);
     assert!(is_enemy, "Team check should complete");
 
+    let terrain = loaded_los_terrain(0);
     let from = Coord3D::new(0.0, 0.0, 0.0);
     let to = Coord3D::new(100.0, 100.0, 100.0);
-    let los = weapon.check_line_of_sight(&from, &to);
+    let los = terrain.is_clear_line_of_sight(&from, &to);
     assert!(los, "LOS check should complete");
 }
 
 #[test]
 fn test_targeting_validation_combined() {
-    // Test that both LOS and team validation work together
+    // Exercise both queries with a loaded terrain fixture.
     let mut weapon = create_test_weapon();
     Arc::make_mut(&mut weapon.template).must_travel_pfx = true;
 
     let source_id = 1u32;
     let target_id = 2u32;
 
+    let terrain = loaded_los_terrain(0);
     let from = Coord3D::new(0.0, 0.0, 100.0);
     let to = Coord3D::new(100.0, 100.0, 150.0);
 
     // Both checks should pass
-    let los = weapon.check_line_of_sight(&from, &to);
+    let los = terrain.is_clear_line_of_sight(&from, &to);
     let team_ok = weapon.is_enemy_target(source_id, target_id);
 
     assert!(los, "LOS check should pass");

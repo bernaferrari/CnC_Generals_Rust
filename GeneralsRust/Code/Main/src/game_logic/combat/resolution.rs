@@ -30,6 +30,7 @@ impl CombatSystem {
             pending_under_attack: Vec::new(),
             pending_on_die: Vec::new(),
             fire_ocl: Vec::new(),
+            historic_bonus: Default::default(),
         }
     }
 
@@ -172,6 +173,9 @@ impl CombatSystem {
     /// Update all projectiles
 
     fn maybe_record_historic_bonus(
+        historic_bonus: &mut crate::game_logic::host_historic_bonus::HostHistoricBonus,
+        frame: u32,
+        historic_damage_limit: u32,
         projectile: &Projectile,
         impact_pos: Vec3,
         objects: &HashMap<ObjectId, Object>,
@@ -197,7 +201,9 @@ impl CombatSystem {
         } else {
             projectile.historic_weapon_key.as_str()
         };
-        let _ = crate::game_logic::host_historic_bonus::record_impact(
+        let _ = historic_bonus.record_impact(
+            frame,
+            historic_damage_limit,
             key,
             &peel,
             impact_pos,
@@ -401,6 +407,7 @@ impl CombatSystem {
         team_factory: Option<&gamelogic::team::TeamFactoryHandle>,
     ) -> Vec<ObjectId> {
         let projectile_ids: Vec<ObjectId> = self.projectiles.keys().copied().collect();
+        let historic_damage_limit = game_engine::common::global_data::read().historic_damage_limit;
 
         // Process projectile updates
         let mut damage_events = Vec::new();
@@ -465,7 +472,14 @@ impl CombatSystem {
                         // detonation weapon at the projectile's current pose.
                         // A zero-radius weapon has no guessed direct victim.
                         let impact = projectile.position;
-                        Self::maybe_record_historic_bonus(projectile, impact, objects);
+                        Self::maybe_record_historic_bonus(
+                            &mut self.historic_bonus,
+                            frame,
+                            historic_damage_limit,
+                            projectile,
+                            impact,
+                            objects,
+                        );
                         if !projectile.no_damage && projectile.explosion_radius > 0.0 {
                             damage_events
                                 .push(Self::splash_area_event(projectile, objects, impact));
@@ -603,7 +617,14 @@ impl CombatSystem {
                         }
                     }
                     let impact = projectile.position;
-                    Self::maybe_record_historic_bonus(projectile, impact, objects);
+                    Self::maybe_record_historic_bonus(
+                        &mut self.historic_bonus,
+                        frame,
+                        historic_damage_limit,
+                        projectile,
+                        impact,
+                        objects,
+                    );
                     if !projectile.no_damage && projectile.explosion_radius > 0.0 {
                         damage_events.push(Self::splash_area_event(projectile, objects, impact));
                     } else if !projectile.no_damage {
@@ -662,7 +683,14 @@ impl CombatSystem {
                                 }
                             }
                             let impact = projectile.position;
-                            Self::maybe_record_historic_bonus(projectile, impact, objects);
+                            Self::maybe_record_historic_bonus(
+                                &mut self.historic_bonus,
+                                frame,
+                                historic_damage_limit,
+                                projectile,
+                                impact,
+                                objects,
+                            );
                             if !projectile.no_damage && projectile.explosion_radius > 0.0 {
                                 // C++ Weapon.cpp:1438: primary inside primaryRadius, else secondary.
                                 damage_events
@@ -706,7 +734,14 @@ impl CombatSystem {
                     let distance = projectile.position.distance(projectile.target_position);
                     if distance <= 2.0 {
                         let impact = projectile.target_position;
-                        Self::maybe_record_historic_bonus(projectile, impact, objects);
+                        Self::maybe_record_historic_bonus(
+                            &mut self.historic_bonus,
+                            frame,
+                            historic_damage_limit,
+                            projectile,
+                            impact,
+                            objects,
+                        );
                         if !projectile.no_damage && projectile.explosion_radius > 0.0 {
                             damage_events
                                 .push(Self::splash_area_event(projectile, objects, impact));
@@ -968,6 +1003,8 @@ impl CombatSystem {
         shot: &LiveProjectilelessDelayedDamage,
         objects: &mut HashMap<ObjectId, Object>,
         players: Option<&HashMap<u32, crate::game_logic::Player>>,
+        frame: u32,
+        historic_damage_limit: u32,
     ) {
         let p = &shot.pending;
         let mut proj = Projectile::new(
@@ -1011,7 +1048,14 @@ impl CombatSystem {
         proj.detonation_fx_name = p.detonation_fx_name.clone();
         proj.detonation_ocl_name = p.detonation_ocl_name.clone();
 
-        Self::maybe_record_historic_bonus(&proj, shot.damage_pos, objects);
+        Self::maybe_record_historic_bonus(
+            &mut self.historic_bonus,
+            frame,
+            historic_damage_limit,
+            &proj,
+            shot.damage_pos,
+            objects,
+        );
         let mut events = Vec::new();
         if proj.explosion_radius > 0.0 || proj.secondary_damage_radius > 0.0 {
             events.push(Self::splash_area_event(&proj, objects, shot.damage_pos));
@@ -1087,6 +1131,22 @@ impl CombatSystem {
     /// Get all active projectiles
     pub fn get_projectiles(&self) -> &HashMap<ObjectId, Projectile> {
         &self.projectiles
+    }
+
+    pub(in crate::game_logic) fn take_historic_bonus_firestorms(
+        &mut self,
+    ) -> Vec<crate::game_logic::host_historic_bonus::PendingHistoricFirestorm> {
+        self.historic_bonus.drain_pending_firestorms()
+    }
+
+    pub(in crate::game_logic) fn reset_historic_bonus(&mut self) {
+        self.historic_bonus.reset();
+    }
+
+    pub(in crate::game_logic) fn historic_bonus_honesty(
+        &self,
+    ) -> crate::game_logic::host_historic_bonus::HostHistoricBonusHonesty {
+        self.historic_bonus.honesty_snapshot()
     }
 
     /// Clear all projectiles

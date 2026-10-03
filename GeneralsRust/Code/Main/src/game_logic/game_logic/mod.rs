@@ -186,6 +186,9 @@ struct ShroudVisibilitySnapshot {
 mod tests;
 
 #[cfg(test)]
+mod historic_bonus_owner_tests;
+
+#[cfg(test)]
 #[path = "../world_skirmish_tests.rs"]
 mod skirmish_starting_unit_residual_tests;
 

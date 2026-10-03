@@ -1,0 +1,209 @@
+//! Real minefield inputs and exact authoritative fixture retirement.
+
+use super::*;
+use crate::object::Object;
+use crate::object::registry::OBJECT_REGISTRY;
+use crate::object_manager::get_object_manager;
+use crate::system::game_logic::get_game_logic;
+use game_engine::common::thing::thing_factory::{get_thing_factory, init_thing_factory};
+use std::panic::{AssertUnwindSafe, catch_unwind, resume_unwind};
+use std::sync::{Arc, RwLock};
+
+pub(super) struct MinefieldFixture {
+    pub id: u32,
+    pub template: String,
+    object: Arc<RwLock<Object>>,
+    terrain: Option<crate::terrain::TerrainLogic>,
+    seed: [u32; 6],
+}
+
+impl MinefieldFixture {
+    pub fn new(id: u32) -> Self {
+        let template = format!("OwnedMinefieldFixtureMine{id}");
+        if get_thing_factory().unwrap().is_none() {
+            init_thing_factory().unwrap();
+        }
+        let loaded = {
+            let mut factory = get_thing_factory().unwrap();
+            let factory = factory.as_mut().unwrap();
+            if factory.find_template(&template, false).is_none() {
+                let rules = format!(
+                    "Object {template}\n  KindOf = MINE\n  Geometry = CYLINDER\n  GeometryMajorRadius = 3.0\n  GeometryMinorRadius = 3.0\n  GeometryHeight = 1.0\nEnd\n"
+                );
+                Some(factory.load_ini_text(&rules))
+            } else {
+                None
+            }
+        };
+        if let Some(loaded) = loaded {
+            assert_eq!(loaded, 1);
+        }
+        // The real terrain rejection checks run against an authored flat map.
+        let mut map = crate::system::map_loader::MapData::new();
+        map.width = 64;
+        map.height = 64;
+        map.heightmap = vec![24; 64 * 64];
+        map.boundaries = vec![crate::common::ICoord2D::new(64, 64)];
+        let mut terrain = crate::terrain::TerrainLogic::new();
+        terrain.load_map_data(map);
+        let previous = std::mem::replace(
+            &mut *crate::terrain::get_terrain_logic().write().unwrap(),
+            terrain,
+        );
+        let object = Arc::new(RwLock::new(Object::new_test(id, 100.0)));
+        let positioned = object
+            .write()
+            .unwrap()
+            .set_position(&Coord3D::new(128.0, 128.0, 3.0));
+        positioned.expect("minefield owner position");
+        let fixture = Self {
+            id,
+            template,
+            object,
+            terrain: Some(previous),
+            seed: game_engine::common::random_value::get_game_logic_random_seed_state(),
+        };
+        assert!(OBJECT_REGISTRY.get_object(id).is_none());
+        let admission = get_game_logic()
+            .lock()
+            .unwrap()
+            .register_object(fixture.object.clone());
+        admission.expect("canonical fixture admission");
+        fixture
+    }
+
+    pub fn behavior(&self, on_death: bool) -> GenerateMinefieldBehavior {
+        GenerateMinefieldBehaviorBuilder::new()
+            .mine_name(&self.template)
+            .distance_around_object(8.0)
+            .border_only(true)
+            .always_circular(true)
+            .upgradable(true)
+            .random_jitter(0.0)
+            .on_death(on_death)
+            .build(self.id)
+    }
+
+    pub fn assert_real_mines(&self, behavior: &GenerateMinefieldBehavior) -> Vec<u32> {
+        let ids = behavior.get_mine_list();
+        assert!(
+            !ids.is_empty(),
+            "generation must create actual factory mines"
+        );
+        let radius = crate::helpers::TheThingFactory::find_template(&self.template)
+            .unwrap()
+            .get_template_geometry_info()
+            .get_bounding_circle_radius();
+        let geometry = behavior.get_object_geometry().unwrap();
+        let field_radius = geometry.major_radius + 8.0;
+        let expected = (2.0 * std::f32::consts::PI * field_radius / (2.0 * radius)).ceil() as usize;
+        assert_eq!(ids.len(), expected);
+        let facts: Result<Vec<_>, String> = (|| {
+            let logic = get_game_logic()
+                .lock()
+                .map_err(|_| "minefield canonical owner poisoned".to_string())?;
+            ids.iter()
+                .map(|id| {
+                    let mine = logic
+                        .find_object_by_id(*id)
+                        .ok_or_else(|| format!("mine {id} missing canonical admission"))?;
+                    let mine = mine.read().map_err(|_| format!("mine {id} poisoned"))?;
+                    Ok((
+                        mine.get_producer_id(),
+                        mine.get_template().get_name().as_str().to_owned(),
+                        mine.is_kind_of(crate::common::KindOf::Mine),
+                        *mine.get_position(),
+                    ))
+                })
+                .collect()
+        })();
+        // Validation failures must never unwind through gameplay guards.
+        for (producer, template, is_mine, pos) in facts.expect("actual canonical mine facts") {
+            assert_eq!(producer, self.id);
+            assert_eq!(template, self.template);
+            assert!(is_mine);
+            let dx = pos.x - geometry.center.x;
+            let dy = pos.y - geometry.center.y;
+            assert!(((dx * dx + dy * dy).sqrt() - field_radius).abs() < 0.001);
+        }
+        ids
+    }
+
+    fn retire(&self) -> Result<(), String> {
+        let mut logic = get_game_logic()
+            .lock()
+            .map_err(|_| "minefield canonical owner poisoned".to_string())?;
+        let admitted = logic
+            .find_object_by_id(self.id)
+            .ok_or_else(|| format!("fixture {} missing canonical admission", self.id))?;
+        if !Arc::ptr_eq(&admitted, &self.object) {
+            return Err(format!("fixture {} canonical identity mismatch", self.id));
+        }
+        let mut mines = Vec::new();
+        for object in logic.iter_all_objects() {
+            let mine = object
+                .read()
+                .map_err(|_| "minefield candidate object poisoned".to_string())?;
+            if mine.get_producer_id() == self.id {
+                mines.push((mine.get_id(), object.clone()));
+            }
+        }
+        let detached: Vec<_> = {
+            let manager_handle = get_object_manager();
+            let mut manager = manager_handle
+                .write()
+                .map_err(|_| "minefield object manager poisoned".to_string())?;
+            mines
+                .iter()
+                .map(|(id, object)| {
+                    manager
+                        .detach_fixture_object_slot(*id, object, &logic)
+                        .map(|slot| (*id, slot, object.clone()))
+                })
+                .collect::<Result<_, _>>()?
+        };
+        // Pins remain alive; neither manager nor object guard spans callbacks.
+        for (id, _) in &mines {
+            logic.destroy_object(*id);
+        }
+        logic.destroy_object(self.id);
+        logic
+            .cleanup_dead_objects()
+            .map_err(|error| format!("fixture cleanup: {error:?}"))?;
+        {
+            let manager_handle = get_object_manager();
+            let manager = manager_handle
+                .read()
+                .map_err(|_| "minefield object manager poisoned".to_string())?;
+            for (id, slot, expected) in detached {
+                manager.finish_fixture_object_slot_retirement(id, slot, &expected, &logic)?;
+            }
+        }
+        if logic.find_object_by_id(self.id).is_some() {
+            return Err(format!("fixture {} remains canonically admitted", self.id));
+        }
+        if OBJECT_REGISTRY.get_object(self.id).is_some() {
+            return Err(format!("fixture {} remains discoverable", self.id));
+        }
+        Ok(())
+    }
+}
+
+impl Drop for MinefieldFixture {
+    fn drop(&mut self) {
+        let unwinding = std::thread::panicking();
+        let result = catch_unwind(AssertUnwindSafe(|| {
+            let result = self.retire();
+            result.expect("exact minefield fixture retirement");
+        }));
+        *crate::terrain::get_terrain_logic().write().unwrap() = self.terrain.take().unwrap();
+        crate::helpers::set_game_logic_random_seed(self.seed);
+        if let Err(error) = result {
+            if unwinding {
+                eprintln!("minefield fixture retirement failed during unwind");
+            } else {
+                resume_unwind(error);
+            }
+        }
+    }
+}

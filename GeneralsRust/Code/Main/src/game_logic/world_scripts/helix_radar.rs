@@ -535,7 +535,7 @@ impl GameLogic {
     /// Host Helix Napalm residual registry.
     /// C++ HistoricBonus → FirestormSmallCreationWeapon residual drain.
     pub(in super::super) fn drain_historic_bonus_firestorms(&mut self) {
-        let pending = crate::game_logic::host_historic_bonus::drain_pending_firestorms();
+        let pending = self.combat_system.take_historic_bonus_firestorms();
         for p in pending {
             // Reuse Helix firestorm DoT residual zones (same OCL FirestormSmall numbers).
             let _ = self.helix_napalm.record_drop_and_spawn_firestorm(
