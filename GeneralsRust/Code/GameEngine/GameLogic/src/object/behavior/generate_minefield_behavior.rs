@@ -1023,6 +1023,10 @@ impl GenerateMinefieldBehavior {
                 }
             })?;
 
+        // C++ line 183 consumes orientation even if the later overlap check
+        // rejects this candidate; terrain rejection above consumes no draw.
+        let orientation = self.random_value(-std::f32::consts::PI, std::f32::consts::PI);
+
         // C++ lines 187-197: Check for structure overlap using partition manager
         // Uses ThePartitionManager->iteratePotentialCollisions() and checks KINDOF_STRUCTURE
         let mine_radius = template
@@ -1043,12 +1047,10 @@ impl GenerateMinefieldBehavior {
             }
         }
 
-        // C++ lines 183, 199-202: Create mine with random orientation
-        // Real orient = GameLogicRandomValueReal(-PI, PI);
+        // C++ lines 199-202: Create the mine using the already drawn orientation.
         // Object* mine = TheThingFactory->newObject(mineTemplate, team);
         // mine->setPosition(&pt);
         // mine->setOrientation(orient);
-        let orientation = self.random_value(-std::f32::consts::PI, std::f32::consts::PI);
 
         let factory = crate::helpers::TheThingFactory::get().map_err(|_| {
             BehaviorError::MineTemplateNotFound {

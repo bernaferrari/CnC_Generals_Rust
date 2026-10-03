@@ -206,7 +206,7 @@ use crate::object::behavior::spectre_gunship_update::{
     SpectreGunshipUpdate, SpectreGunshipUpdateModuleData,
 };
 use crate::object::behavior::stealth_detector_update::{
-    StealthDetectorUpdate, StealthDetectorUpdateModuleData,
+    StealthDetectorUpdate, StealthDetectorUpdateModule, StealthDetectorUpdateModuleData,
 };
 use crate::object::behavior::sticky_bomb_update::{
     sticky_bomb_update_data_factory, sticky_bomb_update_module_factory,

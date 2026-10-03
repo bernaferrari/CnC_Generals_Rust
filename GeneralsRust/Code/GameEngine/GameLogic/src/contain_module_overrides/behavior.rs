@@ -256,13 +256,48 @@ active_behavior_factories!(
     SpectreGunshipUpdate,
     "SpectreGunshipUpdate"
 );
-active_behavior_factories!(
-    stealth_detector_update_data_factory,
-    stealth_detector_update_module_factory,
-    StealthDetectorUpdateModuleData,
-    StealthDetectorUpdate,
-    "StealthDetectorUpdate"
-);
+pub(super) fn stealth_detector_update_data_factory(ini: Option<&mut INI>) -> Box<dyn ModuleData> {
+    let mut data = StealthDetectorUpdateModuleData::default();
+    if let Some(ini) = ini {
+        if let Err(err) = data.parse_from_ini(ini) {
+            warn!(
+                "Failed to parse StealthDetectorUpdate module data at line {}: {}",
+                ini.get_line_num(),
+                err
+            );
+        }
+    }
+    Box::new(data)
+}
+
+pub(super) fn stealth_detector_update_module_factory(
+    thing: Arc<dyn ModuleThing>,
+    module_data: Arc<dyn ModuleData>,
+) -> Box<dyn Module> {
+    let data = cloned_module_data::<StealthDetectorUpdateModuleData>(
+        "StealthDetectorUpdate",
+        &module_data,
+    );
+    let engine_data: Arc<dyn ModuleData> = data.clone();
+    let legacy_data: Arc<dyn LegacyModuleData> = data.clone();
+    let Some(object) = TheGameLogic::find_object_by_id(resolve_owner_id(&thing)) else {
+        return missing_owner_module("StealthDetectorUpdate", engine_data);
+    };
+    let behavior = match StealthDetectorUpdate::new(object, legacy_data) {
+        Ok(behavior) => behavior,
+        Err(err) => {
+            warn!("StealthDetectorUpdate init failed: {err}; installing no-op module");
+            return missing_owner_module("StealthDetectorUpdate", engine_data);
+        }
+    };
+    // C++ StealthDetectorUpdate.h: UpdateModule + StealthDetectorInterface
+    // are views of this one behavior, including its wake frame and Xfer.
+    Box::new(StealthDetectorUpdateModule::new(
+        behavior,
+        &AsciiString::from("StealthDetectorUpdate"),
+        data,
+    ))
+}
 active_behavior_factories!(
     tech_building_behavior_data_factory,
     tech_building_behavior_module_factory,

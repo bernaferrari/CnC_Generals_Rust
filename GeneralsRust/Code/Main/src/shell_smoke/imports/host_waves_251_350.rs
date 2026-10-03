@@ -230,11 +230,6 @@ pub use crate::game_logic::host_live_special_ability_dual_world_empty_gate_resid
     honesty_live_special_ability_dual_world_empty_gate_nav_commands_residual_wave296,
     simulate_live_special_ability_dual_world_empty_gate_honesty,
 };
-pub use crate::game_logic::host_live_stealth_detector_dual_world_empty_gate_residual_wave297::{
-    honesty_live_stealth_detector_dual_world_empty_gate_method_names_residual_wave297,
-    honesty_live_stealth_detector_dual_world_empty_gate_nav_commands_residual_wave297,
-    simulate_live_stealth_detector_dual_world_empty_gate_honesty,
-};
 pub use crate::game_logic::host_live_supply_system_dual_world_empty_gate_residual_wave298::{
     honesty_live_supply_system_dual_world_empty_gate_method_names_residual_wave298,
     honesty_live_supply_system_dual_world_empty_gate_nav_commands_residual_wave298,
@@ -439,11 +434,6 @@ pub use crate::game_logic::host_live_turret_ai_dual_world_empty_gate_residual_wa
     honesty_live_turret_ai_dual_world_empty_gate_method_names_residual_wave338,
     honesty_live_turret_ai_dual_world_empty_gate_nav_commands_residual_wave338,
     simulate_live_turret_ai_dual_world_empty_gate_honesty,
-};
-pub use crate::game_logic::host_live_stealth_detector_module_dual_world_empty_gate_residual_wave339::{
-    honesty_live_stealth_detector_module_dual_world_empty_gate_method_names_residual_wave339,
-    honesty_live_stealth_detector_module_dual_world_empty_gate_nav_commands_residual_wave339,
-    simulate_live_stealth_detector_module_dual_world_empty_gate_honesty,
 };
 pub use crate::game_logic::host_live_modules_dual_world_empty_gate_residual_wave340::{
     honesty_live_modules_dual_world_empty_gate_method_names_residual_wave340,

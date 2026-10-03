@@ -494,3 +494,125 @@ fn sleepy_legacy_current_guard_restores_outer_update_after_nesting_and_unwind() 
     assert!(!is_cur_update_module(&outer));
     assert!(!is_cur_update_module(&inner));
 }
+
+#[test]
+fn normal_callbacks_observe_driving_frame_and_preserve_phase_order() {
+    let mut world = GameLogic::new();
+    world.frame = 37;
+    insert_owner(&mut world, 96);
+    let trace = Arc::new(AtomicU64::new(0));
+    let observed_frame = Arc::new(AtomicU32::new(u32::MAX));
+    // Registration order differs from the established dispatcher phase order.
+    for (phase, digit) in [
+        (SleepyUpdatePhase::Final, 4),
+        (SleepyUpdatePhase::Normal, 3),
+        (SleepyUpdatePhase::Initial, 1),
+        (SleepyUpdatePhase::Physics, 2),
+    ] {
+        let module: UpdateModulePtr = Arc::new(RwLock::new(CountUpdate {
+            calls: Arc::new(AtomicU32::new(0)),
+            observed_frame: observed_frame.clone(),
+            phase,
+            sleep: UpdateSleepTime::None,
+            trace: Some((trace.clone(), digit)),
+        }));
+        world.register_normal_update_module(96, module);
+    }
+    world.process_normal_updates();
+    assert_eq!(trace.load(Ordering::Relaxed), 1234);
+    assert_eq!(observed_frame.load(Ordering::Relaxed), 37);
+}
+
+#[test]
+fn normal_callback_awakens_only_its_driving_world_sleepy_registration() {
+    let mut worlds = [GameLogic::new(), GameLogic::new()];
+    let mut observations = Vec::new();
+    for (world, frame) in worlds.iter_mut().zip([7, 19]) {
+        world.frame = frame;
+        insert_owner(world, 97);
+        let (target, calls, observed_frame) =
+            count_update(SleepyUpdatePhase::Normal, UpdateSleepTime::Forever);
+        let (normal, _) = sibling_update(CallbackAction::Awaken(target.clone()));
+        world.register_sleepy_update_module(97, target.clone(), 100);
+        world.register_normal_update_module(97, normal);
+        observations.push((target, calls, observed_frame));
+    }
+    worlds[0].process_normal_updates();
+    assert_eq!(
+        worlds[0].sleepy_entry_for(&observations[0].0),
+        Some((97, 7))
+    );
+    assert_eq!(
+        worlds[1].sleepy_entry_for(&observations[1].0),
+        Some((97, 100))
+    );
+    worlds[0].process_sleepy_updates(7);
+    assert_eq!(observations[0].1.load(Ordering::Relaxed), 1);
+    assert_eq!(observations[0].2.load(Ordering::Relaxed), 7);
+    assert_eq!(observations[1].1.load(Ordering::Relaxed), 0);
+    worlds[1].process_normal_updates();
+    worlds[1].process_sleepy_updates(19);
+    assert_eq!(observations[1].1.load(Ordering::Relaxed), 1);
+    assert_eq!(observations[1].2.load(Ordering::Relaxed), 19);
+    assert_eq!(observations[0].1.load(Ordering::Relaxed), 1);
+}
+
+struct NormalRemovalUpdate {
+    earlier: UpdateModulePtr,
+    own: Option<UpdateModulePtr>,
+    later: UpdateModulePtr,
+    trace: Arc<AtomicU64>,
+}
+
+impl UpdateModuleInterface for NormalRemovalUpdate {
+    fn update_scheduled(&mut self, context: &mut dyn UpdateScheduleContext) -> UpdateResult {
+        self.trace
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |previous| {
+                Some(previous * 10 + 2)
+            })
+            .unwrap();
+        context.unregister(&self.earlier);
+        let own = self.own.take().expect("normal callback executes once");
+        context.unregister(&own);
+        context.unregister(&self.later);
+        Ok(UpdateSleepTime::None)
+    }
+}
+
+#[test]
+fn normal_unregister_is_visible_before_next_callback_without_skipping_survivor() {
+    let mut world = GameLogic::new();
+    insert_owner(&mut world, 98);
+    let trace = Arc::new(AtomicU64::new(0));
+    let traced = |digit| -> UpdateModulePtr {
+        Arc::new(RwLock::new(CountUpdate {
+            calls: Arc::new(AtomicU32::new(0)),
+            observed_frame: Arc::new(AtomicU32::new(0)),
+            phase: SleepyUpdatePhase::Normal,
+            sleep: UpdateSleepTime::None,
+            trace: Some((trace.clone(), digit)),
+        }))
+    };
+    let earlier = traced(1);
+    let later = traced(3);
+    let survivor = traced(4);
+    let concrete = Arc::new(RwLock::new(NormalRemovalUpdate {
+        earlier: earlier.clone(),
+        own: None,
+        later: later.clone(),
+        trace: trace.clone(),
+    }));
+    let remover: UpdateModulePtr = concrete.clone();
+    concrete.write().unwrap().own = Some(remover.clone());
+    for module in [&earlier, &remover, &later, &survivor] {
+        world.register_normal_update_module(98, module.clone());
+    }
+    world.process_normal_updates();
+    assert_eq!(trace.load(Ordering::Relaxed), 124);
+    assert_eq!(world.normal_updates.len(), 1);
+    assert!(Arc::ptr_eq(&world.normal_updates[0].module, &survivor));
+    assert_eq!(
+        world.module_lookup[&98],
+        vec![ModuleIdentity::of(&survivor)]
+    );
+}

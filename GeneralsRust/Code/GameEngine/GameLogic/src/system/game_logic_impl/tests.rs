@@ -635,7 +635,8 @@ mod tests {
         let dummy: UpdateModulePtr = Arc::new(RwLock::new(UpdateModuleDummy));
         obj.write()
             .unwrap()
-            .attach_update_module_registration(dummy);
+            .attach_update_module_registration(dummy, None)
+            .unwrap();
         logic.add_restored_object(Arc::clone(&obj));
         logic.sleepy_updates.clear();
         logic.normal_updates.clear();
@@ -952,7 +953,8 @@ mod tests {
         object
             .write()
             .unwrap()
-            .attach_update_module_registration(module.clone());
+            .attach_update_module_registration(module.clone(), None)
+            .unwrap();
         world.objects.insert(0xD155, object.clone());
         world.all_objects.push(0xD155);
         world.register_sleepy_update_module(0xD155, module, 100);

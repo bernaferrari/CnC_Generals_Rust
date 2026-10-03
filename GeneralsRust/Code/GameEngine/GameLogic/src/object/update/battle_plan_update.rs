@@ -505,6 +505,7 @@ impl BattlePlanUpdate {
     }
 
     fn apply_search_and_destroy_bonuses(&self, ctx: &mut UpdateContext<'_>) {
+        let frame = ctx.game_logic.get_frame();
         let Some(object) = ctx.game_logic.find_object_mut(self.thing) else {
             return;
         };
@@ -527,17 +528,23 @@ impl BattlePlanUpdate {
             .module_data
             .strategy_center_search_and_destroy_detects_stealth
         {
-            if let Some(stealth_detector) = object.find_update_module("StealthDetectorUpdate") {
-                stealth_detector.with_module(|module| {
-                    if let Some(control) = module.get_stealth_detector_control_interface() {
-                        control.set_sd_enabled(true);
+            let wake = object.set_stealth_detector_enabled(true, frame);
+            // The owned object borrow and module guard are no longer used.
+            // This declared archive retains its existing singleton adapter;
+            // production BattlePlanUpdate receives UpdateScheduleContext.
+            if let Some((wake, registrations)) = wake {
+                let logic = crate::system::game_logic::get_game_logic();
+                if let Ok(mut logic) = logic.lock() {
+                    for module in registrations {
+                        logic.friend_awaken_update_module(&module, wake);
                     }
-                });
+                }
             }
         }
     }
 
     fn remove_building_bonuses(&self, ctx: &mut UpdateContext<'_>) {
+        let frame = ctx.game_logic.get_frame();
         let Some(object) = ctx.game_logic.find_object_mut(self.thing) else {
             return;
         };
@@ -580,14 +587,14 @@ impl BattlePlanUpdate {
                     .module_data
                     .strategy_center_search_and_destroy_detects_stealth
                 {
-                    if let Some(stealth_detector) =
-                        object.find_update_module("StealthDetectorUpdate")
-                    {
-                        stealth_detector.with_module(|module| {
-                            if let Some(control) = module.get_stealth_detector_control_interface() {
-                                control.set_sd_enabled(false);
+                    let wake = object.set_stealth_detector_enabled(false, frame);
+                    if let Some((wake, registrations)) = wake {
+                        let logic = crate::system::game_logic::get_game_logic();
+                        if let Ok(mut logic) = logic.lock() {
+                            for module in registrations {
+                                logic.friend_awaken_update_module(&module, wake);
                             }
-                        });
+                        }
                     }
                 }
             }

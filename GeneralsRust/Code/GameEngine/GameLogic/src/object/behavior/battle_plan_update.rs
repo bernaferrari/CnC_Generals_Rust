@@ -26,7 +26,34 @@ use game_engine::common::system::kind_of::{KIND_OF_BIT_NAMES, kind_of_bit_from_n
 use game_engine::common::system::radar::RadarEventType;
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{Module, ModuleData as EngineModuleData, NameKeyType};
+use game_engine::common::thing::update_module::{UpdateModulePtr, UpdateScheduleContext};
 use std::sync::{Arc, RwLock};
+
+/// Existing standalone update bridge. Production ModuleUpdateProxy dispatch
+/// supplies the driving schedule instead; this adapter never stores a world.
+struct LegacyBattlePlanSchedule {
+    frame: u32,
+}
+
+impl UpdateScheduleContext for LegacyBattlePlanSchedule {
+    fn frame(&self) -> u32 {
+        self.frame
+    }
+    fn awaken(&mut self, module: &UpdateModulePtr, wake_frame: u32) {
+        // Registration already belongs to the canonical owner; friendAwaken
+        // updates that exact identity rather than replacing its category.
+        let logic = crate::system::game_logic::get_game_logic();
+        if let Ok(mut logic) = logic.lock() {
+            logic.friend_awaken_update_module(module, wake_frame);
+        }
+    }
+    fn unregister(&mut self, module: &UpdateModulePtr) {
+        let logic = crate::system::game_logic::get_game_logic();
+        if let Ok(mut logic) = logic.lock() {
+            logic.unregister_update_module(crate::common::INVALID_ID, module.clone());
+        }
+    }
+}
 
 const BATTLE_PLAN_RADAR_EVENT_SECONDS: f32 = 4.0;
 
@@ -532,7 +559,11 @@ impl BattlePlanUpdate {
         .unwrap_or(false)
     }
 
-    fn set_status(&mut self, new_status: TransitionStatus) {
+    fn set_status(
+        &mut self,
+        new_status: TransitionStatus,
+        context: &mut dyn UpdateScheduleContext,
+    ) {
         if self.status == new_status {
             return;
         }
@@ -540,7 +571,7 @@ impl BattlePlanUpdate {
         let old_status = self.status;
         self.clear_old_status_states(old_status);
 
-        let now = TheGameLogic::get_frame();
+        let now = context.frame();
         match new_status {
             TransitionStatus::Idle => {
                 self.current_plan = BattlePlanStatus::None;
@@ -550,11 +581,11 @@ impl BattlePlanUpdate {
                 self.apply_unpacking_states(now);
             }
             TransitionStatus::Active => {
-                self.set_battle_plan(self.current_plan);
+                self.set_battle_plan(self.current_plan, context);
                 self.apply_active_states();
             }
             TransitionStatus::Packing => {
-                self.set_battle_plan(BattlePlanStatus::None);
+                self.set_battle_plan(BattlePlanStatus::None, context);
                 self.apply_packing_states(now);
             }
         }
@@ -793,7 +824,7 @@ impl BattlePlanUpdate {
         }
     }
 
-    fn set_battle_plan(&mut self, plan: BattlePlanStatus) {
+    fn set_battle_plan(&mut self, plan: BattlePlanStatus, context: &mut dyn UpdateScheduleContext) {
         let Some(player) = self.with_object(|object| object.get_controlling_player()) else {
             return;
         };
@@ -810,7 +841,7 @@ impl BattlePlanUpdate {
                 BattlePlanStatus::None => unreachable!(),
             };
             player.change_battle_plan(plan_type, -1, &self.bonuses);
-            self.remove_building_bonuses();
+            self.remove_building_bonuses(context);
         }
 
         self.bonuses.armor_scalar = 1.0;
@@ -821,7 +852,7 @@ impl BattlePlanUpdate {
 
         match plan {
             BattlePlanStatus::None => {
-                let now = TheGameLogic::get_frame();
+                let now = context.frame();
                 let _ = player.iterate_object_ids(|obj_id| {
                     let obj = match crate::helpers::TheGameLogic::find_object_by_id(obj_id)
                         .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(obj_id))
@@ -854,7 +885,7 @@ impl BattlePlanUpdate {
                 player.change_battle_plan(BattlePlanType::HoldTheLine, 1, &self.bonuses);
             }
             BattlePlanStatus::SearchAndDestroy => {
-                self.apply_search_and_destroy_bonuses();
+                self.apply_search_and_destroy_bonuses(context);
                 self.bonuses.search_and_destroy = 1;
                 self.bonuses.sight_range_scalar =
                     self.module_data.search_and_destroy_sight_range_scalar;
@@ -894,7 +925,9 @@ impl BattlePlanUpdate {
         });
     }
 
-    fn apply_search_and_destroy_bonuses(&self) {
+    fn apply_search_and_destroy_bonuses(&self, context: &mut dyn UpdateScheduleContext) {
+        let frame = context.frame();
+        let mut detector_wake = None;
         self.with_object_mut(|object| {
             if self
                 .module_data
@@ -912,18 +945,21 @@ impl BattlePlanUpdate {
                 .module_data
                 .strategy_center_search_and_destroy_detects_stealth
             {
-                if let Some(stealth_detector) = object.find_update_module("StealthDetectorUpdate") {
-                    stealth_detector.with_module(|module| {
-                        if let Some(control) = module.get_stealth_detector_control_interface() {
-                            control.set_sd_enabled(true);
-                        }
-                    });
-                }
+                detector_wake = object.set_stealth_detector_enabled(true, frame);
             }
         });
+        // Both owner and module borrows ended; apply the original immediate
+        // wake before subsequent player bonuses or the next update callback.
+        if let Some((wake, registrations)) = detector_wake {
+            for module in registrations {
+                context.awaken(&module, wake);
+            }
+        }
     }
 
-    fn remove_building_bonuses(&self) {
+    fn remove_building_bonuses(&self, context: &mut dyn UpdateScheduleContext) {
+        let frame = context.frame();
+        let mut detector_wake = None;
         self.with_object_mut(|object| match self.plan_affecting_army {
             BattlePlanStatus::HoldTheLine => {
                 if self
@@ -966,19 +1002,16 @@ impl BattlePlanUpdate {
                     .module_data
                     .strategy_center_search_and_destroy_detects_stealth
                 {
-                    if let Some(stealth_detector) =
-                        object.find_update_module("StealthDetectorUpdate")
-                    {
-                        stealth_detector.with_module(|module| {
-                            if let Some(control) = module.get_stealth_detector_control_interface() {
-                                control.set_sd_enabled(false);
-                            }
-                        });
-                    }
+                    detector_wake = object.set_stealth_detector_enabled(false, frame);
                 }
             }
             _ => {}
         });
+        if let Some((wake, registrations)) = detector_wake {
+            for module in registrations {
+                context.awaken(&module, wake);
+            }
+        }
     }
 
     pub fn get_active_battle_plan(&self) -> BattlePlanStatus {
@@ -990,8 +1023,8 @@ impl BattlePlanUpdate {
     }
 }
 
-impl UpdateModuleInterface for BattlePlanUpdate {
-    fn update_simple(&mut self) -> UpdateSleepTime {
+impl BattlePlanUpdate {
+    fn update_with_schedule(&mut self, context: &mut dyn UpdateScheduleContext) -> UpdateSleepTime {
         if self.invalid_settings {
             return UpdateSleepTime::None;
         }
@@ -1000,18 +1033,18 @@ impl UpdateModuleInterface for BattlePlanUpdate {
             return UpdateSleepTime::Forever;
         }
 
-        let now = TheGameLogic::get_frame();
+        let now = context.frame();
 
         if self.next_ready_frame <= now {
             match self.status {
                 TransitionStatus::Idle => {
                     if self.desired_plan != BattlePlanStatus::None {
                         self.current_plan = self.desired_plan;
-                        self.set_status(TransitionStatus::Unpacking);
+                        self.set_status(TransitionStatus::Unpacking, context);
                     }
                 }
                 TransitionStatus::Unpacking => {
-                    self.set_status(TransitionStatus::Active);
+                    self.set_status(TransitionStatus::Active, context);
                     if self.current_plan == BattlePlanStatus::Bombardment {
                         self.enable_turret(true);
                     }
@@ -1035,7 +1068,7 @@ impl UpdateModuleInterface for BattlePlanUpdate {
                             });
 
                             if should_pack.unwrap_or(true) {
-                                self.set_status(TransitionStatus::Packing);
+                                self.set_status(TransitionStatus::Packing, context);
                                 self.centering_turret = false;
                                 self.enable_turret(false);
                             } else if !self.centering_turret {
@@ -1043,17 +1076,33 @@ impl UpdateModuleInterface for BattlePlanUpdate {
                                 self.centering_turret = true;
                             }
                         } else {
-                            self.set_status(TransitionStatus::Packing);
+                            self.set_status(TransitionStatus::Packing, context);
                         }
                     }
                 }
                 TransitionStatus::Packing => {
-                    self.set_status(TransitionStatus::Idle);
+                    self.set_status(TransitionStatus::Idle, context);
                 }
             }
         }
 
         UpdateSleepTime::None
+    }
+}
+
+impl UpdateModuleInterface for BattlePlanUpdate {
+    fn update_simple(&mut self) -> UpdateSleepTime {
+        let mut context = LegacyBattlePlanSchedule {
+            frame: TheGameLogic::get_frame(),
+        };
+        self.update_with_schedule(&mut context)
+    }
+
+    fn update_scheduled(
+        &mut self,
+        context: &mut dyn UpdateScheduleContext,
+    ) -> Result<UpdateSleepTime, Box<dyn std::error::Error + Send + Sync>> {
+        Ok(self.update_with_schedule(context))
     }
 }
 
@@ -1567,3 +1616,7 @@ mod tests {
 #[cfg(test)]
 #[path = "battle_plan_delete_tests.rs"]
 mod delete_tests;
+
+#[cfg(test)]
+#[path = "battle_plan_schedule_tests.rs"]
+mod schedule_tests;

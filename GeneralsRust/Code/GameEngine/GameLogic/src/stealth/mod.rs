@@ -8,7 +8,6 @@
 //! - Visual effects integration
 //! - Upgrade system integration
 
-pub mod detector;
 pub mod integration;
 pub mod state;
 pub mod upgrade;
@@ -17,9 +16,6 @@ pub mod visibility;
 #[cfg(test)]
 mod tests;
 
-pub use detector::{
-    StealthDetectorController, StealthDetectorUpdate, StealthDetectorUpdateModuleData,
-};
 pub use integration::{
     StealthEvent, StealthEventListener, StealthIntegration, StealthShaderParams,
     StealthVisualEffects,

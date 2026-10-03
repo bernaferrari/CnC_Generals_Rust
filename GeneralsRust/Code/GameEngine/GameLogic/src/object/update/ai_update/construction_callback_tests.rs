@@ -4,6 +4,8 @@ use crate::player::{Player, PlayerList, player_list};
 use crate::team::Team;
 
 pub(crate) struct CompletionFixture {
+    owner: crate::system::game_logic::GameLogic,
+    object_ids: [crate::common::ObjectID; 2],
     previous_players: Option<PlayerList>,
     previous_objects: Option<crate::object_manager::ObjectManager>,
     previous_script: Option<crate::scripting::engine::ScriptEngine>,
@@ -16,6 +18,25 @@ pub(crate) struct CompletionFixture {
 
 impl CompletionFixture {
     pub(crate) fn new(power: i32) -> Self {
+        // Never replace an unrelated object or team admission in the adapter.
+        let mut team_id = 0xBA_0300;
+        loop {
+            let objects_unused = [team_id + 1, team_id + 2].into_iter().all(|id| {
+                crate::object::registry::OBJECT_REGISTRY
+                    .get_object(id)
+                    .is_none()
+            });
+            let team_unused = crate::team::get_team_factory()
+                .lock()
+                .unwrap()
+                .find_team_by_id(team_id)
+                .is_none();
+            if objects_unused && team_unused {
+                break;
+            }
+            team_id += 3;
+        }
+        let object_ids = [team_id + 1, team_id + 2];
         let previous_objects = Some(std::mem::replace(
             &mut *crate::object_manager::get_object_manager().write().unwrap(),
             crate::object_manager::ObjectManager::new(),
@@ -40,7 +61,7 @@ impl CompletionFixture {
             &mut *player_list().write().unwrap(),
             players,
         ));
-        let team = Arc::new(RwLock::new(Team::new("CompletionTeam".into(), 0xBA_0300)));
+        let team = Arc::new(RwLock::new(Team::new("CompletionTeam".into(), team_id)));
         team.write().unwrap().set_controlling_player_id(Some(0));
         let mut template = DefaultThingTemplate::new("CompletionStructure".into());
         template.add_kind_of(KindOf::Structure);
@@ -53,35 +74,17 @@ impl CompletionFixture {
             "BuildCost".to_owned(),
             "700".to_owned(),
         )]));
-        let builder = Arc::new(RwLock::new(Object::new_test(0xBA_0301, 100.0)));
+        let builder = Arc::new(RwLock::new(Object::new_test(object_ids[0], 100.0)));
         let structure = Arc::new(RwLock::new(Object::new_test_from_template(
-            0xBA_0302,
+            object_ids[1],
             100.0,
             Arc::new(template),
         )));
-        for object in [&builder, &structure] {
-            crate::object::registry::OBJECT_REGISTRY
-                .register_object(object.read().unwrap().get_id(), object);
-            object.write().unwrap().set_team(Some(team.clone()));
-        }
-        structure
-            .write()
-            .unwrap()
-            .set_name("CompletionScriptName".into());
-        // Populate names only through the construction notification below.
-        assert_eq!(
-            crate::scripting::engine::get_named_object_tracker()
-                .get_object_id("CompletionScriptName")
-                .unwrap(),
-            None
-        );
-        structure.write().unwrap().set_status(
-            crate::common::ObjectStatusMaskType::from_status(
-                crate::common::ObjectStatusTypes::UnderConstruction,
-            ),
-            true,
-        );
-        Self {
+        // Establish the restore guard before admission, team callbacks, or
+        // assertions. Constructing this local owner publishes nothing.
+        let mut fixture = Self {
+            owner: crate::system::game_logic::GameLogic::new(),
+            object_ids,
             previous_players,
             previous_objects,
             previous_ai,
@@ -90,7 +93,97 @@ impl CompletionFixture {
             player,
             builder,
             structure,
+        };
+        for object in [fixture.builder.clone(), fixture.structure.clone()] {
+            fixture.owner.register_object(object.clone()).unwrap();
+            let assigned = object.write().unwrap().set_team(Some(team.clone()));
+            assigned.expect("fixture team assignment");
         }
+        fixture
+            .structure
+            .write()
+            .unwrap()
+            .set_name("CompletionScriptName".into());
+        // Admission precedes naming: human completion does not eagerly cache names.
+        assert_eq!(
+            crate::scripting::engine::get_named_object_tracker()
+                .get_object_id("CompletionScriptName")
+                .unwrap(),
+            None
+        );
+        fixture.structure.write().unwrap().set_status(
+            crate::common::ObjectStatusMaskType::from_status(
+                crate::common::ObjectStatusTypes::UnderConstruction,
+            ),
+            true,
+        );
+        fixture
+    }
+
+    fn retire(&mut self) -> Result<(), String> {
+        let mut admitted = Vec::new();
+        for (id, expected) in self
+            .object_ids
+            .into_iter()
+            .zip([self.builder.clone(), self.structure.clone()])
+        {
+            // A constructor panic may have admitted only the first object.
+            if let Some(actual) = self.owner.find_object_by_id(id) {
+                if !Arc::ptr_eq(&actual, &expected) {
+                    return Err(format!("completion fixture {id} owner identity mismatch"));
+                }
+                admitted.push((id, expected));
+            }
+        }
+        let detached = {
+            let manager_handle = crate::object_manager::get_object_manager();
+            let mut manager = manager_handle
+                .write()
+                .map_err(|_| "completion fixture manager poisoned".to_string())?;
+            let mut detached = Vec::new();
+            for (id, expected) in &admitted {
+                if manager.get_object(*id).is_some() {
+                    let slot = manager.detach_fixture_object_slot(*id, expected, &self.owner)?;
+                    detached.push((*id, slot, expected.clone()));
+                }
+            }
+            detached
+        };
+        // C++ Object.cpp579-607/Energy.cpp130-151: team removal must still
+        // resolve the original player. No external object/player/module guard
+        // spans the driving owner's synchronous deletion callbacks.
+        for (id, _) in &admitted {
+            self.owner.destroy_object(*id);
+        }
+        self.owner
+            .cleanup_dead_objects()
+            .map_err(|error| format!("fixture cleanup: {error:?}"))?;
+        {
+            let manager_handle = crate::object_manager::get_object_manager();
+            let manager = manager_handle
+                .read()
+                .map_err(|_| "completion fixture manager poisoned".to_string())?;
+            for (id, slot, expected) in detached {
+                manager.finish_fixture_object_slot_retirement(id, slot, &expected, &self.owner)?;
+            }
+        }
+        for (id, expected) in &admitted {
+            crate::ai::object_registry::unregister_legacy_object(*id);
+            if self.owner.find_object_by_id(*id).is_some()
+                || crate::object::registry::OBJECT_REGISTRY
+                    .get_object(*id)
+                    .is_some()
+            {
+                return Err(format!("completion fixture {id} remains admitted"));
+            }
+            let finalized = expected
+                .read()
+                .map_err(|_| format!("completion fixture {id} poisoned"))?;
+            if finalized.get_id() != crate::common::INVALID_ID || finalized.get_team().is_some() {
+                return Err(format!("completion fixture {id} was not finalized"));
+            }
+        }
+        Ok(())
     }
 
     pub(crate) fn complete(&self, rebuild: bool) {
@@ -100,15 +193,38 @@ impl CompletionFixture {
         );
         dozer.handle_build_completion(&self.builder, &self.structure, rebuild);
     }
+
+    pub(crate) fn frame(&self) -> u32 {
+        self.owner.get_frame()
+    }
+
+    pub(crate) fn request_structure_destruction(&mut self) {
+        let id = self.object_ids[1];
+        let admitted = self
+            .owner
+            .find_object_by_id(id)
+            .expect("admitted structure");
+        assert!(Arc::ptr_eq(&admitted, &self.structure));
+        // C++ GameLogic.cpp3935-3967 queues destruction before onDestroy.
+        self.owner.destroy_object(id);
+    }
+
+    pub(crate) fn finish_structure_destruction(&mut self) {
+        // C++ GameLogic.cpp2499-2506 removes the lookup before the destructor.
+        self.owner
+            .cleanup_dead_objects()
+            .expect("structure cleanup");
+        assert!(self.owner.find_object_by_id(self.object_ids[1]).is_none());
+    }
 }
 
 impl Drop for CompletionFixture {
     fn drop(&mut self) {
-        for object in [&self.builder, &self.structure] {
-            let id = object.read().unwrap().get_id();
-            crate::object::registry::OBJECT_REGISTRY.unregister_object(id);
-            crate::ai::object_registry::unregister_legacy_object(id);
-        }
+        let unwinding = std::thread::panicking();
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let result = self.retire();
+            result.expect("exact completion fixture retirement");
+        }));
         *crate::scripting::engine::get_script_engine()
             .write()
             .unwrap() = self.previous_script.take();
@@ -118,7 +234,92 @@ impl Drop for CompletionFixture {
         *crate::object_manager::get_object_manager().write().unwrap() =
             self.previous_objects.take().unwrap();
         *player_list().write().unwrap() = self.previous_players.take().unwrap();
+        if let Err(error) = result {
+            if unwinding {
+                eprintln!("completion fixture retirement failed during unwind");
+            } else {
+                std::panic::resume_unwind(error);
+            }
+        }
     }
+}
+
+#[test]
+fn completion_fixture_retires_retained_queries_before_restoring_player_services() {
+    let _isolation = crate::object::registry::test_isolation_lock()
+        .lock()
+        .unwrap();
+    let previous = CompletionFixture::new(30);
+    let (previous_id, template, team, position) = {
+        let object = previous.structure.read().unwrap();
+        (
+            object.get_id(),
+            object.get_template().clone(),
+            object.get_team(),
+            *object.get_position(),
+        )
+    };
+    let instance = crate::object_manager::GameObjectInstance::from_existing(
+        previous.structure.clone(),
+        Some(template),
+        team,
+    );
+    let admitted = crate::object_manager::get_object_manager()
+        .write()
+        .unwrap()
+        .register_object_instance(instance, position);
+    admitted.expect("actual previous manager admission");
+    previous.complete(false);
+    let previous_power = previous.player.read().unwrap().get_energy().production();
+    let fixture = CompletionFixture::new(10);
+    fixture.complete(false);
+    let ids = fixture.object_ids;
+    let queries = [fixture.builder.clone(), fixture.structure.clone()];
+    assert!(Arc::ptr_eq(
+        &fixture.owner.find_object_by_id(ids[1]).unwrap(),
+        &queries[1]
+    ));
+    drop(fixture);
+
+    let facts: Vec<_> = queries
+        .iter()
+        .map(|query| {
+            let object = query.read().unwrap();
+            (object.get_id(), object.get_team().is_none())
+        })
+        .collect();
+    assert_eq!(facts, vec![(crate::common::INVALID_ID, true); 2]);
+    for id in ids {
+        assert!(
+            crate::object::registry::OBJECT_REGISTRY
+                .get_object(id)
+                .is_none()
+        );
+    }
+    assert!(Arc::ptr_eq(
+        &previous.owner.find_object_by_id(previous_id).unwrap(),
+        &previous.structure
+    ));
+    let restored_registry = crate::object::registry::OBJECT_REGISTRY
+        .get_object(previous_id)
+        .unwrap();
+    assert!(Arc::ptr_eq(&restored_registry, &previous.structure));
+    let restored_slot = {
+        let manager_handle = crate::object_manager::get_object_manager();
+        let manager = manager_handle.read().unwrap();
+        manager.with_object(previous_id, |object| object.base())
+    }
+    .expect("restored previous manager slot");
+    assert!(Arc::ptr_eq(&restored_slot, &previous.structure));
+    assert_eq!(
+        previous.player.read().unwrap().get_energy().production(),
+        previous_power
+    );
+    drop(queries);
+    assert_eq!(
+        previous.player.read().unwrap().get_energy().production(),
+        previous_power
+    );
 }
 
 #[test]

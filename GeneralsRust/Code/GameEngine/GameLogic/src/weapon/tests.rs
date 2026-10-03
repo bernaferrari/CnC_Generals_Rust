@@ -6,6 +6,10 @@ use crate::damage::DamageInfo;
 use crate::helpers::TheGameLogic;
 use std::sync::{Arc, RwLock};
 
+#[path = "test_fixture.rs"]
+mod test_fixture;
+use test_fixture::{AdmittedWeaponBodies, ScopedWeaponFixture};
+
 fn weapon_range_test_guard() -> std::sync::MutexGuard<'static, ()> {
     // Share isolation with other registry-mutating weapon tests (e.g.
     // weapon_template collision checks) so parallel suites cannot clear
@@ -577,6 +581,8 @@ fn test_fire_mode_continuous_beam() {
 
 #[test]
 fn test_weapon_status_transitions() {
+    let isolation = weapon_range_test_guard();
+    let _fixture = ScopedWeaponFixture::new(&isolation);
     let mut template = WeaponTemplate::new("TestWeapon".to_string());
     template.clip_size = 1;
     let template = Arc::new(template);
@@ -585,8 +591,13 @@ fn test_weapon_status_transitions() {
     // Initial state
     assert_eq!(weapon.load_status(), WeaponStatus::OutOfAmmo);
 
-    // Load ammo
+    // C++ Weapon.cpp:1877-1912 stores RELOADING_CLIP, even for a zero-delay
+    // instant reload. getStatus (2736-2751) performs the lazy READY transition.
     weapon.load_ammo_now(1).unwrap();
+    assert_eq!(weapon.load_status(), WeaponStatus::ReloadingClip);
+    assert_eq!(weapon.ammo_in_clip, 1);
+    assert_eq!(weapon.when_we_can_fire_again, TheGameLogic::get_frame());
+    assert_eq!(weapon.get_status(), WeaponStatus::ReadyToFire);
     assert_eq!(weapon.load_status(), WeaponStatus::ReadyToFire);
     assert_eq!(weapon.ammo_in_clip, 1);
 }
@@ -1451,39 +1462,75 @@ fn test_calculate_scatter_structure_even_less() {
 }
 
 #[test]
-fn test_calculate_scatter_projectile_minimal() {
-    // Projectiles (anti-missile) get minimal scatter (25% of scatter_radius)
+fn test_calculate_scatter_projectile_uses_authored_radius_and_two_rng_draws() {
+    let isolation = weapon_range_test_guard();
+    let _fixture = ScopedWeaponFixture::new(&isolation);
     let mut weapon = create_test_weapon();
     Arc::make_mut(&mut weapon.template).scatter_radius = 100.0;
-
+    Arc::make_mut(&mut weapon.template).infantry_inaccuracy_dist = 50.0;
     let target = Coord3D::new(100.0, 100.0, 50.0);
-    let scattered = weapon.calculate_scatter(target, 100.0, ObjectType::Projectile);
+    let seed = [
+        0x12345678, 0x87654321, 0x31415926, 0x27182818, 0xabcdef01, 0x10203040,
+    ];
 
-    // Scattered position should be within 25% of scatter_radius (25 units)
-    let distance_x = (scattered.x - target.x).abs();
-    let distance_y = (scattered.y - target.y).abs();
-    let distance_xy = (distance_x * distance_x + distance_y * distance_y).sqrt();
-
-    assert!(
-        distance_xy <= 25.0,
-        "Projectile scatter should be within 25.0 units (25% of 100), got {}",
-        distance_xy
-    );
+    // C++ Weapon.cpp:958-995 rolls radius, then angle. Only infantry adds
+    // InfantryInaccuracyDist; projectiles, vehicles and structures do not scale it.
+    for target_type in [
+        ObjectType::Projectile,
+        ObjectType::Vehicle,
+        ObjectType::Structure,
+        ObjectType::Infantry,
+    ] {
+        let authored_radius = if target_type == ObjectType::Infantry {
+            150.0
+        } else {
+            100.0
+        };
+        crate::helpers::set_game_logic_random_seed(seed);
+        let radius = crate::helpers::get_game_logic_random_value_real(0.0, authored_radius);
+        let angle =
+            crate::helpers::get_game_logic_random_value_real(0.0, 2.0 * std::f32::consts::PI);
+        let after_two_draws = game_engine::common::random_value::get_game_logic_random_seed_state();
+        crate::helpers::set_game_logic_random_seed(seed);
+        let scattered = weapon.calculate_scatter(target, 100.0, target_type);
+        let actual_seed = game_engine::common::random_value::get_game_logic_random_seed_state();
+        assert!(
+            (scattered.x - (target.x + radius * angle.cos())).abs() < 1e-5,
+            "authored X scatter for {target_type:?}"
+        );
+        assert!(
+            (scattered.y - (target.y + radius * angle.sin())).abs() < 1e-5,
+            "authored Y scatter for {target_type:?}"
+        );
+        assert!(radius >= 0.0 && radius <= authored_radius);
+        assert_eq!(
+            actual_seed, after_two_draws,
+            "exactly radius then angle draws for {target_type:?}"
+        );
+    }
 }
 
 #[test]
-fn test_calculate_scatter_z_not_affected() {
-    // Scatter should only affect X and Y, not Z
+fn test_calculate_scatter_projects_z_to_terrain_and_preserves_zero_scatter() {
+    let isolation = weapon_range_test_guard();
+    let mut fixture = ScopedWeaponFixture::new(&isolation);
+    fixture.install_flat_terrain(40);
     let mut weapon = create_test_weapon();
     Arc::make_mut(&mut weapon.template).scatter_radius = 100.0;
-
     let target = Coord3D::new(100.0, 100.0, 500.0);
     let scattered = weapon.calculate_scatter(target, 100.0, ObjectType::Vehicle);
 
-    // Z should never change
+    // C++ Weapon.cpp:990-995 aims at the scattered ground-layer height, not
+    // the original elevated victim position. Raw map height 40 is 25 world units.
+    assert_eq!(scattered.z, 25.0);
+    Arc::make_mut(&mut weapon.template).scatter_radius = 0.0;
+    let seed = game_engine::common::random_value::get_game_logic_random_seed_state();
+    let unscattered = weapon.calculate_scatter(target, 100.0, ObjectType::Vehicle);
+    assert_eq!(unscattered, target);
     assert_eq!(
-        scattered.z, target.z,
-        "Scatter should not affect Z coordinate"
+        game_engine::common::random_value::get_game_logic_random_seed_state(),
+        seed,
+        "zero scatter neither samples RNG nor projects to terrain"
     );
 }
 
@@ -1856,40 +1903,57 @@ fn test_vision_range_getter_safe_type_conversion() {
 
 #[test]
 fn cpp_parity_continuous_beam_inflicts_damage_when_requested() {
-    // C++ WeaponTemplate::fireWeaponTemplate laser branch (Weapon.cpp:1028-1031):
-    // createLaser(...) then `if (inflictDamage) dealDamageInternal(...)`.
+    let isolation = weapon_range_test_guard();
+    let _fixture = ScopedWeaponFixture::new(&isolation);
+    let bodies = AdmittedWeaponBodies::new();
+    // C++ Weapon.cpp:998-1032: a projectileless laser creates its visual and
+    // calls dealDamageInternal only when inflictDamage is true. This fixture
+    // verifies damage dispatch; it does not claim client laser visual coverage.
     let mut template = WeaponTemplate::new("ParityLaser".to_string());
     template.laser_name = "RedLaser".to_string();
     template.primary_damage = 25.0;
     template.attack_range = 150.0;
-    // Non-empty projectile_name makes deal_damage_internal return a distinct
-    // error so the test can observe that the inflict path actually ran.
-    template.projectile_name = "UnusedByLaserMode".to_string();
     let mut weapon = Weapon::new(Arc::new(template), WeaponSlotType::Primary);
     assert!(matches!(
         weapon.determine_fire_mode(),
         FireMode::ContinuousBeam { .. }
     ));
-
+    weapon
+        .load_ammo_now(bodies.source_id())
+        .expect("load laser ammo");
     let bonus = WeaponBonus::new();
-    let pos = Coord3D::new(10.0, 0.0, 0.0);
+    let health_before = bodies.target_health();
+    assert_eq!(health_before, 100.0);
 
-    let withheld = weapon.inflict_damage_if_requested(1, Some(2), &pos, &bonus, false, false);
+    let withheld = weapon.private_fire_weapon(
+        bodies.source_id(),
+        Some(bodies.target_id()),
+        None,
+        &bonus,
+        false,
+        false,
+        false,
+    );
     assert!(
         withheld.is_ok(),
-        "inflictDamage=false must skip dealDamageInternal: {withheld:?}"
+        "real laser branch with damage withheld: {withheld:?}"
     );
-
-    let inflicted = weapon.inflict_damage_if_requested(1, Some(2), &pos, &bonus, false, true);
-    match inflicted {
-        Err(WeaponError::SystemError(msg)) => {
-            assert!(
-                msg.contains("Projectile weapons should not call deal_damage_internal"),
-                "inflictDamage=true must reach dealDamageInternal, got {msg}"
-            );
-        }
-        other => panic!("expected deal_damage_internal error, got {other:?}"),
-    }
+    assert_eq!(bodies.target_health(), health_before);
+    let inflicted = weapon.private_fire_weapon(
+        bodies.source_id(),
+        Some(bodies.target_id()),
+        None,
+        &bonus,
+        false,
+        false,
+        true,
+    );
+    assert!(
+        inflicted.is_ok(),
+        "real laser branch with damage enabled: {inflicted:?}"
+    );
+    assert_eq!(bodies.target_health(), health_before - 25.0);
+    assert_eq!(bodies.source_health(), 100.0);
 }
 
 #[test]
@@ -2216,18 +2280,34 @@ fn cpp_parity_empty_no_auto_reload_clip_does_not_report_reloaded() {
 
 #[test]
 fn cpp_parity_min_range_uses_contact_distance_without_fudge() {
-    // C++ Weapon::isWithinAttackRange (Weapon.cpp:2174-2176) with
-    // RATIONALIZE_ATTACK_RANGE: distSqr < minAttackRangeSqr, no -0.5.
+    // C++ Weapon.cpp:454-466 derives 7.5 from authored 10 (quarter-cell
+    // undersize). 2135-2148 rejects contact dist² below that boundary, no -0.5.
     let mut template = WeaponTemplate::new("ArtilleryMinRange".to_string());
     template.minimum_attack_range = 10.0;
     template.attack_range = 100.0;
     let weapon = Weapon::new(Arc::new(template), WeaponSlotType::Primary);
-    let min_sqr =
-        weapon.template.get_minimum_attack_range() * weapon.template.get_minimum_attack_range();
-    assert!(
-        (min_sqr - 0.5) < min_sqr,
-        "pre-fix fudge must not be the live comparison"
-    );
-    assert!((9.9_f32 * 9.9) < min_sqr);
-    assert!((10.0_f32 * 10.0) >= min_sqr);
+    let source_pos = Coord3D::new(0.0, 0.0, 0.0);
+    let mut geometry = crate::common::GeometryInfo::default();
+    geometry.bounds.min = Coord3D::new(-4.0, 0.0, 0.0);
+    geometry.bounds.max = Coord3D::new(4.0, 0.0, 0.0);
+    let radius = geometry.get_bounding_circle_radius();
+    let bonus = WeaponBonus::new();
+    assert_eq!(radius, 4.0);
+    assert_eq!(weapon.template.get_minimum_attack_range(), 7.5);
+    let within = |contact_distance| {
+        weapon.is_within_attack_range_from_source(
+            &source_pos,
+            radius,
+            &geometry,
+            &bonus,
+            None,
+            Some(&Coord3D::new(radius + contact_distance, 0.0, 0.0)),
+        )
+    };
+    assert!(!within(7.4), "contact distance below minimum is rejected");
+    // This point would pass the old squared-range -0.5 fudge.
+    assert!(7.48_f32 * 7.48 > 7.5_f32 * 7.5 - 0.5);
+    assert!(!within(7.48), "old fudge must not admit a too-close shot");
+    assert!(within(7.5), "exact derived contact boundary is admitted");
+    assert!(within(7.6), "outside minimum remains within maximum");
 }

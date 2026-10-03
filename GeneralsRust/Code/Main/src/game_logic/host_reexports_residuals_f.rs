@@ -710,20 +710,6 @@ pub use super::host_live_stealth_behavior_dual_world_empty_gate_residual_wave302
     simulate_live_stealth_behavior_dual_world_empty_gate_honesty,
 };
 #[cfg(any(test, feature = "host-residuals"))]
-pub use super::host_live_stealth_detector_dual_world_empty_gate_residual_wave297::{
-    honesty_live_stealth_detector_dual_world_empty_gate_method_names_residual_wave297,
-    honesty_live_stealth_detector_dual_world_empty_gate_nav_commands_residual_wave297,
-    honesty_live_stealth_detector_dual_world_empty_gate_residual_pack_wave297,
-    simulate_live_stealth_detector_dual_world_empty_gate_honesty,
-};
-#[cfg(any(test, feature = "host-residuals"))]
-pub use super::host_live_stealth_detector_module_dual_world_empty_gate_residual_wave339::{
-    honesty_live_stealth_detector_module_dual_world_empty_gate_method_names_residual_wave339,
-    honesty_live_stealth_detector_module_dual_world_empty_gate_nav_commands_residual_wave339,
-    honesty_live_stealth_detector_module_dual_world_empty_gate_residual_pack_wave339,
-    simulate_live_stealth_detector_module_dual_world_empty_gate_honesty,
-};
-#[cfg(any(test, feature = "host-residuals"))]
 pub use super::host_live_stealth_detector_update_dual_world_empty_gate_residual_wave388::{
     honesty_live_stealth_detector_update_dual_world_empty_gate_method_names_residual_wave388,
     honesty_live_stealth_detector_update_dual_world_empty_gate_nav_commands_residual_wave388,

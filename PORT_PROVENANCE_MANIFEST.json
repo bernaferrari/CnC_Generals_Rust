@@ -140972,7 +140972,7 @@
     }
   ],
   "generator": "GeneralsRust/Code/Main/scripts/generate_port_provenance.py",
-  "input_digest": "1b745c92aaf4bf8db93ede0202b5590a6273061f33a1405ccdb8ca4aa2d92237",
+  "input_digest": "4680a918347b017cd5de8b956d435bfdccfedc8b25adc0cd3686f78dfeae23dc",
   "metric_contract": {
     "behavior_requires_explicit_evidence": true,
     "candidate_mapping_is_reviewed": false,
@@ -145236,11 +145236,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 1348,
+        "end_line": 1350,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/Common/src/common/thing/module.rs",
-      "sha256": "396952d14c95df0abe14f37927de94c5d9eb9fcf9e92d31745f776357e194ebf",
+      "sha256": "690deb6cca9f054b703dff49ae0fe7737f582752c61920f05abdaffc7b3927d9",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -179973,11 +179973,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 1570,
+        "end_line": 1623,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/behavior/battle_plan_update.rs",
-      "sha256": "f215ec76607230c90fcd7887f3b066304bf3e597be83f2322b709f9b100099cd",
+      "sha256": "bc9c20ce568f67184722a120f68b146cdc84aeb680b00c12562bf883b1d2f5ba",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -180261,11 +180261,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 2031,
+        "end_line": 2033,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/behavior/generate_minefield_behavior.rs",
-      "sha256": "e3034699c0e27aa139ffb3f99d7145986311fda20d4adb808d508aa54c60d934",
+      "sha256": "d000c8e5fc1aecca5a668c6e6ace275f4b1a7c6098f29b80ca95f2bf32ebd2b3",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -180741,11 +180741,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 1189,
+        "end_line": 1184,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/behavior/stealth_detector_update.rs",
-      "sha256": "59e8d7ae9c86b2139b454b7b806c49e790581b7840b6a9ff99fb91421f96f858",
+      "sha256": "3451e2210de6cc34e4ed3b7a8eeb10ae780d953bc2856324171fd46bd1c3cdd2",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },

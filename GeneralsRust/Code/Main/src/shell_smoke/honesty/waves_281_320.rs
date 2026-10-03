@@ -56,9 +56,6 @@ pub(super) struct Waves281320 {
     pub live_special_ability_dual_world_empty_gate_method_names_wave296_ok: bool,
     pub live_special_ability_dual_world_empty_gate_nav_commands_wave296_ok: bool,
     pub live_special_ability_dual_world_empty_gate_live_wave296_ok: bool,
-    pub live_stealth_detector_dual_world_empty_gate_method_names_wave297_ok: bool,
-    pub live_stealth_detector_dual_world_empty_gate_nav_commands_wave297_ok: bool,
-    pub live_stealth_detector_dual_world_empty_gate_live_wave297_ok: bool,
     pub live_supply_system_dual_world_empty_gate_method_names_wave298_ok: bool,
     pub live_supply_system_dual_world_empty_gate_nav_commands_wave298_ok: bool,
     pub live_supply_system_dual_world_empty_gate_live_wave298_ok: bool,
@@ -232,12 +229,6 @@ pub(super) fn evaluate(
             honesty_live_special_ability_dual_world_empty_gate_nav_commands_residual_wave296(),
         live_special_ability_dual_world_empty_gate_live_wave296_ok:
             simulate_live_special_ability_dual_world_empty_gate_honesty(),
-        live_stealth_detector_dual_world_empty_gate_method_names_wave297_ok:
-            honesty_live_stealth_detector_dual_world_empty_gate_method_names_residual_wave297(),
-        live_stealth_detector_dual_world_empty_gate_nav_commands_wave297_ok:
-            honesty_live_stealth_detector_dual_world_empty_gate_nav_commands_residual_wave297(),
-        live_stealth_detector_dual_world_empty_gate_live_wave297_ok:
-            simulate_live_stealth_detector_dual_world_empty_gate_honesty(),
         live_supply_system_dual_world_empty_gate_method_names_wave298_ok:
             honesty_live_supply_system_dual_world_empty_gate_method_names_residual_wave298(),
         live_supply_system_dual_world_empty_gate_nav_commands_wave298_ok:
