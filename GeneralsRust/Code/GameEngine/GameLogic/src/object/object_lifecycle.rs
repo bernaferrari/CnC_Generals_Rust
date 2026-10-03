@@ -7,6 +7,54 @@
 use super::object_impl_imports::*;
 use super::*;
 
+/// Synchronous access to the same object during deletion. The GameLogic path
+/// releases its object guard before callbacks that resolve their owner.
+enum DeleteOwner<'a> {
+    Borrowed(&'a mut Object),
+    Handle(&'a Arc<RwLock<Object>>),
+}
+
+impl DeleteOwner<'_> {
+    fn with_mut<R>(&mut self, operation: impl FnOnce(&mut Object) -> R) -> Option<R> {
+        match self {
+            Self::Borrowed(object) => Some(operation(object)),
+            Self::Handle(handle) => handle.write().ok().map(|mut object| operation(&mut object)),
+        }
+    }
+}
+
+fn release_destroy_container(owner: &mut DeleteOwner<'_>) {
+    let Some((object_id, Some(container_id))) =
+        owner.with_mut(|object| (object.id, object.get_container_id()))
+    else {
+        return;
+    };
+    let _ = crate::object::registry::OBJECT_REGISTRY.with_object(container_id, |container| {
+        if let Some(contain) = container.get_contain() {
+            if let Ok(mut contain) = contain.lock() {
+                let _ = contain.release_object(object_id);
+            }
+        }
+    });
+    owner.with_mut(|object| {
+        let _ = object.on_removed_from(container_id);
+    });
+}
+
+fn notify_deleted_module(module: &mut dyn engine_module::Module, owner: &mut DeleteOwner<'_>) {
+    if let Some(upgrade) = super::module_upgrade_kind(module) {
+        owner.with_mut(|object| upgrade.into_interface().on_delete(object));
+    }
+    if let Some(battle_plan) = module
+        .as_any_mut()
+        .downcast_mut::<crate::object::behavior::battle_plan_update::BattlePlanUpdateModule>(
+    ) {
+        owner.with_mut(|object| battle_plan.on_delete_with_owner(object));
+    } else {
+        module.on_delete();
+    }
+}
+
 impl Object {
     pub(super) fn disabled_tint_exceptions() -> DisabledMaskType {
         let mut exceptions = DisabledMaskType::none();
@@ -377,6 +425,30 @@ impl Object {
         self.on_destroy_internal();
     }
 
+    /// GameLogic owns this canonical handle. Preserve C++ synchronous onDelete
+    /// order while allowing each callback to borrow the still-admitted owner.
+    pub(crate) fn on_destroy_from_handle(handle: &Arc<RwLock<Object>>) {
+        {
+            let Ok(mut object) = handle.write() else {
+                return;
+            };
+            if object.lifecycle != ObjectLifecycle::Alive {
+                return;
+            }
+            object.lifecycle = ObjectLifecycle::DestroyNotified;
+            object.status.set_status(ObjectStatusTypes::Destroyed);
+        }
+        let mut owner = DeleteOwner::Handle(handle);
+        release_destroy_container(&mut owner);
+        let Some(modules) = owner.with_mut(|object| object.modules.clone()) else {
+            return;
+        };
+        for entry in modules {
+            entry.with_module(|module| notify_deleted_module(module, &mut owner));
+        }
+        owner.with_mut(|object| object.handle_partition_cell_maintenance());
+    }
+
     /// Standalone deletion adapter; a GameLogic owner uses the borrowed
     /// services below rather than discovering another world during cleanup.
     pub(crate) fn run_destructor_tail(&mut self) {
@@ -497,36 +569,15 @@ impl Object {
     /// without touching the global `GameLogic` instance directly.
     pub(crate) fn on_destroy_internal(&mut self) {
         // C++ counterpart releases containment before running module onDelete.
-        if let Some(container_id) = self.get_container_id() {
-            let _ = crate::object::registry::OBJECT_REGISTRY.with_object(
-                container_id,
-                |container_read| {
-                    if let Some(contain_module) = container_read.get_contain() {
-                        if let Ok(mut contain_guard) = contain_module.lock() {
-                            let _ = contain_guard.release_object(self.id);
-                        }
-                    }
-                },
-            );
-            let _ = self.on_removed_from(container_id);
-        }
-
         // Keep sibling modules discoverable during synchronous onDelete.
         // These temporary handles do not extend the owning object's lifetime.
-        let modules = self.modules.clone();
+        let mut owner = DeleteOwner::Borrowed(self);
+        release_destroy_container(&mut owner);
+        let modules = owner
+            .with_mut(|object| object.modules.clone())
+            .expect("borrowed owner");
         for entry in modules {
-            entry.with_module(|module| {
-                if let Some(upgrade) = super::module_upgrade_kind(module) {
-                    upgrade.into_interface().on_delete(self);
-                }
-                if let Some(battle_plan) = module.as_any_mut().downcast_mut::<
-                    crate::object::behavior::battle_plan_update::BattlePlanUpdateModule,
-                >() {
-                    battle_plan.on_delete_with_owner(self);
-                } else {
-                    module.on_delete();
-                }
-            });
+            entry.with_module(|module| notify_deleted_module(module, &mut owner));
         }
         // Match C++ Object::onDestroy -> handlePartitionCellMaintenance.
         // This clears partition/shroud/value/threat bookkeeping before the object is fully removed.

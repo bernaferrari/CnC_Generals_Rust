@@ -175,11 +175,6 @@ impl OclSpecialPower {
     /// Find the best OCL to use, checking upgrade science first.
     /// Matches C++ OCLSpecialPower::findOCL().
     fn find_ocl_name(&self) -> Option<AsciiString> {
-        // Wave 406: empty dual-world → None.
-        if dual_world_registry_unavailable() {
-            return None;
-        }
-
         let upgraded_ocl = crate::object::registry::OBJECT_REGISTRY
             .with_object(self.owner_object_id, |owner_guard| {
                 owner_guard

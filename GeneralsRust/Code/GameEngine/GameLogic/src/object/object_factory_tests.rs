@@ -19,6 +19,7 @@ struct CreationProbe {
     data: Arc<dyn ModuleData>,
     created: bool,
     delete_calls: u32,
+    delete_status: Vec<bool>,
 }
 
 impl Module for CreationProbe {
@@ -55,6 +56,7 @@ impl Module for CreationProbe {
         let mut owner = owner
             .try_write()
             .expect("detached callback must release the owner borrow");
+        self.delete_status.push(owner.is_destroyed());
         self.delete_calls += 1;
         owner.construction_percent = self.delete_calls as f32;
     }
@@ -78,6 +80,7 @@ fn probe_factory(thing: Arc<dyn ModuleThing>, data: Arc<dyn ModuleData>) -> Box<
         data,
         created: false,
         delete_calls: 0,
+        delete_status: Vec::new(),
     })
 }
 
@@ -257,8 +260,7 @@ fn factory_authored_body_creates_once_and_restores_live_health() {
     }
     // Registry identities were allocated before load; Object Xfer restores the
     // saved id in the payload. Remove both original registrations explicitly.
-    TheGameLogic::remove_object(saved_id);
-    TheGameLogic::remove_object(loaded_id);
+    retire_factory_fixture_objects(&[saved_id, loaded_id]);
 }
 
 #[test]
@@ -402,6 +404,56 @@ fn factory_behavior_views_keep_identity_and_release_owner_before_callbacks() {
         second.read().unwrap().construction_percent,
         CONSTRUCTION_COMPLETE
     );
-    TheGameLogic::remove_object(first_id);
-    TheGameLogic::remove_object(second_id);
+    let second_entry = second.read().unwrap().modules[0].clone();
+    retire_factory_fixture_objects(&[first_id, second_id]);
+    second_entry.with_module(|module| {
+        let probe = (module as &mut dyn Any)
+            .downcast_mut::<CreationProbe>()
+            .unwrap();
+        // The existing template adapter forwards both callbacks to this test
+        // module. Verify the two C++ boundaries without claiming real Destroy
+        // family dispatch (tracked separately in hq-owgwt).
+        assert_eq!(probe.delete_status, [false, true]);
+    });
+}
+
+fn retire_factory_fixture_objects(admitted_ids: &[ObjectID]) {
+    let mut logic = crate::system::game_logic::get_game_logic().lock().unwrap();
+    for &id in admitted_ids {
+        logic.destroy_object(id);
+    }
+    logic
+        .cleanup_dead_objects()
+        .expect("canonical fixture retirement");
+    for &id in admitted_ids {
+        assert!(
+            logic.find_object_by_id(id).is_none(),
+            "owner admission retired"
+        );
+        assert!(
+            OBJECT_REGISTRY.get_object(id).is_none(),
+            "lookup retired after callbacks"
+        );
+    }
+}
+
+#[test]
+fn factory_fixture_retirement_leaves_no_admitted_objects_for_later_reset() {
+    factory_authored_body_creates_once_and_restores_live_health();
+    factory_behavior_views_keep_identity_and_release_owner_before_callbacks();
+    let still_admitted = {
+        let logic = crate::system::game_logic::get_game_logic().lock().unwrap();
+        [91_301, 91_302, 91_411, 91_412]
+            .into_iter()
+            .filter(|id| logic.find_object_by_id(*id).is_some())
+            .collect::<Vec<_>>()
+    };
+    assert!(
+        still_admitted.is_empty(),
+        "fixture objects remain admitted after their lookup keys were removed: {still_admitted:?}"
+    );
+    crate::system::game_logic::get_game_logic()
+        .lock()
+        .unwrap()
+        .clear_all_objects();
 }

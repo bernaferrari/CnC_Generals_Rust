@@ -98,7 +98,8 @@ impl ExitPath {
     pub fn validate(&mut self) -> bool {
         self.attempts += 1;
 
-        let ai_store = crate::ai::the_ai(); if let Ok(ai) = ai_store.read() {
+        let ai_store = crate::ai::the_ai();
+        if let Ok(ai) = ai_store.read() {
             if let Some(ps) = ai.pathfinding_system() {
                 if let Ok(ps_guard) = ps.read() {
                     let spawn_to_door =
@@ -377,11 +378,6 @@ impl UnitExitManager {
         building_position: &Coord3D,
         rally_point: &RallyPoint,
     ) -> Option<ExitPath> {
-        // Wave 432: empty dual-world → None.
-        if dual_world_registry_unavailable() {
-            return None;
-        }
-
         // Get door position
         let door_pos = self.get_door_position(door_index, building_position)?;
 

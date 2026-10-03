@@ -6,12 +6,6 @@ use super::rally_point::RallyPoint;
 use crate::common::*;
 use std::fmt::Debug;
 
-/// Wave 312: host-only path has no dual-world factory objects.
-#[inline]
-fn dual_world_registry_unavailable() -> bool {
-    crate::object::registry::OBJECT_REGISTRY.is_empty()
-}
-
 /// Trait for production exit strategies
 pub trait ProductionExitStrategy: Send + Sync + Debug {
     /// Spawn a unit at the exit point
@@ -76,10 +70,11 @@ impl ProductionExitStrategy for DefaultProductionExit {
         door_index: usize,
         rally_point: RallyPoint,
     ) -> Result<ObjectID, String> {
-        // Wave 312: empty dual-world → fail closed.
-        if dual_world_registry_unavailable() {
-            return Err("dual-world object registry unavailable".to_string());
-        }
+        // C++ exits require their actual creation object; unrelated live
+        // objects must not enable a missing producer or advance its exit index.
+        let team = crate::object::registry::OBJECT_REGISTRY
+            .with_object(producer_id, |producer| producer.get_team())
+            .ok_or_else(|| format!("Production exit producer {producer_id} is missing"))?;
 
         if door_index >= self.exit_points.len() {
             return Err(format!("Invalid door index: {}", door_index));
@@ -96,9 +91,6 @@ impl ProductionExitStrategy for DefaultProductionExit {
             exit_pos
         );
 
-        let team = crate::object::registry::OBJECT_REGISTRY
-            .with_object(producer_id, |o| o.get_team())
-            .flatten();
         let created = crate::object::object_factory::get_object_factory()
             .write()
             .ok()
@@ -232,10 +224,11 @@ impl ProductionExitStrategy for QueueProductionExit {
         door_index: usize,
         _rally_point: RallyPoint,
     ) -> Result<ObjectID, String> {
-        // Wave 312: empty dual-world → fail closed.
-        if dual_world_registry_unavailable() {
-            return Err("dual-world object registry unavailable".to_string());
-        }
+        // C++ exits require their actual creation object; unrelated live
+        // objects must not enable a missing producer or advance its exit index.
+        let team = crate::object::registry::OBJECT_REGISTRY
+            .with_object(producer_id, |producer| producer.get_team())
+            .ok_or_else(|| format!("Production exit producer {producer_id} is missing"))?;
 
         // Spawn at queue position first
         // Matches C++ QueueProductionExitUpdate behavior for staging units
@@ -249,9 +242,6 @@ impl ProductionExitStrategy for QueueProductionExit {
         );
 
         // Create unit at queue position (staging area)
-        let team = crate::object::registry::OBJECT_REGISTRY
-            .with_object(producer_id, |o| o.get_team())
-            .flatten();
 
         let created = crate::object::object_factory::get_object_factory()
             .write()
@@ -345,10 +335,11 @@ impl ProductionExitStrategy for SupplyCenterProductionExit {
         door_index: usize,
         rally_point: RallyPoint,
     ) -> Result<ObjectID, String> {
-        // Wave 312: empty dual-world → fail closed.
-        if dual_world_registry_unavailable() {
-            return Err("dual-world object registry unavailable".to_string());
-        }
+        // C++ exits require their actual creation object; unrelated live
+        // objects must not enable a missing producer or advance its exit index.
+        let team = crate::object::registry::OBJECT_REGISTRY
+            .with_object(producer_id, |producer| producer.get_team())
+            .ok_or_else(|| format!("Production exit producer {producer_id} is missing"))?;
 
         let exit_pos = self.base.get_exit_position(door_index)?;
 
@@ -361,9 +352,6 @@ impl ProductionExitStrategy for SupplyCenterProductionExit {
 
         // Create supply truck at exit position
         // Matches C++ SupplyCenterProductionExitUpdate behavior
-        let team = crate::object::registry::OBJECT_REGISTRY
-            .with_object(producer_id, |o| o.get_team())
-            .flatten();
 
         let created = crate::object::object_factory::get_object_factory()
             .write()
@@ -474,10 +462,11 @@ impl ProductionExitStrategy for SpawnPointProductionExit {
         _door_index: usize,
         rally_point: RallyPoint,
     ) -> Result<ObjectID, String> {
-        // Wave 312: empty dual-world → fail closed.
-        if dual_world_registry_unavailable() {
-            return Err("dual-world object registry unavailable".to_string());
-        }
+        // C++ exits require their actual creation object; unrelated live
+        // objects must not enable a missing producer or advance its exit index.
+        let team = crate::object::registry::OBJECT_REGISTRY
+            .with_object(producer_id, |producer| producer.get_team())
+            .ok_or_else(|| format!("Production exit producer {producer_id} is missing"))?;
 
         let spawn_pos = self.next_spawn_point();
 
@@ -491,9 +480,6 @@ impl ProductionExitStrategy for SpawnPointProductionExit {
 
         // Create unit at spawn position (potentially in air for parachute drops)
         // Matches C++ SpawnPointProductionExitUpdate behavior
-        let team = crate::object::registry::OBJECT_REGISTRY
-            .with_object(producer_id, |o| o.get_team())
-            .flatten();
 
         let created = crate::object::object_factory::get_object_factory()
             .write()
@@ -609,6 +595,34 @@ mod tests {
         }
     }
 
+    /// Admit a real producer instead of depending on objects left by other tests.
+    fn create_producer(name: &str) -> ObjectID {
+        ensure_template_exists(name);
+        crate::object::object_factory::get_object_factory()
+            .write()
+            .expect("object factory")
+            .create_object(
+                name,
+                Coord3D::new(0.0, 0.0, 0.0),
+                None,
+                crate::object::object_factory::ObjectCreationFlags::NO_DRAWABLE,
+            )
+            .expect("admitted producer")
+    }
+
+    fn retire_objects(ids: &[ObjectID]) {
+        let mut logic = crate::system::game_logic::get_game_logic()
+            .lock()
+            .expect("game logic");
+        for &id in ids {
+            logic.destroy_object(id);
+        }
+        logic.cleanup_dead_objects();
+        for &id in ids {
+            assert!(logic.find_object_by_id(id).is_none());
+        }
+    }
+
     #[test]
     fn test_default_exit_creation() {
         let exits = vec![
@@ -641,35 +655,94 @@ mod tests {
     }
 
     #[test]
+    fn missing_producer_does_not_spawn_or_advance_exit_indices() {
+        let _guard = crate::test_sync::lock();
+        let producer = create_producer("MissingExitFixtureProducer");
+        ensure_template_exists("MissingExitFixtureUnit");
+        let missing = u32::MAX;
+        assert!(
+            crate::object::registry::OBJECT_REGISTRY
+                .get_object(missing)
+                .is_none()
+        );
+        let point = Coord3D::new(10.0, 20.0, 0.0);
+        let mut queue = QueueProductionExit::new(missing, vec![point], vec![point, point]);
+        let mut spawn = SpawnPointProductionExit::new(missing, vec![point, point], false);
+        let mut default = DefaultProductionExit::new(missing, vec![point]);
+        let mut supply = SupplyCenterProductionExit::new(missing, vec![point], vec![point]);
+        let before = crate::system::game_logic::get_game_logic()
+            .lock()
+            .unwrap()
+            .get_object_count();
+        for exit in [
+            &mut queue as &mut dyn ProductionExitStrategy,
+            &mut spawn,
+            &mut default,
+            &mut supply,
+        ] {
+            assert!(
+                exit.spawn_unit("MissingExitFixtureUnit", missing, 0, RallyPoint::at_exit())
+                    .is_err()
+            );
+        }
+        assert_eq!(queue.current_queue_index, 0);
+        assert_eq!(spawn.current_spawn_index, 0);
+        assert_eq!(
+            crate::system::game_logic::get_game_logic()
+                .lock()
+                .unwrap()
+                .get_object_count(),
+            before
+        );
+        retire_objects(&[producer]);
+    }
+
+    #[test]
     fn test_queue_exit() {
+        let _guard = crate::test_sync::lock();
+        let producer = create_producer("QueueExitFixtureProducer");
         ensure_template_exists("Tank");
         let exits = vec![Coord3D::new(100.0, 100.0, 0.0)];
         let queue_positions = vec![Coord3D::new(50.0, 50.0, 0.0), Coord3D::new(60.0, 50.0, 0.0)];
 
-        let mut exit_strategy = QueueProductionExit::new(1, exits, queue_positions);
+        let mut exit_strategy = QueueProductionExit::new(producer, exits, queue_positions);
 
         assert_eq!(exit_strategy.get_door_count(), 1);
 
         let rally = RallyPoint::at_exit();
-        let result = exit_strategy.spawn_unit("Tank", 1, 0, rally);
-        assert!(result.is_ok());
+        let created = exit_strategy
+            .spawn_unit("Tank", producer, 0, rally)
+            .expect("spawn through admitted producer");
+        let position = crate::object::registry::OBJECT_REGISTRY
+            .with_object(created, |unit| *unit.get_position())
+            .expect("admitted unit");
+        assert_eq!(position, Coord3D::new(50.0, 50.0, 0.0));
+        retire_objects(&[created, producer]);
     }
 
     #[test]
     fn test_spawn_point_exit() {
+        let _guard = crate::test_sync::lock();
+        let producer = create_producer("SpawnExitFixtureProducer");
         ensure_template_exists("Ranger");
         let spawn_points = vec![
             Coord3D::new(100.0, 100.0, 500.0), // High altitude
             Coord3D::new(150.0, 150.0, 500.0),
         ];
 
-        let mut exit_strategy = SpawnPointProductionExit::new(1, spawn_points, true);
+        let mut exit_strategy = SpawnPointProductionExit::new(producer, spawn_points, true);
 
         assert_eq!(exit_strategy.get_door_count(), 2);
         assert!(exit_strategy.is_door_available(0));
 
         let rally = RallyPoint::at_exit();
-        let result = exit_strategy.spawn_unit("Ranger", 1, 0, rally);
-        assert!(result.is_ok());
+        let created = exit_strategy
+            .spawn_unit("Ranger", producer, 0, rally)
+            .expect("spawn through admitted producer");
+        let position = crate::object::registry::OBJECT_REGISTRY
+            .with_object(created, |unit| *unit.get_position())
+            .expect("admitted unit");
+        assert_eq!(position, Coord3D::new(100.0, 100.0, 500.0));
+        retire_objects(&[created, producer]);
     }
 }
