@@ -439,6 +439,29 @@ const UPGRADE_MUX_DATA_FIELDS: &[FieldParse<UpgradeMuxData>] = &[
 mod tests {
     use super::*;
 
+    #[cfg(not(target_arch = "wasm32"))]
+    fn authored_catalog_child(name: &str) -> bool {
+        let name = name.strip_prefix("gamelogic::").unwrap_or(name);
+        matches!(
+            crate::test_process::run_bounded(name, "GENERALS_UPGRADE_MUX_CATALOG_CHILD"),
+            crate::test_process::TestProcess::Child
+        )
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    fn authored_catalog_child(_: &str) -> bool {
+        true
+    }
+
+    fn declare_activation_and_conflict() {
+        crate::upgrade::center::with_upgrade_center_mut(|center| {
+            let a = center.new_upgrade(AsciiString::from("UpgradeA"));
+            let b = center.new_upgrade(AsciiString::from("UpgradeB"));
+            assert!(a.mask().any() && b.mask().any());
+            assert!(!a.mask().intersects(b.mask()));
+        });
+    }
+
     fn make_test_mask_with_bit(bit: usize) -> UpgradeMask {
         let mut mask = UpgradeMask::none();
         mask.set_bit(bit);
@@ -473,6 +496,12 @@ mod tests {
 
     #[test]
     fn test_conflicting_upgrades() {
+        if !authored_catalog_child(concat!(module_path!(), "::test_conflicting_upgrades")) {
+            return;
+        }
+        let _guard = crate::test_sync::lock();
+        // C++ resolves declared UpgradeCenter templates, not invented masks.
+        declare_activation_and_conflict();
         let mut data = UpgradeMuxData {
             activation_upgrade_names: vec![AsciiString::from("UpgradeA")],
             conflicting_upgrade_names: vec![AsciiString::from("UpgradeB")],
@@ -494,6 +523,12 @@ mod tests {
 
     #[test]
     fn test_requires_all_triggers() {
+        if !authored_catalog_child(concat!(module_path!(), "::test_requires_all_triggers")) {
+            return;
+        }
+        let _guard = crate::test_sync::lock();
+        // C++ resolves declared UpgradeCenter templates, not invented masks.
+        declare_activation_and_conflict();
         let mut data = UpgradeMuxData {
             activation_upgrade_names: vec![
                 AsciiString::from("UpgradeA"),

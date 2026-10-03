@@ -5,6 +5,7 @@
 
 use crate::common::xfer::XferExt;
 use crate::common::*;
+use crate::damage::DamageInfoInput;
 use crate::helpers::{
     FindPositionOptions, TheGameText, TheInGameUI, ThePartitionManager, TheTerrainLogic,
 };
@@ -462,9 +463,12 @@ impl DockUpdateInterface for DockUpdate {
                 | MODELCONDITION_DOCKING_BEGINNING
                 | MODELCONDITION_DOCKING_ACTIVE
                 | MODELCONDITION_DOCKING;
-            let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(self.owner_id, |owner_guard| {
-                let _ = owner_guard.clear_model_condition_flags(clear);
-                });
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(
+                self.owner_id,
+                |owner_guard| {
+                    let _ = owner_guard.clear_model_condition_flags(clear);
+                },
+            );
             let _ = obj_guard.clear_model_condition_flags(clear).ok();
         }
 
@@ -633,9 +637,10 @@ impl DockUpdateInterface for DockUpdate {
             return Ok(());
         }
 
-        let _ = crate::object::registry::OBJECT_REGISTRY.with_object(self.owner_id, |owner_guard| {
-            let world = owner_guard.convert_bone_pos_to_world_pos(Some(&enter), None);
-            *goal_pos = world.transform_point3(Coord3D::ZERO);
+        let _ =
+            crate::object::registry::OBJECT_REGISTRY.with_object(self.owner_id, |owner_guard| {
+                let world = owner_guard.convert_bone_pos_to_world_pos(Some(&enter), None);
+                *goal_pos = world.transform_point3(Coord3D::ZERO);
             });
         Ok(())
     }
@@ -651,9 +656,12 @@ impl DockUpdateInterface for DockUpdate {
 
         let clear = MODELCONDITION_DOCKING_ENDING;
         let set = MODELCONDITION_DOCKING_BEGINNING | MODELCONDITION_DOCKING;
-        let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(self.owner_id, |owner_guard| {
-            let _ = owner_guard.clear_and_set_model_condition_flags(clear, set);
-            });
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(
+            self.owner_id,
+            |owner_guard| {
+                let _ = owner_guard.clear_and_set_model_condition_flags(clear, set);
+            },
+        );
         let _ = obj_guard.clear_and_set_model_condition_flags(clear, set);
 
         self.docker_inside = true;
@@ -685,9 +693,10 @@ impl DockUpdateInterface for DockUpdate {
             return Ok(());
         }
 
-        let _ = crate::object::registry::OBJECT_REGISTRY.with_object(self.owner_id, |owner_guard| {
-            let world = owner_guard.convert_bone_pos_to_world_pos(Some(&dock), None);
-            *goal_pos = world.transform_point3(Coord3D::ZERO);
+        let _ =
+            crate::object::registry::OBJECT_REGISTRY.with_object(self.owner_id, |owner_guard| {
+                let world = owner_guard.convert_bone_pos_to_world_pos(Some(&dock), None);
+                *goal_pos = world.transform_point3(Coord3D::ZERO);
             });
         Ok(())
     }
@@ -703,9 +712,12 @@ impl DockUpdateInterface for DockUpdate {
 
         let clear = MODELCONDITION_DOCKING_BEGINNING;
         let set = MODELCONDITION_DOCKING_ACTIVE;
-        let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(self.owner_id, |owner_guard| {
-            let _ = owner_guard.clear_and_set_model_condition_flags(clear, set);
-            });
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(
+            self.owner_id,
+            |owner_guard| {
+                let _ = owner_guard.clear_and_set_model_condition_flags(clear, set);
+            },
+        );
         let _ = obj_guard.clear_and_set_model_condition_flags(clear, set);
 
         Ok(())
@@ -736,9 +748,10 @@ impl DockUpdateInterface for DockUpdate {
             return Ok(());
         }
 
-        let _ = crate::object::registry::OBJECT_REGISTRY.with_object(self.owner_id, |owner_guard| {
-            let world = owner_guard.convert_bone_pos_to_world_pos(Some(&exit), None);
-            *goal_pos = world.transform_point3(Coord3D::ZERO);
+        let _ =
+            crate::object::registry::OBJECT_REGISTRY.with_object(self.owner_id, |owner_guard| {
+                let world = owner_guard.convert_bone_pos_to_world_pos(Some(&exit), None);
+                *goal_pos = world.transform_point3(Coord3D::ZERO);
             });
         Ok(())
     }
@@ -754,9 +767,12 @@ impl DockUpdateInterface for DockUpdate {
 
         let clear = MODELCONDITION_DOCKING_ACTIVE | MODELCONDITION_DOCKING;
         let set = MODELCONDITION_DOCKING_ENDING;
-        let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(self.owner_id, |owner_guard| {
-            let _ = owner_guard.clear_and_set_model_condition_flags(clear, set);
-            });
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(
+            self.owner_id,
+            |owner_guard| {
+                let _ = owner_guard.clear_and_set_model_condition_flags(clear, set);
+            },
+        );
         let _ = obj_guard.clear_and_set_model_condition_flags(clear, set);
 
         self.docker_inside = false;
@@ -978,15 +994,21 @@ impl RepairDockUpdate {
             return Ok(false);
         };
 
-        let source = crate::helpers::TheGameLogic::find_object_by_id(self.base.owner_id);
-        let mut unit_guard = unit.write().unwrap();
-        let current_health = unit_guard.get_health();
-        let max_health = unit_guard.get_max_health();
+        // C++ heals through the body interface. Release the Object read before
+        // body callbacks, which may synchronously read or mutate their owner.
+        let body = { unit.read().unwrap().get_body_module() };
+        let Some(body) = body else {
+            return Ok(false);
+        };
+        let mut body_guard = body.lock().expect("repair dock body module poisoned");
+        let current_health = body_guard.get_health();
+        let max_health = body_guard.get_max_health();
 
         if self.last_repair == INVALID_ID {
-            self.last_repair = unit_guard.get_id();
-            let frames = self.data.frames_for_full_heal.max(1.0);
-            self.health_to_add_per_frame = (max_health - current_health) / frames;
+            self.last_repair = unit_id;
+            // Authored duration is a Real, including positive fractional frames.
+            self.health_to_add_per_frame =
+                (max_health - current_health) / self.data.frames_for_full_heal;
         }
 
         if current_health >= max_health {
@@ -994,10 +1016,26 @@ impl RepairDockUpdate {
             return Ok(false);
         }
 
-        let source_guard = source.as_ref().and_then(|owner| owner.read().ok());
-        let _ = unit_guard.attempt_healing(self.health_to_add_per_frame, source_guard.as_deref());
+        let mut healing_info =
+            repair_healing_info(self.health_to_add_per_frame, self.base.owner_id);
+        let _ = body_guard.attempt_healing(&mut healing_info);
         Ok(true)
     }
+}
+
+fn repair_healing_info(amount: Real, source_id: ObjectID) -> DamageInfo {
+    let mut healing_info = DamageInfo {
+        input: DamageInfoInput {
+            damage_type: DamageType::Healing,
+            death_type: DeathType::None,
+            source_id,
+            amount,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    healing_info.sync_from_input();
+    healing_info
 }
 
 // Delegate to base implementation
@@ -1134,12 +1172,12 @@ impl DockUpdateInterface for RepairDockUpdate {
         if keep_docked {
             if let Some(drone_id) = drone_id {
                 if let Some(drone) = resolve_dock_object(drone_id) {
-                    if let Ok(mut drone_guard) = drone.write() {
-                        let max_health = drone_guard.get_max_health();
-                        let source =
-                            crate::helpers::TheGameLogic::find_object_by_id(self.base.owner_id);
-                        let source_guard = source.as_ref().and_then(|owner| owner.read().ok());
-                        let _ = drone_guard.attempt_healing(max_health, source_guard.as_deref());
+                    let body = { drone.read().unwrap().get_body_module() };
+                    if let Some(body) = body {
+                        let mut body_guard = body.lock().expect("repair dock drone body poisoned");
+                        let mut healing_info =
+                            repair_healing_info(body_guard.get_max_health(), self.base.owner_id);
+                        let _ = body_guard.attempt_healing(&mut healing_info);
                     }
                 }
             }
@@ -1719,75 +1757,5 @@ impl Module for SupplyCenterDockUpdateModule {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::object::body::active_body::{ActiveBody, ActiveBodyModuleData};
-    use crate::object::body::body_module::BodyModuleInterface;
-    use std::sync::Mutex;
-
-    #[test]
-    fn dock_bone_start_indices_match_cpp() {
-        assert_eq!(SINGLE_DOCK_BONE_START_INDEX, 0);
-        assert_eq!(APPROACH_BONE_START_INDEX, 1);
-    }
-
-    #[test]
-    fn parse_time_for_full_heal_accepts_duration_suffixes() {
-        let mut data = RepairDockUpdateData::default();
-        let mut ini = INI::new();
-
-        parse_time_for_full_heal(&mut ini, &mut data, &["1500ms"]).expect("duration");
-        assert!((data.frames_for_full_heal - 45.0).abs() < f32::EPSILON);
-
-        parse_time_for_full_heal(&mut ini, &mut data, &["1.5s"]).expect("duration");
-        assert!((data.frames_for_full_heal - 45.0).abs() < f32::EPSILON);
-    }
-
-    fn test_object_with_health(id: ObjectID, health: f32, max_health: f32) -> Arc<RwLock<Object>> {
-        let mut obj = Object::new_test(id, max_health);
-        let mut module_data = ActiveBodyModuleData::default();
-        module_data.max_health = max_health;
-        module_data.initial_health = health;
-        let body: Arc<Mutex<dyn BodyModuleInterface>> = Arc::new(Mutex::new(
-            ActiveBody::new_with_owner(module_data, obj.get_id()),
-        ));
-        obj.set_body_module(Some(body));
-        Arc::new(RwLock::new(obj))
-    }
-
-    #[test]
-    fn repair_dock_action_heals_drone_to_full_while_repair_continues() {
-        let data = RepairDockUpdateData {
-            frames_for_full_heal: 10.0,
-            ..Default::default()
-        };
-        let mut dock = RepairDockUpdate::new(data, 1, &Coord3D::ZERO);
-        let docker = test_object_with_health(2, 50.0, 100.0);
-        let drone = test_object_with_health(3, 10.0, 25.0);
-        let docker_id = docker.read().unwrap().get_id();
-        let drone_id = drone.read().unwrap().get_id();
-
-        assert!(
-            dock.action(docker_id, Some(drone_id))
-                .expect("repair action")
-        );
-        assert_eq!(docker.read().unwrap().get_health(), 55.0);
-        assert_eq!(drone.read().unwrap().get_health(), 25.0);
-    }
-
-    #[test]
-    fn repair_dock_action_leaves_drone_when_docker_repair_is_complete() {
-        let mut dock = RepairDockUpdate::new(RepairDockUpdateData::default(), 1, &Coord3D::ZERO);
-        let docker = test_object_with_health(2, 100.0, 100.0);
-        let drone = test_object_with_health(3, 10.0, 25.0);
-        let docker_id = docker.read().unwrap().get_id();
-        let drone_id = drone.read().unwrap().get_id();
-
-        assert!(
-            !dock
-                .action(docker_id, Some(drone_id))
-                .expect("repair action")
-        );
-        assert_eq!(drone.read().unwrap().get_health(), 10.0);
-    }
-}
+#[path = "dock_update/repair_tests.rs"]
+mod tests;

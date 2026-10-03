@@ -83,9 +83,6 @@ pub(super) struct Waves281320 {
     pub live_grant_stealth_dual_world_empty_gate_method_names_wave307_ok: bool,
     pub live_grant_stealth_dual_world_empty_gate_nav_commands_wave307_ok: bool,
     pub live_grant_stealth_dual_world_empty_gate_live_wave307_ok: bool,
-    pub live_status_bits_upgrade_dual_world_empty_gate_method_names_wave308_ok: bool,
-    pub live_status_bits_upgrade_dual_world_empty_gate_nav_commands_wave308_ok: bool,
-    pub live_status_bits_upgrade_dual_world_empty_gate_live_wave308_ok: bool,
     pub live_jet_ai_dual_world_empty_gate_method_names_wave309_ok: bool,
     pub live_jet_ai_dual_world_empty_gate_nav_commands_wave309_ok: bool,
     pub live_jet_ai_dual_world_empty_gate_live_wave309_ok: bool,
@@ -280,12 +277,6 @@ pub(super) fn evaluate(
             honesty_live_grant_stealth_dual_world_empty_gate_nav_commands_residual_wave307(),
         live_grant_stealth_dual_world_empty_gate_live_wave307_ok:
             simulate_live_grant_stealth_dual_world_empty_gate_honesty(),
-        live_status_bits_upgrade_dual_world_empty_gate_method_names_wave308_ok:
-            honesty_live_status_bits_upgrade_dual_world_empty_gate_method_names_residual_wave308(),
-        live_status_bits_upgrade_dual_world_empty_gate_nav_commands_wave308_ok:
-            honesty_live_status_bits_upgrade_dual_world_empty_gate_nav_commands_residual_wave308(),
-        live_status_bits_upgrade_dual_world_empty_gate_live_wave308_ok:
-            simulate_live_status_bits_upgrade_dual_world_empty_gate_honesty(),
         live_jet_ai_dual_world_empty_gate_method_names_wave309_ok:
             honesty_live_jet_ai_dual_world_empty_gate_method_names_residual_wave309(),
         live_jet_ai_dual_world_empty_gate_nav_commands_wave309_ok:

@@ -275,11 +275,6 @@ pub use crate::game_logic::host_live_grant_stealth_dual_world_empty_gate_residua
     honesty_live_grant_stealth_dual_world_empty_gate_nav_commands_residual_wave307,
     simulate_live_grant_stealth_dual_world_empty_gate_honesty,
 };
-pub use crate::game_logic::host_live_status_bits_upgrade_dual_world_empty_gate_residual_wave308::{
-    honesty_live_status_bits_upgrade_dual_world_empty_gate_method_names_residual_wave308,
-    honesty_live_status_bits_upgrade_dual_world_empty_gate_nav_commands_residual_wave308,
-    simulate_live_status_bits_upgrade_dual_world_empty_gate_honesty,
-};
 pub use crate::game_logic::host_live_jet_ai_dual_world_empty_gate_residual_wave309::{
     honesty_live_jet_ai_dual_world_empty_gate_method_names_residual_wave309,
     honesty_live_jet_ai_dual_world_empty_gate_nav_commands_residual_wave309,

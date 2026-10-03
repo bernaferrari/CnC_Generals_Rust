@@ -5,18 +5,14 @@
 //!
 //! Orthogonal to Wave 447 FireSpreadUpdate dual-world empty-gate residual.
 //!
-//! Sources (batch):
+//! Sources (remaining 9-family batch):
 //! - `object/upgrade/stealth_upgrade.rs`
 //! - `object/upgrade/active_shroud_upgrade.rs`
-//! - `object/upgrade/experience_scalar_upgrade.rs`
-//! - `object/upgrade/locomotor_set_upgrade.rs`
 //! - `object/upgrade/grant_science_upgrade.rs`
 //! - `object/upgrade/cost_modifier_upgrade.rs`
-//! - `object/upgrade/passengers_fire_upgrade.rs`
 //! - `object/upgrade/model_condition_upgrade.rs`
 //! - `object/upgrade/weapon_bonus_upgrade.rs`
 //! - `object/upgrade/radar_upgrade.rs`
-//! - `object/upgrade/command_set_upgrade.rs`
 //! - `object/upgrade/weapon_set_upgrade.rs`
 //! - `object/upgrade/unpause_special_power_upgrade.rs`
 //!
@@ -35,7 +31,6 @@ pub const LIVE_OBJECT_UPGRADE_BATCH_DUAL_WORLD_EMPTY_GATE_METHOD_NAMES_WAVE448: 
     "apply_upgrade",
     "upgrade_implementation",
     "apply_shroud_upgrade",
-    "apply_passengers_fire",
     "apply_radar_upgrade",
     "playable_claim = false",
 ];
@@ -59,7 +54,7 @@ pub const RUNTIME_HOST_LIVE_OBJECT_UPGRADE_BATCH_DUAL_WORLD_EMPTY_GATE_CMD_NAMES
 /// Honesty: method names residual pack.
 pub fn honesty_live_object_upgrade_batch_dual_world_empty_gate_method_names_residual_wave448()
 -> bool {
-    LIVE_OBJECT_UPGRADE_BATCH_DUAL_WORLD_EMPTY_GATE_METHOD_NAMES_WAVE448.len() == 7
+    LIVE_OBJECT_UPGRADE_BATCH_DUAL_WORLD_EMPTY_GATE_METHOD_NAMES_WAVE448.len() == 6
         && residual_name_index(
             LIVE_OBJECT_UPGRADE_BATCH_DUAL_WORLD_EMPTY_GATE_METHOD_NAMES_WAVE448,
             "dual_world_registry_unavailable",
@@ -67,11 +62,11 @@ pub fn honesty_live_object_upgrade_batch_dual_world_empty_gate_method_names_resi
         && residual_name_index(
             LIVE_OBJECT_UPGRADE_BATCH_DUAL_WORLD_EMPTY_GATE_METHOD_NAMES_WAVE448,
             "apply_radar_upgrade",
-        ) == Some(5)
+        ) == Some(4)
         && residual_name_index(
             LIVE_OBJECT_UPGRADE_BATCH_DUAL_WORLD_EMPTY_GATE_METHOD_NAMES_WAVE448,
             "playable_claim = false",
-        ) == Some(6)
+        ) == Some(5)
 }
 
 /// Honesty: nav steps + runtime-host cmd residual pack.
@@ -150,20 +145,11 @@ pub fn honesty_object_upgrade_batch_dual_world_empty_gate_source() -> bool {
     let shroud = include_str!(
         "../../../../GameEngine/GameLogic/src/object/upgrade/active_shroud_upgrade.rs"
     );
-    let exp = include_str!(
-        "../../../../GameEngine/GameLogic/src/object/upgrade/experience_scalar_upgrade.rs"
-    );
-    let loco = include_str!(
-        "../../../../GameEngine/GameLogic/src/object/upgrade/locomotor_set_upgrade.rs"
-    );
     let science = include_str!(
         "../../../../GameEngine/GameLogic/src/object/upgrade/grant_science_upgrade.rs"
     );
     let cost = include_str!(
         "../../../../GameEngine/GameLogic/src/object/upgrade/cost_modifier_upgrade.rs"
-    );
-    let pax = include_str!(
-        "../../../../GameEngine/GameLogic/src/object/upgrade/passengers_fire_upgrade.rs"
     );
     let model = include_str!(
         "../../../../GameEngine/GameLogic/src/object/upgrade/model_condition_upgrade.rs"
@@ -172,8 +158,6 @@ pub fn honesty_object_upgrade_batch_dual_world_empty_gate_source() -> bool {
         include_str!("../../../../GameEngine/GameLogic/src/object/upgrade/weapon_bonus_upgrade.rs");
     let radar =
         include_str!("../../../../GameEngine/GameLogic/src/object/upgrade/radar_upgrade.rs");
-    let cmd =
-        include_str!("../../../../GameEngine/GameLogic/src/object/upgrade/command_set_upgrade.rs");
     let wset =
         include_str!("../../../../GameEngine/GameLogic/src/object/upgrade/weapon_set_upgrade.rs");
     let unpause = include_str!(
@@ -182,15 +166,11 @@ pub fn honesty_object_upgrade_batch_dual_world_empty_gate_source() -> bool {
 
     honesty_one(stealth, "upgrade_implementation", "return Ok(())")
         && honesty_one(shroud, "apply_shroud_upgrade", "return Ok(())")
-        && honesty_one(exp, "apply_upgrade", "return false;")
-        && honesty_one(loco, "apply_upgrade", "return false;")
         && honesty_one(science, "apply_upgrade", "return false;")
         && honesty_one(cost, "apply_upgrade", "return false;")
-        && honesty_one(pax, "apply_passengers_fire", "return false;")
         && honesty_one(model, "apply_upgrade", "return false;")
         && honesty_one(wbonus, "apply_upgrade", "return false;")
         && honesty_one(radar, "apply_radar_upgrade", "return Ok(())")
-        && honesty_one(cmd, "apply_upgrade", "return false;")
         && honesty_one(wset, "apply_upgrade", "return false;")
         && honesty_one(unpause, "apply_upgrade", "return false;")
 }

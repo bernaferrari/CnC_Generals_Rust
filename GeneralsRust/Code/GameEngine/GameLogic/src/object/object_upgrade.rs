@@ -7,6 +7,26 @@
 use super::object_impl_imports::*;
 use super::*;
 
+/// Immutable effect plans carry definitions across the short installed-module borrow.
+/// The executed flag remains solely in that same installed entry.
+enum PreparedUpgrade {
+    SubObjects(Arc<crate::object::upgrade::subobjects_upgrade::SubObjectsUpgradeModuleData>),
+    PassengersFire(
+        Arc<crate::object::upgrade::passengers_fire_upgrade::PassengersFireUpgradeModuleData>,
+    ),
+    StatusBits(Arc<crate::object::upgrade::status_bits_upgrade::StatusBitsUpgradeModuleData>),
+}
+
+impl PreparedUpgrade {
+    fn mux(&self) -> &crate::object::upgrade::upgrade_module::UpgradeMuxData {
+        match self {
+            Self::SubObjects(data) => &data.upgrade_mux_data,
+            Self::PassengersFire(data) => &data.upgrade_mux_data,
+            Self::StatusBits(data) => &data.upgrade_mux_data,
+        }
+    }
+}
+
 impl Object {
     /// Set the disabled/held state for this object
     /// Used by containment modules to disable contained units
@@ -485,7 +505,6 @@ impl Object {
 
         self.object_upgrades_completed.insert(mask_bits);
         self.apply_upgrade_modules(mask_bits);
-        crate::object::upgrade::status_bits_upgrade::apply_registered_status_upgrades(self);
     }
 
     /// Apply any active player upgrades that should affect this object.
@@ -514,7 +533,6 @@ impl Object {
         // `m_objectUpgradesCompleted`.
         let combined_bits = active_bits | self.object_upgrades_completed;
         self.apply_upgrade_modules(combined_bits);
-        crate::object::upgrade::status_bits_upgrade::apply_registered_status_upgrades(self);
     }
 
     pub fn remove_upgrade(&mut self, upgrade_template: &UpgradeTemplate) {
@@ -532,53 +550,34 @@ impl Object {
         // unset) then `resetUpgrade` on every upgrade module.
         self.object_upgrades_completed.remove(mask);
 
-        let mut matched_any = false;
         for entry in self.interface_entries(&self.upgrade_module_handles) {
-            let matched_any_ref = &mut matched_any;
             entry.with_module(|module| {
                 if let Some(upgrade) = module_upgrade_kind(module) {
-                    *matched_any_ref = true;
                     upgrade.remove_upgrade(mask);
                 }
             });
         }
-
-        if !matched_any {
-            // Convert UpgradeMaskType to UpgradeMask for notify
-            let upgrade_mask = crate::upgrade::UpgradeMask::from_bits_retain(mask.bits());
-            self.notify_upgrade_removed_internal(upgrade_mask);
-        }
-        crate::object::upgrade::status_bits_upgrade::apply_registered_status_upgrades(self);
-    }
-
-    pub(super) fn collect_upgrade_modules(&self) -> Vec<UpgradeModuleHandle> {
-        let mut modules = Vec::new();
-        if self.id != INVALID_ID {
-            for handle in StatusBitsUpgradeHandle::for_object(self.id) {
-                modules.push(UpgradeModuleHandle::StatusBits(handle));
-            }
-            for handle in PassengersFireUpgradeHandle::for_object(self.id) {
-                modules.push(UpgradeModuleHandle::PassengersFire(handle));
-            }
-        }
-        modules
     }
 
     pub(super) fn apply_upgrade_modules(&mut self, mask: UpgradeMaskType) {
         if mask.is_empty() {
             return;
         }
-        let mut matched_any = false;
-        // Preserve authored module order and the original mask snapshot. Only
-        // the effectful phase runs outside the installed module's guard.
+        // Preserve authored module order and the original eligibility mask.
+        // Synchronous effects run after releasing the installed module guard.
         for entry in self.interface_entry_snapshots(&self.upgrade_module_handles) {
-            let subobjects = entry.with_module(|module| {
-                let Some(upgrade) = module_upgrade_kind(module) else {
-                    return None;
-                };
-                matched_any = true;
+            let prepared = entry.with_module(|module| {
+                let upgrade = module_upgrade_kind(module)?;
                 match upgrade {
-                    UpgradeModuleKindMut::SubObjects(upgrade) => upgrade.prepare_upgrade(mask),
+                    UpgradeModuleKindMut::SubObjects(upgrade) => upgrade
+                        .prepare_upgrade(mask)
+                        .map(PreparedUpgrade::SubObjects),
+                    UpgradeModuleKindMut::PassengersFire(upgrade) => upgrade
+                        .prepare_upgrade(mask)
+                        .map(PreparedUpgrade::PassengersFire),
+                    UpgradeModuleKindMut::StatusBits(upgrade) => upgrade
+                        .prepare_upgrade(mask)
+                        .map(PreparedUpgrade::StatusBits),
                     other => {
                         if let Some(upgrade) = other.into_interface() {
                             if upgrade.can_upgrade(mask) {
@@ -589,45 +588,20 @@ impl Object {
                     }
                 }
             });
-            if let Some(data) = subobjects {
-                data.upgrade_mux_data.perform_upgrade_fx(self);
-                data.upgrade_mux_data.process_upgrade_removal(self);
-                entry.with_module(|module| {
-                    if let Some(UpgradeModuleKindMut::SubObjects(upgrade)) =
-                        module_upgrade_kind(module)
-                    {
-                        upgrade.finish_upgrade(self);
-                    }
-                });
-            }
-        }
-
-        if !matched_any {
-            let modules = self.collect_upgrade_modules();
-            for module in modules {
-                match module {
-                    UpgradeModuleHandle::StatusBits(handle) => {
-                        let _ = handle.apply(mask);
-                    }
-                    UpgradeModuleHandle::PassengersFire(handle) => {
-                        let _ = handle.apply(mask);
-                    }
+            if let Some(prepared) = prepared {
+                prepared.mux().perform_upgrade_fx(self);
+                prepared.mux().process_upgrade_removal(self);
+                if let PreparedUpgrade::StatusBits(data) = &prepared {
+                    data.apply_to_object(self);
                 }
-            }
-        }
-    }
-
-    pub(super) fn notify_upgrade_removed_internal(&mut self, mask: crate::upgrade::UpgradeMask) {
-        if mask.is_empty() {
-            return;
-        }
-
-        // Convert UpgradeMask to UpgradeMaskType for module operations
-        let mask_bits = UpgradeMaskType::from_bits_retain(mask.bits());
-        for module in self.collect_upgrade_modules() {
-            match module {
-                UpgradeModuleHandle::StatusBits(handle) => handle.remove(mask_bits),
-                UpgradeModuleHandle::PassengersFire(handle) => handle.remove(mask_bits),
+                entry.with_module(|module| match module_upgrade_kind(module) {
+                    Some(UpgradeModuleKindMut::SubObjects(upgrade)) => upgrade.finish_upgrade(self),
+                    Some(UpgradeModuleKindMut::PassengersFire(upgrade)) => {
+                        upgrade.finish_upgrade(self)
+                    }
+                    Some(UpgradeModuleKindMut::StatusBits(upgrade)) => upgrade.finish_upgrade(),
+                    _ => unreachable!("prepared upgrade changed module kind"),
+                });
             }
         }
     }

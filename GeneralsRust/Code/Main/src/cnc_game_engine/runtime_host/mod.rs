@@ -313,7 +313,6 @@ impl CnCGameEngine {
             "click_live_sticky_bomb_dual_world_empty_gate" => self.runtime_host_cmd_click_live_sticky_bomb_dual_world_empty_gate(&args),
             "click_live_auto_heal_dual_world_empty_gate" => self.runtime_host_cmd_click_live_auto_heal_dual_world_empty_gate(&args),
             "click_live_grant_stealth_dual_world_empty_gate" => self.runtime_host_cmd_click_live_grant_stealth_dual_world_empty_gate(&args),
-            "click_live_status_bits_upgrade_dual_world_empty_gate" => self.runtime_host_cmd_click_live_status_bits_upgrade_dual_world_empty_gate(&args),
             "click_live_jet_ai_dual_world_empty_gate" => self.runtime_host_cmd_click_live_jet_ai_dual_world_empty_gate(&args),
             "click_live_parking_place_dual_world_empty_gate" => self.runtime_host_cmd_click_live_parking_place_dual_world_empty_gate(&args),
             "click_live_flight_deck_dual_world_empty_gate" => self.runtime_host_cmd_click_live_flight_deck_dual_world_empty_gate(&args),

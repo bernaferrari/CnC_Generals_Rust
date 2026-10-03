@@ -1,22 +1,11 @@
-use once_cell::sync::Lazy;
-use std::collections::HashMap;
-use std::sync::{Arc, RwLock, Weak};
+use std::sync::Arc;
 
 use crate::common::{LegacyModuleData, ObjectID, UpgradeMaskType};
-use crate::modules::UpgradeModuleInterface;
-use crate::object::registry::OBJECT_REGISTRY;
-use crate::object::upgrade::upgrade_module::{
-    UpgradeMuxData, mux_can_upgrade, mux_give_self_upgrade_for_object,
-};
+use crate::object::Object;
+use crate::object::upgrade::upgrade_module::{UpgradeMuxData, mux_can_upgrade, mux_reset_upgrade};
 use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer};
 use game_engine::common::thing::module::{Module, ModuleData, NameKeyType};
-
-/// Wave 448: host-only path has no dual-world factory objects.
-#[inline]
-fn dual_world_registry_unavailable() -> bool {
-    crate::object::registry::OBJECT_REGISTRY.is_empty()
-}
 
 /// Module data for PassengersFireUpgrade (no custom fields in C++).
 #[derive(Debug, Clone)]
@@ -65,152 +54,52 @@ impl Snapshotable for PassengersFireUpgradeModuleData {
     }
 }
 
-/// Upgrade module that enables passengers to fire from a container.
+/// Installed upgrade state. Definitions are immutable; execution belongs to this module.
 pub struct PassengersFireUpgrade {
-    inner: Arc<PassengersFireUpgradeInner>,
     module_name_key: NameKeyType,
     data: Arc<PassengersFireUpgradeModuleData>,
-    object_id: ObjectID,
     applied: bool,
-}
-
-#[derive(Debug)]
-struct PassengersFireUpgradeInner {
-    #[allow(dead_code)]
-    data: Arc<PassengersFireUpgradeModuleData>,
-    object_id: ObjectID,
-}
-
-type PassengersFireUpgradeHandles = HashMap<ObjectID, Vec<Weak<PassengersFireUpgradeInner>>>;
-
-static PASSENGERS_FIRE_UPGRADE_MODULES: Lazy<RwLock<PassengersFireUpgradeHandles>> =
-    Lazy::new(|| RwLock::new(HashMap::new()));
-
-/// Handle exposed to object runtime for applying/removing the upgrade.
-pub(crate) struct PassengersFireUpgradeHandle {
-    inner: Arc<PassengersFireUpgradeInner>,
-}
-
-impl PassengersFireUpgradeHandle {
-    fn new(inner: Arc<PassengersFireUpgradeInner>) -> Self {
-        Self { inner }
-    }
-
-    pub fn apply(&self, _mask: UpgradeMaskType) -> bool {
-        apply_passengers_fire(self.inner.object_id)
-    }
-
-    pub fn remove(&self, _mask: UpgradeMaskType) {
-        // C++ does not revert this upgrade; keep parity by doing nothing.
-    }
-
-    pub(crate) fn for_object(object_id: ObjectID) -> Vec<Self> {
-        let mut registry = PASSENGERS_FIRE_UPGRADE_MODULES
-            .write()
-            .expect("passengers fire upgrade registry poisoned");
-        if let Some(entries) = registry.get_mut(&object_id) {
-            let mut handles = Vec::new();
-            entries.retain(|weak| {
-                if let Some(upgrade) = weak.upgrade() {
-                    handles.push(PassengersFireUpgradeHandle::new(upgrade));
-                    true
-                } else {
-                    false
-                }
-            });
-            if entries.is_empty() {
-                registry.remove(&object_id);
-            }
-            handles
-        } else {
-            Vec::new()
-        }
-    }
-}
-
-fn register_passengers_fire_upgrade(object_id: ObjectID, inner: &Arc<PassengersFireUpgradeInner>) {
-    let mut registry = PASSENGERS_FIRE_UPGRADE_MODULES
-        .write()
-        .expect("passengers fire upgrade registry poisoned");
-    registry
-        .entry(object_id)
-        .or_default()
-        .push(Arc::downgrade(inner));
-}
-
-fn unregister_passengers_fire_upgrade(
-    object_id: ObjectID,
-    inner: &Arc<PassengersFireUpgradeInner>,
-) {
-    let mut registry = PASSENGERS_FIRE_UPGRADE_MODULES
-        .write()
-        .expect("passengers fire upgrade registry poisoned");
-    if let Some(entries) = registry.get_mut(&object_id) {
-        entries.retain(|entry| {
-            entry
-                .upgrade()
-                .map(|strong| !Arc::ptr_eq(&strong, inner))
-                .unwrap_or(false)
-        });
-        if entries.is_empty() {
-            registry.remove(&object_id);
-        }
-    }
-}
-
-fn apply_passengers_fire(object_id: ObjectID) -> bool {
-    // Wave 448: empty dual-world → false.
-    if dual_world_registry_unavailable() {
-        return false;
-    }
-
-    let Some(contain) =
-        OBJECT_REGISTRY.with_object(object_id, |object_guard| object_guard.get_contain())
-    else {
-        log::warn!("PassengersFireUpgrade: Object {} not found", object_id);
-        return true;
-    };
-
-    let Some(contain) = contain else {
-        return true;
-    };
-
-    if let Ok(mut contain_guard) = contain.lock() {
-        contain_guard.set_passenger_allowed_to_fire(true);
-    } else {
-        log::warn!(
-            "PassengersFireUpgrade: Failed to lock contain module for object {}",
-            object_id
-        );
-    }
-
-    true
 }
 
 impl PassengersFireUpgrade {
     pub fn new(
         module_name_key: NameKeyType,
         data: Arc<PassengersFireUpgradeModuleData>,
-        object_id: ObjectID,
+        _object_id: ObjectID,
     ) -> Self {
-        let inner = Arc::new(PassengersFireUpgradeInner {
-            data: Arc::clone(&data),
-            object_id,
-        });
-        register_passengers_fire_upgrade(object_id, &inner);
         Self {
-            inner,
             module_name_key,
             data,
-            object_id,
             applied: false,
         }
     }
-}
 
-impl Drop for PassengersFireUpgrade {
-    fn drop(&mut self) {
-        unregister_passengers_fire_upgrade(self.object_id, &self.inner);
+    pub(crate) fn can_upgrade(&self, mask: UpgradeMaskType) -> bool {
+        mux_can_upgrade(&self.data.upgrade_mux_data, self.applied, mask)
+    }
+
+    /// Release the installed module before synchronous FX, removals, and owner callbacks.
+    pub(crate) fn prepare_upgrade(
+        &self,
+        mask: UpgradeMaskType,
+    ) -> Option<Arc<PassengersFireUpgradeModuleData>> {
+        self.can_upgrade(mask).then(|| Arc::clone(&self.data))
+    }
+
+    pub(crate) fn remove_upgrade(&mut self, mask: UpgradeMaskType) {
+        // C++ resetUpgrade only clears execution; it does not undo the effect.
+        mux_reset_upgrade(&self.data.upgrade_mux_data, &mut self.applied, mask);
+    }
+
+    pub(crate) fn finish_upgrade(&mut self, owner: &mut Object) {
+        // C++ commits execution even when this object has no containment module.
+        if let Some(contain) = owner.get_contain() {
+            contain
+                .lock()
+                .expect("passengers fire contain module poisoned")
+                .set_passenger_allowed_to_fire(true);
+        }
+        self.applied = true;
     }
 }
 
@@ -218,19 +107,15 @@ impl Module for PassengersFireUpgrade {
     fn as_any(&self) -> &dyn std::any::Any {
         self
     }
-
     fn as_any_mut(&mut self) -> &mut dyn std::any::Any {
         self
     }
-
     fn get_module_name_key(&self) -> NameKeyType {
         self.module_name_key
     }
-
     fn get_module_tag_name_key(&self) -> NameKeyType {
         LegacyModuleData::get_module_tag_name_key(self.data.as_ref())
     }
-
     fn get_module_data(&self) -> &dyn ModuleData {
         self.data.as_ref()
     }
@@ -238,51 +123,22 @@ impl Module for PassengersFireUpgrade {
 
 impl Snapshotable for PassengersFireUpgrade {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let mut version: u8 = 0;
+        // C++ base CRCs are empty; UpgradeMux writes its version and executed flag.
+        let mut version = 1u8;
         xfer.xfer_version(&mut version, 1)
             .map_err(|e| e.to_string())?;
-        Ok(())
+        let mut executed = self.applied;
+        xfer.xfer_bool(&mut executed).map_err(|e| e.to_string())
     }
-
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let current_version: u8 = 1;
-        let mut version = current_version;
-        xfer.xfer_version(&mut version, current_version)
-            .map_err(|e| e.to_string())?;
-        crate::object::upgrade::upgrade_module::xfer_upgrade_module_state(xfer, &mut self.applied)?;
-        Ok(())
+        crate::object::upgrade::upgrade_module::xfer_upgrade_module_with_version(
+            xfer,
+            &mut self.applied,
+            "PassengersFireUpgrade",
+        )
     }
-
     fn load_post_process(&mut self) -> Result<(), String> {
         Ok(())
-    }
-}
-
-impl UpgradeModuleInterface for PassengersFireUpgrade {
-    fn can_upgrade(&self, upgrade_mask: UpgradeMaskType) -> bool {
-        mux_can_upgrade(&self.data.upgrade_mux_data, self.applied, upgrade_mask)
-    }
-
-    fn apply_upgrade(&mut self, upgrade_mask: UpgradeMaskType) -> bool {
-        if self.applied {
-            return false;
-        }
-        mux_give_self_upgrade_for_object(&self.data.upgrade_mux_data, self.object_id);
-        let _ = upgrade_mask;
-        let applied = apply_passengers_fire(self.object_id);
-        if applied {
-            self.applied = true;
-        }
-        applied
-    }
-
-    fn remove_upgrade(&mut self, upgrade_mask: UpgradeMaskType) {
-        // C++ does not revert this upgrade; resetUpgrade only clears executed.
-        let _ = crate::object::upgrade::upgrade_module::mux_reset_upgrade(
-            &self.data.upgrade_mux_data,
-            &mut self.applied,
-            upgrade_mask,
-        );
     }
 }
 
@@ -292,51 +148,5 @@ const PASSENGERS_FIRE_UPGRADE_FIELDS: &[FieldParse<PassengersFireUpgradeModuleDa
     crate::upgrade_mux_field_table!();
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use std::sync::Mutex as TestMutex;
-
-    static TEST_LOCK: Lazy<TestMutex<()>> = Lazy::new(|| TestMutex::new(()));
-
-    #[test]
-    fn registry_handles_keep_immutable_identity_and_unregister_exact_entry() {
-        let _guard = TEST_LOCK
-            .lock()
-            .expect("passengers fire test lock poisoned");
-        PASSENGERS_FIRE_UPGRADE_MODULES
-            .write()
-            .expect("passengers fire registry poisoned")
-            .clear();
-
-        let object_id: ObjectID = 9011;
-        let first = PassengersFireUpgrade::new(
-            NameKeyType::default(),
-            Arc::new(PassengersFireUpgradeModuleData::default()),
-            object_id,
-        );
-        let second = PassengersFireUpgrade::new(
-            NameKeyType::default(),
-            Arc::new(PassengersFireUpgradeModuleData::default()),
-            object_id,
-        );
-
-        let handles = PassengersFireUpgradeHandle::for_object(object_id);
-        assert_eq!(handles.len(), 2);
-        assert!(Arc::ptr_eq(&handles[0].inner, &first.inner));
-        assert!(Arc::ptr_eq(&handles[1].inner, &second.inner));
-
-        drop(first);
-        let remaining = PassengersFireUpgradeHandle::for_object(object_id);
-        assert_eq!(remaining.len(), 1);
-        assert!(Arc::ptr_eq(&remaining[0].inner, &second.inner));
-
-        drop(second);
-        assert!(PassengersFireUpgradeHandle::for_object(object_id).is_empty());
-        drop(handles);
-        drop(remaining);
-        PASSENGERS_FIRE_UPGRADE_MODULES
-            .write()
-            .expect("passengers fire registry poisoned")
-            .clear();
-    }
-}
+#[path = "passengers_fire_upgrade/tests.rs"]
+mod installed_tests;

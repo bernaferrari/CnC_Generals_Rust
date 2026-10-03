@@ -58107,8 +58107,8 @@
           "candidate_destinations": [
             {
               "cargo_reachable": true,
-              "classification": "shim",
-              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/dock_update/dock_update.rs"
+              "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/production/dock_update/repair_tests.rs"
             }
           ],
           "entry_id": "game_engine:Source/GameLogic/Object/Update/DockUpdate/DockUpdate.cpp",
@@ -64557,14 +64557,15 @@
         },
         {
           "blockers": [
+            "no_reachable_implementation",
             "unreviewed_mapping",
             "unreviewed_symbol_ownership"
           ],
           "candidate_destinations": [
             {
               "cargo_reachable": true,
-              "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/passengers_fire_upgrade.rs"
+              "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/passengers_fire_upgrade/tests.rs"
             }
           ],
           "entry_id": "game_engine:Source/GameLogic/Object/Upgrade/PassengersFireUpgrade.cpp",
@@ -64765,14 +64766,15 @@
         },
         {
           "blockers": [
+            "no_reachable_implementation",
             "unreviewed_mapping",
             "unreviewed_symbol_ownership"
           ],
           "candidate_destinations": [
             {
               "cargo_reachable": true,
-              "classification": "implementation",
-              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/status_bits_upgrade.rs"
+              "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/upgrade/status_bits_upgrade/tests.rs"
             }
           ],
           "entry_id": "game_engine:Source/GameLogic/Object/Upgrade/StatusBitsUpgrade.cpp",
@@ -183364,7 +183366,7 @@
       ]
     }
   ],
-  "provenance_input_digest": "8a475fcef983a08c97a308698f1e80fedf0831167add20b45dcaa1bbbd7e729f",
+  "provenance_input_digest": "ae8d549540fb45231715afe513ed3ae3535c21451658f20d04700cda9c509279",
   "schema_version": 1,
   "summary": {
     "maximum_packet_size": 15,

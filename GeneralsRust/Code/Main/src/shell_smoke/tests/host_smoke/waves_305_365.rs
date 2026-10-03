@@ -49,21 +49,6 @@ pub(super) fn assert_waves_305_365(r: &ShellSmokeResult) {
         r.detail
     );
     assert!(
-        r.live_status_bits_upgrade_dual_world_empty_gate_method_names_wave308_ok,
-        "live status bits upgrade dual-world empty gate method names residual pack wave308: {}",
-        r.detail
-    );
-    assert!(
-        r.live_status_bits_upgrade_dual_world_empty_gate_nav_commands_wave308_ok,
-        "live status bits upgrade dual-world empty gate nav commands residual pack wave308: {}",
-        r.detail
-    );
-    assert!(
-        r.live_status_bits_upgrade_dual_world_empty_gate_live_wave308_ok,
-        "live status bits upgrade dual-world empty gate live residual wave308: {}",
-        r.detail
-    );
-    assert!(
         r.live_jet_ai_dual_world_empty_gate_method_names_wave309_ok,
         "live jet ai dual-world empty gate method names residual pack wave309: {}",
         r.detail

@@ -137,15 +137,6 @@ pub fn upgrade_mask_for_name(name: &str) -> UpgradeMask {
     registry.allocate_for_key(key)
 }
 
-/// Reset the upgrade mask registry (for testing)
-#[cfg(test)]
-pub fn reset_upgrade_mask_registry() {
-    let mut registry = UPGRADE_MASK_REGISTRY
-        .write()
-        .expect("upgrade mask registry poisoned");
-    *registry = UpgradeMaskRegistry::default();
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -198,10 +189,11 @@ mod tests {
 
     #[test]
     fn test_registry_allocation() {
-        reset_upgrade_mask_registry();
-
-        let mask_a = upgrade_mask_for_name("UpgradeA");
-        let mask_b = upgrade_mask_for_name("UpgradeB");
+        // Exercise this allocator directly, independent of another test's
+        // UpgradeCenter templates. Production catalog authority is separate.
+        let mut registry = UpgradeMaskRegistry::default();
+        let mask_a = registry.allocate_for_key(NameKeyGenerator::name_to_key("UpgradeA"));
+        let mask_b = registry.allocate_for_key(NameKeyGenerator::name_to_key("UpgradeB"));
 
         assert_ne!(mask_a, UpgradeMask::none());
         assert_ne!(mask_b, UpgradeMask::none());
@@ -210,10 +202,10 @@ mod tests {
 
     #[test]
     fn test_registry_reuses_masks() {
-        reset_upgrade_mask_registry();
-
-        let mask_a1 = upgrade_mask_for_name("UpgradeA");
-        let mask_a2 = upgrade_mask_for_name("UpgradeA");
+        let mut registry = UpgradeMaskRegistry::default();
+        let key = NameKeyGenerator::name_to_key("UpgradeA");
+        let mask_a1 = registry.allocate_for_key(key);
+        let mask_a2 = registry.allocate_for_key(key);
 
         assert_eq!(mask_a1, mask_a2);
     }

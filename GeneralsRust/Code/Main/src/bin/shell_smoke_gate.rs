@@ -991,9 +991,6 @@ fn main() {
         && r.live_grant_stealth_dual_world_empty_gate_nav_commands_wave307_ok
         && r.live_grant_stealth_dual_world_empty_gate_live_wave307_ok
         // Wave 308 residual honesty (status bits upgrade dual-world empty gates).
-        && r.live_status_bits_upgrade_dual_world_empty_gate_method_names_wave308_ok
-        && r.live_status_bits_upgrade_dual_world_empty_gate_nav_commands_wave308_ok
-        && r.live_status_bits_upgrade_dual_world_empty_gate_live_wave308_ok
         // Wave 309 residual honesty (jet AI dual-world empty gates).
         && r.live_jet_ai_dual_world_empty_gate_method_names_wave309_ok
         && r.live_jet_ai_dual_world_empty_gate_nav_commands_wave309_ok

@@ -154,8 +154,6 @@ fn dual_world_registry_unavailable() -> bool {
 
 use crate::GameLogicResult;
 use crate::object::special_power_types::{SpecialPowerMask, SpecialPowerType};
-use crate::object::upgrade::passengers_fire_upgrade::PassengersFireUpgradeHandle;
-use crate::object::upgrade::status_bits_upgrade::StatusBitsUpgradeHandle;
 use crate::object_creation_list::nuggets::INVALID_ANGLE;
 use crate::player::{Player, PlayerIndex, PlayerType, player_list};
 use crate::scripting::engine::get_event_manager;
@@ -1070,6 +1068,8 @@ impl<'a> UpgradeModuleKindMut<'a> {
     fn can_upgrade(self, mask: UpgradeMaskType) -> bool {
         match self {
             Self::SubObjects(module) => module.can_upgrade(mask),
+            Self::PassengersFire(module) => module.can_upgrade(mask),
+            Self::StatusBits(module) => module.can_upgrade(mask),
             other => other
                 .into_interface()
                 .is_some_and(|module| module.can_upgrade(mask)),
@@ -1079,6 +1079,8 @@ impl<'a> UpgradeModuleKindMut<'a> {
     fn remove_upgrade(self, mask: UpgradeMaskType) {
         match self {
             Self::SubObjects(module) => module.remove_upgrade(mask),
+            Self::PassengersFire(module) => module.remove_upgrade(mask),
+            Self::StatusBits(module) => module.remove_upgrade(mask),
             other => {
                 if let Some(module) = other.into_interface() {
                     module.remove_upgrade(mask);
@@ -1087,13 +1089,11 @@ impl<'a> UpgradeModuleKindMut<'a> {
         }
     }
 
-    // SubObjects requires a borrowed owner and a staged callback; it cannot
-    // implement the ambient, ownerless compatibility interface.
+    // These installed upgrades require a borrowed owner and staged callbacks.
+    // They cannot implement the ambient, ownerless compatibility interface.
     fn into_interface(self) -> Option<&'a mut dyn UpgradeModuleInterface> {
         Some(match self {
-            Self::StatusBits(module) => module,
-            Self::PassengersFire(module) => module,
-            Self::SubObjects(_) => return None,
+            Self::StatusBits(_) | Self::PassengersFire(_) | Self::SubObjects(_) => return None,
             Self::GrantScience(module) => module,
             Self::CommandSet(module) => module,
             Self::WeaponSet(module) => module,
@@ -2596,11 +2596,6 @@ impl fmt::Debug for Object {
             .field("template", &self.thing_template.get_name())
             .finish()
     }
-}
-
-enum UpgradeModuleHandle {
-    StatusBits(StatusBitsUpgradeHandle),
-    PassengersFire(PassengersFireUpgradeHandle),
 }
 
 #[derive(Debug, Clone, Copy, Default)]

@@ -696,12 +696,6 @@ pub use super::host_live_squish_collide_dual_world_empty_gate_residual_wave408::
     simulate_live_squish_collide_dual_world_empty_gate_honesty,
 };
 #[cfg(any(test, feature = "host-residuals"))]
-pub use super::host_live_status_bits_upgrade_dual_world_empty_gate_residual_wave308::{
-    honesty_live_status_bits_upgrade_dual_world_empty_gate_method_names_residual_wave308,
-    honesty_live_status_bits_upgrade_dual_world_empty_gate_nav_commands_residual_wave308,
-    honesty_live_status_bits_upgrade_dual_world_empty_gate_residual_pack_wave308,
-    simulate_live_status_bits_upgrade_dual_world_empty_gate_honesty,
-};
 #[cfg(any(test, feature = "host-residuals"))]
 pub use super::host_live_stealth_behavior_dual_world_empty_gate_residual_wave302::{
     honesty_live_stealth_behavior_dual_world_empty_gate_method_names_residual_wave302,
