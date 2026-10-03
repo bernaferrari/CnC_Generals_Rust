@@ -357,9 +357,10 @@ impl GameLogic {
             if obj.door_close_countdown == 0 {
                 continue;
             }
-            let pulse = gamelogic::object::contain::open_contain::leftover_open_contain_tick_exit_door(
-                obj.door_close_countdown,
-            );
+            let pulse =
+                gamelogic::object::contain::open_contain::leftover_open_contain_tick_exit_door(
+                    obj.door_close_countdown,
+                );
             obj.door_close_countdown = pulse.countdown;
             apply_leftover_open_contain_door_pulse(obj, pulse);
         }
@@ -698,8 +699,16 @@ impl GameLogic {
             let (sin, cos) = yaw.sin_cos();
             if disposition == 1 || disposition == 2 {
                 let geom = container.thing.template.geometry_info;
-                let half_length = if geom.authored { geom.major_radius } else { 20.0 };
-                let half_width = if geom.authored { geom.minor_radius } else { 10.0 };
+                let half_length = if geom.authored {
+                    geom.major_radius
+                } else {
+                    20.0
+                };
+                let half_width = if geom.authored {
+                    geom.minor_radius
+                } else {
+                    10.0
+                };
                 let scalar = if disposition == 1 { 1.0 } else { -1.0 };
                 let rnd = gamelogic::helpers::get_game_logic_random_value_real;
                 let door_x = rnd(-half_length / 4.0, half_length / 4.0);
@@ -750,6 +759,9 @@ impl GameLogic {
         if let Some(c) = self.objects.get_mut(&container_id) {
             let _ = c.remove_occupant(unit_id);
         }
+        // TransportContain::onRemoving wakes only an idle rider, before
+        // OpenContain::exitObjectViaDoor issues its follow-path command.
+        self.reset_rider_mood_check_on_exit(container_id, unit_id);
         // C++ exitPath = [adjusted end, adjusted end, rally?]. Rally is not snapped.
         let mut door_end = end;
         if exit_count > 1 {
@@ -853,7 +865,6 @@ impl GameLogic {
             )
         });
         if transport_mood {
-            self.reset_rider_mood_check_on_exit(unit_id);
             if let Some(container) = self.objects.get_mut(&container_id) {
                 if container.uses_transport_contain_exit_busy() {
                     let delay = container.transport_exit_delay_frames();
@@ -878,9 +889,7 @@ impl GameLogic {
                 door_open_time,
             );
             let pulse =
-                gamelogic::object::contain::open_contain::leftover_open_contain_arm_exit_door(
-                    time,
-                );
+                gamelogic::object::contain::open_contain::leftover_open_contain_arm_exit_door(time);
             if let Some(container) = self.objects.get_mut(&container_id) {
                 container.door_close_countdown = pulse.countdown;
                 apply_leftover_open_contain_door_pulse(container, pulse);

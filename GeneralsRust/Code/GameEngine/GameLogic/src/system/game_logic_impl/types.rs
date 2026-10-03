@@ -70,10 +70,7 @@ pub fn send_object_created(object_id: ObjectID) {
 /// C++ `GameLogic::sendObjectCreated(this)` from inside Object::initObject.
 /// The factory holds the Object write lock throughout init, so this variant
 /// uses the already-borrowed identity and installs the binding directly.
-pub(crate) fn send_object_created_borrowed(
-    object: &mut Object,
-    object_arc: &Arc<RwLock<Object>>,
-) {
+pub(crate) fn send_object_created_borrowed(object: &mut Object, object_arc: &Arc<RwLock<Object>>) {
     if object.get_drawable().is_some() {
         return;
     }
@@ -174,8 +171,6 @@ impl TheObjectFactory {
                 .register_object(object.clone())
                 .map_err(|err| format!("Failed to register object: {:?}", err))?;
         }
-
-
 
         {
             let mut obj_guard = object
@@ -308,7 +303,6 @@ pub struct GameLogic {
     objects_changed_trigger_areas: VecDeque<ObjectID>,
     frame_objects_changed_trigger_areas: UnsignedInt,
 
-
     // Game state
     game_mode: Int,
     game_paused: Bool,
@@ -323,9 +317,10 @@ pub struct GameLogic {
     superweapon_restriction: UnsignedShort,
 
     // Update module tracking (sleepy vs normal updates)
-    sleepy_updates: BinaryHeap<SleepyUpdateEntry>,
+    sleepy_updates: SleepyUpdateQueue,
     normal_updates: Vec<NormalUpdateEntry>,
-    module_lookup: HashMap<ObjectID, Vec<UpdateModulePtr>>,
+    // Registration order only; heap/normal entries own each shared module once.
+    module_lookup: HashMap<ObjectID, Vec<ModuleIdentity>>,
     global_weapon_bonus_set: WeaponBonusSet,
 
     // Control bar button overrides (C++ GameLogic.h line 266: ControlBarOverrideMap)
@@ -371,30 +366,6 @@ pub struct SleepyUpdateEntry {
     module: UpdateModulePtr,
 }
 
-impl PartialEq for SleepyUpdateEntry {
-    fn eq(&self, other: &Self) -> bool {
-        self.wake_frame == other.wake_frame && self.phase == other.phase
-    }
-}
-
-impl Eq for SleepyUpdateEntry {}
-
-impl PartialOrd for SleepyUpdateEntry {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for SleepyUpdateEntry {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        // Reverse order for min-heap behavior
-        other
-            .wake_frame
-            .cmp(&self.wake_frame)
-            .then_with(|| other.phase.cmp(&self.phase))
-    }
-}
-
 /// Entry for normal (every-frame) update queue
 #[derive(Clone)]
 struct NormalUpdateEntry {
@@ -438,7 +409,7 @@ impl Default for GameLogic {
             rank_level_limit: 1000,
             buildable_status_overrides: HashMap::new(),
             superweapon_restriction: 0,
-            sleepy_updates: BinaryHeap::new(),
+            sleepy_updates: SleepyUpdateQueue::default(),
             normal_updates: Vec::new(),
             module_lookup: HashMap::new(),
             global_weapon_bonus_set: WeaponBonusSet::new(),

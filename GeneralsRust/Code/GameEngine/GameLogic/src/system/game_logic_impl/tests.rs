@@ -1349,8 +1349,13 @@ mod tests {
             module: Arc::new(RwLock::new(crate::modules::UpdateModuleDummy {})),
         };
 
-        // Earlier wake frame should have higher priority (min-heap)
-        assert!(entry2 > entry1);
+        // Exercise the actual indexed schedule, not a duplicate Ord contract.
+        let mut queue = SleepyUpdateQueue::default();
+        queue.push(entry1);
+        queue.push(entry2);
+        assert_eq!(queue.pop().unwrap().object_id, 2);
+        assert_eq!(queue.pop().unwrap().object_id, 1);
+        assert_eq!(queue.len(), 0);
     }
 
     // ============================================================================

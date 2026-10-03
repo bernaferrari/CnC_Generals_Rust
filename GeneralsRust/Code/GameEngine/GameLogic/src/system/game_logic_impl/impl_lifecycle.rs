@@ -836,9 +836,7 @@ impl GameLogic {
         self.width = DEFAULT_WORLD_WIDTH;
         self.height = DEFAULT_WORLD_HEIGHT;
         self.normal_updates.clear();
-        for _entry in &self.sleepy_updates {
-            // C++: (*it)->friend_setIndexInLogic(-1)
-        }
+        self.module_lookup.clear();
         self.sleepy_updates.clear();
         self.formation_manager = crate::commands::FormationManager::new();
         self.command_processor = crate::commands::CommandProcessor::new();

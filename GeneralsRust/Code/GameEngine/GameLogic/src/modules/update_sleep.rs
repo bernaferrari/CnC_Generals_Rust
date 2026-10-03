@@ -36,7 +36,7 @@ pub fn frame_to_sleep_time(
 }
 
 /// Update module pointer type
-pub type UpdateModulePtr = Arc<RwLock<dyn UpdateModuleInterface>>;
+pub use game_engine::common::thing::update_module::UpdateModulePtr;
 
 /// Minimal no-op update module used in scaffolding and tests.
 #[derive(Debug, Default)]
@@ -49,4 +49,3 @@ impl UpdateModuleInterface for UpdateModuleDummy {}
 /// Hoisted into `Common` (re-exported here) so the Common `Module` trait can
 /// expose the typed `get_update_module_interface()` accessor.
 pub use game_engine::common::thing::update_module::SleepyUpdatePhase;
-

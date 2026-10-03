@@ -45,6 +45,29 @@ impl Weapon {
         bonus: &WeaponBonus,
         inflict_damage: bool,
     ) -> Result<(), WeaponError> {
+        self.handle_projectileless_flight_damage_with_source(
+            source_obj_id,
+            source_pos,
+            target_obj_id,
+            target_position,
+            speed,
+            bonus,
+            inflict_damage,
+            None,
+        )
+    }
+
+    pub(crate) fn handle_projectileless_flight_damage_with_source(
+        &mut self,
+        source_obj_id: ObjectId,
+        source_pos: &Coord3D,
+        target_obj_id: Option<ObjectId>,
+        target_position: &Coord3D,
+        speed: f32,
+        bonus: &WeaponBonus,
+        inflict_damage: bool,
+        borrowed_source: Option<&mut crate::object::Object>,
+    ) -> Result<(), WeaponError> {
         if !inflict_damage {
             return Ok(());
         }
@@ -63,7 +86,14 @@ impl Weapon {
 
         if delay_in_frames < 1.0 {
             let victim = (damage_id != INVALID_OBJECT_ID).then_some(damage_id);
-            self.deal_damage_internal(source_obj_id, victim, &damage_position, bonus, false)?;
+            self.deal_damage_internal_with_source(
+                source_obj_id,
+                victim,
+                &damage_position,
+                bonus,
+                false,
+                borrowed_source,
+            )?;
             return Ok(());
         }
 
@@ -260,6 +290,25 @@ impl Weapon {
         bonus: &WeaponBonus,
         is_projectile_detonation: bool,
     ) -> Result<u32, WeaponError> {
+        self.deal_damage_internal_with_source(
+            source_obj_id,
+            target_obj_id,
+            impact_pos,
+            bonus,
+            is_projectile_detonation,
+            None,
+        )
+    }
+
+    pub(crate) fn deal_damage_internal_with_source(
+        &mut self,
+        source_obj_id: ObjectId,
+        target_obj_id: Option<ObjectId>,
+        impact_pos: &Coord3D,
+        bonus: &WeaponBonus,
+        is_projectile_detonation: bool,
+        borrowed_source: Option<&mut crate::object::Object>,
+    ) -> Result<u32, WeaponError> {
         if source_obj_id == INVALID_OBJECT_ID {
             return Ok(0);
         }
@@ -272,8 +321,14 @@ impl Weapon {
             ));
         }
 
-        let damage_source_id = self.projectile_damage_source_id(source_obj_id);
-        let source_arc = TheGameLogic::find_object_by_id(source_obj_id);
+        let mut borrowed_source = borrowed_source.filter(|source| source.get_id() == source_obj_id);
+        let damage_source_id =
+            self.projectile_damage_source_id(source_obj_id, borrowed_source.as_deref());
+        let source_arc = if borrowed_source.is_none() {
+            TheGameLogic::find_object_by_id(source_obj_id)
+        } else {
+            None
+        };
         let source_guard = source_arc.as_ref().and_then(|arc| arc.try_read().ok());
         let damage_source_arc = if damage_source_id == source_obj_id {
             None
@@ -287,7 +342,13 @@ impl Weapon {
             .apply_historic_bonus(source_obj_id, &impact_pos);
         let mut primary_victim_id = None;
         if let Some(target_id) = target_obj_id {
-            if let Some(target_arc) = TheGameLogic::find_object_by_id(target_id) {
+            if let Some(target) = borrowed_source
+                .as_deref()
+                .filter(|source| source.get_id() == target_id)
+            {
+                impact_pos = *target.get_position();
+                primary_victim_id = Some(target_id);
+            } else if let Some(target_arc) = TheGameLogic::find_object_by_id(target_id) {
                 if let Ok(target_guard) = target_arc.try_read() {
                     impact_pos = *target_guard.get_position();
                     primary_victim_id = Some(target_id);
@@ -305,7 +366,11 @@ impl Weapon {
         damage_info.input.shock_wave_amount = self.template.shock_wave_amount;
         damage_info.input.shock_wave_radius = self.template.shock_wave_radius;
         damage_info.input.shock_wave_taper_off = self.template.shock_wave_taper_off;
-        if let Some(source) = damage_source_guard.as_ref().or(source_guard.as_ref()) {
+        if let Some(source) = damage_source_guard
+            .as_deref()
+            .or(borrowed_source.as_deref())
+            .or(source_guard.as_deref())
+        {
             if let Some(player) = source.get_controlling_player() {
                 if let Ok(player_guard) = player.read() {
                     damage_info.input.source_player_mask = player_guard.get_player_mask();
@@ -331,57 +396,70 @@ impl Weapon {
             // A second read of the same RwLock hangs when the blast includes it.
             drop(source_guard);
             drop(damage_source_guard);
-            let targets = self.find_objects_in_radius(source_obj_id, &impact_pos, max_radius)?;
+            let targets = self.find_objects_in_radius_with_source(
+                source_obj_id,
+                &impact_pos,
+                max_radius,
+                borrowed_source.as_deref(),
+            )?;
 
             for (obj_id, obj_pos, _relationship) in targets {
-                let Some(victim_arc) = TheGameLogic::find_object_by_id(obj_id) else {
+                let borrowed_victim = borrowed_source
+                    .as_deref()
+                    .filter(|source| source.get_id() == obj_id);
+                let victim_arc = if borrowed_victim.is_none() {
+                    TheGameLogic::find_object_by_id(obj_id)
+                } else {
+                    None
+                };
+                let victim_lease = victim_arc.as_ref().and_then(|arc| arc.try_read().ok());
+                let Some(victim_guard) = borrowed_victim.or(victim_lease.as_deref()) else {
                     continue;
                 };
-                let Ok(victim_guard) = victim_arc.try_read() else {
-                    continue;
-                };
-                let source_now = if obj_id == source_obj_id {
+                let source_now = if borrowed_source.is_some() || obj_id == source_obj_id {
                     None
                 } else {
                     source_arc.as_ref().and_then(|arc| arc.try_read().ok())
                 };
-                let source_known = obj_id == source_obj_id || source_now.is_some();
-                let (producer_id, relationship, similar_skip, source_pos, x_axis) =
-                    if obj_id == source_obj_id {
-                        let rel = if victim_guard.is_undetected_defector() {
-                            Relationship::Neutral
-                        } else {
-                            Relationship::Allies
-                        };
-                        (
-                            victim_guard.get_producer_id(),
-                            rel,
-                            matches!(rel, Relationship::Allies),
-                            *victim_guard.get_position(),
-                            victim_guard.get_transform_matrix().x_axis,
-                        )
-                    } else if let Some(source) = source_now.as_ref() {
-                        let rel = source.relationship_to(&victim_guard);
-                        let similar = matches!(rel, Relationship::Allies)
-                            && source
-                                .get_template()
-                                .is_equivalent_to(victim_guard.get_template().as_ref());
-                        (
-                            source.get_producer_id(),
-                            victim_guard.relationship_to(source),
-                            similar,
-                            *source.get_position(),
-                            source.get_transform_matrix().x_axis,
-                        )
+                let source_known =
+                    obj_id == source_obj_id || borrowed_source.is_some() || source_now.is_some();
+                let (producer_id, relationship, similar_skip, source_pos, x_axis) = if obj_id
+                    == source_obj_id
+                {
+                    let rel = if victim_guard.is_undetected_defector() {
+                        Relationship::Neutral
                     } else {
-                        (
-                            INVALID_OBJECT_ID,
-                            Relationship::Neutral,
-                            false,
-                            glam::Vec3::ZERO,
-                            victim_guard.get_transform_matrix().x_axis,
-                        )
+                        Relationship::Allies
                     };
+                    (
+                        victim_guard.get_producer_id(),
+                        rel,
+                        matches!(rel, Relationship::Allies),
+                        *victim_guard.get_position(),
+                        victim_guard.get_transform_matrix().x_axis,
+                    )
+                } else if let Some(source) = borrowed_source.as_deref().or(source_now.as_deref()) {
+                    let rel = source.relationship_to(&victim_guard);
+                    let similar = matches!(rel, Relationship::Allies)
+                        && source
+                            .get_template()
+                            .is_equivalent_to(victim_guard.get_template().as_ref());
+                    (
+                        source.get_producer_id(),
+                        victim_guard.relationship_to(source),
+                        similar,
+                        *source.get_position(),
+                        source.get_transform_matrix().x_axis,
+                    )
+                } else {
+                    (
+                        INVALID_OBJECT_ID,
+                        Relationship::Neutral,
+                        false,
+                        glam::Vec3::ZERO,
+                        victim_guard.get_transform_matrix().x_axis,
+                    )
+                };
                 drop(source_now);
 
                 let is_primary_victim = primary_victim_id == Some(obj_id);
@@ -512,15 +590,34 @@ impl Weapon {
                         target_damage_info.input.shock_wave_vector = shock_wave_vector;
                     }
 
-                    drop(victim_guard);
-                    if let Ok(actual_damage) =
-                        self.apply_damage_to_object(obj_id, &mut target_damage_info)
-                    {
+                    drop(victim_lease);
+                    if let Ok(actual_damage) = self.apply_damage_to_object_with_source(
+                        obj_id,
+                        &mut target_damage_info,
+                        borrowed_source.as_deref_mut(),
+                    ) {
                         total_damage += actual_damage as u32;
                     }
                 }
             }
         } else {
+            if borrowed_source.is_some()
+                && self
+                    .template
+                    .affects_mask
+                    .contains(WeaponAffectsMask::KILLS_SELF)
+            {
+                drop(source_guard);
+                let mut self_damage = damage_info.clone();
+                self_damage.input.amount = HUGE_DAMAGE_AMOUNT;
+                return self
+                    .apply_damage_to_object_with_source(
+                        source_obj_id,
+                        &mut self_damage,
+                        borrowed_source.as_deref_mut(),
+                    )
+                    .map(|actual| actual as u32);
+            }
             // SINGLE TARGET DAMAGE. Drop the firer read before attempt_damage
             // write-locks that object.
             if let Some(target_id) = target_obj_id {
@@ -529,14 +626,19 @@ impl Weapon {
                     .affects_mask
                     .contains(WeaponAffectsMask::KILLS_SELF)
                 {
-                    let self_id = source_guard.as_ref().map(|source| source.get_id());
+                    let self_id = borrowed_source
+                        .as_deref()
+                        .or(source_guard.as_deref())
+                        .map(|source| source.get_id());
                     drop(source_guard);
                     if let Some(self_id) = self_id {
                         let mut self_damage = damage_info.clone();
                         self_damage.input.amount = HUGE_DAMAGE_AMOUNT;
-                        if let Ok(actual_damage) =
-                            self.apply_damage_to_object(self_id, &mut self_damage)
-                        {
+                        if let Ok(actual_damage) = self.apply_damage_to_object_with_source(
+                            self_id,
+                            &mut self_damage,
+                            borrowed_source.as_deref_mut(),
+                        ) {
                             total_damage = actual_damage as u32;
                         }
                         return Ok(total_damage);
@@ -544,8 +646,11 @@ impl Weapon {
                     return Ok(total_damage);
                 }
                 drop(source_guard);
-                if let Ok(actual_damage) = self.apply_damage_to_object(target_id, &mut damage_info)
-                {
+                if let Ok(actual_damage) = self.apply_damage_to_object_with_source(
+                    target_id,
+                    &mut damage_info,
+                    borrowed_source.as_deref_mut(),
+                ) {
                     total_damage = actual_damage as u32;
                 }
             }
@@ -746,10 +851,8 @@ impl Weapon {
     ///
     /// Matches C++ Object->getPosition() calls throughout Weapon.cpp
     pub(crate) fn get_object_position(&self, _obj_id: ObjectId) -> Result<Coord3D, WeaponError> {
-        if let Some((id, pos)) = self.caller_held_source {
-            if id == _obj_id {
-                return Ok(pos);
-            }
+        if let Some(source) = self.caller_source(_obj_id) {
+            return Ok(source.position);
         }
         let Some(obj_arc) = TheGameLogic::find_object_by_id(_obj_id) else {
             return Err(WeaponError::InvalidTarget);
@@ -1257,21 +1360,14 @@ impl Weapon {
         impact_pos: &Coord3D,
         is_projectile_detonation: bool,
         bonus: &WeaponBonus,
+        borrowed_source: Option<&crate::object::Object>,
     ) -> Result<(), WeaponError> {
         let current_frame = TheGameLogic::get_frame();
         let fx_suspended = current_frame < self.suspend_fx_frame;
 
-        let (veterancy, stealthed_hidden, fx_suspended) = crate::object::registry::OBJECT_REGISTRY
-            .with_object(source_obj_id, |source| {
-                let stealthed_hidden = !source.is_locally_controlled()
-                    && source.test_status(ObjectStatusTypes::Stealthed)
-                    && !source.test_status(ObjectStatusTypes::Detected)
-                    && !source.test_status(ObjectStatusTypes::Disguised)
-                    && !source.is_kind_of(KindOf::Mine)
-                    && !self.template.play_fx_when_stealthed;
-                (source.get_veterancy_level(), stealthed_hidden, fx_suspended)
-            })
-            .unwrap_or((crate::common::VeterancyLevel::Regular, false, fx_suspended));
+        let borrowed_source = borrowed_source.filter(|source| source.get_id() == source_obj_id);
+        let (veterancy, stealthed_hidden, drawable) =
+            self.source_fire_fx(source_obj_id, borrowed_source);
         let skip_muzzle_fx = stealthed_hidden || fx_suspended;
         // FireSound is FiringTracker::shotFired, not this FX path.
 
@@ -1286,15 +1382,9 @@ impl Weapon {
         let damage_radius = self.template.get_primary_damage_radius(bonus);
         // Drop the object read before the drawable write. Model draw reads
         // bones and must not re-enter a guard this thread still holds.
-        let mut handled = false;
+        let mut handled = stealthed_hidden;
         if !stealthed_hidden {
-            let drawable = TheGameLogic::find_object_by_id(source_obj_id).and_then(|source_arc| {
-                source_arc
-                    .try_read()
-                    .ok()
-                    .and_then(|source| source.get_drawable())
-            });
-            if let Some(drawable) = drawable {
+            if let Some(drawable) = &drawable {
                 if let Ok(mut draw) = drawable.try_write() {
                     let recoil = self.template.weapon_recoil;
                     let recoil_angle = if recoil == 0.0 {
@@ -1302,7 +1392,15 @@ impl Weapon {
                     } else {
                         (impact_pos.y - source_pos.y).atan2(impact_pos.x - source_pos.x)
                     };
-                    draw.apply_weapon_recoil(recoil, recoil_angle);
+                    if let Some(source) = borrowed_source {
+                        draw.apply_weapon_recoil_from_orientation(
+                            recoil,
+                            recoil_angle,
+                            source.get_orientation(),
+                        );
+                    } else {
+                        draw.apply_weapon_recoil(recoil, recoil_angle);
+                    }
                     handled = draw.handle_weapon_fire_fx(
                         crate::common::WeaponSlotType::from(self.weapon_slot),
                         self.current_barrel,
@@ -1317,33 +1415,24 @@ impl Weapon {
 
         if !handled {
             if let Some(fx_list) = fx {
-                let (where_pos, matrix) =
-                    if let Some(source_arc) = TheGameLogic::find_object_by_id(source_obj_id) {
-                        source_arc
-                            .try_read()
-                            .ok()
-                            .and_then(|source| source.get_drawable())
-                            .and_then(|drawable| {
-                                drawable.try_read().ok().map(|draw| {
-                                    let pos = if self.template.is_contact_weapon() {
-                                        *impact_pos
-                                    } else {
-                                        draw.get_position()
-                                    };
-                                    (pos, Some(draw.get_transform_matrix()))
-                                })
-                            })
-                            .unwrap_or((*source_pos, None))
-                    } else {
-                        (
-                            if self.template.is_contact_weapon() {
+                let where_without_drawable = if self.template.is_contact_weapon() {
+                    *impact_pos
+                } else {
+                    *source_pos
+                };
+                let (where_pos, matrix) = drawable
+                    .as_ref()
+                    .and_then(|drawable| {
+                        drawable.try_read().ok().map(|draw| {
+                            let pos = if self.template.is_contact_weapon() {
                                 *impact_pos
                             } else {
-                                *source_pos
-                            },
-                            None,
-                        )
-                    };
+                                draw.get_position()
+                            };
+                            (pos, Some(draw.get_transform_matrix()))
+                        })
+                    })
+                    .unwrap_or((where_without_drawable, None));
                 let _ = fx_list.do_fx_pos(
                     &where_pos,
                     matrix.as_ref(),
@@ -1359,7 +1448,10 @@ impl Weapon {
             self.template.get_fire_ocl(veterancy)
         };
         if let Some(ocl) = ocl {
-            if let Some(source_arc) = TheGameLogic::find_object_by_id(source_obj_id) {
+            if let Some(source) = borrowed_source {
+                let ctx = crate::object_creation_list::live_creation_context();
+                let _ = ocl.create_with_objects(&ctx, source, None, 0);
+            } else if let Some(source_arc) = TheGameLogic::find_object_by_id(source_obj_id) {
                 let _ = ObjectCreationList::create(&ocl, &source_arc, None);
             } else {
                 let _ = ocl.create_at_position(source_pos, source_obj_id);
@@ -1369,11 +1461,49 @@ impl Weapon {
         Ok(())
     }
 
-    pub(crate) fn projectile_damage_source_id(&self, source_obj_id: ObjectId) -> ObjectId {
-        let Some(source_arc) = TheGameLogic::find_object_by_id(source_obj_id) else {
-            return source_obj_id;
+    /// CPP Weapon.cpp:899–926: read source state at the FX boundary. The
+    /// existing client drawable handle is a temporary visual boundary, never
+    /// independently owned gameplay or a retained source reference in Weapon.
+    pub(crate) fn source_fire_fx(
+        &self,
+        source_obj_id: ObjectId,
+        borrowed_source: Option<&crate::object::Object>,
+    ) -> (
+        crate::common::VeterancyLevel,
+        bool,
+        Option<Arc<RwLock<crate::object::drawable::Drawable>>>,
+    ) {
+        let read_source = |source: &crate::object::Object| {
+            let hidden = !source.is_locally_controlled()
+                && source.test_status(ObjectStatusTypes::Stealthed)
+                && !source.test_status(ObjectStatusTypes::Detected)
+                && !source.test_status(ObjectStatusTypes::Disguised)
+                && !source.is_kind_of(KindOf::Mine)
+                && !self.template.play_fx_when_stealthed;
+            (source.get_veterancy_level(), hidden, source.get_drawable())
         };
-        let Ok(source) = source_arc.read() else {
+        borrowed_source
+            .filter(|source| source.get_id() == source_obj_id)
+            .map(read_source)
+            .or_else(|| {
+                crate::object::registry::OBJECT_REGISTRY.with_object(source_obj_id, read_source)
+            })
+            .unwrap_or((crate::common::VeterancyLevel::Regular, false, None))
+    }
+
+    pub(crate) fn projectile_damage_source_id(
+        &self,
+        source_obj_id: ObjectId,
+        borrowed_source: Option<&crate::object::Object>,
+    ) -> ObjectId {
+        let borrowed_source = borrowed_source.filter(|source| source.get_id() == source_obj_id);
+        let source_arc = if borrowed_source.is_none() {
+            TheGameLogic::find_object_by_id(source_obj_id)
+        } else {
+            None
+        };
+        let source_lease = source_arc.as_ref().and_then(|arc| arc.read().ok());
+        let Some(source) = borrowed_source.or(source_lease.as_deref()) else {
             return source_obj_id;
         };
         if !source.is_kind_of(KindOf::Projectile) {
@@ -1404,6 +1534,16 @@ impl Weapon {
         center: &Coord3D,
         radius: f32,
     ) -> Result<Vec<(ObjectId, Coord3D, u32)>, WeaponError> {
+        self.find_objects_in_radius_with_source(source_obj_id, center, radius, None)
+    }
+
+    pub(crate) fn find_objects_in_radius_with_source(
+        &self,
+        source_obj_id: ObjectId,
+        center: &Coord3D,
+        radius: f32,
+        borrowed_source: Option<&crate::object::Object>,
+    ) -> Result<Vec<(ObjectId, Coord3D, u32)>, WeaponError> {
         // Wave 265: empty dual-world → Ok(empty).
         if dual_world_registry_unavailable() {
             return Ok(Vec::new());
@@ -1432,6 +1572,22 @@ impl Weapon {
                 } else {
                     None
                 }
+            } else if let Some(source) = borrowed_source
+                .filter(|source| source.get_id() == source_obj_id && source.get_id() == obj_id)
+            {
+                let pos = *source.get_position();
+                let geom = crate::object::Object::collision_geometry_from_bounds(
+                    source.get_geometry_info(),
+                    None,
+                );
+                within_radius(
+                    center,
+                    &pos,
+                    &geom,
+                    radius,
+                    DistanceCalculationType::FromBoundingSphere3D,
+                )
+                .then_some(pos)
             } else {
                 OBJECT_REGISTRY
                     .with_object(obj_id, |obj| {
@@ -1462,6 +1618,21 @@ impl Weapon {
         Ok(results)
     }
 
+    fn apply_damage_to_object_with_source(
+        &mut self,
+        obj_id: ObjectId,
+        damage_info: &mut crate::damage::DamageInfo,
+        borrowed_source: Option<&mut crate::object::Object>,
+    ) -> Result<f32, WeaponError> {
+        if let Some(source) = borrowed_source.filter(|source| source.get_id() == obj_id) {
+            source.attempt_damage(damage_info).map_err(|error| {
+                WeaponError::SystemError(format!("Failed to apply damage: {error}"))
+            })?;
+            return Ok(damage_info.output.actual_damage_dealt);
+        }
+        self.apply_damage_to_object(obj_id, damage_info)
+    }
+
     /// Apply damage to a specific object - THE CRITICAL CONNECTION to Object system
     /// Gets object from ObjectManager and calls attempt_damage() to apply actual damage
     pub(crate) fn apply_damage_to_object(
@@ -1484,7 +1655,7 @@ impl Weapon {
             WeaponError::SystemError(format!("Failed to read object manager: {}", e))
         })?;
 
-        if self.caller_held_source.is_some_and(|(id, _)| id == obj_id) {
+        if self.caller_source(obj_id).is_some() {
             self.queue_self_damage(self.build_engine_damage_info(damage_info));
             return Ok(damage_info.input.amount);
         }

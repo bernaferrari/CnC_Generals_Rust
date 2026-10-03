@@ -1,6 +1,10 @@
 //! Authored Object INI behavior metadata applied to host templates.
 use super::*;
 
+#[cfg(test)]
+#[path = "contain_exit_mood_tests.rs"]
+mod contain_exit_mood_tests;
+
 impl GameLogic {
     /// Apply the gameplay-relevant Object INI KindOf capabilities which are
     /// safe to enrich on an existing hand-authored host template.  Starter
@@ -694,6 +698,10 @@ impl GameLogic {
                         .attribute("KeepContainerVelocityOnExit")
                         .and_then(parse_bool)
                         .unwrap_or(false),
+                    reset_mood_check_time_on_exit: module
+                        .attribute("ResetMoodCheckTimeOnExit")
+                        .and_then(parse_bool)
+                        .unwrap_or(true),
                     door_open_time: module
                         .attribute("DoorOpenTime")
                         .and_then(parse_duration_frames)

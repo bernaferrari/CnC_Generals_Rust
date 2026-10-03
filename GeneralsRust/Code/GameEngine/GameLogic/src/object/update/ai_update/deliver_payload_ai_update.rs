@@ -1560,6 +1560,10 @@ impl DeliverPayloadAIUpdateInterface for DeliverPayloadAIUpdate {
 }
 
 #[cfg(test)]
+#[path = "deliver_payload_physics_tests.rs"]
+mod physics_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
 

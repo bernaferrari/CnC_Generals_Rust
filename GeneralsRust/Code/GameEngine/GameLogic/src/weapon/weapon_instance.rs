@@ -36,6 +36,18 @@ use super::helpers::{
 use super::masks_enums::*;
 use super::template::WeaponTemplate;
 
+/// Values borrowed from C++'s source Object during one synchronous weapon call.
+/// This is transient input, never independently owned gameplay or Xfer state.
+#[derive(Debug)]
+pub(crate) struct WeaponSource {
+    pub(crate) id: ObjectId,
+    pub(crate) position: Coord3D,
+    pub(crate) geometry: crate::common::GeometryInfo,
+    pub(crate) is_bridge: bool,
+    pub(crate) is_structure: bool,
+    pub(crate) bonus_flags: WeaponBonusConditionFlags,
+}
+
 #[derive(Debug)]
 pub struct Weapon {
     /// Template defining weapon properties
@@ -95,8 +107,8 @@ pub struct Weapon {
     pub(crate) shared_fire_sync: Option<(u32, WeaponStatus)>,
     /// Copied from the set when statistics rebuild. Not read from the object.
     pub(crate) shares_reload_time: bool,
-    /// Source pose already held by the caller. Skips a read lock on that Arc.
-    pub(crate) caller_held_source: Option<(ObjectId, Coord3D)>,
+    /// Exact source already borrowed by the caller. Cleared after the call.
+    pub(crate) caller_held_source: Option<WeaponSource>,
     pub(crate) caller_veterancy: Option<crate::common::VeterancyLevel>,
     pending_assault: Option<Option<ObjectId>>,
     pending_mine_cleared: bool,
@@ -161,8 +173,25 @@ impl Weapon {
         }
     }
 
-    pub fn set_caller_held_source(&mut self, id: ObjectId, pos: Coord3D) {
-        self.caller_held_source = Some((id, pos));
+    pub fn set_caller_held_source(
+        &mut self,
+        source: &crate::object::Object,
+        bonus_flags: WeaponBonusConditionFlags,
+    ) {
+        self.caller_held_source = Some(WeaponSource {
+            id: source.get_id(),
+            position: *source.get_position(),
+            geometry: *source.get_geometry_info(),
+            is_bridge: source.is_kind_of(KindOf::Bridge),
+            is_structure: source.is_kind_of(KindOf::Structure),
+            bonus_flags,
+        });
+    }
+
+    pub(crate) fn caller_source(&self, id: ObjectId) -> Option<&WeaponSource> {
+        self.caller_held_source
+            .as_ref()
+            .filter(|source| source.id == id)
     }
 
     pub fn clear_caller_held_source(&mut self) {
@@ -317,6 +346,23 @@ impl Weapon {
         source_bonus_flags: crate::common::types::WeaponBonusConditionFlags,
         container_bonus_flags: Option<crate::common::types::WeaponBonusConditionFlags>,
     ) -> Result<bool, WeaponError> {
+        self.fire_weapon_at_position_with_bonus_and_reload_flag_with_source(
+            source,
+            position,
+            source_bonus_flags,
+            container_bonus_flags,
+            None,
+        )
+    }
+
+    pub(crate) fn fire_weapon_at_position_with_bonus_and_reload_flag_with_source(
+        &mut self,
+        source: ObjectId,
+        position: &Coord3D,
+        source_bonus_flags: crate::common::types::WeaponBonusConditionFlags,
+        container_bonus_flags: Option<crate::common::types::WeaponBonusConditionFlags>,
+        borrowed_source: Option<&mut crate::object::Object>,
+    ) -> Result<bool, WeaponError> {
         let current_frame = TheGameLogic::get_frame();
         let disarm = self.template.get_damage_type() == DamageType::Disarm;
         let ready = self.get_status() == WeaponStatus::ReadyToFire;
@@ -335,12 +381,21 @@ impl Weapon {
             combined_flags |= container_flags;
         }
         let internal_flags = map_common_bonus_flags(combined_flags);
-        let bonus = if self.caller_held_source.is_some_and(|(id, _)| id == source) {
+        let bonus = if self.caller_source(source).is_some() {
             self.bonus_from_flags(internal_flags)
         } else {
             self.compute_bonus(source, internal_flags)
         };
-        if !self.private_fire_weapon(source, None, Some(position), &bonus, false, false, true)? {
+        if !self.private_fire_weapon_with_source(
+            source,
+            None,
+            Some(position),
+            &bonus,
+            false,
+            false,
+            true,
+            borrowed_source,
+        )? {
             return Ok(self.apply_post_fire_state(source, current_frame, &bonus));
         }
         if self.when_last_reload_started != reload_frame_before
@@ -361,11 +416,30 @@ impl Weapon {
         position: &Coord3D,
         held_flags: WeaponBonusConditionFlags,
     ) -> Result<bool, WeaponError> {
+        self.fire_weapon_at_position_no_range_check_with_source(source, position, held_flags, None)
+    }
+
+    pub(crate) fn fire_weapon_at_position_no_range_check_with_source(
+        &mut self,
+        source: ObjectId,
+        position: &Coord3D,
+        held_flags: WeaponBonusConditionFlags,
+        borrowed_source: Option<&mut crate::object::Object>,
+    ) -> Result<bool, WeaponError> {
         let current_frame = TheGameLogic::get_frame();
         let reload_frame_before = self.when_last_reload_started;
         let bonus = self.bonus_from_flags(held_flags);
         let _ = source;
-        if !self.private_fire_weapon(source, None, Some(position), &bonus, false, true, true)? {
+        if !self.private_fire_weapon_with_source(
+            source,
+            None,
+            Some(position),
+            &bonus,
+            false,
+            true,
+            true,
+            borrowed_source,
+        )? {
             return Ok(self.apply_post_fire_state(source, current_frame, &bonus));
         }
         if self.when_last_reload_started != reload_frame_before
@@ -452,6 +526,25 @@ impl Weapon {
         source_bonus_flags: crate::common::types::WeaponBonusConditionFlags,
         container_bonus_flags: Option<crate::common::types::WeaponBonusConditionFlags>,
     ) -> Result<bool, WeaponError> {
+        self.fire_weapon_with_bonus_and_reload_flag_with_source(
+            source_id,
+            target_id,
+            current_frame,
+            source_bonus_flags,
+            container_bonus_flags,
+            None,
+        )
+    }
+
+    pub(crate) fn fire_weapon_with_bonus_and_reload_flag_with_source(
+        &mut self,
+        source_id: ObjectId,
+        target_id: ObjectId,
+        current_frame: u32,
+        source_bonus_flags: crate::common::types::WeaponBonusConditionFlags,
+        container_bonus_flags: Option<crate::common::types::WeaponBonusConditionFlags>,
+        borrowed_source: Option<&mut crate::object::Object>,
+    ) -> Result<bool, WeaponError> {
         let disarm = self.template.get_damage_type() == DamageType::Disarm;
         let ready = self.get_status() == WeaponStatus::ReadyToFire;
 
@@ -473,17 +566,22 @@ impl Weapon {
         // Convert to internal WeaponBonusConditionFlags type
         let internal_flags = map_common_bonus_flags(combined_flags);
 
-        let bonus = if self
-            .caller_held_source
-            .is_some_and(|(id, _)| id == source_id)
-        {
+        let bonus = if self.caller_source(source_id).is_some() {
             self.bonus_from_flags(internal_flags)
         } else {
             self.compute_bonus(source_id, internal_flags)
         };
 
-        let fired =
-            self.private_fire_weapon(source_id, Some(target_id), None, &bonus, false, false, true)?;
+        let fired = self.private_fire_weapon_with_source(
+            source_id,
+            Some(target_id),
+            None,
+            &bonus,
+            false,
+            false,
+            true,
+            borrowed_source,
+        )?;
         if !fired {
             return Ok(self.apply_post_fire_state(source_id, current_frame, &bonus));
         }
@@ -611,60 +709,6 @@ impl Weapon {
             target_pos,
             &bonus,
         )
-    }
-
-    /// Check if target is too close
-    pub fn is_too_close(
-        &self,
-        source_obj: ObjectId,
-        target_obj: Option<ObjectId>,
-        target_pos: Option<&Coord3D>,
-    ) -> bool {
-        // Wave 265: empty dual-world → fail-closed.
-        if dual_world_registry_unavailable() {
-            return false;
-        }
-
-        let Some((source_pos, source_radius)) = crate::object::registry::OBJECT_REGISTRY
-            .with_object(source_obj, |guard| {
-                (
-                    *guard.get_position(),
-                    guard.get_geometry_info().get_bounding_circle_radius(),
-                )
-            })
-        else {
-            return false;
-        };
-
-        let (target_pos, target_radius) = if let Some(target_id) = target_obj {
-            let Some(pair) =
-                crate::object::registry::OBJECT_REGISTRY.with_object(target_id, |guard| {
-                    (
-                        *guard.get_position(),
-                        guard.get_geometry_info().get_bounding_circle_radius(),
-                    )
-                })
-            else {
-                return false;
-            };
-            pair
-        } else if let Some(pos) = target_pos {
-            (*pos, 0.0)
-        } else {
-            return false;
-        };
-
-        let min_range = self.template.get_minimum_attack_range();
-        if min_range == 0.0 {
-            return false;
-        }
-        let dx = source_pos.x - target_pos.x;
-        let dy = source_pos.y - target_pos.y;
-        let center = (dx * dx + dy * dy).sqrt();
-        let boundary = (center - source_radius - target_radius).max(0.0);
-        // C++ Weapon::isTooClose (Weapon.cpp:2211-2222): contact distance,
-        // no -0.5 fudge (RATIONALIZE_ATTACK_RANGE).
-        boundary * boundary < min_range * min_range
     }
 
     /// Get the attack distance including object bounding radii.
@@ -1153,10 +1197,7 @@ impl Weapon {
         if stream_arc.is_none() {
             self.projectile_stream_id = INVALID_OBJECT_ID;
 
-            let team_arc = if self
-                .caller_held_source
-                .is_some_and(|(id, _)| id == source_obj_id)
-            {
+            let team_arc = if self.caller_source(source_obj_id).is_some() {
                 self.caller_team.clone()
             } else {
                 let Some(source_arc) = TheGameLogic::find_object_by_id(source_obj_id) else {
@@ -1207,11 +1248,8 @@ impl Weapon {
         let Ok(mut stream_guard) = stream_arc.write() else {
             return;
         };
-        let pos = if self
-            .caller_held_source
-            .is_some_and(|(id, _)| id == source_obj_id)
-        {
-            self.caller_held_source.map(|(_, pos)| pos)
+        let pos = if let Some(source) = self.caller_source(source_obj_id) {
+            Some(source.position)
         } else {
             TheGameLogic::find_object_by_id(source_obj_id)
                 .and_then(|arc| arc.try_read().ok().map(|guard| *guard.get_position()))
@@ -1740,6 +1778,29 @@ impl Weapon {
         ignore_ranges: bool,
         inflict_damage: bool,
     ) -> Result<bool, WeaponError> {
+        self.private_fire_weapon_with_source(
+            source_obj_id,
+            target_obj_id,
+            target_pos,
+            bonus,
+            is_projectile_detonation,
+            ignore_ranges,
+            inflict_damage,
+            None,
+        )
+    }
+
+    fn private_fire_weapon_with_source(
+        &mut self,
+        source_obj_id: ObjectId,
+        target_obj_id: Option<ObjectId>,
+        target_pos: Option<&Coord3D>,
+        bonus: &WeaponBonus,
+        is_projectile_detonation: bool,
+        ignore_ranges: bool,
+        inflict_damage: bool,
+        mut borrowed_source: Option<&mut crate::object::Object>,
+    ) -> Result<bool, WeaponError> {
         if self.template.get_request_assist_range() > 0.0 {
             if let Some(victim) = target_obj_id {
                 self.process_request_assistance(source_obj_id, victim);
@@ -1833,16 +1894,79 @@ impl Weapon {
             return Ok(false);
         }
 
-        if let Some(tid) = victim_id {
-            if let Some(arc) = TheGameLogic::find_object_by_id(tid) {
-                if let Ok(guard) = arc.try_read() {
-                    if guard.is_kind_of(KindOf::Structure) {
-                        target_position = guard
-                            .get_geometry_info()
-                            .get_center_position(guard.get_position());
-                    }
-                }
+        // CPP Weapon.cpp:889–950: muzzle FX/recoil then FireOCL before
+        // aim scatter, projectile creation, or damage. Barrel selection is
+        // normalized by the caller before entering that template FX path.
+        if !is_projectile_detonation {
+            if let Some(count) = self.caller_barrel_count {
+                self.barrel_count = count as i32;
+            } else if let Some(source) = borrowed_source
+                .as_deref()
+                .filter(|source| source.get_id() == source_obj_id)
+            {
+                self.barrel_count = source
+                    .get_drawable()
+                    .and_then(|drawable| {
+                        drawable
+                            .try_read()
+                            .ok()
+                            .map(|draw| draw.get_barrel_count(self.weapon_slot).max(1))
+                    })
+                    .unwrap_or(1);
+            } else {
+                self.barrel_count = crate::object::registry::OBJECT_REGISTRY
+                    .with_object(source_obj_id, |obj| {
+                        obj.get_drawable().and_then(|drawable| {
+                            drawable
+                                .try_read()
+                                .ok()
+                                .map(|draw| draw.get_barrel_count(self.weapon_slot).max(1))
+                        })
+                    })
+                    .flatten()
+                    .unwrap_or(1);
             }
+            if self.current_barrel >= self.barrel_count {
+                self.current_barrel = 0;
+                self.num_shots_for_current_barrel = self.template.shots_per_barrel;
+            }
+        }
+        let target_geometry = victim_id.and_then(|id| {
+            if let Some(target) = borrowed_source
+                .as_deref()
+                .filter(|source| source.get_id() == id)
+            {
+                return Some((
+                    target
+                        .get_geometry_info()
+                        .get_center_position(target.get_position()),
+                    target.is_kind_of(KindOf::Structure),
+                ));
+            }
+            TheGameLogic::find_object_by_id(id).and_then(|arc| {
+                arc.try_read().ok().map(|target| {
+                    (
+                        target
+                            .get_geometry_info()
+                            .get_center_position(target.get_position()),
+                        target.is_kind_of(KindOf::Structure),
+                    )
+                })
+            })
+        });
+        let fx_position = target_geometry
+            .map(|(center, _)| center)
+            .unwrap_or(target_position);
+        self.fire_weapon_effects(
+            source_obj_id,
+            &source_pos,
+            &fx_position,
+            is_projectile_detonation,
+            bonus,
+            borrowed_source.as_deref(),
+        )?;
+        if let Some((center, true)) = target_geometry {
+            target_position = center;
         }
 
         let target_type = victim_id
@@ -1878,52 +2002,34 @@ impl Weapon {
 
         if is_projectile_detonation {
             if inflict_damage {
-                self.deal_damage_internal(
+                self.deal_damage_internal_with_source(
                     source_obj_id,
                     damage_victim,
                     &target_position,
                     bonus,
                     true,
+                    borrowed_source.as_deref_mut(),
                 )?;
             }
-            self.fire_weapon_effects(source_obj_id, &source_pos, &target_position, true, bonus)?;
             return Ok(false);
         }
 
-        if let Some(count) = self.caller_barrel_count {
-            self.barrel_count = count as i32;
-        } else {
-            self.barrel_count = crate::object::registry::OBJECT_REGISTRY
-                .with_object(source_obj_id, |obj| {
-                    obj.get_drawable().and_then(|drawable| {
-                        drawable
-                            .try_read()
-                            .ok()
-                            .map(|draw| draw.get_barrel_count(self.weapon_slot).max(1))
-                    })
-                })
-                .flatten()
-                .unwrap_or(1);
-        }
-        if self.current_barrel >= self.barrel_count {
-            self.current_barrel = 0;
-            self.num_shots_for_current_barrel = self.template.shots_per_barrel;
-        }
         match self.determine_fire_mode() {
             FireMode::InstantImpact { splash_radius: _ } => {
                 if inflict_damage {
-                    self.deal_damage_internal(
+                    self.deal_damage_internal_with_source(
                         source_obj_id,
                         damage_victim,
                         &target_position,
                         bonus,
                         is_projectile_detonation,
+                        borrowed_source.as_deref_mut(),
                     )?;
                 }
             }
             FireMode::Projectile { speed, lifetime } => {
                 if self.template.projectile_name.trim().is_empty() {
-                    self.handle_projectileless_flight_damage(
+                    self.handle_projectileless_flight_damage_with_source(
                         source_obj_id,
                         &source_pos,
                         damage_victim,
@@ -1931,6 +2037,7 @@ impl Weapon {
                         speed,
                         bonus,
                         inflict_damage,
+                        borrowed_source.as_deref_mut(),
                     )?;
                 } else {
                     let projectile_id = self.create_projectile(
@@ -1962,18 +2069,18 @@ impl Weapon {
                     damage_per_frame,
                     duration,
                 );
-                self.inflict_damage_if_requested(
+                self.inflict_damage_if_requested_with_source(
                     source_obj_id,
                     damage_victim,
                     &target_position,
                     bonus,
                     is_projectile_detonation,
                     inflict_damage,
+                    borrowed_source.as_deref_mut(),
                 )?;
             }
         }
 
-        self.fire_weapon_effects(source_obj_id, &source_pos, &target_position, false, bonus)?;
         Ok(false)
     }
 
@@ -1987,13 +2094,35 @@ impl Weapon {
         is_projectile_detonation: bool,
         inflict_damage: bool,
     ) -> Result<(), WeaponError> {
+        self.inflict_damage_if_requested_with_source(
+            source_obj_id,
+            target_obj_id,
+            target_position,
+            bonus,
+            is_projectile_detonation,
+            inflict_damage,
+            None,
+        )
+    }
+
+    pub(crate) fn inflict_damage_if_requested_with_source(
+        &mut self,
+        source_obj_id: ObjectId,
+        target_obj_id: Option<ObjectId>,
+        target_position: &Coord3D,
+        bonus: &WeaponBonus,
+        is_projectile_detonation: bool,
+        inflict_damage: bool,
+        borrowed_source: Option<&mut crate::object::Object>,
+    ) -> Result<(), WeaponError> {
         if inflict_damage {
-            self.deal_damage_internal(
+            self.deal_damage_internal_with_source(
                 source_obj_id,
                 target_obj_id,
                 target_position,
                 bonus,
                 is_projectile_detonation,
+                borrowed_source,
             )?;
         }
         Ok(())

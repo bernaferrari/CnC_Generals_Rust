@@ -893,7 +893,8 @@ impl GameLogic {
                         p.movement.current_path_index = 0;
                         p.is_attack_path = false;
                         p.can_path_through_units = false;
-                        p.last_command_source = crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_AI;
+                        p.last_command_source =
+                            crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_AI;
                         p.refresh_follow_path_extra_distance();
                         p.adjust_destinations = !p.ultra_accurate;
                         p.set_destination(end);
@@ -926,7 +927,8 @@ impl GameLogic {
                     p.movement.current_path_index = 0;
                     p.is_attack_path = false;
                     p.can_path_through_units = false;
-                    p.last_command_source = crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_AI;
+                    p.last_command_source =
+                        crate::game_logic::host_command_button_hunt::HUNT_CMD_FROM_AI;
                     p.refresh_follow_path_extra_distance();
                     p.adjust_destinations = !p.ultra_accurate;
                     p.set_destination(end);
@@ -935,7 +937,11 @@ impl GameLogic {
                 }
             }
             if is_garrison {
-                if let Some(goal) = self.objects.get(pid).and_then(|p| p.movement.target_position) {
+                if let Some(goal) = self
+                    .objects
+                    .get(pid)
+                    .and_then(|p| p.movement.target_position)
+                {
                     self.register_ground_path_goal(*pid, goal);
                 }
             }
@@ -945,7 +951,7 @@ impl GameLogic {
             if walked_transport {
                 self.walk_unit_via_open_contain_exit(*pid, container_id);
             } else if !is_garrison && !is_tunnel && !is_cave {
-                self.reset_rider_mood_check_on_exit(*pid);
+                self.reset_rider_mood_check_on_exit(container_id, *pid);
                 self.play_container_removing_template_sounds(container_id, *pid);
             } else {
                 self.play_container_removing_template_sounds(container_id, *pid);

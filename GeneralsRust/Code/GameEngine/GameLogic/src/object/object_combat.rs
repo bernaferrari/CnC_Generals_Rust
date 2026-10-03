@@ -883,8 +883,12 @@ impl Object {
                     return Err(ObjectError::WeaponNotReady);
                 }
 
-                let source_pos = *self.get_position();
-                weapon.set_caller_held_source(self.id, source_pos);
+                weapon.set_caller_held_source(
+                    self,
+                    crate::weapon::helpers::map_common_bonus_flags(
+                        source_bonus_flags | container_bonus_flags.unwrap_or_default(),
+                    ),
+                );
                 weapon.set_caller_veterancy(self.get_veterancy_level());
                 weapon.set_caller_team(self.get_team());
                 if let Some(player) = self.get_controlling_player() {
@@ -900,12 +904,14 @@ impl Object {
                         );
                     }
                 }
-                let reloaded = weapon.fire_weapon_at_position_with_bonus_and_reload_flag(
-                    self.id,
-                    pos,
-                    source_bonus_flags,
-                    container_bonus_flags,
-                );
+                let reloaded = weapon
+                    .fire_weapon_at_position_with_bonus_and_reload_flag_with_source(
+                        self.id,
+                        pos,
+                        source_bonus_flags,
+                        container_bonus_flags,
+                        Some(self),
+                    );
                 weapon.clear_caller_held_source();
                 let reloaded =
                     reloaded.map_err(|e| ObjectError::WeaponFireFailed(e.to_string()))?;
@@ -968,8 +974,12 @@ impl Object {
                 return Err(ObjectError::WeaponNotReady);
             }
 
-            let source_pos = *self.get_position();
-            weapon.set_caller_held_source(self.id, source_pos);
+            weapon.set_caller_held_source(
+                self,
+                crate::weapon::helpers::map_common_bonus_flags(
+                    source_bonus_flags | container_bonus_flags.unwrap_or_default(),
+                ),
+            );
             weapon.set_caller_veterancy(self.get_veterancy_level());
             weapon.set_caller_team(self.get_team());
             if let Some(player) = self.get_controlling_player() {
@@ -983,11 +993,12 @@ impl Object {
                     weapon.set_caller_barrel_count(draw.get_barrel_count(weapon.get_weapon_slot()));
                 }
             }
-            let reloaded = weapon.fire_weapon_at_position_with_bonus_and_reload_flag(
+            let reloaded = weapon.fire_weapon_at_position_with_bonus_and_reload_flag_with_source(
                 self.id,
                 pos,
                 source_bonus_flags,
                 container_bonus_flags,
+                Some(self),
             );
             weapon.clear_caller_held_source();
             let reloaded = reloaded.map_err(|e| ObjectError::WeaponFireFailed(e.to_string()))?;
@@ -1021,14 +1032,13 @@ impl Object {
 
         let mut weapon_set = std::mem::take(&mut self.weapon_set);
         let reloaded = if let Some(weapon) = weapon_set.get_weapon_in_slot_mut(slot) {
-            let source_pos = *self.get_position();
             let mut flags =
                 crate::weapon::helpers::map_common_bonus_flags(self.get_weapon_bonus_condition());
             let container = crate::weapon::weapon_bonus::container_passenger_bonus_flags(
                 self.get_contained_by(),
             );
             flags.union(crate::weapon::helpers::map_common_bonus_flags(container));
-            weapon.set_caller_held_source(self.id, source_pos);
+            weapon.set_caller_held_source(self, flags);
             weapon.set_caller_veterancy(self.get_veterancy_level());
             weapon.set_caller_team(self.get_team());
             if let Some(player) = self.get_controlling_player() {
@@ -1042,7 +1052,12 @@ impl Object {
                     weapon.set_caller_barrel_count(draw.get_barrel_count(weapon.get_weapon_slot()));
                 }
             }
-            match weapon.fire_weapon_at_position_no_range_check(self.id, pos, flags) {
+            match weapon.fire_weapon_at_position_no_range_check_with_source(
+                self.id,
+                pos,
+                flags,
+                Some(self),
+            ) {
                 Ok(reloaded) => {
                     weapon.clear_caller_held_source();
                     self.notify_firing_tracker_shot_fired(weapon, INVALID_ID);
@@ -2152,8 +2167,12 @@ impl Object {
                 if weapon.get_status() != WeaponStatus::ReadyToFire {
                     return Err(ObjectError::WeaponNotReady);
                 }
-                let source_pos = *self.get_position();
-                weapon.set_caller_held_source(self.id, source_pos);
+                weapon.set_caller_held_source(
+                    self,
+                    crate::weapon::helpers::map_common_bonus_flags(
+                        source_bonus_flags | container_bonus_flags.unwrap_or_default(),
+                    ),
+                );
                 weapon.set_caller_veterancy(self.get_veterancy_level());
                 weapon.set_caller_team(self.get_team());
                 if let Some(player) = self.get_controlling_player() {
@@ -2169,12 +2188,13 @@ impl Object {
                         );
                     }
                 }
-                let reloaded = weapon.fire_weapon_with_bonus_and_reload_flag(
+                let reloaded = weapon.fire_weapon_with_bonus_and_reload_flag_with_source(
                     self.id,
                     target_id,
                     current_frame,
                     source_bonus_flags,
                     container_bonus_flags,
+                    Some(self),
                 );
                 weapon.clear_caller_held_source();
                 let reloaded =

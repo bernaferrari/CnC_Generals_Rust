@@ -6,7 +6,9 @@
 //!
 //! ## Architecture
 //!
-//! The GameLogic system is organized as a singleton that manages:
+//! Each GameLogic value owns a match and its schedule. The legacy TheGameLogic
+//! facade still provides ambient access for callers awaiting ownership migration.
+//! The match manages:
 //! - Object lifecycle (registration, update, destruction)
 //! - Frame-by-frame update orchestration
 //! - AI player updates
@@ -82,8 +84,8 @@
 //! - **Determinism**: Same frame order every game for multiplayer sync
 //! - **Synchronization**: All systems must complete before next frame
 
-use crate::ai::the_ai;
 use crate::ai::integration::with_ai_integration_mut;
+use crate::ai::the_ai;
 use crate::common::{
     AsciiString, Bool, Color, Coord3D, DisabledMaskType, INVALID_ID, Int, KindOf, ObjectID,
     ObjectStatusMaskType, ObjectStatusTypes, PlayerMaskType, Real, UnsignedInt, UnsignedShort,
@@ -117,9 +119,13 @@ use game_engine::common::rts::handles::{ObjectHandle, PlayerHandle};
 use game_engine::common::system::build_assistant::init_build_assistant;
 use game_engine::{Snapshot as XferSnapshotTrait, Xfer, XferMode, XferStatus};
 use log::{debug, info, trace, warn};
-use std::collections::{BinaryHeap, HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock, RwLock};
 use std::time::Instant;
+
+mod sleepy_queue;
+use game_engine::common::thing::update_module::UpdateScheduleContext;
+use sleepy_queue::{ModuleIdentity, SleepyUpdateQueue};
 
 include!("types.rs");
 include!("xfer_crc.rs");

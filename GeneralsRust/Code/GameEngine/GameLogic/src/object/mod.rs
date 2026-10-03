@@ -1876,6 +1876,14 @@ impl ModuleUpdateProxy {
         module.update_module_behind_shared_lock()
     }
 
+    fn missing_update_sleep(&self) -> UpdateSleepTime {
+        warn!(
+            "No update dispatcher for module '{}' on object {}",
+            self.module_name, self.object_id
+        );
+        UpdateSleepTime::Forever
+    }
+
     fn dispatch_disabled_mask(module: &mut dyn Module) -> Option<DisabledMaskType> {
         module
             .get_sleepy_update_interface()
@@ -1897,37 +1905,39 @@ fn initial_update_wake_frame(entry: &ModuleEntry) -> UnsignedInt {
 }
 
 impl UpdateModuleInterface for ModuleUpdateProxy {
-    fn update(&mut self) -> Result<UpdateSleepTime, Box<dyn std::error::Error + Send + Sync>> {
-        let mut sleep = None;
-        self.entry.with_module(|module| {
-            sleep = Self::dispatch_update(module);
+    fn update_scheduled(
+        &mut self,
+        context: &mut dyn game_engine::common::thing::update_module::UpdateScheduleContext,
+    ) -> Result<UpdateSleepTime, Box<dyn std::error::Error + Send + Sync>> {
+        let sleep = self.entry.with_module(|module| {
+            if let Some(update) = module.get_update_module_interface() {
+                Some(
+                    update
+                        .update_scheduled(context)
+                        .unwrap_or(UpdateSleepTime::None),
+                )
+            } else {
+                module.update_module_behind_shared_lock()
+            }
         });
+        Ok(sleep.unwrap_or_else(|| self.missing_update_sleep()))
+    }
 
-        if let Some(sleep) = sleep {
-            return Ok(sleep);
-        }
-
-        warn!(
-            "No update dispatcher for module '{}' on object {}",
-            self.module_name, self.object_id
-        );
-        Ok(UpdateSleepTime::Forever)
+    fn update(&mut self) -> Result<UpdateSleepTime, Box<dyn std::error::Error + Send + Sync>> {
+        let sleep = self.entry.with_module(Self::dispatch_update);
+        Ok(sleep.unwrap_or_else(|| self.missing_update_sleep()))
     }
 
     fn get_disabled_types_to_process(&self) -> DisabledMaskType {
-        let mut mask = None;
-        self.entry.with_module(|module| {
-            mask = Self::dispatch_disabled_mask(module);
-        });
-        mask.unwrap_or_else(DisabledMaskType::none)
+        self.entry
+            .with_module(Self::dispatch_disabled_mask)
+            .unwrap_or_else(DisabledMaskType::none)
     }
 
     fn get_update_phase(&self) -> SleepyUpdatePhase {
-        let mut phase = None;
-        self.entry.with_module(|module| {
-            phase = Self::dispatch_phase(module);
-        });
-        phase.unwrap_or(SleepyUpdatePhase::Normal)
+        self.entry
+            .with_module(Self::dispatch_phase)
+            .unwrap_or(SleepyUpdatePhase::Normal)
     }
 
     fn module_name(&self) -> &str {
@@ -2639,3 +2649,6 @@ pub use object_thing::ObjectArcExt;
 pub(crate) use object_thing::{ObjectThingHandle, make_drawable_module_thing_handle};
 
 pub type ObjectId = ObjectID;
+
+#[cfg(test)]
+mod scheduled_proxy_fixture;

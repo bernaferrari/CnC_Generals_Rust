@@ -12,6 +12,19 @@
 //! interface pointer" shape, no runtime type test at the call site.
 
 use bitflags::bitflags;
+use std::sync::{Arc, RwLock};
+
+/// Existing shared update interface at the module-container boundary.
+/// Mutable module ownership is migrated separately from scheduling.
+pub type UpdateModulePtr = Arc<RwLock<dyn UpdateModuleInterface>>;
+
+/// Synchronous access to the driving match's update schedule only.
+/// This borrow cannot escape an update or discover another active world.
+pub trait UpdateScheduleContext {
+    fn frame(&self) -> u32;
+    fn awaken(&mut self, module: &UpdateModulePtr, wake_frame: u32);
+    fn unregister(&mut self, module: &UpdateModulePtr);
+}
 
 /// Update sleep time returned by helper modules
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -200,6 +213,16 @@ pub trait UpdateModuleInterface: Send + Sync {
     fn update(&mut self) -> Result<UpdateSleepTime, Box<dyn std::error::Error + Send + Sync>> {
         Ok(UpdateSleepTime::None)
     }
+    /// Execute with explicit access to this match's schedule.
+    /// Legacy behaviors may implement only update_simple, so preserve that hook.
+    /// Context-aware behaviors override this method directly.
+    fn update_scheduled(
+        &mut self,
+        _context: &mut dyn UpdateScheduleContext,
+    ) -> Result<UpdateSleepTime, Box<dyn std::error::Error + Send + Sync>> {
+        Ok(self.update_simple())
+    }
+
     /// Simplified update hook most modules implement
     fn update_simple(&mut self) -> UpdateSleepTime {
         match self.update() {

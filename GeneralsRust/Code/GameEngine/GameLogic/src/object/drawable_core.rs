@@ -244,13 +244,24 @@ impl Drawable {
         if recoil_amount == 0.0 {
             return;
         }
-        let mut adjusted = recoil_angle;
-        if let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id) {
-            if let Ok(guard) = obj.read() {
-                adjusted -= guard.get_orientation();
-            }
+        let orientation = crate::object::registry::OBJECT_REGISTRY
+            .with_object(self.object_id, |object| object.get_orientation())
+            .unwrap_or(0.0);
+        self.apply_weapon_recoil_from_orientation(recoil_amount, recoil_angle, orientation);
+    }
+
+    /// The weapon caller already borrows its source Object. Use that live
+    /// orientation rather than reacquiring the same owner through a registry.
+    pub(crate) fn apply_weapon_recoil_from_orientation(
+        &mut self,
+        recoil_amount: f32,
+        recoil_angle: f32,
+        source_orientation: f32,
+    ) {
+        if recoil_amount == 0.0 {
+            return;
         }
-        adjusted += std::f32::consts::PI;
+        let adjusted = recoil_angle - source_orientation + std::f32::consts::PI;
         let loco = self
             .loco_info
             .get_or_insert_with(LegacyDrawableLocoInfo::default);
@@ -673,5 +684,112 @@ impl Drawable {
             entry.with_module(|module| module.on_delete());
         }
         self.modules.clear();
+    }
+}
+
+#[cfg(test)]
+mod borrowed_weapon_fx_tests {
+    use super::*;
+    use crate::object::Object;
+    use crate::weapon::{Weapon, WeaponBonus, WeaponSlotType, WeaponTemplate};
+
+    struct Registration(ObjectID);
+
+    impl Drop for Registration {
+        fn drop(&mut self) {
+            crate::object::registry::OBJECT_REGISTRY.unregister_object(self.0);
+        }
+    }
+
+    #[test]
+    fn borrowed_weapon_fx_uses_live_source_drawable_visibility_and_recoil_orientation() {
+        let _lock = crate::test_sync::lock();
+        let id = 93_561;
+        let drawable = Arc::new(RwLock::new(Drawable::new(
+            93_561,
+            id,
+            "BorrowedWeaponFx".into(),
+            DrawableType::Static,
+        )));
+        let mut source = Object::new_test(id, 100.0);
+        source.set_orientation(std::f32::consts::FRAC_PI_2).unwrap();
+        // new_test omits the ctor tracker; attach its actual owned state before
+        // exercising the source's real veterancy setter and FX lookup.
+        source.attach_experience_tracker_for_test(true);
+        assert!(source.set_veterancy_level_with_side_effects(VeterancyLevel::Veteran, false));
+        source.set_drawable(Some(drawable.clone()));
+        let source = Arc::new(RwLock::new(source));
+        // An independently registered allocation deliberately has the same
+        // ID. The actual borrowed pointer must win, including its drawable.
+        let registered = Arc::new(RwLock::new(Object::new_test(id, 100.0)));
+        crate::object::registry::OBJECT_REGISTRY.register_object(id, &registered);
+        let _registration = Registration(id);
+        let mut source = source.write().unwrap();
+        let _registered_guard = registered.write().unwrap();
+        let mut template = WeaponTemplate::new("BorrowedWeaponFx".into());
+        template.weapon_recoil = 2.0;
+        let mut weapon = Weapon::new(Arc::new(template), WeaponSlotType::Primary);
+        let position = *source.get_position();
+        let impact = position + Coord3D::new(50.0, 0.0, 0.0);
+        let bonus = WeaponBonus::new();
+
+        let (level, hidden, live_drawable) = weapon.source_fire_fx(id, Some(&source));
+        assert_eq!(level, VeterancyLevel::Veteran);
+        assert!(!hidden);
+        assert!(Arc::ptr_eq(&live_drawable.unwrap(), &drawable));
+        assert!(weapon.source_fire_fx(id + 1, Some(&source)).2.is_none());
+        weapon
+            .fire_weapon_effects(id, &position, &impact, false, &bonus, Some(&source))
+            .unwrap();
+        {
+            let draw = drawable.read().unwrap();
+            let loco = draw
+                .loco_info
+                .as_ref()
+                .expect("real source drawable received recoil");
+            assert!(loco.acceleration_pitch_rate.abs() < 1.0e-5);
+            assert!((loco.acceleration_roll_rate - 2.0).abs() < 1.0e-5);
+        }
+
+        source.set_status(ObjectStatusTypes::Stealthed.into(), true);
+        assert!(weapon.source_fire_fx(id, Some(&source)).1);
+        weapon
+            .fire_weapon_effects(id, &position, &impact, false, &bonus, Some(&source))
+            .unwrap();
+        assert!(
+            (drawable
+                .read()
+                .unwrap()
+                .loco_info
+                .as_ref()
+                .unwrap()
+                .acceleration_roll_rate
+                - 2.0)
+                .abs()
+                < 1.0e-5
+        );
+        source.set_status(ObjectStatusTypes::Detected.into(), true);
+        assert!(!weapon.source_fire_fx(id, Some(&source)).1);
+        source.set_status(ObjectStatusTypes::Detected.into(), false);
+        source.set_status(ObjectStatusTypes::Disguised.into(), true);
+        assert!(!weapon.source_fire_fx(id, Some(&source)).1);
+        source.set_status(ObjectStatusTypes::Disguised.into(), false);
+        Arc::make_mut(&mut weapon.template).play_fx_when_stealthed = true;
+        assert!(!weapon.source_fire_fx(id, Some(&source)).1);
+        weapon
+            .fire_weapon_effects(id, &position, &impact, false, &bonus, Some(&source))
+            .unwrap();
+        assert!(
+            (drawable
+                .read()
+                .unwrap()
+                .loco_info
+                .as_ref()
+                .unwrap()
+                .acceleration_roll_rate
+                - 4.0)
+                .abs()
+                < 1.0e-5
+        );
     }
 }
