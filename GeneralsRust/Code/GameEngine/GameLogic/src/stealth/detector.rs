@@ -454,6 +454,10 @@ const DETECTOR_UPDATE_FIELDS: &[FieldParse<StealthDetectorUpdateModuleData>] = &
 ];
 
 #[cfg(test)]
+#[path = "detector_test_fixture.rs"]
+pub(crate) mod test_fixture;
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -475,14 +479,17 @@ mod tests {
 
     #[test]
     fn test_scan_cooldown() {
+        let _guard = crate::test_sync::lock();
         let data = Arc::new(StealthDetectorUpdateModuleData {
             scan_interval_frames: 10,
             ..Default::default()
         });
-        let mut controller = StealthDetectorController::new(data, 1);
-
-        controller.scan_cooldown_frames = 10;
-        controller.scan_for_stealth(0);
-        assert_eq!(controller.scan_cooldown_frames, 9);
+        let fixture = test_fixture::DetectorFixture::new(data, 0x5D37_0001);
+        let cooldown = fixture.with_controller(|controller| {
+            controller.scan_cooldown_frames = 10;
+            controller.scan_for_stealth(0);
+            controller.scan_cooldown_frames
+        });
+        assert_eq!(cooldown, 9);
     }
 }

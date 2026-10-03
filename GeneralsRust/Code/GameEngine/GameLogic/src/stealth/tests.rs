@@ -246,27 +246,35 @@ mod integration_tests {
 
     #[test]
     fn test_detector_scan_timing() {
+        let _guard = crate::test_sync::lock();
         let mut data = StealthDetectorUpdateModuleData::default();
         data.set_detection_range(200.0);
         data.set_scan_interval_frames(10);
         let data = Arc::new(data);
 
-        let mut detector = StealthDetectorController::new(data, 1);
-        assert!(detector.is_active());
+        let fixture =
+            crate::stealth::detector::test_fixture::DetectorFixture::new(data, 0x5D37_0002);
+        assert!(fixture.with_controller(|detector| detector.is_active()));
 
         // Set cooldown
-        detector.set_scan_cooldown_frames_for_testing(10);
+        fixture.with_controller(|detector| detector.set_scan_cooldown_frames_for_testing(10));
 
         // Scan should decrement cooldown but not perform detection
-        detector.scan_for_stealth(0);
-        assert_eq!(detector.scan_cooldown_frames(), 9);
+        let cooldown = fixture.with_controller(|detector| {
+            detector.scan_for_stealth(0);
+            detector.scan_cooldown_frames()
+        });
+        assert_eq!(cooldown, 9);
 
         // Keep scanning until cooldown expires
-        for _ in 0..9 {
-            detector.scan_for_stealth(0);
+        for frame in 1..10 {
+            fixture.with_controller(|detector| detector.scan_for_stealth(frame));
         }
 
-        assert_eq!(detector.scan_cooldown_frames(), 0);
+        assert_eq!(
+            fixture.with_controller(|detector| detector.scan_cooldown_frames()),
+            0
+        );
     }
 
     #[test]

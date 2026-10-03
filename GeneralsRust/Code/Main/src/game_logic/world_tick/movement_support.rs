@@ -2302,6 +2302,7 @@ impl GameLogic {
         crate::game_logic::combat::drain_pending_projectiles(
             &mut self.combat_system,
             &self.objects,
+            self.frame,
         );
         crate::game_logic::combat::apply_ready_projectileless_delayed_damage(
             &mut self.combat_system,

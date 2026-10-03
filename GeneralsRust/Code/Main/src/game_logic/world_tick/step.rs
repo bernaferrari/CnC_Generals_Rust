@@ -1133,7 +1133,11 @@ impl GameLogic {
         crate::game_logic::host_historic_bonus::set_logic_frame(self.frame);
         {
             let objects = &self.objects;
-            crate::game_logic::combat::drain_pending_projectiles(&mut self.combat_system, objects);
+            crate::game_logic::combat::drain_pending_projectiles(
+                &mut self.combat_system,
+                objects,
+                self.frame,
+            );
         }
         crate::game_logic::combat::apply_ready_projectileless_delayed_damage(
             &mut self.combat_system,
@@ -1680,7 +1684,11 @@ mod tests {
             "Test AI",
             false,
         ));
-        logic.add_ai_opponent(1, crate::game_logic::Team::USA, crate::ai::AIDifficulty::Easy);
+        logic.add_ai_opponent(
+            1,
+            crate::game_logic::Team::USA,
+            crate::ai::AIDifficulty::Easy,
+        );
     }
 
     #[test]
@@ -1736,11 +1744,7 @@ mod tests {
         let mut logic = GameLogic::new();
         add_test_host_ai(&mut logic);
         let first_tick_time = logic.sim_time_seconds;
-        logic.step_simulation_with_budget(
-            4.0 * LOGIC_FRAME_TIMESTEP,
-            None,
-            Some(4),
-        );
+        logic.step_simulation_with_budget(4.0 * LOGIC_FRAME_TIMESTEP, None, Some(4));
 
         assert_eq!(logic.frame, 4);
         let final_ai_tick_time = first_tick_time + 3.0 * LOGIC_FRAME_TIMESTEP;
