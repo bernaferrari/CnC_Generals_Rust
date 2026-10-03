@@ -10,10 +10,11 @@ use crate::assets::archive::ArchiveFileSystem;
 use anyhow::{Result, anyhow};
 use log::{debug, error, info, warn};
 use std::collections::{HashMap, HashSet};
-use ww3d_renderer_3d::rendering::texture_system::dds_loader::{
+use ww3d_assets::image::dds::{
     DdsCompression, DdsTextureType, decode_dxt1, decode_dxt3, decode_dxt5, load_dds_from_memory,
 };
-use ww3d_renderer_3d::rendering::texture_system::tga_loader::load_tga_from_memory;
+use ww3d_assets::image::tga::load_tga_from_memory;
+use ww3d_renderer_3d::rendering::texture_system::image_upload_format::image_format_to_wgpu;
 
 /// Texture formats supported by C&C Generals
 #[derive(Debug, Clone, Copy)]
@@ -737,7 +738,7 @@ impl TextureManager {
                         mip_level_count: 1,
                         sample_count: 1,
                         dimension: wgpu::TextureDimension::D2,
-                        format: compression.to_wgpu_format(),
+                        format: image_format_to_wgpu(compression.format()),
                         usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
                         view_formats: &[],
                     });
@@ -1365,15 +1366,15 @@ mod tests {
     #[test]
     fn dds_compression_maps_to_bc_formats() {
         assert_eq!(
-            DdsCompression::Dxt1.to_wgpu_format(),
+            image_format_to_wgpu(DdsCompression::Dxt1.format()),
             wgpu::TextureFormat::Bc1RgbaUnormSrgb
         );
         assert_eq!(
-            DdsCompression::Dxt3.to_wgpu_format(),
+            image_format_to_wgpu(DdsCompression::Dxt3.format()),
             wgpu::TextureFormat::Bc2RgbaUnormSrgb
         );
         assert_eq!(
-            DdsCompression::Dxt5.to_wgpu_format(),
+            image_format_to_wgpu(DdsCompression::Dxt5.format()),
             wgpu::TextureFormat::Bc3RgbaUnormSrgb
         );
     }

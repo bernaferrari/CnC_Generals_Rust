@@ -81,14 +81,6 @@ fn camera_coord3d_to_world(x: f32, y: f32, z: f32) -> Vec3 {
     Vec3::new(x, z, y)
 }
 
-fn delay_frames(seconds: i32) -> u64 {
-    if seconds <= 0 {
-        1
-    } else {
-        (seconds as u64 * 30).max(1)
-    }
-}
-
 include!("script_requests.rs");
 include!("script_engine.rs");
 include!("script_hooks.rs");

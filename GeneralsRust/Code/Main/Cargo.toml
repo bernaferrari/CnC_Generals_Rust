@@ -62,6 +62,7 @@ hot-reload = []
 compressed-assets = []
 
 [dependencies]
+generals_map = { path = "../GameEngine/Map" }
 rodio_compat = { workspace = true }
 bincode_legacy = { workspace = true }
 # Core game engine dependencies

@@ -1481,6 +1481,14 @@ impl GameLogic {
     /// Initialize script system for mission/level scripting
     /// Called once per map load to set up script engine and load mission scripts
     pub fn initialize_scripts(&mut self, map_name: &str) {
+        self.initialize_scripts_with_map_data(map_name, None);
+    }
+
+    pub(in super::super) fn initialize_scripts_with_map_data(
+        &mut self,
+        map_name: &str,
+        decoded_map: Option<&super::super::script_loader::ChunkyMap>,
+    ) {
         if self.scripts_loaded {
             return; // Already initialized
         }
@@ -1500,7 +1508,11 @@ impl GameLogic {
             }
         }
 
-        match super::super::script_loader::load_map_scripts(map_name) {
+        let script_result = match decoded_map {
+            Some(map) => super::super::script_loader::load_map_scripts_from_chunky(map),
+            None => super::super::script_loader::load_map_scripts(map_name),
+        };
+        match script_result {
             Ok(Some(result)) => {
                 self.loaded_script_lists = result.script_lists;
                 self.script_source_path = Some(result.source_path);

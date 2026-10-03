@@ -4,6 +4,53 @@
 
 Preserve C++ **behavior**. Do not preserve C++ **pointer ownership**.
 
+## Map, particle, UI, image, AI and mission interfaces (2026-10-03)
+
+`generals_map` owns the checked byte reader, TOC and chunk traversal. Main owns
+file resolution, decompression and engine-specific records. A live map load
+retains one decoded document through terrain, objects and mission initialization;
+there is no process-wide last-map Mutex or thread-local decode counter. Separate
+loads reread a changed file at the same path. Chunk payloads borrow that document
+instead of cloning their bytes. This establishes document ownership, not full
+terrain or script-engine instance isolation.
+
+`generals_particles` owns the production GameClient particle schema and pure
+motion/emission kernels. RNG is supplied explicitly to kernels. GameClient keeps
+its runtime manager, Snapshot adapters and callback services; Main's simplified
+particles and the WW3D backend are not substituted for that runtime. Original
+update/Xfer gaps remain hq-kvtl7 and hq-lvejf.
+
+`generals_ui` owns the existing shell animation policy and ordered manager. Its
+only target dependency is synchronous position/size access. GameClient adapts
+its existing windows; layout, focus, gadgets and input remain there. This creates
+a replaceable policy boundary without introducing another UI implementation.
+Original animation disposal/reverse/rounding differences remain hq-x4p78.
+
+The existing `ww3d-assets::image` module now owns DDS/TGA/DXT CPU decoding and
+GPU-independent format/error types. Renderer adapters translate these into wgpu
+formats; Main imports CPU decoding directly. Archive resolution, material and
+bone identity are unchanged. The overall assets crate still contains GPU-bearing
+modules. Cube/volume and malformed-header auditing remains hq-qc385.
+
+`GameLogic::ai::config` separates authored definitions, conversion and Snapshot
+from AI orchestration. Explicit authored initialization installs owned rules;
+the existing startup adapter still discovers the active INI store. C++ TAiData
+defaults correct scan intervals to 15/30 logic frames, defense extra distance to
+zero and rebuild delay to ten seconds. CRC follows the original field order and
+excludes wall height; authored Xfer remains version-only.
+
+`GameLogic::scripting::mission_runtime` is the existing auxiliary mission walker
+moved out of Main, not a replacement interpreter. Its constructor receives the
+evaluator and callback queue rather than publishing an engine. Main retains
+platform callbacks and startup wiring. Root/group order, immediate enable changes,
+entered-group gating and exact authored names are preserved. The shared callback
+queue and live ScriptEngine ambient services still require ownership migration.
+
+The bounded extraction records are hq-nuwyh, hq-8ur0z, hq-mltxr, hq-8dkja,
+hq-9707l and hq-g7bxq. Regression fixtures establish Rust behavior and source
+contracts; they do not establish original-executable, retail playthrough or FPS
+parity. No authoritative gameplay ownership was moved into presentation.
+
 ## Shared FX rules and bounded queue ownership (2026-10-03)
 
 `generals_fx` owns the authored nugget schema, pure parsing and owned catalog.

@@ -5,6 +5,7 @@
 
 pub mod asset_texture_loader;
 pub mod dds_loader;
+pub mod image_upload_format;
 pub mod mipmap_generator;
 pub mod texfcach;
 pub mod texture;

@@ -34,6 +34,7 @@ pub mod host_script_load_fire;
 pub mod host_script_team_act;
 pub mod ini_parser;
 pub mod map_scripts;
+pub mod mission_runtime;
 pub mod rhai_bridge;
 pub mod script_actions;
 pub mod script_conditions;

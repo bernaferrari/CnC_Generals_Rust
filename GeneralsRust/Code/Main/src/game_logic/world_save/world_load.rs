@@ -89,6 +89,7 @@ impl GameLogic {
         // Try to locate the real map file so scripts and future terrain loaders have a source.
         report_progress(0.30, "Resolving map resources");
         let resolved_map = super::script_loader::find_map_file(map_name);
+        let mut decoded_map = None;
         if let Some(path) = &resolved_map {
             log::info!("Resolved map '{}' to '{}'", map_name, path.display());
             if let Ok(Some(chunky)) = super::script_loader::load_chunky_map(map_name) {
@@ -555,6 +556,7 @@ impl GameLogic {
                     map_name,
                     bounds_started.elapsed().as_secs_f32()
                 );
+                decoded_map = Some(chunky);
             } else {
                 log::error!(
                     "Map '{}' was found at '{}' but could not be decoded as a chunky map",
@@ -626,7 +628,7 @@ impl GameLogic {
 
         let scripts_started = Instant::now();
         report_progress(0.92, "Initializing mission scripts");
-        self.initialize_scripts(map_name);
+        self.initialize_scripts_with_map_data(map_name, decoded_map.as_ref());
         if matches!(self.game_mode, GameMode::Skirmish | GameMode::Replay) {
             // C++ startNewGame adds ReplayObserver after sides, then installs
             // MultiplayerScripts.scb (numTeams>1) and permanently reveals the map.

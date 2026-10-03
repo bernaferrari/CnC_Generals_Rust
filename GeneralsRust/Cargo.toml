@@ -27,6 +27,9 @@ members = [
     "Code/GameEngine/GameDomain",
     "Code/GameEngine/Presentation",
     "Code/GameEngine/FX",
+    "Code/GameEngine/Map",
+    "Code/GameEngine/UI",
+    "Code/GameEngine/Particles",
     "Code/GameEngine/GameClient",
     "Code/Integration",
 

@@ -201,22 +201,15 @@ impl Particle {
         // C++ ParticleSys.cpp:453 — `if (m_lifetimeLeft && --m_lifetimeLeft == 0)`.
         // Lifetime 0 is infinite and is never decremented.
 
-        // Integrate acceleration into velocity (C++ lines 316-318)
-        self.velocity += self.acceleration;
-
-        // Apply velocity damping (C++ lines 320-322)
-        self.velocity.x *= self.vel_damping;
-        self.velocity.y *= self.vel_damping;
-        self.velocity.z *= self.vel_damping;
-
-        // Store last position for interpolation
+        // Interpolation history remains on the same particle owner.
         self.last_position = self.position;
-
-        // Integrate velocity into position with drift velocity (C++ lines 325-327)
-        // CRITICAL: drift_velocity is applied directly, NOT as force
-        self.position.x += self.velocity.x + drift_velocity.x;
-        self.position.y += self.velocity.y + drift_velocity.y;
-        self.position.z += self.velocity.z + drift_velocity.z;
+        generals_particles::integrate_translation(
+            &mut self.position,
+            &mut self.velocity,
+            self.acceleration,
+            self.vel_damping,
+            drift_velocity,
+        );
 
         // Update rotation (C++ lines 336-337)
         self.angle_z += self.angular_rate_z;
@@ -336,33 +329,12 @@ impl Particle {
     /// * `wind_angle` - Current wind angle from the particle system
     /// * `system_pos` - Position of the particle system (emitter)
     pub fn do_wind_motion(&mut self, wind_angle: f32, system_pos: Vec3) {
-        // C++ constants for wind force (lines 501-502)
-        const FULL_FORCE_DISTANCE: f32 = 75.0;
-        const NO_FORCE_DISTANCE: f32 = 200.0;
-
-        // Calculate distance from emitter to particle (C++ lines 518-519)
-        let dx = self.position.x - system_pos.x;
-        let dy = self.position.y - system_pos.y;
-        let dz = self.position.z - system_pos.z;
-        let dist_from_wind = (dx * dx + dy * dy + dz * dz).sqrt();
-
-        // Only apply force if within the circle of influence (C++ line 524)
-        if dist_from_wind < NO_FORCE_DISTANCE {
-            // Base wind force strength (C++ line 526)
-            let mut wind_force_strength = 2.0 * self.wind_randomness;
-
-            // Reduce force with distance (C++ lines 529-531)
-            if dist_from_wind > FULL_FORCE_DISTANCE {
-                wind_force_strength *= 1.0
-                    - ((dist_from_wind - FULL_FORCE_DISTANCE)
-                        / (NO_FORCE_DISTANCE - FULL_FORCE_DISTANCE));
-            }
-
-            // Apply wind motion directly to position (C++ lines 534-535)
-            // NOT as force/acceleration - this is intentional for visual effect
-            self.position.x += wind_angle.cos() * wind_force_strength;
-            self.position.y += wind_angle.sin() * wind_force_strength;
-        }
+        generals_particles::apply_wind_motion(
+            &mut self.position,
+            wind_angle,
+            system_pos,
+            self.wind_randomness,
+        );
     }
 
     /// Check if particle is invisible (matches C++ Particle::isInvisible)
@@ -974,28 +946,13 @@ fn xfer_matrix3(
     Ok(())
 }
 
-/// C++ ParticleSystem::computePointOnUnitSphere — cube-reject, not polar.
+/// Engine adapters retain the existing client RNG call sites and ordering.
 fn compute_point_on_unit_sphere() -> Vec3 {
-    loop {
-        let x = get_game_client_random_value_real(-1.0, 1.0);
-        let y = get_game_client_random_value_real(-1.0, 1.0);
-        let z = get_game_client_random_value_real(-1.0, 1.0);
-        if x != 0.0 || y != 0.0 || z != 0.0 {
-            return Vec3::new(x, y, z).normalize();
-        }
-    }
+    generals_particles::point_on_unit_sphere(get_game_client_random_value_real)
 }
 
-/// C++ HEMISPHERICAL velocity: cube-octant reject (z in [0,1]) then normalize.
 fn compute_point_on_unit_hemisphere() -> Vec3 {
-    loop {
-        let x = get_game_client_random_value_real(-1.0, 1.0);
-        let y = get_game_client_random_value_real(-1.0, 1.0);
-        let z = get_game_client_random_value_real(0.0, 1.0);
-        if x != 0.0 || y != 0.0 || z != 0.0 {
-            return Vec3::new(x, y, z).normalize();
-        }
-    }
+    generals_particles::point_on_unit_hemisphere(get_game_client_random_value_real)
 }
 
 /// Extract rotation + translation from a glam/SAGE 4x4 (column-major).
@@ -1589,8 +1546,7 @@ impl ParticleSystem {
     /// Set local transform (matches C++ ParticleSystem::setLocalTransform)
     pub fn set_local_transform(&mut self, matrix: Mat3) {
         self.local_transform = matrix;
-        self.is_local_identity =
-            matrix == Mat3::IDENTITY && self.local_translation == Vec3::ZERO;
+        self.is_local_identity = matrix == Mat3::IDENTITY && self.local_translation == Vec3::ZERO;
         self.update_transform();
     }
 
@@ -1857,7 +1813,9 @@ impl ParticleSystem {
     fn apply_yaw_parent_pose(&mut self, x: f32, y: f32, z: f32, yaw: f32) {
         self.position = Vec3::new(x, y, z);
         let (s, c) = yaw.sin_cos();
-        self.parent_transform = Some(Mat3::from_cols_array(&[c, s, 0.0, -s, c, 0.0, 0.0, 0.0, 1.0]));
+        self.parent_transform = Some(Mat3::from_cols_array(&[
+            c, s, 0.0, -s, c, 0.0, 0.0, 0.0, 1.0,
+        ]));
     }
 
     fn apply_host_fx_object_pose(&mut self, pose: &gamelogic::helpers::HostFxObjectPose) {
@@ -2340,11 +2298,7 @@ impl ParticleSystem {
                         let dy = position.y;
                         let len = (dx * dx + dy * dy).sqrt();
                         if len > 0.0 {
-                            Vec3::new(
-                                speed_val * dx / len,
-                                speed_val * dy / len,
-                                other_speed_val,
-                            )
+                            Vec3::new(speed_val * dx / len, speed_val * dy / len, other_speed_val)
                         } else {
                             Vec3::new(speed_val, 0.0, other_speed_val)
                         }
@@ -2391,8 +2345,7 @@ impl ParticleSystem {
                 self.transform_translation = self.local_translation;
             } else if !self.is_local_identity {
                 self.transform = parent_xfrm * self.local_transform;
-                self.transform_translation =
-                    parent_xfrm * self.local_translation + self.position;
+                self.transform_translation = parent_xfrm * self.local_translation + self.position;
             } else {
                 self.transform = *parent_xfrm;
                 self.transform_translation = self.position;
@@ -2581,7 +2534,9 @@ mod tests {
         system.position = Vec3::new(100.0, 200.0, 0.0);
         let (s, c) = std::f32::consts::FRAC_PI_2.sin_cos();
         // Rotate +90° about X: (0,0,10) → (0,-10,0)
-        system.parent_transform = Some(Mat3::from_cols_array(&[1.0, 0.0, 0.0, 0.0, c, s, 0.0, -s, c]));
+        system.parent_transform = Some(Mat3::from_cols_array(&[
+            1.0, 0.0, 0.0, 0.0, c, s, 0.0, -s, c,
+        ]));
         system.update_transform_from_parent();
 
         let info = system.generate_particle_info(0, 1).unwrap();
@@ -2599,7 +2554,9 @@ mod tests {
         let mut system = ParticleSystem::new(template, 1, false);
         system.set_position(Vec3::new(0.0, 0.0, 10.0));
         system.position = Vec3::new(100.0, 200.0, 0.0);
-        system.parent_transform = Some(Mat3::from_cols_array(&[0.0, 1.0, 0.0, -1.0, 0.0, 0.0, 0.0, 0.0, 1.0]));
+        system.parent_transform = Some(Mat3::from_cols_array(&[
+            0.0, 1.0, 0.0, -1.0, 0.0, 0.0, 0.0, 0.0, 1.0,
+        ]));
         system.set_skip_parent_xfrm(true);
         system.update_transform_from_parent();
 
@@ -2836,7 +2793,8 @@ mod tests {
         }
 
         let mut saved = ParticleSystem::new(Arc::new(template), 42, false);
-        saved.local_transform = Mat3::from_cols_array(&[1.0, 4.0, 7.0, 2.0, 5.0, 8.0, 3.0, 6.0, 9.0]);
+        saved.local_transform =
+            Mat3::from_cols_array(&[1.0, 4.0, 7.0, 2.0, 5.0, 8.0, 3.0, 6.0, 9.0]);
         saved.transform = Mat3::from_cols_array(&[9.0, 6.0, 3.0, 8.0, 5.0, 2.0, 7.0, 4.0, 1.0]);
         saved.is_local_identity = false;
         saved.is_identity = false;

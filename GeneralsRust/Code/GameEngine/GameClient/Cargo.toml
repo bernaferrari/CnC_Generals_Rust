@@ -13,6 +13,8 @@ autoexamples = false
 
 
 [dependencies]
+generals_particles = { path = "../Particles" }
+generals_ui = { path = "../UI" }
 bincode_legacy = { workspace = true }
 # Error handling
 thiserror = { workspace = true }

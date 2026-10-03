@@ -13,14 +13,13 @@
 // unchanged. Map path discovery stays in this root because workspace-root
 // search residuals pin its source text here.
 
-use std::cell::Cell;
 use std::collections::HashMap;
 use std::collections::hash_map::DefaultHasher;
 use std::env;
 use std::fs;
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, OnceLock};
+use std::sync::OnceLock;
 
 use game_engine::common::dict::{Dict, DictType};
 use game_engine::common::ini::{INI, INILoadType, try_get_terrain_roads};

@@ -22,20 +22,27 @@ use game_engine::common::system::xfer_save::XferSave as CommonXferSave;
 use game_engine::{Xfer, XferMode, XferStatus};
 use std::io::Cursor;
 
-/// Maximum number of keyframes for particle animation
-pub const MAX_KEYFRAMES: usize = 8;
+// Authored primitives are owned by a renderer-independent crate. Runtime,
+// snapshot adapters, and definition catalogs remain on this GameClient owner.
+pub use generals_particles::{
+    DEFAULT_VOLUME_PARTICLE_DEPTH, EmissionVelocity, EmissionVelocityType, EmissionVolume,
+    EmissionVolumeType, GameClientRandomVariable, INVALID_PARTICLE_SYSTEM_ID, Keyframe,
+    MAX_KEYFRAMES, MAX_VOLUME_PARTICLE_DEPTH, OPTIMUM_VOLUME_PARTICLE_DEPTH, ObjectId,
+    ParticlePriorityType, ParticleShaderType, ParticleSystemId, ParticleType, RGBColorKeyframe,
+    RandomKeyframe, WindMotion,
+};
 
-/// Maximum volume particle depth
-pub const MAX_VOLUME_PARTICLE_DEPTH: u32 = 16;
-pub const DEFAULT_VOLUME_PARTICLE_DEPTH: u32 = 0;
-pub const OPTIMUM_VOLUME_PARTICLE_DEPTH: u32 = 6;
+/// Temporary engine RNG adapter. The extracted primitives accept an explicit
+/// random stream; this extension preserves current production draw timing.
+pub trait SampleParticleRandomVariable {
+    fn sample(&self) -> f32;
+}
 
-/// Unique identifier for particle systems
-pub type ParticleSystemId = u32;
-pub const INVALID_PARTICLE_SYSTEM_ID: ParticleSystemId = 0;
-
-/// Unique identifier for game objects
-pub type ObjectId = u32;
+impl SampleParticleRandomVariable for GameClientRandomVariable {
+    fn sample(&self) -> f32 {
+        self.sample_with(get_game_client_random_value_real)
+    }
+}
 
 /// Particle system manager errors
 #[derive(Error, Debug)]
@@ -57,264 +64,12 @@ pub enum ParticleSystemError {
     LodSkipped(ParticlePriorityType),
 }
 
-/// Particle priority levels (matches C++ ParticleSys.h exactly)
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum ParticlePriorityType {
-    /// C++ `INVALID_PRIORITY` / `ParticlePriorityNames[0] = "NONE"`.
-    None = 0,
-    WeaponExplosion = 1,
-    ScorchMark,
-    DustTrail,
-    Buildup,
-    DebrisTrail,
-    UnitDamageFx,
-    DeathExplosion,
-    SemiConstant,
-    Constant,
-    WeaponTrail,
-    AreaEffect,
-    Critical,
-    AlwaysRender,
-}
-
-impl ParticlePriorityType {
-    pub fn from_index(index: usize) -> Option<Self> {
-        match index {
-            0 => Some(ParticlePriorityType::None),
-            1 => Some(ParticlePriorityType::WeaponExplosion),
-            2 => Some(ParticlePriorityType::ScorchMark),
-            3 => Some(ParticlePriorityType::DustTrail),
-            4 => Some(ParticlePriorityType::Buildup),
-            5 => Some(ParticlePriorityType::DebrisTrail),
-            6 => Some(ParticlePriorityType::UnitDamageFx),
-            7 => Some(ParticlePriorityType::DeathExplosion),
-            8 => Some(ParticlePriorityType::SemiConstant),
-            9 => Some(ParticlePriorityType::Constant),
-            10 => Some(ParticlePriorityType::WeaponTrail),
-            11 => Some(ParticlePriorityType::AreaEffect),
-            12 => Some(ParticlePriorityType::Critical),
-            13 => Some(ParticlePriorityType::AlwaysRender),
-            _ => None,
-        }
-    }
-}
-
 fn particle_priority_to_u8(priority: ParticlePriorityType) -> u8 {
     priority as u8
 }
 
 fn particle_priority_from_u8(value: u8) -> ParticlePriorityType {
     ParticlePriorityType::from_index(value as usize).unwrap_or(ParticlePriorityType::Critical)
-}
-
-/// Particle shader types (matches C++ exactly)
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ParticleShaderType {
-    /// C++ `INVALID_SHADER` / retail INI `Shader = NONE`.
-    /// It is intentionally preserved rather than coerced into a visible blend
-    /// mode; callers that do not implement the associated particle subtype
-    /// fail closed.
-    Invalid = 0,
-    Additive = 1,
-    Alpha,
-    AlphaTest,
-    Multiply,
-}
-
-/// Particle types (matches C++ exactly)
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ParticleType {
-    /// C++ `INVALID_TYPE` / retail INI `Type = NONE`.
-    Invalid = 0,
-    Particle = 1,
-    Drawable,
-    Streak,
-    VolumeParticle,
-    Smudge,
-}
-
-/// Emission velocity types (matches C++ exactly)
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum EmissionVelocityType {
-    /// C++ `INVALID_VELOCITY` / retail INI `VelocityType = NONE`.
-    Invalid = 0,
-    Ortho = 1,
-    Spherical,
-    Hemispherical,
-    Cylindrical,
-    Outward,
-}
-
-/// Emission volume types (matches C++ exactly)
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum EmissionVolumeType {
-    /// C++ `INVALID_VOLUME` / retail INI `VolumeType = NONE`.
-    Invalid = 0,
-    Point = 1,
-    Line,
-    Box,
-    Sphere,
-    Cylinder,
-}
-
-/// Wind motion types (matches C++ exactly)
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum WindMotion {
-    /// C++ `NONE`; the shipped data normally uses `Unused` instead.
-    Invalid = 0,
-    NotUsed = 1,
-    PingPong,
-    Circular,
-}
-
-/// Keyframe for scalar values
-#[derive(Debug, Clone, Copy)]
-pub struct Keyframe {
-    pub value: f32,
-    pub frame: u32,
-}
-
-impl Default for Keyframe {
-    fn default() -> Self {
-        Self {
-            value: 0.0,
-            frame: 0,
-        }
-    }
-}
-
-/// RGB color keyframe
-#[derive(Debug, Clone, Copy)]
-pub struct RGBColorKeyframe {
-    pub color: [f32; 3], // RGB
-    pub frame: u32,
-}
-
-impl Default for RGBColorKeyframe {
-    fn default() -> Self {
-        Self {
-            color: [0.0, 0.0, 0.0],
-            frame: 0,
-        }
-    }
-}
-
-/// Random keyframe with range
-#[derive(Debug, Clone, Copy)]
-pub struct RandomKeyframe {
-    pub min_value: f32,
-    pub max_value: f32,
-    pub distribution_type: u32,
-    pub frame: u32,
-}
-
-impl Default for RandomKeyframe {
-    fn default() -> Self {
-        Self {
-            min_value: 0.0,
-            max_value: 0.0,
-            distribution_type: 0,
-            frame: 0,
-        }
-    }
-}
-
-/// Game client random variable (matches C++ GameClientRandomVariable)
-#[derive(Debug, Clone, Copy)]
-pub struct GameClientRandomVariable {
-    pub min: f32,
-    pub max: f32,
-    /// C++ `GameClientRandomVariable::DistributionType`; only UNIFORM (0) is
-    /// supported by the retail stream (RandomValue.cpp:353-371).
-    pub distribution_type: u32,
-}
-
-impl Default for GameClientRandomVariable {
-    fn default() -> Self {
-        Self {
-            min: 0.0,
-            max: 0.0,
-            distribution_type: 0,
-        }
-    }
-}
-
-impl GameClientRandomVariable {
-    pub fn new(min: f32, max: f32) -> Self {
-        Self {
-            min,
-            max,
-            distribution_type: 0,
-        }
-    }
-
-    pub fn sample(&self) -> f32 {
-        // C++ GameClientRandomVariable::getValue (RandomValue.cpp:353-371):
-        // UNIFORM draws from the seeded GameClient stream via
-        // GetGameClientRandomValueReal, which returns `hi` for empty ranges so a
-        // lo==max==hi variable degenerates to CONSTANT without consuming the
-        // stream. Non-uniform distributions are unsupported in C++
-        // (DEBUG_CRASH; release returns 0.0f).
-        match self.distribution_type {
-            0 => get_game_client_random_value_real(self.min, self.max),
-            _ => 0.0,
-        }
-    }
-}
-
-/// Emission velocity configuration
-#[derive(Debug, Clone, Copy)]
-pub enum EmissionVelocity {
-    Ortho {
-        x: GameClientRandomVariable,
-        y: GameClientRandomVariable,
-        z: GameClientRandomVariable,
-    },
-    Spherical {
-        speed: GameClientRandomVariable,
-    },
-    Hemispherical {
-        speed: GameClientRandomVariable,
-    },
-    Cylindrical {
-        radial: GameClientRandomVariable,
-        normal: GameClientRandomVariable,
-    },
-    Outward {
-        speed: GameClientRandomVariable,
-        other_speed: GameClientRandomVariable,
-    },
-}
-
-impl Default for EmissionVelocity {
-    fn default() -> Self {
-        EmissionVelocity::Ortho {
-            x: GameClientRandomVariable::default(),
-            y: GameClientRandomVariable::default(),
-            z: GameClientRandomVariable::default(),
-        }
-    }
-}
-
-/// Emission volume configuration
-#[derive(Debug, Clone, Copy, Default)]
-pub enum EmissionVolume {
-    #[default]
-    Point,
-    Line {
-        start: Vec3,
-        end: Vec3,
-    },
-    Box {
-        half_size: Vec3,
-    },
-    Sphere {
-        radius: f32,
-    },
-    Cylinder {
-        radius: f32,
-        length: f32,
-    },
 }
 
 /// Particle system information (matches C++ ParticleSystemInfo)

@@ -9,6 +9,7 @@ use crate::core::WW3DFormat;
 use crate::core::error::{Error, Result};
 use crate::core::ww3dformat::FormatDecision;
 use crate::rendering::texture_system::dds_loader::{DdsTextureType, load_dds_file};
+use crate::rendering::texture_system::image_upload_format::image_format_to_wgpu;
 use crate::rendering::texture_system::tga_loader::load_tga_file;
 use bcdec_rs::{bc1, bc2, bc3};
 use std::path::Path;
@@ -219,7 +220,8 @@ pub fn decode_texture_file<P: AsRef<Path>>(path: P) -> Result<TextureData> {
 fn decode_dds(path: &Path) -> Result<TextureData> {
     let dds = load_dds_file(path)?;
 
-    let format = WW3DFormat::from_wgpu_format(dds.format).unwrap_or(WW3DFormat::A8R8G8B8);
+    let format = WW3DFormat::from_wgpu_format(image_format_to_wgpu(dds.format))
+        .unwrap_or(WW3DFormat::A8R8G8B8);
     let kind = match dds.texture_type {
         DdsTextureType::Texture2D => TextureDataKind::Texture2D,
         DdsTextureType::CubeMap => TextureDataKind::CubeMap,
@@ -279,7 +281,8 @@ fn decode_dds(path: &Path) -> Result<TextureData> {
 fn decode_tga(path: &Path) -> Result<TextureData> {
     let tga = load_tga_file(path)?;
 
-    let format = WW3DFormat::from_wgpu_format(tga.format).unwrap_or(WW3DFormat::A8R8G8B8);
+    let format = WW3DFormat::from_wgpu_format(image_format_to_wgpu(tga.format))
+        .unwrap_or(WW3DFormat::A8R8G8B8);
     let size = tga.data.len();
 
     Ok(TextureData {

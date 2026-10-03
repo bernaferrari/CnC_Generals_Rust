@@ -42,7 +42,7 @@
 //! effects_manager.render();
 //! ```
 
-use glam::{Vec3};
+use glam::Vec3;
 pub mod debug_draw;
 pub mod decals;
 pub mod fxlist_integration;
@@ -100,10 +100,10 @@ pub use particle_manager::{
     GameClientRandomVariable, INVALID_PARTICLE_SYSTEM_ID, Keyframe, MAX_KEYFRAMES,
     ObjectId as ParticleObjectId, ParticlePriorityType, ParticleShaderType, ParticleSystemId,
     ParticleSystemManager, ParticleSystemTemplate, ParticleType as CppParticleTypeEnum,
-    RGBColorKeyframe, RandomKeyframe, WindMotion, capture_live_particle_system_xfer_bytes,
-    get_particle_system_manager, get_particle_system_manager_mut,
-    initialize_particle_system_manager, register_particle_system_manager_bridge,
-    restore_live_particle_system_from_xfer_bytes,
+    RGBColorKeyframe, RandomKeyframe, SampleParticleRandomVariable, WindMotion,
+    capture_live_particle_system_xfer_bytes, get_particle_system_manager,
+    get_particle_system_manager_mut, initialize_particle_system_manager,
+    register_particle_system_manager_bridge, restore_live_particle_system_from_xfer_bytes,
 };
 
 pub use heat_haze::{

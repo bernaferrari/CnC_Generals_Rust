@@ -41,16 +41,13 @@ fn load_sides_list_fallback(
 
 /// Attempt to locate and decode scripts for the provided map.
 pub fn load_map_scripts(map_name: &str) -> LoaderResult<Option<MapScriptLoadResult>> {
-    let Some(map_path) = locate_map_file(map_name) else {
+    let Some(_) = locate_map_file(map_name) else {
         warn!(
             "No .map file could be found for '{}'; mission scripts unavailable",
             map_name
         );
         return Ok(None);
     };
-    if let Some(chunky) = cached_chunky_for(&map_path) {
-        return load_map_scripts_from_chunky(&chunky);
-    }
     let Some(chunky) = load_chunky_map(map_name)? else {
         return Ok(None);
     };
