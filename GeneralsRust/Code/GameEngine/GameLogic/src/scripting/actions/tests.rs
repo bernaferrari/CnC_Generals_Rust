@@ -30,6 +30,81 @@ use crate::{GameLogicError, GameLogicResult};
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
+/// Actual factory actions admit their objects to GameLogic, independently of
+/// ObjectManager's adapter slots. Retire that admission before resetting slots.
+/// C++ ThingFactory.cpp:281-301 / GameLogic.cpp:285-301,3863-3872.
+struct ScriptActionFixtureObjects(Vec<crate::common::ObjectID>);
+
+impl ScriptActionFixtureObjects {
+    fn from_result(result: &ScriptResult) -> Self {
+        let ids = match result {
+            ScriptResult::Success(Some(ScriptValue::ObjectId(id))) => vec![*id],
+            ScriptResult::Success(Some(ScriptValue::Array(values))) => values
+                .iter()
+                .filter_map(|value| match value {
+                    ScriptValue::ObjectId(id) => Some(*id),
+                    _ => None,
+                })
+                .collect(),
+            _ => Vec::new(),
+        };
+        Self(ids)
+    }
+
+    fn retire(&mut self) -> Result<(), String> {
+        if self.0.is_empty() {
+            return Ok(());
+        }
+        {
+            let owner = crate::system::game_logic::get_game_logic();
+            let mut owner = owner
+                .lock()
+                .map_err(|_| "script action fixture owner lock poisoned".to_string())?;
+            for id in &self.0 {
+                owner.destroy_object(*id);
+            }
+            owner
+                .process_destroy_list()
+                .map_err(|error| error.to_string())?;
+            for id in &self.0 {
+                if owner.find_object_by_id(*id).is_some() {
+                    return Err(format!(
+                        "script action fixture object {id} remains admitted"
+                    ));
+                }
+            }
+        }
+        // No owner/manager guard spans the other's callbacks. These slots belong
+        // to this fixture; resetting them cannot substitute for owner deletion.
+        get_object_manager()
+            .write()
+            .map_err(|_| "script action fixture manager lock poisoned".to_string())?
+            .reset();
+        self.0.clear();
+        Ok(())
+    }
+}
+
+impl Drop for ScriptActionFixtureObjects {
+    fn drop(&mut self) {
+        let already_unwinding = std::thread::panicking();
+        // onDestroy/onDelete callbacks can panic. Report ordinary failures, but
+        // a failed assertion must not cause a second unwind from this guard.
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.retire()));
+        match result {
+            Ok(Ok(())) => {}
+            Ok(Err(error)) if already_unwinding => {
+                eprintln!("script action fixture teardown failed during unwind: {error}");
+            }
+            Ok(Err(error)) => panic!("script action fixture teardown failed: {error}"),
+            Err(_) if already_unwinding => {
+                eprintln!("script action fixture callback panicked during teardown unwind");
+            }
+            Err(panic) => std::panic::resume_unwind(panic),
+        }
+    }
+}
+
 fn test_context() -> ScriptContext {
     ScriptContext {
         game_time: std::time::Duration::from_secs(0),
@@ -113,6 +188,8 @@ async fn test_action_registry() {
 async fn test_create_unit_action() {
     use game_engine::common::thing::thing_factory::{get_thing_factory, init_thing_factory};
 
+    let _test_lock = crate::test_sync::lock();
+    reset_test_object_manager();
     // Ensure a template exists for the requested unit type.
     // The fully-implemented `CreateUnitAction` now uses the real object factory path.
     let needs_init = get_thing_factory().unwrap().is_none();
@@ -152,6 +229,7 @@ async fn test_create_unit_action() {
     };
 
     let result = action.execute(&params, &context).await.unwrap();
+    let _created = ScriptActionFixtureObjects::from_result(&result);
     assert!(matches!(result, ScriptResult::Success(_)));
 }
 
@@ -411,6 +489,7 @@ async fn destroy_building_queues_object_manager_removal() {
 
 #[tokio::test]
 async fn spawn_reinforcements_creates_grid_formation() {
+    let _test_lock = crate::test_sync::lock();
     reset_test_object_manager();
     ensure_test_template("TestReinforcement");
 
@@ -430,6 +509,7 @@ async fn spawn_reinforcements_creates_grid_formation() {
         .await
         .unwrap();
 
+    let _created = ScriptActionFixtureObjects::from_result(&result);
     let ScriptResult::Success(Some(ScriptValue::Array(ids))) = result else {
         panic!("expected created object id array");
     };

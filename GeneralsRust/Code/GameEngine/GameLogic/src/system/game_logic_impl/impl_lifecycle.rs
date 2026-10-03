@@ -438,6 +438,11 @@ impl GameLogic {
         &self.all_objects
     }
 
+    /// Query this owner's admission without retaining an object handle.
+    pub(crate) fn contains_object_id(&self, object_id: ObjectID) -> bool {
+        self.objects.contains_key(&object_id)
+    }
+
     /// Get object count
     pub fn get_object_count(&self) -> usize {
         self.all_objects.len()

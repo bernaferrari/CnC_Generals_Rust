@@ -99,7 +99,8 @@ fn fn_body<'a>(src: &'a str, name: &str) -> Option<&'a str> {
     None
 }
 
-/// Source residual: Team empty dual-world short-circuits.
+/// Source residual: missing targets invalidate the C++ attack-target field;
+/// the independent recruitment/kill adapters retain their live-world guards.
 pub fn honesty_team_dual_world_empty_gate_source() -> bool {
     let g = gamelogic::team::TEAM_SRC;
     if !(g.contains("Wave 256")
@@ -117,7 +118,11 @@ pub fn honesty_team_dual_world_empty_gate_source() -> bool {
     let Some(kill) = fn_body(g, "fn kill_team(") else {
         return false;
     };
-    target.contains("dual_world_registry_unavailable")
+    // C++ Team.cpp:1494-1528 clears m_commonAttackTarget even when lookup is
+    // empty. Requiring the former early-out would preserve the stale-target bug.
+    !target.contains("dual_world_registry_unavailable")
+        && target.contains("OBJECT_REGISTRY.with_object(target_id")
+        && target.contains("store(INVALID_ID")
         && target.contains("INVALID_ID")
         && recruit.contains("dual_world_registry_unavailable")
         && kill.contains("dual_world_registry_unavailable")
