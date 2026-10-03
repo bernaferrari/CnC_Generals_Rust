@@ -1588,18 +1588,28 @@ pub fn transfer_object_name(
         return Ok(());
     }
 
+    OBJECT_REGISTRY
+        .with_object_mut(to_object_id, |object| {
+            transfer_object_name_to_object(from_name, object)
+        })
+        .ok_or(GameLogicError::InvalidObject(to_object_id))?
+}
+
+/// C++ transfers the name through its existing destination pointer. Callers
+/// already holding that object must not resolve and lock it again by ID.
+pub(crate) fn transfer_object_name_to_object(
+    from_name: &AsciiString,
+    destination: &mut crate::object::Object,
+) -> GameLogicResult<()> {
+    if from_name.is_empty() {
+        return Ok(());
+    }
     let tracker = get_named_object_tracker();
     if let Ok(Some(old_id)) = tracker.get_object_id(from_name.as_str()) {
         let _ = tracker.unregister_object(old_id);
     }
-
-    let Some(()) = OBJECT_REGISTRY.with_object_mut(to_object_id, |guard| {
-        guard.set_name(from_name.clone());
-    }) else {
-        return Err(GameLogicError::InvalidObject(to_object_id));
-    };
-
-    tracker.register_named_object(from_name.to_string(), to_object_id)?;
+    destination.set_name(from_name.clone());
+    tracker.register_named_object(from_name.to_string(), destination.get_id())?;
     Ok(())
 }
 

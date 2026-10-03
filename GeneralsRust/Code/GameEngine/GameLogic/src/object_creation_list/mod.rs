@@ -48,13 +48,14 @@ pub trait GameLogicContext {
     fn random_value_real(&self, lo: Real, hi: Real) -> Real;
 }
 
-/// Abstraction over thing factory for testing
+/// Factory boundary for OCL creation. The canonical team handle may cross
+/// constructors and callbacks; a team lock guard must not cross this boundary.
 pub trait ThingFactoryContext {
     fn find_template(&self, name: &str) -> Option<Arc<dyn ThingTemplate>>;
     fn new_object(
         &self,
         template: Arc<dyn ThingTemplate>,
-        team: &Team,
+        team: &Arc<RwLock<Team>>,
     ) -> Result<Arc<RwLock<Object>>, GameError>;
 }
 
@@ -96,12 +97,12 @@ impl ThingFactoryContext for LiveThingFactoryContext {
     fn new_object(
         &self,
         template: Arc<dyn ThingTemplate>,
-        team: &Team,
+        team: &Arc<RwLock<Team>>,
     ) -> Result<Arc<RwLock<Object>>, GameError> {
         let factory = crate::helpers::TheThingFactory::get()
             .map_err(|e| GameError::SystemError(e.to_string()))?;
         factory
-            .new_object(template, team)
+            .new_object_with_team_handle(template, Arc::clone(team))
             .map_err(|e| GameError::SystemError(e.to_string()))
     }
 }

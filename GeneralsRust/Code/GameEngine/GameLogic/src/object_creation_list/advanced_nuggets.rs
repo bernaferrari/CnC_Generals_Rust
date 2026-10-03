@@ -292,9 +292,6 @@ impl ObjectCreationNugget for DeliverPayloadNugget {
         else {
             return None;
         };
-        let Ok(owner) = owner_arc.read() else {
-            return None;
-        };
 
         let mut first_transport: Option<Arc<RwLock<Object>>> = None;
 
@@ -332,7 +329,7 @@ impl ObjectCreationNugget for DeliverPayloadNugget {
                     return None;
                 };
 
-                let Ok(transport) = ctx.thing_factory.new_object(transport_template, &*owner)
+                let Ok(transport) = ctx.thing_factory.new_object(transport_template, &owner_arc)
                 else {
                     return None;
                 };
@@ -494,7 +491,7 @@ impl ObjectCreationNugget for DeliverPayloadNugget {
                 for payload_index in 0..payload_def.payload_count {
                     let Ok(payload_obj) = ctx
                         .thing_factory
-                        .new_object(Arc::clone(&payload_tmpl), &*owner)
+                        .new_object(Arc::clone(&payload_tmpl), &owner_arc)
                     else {
                         continue;
                     };
@@ -517,7 +514,7 @@ impl ObjectCreationNugget for DeliverPayloadNugget {
                     let final_payload = if let Some(ref container_tmpl) = put_in_container_tmpl {
                         if let Ok(container) = ctx
                             .thing_factory
-                            .new_object(Arc::clone(container_tmpl), &*owner)
+                            .new_object(Arc::clone(container_tmpl), &owner_arc)
                         {
                             if let Ok(mut container_write) = container.write() {
                                 let _ = container_write.set_position(&start_pos);
@@ -839,7 +836,7 @@ mod tests {
         fn new_object(
             &self,
             _template: Arc<dyn crate::common::ThingTemplate>,
-            _team: &Team,
+            _team: &Arc<RwLock<Team>>,
         ) -> Result<Arc<RwLock<Object>>, GameError> {
             Err(GameError::SystemError("test factory".into()))
         }
