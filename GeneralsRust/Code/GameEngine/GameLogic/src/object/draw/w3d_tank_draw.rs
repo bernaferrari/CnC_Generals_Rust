@@ -22,7 +22,6 @@ use std::any::Any;
 /// C++ `W3DTankDraw.cpp:286` ground-speed gate for TrackDebrisDirt.
 const DEBRIS_THRESHOLD: Real = 0.00001;
 
-
 /// Tread type classification
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TreadType {
@@ -653,9 +652,8 @@ impl Module for W3DTankDraw {
 impl DrawModule for W3DTankDraw {
     fn do_draw_module(&mut self, transform_mtx: &Matrix3D) {
         // C++ W3DTankDraw.cpp:288-291 — frozen tactical view or script time skips the whole draw.
-        let camera_frozen = crate::helpers::get_camera_view_bridge().is_some_and(|view| {
-            view.is_time_frozen() && !view.is_camera_movement_finished()
-        });
+        let camera_frozen = crate::helpers::get_camera_view_bridge()
+            .is_some_and(|view| view.is_time_frozen() && !view.is_camera_movement_finished());
         if camera_frozen
             || crate::helpers::TheScriptEngine::is_time_frozen_debug()
             || crate::helpers::TheScriptEngine::is_time_frozen_script()
@@ -675,7 +673,7 @@ impl DrawModule for W3DTankDraw {
                 }
 
                 if let Some(physics) = owner_guard.get_physics() {
-                    if let Ok(physics_guard) = physics.lock() {
+                    if let Ok(physics_guard) = physics.access() {
                         let velocity = physics_guard.get_velocity();
                         self.current_velocity =
                             (velocity.x * velocity.x + velocity.y * velocity.y).sqrt();
@@ -692,7 +690,7 @@ impl DrawModule for W3DTankDraw {
                         }
                     }
                 }
-                });
+            });
         }
 
         if self.max_velocity <= 0.0 {

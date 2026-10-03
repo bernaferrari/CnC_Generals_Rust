@@ -100,7 +100,7 @@ impl StealthBehavior {
     fn is_moving(&self, object: &Object) -> bool {
         object
             .get_physics()
-            .and_then(|physics| physics.lock().ok().map(|guard| guard.get_velocity()))
+            .and_then(|physics| physics.access().ok().map(|guard| guard.get_velocity()))
             .map(|vel| (vel.x * vel.x + vel.y * vel.y + vel.z * vel.z) > 0.01)
             .unwrap_or(false)
     }

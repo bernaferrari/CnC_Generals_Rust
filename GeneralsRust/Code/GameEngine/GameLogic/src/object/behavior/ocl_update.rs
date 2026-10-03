@@ -22,8 +22,7 @@
 
 use crate::common::{Bool, Coord3D, Int, ObjectID, Real, UnsignedInt};
 use crate::helpers::{
-    get_game_logic_random_value, get_game_logic_random_value_real, TheTerrainLogic,
-    TheThingFactory,
+    TheTerrainLogic, TheThingFactory, get_game_logic_random_value, get_game_logic_random_value_real,
 };
 use crate::modules::OCLUpdateInterface;
 use crate::player::ThePlayerList;
@@ -247,10 +246,9 @@ impl OCLUpdate {
         if self.data.min_count == self.data.max_count {
             self.target_count = self.data.min_count;
         } else {
-            self.target_count = get_game_logic_random_value(
-                self.data.min_count as i32,
-                self.data.max_count as i32,
-            ) as u32;
+            self.target_count =
+                get_game_logic_random_value(self.data.min_count as i32, self.data.max_count as i32)
+                    as u32;
         }
 
         self.next_creation_frame = self.current_frame;
@@ -316,12 +314,8 @@ impl OCLUpdate {
         total: u32,
     ) -> Option<ObjectID> {
         // Calculate spawn position
-        let position = self.calculate_spawn_position(
-            index,
-            total,
-            object_def.disposition,
-            object_def.offset,
-        );
+        let position =
+            self.calculate_spawn_position(index, total, object_def.disposition, object_def.offset);
 
         let template = TheThingFactory::find_template(&object_def.object_name)?;
         let factory = TheThingFactory::get().ok()?;
@@ -342,7 +336,12 @@ impl OCLUpdate {
                     .read()
                     .ok()
                     .and_then(|list| list.get_player(player_id).cloned())
-                    .and_then(|player| player.read().ok().and_then(|guard| guard.get_default_team()));
+                    .and_then(|player| {
+                        player
+                            .read()
+                            .ok()
+                            .and_then(|guard| guard.get_default_team())
+                    });
             }
         }
 
@@ -368,7 +367,7 @@ impl OCLUpdate {
 
             if let Some(velocity) = self.data.initial_velocity {
                 if let Some(phys) = created_guard.get_physics_mut() {
-                    if let Ok(mut phys_guard) = phys.lock() {
+                    if let Ok(mut phys_guard) = phys.access() {
                         phys_guard.set_velocity(&velocity);
                     }
                 }
@@ -397,11 +396,7 @@ impl OCLUpdate {
                                 return;
                             }
 
-                            if let Some(id) = self.create_object(
-                                object_def,
-                                i,
-                                object_def.count,
-                            ) {
+                            if let Some(id) = self.create_object(object_def, i, object_def.count) {
                                 self.created_object_ids.push(id);
                                 self.objects_created += 1;
                             }
@@ -461,7 +456,8 @@ impl OCLUpdateInterface for OCLUpdate {
 
 impl Snapshotable for OCLUpdate {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        xfer.xfer_unsigned_int(&mut 0u32).map_err(|e| e.to_string())?;
+        xfer.xfer_unsigned_int(&mut 0u32)
+            .map_err(|e| e.to_string())?;
         Ok(())
     }
 
@@ -486,8 +482,16 @@ impl Snapshotable for OCLUpdate {
             .map_err(|e| format!("OCLUpdate::xfer current_player_color failed: {e}"))?;
 
         if xfer.is_reading() {
-            self.owner_team_id = if is_faction_neutral { None } else { Some(current_player_color as u32) };
-            self.owner_player_id = if current_player_color != 0 { Some(current_player_color as u32) } else { None };
+            self.owner_team_id = if is_faction_neutral {
+                None
+            } else {
+                Some(current_player_color as u32)
+            };
+            self.owner_player_id = if current_player_color != 0 {
+                Some(current_player_color as u32)
+            } else {
+                None
+            };
         }
 
         Ok(())
@@ -507,7 +511,8 @@ mod tests {
         let mut data = OCLUpdateModuleData::default();
         data.min_count = 5;
         data.max_count = 5;
-        data.create_objects.push(OCLCreateObject::new("TestObject".to_string(), 5));
+        data.create_objects
+            .push(OCLCreateObject::new("TestObject".to_string(), 5));
 
         let mut ocl = OCLUpdate::new(data);
         assert_eq!(ocl.state, OCLState::Idle);
@@ -529,12 +534,8 @@ mod tests {
 
         let ocl = OCLUpdate::new(data);
 
-        let pos1 = ocl.calculate_spawn_position(
-            0,
-            3,
-            OCLDisposition::DoParallelCreate,
-            [0.0, 0.0, 0.0],
-        );
+        let pos1 =
+            ocl.calculate_spawn_position(0, 3, OCLDisposition::DoParallelCreate, [0.0, 0.0, 0.0]);
 
         // Positions should be near center (with random spread)
         assert!((pos1[0] - 0.0).abs() <= 10.0);
@@ -550,18 +551,10 @@ mod tests {
 
         let ocl = OCLUpdate::new(data);
 
-        let pos1 = ocl.calculate_spawn_position(
-            0,
-            5,
-            OCLDisposition::DoLineCreate,
-            [0.0, 0.0, 0.0],
-        );
-        let pos5 = ocl.calculate_spawn_position(
-            4,
-            5,
-            OCLDisposition::DoLineCreate,
-            [0.0, 0.0, 0.0],
-        );
+        let pos1 =
+            ocl.calculate_spawn_position(0, 5, OCLDisposition::DoLineCreate, [0.0, 0.0, 0.0]);
+        let pos5 =
+            ocl.calculate_spawn_position(4, 5, OCLDisposition::DoLineCreate, [0.0, 0.0, 0.0]);
 
         // First and last should be at opposite ends
         assert!((pos1[0] - (-100.0)).abs() < 1.0);
@@ -578,12 +571,8 @@ mod tests {
 
         let ocl = OCLUpdate::new(data);
 
-        let pos = ocl.calculate_spawn_position(
-            0,
-            8,
-            OCLDisposition::DoCircleCreate,
-            [0.0, 0.0, 0.0],
-        );
+        let pos =
+            ocl.calculate_spawn_position(0, 8, OCLDisposition::DoCircleCreate, [0.0, 0.0, 0.0]);
 
         // Should be on circle
         let distance = (pos[0] * pos[0] + pos[1] * pos[1]).sqrt();

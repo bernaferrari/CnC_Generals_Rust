@@ -17,8 +17,6 @@ pub struct W3DModelDraw {
     /// Current hex color
     hex_color: i32,
 
-
-
     /// Index of currently playing animation in current state
     which_anim_in_cur_state: i32,
 
@@ -66,7 +64,6 @@ pub struct W3DModelDraw {
 
     /// True after allocateShadows created a projected template shadow.
     shadow_allocated: bool,
-
 
     /// Sub-objects to hide/show
     sub_object_vec: Vec<HideShowSubObjInfo>,
@@ -221,7 +218,11 @@ impl W3DModelDraw {
         if self.cur_state.is_none() {
             return;
         }
-        let new_color = if color == 0 { 0 } else { color | 0xFF00_0000u32 as i32 };
+        let new_color = if color == 0 {
+            0
+        } else {
+            color | 0xFF00_0000u32 as i32
+        };
         if new_color == self.hex_color {
             return;
         }
@@ -237,11 +238,10 @@ impl W3DModelDraw {
             ActiveModelState::Condition(index) => self.set_model_state(index),
             ActiveModelState::Transition(index) => {
                 if let Some(state) = self.data.transition_states.get(index) {
-                    if let Some(dest) = self
-                        .data
-                        .condition_states
-                        .iter()
-                        .position(|candidate| candidate.transition_key == state.transition_to_key)
+                    if let Some(dest) =
+                        self.data.condition_states.iter().position(|candidate| {
+                            candidate.transition_key == state.transition_to_key
+                        })
                     {
                         self.set_model_state(dest);
                     }
@@ -253,7 +253,6 @@ impl W3DModelDraw {
     pub fn hex_color(&self) -> i32 {
         self.hex_color
     }
-
 
     pub fn fully_obscured_by_shroud(&self) -> bool {
         self.fully_obscured_by_shroud
@@ -385,8 +384,7 @@ impl W3DModelDraw {
         {
             let anim = &state.animations[self.which_anim_in_cur_state as usize];
             if anim.natural_duration_ms > 0.0 {
-                let frames =
-                    (anim.natural_duration_ms / MSEC_PER_LOGICFRAME_REAL).round() as i32;
+                let frames = (anim.natural_duration_ms / MSEC_PER_LOGICFRAME_REAL).round() as i32;
                 return frames.max(1);
             }
         }
@@ -578,7 +576,6 @@ impl W3DModelDraw {
             .unwrap_or(bind)
     }
 
-
     /// C++ `Matrix3D::Translate_Z` — post-multiply a local-Z translation.
     fn translate_z(mtx: &mut Matrix3D, z: Real) {
         *mtx *= Matrix3D::from_translation(Coord3D::new(0.0, 0.0, z));
@@ -632,7 +629,6 @@ impl W3DModelDraw {
 
         Some(self.data.attach_to_drawable_bone_offset)
     }
-
 
     fn recalc_bones_for_client_particle_systems(&mut self) {
         if !self.need_recalc_bone_particle_systems {
@@ -716,8 +712,6 @@ impl W3DModelDraw {
             return true;
         }
 
-
-
         let Ok(drawable_guard) = drawable.read() else {
             return true;
         };
@@ -791,7 +785,7 @@ impl W3DModelDraw {
         let Some(physics) = obj_guard.get_physics() else {
             return;
         };
-        let Ok(physics_guard) = physics.lock() else {
+        let Ok(physics_guard) = physics.access() else {
             return;
         };
         let speed = physics_guard.get_velocity().length();
@@ -919,7 +913,7 @@ impl W3DModelDraw {
                     if let Some(dz) = Self::construction_percent_z_delta(pct, height) {
                         Self::translate_z(&mut mtx, dz);
                     }
-                    });
+                });
             }
         }
         mtx
@@ -941,11 +935,8 @@ impl W3DModelDraw {
         let Some(client) = terrain_track_client() else {
             return;
         };
-        self.track_handle = client.bind_track(
-            owner_id,
-            MAP_XY_FACTOR,
-            self.data.track_file.as_str(),
-        );
+        self.track_handle =
+            client.bind_track(owner_id, MAP_XY_FACTOR, self.data.track_file.as_str());
     }
 
     fn update_terrain_track(&mut self) {
@@ -1054,8 +1045,7 @@ impl W3DModelDraw {
             }
             size = (tmpl.get_shadow_size_x(), tmpl.get_shadow_size_y());
             offset = (tmpl.get_shadow_offset_x(), tmpl.get_shadow_offset_y());
-            });
-
+        });
 
         client.set_decal(&TerrainDecalDesc {
             object_id: owner_id,
@@ -1073,7 +1063,6 @@ impl W3DModelDraw {
             is_unit_blob: decal_type == TerrainDecalType::ShadowTexture,
             shadow_type,
         });
-
     }
 
     fn sync_terrain_decal_pose(&self) {
@@ -1092,7 +1081,8 @@ impl W3DModelDraw {
         let Ok(obj) = object.read() else {
             return;
         };
-        if let Some(drawable_mtx) = self.with_owner_drawable(|drawable| drawable.get_transform_matrix())
+        if let Some(drawable_mtx) =
+            self.with_owner_drawable(|drawable| drawable.get_transform_matrix())
         {
             let adjusted = self.adjust_transform_mtx(&drawable_mtx);
             let position = Coord3D::new(adjusted.w_axis.x, adjusted.w_axis.y, adjusted.w_axis.z);
@@ -1106,7 +1096,7 @@ impl W3DModelDraw {
         if let Some(owner_id) = self.owner_id {
             let _ = crate::object::registry::OBJECT_REGISTRY.with_object(owner_id, |obj| {
                 return (*obj.get_position(), obj.get_transform_matrix());
-                });
+            });
         }
         (Coord3D::new(0.0, 0.0, 0.0), Matrix3D::IDENTITY)
     }

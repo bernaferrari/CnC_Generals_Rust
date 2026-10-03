@@ -1882,6 +1882,15 @@ fn queued_upgrade_completes_during_simulation_update() {
 
     let system = CommandSystem::new();
     let mut game_logic = GameLogic::new();
+    // Supply explicit rules so another fixture's catalog cannot change this
+    // C++ ProductionUpdate completion boundary.
+    crate::game_logic::host_upgrade_rules::register_test_upgrade(
+        &game_logic,
+        "Upgrade_AmericaSupplyLines",
+        "PLAYER",
+        800,
+        30,
+    );
     let mut player = Player::new(0, Team::USA, "USA", true);
     player.resources.supplies = 3000;
     game_logic.add_player(player);
@@ -1930,11 +1939,23 @@ fn queued_upgrade_completes_during_simulation_update() {
             .contains("Upgrade_AmericaSupplyLines")
     );
 
-    // C++ research advances on the upgrade's Upgrade.ini BuildTime
-    // (ProductionUpdate.cpp:874-879); one 1/30s frame must not instant-
-    // complete it.  Advance 30s like the capture upgrade fixtures do.
-    game_logic.update();
-    game_logic.update_with_dt(30.0);
+    // ProductionUpdate.cpp:687-702 increments once per logic frame.
+    for _ in 0..899 {
+        game_logic.update_with_dt(1.0 / 30.0);
+    }
+    assert!(
+        game_logic
+            .get_player(0)
+            .unwrap()
+            .has_queued_upgrade("Upgrade_AmericaSupplyLines")
+    );
+    assert!(
+        !game_logic
+            .get_player(0)
+            .unwrap()
+            .has_unlocked_upgrade("Upgrade_AmericaSupplyLines")
+    );
+    game_logic.update_with_dt(1.0 / 30.0);
     let player_after_update = game_logic
         .get_player(0)
         .expect("player should exist after update");

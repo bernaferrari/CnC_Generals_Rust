@@ -570,7 +570,7 @@ impl CountermeasuresBehavior {
                 let unit_dir = obj_guard.get_unit_direction_vector_2d();
                 let velocity = obj_guard
                     .get_physics()
-                    .and_then(|physics| physics.lock().ok().map(|phys| phys.get_velocity()))
+                    .and_then(|physics| physics.access().ok().map(|phys| phys.get_velocity()))
                     .unwrap_or_else(|| Vec3D::new(0.0, 0.0, 0.0));
                 (pos, angle_base, team, unit_dir, velocity)
             })?;
@@ -602,7 +602,7 @@ impl CountermeasuresBehavior {
             let _ = flare_guard.set_position(&spawn_pos);
             let _ = flare_guard.set_orientation(owner_angle);
             if let Some(flare_physics) = flare_guard.get_physics() {
-                if let Ok(mut physics_guard) = flare_physics.lock() {
+                if let Ok(mut physics_guard) = flare_physics.access() {
                     physics_guard.set_velocity(&owner_velocity);
                     physics_guard.apply_motive_force(&motive);
                 }

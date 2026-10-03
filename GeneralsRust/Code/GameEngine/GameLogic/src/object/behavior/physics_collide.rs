@@ -116,7 +116,7 @@ pub(super) fn on_collide(
         }
     }
     if let Some(other_physics) = other.get_physics() {
-        if let Ok(phys) = other_physics.try_lock() {
+        if let Ok(phys) = other_physics.try_access() {
             if phys.get_ignore_collisions_with() == object_id {
                 return;
             }

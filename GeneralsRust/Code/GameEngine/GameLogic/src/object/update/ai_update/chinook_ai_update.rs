@@ -982,9 +982,10 @@ impl ChinookAIUpdate {
         // remove done rappellers
         for rope in &mut state.ropes {
             rope.rappeller_ids.retain(|id| {
-                let _ = crate::object::registry::OBJECT_REGISTRY.with_object(*id, |rappeller_guard| {
-                    return !rappeller_guard.is_effectively_dead()
-                        && rappeller_guard.is_above_terrain();
+                let _ =
+                    crate::object::registry::OBJECT_REGISTRY.with_object(*id, |rappeller_guard| {
+                        return !rappeller_guard.is_effectively_dead()
+                            && rappeller_guard.is_above_terrain();
                     });
                 false
             });
@@ -1108,11 +1109,14 @@ impl ChinookAIUpdate {
             if let Some(state) = self.combat_drop_state.as_ref() {
                 for rope in &state.ropes {
                     for rappeller_id in &rope.rappeller_ids {
-                        let _ = crate::object::registry::OBJECT_REGISTRY.with_object(*rappeller_id, |rappeller_guard| {
-                            if let Some(ai) = rappeller_guard.get_ai_update_interface() {
-                                ai.ai_idle(CommandSourceType::FromAi);
-                            }
-                            });
+                        let _ = crate::object::registry::OBJECT_REGISTRY.with_object(
+                            *rappeller_id,
+                            |rappeller_guard| {
+                                if let Some(ai) = rappeller_guard.get_ai_update_interface() {
+                                    ai.ai_idle(CommandSourceType::FromAi);
+                                }
+                            },
+                        );
                     }
                 }
             }
@@ -1160,11 +1164,14 @@ impl ChinookAIUpdate {
         }
 
         if self.airfield_for_healing != INVALID_ID && self.airfield_for_healing != id {
-            let _ = crate::object::registry::OBJECT_REGISTRY.with_object(self.airfield_for_healing, |guard| {
-                let _ = guard.with_parking_place_behavior(|pp| {
-                    pp.set_healee(Some(self.object_id), false);
-                });
-                });
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object(
+                self.airfield_for_healing,
+                |guard| {
+                    let _ = guard.with_parking_place_behavior(|pp| {
+                        pp.set_healee(Some(self.object_id), false);
+                    });
+                },
+            );
         }
         self.airfield_for_healing = id;
     }
@@ -1227,8 +1234,9 @@ impl ChinookAIUpdate {
                 let _ = ai.set_movement_target(&self.goal_pos);
             }
             ChinookAIState::MoveToAndEvacAndExitInit => {
-                let _ = crate::object::registry::OBJECT_REGISTRY.with_object(self.object_id, |guard| {
-                    self.record_original_position(*guard.get_position());
+                let _ =
+                    crate::object::registry::OBJECT_REGISTRY.with_object(self.object_id, |guard| {
+                        self.record_original_position(*guard.get_position());
                     });
                 self.set_my_state(
                     ChinookAIState::MoveToAndEvacAndExit,
@@ -1282,9 +1290,12 @@ impl ChinookAIUpdate {
 
     /// C++ `ChinookHeadOffMapState::onEnter`.
     fn enter_head_off_map(&mut self, ai: &mut dyn AIUpdateInterface) {
-        let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(self.object_id, |owner_guard| {
-            owner_guard.set_status(ObjectStatusMaskType::RIDER8, true);
-            });
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(
+            self.object_id,
+            |owner_guard| {
+                owner_guard.set_status(ObjectStatusMaskType::RIDER8, true);
+            },
+        );
         let _ = ai.set_movement_target(&self.original_pos);
         let _ = ai.set_allow_invalid_position(true);
     }
@@ -1316,7 +1327,7 @@ impl ChinookAIUpdate {
         }
 
         if let Some(physics) = owner_guard.get_physics() {
-            if let Ok(mut physics_guard) = physics.lock() {
+            if let Ok(mut physics_guard) = physics.access() {
                 physics_guard.scrub_velocity_2d(0.0);
             }
         }
@@ -1434,8 +1445,7 @@ impl ChinookAIUpdate {
         let mut dest_pos = self.goal_pos;
         if let Some(target_id) = self.goal_object {
             let _ = crate::object::registry::OBJECT_REGISTRY.with_object(target_id, |bldg_guard| {
-                if !bldg_guard.is_effectively_dead() && bldg_guard.is_kind_of(KindOf::Structure)
-                {
+                if !bldg_guard.is_effectively_dead() && bldg_guard.is_kind_of(KindOf::Structure) {
                     dest_pos = *bldg_guard.get_position();
                     self.move_to_bldg_new_preferred = chinook_move_to_bldg_preferred_height(
                         self.move_to_bldg_old_preferred,
@@ -1446,7 +1456,7 @@ impl ChinookAIUpdate {
                         self.data.min_drop_height,
                     );
                 }
-                });
+            });
         }
         ai.with_cur_locomotor(&mut |loco| {
             loco.set_preferred_height(self.move_to_bldg_new_preferred);
@@ -1508,9 +1518,12 @@ impl ChinookAIUpdate {
     }
 
     fn exit_head_off_map(&mut self) {
-        let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(self.object_id, |owner_guard| {
-            owner_guard.set_status(ObjectStatusMaskType::RIDER8, false);
-            });
+        let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(
+            self.object_id,
+            |owner_guard| {
+                owner_guard.set_status(ObjectStatusMaskType::RIDER8, false);
+            },
+        );
     }
 
     fn succeed_machine_state(&mut self, ai: &mut dyn AIUpdateInterface) {
@@ -1604,7 +1617,7 @@ impl ChinookAIUpdate {
                         result = false;
                     }
                 }
-                });
+            });
         }
         result
     }
@@ -1828,7 +1841,7 @@ impl ChinookAIUpdate {
                     }
                 }
             }
-            });
+        });
         self.base.private_idle(cmd_source);
     }
 
@@ -1861,8 +1874,7 @@ impl ChinookAIUpdate {
                         if !contain.is_passenger_allowed_to_fire(Some(passenger_id)) {
                             continue;
                         }
-                        let Some(passenger) = TheGameLogic::find_object_by_id(passenger_id)
-                        else {
+                        let Some(passenger) = TheGameLogic::find_object_by_id(passenger_id) else {
                             continue;
                         };
                         let Ok(pass_guard) = passenger.read() else {
@@ -1872,16 +1884,15 @@ impl ChinookAIUpdate {
                             continue;
                         }
                         if pass_guard.is_kind_of(KindOf::PortableStructure)
-                            && (pass_guard.is_disabled_by_type(
-                                crate::common::DisabledType::DisabledHacked,
-                            ) || pass_guard
-                                .is_disabled_by_type(crate::common::DisabledType::DisabledEmp)
+                            && (pass_guard
+                                .is_disabled_by_type(crate::common::DisabledType::DisabledHacked)
+                                || pass_guard
+                                    .is_disabled_by_type(crate::common::DisabledType::DisabledEmp)
                                 || pass_guard.is_disabled_by_type(
                                     crate::common::DisabledType::DisabledSubdued,
                                 )
-                                || pass_guard.is_disabled_by_type(
-                                    crate::common::DisabledType::Paralyzed,
-                                ))
+                                || pass_guard
+                                    .is_disabled_by_type(crate::common::DisabledType::Paralyzed))
                         {
                             continue;
                         }
@@ -1896,7 +1907,7 @@ impl ChinookAIUpdate {
                     );
                 }
             }
-            });
+        });
     }
 
     pub fn private_force_attack_object(
@@ -1928,8 +1939,7 @@ impl ChinookAIUpdate {
                         if !contain.is_passenger_allowed_to_fire(Some(passenger_id)) {
                             continue;
                         }
-                        let Some(passenger) = TheGameLogic::find_object_by_id(passenger_id)
-                        else {
+                        let Some(passenger) = TheGameLogic::find_object_by_id(passenger_id) else {
                             continue;
                         };
                         let Ok(pass_guard) = passenger.read() else {
@@ -1939,16 +1949,15 @@ impl ChinookAIUpdate {
                             continue;
                         }
                         if pass_guard.is_kind_of(KindOf::PortableStructure)
-                            && (pass_guard.is_disabled_by_type(
-                                crate::common::DisabledType::DisabledHacked,
-                            ) || pass_guard
-                                .is_disabled_by_type(crate::common::DisabledType::DisabledEmp)
+                            && (pass_guard
+                                .is_disabled_by_type(crate::common::DisabledType::DisabledHacked)
+                                || pass_guard
+                                    .is_disabled_by_type(crate::common::DisabledType::DisabledEmp)
                                 || pass_guard.is_disabled_by_type(
                                     crate::common::DisabledType::DisabledSubdued,
                                 )
-                                || pass_guard.is_disabled_by_type(
-                                    crate::common::DisabledType::Paralyzed,
-                                ))
+                                || pass_guard
+                                    .is_disabled_by_type(crate::common::DisabledType::Paralyzed))
                         {
                             continue;
                         }
@@ -1980,9 +1989,8 @@ impl ChinookAIUpdate {
                                     && !rider_guard.is_disabled_by_type(
                                         crate::common::DisabledType::DisabledSubdued,
                                     )
-                                    && !rider_guard.is_disabled_by_type(
-                                        crate::common::DisabledType::Paralyzed,
-                                    )
+                                    && !rider_guard
+                                        .is_disabled_by_type(crate::common::DisabledType::Paralyzed)
                                 {
                                     if let Some(ai) = rider_guard.get_ai_update_interface() {
                                         if let Some(victim_arc) = victim.as_ref() {
@@ -2003,7 +2011,7 @@ impl ChinookAIUpdate {
                     }
                 }
             }
-            });
+        });
     }
 
     pub fn private_attack_position(
@@ -2031,8 +2039,7 @@ impl ChinookAIUpdate {
                         if !contain.is_passenger_allowed_to_fire(Some(passenger_id)) {
                             continue;
                         }
-                        let Some(passenger) = TheGameLogic::find_object_by_id(passenger_id)
-                        else {
+                        let Some(passenger) = TheGameLogic::find_object_by_id(passenger_id) else {
                             continue;
                         };
                         let Ok(pass_guard) = passenger.read() else {
@@ -2042,16 +2049,15 @@ impl ChinookAIUpdate {
                             continue;
                         }
                         if pass_guard.is_kind_of(KindOf::PortableStructure)
-                            && (pass_guard.is_disabled_by_type(
-                                crate::common::DisabledType::DisabledHacked,
-                            ) || pass_guard
-                                .is_disabled_by_type(crate::common::DisabledType::DisabledEmp)
+                            && (pass_guard
+                                .is_disabled_by_type(crate::common::DisabledType::DisabledHacked)
+                                || pass_guard
+                                    .is_disabled_by_type(crate::common::DisabledType::DisabledEmp)
                                 || pass_guard.is_disabled_by_type(
                                     crate::common::DisabledType::DisabledSubdued,
                                 )
-                                || pass_guard.is_disabled_by_type(
-                                    crate::common::DisabledType::Paralyzed,
-                                ))
+                                || pass_guard
+                                    .is_disabled_by_type(crate::common::DisabledType::Paralyzed))
                         {
                             continue;
                         }
@@ -2077,16 +2083,11 @@ impl ChinookAIUpdate {
                                     && !rider_guard.is_disabled_by_type(
                                         crate::common::DisabledType::DisabledSubdued,
                                     )
-                                    && !rider_guard.is_disabled_by_type(
-                                        crate::common::DisabledType::Paralyzed,
-                                    )
+                                    && !rider_guard
+                                        .is_disabled_by_type(crate::common::DisabledType::Paralyzed)
                                 {
                                     if let Some(ai) = rider_guard.get_ai_update_interface() {
-                                        ai.ai_attack_position(
-                                            pos,
-                                            max_shots_to_fire,
-                                            cmd_source,
-                                        );
+                                        ai.ai_attack_position(pos, max_shots_to_fire, cmd_source);
                                     }
                                 }
                             }
@@ -2094,7 +2095,7 @@ impl ChinookAIUpdate {
                     }
                 }
             }
-            });
+        });
     }
 
     fn tell_portable_structure_to_attack_with_me(
@@ -2117,9 +2118,8 @@ impl ChinookAIUpdate {
                                 && !rider_guard.is_disabled_by_type(
                                     crate::common::DisabledType::DisabledHacked,
                                 )
-                                && !rider_guard.is_disabled_by_type(
-                                    crate::common::DisabledType::DisabledEmp,
-                                )
+                                && !rider_guard
+                                    .is_disabled_by_type(crate::common::DisabledType::DisabledEmp)
                                 && !rider_guard.is_disabled_by_type(
                                     crate::common::DisabledType::DisabledSubdued,
                                 )
@@ -2138,7 +2138,7 @@ impl ChinookAIUpdate {
                     }
                 }
             }
-            });
+        });
     }
 
     pub fn private_get_repaired(
@@ -2230,10 +2230,13 @@ impl ChinookAIUpdate {
         if target.is_none() {
             let mut tmp = local_pos;
             let mut options = crate::helpers::FindPositionOptions::default();
-            let _ = crate::object::registry::OBJECT_REGISTRY.with_object(self.object_id, |owner_guard| {
-                options.max_radius =
-                    owner_guard.get_geometry_info().get_bounding_circle_radius() * 100.0;
-                });
+            let _ = crate::object::registry::OBJECT_REGISTRY.with_object(
+                self.object_id,
+                |owner_guard| {
+                    options.max_radius =
+                        owner_guard.get_geometry_info().get_bounding_circle_radius() * 100.0;
+                },
+            );
             if let Some(partition) = ThePartitionManager::get() {
                 if partition.find_position_around_with_options(&local_pos, &options, &mut tmp) {
                     local_pos = tmp;
@@ -2449,7 +2452,7 @@ impl ChinookAIUpdate {
                     }
                 }
             }
-            });
+        });
 
         self.update_rotor_wash();
 

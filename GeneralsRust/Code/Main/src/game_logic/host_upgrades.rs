@@ -133,23 +133,6 @@ pub fn residual_supply_lines_drop_off_boost(has_supply_lines: bool) -> u32 {
     }
 }
 
-/// C++ `UpgradeType::UPGRADE_TYPE_OBJECT` — apply only to the producer.
-///
-/// Prefers the live Upgrade.ini `Type` on `TheUpgradeCenter`. Residual
-/// fallback covers retail object add-ons / BecomeReal / per-building radar
-/// grants when the center has no template (headless tests).
-pub fn is_object_scoped_upgrade(name: &str) -> bool {
-    let parsed = gamelogic::upgrade::center::with_upgrade_center(|center| {
-        center
-            .find_upgrade(name)
-            .map(|template| template.get_upgrade_type() == gamelogic::upgrade::UpgradeType::Object)
-    });
-    if let Some(is_object) = parsed {
-        return is_object;
-    }
-    is_object_scoped_upgrade_residual(name)
-}
-
 /// Retail Type=OBJECT names used when UpgradeCenter has no row.
 pub fn is_object_scoped_upgrade_residual(name: &str) -> bool {
     let n = normalize_upgrade_identity(name);
@@ -1332,12 +1315,16 @@ mod tests {
     fn object_scoped_addons_target_only_producer() {
         // C++ Upgrade.h UpgradeType OBJECT + ProductionUpdate giveUpgrade
         // on the producing object only (hq-w4syv).
-        assert!(is_object_scoped_upgrade(
+        assert!(is_object_scoped_upgrade_residual(
             "Upgrade_ChinaOverlordBattleBunker"
         ));
-        assert!(is_object_scoped_upgrade("Upgrade_BecomeRealGLABarracks"));
-        assert!(!is_object_scoped_upgrade(UPGRADE_AMERICA_FLASHBANG));
-        assert!(!is_object_scoped_upgrade(UPGRADE_CHINA_RADAR));
+        assert!(is_object_scoped_upgrade_residual(
+            "Upgrade_BecomeRealGLABarracks"
+        ));
+        assert!(!is_object_scoped_upgrade_residual(
+            UPGRADE_AMERICA_FLASHBANG
+        ));
+        assert!(!is_object_scoped_upgrade_residual(UPGRADE_CHINA_RADAR));
         assert_eq!(upgrade_mux_target_ids(true, Some(7u32), [7, 8, 9]), vec![7]);
         assert_eq!(
             upgrade_mux_target_ids(false, Some(7u32), [7, 8, 9]),

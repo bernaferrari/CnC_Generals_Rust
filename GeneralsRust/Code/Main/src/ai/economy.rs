@@ -778,7 +778,8 @@ impl AIPlayer {
         if upgrade_name.trim().is_empty() {
             return false;
         }
-        if game_logic.is_object_scoped_upgrade(upgrade_name) {
+        let upgrade_type = game_logic.upgrade_type(upgrade_name);
+        if upgrade_type == gamelogic::upgrade::UpgradeType::Object {
             return false;
         }
         let Some(player) = game_logic.get_player(self.player_id) else {
@@ -803,20 +804,17 @@ impl AIPlayer {
         if cost_supplies > 0 && !player.can_afford(&cost) {
             return false;
         }
-        let Some(producer_id) = self.find_upgrade_producer(game_logic, upgrade_name) else {
+        let Some(producer_id) = self.find_upgrade_producer(game_logic, upgrade_name, upgrade_type)
+        else {
             return false;
         };
-        let upgrade_type = game_logic.upgrade_type(upgrade_name);
         let Some(player) = game_logic.get_player_mut(self.player_id) else {
             return false;
         };
         if !player.queue_upgrade(upgrade_name, &cost, upgrade_type) {
             return false;
         }
-        let kind = crate::game_logic::host_upgrades::HostUpgradeKind::from_name(upgrade_name);
-        let secs = kind
-            .retail_build_time_secs()
-            .max(1.0 / LOGIC_FRAMES_PER_SECOND);
+        let secs = game_logic.upgrade_research_time_secs(upgrade_name);
         if !game_logic.unit_command_building_add_upgrade_to_queue(
             producer_id,
             upgrade_name,
@@ -1693,3 +1691,7 @@ impl AIPlayer {
         observed_completion
     }
 }
+
+#[cfg(test)]
+#[path = "upgrade_rules_tests.rs"]
+mod upgrade_rules_tests;

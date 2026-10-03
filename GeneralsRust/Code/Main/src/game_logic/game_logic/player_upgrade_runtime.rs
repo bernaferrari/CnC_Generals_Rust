@@ -57,30 +57,6 @@ impl Player {
         self.add_completed_upgrade(upgrade_name);
     }
 
-    /// Complete all queued player upgrades into the unlocked upgrade/science set.
-    pub fn complete_queued_upgrades(
-        &mut self,
-        center: &gamelogic::upgrade::center::UpgradeCenter,
-    ) -> Vec<String> {
-        let mut completed: Vec<String> = self.queued_upgrades.drain().collect();
-        completed.sort();
-        for upgrade in &completed {
-            if center
-                .find_upgrade(upgrade)
-                .map(|template| {
-                    template.get_upgrade_type() == gamelogic::upgrade::UpgradeType::Object
-                })
-                .unwrap_or_else(|| {
-                    crate::game_logic::host_upgrades::is_object_scoped_upgrade_residual(upgrade)
-                })
-            {
-                continue;
-            }
-            self.add_completed_upgrade(upgrade);
-        }
-        completed
-    }
-
     pub fn has_unlocked_upgrade(&self, upgrade_name: &str) -> bool {
         let expected = normalize_upgrade_name(upgrade_name);
         self.unlocked_sciences

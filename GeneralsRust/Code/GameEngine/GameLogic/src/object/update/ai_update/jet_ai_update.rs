@@ -1208,7 +1208,7 @@ impl JetStateMachine {
                             return StateReturnType::Success;
                         }
                         if let Some(physics) = guard.get_physics() {
-                            if let Ok(mut phys) = physics.lock() {
+                            if let Ok(mut phys) = physics.access() {
                                 phys.scrub_velocity_2d(0.0);
                             }
                         }
@@ -2645,7 +2645,7 @@ impl JetAIUpdate {
             }
 
             if let Some(physics) = guard.get_physics() {
-                if let Ok(phys_guard) = physics.lock() {
+                if let Ok(phys_guard) = physics.access() {
                     let speed = phys_guard.get_velocity().length();
                     // C++ JetAIUpdate::update only drives JETEXHAUST from velocity
                     // (JetAIUpdate.cpp:1944-1948). Afterburner is takeoff-window only.

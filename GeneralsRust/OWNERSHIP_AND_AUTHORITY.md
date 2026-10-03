@@ -4,6 +4,66 @@
 
 Preserve C++ **behavior**. Do not preserve C++ **pointer ownership**.
 
+## Driving upgrade rules and canonical physics access (2026-10-03)
+
+Main upgrade operations select definitions through the driving `GameLogic`:
+command cost/time and type gates, AI producer gates and queues, upgrade grants,
+completion sound selection, restored research duration and completed-name
+persistence. Player queue/completion transitions receive the authored
+`UpgradeType` explicitly. Immutable template sharing remains intentional.
+AI research now uses authored cost/time instead of the retail fallback when a
+world definition exists, including an authored zero cost in automatic research.
+Queue order, payment/refund rules and logic-frame conversion remain at their
+existing execution sites. Command zero-cost fallback, zero-time handling and
+fractional frame truncation remain hq-ax77l. The rules lookup still
+borrows the world's locked catalog; this is an explicit-dependency migration,
+not removal of the five EngineStores store locks or its active publication.
+Legacy PlayerList/AcademyStats/score synchronization remains ambient.
+See hq-4wlqk and hq-lfke6.
+
+BodyModule, ActiveBody, StructureBody and UndeadBody directly own four private
+configuration values which never exported shared handles. Actual body module
+identity, mutable state and Xfer routing are unchanged (hq-0lkyu). Delivering
+skipped damage callbacks requires more than passing sibling handles: AutoHeal
+wake scheduling and Bridge/BridgeTower owner/body propagation can re-enter
+locked state. The rejected callback prototype was removed. The explicit
+scheduler/callback prerequisites remain hq-9e2jo and hq-zi4dr.
+
+Physics preserves its exact construction owner, rather than rediscovering it
+through a reused numeric ObjectId. The existing weak relationship prevents a
+strong owner/module cycle; it is not the final world-borrowing architecture.
+The canonical physics state remains inside PhysicsBehaviorUpdate. Object now
+owns an interface descriptor whose lease borrows that same installed module.
+This deletes the separate PhysicsModuleView allocation and outer Arc/mutex,
+including its 42-method forwarding implementation. Consumers acquire the actual
+module state directly; they release it before AI/owner/sibling re-entry. Original
+independently shared Railroad and injected test physics retain their real storage
+through an explicit variant. No copied physics state is introduced (hq-ehln2).
+Module containers, scheduler handles and callback contexts remain shared; the
+factory and cross-object ambient services remain hq-lc33w. Scheduler ownership
+is the next prerequisite (hq-ve7qn): retain one instance-qualified registration
+through wake, execution and destruction, and preserve C++ immediate rebalancing
+and destroy-before-next-callback visibility. Changing only a Weak pointer would
+leave the same global scheduler discovery and shared module ownership.
+
+The ray-effect pool rejects a 129th insertion and preserves all live drawables,
+matching C++ first-free allocation. Its global store still requires explicit FX
+execution and renderer snapshot inputs (hq-1y3ry, hq-pvayo); this parity fix does
+not claim ray-store ownership or mutex elimination.
+
+Four existing upgrade fixtures now provide their own authored rules and exercise
+899 pending logic ticks followed by completion at tick 900, instead of treating
+one 30-second wall-time submission as 900 updates (hq-hv41j). No simulation timing
+policy changed. The capture scenario also exposed an actual locomotor regression:
+clearing the approach path retained its locomotor goal, causing the next tick to
+cancel unpacking as movement. Capture unpack/preparation now clear that goal,
+matching C++ startFacing/startPreparation aiIdle transitions; deliberate movement
+still cancels capture (hq-7y9v4). The ray-capacity regression fails against the original Rust
+production code; the corrected containing ray suite passes all three tests.
+
+These source contracts and Rust scenarios do not establish original-executable
+trace agreement, retail playthrough coverage, or measured frame-rate gains.
+
 ## Map, particle, UI, image, AI and mission interfaces (2026-10-03)
 
 `generals_map` owns the checked byte reader, TOC and chunk traversal. Main owns

@@ -115,7 +115,7 @@ impl UpdateModuleInterface for AnimationSteeringUpdate {
         }
 
         let current_turn = physics_arc
-            .lock()
+            .access()
             .map(|guard| guard.get_turning())
             .unwrap_or(0.0);
 

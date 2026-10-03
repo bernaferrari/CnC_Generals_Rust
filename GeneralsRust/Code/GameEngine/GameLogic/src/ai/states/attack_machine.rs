@@ -31,9 +31,9 @@ use crate::ai::pathfind::Path;
 use crate::ai::squad::Squad;
 use crate::ai::tn_guard::{AITNGuardMachine, TNGuardStateType};
 use crate::ai::{
-    AiCommandInterface, AiCommandParams, GuardMode, MoodMatrixAction, PartitionFilter, the_ai,
+    AiCommandInterface, AiCommandParams, GuardMode, MoodMatrixAction, PartitionFilter,
     mood_matrix_adjustment, mood_matrix_parameters, resolve_attack_priority_info_for_object,
-    search_qualifiers,
+    search_qualifiers, the_ai,
 };
 use crate::attack::{AbleToAttackType, CanAttackResult};
 use crate::command_button::CommandButton;
@@ -687,11 +687,12 @@ impl ClassicState for AIAttackAimAtTargetState {
                                         target.read().map(|g| g.get_id()).unwrap_or(0),
                                     );
                                 } else if let Some(pos) = target_pos {
-                                    in_range = contain_guard.attempt_best_fire_point_position_coord(
-                                        owner.read().map(|g| g.get_id()).unwrap_or(0),
-                                        weapon,
-                                        &pos,
-                                    );
+                                    in_range = contain_guard
+                                        .attempt_best_fire_point_position_coord(
+                                            owner.read().map(|g| g.get_id()).unwrap_or(0),
+                                            weapon,
+                                            &pos,
+                                        );
                                 }
                             }
                         }
@@ -770,23 +771,21 @@ impl ClassicState for AIAttackAimAtTargetState {
                         }
                     }
                 }
-            if owner_guard.ai_fire_turrets_linked {
-                for turret in [TurretType::Primary, TurretType::Secondary] {
-                    owner_guard
-                        .ai_pending_turret_positions
-                        .push((turret, pos));
+                if owner_guard.ai_fire_turrets_linked {
+                    for turret in [TurretType::Primary, TurretType::Secondary] {
+                        owner_guard.ai_pending_turret_positions.push((turret, pos));
+                    }
+                } else {
+                    let turret = owner_guard.ai_fire_which_turret;
+                    if turret != TurretType::Invalid {
+                        owner_guard.ai_pending_turret_positions.push((turret, pos));
+                    } else if weapon.is_contact_weapon() && in_range && !preventing {
+                        return Ok(StateReturnType::Success);
+                    }
                 }
             } else {
-                let turret = owner_guard.ai_fire_which_turret;
-                if turret != TurretType::Invalid {
-                    owner_guard.ai_pending_turret_positions.push((turret, pos));
-                } else if weapon.is_contact_weapon() && in_range && !preventing {
-                    return Ok(StateReturnType::Success);
-                }
+                return Ok(StateReturnType::Failure);
             }
-        } else {
-            return Ok(StateReturnType::Failure);
-        }
         }
 
         owner_guard.set_status(ObjectStatusMaskType::IS_AIMING_WEAPON, true);
@@ -915,20 +914,24 @@ impl ClassicState for AIAttackAimAtTargetState {
                 self.base.get_machine_goal_object_id().and_then(|id| {
                     crate::helpers::TheGameLogic::find_object_by_id(id)
                         .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(id))
-                        .and_then(|target| target.read().ok().map(|target_guard| target_guard.get_id()))
+                        .and_then(|target| {
+                            target.read().ok().map(|target_guard| target_guard.get_id())
+                        })
                 })
             } else {
                 None
             };
-            let in_range = owner_guard.get_current_weapon().is_some_and(|(weapon, _slot)| {
-                if self.attacking_object {
-                    target_id.is_some_and(|id| {
-                        weapon.is_within_attack_range(owner_id, Some(id), None)
-                    })
-                } else {
-                    weapon.is_within_attack_range(owner_id, None, Some(&target_pos))
-                }
-            });
+            let in_range = owner_guard
+                .get_current_weapon()
+                .is_some_and(|(weapon, _slot)| {
+                    if self.attacking_object {
+                        target_id.is_some_and(|id| {
+                            weapon.is_within_attack_range(owner_id, Some(id), None)
+                        })
+                    } else {
+                        weapon.is_within_attack_range(owner_id, None, Some(&target_pos))
+                    }
+                });
             if !in_range {
                 return Ok(StateReturnType::Failure);
             }
@@ -1208,8 +1211,6 @@ impl ClassicState for AIAttackFireWeaponState {
             ));
         }
 
-
-
         Ok(StateReturnType::Success)
     }
 
@@ -1305,7 +1306,7 @@ pub(crate) fn attack_can_pursue(source: &Object, weapon: &Weapon, victim: &Objec
         .get_physics()
         .and_then(|physics| {
             physics
-                .lock()
+                .access()
                 .ok()
                 .map(|guard| guard.get_forward_speed_2d())
         })
@@ -1396,9 +1397,9 @@ impl AIAttackPursueTargetState {
         }
 
         let mut force_repath = false;
-        if live_no_path.unwrap_or(
-            !owner_guard.ai_fire_has_path && !owner_guard.ai_fire_waiting_for_path,
-        ) {
+        if live_no_path
+            .unwrap_or(!owner_guard.ai_fire_has_path && !owner_guard.ai_fire_waiting_for_path)
+        {
             force_repath = true;
         }
         if !force_repath
@@ -1536,11 +1537,7 @@ impl AIAttackPursueTargetState {
         );
         let victim_id = victim_guard.get_id();
         if !view_blocked
-            && weapon.is_within_attack_range(
-                owner_guard.get_id(),
-                Some(victim_id),
-                None,
-            )
+            && weapon.is_within_attack_range(owner_guard.get_id(), Some(victim_id), None)
         {
             owner_guard.ai_pending_turret_objects.push((
                 turret,
@@ -1553,7 +1550,7 @@ impl AIAttackPursueTargetState {
                 .get_physics()
                 .and_then(|physics| {
                     physics
-                        .lock()
+                        .access()
                         .ok()
                         .map(|guard| guard.get_forward_speed_2d())
                 })
@@ -1683,9 +1680,7 @@ impl ClassicState for AIAttackPursueTargetState {
                     player_guard.get_player_type() == PlayerType::Human
                 })
                 .unwrap_or(false);
-            if is_human
-                && owner_guard.ai_fire_last_command_source == CommandSourceType::FromAi
-            {
+            if is_human && owner_guard.ai_fire_last_command_source == CommandSourceType::FromAi {
                 return Ok(StateReturnType::Success);
             }
         }
@@ -1714,11 +1709,9 @@ impl ClassicState for AIAttackPursueTargetState {
         if turret == TurretType::Invalid {
             return Ok(StateReturnType::Success);
         }
-        owner_guard.ai_pending_turret_objects.push((
-            turret,
-            Some(victim_id),
-            self.force_attacking,
-        ));
+        owner_guard
+            .ai_pending_turret_objects
+            .push((turret, Some(victim_id), self.force_attacking));
         drop(victim_guard);
         drop(owner_guard);
 
@@ -1829,9 +1822,8 @@ impl AIAttackApproachTargetState {
             return Ok(true);
         }
         if !force_repath
-            && live_no_path.unwrap_or(
-                !owner_guard.ai_fire_has_path && !owner_guard.ai_fire_waiting_for_path,
-            )
+            && live_no_path
+                .unwrap_or(!owner_guard.ai_fire_has_path && !owner_guard.ai_fire_waiting_for_path)
         {
             force_repath = true;
         }
@@ -2320,9 +2312,7 @@ impl ClassicState for AIAttackApproachTargetState {
                 if owner_guard.ai_fire_ground_movement {
                     let dx = self.base.goal_position.x - owner_guard.get_position().x;
                     let dy = self.base.goal_position.y - owner_guard.get_position().y;
-                    if dx * dx + dy * dy
-                        < PATHFIND_CELL_SIZE_F * PATHFIND_CELL_SIZE_F * 0.125
-                    {
+                    if dx * dx + dy * dy < PATHFIND_CELL_SIZE_F * PATHFIND_CELL_SIZE_F * 0.125 {
                         let _ = owner_guard.set_position(&self.base.goal_position);
                     }
                 }

@@ -443,7 +443,6 @@ impl TransportContain {
     }
 
     fn is_valid_container_for_rider(&self, actual_obj: &Object, check_capacity: bool) -> bool {
-
         // Call base validation
         if !self.base.is_valid_container_for(actual_obj, check_capacity) {
             return false;
@@ -596,8 +595,7 @@ impl TransportContain {
             return Ok(());
         }
 
-        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id)
-        else {
+        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id) else {
             return Ok(());
         };
 
@@ -702,7 +700,7 @@ impl TransportContain {
         let Some(physics) = physics else {
             return Ok(None);
         };
-        let Ok(parent) = physics.try_lock() else {
+        let Ok(parent) = physics.try_access() else {
             return Err("Transport owner physics lock busy during velocity inherit".into());
         };
         Ok(Some(parent.get_velocity()))
@@ -726,7 +724,7 @@ impl TransportContain {
         let Some(child_physics) = child_physics else {
             return Ok(());
         };
-        let Ok(mut child) = child_physics.try_lock() else {
+        let Ok(mut child) = child_physics.try_access() else {
             return Err("Transport rider physics lock busy during velocity inherit".into());
         };
         let mass = child.get_mass();
@@ -748,8 +746,7 @@ impl TransportContain {
             return Ok(());
         }
 
-        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id)
-        else {
+        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id) else {
             return Ok(());
         };
 
@@ -856,7 +853,7 @@ impl TransportContain {
                 if above_terrain {
                     if let Some(physics) = rider.get_physics() {
                         // Object write is already held. Lock physics only.
-                        let Ok(mut physics) = physics.try_lock() else {
+                        let Ok(mut physics) = physics.try_access() else {
                             return Err(
                                 "Transport rider physics lock busy during allow to fall".into()
                             );
@@ -1095,8 +1092,7 @@ impl TransportContain {
             return dock_open;
         }
 
-        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(rider_id)
-        else {
+        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(rider_id) else {
             return false;
         };
         let Some((airborne, layer, pos, rider_ai)) = ({
@@ -1224,8 +1220,7 @@ impl TransportContain {
         // C++ TransportContain::isPassengerAllowedToFire: infantry only,
         // then Overlord-style parent nest, else OpenContain.
         if let Some(obj_id) = id {
-            if let Some(passenger) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id)
-            {
+            if let Some(passenger) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id) {
                 if let Ok(passenger_guard) = passenger.try_read() {
                     if !transport_contain_passenger_kind_allowed_to_fire(
                         passenger_guard.is_kind_of(KindOf::Infantry),
@@ -1242,8 +1237,7 @@ impl TransportContain {
             .with_owner_object(|owner| owner.get_contained_by())
             .flatten()
         {
-            if let Some(parent) = crate::object::registry::OBJECT_REGISTRY.get_object(parent_id)
-            {
+            if let Some(parent) = crate::object::registry::OBJECT_REGISTRY.get_object(parent_id) {
                 let Ok(parent_guard) = parent.try_read() else {
                     return false;
                 };
@@ -1522,7 +1516,8 @@ impl TransportContain {
             return Ok(());
         }
 
-        let obj = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id)
+        let obj = crate::object::registry::OBJECT_REGISTRY
+            .get_object(obj_id)
             .ok_or("Transport contain object not found")?;
 
         let was_selected = obj
@@ -1595,8 +1590,7 @@ impl TransportContain {
             return Ok((false, false));
         }
 
-        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id)
-        else {
+        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id) else {
             return Ok((false, false));
         };
 
@@ -1711,7 +1705,7 @@ impl ContainModuleInterface for TransportContain {
     fn can_contain(&self, object_id: ObjectID) -> bool {
         let _ = crate::object::registry::OBJECT_REGISTRY.with_object(object_id, |obj_guard| {
             return self.is_valid_container_for(&*obj_guard, true);
-            });
+        });
         false
     }
 
@@ -1799,8 +1793,7 @@ impl ContainModuleInterface for TransportContain {
         if !self.base.collide_enter_eject_foreign(other_id)? {
             return Ok(());
         }
-        let Some(other) = crate::object::registry::OBJECT_REGISTRY.get_object(other_id)
-        else {
+        let Some(other) = crate::object::registry::OBJECT_REGISTRY.get_object(other_id) else {
             return Ok(());
         };
         let valid = other
@@ -1907,8 +1900,7 @@ impl ContainModuleInterface for TransportContain {
             return Ok(());
         }
 
-        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id)
-        else {
+        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id) else {
             return Ok(());
         };
 
@@ -1924,8 +1916,7 @@ impl ContainModuleInterface for TransportContain {
             return Ok(());
         }
 
-        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id)
-        else {
+        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id) else {
             return Ok(());
         };
 
@@ -1968,8 +1959,7 @@ impl ContainModuleInterface for TransportContain {
                 );
                 continue;
             }
-            if let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id)
-            {
+            if let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id) {
                 if let Ok(mut guard) = obj.try_write() {
                     let _ = guard.attempt_damage(damage_info);
                 }
@@ -1994,8 +1984,7 @@ impl ContainModuleInterface for TransportContain {
                 );
                 continue;
             }
-            if let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id)
-            {
+            if let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id) {
                 if let Ok(mut guard) = obj.try_write() {
                     guard.kill(None, None);
                 }

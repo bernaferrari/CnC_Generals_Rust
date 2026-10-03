@@ -356,7 +356,7 @@ impl TargetSnapshot {
             snapshot.geometry = collision_geometry_from_logic(object.get_geometry_info());
             snapshot.orientation = object.get_orientation();
             if let Some(physics) = object.get_physics() {
-                snapshot.velocity_xy = physics.lock().ok().map(|guard| {
+                snapshot.velocity_xy = physics.access().ok().map(|guard| {
                     let velocity = guard.get_velocity();
                     (velocity.x, velocity.y)
                 });

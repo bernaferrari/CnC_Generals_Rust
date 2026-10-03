@@ -586,7 +586,7 @@ impl StealthUpdateController {
                     // Prefer physics velocity if available, otherwise fall back to attacking proxy.
                     let mut moving = status.contains(ObjectStatusMaskType::IS_ATTACKING);
                     if let Some(physics) = obj_guard.get_physics() {
-                        if let Ok(phys_guard) = physics.lock() {
+                        if let Ok(phys_guard) = physics.access() {
                             let vel = phys_guard.get_velocity();
                             if vel.length() > self.data.stealth_speed {
                                 moving = true;

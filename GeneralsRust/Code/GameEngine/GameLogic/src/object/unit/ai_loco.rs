@@ -344,7 +344,7 @@ impl UnitAIUpdate {
         }
         if object.is_above_terrain() {
             if let Some(physics) = object.get_physics() {
-                if let Ok(physics) = physics.lock() {
+                if let Ok(physics) = physics.access() {
                     if physics.get_allow_to_fall() {
                         return false;
                     }
@@ -1587,7 +1587,7 @@ impl UnitAIUpdate {
             let physics = object.get_physics();
             let forward_speed = physics
                 .as_ref()
-                .and_then(|physics| physics.lock().ok().map(|g| g.get_forward_speed_2d()))
+                .and_then(|physics| physics.access().ok().map(|g| g.get_forward_speed_2d()))
                 .unwrap_or(0.0);
             (
                 *object.get_position(),
@@ -1602,7 +1602,7 @@ impl UnitAIUpdate {
             return;
         };
         if let Some(physics) = physics.as_ref() {
-            if let Ok(mut physics) = physics.lock() {
+            if let Ok(mut physics) = physics.access() {
                 loco.apply_physics_options(&mut *physics);
             }
         }
@@ -1615,7 +1615,7 @@ impl UnitAIUpdate {
         speed = self.apply_bump_speed_limit(speed, self.blocked_frames > 0);
         let airborne_height = loco.template.airborne_targeting_height;
         let mut object_write = object_arc.write().ok();
-        let mut physics_write = physics.as_ref().and_then(|physics| physics.lock().ok());
+        let mut physics_write = physics.as_ref().and_then(|physics| physics.access().ok());
         let (new_pos, new_angle, _new_speed) = if goal_type == 2 {
             loco.loco_update_move_towards_position(
                 current,
@@ -1644,7 +1644,7 @@ impl UnitAIUpdate {
                     }
                     let _ = object.set_orientation(new_angle);
                     if let Some(physics) = object.get_physics() {
-                        if let Ok(mut physics) = physics.lock() {
+                        if let Ok(mut physics) = physics.access() {
                             if goal_type != 2 {
                                 let velocity = (new_pos - current) / delta;
                                 physics.set_velocity(&velocity);
@@ -1952,7 +1952,7 @@ impl UnitAIUpdate {
                         ai_guard.add_targeter(self_id, false);
                     }
                 }
-                });
+            });
         }
 
         guard.attack_target = victim;
@@ -2098,11 +2098,9 @@ impl UnitAIUpdate {
         let Ok(owner_guard) = owner_arc.read() else {
             return 0;
         };
-        let Some(controller_is_human) = owner_guard
-            .with_controlling_player(|player_guard| {
-                player_guard.get_player_type() == crate::player::PlayerType::Human
-            })
-        else {
+        let Some(controller_is_human) = owner_guard.with_controlling_player(|player_guard| {
+            player_guard.get_player_type() == crate::player::PlayerType::Human
+        }) else {
             return 0;
         };
 

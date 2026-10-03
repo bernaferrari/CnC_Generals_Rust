@@ -1150,9 +1150,9 @@ impl WeaponTemplate {
         drop(launcher_guard);
 
         if let (Some(launcher_phys), Some(projectile_phys)) = (launcher_phys, projectile_phys) {
-            if let Ok(launcher_guard) = launcher_phys.lock() {
+            if let Ok(launcher_guard) = launcher_phys.access() {
                 let velocity = launcher_guard.get_velocity();
-                if let Ok(mut projectile_guard) = projectile_phys.lock() {
+                if let Ok(mut projectile_guard) = projectile_phys.access() {
                     projectile_guard.add_velocity_to(&velocity);
                     projectile_guard.set_ignore_collisions_with(launcher_id);
                 }

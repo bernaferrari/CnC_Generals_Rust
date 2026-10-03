@@ -1276,6 +1276,7 @@ impl AIPlayer {
     pub(super) fn building_can_queue_upgrade(
         object: &crate::game_logic::Object,
         upgrade_name: &str,
+        upgrade_type: gamelogic::upgrade::UpgradeType,
     ) -> bool {
         if !object.is_alive() || !object.is_constructed() {
             return false;
@@ -1286,7 +1287,7 @@ impl AIPlayer {
         if building.production_queue.len() >= crate::game_logic::DEFAULT_PRODUCTION_QUEUE_LIMIT {
             return false;
         }
-        if crate::game_logic::host_upgrades::is_object_scoped_upgrade(upgrade_name)
+        if upgrade_type == gamelogic::upgrade::UpgradeType::Object
             && object.refuses_object_upgrade(upgrade_name)
         {
             return false;
@@ -1310,6 +1311,7 @@ impl AIPlayer {
         &self,
         game_logic: &(impl AiReadSource + ?Sized),
         upgrade_name: &str,
+        upgrade_type: gamelogic::upgrade::UpgradeType,
     ) -> Option<ObjectId> {
         let game_logic = &AiWorldView::new(game_logic);
         let preferred = Self::preferred_upgrade_producer_names(upgrade_name);
@@ -1320,7 +1322,7 @@ impl AIPlayer {
             });
             (object.team == self.team
                 && name_ok
-                && Self::building_can_queue_upgrade(object, upgrade_name))
+                && Self::building_can_queue_upgrade(object, upgrade_name, upgrade_type))
             .then_some(id)
         })
     }
@@ -1340,29 +1342,35 @@ impl AIPlayer {
             .collect();
         for upgrade_name in candidates {
             let kind = HostUpgradeKind::from_name(upgrade_name);
+            let upgrade_type = game_logic.upgrade_type(upgrade_name);
+            let authored = game_logic.upgrade_template(upgrade_name);
             let cost = Resources {
-                supplies: kind.retail_build_cost(),
+                supplies: authored
+                    .as_ref()
+                    .map(|template| template.get_cost().max(0) as u32)
+                    .unwrap_or_else(|| kind.retail_build_cost()),
                 power: 0,
             };
             let Some(player) = game_logic.get_player(self.player_id) else {
                 return;
             };
-            if cost.supplies == 0 || !player.can_afford(&cost) {
+            // Authored zero cost is a valid upgrade, not a missing definition.
+            // Preserve the residual sentinel only for an unknown fallback.
+            if (authored.is_none() && cost.supplies == 0) || !player.can_afford(&cost) {
                 continue;
             }
-            let Some(producer_id) = self.find_upgrade_producer(game_logic, upgrade_name) else {
+            let Some(producer_id) =
+                self.find_upgrade_producer(game_logic, upgrade_name, upgrade_type)
+            else {
                 continue;
             };
-            let upgrade_type = game_logic.upgrade_type(upgrade_name);
             let Some(player) = game_logic.get_player_mut(self.player_id) else {
                 return;
             };
             if !player.queue_upgrade(upgrade_name, &cost, upgrade_type) {
                 continue;
             }
-            let secs = kind
-                .retail_build_time_secs()
-                .max(1.0 / LOGIC_FRAMES_PER_SECOND);
+            let secs = game_logic.upgrade_research_time_secs(upgrade_name);
             if !game_logic.unit_command_building_add_upgrade_to_queue(
                 producer_id,
                 upgrade_name,

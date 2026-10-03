@@ -7,6 +7,15 @@ fn capture_building_upgrade_queue_complete_unlocks_capture_ability() {
     use crate::game_logic::host_upgrades::{HostUpgradeKind, UPGRADE_INFANTRY_CAPTURE};
 
     let mut game_logic = GameLogic::new();
+    // Supply explicit rules so another fixture's catalog cannot change this
+    // C++ ProductionUpdate completion boundary.
+    crate::game_logic::host_upgrade_rules::register_test_upgrade(
+        &game_logic,
+        UPGRADE_INFANTRY_CAPTURE,
+        "PLAYER",
+        1000,
+        30,
+    );
     let mut player = Player::new(0, Team::USA, "USA", true);
     player.resources.supplies = 5000;
     game_logic.add_player(player);
@@ -128,8 +137,23 @@ fn capture_building_upgrade_queue_complete_unlocks_capture_ability() {
 
     // C++ research advances on the producer's Upgrade.ini BuildTime; one
     // 1/30s frame must not instant-complete 30 seconds of research.
-    game_logic.update();
-    game_logic.update_with_dt(30.0);
+    // ProductionUpdate.cpp:687-702 increments once per logic frame.
+    for _ in 0..899 {
+        game_logic.update_with_dt(1.0 / 30.0);
+    }
+    assert!(
+        game_logic
+            .get_player(0)
+            .unwrap()
+            .has_queued_upgrade(UPGRADE_INFANTRY_CAPTURE)
+    );
+    assert!(
+        !game_logic
+            .get_player(0)
+            .unwrap()
+            .has_unlocked_upgrade(UPGRADE_INFANTRY_CAPTURE)
+    );
+    game_logic.update_with_dt(1.0 / 30.0);
 
     let player = game_logic.get_player(0).expect("player after complete");
     assert!(
@@ -215,9 +239,43 @@ fn capture_building_upgrade_queue_complete_unlocks_capture_ability() {
 
     // C++ SpecialAbilityUpdate performs the authored unpack and preparation
     // phases before it defects the target; click acceptance is not a capture.
-    game_logic.update_ai(&[captor_id, building_id], 1.0 / 30.0);
-    game_logic.update_ai(&[captor_id, building_id], 3.0);
-    game_logic.update_ai(&[captor_id, building_id], 20.0);
+    use crate::game_logic::CaptureChannelPhase;
+    let assert_channel = |logic: &GameLogic, phase, target_team| {
+        assert_eq!(
+            logic
+                .host_object(captor_id)
+                .unwrap()
+                .capture_channel
+                .map(|c| c.phase),
+            Some(phase),
+        );
+        assert_eq!(logic.host_object(building_id).unwrap().team, target_team);
+    };
+    game_logic.update_with_dt(1.0 / 30.0);
+    {
+        let captor = game_logic.host_object(captor_id).unwrap();
+        assert_eq!(
+            captor.capture_channel.unwrap().phase,
+            CaptureChannelPhase::Unpacking
+        );
+        assert!(
+            !captor.host_ai_is_moving(),
+            "capture must clear its approach locomotor goal"
+        );
+        assert!(captor.movement.path.is_empty());
+    }
+    for _ in 0..89 {
+        game_logic.update_with_dt(1.0 / 30.0);
+    }
+    assert_channel(&game_logic, CaptureChannelPhase::Unpacking, Team::GLA);
+    game_logic.update_with_dt(1.0 / 30.0);
+    assert_channel(&game_logic, CaptureChannelPhase::Preparing, Team::GLA);
+    for _ in 0..599 {
+        game_logic.update_with_dt(1.0 / 30.0);
+    }
+    assert_channel(&game_logic, CaptureChannelPhase::Preparing, Team::GLA);
+    game_logic.update_with_dt(1.0 / 30.0);
+    assert_channel(&game_logic, CaptureChannelPhase::Packing, Team::USA);
 
     let building = game_logic
         .host_object(building_id)
@@ -231,12 +289,88 @@ fn capture_building_upgrade_queue_complete_unlocks_capture_ability() {
         .host_object(captor_id)
         .expect("captor after capture complete");
     assert_eq!(captor.ai_state, AIState::Capturing);
-    game_logic.update_ai(&[captor_id, building_id], 2.0);
+    for _ in 0..59 {
+        game_logic.update_with_dt(1.0 / 30.0);
+    }
+    assert_channel(&game_logic, CaptureChannelPhase::Packing, Team::USA);
+    game_logic.update_with_dt(1.0 / 30.0);
     let captor = game_logic
         .host_object(captor_id)
         .expect("captor after capture packing");
     assert_eq!(captor.ai_state, AIState::Idle);
     assert!(captor.target.is_none());
+}
+
+#[test]
+fn zero_unpack_capture_clears_approach_goal_and_survives_preparation() {
+    use crate::command_system::{CommandType, GameCommand, SpecialPowerType};
+    use crate::game_logic::CaptureChannelPhase;
+
+    let mut logic = GameLogic::new();
+    logic.add_player(Player::new(0, Team::USA, "USA", false));
+    ensure_test_infantry_template(&mut logic);
+    ensure_test_structure_template(&mut logic);
+    logic
+        .templates
+        .get_mut("TestInfantry")
+        .unwrap()
+        .capture_unpack_time_ms = Some(0);
+    let captor_id = logic
+        .create_object_for_player("TestInfantry", 0, Vec3::new(12.0, 0.0, 0.0))
+        .unwrap();
+    let target_id = logic
+        .create_object("TestBuilding", Team::GLA, Vec3::ZERO)
+        .unwrap();
+    logic
+        .host_object_mut(captor_id)
+        .unwrap()
+        .set_special_power_ready_seconds(&SpecialPowerType::RangerCaptureBuilding, 0.0);
+    logic.queue_command(GameCommand {
+        command_type: CommandType::CaptureBuilding { target_id },
+        player_id: 0,
+        command_id: 1,
+        timestamp: std::time::SystemTime::now(),
+        selected_units: vec![captor_id],
+        modifier_keys: crate::command_system::ModifierKeys::default(),
+    });
+    logic.process_commands();
+    assert_eq!(
+        logic.host_object(captor_id).unwrap().ai_state,
+        AIState::Capturing
+    );
+    logic.update_with_dt(1.0 / 30.0);
+    let captor = logic.host_object(captor_id).unwrap();
+    assert_eq!(
+        captor.capture_channel.unwrap().phase,
+        CaptureChannelPhase::Preparing
+    );
+    assert!(!captor.host_ai_is_moving());
+    assert!(captor.movement.path.is_empty());
+    // A stale approach goal used to abort preparation on this next tick.
+    for _ in 0..599 {
+        logic.update_with_dt(1.0 / 30.0);
+    }
+    assert_eq!(
+        logic
+            .host_object(captor_id)
+            .unwrap()
+            .capture_channel
+            .unwrap()
+            .phase,
+        CaptureChannelPhase::Preparing
+    );
+    assert_eq!(logic.host_object(target_id).unwrap().team, Team::GLA);
+    logic.update_with_dt(1.0 / 30.0);
+    assert_eq!(
+        logic
+            .host_object(captor_id)
+            .unwrap()
+            .capture_channel
+            .unwrap()
+            .phase,
+        CaptureChannelPhase::Packing
+    );
+    assert_eq!(logic.host_object(target_id).unwrap().team, Team::USA);
 }
 
 #[test]
@@ -364,6 +498,15 @@ fn flashbang_upgrade_queue_complete_equips_ranger_secondary() {
     ensure_host_weapon_store();
 
     let mut game_logic = GameLogic::new();
+    // Supply explicit rules so another fixture's catalog cannot change this
+    // C++ ProductionUpdate completion boundary.
+    crate::game_logic::host_upgrade_rules::register_test_upgrade(
+        &game_logic,
+        UPGRADE_AMERICA_FLASHBANG,
+        "PLAYER",
+        800,
+        30,
+    );
     let mut player = Player::new(0, Team::USA, "USA", true);
     player.resources.supplies = 5000;
     game_logic.add_player(player);
@@ -422,8 +565,23 @@ fn flashbang_upgrade_queue_complete_equips_ranger_secondary() {
             .honesty_queue_ok(HostUpgradeKind::FlashBangGrenade)
     );
 
-    game_logic.update();
-    game_logic.update_with_dt(30.0);
+    // ProductionUpdate.cpp:687-702 increments once per logic frame.
+    for _ in 0..899 {
+        game_logic.update_with_dt(1.0 / 30.0);
+    }
+    assert!(
+        game_logic
+            .get_player(0)
+            .unwrap()
+            .has_queued_upgrade(UPGRADE_AMERICA_FLASHBANG)
+    );
+    assert!(
+        !game_logic
+            .get_player(0)
+            .unwrap()
+            .has_unlocked_upgrade(UPGRADE_AMERICA_FLASHBANG)
+    );
+    game_logic.update_with_dt(1.0 / 30.0);
 
     let player = game_logic.get_player(0).expect("player");
     assert!(player.has_unlocked_upgrade(UPGRADE_AMERICA_FLASHBANG));
@@ -466,6 +624,15 @@ fn supply_lines_upgrade_queue_complete_tags_supply_center() {
     use crate::game_logic::host_upgrades::{HostUpgradeKind, UPGRADE_AMERICA_SUPPLY_LINES};
 
     let mut game_logic = GameLogic::new();
+    // Supply explicit rules so another fixture's catalog cannot change this
+    // C++ ProductionUpdate completion boundary.
+    crate::game_logic::host_upgrade_rules::register_test_upgrade(
+        &game_logic,
+        UPGRADE_AMERICA_SUPPLY_LINES,
+        "PLAYER",
+        800,
+        30,
+    );
     let mut player = Player::new(0, Team::USA, "USA", true);
     player.resources.supplies = 5000;
     game_logic.add_player(player);
@@ -500,8 +667,23 @@ fn supply_lines_upgrade_queue_complete_tags_supply_center() {
             .host_upgrades()
             .honesty_queue_ok(HostUpgradeKind::SupplyLines)
     );
-    game_logic.update();
-    game_logic.update_with_dt(30.0);
+    // ProductionUpdate.cpp:687-702 increments once per logic frame.
+    for _ in 0..899 {
+        game_logic.update_with_dt(1.0 / 30.0);
+    }
+    assert!(
+        game_logic
+            .get_player(0)
+            .unwrap()
+            .has_queued_upgrade(UPGRADE_AMERICA_SUPPLY_LINES)
+    );
+    assert!(
+        !game_logic
+            .get_player(0)
+            .unwrap()
+            .has_unlocked_upgrade(UPGRADE_AMERICA_SUPPLY_LINES)
+    );
+    game_logic.update_with_dt(1.0 / 30.0);
 
     assert!(
         game_logic

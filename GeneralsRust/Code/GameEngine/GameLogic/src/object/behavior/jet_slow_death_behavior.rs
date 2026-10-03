@@ -393,7 +393,7 @@ impl JetSlowDeathBehavior {
         let Some(physics) = object.get_physics() else {
             return false;
         };
-        let Ok(physics) = physics.lock() else {
+        let Ok(physics) = physics.access() else {
             return false;
         };
         let tree_id = physics.get_last_collidee();
@@ -472,7 +472,7 @@ impl UpdateModuleInterface for JetSlowDeathBehavior {
         {
             if let Ok(object_guard) = object.read() {
                 if let Some(physics) = object_guard.get_physics() {
-                    if let Ok(mut physics) = physics.lock() {
+                    if let Ok(mut physics) = physics.access() {
                         physics.set_roll_rate(self.roll_rate);
                     }
                 }
@@ -516,7 +516,7 @@ impl UpdateModuleInterface for JetSlowDeathBehavior {
 
                 if let Ok(object_guard) = object.read() {
                     if let Some(physics) = object_guard.get_physics() {
-                        if let Ok(mut physics) = physics.lock() {
+                        if let Ok(mut physics) = physics.access() {
                             physics.set_pitch_rate(self.module_data.pitch_rate);
                         }
                     }

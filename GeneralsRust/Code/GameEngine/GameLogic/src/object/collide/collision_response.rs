@@ -201,7 +201,7 @@ impl CollisionResponseHandler {
         if let Some(handle) = obj_a.as_object_handle() {
             if let Ok(mut guard) = handle.write() {
                 if let Some(physics) = guard.get_physics_mut() {
-                    if let Ok(mut phys_guard) = physics.lock() {
+                    if let Ok(mut phys_guard) = physics.access() {
                         let velocity = phys_guard.get_velocity();
                         let normal = Vec3D::new(cinfo.normal.x, cinfo.normal.y, cinfo.normal.z);
                         let dot =

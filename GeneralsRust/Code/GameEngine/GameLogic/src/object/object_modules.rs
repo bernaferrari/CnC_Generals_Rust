@@ -721,17 +721,17 @@ impl Object {
         })
     }
 
-    pub fn get_physics(&self) -> Option<Arc<Mutex<dyn PhysicsBehavior>>> {
+    pub fn get_physics(&self) -> Option<PhysicsInterfaceHandle> {
         self.physics.clone()
     }
 
-    pub fn set_physics(&mut self, physics: Option<Arc<Mutex<dyn PhysicsBehavior>>>) {
-        self.physics = physics;
+    pub fn set_physics(&mut self, physics: Option<impl Into<PhysicsInterfaceHandle>>) {
+        self.physics = physics.map(Into::into);
     }
 
     /// Get mutable access to physics behavior
-    /// Returns Arc<Mutex<>> to allow interior mutability through locking
-    pub fn get_physics_mut(&mut self) -> Option<Arc<Mutex<dyn PhysicsBehavior>>> {
+    /// Returns a descriptor borrowing the canonical installed physics state.
+    pub fn get_physics_mut(&mut self) -> Option<PhysicsInterfaceHandle> {
         self.physics.clone()
     }
 

@@ -708,7 +708,10 @@ impl StealthController {
                     let disguise_idx = self.disguise_as_player_index;
                     let local_idx = player_list().read().ok().and_then(|list| {
                         list.get_local_player().and_then(|local| {
-                            local.read().ok().map(|local_guard| local_guard.get_player_index())
+                            local
+                                .read()
+                                .ok()
+                                .map(|local_guard| local_guard.get_player_index())
                         })
                     });
                     let allied_or_inactive = match local_idx {
@@ -1295,7 +1298,7 @@ impl StealthController {
 
         if (flags & STEALTH_NOT_WHILE_MOVING) != 0 {
             if let Some(physics) = object.get_physics() {
-                if let Ok(physics_guard) = physics.lock() {
+                if let Ok(physics_guard) = physics.access() {
                     if leftover_not_while_moving_destalths(
                         physics_guard.get_velocity().length(),
                         self.data.stealth_speed,
@@ -1350,14 +1353,13 @@ impl StealthController {
                         return Ok(());
                     }
 
-                    let object_arc = match crate::helpers::TheGameLogic::find_object_by_id(
-                        object_id,
-                    )
-                    .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(object_id))
-                    {
-                        Some(a) => a,
-                        None => return Ok(()),
-                    };
+                    let object_arc =
+                        match crate::helpers::TheGameLogic::find_object_by_id(object_id).or_else(
+                            || crate::object::registry::OBJECT_REGISTRY.get_object(object_id),
+                        ) {
+                            Some(a) => a,
+                            None => return Ok(()),
+                        };
                     let Ok(object_guard) = object_arc.read() else {
                         return Ok(());
                     };

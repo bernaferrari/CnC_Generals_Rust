@@ -677,7 +677,10 @@ impl GameLogic {
         power: crate::game_logic::CapturePowerKind,
     ) {
         if let Some(object) = self.objects.get_mut(&object_id) {
-            // C++ startFacing aiIdle before unpack/prep so leftover approach is not "in use + moving".
+            // C++ startFacing calls aiIdle, whose onEnter clears the
+            // locomotor goal (AIStates.cpp:1361). Clearing only the path
+            // leaves isMoving true and aborts capture on the next update.
+            object.set_locomotor_goal_none();
             object.stop_moving();
         }
         self.leftover_sa_set_pack_model(object_id, true, false, false);
@@ -2386,6 +2389,9 @@ impl GameLogic {
         if !object.is_alive() {
             return false;
         }
+        // C++ startPreparation calls aiIdle too (SpecialAbilityUpdate.cpp:1070).
+        // A zero UnpackTime skips startFacing/unpacking, so clear its goal here.
+        object.set_locomotor_goal_none();
         object.stop_moving();
         object.set_ai_state(AIState::Capturing);
         object.capture_channel = Some(crate::game_logic::CaptureChannelState::new(

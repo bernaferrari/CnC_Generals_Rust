@@ -18,13 +18,13 @@
 //! - Airborne creation support
 
 use crate::ai::the_ai;
-use crate::object::ProductionBehaviorRallyKindMut;
 use crate::common::*;
 use crate::helpers::{TheGameLogic, TheTerrainLogic};
 use crate::modules::{
     AIUpdateInterfaceExt, BehaviorModuleInterface, ExitDoorType as ModuleExitDoorType,
     ExitInterface as ModuleExitInterface, UpdateModuleInterface, UpdateSleepTime,
 };
+use crate::object::ProductionBehaviorRallyKindMut;
 use crate::object::behavior::behavior_module::{BehaviorModuleData, xfer_update_module_base_state};
 use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::name_key_generator::NameKeyGenerator;
@@ -467,7 +467,7 @@ impl ModuleExitInterface for QueueProductionExitBehavior {
         let owner_layer = owner_guard.get_layer();
         let owner_velocity = owner_guard
             .get_physics()
-            .and_then(|physics| physics.lock().ok().map(|p| p.get_velocity()));
+            .and_then(|physics| physics.access().ok().map(|p| p.get_velocity()));
         drop(owner_guard);
 
         let new_obj_id = obj.read().map(|guard| guard.get_id()).unwrap_or(INVALID_ID);
@@ -495,7 +495,7 @@ impl ModuleExitInterface for QueueProductionExitBehavior {
                 if let Some(owner_velocity) = owner_velocity {
                     if let Ok(obj_guard) = obj.read() {
                         if let Some(physics) = obj_guard.get_physics() {
-                            if let Ok(mut phys_guard) = physics.lock() {
+                            if let Ok(mut phys_guard) = physics.access() {
                                 let mut starting_force = owner_velocity;
                                 starting_force *= phys_guard.get_mass();
                                 phys_guard.apply_motive_force(&starting_force);
@@ -509,7 +509,8 @@ impl ModuleExitInterface for QueueProductionExitBehavior {
                 }
             }
 
-            let ai_store = the_ai(); if let Ok(ai_guard) = ai_store.read() {
+            let ai_store = the_ai();
+            if let Ok(ai_guard) = ai_store.read() {
                 if let Some(pathfinder) = ai_guard.pathfinder() {
                     if let Ok(mut pf) = pathfinder.write() {
                         pf.add_object_to_map(new_obj_id, &[result.exit_position], false);
@@ -518,7 +519,8 @@ impl ModuleExitInterface for QueueProductionExitBehavior {
             }
 
             let mut natural_rally = self.get_natural_rally_point(&building_transform, true);
-            let ai_store = the_ai(); if let Ok(ai_guard) = ai_store.read() {
+            let ai_store = the_ai();
+            if let Ok(ai_guard) = ai_store.read() {
                 if let Some(pathfinder) = ai_guard.pathfinder() {
                     if let Ok(pf) = pathfinder.read() {
                         if let Ok(obj_guard) = obj.read() {

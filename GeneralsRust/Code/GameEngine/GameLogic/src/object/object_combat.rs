@@ -1938,7 +1938,7 @@ impl Object {
                 // write. Do not borrow self.physics across set_shockwave_stunned_flailing.
                 let physics = self.physics.clone();
                 let shocked = if let Some(physics) = physics {
-                    if let Ok(mut physics_guard) = physics.lock() {
+                    if let Ok(mut physics_guard) = physics.access() {
                         physics_guard.apply_shock(&shock_wave_force);
                         physics_guard.apply_random_rotation();
                         physics_guard.set_stunned(true);
