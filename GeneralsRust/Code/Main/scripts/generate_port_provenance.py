@@ -406,6 +406,32 @@ def resolve_declared_module(parent: Path, name: str) -> Path | None:
     return None
 
 
+def declared_rust_children(path: Path) -> list[Path]:
+    """Resolve file-backed modules/includes using Rust's named-module layout."""
+    content = path.read_text(encoding="utf-8", errors="ignore")
+    children: set[Path] = set()
+    for value in PATH_MOD_RE.findall(content):
+        target = (path.parent / value).resolve()
+        if target.is_file():
+            children.add(target)
+
+    # A named foo.rs declares children under foo/; crate roots and mod.rs
+    # declare children beside themselves. Explicit #[path] is relative to the file.
+    module_directory = (
+        path.parent if path.name in {"lib.rs", "main.rs", "mod.rs"}
+        else path.with_suffix("")
+    )
+    for name in set(MOD_RE.findall(PATH_MOD_RE.sub("", content))):
+        target = resolve_declared_module(module_directory, name)
+        if target is not None:
+            children.add(target)
+    for value in INCLUDE_RE.findall(content):
+        target = (path.parent / value).resolve()
+        if target.is_file():
+            children.add(target)
+    return sorted(children)
+
+
 def collect_reachable_rust(rust_repo_root: Path) -> set[Path]:
     """Conservatively walk Rust module/include declarations from Cargo roots."""
     reachable: set[Path] = set()
@@ -415,29 +441,7 @@ def collect_reachable_rust(rust_repo_root: Path) -> set[Path]:
         if path in reachable or not path.is_file():
             continue
         reachable.add(path)
-        try:
-            content = path.read_text(encoding="utf-8")
-        except UnicodeDecodeError:
-            content = path.read_text(encoding="utf-8", errors="ignore")
-
-        explicit_paths = set(PATH_MOD_RE.findall(content))
-        for value in sorted(explicit_paths):
-            target = (path.parent / value).resolve()
-            if target.is_file() and target not in reachable:
-                queue.append(target)
-
-        # Remove #[path] declarations before the conventional module pass so a
-        # path-qualified declaration is not resolved twice.
-        conventional_content = PATH_MOD_RE.sub("", content)
-        for name in sorted(set(MOD_RE.findall(conventional_content))):
-            target = resolve_declared_module(path.parent, name)
-            if target is not None and target not in reachable:
-                queue.append(target)
-
-        for value in sorted(set(INCLUDE_RE.findall(content))):
-            target = (path.parent / value).resolve()
-            if target.is_file() and target not in reachable:
-                queue.append(target)
+        queue.extend(declared_rust_children(path))
     return reachable
 
 
@@ -508,15 +512,16 @@ def score_candidate(info: RustFileInfo, scope: ScopeRoot, area: str) -> tuple[in
 
 
 def expand_split_root(root: RustFileInfo, by_absolute: dict[Path, RustFileInfo]) -> list[RustFileInfo]:
-    if root.absolute.name != "mod.rs":
-        return [root]
-    directory = root.absolute.parent
-    members = [
-        info
-        for path, info in by_absolute.items()
-        if path == root.absolute or directory in path.parents
-    ]
-    return sorted(members, key=lambda info: info.relative)
+    """Expand actual declarations, never arbitrary files in a split directory."""
+    members: dict[Path, RustFileInfo] = {}
+    queue: deque[Path] = deque([root.absolute])
+    while queue:
+        path = queue.popleft()
+        if path in members or path not in by_absolute:
+            continue
+        members[path] = by_absolute[path]
+        queue.extend(declared_rust_children(path))
+    return sorted(members.values(), key=lambda info: info.relative)
 
 
 def destination_record(
@@ -763,9 +768,15 @@ def discover_destinations(
 
     stem = normalize_name(source.stem)
     area = source_area(source, scope)
+    # Both foo/mod.rs and foo.rs with declared children are real split roots.
+    # An arbitrary foo/combat_drop.rs is a child, not the owner of C++ Foo.
+    roots = [info for info in split_roots.get(stem, []) if info.absolute.name == "mod.rs"]
+    roots.extend(
+        info for info in by_stem.get(stem, [])
+        if info.absolute.name != "mod.rs" and declared_rust_children(info.absolute)
+    )
     roots = [
-        info
-        for info in split_roots.get(stem, [])
+        info for info in roots
         if any(info.relative.startswith(prefix) for prefix in allowed_rust_prefixes(scope))
     ]
     if roots:

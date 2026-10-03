@@ -112,8 +112,32 @@ fn fn_body<'a>(src: &'a str, name: &str) -> Option<&'a str> {
 
 /// Source residual: ChinookAI empty dual-world short-circuits.
 pub fn honesty_chinook_ai_dual_world_empty_gate_source() -> bool {
-    let g = include_str!(
-        "../../../../GameEngine/GameLogic/src/object/update/ai_update/chinook_ai_update.rs"
+    // Inspect the reachable production implementation; tests are not source evidence.
+    let g = concat!(
+        include_str!(
+            "../../../../GameEngine/GameLogic/src/object/update/ai_update/chinook_ai_update.rs"
+        ),
+        include_str!(
+            "../../../../GameEngine/GameLogic/src/object/update/ai_update/chinook_ai_update/module_data.rs"
+        ),
+        include_str!(
+            "../../../../GameEngine/GameLogic/src/object/update/ai_update/chinook_ai_update/combat_drop.rs"
+        ),
+        include_str!(
+            "../../../../GameEngine/GameLogic/src/object/update/ai_update/chinook_ai_update/flight_states.rs"
+        ),
+        include_str!(
+            "../../../../GameEngine/GameLogic/src/object/update/ai_update/chinook_ai_update/commands.rs"
+        ),
+        include_str!(
+            "../../../../GameEngine/GameLogic/src/object/update/ai_update/chinook_ai_update/supply.rs"
+        ),
+        include_str!(
+            "../../../../GameEngine/GameLogic/src/object/update/ai_update/chinook_ai_update/update.rs"
+        ),
+        include_str!(
+            "../../../../GameEngine/GameLogic/src/object/update/ai_update/chinook_ai_update/snapshot.rs"
+        ),
     );
     if !(g.contains("Wave 349")
         && g.contains("fn dual_world_registry_unavailable")

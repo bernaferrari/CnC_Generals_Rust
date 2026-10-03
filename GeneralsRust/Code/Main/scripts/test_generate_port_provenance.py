@@ -109,6 +109,44 @@ class GeneratePortProvenanceTests(unittest.TestCase):
         )
         self.assertIn("unreviewed_mapping", foo["blockers"])
 
+    def test_named_split_follows_private_declared_children_and_excludes_orphans(self) -> None:
+        temporary, fixture = self.build_fixture()
+        self.addCleanup(temporary.cleanup)
+        prefix = "GeneralsRust/Code/GameEngine/GameClient/src/"
+        (fixture.root / prefix / "foo/mod.rs").unlink()
+        fixture.write(
+            prefix + "foo.rs",
+            'mod flight;\nmod combat_drop;\n'
+            '#[path = "foo/ini.rs"]\nmod data;\n'
+            '#[cfg(test)]\nmod tests;\npub struct FooState;\n',
+        )
+        fixture.write(prefix + "foo/flight.rs", "mod landing;\npub fn fly() {}\n")
+        fixture.write(prefix + "foo/flight/landing.rs", "pub fn land() {}\n")
+        fixture.write(prefix + "foo/combat_drop.rs", "pub fn drop_passengers() {}\n")
+        fixture.write(prefix + "foo/ini.rs", "pub struct FooRules;\n")
+        # Same-folder names and leftover fragments must not masquerade as owners.
+        decoys = {prefix + "flight.rs", prefix + "landing.rs", prefix + "foo/part.rs"}
+        for path in decoys:
+            fixture.write(path, "pub fn unrelated() {}\n")
+
+        manifest = provenance.build_manifest(fixture.root)
+        foo = self.entry(manifest, "Foo.cpp")
+        destinations = {item["path"]: item for item in foo["mapping"]["destinations"]}
+        expected = {prefix + suffix for suffix in (
+            "foo.rs", "foo/flight.rs", "foo/flight/landing.rs",
+            "foo/combat_drop.rs", "foo/ini.rs", "foo/tests.rs",
+        )}
+        self.assertEqual(expected, set(destinations))
+        self.assertTrue(all(item["cargo_reachable"] for item in destinations.values()))
+        self.assertEqual("test", destinations[prefix + "foo/tests.rs"]["classification"])
+        self.assertEqual("split_inferred", foo["mapping"]["mode"])
+        self.assertEqual("unreviewed", foo["mapping"]["review_state"])
+        self.assertEqual("not_verified", foo["behavior"]["status"])
+        self.assertFalse(foo["mapping"]["reviewed_path_implementation"])
+        self.assertEqual("reachable_implementation_candidate", foo["mapping"]["candidate_status"])
+        reachable = provenance.collect_reachable_rust(fixture.root / "GeneralsRust")
+        self.assertFalse(any((fixture.root / path).resolve() in reachable for path in decoys))
+
     def test_telemetry_and_test_candidates_cannot_satisfy_implementation_coverage(self) -> None:
         temporary, fixture = self.build_fixture()
         self.addCleanup(temporary.cleanup)
