@@ -92,12 +92,23 @@ impl ObjectManager for ObjectManagerBridge {
 
     fn destroy_object(&mut self, id: ObjectID) -> bool {
         let factory_handle = get_object_factory();
-        let result = if let Ok(mut factory) = factory_handle.write() {
-            factory.destroy_object(id).is_ok()
-        } else {
-            false
+        let registered = match factory_handle.read() {
+            Ok(factory) => factory.get_object(id).is_some(),
+            Err(_) => return false,
         };
-        result
+        if !registered {
+            return true;
+        }
+        // C++ destroyObject callbacks can access the factory. Do not hold its
+        // guard while the canonical owner executes them.
+        if crate::helpers::TheGameLogic::destroy_object_by_id(id).is_err() {
+            return false;
+        }
+        let Ok(mut factory) = factory_handle.write() else {
+            return false;
+        };
+        factory.track_destroyed_object(id);
+        true
     }
 }
 

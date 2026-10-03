@@ -155,9 +155,7 @@ impl ThingTemplate for AuthoredBodyTemplate {
     }
 }
 
-#[test]
-fn factory_authored_body_creates_once_and_restores_live_health() {
-    let _lock = crate::test_sync::lock();
+fn register_creation_probe() {
     crate::contain_module_overrides::register_active_body_override_for_test()
         .expect("real ActiveBody descriptor");
     register_module_override(
@@ -179,6 +177,12 @@ fn factory_authored_body_creates_once_and_restores_live_health() {
             &AsciiString::from(PROBE_NAME),
             ModuleInterfaceType::NONE,
         );
+}
+
+#[test]
+fn factory_authored_body_creates_once_and_restores_live_health() {
+    let _lock = crate::test_sync::lock();
+    register_creation_probe();
     let mut factory = ObjectFactory::new();
     // Avoid retail database startup while still taking the complete production
     // factory -> constructor -> module override -> Object Xfer route.
@@ -266,27 +270,7 @@ fn factory_authored_body_creates_once_and_restores_live_health() {
 #[test]
 fn factory_behavior_views_keep_identity_and_release_owner_before_callbacks() {
     let _lock = crate::test_sync::lock();
-    crate::contain_module_overrides::register_active_body_override_for_test()
-        .expect("real ActiveBody descriptor");
-    register_module_override(
-        PROBE_NAME,
-        ModuleType::Behavior,
-        probe_factory,
-        probe_data_factory,
-    )
-    .expect("probe descriptor");
-    init_module_factory().expect("module factory");
-    get_module_factory()
-        .unwrap()
-        .as_mut()
-        .unwrap()
-        .add_module_internal(
-            Some(probe_factory),
-            Some(probe_data_factory),
-            ModuleType::Behavior,
-            &AsciiString::from(PROBE_NAME),
-            ModuleInterfaceType::NONE,
-        );
+    register_creation_probe();
     let mut factory = ObjectFactory::new();
     factory.next_object_id = 91_411;
     let mut template = AuthoredBodyTemplate::new("DetachedBehaviorProbe", true);
@@ -456,4 +440,165 @@ fn factory_fixture_retirement_leaves_no_admitted_objects_for_later_reset() {
         .lock()
         .unwrap()
         .clear_all_objects();
+}
+
+#[test]
+fn factory_destruction_preserves_canonical_callback_and_retirement_order() {
+    let _lock = crate::test_sync::lock();
+    register_creation_probe();
+    let mut factory = ObjectFactory::new();
+    factory.next_object_id = 91_501;
+    let mut template = AuthoredBodyTemplate::new("FactoryDestroyProbe", true);
+    template.modules[0].interface_mask = ModuleInterfaceType::DESTROY;
+    factory
+        .template_cache
+        .insert("FactoryDestroyProbe".into(), Arc::new(template));
+    let id = factory
+        .create_object(
+            "FactoryDestroyProbe",
+            Coord3D::default(),
+            None,
+            ObjectCreationFlags::NO_DRAWABLE,
+        )
+        .unwrap();
+    let retained = factory.get_object(id).unwrap().get_base_object().unwrap();
+    let entry = retained.read().unwrap().modules[0].clone();
+    let mut logic = crate::system::game_logic::get_game_logic().lock().unwrap();
+    factory.destroy_object(&mut logic, id);
+    entry.with_module(|module| {
+        let probe = module.as_any_mut().downcast_mut::<CreationProbe>().unwrap();
+        // Existing Destroy adapter dispatch is tracked separately in hq-owgwt.
+        assert_eq!(probe.delete_status, [false, true]);
+    });
+    assert!(retained.read().unwrap().is_destroyed());
+    assert!(
+        OBJECT_REGISTRY.get_object(id).is_some(),
+        "onDelete precedes lookup retirement"
+    );
+    assert!(logic.find_object_by_id(id).is_some());
+    factory.destroy_object(&mut logic, id);
+    assert_eq!(
+        factory.destruction_queue,
+        [id],
+        "duplicate requests do not duplicate bookkeeping"
+    );
+    factory.process_destruction_queue(&logic);
+    assert!(
+        factory.get_object(id).is_some(),
+        "pending canonical object retains its factory wrapper"
+    );
+    assert_eq!(factory.get_statistics().total_destroyed, 0);
+    logic.cleanup_dead_objects().unwrap();
+    assert!(logic.find_object_by_id(id).is_none());
+    assert!(OBJECT_REGISTRY.get_object(id).is_none());
+    factory.process_destruction_queue(&logic);
+    assert!(factory.get_object(id).is_none());
+    assert_eq!(factory.get_statistics().total_destroyed, 1);
+}
+
+#[test]
+fn projectile_bookkeeping_survives_canonical_retirement_without_object_borrows() {
+    let _lock = crate::test_sync::lock();
+    let id = 91_551;
+    let retained = Arc::new(RwLock::new(Object::new_test(id, 100.0)));
+    let mut logic = crate::system::game_logic::GameLogic::new();
+    logic.register_object(Arc::clone(&retained)).unwrap();
+    let mut factory = ObjectFactory::new();
+    factory
+        .object_registry
+        .insert(id, GameObjectInstance::Projectile(id));
+    factory.update_pool_stats(&ObjectType::Projectile);
+    factory.total_objects_created = 1;
+    {
+        let _exclusive_owner = retained.write().unwrap();
+        let stats = factory.get_statistics();
+        assert_eq!(stats.projectiles, 1);
+        assert_eq!(stats.pool_stats["Projectile"].in_use, 1);
+        assert_eq!(factory.get_all_projectiles(), [id]);
+    }
+    factory.destroy_object(&mut logic, id);
+    factory.process_destruction_queue(&logic);
+    assert_eq!(factory.get_statistics().pool_stats["Projectile"].in_use, 1);
+    logic.cleanup_dead_objects().unwrap();
+    factory.process_destruction_queue(&logic);
+    let stats = factory.get_statistics();
+    assert_eq!(stats.total_destroyed, 1);
+    assert_eq!(stats.projectiles, 0);
+    assert_eq!(stats.pool_stats["Projectile"].in_use, 0);
+    assert_eq!(stats.pool_stats["Projectile"].allocated, 1);
+    assert!(!stats.pool_stats.contains_key("BaseObject"));
+}
+
+#[test]
+fn factory_reset_retires_owned_objects_and_preserves_a_live_id_namespace() {
+    let _lock = crate::test_sync::lock();
+    register_creation_probe();
+    let mut factory = ObjectFactory::new();
+    factory.next_object_id = 91_601;
+    let mut template = AuthoredBodyTemplate::new("FactoryResetProbe", true);
+    template.modules[0].interface_mask = ModuleInterfaceType::DESTROY;
+    factory
+        .template_cache
+        .insert("FactoryResetProbe".into(), Arc::new(template));
+    let id = factory
+        .create_object(
+            "FactoryResetProbe",
+            Coord3D::default(),
+            None,
+            ObjectCreationFlags::NO_DRAWABLE,
+        )
+        .unwrap();
+    let retained = factory.get_object(id).unwrap().get_base_object().unwrap();
+    let entry = retained.read().unwrap().modules[0].clone();
+    let next_id = factory.next_object_id;
+    let unrelated_id = 91_610;
+    let unrelated = Arc::new(RwLock::new(Object::new_test(unrelated_id, 100.0)));
+    let mut logic = crate::system::game_logic::get_game_logic().lock().unwrap();
+    logic.register_object(Arc::clone(&unrelated)).unwrap();
+    factory.clear_all_objects(&mut logic).unwrap();
+    assert!(factory.get_object(id).is_none());
+    assert!(logic.find_object_by_id(id).is_none());
+    assert!(logic.find_object_by_id(unrelated_id).is_some());
+    assert!(!unrelated.read().unwrap().is_destroyed());
+    assert_eq!(
+        factory.next_object_id, next_id,
+        "factory reset must not reuse a live world namespace"
+    );
+    entry.with_module(|module| {
+        let probe = module.as_any_mut().downcast_mut::<CreationProbe>().unwrap();
+        assert_eq!(probe.delete_status, [false, true]);
+    });
+    logic.destroy_object(unrelated_id);
+    logic.cleanup_dead_objects().unwrap();
+}
+
+#[test]
+fn factory_retirement_queries_the_driving_world_with_identical_ids() {
+    let _lock = crate::test_sync::lock();
+    let id = 91_650;
+    let first = Arc::new(RwLock::new(Object::new_test(id, 100.0)));
+    let second = Arc::new(RwLock::new(Object::new_test(id, 200.0)));
+    let mut first_world = crate::system::game_logic::GameLogic::new();
+    let mut second_world = crate::system::game_logic::GameLogic::new();
+    first_world.register_object(Arc::clone(&first)).unwrap();
+    second_world.register_object(Arc::clone(&second)).unwrap();
+    let mut factory = ObjectFactory::new();
+    factory
+        .object_registry
+        .insert(id, GameObjectInstance::BaseObject(id));
+    factory.destroy_object(&mut first_world, id);
+    assert!(first.read().unwrap().is_destroyed());
+    assert!(!second.read().unwrap().is_destroyed());
+    first_world.cleanup_dead_objects().unwrap();
+    factory.process_destruction_queue(&second_world);
+    assert!(
+        factory.get_object(id).is_some(),
+        "other driving world's admission retains bookkeeping"
+    );
+    factory.process_destruction_queue(&first_world);
+    assert!(factory.get_object(id).is_none());
+    // Global lookup publication remains a separate migration; this fixture
+    // proves only that destruction/retirement use the passed canonical owner.
+    second_world.destroy_object(id);
+    second_world.cleanup_dead_objects().unwrap();
 }

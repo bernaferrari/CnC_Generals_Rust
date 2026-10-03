@@ -53,8 +53,10 @@ pub enum GameObjectInstance {
     Structure(Structure),
     /// Owned by the factory registry (borrow via get_object_mut).
     SimpleObject(SimpleObject),
-    /// Base/projectile entry: identity only; resolve Object via registry.
+    /// Base entry: identity only; resolve Object via registry.
     BaseObject(ObjectID),
+    /// Projectile classification survives canonical lookup retirement.
+    Projectile(ObjectID),
 }
 
 impl std::fmt::Debug for GameObjectInstance {
@@ -66,6 +68,7 @@ impl std::fmt::Debug for GameObjectInstance {
                 f.write_str("GameObjectInstance::SimpleObject(..)")
             }
             GameObjectInstance::BaseObject(id) => write!(f, "GameObjectInstance::BaseObject({id})"),
+            GameObjectInstance::Projectile(id) => write!(f, "GameObjectInstance::Projectile({id})"),
         }
     }
 }
@@ -77,16 +80,18 @@ impl GameObjectInstance {
             GameObjectInstance::Unit(unit) => unit.base_object(),
             GameObjectInstance::Structure(structure) => structure.base_object(),
             GameObjectInstance::SimpleObject(simple_object) => simple_object.base_object(),
-            GameObjectInstance::BaseObject(id) => crate::object::registry::OBJECT_REGISTRY
-                .get_object(*id)
-                .or_else(|| crate::helpers::TheGameLogic::find_object_by_id(*id)),
+            GameObjectInstance::BaseObject(id) | GameObjectInstance::Projectile(id) => {
+                crate::object::registry::OBJECT_REGISTRY
+                    .get_object(*id)
+                    .or_else(|| crate::helpers::TheGameLogic::find_object_by_id(*id))
+            }
         }
     }
 
     /// Get object ID
     pub fn get_id(&self) -> ObjectID {
         match self {
-            GameObjectInstance::BaseObject(id) => *id,
+            GameObjectInstance::BaseObject(id) | GameObjectInstance::Projectile(id) => *id,
             _ => self
                 .get_base_object()
                 .and_then(|arc| arc.read().ok().map(|guard| guard.get_id()))
@@ -109,7 +114,7 @@ impl GameObjectInstance {
             GameObjectInstance::SimpleObject(simple_object) => {
                 simple_object.update(delta_time)?;
             }
-            GameObjectInstance::BaseObject(_) => {
+            GameObjectInstance::BaseObject(_) | GameObjectInstance::Projectile(_) => {
                 // Base objects don't have additional update logic beyond their modules
             }
         }
@@ -127,13 +132,31 @@ impl GameObjectInstance {
     }
 
     pub fn is_projectile(&self) -> bool {
-        self.get_base_object()
-            .and_then(|arc| {
-                arc.read()
-                    .ok()
-                    .map(|object| object.is_kind_of(KindOf::Projectile))
-            })
-            .unwrap_or(false)
+        match self {
+            Self::Projectile(_) => true,
+            Self::BaseObject(_) => false,
+            // Preserve unusual authored combinations: a vehicle/structure
+            // classification can also carry KINDOF_PROJECTILE.
+            _ => self
+                .get_base_object()
+                .and_then(|object| {
+                    object
+                        .read()
+                        .ok()
+                        .map(|object| object.is_kind_of(KindOf::Projectile))
+                })
+                .unwrap_or(false),
+        }
+    }
+
+    fn object_type(&self) -> ObjectType {
+        match self {
+            Self::Unit(_) => ObjectType::Unit,
+            Self::Structure(_) => ObjectType::Structure,
+            Self::SimpleObject(_) => ObjectType::SimpleObject,
+            Self::BaseObject(_) => ObjectType::BaseObject,
+            Self::Projectile(_) => ObjectType::Projectile,
+        }
     }
 
     pub fn is_simple_object(&self) -> bool {
@@ -182,7 +205,7 @@ pub struct ObjectFactory {
     total_objects_destroyed: u32,
 
     /// Memory pool statistics
-    pool_stats: HashMap<String, PoolStats>,
+    pool_stats: HashMap<ObjectType, PoolStats>,
 }
 
 /// Memory pool statistics
@@ -736,7 +759,7 @@ impl ObjectFactory {
 
             ObjectType::BaseObject => GameObjectInstance::BaseObject(object_id),
 
-            ObjectType::Projectile => GameObjectInstance::BaseObject(object_id),
+            ObjectType::Projectile => GameObjectInstance::Projectile(object_id),
         };
 
         // Create drawable if needed
@@ -767,31 +790,33 @@ impl ObjectFactory {
         self.object_registry.get_mut(&object_id)
     }
 
-    /// Destroy object by ID
+    /// Request canonical destruction; finalization remains at GameLogic's
+    /// processDestroyList boundary. No object guard spans either callback phase.
     pub fn destroy_object(
         &mut self,
+        game_logic: &mut crate::system::game_logic::GameLogic,
         object_id: ObjectID,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        if let Some(game_object) = self.object_registry.get(&object_id) {
-            // Call destroy callbacks on the base object
-            let Some(base_object) = game_object.get_base_object() else {
-                return Ok(());
-            };
-            if let Ok(mut obj_guard) = base_object.write() {
-                obj_guard.on_destroy();
-                let _ = TheGameLogic::destroy_object(&obj_guard);
-            }
+    ) {
+        if self.object_registry.contains_key(&object_id) {
+            game_logic.destroy_object(object_id);
+            self.track_destroyed_object(object_id);
+        }
+    }
 
-            // Add to destruction queue for cleanup at end of frame
+    /// The application adapter releases its factory guard before driving
+    /// callbacks, then records only this bookkeeping after the request.
+    pub(crate) fn track_destroyed_object(&mut self, object_id: ObjectID) {
+        if self.object_registry.contains_key(&object_id)
+            && !self.destruction_queue.contains(&object_id)
+        {
             self.destruction_queue.push(object_id);
         }
-
-        Ok(())
     }
 
     /// Update all objects for one frame
     pub fn update_all_objects(
         &mut self,
+        game_logic: &mut crate::system::game_logic::GameLogic,
         delta_time: Real,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         // Collect object IDs to avoid borrowing issues
@@ -802,7 +827,7 @@ impl ObjectFactory {
                 if let Err(e) = game_object.update(delta_time) {
                     // If update fails (e.g., projectile should be destroyed), mark for destruction
                     if e.to_string().contains("should be destroyed") {
-                        self.destruction_queue.push(object_id);
+                        self.destroy_object(game_logic, object_id);
                     } else {
                         eprintln!("Error updating object {}: {}", object_id, e);
                     }
@@ -811,54 +836,25 @@ impl ObjectFactory {
         }
 
         // Process destruction queue
-        self.process_destruction_queue()?;
+        self.process_destruction_queue(game_logic);
 
         Ok(())
     }
 
-    /// Process objects marked for destruction
-    fn process_destruction_queue(
-        &mut self,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let destroyed_ids: Vec<ObjectID> = self.destruction_queue.drain(..).collect();
+    /// Retire factory wrappers only after the driving owner retires admission.
+    /// The factory never unregisters lookup or finalizes gameplay objects.
+    fn process_destruction_queue(&mut self, game_logic: &crate::system::game_logic::GameLogic) {
+        let destroyed_ids = std::mem::take(&mut self.destruction_queue);
         for object_id in destroyed_ids {
+            if game_logic.contains_object_id(object_id) {
+                self.destruction_queue.push(object_id);
+                continue;
+            }
             if let Some(game_object) = self.object_registry.remove(&object_id) {
-                TheGameLogic::remove_object(object_id);
-                // Update statistics based on object type
-                match game_object {
-                    GameObjectInstance::Unit(_) => {
-                        self.update_pool_stats_destroyed(&ObjectType::Unit);
-                    }
-                    GameObjectInstance::Structure(_) => {
-                        self.update_pool_stats_destroyed(&ObjectType::Structure);
-                    }
-                    GameObjectInstance::SimpleObject(_) => {
-                        self.update_pool_stats_destroyed(&ObjectType::SimpleObject);
-                    }
-                    GameObjectInstance::BaseObject(id) => {
-                        let is_projectile = crate::object::registry::OBJECT_REGISTRY
-                            .get_object(id)
-                            .and_then(|object| {
-                                object
-                                    .read()
-                                    .ok()
-                                    .map(|guard| guard.is_kind_of(KindOf::Projectile))
-                            })
-                            .unwrap_or(false);
-                        let object_type = if is_projectile {
-                            ObjectType::Projectile
-                        } else {
-                            ObjectType::BaseObject
-                        };
-                        self.update_pool_stats_destroyed(&object_type);
-                    }
-                }
-
+                self.update_pool_stats_destroyed(&game_object.object_type());
                 self.total_objects_destroyed += 1;
             }
         }
-
-        Ok(())
     }
 
     /// Get all objects of a specific type
@@ -890,32 +886,54 @@ impl ObjectFactory {
 
     /// Get statistics
     pub fn get_statistics(&self) -> ObjectFactoryStats {
-        ObjectFactoryStats {
+        let mut stats = ObjectFactoryStats {
             total_objects: self.object_registry.len() as u32,
             total_created: self.total_objects_created,
             total_destroyed: self.total_objects_destroyed,
-            units: self.get_all_units().len() as u32,
-            structures: self.get_all_structures().len() as u32,
-            projectiles: self.get_all_projectiles().len() as u32,
-            simple_objects: self.get_objects_by_type(|obj| obj.is_simple_object()).len() as u32,
-            pool_stats: self.pool_stats.clone(),
+            units: 0,
+            structures: 0,
+            projectiles: 0,
+            simple_objects: 0,
+            pool_stats: self
+                .pool_stats
+                .iter()
+                .map(|(kind, pool)| (kind.to_string(), pool.clone()))
+                .collect(),
+        };
+        for object in self.object_registry.values() {
+            stats.units += u32::from(object.is_unit());
+            stats.structures += u32::from(object.is_structure());
+            stats.projectiles += u32::from(object.is_projectile());
+            stats.simple_objects += u32::from(object.is_simple_object());
         }
+        stats
     }
 
-    /// Clear all objects (for map changes, etc.)
-    pub fn clear_all_objects(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        // Add all objects to destruction queue
-        let all_ids: Vec<ObjectID> = self.object_registry.keys().cloned().collect();
-        for id in all_ids {
-            self.destruction_queue.push(id);
+    /// Reset this factory's objects in canonical C++ linked-list order.
+    pub fn clear_all_objects(
+        &mut self,
+        game_logic: &mut crate::system::game_logic::GameLogic,
+    ) -> Result<(), crate::system::game_logic::GameLogicError> {
+        let admitted: Vec<_> = game_logic
+            .get_all_object_ids()
+            .iter()
+            .copied()
+            .filter(|id| self.object_registry.contains_key(id))
+            .collect();
+        for id in admitted {
+            self.destroy_object(game_logic, id);
         }
-
-        // Process destruction queue
-        self.process_destruction_queue()?;
-
-        // Reset ID counter
-        self.next_object_id = 1;
-
+        game_logic.cleanup_dead_objects()?;
+        // Include wrappers whose canonical lifetime already ended elsewhere.
+        let retired: Vec<_> = self.object_registry.keys().copied().collect();
+        for id in retired {
+            self.track_destroyed_object(id);
+        }
+        self.process_destruction_queue(game_logic);
+        // A factory-only reset cannot restart an ID namespace still in use.
+        if game_logic.get_object_count() == 0 {
+            self.next_object_id = 1;
+        }
         Ok(())
     }
 
@@ -1149,23 +1167,21 @@ impl ObjectFactory {
     }
 
     fn update_pool_stats(&mut self, object_type: &ObjectType) {
-        let type_name = object_type.to_string();
-        let stats = self.pool_stats.entry(type_name).or_default();
+        let stats = self.pool_stats.entry(*object_type).or_default();
         stats.allocated += 1;
         stats.in_use += 1;
         stats.peak_usage = stats.peak_usage.max(stats.in_use);
     }
 
     fn update_pool_stats_destroyed(&mut self, object_type: &ObjectType) {
-        let type_name = object_type.to_string();
-        if let Some(stats) = self.pool_stats.get_mut(&type_name) {
+        if let Some(stats) = self.pool_stats.get_mut(object_type) {
             stats.in_use = stats.in_use.saturating_sub(1);
         }
     }
 }
 
 /// Object type enumeration
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum ObjectType {
     BaseObject,
     Unit,
@@ -1174,16 +1190,15 @@ enum ObjectType {
     SimpleObject,
 }
 
-impl ToString for ObjectType {
-    fn to_string(&self) -> String {
-        match self {
-            ObjectType::BaseObject => "BaseObject",
-            ObjectType::Unit => "Unit",
-            ObjectType::Structure => "Structure",
-            ObjectType::Projectile => "Projectile",
-            ObjectType::SimpleObject => "SimpleObject",
-        }
-        .to_string()
+impl std::fmt::Display for ObjectType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::BaseObject => "BaseObject",
+            Self::Unit => "Unit",
+            Self::Structure => "Structure",
+            Self::Projectile => "Projectile",
+            Self::SimpleObject => "SimpleObject",
+        })
     }
 }
 
