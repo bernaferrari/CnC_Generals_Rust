@@ -54,8 +54,8 @@ impl PathfindingSystem {
             pathfinder: AStarPathfinder::new(width, height),
             optimizer: PathOptimizer::new(),
             bridges: Vec::new(),
-            request_queue: Arc::new(Mutex::new(VecDeque::new())),
-            object_path_queue: Arc::new(Mutex::new(ObjectPathQueue::new())),
+            request_queue: VecDeque::new(),
+            object_path_queue: Mutex::new(ObjectPathQueue::new()),
             goal_cells: vec![vec![GoalCell::new(); height]; width],
             path_cache: HashMap::new(),
             zones: ZoneManager::new(width, height),
@@ -92,14 +92,14 @@ impl PathfindingSystem {
 
     /// Queue a pathfinding request (full request residual).
     /// Also enqueues `object_id` into the C++ ObjectID ring when non-invalid.
-    pub fn queue_path_request(&self, request: PathRequest) -> Result<(), String> {
+    pub fn queue_path_request(&mut self, request: PathRequest) -> Result<(), String> {
         if request.object_id != INVALID_ID {
             let mut oq = self.object_path_queue.lock().unwrap();
             if !oq.queue(request.object_id) {
                 return Err("Pathfind queue full".to_string());
             }
         }
-        let mut queue = self.request_queue.lock().unwrap();
+        let queue = &mut self.request_queue;
         if queue.iter().any(|r| r.object_id == request.object_id) {
             return Ok(());
         }
@@ -221,18 +221,15 @@ impl PathfindingSystem {
                         drop(ai_g);
                         // One pathfind per queue entry. The PathRequest was snapshotted
                         // at queue time; do not search it after do_pathfind.
-                        if let Ok(mut queued) = self.request_queue.lock() {
-                            queued.retain(|r| r.object_id != id);
-                        }
+                        self.request_queue.retain(|r| r.object_id != id);
                     }
                 } else {
                     // Fallback: PathRequest residual for host/tests without registry object.
-                    let request = {
-                        self.request_queue.lock().ok().and_then(|mut queue| {
-                            let pos = queue.iter().position(|r| r.object_id == id)?;
-                            queue.remove(pos)
-                        })
-                    };
+                    let request = self
+                        .request_queue
+                        .iter()
+                        .position(|request| request.object_id == id)
+                        .and_then(|position| self.request_queue.remove(position));
                     if let Some(request) = request {
                         let _ = self.find_path_internal(request);
                     }
@@ -244,15 +241,10 @@ impl PathfindingSystem {
         // Residual PathRequests with no live ObjectID (INVALID_ID host/tests).
         // A request whose object already ran do_pathfind was removed above.
         loop {
-            let request = {
-                let Ok(mut queue) = self.request_queue.lock() else {
-                    break;
-                };
-                if self.cumulative_cells_allocated() as usize >= cell_budget {
-                    None
-                } else {
-                    queue.pop_front()
-                }
+            let request = if self.cumulative_cells_allocated() as usize >= cell_budget {
+                None
+            } else {
+                self.request_queue.pop_front()
             };
             let Some(request) = request else {
                 break;

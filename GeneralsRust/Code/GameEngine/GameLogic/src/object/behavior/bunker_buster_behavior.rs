@@ -52,9 +52,9 @@ pub struct BunkerBusterBehaviorModuleData {
     /// Upgrade required for bunker buster to be active (optional)
     pub upgrade_required: Option<AsciiString>,
     /// FX to play on detonation
-    pub detonation_fx: Option<Arc<FXList>>,
+    pub detonation_fx: Option<FXList>,
     /// FX to play while crashing through bunker
-    pub crash_through_bunker_fx: Option<Arc<FXList>>,
+    pub crash_through_bunker_fx: Option<FXList>,
     /// Frequency (in frames) for crash FX
     pub crash_through_bunker_fx_frequency: UnsignedInt,
     /// Radius of seismic effect
@@ -125,7 +125,7 @@ fn parse_duration_field(
 
 fn parse_fx_field(
     _ini: &mut INI,
-    setter: &mut dyn FnMut(Option<Arc<FXList>>),
+    setter: &mut dyn FnMut(Option<FXList>),
     tokens: &[&str],
 ) -> Result<(), INIError> {
     let value = first_value_token(tokens).ok_or(INIError::InvalidData)?;
@@ -696,8 +696,8 @@ mod tests {
         BunkerBusterBehaviorModuleData {
             base: BehaviorModuleData::default(),
             upgrade_required: Some(AsciiString::from("Upgrade_BunkerBuster")),
-            detonation_fx: Some(Arc::new(FXList::new("FX_BunkerBusterDetonation"))),
-            crash_through_bunker_fx: Some(Arc::new(FXList::new("FX_CrashThroughBunker"))),
+            detonation_fx: Some(FXList::new("FX_BunkerBusterDetonation")),
+            crash_through_bunker_fx: Some(FXList::new("FX_CrashThroughBunker")),
             crash_through_bunker_fx_frequency: 4,
             seismic_effect_radius: 140.0,
             seismic_effect_magnitude: 6.0,

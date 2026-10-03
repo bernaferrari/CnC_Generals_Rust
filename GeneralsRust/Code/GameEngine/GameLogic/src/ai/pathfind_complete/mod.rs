@@ -27,7 +27,7 @@ pub(crate) use crate::object::CrushSquishTestType;
 pub(crate) use crate::object::registry::OBJECT_REGISTRY;
 
 pub(crate) use std::collections::{HashMap, HashSet, VecDeque};
-pub(crate) use std::sync::{Arc, Mutex};
+pub(crate) use std::sync::Mutex;
 
 mod attack_path;
 mod block_zones;
@@ -45,6 +45,8 @@ mod types;
 
 #[cfg(test)]
 mod counter_tests;
+#[cfg(test)]
+mod queue_ownership_tests;
 #[cfg(test)]
 mod tests;
 

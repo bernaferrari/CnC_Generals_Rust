@@ -6,6 +6,7 @@ rust-version.workspace = true
 
 
 [dependencies]
+generals_fx = { path = "../FX" }
 
 # Common dependencies for game engine functionality
 libc = {workspace = true}

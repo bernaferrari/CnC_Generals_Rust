@@ -36,7 +36,7 @@ fn dual_world_registry_unavailable() -> bool {
 pub struct TechBuildingBehaviorModuleData {
     pub base: BehaviorModuleData,
     /// FXList to play when building is owned and updated
-    pub pulse_fx: Option<Arc<FXList>>,
+    pub pulse_fx: Option<FXList>,
     /// How frequently to play the pulse FX
     pub pulse_fx_rate: UnsignedInt,
 }

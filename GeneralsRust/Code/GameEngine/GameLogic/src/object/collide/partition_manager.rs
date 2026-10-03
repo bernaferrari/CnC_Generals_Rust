@@ -17,12 +17,6 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::f32::consts::PI;
 use std::sync::{Arc, RwLock};
 
-/// Wave 324: host-only path has no dual-world factory objects.
-#[inline]
-fn dual_world_registry_unavailable() -> bool {
-    crate::object::registry::OBJECT_REGISTRY.is_empty()
-}
-
 // ---------------------------------------------------------------------------
 // Constants matching C++ PartitionManager.cpp
 // ---------------------------------------------------------------------------
@@ -175,27 +169,32 @@ impl CellCoord {
         neighbors
     }
 
-    /// Cells overlapping a world radius via C++ DiscreteCircle
-    /// (`worldToCellDist`, no square ring).
+    /// Cells whose footprints can be within the query distance.
+    /// C++ `calcMinRadius` / `calcRadiusVec` includes touching neighbors even
+    /// in radius zero. DiscreteCircle is for threat/value rasterization;
+    /// using it here misses candidates across a cell boundary.
     pub fn cells_in_radius(&self, radius: f32) -> Vec<CellCoord> {
-        let r = radius.max(0.0);
-        let mut cell_radius = super::partition_coi::world_to_cell_dist(r);
-        if r > 0.0 && cell_radius < 1 {
-            cell_radius = 1;
-        }
+        let cell_radius = super::partition_coi::world_to_cell_dist(radius.max(0.0));
+        let extent = cell_radius + 1;
+        let radius_squared = i64::from(cell_radius) * i64::from(cell_radius);
         let mut cells = Vec::new();
-        let circle = DiscreteCircle::new(self.x, self.y, cell_radius);
-        circle.draw_circle(|x1, x2, y| {
-            let (lo, hi) = if x1 <= x2 { (x1, x2) } else { (x2, x1) };
-            for x in lo..=hi {
-                cells.push(CellCoord { x, y });
+        for dy in -extent..=extent {
+            for dx in -extent..=extent {
+                // Equivalent to C++'s minimum of the16 corner distances.
+                // Cell widths cancel; touching footprints have zero gap.
+                let gap_x = i64::from((dx.abs() - 1).max(0));
+                let gap_y = i64::from((dy.abs() - 1).max(0));
+                if gap_x * gap_x + gap_y * gap_y <= radius_squared {
+                    cells.push(CellCoord {
+                        x: self.x + dx,
+                        y: self.y + dy,
+                    });
+                }
             }
-        });
-        if cells.is_empty() {
-            cells.push(*self);
         }
         cells
     }
+
 }
 
 /// Partition cell containing objects and per-player threat/cash values.
@@ -496,9 +495,6 @@ impl PartitionManager {
         filters: &[Box<dyn PartitionFilter>],
         dc: super::partition_distance::DistanceCalculationType,
     ) -> Vec<ObjectId> {
-        if dual_world_registry_unavailable() {
-            return Vec::new();
-        }
         let center_cell = CellCoord::from_world_pos(center);
         let cells_to_check = center_cell.cells_in_radius(radius);
         let mut results = Vec::new();
@@ -812,11 +808,6 @@ impl PartitionManager {
         angle: f32,
         options: &FindPositionOptions,
     ) -> Option<Coord3D> {
-        // Wave 324: empty dual-world → None.
-        if dual_world_registry_unavailable() {
-            return None;
-        }
-
         let cos_a = angle.cos();
         let sin_a = angle.sin();
         let mut pos = Coord3D::new(dist * cos_a + center.x, dist * sin_a + center.y, 0.0);
@@ -1536,7 +1527,6 @@ impl PartitionManager {
         let cx_i = center_cell.x as f32;
         let cy_i = center_cell.y as f32;
         let circle = DiscreteCircle::new(center_cell.x, center_cell.y, cell_radius);
-        let mut additions: Vec<(CellCoord, u32)> = Vec::new();
         circle.draw_circle(|x1, x2, y| {
             let (lo, hi) = if x1 <= x2 { (x1, x2) } else { (x2, x1) };
             for x in lo..=hi {
@@ -1545,30 +1535,28 @@ impl PartitionManager {
                 let distance = (dx * dx + dy * dy).sqrt();
                 let mul_val = (1.0 - distance / influence).clamp(0.0, 1.0);
                 let cell_addition = (value as f32 * mul_val) as u32;
-                if cell_addition > 0 {
-                    additions.push((CellCoord { x, y }, cell_addition));
+                if cell_addition == 0 {
+                    continue;
+                }
+                // C++ hLineAdd/RemoveThreat/Value updates each visited cell
+                // immediately. Borrow our cells directly instead of allocating
+                // a second traversal buffer; emission order stays unchanged.
+                let coord = CellCoord { x, y };
+                let cell = if add {
+                    Some(self.cells.entry(coord).or_insert_with(PartitionCell::new))
+                } else {
+                    self.cells.get_mut(&coord)
+                };
+                if let Some(cell) = cell {
+                    match (is_threat, add) {
+                        (true, true) => cell.add_threat_value(player_index, cell_addition),
+                        (true, false) => cell.remove_threat_value(player_index, cell_addition),
+                        (false, true) => cell.add_cash_value(player_index, cell_addition),
+                        (false, false) => cell.remove_cash_value(player_index, cell_addition),
+                    }
                 }
             }
         });
-        for (cell_coord, cell_addition) in additions {
-            if add {
-                let cell = self
-                    .cells
-                    .entry(cell_coord)
-                    .or_insert_with(PartitionCell::new);
-                if is_threat {
-                    cell.add_threat_value(player_index, cell_addition);
-                } else {
-                    cell.add_cash_value(player_index, cell_addition);
-                }
-            } else if let Some(cell) = self.cells.get_mut(&cell_coord) {
-                if is_threat {
-                    cell.remove_threat_value(player_index, cell_addition);
-                } else {
-                    cell.remove_cash_value(player_index, cell_addition);
-                }
-            }
-        }
     }
 
     // ------------------------------------------------------------------
@@ -1870,13 +1858,13 @@ mod tests {
     fn test_cell_coord_from_world_pos() {
         let pos = Coord3D::new(150.0, 250.0, 0.0);
         let cell = CellCoord::from_world_pos(&pos);
-        assert_eq!(cell.x, 1);
-        assert_eq!(cell.y, 2);
+        assert_eq!(cell.x, 3);
+        assert_eq!(cell.y, 6);
 
         let neg_pos = Coord3D::new(-150.0, -50.0, 0.0);
         let neg_cell = CellCoord::from_world_pos(&neg_pos);
-        assert_eq!(neg_cell.x, -2);
-        assert_eq!(neg_cell.y, -1);
+        assert_eq!(neg_cell.x, -4);
+        assert_eq!(neg_cell.y, -2);
     }
 
     #[test]
@@ -1887,6 +1875,19 @@ mod tests {
         assert!(neighbors.contains(&CellCoord { x: 0, y: 0 }));
         assert!(neighbors.contains(&CellCoord { x: 1, y: 1 }));
         assert!(neighbors.contains(&CellCoord { x: -1, y: -1 }));
+    }
+
+    #[test]
+    fn range_query_mask_uses_cpp_minimum_cell_footprint_distance() {
+        let center = CellCoord { x: 0, y: 0 };
+        let touching = center.cells_in_radius(0.0);
+        assert_eq!(touching.len(), 9);
+        assert!(touching.contains(&CellCoord { x: -1, y: 1 }));
+        let one = center.cells_in_radius(PARTITION_CELL_SIZE);
+        assert!(one.contains(&CellCoord { x: 2, y: 0 }));
+        assert!(one.contains(&CellCoord { x: -2, y: 1 }));
+        assert!(!one.contains(&CellCoord { x: 2, y: 2 }));
+        assert!(!one.contains(&CellCoord { x: 3, y: 0 }));
     }
 
     #[test]
@@ -1901,6 +1902,26 @@ mod tests {
 
         pm.unregister_object(1).unwrap();
         assert_eq!(pm.object_count(), 0);
+    }
+
+    #[test]
+    fn owned_partition_queries_isolate_identical_ids_across_instances() {
+        let mut first = PartitionManager::new();
+        let mut second = PartitionManager::new();
+        let geometry = GeometryInfo::new_sphere(5.0, true);
+        let near = Coord3D::new(10.0, 10.0, 0.0);
+        let far = Coord3D::new(210.0, 210.0, 0.0);
+        first.register_object(1, near, geometry).unwrap();
+        second.register_object(1, far, geometry).unwrap();
+        assert_eq!(first.find_objects_in_radius(&near, 15.0, &[]), vec![1]);
+        assert!(second.find_objects_in_radius(&near, 15.0, &[]).is_empty());
+        assert_eq!(second.find_objects_in_radius(&far, 15.0, &[]), vec![1]);
+        first.update_object_position(1, far).unwrap();
+        assert!(first.find_objects_in_radius(&near, 15.0, &[]).is_empty());
+        assert_eq!(first.find_objects_in_radius(&far, 15.0, &[]), vec![1]);
+        first.clear();
+        assert!(first.find_objects_in_radius(&far, 15.0, &[]).is_empty());
+        assert_eq!(second.find_objects_in_radius(&far, 15.0, &[]), vec![1]);
     }
 
     #[test]
@@ -2068,7 +2089,8 @@ mod tests {
                 .unwrap_or(0)
         };
         assert_eq!(threat_at(&pm, 0, 0), 90);
-        assert_eq!(threat_at(&pm, 1, 0), 60);
+        // C++ float mulVal = 1 - 1/3; 90 * mulVal truncates to 59.
+        assert_eq!(threat_at(&pm, 1, 0), 59);
         pm.remove_threat_affect(0.0, 0.0, 80.0, 1, 90);
         assert_eq!(threat_at(&pm, 0, 0), 0);
         assert_eq!(threat_at(&pm, 1, 0), 0);

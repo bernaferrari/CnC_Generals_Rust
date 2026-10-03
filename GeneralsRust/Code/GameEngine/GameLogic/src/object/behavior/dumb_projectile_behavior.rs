@@ -401,7 +401,7 @@ pub struct DumbProjectileBehaviorModuleData {
     pub garrison_hit_kill_count: Int,
     pub garrison_hit_kill_kindof: KindOfMaskType,
     pub garrison_hit_kill_kindof_not: KindOfMaskType,
-    pub garrison_hit_kill_fx: Option<Arc<FXList>>,
+    pub garrison_hit_kill_fx: Option<FXList>,
     pub flight_path_adjust_dist_per_frame: Real,
 }
 

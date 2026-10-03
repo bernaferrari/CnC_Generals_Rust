@@ -53,7 +53,7 @@ fn cpp_reset_releases_map_dimensions_and_readiness() {
     assert!(system.wall_cells.is_empty());
     assert!(system.wall_pieces.is_empty());
     assert!(system.unit_goal_cells.is_empty());
-    assert!(system.request_queue.lock().unwrap().is_empty());
+    assert!(system.request_queue.is_empty());
     assert_eq!(system.open_list_count, 0);
 }
 
@@ -204,7 +204,7 @@ fn owned_classic_stores_keep_cpp_version_only_xfer() {
 
 #[test]
 fn test_queue_path_request() {
-    let system = PathfindingSystem::new(128, 128);
+    let mut system = PathfindingSystem::new(128, 128);
 
     let request = PathRequest {
         object_id: 1,
@@ -3805,7 +3805,7 @@ fn process_queue_skips_snapshot_after_do_pathfind() {
         0,
         "snapshotted PathRequest must not run a second search"
     );
-    assert!(system.request_queue.lock().unwrap().is_empty());
+    assert!(system.request_queue.is_empty());
     assert!(system.object_path_queue.lock().unwrap().is_empty());
 
     // Exercise the last-handle path at a controlled point: unregister drops

@@ -589,7 +589,7 @@ fn parse_unnamed_property_block(ini: &mut INI) -> INIResult<HashMap<String, Stri
 /// INI.cpp:82` -> `Source/GameClient/FXList.cpp:850-858`,
 /// `INI::parseFXListDefinition` -> `FXListStore::parseFXListDefinition`: name
 /// token, NAMEKEY-keyed slot, `fxl.clear()` + `TheFXListFieldParse` re-parse
-/// of the eight nugget kinds). Rust splits that parser in two and resolves
+/// of the eight nugget kinds). Both Rust block adapters use the shared generals_fx nugget parser; resolves
 /// precedence at runtime in [`INI::find_block_parser`]:
 /// `EXTRA_BLOCK_PARSERS` win over `BLOCK_PARSE_TABLE`.
 ///
@@ -597,7 +597,7 @@ fn parse_unnamed_property_block(ini: &mut INI) -> INIResult<HashMap<String, Stri
 ///   `parse_fx_list_definition` under `"FXList"` (GameClient
 ///   `fx_list.rs:829-832`) before loading `Data/INI/{Default/,}FXList.ini`,
 ///   so the GameClient parser handles every FXList block from then on and
-///   fills the client store plus `gamelogic` `TheFXListStore`.
+///   fills the canonical Common definitions and a derived client execution cache.
 /// - Headless runs (no GameClient init; e.g. Main `ini_crc_boot` loading
 ///   `Data/INI/FXList.ini`): this table entry is the only parser and feeds
 ///   the Common `ini_fx_list` store consumed by `thing_template` per-unit FX,
@@ -645,7 +645,7 @@ fn parse_fx_list_block(ini: &mut INI) -> INIResult<()> {
                 break;
             }
             let (key, value) = parse_key_value_line(&ini.buffer).ok_or(INIError::InvalidData)?;
-            properties.insert(key, value);
+            properties.insert(key.to_ascii_uppercase(), value);
         }
 
         let nugget = super::ini_fx_list::parse_fx_nugget_definition(&nugget_kind, &properties)

@@ -40,7 +40,7 @@ pub struct ConvertToCarBombCrateCollideModuleData {
     /// Range of effect for the conversion (unused in C++ but present)
     pub range_of_effect: u32,
     /// FX list to play when conversion occurs
-    pub fx_list: Option<Arc<FXList>>,
+    pub fx_list: Option<FXList>,
 }
 
 impl Default for ConvertToCarBombCrateCollideModuleData {

@@ -4,6 +4,34 @@
 
 Preserve C++ **behavior**. Do not preserve C++ **pointer ownership**.
 
+## Shared FX rules and bounded queue ownership (2026-10-03)
+
+`generals_fx` owns the authored nugget schema, pure parsing and owned catalog.
+Common supplies INI conversions and the canonical parsed definitions; both
+headless and client loading use that parser. GameClient's catalog contains
+compiled backend effects. GameLogic now retains immutable names rather than
+Arc-wrapped named references, and consults Common instead of maintaining its own
+global name catalog. Exact names and the case-insensitive None sentinel follow
+C++ FXList.cpp; client callbacks run after releasing the catalog read guard.
+Startup/global runtime adapters remain, including object, audio, particle and
+view services. The crate does not establish full FX instance isolation. See
+hq-vgz36 and hq-kheus, and FX/README.md for source contracts and executable gates.
+
+The classic Pathfinder now directly owns its residual PathRequest VecDeque.
+Enqueue requires the driving mutable Pathfinder, and UnitAI finishes its request
+snapshot before taking that borrow. This removes one Mutex and two Arc wrappers
+per Pathfinder. The ObjectID ring keeps its Mutex for shared-borrow callback
+admission, without an unnecessary Arc. Original ring callback timing, outer AI
+ownership and ambient lookup remain hq-1tq1l dependencies. See hq-0jjac for
+same-ID owner isolation, reset, deduplication/capacity and version-only Xfer tests.
+
+Partition range queries use C++ calcMinRadius's minimum cell-footprint distance,
+including adjacent cells at radius zero. Threat/cash accumulation continues to
+use its distinct DiscreteCircle rasterizer and original integer truncation.
+Owned partition records no longer require an unrelated global registry to be
+nonempty for unfiltered queries. Filter-specific registry access and custom
+origin/cell-size generalization remain separate dependencies (hq-ng6yv).
+
 ## Classic Object views and pathfinding stores (2026-10-02)
 
 The classic Object's ordered behavior list owns helper/template descriptors.
@@ -28,8 +56,9 @@ cache, zones, unit goal/position maps, and wall cells. Mutating operations requi
 the driving pathfinder's mutable borrow. Search guards end before installing a
 path or invoking a fallback that accesses that pathfinder again. This removes
 seven allocated Arc/mutex pairs and 125 production field acquisition sites;
-queue locks, the cumulative atomic, outer AI ownership, and ambient registry
-access remain separate dependencies. See hq-e5hpo and hq-1tq1l. Queue scheduling
+the ObjectID ring lock, outer AI ownership, and ambient registry
+access remain separate dependencies. The cumulative counter and residual request
+queue are now owned scalars/storage. See hq-e5hpo and hq-1tq1l. Queue scheduling
 and version-only Xfer are unchanged by this storage migration.
 
 These are classic GameLogic changes. The default Main host already has owned

@@ -710,7 +710,7 @@ impl UnitAIUpdate {
         let ai_store = the_ai(); if let Some(ai) = ai_store.read().ok() {
             if let Some(pathfinder) = ai.pathfinder() {
                 pathfinder
-                    .read()
+                    .write()
                     .map_err(|_| "pathfinder lock poisoned".to_string())?
                     .queue_for_path_request(request)
                     .map_err(|err| err.to_string())?;

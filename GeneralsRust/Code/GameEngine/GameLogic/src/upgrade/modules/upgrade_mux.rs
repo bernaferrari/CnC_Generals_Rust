@@ -9,7 +9,6 @@ use super::super::{UpgradeMask, upgrade_mask_for_name};
 use crate::common::*;
 use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer};
-use std::sync::Arc;
 
 /// Interface for upgrade modules
 /// Matches C++ UpgradeModuleInterface from UpgradeModule.h
@@ -47,7 +46,7 @@ pub struct UpgradeMuxData {
     /// Upgrades to remove when this activates
     pub removal_upgrade_names: Vec<AsciiString>,
     /// FX list to play when upgrade triggers
-    pub fx_list_upgrade: Option<Arc<FXList>>,
+    pub fx_list_upgrade: Option<FXList>,
     /// Cached activation mask
     activation_mask: Option<UpgradeMask>,
     /// Cached conflicting mask
@@ -196,7 +195,7 @@ impl UpgradeMuxData {
             self.fx_list_upgrade = None;
             return Ok(());
         }
-        self.fx_list_upgrade = Some(Arc::new(FXList::new(value)));
+        self.fx_list_upgrade = Some(FXList::new(value));
         Ok(())
     }
 

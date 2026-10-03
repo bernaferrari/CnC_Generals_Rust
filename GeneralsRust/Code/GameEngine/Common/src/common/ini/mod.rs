@@ -152,7 +152,7 @@ pub use ini_eva_event::{
 pub use ini_fx_list::{
     DispatchedFxNugget, FXList, FXListError, FXListResult, FXListStore, FXNugget, FxListObjRuntime,
     clear_fx_list_obj_runtime, fx_obj_is_visible, get_fx_list_store, get_fx_list_store_mut,
-    parse_fx_list_definition, register_fx_list_obj_runtime, take_dispatched_fx_nuggets,
+    register_fx_list_obj_runtime, take_dispatched_fx_nuggets,
 };
 pub use ini_game_lod::{
     BenchProfile, ChipsetType, CpuType, DynamicGameLODInfo, DynamicGameLODLevel, GameLODManager,

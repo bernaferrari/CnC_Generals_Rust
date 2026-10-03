@@ -347,7 +347,7 @@ pub struct AuthoredStructureTopplePeel {
     pub max_burst_delay: u32,
 }
 
-fn leftover_fx_list_name(list: &Option<std::sync::Arc<gamelogic::effects::FXList>>) -> String {
+fn leftover_fx_list_name(list: &Option<gamelogic::effects::FXList>) -> String {
     list.as_ref()
         .map(|fx| fx.name().trim().to_string())
         .filter(|n| !n.is_empty() && !n.eq_ignore_ascii_case("none"))

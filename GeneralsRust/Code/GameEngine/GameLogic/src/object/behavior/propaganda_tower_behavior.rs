@@ -47,11 +47,11 @@ pub struct PropagandaTowerBehaviorModuleData {
     /// Different percent to use for healing if upgraded
     pub upgraded_auto_heal_percent_per_second: Real,
     /// FX list to play when scan is updated
-    pub pulse_fx: Option<Arc<FXList>>,
+    pub pulse_fx: Option<FXList>,
     /// Upgrade required to use the upgraded pulse FX
     pub upgrade_required: AsciiString,
     /// FX list to play for pulse when upgraded
-    pub upgraded_pulse_fx: Option<Arc<FXList>>,
+    pub upgraded_pulse_fx: Option<FXList>,
     /// Allow effect to affect ourselves
     pub affects_self: Bool,
 }

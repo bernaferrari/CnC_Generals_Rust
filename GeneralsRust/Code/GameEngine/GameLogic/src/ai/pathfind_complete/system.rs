@@ -15,9 +15,11 @@ pub struct PathfindingSystem {
 
     /// Pathfind request queue (full PathRequest residual for tests/host).
     /// Matches C++ m_queuedPathfindRequests at AIPathfind.h:842
-    pub(crate) request_queue: Arc<Mutex<VecDeque<PathRequest>>>,
+    pub(crate) request_queue: VecDeque<PathRequest>,
     /// C++ m_queuedPathfindRequests ObjectID ring + head/tail.
-    pub(crate) object_path_queue: Arc<Mutex<ObjectPathQueue>>,
+    /// Shared-borrow callback admission still needs interior mutability; this
+    /// private queue has no independent shared owner or worker.
+    pub(crate) object_path_queue: Mutex<ObjectPathQueue>,
     /// Goal cell tracking (ground/top + aircraft goals).
     pub(crate) goal_cells: Vec<Vec<GoalCell>>,
 

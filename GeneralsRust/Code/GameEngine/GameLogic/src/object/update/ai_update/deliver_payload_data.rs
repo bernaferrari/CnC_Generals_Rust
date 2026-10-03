@@ -35,7 +35,7 @@ pub struct DeliverPayloadData {
     pub inherit_transport_velocity: Bool,
     pub is_parachute_directly: Bool,
     pub exit_pitch_rate: Real,
-    pub strafe_fx: Option<Arc<FXList>>,
+    pub strafe_fx: Option<FXList>,
     pub strafe_length: Real,
     pub visible_payload_weapon_template: Option<Arc<WeaponTemplate>>,
     pub delivery_decal_template: RadiusDecalTemplate,
@@ -171,7 +171,7 @@ fn parse_weapon_slot(tokens: &[&str]) -> Result<Option<WeaponSlotType>, INIError
     Ok(Some(slot))
 }
 
-fn parse_fx_list(tokens: &[&str]) -> Result<Option<Arc<FXList>>, INIError> {
+fn parse_fx_list(tokens: &[&str]) -> Result<Option<FXList>, INIError> {
     let token = required_value(tokens)?;
     if token.eq_ignore_ascii_case("NONE") {
         return Ok(None);

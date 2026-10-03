@@ -106,7 +106,7 @@ pub struct MissileAIUpdateModuleData {
     pub distance_scatter_when_jammed: Real,
 
     /// Particle effects on ignition
-    pub ignition_fx: Option<Arc<FXList>>,
+    pub ignition_fx: Option<FXList>,
 
     /// Use weapon speed instead of initial velocity
     pub use_weapon_speed: bool,
@@ -124,7 +124,7 @@ pub struct MissileAIUpdateModuleData {
     pub garrison_hit_kill_kindof_not: KindOfMaskType,
 
     /// FX for garrison kills
-    pub garrison_hit_kill_fx: Option<Arc<FXList>>,
+    pub garrison_hit_kill_fx: Option<FXList>,
 
     /// Whether detonation calls kill() instead of destroy()
     pub detonate_calls_kill: bool,
