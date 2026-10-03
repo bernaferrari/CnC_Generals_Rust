@@ -287,11 +287,17 @@ fn leftover_handle_weapon_fire_fx_at_fx_bone(
     let Some(leftover_obj) = leftover_obj else {
         return false;
     };
-    let drawable = {
+    let (drawable, source_pose) = {
         let Ok(guard) = leftover_obj.read() else {
             return false;
         };
-        guard.get_drawable()
+        (
+            guard.get_drawable(),
+            gamelogic::object::draw::draw_module::WeaponFireFxSource {
+                position: *guard.get_position(),
+                transform: guard.get_transform_matrix(),
+            },
+        )
     };
     let Some(drawable) = drawable else {
         return false;
@@ -312,6 +318,7 @@ fn leftover_handle_weapon_fire_fx_at_fx_bone(
         &victim,
         0.0,
         0.0,
+        Some(&source_pose),
     )
 }
 

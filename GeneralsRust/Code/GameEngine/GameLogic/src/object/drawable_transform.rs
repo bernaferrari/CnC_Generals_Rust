@@ -492,11 +492,16 @@ impl Drawable {
         victim_pos: &Coord3D,
         weapon_speed: f32,
         damage_radius: f32,
+        source_pose: Option<&crate::object::draw::draw_module::WeaponFireFxSource>,
     ) -> bool {
         let slot_index = weapon_slot as usize;
         let mut bone_name = None;
-        for module_handle in self.get_draw_modules_with_interface(ModuleInterfaceType::DRAW) {
-            module_handle.with_module(|module| {
+        for entry in self
+            .modules
+            .iter()
+            .filter(|entry| (entry.mask().0 & ModuleInterfaceType::DRAW.0) != 0)
+        {
+            entry.with_module(|module| {
                 let _ = with_draw_module_kind(module, |draw| {
                     if bone_name.is_some() {
                         return;
@@ -520,8 +525,12 @@ impl Drawable {
             .as_deref()
             .and_then(|name| self.get_bone_transform(name));
         let mut handled = false;
-        for module_handle in self.get_draw_modules_with_interface(ModuleInterfaceType::DRAW) {
-            module_handle.with_module(|module| {
+        for entry in self
+            .modules
+            .iter()
+            .filter(|entry| (entry.mask().0 & ModuleInterfaceType::DRAW.0) != 0)
+        {
+            entry.with_module(|module| {
                 with_object_draw_interface_mut(module, |draw| {
                     if draw.handle_weapon_fire_fx(
                         slot_index,
@@ -530,6 +539,7 @@ impl Drawable {
                         victim_pos,
                         weapon_speed,
                         damage_radius,
+                        source_pose,
                         live_bone.as_ref(),
                     ) {
                         handled = true;

@@ -1,6 +1,6 @@
-//! Wave 373 residual peels: DemoTrapUpdate dual-world empty short-circuits.
-//! When `OBJECT_REGISTRY` is empty (host-only presentation path), demo trap
-//! helpers fail-closed without dual-world factory walks.
+//! Wave 373 repaired source contract: DemoTrapUpdate owner callbacks without global emptiness vetoes.
+//! C++ owner branches retain their update timing without scanning unrelated
+//! registry state. Installed creation hooks select the authored weapon mode.
 //! Never flips shell `playable_claim`. Network deferred.
 //!
 //! Orthogonal to Wave 372 ProjectileStreamUpdate dual-world empty-gate residual.
@@ -95,11 +95,7 @@ fn fn_body<'a>(src: &'a str, name: &str) -> Option<&'a str> {
                 '}' => {
                     depth -= 1;
                     if depth == 0 {
-                        let body = &src[i..brace + off + 1];
-                        if body.contains("dual_world_registry_unavailable") {
-                            return Some(body);
-                        }
-                        break;
+                        return Some(&src[i..brace + off + 1]);
                     }
                 }
                 _ => {}
@@ -110,32 +106,31 @@ fn fn_body<'a>(src: &'a str, name: &str) -> Option<&'a str> {
     None
 }
 
-/// Source residual: DemoTrapUpdate empty dual-world short-circuits.
+/// Repaired source contract: DemoTrap callbacks follow their owner, not world emptiness.
 pub fn honesty_demo_trap_update_dual_world_empty_gate_source() -> bool {
     let g =
         include_str!("../../../../GameEngine/GameLogic/src/object/behavior/demo_trap_update.rs");
-    if !(g.contains("Wave 373")
-        && g.contains("fn dual_world_registry_unavailable")
-        && g.contains("OBJECT_REGISTRY.is_empty()"))
+    if g.contains("fn dual_world_registry_unavailable") || g.contains("OBJECT_REGISTRY.is_empty()")
     {
         return false;
     }
-    let helper_ok = g.contains(
-        "fn dual_world_registry_unavailable() -> bool {\n    crate::object::registry::OBJECT_REGISTRY.is_empty()\n}",
-    );
     let Some(detonate) = fn_body(g, "fn detonate(") else {
         return false;
     };
     let Some(update) = fn_body(g, "fn update_simple(") else {
         return false;
     };
-    let Some(created) = fn_body(g, "fn on_object_created(") else {
+    let Some(created) = fn_body(g, "fn on_object_created(&mut self) ->") else {
         return false;
     };
-    helper_ok
-        && detonate.contains("return Ok(())")
-        && update.contains("return UpdateSleepTime::Forever")
-        && created.contains("return Ok(())")
+    detonate.contains("me.kill(None, None)")
+        && detonate.contains("self.detonated = true")
+        && update.contains("if self.detonated")
+        && update.contains("return UPDATE_SLEEP_NONE")
+        && !update.contains("UpdateSleepTime::Forever")
+        && created.contains("me.set_weapon_set_flag(WeaponSetType::Veteran)")
+        && created.contains("WeaponLockType::LockedTemporarily")
+        && g.contains("BehaviorModuleInterface::on_object_created(&mut self.behavior)")
 }
 
 /// Live residual: source honesty pack latches.

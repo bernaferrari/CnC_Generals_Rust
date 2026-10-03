@@ -31,12 +31,6 @@ use game_engine::common::thing::module::{
 use log::warn;
 use std::sync::{Arc, RwLock, Weak};
 
-/// Wave 373: host-only path has no dual-world factory objects.
-#[inline]
-fn dual_world_registry_unavailable() -> bool {
-    crate::object::registry::OBJECT_REGISTRY.is_empty()
-}
-
 #[derive(Clone, Debug)]
 pub struct DemoTrapUpdateModuleData {
     pub base: BehaviorModuleData,
@@ -268,11 +262,6 @@ impl DemoTrapUpdate {
     }
 
     pub fn detonate(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        // Wave 373: empty dual-world → Ok(()).
-        if dual_world_registry_unavailable() {
-            return Ok(());
-        }
-
         if self.detonated {
             return Ok(());
         }
@@ -318,11 +307,6 @@ impl DemoTrapUpdate {
 
 impl UpdateModuleInterface for DemoTrapUpdate {
     fn update_simple(&mut self) -> UpdateSleepTime {
-        // Wave 373: empty dual-world → Forever.
-        if dual_world_registry_unavailable() {
-            return UpdateSleepTime::Forever;
-        }
-
         if self.detonated {
             return UPDATE_SLEEP_NONE;
         }
@@ -557,6 +541,13 @@ impl Module for DemoTrapUpdateModule {
         self.module_data.as_ref()
     }
 
+    /// C++ DemoTrapUpdate::onObjectCreated runs after all owner modules exist.
+    fn on_object_created(&mut self) {
+        if let Err(error) = BehaviorModuleInterface::on_object_created(&mut self.behavior) {
+            warn!("DemoTrapUpdate creation callback failed: {error}");
+        }
+    }
+
     /// C++ `UpdateModule : Module` interface query
     /// (`Module::DynamicInterfaceCast(ModuleInterfaceType::UPDATE)`): forwards
     /// to the wrapped behavior's per-frame hooks. Replaces the former
@@ -583,11 +574,6 @@ impl BehaviorModuleInterface for DemoTrapUpdate {
     }
 
     fn on_object_created(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        // Wave 373: empty dual-world → Ok(()).
-        if dual_world_registry_unavailable() {
-            return Ok(());
-        }
-
         let Some(me_arc) = (if self.object_id == crate::common::INVALID_ID {
             None
         } else {
@@ -667,44 +653,178 @@ pub fn demo_trap_update_module_factory(
 mod tests {
     use super::*;
     use crate::common::ObjectStatusMaskType;
+    use crate::system::game_logic::GameLogic;
+    use crate::weapon::{WeaponTemplate, WeaponTemplateSet};
 
-    fn module_data() -> Arc<dyn ModuleData> {
+    struct TrapOwner {
+        logic: GameLogic,
+        object: Arc<RwLock<GameObject>>,
+        id: ObjectID,
+    }
+
+    impl TrapOwner {
+        fn new(id: ObjectID) -> Self {
+            let mut object = GameObject::new_test(id, 100.0);
+            // All three modes have genuine weapons, as DemoTrapUpdate.cpp requires.
+            let mut weapons = WeaponTemplateSet::new();
+            for slot in [
+                WeaponSlotType::Primary,
+                WeaponSlotType::Secondary,
+                WeaponSlotType::Tertiary,
+            ] {
+                weapons.set_weapon_template(
+                    slot,
+                    Arc::new(WeaponTemplate::new(format!("TrapMode{slot:?}").into())),
+                );
+            }
+            object.weapon_set.add_weapon_template_set(weapons);
+            let mut veteran_weapons = WeaponTemplateSet::new();
+            veteran_weapons.conditions.set(WeaponSetType::Veteran);
+            for slot in [
+                WeaponSlotType::Primary,
+                WeaponSlotType::Secondary,
+                WeaponSlotType::Tertiary,
+            ] {
+                veteran_weapons.set_weapon_template(
+                    slot,
+                    Arc::new(WeaponTemplate::new(
+                        format!("TrapVeteranMode{slot:?}").into(),
+                    )),
+                );
+            }
+            object.weapon_set.add_weapon_template_set(veteran_weapons);
+            object.refresh_weapon_set().unwrap();
+            let object = Arc::new(RwLock::new(object));
+            let mut logic = GameLogic::new();
+            logic.register_object(object.clone()).unwrap();
+            Self { logic, object, id }
+        }
+    }
+
+    impl Drop for TrapOwner {
+        fn drop(&mut self) {
+            self.logic.destroy_object(self.id);
+            self.logic
+                .process_destroy_list()
+                .expect("canonical trap fixture retirement");
+        }
+    }
+
+    fn data(proximity: bool) -> Arc<DemoTrapUpdateModuleData> {
         Arc::new(DemoTrapUpdateModuleData {
             detonation_weapon_slot: WeaponSlotType::Secondary,
             manual_mode_weapon_slot: WeaponSlotType::Primary,
             proximity_mode_weapon_slot: WeaponSlotType::Tertiary,
+            defaults_to_proximity_mode: proximity,
             ..DemoTrapUpdateModuleData::default()
         })
     }
 
     #[test]
     fn detonated_demo_trap_update_returns_none_like_cpp() {
-        let object = Arc::new(RwLock::new(GameObject::new_test(9401, 100.0)));
-        let mut update = DemoTrapUpdate::new(Arc::clone(&object), module_data()).unwrap();
-        update.detonated = true;
-
-        assert!(matches!(update.update_simple(), UpdateSleepTime::None));
+        let _lock = crate::test_sync::lock();
+        // C++ checks m_detonated before touching its owner or partition manager.
+        let mut update = DemoTrapUpdate {
+            object_id: INVALID_ID,
+            module_data: data(false),
+            next_call_frame_and_phase: 0,
+            next_scan_frames: 7,
+            detonated: true,
+            weapon_fired: false,
+        };
+        assert_eq!(update.update_simple(), UpdateSleepTime::None);
+        assert_eq!(update.next_scan_frames, 7);
     }
 
     #[test]
     fn under_construction_demo_trap_update_returns_none_like_cpp() {
-        let object = Arc::new(RwLock::new(GameObject::new_test(9402, 100.0)));
-        object
+        let _lock = crate::test_sync::lock();
+        let owner = TrapOwner::new(9402);
+        owner
+            .object
             .write()
             .unwrap()
             .set_status(ObjectStatusMaskType::UNDER_CONSTRUCTION, true);
-        let mut update = DemoTrapUpdate::new(Arc::clone(&object), module_data()).unwrap();
+        let mut update = DemoTrapUpdate::new(owner.object.clone(), data(false)).unwrap();
+        update.next_scan_frames = 2;
+        assert_eq!(update.update_simple(), UpdateSleepTime::None);
+        assert_eq!(update.next_scan_frames, 2);
+        assert!(!update.detonated);
+        assert!(!owner.object.read().unwrap().is_effectively_dead());
+    }
 
-        assert!(matches!(update.update_simple(), UpdateSleepTime::None));
+    #[test]
+    fn sold_demo_trap_update_preserves_scan_delay_like_cpp() {
+        let _lock = crate::test_sync::lock();
+        let owner = TrapOwner::new(9404);
+        owner
+            .object
+            .write()
+            .unwrap()
+            .set_status(ObjectStatusMaskType::SOLD, true);
+        let mut update = DemoTrapUpdate::new(owner.object.clone(), data(false)).unwrap();
+        update.next_scan_frames = 2;
+        assert_eq!(update.update_simple(), UpdateSleepTime::None);
+        assert_eq!(update.next_scan_frames, 2);
+        assert!(!update.detonated);
+        assert!(!owner.object.read().unwrap().is_effectively_dead());
     }
 
     #[test]
     fn scan_delay_demo_trap_decrements_and_returns_none_like_cpp() {
-        let object = Arc::new(RwLock::new(GameObject::new_test(9403, 100.0)));
-        let mut update = DemoTrapUpdate::new(Arc::clone(&object), module_data()).unwrap();
+        let _lock = crate::test_sync::lock();
+        let owner = TrapOwner::new(9403);
+        assert_eq!(
+            owner.object.read().unwrap().get_current_weapon().unwrap().1,
+            WeaponSlotType::Primary
+        );
+        let mut update = DemoTrapUpdate::new(owner.object.clone(), data(false)).unwrap();
         update.next_scan_frames = 2;
-
-        assert!(matches!(update.update_simple(), UpdateSleepTime::None));
+        assert_eq!(update.update_simple(), UpdateSleepTime::None);
         assert_eq!(update.next_scan_frames, 1);
+        assert_eq!(update.update_simple(), UpdateSleepTime::None);
+        assert_eq!(update.next_scan_frames, 0);
+        assert!(!update.detonated);
+        assert!(!owner.object.read().unwrap().is_effectively_dead());
+    }
+
+    #[test]
+    fn installed_demo_trap_creation_selects_authored_mode_and_veteran_set() {
+        let _lock = crate::test_sync::lock();
+        for (id, proximity, expected_slot) in [
+            (9405, false, WeaponSlotType::Primary),
+            (9406, true, WeaponSlotType::Tertiary),
+        ] {
+            let owner = TrapOwner::new(id);
+            let data = data(proximity);
+            let behavior = DemoTrapUpdate::new(owner.object.clone(), data.clone()).unwrap();
+            let wrapper = DemoTrapUpdateModule::new(
+                behavior,
+                &AsciiString::from("DemoTrapUpdate"),
+                data.clone(),
+            );
+            owner.object.write().unwrap().install_update_module(
+                "DemoTrapUpdate",
+                Box::new(wrapper),
+                data,
+            );
+            GameObject::invoke_on_object_created_after_install(&owner.object).unwrap();
+            let mut object = owner.object.write().unwrap();
+            assert!(object.test_weapon_set_flag(WeaponSetType::Veteran));
+            let (weapon, slot) = object.get_current_weapon().unwrap();
+            assert_eq!(slot, expected_slot);
+            assert_eq!(
+                weapon.get_name(),
+                format!("TrapVeteranMode{expected_slot:?}")
+            );
+            assert!(object.weapon_set.is_current_weapon_locked());
+            object
+                .weapon_set
+                .release_weapon_lock(WeaponLockType::LockedTemporarily);
+            assert!(
+                !object.weapon_set.is_current_weapon_locked(),
+                "creation chooses a temporary lock"
+            );
+        }
     }
 }

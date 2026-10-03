@@ -1,6 +1,6 @@
-//! Wave 412 residual peels: LifetimeUpdate dual-world empty short-circuits.
-//! When `OBJECT_REGISTRY` is empty (host-only presentation path), lifetime
-//! helpers fail-closed without dual-world factory walks.
+//! Wave 412 repaired source contract: LifetimeUpdate owner kill without global emptiness vetoes.
+//! The scheduled callback kills its owner; the scheduler controls its wake.
+//! Missing owners remain separate from unrelated world emptiness.
 //! Never flips shell `playable_claim`. Network deferred.
 //!
 //! Orthogonal to Wave 411 PointDefenseLaserUpdate dual-world empty-gate residual.
@@ -92,11 +92,7 @@ fn fn_body<'a>(src: &'a str, name: &str) -> Option<&'a str> {
                 '}' => {
                     depth -= 1;
                     if depth == 0 {
-                        let body = &src[i..brace + off + 1];
-                        if body.contains("dual_world_registry_unavailable") {
-                            return Some(body);
-                        }
-                        break;
+                        return Some(&src[i..brace + off + 1]);
                     }
                 }
                 _ => {}
@@ -107,22 +103,20 @@ fn fn_body<'a>(src: &'a str, name: &str) -> Option<&'a str> {
     None
 }
 
-/// Source residual: LifetimeUpdate empty dual-world short-circuits.
+/// Repaired source contract: the invoked Lifetime callback kills its exact owner.
 pub fn honesty_lifetime_update_dual_world_empty_gate_source() -> bool {
     let g = include_str!("../../../../GameEngine/GameLogic/src/object/behavior/lifetime_update.rs");
-    if !(g.contains("Wave 412")
-        && g.contains("fn dual_world_registry_unavailable")
-        && g.contains("OBJECT_REGISTRY.is_empty()"))
+    if g.contains("fn dual_world_registry_unavailable") || g.contains("OBJECT_REGISTRY.is_empty()")
     {
         return false;
     }
-    let helper_ok = g.contains(
-        "fn dual_world_registry_unavailable() -> bool {\n    crate::object::registry::OBJECT_REGISTRY.is_empty()\n}",
-    );
     let Some(update) = fn_body(g, "fn update_simple(") else {
         return false;
     };
-    helper_ok && update.contains("UpdateSleepTime::Forever")
+    update.contains("find_object_by_id(self.object_id)")
+        && update.contains("guard.kill(None, None)")
+        && update.contains("UPDATE_SLEEP_FOREVER")
+        && !update.contains("self.die_frame")
 }
 
 /// Live residual: source honesty pack latches.

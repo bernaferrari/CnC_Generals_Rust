@@ -50,7 +50,6 @@ impl DrawModule for W3DModelDraw {
         self.set_pause_animation(!self.owner_should_animate());
         // C++ doDrawModule never early-returns on hidden/shroud; hide is Set_Hidden only.
 
-
         self.tick_animation_state();
         if self.current_animation_complete() {
             if let Some(next_state_index) = self.next_state {
@@ -212,8 +211,8 @@ impl ObjectDrawInterface for W3DModelDraw {
         {
             return false;
         }
-        let Some(world_transform) = self
-            .with_owner_drawable(|drawable| drawable.get_transform_matrix())
+        let Some(world_transform) =
+            self.with_owner_drawable(|drawable| drawable.get_transform_matrix())
         else {
             return false;
         };
@@ -478,7 +477,9 @@ impl ObjectDrawInterface for W3DModelDraw {
         };
 
         // C++ CACHE_ATTACH_BONE: attach offset goes to turret rot/pitch, not launch.
-        let attach_offset = self.attach_to_drawable_bone_offset().unwrap_or(Coord3D::origin());
+        let attach_offset = self
+            .attach_to_drawable_bone_offset()
+            .unwrap_or(Coord3D::origin());
 
         if turret_type != TurretType::Invalid {
             let turret_index = match turret_type {
@@ -586,13 +587,14 @@ impl ObjectDrawInterface for W3DModelDraw {
         victim_pos: &Coord3D,
         weapon_speed: f32,
         damage_radius: f32,
+        source_pose: Option<&WeaponFireFxSource>,
         live_bone: Option<&Matrix3D>,
     ) -> bool {
         if weapon_slot >= WEAPONSLOT_COUNT {
             return false;
         }
 
-        let (selected_barrel, barrel_info, fx_bone_name) = {
+        let (selected_barrel, barrel_info) = {
             let Some(state) = self.current_state() else {
                 return false;
             };
@@ -613,9 +615,30 @@ impl ObjectDrawInterface for W3DModelDraw {
             (
                 selected_barrel as usize,
                 barrels[selected_barrel as usize].clone(),
-                state.weapon_fire_fx_bone[weapon_slot].to_string(),
             )
         };
+
+        // C++ W3DModelDraw.cpp:3700-3750 executes FX before starting recoil.
+        // A null FX still starts recoil, without inspecting any source pose.
+        let handled = fx.is_some()
+            && self
+                .weapon_fire_fx_pose(
+                    source_pose,
+                    live_bone,
+                    weapon_slot,
+                    selected_barrel,
+                    barrel_info.fx_bone,
+                )
+                .is_some_and(|(position, matrix)| {
+                    self.fire_owner_weapon_fx(
+                        fx,
+                        &position,
+                        Some(&matrix),
+                        Some(victim_pos),
+                        weapon_speed,
+                        damage_radius,
+                    )
+                });
 
         if (barrel_info.recoil_bone != 0 || barrel_info.muzzle_flash_bone != 0)
             && selected_barrel < self.weapon_recoil_info[weapon_slot].len()
@@ -627,54 +650,6 @@ impl ObjectDrawInterface for W3DModelDraw {
                 self.set_muzzle_flash_hidden(weapon_slot, selected_barrel, false);
             }
         }
-
-
-        let mut handled = false;
-        if barrel_info.fx_bone != 0 {
-            // C++: hidden drawable with a logic object uses that object's pose.
-            if self.hidden && self.owner_id.is_some() {
-                let (obj_pos, obj_mtx) = self.logic_fire_fx_fallback();
-                handled = self.fire_owner_weapon_fx(
-                    fx,
-                    &obj_pos,
-                    Some(&obj_mtx),
-                    Some(victim_pos),
-                    weapon_speed,
-                    damage_radius,
-                );
-            } else if let Some(world) = live_bone {
-                let pos = Coord3D::new(world.w_axis.x, world.w_axis.y, world.w_axis.z);
-                handled = self.fire_owner_weapon_fx(
-                    fx,
-                    &pos,
-                    Some(world),
-                    Some(victim_pos),
-                    weapon_speed,
-                    damage_radius,
-                );
-            } else if !self.hidden && !fx_bone_name.is_empty() {
-                let (_obj_pos, obj_mtx) = self.logic_fire_fx_fallback();
-                let index = selected_barrel + 1;
-                let name = format!("{fx_bone_name}{index:02}");
-                let key = NameKeyGenerator::name_to_key(&name);
-                if let Some(local) = self
-                    .current_state()
-                    .and_then(|state| state.pristine_bones.get(&key))
-                {
-                    let world = obj_mtx * local.transform;
-                    let pos = Coord3D::new(world.w_axis.x, world.w_axis.y, world.w_axis.z);
-                    handled = self.fire_owner_weapon_fx(
-                        fx,
-                        &pos,
-                        Some(&world),
-                        Some(victim_pos),
-                        weapon_speed,
-                        damage_radius,
-                    );
-                }
-            }
-        }
-
         handled
     }
 

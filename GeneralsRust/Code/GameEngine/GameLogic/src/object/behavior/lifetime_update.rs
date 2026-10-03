@@ -21,12 +21,6 @@ use game_engine::common::thing::module::{
 use log::warn;
 use std::sync::{Arc, RwLock, Weak};
 
-/// Wave 412: host-only path has no dual-world factory objects.
-#[inline]
-fn dual_world_registry_unavailable() -> bool {
-    crate::object::registry::OBJECT_REGISTRY.is_empty()
-}
-
 const UPDATE_SLEEP_FOREVER: UpdateSleepTime = UpdateSleepTime::Forever;
 
 #[derive(Clone, Debug)]
@@ -95,9 +89,49 @@ const LIFETIME_UPDATE_FIELDS: &[FieldParse<LifetimeUpdateModuleData>] = &[
 mod tests {
     use super::*;
     use crate::object::Object;
-    use std::sync::Mutex;
 
-    static FRAME_TEST_LOCK: Mutex<()> = Mutex::new(());
+    struct FrameRestore(u64);
+
+    impl FrameRestore {
+        fn at(frame: u64) -> Self {
+            let mut logic = crate::system::game_logic::get_game_logic().lock().unwrap();
+            let previous = logic.get_frame() as u64;
+            logic.set_current_frame(frame);
+            Self(previous)
+        }
+    }
+
+    impl Drop for FrameRestore {
+        fn drop(&mut self) {
+            crate::system::game_logic::get_game_logic()
+                .lock()
+                .unwrap()
+                .set_current_frame(self.0);
+        }
+    }
+
+    struct LifetimeOwner {
+        logic: crate::system::game_logic::GameLogic,
+        id: ObjectID,
+    }
+
+    impl LifetimeOwner {
+        fn admit(object: &Arc<RwLock<Object>>) -> Self {
+            let id = object.read().unwrap().get_id();
+            let mut logic = crate::system::game_logic::GameLogic::new();
+            logic.register_object(object.clone()).unwrap();
+            Self { logic, id }
+        }
+    }
+
+    impl Drop for LifetimeOwner {
+        fn drop(&mut self) {
+            self.logic.destroy_object(self.id);
+            self.logic
+                .process_destroy_list()
+                .expect("canonical lifetime fixture retirement");
+        }
+    }
 
     fn parse_field(data: &mut LifetimeUpdateModuleData, token: &str, values: &[&str]) {
         let field = LIFETIME_UPDATE_FIELDS
@@ -164,15 +198,8 @@ mod tests {
 
     #[test]
     fn lifetime_update_constructor_schedules_initial_wake_for_die_frame() {
-        let _guard = FRAME_TEST_LOCK.lock().unwrap();
-        let original_frame = {
-            let mut logic = crate::system::game_logic::get_game_logic()
-                .lock()
-                .expect("game logic lock");
-            let original = logic.get_frame();
-            logic.set_current_frame(100);
-            original
-        };
+        let _guard = crate::test_sync::lock();
+        let _frame = FrameRestore::at(100);
 
         let object = Arc::new(RwLock::new(Object::new_test(4242, 100.0)));
         let module_data: Arc<dyn ModuleData> = Arc::new(LifetimeUpdateModuleData {
@@ -185,24 +212,12 @@ mod tests {
 
         assert_eq!(behavior.get_die_frame(), 130);
         assert_eq!(behavior.initial_wake_frame(), 130);
-
-        crate::system::game_logic::get_game_logic()
-            .lock()
-            .expect("game logic lock")
-            .set_current_frame(original_frame as u64);
     }
 
     #[test]
     fn set_lifetime_range_reschedules_initial_wake_like_cpp() {
-        let _guard = FRAME_TEST_LOCK.lock().unwrap();
-        let original_frame = {
-            let mut logic = crate::system::game_logic::get_game_logic()
-                .lock()
-                .expect("game logic lock");
-            let original = logic.get_frame();
-            logic.set_current_frame(100);
-            original
-        };
+        let _guard = crate::test_sync::lock();
+        let _frame = FrameRestore::at(100);
 
         let object = Arc::new(RwLock::new(Object::new_test(4243, 100.0)));
         let module_data: Arc<dyn ModuleData> = Arc::new(LifetimeUpdateModuleData {
@@ -217,42 +232,47 @@ mod tests {
 
         assert_eq!(behavior.get_die_frame(), 145);
         assert_eq!(behavior.initial_wake_frame(), 145);
-
-        crate::system::game_logic::get_game_logic()
-            .lock()
-            .expect("game logic lock")
-            .set_current_frame(original_frame as u64);
     }
 
     #[test]
     fn update_kills_even_before_die_frame_when_invoked_like_cpp() {
-        let _guard = FRAME_TEST_LOCK.lock().unwrap();
-        let original_frame = {
-            let mut logic = crate::system::game_logic::get_game_logic()
-                .lock()
-                .expect("game logic lock");
-            let original = logic.get_frame();
-            logic.set_current_frame(100);
-            original
-        };
-
+        let _guard = crate::test_sync::lock();
+        let _frame = FrameRestore::at(100);
         let object = Arc::new(RwLock::new(Object::new_test(4244, 100.0)));
-        let module_data: Arc<dyn ModuleData> = Arc::new(LifetimeUpdateModuleData {
+        // Constructors retain only the stable identity; admit this exact owner.
+        let owner = LifetimeOwner::admit(&object);
+        let data = Arc::new(LifetimeUpdateModuleData {
             min_frames: 30,
             max_frames: 30,
             ..LifetimeUpdateModuleData::default()
         });
-        let mut behavior =
-            LifetimeUpdate::new(Arc::clone(&object), module_data).expect("LifetimeUpdate creates");
-
+        let behavior =
+            LifetimeUpdate::new(object.clone(), data.clone()).expect("LifetimeUpdate creates");
         assert_eq!(behavior.get_die_frame(), 130);
-        assert_eq!(behavior.update_simple(), UPDATE_SLEEP_FOREVER);
-        assert!(object.read().unwrap().is_effectively_dead());
-
-        crate::system::game_logic::get_game_logic()
-            .lock()
-            .expect("game logic lock")
-            .set_current_frame(original_frame as u64);
+        let mut wrapper =
+            LifetimeUpdateModule::new(behavior, &AsciiString::from("LifetimeUpdate"), data);
+        assert_eq!(
+            wrapper
+                .get_update_module_interface()
+                .unwrap()
+                .update_simple(),
+            UPDATE_SLEEP_FOREVER
+        );
+        {
+            let object = object.read().unwrap();
+            assert_eq!(object.get_health(), 0.0);
+            assert!(object.is_effectively_dead());
+            assert!(
+                !object.is_destroyed(),
+                "C++ LifetimeUpdate kills, not destroys"
+            );
+        }
+        drop(owner);
+        assert!(
+            crate::object::registry::OBJECT_REGISTRY
+                .get_object(4244)
+                .is_none()
+        );
     }
 }
 
@@ -292,7 +312,6 @@ impl LifetimeUpdate {
             .ok()
             .map(|g| g.get_id())
             .unwrap_or(crate::common::INVALID_ID);
-
 
         Ok(Self {
             object_id,
@@ -369,11 +388,6 @@ impl LifetimeUpdate {
 
 impl UpdateModuleInterface for LifetimeUpdate {
     fn update_simple(&mut self) -> UpdateSleepTime {
-        // Wave 412: empty dual-world → Forever.
-        if dual_world_registry_unavailable() {
-            return UpdateSleepTime::Forever;
-        }
-
         // C++ kills whenever the scheduled update is invoked; timing is owned by the scheduler.
         if let Some(object) = (if self.object_id == crate::common::INVALID_ID {
             None

@@ -34,6 +34,15 @@ use super::masks_enums::*;
 use super::store::with_weapon_store_mut;
 use super::weapon_instance::Weapon;
 
+/// Source values read once at the firing boundary, before draw callbacks.
+/// The drawable is a temporary presentation handle; no live Object is retained.
+pub(crate) struct SourceFireFx {
+    pub veterancy: crate::common::VeterancyLevel,
+    pub stealth_suppressed: bool,
+    pub drawable: Option<Arc<RwLock<crate::object::drawable::Drawable>>>,
+    pub pose: Option<crate::object::draw::draw_module::WeaponFireFxSource>,
+}
+
 impl Weapon {
     pub fn handle_projectileless_flight_damage(
         &mut self,
@@ -1366,8 +1375,12 @@ impl Weapon {
         let fx_suspended = current_frame < self.suspend_fx_frame;
 
         let borrowed_source = borrowed_source.filter(|source| source.get_id() == source_obj_id);
-        let (veterancy, stealthed_hidden, drawable) =
-            self.source_fire_fx(source_obj_id, borrowed_source);
+        let SourceFireFx {
+            veterancy,
+            stealth_suppressed: stealthed_hidden,
+            drawable,
+            pose,
+        } = self.source_fire_fx(source_obj_id, borrowed_source);
         let skip_muzzle_fx = stealthed_hidden || fx_suspended;
         // FireSound is FiringTracker::shotFired, not this FX path.
 
@@ -1408,6 +1421,7 @@ impl Weapon {
                         impact_pos,
                         weapon_speed,
                         damage_radius,
+                        pose.as_ref(),
                     );
                 }
             }
@@ -1468,11 +1482,7 @@ impl Weapon {
         &self,
         source_obj_id: ObjectId,
         borrowed_source: Option<&crate::object::Object>,
-    ) -> (
-        crate::common::VeterancyLevel,
-        bool,
-        Option<Arc<RwLock<crate::object::drawable::Drawable>>>,
-    ) {
+    ) -> SourceFireFx {
         let read_source = |source: &crate::object::Object| {
             let hidden = !source.is_locally_controlled()
                 && source.test_status(ObjectStatusTypes::Stealthed)
@@ -1480,7 +1490,15 @@ impl Weapon {
                 && !source.test_status(ObjectStatusTypes::Disguised)
                 && !source.is_kind_of(KindOf::Mine)
                 && !self.template.play_fx_when_stealthed;
-            (source.get_veterancy_level(), hidden, source.get_drawable())
+            SourceFireFx {
+                veterancy: source.get_veterancy_level(),
+                stealth_suppressed: hidden,
+                drawable: source.get_drawable(),
+                pose: Some(crate::object::draw::draw_module::WeaponFireFxSource {
+                    position: *source.get_position(),
+                    transform: source.get_transform_matrix(),
+                }),
+            }
         };
         borrowed_source
             .filter(|source| source.get_id() == source_obj_id)
@@ -1488,7 +1506,12 @@ impl Weapon {
             .or_else(|| {
                 crate::object::registry::OBJECT_REGISTRY.with_object(source_obj_id, read_source)
             })
-            .unwrap_or((crate::common::VeterancyLevel::Regular, false, None))
+            .unwrap_or(SourceFireFx {
+                veterancy: crate::common::VeterancyLevel::Regular,
+                stealth_suppressed: false,
+                drawable: None,
+                pose: None,
+            })
     }
 
     pub(crate) fn projectile_damage_source_id(
