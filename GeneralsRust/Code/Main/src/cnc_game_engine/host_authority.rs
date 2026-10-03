@@ -2399,13 +2399,14 @@ mod staged_restore_tests {
         let mut source = GameLogic::new();
         source.start_new_game(GameMode::Skirmish);
         assert!(source.load_map(&map_name), "load source retail map");
-        // The forced error runs after snapshot restoration, which initializes
-        // both legacy AI singletons.  Seed distinct live allocator/manager
-        // contents first: rollback must recover them rather than merely leave
-        // a valid-looking empty AI system behind.
+        // Seed compatibility state independently of match setup. A failed
+        // staged restore must leave that state intact; setting up the host's
+        // opponents no longer initializes these separate AI representations.
         source.add_player(Player::new(0, Team::USA, "Human", true));
         source.add_player(Player::new(1, Team::China, "Computer", false));
         source.setup_skirmish_ai(0);
+        gamelogic::ai::integration::initialize_ai_integration()
+            .expect("initialize independent compatibility AI fixture");
         let (first_live_ai_group_id, second_live_ai_group_id) = {
             let ai_store = gamelogic::ai::the_ai();
             let mut ai = ai_store.write().expect("lock live legacy AI");

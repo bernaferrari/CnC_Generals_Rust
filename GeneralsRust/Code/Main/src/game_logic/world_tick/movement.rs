@@ -1876,30 +1876,12 @@ mod tests {
 
     #[test]
     fn safe_queue_one_repulsor_clears_the_old_path() {
-        struct Restore(f32);
-        impl Drop for Restore {
-            fn drop(&mut self) {
-                if let Ok(mut ai) = gamelogic::ai::the_ai().write() {
-                    ai.update_ai_data(|data| data.repulsed_distance = self.0);
-                }
-            }
-        }
-        let previous = gamelogic::ai::the_ai()
-            .read()
-            .ok()
-            .map(|ai| ai.get_ai_data().repulsed_distance)
-            .unwrap_or(0.0);
-        let _restore = Restore(previous);
         let mut logic = GameLogic::new();
-        if let Ok(mut ai) = gamelogic::ai::the_ai().write() {
-            ai.update_ai_data(|data| data.repulsed_distance = 40.0);
+        {
+            let mut definitions = logic.engine_stores.ai_data().write().unwrap();
+            definitions.ensure_base();
+            definitions.get_active_mut().unwrap().repulsed_distance = 40.0;
         }
-        let seen = gamelogic::ai::the_ai()
-            .read()
-            .ok()
-            .map(|ai| ai.get_ai_data().repulsed_distance)
-            .unwrap_or(-1.0);
-        assert_eq!(seen, 40.0, "repulsed_distance must be visible to the queue");
         let id = ObjectId(9631);
         let threat = ObjectId(9632);
         let mut tmpl = ThingTemplate::new("Ranger");

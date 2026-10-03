@@ -3,6 +3,10 @@
 use super::super::HostHeliTakeoffOrLanding;
 use super::super::*;
 
+#[cfg(test)]
+#[path = "airfield_heli_motion_tests.rs"]
+pub(in crate::game_logic) mod heli_motion_tests;
+
 #[derive(Clone, Copy, Debug)]
 #[allow(dead_code)]
 struct HostAirfieldPPInfo {
@@ -666,7 +670,7 @@ impl GameLogic {
             jet.set_status_moving(true);
             jet.movement.path.clear();
             jet.movement.current_path_index = 0;
-            jet.movement.target_position = Some(path[0]);
+            jet.set_locomotor_goal_position_explicit(path[0]);
             if crate::gameworld_shadow::gameworld_movement_authority_live() {
                 crate::game_logic::host_move_log::record(
                     jet_id,
@@ -688,15 +692,11 @@ impl GameLogic {
         let Some(state) = self.heli_takeoff_or_landing.get(&jet_id).copied() else {
             return;
         };
-        let Some((alive, pos, speed)) = self.objects.get(&jet_id).map(|jet| {
-            (
-                jet.is_alive(),
-                jet.get_position(),
-                jet.effective_max_speed()
-                    .max(jet.movement.max_speed)
-                    .max(1.0),
-            )
-        }) else {
+        let Some((alive, pos)) = self
+            .objects
+            .get(&jet_id)
+            .map(|jet| (jet.is_alive(), jet.get_position()))
+        else {
             self.heli_takeoff_or_landing.remove(&jet_id);
             return;
         };
@@ -706,18 +706,20 @@ impl GameLogic {
         }
         let idx = state.index.min(1) as usize;
         let goal = state.path[idx];
-        let delta = goal - pos;
-        let dist_sq = delta.length_squared();
+        // C++ JetAIUpdate.cpp:1073 issues the current leg's explicit goal
+        // before polling arrival. Locomotor/physics already own pose integration;
+        // the old magical positioning code is disabled at :1040–1065.
+        if let Some(jet) = self.objects.get_mut(&jet_id) {
+            jet.set_locomotor_goal_position_explicit(goal);
+        }
+        let dist_sq = (goal - pos).length_squared();
         if dist_sq <= Self::HELI_TAKEOFF_OR_LANDING_THRESH_SQ {
-            if let Some(jet) = self.objects.get_mut(&jet_id) {
-                jet.set_position(goal);
-            }
             let mut next = state;
             next.index = next.index.saturating_add(1);
             if next.index >= 2 {
                 self.heli_takeoff_or_landing.remove(&jet_id);
                 if next.landing {
-                    self.finish_helipad_landing(jet_id, next.airfield_id, next.path[1]);
+                    self.finish_helipad_landing(jet_id, next.airfield_id);
                 } else if let Some(jet) = self.objects.get_mut(&jet_id) {
                     jet.set_ai_state(AIState::Idle);
                     jet.set_precise_z_and_ultra_accurate(false);
@@ -729,32 +731,14 @@ impl GameLogic {
                     jet.movement.target_position = None;
                 }
             } else {
+                // C++ increments the leg index after issuing its goal. The
+                // next update issues the following point, without snapping.
                 self.heli_takeoff_or_landing.insert(jet_id, next);
-                if let Some(jet) = self.objects.get_mut(&jet_id) {
-                    jet.movement.target_position = Some(next.path[next.index.min(1) as usize]);
-                }
-            }
-            return;
-        }
-        let step = speed * LOGIC_FRAME_TIMESTEP;
-        let dist = dist_sq.sqrt();
-        let t = (step / dist).min(1.0);
-        let new_pos = pos + delta * t;
-        if let Some(jet) = self.objects.get_mut(&jet_id) {
-            jet.set_position(new_pos);
-            jet.movement.target_position = Some(goal);
-            jet.set_status_moving(true);
-            if crate::gameworld_shadow::gameworld_movement_authority_live() {
-                crate::game_logic::host_move_log::record(
-                    jet_id,
-                    Some([new_pos.x, new_pos.y, new_pos.z]),
-                );
-                jet.record_host_movement();
             }
         }
     }
 
-    fn finish_helipad_landing(&mut self, jet_id: ObjectId, airfield_id: ObjectId, pad: glam::Vec3) {
+    fn finish_helipad_landing(&mut self, jet_id: ObjectId, airfield_id: ObjectId) {
         self.heli_takeoff_or_landing.remove(&jet_id);
         {
             let Some(jet) = self.objects.get_mut(&jet_id) else {
@@ -770,11 +754,13 @@ impl GameLogic {
             jet.movement.path.clear();
             jet.movement.current_path_index = 0;
             jet.movement.target_position = None;
-            jet.set_position(pad);
+            // Produced-at-helipad aircraft skip ParkOrient's positioning
+            // (C++ :1149), then enter ReloadAmmo without changing their pose.
             jet.return_to_base_requested = false;
             if crate::gameworld_shadow::gameworld_ai_decision_authority_live() {
                 crate::game_logic::host_ai_decision_log::record_set_state(jet_id, 12);
-                crate::game_logic::host_move_log::record(jet_id, Some([pad.x, pad.y, pad.z]));
+                let pos = jet.get_position();
+                crate::game_logic::host_move_log::record(jet_id, Some([pos.x, pos.y, pos.z]));
                 jet.record_host_movement();
             }
             jet.begin_parked_airfield_rearm(self.frame);
@@ -826,7 +812,7 @@ impl GameLogic {
             return false;
         };
         if (pos - parking).length_squared() <= Self::HELI_TAKEOFF_OR_LANDING_THRESH_SQ {
-            self.finish_helipad_landing(jet_id, airfield_id, parking);
+            self.finish_helipad_landing(jet_id, airfield_id);
             return true;
         }
         if let Some(jet) = self.objects.get_mut(&jet_id) {

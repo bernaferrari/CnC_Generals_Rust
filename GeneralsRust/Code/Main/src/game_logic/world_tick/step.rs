@@ -1,6 +1,9 @@
 //! Host tick `impl GameLogic` — `step`.
 #![allow(unused_imports, non_snake_case)]
 use super::super::*;
+#[cfg(test)]
+#[path = "ai_phase_tests.rs"]
+mod ai_phase_tests;
 /// Outcome of one `update_simulation` step (one C++ `GameLogic::update` pass,
 /// GameLogic.cpp:3548-3803).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -380,13 +383,6 @@ impl GameLogic {
         // Pathfinding dynamic obstacles rebuild once per host logic frame.
         self.pathfinding_system.note_logic_frame(self.frame as u64);
         self.refresh_pathfind_ally_masks();
-        // C++ AI::update → Pathfinder::processPathfindQueue (AI.cpp:332-339):
-        // drain queued path requests every logic frame. The live host ticks via
-        // tick_logic_frame/update_simulation, so the drain MUST live here — the
-        // previous world_runtime::update-only call never ran live and every
-        // deferred path stayed waiting_for_path=true (units never walked).
-        self.reissue_pending_moves();
-        self.process_pathfind_queue();
         // -----------------------------------------------------------------------
         // Phase 1: Early Scripting (C++ line 3600)
         // -----------------------------------------------------------------------
@@ -473,7 +469,9 @@ impl GameLogic {
         // C++ ticks UpdateModules via m_sleepyUpdates (wake_frame, phase).
         // Host residuals are scheduled the same way: drain due modules, then
         // run the matching system tick. UPDATE_SLEEP_NONE → next frame.
-        let now = self.frame.max(1);
+        // C++ clamps registration wake frames to 1, but compares them with
+        // the actual current frame. Clamping the tick repeats frame 1.
+        let now = self.frame;
         let due = self.host_sleepy.drain_due(now);
         for kind in due {
             match kind {
@@ -1327,83 +1325,13 @@ impl GameLogic {
         // force-ejected. This runs after combat so the health state is current.
         self.check_building_damage_states(&object_ids);
 
-        // -----------------------------------------------------------------------
-        // Phase 8: AI Update (C++ line 3743)
-        // -----------------------------------------------------------------------
-        // C++: TheAI->UPDATE();
-        // AI runs AFTER object updates so AI decisions are based on the latest
-        // world state (objects have moved, combat resolved). This ordering is
-        // critical: objects update first, then AI observes new positions and
-        // issues commands for the next frame.
-        {
-            // 1. the_ai.update only drains the crate Pathfinder queue (it no
-            //    longer walks crate groups / ThePlayerList — that is AIManager).
-            // Host objects live in GameLogic.objects, not OBJECT_REGISTRY, so
-            // an empty crate world has no pathfinder work the host needs.
-            // Skip to avoid pretending this is the live AI tick. Host
-            // AIManager.update below remains the real TheAI residual.
-            let crate_world_empty = gamelogic::object::registry::OBJECT_REGISTRY.is_empty();
-            if !crate_world_empty {
-                let ai_store = the_ai();
-                if let Ok(mut ai) = ai_store.write() {
-                    if let Err(e) = ai.update(self.frame) {
-                        log::warn!("the_ai update failed at frame {}: {:?}", self.frame, e);
-                    }
-                }
-            } else {
-                static SKIP_THE_AI: std::sync::Once = std::sync::Once::new();
-                SKIP_THE_AI.call_once(|| {
-                    log::info!(
-                        "Skipping the_ai.update: OBJECT_REGISTRY/crate world is empty; \
-                         crate pathfinder never sees host objects (host AIManager still runs)"
-                    );
-                });
-            }
-
-            // 2. AiIntegrationManager (per-player crate AIPlayer / SkirmishPlayer).
-            // Skip when no host-registered crate AI players exist — an empty
-            // integration would dual-simulate nothing and must not replace
-            // host AIManager.update below.
-            let has_crate_ai_players = gamelogic::ai::integration::with_ai_integration(|mgr| {
-                mgr.get_ai_player_count() > 0
-            })
-            .unwrap_or(false);
-            if has_crate_ai_players {
-                if let Some(result) = with_ai_integration_mut(|mgr| mgr.update_ai_players_only()) {
-                    if let Err(e) = result {
-                        log::warn!(
-                            "AiIntegrationManager update failed at frame {}: {:?}",
-                            self.frame,
-                            e
-                        );
-                    }
-                }
-            } else {
-                static SKIP_AI_INTEGRATION: std::sync::Once = std::sync::Once::new();
-                SKIP_AI_INTEGRATION.call_once(|| {
-                    log::info!(
-                        "Skipping update_ai_players_only: no host-registered crate AI players \
-                         (host AIManager still runs)"
-                    );
-                });
-            }
-        }
-
-        // Main crate simplified per-object AI decisions (scan for enemies, retreat, etc.)
+        // Object AI is part of the object/module pass, before the system AI
+        // queue drain (C++ GameLogic.cpp:3699-3743). The existing owned host
+        // executes these module families directly.
         self.update_ai(&object_ids, dt);
 
-        // Host skirmish AI players (AIManager / AIPlayer) — residual production path
-        // for Medium+ opponents registered via apply_skirmish_config / add_ai_opponent.
-        // Borrow-split: take manager out, update against &mut self, put back.
-        // NOTE: dual-tick gate vs gamelogic IntegratedAiPlayer deferred — the
-        // integration manager is a process-global singleton and test isolation
-        // would skip host AI when leftover players remain from other tests.
-        {
-            let sim_time = self.sim_time_seconds;
-            let mut ai_mgr = std::mem::take(&mut self.ai_manager);
-            ai_mgr.update(self, sim_time);
-            self.ai_manager = ai_mgr;
-        }
+        // Phase 8: C++ AI::update — pathfinding, then this match's players.
+        self.update_match_ai();
 
         // Phase 8b: Apply commands queued by AI this frame (C++ CommandList drain
         // after TheAI->UPDATE). Ensures same-frame set_target/move logs reach

@@ -1005,10 +1005,7 @@ impl PathfindingSystem {
         gamelogic::ai::the_ai()
             .read()
             .ok()
-            .and_then(|ai| {
-                Some(ai.get_ai_data())
-                    .map(|d| d.attack_uses_line_of_sight)
-            })
+            .and_then(|ai| Some(ai.get_ai_data()).map(|d| d.attack_uses_line_of_sight))
             .unwrap_or(true)
     }
 
@@ -1255,7 +1252,11 @@ impl PathfindingSystem {
     /// Rebuild structure static obstacles from live objects (map load / bulk sync).
     /// Does not clear terrain slope blocks — only ORs structure footprints.
     /// C++ `addObjectToPathfindMap` includes scaffolds (DozerAIUpdate.cpp:1698-1699).
-    pub fn apply_structure_static_blocks(&mut self, objects: &HashMap<ObjectId, Object>) {
+    pub fn apply_structure_static_blocks(
+        &mut self,
+        objects: &HashMap<ObjectId, Object>,
+        wall_height: f32,
+    ) {
         let mut lo = GridPos::new(i32::MAX, i32::MAX);
         let mut hi = GridPos::new(i32::MIN, i32::MIN);
         let mut did = false;
@@ -1289,7 +1290,7 @@ impl PathfindingSystem {
             self.grid.refresh_pinched_bounds(lo, hi);
         }
         self.grid.rebuild_path_zones();
-        self.sync_wall_pieces_from_objects(objects);
+        self.sync_wall_pieces_from_objects(objects, wall_height);
     }
 
     /// Incremental leftover classify + pinch for one live structure (dozer place).
@@ -1315,7 +1316,7 @@ impl PathfindingSystem {
     }
 
     /// C++ `Pathfinder::addWallPiece` from a live host object.
-    pub fn add_wall_piece_from_object(&mut self, obj: &Object) {
+    pub fn add_wall_piece_from_object(&mut self, obj: &Object, wall_height: f32) {
         let geom = &obj.thing.template.geometry_info;
         let major = if geom.authored && geom.major_radius > 0.0 {
             geom.major_radius
@@ -1334,14 +1335,8 @@ impl PathfindingSystem {
         if self.grid.wall_height <= 0.0 && geom.authored && geom.height > 0.0 {
             self.grid.wall_height = geom.height;
         }
-        if self.grid.wall_height <= 0.0 {
-            let ai_store = gamelogic::ai::the_ai();
-            if let Ok(ai) = ai_store.read() {
-                let data = ai.get_ai_data();
-                if data.wall_height > 0.0 {
-                    self.grid.wall_height = data.wall_height;
-                }
-            }
+        if self.grid.wall_height <= 0.0 && wall_height > 0.0 {
+            self.grid.wall_height = wall_height;
         }
         self.grid.add_wall_piece(
             obj.id.0,
@@ -1369,12 +1364,16 @@ impl PathfindingSystem {
     }
 
     /// Rebuild wall pieces from live `WALK_ON_TOP_OF_WALL` objects.
-    pub fn sync_wall_pieces_from_objects(&mut self, objects: &HashMap<ObjectId, Object>) {
+    pub fn sync_wall_pieces_from_objects(
+        &mut self,
+        objects: &HashMap<ObjectId, Object>,
+        wall_height: f32,
+    ) {
         self.grid.wall_pieces.clear();
         self.grid.wall_cells.clear();
         for obj in objects.values() {
             if obj.is_alive() && obj.is_kind_of(KindOf::WalkOnTopOfWall) {
-                self.add_wall_piece_from_object(obj);
+                self.add_wall_piece_from_object(obj, wall_height);
             }
         }
         if self.grid.wall_pieces.is_empty() {

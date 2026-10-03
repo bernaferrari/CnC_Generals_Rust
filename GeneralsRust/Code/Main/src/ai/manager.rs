@@ -1,9 +1,11 @@
 use super::*;
+use std::collections::BTreeMap;
 
 /// AI Manager coordinates all AI players
 #[derive(Debug)]
 pub struct AIManager {
-    pub ai_players: HashMap<u32, AIPlayer>,
+    /// C++ PlayerList executes by numeric slot; retain that order in storage.
+    pub ai_players: BTreeMap<u32, AIPlayer>,
     team_factory: gamelogic::team::TeamFactoryHandle,
 }
 
@@ -17,7 +19,7 @@ impl AIManager {
     /// Create new AI manager
     pub fn new() -> Self {
         Self {
-            ai_players: HashMap::new(),
+            ai_players: BTreeMap::new(),
             team_factory: gamelogic::team::TeamFactoryHandle::new(),
         }
     }
@@ -25,7 +27,7 @@ impl AIManager {
     pub(crate) fn with_team_factory(team_factory: gamelogic::team::TeamFactoryHandle) -> Self {
         Self {
             team_factory,
-            ..Self::new()
+            ai_players: BTreeMap::new(),
         }
     }
 
@@ -79,24 +81,39 @@ impl AIManager {
 
     /// Update all AI players
     pub fn update(&mut self, game_logic: &mut GameLogic, current_time: f32) {
+        Self::update_players(&mut self.ai_players, game_logic, current_time);
+    }
+
+    /// Borrow the driving match through player callbacks without constructing
+    /// a replacement manager/team factory on every frame. Player state remains
+    /// owned by the same manager before and after the synchronous pass.
+    pub(crate) fn update_owned(game_logic: &mut GameLogic, current_time: f32) {
+        let mut players = std::mem::take(&mut game_logic.ai_manager.ai_players);
+        Self::update_players(&mut players, game_logic, current_time);
+        game_logic.ai_manager.ai_players = players;
+    }
+
+    fn update_players(
+        players: &mut BTreeMap<u32, AIPlayer>,
+        game_logic: &mut GameLogic,
+        current_time: f32,
+    ) {
         // GameLogic calls the AI once per advanced fixed logic frame, matching
         // C++ GameLogic::update -> TheAI->UPDATE. Do not re-gate that cadence
         // with accumulated f32 seconds: rounding can silently skip a frame.
-        let peer_targets: Vec<(u32, Option<u32>)> = self
-            .ai_players
+        // C++ PlayerList.cpp:221-228 visits ascending player slots. Commands,
+        // object admissions and random draws must not depend on HashMap order.
+        let peer_targets: Vec<(u32, Option<u32>)> = players
             .iter()
             .map(|(&id, ai)| (id, ai.enemy_player_id))
             .collect();
         let destroyed = game_logic.take_ai_team_destroy_notifications();
-        let player_ids: Vec<u32> = self.ai_players.keys().copied().collect();
-        for player_id in player_ids {
-            if let Some(ai_player) = self.ai_players.get_mut(&player_id) {
-                for (team_id, team_name) in &destroyed {
-                    ai_player.ai_pre_team_destroy(Some(*team_id), team_name);
-                }
-                ai_player.peer_ai_targets = peer_targets.clone();
-                ai_player.update(game_logic, current_time);
+        for ai_player in players.values_mut() {
+            for (team_id, team_name) in &destroyed {
+                ai_player.ai_pre_team_destroy(Some(*team_id), team_name);
             }
+            ai_player.peer_ai_targets = peer_targets.clone();
+            ai_player.update(game_logic, current_time);
         }
     }
 
@@ -131,12 +148,8 @@ impl AIManager {
     /// and attack targets deliberately are not serialized: their object
     /// references are transient and are rebuilt after the snapshot is loaded.
     pub fn snapshot_players_for_save(&self) -> Vec<crate::save_load::AIPlayerSnapshot> {
-        let mut player_ids: Vec<u32> = self.ai_players.keys().copied().collect();
-        player_ids.sort_unstable();
-
-        player_ids
-            .into_iter()
-            .filter_map(|player_id| self.ai_players.get(&player_id))
+        self.ai_players
+            .values()
             .map(|ai| {
                 let defensive_groups = (!ai.defensive_units.is_empty())
                     .then(|| crate::save_load::AIUnitGroupSnapshot {
@@ -194,7 +207,8 @@ impl AIManager {
     ///
     /// The caller supplies restored player teams because save rows identify an
     /// AI by player id, while team ownership remains part of `PlayerSnapshot`.
-    /// Empty snapshots are handled by the caller as the legacy fallback case.
+    /// For older saves with no rows, the caller registers this match's
+    /// opponents from its restored players; it does not drive a global AI.
     pub fn restore_players_from_save(
         &mut self,
         snapshots: &[crate::save_load::AIPlayerSnapshot],
@@ -286,11 +300,8 @@ impl AIManager {
     pub fn capture_queue_persist(
         &self,
     ) -> Vec<crate::save_load::snapshot::ai_player_queue_persist::AIPlayerQueuePersist> {
-        let mut player_ids: Vec<u32> = self.ai_players.keys().copied().collect();
-        player_ids.sort_unstable();
-        player_ids
-            .into_iter()
-            .filter_map(|player_id| self.ai_players.get(&player_id))
+        self.ai_players
+            .values()
             .map(AIPlayer::capture_queue_persist)
             .collect()
     }

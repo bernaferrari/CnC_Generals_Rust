@@ -1266,16 +1266,21 @@ impl GameLogic {
     pub fn setup_skirmish_ai(&mut self, human_player_id: u32) {
         println!("🤖 Setting up AI opponents for skirmish match...");
 
-        // --- Initialize the gamelogic crate AI subsystem ---
-        // the_ai singleton (pathfinder, groups) and the AiIntegrationManager
-        // must be initialized before any AI player updates run.
-        let ai_store = the_ai();
-        if let Ok(mut ai) = ai_store.write() {
-            ai.init();
-            log::info!("the_ai singleton initialized for skirmish");
-        }
-        if let Err(e) = initialize_ai_integration() {
-            log::warn!("AiIntegrationManager init failed (non-fatal): {:?}", e);
+        // Definitions belong to this match's stores. Initializing opponents
+        // must not reset a process-global AI allocator or integration manager.
+        {
+            let definitions = self
+                .engine_stores
+                .ai_data()
+                .read()
+                .unwrap_or_else(|e| e.into_inner());
+            if let Some(data) = definitions.get_active() {
+                self.engine_stores
+                    .ai()
+                    .write()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .init_from_authored_data(data);
+            }
         }
 
         // Add AI players for non-human players

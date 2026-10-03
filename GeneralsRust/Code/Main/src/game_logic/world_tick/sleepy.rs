@@ -91,8 +91,8 @@ impl HostSleepyHeap {
         let mut heap = Self {
             heap: BinaryHeap::new(),
         };
-        // C++ registerObject maps wake 0 → now (min 1). First logic frame is 1
-        // after the increment at the end of update, so seed wake=1.
+        // C++ registerObject maps wake 0 → now (min 1). A new match starts
+        // at frame 0; these updates first become due at frame 1.
         for kind in HostSleepyKind::ALL {
             heap.heap.push(SleepyEntry {
                 wake_frame: 1,

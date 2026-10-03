@@ -237,7 +237,7 @@ impl Object {
         let collision_angle = self.relative_angle_2d_to(them);
         let other_angle = other.relative_angle_2d_to(us);
         let mut angle_limit = std::f32::consts::FRAC_PI_4; // 45 deg
-        // C++ otherMoving is locomotorGoalType != NONE, not current velocity.
+                                                           // C++ otherMoving is locomotorGoalType != NONE, not current velocity.
         let other_moving = other.locomotor_goal_type != super::LocoGoalType::None;
         if !other_moving {
             angle_limit *= 0.75;
@@ -520,8 +520,8 @@ impl Object {
         let mut mod_force = force;
         if self.is_motive() {
             let dir = self.unit_direction_vector_2d(); // (x,z)
-            // C++ lateralDot = force.x * (-dir.y) + force.y * dir.x
-            // Host: force.x * (-dir.z_comp) + force.z * dir.x where dir=(x,z)
+                                                       // C++ lateralDot = force.x * (-dir.y) + force.y * dir.x
+                                                       // Host: force.x * (-dir.z_comp) + force.z * dir.x where dir=(x,z)
             let lateral_dot = force.x * (-dir.y) + force.z * dir.x;
             mod_force.x = lateral_dot * (-dir.y);
             mod_force.z = lateral_dot * dir.x;
@@ -817,10 +817,9 @@ impl Object {
         leftover_surface_ht_at_pt(self.get_position(), ground_y)
     }
 
-    /// C++ Locomotor::locoUpdate_maintainCurrentPosition residual.
-    ///
-    /// Stops horizontal motion for legs/treads/wheels; hover/wings need constant Z.
-    pub fn loco_maintain_current_position(&mut self, ground_y: f32, dt: f32) -> bool {
+    /// Appearance half of C++ maintainCurrentPosition. The driving locomotor
+    /// applies altitude once, after this operation, using its current goal.
+    pub(crate) fn loco_maintain_appearance(&mut self, dt: f32) -> bool {
         if !self.maintain_pos_valid {
             self.maintain_pos = Some(self.get_position());
             self.record_host_combat_attack();
@@ -855,8 +854,6 @@ impl Object {
                     // motive force along heading toward minSpeed. No vel scrub.
                     self.apply_hover_maintain_brake();
                 }
-                let maintain_y = self.maintain_pos.map(|p| p.y);
-                let _ = self.handle_behavior_z(ground_y, maintain_y);
                 return true;
             }
             _ => {}
@@ -877,10 +874,15 @@ impl Object {
             self.scrub_velocity_2d(0.0);
         }
 
+        airborne_loco
+    }
+
+    /// C++ Locomotor.cpp:2420-2474: appearance, then altitude at maintainPos.
+    pub fn loco_maintain_current_position(&mut self, ground_y: f32, dt: f32) -> bool {
+        let appearance_needs_update = self.loco_maintain_appearance(dt);
         let maintain_y = self.maintain_pos.map(|p| p.y);
         let needs_z = self.handle_behavior_z(ground_y, maintain_y);
-        // Hover/air need constant calling; ground settled does not.
-        airborne_loco || needs_z
+        appearance_needs_update || needs_z
     }
 
     /// C++ `AIUpdateInterface::chooseGoodLocomotorFromCurrentSet` (AIUpdate.cpp:833-872).
@@ -1588,7 +1590,7 @@ impl Object {
             let nz = -v.z * inv;
             // If already leaving (dot with correction > 0.25), skip.
             let leaving = v.x * nx + v.z * nz; // nx opposite vel so leaving is negative of progress
-            // correction direction is opposite into-invalid → along -velocity when moving in
+                                               // correction direction is opposite into-invalid → along -velocity when moving in
             if leaving > 0.25 {
                 return false;
             }
@@ -1644,7 +1646,9 @@ impl Object {
         self.movement.target_position = Some(desired);
         let (_t, _rel) = self.rotate_towards_position(desired, dt);
         self.apply_forward_speed_force(spd, dt);
-        let p = self.get_position() + self.movement.velocity * dt;
+        let mut p = self.get_position();
+        p.x += self.movement.velocity.x * dt;
+        p.z += self.movement.velocity.z * dt;
         self.set_position(p);
         self.movement.target_position = None;
         // C++ maintainCurrentPositionWings is 2D circling only
@@ -1894,7 +1898,11 @@ impl Object {
         let vz = v.z * dir.y;
         let dot = vx + vz;
         let speed = (vx * vx + vz * vz).sqrt();
-        if dot >= 0.0 { speed } else { -speed }
+        if dot >= 0.0 {
+            speed
+        } else {
+            -speed
+        }
     }
 
     /// C++ getAerodynamicFriction residual (clamped).

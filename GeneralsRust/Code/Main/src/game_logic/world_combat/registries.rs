@@ -3,6 +3,14 @@
 #![allow(unused_imports, non_snake_case)]
 use super::super::*;
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum TransportEvacuationMode {
+    Command,
+    /// ChinookEvacuateState::onEnter calls removeAllContained(FALSE), without
+    /// the exit-busy polling or stagger used by the ordinary exit command.
+    ChinookFlight,
+}
+
 fn garrison_evac_rand(seed: u32, lo: f32, hi: f32) -> f32 {
     let t = (seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223) >> 8) as f32
         / ((1u32 << 24) as f32);
@@ -669,6 +677,42 @@ impl GameLogic {
     /// C++ move-to-and-evacuate arrival residual: dump all occupants near container.
     /// When `and_exit`, mark the transport sold/destroyed after unload (script exit residual).
     pub fn evacuate_container_now(&mut self, container_id: ObjectId, and_exit: bool) -> bool {
+        self.evacuate_transport(container_id, and_exit, TransportEvacuationMode::Command)
+    }
+
+    /// Apply the owned Chinook evacuation state's immediate contain effect.
+    /// Flight transitions may succeed only after the actual contain list is empty.
+    pub(in super::super) fn evacuate_chinook_flight(&mut self, container_id: ObjectId) -> bool {
+        use crate::game_logic::host_combat_chinook::HostChinookAIState;
+        if !self.objects.get(&container_id).is_some_and(|obj| {
+            obj.is_alive()
+                && obj.chinook_ai.as_ref().is_some_and(|ai| {
+                    matches!(
+                        ai.state,
+                        HostChinookAIState::EvacAndTakeoff | HostChinookAIState::EvacAndExit
+                    )
+                })
+        }) {
+            return false;
+        }
+        self.evacuate_transport(container_id, false, TransportEvacuationMode::ChinookFlight);
+        let empty = self
+            .objects
+            .get(&container_id)
+            .is_some_and(|obj| obj.contained_units().is_empty());
+        if empty {
+            // ChinookEvacuateState::onEnter activates the owner's team.
+            self.activate_leftover_team_for_host_object(container_id);
+        }
+        empty
+    }
+
+    fn evacuate_transport(
+        &mut self,
+        container_id: ObjectId,
+        and_exit: bool,
+        mode: TransportEvacuationMode,
+    ) -> bool {
         let Some((alive, is_chinook_dropper, subdued)) = self.objects.get(&container_id).map(|c| {
             (
                 c.is_alive(),
@@ -683,13 +727,15 @@ impl GameLogic {
         }
         // C++ AIUpdateInterface::privateEvacuate / privateExit:
         // DISABLED_SUBDUED holds the doors shut while a Microwave cooks.
-        if subdued {
+        if subdued && mode == TransportEvacuationMode::Command {
             return false;
         }
         // C++ privateEvacuate: markAllPassengersDetected before dump.
-        self.mark_all_passengers_detected(container_id);
+        if mode == TransportEvacuationMode::Command {
+            self.mark_all_passengers_detected(container_id);
+        }
 
-        if is_chinook_dropper {
+        if is_chinook_dropper && mode == TransportEvacuationMode::Command {
             if let Some(c) = self.objects.get_mut(&container_id) {
                 let p = c.get_position();
                 if let Some(ai) = c.chinook_ai.as_mut() {
@@ -803,7 +849,8 @@ impl GameLogic {
 
             return false;
         }
-        let uses_exit_busy = !is_garrison
+        let uses_exit_busy = mode == TransportEvacuationMode::Command
+            && !is_garrison
             && self
                 .objects
                 .get(&container_id)
@@ -1519,7 +1566,7 @@ impl GameLogic {
     /// C++ NeutronMissileUpdate::update residual.
     pub fn update_neutron_missile_flights(&mut self) {
         use crate::game_logic::host_neutron_missile_update::{
-            NEUTRON_DEFAULT_BOUNDING_SPHERE, NeutronMissileFlightPhase, NeutronMissileWorld,
+            NeutronMissileFlightPhase, NeutronMissileWorld, NEUTRON_DEFAULT_BOUNDING_SPHERE,
         };
 
         let ids: Vec<ObjectId> = self
@@ -2446,7 +2493,7 @@ impl GameLogic {
     pub fn update_a10_strike_flights(&mut self) {
         use crate::game_logic::combat::DamageType;
         use crate::game_logic::host_a10_strike_flight::{
-            A10_START_DIVE_SOUND, A10_VULCAN_DELAY_FRAMES, tick_a10_dive,
+            tick_a10_dive, A10_START_DIVE_SOUND, A10_VULCAN_DELAY_FRAMES,
         };
         use crate::game_logic::special_power_strikes::{
             A10_MISSILE_PRIMARY_DAMAGE, A10_MISSILE_PRIMARY_RADIUS, A10_PAYLOAD_TEMPLATE,
@@ -3244,8 +3291,8 @@ impl GameLogic {
         target: Vec3,
     ) -> Option<ObjectId> {
         use crate::game_logic::host_anthrax_bomb_flight::{
-            ANTHRAX_BOMB_GAMMA_OBJECT, ANTHRAX_TRANSPORT, AnthraxBombPayloadTier,
-            HostAnthraxBombFlightData,
+            AnthraxBombPayloadTier, HostAnthraxBombFlightData, ANTHRAX_BOMB_GAMMA_OBJECT,
+            ANTHRAX_TRANSPORT,
         };
         use crate::game_logic::host_ocl_special_power::{
             deliver_payload_for_ocl, resolve_anthrax_bomb_ocl,

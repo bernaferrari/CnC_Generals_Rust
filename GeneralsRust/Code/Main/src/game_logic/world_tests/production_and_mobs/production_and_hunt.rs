@@ -1267,7 +1267,7 @@ fn contact_attack_ignores_the_victim() {
     }
     logic
         .pathfinding_system
-        .apply_structure_static_blocks(&logic.objects);
+        .apply_structure_static_blocks(&logic.objects, 0.0);
     logic
         .pathfinding_system
         .grid

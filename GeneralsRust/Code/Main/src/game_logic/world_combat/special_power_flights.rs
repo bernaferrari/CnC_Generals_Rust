@@ -218,7 +218,7 @@ impl GameLogic {
         target: Vec3,
     ) -> Option<ObjectId> {
         use crate::game_logic::host_cluster_mines_flight::{
-            CLUSTER_MINES_BOMB_OBJECT, HostClusterMinesFlightData,
+            HostClusterMinesFlightData, CLUSTER_MINES_BOMB_OBJECT,
         };
         use crate::game_logic::host_mines::CLUSTER_MINES_OCL_TRANSPORT;
         use crate::game_logic::{KindOf, ThingTemplate};
@@ -280,7 +280,7 @@ impl GameLogic {
 
     pub fn update_cluster_mines_flights(&mut self) {
         use crate::game_logic::host_cluster_mines_flight::{
-            CLUSTER_MINES_BOMB_OBJECT, cluster_mines_payload_drop_pos,
+            cluster_mines_payload_drop_pos, CLUSTER_MINES_BOMB_OBJECT,
         };
 
         let tids: Vec<ObjectId> = self
@@ -476,9 +476,9 @@ impl GameLogic {
     ) {
         use crate::game_logic::combat_particles::CombatParticleKind;
         use crate::game_logic::host_emp_pulse::{
-            EMP_SPHEROID_DISABLE_FX, leftover_emp_spark_dome_clamp,
-            leftover_emp_spark_emitter_count, leftover_emp_spark_initial_delay,
-            leftover_emp_spark_lifetime, leftover_emp_spark_z,
+            leftover_emp_spark_dome_clamp, leftover_emp_spark_emitter_count,
+            leftover_emp_spark_initial_delay, leftover_emp_spark_lifetime, leftover_emp_spark_z,
+            EMP_SPHEROID_DISABLE_FX,
         };
         use crate::game_logic::host_hero_abilities::leftover_disable_fx_footprint_area;
 
@@ -849,9 +849,9 @@ impl GameLogic {
     /// C++ GrantStealthBehavior radius grow pulse residual (Start 20 → Final 100).
     pub fn update_gps_scrambler_grow(&mut self) {
         use crate::game_logic::host_gps_scrambler::{
-            GPS_SCRAMBLER_GROW_UPDATES_TO_FINAL, gps_scrambler_grow_is_final,
-            gps_scrambler_scan_radius_after_updates, in_gps_scrambler_radius_2d,
-            is_gps_scrambler_disguise_name, is_legal_gps_scrambler_target,
+            gps_scrambler_grow_is_final, gps_scrambler_scan_radius_after_updates,
+            in_gps_scrambler_radius_2d, is_gps_scrambler_disguise_name,
+            is_legal_gps_scrambler_target, GPS_SCRAMBLER_GROW_UPDATES_TO_FINAL,
         };
 
         // Collect grow work without holding registry mut across object mut.
@@ -1032,8 +1032,8 @@ impl GameLogic {
     /// Expands the spawned scout's shroud-clearing range 0→250; look follows the unit.
     pub fn update_spy_drone_grow(&mut self) {
         use crate::game_logic::host_spy_drone::{
-            SPY_DRONE_GROW_UPDATES_TO_FINAL, SPY_DRONE_VISION_RANGE, spy_drone_grow_is_final,
-            spy_drone_scan_radius_after_updates,
+            spy_drone_grow_is_final, spy_drone_scan_radius_after_updates,
+            SPY_DRONE_GROW_UPDATES_TO_FINAL, SPY_DRONE_VISION_RANGE,
         };
 
         let work: Vec<(usize, Option<crate::game_logic::ObjectId>, f32)> = {
@@ -1090,7 +1090,7 @@ impl GameLogic {
         source_team: Team,
     ) -> u32 {
         use crate::game_logic::host_firewall::{
-            FIREWALL_DURATION_FRAMES, FIREWALL_SEGMENT_MAX_HEALTH, HostFireWallRegistry,
+            HostFireWallRegistry, FIREWALL_DURATION_FRAMES, FIREWALL_SEGMENT_MAX_HEALTH,
         };
         use crate::game_logic::{KindOf, ThingTemplate};
 
@@ -2249,9 +2249,9 @@ impl GameLogic {
     }
 
     /// C++ `ChinookAIUpdate::update` residual: auto-land / evac / HeadOffMap / combat-drop height.
-    pub fn tick_chinook_ai(&mut self, dt: f32) {
-        let step =
-            (dt * crate::game_logic::host_combat_chinook::COMBAT_CHINOOK_LOCOMOTOR_SPEED).max(1.0);
+    pub fn tick_chinook_ai(&mut self, _dt: f32) {
+        // Flight states observe the owned locomotor's pose. Render/update dt
+        // must not grant this callback a second movement integration.
         let ids: Vec<_> = self
             .objects
             .iter()
@@ -2265,28 +2265,53 @@ impl GameLogic {
                 .objects
                 .get(&id)
                 .is_some_and(|c| c.pending_evacuate_on_stop);
+            let (was_landing, was_taking_off, previous_state, effect) = {
+                let Some(obj) = self.objects.get_mut(&id) else {
+                    continue;
+                };
+                let p = obj.get_position();
+                let contained = obj.contained_units().len() as u32;
+                let idle = !obj.status.moving && obj.movement.path.is_empty();
+                let Some(ai) = obj.chinook_ai.as_mut() else {
+                    continue;
+                };
+                ai.pos = [p.x, p.z, p.y];
+                ai.parent_idle = idle;
+                ai.wanting_enter_or_exit = wanting;
+                ai.contained_count = contained;
+                let was_landing = matches!(
+                    ai.flight_status,
+                    crate::game_logic::host_combat_chinook::HostChinookFlightStatus::Landing
+                );
+                let was_taking_off = matches!(
+                    ai.flight_status,
+                    crate::game_logic::host_combat_chinook::HostChinookFlightStatus::TakingOff
+                );
+                let previous_state = ai.state;
+                let effect = ai.update_from_observed_pose();
+                (was_landing, was_taking_off, previous_state, effect)
+            };
+            // OnRemoving may access the owner and passengers. Never hold an
+            // Object borrow while invoking the immediate contain-domain action.
+            if let Some(effect) = effect {
+                if self.evacuate_chinook_flight(id) {
+                    if let Some(obj) = self.objects.get_mut(&id) {
+                        let p = obj.get_position();
+                        let remaining = obj.contained_units().len() as u32;
+                        if let Some(ai) = obj.chinook_ai.as_mut() {
+                            ai.pos = [p.x, p.z, p.y];
+                            let _ = ai.complete_evacuation(effect, remaining);
+                        }
+                    }
+                }
+            }
             let Some(obj) = self.objects.get_mut(&id) else {
                 continue;
             };
             let p = obj.get_position();
-            let contained = obj.contained_units().len() as u32;
-            let idle = !obj.status.moving && obj.movement.path.is_empty();
             let Some(ai) = obj.chinook_ai.as_mut() else {
                 continue;
             };
-            ai.pos = [p.x, p.z, p.y];
-            ai.parent_idle = idle;
-            ai.wanting_enter_or_exit = wanting;
-            ai.contained_count = contained;
-            let was_landing = matches!(
-                ai.flight_status,
-                crate::game_logic::host_combat_chinook::HostChinookFlightStatus::Landing
-            );
-            let was_taking_off = matches!(
-                ai.flight_status,
-                crate::game_logic::host_combat_chinook::HostChinookFlightStatus::TakingOff
-            );
-            ai.tick(step);
             let landing_now = matches!(
                 ai.flight_status,
                 crate::game_logic::host_combat_chinook::HostChinookFlightStatus::Landing
@@ -2299,17 +2324,28 @@ impl GameLogic {
             let landing_from = glam::Vec3::new(ai.pos[0], ai.pos[2], ai.pos[1]);
             let landing_dest = glam::Vec3::new(ai.dest[0], ai.dest[2], ai.dest[1]);
             let apply_landing_dest = landing_now && !was_landing;
-            let evac_fly = matches!(
+            let path_fly = matches!(
                 ai.state,
-                crate::game_logic::host_combat_chinook::HostChinookAIState::MoveToAndEvac
+                crate::game_logic::host_combat_chinook::HostChinookAIState::MoveToAndLand
+                    | crate::game_logic::host_combat_chinook::HostChinookAIState::MoveToAndEvac
                     | crate::game_logic::host_combat_chinook::HostChinookAIState::MoveToAndEvacAndExit
+                    | crate::game_logic::host_combat_chinook::HostChinookAIState::HeadOffMap
             )
             .then_some(glam::Vec3::new(ai.dest[0], ai.dest[2], ai.dest[1]));
             let landed = matches!(
                 ai.flight_status,
                 crate::game_logic::host_combat_chinook::HostChinookFlightStatus::Landed
             );
-            let new_pos = glam::Vec3::new(ai.pos[0], ai.pos[2], ai.pos[1]);
+            let head_off_map = matches!(
+                ai.state,
+                crate::game_logic::host_combat_chinook::HostChinookAIState::HeadOffMap
+            );
+            let entered_head_off_map = head_off_map && ai.state != previous_state;
+            let evacuating = matches!(
+                ai.state,
+                crate::game_logic::host_combat_chinook::HostChinookAIState::MoveToAndEvac
+                    | crate::game_logic::host_combat_chinook::HostChinookAIState::MoveToAndEvacAndExit
+            );
             let preferred = if matches!(
                 ai.flight_status,
                 crate::game_logic::host_combat_chinook::HostChinookFlightStatus::Landed
@@ -2326,23 +2362,28 @@ impl GameLogic {
                 );
             drop(ai);
 
-            obj.set_position(new_pos);
             if dump_crates {
                 crate::game_logic::host_combat_chinook::lose_all_chinook_object_boxes(obj);
             }
 
             obj.loco_preferred_height = preferred;
-            if let Some(dest) = evac_fly {
-                if obj.movement.path.is_empty() && !obj.status.moving {
-                    obj.movement.path = vec![new_pos, dest];
+            if head_off_map {
+                // C++ ChinookHeadOffMapState::onEnter: original-position
+                // move order permits leaving the map through the locomotor.
+                obj.set_allow_invalid_position(true);
+            }
+            if let Some(dest) = path_fly {
+                if entered_head_off_map || (obj.movement.path.is_empty() && !obj.status.moving) {
+                    obj.movement.path = vec![p, dest];
                     obj.movement.current_path_index = 1;
                     obj.movement.target_position = Some(dest);
+                    obj.set_locomotor_goal_position_on_path();
                     obj.is_attack_path = false;
                     obj.is_exact_path = false;
                     obj.refresh_follow_path_extra_distance();
                     obj.set_ai_state(AIState::Moving);
                     obj.status.moving = true;
-                    obj.pending_evacuate_on_stop = true;
+                    obj.pending_evacuate_on_stop = evacuating;
                 }
             }
             if landed {
@@ -2377,13 +2418,13 @@ impl GameLogic {
                     if let Some(ai) = obj.chinook_ai.as_mut() {
                         ai.dest = [adj.x, adj.z, adj.y];
                     }
-                    obj.movement.target_position = Some(adj);
+                    obj.set_locomotor_goal_position_explicit(adj);
                     obj.set_precise_z_and_ultra_accurate(true);
                 }
             } else if precise_now {
                 // C++ setLocomotorGoalPositionExplicit(m_destLoc) each update.
                 if let Some(obj) = self.objects.get_mut(&id) {
-                    obj.movement.target_position = Some(landing_dest);
+                    obj.set_locomotor_goal_position_explicit(landing_dest);
                 }
             }
         }
@@ -2623,9 +2664,9 @@ impl GameLogic {
         position: Vec3,
     ) {
         use crate::game_logic::host_listening_outpost::{
+            preferred_payload_template, tank_hunter_missile_weapon,
             LISTENING_OUTPOST_INITIAL_PAYLOAD_COUNT, LISTENING_OUTPOST_PAYLOAD_TEMPLATE,
-            LISTENING_OUTPOST_PAYLOAD_TEMPLATE_ALT, preferred_payload_template,
-            tank_hunter_missile_weapon,
+            LISTENING_OUTPOST_PAYLOAD_TEMPLATE_ALT,
         };
 
         // Ensure a payload template is available (retail or host seed).
@@ -2721,8 +2762,8 @@ impl GameLogic {
         position: Vec3,
     ) {
         use crate::game_logic::host_troop_crawler::{
-            TROOP_CRAWLER_INITIAL_PAYLOAD_COUNT, TROOP_CRAWLER_PAYLOAD_TEMPLATE,
-            TROOP_CRAWLER_PAYLOAD_TEMPLATE_ALIAS, resolve_payload_template_name,
+            resolve_payload_template_name, TROOP_CRAWLER_INITIAL_PAYLOAD_COUNT,
+            TROOP_CRAWLER_PAYLOAD_TEMPLATE, TROOP_CRAWLER_PAYLOAD_TEMPLATE_ALIAS,
         };
         use crate::game_logic::weapon_bootstrap::REDGUARD_PRIMARY_WEAPON;
 
@@ -2812,7 +2853,7 @@ impl GameLogic {
         target_id: ObjectId,
     ) -> u32 {
         use crate::game_logic::host_troop_crawler::{
-            HostAssaultTransportState, TROOP_CRAWLER_DEPLOY_AUDIO, is_assault_member_wounded,
+            is_assault_member_wounded, HostAssaultTransportState, TROOP_CRAWLER_DEPLOY_AUDIO,
         };
 
         let Some(crawler) = self.objects.get(&crawler_id) else {

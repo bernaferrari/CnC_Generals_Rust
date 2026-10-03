@@ -1060,7 +1060,7 @@ impl GameLogic {
                                     if adjusts_destination_now(obj) {
                                         obj.set_locomotor_goal_none();
                                     }
-                                    let _ = obj.loco_maintain_current_position(surface_y, dt);
+                                    let _ = obj.loco_maintain_appearance(dt);
                                 } else {
                                     plant_goal = obj.movement.path.last().copied();
                                     if matches!(obj.ai_state, AIState::AttackMoving) {
@@ -1401,8 +1401,7 @@ impl GameLogic {
                                             if adjusts_destination_now(obj) {
                                                 obj.set_locomotor_goal_none();
                                             }
-                                            let _ =
-                                                obj.loco_maintain_current_position(surface_y, dt);
+                                            let _ = obj.loco_maintain_appearance(dt);
                                         } else {
                                             plant_goal = obj.movement.path.last().copied();
                                             if matches!(obj.ai_state, AIState::AttackMoving) {
@@ -1785,7 +1784,7 @@ impl GameLogic {
                                         obj.ignored_obstacle_id = None;
                                         obj.set_precise_z_pos(false);
                                         obj.set_locomotor_goal_none();
-                                        let _ = obj.loco_maintain_current_position(surface_y, dt);
+                                        let _ = obj.loco_maintain_appearance(dt);
                                     } else if obj.temporary_move_frames > 0
                                         && !matches!(obj.ai_state, AIState::Moving)
                                     {
@@ -1853,33 +1852,34 @@ impl GameLogic {
                                 }
                             }
                         } else {
-                            // Already on target (zero horizontal delta) — still hold height.
-                            // C++ locoUpdate_maintainCurrentPosition: appearance
-                            // then handleBehaviorZ (Locomotor.cpp:2433-2474).
-                            if matches!(obj.loco_appearance, LocomotorAppearance::Wings) {
-                                let _ = obj.loco_maintain_current_position(surface_y, dt);
-                                let sy = obj.leftover_surface_ht(surface_y);
-                                Self::apply_live_handle_behavior_z(
-                                    obj,
-                                    sy,
-                                    obj.maintain_pos.map(|p| p.y),
-                                );
-                            } else {
-                                Self::apply_live_handle_behavior_z(obj, surface_y, None);
-                                if matches!(
-                                    obj.loco_appearance,
-                                    LocomotorAppearance::Hover | LocomotorAppearance::Thrust
-                                ) {
-                                    let _ = obj.loco_maintain_current_position(surface_y, dt);
-                                } else {
-                                    let _ = obj.loco_maintain_current_position(surface_y, dt);
-                                }
+                            // Position goals still drive altitude when XZ is coincident.
+                            // C++ moveTowardsPosition invalidates maintainPos and
+                            // applies handleBehaviorZ(goal) once after appearance.
+                            let position_goal = matches!(
+                                obj.locomotor_goal_type,
+                                LocoGoalType::PositionOnPath | LocoGoalType::PositionExplicit
+                            );
+                            if position_goal {
+                                obj.maintain_pos_valid = false;
                             }
+                            let _ = obj.loco_maintain_appearance(dt);
+                            let sy = if matches!(obj.loco_appearance, LocomotorAppearance::Wings) {
+                                obj.leftover_surface_ht(surface_y)
+                            } else {
+                                surface_y
+                            };
+                            let goal_y = if position_goal {
+                                Some(target_pos.y)
+                            } else {
+                                obj.maintain_pos.map(|p| p.y)
+                            };
+                            Self::apply_live_handle_behavior_z(obj, sy, goal_y);
                             // C++ friend_endingMove only runs from the move state.
                             // Idle maintain (goal still coincident) must not clear
                             // the queue or the ignored obstacle.
-                            if (matches!(obj.ai_state, AIState::Moving | AIState::AttackMoving)
-                                || obj.temporary_move_frames > 0)
+                            if obj.locomotor_goal_type != LocoGoalType::PositionExplicit
+                                && (matches!(obj.ai_state, AIState::Moving | AIState::AttackMoving)
+                                    || obj.temporary_move_frames > 0)
                                 && (obj.movement.path.is_empty()
                                     || obj.movement.current_path_index + 1
                                         >= obj.movement.path.len())
@@ -1938,26 +1938,14 @@ impl GameLogic {
                         }
                     } else {
                         leftover_settle_final_position_on_object(obj);
-                        // Idle hover / wings: C++ appearance then handleBehaviorZ.
-                        if matches!(obj.loco_appearance, LocomotorAppearance::Wings) {
-                            let _ = obj.loco_maintain_current_position(surface_y, dt);
-                            let sy = obj.leftover_surface_ht(surface_y);
-                            Self::apply_live_handle_behavior_z(
-                                obj,
-                                sy,
-                                obj.maintain_pos.map(|p| p.y),
-                            );
+                        // C++ maintainCurrentPosition: appearance, then one Z update.
+                        let _ = obj.loco_maintain_appearance(dt);
+                        let sy = if matches!(obj.loco_appearance, LocomotorAppearance::Wings) {
+                            obj.leftover_surface_ht(surface_y)
                         } else {
-                            Self::apply_live_handle_behavior_z(obj, surface_y, None);
-                            if matches!(
-                                obj.loco_appearance,
-                                LocomotorAppearance::Hover | LocomotorAppearance::Thrust
-                            ) {
-                                let _ = obj.loco_maintain_current_position(surface_y, dt);
-                            } else {
-                                let _ = obj.loco_maintain_current_position(surface_y, dt);
-                            }
-                        }
+                            surface_y
+                        };
+                        Self::apply_live_handle_behavior_z(obj, sy, obj.maintain_pos.map(|p| p.y));
                     }
                     // C++ AIUpdate.cpp:2270. Clamp from this frame's locomotor
                     // `blocked` local, not the collision flag cleared at :2125.
@@ -2280,6 +2268,16 @@ impl GameLogic {
         let mut evac_now: Vec<(ObjectId, bool)> = Vec::new();
         for (id, obj) in &self.objects {
             if !obj.pending_evacuate_on_stop {
+                continue;
+            }
+            // C++ ChinookAIUpdate::isIdle rejects a saved pending command.
+            // A takeoff transition may be idle for one callback before replay;
+            // generic exit polling must not auto-land it at the old origin.
+            if obj
+                .chinook_ai
+                .as_ref()
+                .is_some_and(|ai| ai.pending_evac_dest.is_some())
+            {
                 continue;
             }
             let stopped = obj.movement.path.is_empty() && !obj.status.moving;

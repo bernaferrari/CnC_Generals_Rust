@@ -1598,7 +1598,7 @@ mod closest_path_ignored_footprint_tests {
         let mut objects = HashMap::new();
         objects.insert(mover.id, mover);
         objects.insert(victim.id, victim);
-        system.apply_structure_static_blocks(&objects);
+        system.apply_structure_static_blocks(&objects, 0.0);
         system.grid.update_dynamic_obstacles(&objects);
         system.bind_seeker_from_mover(&objects, Some(ObjectId(1)));
         system.apply_seeker_human_flag();

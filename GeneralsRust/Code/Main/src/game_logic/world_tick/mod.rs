@@ -4,7 +4,10 @@
 #![allow(unused_imports, non_snake_case)]
 
 mod ai;
+mod ai_phase;
 mod airfield;
+#[cfg(test)]
+pub(in crate::game_logic) use airfield::heli_motion_tests;
 mod attack;
 mod collide_dispatch;
 pub(in super::super) use collide_dispatch::host_object_footprint;

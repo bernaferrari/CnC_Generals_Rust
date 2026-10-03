@@ -1818,7 +1818,7 @@ fn destroyed_building_stamps_rubble_not_clear() {
     factory.status.effectively_dead = true;
     factory.health.current = 0.0;
     objects.insert(factory.id, factory);
-    sys.apply_structure_static_blocks(&objects);
+    sys.apply_structure_static_blocks(&objects, 0.0);
     let cell = sys.grid.world_to_grid(Vec3::new(80.0, 0.0, 80.0));
     assert_eq!(sys.grid.cell_type(cell), PathfindCellType::Rubble);
     assert_ne!(

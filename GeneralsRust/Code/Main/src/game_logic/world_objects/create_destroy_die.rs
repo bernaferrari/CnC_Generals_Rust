@@ -2419,7 +2419,9 @@ impl GameLogic {
             }
             if let Some(obj) = self.objects.get(&id) {
                 if obj.is_kind_of(KindOf::WalkOnTopOfWall) {
-                    self.pathfinding_system.add_wall_piece_from_object(obj);
+                    let wall_height = self.pathfind_ai_rules().wall_height;
+                    self.pathfinding_system
+                        .add_wall_piece_from_object(obj, wall_height);
                 }
             }
             log::debug!(
@@ -2644,7 +2646,9 @@ impl GameLogic {
             );
             if let Some(obj) = self.objects.get(&id) {
                 if obj.is_kind_of(KindOf::WalkOnTopOfWall) {
-                    self.pathfinding_system.add_wall_piece_from_object(obj);
+                    let wall_height = self.pathfind_ai_rules().wall_height;
+                    self.pathfinding_system
+                        .add_wall_piece_from_object(obj, wall_height);
                 }
             }
 

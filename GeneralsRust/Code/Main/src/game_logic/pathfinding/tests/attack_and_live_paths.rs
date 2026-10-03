@@ -855,7 +855,7 @@ fn blast_crater_stamps_above_terrain_and_survives_remove() {
     crater.set_position(Vec3::new(80.0, 50.0, 80.0));
     crater.selection_radius = 20.0;
     objects.insert(crater.id, crater);
-    sys.apply_structure_static_blocks(&objects);
+    sys.apply_structure_static_blocks(&objects, 0.0);
     let cell = sys.grid.world_to_grid(Vec3::new(80.0, 50.0, 80.0));
     assert!(
         sys.grid.is_static_blocked(cell),
@@ -868,7 +868,7 @@ fn blast_crater_stamps_above_terrain_and_survives_remove() {
     floating.set_position(Vec3::new(40.0, 50.0, 40.0));
     floating.selection_radius = 20.0;
     objects.insert(floating.id, floating);
-    sys.apply_structure_static_blocks(&objects);
+    sys.apply_structure_static_blocks(&objects, 0.0);
     let air_cell = sys.grid.world_to_grid(Vec3::new(40.0, 50.0, 40.0));
     assert!(
         !sys.grid.is_static_blocked(air_cell),
@@ -877,7 +877,7 @@ fn blast_crater_stamps_above_terrain_and_survives_remove() {
 
     objects.clear();
     sys.grid.clear_static_blocks();
-    sys.apply_structure_static_blocks(&objects);
+    sys.apply_structure_static_blocks(&objects, 0.0);
     assert!(
         sys.grid.is_static_blocked(cell),
         "C++ never removes BLAST_CRATER footprints"

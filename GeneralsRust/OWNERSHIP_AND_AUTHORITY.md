@@ -4,6 +4,66 @@
 
 Preserve C++ **behavior**. Do not preserve C++ **pointer ownership**.
 
+## Ordinary owned-match AI execution (2026-10-03)
+
+The default Main driver now has one explicit `update_match_ai` phase. It drains
+that match's queued movement requests after object updates and before its owned
+AI players, following `AI.cpp:332-343` and `GameLogic.cpp:3699-3743`. Ordinary
+updates no longer use compatibility registry contents to decide whether to tick
+ambient AI or the independent integration manager. A frozen step does not reissue
+or drain movement requests. Initial sleepy-module wake remains frame 1, matching
+C++ registration; scheduling compares the actual frame instead of clamping both
+initial frames to 1. The player map is borrowed through the synchronous AI pass without constructing
+a replacement manager and TeamFactory each frame. Numeric slot order is retained
+in a BTreeMap, eliminating per-frame player sorting from updates and saves.
+
+Skirmish setup initializes the driving EngineStores definitions and leaves an
+independent compatibility AI manager intact. Path repulsion and wall fallback
+height read the driving match's rules; wall geometry retains priority. These
+catalogs remain behind their existing store locks. Canonical Unit scheduling,
+PlayerList synchronization, shadow authority switches, RNG publication and
+ambient helpers elsewhere remain separate migration work (hq-ox5hg). This is
+consolidation of the production driver, not proof that the complete port has one
+state representation. Owned player callbacks and their peer-target enumeration
+follow ascending player index, matching C++ PlayerList. Two worlds built in opposite insertion
+orders exercise real repair requests, queued commands and command application;
+scheduling adds no RNG draws (hq-9crv1).
+
+The owned Chinook flight state machine observes its Object's locomotor pose and
+publishes explicit takeoff/landing goals or movement paths. Its synthetic motion
+integrator and second pose write are removed. Existing canonical pure flight
+predicates are reused; no additional runtime representation is introduced. Idle
+contain policy requires an idle flight state rather than just an empty path,
+following `ChinookAIUpdate.cpp:1069-1091`. Actual authored command/full-frame
+regressions exercise movement ownership, two same-ID worlds, pending evacuation,
+and vertical takeoff/landing. Evacuation emits a value-only request; the game
+removes actual passengers through the existing contain domain before committing
+takeoff. This preserves immediate removeAllContained(FALSE), rather than normal
+exit delay/stealth exposure policy. The regression separately checks approach to
+the requested destination, C++-permitted landing adjustment, and same-frame
+removal of two actual passengers despite an ordinary exit-busy timer.
+
+Helipad takeoff/landing similarly observes movement and issues the current leg's
+explicit goal before its inclusive squared-distance-nine check, matching
+JetAIUpdate.cpp:1030-1084. The disabled C++ interpolation and terminal helipad
+pose snap are not executed. Actual authored full-frame fixtures cover movement,
+interleaved same-ID owners, terminal arrival and airborne targeting.
+
+Locomotor appearance maintenance is separated from altitude application. The
+live driver applies altitude once, preserves explicit vertical goals, and keeps
+idle Wings circling horizontal (Locomotor.cpp:2420-2524). Host fields and
+serialization layout are unchanged;
+full original-base Xfer/CRC and canonical scheduler integration remain separate
+contracts (hq-a73v8, hq-zclf8, hq-ox5hg).
+
+These source contracts and Rust scenarios do not establish original-executable
+trace agreement, complete retail playthrough coverage, or measured speed gains.
+The broader Main movement/AI suites retain baseline failures independently
+verified against 8373090ca and tracked in hq-ecex1. Remaining team selection,
+strategic definitions and mission-script callbacks still need explicit owners
+(hq-tctn5, hq-uxmwy, hq-4p04q); aircraft-goal compatibility publication and
+canonical layer/RIDER8 behavior remain separate migration contracts.
+
 ## Driving upgrade rules and canonical physics access (2026-10-03)
 
 Main upgrade operations select definitions through the driving `GameLogic`:

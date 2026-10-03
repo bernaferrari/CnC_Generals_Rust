@@ -528,8 +528,9 @@ impl GameLogic {
                                 );
                             }
                             self.seed_pathfinding_from_terrain();
+                            let wall_height = self.pathfind_ai_rules().wall_height;
                             self.pathfinding_system
-                                .apply_structure_static_blocks(&self.objects);
+                                .apply_structure_static_blocks(&self.objects, wall_height);
                         }
                     }
                 } else {
@@ -616,8 +617,9 @@ impl GameLogic {
                                 );
                             }
                             self.seed_pathfinding_from_terrain();
+                            let wall_height = self.pathfind_ai_rules().wall_height;
                             self.pathfinding_system
-                                .apply_structure_static_blocks(&self.objects);
+                                .apply_structure_static_blocks(&self.objects, wall_height);
                         } else {
                             log::warn!("Failed to load heightmap '{}'", path_str);
                         }

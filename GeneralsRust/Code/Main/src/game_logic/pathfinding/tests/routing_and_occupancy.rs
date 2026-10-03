@@ -91,7 +91,7 @@ fn fence_width_not_name_classifies_fence() {
     prop.set_position(Vec3::new(40.0, 0.0, 40.0));
     prop.selection_radius = 20.0;
     objects.insert(prop.id, prop);
-    sys.apply_structure_static_blocks(&objects);
+    sys.apply_structure_static_blocks(&objects, 0.0);
     let named_cell = sys.grid.world_to_grid(Vec3::new(40.0, 0.0, 40.0));
     assert!(
         !sys.grid.is_obstacle_fence(named_cell),
@@ -105,7 +105,7 @@ fn fence_width_not_name_classifies_fence() {
     fence.set_position(Vec3::new(120.0, 0.0, 40.0));
     fence.set_orientation(0.0);
     objects.insert(fence.id, fence);
-    sys.apply_structure_static_blocks(&objects);
+    sys.apply_structure_static_blocks(&objects, 0.0);
     let fence_cell = sys.grid.world_to_grid(Vec3::new(120.0, 0.0, 40.0));
     assert!(
         sys.grid.is_obstacle_fence(fence_cell),
@@ -127,7 +127,7 @@ fn under_construction_structure_blocks_path() {
     factory.selection_radius = 20.0;
     assert!(factory.status.under_construction);
     objects.insert(factory.id, factory);
-    sys.apply_structure_static_blocks(&objects);
+    sys.apply_structure_static_blocks(&objects, 0.0);
     let cell = sys.grid.world_to_grid(Vec3::new(80.0, 0.0, 80.0));
     assert!(
         sys.grid.is_static_blocked(cell),
@@ -863,7 +863,7 @@ fn structure_box_footprint_is_not_clamped_square() {
     factory.set_position(Vec3::new(80.0, 0.0, 80.0));
     factory.set_orientation(0.0);
     objects.insert(factory.id, factory);
-    sys.apply_structure_static_blocks(&objects);
+    sys.apply_structure_static_blocks(&objects, 0.0);
     let center = sys.grid.world_to_grid(Vec3::new(80.0, 0.0, 80.0));
     assert!(sys.grid.is_static_blocked(center), "box center must stamp");
     let along_major = sys.grid.world_to_grid(Vec3::new(110.0, 0.0, 80.0));
@@ -890,7 +890,7 @@ fn structure_placement_runs_pinch_pass() {
     factory.set_position(Vec3::new(80.0, 0.0, 80.0));
     factory.selection_radius = 15.0;
     objects.insert(factory.id, factory);
-    sys.apply_structure_static_blocks(&objects);
+    sys.apply_structure_static_blocks(&objects, 0.0);
     let center = sys.grid.world_to_grid(Vec3::new(80.0, 0.0, 80.0));
     assert!(sys.grid.is_static_blocked(center));
     let mut found_pinched = false;

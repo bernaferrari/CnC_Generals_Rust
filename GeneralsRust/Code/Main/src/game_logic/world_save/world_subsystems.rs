@@ -951,8 +951,9 @@ impl GameLogic {
             self.terrain = Some(terrain);
             self.copy_crate_water_into_host_terrain();
             self.seed_pathfinding_from_terrain();
+            let wall_height = self.pathfind_ai_rules().wall_height;
             self.pathfinding_system
-                .apply_structure_static_blocks(&self.objects);
+                .apply_structure_static_blocks(&self.objects, wall_height);
             true
         }
         #[cfg(not(feature = "game_client"))]
@@ -979,13 +980,15 @@ impl GameLogic {
         let had_terrain = false;
         if had_terrain {
             self.seed_pathfinding_from_terrain();
+            let wall_height = self.pathfind_ai_rules().wall_height;
             self.pathfinding_system
-                .apply_structure_static_blocks(&self.objects);
+                .apply_structure_static_blocks(&self.objects, wall_height);
         } else {
             self.pathfinding_system.clear_static_blocks();
         }
+        let wall_height = self.pathfind_ai_rules().wall_height;
         self.pathfinding_system
-            .apply_structure_static_blocks(&self.objects);
+            .apply_structure_static_blocks(&self.objects, wall_height);
     }
 
     /// Block one structure footprint without full rebuild.

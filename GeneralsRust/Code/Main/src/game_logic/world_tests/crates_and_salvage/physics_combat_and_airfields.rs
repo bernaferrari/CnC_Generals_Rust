@@ -2114,43 +2114,69 @@ fn airfield_takeoff_releases_parking_slot() {
 
 #[test]
 fn helipad_takeoff_is_two_point_climb_not_altitude_pop() {
-    let mut logic = GameLogic::new();
-    let (pad_id, heli_id) = dock_helipad_comanche(&mut logic);
-    let pad_y = logic.objects.get(&heli_id).unwrap().get_position().y;
-    assert!(logic.try_runway_takeoff_from_airfield(heli_id));
-    {
-        let heli = logic.objects.get(&heli_id).unwrap();
-        assert!(heli.contained_by.is_none());
-        assert!(heli.status.airborne_target);
-        assert!(
-            (heli.get_position().y - pad_y).abs() < 1e-3,
-            "helipad takeoff must not pop Y in one frame, y={} pad={}",
-            heli.get_position().y,
-            pad_y
-        );
-        assert!(
-            logic.heli_takeoff_or_landing.contains_key(&heli_id),
-            "two-point HeliTakeoff state must be armed"
-        );
-    }
-    let approach = pad_y + 37.0 + 4.0;
-    for _ in 0..200 {
-        logic.tick_airfield_parking_heal();
-        let y = logic.objects.get(&heli_id).unwrap().get_position().y;
-        if (y - approach).abs() <= 3.0 && !logic.heli_takeoff_or_landing.contains_key(&heli_id) {
-            break;
-        }
-    }
-    let heli = logic.objects.get(&heli_id).unwrap();
-    assert!(
-        (heli.get_position().y - approach).abs() <= 3.0,
-        "heli must finish at parking + approachHeight + deck, y={} want {}",
-        heli.get_position().y,
-        approach
+    use crate::game_logic::game_logic::world_tick::heli_motion_tests::{
+        authored_match, isolated_at,
+    };
+
+    isolated_at(
+        module_path!(),
+        "helipad_takeoff_is_two_point_climb_not_altitude_pop",
+        || {
+            let (mut logic, pad_id, heli_id) = authored_match();
+            let parking = logic.heli_takeoff_or_landing[&heli_id].path[1];
+            logic.heli_takeoff_or_landing.remove(&heli_id);
+            {
+                let heli = logic.objects.get_mut(&heli_id).unwrap();
+                heli.set_position(parking);
+                heli.set_contained_by(Some(pad_id));
+                heli.set_ai_state(AIState::Docked);
+                heli.status.airborne_target = false;
+                heli.return_to_base_requested = false;
+                heli.movement.path.clear();
+                heli.movement.target_position = None;
+                heli.set_locomotor_goal_none();
+                heli.set_precise_z_and_ultra_accurate(false);
+            }
+            let pad_y = parking.y;
+            assert!(logic.try_runway_takeoff_from_airfield(heli_id));
+            {
+                let heli = logic.objects.get(&heli_id).unwrap();
+                assert!(heli.contained_by.is_none());
+                assert!(heli.status.airborne_target);
+                assert!(
+                    (heli.get_position().y - pad_y).abs() < 1e-3,
+                    "helipad takeoff must not pop Y in one frame, y={} pad={}",
+                    heli.get_position().y,
+                    pad_y
+                );
+                assert!(
+                    logic.heli_takeoff_or_landing.contains_key(&heli_id),
+                    "two-point HeliTakeoff state must be armed"
+                );
+            }
+            let approach = pad_y + 37.0 + 4.0;
+            // The AI state no longer supplies a second integration. Exercise
+            // actual logic frames, including the authored Hover locomotor.
+            for _ in 0..1200 {
+                logic.update_with_dt(LOGIC_FRAME_TIMESTEP);
+                let y = logic.objects.get(&heli_id).unwrap().get_position().y;
+                if (y - approach).abs() <= 3.0
+                    && !logic.heli_takeoff_or_landing.contains_key(&heli_id)
+                {
+                    break;
+                }
+            }
+            let heli = logic.objects.get(&heli_id).unwrap();
+            assert!(
+                (heli.get_position().y - approach).abs() <= 3.0,
+                "heli must finish at parking + approachHeight + deck, y={} want {}",
+                heli.get_position().y,
+                approach
+            );
+            assert!(!logic.heli_takeoff_or_landing.contains_key(&heli_id));
+            assert!(heli.status.airborne_target);
+        },
     );
-    assert!(!logic.heli_takeoff_or_landing.contains_key(&heli_id));
-    assert!(heli.status.airborne_target);
-    let _ = pad_id;
 }
 
 #[test]

@@ -1433,11 +1433,7 @@ impl GameLogic {
                     let r1 = unit.and_then(|u| u.requested_victim_id);
                     let r2 = unit.and_then(|u| u.safe_path_repulsor2);
                     let vision = unit.map(|u| u.vision_range).unwrap_or(0.0);
-                    let repulsed = gamelogic::ai::the_ai()
-                        .read()
-                        .ok()
-                        .map(|ai| ai.get_ai_data().repulsed_distance)
-                        .unwrap_or(0.0);
+                    let repulsed = self.pathfind_ai_rules().repulsed_distance;
                     let radius = vision + repulsed;
                     let missing = glam::Vec3::new(-1000.0, -1000.0, 0.0);
                     let is_human = unit
