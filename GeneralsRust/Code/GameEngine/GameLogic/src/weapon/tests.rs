@@ -296,13 +296,13 @@ fn test_scatter_calculation_infantry() {
     let target = Coord3D::new(100.0, 100.0, 0.0);
     let scattered = weapon.calculate_scatter(target, 50.0, ObjectType::Infantry);
 
-    // Scattered position should be within infantry scatter radius
-    let distance = target.distance(scattered);
+    // C++ Weapon.cpp:958-972 adds infantry inaccuracy to the authored radius.
+    let distance = (scattered.x - target.x).hypot(scattered.y - target.y);
     assert!(
-        distance <= 10.0,
+        distance <= 15.0,
         "Scattered position {} should be within {} of target",
         distance,
-        10.0
+        15.0
     );
 }
 
@@ -318,7 +318,7 @@ fn test_scatter_calculation_vehicle() {
     let scattered = weapon.calculate_scatter(target, 50.0, ObjectType::Vehicle);
 
     // Scattered position should be within vehicle scatter radius (smaller than infantry)
-    let distance = target.distance(scattered);
+    let distance = (scattered.x - target.x).hypot(scattered.y - target.y);
     assert!(
         distance <= 5.0,
         "Scattered position {} should be within {} of target",
@@ -338,13 +338,13 @@ fn test_scatter_calculation_structure() {
     let target = Coord3D::new(100.0, 100.0, 0.0);
     let scattered = weapon.calculate_scatter(target, 50.0, ObjectType::Structure);
 
-    // Scattered position should be within half scatter radius for structures
-    let distance = target.distance(scattered);
+    // C++ Weapon.cpp:958 uses the full authored radius, including structures.
+    let distance = (scattered.x - target.x).hypot(scattered.y - target.y);
     assert!(
-        distance <= 2.5,
+        distance <= 5.0,
         "Scattered position {} should be within {} of target",
         distance,
-        2.5
+        5.0
     );
 }
 

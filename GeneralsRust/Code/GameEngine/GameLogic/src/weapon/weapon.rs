@@ -386,11 +386,6 @@ impl Weapon {
         source_bonus_flags: WeaponBonusConditionFlags,
         container_bonus_flags: Option<WeaponBonusConditionFlags>,
     ) -> GameLogicResult<(bool, Option<ObjectID>)> {
-        // Wave 289: empty dual-world → did not fire.
-        if dual_world_registry_unavailable() {
-            return Ok((false, None));
-        }
-
         // Check weapon status (matches C++ line 2570-2571)
         if self.get_status_at_frame(current_frame) != WeaponStatus::ReadyToFire {
             return Ok((false, None));

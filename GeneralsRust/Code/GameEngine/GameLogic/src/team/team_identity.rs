@@ -74,7 +74,6 @@ impl Team {
             return;
         }
 
-
         // C++ parity (Team::setControllingPlayer): refresh partition/shroud state of all members
         // when team control changes.
         for &object_id in &self.members {
@@ -138,7 +137,8 @@ impl Team {
     /// Set team target object
     pub fn set_team_target_object(&mut self, target: ObjectID) {
         if target == INVALID_ID {
-            self.common_attack_target.store(INVALID_ID, Ordering::Relaxed);
+            self.common_attack_target
+                .store(INVALID_ID, Ordering::Relaxed);
             return;
         }
 
@@ -168,11 +168,6 @@ impl Team {
 
     /// Get team target object
     pub fn get_team_target_object(&self) -> ObjectID {
-        // Wave 256: empty dual-world → invalid target.
-        if dual_world_registry_unavailable() {
-            return INVALID_ID;
-        }
-
         let target_id = self.common_attack_target.load(Ordering::Relaxed);
         if target_id == INVALID_ID {
             return INVALID_ID;
@@ -197,13 +192,15 @@ impl Team {
 
             true
         }) else {
-            self.common_attack_target.store(INVALID_ID, Ordering::Relaxed);
+            self.common_attack_target
+                .store(INVALID_ID, Ordering::Relaxed);
             return INVALID_ID;
         };
         if valid {
             target_id
         } else {
-            self.common_attack_target.store(INVALID_ID, Ordering::Relaxed);
+            self.common_attack_target
+                .store(INVALID_ID, Ordering::Relaxed);
             INVALID_ID
         }
     }
@@ -279,7 +276,11 @@ impl Team {
         self.destroy_threshold = destroy_threshold;
         self.cur_units = cur_units;
         self.current_waypoint_id = waypoint_id;
-        for (i, &flag) in generic_attempts.iter().enumerate().take(MAX_GENERIC_SCRIPTS) {
+        for (i, &flag) in generic_attempts
+            .iter()
+            .enumerate()
+            .take(MAX_GENERIC_SCRIPTS)
+        {
             self.should_attempt_generic_script[i] = flag;
         }
         self.recruitability_set = recruitability_set;
@@ -297,7 +298,6 @@ impl Team {
     pub fn get_check_enemy_sighted(&self) -> Bool {
         self.check_enemy_sighted
     }
-
 
     /// Check if this team can be recruited by AI/team-building logic.
     pub fn is_recruitable(&self) -> Bool {
