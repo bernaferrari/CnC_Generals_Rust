@@ -205,7 +205,9 @@ mod tests {
 
         assert_eq!(
             matrix.to_cols_array(),
-            [1.0, 5.0, 9.0, 0.0, 2.0, 6.0, 10.0, 0.0, 3.0, 7.0, 11.0, 0.0, 4.0, 8.0, 12.0, 1.0]
+            [
+                1.0, 5.0, 9.0, 0.0, 2.0, 6.0, 10.0, 0.0, 3.0, 7.0, 11.0, 0.0, 4.0, 8.0, 12.0, 1.0
+            ]
         );
     }
 
@@ -298,6 +300,7 @@ mod tests {
             0.0,
             0.0,
             None,
+            None,
         );
 
         assert!(!handled);
@@ -306,6 +309,164 @@ mod tests {
             RecoilState::RecoilStart
         ));
         assert_eq!(draw.weapon_recoil_info[0][0].recoil_rate, 1.75);
+    }
+
+    #[test]
+    fn hidden_weapon_fx_fallback_preserves_the_logic_source_pose() {
+        // C++ W3DModelDraw.cpp:3712-3738 uses the logic Object's transform
+        // for hidden shooters, including units firing from a transport.
+        let _lock = crate::test_sync::lock();
+        let id = 93_573;
+        let object = std::sync::Arc::new(std::sync::RwLock::new(crate::object::Object::new_test(
+            id, 100.0,
+        )));
+        let registered = std::sync::Arc::new(std::sync::RwLock::new(
+            crate::object::Object::new_test(id, 100.0),
+        ));
+        crate::object::registry::OBJECT_REGISTRY.register_object(id, &registered);
+        struct Registration(ObjectID);
+        impl Drop for Registration {
+            fn drop(&mut self) {
+                crate::object::registry::OBJECT_REGISTRY.unregister_object(self.0);
+            }
+        }
+        let _registration = Registration(id);
+        // Both allocations remain exclusively borrowed: selecting the live
+        // pose cannot discover either of them through the registry.
+        let _registered_guard = registered.write().unwrap();
+        let mut source = object.write().unwrap();
+        source
+            .set_position(&Coord3D::new(81.0, -17.0, 9.0))
+            .unwrap();
+        source.set_orientation(0.7).unwrap();
+        let pose = WeaponFireFxSource {
+            position: *source.get_position(),
+            transform: source.get_transform_matrix(),
+        };
+        let mut draw = W3DModelDraw::new(W3DModelDrawModuleData::new());
+        draw.owner_id = Some(id);
+        draw.hidden = true;
+        let live_bone = Matrix3D::from_translation(Coord3D::new(-100.0, 12.0, 3.0));
+        assert_eq!(
+            draw.weapon_fire_fx_pose(Some(&pose), Some(&live_bone), 0, 0, 7),
+            Some((pose.position, pose.transform)),
+        );
+        // Hidden drawables with no logic object must use their live bone.
+        assert_eq!(
+            draw.weapon_fire_fx_pose(None, Some(&live_bone), 0, 0, 7),
+            Some((Coord3D::new(-100.0, 12.0, 3.0), live_bone)),
+        );
+        assert_eq!(draw.weapon_fire_fx_pose(None, None, 0, 0, 7), None);
+        assert_eq!(draw.weapon_fire_fx_pose(Some(&pose), None, 0, 0, 0), None);
+        draw.hidden = false;
+        assert_eq!(
+            draw.weapon_fire_fx_pose(Some(&pose), Some(&live_bone), 0, 0, 7),
+            Some((Coord3D::new(-100.0, 12.0, 3.0), live_bone)),
+        );
+    }
+
+    #[test]
+    fn pristine_weapon_fx_pose_applies_source_rotation_and_translation() {
+        let pose = WeaponFireFxSource {
+            position: Coord3D::new(81.0, -17.0, 9.0),
+            transform: Matrix3D::from_translation(Coord3D::new(81.0, -17.0, 9.0))
+                * Matrix3D::from_rotation_z(std::f32::consts::FRAC_PI_2),
+        };
+        let mut data = W3DModelDrawModuleData::new();
+        let mut state = ModelConditionInfo::new();
+        state.weapon_fire_fx_bone[0] = AsciiString::from("Muzzle");
+        let local = Matrix3D::from_translation(Coord3D::new(4.0, 0.0, 2.0));
+        state.pristine_bones.insert(
+            NameKeyGenerator::name_to_key("Muzzle01"),
+            PristineBoneInfo {
+                transform: local,
+                bone_index: 7,
+            },
+        );
+        data.condition_states.push(state);
+        let mut draw = W3DModelDraw::new(data);
+        draw.cur_state = Some(ActiveModelState::Condition(0));
+        let (position, matrix) = draw
+            .weapon_fire_fx_pose(Some(&pose), None, 0, 0, 7)
+            .unwrap();
+        assert!((position - Coord3D::new(81.0, -13.0, 11.0)).length() < 1.0e-5);
+        assert_eq!(matrix, pose.transform * local);
+        assert_eq!(draw.weapon_fire_fx_pose(None, None, 0, 0, 7), None);
+    }
+
+    #[test]
+    fn held_shooter_fires_through_installed_hidden_model_draw_without_relocking() {
+        use crate::object::drawable::{Drawable, DrawableExt, DrawableType};
+        use crate::weapon::{Weapon, WeaponBonus, WeaponSlotType, WeaponTemplate};
+        use std::sync::{Arc, RwLock};
+
+        let _lock = crate::test_sync::lock();
+        let id = 93_574;
+        let mut data = W3DModelDrawModuleData::new();
+        let mut state = ModelConditionInfo::new();
+        state.weapon_barrels[0].push(WeaponBarrelInfo {
+            fx_bone: 7,
+            recoil_bone: 12,
+            ..WeaponBarrelInfo::new()
+        });
+        state.mark_barrels_validated();
+        data.condition_states.push(state);
+        data.initial_recoil = 1.75;
+        let mut model = W3DModelDraw::new(data.clone());
+        model.cur_state = Some(ActiveModelState::Condition(0));
+        model.weapon_recoil_info[0].push(WeaponRecoilInfo::new());
+        model.owner_id = Some(id);
+        model.hidden = true;
+        let mut drawable = Drawable::new(id, id, "HeldHiddenShooter".into(), DrawableType::Static);
+        let installed = drawable.add_module(
+            ModuleInterfaceType::DRAW,
+            "W3DModelDraw".into(),
+            "HeldHiddenShooterDraw".into(),
+            Arc::new(data),
+            Box::new(model),
+        );
+        let drawable = Arc::new(RwLock::new(drawable));
+        let mut source = crate::object::Object::new_test(id, 100.0);
+        source
+            .set_position(&Coord3D::new(81.0, -17.0, 9.0))
+            .unwrap();
+        source.set_drawable(Some(drawable));
+        let source = Arc::new(RwLock::new(source));
+        crate::object::registry::OBJECT_REGISTRY.register_object(id, &source);
+        struct Registration(ObjectID);
+        impl Drop for Registration {
+            fn drop(&mut self) {
+                crate::object::registry::OBJECT_REGISTRY.unregister_object(self.0);
+            }
+        }
+        let _registration = Registration(id);
+        let source = source.write().unwrap();
+        let weapon = Weapon::new(
+            Arc::new(WeaponTemplate::new("HeldHiddenShooter".into())),
+            WeaponSlotType::Primary,
+        );
+        weapon
+            .fire_weapon_effects(
+                id,
+                source.get_position(),
+                &Coord3D::new(140.0, 22.0, 0.0),
+                false,
+                &WeaponBonus::new(),
+                Some(&source),
+            )
+            .unwrap();
+        // Inspect the same installed module through its real entry, not a
+        // second model state. Null FX still activates C++ barrel recoil.
+        installed.with_module(|module| {
+            let model = (module as &mut dyn std::any::Any)
+                .downcast_mut::<W3DModelDraw>()
+                .unwrap();
+            assert!(matches!(
+                model.weapon_recoil_info[0][0].state,
+                RecoilState::RecoilStart
+            ));
+            assert_eq!(model.weapon_recoil_info[0][0].recoil_rate, 1.75);
+        });
     }
 
     #[test]
@@ -543,24 +704,22 @@ mod tests {
         let (frame, _, direction) = advance_anim_mode(AnimMode::LoopPingPong, last - 1, 5, 1, 1);
         assert_eq!(frame, last);
         assert_eq!(direction, -1);
-        let (frame, _, direction) = advance_anim_mode(AnimMode::LoopPingPong, frame, 5, 1, direction);
+        let (frame, _, direction) =
+            advance_anim_mode(AnimMode::LoopPingPong, frame, 5, 1, direction);
         assert_eq!(frame, last - 1);
         assert_eq!(direction, -1);
         let (wrapped, _, _) = advance_anim_mode(AnimMode::Loop, last, 5, 1, 1);
         assert_eq!(wrapped, 0);
     }
 
-
     #[test]
     fn hidden_do_draw_still_ticks_animation() {
         let mut data = W3DModelDrawModuleData::new();
         let mut state = ModelConditionInfo::new();
         state.anim_mode = AnimMode::Once;
-        state.animations.push(W3DAnimationInfo::new(
-            AsciiString::from("idle"),
-            false,
-            0.0,
-        ));
+        state
+            .animations
+            .push(W3DAnimationInfo::new(AsciiString::from("idle"), false, 0.0));
         data.condition_states.push(state);
         let mut draw = W3DModelDraw::new(data);
         draw.set_model_state(0);
@@ -620,7 +779,6 @@ mod tests {
         assert!((rot.y - 8.0).abs() < 1e-4);
         assert!((rot.z - 10.0).abs() < 1e-4);
     }
-
 
     #[test]
     fn replace_indicator_color_rebuilds_when_ok() {
@@ -710,4 +868,3 @@ mod tests {
         register_pristine_bone_lookup_hook(None);
     }
 }
-

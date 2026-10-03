@@ -1092,13 +1092,43 @@ impl W3DModelDraw {
         client.set_pose(owner_id, *obj.get_position(), obj.get_orientation());
     }
 
-    fn logic_fire_fx_fallback(&self) -> (Coord3D, Matrix3D) {
-        if let Some(owner_id) = self.owner_id {
-            let _ = crate::object::registry::OBJECT_REGISTRY.with_object(owner_id, |obj| {
-                return (*obj.get_position(), obj.get_transform_matrix());
-            });
+    /// C++ hidden render objects use the logic pose; visible objects use the
+    /// live bone transform. Neither branch may acquire the shooter's guard.
+    fn weapon_fire_fx_pose(
+        &self,
+        source_pose: Option<&WeaponFireFxSource>,
+        live_bone: Option<&Matrix3D>,
+        weapon_slot: usize,
+        selected_barrel: usize,
+        fx_bone: i32,
+    ) -> Option<(Coord3D, Matrix3D)> {
+        if fx_bone == 0 {
+            return None;
         }
-        (Coord3D::new(0.0, 0.0, 0.0), Matrix3D::IDENTITY)
+        if self.hidden {
+            if let Some(source) = source_pose {
+                return Some((source.position, source.transform));
+            }
+        }
+        if let Some(world) = live_bone {
+            return Some((Self::matrix_translation(world), *world));
+        }
+        if self.hidden {
+            return None;
+        }
+        // Retain the port's pristine-bone fallback until a live model supplies
+        // its animated bone. This is not evidence of C++ render-object parity.
+        let state = self.current_state()?;
+        let prefix = state.weapon_fire_fx_bone[weapon_slot].as_str();
+        if prefix.is_empty() {
+            return None;
+        }
+        let source = source_pose?;
+        let name = format!("{prefix}{:02}", selected_barrel + 1);
+        let key = NameKeyGenerator::name_to_key(&name);
+        let local = state.pristine_bones.get(&key)?;
+        let world = source.transform * local.transform;
+        Some((Self::matrix_translation(&world), world))
     }
 
     fn owner_weapon_fx_params(&self, weapon_slot: usize) -> (Real, Real) {

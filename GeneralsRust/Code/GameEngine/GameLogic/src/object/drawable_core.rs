@@ -712,6 +712,9 @@ mod borrowed_weapon_fx_tests {
             DrawableType::Static,
         )));
         let mut source = Object::new_test(id, 100.0);
+        source
+            .set_position(&Coord3D::new(81.0, -17.0, 9.0))
+            .unwrap();
         source.set_orientation(std::f32::consts::FRAC_PI_2).unwrap();
         // new_test omits the ctor tracker; attach its actual owned state before
         // exercising the source's real veterancy setter and FX lookup.
@@ -733,11 +736,21 @@ mod borrowed_weapon_fx_tests {
         let impact = position + Coord3D::new(50.0, 0.0, 0.0);
         let bonus = WeaponBonus::new();
 
-        let (level, hidden, live_drawable) = weapon.source_fire_fx(id, Some(&source));
-        assert_eq!(level, VeterancyLevel::Veteran);
-        assert!(!hidden);
-        assert!(Arc::ptr_eq(&live_drawable.unwrap(), &drawable));
-        assert!(weapon.source_fire_fx(id + 1, Some(&source)).2.is_none());
+        let captured = weapon.source_fire_fx(id, Some(&source));
+        assert_eq!(captured.veterancy, VeterancyLevel::Veteran);
+        assert!(!captured.stealth_suppressed);
+        assert!(Arc::ptr_eq(&captured.drawable.unwrap(), &drawable));
+        assert_eq!(captured.pose.unwrap().position, position);
+        assert_eq!(
+            captured.pose.unwrap().transform,
+            source.get_transform_matrix()
+        );
+        assert!(
+            weapon
+                .source_fire_fx(id + 1, Some(&source))
+                .drawable
+                .is_none()
+        );
         weapon
             .fire_weapon_effects(id, &position, &impact, false, &bonus, Some(&source))
             .unwrap();
@@ -752,7 +765,7 @@ mod borrowed_weapon_fx_tests {
         }
 
         source.set_status(ObjectStatusTypes::Stealthed.into(), true);
-        assert!(weapon.source_fire_fx(id, Some(&source)).1);
+        assert!(weapon.source_fire_fx(id, Some(&source)).stealth_suppressed);
         weapon
             .fire_weapon_effects(id, &position, &impact, false, &bonus, Some(&source))
             .unwrap();
@@ -769,13 +782,13 @@ mod borrowed_weapon_fx_tests {
                 < 1.0e-5
         );
         source.set_status(ObjectStatusTypes::Detected.into(), true);
-        assert!(!weapon.source_fire_fx(id, Some(&source)).1);
+        assert!(!weapon.source_fire_fx(id, Some(&source)).stealth_suppressed);
         source.set_status(ObjectStatusTypes::Detected.into(), false);
         source.set_status(ObjectStatusTypes::Disguised.into(), true);
-        assert!(!weapon.source_fire_fx(id, Some(&source)).1);
+        assert!(!weapon.source_fire_fx(id, Some(&source)).stealth_suppressed);
         source.set_status(ObjectStatusTypes::Disguised.into(), false);
         Arc::make_mut(&mut weapon.template).play_fx_when_stealthed = true;
-        assert!(!weapon.source_fire_fx(id, Some(&source)).1);
+        assert!(!weapon.source_fire_fx(id, Some(&source)).stealth_suppressed);
         weapon
             .fire_weapon_effects(id, &position, &impact, false, &bonus, Some(&source))
             .unwrap();

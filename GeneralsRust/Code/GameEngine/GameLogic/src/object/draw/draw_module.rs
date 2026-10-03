@@ -367,6 +367,7 @@ pub trait ObjectDrawInterface {
         victim_pos: &Coord3D,
         weapon_speed: f32,
         damage_radius: f32,
+        source_pose: Option<&WeaponFireFxSource>,
         live_bone: Option<&crate::common::Matrix3D>,
     ) -> bool;
 
@@ -378,6 +379,14 @@ pub trait ObjectDrawInterface {
     /// # Returns
     /// Number of barrels
     fn get_barrel_count(&self, weapon_slot: usize) -> i32;
+}
+
+/// Logic pose captured at the firing boundary. Draw modules consume these
+/// values without looking up or locking the live shooter again.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct WeaponFireFxSource {
+    pub position: Coord3D,
+    pub transform: crate::common::Matrix3D,
 }
 
 /// Interface for debris particles

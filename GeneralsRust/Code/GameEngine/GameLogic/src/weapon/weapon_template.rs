@@ -915,10 +915,19 @@ impl WeaponTemplate {
         let mut handled_fire_fx = stealth_suppressed;
         if !stealth_suppressed {
             if let Some(source_arc) = TheGameLogic::find_object_by_id(source_id) {
-                let drawable = source_arc
-                    .read()
-                    .ok()
-                    .and_then(|guard| guard.get_drawable());
+                let source_draw = source_arc.read().ok().map(|source| {
+                    (
+                        source.get_drawable(),
+                        crate::object::draw::draw_module::WeaponFireFxSource {
+                            position: *source.get_position(),
+                            transform: source.get_transform_matrix(),
+                        },
+                    )
+                });
+                let (drawable, source_pose) = match source_draw {
+                    Some((drawable, pose)) => (drawable, Some(pose)),
+                    None => (None, None),
+                };
                 if let Some(drawable) = drawable {
                     if let Ok(mut draw_guard) = drawable.write() {
                         handled_fire_fx = draw_guard.handle_weapon_fire_fx(
@@ -928,6 +937,7 @@ impl WeaponTemplate {
                             &actual_victim_pos,
                             self.weapon_speed,
                             self.get_primary_damage_radius(bonus),
+                            source_pose.as_ref(),
                         );
                     }
                 }

@@ -399,6 +399,7 @@ impl ObjectDrawInterface for W3DDependencyModelDraw {
         victim_pos: &Coord3D,
         weapon_speed: f32,
         damage_radius: f32,
+        source_pose: Option<&super::draw_module::WeaponFireFxSource>,
         live_bone: Option<&crate::common::Matrix3D>,
     ) -> bool {
         self.base.handle_weapon_fire_fx(
@@ -408,6 +409,7 @@ impl ObjectDrawInterface for W3DDependencyModelDraw {
             victim_pos,
             weapon_speed,
             damage_radius,
+            source_pose,
             live_bone,
         )
     }
