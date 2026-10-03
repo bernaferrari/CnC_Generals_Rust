@@ -4,8 +4,8 @@
 //! - `GameClient/RayEffect.cpp` / `RayEffect.h` (`MAX_RAY_EFFECTS = 128`)
 //! - `W3DGameClient::createRayEffectByTemplate` midpoint drawable + addRayEffect
 
+use glam::Vec3;
 use std::sync::{Mutex, OnceLock};
-use glam::{Vec3};
 
 /// C++ `RayEffectSystem::MAX_RAY_EFFECTS`.
 pub const MAX_RAY_EFFECTS: usize = 128;
@@ -94,19 +94,6 @@ impl RayEffectStore {
     fn free_index(&self) -> Option<usize> {
         self.slots.iter().position(|slot| slot.is_none())
     }
-
-    fn alloc_index(&mut self) -> usize {
-        if let Some(idx) = self.free_index() {
-            return idx;
-        }
-        self.slots
-            .iter()
-            .enumerate()
-            .filter_map(|(i, slot)| slot.as_ref().map(|e| (i, e.drawable_id)))
-            .min_by_key(|(_, id)| *id)
-            .map(|(i, _)| i)
-            .unwrap_or(0)
-    }
 }
 
 fn global_rays() -> &'static Mutex<RayEffectStore> {
@@ -185,7 +172,10 @@ pub fn create_ray_effect_by_template(
 /// C++ `RayEffectSystem::addRayEffect`.
 pub fn add_ray_effect(drawable_id: u32, start: [f32; 3], end: [f32; 3]) -> bool {
     let mut store = global_rays().lock().unwrap_or_else(|e| e.into_inner());
-    let idx = store.alloc_index();
+    let Some(idx) = store.free_index() else {
+        // C++ RayEffectSystem::addRayEffect never replaces a live drawable.
+        return false;
+    };
     let now = store.frame;
     store.slots[idx] = Some(LiveRayEffect {
         drawable_id,
@@ -344,6 +334,30 @@ mod tests {
     use crate::effects::particle_manager::ParticleSystemManager;
 
     #[test]
+    fn cpp_ray_capacity_rejects_new_beam_without_evicting_existing_drawables() {
+        // RayEffect.cpp:93-130: first free slot, otherwise no state change.
+        // Exercise the production insertion API, including delete/reuse.
+        reset_ray_effects();
+        for id in 1..=MAX_RAY_EFFECTS as u32 {
+            assert!(add_ray_effect(id, [id as f32, 0.0, 0.0], [0.0, 1.0, 0.0]));
+        }
+        let before = live_ray_effects();
+        assert!(!add_ray_effect(129, [129.0, 0.0, 0.0], [0.0, 2.0, 0.0]));
+        assert_eq!(live_ray_effects(), before);
+        assert!(get_ray_effect_data(1).is_some());
+        assert!(get_ray_effect_data(129).is_none());
+
+        assert!(delete_ray_effect(64));
+        assert!(add_ray_effect(129, [129.0, 0.0, 0.0], [0.0, 2.0, 0.0]));
+        let reused = live_ray_effects();
+        assert_eq!(reused.len(), MAX_RAY_EFFECTS);
+        assert_eq!(reused[63].drawable_id, 129);
+        assert!(get_ray_effect_data(1).is_some());
+        assert!(get_ray_effect_data(64).is_none());
+        reset_ray_effects();
+    }
+
+    #[test]
     fn fxlist_ray_effect_nugget_gpu_mesh_matches_cpp_midpoint_and_offsets() {
         reset_ray_effects();
 
@@ -353,8 +367,7 @@ mod tests {
         let secondary_offset = [-1.0_f32, 0.0, 1.0];
 
         let mut nugget = RayEffectFXNugget::new("GenericLaser".to_string());
-        nugget.primary_offset =
-            Vec3::new(primary_offset[0], primary_offset[1], primary_offset[2]);
+        nugget.primary_offset = Vec3::new(primary_offset[0], primary_offset[1], primary_offset[2]);
         nugget.secondary_offset = Vec3::new(
             secondary_offset[0],
             secondary_offset[1],

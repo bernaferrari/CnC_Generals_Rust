@@ -778,7 +778,7 @@ impl AIPlayer {
         if upgrade_name.trim().is_empty() {
             return false;
         }
-        if crate::game_logic::host_upgrades::is_object_scoped_upgrade(upgrade_name) {
+        if game_logic.is_object_scoped_upgrade(upgrade_name) {
             return false;
         }
         let Some(player) = game_logic.get_player(self.player_id) else {
@@ -790,11 +790,9 @@ impl AIPlayer {
         {
             return false;
         }
-        let leftover_cost = gamelogic::upgrade::center::with_upgrade_center(|center| {
-            center
-                .find_upgrade(upgrade_name)
-                .map(|template| template.get_cost().max(0) as u32)
-        });
+        let leftover_cost = game_logic
+            .upgrade_template(upgrade_name)
+            .map(|template| template.get_cost().max(0) as u32);
         let cost_supplies = leftover_cost.unwrap_or_else(|| {
             crate::game_logic::host_upgrades::resolve_upgrade_retail_cost_supplies(upgrade_name)
         });
@@ -808,10 +806,11 @@ impl AIPlayer {
         let Some(producer_id) = self.find_upgrade_producer(game_logic, upgrade_name) else {
             return false;
         };
+        let upgrade_type = game_logic.upgrade_type(upgrade_name);
         let Some(player) = game_logic.get_player_mut(self.player_id) else {
             return false;
         };
-        if !player.queue_upgrade(upgrade_name, &cost) {
+        if !player.queue_upgrade(upgrade_name, &cost, upgrade_type) {
             return false;
         }
         let kind = crate::game_logic::host_upgrades::HostUpgradeKind::from_name(upgrade_name);
@@ -1062,10 +1061,10 @@ impl AIPlayer {
             return Some(radius);
         }
         drop(store);
-        gamelogic::ai::the_ai().read().ok().and_then(|ai| {
-            Some(ai.get_ai_data())
-                .map(|d| d.supply_center_safe_radius)
-        })
+        gamelogic::ai::the_ai()
+            .read()
+            .ok()
+            .and_then(|ai| Some(ai.get_ai_data()).map(|d| d.supply_center_safe_radius))
     }
 
     /// C++ `AIPlayer::isSupplySourceAttacked`.

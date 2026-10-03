@@ -199,7 +199,10 @@ fn late_trained_worker_inherits_player_shoes_speed() {
 
     let mut game_logic = GameLogic::new();
     let mut player = Player::new(0, Team::GLA, "GLA", true);
-    player.complete_researched_upgrade(UPGRADE_GLA_WORKER_SHOES);
+    player.complete_researched_upgrade(
+        UPGRADE_GLA_WORKER_SHOES,
+        gamelogic::upgrade::UpgradeType::Player,
+    );
     game_logic.add_player(player);
 
     let mut other = Player::new(1, Team::GLA, "GLA2", false);

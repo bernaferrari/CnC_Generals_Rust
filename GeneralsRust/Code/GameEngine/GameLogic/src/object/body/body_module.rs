@@ -3,8 +3,6 @@
 //! Provides the base functionality for object body modules, handling health,
 //! damage, armor, and body states in a thread-safe manner.
 
-use std::sync::Arc;
-
 use crate::common::{AsciiString, INVALID_ID, ObjectID, ThingTemplate};
 pub use crate::common::{BodyDamageType, VeterancyLevel};
 pub use crate::damage::{DamageInfo, DamageInfoInput, DamageInfoOutput, DamageType, DeathType};
@@ -325,7 +323,7 @@ pub struct BodyModule {
     /// `read`/`write` on the same call stack would deadlock `std::sync::RwLock`.
     damage_scalar: f32,
     /// Module configuration data
-    module_data: Arc<BodyModuleData>,
+    module_data: BodyModuleData,
 }
 
 impl BodyModule {
@@ -333,7 +331,7 @@ impl BodyModule {
     pub fn new(module_data: BodyModuleData) -> Self {
         Self {
             damage_scalar: 1.0,
-            module_data: Arc::new(module_data),
+            module_data,
         }
     }
 

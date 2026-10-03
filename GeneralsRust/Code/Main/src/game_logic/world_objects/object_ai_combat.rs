@@ -555,8 +555,9 @@ impl GameLogic {
                 .get(&player_id)
                 .map(|p| p.has_unlocked_upgrade(&name))
                 .unwrap_or(false);
+            let upgrade_type = self.upgrade_type(&name);
             if let Some(player) = self.players.get_mut(&player_id) {
-                player.complete_researched_upgrade(&name);
+                player.complete_researched_upgrade(&name, upgrade_type);
             }
             if !already {
                 self.apply_host_upgrade_complete(team, player_id, &name);
@@ -724,9 +725,7 @@ impl GameLogic {
         player_id: u32,
         upgrade_name: &str,
     ) {
-        use crate::game_logic::host_upgrades::{
-            HostUpgradeKind, is_object_scoped_upgrade, upgrade_mux_target_ids,
-        };
+        use crate::game_logic::host_upgrades::{HostUpgradeKind, upgrade_mux_target_ids};
 
         // All fan-out routines retain a `*_to_team` compatibility API, but a
         // live completion belongs to this exact player.  Scope the owner for
@@ -736,7 +735,7 @@ impl GameLogic {
         let source = self
             .host_upgrades
             .last_source_object_for(player_id, upgrade_name);
-        let object_scoped = is_object_scoped_upgrade(upgrade_name);
+        let object_scoped = self.is_object_scoped_upgrade(upgrade_name);
 
         // C++ ProductionUpdate: PLAYER upgrades update the player mask then
         // every object `updateUpgradeModules`. OBJECT upgrades `giveUpgrade`
@@ -959,23 +958,21 @@ impl GameLogic {
         // that producer and replaces EVA; UnitSpecificSound is independent
         // and is submitted after either branch.
         if self.is_local_player(player_id) {
-            let completion_sounds = gamelogic::upgrade::center::with_upgrade_center(|center| {
-                center
-                    .find_upgrade(upgrade_name)
-                    .filter(|template| !template.get_display_name().is_empty())
-                    .map(|template| {
-                        let research = template.get_research_sound();
-                        let unit_specific = template.get_unit_specific_sound();
-                        (
-                            research
-                                .is_valid()
-                                .then(|| research.playable_event_name().to_string()),
-                            unit_specific
-                                .is_valid()
-                                .then(|| unit_specific.playable_event_name().to_string()),
-                        )
-                    })
-            });
+            let completion_sounds = self
+                .upgrade_template(upgrade_name)
+                .filter(|template| !template.get_display_name().is_empty())
+                .map(|template| {
+                    let research = template.get_research_sound();
+                    let unit_specific = template.get_unit_specific_sound();
+                    (
+                        research
+                            .is_valid()
+                            .then(|| research.playable_event_name().to_string()),
+                        unit_specific
+                            .is_valid()
+                            .then(|| unit_specific.playable_event_name().to_string()),
+                    )
+                });
 
             if let Some((research_sound, unit_specific_sound)) = completion_sounds {
                 if let Some(event_name) = research_sound {
@@ -1357,13 +1354,17 @@ mod live_upgrade_mux_tests {
                 supplies: 0,
                 power: 0,
             },
+            gamelogic::upgrade::UpgradeType::Object,
         );
         logic.record_host_upgrade_queued(1, Team::China, UPGRADE_OVERLORD_BUNKER, Some(a));
         logic.apply_host_upgrade_complete(Team::China, 1, UPGRADE_OVERLORD_BUNKER);
         logic
             .get_player_mut(1)
             .expect("player")
-            .complete_researched_upgrade(UPGRADE_OVERLORD_BUNKER);
+            .complete_researched_upgrade(
+                UPGRADE_OVERLORD_BUNKER,
+                gamelogic::upgrade::UpgradeType::Object,
+            );
         assert!(
             !logic
                 .get_player(1)
@@ -1391,6 +1392,7 @@ mod live_upgrade_mux_tests {
                 supplies: 0,
                 power: 0,
             },
+            gamelogic::upgrade::UpgradeType::Player,
         );
         logic.record_host_upgrade_queued(0, Team::USA, "Upgrade_AmericaCompositeArmor", Some(id));
         logic.objects.remove(&id);
@@ -1435,6 +1437,7 @@ mod live_upgrade_mux_tests {
                 supplies: 0,
                 power: 0,
             },
+            gamelogic::upgrade::UpgradeType::Player,
         );
         logic.record_host_upgrade_queued(0, Team::USA, "Upgrade_AmericaCompositeArmor", Some(id));
         logic.update_player_upgrades();

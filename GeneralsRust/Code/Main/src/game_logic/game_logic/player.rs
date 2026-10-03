@@ -1,5 +1,8 @@
 //! Mechanical split from `game_logic/game_logic.rs`. No behavior change.
 #![allow(non_snake_case, unused_imports, dead_code)]
+#[path = "player_upgrade_runtime.rs"]
+mod upgrade_runtime;
+
 use super::authority::*;
 use super::construct::*;
 use super::crate_tick::*;
@@ -1219,74 +1222,6 @@ impl Player {
         self.apply_supply_gain(amount);
     }
 
-    pub fn queue_upgrade(&mut self, upgrade_name: &str, cost: &Resources) -> bool {
-        // C++ ProductionUpdate.cpp:250-272 — PLAYER refuses if complete or
-        // already in production. OBJECT is per-producer (`giveUpgrade`), not
-        // a player-wide unlock (one add-on per unit, not per player).
-        let object_scoped =
-            crate::game_logic::host_upgrades::is_object_scoped_upgrade(upgrade_name);
-        if !object_scoped
-            && (self.has_unlocked_upgrade(upgrade_name) || self.has_queued_upgrade(upgrade_name))
-        {
-            return false;
-        }
-        if !self.spend_resources(cost) {
-            return false;
-        }
-        self.queued_upgrades.insert(upgrade_name.to_string());
-        true
-    }
-
-    /// Cancel a queued upgrade and refund the requested resources.
-    pub fn cancel_queued_upgrade(&mut self, upgrade_name: &str, refund: &Resources) -> bool {
-        let Some(queued_name) = self.find_queued_upgrade_name(upgrade_name) else {
-            return false;
-        };
-        self.queued_upgrades.remove(&queued_name);
-        self.apply_supply_gain(refund.supplies);
-        self.power_available -= refund.power;
-        crate::game_logic::host_economy_log::record(
-            self.id,
-            self.effective_supplies(),
-            self.power_available,
-        );
-        true
-    }
-
-    /// Mark research finished. OBJECT upgrades stay off the player completed set.
-    pub fn complete_researched_upgrade(&mut self, upgrade_name: &str) {
-        if let Some(queued) = self.find_queued_upgrade_name(upgrade_name) {
-            self.queued_upgrades.remove(&queued);
-        }
-        // C++ ProductionUpdate.cpp:874-879 / 931 — purchased, not granted.
-        self.record_upgrade_production_complete(upgrade_name);
-        if crate::game_logic::host_upgrades::is_object_scoped_upgrade(upgrade_name) {
-            return;
-        }
-        self.add_completed_upgrade(upgrade_name);
-    }
-
-    /// Complete all queued player upgrades into the unlocked upgrade/science set.
-    pub fn complete_queued_upgrades(&mut self) -> Vec<String> {
-        let mut completed: Vec<String> = self.queued_upgrades.drain().collect();
-        completed.sort();
-        for upgrade in &completed {
-            if crate::game_logic::host_upgrades::is_object_scoped_upgrade(upgrade) {
-                continue;
-            }
-            self.add_completed_upgrade(upgrade);
-        }
-        completed
-    }
-
-    pub fn has_unlocked_upgrade(&self, upgrade_name: &str) -> bool {
-        let expected = normalize_upgrade_name(upgrade_name);
-        self.unlocked_sciences
-            .iter()
-            .chain(self.completed_upgrades.iter())
-            .any(|unlocked| normalize_upgrade_name(unlocked) == expected)
-    }
-
     pub fn has_unlocked_science(&self, science_name: &str) -> bool {
         self.has_unlocked_upgrade(science_name)
     }
@@ -2055,14 +1990,25 @@ mod map_side_dict_tests {
             supplies: 100,
             power: 0,
         };
-        assert!(player.queue_upgrade("Upgrade_ChinaOverlordBattleBunker", &cost));
-        player.complete_researched_upgrade("Upgrade_ChinaOverlordBattleBunker");
+        assert!(player.queue_upgrade(
+            "Upgrade_ChinaOverlordBattleBunker",
+            &cost,
+            gamelogic::upgrade::UpgradeType::Object
+        ));
+        player.complete_researched_upgrade(
+            "Upgrade_ChinaOverlordBattleBunker",
+            gamelogic::upgrade::UpgradeType::Object,
+        );
         assert!(
             !player.has_unlocked_upgrade("Upgrade_ChinaOverlordBattleBunker"),
             "OBJECT upgrades must not enter the player completed set"
         );
         assert!(
-            player.queue_upgrade("Upgrade_ChinaOverlordBattleBunker", &cost),
+            player.queue_upgrade(
+                "Upgrade_ChinaOverlordBattleBunker",
+                &cost,
+                gamelogic::upgrade::UpgradeType::Object
+            ),
             "a second unit must still be able to queue the same OBJECT upgrade"
         );
     }
@@ -2075,11 +2021,26 @@ mod map_side_dict_tests {
             supplies: 100,
             power: 0,
         };
-        assert!(player.queue_upgrade("Upgrade_AmericaSupplyLines", &cost));
-        assert!(!player.queue_upgrade("Upgrade_AmericaSupplyLines", &cost));
-        player.complete_researched_upgrade("Upgrade_AmericaSupplyLines");
+        assert!(player.queue_upgrade(
+            "Upgrade_AmericaSupplyLines",
+            &cost,
+            gamelogic::upgrade::UpgradeType::Player
+        ));
+        assert!(!player.queue_upgrade(
+            "Upgrade_AmericaSupplyLines",
+            &cost,
+            gamelogic::upgrade::UpgradeType::Player
+        ));
+        player.complete_researched_upgrade(
+            "Upgrade_AmericaSupplyLines",
+            gamelogic::upgrade::UpgradeType::Player,
+        );
         assert!(player.has_unlocked_upgrade("Upgrade_AmericaSupplyLines"));
-        assert!(!player.queue_upgrade("Upgrade_AmericaSupplyLines", &cost));
+        assert!(!player.queue_upgrade(
+            "Upgrade_AmericaSupplyLines",
+            &cost,
+            gamelogic::upgrade::UpgradeType::Player
+        ));
     }
 
     #[test]
@@ -2200,7 +2161,7 @@ mod map_side_dict_tests {
             .expect("register leftover upgrade");
         });
         let mut player = Player::new(0, Team::USA, "USA", true);
-        player.complete_researched_upgrade(NAME);
+        player.complete_researched_upgrade(NAME, gamelogic::upgrade::UpgradeType::Player);
         let leftover_guard = leftover.read().expect("leftover player");
         assert!(
             leftover_guard.get_academy_stats().has_researched_radar(),

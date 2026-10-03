@@ -5,7 +5,6 @@
 //! Second death is handled normally.
 
 use std::any::Any;
-use std::sync::Arc;
 
 use super::active_body::{ActiveBody, ActiveBodyModuleData};
 use super::body_module::{
@@ -118,7 +117,7 @@ pub struct UndeadBody {
     /// Base active body functionality
     active_body: ActiveBody,
     /// Undead-specific configuration
-    module_data: Arc<UndeadBodyModuleData>,
+    module_data: UndeadBodyModuleData,
     /// Whether the first death has started this body's second life.
     is_second_life: bool,
 }
@@ -129,7 +128,7 @@ impl UndeadBody {
         let active_body = ActiveBody::new_with_owner(module_data.base.clone(), owner_id);
         Self {
             active_body,
-            module_data: Arc::new(module_data),
+            module_data,
             is_second_life: false,
         }
     }

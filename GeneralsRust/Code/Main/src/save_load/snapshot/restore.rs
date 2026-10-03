@@ -418,7 +418,7 @@ impl SnapshotBuilder {
                             // lives in UpgradeCenter, not the ThingTemplate catalog,
                             // so a catalog miss must not fall back to 30s.
                             let total_time = if entry.is_upgrade {
-                                upgrade_production_restore_time_secs(&entry.template_name)
+                                game_logic.upgrade_research_time_secs(&entry.template_name)
                             } else {
                                 template.map(|t| t.build_time.max(0.1)).unwrap_or(30.0_f32)
                             };
@@ -1286,23 +1286,4 @@ impl SnapshotBuilder {
             }
         }
     }
-}
-
-/// C++ `UpgradeTemplate::calcTimeToBuild` source seconds for a restored
-/// PRODUCTION_UPGRADE entry. Prefer leftover UpgradeCenter BuildTime (the
-/// same store `CommandExecutor::resolve_upgrade_build_time_secs` uses), then
-/// the retail Upgrade.ini residual so CamoNetting/Camouflage stay 5s/60s
-/// even when the center has not been populated yet.
-fn upgrade_production_restore_time_secs(upgrade_name: &str) -> f32 {
-    let parsed_secs = gamelogic::upgrade::center::with_upgrade_center(|center| {
-        center
-            .find_upgrade(upgrade_name)
-            .map(|template| template.get_build_time())
-    });
-    let fallback_secs = crate::game_logic::host_upgrades::HostUpgradeKind::from_name(upgrade_name)
-        .retail_build_time_secs();
-    parsed_secs
-        .filter(|seconds| seconds.is_finite() && *seconds > 0.0)
-        .unwrap_or(fallback_secs)
-        .max(1.0 / 30.0)
 }

@@ -683,7 +683,7 @@ pub struct ActiveBody {
     /// Base body module
     base: BodyModule,
     /// Module-specific configuration
-    module_data: Arc<ActiveBodyModuleData>,
+    module_data: ActiveBodyModuleData,
     /// Mutable simulation state; writes require exclusive access to this body.
     state: ActiveBodyState,
     /// Current armor. C++ `m_curArmor` is a plain member of the body the
@@ -712,7 +712,6 @@ impl ActiveBody {
     /// Create a new active body with a known owner ID.
     pub fn new_with_owner(module_data: ActiveBodyModuleData, owner_id: ObjectId) -> Self {
         ensure_default_templates_loaded();
-        let module_data = Arc::new(module_data);
         let base = BodyModule::new(module_data.base.clone());
         let mut state = ActiveBodyState::default();
         state.current_health = module_data.initial_health;
@@ -722,7 +721,7 @@ impl ActiveBody {
 
         let mut body = Self {
             base,
-            module_data: Arc::clone(&module_data),
+            module_data,
             state,
             armor: Armor::default(),
             armor_template_name: None,
@@ -2728,6 +2727,43 @@ mod owned_state_xfer_tests {
         module_data.subdual_damage_heal_amount = 10.0;
 
         ActiveBody::new(module_data)
+    }
+
+    #[test]
+    fn body_definitions_and_state_are_independent_for_equal_owner_ids() {
+        let _lock = crate::test_sync::lock();
+        let mut authored = ActiveBodyModuleData::default();
+        authored.max_health = 100.0;
+        authored.initial_health = 100.0;
+        let mut first = ActiveBody::new_with_owner(authored.clone(), 91_900);
+        authored.max_health = 250.0;
+        authored.initial_health = 200.0;
+        let second = ActiveBody::new_with_owner(authored.clone(), 91_900);
+
+        first.internal_change_health(-35.0).unwrap();
+        assert_eq!(first.get_health(), 65.0);
+        assert_eq!(first.get_max_health(), 100.0);
+        assert_eq!(second.get_health(), 200.0);
+        assert_eq!(second.get_max_health(), 250.0);
+        assert_eq!(authored.initial_health, 200.0);
+        assert_eq!(first.module_data.initial_health, 100.0);
+        assert_eq!(second.module_data.initial_health, 200.0);
+
+        let mut bytes = Vec::new();
+        first
+            .xfer(&mut XferSave::new(Cursor::new(&mut bytes), 1))
+            .unwrap();
+        let mut restored = ActiveBody::new_with_owner(authored, 91_900);
+        restored
+            .xfer(&mut XferLoad::new(Cursor::new(bytes), 1))
+            .unwrap();
+        assert_eq!(restored.get_health(), first.get_health());
+        assert_eq!(restored.get_max_health(), first.get_max_health());
+        assert_eq!(
+            second.get_health(),
+            200.0,
+            "restore does not write another body"
+        );
     }
 
     #[test]

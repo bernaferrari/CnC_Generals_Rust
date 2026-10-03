@@ -248,31 +248,29 @@ impl PhysicsBehaviorState {
 #[derive(Debug)]
 struct PhysicsBehaviorHandle {
     state: PhysicsBehaviorState,
-    object_id: ObjectID,
+    /// Exact construction owner, matching C++ BehaviorModule::getObject.
+    /// A retired owner must never rebind through a reused ObjectID.
+    owner: Weak<RwLock<GameObject>>,
     module_data: Arc<PhysicsBehaviorModuleData>,
     bounce_sound: Option<AudioEventRts>,
 }
 
 impl PhysicsBehaviorHandle {
     fn new(object: Weak<RwLock<GameObject>>, module_data: Arc<PhysicsBehaviorModuleData>) -> Self {
-        let object_id = object
-            .upgrade()
-            .and_then(|arc| arc.read().ok().map(|g| g.get_id()))
-            .unwrap_or(crate::common::INVALID_ID);
         let mut state = PhysicsBehaviorState::new(module_data.mass);
         state.original_allow_bounce = module_data.allow_bouncing;
         state.set_flag(FLAG_ALLOW_BOUNCE, module_data.allow_bouncing);
         state.set_flag(FLAG_ALLOW_COLLIDE_FORCE, module_data.allow_collide_force);
         Self {
             state,
-            object_id,
+            owner: object,
             module_data,
             bounce_sound: None,
         }
     }
 
     fn object_arc(&self) -> Option<Arc<RwLock<GameObject>>> {
-        find_object(self.object_id)
+        self.owner.upgrade()
     }
 
     fn is_motive(&self) -> bool {
@@ -384,14 +382,13 @@ impl PhysicsBehaviorHandle {
         self.state.accel.z += mod_force.z * mass_inv;
 
         if !self.state.has_flag(FLAG_IS_IN_UPDATE) {
-            if let Some(id) = obj.map(|o| o.get_id()).or(Some(self.object_id)) {
-                if let Some(object) = crate::helpers::TheGameLogic::find_object_by_id(id)
-                    .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(id))
-                {
-                    if let Ok(guard) = object.read() {
-                        let now = TheGameLogic::get_frame();
-                        guard.reschedule_named_update("PhysicsBehavior", now.saturating_add(1));
-                    }
+            if let Some(owner) = obj {
+                let now = TheGameLogic::get_frame();
+                owner.reschedule_named_update("PhysicsBehavior", now.saturating_add(1));
+            } else if let Some(owner) = self.object_arc() {
+                if let Ok(owner) = owner.read() {
+                    let now = TheGameLogic::get_frame();
+                    owner.reschedule_named_update("PhysicsBehavior", now.saturating_add(1));
                 }
             }
         }
@@ -496,12 +493,7 @@ impl PhysicsBehaviorTrait for PhysicsBehaviorHandle {
         self.state.yaw_angle += angular_velocity.z * factor;
         self.update_pitch_roll_yaw_flag();
         if !self.state.has_flag(FLAG_IS_IN_UPDATE) {
-            if let Some(obj) = (if self.object_id == crate::common::INVALID_ID {
-                None
-            } else {
-                crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                    .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-            }) {
+            if let Some(obj) = self.object_arc() {
                 if let Ok(obj) = obj.read() {
                     let now = TheGameLogic::get_frame();
                     obj.reschedule_named_update("PhysicsBehavior", now.saturating_add(1));
@@ -551,9 +543,7 @@ impl PhysicsBehaviorTrait for PhysicsBehaviorHandle {
         self.state.roll_rate = 0.0;
         self.state.pitch_rate = 0.0;
         self.update_pitch_roll_yaw_flag();
-        if let Some(object) = crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-            .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-        {
+        if let Some(object) = self.object_arc() {
             if let Ok(guard) = object.read() {
                 let now = TheGameLogic::get_frame();
                 let zero_vel =
@@ -602,12 +592,7 @@ impl PhysicsBehaviorTrait for PhysicsBehaviorHandle {
         self.update_pitch_roll_yaw_flag();
 
         if !self.state.has_flag(FLAG_IS_IN_UPDATE) {
-            if let Some(obj) = (if self.object_id == crate::common::INVALID_ID {
-                None
-            } else {
-                crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                    .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-            }) {
+            if let Some(obj) = self.object_arc() {
                 if let Ok(obj) = obj.read() {
                     let now = TheGameLogic::get_frame();
                     obj.reschedule_named_update("PhysicsBehavior", now.saturating_add(1));
@@ -618,12 +603,7 @@ impl PhysicsBehaviorTrait for PhysicsBehaviorHandle {
 
     fn set_stunned(&mut self, stunned: bool) {
         self.state.set_flag(FLAG_IS_STUNNED, stunned);
-        if let Some(obj) = (if self.object_id == crate::common::INVALID_ID {
-            None
-        } else {
-            crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
-        }) {
+        if let Some(obj) = self.object_arc() {
             if let Ok(mut obj) = obj.write() {
                 if stunned {
                     obj.set_model_condition_state(MODELCONDITION_STUNNED_FLAILING);
@@ -863,7 +843,7 @@ impl PhysicsBehaviorUpdate {
 
 impl UpdateModuleInterface for PhysicsBehaviorUpdate {
     fn update_simple(&mut self) -> UpdateSleepTime {
-        let Some(obj_arc) = find_object(self.object_id) else {
+        let Some(obj_arc) = self.physics_handle.object_arc() else {
             return UpdateSleepTime::None;
         };
         let Ok(mut obj) = obj_arc.write() else {
@@ -1353,7 +1333,7 @@ impl BehaviorModuleInterface for PhysicsBehaviorUpdate {
             self.module_data.allow_collide_force,
         );
 
-        let Some(obj_arc) = find_object(self.object_id) else {
+        let Some(obj_arc) = self.physics_handle.object_arc() else {
             return Ok(());
         };
         // std RwLock does not reenter. Creation may already hold this write guard.
@@ -1673,6 +1653,102 @@ mod tests {
             .expect("field");
         let mut ini = INI::new();
         (field.parse)(&mut ini, data, tokens).expect("parse field");
+    }
+
+    fn module_for_owner(owner: &Arc<RwLock<GameObject>>, mass: Real) -> PhysicsBehaviorUpdate {
+        let data: Arc<dyn ModuleData> = Arc::new(PhysicsBehaviorModuleData {
+            mass,
+            ..PhysicsBehaviorModuleData::default()
+        });
+        PhysicsBehaviorUpdate::new(Arc::clone(owner), data).expect("real physics module")
+    }
+
+    #[test]
+    fn physics_modules_keep_exact_owner_when_object_ids_match() {
+        let first_owner = Arc::new(RwLock::new(GameObject::new_test(100_732, 100.0)));
+        let second_owner = Arc::new(RwLock::new(GameObject::new_test(100_732, 200.0)));
+        first_owner.write().unwrap().set_orientation(0.0).unwrap();
+        second_owner
+            .write()
+            .unwrap()
+            .set_orientation(std::f32::consts::PI)
+            .unwrap();
+        let mut first = module_for_owner(&first_owner, 3.0);
+        let mut second = module_for_owner(&second_owner, 7.0);
+
+        // C++ PhysicsBehavior::getObject names the supplied instance, never a
+        // replacement looked up by its numeric ID. Construction does not admit
+        // either private object to an ambient registry.
+        assert!(Arc::ptr_eq(
+            &first.physics_handle.object_arc().unwrap(),
+            &first_owner
+        ));
+        assert!(Arc::ptr_eq(
+            &second.physics_handle.object_arc().unwrap(),
+            &second_owner
+        ));
+        assert_eq!(Arc::strong_count(&first_owner), 1);
+        assert_eq!(Arc::strong_count(&second_owner), 1);
+        first.physics_handle.set_velocity(&Vec3::new(4.0, 0.0, 0.0));
+        second
+            .physics_handle
+            .set_velocity(&Vec3::new(4.0, 0.0, 0.0));
+        assert!((first.physics_handle.get_forward_speed_2d() - 4.0).abs() < 1.0e-5);
+        assert!((second.physics_handle.get_forward_speed_2d() + 4.0).abs() < 1.0e-5);
+        assert_eq!(first.physics_handle.state.mass, 3.0);
+        assert_eq!(second.physics_handle.state.mass, 7.0);
+
+        first.physics_handle.reset_dynamic_physics();
+        assert_eq!(first.physics_handle.get_velocity(), Vec3::ZERO);
+        assert_eq!(
+            second.physics_handle.get_velocity(),
+            Vec3::new(4.0, 0.0, 0.0)
+        );
+        second_owner.write().unwrap().set_orientation(0.0).unwrap();
+        assert!((second.physics_handle.get_forward_speed_2d() - 4.0).abs() < 1.0e-5);
+    }
+
+    #[test]
+    fn physics_restore_keeps_destination_owner_and_dropped_owner_never_rebinds() {
+        use game_engine::common::system::xfer_load::XferLoad;
+        use game_engine::common::system::xfer_save::XferSave;
+        use std::io::Cursor;
+
+        let first_owner = Arc::new(RwLock::new(GameObject::new_test(100_733, 100.0)));
+        let second_owner = Arc::new(RwLock::new(GameObject::new_test(100_733, 200.0)));
+        let mut first = module_for_owner(&first_owner, 3.0);
+        let mut second = module_for_owner(&second_owner, 7.0);
+        first.physics_handle.set_velocity(&Vec3::new(6.0, 2.0, 1.0));
+        let mut bytes = Vec::new();
+        first
+            .xfer(&mut XferSave::new(Cursor::new(&mut bytes), 1))
+            .unwrap();
+        second
+            .xfer(&mut XferLoad::new(Cursor::new(bytes), 1))
+            .unwrap();
+        assert_eq!(
+            second.physics_handle.get_velocity(),
+            Vec3::new(6.0, 2.0, 1.0)
+        );
+        assert!(Arc::ptr_eq(
+            &second.physics_handle.object_arc().unwrap(),
+            &second_owner
+        ));
+        assert!(Arc::ptr_eq(
+            &first.physics_handle.object_arc().unwrap(),
+            &first_owner
+        ));
+
+        drop(first_owner);
+        assert!(first.physics_handle.object_arc().is_none());
+        assert!(Arc::ptr_eq(
+            &second.physics_handle.object_arc().unwrap(),
+            &second_owner
+        ));
+        // A stale module never drives another object's update after ID reuse.
+        let second_pose = *second_owner.read().unwrap().get_position();
+        assert_eq!(first.update_simple(), UpdateSleepTime::None);
+        assert_eq!(*second_owner.read().unwrap().get_position(), second_pose);
     }
 
     #[test]

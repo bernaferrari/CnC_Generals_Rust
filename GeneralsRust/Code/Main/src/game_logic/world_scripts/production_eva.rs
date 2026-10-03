@@ -1364,7 +1364,7 @@ impl GameLogic {
                 self.apply_advanced_control_rods_to_object(structure_id, &name);
                 continue;
             }
-            if crate::game_logic::host_upgrades::is_object_scoped_upgrade(&name) {
+            if self.is_object_scoped_upgrade(&name) {
                 continue;
             }
             self.apply_upgrade_to_object(structure_id, &name);
