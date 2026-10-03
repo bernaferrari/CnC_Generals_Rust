@@ -100,13 +100,9 @@ impl ObjectCreationList {
     ) -> CreationResult {
         let mut first_object: Option<Arc<RwLock<Object>>> = None;
         for nugget in &self.nuggets {
-            if let Some(obj) = nugget.create_without_secondary(
-                ctx,
-                primary_obj,
-                primary,
-                angle,
-                lifetime_frames,
-            ) {
+            if let Some(obj) =
+                nugget.create_without_secondary(ctx, primary_obj, primary, angle, lifetime_frames)
+            {
                 if first_object.is_none() {
                     first_object = Some(obj);
                 }
@@ -114,7 +110,6 @@ impl ObjectCreationList {
         }
         first_object
     }
-
 
     /// Create objects with object parameters
     /// Matches C++ static ObjectCreationList::create with objects (ObjectCreationList.h:136-141)
@@ -1520,6 +1515,10 @@ pub fn ensure_default_object_creation_lists_loaded() {
 }
 
 #[cfg(test)]
+#[path = "live_creation_test_fixture.rs"]
+mod live_creation_test_fixture;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::object_creation_list::nuggets::GenericObjectCreationNugget;
@@ -1644,6 +1643,7 @@ End
 
     #[test]
     fn test_parse_create_object_fire_weapon_attack_force_and_payload_fields() {
+        let _guard = crate::test_sync::lock();
         let data = r#"
 ObjectCreationList OCL_AllNuggetHeaders
   CreateObject
@@ -1764,7 +1764,14 @@ End
             "SCCA10Strike_USA"
         );
 
-        let ctx = crate::object_creation_list::live_creation_context();
+        let fixture = super::live_creation_test_fixture::LiveCreationFixture::new()
+            .expect("scoped live OCL fixture");
+        let live = crate::object_creation_list::live_creation_context();
+        let ctx = crate::object_creation_list::CreationContext {
+            game_logic: live.game_logic,
+            thing_factory: &fixture,
+            terrain_logic: live.terrain_logic,
+        };
         let obj = crate::object::Object::new_test(501, 100.0);
         let primary = Coord3D::new(0.0, 0.0, 0.0);
         let secondary = Coord3D::new(10.0, 20.0, 0.0);
@@ -1772,6 +1779,7 @@ End
         // skip solely because the source has no controlling player.
         let _ = ocl.create_with_angle(&ctx, Some(&obj), &primary, &secondary, 0.0, 0);
         let _ = ocl.create_with_objects(&ctx, &obj, None, 0);
+        fixture.retire().expect("exact live OCL fixture retirement");
     }
 
     #[test]

@@ -232,6 +232,7 @@ fn handle_projectileless_pending(
     damage_id: Option<ObjectId>,
     flight_speed: f32,
     speed_unit: ProjectileSpeedUnit,
+    frame: u32,
 ) {
     let speed_per_logic_frame = speed_unit.distance_per_logic_frame(flight_speed);
     let delay_in_frames =
@@ -240,14 +241,13 @@ fn handle_projectileless_pending(
         } else {
             0.0
         };
-    let now = crate::game_logic::host_historic_bonus::logic_frame();
     let laser = leftover_weapon_is_laser(&pending.historic_weapon_key);
     if laser || delay_in_frames < 1.0 {
-        queue_live_projectileless_delayed(now, pending.clone(), damage_pos, damage_id);
+        queue_live_projectileless_delayed(frame, pending.clone(), damage_pos, damage_id);
         return;
     }
     let delay_whole_frames = delay_in_frames.ceil() as u32;
-    let when = now.saturating_add(delay_whole_frames);
+    let when = frame.saturating_add(delay_whole_frames);
     leftover_set_delayed_damage(
         &pending.historic_weapon_key,
         damage_pos,
@@ -503,7 +503,12 @@ pub fn nearer_live_bridge_attack_point(from: glam::Vec3, victim: &Object) -> gla
 
 /// Drain all pending projectiles and spawn them into the combat system.
 /// Resolves target object positions from the objects map.
-pub fn drain_pending_projectiles(combat: &mut CombatSystem, objects: &HashMap<ObjectId, Object>) {
+/// Target expiry and projectileless travel time use the driving game's frame.
+pub fn drain_pending_projectiles(
+    combat: &mut CombatSystem,
+    objects: &HashMap<ObjectId, Object>,
+    frame: u32,
+) {
     let pending = if let Ok(mut queue) = PENDING_PROJECTILES.lock() {
         std::mem::take(&mut *queue)
     } else {
@@ -561,12 +566,11 @@ pub fn drain_pending_projectiles(combat: &mut CombatSystem, objects: &HashMap<Ob
             });
         }
 
-        let now = crate::game_logic::host_historic_bonus::logic_frame();
         let actual_target_pos = p
             .target_id
             .and_then(|tid| objects.get(&tid))
             .map(|obj| {
-                if let Some(off) = obj.get_sneaky_targeting_offset(now) {
+                if let Some(off) = obj.get_sneaky_targeting_offset(frame) {
                     obj.get_position() + off
                 } else if obj.template_name.to_ascii_lowercase().contains("bridge") {
                     nearer_live_bridge_attack_point(p.shooter_pos, obj)
@@ -585,7 +589,7 @@ pub fn drain_pending_projectiles(combat: &mut CombatSystem, objects: &HashMap<Ob
         let mut fire_target_id = p.target_id;
         if let Some(tid) = p.target_id {
             if let Some(obj) = objects.get(&tid) {
-                if obj.get_sneaky_targeting_offset(now).is_some() {
+                if obj.get_sneaky_targeting_offset(frame).is_some() {
                     fire_target_id = None;
                 }
             }
@@ -675,6 +679,7 @@ pub fn drain_pending_projectiles(combat: &mut CombatSystem, objects: &HashMap<Ob
                 fire_target_id,
                 flight_speed,
                 p.speed_unit,
+                frame,
             );
             continue;
         }

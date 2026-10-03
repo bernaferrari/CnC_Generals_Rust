@@ -189,6 +189,9 @@ mod tests;
 mod historic_bonus_owner_tests;
 
 #[cfg(test)]
+mod materialization_frame_tests;
+
+#[cfg(test)]
 #[path = "../world_skirmish_tests.rs"]
 mod skirmish_starting_unit_residual_tests;
 

@@ -2207,7 +2207,11 @@ fn deploy_style_nuke_launcher_normal_attack_waits_for_range_and_unpack() {
     // CombatSystem projectile. Production applies ready damage in this phase
     // after draining the fire queue.
     crate::game_logic::host_historic_bonus::set_logic_frame(102);
-    crate::game_logic::combat::drain_pending_projectiles(&mut logic.combat_system, &logic.objects);
+    crate::game_logic::combat::drain_pending_projectiles(
+        &mut logic.combat_system,
+        &logic.objects,
+        102,
+    );
     crate::game_logic::combat::apply_ready_projectileless_delayed_damage(
         &mut logic.combat_system,
         &mut logic.objects,

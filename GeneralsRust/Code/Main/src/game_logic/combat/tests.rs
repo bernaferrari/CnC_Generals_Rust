@@ -123,7 +123,7 @@ pub(in crate::game_logic) mod tests {
             None,
             Vec3::new(10_000.0, 0.0, 0.0),
         ));
-        drain_pending_projectiles(&mut combat, &objects);
+        drain_pending_projectiles(&mut combat, &objects, 0);
 
         let projectile = combat
             .projectiles_snapshot()
@@ -170,7 +170,7 @@ pub(in crate::game_logic) mod tests {
             None,
             Vec3::new(10_000.0, 0.0, 0.0),
         ));
-        drain_pending_projectiles(&mut fuel_combat, &fuel_objects);
+        drain_pending_projectiles(&mut fuel_combat, &fuel_objects, 0);
         for _ in 0..10 {
             let _ = fuel_combat.update_projectiles(1.0 / 30.0, &mut fuel_objects);
             assert_eq!(fuel_combat.projectile_count(), 1);
@@ -214,7 +214,7 @@ pub(in crate::game_logic) mod tests {
             Some(target),
             Vec3::new(10_000.0, 0.0, 0.0),
         ));
-        drain_pending_projectiles(&mut target_loss_combat, &target_loss_objects);
+        drain_pending_projectiles(&mut target_loss_combat, &target_loss_objects, 0);
         let projectile = target_loss_combat
             .projectiles_snapshot()
             .into_iter()
@@ -1225,7 +1225,7 @@ pub(in crate::game_logic) mod tests {
             die_on_detonate: false,
         });
         // Need a dummy target for drain to resolve? target_pos is Some so OK.
-        drain_pending_projectiles(&mut combat, &objects);
+        drain_pending_projectiles(&mut combat, &objects, 0);
         let snaps: Vec<_> = combat.projectiles_snapshot();
         assert_eq!(snaps.len(), 1);
         assert_eq!(snaps[0].exhaust_name, "MissileExhaust");
@@ -2006,7 +2006,7 @@ pub(in crate::game_logic) mod tests {
             historic_bonus_weapon: String::new(),
             die_on_detonate: false,
         });
-        drain_pending_projectiles(&mut combat, &objects);
+        drain_pending_projectiles(&mut combat, &objects, 0);
         let snaps: Vec<_> = combat.projectiles_snapshot();
         assert_eq!(snaps.len(), 1);
         // Target cleared when scatter applied.
@@ -2079,7 +2079,7 @@ pub(in crate::game_logic) mod tests {
             historic_bonus_weapon: String::new(),
             die_on_detonate: false,
         });
-        drain_pending_projectiles(&mut combat, &objects);
+        drain_pending_projectiles(&mut combat, &objects, 0);
         let snaps: Vec<_> = combat.projectiles_snapshot();
         assert_eq!(snaps.len(), 1);
         assert!(
@@ -2133,7 +2133,7 @@ pub(in crate::game_logic) mod tests {
             historic_bonus_weapon: String::new(),
             die_on_detonate: false,
         });
-        drain_pending_projectiles(&mut combat2, &objects);
+        drain_pending_projectiles(&mut combat2, &objects, 0);
         let snaps2: Vec<_> = combat2.projectiles_snapshot();
         assert_eq!(snaps2.len(), 1);
         assert!(
@@ -2234,7 +2234,7 @@ pub(in crate::game_logic) mod tests {
 
         let mut combat = CombatSystem::new();
         let mut objects = HashMap::new();
-        drain_pending_projectiles(&mut combat, &objects);
+        drain_pending_projectiles(&mut combat, &objects, 0);
         let projectile = combat
             .projectiles_snapshot()
             .into_iter()
@@ -2305,7 +2305,7 @@ pub(in crate::game_logic) mod tests {
 
         let mut combat = CombatSystem::new();
         let mut objects = HashMap::new();
-        drain_pending_projectiles(&mut combat, &objects);
+        drain_pending_projectiles(&mut combat, &objects, 0);
         let projectile = combat
             .projectiles_snapshot()
             .into_iter()
@@ -2353,7 +2353,7 @@ pub(in crate::game_logic) mod tests {
 
         let mut combat = CombatSystem::new();
         let objects = HashMap::new();
-        drain_pending_projectiles(&mut combat, &objects);
+        drain_pending_projectiles(&mut combat, &objects, 0);
         let projectile = combat
             .projectiles_snapshot()
             .into_iter()
@@ -2376,7 +2376,7 @@ pub(in crate::game_logic) mod tests {
 
         let mut combat = CombatSystem::new();
         let mut objects = HashMap::new();
-        drain_pending_projectiles(&mut combat, &objects);
+        drain_pending_projectiles(&mut combat, &objects, 0);
         let projectile_id = combat
             .projectiles_snapshot()
             .into_iter()
@@ -2444,7 +2444,7 @@ pub(in crate::game_logic) mod tests {
             Vec3::new(100.0, 0.0, 0.0),
             NAME,
         ));
-        drain_pending_projectiles(&mut combat, &objects);
+        drain_pending_projectiles(&mut combat, &objects, 20);
         assert_eq!(
             combat.projectile_count(),
             0,
@@ -2501,7 +2501,7 @@ pub(in crate::game_logic) mod tests {
             Vec3::new(5.0, 0.0, 0.0),
             "Hq0c9b4CombatRifleNow",
         ));
-        drain_pending_projectiles(&mut combat, &objects);
+        drain_pending_projectiles(&mut combat, &objects, 7);
         assert_eq!(combat.projectile_count(), 0);
         assert_eq!(
             leftover_delayed_damage_count_for_test(),
@@ -2564,7 +2564,7 @@ pub(in crate::game_logic) mod tests {
                 5.0,
             ),
         );
-        drain_pending_projectiles(&mut combat, &objects);
+        drain_pending_projectiles(&mut combat, &objects, 3);
 
         assert_eq!(combat.projectile_count(), 0);
         assert!(leftover_delayed_damage_count_for_test() > leftover_before);
