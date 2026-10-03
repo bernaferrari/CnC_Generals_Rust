@@ -796,6 +796,53 @@ impl Snapshot for Object {
     }
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) {
+        self.xfer_with_optional_trigger_frame(xfer, None, &mut |id| {
+            crate::helpers::TheGameLogic::queue_objects_changed_trigger_areas(id);
+        });
+    }
+
+    fn load_post_process(&mut self) {
+        // contained_by_id already restored during xfer (v6+).
+
+        for entry in &self.modules {
+            entry.with_module(|module| {
+                if let Err(err) = module.load_post_process() {
+                    warn!(
+                        "Object::load_post_process module '{}' on object {} failed: {}",
+                        entry.name(),
+                        self.id,
+                        err
+                    );
+                }
+            });
+        }
+
+        if let Some(drawable) = &self.drawable {
+            if let Ok(mut drawable_guard) = drawable.write() {
+                drawable_guard.load_post_process_with_owner(Some(self));
+            }
+        }
+    }
+}
+
+impl Object {
+    /// C++ Object.cpp:4008-4027: transform side effects execute inside xfer,
+    /// using the driving match clock and synchronous trigger notifications.
+    pub(crate) fn xfer_with_trigger_context(
+        &mut self,
+        xfer: &mut dyn Xfer,
+        frame: UnsignedInt,
+        changed: &mut dyn FnMut(ObjectID),
+    ) {
+        self.xfer_with_optional_trigger_frame(xfer, Some(frame), changed);
+    }
+
+    fn xfer_with_optional_trigger_frame(
+        &mut self,
+        xfer: &mut dyn Xfer,
+        frame: Option<UnsignedInt>,
+        changed: &mut dyn FnMut(ObjectID),
+    ) {
         let current_version: u8 = 9;
         let mut version = current_version;
         let _ = xfer.xfer_version(&mut version, current_version);
@@ -813,7 +860,7 @@ impl Snapshot for Object {
 
         let mut transform = self.get_transform_matrix();
         xfer_matrix3d(xfer, &mut transform);
-        self.set_transform_matrix(&transform);
+        self.set_transform_matrix_with_trigger_context(&transform, frame, changed);
 
         let mut team_id = self.get_team_id().unwrap_or(crate::team::TEAM_ID_INVALID);
         let _ = xfer.xfer_unsigned_int(&mut team_id);
@@ -1082,29 +1129,6 @@ impl Snapshot for Object {
             let _ = xfer.xfer_bool(&mut self.is_receiving_difficulty_bonus);
         } else {
             self.is_receiving_difficulty_bonus = false;
-        }
-    }
-
-    fn load_post_process(&mut self) {
-        // contained_by_id already restored during xfer (v6+).
-
-        for entry in &self.modules {
-            entry.with_module(|module| {
-                if let Err(err) = module.load_post_process() {
-                    warn!(
-                        "Object::load_post_process module '{}' on object {} failed: {}",
-                        entry.name(),
-                        self.id,
-                        err
-                    );
-                }
-            });
-        }
-
-        if let Some(drawable) = &self.drawable {
-            if let Ok(mut drawable_guard) = drawable.write() {
-                drawable_guard.load_post_process_with_owner(Some(self));
-            }
         }
     }
 }

@@ -28,6 +28,10 @@ mod supply;
 mod update;
 
 #[cfg(test)]
+mod combat_drop_callback_tests;
+#[cfg(test)]
+mod snapshot_callback_tests;
+#[cfg(test)]
 mod runtime_tests;
 #[cfg(test)]
 mod tests;

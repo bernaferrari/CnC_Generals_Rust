@@ -1,9 +1,5 @@
 {
   "files": {
-    "Code/GameEngine/Common/src/System/SaveGame/game_state.rs": {
-      "constructs": 1,
-      "undocumented": 0
-    },
     "Code/GameEngine/Common/src/System/SaveGame/game_state_map.rs": {
       "constructs": 3,
       "undocumented": 0

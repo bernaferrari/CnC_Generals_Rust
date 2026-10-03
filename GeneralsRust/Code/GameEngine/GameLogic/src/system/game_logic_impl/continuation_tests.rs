@@ -42,10 +42,9 @@ mod continuation_tests {
     //! of future behavior even though this script-light world consumes no draws
     //! inside `GameLogic::update()` itself.
     //!
-    //! Commands are not serialized: both branches re-queue their continuation
-    //! commands from the same pure function of the relative frame
-    //! (`queue_continuation_commands`), so the inputs are identical by
-    //! construction.
+    //! This bounded scenario drives identical RNG-backed position changes in
+    //! both branches. Player-command and authored mission continuation require
+    //! separate integration evidence.
 
     use super::tests::test_state_lock;
     use game_engine::common::random_value::{
@@ -100,10 +99,7 @@ mod continuation_tests {
         if a.objects != b.objects {
             for (i, (x, y)) in a.objects.iter().zip(b.objects.iter()).enumerate() {
                 if x != y {
-                    return Some(format!(
-                        "object[{}] (id,health,pos) {:?} != {:?}",
-                        i, x, y
-                    ));
+                    return Some(format!("object[{}] (id,health,pos) {:?} != {:?}", i, x, y));
                 }
             }
             return Some("object lists differ in length".to_string());
@@ -138,52 +134,6 @@ mod continuation_tests {
             if factory.find_template("TestObject", false).is_none() {
                 factory.new_template("TestObject");
             }
-        }
-    }
-
-    /// Commands queued during the setup phase (before the save). They are
-    /// consumed by Phase 4 command processing of the first setup frame.
-    fn queue_setup_commands(logic: &mut GameLogic) {
-        logic.queue_command(GameCommand::MoveUnit {
-            player_id: 0,
-            unit_ids: vec![TEST_OBJECTS[0].0, TEST_OBJECTS[1].0],
-            target_position: (50.0, 50.0, 0.0),
-        });
-        logic.queue_command(GameCommand::AttackTarget {
-            player_id: 0,
-            attacker_ids: vec![TEST_OBJECTS[0].0],
-            target_id: TEST_OBJECTS[2].0,
-        });
-    }
-
-    /// Command schedule for continuation frame `rel`. A pure function of the
-    /// relative frame so the restored branch queues the identical inputs.
-    fn queue_continuation_commands(logic: &mut GameLogic, rel: usize) {
-        match rel {
-            0 => {
-                logic.queue_command(GameCommand::MoveUnit {
-                    player_id: 0,
-                    unit_ids: vec![TEST_OBJECTS[0].0, TEST_OBJECTS[1].0],
-                    target_position: (55.0, 45.0, 0.0),
-                });
-                logic.queue_command(GameCommand::AttackTarget {
-                    player_id: 0,
-                    attacker_ids: vec![TEST_OBJECTS[1].0],
-                    target_id: TEST_OBJECTS[2].0,
-                });
-            }
-            3 => logic.queue_command(GameCommand::BuildStructure {
-                player_id: 0,
-                builder_id: TEST_OBJECTS[1].0,
-                structure_type: "TestObject".to_string(),
-                position: (60.0, 60.0),
-            }),
-            6 => logic.queue_command(GameCommand::UseSpecialPower {
-                player_id: 0,
-                power_name: "ContinuationTest".to_string(),
-                target_position: Some((55.0, 55.0, 0.0)),
-            }),
-            _ => {}
         }
     }
 
@@ -307,16 +257,8 @@ mod continuation_tests {
     /// optionally reseed, replay K frames (branch B).
     fn run_continuation_scenario(tag: &str, reseed_after_load: bool) -> Scenario {
         // --- deterministic setup ---
-        // NOTE: init_game_logic() is deliberately NOT called — guard.init()
-        // installs subsystem state (AI data et al.) after which LOCAL
-        // GameLogic::update never returns (pre-existing; see bd note). The
-        // singleton default + first-touch snapshot-block registration is
-        // sufficient for the save/load container role.
-        // NOTE: no init_game_logic()/reset_game_logic() up front - after
-        // either, LOCAL GameLogic::update never returns (pre-existing; see
-        // the bd note). The default singleton plus first-touch snapshot-block
-        // registration suffices for the save/load container role;
-        // transplant_to_singleton overwrites its state.
+        // Local instances drive ticks; the existing snapshot bridges use the
+        // singleton solely as the save/load container.
         crate::helpers::set_game_logic_random_seed([1, 2, 3, 4, 5, 6]);
         // Pre-initialize the shared script engine: the save-path
         // ScriptEngineSnapshotBridge must not lazily construct it while
@@ -328,19 +270,13 @@ mod continuation_tests {
             .expect("player list write lock")
             .clear();
 
-        // Register "TestObject" in the shared Common factory so the load path
-        // can rebuild saved objects by template name. UPDATE-HANG NOTE: objects
-        // constructed directly from the Common factory template
-        // (Object::new_with_id) never return from GameLogic::update in this
-        // crate (pre-existing; see the update-hang bd note) — the stepping
-        // objects are Object::new_test (DefaultThingTemplate, same name), the
-        // crate's own update-test idiom (tests.rs:348-356). The save format
-        // carries the template NAME; load rebuilds through the factory
-        // template, and branch-B stepping exercises the same update paths.
+        // Both branches construct the same authored template and helper set.
         ensure_test_object_template();
+        let template = crate::helpers::TheThingFactory::find_template("TestObject").unwrap();
         let mut objects_to_register = Vec::new();
         for &(id, x, y) in TEST_OBJECTS {
-            let arc = std::sync::Arc::new(std::sync::RwLock::new(Object::new_test(id, 100.0)));
+            let arc = Object::new_with_id(template.clone(), id, ObjectStatusMaskType::none(), None)
+                .expect("construct authored continuation object");
             // DEADLOCK NOTE: set_position drives the area tracker
             // synchronously (object_triggers.rs:255-268) which can re-enter
             // TheGameLogic — never while holding the GAME_LOGIC mutex.
@@ -361,13 +297,8 @@ mod continuation_tests {
             a.objects.insert(id, arc);
             a.all_objects.push(id);
         }
-        // NOTE: no GameCommands are queued in either branch. Phase-4 command
-        // processing (MoveUnit et al.) parks a pathfind worker that holds the
-        // GAME_LOGIC mutex — a pre-existing crate hazard (see bd note) that
-        // blocks any later singleton acquisition (save/load container). The
-        // continuation property needs identical inputs across branches: zero
-        // commands is trivially identical; world evolution comes from the
-        // per-frame logic-RNG draw nudges.
+        // This bounded snapshot contract exercises clock, objects and RNG
+        // continuation. Player command and retail-content coverage are separate.
 
         // --- run to frame N ---
         for rel in 0..SETUP_FRAMES {
@@ -392,24 +323,19 @@ mod continuation_tests {
             game_engine::common::ini::init_global_data();
         }
         if let Some(data) = game_engine::common::ini::get_global_data() {
-            data.write().map_name =
-                map_path.to_string_lossy().to_string();
+            data.write().map_name = map_path.to_string_lossy().to_string();
         }
-        // NOTE: init_game_state(save_dir) is deliberately NOT called —
-        // redirecting the ALREADY-INITIALIZED GameState deadlocks here
-        // (pre-existing: THE_GAME_STATE's guard is unavailable after the
-        // local-update path; get_game_state's first-touch init ran during
-        // snapshot-block registration). The save goes to the default Save/
-        // directory under a unique per-scenario filename; cleanup removes it.
-        let _ = &save_dir;
+        let save_directory = save_dir.join("Save");
+        std::fs::create_dir_all(&save_directory).expect("create save directory");
+        game_engine::System::init_game_state(save_directory);
         let save_summary = transplant_to_singleton(&a);
         assert_eq!(
-            save_summary.frame,
-            SETUP_FRAMES as UnsignedInt,
+            save_summary.frame, SETUP_FRAMES as UnsignedInt,
             "transplanted frame must be the save-point frame"
         );
         assert_eq!(
-            save_summary.object_count, TEST_OBJECTS.len(),
+            save_summary.object_count,
+            TEST_OBJECTS.len(),
             "transplanted singleton must carry every scenario object"
         );
         let save_filename = format!("{}_continuation.sav", tag);
@@ -479,7 +405,6 @@ mod continuation_tests {
         if let Some(data) = game_engine::common::ini::get_global_data() {
             data.write().map_name.clear();
         }
-        let _ = std::fs::remove_file(save_dir.join(&save_filename));
         let _ = std::fs::remove_dir_all(&save_dir);
         reset_game_logic().expect("reset_game_logic after scenario");
         OBJECT_REGISTRY.clear();
@@ -492,37 +417,23 @@ mod continuation_tests {
 
     /// Positive test: with the post-load RNG reseed, the restored run must be
     /// indistinguishable from the uninterrupted run, frame by frame.
-    // BLOCKED (engine hazards, see the linked bd issues): four independent
-    // pre-existing lock/liveness landmines on the gamelogic crate paths this
-    // harness needs — (1) local update never returns after init/reset,
-    // (2) Common-factory-template objects never return from update,
-    // (3) queued MoveUnit/AttackTarget park a worker holding GAME_LOGIC,
-    // (4) GameState::save_game never returns in this container role. The
-    // harness is complete and self-checking; un-ignore when those close.
-    // BLOCKED: three of the four hq-ccble liveness hazards remain (post-init
-    // local update, command pathfind worker holding GAME_LOGIC, save_game
-    // container hang). Hazard 2 (factory-template objects) is FIXED via
-    // owner-explicit helper updates — pinned by the regression test below.
-    // BLOCKED (remaining, post hq-ccble fixes): save_game no longer
-    // deadlocks (GameStateMap re-entrancy fixed) but returns Error for the
-    // mapless synthetic world despite the pristine-map wiring, and setup
-    // intermittently blocks before the save (suspected get_global_data
-    // first-touch). All four original liveness hazards are FIXED and pinned
-    // by green tests; this harness un-ignores when the Error return is
-    // diagnosed.
-    // BLOCKED (precise): save_game completes (SaveCode::Ok after the
-    // GlobalData init + pristine-map wiring); load_game blocks >1h after
-    // CHUNK_GameStateMap. Five distinct liveness bugs found+fixed on this
-    // path (helper owner round-trip, in-update frame re-lock, GameStateMap
-    // re-entrancy, polygon-trigger terrain read-under-write, plus this one).
-    // PRIME SUSPECT: xfer_save_data's Load branch drains pending
-    // load-post-process callbacks INLINE per block (replicating the bypassed
-    // XferLoad::xfer_snapshot handoff) instead of after the whole loop —
-    // C++ GameState::gameStatePostProcessLoad runs once, after all chunks.
-    // Next step: defer the pending handoff to the existing post-loop drain.
-    #[ignore = "load_game post-process ordering deadlock (see bd hq-ccble)"]
     #[test]
     fn save_load_continuation_matches_uninterrupted_execution() {
+        #[cfg(not(target_arch = "wasm32"))]
+        if matches!(
+            crate::test_process::run_bounded(
+                concat!(
+                    module_path!(),
+                    "::save_load_continuation_matches_uninterrupted_execution"
+                )
+                .strip_prefix("gamelogic::")
+                .unwrap(),
+                "GENERALS_SAVE_CONTINUATION_CHILD",
+            ),
+            crate::test_process::TestProcess::ParentVerified
+        ) {
+            return;
+        }
         let _crate_lock = crate::test_sync::lock();
         let _state_lock = test_state_lock();
 
@@ -558,9 +469,20 @@ mod continuation_tests {
     /// diverge within K frames, because the save format does not serialize
     /// the game-logic RNG seed words. If this test ever fails, the save
     /// format gained seed serialization and the harness reseed is obsolete.
-    #[ignore = "load_game post-process ordering deadlock (see bd hq-ccble)"]
     #[test]
     fn continuation_without_rng_reseed_diverges() {
+        #[cfg(not(target_arch = "wasm32"))]
+        if matches!(
+            crate::test_process::run_bounded(
+                concat!(module_path!(), "::continuation_without_rng_reseed_diverges")
+                    .strip_prefix("gamelogic::")
+                    .unwrap(),
+                "GENERALS_SAVE_CONTINUATION_CHILD",
+            ),
+            crate::test_process::TestProcess::ParentVerified
+        ) {
+            return;
+        }
         let _crate_lock = crate::test_sync::lock();
         let _state_lock = test_state_lock();
 
@@ -600,10 +522,43 @@ mod continuation_tests {
         );
     }
 
-
-
-
-
+    #[test]
+    fn reset_preserves_loaded_template_identity() {
+        #[cfg(not(target_arch = "wasm32"))]
+        if matches!(
+            crate::test_process::run_bounded(
+                concat!(module_path!(), "::reset_preserves_loaded_template_identity")
+                    .strip_prefix("gamelogic::")
+                    .unwrap(),
+                "GENERALS_SAVE_RESET_CATALOG_CHILD",
+            ),
+            crate::test_process::TestProcess::ParentVerified
+        ) {
+            return;
+        }
+        let _crate_lock = crate::test_sync::lock();
+        let _state_lock = test_state_lock();
+        let mut logic = GameLogic::new();
+        logic.init();
+        ensure_test_object_template();
+        let before = get_thing_factory()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .find_template("TestObject", true)
+            .unwrap();
+        logic.reset();
+        let after = get_thing_factory()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .find_template("TestObject", true)
+            .expect("reset retains authored template");
+        assert!(
+            std::sync::Arc::ptr_eq(&before, &after),
+            "reset must retain the loaded definition, not reload or rebuild it"
+        );
+    }
 
     #[test]
     /// Regression (hq-ccble hazard 2): objects built from Common factory
@@ -628,7 +583,4 @@ mod continuation_tests {
             logic.update(f).expect("tick");
         }
     }
-
-
-
 }

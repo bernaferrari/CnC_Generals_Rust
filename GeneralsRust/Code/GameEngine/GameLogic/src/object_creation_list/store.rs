@@ -325,8 +325,9 @@ impl Default for ObjectCreationList {
 /// - Provides lookup by name
 /// - Is a singleton (TheObjectCreationListStore)
 pub struct ObjectCreationListStore {
-    /// Map of OCL name to OCL definition
-    ocls: HashMap<NameKeyType, Arc<ObjectCreationList>>,
+    /// Exact authored names own catalog identity. Numeric name keys are allocated
+    /// per thread in this port and cannot identify entries in a moved catalog.
+    ocls: HashMap<String, Arc<ObjectCreationList>>,
 
     /// All nuggets owned by the store
     /// OCLs hold Arc references to these
@@ -352,8 +353,9 @@ impl ObjectCreationListStore {
             return None;
         }
 
-        let key = NameKeyGenerator::name_to_key(name);
-        self.ocls.get(&key).cloned()
+        // Preserve C++ NAMEKEY allocation order, including unsuccessful lookups.
+        let _ = NameKeyGenerator::name_to_key(name);
+        self.ocls.get(name).cloned()
     }
 
     /// Add a nugget to the store
@@ -369,24 +371,24 @@ impl ObjectCreationListStore {
         name: String,
         ocl: ObjectCreationList,
     ) -> Arc<ObjectCreationList> {
-        let key = NameKeyGenerator::name_to_key(name.as_str());
+        let _ = NameKeyGenerator::name_to_key(name.as_str());
         let handle = Arc::new(ocl);
-        self.ocls.insert(key, handle.clone());
+        self.ocls.insert(name, handle.clone());
         handle
     }
 
     /// Get mutable reference to OCL (for building during parse)
     pub fn get_ocl_mut(&mut self, name: &str) -> Option<&mut ObjectCreationList> {
-        let key = NameKeyGenerator::name_to_key(name);
-        self.ocls.get_mut(&key).map(Arc::make_mut)
+        let _ = NameKeyGenerator::name_to_key(name);
+        self.ocls.get_mut(name).map(Arc::make_mut)
     }
 
     /// Get or create OCL by name
     pub fn get_or_create_ocl(&mut self, name: String) -> &mut ObjectCreationList {
-        let key = NameKeyGenerator::name_to_key(name.as_str());
+        let _ = NameKeyGenerator::name_to_key(name.as_str());
         let entry = self
             .ocls
-            .entry(key)
+            .entry(name)
             .or_insert_with(|| Arc::new(ObjectCreationList::new()));
         Arc::make_mut(entry)
     }
@@ -425,14 +427,14 @@ pub fn init_object_creation_list_store() {
 }
 
 /// Get reference to global store
-pub fn get_object_creation_list_store()
--> std::sync::RwLockReadGuard<'static, Option<ObjectCreationListStore>> {
+pub fn get_object_creation_list_store(
+) -> std::sync::RwLockReadGuard<'static, Option<ObjectCreationListStore>> {
     GLOBAL_STORE.read().unwrap()
 }
 
 /// Get mutable reference to global store
-pub fn get_object_creation_list_store_mut()
--> std::sync::RwLockWriteGuard<'static, Option<ObjectCreationListStore>> {
+pub fn get_object_creation_list_store_mut(
+) -> std::sync::RwLockWriteGuard<'static, Option<ObjectCreationListStore>> {
     GLOBAL_STORE.write().unwrap()
 }
 
@@ -1513,6 +1515,10 @@ pub fn ensure_default_object_creation_lists_loaded() {
         log::warn!("ObjectCreationList definitions could not be loaded from default paths");
     });
 }
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+#[path = "name_lookup_tests.rs"]
+mod name_lookup_tests;
 
 #[cfg(test)]
 #[path = "live_creation_test_fixture.rs"]

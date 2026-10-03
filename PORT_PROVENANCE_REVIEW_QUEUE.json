@@ -16927,6 +16927,11 @@
               "cargo_reachable": true,
               "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/Common/src/System/SaveGame/game_state.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/Common/src/System/SaveGame/load_fixup_tests.rs"
             }
           ],
           "entry_id": "game_engine:Source/Common/System/SaveGame/GameState.cpp",
@@ -52917,6 +52922,11 @@
             },
             {
               "cargo_reachable": true,
+              "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/chinook_ai_update/combat_drop_callback_tests.rs"
+            },
+            {
+              "cargo_reachable": true,
               "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/chinook_ai_update/commands.rs"
             },
@@ -52939,6 +52949,11 @@
               "cargo_reachable": true,
               "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/chinook_ai_update/snapshot.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/chinook_ai_update/snapshot_callback_tests.rs"
             },
             {
               "cargo_reachable": true,
@@ -54509,6 +54524,11 @@
               "cargo_reachable": true,
               "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object_creation_list/mod.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object_creation_list/name_lookup_tests.rs"
             },
             {
               "cargo_reachable": true,
@@ -57194,6 +57214,11 @@
             },
             {
               "cargo_reachable": true,
+              "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/chinook_ai_update/combat_drop_callback_tests.rs"
+            },
+            {
+              "cargo_reachable": true,
               "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/chinook_ai_update/commands.rs"
             },
@@ -57216,6 +57241,11 @@
               "cargo_reachable": true,
               "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/chinook_ai_update/snapshot.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/chinook_ai_update/snapshot_callback_tests.rs"
             },
             {
               "cargo_reachable": true,
@@ -58184,6 +58214,11 @@
             },
             {
               "cargo_reachable": true,
+              "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/chinook_ai_update/combat_drop_callback_tests.rs"
+            },
+            {
+              "cargo_reachable": true,
               "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/chinook_ai_update/commands.rs"
             },
@@ -58206,6 +58241,11 @@
               "cargo_reachable": true,
               "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/chinook_ai_update/snapshot.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/update/ai_update/chinook_ai_update/snapshot_callback_tests.rs"
             },
             {
               "cargo_reachable": true,
@@ -188806,7 +188846,7 @@
       ]
     }
   ],
-  "provenance_input_digest": "50292aa0d14067088b8934b6e28815f3481b805d282ba23192942280e09d08bb",
+  "provenance_input_digest": "b0039b36100f68cdd2ba689c2c6caeb0ae21f364fff408ccc1be2b1df223eb13",
   "schema_version": 1,
   "summary": {
     "maximum_packet_size": 15,

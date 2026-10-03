@@ -8,10 +8,9 @@ use game_engine::common::system::{Snapshotable, Xfer};
 
 impl Snapshotable for ChinookAIUpdate {
     fn crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
-        let mut version: u8 = 0;
-        xfer.xfer_version(&mut version, 2)
-            .map_err(|e| e.to_string())?;
-        Ok(())
+        // C++ ChinookAIUpdate.cpp:1329–1332 extends the SupplyTruck CRC;
+        // derived save-version handling belongs only to xfer below.
+        self.base.crc(xfer)
     }
 
     fn xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
@@ -56,7 +55,8 @@ impl Snapshotable for ChinookAIUpdate {
     }
 
     fn load_post_process(&mut self) -> Result<(), String> {
-        Ok(())
+        // C++ ChinookAIUpdate.cpp:1366–1369 preserves its base callback.
+        self.base.load_post_process()
     }
 }
 

@@ -410,7 +410,6 @@ pub struct GameState {
     snapshot_block_lists: [Vec<SnapshotBlock>; SNAPSHOT_MAX],
     game_info: SaveGameInfo,
     snapshot_post_process_list: Vec<(SnapshotType, usize)>,
-    pending_post_process_snapshot: Option<(SnapshotType, usize)>,
     available_games: Vec<AvailableGameInfo>,
     is_in_load_game: bool,
     save_directory: PathBuf,
@@ -450,7 +449,6 @@ impl GameState {
             snapshot_block_lists: [Vec::new(), Vec::new(), Vec::new()],
             game_info: SaveGameInfo::default(),
             snapshot_post_process_list: Vec::new(),
-            pending_post_process_snapshot: None,
             available_games: Vec::new(),
             is_in_load_game: false,
             save_directory,
@@ -474,7 +472,6 @@ impl GameState {
     pub fn reset_for_init(&mut self, save_directory: PathBuf) {
         self.game_info = SaveGameInfo::default();
         self.snapshot_post_process_list.clear();
-        self.pending_post_process_snapshot = None;
         self.available_games.clear();
         self.is_in_load_game = false;
         self.save_directory = save_directory;
@@ -483,7 +480,6 @@ impl GameState {
     /// Reset the game state
     pub fn reset(&mut self) {
         self.snapshot_post_process_list.clear();
-        self.pending_post_process_snapshot = None;
         self.available_games.clear();
         self.is_in_load_game = false;
     }
@@ -842,22 +838,8 @@ impl GameState {
             Self::cleanup_after_failed_load();
             return Ok(SaveCode::InvalidData);
         }
-        let post_process_list: *mut Vec<(SnapshotType, usize)> =
-            &mut self.snapshot_post_process_list;
-        let pending_snapshot: *mut Option<(SnapshotType, usize)> =
-            &mut self.pending_post_process_snapshot;
-        xfer_load.set_post_process_snapshot_callback(Some(Box::new(move || {
-            // SAFETY: the callback runs synchronously during `GameState::load_game`.
-            unsafe {
-                if let Some(entry) = (&mut *pending_snapshot).take() {
-                    (&mut *post_process_list).push(entry);
-                }
-            }
-        })));
-
         // Clear any stale post-process registrations from a previous load attempt.
         self.snapshot_post_process_list.clear();
-        self.pending_post_process_snapshot = None;
 
         // Set load flag
         self.is_in_load_game = true;
@@ -881,14 +863,12 @@ impl GameState {
             Ok(_) => {
                 if let Err(close_err) = close_result {
                     self.snapshot_post_process_list.clear();
-                    self.pending_post_process_snapshot = None;
                     eprintln!("Error closing load file: {:?}", close_err);
                     Self::cleanup_after_failed_load();
                     return Ok(SaveCode::InvalidData);
                 }
                 if let Err(post_process_err) = post_process_result {
                     self.snapshot_post_process_list.clear();
-                    self.pending_post_process_snapshot = None;
                     eprintln!("Error post-processing loaded game: {:?}", post_process_err);
                     Self::cleanup_after_failed_load();
                     return Ok(SaveCode::InvalidData);
@@ -922,7 +902,6 @@ impl GameState {
                     self.game_info.mission_map_name.clear();
                 }
 
-                self.pending_post_process_snapshot = None;
                 Ok(SaveCode::Ok)
             }
             Err(e) => {
@@ -934,7 +913,6 @@ impl GameState {
                 }
                 eprintln!("Error loading game: {:?}", e);
                 self.snapshot_post_process_list.clear();
-                self.pending_post_process_snapshot = None;
                 Self::cleanup_after_failed_load();
                 Ok(SaveCode::InvalidData)
             }
@@ -1054,7 +1032,6 @@ impl GameState {
                         .position(|block| block.block_name == token);
                     if let Some(pos) = block_pos {
                         let _block_size = xfer.begin_block()?;
-                        self.pending_post_process_snapshot = Some((which, pos));
                         // Take the block out (see save branch) so the bridge
                         // receives `&mut self` instead of re-locking THE_GAME_STATE.
                         let mut snapshot = std::mem::replace(
@@ -1063,17 +1040,12 @@ impl GameState {
                         );
                         let res = snapshot.xfer_with_state(xfer, self);
                         self.snapshot_block_lists[index][pos].snapshot = snapshot;
-                        if let Err(err) = res {
-                            self.pending_post_process_snapshot = None;
-                            return Err(err);
-                        }
-                        // XferLoad::xfer_snapshot fires the post-process callback
-                        // after dispatch; we bypassed it, so perform the
-                        // pending->list handoff here under the same option gate.
+                        res?;
+                        // The block owner records one deferred fixup after a
+                        // successful transfer. Nested xfer_snapshot calls never
+                        // require pointers back into this borrowed GameState.
                         if !bit_test(xfer.get_options(), xfer_options::NO_POST_PROCESSING) {
-                            if let Some(entry) = self.pending_post_process_snapshot.take() {
-                                self.snapshot_post_process_list.push(entry);
-                            }
+                            self.snapshot_post_process_list.push((which, pos));
                         }
                         xfer.end_block()?;
                     } else {
@@ -1343,6 +1315,8 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::time::{SystemTime, UNIX_EPOCH};
 
+    include!("load_fixup_tests.rs");
+
     static HOOK_TEST_LOCK: Mutex<()> = Mutex::new(());
 
     // NOTE: `dyn Snapshot` requires `Send`, so these shared test counters use
@@ -1487,7 +1461,9 @@ mod tests {
         assert_eq!(info.description, "Test Description");
         assert_eq!(info.save_file_type, SaveFileType::Mission);
         assert_eq!(info.mission_map_name, "Maps\\MissionTest.map");
-        assert_eq!(info.map_label, "Mission Test");
+        // C++ GameState::xfer refreshes this label from the live map on save.
+        // The reader must preserve the label actually written, not the stale fixture label.
+        assert_eq!(info.map_label, state.get_save_game_info().map_label);
         // C++ GameState.cpp:1629-1638 — no current campaign writes empty side + -1.
         assert_eq!(info.campaign_side, "");
         assert_eq!(info.mission_number, INVALID_MISSION_NUMBER);
@@ -1549,7 +1525,11 @@ mod tests {
 
     #[test]
     fn registered_snapshot_blocks_replace_placeholders_and_round_trip() {
+        let _guard = HOOK_TEST_LOCK.lock().expect("hook test lock");
         let save_dir = unique_temp_save_dir("snapshot_bridge");
+        let pristine_map = save_dir.with_extension("map");
+        fs::write(&pristine_map, b"snapshot fixture map").unwrap();
+        let _map_name = TestRuntimeMapName::set(pristine_map.to_string_lossy().into_owned());
         let path = save_dir.join("00000001.sav");
         let writer_payload = Arc::new(AtomicU32::new(0xDEADBEEF));
         let reader_payload = Arc::new(AtomicU32::new(0u32));
@@ -1627,6 +1607,7 @@ mod tests {
         assert_eq!(post_process_calls.load(Ordering::Relaxed), 1);
         assert_eq!(reader_payload.load(Ordering::Relaxed), 0xDEADBEEF);
 
+        let _ = fs::remove_file(pristine_map);
         let _ = fs::remove_dir_all(save_dir);
     }
 

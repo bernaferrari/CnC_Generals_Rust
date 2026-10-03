@@ -183,9 +183,9 @@ impl GameLogic {
         self.sleepy_updates.clear();
         self.normal_updates.clear();
         self.module_lookup.clear();
-        if let Err(err) = game_engine::common::thing::init_thing_system() {
-            warn!("Thing system initialization failed during reset: {}", err);
-        }
+        // C++ GameLogic::reset (GameLogic.cpp:410) keeps authored rules.
+        // Initial boot initializes the factories in init(); resetting a match
+        // must not replace loaded definitions needed to rebuild saved objects.
         crate::system::thing_factory_bridge::install_thing_factory_bridge();
         if let Err(err) = crate::contain_module_overrides::ensure_module_overrides_installed() {
             warn!("Failed to install module overrides during reset: {}", err);

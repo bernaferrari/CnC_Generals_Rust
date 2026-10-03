@@ -1,18 +1,18 @@
 //! Combat-drop ropes, rappellers and lifecycle.
 
 use super::{
-    ChinookAIUpdate, ChinookCombatDropState, ChinookFlightStatus, INVALID_DRAWABLE_ID, RopeInfo,
-    dual_world_registry_unavailable,
+    dual_world_registry_unavailable, ChinookAIUpdate, ChinookCombatDropState, ChinookFlightStatus,
+    RopeInfo, INVALID_DRAWABLE_ID,
 };
 use crate::ai::{AiCommandParams, AiCommandType, CommandSourceType};
-use crate::common::{Coord3D, KindOf, LOGICFRAMES_PER_SECOND, Real, UnsignedInt};
+use crate::common::{Coord3D, KindOf, Real, UnsignedInt, LOGICFRAMES_PER_SECOND};
 use crate::helpers::{
-    TheGameClient, TheGameLogic, TheTerrainLogic, TheThingFactory, get_game_logic_random_value,
+    get_game_logic_random_value, TheGameClient, TheGameLogic, TheTerrainLogic, TheThingFactory,
 };
 use crate::modules::{AIUpdateInterfaceExt, ContainModuleInterfaceExt};
-use crate::object::Object;
 use crate::object::draw::draw_module::RGBColor;
 use crate::object::drawable::{Drawable, DrawableArcExt};
+use crate::object::Object;
 use game_engine::common::global_data;
 use std::sync::{Arc, RwLock};
 
@@ -24,8 +24,9 @@ impl ChinookAIUpdate {
         }
 
         let owner = TheGameLogic::find_object_by_id(self.object_id)?;
-        let owner_guard = owner.read().ok()?;
-        let contain = owner_guard.get_contain()?;
+        let contain = owner.read().ok()?.get_contain()?;
+        // The list belongs to the contain module, not an outstanding Object
+        // read. End that owner borrow before resolving other live objects.
         for object_id in contain.get_contained_objects() {
             let Some(obj) = TheGameLogic::find_object_by_id(object_id) else {
                 continue;
@@ -203,22 +204,23 @@ impl ChinookAIUpdate {
         let Some(owner) = TheGameLogic::find_object_by_id(self.object_id) else {
             return true;
         };
-        let Ok(owner_guard) = owner.read() else {
+        if owner
+            .read()
+            .ok()
+            .and_then(|owner| owner.get_contain())
+            .is_none()
+        {
             return true;
-        };
-        let Some(_contain) = owner_guard.get_contain() else {
-            return true;
-        };
+        }
 
         // remove done rappellers
         for rope in &mut state.ropes {
             rope.rappeller_ids.retain(|id| {
-                let _ =
-                    crate::object::registry::OBJECT_REGISTRY.with_object(*id, |rappeller_guard| {
-                        return !rappeller_guard.is_effectively_dead()
-                            && rappeller_guard.is_above_terrain();
-                    });
-                false
+                crate::object::registry::OBJECT_REGISTRY
+                    .with_object(*id, |rappeller| {
+                        !rappeller.is_effectively_dead() && rappeller.is_above_terrain()
+                    })
+                    .unwrap_or(false)
             });
         }
 
@@ -246,22 +248,30 @@ impl ChinookAIUpdate {
 
             if now >= rope.next_drop_time {
                 if let Some(rappeller) = self.get_potential_rappeller() {
-                    let prepared = rappeller.read().ok().map(|rappeller_guard| {
-                        let exit_interface = owner_guard.get_object_exit_interface();
-                        let exit_door = exit_interface
-                            .as_ref()
-                            .and_then(|exit| {
-                                exit.lock().ok().map(|mut guard| {
-                                    guard.reserve_door_for_exit(
-                                        Some(&*owner_guard),
-                                        Some(&*rappeller_guard),
-                                    )
+                    let exit_interface = owner
+                        .read()
+                        .ok()
+                        .and_then(|owner| owner.get_object_exit_interface());
+                    // Reservation takes borrowed objects by contract. Those
+                    // reads end before exitObjectViaDoor can synchronously
+                    // mutate the carrier and passenger.
+                    let prepared = owner.read().ok().and_then(|owner_guard| {
+                        rappeller.read().ok().map(|rappeller_guard| {
+                            let exit_door = exit_interface
+                                .as_ref()
+                                .and_then(|exit| {
+                                    exit.lock().ok().map(|mut guard| {
+                                        guard.reserve_door_for_exit(
+                                            Some(&*owner_guard),
+                                            Some(&*rappeller_guard),
+                                        )
+                                    })
                                 })
-                            })
-                            .unwrap_or(crate::modules::DOOR_NONE_AVAILABLE);
-                        (exit_interface, exit_door, rappeller_guard.get_id())
+                                .unwrap_or(crate::modules::DOOR_NONE_AVAILABLE);
+                            (exit_door, rappeller_guard.get_id())
+                        })
                     });
-                    if let Some((exit_interface, exit_door, rappeller_id)) = prepared {
+                    if let Some((exit_door, rappeller_id)) = prepared {
                         if exit_door != crate::modules::DOOR_NONE_AVAILABLE {
                             if let Some(exit) = exit_interface {
                                 let _ = exit.lock().ok().map(|mut guard| {
@@ -275,19 +285,21 @@ impl ChinookAIUpdate {
                         rappeller_guard.set_transform_matrix(&rope.drop_start_mtx);
                     }
 
-                    if let Ok(rappeller_guard) = rappeller.read() {
-                        if let Some(ai) = rappeller_guard.get_ai_update_interface() {
-                            if let Ok(mut ai_guard) = ai.lock() {
-                                ai_guard.set_desired_speed(self.data.rappel_speed);
-                            }
-                            let mut params = AiCommandParams::new(
-                                AiCommandType::RappelInto,
-                                CommandSourceType::FromAi,
-                            );
-                            params.obj = self.combat_drop_target;
-                            params.pos = self.combat_drop_pos;
-                            let _ = ai.execute_command(&params);
+                    let ai = rappeller
+                        .read()
+                        .ok()
+                        .and_then(|rappeller| rappeller.get_ai_update_interface());
+                    if let Some(ai) = ai {
+                        if let Ok(mut ai_guard) = ai.lock() {
+                            ai_guard.set_desired_speed(self.data.rappel_speed);
                         }
+                        let mut params = AiCommandParams::new(
+                            AiCommandType::RappelInto,
+                            CommandSourceType::FromAi,
+                        );
+                        params.obj = self.combat_drop_target;
+                        params.pos = self.combat_drop_pos;
+                        let _ = ai.execute_command(&params);
                     }
 
                     if let Ok(rappeller_guard) = rappeller.read() {
@@ -327,27 +339,28 @@ impl ChinookAIUpdate {
             self.combat_drop_started = false;
             return;
         };
-        let Ok(mut owner_guard) = owner.write() else {
-            self.combat_drop_state = None;
-            self.combat_drop_started = false;
-            return;
-        };
-
-        owner_guard.clear_disabled(crate::common::DisabledType::Held);
+        {
+            let Ok(mut owner_guard) = owner.write() else {
+                self.combat_drop_state = None;
+                self.combat_drop_started = false;
+                return;
+            };
+            owner_guard.clear_disabled(crate::common::DisabledType::Held);
+        }
         self.flight_status = ChinookFlightStatus::Flying;
 
         if owner_dead {
             if let Some(state) = self.combat_drop_state.as_ref() {
                 for rope in &state.ropes {
                     for rappeller_id in &rope.rappeller_ids {
-                        let _ = crate::object::registry::OBJECT_REGISTRY.with_object(
-                            *rappeller_id,
-                            |rappeller_guard| {
-                                if let Some(ai) = rappeller_guard.get_ai_update_interface() {
-                                    ai.ai_idle(CommandSourceType::FromAi);
-                                }
-                            },
-                        );
+                        let ai = crate::object::registry::OBJECT_REGISTRY
+                            .with_object(*rappeller_id, |rappeller| {
+                                rappeller.get_ai_update_interface()
+                            })
+                            .flatten();
+                        if let Some(ai) = ai {
+                            ai.ai_idle(CommandSourceType::FromAi);
+                        }
                     }
                 }
             }

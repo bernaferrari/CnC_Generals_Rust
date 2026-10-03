@@ -1324,7 +1324,7 @@ impl ShroudManager {
     /// the radar is refreshed from the restored cell counters.  A malformed
     /// grid is rejected before replacing any current state so a staged load
     /// can roll back without a partially installed singleton.
-    pub fn replace_state(&mut self, snapshot: &ShroudSnapshot) -> Result<(), String> {
+    pub fn replace_state(&mut self, snapshot: &ShroudSnapshot, frame: u32) -> Result<(), String> {
         let restored_grid = if let Some(grid) = &snapshot.grid {
             let width = usize::try_from(grid.width)
                 .map_err(|_| "shroud snapshot width is not representable".to_string())?;
@@ -1406,7 +1406,7 @@ impl ShroudManager {
             explored.clear();
         }
         self.force_update();
-        self.refresh_shroud_for_local_player();
+        self.refresh_shroud_for_local_player_at_frame(frame);
         Ok(())
     }
 
@@ -2094,7 +2094,11 @@ impl ShroudManager {
     /// Refresh shroud for the local player (visual refresh hook).
     /// Matches C++ PartitionManager::refreshShroudForLocalPlayer intent.
     pub fn refresh_shroud_for_local_player(&mut self) {
-        let frame = crate::helpers::TheGameLogic::get_frame();
+        self.refresh_shroud_for_local_player_at_frame(crate::helpers::TheGameLogic::get_frame());
+    }
+
+    /// Refresh using the driving instance clock, including while its save/load owner is borrowed.
+    pub fn refresh_shroud_for_local_player_at_frame(&mut self, frame: u32) {
         if let Ok(list) = crate::player::player_list().read() {
             let local_index = list.get_local_player_index();
             if local_index != PLAYER_INDEX_INVALID {
@@ -2893,9 +2897,12 @@ mod tests {
         let snapshot = source.snapshot_state();
         let mut restored = ShroudManager::new();
         restored
-            .replace_state(&snapshot)
+            .replace_state(&snapshot, 100)
             .expect("exact shroud restore");
 
+        assert_eq!(restored.last_update_frame, 100);
+        assert_eq!(restored.last_vision_recalc_frame, 100);
+        assert!(restored.has_updated_once);
         assert_eq!(restored.snapshot_state(), snapshot);
         assert_eq!(
             restored.shroud_grid.as_ref().expect("restored grid").cells[0].shroud_levels[0]
@@ -2920,7 +2927,7 @@ mod tests {
         let mut invalid = before.clone();
         invalid.grid.as_mut().expect("grid").cells.pop();
 
-        assert!(manager.replace_state(&invalid).is_err());
+        assert!(manager.replace_state(&invalid, 100).is_err());
         assert_eq!(manager.snapshot_state(), before);
     }
 

@@ -1822,7 +1822,7 @@ mod tests {
                 grid.cells[0].current_shroud[0] = -2;
                 grid.cells[0].active_shroud_level[0] = 3;
             }
-            shroud.replace_state(&snapshot).expect("seed shroud");
+            shroud.replace_state(&snapshot, 0).expect("seed shroud");
         }
 
         let path = std::env::temp_dir().join(format!(

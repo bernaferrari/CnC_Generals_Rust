@@ -310,7 +310,7 @@ impl SnapshotBuilder {
                         "ShroudManager lock poisoned while restoring".to_string(),
                     )
                 })?
-                .replace_state(&snapshot.shroud)
+                .replace_state(&snapshot.shroud, snapshot.frame_number as u32)
                 .map_err(SaveLoadError::Corrupted)?;
         }
 

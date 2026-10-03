@@ -215,9 +215,21 @@ impl game_engine::common::system::xfer::Xfer for CommonXferBridge<'_> {
     }
 }
 
-fn xfer_object_snapshot(obj: &mut Object, xfer: &mut dyn Xfer) {
+fn xfer_object_snapshot(
+    obj: &mut Object,
+    xfer: &mut dyn Xfer,
+    frame: UnsignedInt,
+    changed_objects: &mut VecDeque<ObjectID>,
+    changed_frame: &mut UnsignedInt,
+) {
     let mut bridge = CommonXferBridge { inner: xfer };
-    crate::common::types::Snapshot::xfer(obj, &mut bridge);
+    obj.xfer_with_trigger_context(&mut bridge, frame, &mut |id| {
+        // Same immediate queue/stamp semantics as GameLogic's normal adapter.
+        if id != INVALID_ID {
+            changed_objects.push_back(id);
+            *changed_frame = frame;
+        }
+    });
 }
 
 fn xfer_polygon_snapshot(poly: &mut crate::polygon_trigger::PolygonTrigger, xfer: &mut dyn Xfer) {
@@ -266,7 +278,13 @@ fn xfer_game_logic_state(logic: &mut GameLogic, xfer: &mut dyn Xfer) -> Result<(
             let _ = xfer.begin_block();
             if let Some(entry) = logic.objects.get(&obj_id) {
                 if let Ok(mut obj) = entry.write() {
-                    xfer_object_snapshot(&mut obj, xfer);
+                    xfer_object_snapshot(
+                        &mut obj,
+                        xfer,
+                        logic.frame,
+                        &mut logic.objects_changed_trigger_areas,
+                        &mut logic.frame_objects_changed_trigger_areas,
+                    );
                 }
             }
             xfer.end_block()?;
@@ -590,9 +608,8 @@ fn xfer_partition_state(logic: &mut GameLogic, xfer: &mut dyn Xfer) -> Result<()
 
     if xfer.get_xfer_mode() == XferMode::Load {
         shroud
-            .replace_state(&snapshot)
+            .replace_state(&snapshot, logic.get_frame())
             .map_err(|_| XferStatus::InvalidData)?;
-        shroud.refresh_shroud_for_local_player();
     }
 
     Ok(())

@@ -63,7 +63,13 @@ fn xfer_game_logic_objects_load(
         };
 
         if let Ok(mut obj) = arc.write() {
-            xfer_object_snapshot(&mut obj, xfer);
+            xfer_object_snapshot(
+                &mut obj,
+                xfer,
+                logic.frame,
+                &mut logic.objects_changed_trigger_areas,
+                &mut logic.frame_objects_changed_trigger_areas,
+            );
         }
         let wall_id = arc.read().ok().map(|obj| obj.get_id());
         let walk_on_wall = arc

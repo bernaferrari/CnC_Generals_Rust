@@ -42,6 +42,19 @@ impl Object {
     /// Set the object's transform matrix
     /// C++ Reference: Object.cpp - transform matrix setter
     pub fn set_transform_matrix(&mut self, matrix: &Matrix3D) {
+        self.set_transform_matrix_with_trigger_context(matrix, None, &mut |id| {
+            crate::helpers::TheGameLogic::queue_objects_changed_trigger_areas(id);
+        });
+    }
+
+    /// The object load caller already borrows its driving GameLogic. Trigger
+    /// notifications remain synchronous, without reacquiring that same owner.
+    pub(super) fn set_transform_matrix_with_trigger_context(
+        &mut self,
+        matrix: &Matrix3D,
+        frame: Option<UnsignedInt>,
+        changed: &mut dyn FnMut(ObjectID),
+    ) {
         let (_, _, translation) = matrix.to_scale_rotation_translation();
         let old_pos = self.geometry_info.position;
         let pi = std::f32::consts::PI;
@@ -94,7 +107,7 @@ impl Object {
             });
         }
         if pos_diff {
-            self.set_trigger_area_flags_for_change_in_position();
+            self.set_trigger_area_flags_with_context(frame, changed);
         }
     }
 
@@ -472,6 +485,16 @@ impl Object {
     /// - Checks for exited/entered trigger areas
     /// - Updates integer position tracking for efficient trigger checks
     pub(super) fn set_trigger_area_flags_for_change_in_position(&mut self) {
+        self.set_trigger_area_flags_with_context(None, &mut |id| {
+            crate::helpers::TheGameLogic::queue_objects_changed_trigger_areas(id);
+        });
+    }
+
+    fn set_trigger_area_flags_with_context(
+        &mut self,
+        frame: Option<UnsignedInt>,
+        changed: &mut dyn FnMut(ObjectID),
+    ) {
         // projectiles cannot trigger areas. (jkmcd)
         // neither can inert objects, like the radar ping, etc. (jkmcd)
         if self.is_kind_of(KindOf::Projectile) || self.is_kind_of(KindOf::Inert) {
@@ -507,7 +530,7 @@ impl Object {
             // TheAI->pathfinder()->updatePos(this, getPosition()) - handled by AI system
         }
 
-        let now = crate::helpers::TheGameLogic::get_frame();
+        let now = frame.unwrap_or_else(crate::helpers::TheGameLogic::get_frame);
 
         // C++ lines 2570-2572: Update trigger area flags if not current frame
         if self.entered_or_exited_frame != 0 && self.entered_or_exited_frame != now {
@@ -533,7 +556,7 @@ impl Object {
                             team_guard.set_entered_exited();
                         }
                     }
-                    crate::helpers::TheGameLogic::queue_objects_changed_trigger_areas(self.id);
+                    changed(self.id);
                 }
             }
         }
@@ -543,11 +566,15 @@ impl Object {
 
         // C++ lines 2595-2651: Check for newly entered trigger areas.
         // Iterate every PolygonTrigger, not only already-tracked ones.
-        self.enter_untracked_polygon_triggers(now);
+        self.enter_untracked_polygon_triggers(now, changed);
     }
 
     /// C++ Object.cpp:2615-2657 — walk `PolygonTrigger::getFirstPolygonTrigger()`.
-    fn enter_untracked_polygon_triggers(&mut self, now: UnsignedInt) {
+    fn enter_untracked_polygon_triggers(
+        &mut self,
+        now: UnsignedInt,
+        changed: &mut dyn FnMut(ObjectID),
+    ) {
         let Ok(terrain) = crate::terrain::get_terrain_logic().read() else {
             return;
         };
@@ -587,7 +614,7 @@ impl Object {
                     team_guard.set_entered_exited();
                 }
             }
-            crate::helpers::TheGameLogic::queue_objects_changed_trigger_areas(self.id);
+            changed(self.id);
             self.num_trigger_areas_active += 1;
         }
     }
@@ -1001,5 +1028,62 @@ mod trigger_identity_tests {
             .expect("move infantry");
 
         crate::object::registry::OBJECT_REGISTRY.unregister_object(object_id);
+    }
+    #[test]
+    fn borrowed_trigger_context_keeps_same_id_frames_and_notifications_independent() {
+        #[cfg(not(target_arch = "wasm32"))]
+        if matches!(
+            crate::test_process::run_bounded(
+                concat!(
+                    module_path!(),
+                    "::borrowed_trigger_context_keeps_same_id_frames_and_notifications_independent"
+                )
+                .strip_prefix("gamelogic::")
+                .unwrap(),
+                "GENERALS_TRIGGER_CONTEXT_CHILD",
+            ),
+            crate::test_process::TestProcess::ParentVerified
+        ) {
+            return;
+        }
+        // C++ Object.cpp:2589-2616 reads the driving clock, checks the old
+        // integer position, marks exit, and synchronously notifies GameLogic.
+        let _lock = crate::test_sync::lock();
+        let id = 0x00B0_1B22;
+        let make_object = || {
+            let mut obj = Object::new_test(id, 100.0);
+            obj.geometry_info.position = Coord3D::new(20.0, 20.0, 0.0);
+            obj.i_pos = ICoord3D::new(20, 20, 0);
+            obj.num_trigger_areas_active = 1;
+            obj.trigger_info[0].trigger = Some(Arc::new(square(4243, "BorrowedExitArea")));
+            obj.trigger_info[0].is_inside = true;
+            obj.trigger_info[0].entered = false;
+            obj.trigger_info[0].exited = false;
+            obj.entered_or_exited_frame = 0;
+            obj
+        };
+        let mut first = make_object();
+        let mut second = make_object();
+        let mut first_notifications = Vec::new();
+        let mut second_notifications = Vec::new();
+        let transform = Matrix3D::from_translation(Coord3D::new(21.0, 20.0, 0.0));
+
+        first.set_transform_matrix_with_trigger_context(&transform, Some(7), &mut |object_id| {
+            first_notifications.push(object_id);
+        });
+        assert!(first.trigger_info[0].exited);
+        assert!(!first.trigger_info[0].is_inside);
+        assert_eq!(first.entered_or_exited_frame, 7);
+        assert_eq!(first_notifications.first(), Some(&id));
+        assert!(!second.trigger_info[0].exited);
+        assert_eq!(second.entered_or_exited_frame, 0);
+
+        second.set_transform_matrix_with_trigger_context(&transform, Some(19), &mut |object_id| {
+            second_notifications.push(object_id);
+        });
+        assert!(second.trigger_info[0].exited);
+        assert_eq!(second.entered_or_exited_frame, 19);
+        assert_eq!(second_notifications.first(), Some(&id));
+        assert_eq!(first.entered_or_exited_frame, 7);
     }
 }
