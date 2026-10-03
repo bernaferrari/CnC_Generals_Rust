@@ -360,12 +360,12 @@ impl GenericObjectCreationNugget {
         if !self.put_in_container.is_empty() {
             if let Some(container_tmpl) = ctx.thing_factory.find_template(&self.put_in_container) {
                 if let Some(team_id) = debris_owner {
-                    if let Some(obj) = crate::team::with_team(team_id, |team_guard| {
-                        ctx.thing_factory
-                            .new_object(container_tmpl, team_guard)
-                            .ok()
-                    })
-                    .flatten()
+                    let team = crate::team::get_team_factory()
+                        .lock()
+                        .ok()
+                        .and_then(|factory| factory.find_team_by_id(team_id));
+                    if let Some(obj) = team
+                        .and_then(|team| ctx.thing_factory.new_object(container_tmpl, &team).ok())
                     {
                         if let Some(src) = source_obj {
                             if let Ok(mut obj_guard) = obj.write() {
@@ -408,10 +408,12 @@ impl GenericObjectCreationNugget {
                 continue;
             };
 
-            let Some(debris) = crate::team::with_team(team_id, |team_guard| {
-                ctx.thing_factory.new_object(tmpl, team_guard).ok()
-            })
-            .flatten() else {
+            let team = crate::team::get_team_factory()
+                .lock()
+                .ok()
+                .and_then(|factory| factory.find_team_by_id(team_id));
+            let Some(debris) = team.and_then(|team| ctx.thing_factory.new_object(tmpl, &team).ok())
+            else {
                 continue;
             };
 
@@ -580,18 +582,22 @@ impl GenericObjectCreationNugget {
             if let Some(src) = source_obj {
                 drop(obj_read);
                 if let Ok(mut obj_write) = obj.write() {
-                    let object_id = obj_write.get_id();
-                    let _ = obj_write.with_experience_tracker_mut(|tracker_guard| {
+                    let inherited = obj_write.with_experience_tracker_mut(|tracker_guard| {
                         if tracker_guard.is_trainable() {
                             let level = src.get_veterancy_level();
                             tracker_guard.set_veterancy_level(level);
-                            // C++ TheScriptEngine->transferObjectName(sourceObj->getName(), obj)
-                            let _ = crate::scripting::engine::transfer_object_name(
-                                src.get_name(),
-                                object_id,
-                            );
+                            true
+                        } else {
+                            false
                         }
                     });
+                    if inherited == Some(true) {
+                        // C++ passes the already-borrowed destination to ScriptEngine.
+                        let _ = crate::scripting::engine::transfer_object_name_to_object(
+                            src.get_name(),
+                            &mut obj_write,
+                        );
+                    }
                 }
                 match obj.read() {
                     Ok(guard) => obj_read = guard,
@@ -1270,7 +1276,7 @@ mod tests {
     };
     use crate::object_creation_list::{GameLogicContext, TerrainLogicContext, ThingFactoryContext};
     use crate::player::{Player, PlayerType, ThePlayerList};
-    use crate::team::Team;
+    use crate::team::{Team, TeamPrototype, TheTeamFactory};
     use std::sync::Mutex;
     use std::sync::atomic::{AtomicU32, Ordering};
 
@@ -1384,6 +1390,7 @@ mod tests {
         /// C++ ThingFactory objects always own an ExperienceTracker.
         attach_experience: bool,
         trainable: bool,
+        attach_contain: bool,
     }
 
     impl Default for FactoryOptions {
@@ -1399,6 +1406,7 @@ mod tests {
                 register_logic: false,
                 attach_experience: false,
                 trainable: false,
+                attach_contain: false,
             }
         }
     }
@@ -1455,10 +1463,24 @@ mod tests {
         fn new_object(
             &self,
             template: Arc<dyn crate::common::ThingTemplate>,
-            _team: &Team,
+            team: &Arc<RwLock<Team>>,
         ) -> Result<Arc<RwLock<Object>>, GameError> {
+            // Constructors may mutate membership on the canonical team.
+            // Fail without blocking if an OCL caller retained a team guard.
+            drop(
+                team.try_write()
+                    .expect("OCL factory must receive an unlocked team"),
+            );
             let id = NEXT_OBJECT_ID.fetch_add(1, Ordering::SeqCst);
             let mut obj = Object::new_test(id, 100.0);
+            obj.set_team(Some(Arc::clone(team)))
+                .expect("created object's canonical team");
+            if self.options.attach_contain {
+                obj.set_contain(Some(Arc::new(Mutex::new(TestOclContain {
+                    valid: true,
+                    contained: Vec::new(),
+                }))));
+            }
             if self.options.kind_of_structure {
                 let mut tmpl = DefaultThingTemplate::new(template.get_name().to_string());
                 tmpl.add_kind_of(KindOf::Structure);
@@ -1626,35 +1648,46 @@ mod tests {
     }
 
     fn ensure_neutral_player_with_team() -> Arc<RwLock<Team>> {
-        {
-            let list = ThePlayerList().read().expect("player list");
+        let neutral = {
+            let mut list = ThePlayerList().write().expect("player list");
             if let Some(neutral) = list.get_neutral_player() {
-                drop(list);
-                if let Ok(mut player) = neutral.write() {
-                    if let Some(team) = player.get_default_team() {
-                        return team;
-                    }
-                    let team = Arc::new(RwLock::new(Team::new(
-                        AsciiString::from("teamOclNeutral"),
-                        9_001,
-                    )));
-                    player.set_default_team(Some(Arc::clone(&team)));
-                    return team;
-                }
+                neutral
+            } else {
+                let mut player = Player::new(0);
+                player.set_player_type(PlayerType::Neutral, false);
+                let neutral = Arc::new(RwLock::new(player));
+                list.add_player(Arc::clone(&neutral));
+                neutral
+            }
+        };
+        // The production OCL resolves the default team through TeamFactory.
+        // Release player borrows before admission: the factory resolves its owner.
+        let previous = neutral.read().expect("neutral player").get_default_team();
+        if let Some(team) = previous {
+            let team_id = team.read().expect("default team").get_id();
+            let canonical = TheTeamFactory()
+                .lock()
+                .expect("team factory")
+                .find_team_by_id(team_id);
+            if canonical
+                .as_ref()
+                .is_some_and(|entry| Arc::ptr_eq(entry, &team))
+            {
+                return team;
             }
         }
-
-        let team = Arc::new(RwLock::new(Team::new(
-            AsciiString::from("teamOclNeutral"),
-            9_001,
-        )));
-        let mut player = Player::new(0);
-        player.set_player_type(PlayerType::Neutral, false);
-        player.set_default_team(Some(Arc::clone(&team)));
-        ThePlayerList()
+        let team = TheTeamFactory()
+            .lock()
+            .expect("team factory")
+            .create_team_on_prototype_with_id(
+                &TeamPrototype::new(AsciiString::from("teamOclNeutral")),
+                9_001,
+            )
+            .expect("canonical neutral team");
+        neutral
             .write()
-            .expect("player list")
-            .add_player(Arc::new(RwLock::new(player)));
+            .expect("neutral player")
+            .set_default_team(Some(Arc::clone(&team)));
         team
     }
 
@@ -1742,6 +1775,50 @@ mod tests {
         assert_eq!(factory.created.lock().unwrap().len(), 1);
     }
 
+    #[test]
+    fn canonical_team_is_unlocked_for_container_and_passenger_creation() {
+        let _guard = TEST_GLOBALS.lock().unwrap();
+        let team = ensure_neutral_player_with_team();
+        let factory = TestFactory::new(FactoryOptions {
+            attach_contain: true,
+            ..FactoryOptions::default()
+        });
+        let mut nugget = object_nugget("OclPassenger");
+        nugget.put_in_container = "OclContainer".into();
+        nugget.debris_to_generate = 2;
+        let pos = Coord3D::new(10.0, 20.0, 0.0);
+        let first = nugget
+            .create_with_angle(&test_ctx(&factory), None, &pos, &pos, 0.0, 0)
+            .expect("first created object is the container (CPP1320)");
+        let created = factory.created.lock().unwrap();
+        assert_eq!(
+            created.len(),
+            3,
+            "container is created before both passengers"
+        );
+        for object in created.iter() {
+            let assigned = object.read().unwrap().get_team().expect("admitted team");
+            assert!(
+                Arc::ptr_eq(&assigned, &team),
+                "preserve canonical team identity"
+            );
+        }
+        assert!(Arc::ptr_eq(&first, &created[0]));
+        let passenger_ids: Vec<_> = created[1..]
+            .iter()
+            .map(|object| object.read().unwrap().get_id())
+            .collect();
+        assert_eq!(
+            created[0]
+                .read()
+                .unwrap()
+                .get_contain()
+                .expect("container interface")
+                .get_contained_objects(),
+            passenger_ids
+        );
+    }
+
     fn register_dummy_for_team_control() -> ObjectID {
         let dummy_id = NEXT_OBJECT_ID.fetch_add(1, Ordering::SeqCst);
         let dummy = Arc::new(RwLock::new(Object::new_test(dummy_id, 1.0)));
@@ -1755,7 +1832,6 @@ mod tests {
             .expect("player list")
             .get_player_count() as i32;
         let mut player = Player::new(list_index);
-        player.set_defeated(defeated);
         ThePlayerList()
             .write()
             .expect("player list")
@@ -1772,6 +1848,16 @@ mod tests {
         let id = NEXT_OBJECT_ID.fetch_add(1, Ordering::SeqCst);
         let mut source = Object::new_test(id, 100.0);
         source.set_team(Some(team)).unwrap();
+        // Object::setTeam redirects an already defeated owner to neutral.
+        // Model a live admitted owner becoming defeated before the OCL fires.
+        source
+            .with_controlling_player_mut(|player| player.set_defeated(defeated))
+            .expect("source owner admitted");
+        assert_eq!(source.get_controlling_player_id(), Some(list_index as u32));
+        assert_eq!(
+            source.with_controlling_player(|player| player.is_player_active()),
+            Some(!defeated)
+        );
         source
     }
 
@@ -1871,10 +1957,14 @@ mod tests {
         ocl.add_nugget(Arc::new(gated));
         ocl.add_nugget(Arc::new(live));
         let pos = Coord3D::new(1.0, 2.0, 0.0);
-        let created = ocl.create_with_angle(&ctx, None, &pos, &pos, 0.0, 0);
+        // Lists require a source (CPP1524); this ownerless source still rejects
+        // the RequiresLivePlayer nugget while allowing the later ungated one.
+        let source = Object::new_test(70_011, 100.0);
+        assert!(source.get_controlling_player().is_none());
+        let created = ocl.create_with_angle(&ctx, Some(&source), &pos, &pos, 0.0, 0);
         assert!(
             created.is_some(),
-            "later CreateObject must still run after RequiresLivePlayer NULL"
+            "later CreateObject must still run after RequiresLivePlayer rejects the ownerless source"
         );
         assert_eq!(factory.created.lock().unwrap().len(), 1);
     }
@@ -2133,6 +2223,9 @@ End
     #[test]
     fn dies_on_bad_land_water_uses_death_flooded_not_generic_kill() {
         let _guard = TEST_GLOBALS.lock().unwrap();
+        // CPP ActiveBody.cpp547: frame0's previous-frame value equals the
+        // constructor timestamp sentinel; exercise a real runtime damage frame.
+        let _frame = crate::system::game_logic::enter_update_frame(1);
         ensure_neutral_player_with_team();
         let factory = TestFactory::new(FactoryOptions {
             register: true,
@@ -2421,5 +2514,11 @@ End
             .expect("created object must have an experience tracker");
         assert_eq!(level, VeterancyLevel::Elite);
         assert_eq!(obj.get_name().as_str(), "NamedPilot");
+        assert_eq!(
+            crate::scripting::engine::get_named_object_tracker()
+                .get_object_id("NamedPilot")
+                .expect("script name lookup"),
+            Some(obj.get_id())
+        );
     }
 }
