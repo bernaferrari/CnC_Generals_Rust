@@ -500,13 +500,6 @@ impl<'a> DrawModuleKindMut<'a> {
         }
     }
 
-    fn into_laser_draw(self) -> Option<&'a mut crate::object::draw::W3DLaserDraw> {
-        match self {
-            Self::Laser(draw) => Some(draw),
-            _ => None,
-        }
-    }
-
     fn set_terrain_decal(self, decal_type: TerrainDecalType) {
         match self {
             Self::Model(draw) => draw.set_terrain_decal(decal_type),
@@ -789,13 +782,6 @@ impl DrawableModuleHandle {
         self.entry.mask()
     }
 
-    /// Get laser draw interface when backed by a laser draw module.
-    pub fn get_laser_draw_interface(&self) -> Option<Box<dyn std::any::Any>> {
-        Some(Box::new(LaserDrawInterfaceHandle {
-            entry: Arc::clone(&self.entry),
-        }))
-    }
-
     pub fn with_module<F, R>(&self, func: F) -> R
     where
         F: FnOnce(&mut dyn Module) -> R,
@@ -862,24 +848,6 @@ impl DrawableModuleHandle {
     {
         self.entry
             .with_module(|module| (module as &mut dyn Any).downcast_mut::<T>().map(func))
-    }
-}
-
-struct LaserDrawInterfaceHandle {
-    entry: Arc<DrawModuleEntry>,
-}
-
-impl crate::object::draw::draw_module::LaserDrawInterface for LaserDrawInterfaceHandle {
-    fn get_laser_template_width(&self) -> Real {
-        self.entry.with_module(|module| {
-            let mut width = 0.0;
-            let _ = with_draw_module_kind(module, |draw| {
-                if let Some(laser) = draw.into_laser_draw() {
-                    width = laser.get_laser_template_width();
-                }
-            });
-            width
-        })
     }
 }
 
@@ -1081,16 +1049,12 @@ fn stealth_look_from_u32(value: u32) -> StealthLookType {
 
 /// Drawable object data and behavior
 ///
-/// Ownership: a `Drawable` is shared, never single-owner. The authoritative
-/// owner is the client registry (`TheGameClient` `ClientVisualState::drawables`,
-/// which also owns objectless drawables); `Object::drawable`, sibling
-/// `Attachment::drawable` refs, chinook `RopeInfo::rope_drawable`, and garrison
-/// `GarrisonPointData::effect` all hold live clones, and the presentation frame
-/// reads registry entries at render time. The `Arc` is therefore structural.
-/// Likewise `DrawModuleEntry::module` is a `Mutex` because
-/// `DrawableModuleHandle`/`LaserDrawInterfaceHandle` hand `Arc<DrawModuleEntry>`
-/// clones out to callers (weapon/scripting/action-manager modules) that mutate
-/// modules through a shared borrow.
+/// The client registry is the authoritative visual owner, including objectless
+/// drawables. Objects, attachments, ropes and garrison effects currently retain
+/// shared references. DrawModuleEntry's genuine mutex remains while temporary
+/// DrawableModuleHandle callers mutate modules after releasing the owner borrow.
+/// Laser rendering resolves its sibling on the driving Drawable; it does not
+/// rediscover an owner through those shared references.
 #[derive(Debug)]
 #[allow(dead_code)]
 pub struct Drawable {

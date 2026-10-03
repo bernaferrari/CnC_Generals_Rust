@@ -57,9 +57,10 @@ impl crate::drawable::Drawable for Drawable {
         // caller supplies one; host present path applies the exact calc.
         transform_mtx = drawable_physics_visual::apply_if_gated(transform_mtx);
         let logic_drawable_id = self.drawable_id;
-        for (runtime_draw_ordinal, module_handle) in self
-            .get_draw_modules_with_interface(ModuleInterfaceType::DRAW)
-            .into_iter()
+        for (runtime_draw_ordinal, entry) in self
+            .modules
+            .iter()
+            .filter(|entry| entry.mask().0 & ModuleInterfaceType::DRAW.0 != 0)
             .enumerate()
         {
             if let Some(client) = TheGameClient::get() {
@@ -67,15 +68,21 @@ impl crate::drawable::Drawable for Drawable {
                     self.object_id,
                     ModelDrawSourceIdentity {
                         runtime_draw_ordinal: runtime_draw_ordinal as u32,
-                        module_name: module_handle.name().to_string(),
-                        module_tag: module_handle.tag().to_string(),
-                        module_tag_name_key: module_handle.module_tag_key(),
+                        module_name: entry.name().to_string(),
+                        module_tag: entry.tag().to_string(),
+                        module_tag_name_key: entry
+                            .with_module(|module| module.get_module_tag_name_key()),
                     },
                 );
             }
-            module_handle.with_module(|module| {
-                with_draw_module_mut(module, |draw| {
-                    draw.do_draw_module(&transform_mtx);
+            entry.with_module(|module| {
+                with_draw_module_kind(module, |draw| match draw {
+                    DrawModuleKindMut::Laser(laser) => {
+                        if let Some(input) = self.laser_draw_input(entry, laser.is_self_dirty()) {
+                            laser.draw_from_update(input);
+                        }
+                    }
+                    draw => draw.into_draw_module().do_draw_module(&transform_mtx),
                 });
             });
             if let Some(client) = TheGameClient::get() {
@@ -95,6 +102,42 @@ impl crate::drawable::Drawable for Drawable {
     /// Get current world transform
     fn get_transform(&self) -> Matrix3D {
         self.transform
+    }
+}
+
+impl Drawable {
+    fn laser_draw_input(
+        &self,
+        current_draw: &DrawModuleEntry,
+        self_dirty: bool,
+    ) -> Option<crate::object::draw::w3d_laser_draw::LaserDrawInput> {
+        // CPP W3DLaserDraw.cpp:228-249 queries this Drawable's CLIENT_UPDATE
+        // bucket by LaserUpdate name, never the object registry or DRAW bucket.
+        let laser_update_key = NameKeyGenerator::name_to_key("LaserUpdate");
+        for entry in self
+            .modules
+            .iter()
+            .filter(|entry| entry.mask().0 & ModuleInterfaceType::CLIENT_UPDATE.0 != 0)
+        {
+            // Never reacquire the canonical DRAW mutex, including malformed
+            // modules advertising both interfaces. CPP queries a sibling.
+            if std::ptr::eq(entry.as_ref(), current_draw) {
+                continue;
+            }
+            let (matched, input) = entry.with_module(|module| {
+                if module.get_module_name_key() != laser_update_key {
+                    return (false, None);
+                }
+                let input = module.get_laser_update_interface().and_then(|update| {
+                    crate::object::draw::w3d_laser_draw::LaserDrawInput::consume(update, self_dirty)
+                });
+                (true, input)
+            });
+            if matched {
+                return input;
+            }
+        }
+        None
     }
 }
 

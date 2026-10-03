@@ -317,9 +317,8 @@ impl GameLogic {
         template_name: &str,
         base_supplies: u32,
     ) -> u32 {
-        use crate::game_logic::host_upgrade_module_residuals::{
-            apply_production_cost_factor, kindof_cost_tokens,
-        };
+        use crate::game_logic::host_upgrade_module_residuals::kindof_cost_tokens;
+        use gamelogic::object::production::build_cost_calculator::apply_build_cost_modifiers;
         let Some(player) = self.players.get(&player_id) else {
             return base_supplies;
         };
@@ -339,7 +338,13 @@ impl GameLogic {
         let kindof_factor = player.production_cost_factor(&tokens);
         let template_factor = self.player_template_production_cost_factor(player_id, template_name);
         let handicap = player.handicap_build_cost_multiplier(is_structure);
-        apply_production_cost_factor(base_supplies, template_factor * kindof_factor * handicap)
+        apply_build_cost_modifiers(
+            base_supplies as f32,
+            template_factor * kindof_factor,
+            handicap,
+        )
+        .trunc()
+        .max(0.0) as u32
     }
 
     /// C++ `ThingTemplate::calcTimeToBuild` authored pre-power frame count.

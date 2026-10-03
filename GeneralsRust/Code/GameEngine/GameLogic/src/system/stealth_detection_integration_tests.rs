@@ -404,23 +404,31 @@ mod stealth_detection_integration_tests {
         let mut stealth = StealthManager::new();
         stealth.register_object(1).unwrap();
 
-        // Valid player IDs (0-7)
-        for player in 0..8 {
+        // C++ GameCommon.h:81 defines sixteen engine slots, including scripted players.
+        for player in 0..crate::common::MAX_PLAYER_COUNT {
             assert!(
                 stealth
                     .set_stealth_status(1, player, StealthStatus::Invisible)
                     .is_ok()
+            );
+            assert_eq!(
+                stealth.get_stealth_status(1, player).unwrap(),
+                StealthStatus::Invisible
             );
         }
 
         // Invalid player IDs
         assert!(
             stealth
-                .set_stealth_status(1, 8, StealthStatus::Invisible)
+                .set_stealth_status(1, crate::common::MAX_PLAYER_COUNT, StealthStatus::Invisible)
                 .is_err()
         );
         assert!(stealth.get_stealth_status(1, 255).is_err());
-        assert!(stealth.is_invisible_to_player(1, 9).is_err());
+        assert!(
+            stealth
+                .is_invisible_to_player(1, crate::common::MAX_PLAYER_COUNT)
+                .is_err()
+        );
     }
 
     /// Test frame tracking for debugging

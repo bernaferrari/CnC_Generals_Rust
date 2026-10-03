@@ -879,6 +879,9 @@ mod detection_event_tests {
     #[test]
     fn test_invalid_inputs() {
         let mut manager = DetectionEventManager::new();
+        // C++ GameCommon.h:81 and PlayerList.cpp:66-73 allow slots 0..16.
+        let last_player = MAX_PLAYER_COUNT - 1;
+        let invalid_player = MAX_PLAYER_COUNT;
 
         // Invalid detector ID (0)
         assert!(manager.register_detection(0, 2, 100, 0, 1).is_err());
@@ -886,16 +889,23 @@ mod detection_event_tests {
         // Invalid object ID (0)
         assert!(manager.register_detection(1, 0, 100, 0, 1).is_err());
 
-        // Invalid detector player ID (8, max is 7)
-        assert!(manager.register_detection(1, 2, 100, 8, 1).is_err());
+        // The first slot beyond the engine limit is invalid in either role.
+        assert!(
+            manager
+                .register_detection(1, 2, 100, invalid_player, 1)
+                .is_err()
+        );
 
-        // Invalid detected player ID (8, max is 7)
-        assert!(manager.register_detection(1, 2, 100, 0, 8).is_err());
+        assert!(
+            manager
+                .register_detection(1, 2, 100, 0, invalid_player)
+                .is_err()
+        );
 
         // Invalid player ID for Eva message
         assert!(
             manager
-                .create_eva_message(EvaMessageType::EnemyDetected, 8, 5)
+                .create_eva_message(EvaMessageType::EnemyDetected, invalid_player, 5)
                 .is_err()
         );
 
@@ -905,6 +915,23 @@ mod detection_event_tests {
                 .create_eva_message(EvaMessageType::EnemyDetected, 0, 0)
                 .is_err()
         );
+        assert_eq!(manager.pending_event_count(), 0);
+
+        // The final engine slot is usable as detector, target, and Eva recipient.
+        manager
+            .register_detection(1, 2, 100, last_player, last_player)
+            .unwrap();
+        assert!(manager.peek_all_events().iter().any(|event| matches!(
+            event,
+            DetectionEvent::StealthDiscovered { player_id, .. } if *player_id == last_player
+        )));
+        assert!(matches!(
+            manager
+                .create_eva_message(EvaMessageType::EnemyDetected, last_player, 5)
+                .unwrap(),
+            DetectionEvent::EvaMessage { player_id, detected_unit_id: 5, .. }
+                if player_id == last_player
+        ));
     }
 
     #[test]

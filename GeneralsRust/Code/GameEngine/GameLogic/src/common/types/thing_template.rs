@@ -243,18 +243,14 @@ pub trait ThingTemplate: Any + AsAny + Send + Sync + std::fmt::Debug {
             crate::object::production::build_cost_calculator::PlayerBuildModifiers::default();
         mods.production_cost_change_percent =
             player.get_production_cost_change_percent(self.get_name().as_str());
-        mods.handicap_cost_multiplier = player
-            .get_handicap()
-            .get_cost_multiplier_for_template(self);
+        mods.handicap_cost_multiplier =
+            player.get_handicap().get_cost_multiplier_for_template(self);
         mods.production_cost_change_by_kind =
             player.get_production_cost_change_based_on_kind_of(calc_kind_of_mask(self));
 
-        let global_mods =
-            crate::object::production::build_cost_calculator::GlobalBuildModifiers::from_global_data();
-        let calc =
-            crate::object::production::build_cost_calculator::BuildCostCalculator::with_modifiers(
-                global_mods,
-            );
+        // CPP calcCostToBuild has no GlobalData dependency; only build time
+        // needs the power/factory rules. Cost reads the borrowed Player alone.
+        let calc = crate::object::production::build_cost_calculator::BuildCostCalculator::new();
         calc.calc_cost_to_build(base_cost, &mods)
     }
 
@@ -494,11 +490,10 @@ pub trait ThingTemplate: Any + AsAny + Send + Sync + std::fmt::Debug {
 
 fn calc_kind_of_mask<T: ThingTemplate + ?Sized>(template: &T) -> KindOfMaskType {
     let mut mask: KindOfMaskType = KIND_OF_MASK_NONE;
-        for &kind in ALL_KIND_OF {
-            if template.is_kind_of(kind) {
-                mask |= kind.cpp_mask();
-            }
+    for &kind in ALL_KIND_OF {
+        if template.is_kind_of(kind) {
+            mask |= kind.cpp_mask();
+        }
     }
     mask
 }
-
