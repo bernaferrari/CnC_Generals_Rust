@@ -1,4 +1,4 @@
-//! Existing Chinook regressions, kept unchanged during the structural split.
+//! Chinook configuration, supply-counter, flight-predicate and runtime Xfer regressions.
 
 use super::module_data::CHINOOK_AI_UPDATE_FIELDS;
 use super::{
@@ -9,8 +9,7 @@ use super::{
     chinook_passenger_should_follow_attack, chinook_should_auto_land, chinook_should_auto_takeoff,
 };
 use crate::ai::{AiCommandParams, AiCommandType, CommandSourceType};
-use crate::common::Coord3D;
-use crate::common::LocomotorSetType;
+use crate::common::{Coord3D, INVALID_ID, LocomotorSetType};
 use crate::modules::SupplyTruckAIInterface;
 use game_engine::common::ini::INI;
 use game_engine::common::system::Snapshotable;
@@ -240,15 +239,33 @@ fn chinook_combat_drop_waits_for_move_to_bldg_height() {
     assert!(!chinook_move_to_bldg_arrived(false, 140.0, 140.0));
 }
 
-/// C++ ChinookAIUpdate.cpp:213-216 / :473-475 while(loseOneBox()).
+/// C++ SupplyTruckAIUpdate.h:111 defaults capacity to zero; authored MaxBoxes
+/// controls gainOneBox (SupplyTruckAIUpdate.cpp:132–136). This exercises the
+/// Chinook supply interface's counter contract, not a landing/combat-drop flow.
 #[test]
-fn landing_and_combat_drop_lose_all_boxes() {
-    let data = ChinookAIUpdateData::default();
-    let mut ai = ChinookAIUpdate::new(data, 1, 0);
-    assert!(ai.base.gain_one_box(2));
-    assert!(ai.base.gain_one_box(1));
-    assert_eq!(ai.base.get_number_boxes(), 2);
-    while ai.base.lose_one_box() {}
-    assert_eq!(ai.base.get_number_boxes(), 0);
-    assert!(!ai.base.lose_one_box());
+fn chinook_box_counter_honors_authored_capacity() {
+    let mut default_ai = ChinookAIUpdate::new(ChinookAIUpdateData::default(), INVALID_ID, 0);
+    assert_eq!(default_ai.get_number_boxes(), 0);
+    assert!(!default_ai.gain_one_box(2));
+    assert!(!default_ai.lose_one_box());
+
+    let mut module = ChinookAIUpdateModuleData::default();
+    parse_field(&mut module, "MaxBoxes", &["=", "2"]);
+    let data = ChinookAIUpdateData::from_module(&module);
+    assert_eq!(data.supply.max_boxes, 2);
+    let mut ai = ChinookAIUpdate::new(data, INVALID_ID, 0);
+    assert!(ai.gain_one_box(2));
+    assert!(ai.gain_one_box(1));
+    assert_eq!(ai.get_number_boxes(), 2);
+    assert!(!ai.gain_one_box(1));
+    assert_eq!(ai.get_number_boxes(), 2);
+
+    let mut released = 0;
+    while ai.lose_one_box() {
+        released += 1;
+        assert!(released <= 2, "a box loss must decrease the counter");
+    }
+    assert_eq!(released, 2);
+    assert_eq!(ai.get_number_boxes(), 0);
+    assert!(!ai.lose_one_box());
 }
