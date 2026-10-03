@@ -1988,11 +1988,9 @@ impl BehaviorModuleInterface for ParticleUplinkCannonUpdate {
         Some(self)
     }
     fn on_object_created(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        // Wave 299: empty dual-world → Ok(()).
-        if dual_world_registry_unavailable() {
-            return Ok(());
-        }
-
+        // C++ ParticleUplinkCannonUpdate.cpp:220-246 validates the module and
+        // initializes its canonical owner after installation, before GameLogic
+        // admission. Unrelated world emptiness cannot suppress this callback.
         if self.module_data.special_power_template.is_none() {
             self.invalid_settings = true;
             return Ok(());
@@ -2026,108 +2024,8 @@ impl BehaviorModuleInterface for ParticleUplinkCannonUpdate {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::object::Object;
-    use crate::object::special_power_types::SpecialPowerType;
-
-    fn test_object_at(position: Coord3D) -> Arc<RwLock<GameObject>> {
-        let object = Arc::new(RwLock::new(Object::new_test(98_001, 100.0)));
-        object
-            .write()
-            .unwrap()
-            .set_position(&position)
-            .expect("test position is valid");
-        object
-    }
-
-    #[test]
-    fn constructor_defers_invalid_settings_until_object_created() {
-        let object = test_object_at(Coord3D::new(10.0, 20.0, 3.0));
-        let data = Arc::new(ParticleUplinkCannonUpdateModuleData::default());
-
-        let behavior =
-            ParticleUplinkCannonUpdate::new_with_data(Arc::clone(&object), data).unwrap();
-
-        assert!(!behavior.invalid_settings);
-        assert_eq!(behavior.connector_node_position, Coord3D::ZERO);
-        assert_eq!(behavior.laser_origin_position, Coord3D::ZERO);
-    }
-
-    #[test]
-    fn object_created_validates_missing_template_like_cpp() {
-        let object = test_object_at(Coord3D::new(10.0, 20.0, 3.0));
-        let data = Arc::new(ParticleUplinkCannonUpdateModuleData::default());
-        let mut behavior =
-            ParticleUplinkCannonUpdate::new_with_data(Arc::clone(&object), data).unwrap();
-
-        BehaviorModuleInterface::on_object_created(&mut behavior).unwrap();
-
-        assert!(behavior.invalid_settings);
-        assert_eq!(behavior.connector_node_position, Coord3D::ZERO);
-        assert_eq!(behavior.laser_origin_position, Coord3D::ZERO);
-    }
-
-    #[test]
-    fn object_created_captures_origin_position_and_audio_names() {
-        let position = Coord3D::new(-12.5, 44.0, 6.25);
-        let object = test_object_at(position);
-        let mut data = ParticleUplinkCannonUpdateModuleData::default();
-        data.special_power_template = Some(Arc::new(SpecialPowerTemplate::new(
-            "SPECIAL_PARTICLE_UPLINK_CANNON".to_string(),
-            SpecialPowerType::ParticleUplinkCannon as u32,
-        )));
-        data.powerup_sound_name = AsciiString::from("PowerUpLoop");
-        data.unpack_to_ready_sound_name = AsciiString::from("UnpackLoop");
-        data.firing_to_idle_sound_name = AsciiString::from("PackLoop");
-        data.annihilation_sound_name = AsciiString::from("AnnihilationLoop");
-        let mut behavior =
-            ParticleUplinkCannonUpdate::new_with_data(Arc::clone(&object), Arc::new(data)).unwrap();
-
-        BehaviorModuleInterface::on_object_created(&mut behavior).unwrap();
-
-        assert!(!behavior.invalid_settings);
-        assert_eq!(behavior.connector_node_position, position);
-        assert_eq!(behavior.laser_origin_position, position);
-        assert_eq!(behavior.powerup_sound.get_event_name(), "PowerUpLoop");
-        assert_eq!(
-            behavior.unpack_to_ready_sound.get_event_name(),
-            "UnpackLoop"
-        );
-        assert_eq!(behavior.firing_to_idle_sound.get_event_name(), "PackLoop");
-        assert_eq!(
-            behavior.annihilation_sound.get_event_name(),
-            "AnnihilationLoop"
-        );
-    }
-
-    #[test]
-    fn remove_all_effects_preserves_orbit_to_target_beam() {
-        // C++ ParticleUplinkCannonUpdate::removeAllEffects
-        // (ParticleUplinkCannonUpdate.cpp:996-1031) destroys outer FX, connector
-        // lasers, and the ground-to-orbit beam — not m_orbitToTargetBeamID.
-        // LaserStatus owns that beam (cpp:453-467); killEverything (cpp:187-200)
-        // is the destructor-only teardown.
-        let object = test_object_at(Coord3D::new(0.0, 0.0, 0.0));
-        let data = Arc::new(ParticleUplinkCannonUpdateModuleData::default());
-        let mut behavior =
-            ParticleUplinkCannonUpdate::new_with_data(Arc::clone(&object), data).unwrap();
-        behavior.orbit_to_target_beam_id = 42;
-        behavior.laser_status = LaserStatus::Born;
-        behavior.ground_to_orbit_beam_id = 7;
-        behavior.laser_beam_ids = vec![9];
-
-        behavior.remove_all_effects();
-
-        assert_eq!(behavior.orbit_to_target_beam_id, 42);
-        assert_eq!(behavior.laser_status, LaserStatus::Born);
-        assert_eq!(behavior.ground_to_orbit_beam_id, INVALID_DRAWABLE_ID);
-        assert_eq!(behavior.laser_beam_ids, vec![INVALID_DRAWABLE_ID]);
-
-        behavior.kill_everything();
-        assert_eq!(behavior.orbit_to_target_beam_id, INVALID_DRAWABLE_ID);
-    }
-}
+#[path = "particle_uplink_cannon_update_tests.rs"]
+mod tests;
 
 pub struct ParticleUplinkCannonUpdateFactory;
 impl ParticleUplinkCannonUpdateFactory {
@@ -2465,6 +2363,11 @@ impl Module for ParticleUplinkCannonUpdateModule {
 
     fn get_module_data(&self) -> &dyn EngineModuleData {
         self.module_data.as_ref()
+    }
+
+    fn on_object_created(&mut self) {
+        // Object.cpp:458-462 invokes Module's hook on the installed wrapper.
+        let _ = BehaviorModuleInterface::on_object_created(&mut self.behavior);
     }
 
     fn on_delete(&mut self) {

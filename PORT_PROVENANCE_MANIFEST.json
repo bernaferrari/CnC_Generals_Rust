@@ -140972,7 +140972,7 @@
     }
   ],
   "generator": "GeneralsRust/Code/Main/scripts/generate_port_provenance.py",
-  "input_digest": "3af1f59c5d2adcff709651537ad0565784f540dae8ff8ba0be1aac0c0ed55ef6",
+  "input_digest": "1b745c92aaf4bf8db93ede0202b5590a6273061f33a1405ccdb8ca4aa2d92237",
   "metric_contract": {
     "behavior_requires_explicit_evidence": true,
     "candidate_mapping_is_reviewed": false,
@@ -180105,11 +180105,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 1582,
+        "end_line": 1628,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/behavior/dumb_projectile_behavior.rs",
-      "sha256": "07a9ee968bf9ffb2e960b372f5b9194b5f0c8e009960b93ba96640e006d58573",
+      "sha256": "e4c8352bef90a99f2f07eed40915db19e55cef40468586b74305545d39ab4da2",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -180261,11 +180261,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 2010,
+        "end_line": 2031,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/behavior/generate_minefield_behavior.rs",
-      "sha256": "28d11c7572063393ce0e2dd31d090fdfe3dec4fb6b70f3b84629633b1984f91e",
+      "sha256": "e3034699c0e27aa139ffb3f99d7145986311fda20d4adb808d508aa54c60d934",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -180465,11 +180465,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 2494,
+        "end_line": 2397,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/behavior/particle_uplink_cannon_update.rs",
-      "sha256": "936a5af6320a0e3ada100f416f3c39f46318cdbea325bb2f2aaff7ccaa9670e9",
+      "sha256": "3ec5ac5cbfd227c77ac14717916f6fcbd7428d9d69e8e1adb43e325e0c38f65e",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -180537,11 +180537,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 421,
+        "end_line": 460,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/behavior/power_plant_update.rs",
-      "sha256": "b87f08af8744ee36161e89426e61e13e76499da9c441acdc7679d9164ca0ce15",
+      "sha256": "779e402475dcf4521905761abc71924f33f41bfff9cd70dc6e4cb6e695fde336",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -181221,11 +181221,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 639,
+        "end_line": 682,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/collide/squish_collide.rs",
-      "sha256": "2b599c78f858ba75b144eef2b4f372320a4cab4cad04e97a8b8f73104d4f3a66",
+      "sha256": "9891da55a8f31972a7414e8090c8775dca2b1bc865ecb143129857cc2a0ed810",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },

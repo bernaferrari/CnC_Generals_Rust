@@ -131,17 +131,22 @@ impl PowerPlantUpdate {
         if extend {
             if !self.extended {
                 if self.object_id != crate::common::INVALID_ID {
-                    if let Some(object) = crate::helpers::TheGameLogic::find_object_by_id(self.object_id)
-                        .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
+                    if let Some(object) = crate::helpers::TheGameLogic::find_object_by_id(
+                        self.object_id,
+                    )
+                    .or_else(|| crate::object::registry::OBJECT_REGISTRY.get_object(self.object_id))
                     {
                         if let Ok(mut obj) = object.write() {
-                            obj.set_model_condition_state(ModelConditionFlags::POWER_PLANT_UPGRADING);
+                            obj.set_model_condition_state(
+                                ModelConditionFlags::POWER_PLANT_UPGRADING,
+                            );
                         }
                     }
                 }
                 self.extended = true;
                 let now = crate::helpers::TheGameLogic::get_frame();
-                self.next_call_frame_and_phase = now.saturating_add(self.module_data.rods_extend_time);
+                self.next_call_frame_and_phase =
+                    now.saturating_add(self.module_data.rods_extend_time);
                 self.reschedule_self();
             }
         } else {
@@ -337,6 +342,49 @@ mod tests {
     use game_engine::common::system::xfer_save::XferSave;
     use std::io::Cursor;
 
+    // A real canonical object, rather than an INVALID_ID module literal or
+    // another test's leftover object. This fixture does not reset any world.
+    struct RodOwner {
+        logic: crate::system::game_logic::GameLogic,
+        object: Arc<RwLock<GameObject>>,
+        id: ObjectID,
+    }
+
+    impl RodOwner {
+        fn new(id: ObjectID) -> Self {
+            let object = Arc::new(RwLock::new(GameObject::new_test(id, 100.0)));
+            let mut logic = crate::system::game_logic::GameLogic::new();
+            logic.register_object(object.clone()).unwrap();
+            Self { logic, object, id }
+        }
+    }
+
+    impl Drop for RodOwner {
+        fn drop(&mut self) {
+            let unwinding = std::thread::panicking();
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                assert!(Arc::ptr_eq(
+                    &self.logic.find_object_by_id(self.id).unwrap(),
+                    &self.object
+                ));
+                self.logic.destroy_object(self.id);
+                self.logic.process_destroy_list().unwrap();
+                assert!(self.logic.find_object_by_id(self.id).is_none());
+                assert_eq!(
+                    self.object.read().unwrap().get_id(),
+                    crate::common::INVALID_ID
+                );
+            }));
+            if let Err(error) = result {
+                if unwinding {
+                    eprintln!("power plant fixture retirement failed during unwind");
+                } else {
+                    std::panic::resume_unwind(error);
+                }
+            }
+        }
+    }
+
     #[test]
     fn test_power_plant_creation() {
         let data = PowerPlantUpdateModuleData::default();
@@ -345,15 +393,11 @@ mod tests {
 
     #[test]
     fn power_plant_retract_cancels_pending_extension_before_completion() {
-        let module_data = Arc::new(PowerPlantUpdateModuleData::default());
-        let mut update = PowerPlantUpdate {
-            object_id: crate::common::INVALID_ID,
-            module_data,
-            next_call_frame_and_phase: 0,
-            extended: false,
-            extend_done_frame: 123,
-        };
-
+        let _lock = crate::test_sync::lock();
+        let owner = RodOwner::new(0xD158);
+        let data = Arc::new(PowerPlantUpdateModuleData::default());
+        let mut update = PowerPlantUpdate::new(owner.object.clone(), data).unwrap();
+        update.extend_done_frame = 123;
         update.extend_rods(false);
 
         assert!(!update.extended);
@@ -362,18 +406,13 @@ mod tests {
 
     #[test]
     fn power_plant_extension_marks_extended_immediately_like_cpp() {
-        let module_data = Arc::new(PowerPlantUpdateModuleData {
+        let _lock = crate::test_sync::lock();
+        let owner = RodOwner::new(0xD159);
+        let data = Arc::new(PowerPlantUpdateModuleData {
             rods_extend_time: 25,
             ..PowerPlantUpdateModuleData::default()
         });
-        let mut update = PowerPlantUpdate {
-            object_id: crate::common::INVALID_ID,
-            module_data,
-            next_call_frame_and_phase: 0,
-            extended: false,
-            extend_done_frame: 0,
-        };
-
+        let mut update = PowerPlantUpdate::new(owner.object.clone(), data).unwrap();
         update.extend_rods(true);
 
         assert!(update.extended);

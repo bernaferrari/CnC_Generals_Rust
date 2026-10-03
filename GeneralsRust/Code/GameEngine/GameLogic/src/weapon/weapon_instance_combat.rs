@@ -949,22 +949,6 @@ impl Weapon {
         distance <= vision_range
     }
 
-    /// Check line-of-sight between two positions
-    /// For direct-fire weapons that can't fire through obstacles
-    ///
-    /// # Implementation
-    /// - Checks height differences are within weapon capability
-    /// - Basic terrain height validation
-    /// - Full raycast through obstacles would be next enhancement
-    #[cfg(test)]
-    pub(crate) fn check_line_of_sight(&self, from: &Coord3D, to: &Coord3D) -> bool {
-        let terrain = crate::terrain::get_terrain_logic();
-        let Ok(guard) = terrain.read() else {
-            return true;
-        };
-        guard.is_clear_line_of_sight(from, to)
-    }
-
     /// Check if target is an enemy (not on same team/alliance)
     /// Weapons can only fire on enemies, not on friendlies
     ///

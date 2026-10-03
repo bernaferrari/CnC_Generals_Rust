@@ -768,6 +768,8 @@ impl GameLogic {
         }
         self.drawable_tint_envelopes.clear();
         self.objects.clear();
+        // C++ WeaponStore::resetWeaponTemplates clears same-template history.
+        self.combat_system.reset_historic_bonus();
         self.warehouse_crippling_states.clear();
         self.mission_scripts.clear_warehouse_set_values();
         self.host_dock_approach_queues.get_mut().clear();

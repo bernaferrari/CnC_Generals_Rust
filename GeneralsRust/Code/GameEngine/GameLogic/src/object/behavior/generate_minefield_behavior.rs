@@ -1573,6 +1573,10 @@ impl GenerateMinefieldBehaviorFactory {
 }
 
 #[cfg(test)]
+#[path = "generate_minefield_test_fixture.rs"]
+mod test_fixture;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use game_engine::common::ini::ini_game_data::{GlobalData, ensure_global_data};
@@ -1915,14 +1919,16 @@ mod tests {
 
     #[test]
     fn test_mine_placement() {
-        let mut behavior = create_test_behavior();
+        let _guard = crate::test_sync::lock();
+        let fixture = super::test_fixture::MinefieldFixture::new(98_101);
+        let mut behavior = fixture.behavior(false);
 
         let result = behavior.place_mines();
         assert!(result.is_ok());
 
         let stats = behavior.get_statistics();
         assert!(stats.is_generated);
-        // Note: mine_count would be > 0 in actual implementation
+        assert_eq!(stats.mine_count, fixture.assert_real_mines(&behavior).len());
     }
 
     #[test]
@@ -1942,10 +1948,9 @@ mod tests {
 
     #[test]
     fn test_death_behavior() {
-        let mut behavior = GenerateMinefieldBehaviorBuilder::new()
-            .mine_name("death_mine")
-            .on_death(true)
-            .build(1);
+        let _guard = crate::test_sync::lock();
+        let fixture = super::test_fixture::MinefieldFixture::new(98_102);
+        let mut behavior = fixture.behavior(true);
 
         let damage_info =
             DamageInfo::with_simple(1000.0, 42, DamageType::Explosion, DeathType::Normal);
@@ -1955,6 +1960,7 @@ mod tests {
 
         let stats = behavior.get_statistics();
         assert!(stats.is_generated);
+        assert_eq!(stats.mine_count, fixture.assert_real_mines(&behavior).len());
     }
 
     #[test]
@@ -1992,11 +1998,14 @@ mod tests {
 
     #[test]
     fn test_mine_clearing() {
-        let mut behavior = create_test_behavior();
+        let _guard = crate::test_sync::lock();
+        let fixture = super::test_fixture::MinefieldFixture::new(98_103);
+        let mut behavior = fixture.behavior(false);
 
         // Generate mines first
-        let _ = behavior.place_mines();
+        behavior.place_mines().expect("real minefield generation");
         assert!(behavior.get_statistics().is_generated);
+        let mines = fixture.assert_real_mines(&behavior);
 
         // Clear mines
         let result = behavior.clear_mines();
@@ -2005,5 +2014,17 @@ mod tests {
         let stats = behavior.get_statistics();
         assert!(!stats.is_generated);
         assert_eq!(stats.mine_count, 0);
+        let retained: Vec<_> = {
+            let manager_handle = crate::object_manager::get_object_manager();
+            let manager = manager_handle.read().unwrap();
+            mines
+                .iter()
+                .map(|id| manager.get_object(*id).is_some())
+                .collect()
+        };
+        assert!(
+            retained.into_iter().all(|present| present),
+            "mine remains owned until deletion boundary"
+        );
     }
 }

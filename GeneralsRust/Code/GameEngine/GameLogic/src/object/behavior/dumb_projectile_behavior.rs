@@ -1542,13 +1542,55 @@ mod tests {
         use crate::object::Object;
         use crate::object::registry::OBJECT_REGISTRY;
 
-        OBJECT_REGISTRY.clear();
-        let object_id = 1;
+        let _test_lock = crate::test_sync::lock();
+        // C++ DumbProjectileBehavior.cpp:90-108 borrows the existing owning
+        // Object; GameLogic.cpp:3935-3980,2449-2510 controls its retirement.
+        // The fixture's owner is inert until explicit admission, and its pin
+        // keeps the final Arc drop outside owner-directed deletion callbacks.
+        struct FactoryOwner {
+            logic: crate::system::game_logic::GameLogic,
+            object: Arc<RwLock<Object>>,
+            id: ObjectID,
+        }
+        impl Drop for FactoryOwner {
+            fn drop(&mut self) {
+                let unwinding = std::thread::panicking();
+                let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    let admitted = self.logic.find_object_by_id(self.id).unwrap();
+                    assert!(Arc::ptr_eq(&admitted, &self.object));
+                    self.logic.destroy_object(self.id);
+                    self.logic.cleanup_dead_objects().unwrap();
+                    assert!(self.logic.find_object_by_id(self.id).is_none());
+                    assert!(OBJECT_REGISTRY.get_object(self.id).is_none());
+                }));
+                if let Err(error) = result {
+                    if unwinding {
+                        eprintln!("dumb projectile fixture retirement failed during unwind");
+                    } else {
+                        std::panic::resume_unwind(error);
+                    }
+                }
+            }
+        }
+
+        let object_id = 0xD00B_0001;
+        assert!(OBJECT_REGISTRY.get_object(object_id).is_none());
         let object = Arc::new(RwLock::new(Object::new_test(object_id, 100.0)));
-        OBJECT_REGISTRY.register_object(object_id, &object);
+        let mut owner = FactoryOwner {
+            logic: crate::system::game_logic::GameLogic::new(),
+            object: Arc::clone(&object),
+            id: object_id,
+        };
+        owner.logic.register_object(Arc::clone(&object)).unwrap();
+        assert!(Arc::ptr_eq(
+            &owner.logic.find_object_by_id(object_id).unwrap(),
+            &object,
+        ));
 
         let data =
             Arc::new(DumbProjectileBehaviorModuleData::default()) as Arc<dyn ThingModuleData>;
+        // Declared after the owner: both normal exit and assertion unwind drop
+        // the module before retiring the object it refers to.
         let module =
             dumb_projectile_behavior_module_factory(Arc::new(StubThing { object_id }), data);
         assert!(
@@ -1558,6 +1600,10 @@ mod tests {
                 .downcast_ref::<DumbProjectileBehaviorModuleData>()
                 .is_some()
         );
+        drop(module);
+        drop(owner);
+        assert!(OBJECT_REGISTRY.get_object(object_id).is_none());
+        assert_eq!(object.read().unwrap().get_id(), OBJECT_INVALID_ID);
     }
 
     #[test]

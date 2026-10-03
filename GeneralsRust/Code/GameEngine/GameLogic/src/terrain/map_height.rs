@@ -29,7 +29,7 @@ impl TerrainLogic {
             water_to_update: Vec::new(),
             water_handles: HashMap::new(),
             water_handles_by_trigger_id: HashMap::new(),
-            terrain_data: None,
+            authored_bridges: Vec::new(),
             trigger_areas: PolygonTriggerList::new(),
         }
     }
@@ -45,7 +45,9 @@ impl TerrainLogic {
         // Store heightmap. MapData.width/height are playable (minus 2*border);
         // sample buffer is C++ full extent including border. Keep map_dx/dy as
         // full stride so indexing matches WorldHeightMap::getXExtent().
-        self.map_data = map_data.heightmap.clone();
+        // The parsed map is consumed here. Keep one live logical height buffer
+        // for sampling, deformation and Xfer instead of an unused second copy.
+        self.map_data = map_data.heightmap;
         let border = map_data.border_size.max(0);
         let playable_w = map_data.width as i32;
         let playable_h = map_data.height as i32;
@@ -68,18 +70,13 @@ impl TerrainLogic {
             self.map_min_z = 0.0;
             self.map_max_z = 1.0;
         }
-        self.boundaries = map_data.boundaries.clone();
+        self.boundaries = map_data.boundaries;
         self.border_size = map_data.border_size;
         self.cliff_state
             .rebuild(&self.map_data, self.map_dx, self.map_dy);
 
-        // Store terrain data including bridges
-        self.terrain_data = Some(TerrainData {
-            heightmap: map_data.heightmap,
-            width: map_data.width as i32,
-            height: map_data.height as i32,
-            bridges: map_data.bridges,
-        });
+        // Retain authored bridge geometry; logical heights live in map_data.
+        self.authored_bridges = map_data.bridges;
 
         // Rebuild grid-water handle using C++ sentinel name and map extent.
         let grid_height = map_data
@@ -110,27 +107,21 @@ impl TerrainLogic {
 
         // C++ W3DBridgeBuffer::addBridge → TerrainLogic::addBridgeToLogic
         // (TerrainLogic.cpp:1514, W3DBridgeBuffer.cpp:1059). Map bridges used
-        // to sit in TerrainData only, so live pathfinding/height never saw them.
+        // to sit in authored geometry only, so live pathfinding/height never saw them.
         self.bridge_list_head = None;
-        let bridges = self
-            .terrain_data
-            .as_ref()
-            .map(|terrain_data| terrain_data.bridges.clone())
-            .unwrap_or_default();
-        for (index, bridge) in bridges.iter().enumerate() {
+        for index in 0..self.authored_bridges.len() {
+            let bridge = &self.authored_bridges[index];
             let Some(info) = Self::bridge_info_from_map_data(bridge, index as i32) else {
                 continue;
             };
-            self.add_bridge_to_logic(info, AsciiString::from(bridge.template_name.as_str()));
+            let template_name = AsciiString::from(bridge.template_name.as_str());
+            self.add_bridge_to_logic(info, template_name);
         }
     }
 
     /// Snapshot parsed map bridge geometry.
     pub fn bridge_data_snapshot(&self) -> Vec<crate::system::map_loader::BridgeData> {
-        self.terrain_data
-            .as_ref()
-            .map(|terrain_data| terrain_data.bridges.clone())
-            .unwrap_or_default()
+        self.authored_bridges.clone()
     }
 
     /// Get map extent including border in world coordinates.
@@ -203,7 +194,7 @@ impl TerrainLogic {
         self.water_to_update.clear();
         self.water_handles.clear();
         self.water_handles_by_trigger_id.clear();
-        self.terrain_data = None;
+        self.authored_bridges.clear();
         self.bridge_damage_states_changed = false;
         self.trigger_areas.clear();
         self.water_grid_enabled = false;
@@ -552,7 +543,8 @@ impl TerrainLogic {
     }
 
     pub(super) fn is_point_on_wall(&self, pos: &Coord3D) -> bool {
-        let ai_store = the_ai(); if let Ok(ai_guard) = ai_store.read() {
+        let ai_store = the_ai();
+        if let Ok(ai_guard) = ai_store.read() {
             if let Some(pathfinder) = ai_guard.pathfinder() {
                 if let Ok(pathfinder_guard) = pathfinder.read() {
                     return pathfinder_guard.is_point_on_wall(pos);

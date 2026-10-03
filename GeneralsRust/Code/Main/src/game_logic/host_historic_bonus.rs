@@ -10,7 +10,7 @@
 use super::ObjectId;
 use glam::Vec3;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::sync::Mutex;
 
 /// One historic damage sample (C++ HistoricWeaponDamageInfo).
@@ -31,73 +31,72 @@ pub struct PendingHistoricFirestorm {
     pub trigger_frame: u32,
 }
 
+/// C++ WeaponTemplate history is shared by all users of that template in one
+/// game. The host's CombatSystem owns it; immutable authored rules stay outside.
 #[derive(Debug, Default)]
-struct HistoricState {
-    /// Per-weapon-template damage samples.
-    samples: HashMap<String, Vec<HistoricSample>>,
-    /// Logic frame advanced by combat/GameLogic.
-    frame: u32,
+pub(crate) struct HostHistoricBonus {
+    samples: HashMap<String, VecDeque<HistoricSample>>,
     pending: Vec<PendingHistoricFirestorm>,
-    /// Honesty counters.
     impacts_recorded: u32,
     bonuses_triggered: u32,
 }
 
-static STATE: Mutex<Option<HistoricState>> = Mutex::new(None);
+// Temporary compatibility clock for callers outside the owned impact path.
+// hq-vrkh8 tracks migration of those consumers to their driving game/frame.
+// This clock owns no history, pending firestorms, or counters.
+static LOGIC_FRAME: Mutex<u32> = Mutex::new(0);
 
-fn with_state<R>(f: impl FnOnce(&mut HistoricState) -> R) -> R {
-    let mut guard = STATE.lock().expect("historic bonus lock");
-    if guard.is_none() {
-        *guard = Some(HistoricState::default());
-    }
-    f(guard.as_mut().unwrap())
-}
-
-/// Advance residual frame (call once per logic tick).
 pub fn set_logic_frame(frame: u32) {
-    with_state(|s| s.frame = frame);
+    *LOGIC_FRAME.lock().expect("logic frame lock") = frame;
 }
 
 pub fn logic_frame() -> u32 {
-    with_state(|s| s.frame)
+    *LOGIC_FRAME.lock().expect("logic frame lock")
 }
 
-/// Record an impact and maybe trigger HistoricBonus weapon.
-///
-/// Returns true if a bonus firestorm was queued this call.
-pub fn record_impact(
-    weapon_key: &str,
-    peel: &crate::game_logic::weapon_bootstrap::HostHistoricBonusPeel,
-    pos: Vec3,
-    source_id: ObjectId,
-    source_team: super::Team,
-) -> bool {
-    if !peel.is_active() || weapon_key.is_empty() {
-        return false;
-    }
-    with_state(|s| {
-        s.impacts_recorded = s.impacts_recorded.saturating_add(1);
-        let frame = s.frame;
-        let rad = peel.radius;
-        let rad_sqr = rad * rad;
-        let oldest = frame.saturating_sub(peel.time_frames);
-
-        // Trim + count without holding entry borrow across other s fields.
-        let mut list = s.samples.remove(weapon_key).unwrap_or_default();
-        list.retain(|h| h.frame >= oldest);
-
-        let mut count = 0i32;
-        for h in list.iter() {
-            let dx = h.pos.x - pos.x;
-            let dz = h.pos.z - pos.z;
-            if dx * dx + dz * dz <= rad_sqr {
-                count += 1;
-            }
+impl HostHistoricBonus {
+    /// C++ Weapon.cpp:1169-1251: trim chronological history, count previous
+    /// same-template impacts, then dispatch/clear or append the current hit.
+    /// Frame and immutable retention rules come from the driving operation.
+    pub(crate) fn record_impact(
+        &mut self,
+        frame: u32,
+        historic_damage_limit: u32,
+        weapon_key: &str,
+        peel: &crate::game_logic::weapon_bootstrap::HostHistoricBonusPeel,
+        pos: Vec3,
+        source_id: ObjectId,
+        source_team: super::Team,
+    ) -> bool {
+        if !peel.is_active() || weapon_key.is_empty() {
+            return false;
         }
+        self.impacts_recorded = self.impacts_recorded.saturating_add(1);
+        let list = self.samples.entry(weapon_key.to_string()).or_default();
+        // C++ UnsignedInt subtraction wraps, including early logic frames.
+        let expiration = frame.wrapping_sub(historic_damage_limit);
+        while list
+            .front()
+            .is_some_and(|sample| sample.frame <= expiration)
+        {
+            list.pop_front();
+        }
+        let oldest = frame.wrapping_sub(peel.time_frames);
+        let rad_sqr = peel.radius * peel.radius;
+        let count = list
+            .iter()
+            .filter(|sample| {
+                let dx = sample.pos.x - pos.x;
+                let dz = sample.pos.z - pos.z;
+                sample.frame >= oldest && dx * dx + dz * dz <= rad_sqr
+            })
+            .count() as i32;
 
-        // C++: count >= historicBonusCount - 1 (self included implicitly)
+        // C++ includes the current impact implicitly; it is not appended
+        // before checking the threshold. Host bonus dispatch remains the
+        // existing deferred FirestormSmall/OCL residual.
         if count >= peel.count - 1 {
-            s.pending.push(PendingHistoricFirestorm {
+            self.pending.push(PendingHistoricFirestorm {
                 source_id,
                 source_team,
                 position: pos,
@@ -105,46 +104,35 @@ pub fn record_impact(
                 bonus_weapon: peel.bonus_weapon.clone(),
                 trigger_frame: frame,
             });
-            s.bonuses_triggered = s.bonuses_triggered.saturating_add(1);
-            // C++ E3 plug: clear list on success (do not reinsert).
+            self.bonuses_triggered = self.bonuses_triggered.saturating_add(1);
+            list.clear();
             true
         } else {
-            list.push(HistoricSample { frame, pos });
-            s.samples.insert(weapon_key.to_string(), list);
+            list.push_back(HistoricSample { frame, pos });
             false
         }
-    })
-}
+    }
 
-/// Drain pending historic firestorm spawns.
-pub fn drain_pending_firestorms() -> Vec<PendingHistoricFirestorm> {
-    with_state(|s| std::mem::take(&mut s.pending))
-}
+    pub(crate) fn drain_pending_firestorms(&mut self) -> Vec<PendingHistoricFirestorm> {
+        std::mem::take(&mut self.pending)
+    }
 
-pub fn honesty_impacts() -> u32 {
-    with_state(|s| s.impacts_recorded)
-}
+    pub(crate) fn reset(&mut self) {
+        *self = Self::default();
+    }
 
-pub fn honesty_bonuses() -> u32 {
-    with_state(|s| s.bonuses_triggered)
-}
-
-/// Test/reset helper.
-pub fn reset_for_tests() {
-    with_state(|s| *s = HistoricState::default());
+    pub(crate) fn honesty_snapshot(&self) -> HostHistoricBonusHonesty {
+        HostHistoricBonusHonesty {
+            impacts_recorded: self.impacts_recorded,
+            bonuses_triggered: self.bonuses_triggered,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct HostHistoricBonusHonesty {
     pub impacts_recorded: u32,
     pub bonuses_triggered: u32,
-}
-
-pub fn honesty_snapshot() -> HostHistoricBonusHonesty {
-    HostHistoricBonusHonesty {
-        impacts_recorded: honesty_impacts(),
-        bonuses_triggered: honesty_bonuses(),
-    }
 }
 
 #[cfg(test)]
@@ -155,8 +143,7 @@ mod tests {
 
     #[test]
     fn historic_bonus_triggers_on_third_close_impact() {
-        reset_for_tests();
-        set_logic_frame(100);
+        let mut history = HostHistoricBonus::default();
         let peel = HostHistoricBonusPeel {
             time_frames: 90,
             count: 3,
@@ -165,46 +152,95 @@ mod tests {
         };
         let key = "InfernoCannonGun";
         let pos = Vec3::ZERO;
-        assert!(!record_impact(key, &peel, pos, ObjectId(1), Team::China));
-        assert!(!record_impact(key, &peel, pos, ObjectId(1), Team::China));
-        assert!(record_impact(key, &peel, pos, ObjectId(1), Team::China));
-        let pending = drain_pending_firestorms();
+        assert!(!history.record_impact(100, 90, key, &peel, pos, ObjectId(1), Team::China));
+        assert!(!history.record_impact(100, 90, key, &peel, pos, ObjectId(1), Team::China));
+        assert!(history.record_impact(100, 90, key, &peel, pos, ObjectId(1), Team::China));
+        let pending = history.drain_pending_firestorms();
         assert_eq!(pending.len(), 1);
         assert!(!pending[0].black_napalm);
-        assert_eq!(honesty_bonuses(), 1);
+        assert_eq!(history.honesty_snapshot().bonuses_triggered, 1);
     }
 
     #[test]
     fn historic_bonus_ignores_far_impacts() {
-        reset_for_tests();
-        set_logic_frame(50);
+        let mut history = HostHistoricBonus::default();
         let peel = HostHistoricBonusPeel {
             time_frames: 90,
             count: 3,
             radius: 20.0,
             bonus_weapon: "FirestormSmallCreationWeapon".into(),
         };
-        assert!(!record_impact(
+        assert!(!history.record_impact(
+            100,
+            90,
             "InfernoCannonGun",
             &peel,
             Vec3::ZERO,
             ObjectId(1),
             Team::China
         ));
-        assert!(!record_impact(
+        assert!(!history.record_impact(
+            100,
+            90,
             "InfernoCannonGun",
             &peel,
             Vec3::new(100.0, 0.0, 0.0),
             ObjectId(1),
             Team::China
         ));
-        assert!(!record_impact(
+        assert!(!history.record_impact(
+            100,
+            90,
             "InfernoCannonGun",
             &peel,
             Vec3::new(200.0, 0.0, 0.0),
             ObjectId(1),
             Team::China
         ));
-        assert!(drain_pending_firestorms().is_empty());
+        assert!(history.drain_pending_firestorms().is_empty());
+    }
+    #[test]
+    fn historic_bonus_unsigned_thresholds_match_cpp() {
+        // Weapon.cpp:1171 expirationDate and :1221 oldestThatWillCount
+        // subtract UnsignedInt. Expiry is <=; qualifying time is >=.
+        let cases = [
+            (100, 108, 8, 8, false),
+            (1, 1, 8, 1, false),
+            (1, 1, 1, 8, false),
+            (u32::MAX - 1, 1, 8, 8, true),
+            (100, 180, 90, 80, true),
+            (100, 181, 90, 80, false),
+        ];
+        for (first_frame, next_frame, limit, time_frames, expected) in cases {
+            let mut history = HostHistoricBonus::default();
+            let peel = HostHistoricBonusPeel {
+                time_frames,
+                count: 2,
+                radius: 20.0,
+                bonus_weapon: "FirestormSmallCreationWeapon".into(),
+            };
+            assert!(!history.record_impact(
+                first_frame,
+                limit,
+                "WrapGun",
+                &peel,
+                Vec3::ZERO,
+                ObjectId(1),
+                Team::China,
+            ));
+            assert_eq!(
+                history.record_impact(
+                    next_frame,
+                    limit,
+                    "WrapGun",
+                    &peel,
+                    Vec3::ZERO,
+                    ObjectId(2),
+                    Team::China,
+                ),
+                expected,
+                "first={first_frame}, next={next_frame}, limit={limit}, window={time_frames}",
+            );
+        }
     }
 }

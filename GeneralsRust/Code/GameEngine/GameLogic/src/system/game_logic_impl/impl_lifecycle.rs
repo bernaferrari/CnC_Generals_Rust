@@ -286,10 +286,15 @@ impl GameLogic {
             return;
         }
 
-        // Map-owned lookup: destroy parity tests register objects directly in
-        // GameLogic.objects, and the &mut self onDestroy callbacks below need
-        // the handle owned rather than borrowed from the map.
-        if let Some(obj_arc) = self.objects.get(&object_id).cloned() {
+        // C++ GameLogic.cpp:3935-3942 rejects a null object. Resolve an ID
+        // only against this owner: an absent request must not target a future
+        // admission or an unrelated registry object with the same ID.
+        let Some(obj_arc) = self.objects.get(&object_id).cloned() else {
+            return;
+        };
+        // Keep this exact object alive through callbacks without borrowing the
+        // map across their synchronous changes to the driving GameLogic.
+        {
             let behaviors = {
                 match obj_arc.read() {
                     Ok(obj) => {
@@ -333,20 +338,16 @@ impl GameLogic {
         // obj->onDestroy() then remove WALK_ON_TOP_OF_WALL from the pathfinder
         // and mark the control bar dirty for local special-power objects.
         // Do not split onDestroy across destroyObject / processDestroyList.
-        let (is_wall, has_special_power, is_local) =
-            if let Some(obj_arc) = self.objects.get(&object_id).cloned() {
-                Object::on_destroy_from_handle(&obj_arc);
-                if let Ok(obj) = obj_arc.read() {
-                    let is_wall = obj.is_kind_of(KindOf::WalkOnTopOfWall);
-                    let has_special_power = obj.has_any_special_power();
-                    let is_local = obj.is_locally_controlled();
-                    (is_wall, has_special_power, is_local)
-                } else {
-                    (false, false, false)
-                }
-            } else {
-                (false, false, false)
-            };
+        Object::on_destroy_from_handle(&obj_arc);
+        let (is_wall, has_special_power, is_local) = if let Ok(obj) = obj_arc.read() {
+            (
+                obj.is_kind_of(KindOf::WalkOnTopOfWall),
+                obj.has_any_special_power(),
+                obj.is_locally_controlled(),
+            )
+        } else {
+            (false, false, false)
+        };
 
         if is_wall {
             let ai_store = the_ai();

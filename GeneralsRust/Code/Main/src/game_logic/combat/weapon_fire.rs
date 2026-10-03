@@ -116,6 +116,8 @@ pub struct CombatSystem {
     pending_on_die: Vec<ObjectId>,
     /// Parsed fire-time FX/OCL references accepted with queued projectile shots.
     fire_ocl: Vec<WeaponFireOcl>,
+    /// Same-template impact history and pending bonuses belong to this match.
+    historic_bonus: crate::game_logic::host_historic_bonus::HostHistoricBonus,
 }
 
 /// Global projectile spawn queue. Objects call this when firing, and the
@@ -277,8 +279,15 @@ pub fn apply_ready_projectileless_delayed_damage(
     } else {
         Vec::new()
     };
+    let historic_damage_limit = game_engine::common::global_data::read().historic_damage_limit;
     for shot in ready {
-        combat.apply_projectileless_delayed_shot(&shot, objects, players);
+        combat.apply_projectileless_delayed_shot(
+            &shot,
+            objects,
+            players,
+            current_frame,
+            historic_damage_limit,
+        );
     }
 }
 

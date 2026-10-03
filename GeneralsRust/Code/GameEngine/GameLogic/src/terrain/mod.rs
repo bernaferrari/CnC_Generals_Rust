@@ -689,15 +689,6 @@ pub struct TerrainDynamicWaterSnapshotEntry {
     pub current_height: f32,
 }
 
-/// Terrain data loaded from map file
-#[derive(Debug)]
-struct TerrainData {
-    heightmap: Vec<u8>,
-    width: i32,
-    height: i32,
-    bridges: Vec<crate::system::map_loader::BridgeData>,
-}
-
 /// Main terrain logic system
 pub struct TerrainLogic {
     /// Array of height samples
@@ -743,8 +734,8 @@ pub struct TerrainLogic {
     water_handles: HashMap<AsciiString, WaterHandle>,
     /// Map of trigger-ID keyed handles for identity-stable water operations.
     water_handles_by_trigger_id: HashMap<Int, WaterHandle>,
-    /// Loaded terrain data (heightmap and bridges)
-    terrain_data: Option<TerrainData>,
+    /// Authored bridge geometry; map_data owns the live logical heights.
+    authored_bridges: Vec<crate::system::map_loader::BridgeData>,
     /// Polygon trigger areas for scripts
     /// Matches C++ ThePolygonTriggerListPtr from PolygonTrigger.h
     trigger_areas: PolygonTriggerList,
