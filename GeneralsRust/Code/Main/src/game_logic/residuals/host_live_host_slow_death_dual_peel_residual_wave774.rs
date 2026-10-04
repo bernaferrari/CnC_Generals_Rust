@@ -85,7 +85,8 @@ pub fn honesty_host_slow_death_dual_peel_source_markers_residual_wave774() -> bo
     let sh = sh_source();
     let gl = gl_source();
     let ent = include_str!("../../../../GameEngine/GameLogic/src/world/entities/mod.rs");
-    let owner = include_str!("../../../../GameEngine/GameLogic/src/world/shadow_death_completions.rs");
+    let owner =
+        include_str!("../../../../GameEngine/GameLogic/src/world/shadow_death_completions.rs");
     let world = include_str!("../../../../GameEngine/GameLogic/src/world/mod.rs");
     let ok = ent.contains("slow_death_phase")
         && ent.contains("slow_death_sink_offset")

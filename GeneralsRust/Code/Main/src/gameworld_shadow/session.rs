@@ -1201,9 +1201,10 @@ pub fn shadow_session_after_host_tick(
             );
         }
         // Wave 772: JetSlowDeathBehavior done → host destroy (no dual timer).
-        for host_id in shadow.world.take_shadow_death_completions(
-            gamelogic::world::ShadowDeathCompletionKind::Jet,
-        ) {
+        for host_id in shadow
+            .world
+            .take_shadow_death_completions(gamelogic::world::ShadowDeathCompletionKind::Jet)
+        {
             let id = ObjectId(host_id);
             // Wave 941: force-kill residual via host residual mutation authority.
             logic.apply_host_residual_mutation_op(
@@ -1218,9 +1219,10 @@ pub fn shadow_session_after_host_tick(
             logic.destroy_object(id);
         }
         // Wave 773: HelicopterSlowDeathBehavior done → host destroy (no dual timer).
-        for host_id in shadow.world.take_shadow_death_completions(
-            gamelogic::world::ShadowDeathCompletionKind::Helicopter,
-        ) {
+        for host_id in shadow
+            .world
+            .take_shadow_death_completions(gamelogic::world::ShadowDeathCompletionKind::Helicopter)
+        {
             let id = ObjectId(host_id);
             // C++ :457-472 FinalBlowUp FX/OCL + rubble before destroyObject.
             if let Some(obj) = logic.objects.get_mut(&id) {
@@ -1271,9 +1273,10 @@ pub fn shadow_session_after_host_tick(
             logic.destroy_object(id);
         }
         // Wave 774: SlowDeathBehavior done → host destroy (no dual timer).
-        for host_id in shadow.world.take_shadow_death_completions(
-            gamelogic::world::ShadowDeathCompletionKind::Slow,
-        ) {
+        for host_id in shadow
+            .world
+            .take_shadow_death_completions(gamelogic::world::ShadowDeathCompletionKind::Slow)
+        {
             let id = ObjectId(host_id);
             // Wave 941: force-kill residual via host residual mutation authority.
             logic.apply_host_residual_mutation_op(

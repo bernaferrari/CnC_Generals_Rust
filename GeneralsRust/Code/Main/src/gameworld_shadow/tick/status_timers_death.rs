@@ -307,7 +307,10 @@ impl GameWorldShadow {
             gamelogic::world::ShadowDeathCompletionKind::Jet,
             gamelogic::world::ShadowDeathCompletionKind::Helicopter,
             gamelogic::world::ShadowDeathCompletionKind::Slow,
-        ].into_iter().zip(completed) {
+        ]
+        .into_iter()
+        .zip(completed)
+        {
             if let Some(host_id) = host_id {
                 self.world.record_shadow_death_completion(kind, host_id);
             }
