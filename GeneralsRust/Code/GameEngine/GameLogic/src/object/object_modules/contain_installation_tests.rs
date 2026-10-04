@@ -238,3 +238,56 @@ fn authored_open_wrapper_xfer_uses_same_installed_state() {
         &second.owner.read().unwrap().get_contain().unwrap()
     ));
 }
+
+#[test]
+fn authored_transport_wrapper_restores_inherited_rally_to_installed_runtime() {
+    if !child(concat!(
+        module_path!(),
+        "::authored_transport_wrapper_restores_inherited_rally_to_installed_runtime"
+    )) {
+        return;
+    }
+    // C++ TransportContain.cpp:655-684 extends OpenContain's Xfer and
+    // post-load hooks; OpenContain.cpp:1678-1681 serializes inherited rally.
+    let first = Installed::new("TransportXferFirst", "TransportContain", "Slots = 4");
+    let second = Installed::new("TransportXferSecond", "TransportContain", "Slots = 7");
+    assert!(!Arc::ptr_eq(&first.contain, &second.contain));
+    let rally = Coord3D::new(37.0, 83.0, 6.0);
+    first.contain.lock().unwrap().set_rally_point(rally);
+    assert_eq!(second.contain.lock().unwrap().get_rally_point(), None);
+    let saved = first.save();
+    let mut direct = Vec::new();
+    first
+        .contain
+        .lock()
+        .unwrap()
+        .snapshot_xfer(&mut XferSave::new(Cursor::new(&mut direct), 1))
+        .unwrap();
+    assert_eq!(saved, direct, "binding and interface serialize one runtime");
+    second.entry.with_module(|module| {
+        module
+            .xfer(&mut XferLoad::new(Cursor::new(saved.clone()), 1))
+            .unwrap();
+        module.load_post_process().unwrap();
+    });
+    assert_eq!(
+        second.contain.lock().unwrap().get_rally_point(),
+        Some(rally)
+    );
+    assert_eq!(second.save(), saved);
+    assert_eq!(first.contain.lock().unwrap().get_max_capacity(), 4);
+    assert_eq!(second.contain.lock().unwrap().get_max_capacity(), 7);
+    assert!(Arc::ptr_eq(
+        &second.contain,
+        &second.owner.read().unwrap().get_contain().unwrap()
+    ));
+    first
+        .contain
+        .lock()
+        .unwrap()
+        .set_rally_point(Coord3D::new(1.0, 2.0, 3.0));
+    assert_eq!(
+        second.contain.lock().unwrap().get_rally_point(),
+        Some(rally)
+    );
+}
