@@ -138,7 +138,7 @@ impl Snapshotable for CostModifierUpgrade {
 }
 
 impl UpgradeModuleInterface for CostModifierUpgrade {
-    fn can_upgrade(&self, upgrade_mask: UpgradeMaskType) -> bool {
+    fn can_upgrade(&mut self, upgrade_mask: UpgradeMaskType) -> bool {
         mux_can_upgrade(&self.data.upgrade_mux_data, self.applied, upgrade_mask)
     }
 

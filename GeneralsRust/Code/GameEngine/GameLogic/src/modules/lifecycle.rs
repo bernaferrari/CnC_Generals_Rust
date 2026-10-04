@@ -18,9 +18,10 @@ pub trait DamageModule: Send + Sync {
     fn process_damage(&mut self, object_id: ObjectID, damage: &DamageInfo) -> Real;
 }
 
-/// Upgrade module interface
+/// Upgrade module interface. Eligibility queries may initialize owned caches;
+/// callers lend the same mutable module used to apply an upgrade.
 pub trait UpgradeModuleInterface: Send + Sync {
-    fn can_upgrade(&self, upgrade_mask: UpgradeMaskType) -> bool {
+    fn can_upgrade(&mut self, upgrade_mask: UpgradeMaskType) -> bool {
         let _ = upgrade_mask;
         true
     }

@@ -384,7 +384,7 @@ impl DieModuleInterface for FXListDie {
 }
 
 impl crate::modules::UpgradeModuleInterface for FXListDie {
-    fn can_upgrade(&self, _upgrade_mask: UpgradeMaskType) -> bool {
+    fn can_upgrade(&mut self, _upgrade_mask: UpgradeMaskType) -> bool {
         !self.upgrade_mux.is_already_upgraded()
     }
 

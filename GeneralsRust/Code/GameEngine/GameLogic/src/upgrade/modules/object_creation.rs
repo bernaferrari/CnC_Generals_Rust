@@ -176,7 +176,7 @@ impl UpgradeModuleInterface for ObjectCreationUpgrade {
 }
 
 impl RuntimeUpgradeModuleInterface for ObjectCreationUpgrade {
-    fn can_upgrade(&self, upgrade_mask: UpgradeMaskType) -> bool {
+    fn can_upgrade(&mut self, upgrade_mask: UpgradeMaskType) -> bool {
         if upgrade_mask.is_empty() {
             return false;
         }

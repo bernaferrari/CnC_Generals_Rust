@@ -186,7 +186,7 @@ impl Module for StealthUpgrade {
 }
 
 impl UpgradeModuleInterface for StealthUpgrade {
-    fn can_upgrade(&self, upgrade_mask: UpgradeMaskType) -> bool {
+    fn can_upgrade(&mut self, upgrade_mask: UpgradeMaskType) -> bool {
         if self.applied || self.mux.is_already_upgraded() {
             return false;
         }

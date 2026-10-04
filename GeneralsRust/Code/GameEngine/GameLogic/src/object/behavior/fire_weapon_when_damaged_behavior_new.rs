@@ -725,7 +725,7 @@ impl UpdateModuleInterface for FireWeaponWhenDamagedBehavior {
 }
 
 impl UpgradeModuleInterface for FireWeaponWhenDamagedBehavior {
-    fn can_upgrade(&self, _upgrade_mask: crate::common::UpgradeMaskType) -> bool {
+    fn can_upgrade(&mut self, _upgrade_mask: crate::common::UpgradeMaskType) -> bool {
         let mask = UpgradeMask::from_bits_retain(_upgrade_mask.bits());
         self.upgrade_mux.test_upgrade_conditions(mask)
     }

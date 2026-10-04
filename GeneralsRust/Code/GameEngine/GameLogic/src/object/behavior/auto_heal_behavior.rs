@@ -35,7 +35,7 @@ use game_engine::common::thing::module::{
 use log::warn;
 use std::any::Any;
 use std::fmt;
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, RwLock};
 
 /// Wave 306: host-only path has no dual-world factory objects.
 #[inline]
@@ -729,6 +729,15 @@ impl AutoHealPlayerScanHelper {
     }
 }
 
+/// One runtime's lazy mask resolution. A resolver unwind leaves the same
+/// zero-mask query outcome as the former poisoned inner cache mutex.
+#[derive(Debug)]
+enum AutoHealUpgradeMaskCache {
+    Unresolved,
+    ResolvingOrFailed,
+    Ready((UpgradeMaskType, UpgradeMaskType)),
+}
+
 /// AutoHealBehavior - Main implementation of auto-healing behavior
 pub struct AutoHealBehavior {
     pub module_data: Arc<AutoHealBehaviorModuleData>,
@@ -746,7 +755,7 @@ pub struct AutoHealBehavior {
     object_id: ObjectID,
     /// Last `setWakeFrame` request (C++ AutoHealBehavior.cpp:148/154). Test/debug.
     last_wake_sleep: Option<UpdateSleepTime>,
-    upgrade_masks: Mutex<Option<(UpgradeMaskType, UpgradeMaskType)>>,
+    upgrade_masks: AutoHealUpgradeMaskCache,
 }
 
 impl fmt::Debug for AutoHealBehavior {
@@ -773,7 +782,7 @@ impl AutoHealBehavior {
             upgrade_executed: false,
             object_id,
             last_wake_sleep: None,
-            upgrade_masks: Mutex::new(None),
+            upgrade_masks: AutoHealUpgradeMaskCache::Unresolved,
         };
 
         if let Some(radius_tmpl) = &behavior.module_data.radius_particle_system_tmpl {
@@ -1352,7 +1361,7 @@ impl AutoHealBehavior {
 
 // Implement UpgradeModuleInterface for upgrade system integration
 impl UpgradeModuleInterface for AutoHealBehavior {
-    fn can_upgrade(&self, upgrade_mask: UpgradeMaskType) -> bool {
+    fn can_upgrade(&mut self, upgrade_mask: UpgradeMaskType) -> bool {
         let (activation_mask, conflicting_mask) = self.compute_upgrade_masks();
 
         if !conflicting_mask.is_empty() && upgrade_mask.intersects(conflicting_mask) {
@@ -1474,43 +1483,64 @@ impl Snapshotable for AutoHealBehavior {
 // Serialization support
 // Serialization support
 impl AutoHealBehavior {
-    fn compute_upgrade_masks(&self) -> (UpgradeMaskType, UpgradeMaskType) {
-        if let Ok(mut cache) = self.upgrade_masks.lock() {
-            if let Some(mask_pair) = *cache {
-                return mask_pair;
+    fn compute_upgrade_masks(&mut self) -> (UpgradeMaskType, UpgradeMaskType) {
+        self.compute_upgrade_masks_with(|name| upgrade_mask_for_ascii(name))
+    }
+
+    fn compute_upgrade_masks_with(
+        &mut self,
+        mut resolve: impl FnMut(&AsciiString) -> UpgradeMaskType,
+    ) -> (UpgradeMaskType, UpgradeMaskType) {
+        match &self.upgrade_masks {
+            AutoHealUpgradeMaskCache::Ready(pair) => return *pair,
+            AutoHealUpgradeMaskCache::ResolvingOrFailed => {
+                return (UpgradeMaskType::none(), UpgradeMaskType::none());
             }
+            AutoHealUpgradeMaskCache::Unresolved => {}
+        }
 
-            let activation = self
-                .module_data
-                .upgrade_mux_data
-                .activation_upgrade_names()
-                .iter()
-                .chain(
-                    self.module_data
-                        .upgrade_mux_data
-                        .trigger_upgrade_names()
-                        .iter(),
-                )
-                .fold(UpgradeMaskType::none(), |mask, name| {
-                    mask | upgrade_mask_for_ascii(name)
-                });
+        // Mark before calling the resolver. If it unwinds, later queries keep
+        // the old poisoned-cache zero pair without retrying mask allocation.
+        self.upgrade_masks = AutoHealUpgradeMaskCache::ResolvingOrFailed;
+        let activation = self
+            .module_data
+            .upgrade_mux_data
+            .activation_upgrade_names()
+            .iter()
+            .chain(
+                self.module_data
+                    .upgrade_mux_data
+                    .trigger_upgrade_names()
+                    .iter(),
+            )
+            .fold(UpgradeMaskType::none(), |mask, name| mask | resolve(name));
 
-            let conflicting = self
-                .module_data
-                .upgrade_mux_data
-                .conflicting_upgrade_names()
-                .iter()
-                .fold(UpgradeMaskType::none(), |mask, name| {
-                    mask | upgrade_mask_for_ascii(name)
-                });
+        let conflicting = self
+            .module_data
+            .upgrade_mux_data
+            .conflicting_upgrade_names()
+            .iter()
+            .fold(UpgradeMaskType::none(), |mask, name| mask | resolve(name));
 
-            let result = (activation, conflicting);
-            *cache = Some(result);
-            result
-        } else {
-            (UpgradeMaskType::none(), UpgradeMaskType::none())
+        let result = (activation, conflicting);
+        self.upgrade_masks = AutoHealUpgradeMaskCache::Ready(result);
+        result
+    }
+
+    #[cfg(test)]
+    fn upgrade_mask_cache_for_test(
+        &self,
+    ) -> (&'static str, Option<(UpgradeMaskType, UpgradeMaskType)>) {
+        match &self.upgrade_masks {
+            AutoHealUpgradeMaskCache::Unresolved => ("unresolved", None),
+            AutoHealUpgradeMaskCache::ResolvingOrFailed => (
+                "failed",
+                Some((UpgradeMaskType::none(), UpgradeMaskType::none())),
+            ),
+            AutoHealUpgradeMaskCache::Ready(pair) => ("ready", Some(*pair)),
         }
     }
+
 }
 
 // Helper function to create UpdateSleepTime
@@ -1630,3 +1660,7 @@ mod tests {
         // Test upgrade system integration
     }
 }
+
+#[cfg(test)]
+#[path = "auto_heal_query_owner_tests.rs"]
+mod query_owner_tests;

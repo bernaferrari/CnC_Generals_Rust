@@ -349,7 +349,7 @@ impl DieModuleInterface for FireWeaponWhenDeadBehavior {
 }
 
 impl UpgradeModuleInterface for FireWeaponWhenDeadBehavior {
-    fn can_upgrade(&self, _upgrade_mask: UpgradeMaskType) -> bool {
+    fn can_upgrade(&mut self, _upgrade_mask: UpgradeMaskType) -> bool {
         let mask = UpgradeMask::from_bits_retain(_upgrade_mask.bits());
         self.upgrade_mux.test_upgrade_conditions(mask)
     }

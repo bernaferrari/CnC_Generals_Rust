@@ -884,7 +884,7 @@ impl UpdateModuleInterface for CountermeasuresBehavior {
 }
 
 impl UpgradeModuleInterface for CountermeasuresBehavior {
-    fn can_upgrade(&self, upgrade_mask: crate::common::UpgradeMaskType) -> bool {
+    fn can_upgrade(&mut self, upgrade_mask: crate::common::UpgradeMaskType) -> bool {
         let mask = UpgradeMask::from_bits_retain(upgrade_mask.bits());
         self.upgrade_mux.test_upgrade_conditions(mask)
     }

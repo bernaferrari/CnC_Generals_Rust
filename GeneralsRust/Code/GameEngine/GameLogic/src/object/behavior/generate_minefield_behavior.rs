@@ -1342,7 +1342,7 @@ impl Snapshotable for GenerateMinefieldBehavior {
 }
 
 impl UpgradeModuleInterface for GenerateMinefieldBehavior {
-    fn can_upgrade(&self, _upgrade_mask: UpgradeMaskType) -> bool {
+    fn can_upgrade(&mut self, _upgrade_mask: UpgradeMaskType) -> bool {
         true
     }
 
