@@ -982,13 +982,11 @@ impl Object {
             // C++ Object.cpp:430–436 exposes the physics interface from the
             // same authored module before onObjectCreated. Bind the exact
             // construction owner while we already hold its Object borrow.
-            let physics_entries: Vec<_> = guard
-                .modules
-                .iter()
-                .filter(|entry| entry.name() == "PhysicsBehavior")
-                .cloned()
-                .collect();
-            for entry in physics_entries {
+            for index in 0..guard.modules.len() {
+                let entry = &guard.modules[index];
+                if entry.name() != "PhysicsBehavior" {
+                    continue;
+                }
                 let installed = entry.with_module(|module| {
                     let Some(module) = module
                         .as_any_mut()
@@ -1003,9 +1001,12 @@ impl Object {
                     true
                 });
                 if installed {
-                    guard.set_physics(Some(PhysicsInterfaceHandle::from_module(
-                        BehaviorModuleHandle::new(entry),
-                    )));
+                    // The cache retains this entry. No temporary list is needed
+                    // while its Object's module list is already borrowed.
+                    let physics = PhysicsInterfaceHandle::from_module(BehaviorModuleHandle::new(
+                        Arc::clone(entry),
+                    ));
+                    guard.set_physics(Some(physics));
                 }
             }
 
@@ -1065,19 +1066,16 @@ impl Object {
                 guard.on_veterancy_level_changed(old_level, new_level, true);
             }
 
-            let object_id = guard.id;
-            guard.update_module_registrations.clear();
-            let update_handles: Vec<(usize, Arc<ModuleEntry>)> = guard
-                .update_module_handles
-                .iter()
-                .filter_map(|index| {
-                    guard
-                        .modules
-                        .get(*index)
-                        .map(|entry| (*index, entry.clone()))
-                })
-                .collect();
-            for (module_index, entry) in &update_handles {
+            // The module list, authored update indices and registration list
+            // are disjoint fields. Keep the proxy's retained entry, but borrow
+            // the installation walk instead of cloning a temporary snapshot.
+            let owner: &mut Object = &mut guard;
+            let object_id = owner.id;
+            owner.update_module_registrations.clear();
+            for &module_index in &owner.update_module_handles {
+                let Some(entry) = owner.modules.get(module_index) else {
+                    continue;
+                };
                 let proxy: UpdateModulePtr = Arc::new(RwLock::new(ModuleUpdateProxy::new(
                     Arc::clone(entry),
                     object_id,
@@ -1118,10 +1116,10 @@ impl Object {
                         err
                     );
                 }
-                guard
+                owner
                     .update_module_registrations
                     .push(InstalledUpdateRegistration {
-                        module_index: Some(*module_index),
+                        module_index: Some(module_index),
                         module_name: entry.name().clone(),
                         module: proxy,
                     });
