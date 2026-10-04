@@ -179,7 +179,11 @@ fn is_module_body_property(key: &str) -> bool {
             is_module_object_field(base)
                 || matches!(
                     base,
-                    "AddModule" | "ReplaceModule" | "InheritableModule" | "OverrideableByLikeKind"
+                    "AddModule"
+                        | "RemoveModule"
+                        | "ReplaceModule"
+                        | "InheritableModule"
+                        | "OverrideableByLikeKind"
                 )
         })
         .unwrap_or(false)
@@ -268,105 +272,6 @@ fn collect_module_body(
             .join("\n");
     }
     (raw_body, fields)
-}
-
-fn parse_override_module_body(lines: &[&str]) -> HashMap<String, String> {
-    let mut properties = HashMap::new();
-    let mut prefix: Option<String> = None;
-    let mut depth = 0u32;
-    let mut body_lines: Vec<String> = Vec::new();
-    for line in lines {
-        let line = line.trim();
-        if line.is_empty() {
-            continue;
-        }
-        let first = line.split_whitespace().next().unwrap_or("");
-        if first.eq_ignore_ascii_case("End") {
-            if depth > 0 {
-                if depth > 1 {
-                    body_lines.push("End".to_string());
-                }
-                depth -= 1;
-                if depth == 0 {
-                    if let Some(prefix) = prefix.take() {
-                        if !body_lines.is_empty() {
-                            properties.insert(format!("{}.__body", prefix), body_lines.join("\n"));
-                        }
-                    }
-                    body_lines.clear();
-                }
-            }
-            continue;
-        }
-        if depth == 0 {
-            if let Some((key, value)) = line.split_once('=') {
-                let key = key.trim();
-                let value = value.trim();
-                if is_module_object_field(key) {
-                    let declaration_order = properties.len();
-                    insert_repeated_local(&mut properties, key.to_string(), value.to_string());
-                    let header = current_repeatable_local(&properties, key);
-                    properties.insert(
-                        format!("{header}.__declaration_order"),
-                        declaration_order.to_string(),
-                    );
-                    prefix = Some(header);
-                    depth = 1;
-                    body_lines.clear();
-                }
-            }
-            continue;
-        }
-        body_lines.push(line.to_string());
-        if let Some((key, value)) = line.split_once('=') {
-            if let Some(prefix) = prefix.as_deref() {
-                insert_repeated_local(
-                    &mut properties,
-                    format!("{}.{}", prefix, key.trim()),
-                    value.trim().to_string(),
-                );
-            }
-            if is_module_object_field(key.trim())
-                || key.trim().eq_ignore_ascii_case("ConditionState")
-                || key.trim().eq_ignore_ascii_case("TransitionState")
-            {
-                depth += 1;
-            }
-        } else if first.eq_ignore_ascii_case("DefaultConditionState")
-            || first.eq_ignore_ascii_case("ConditionState")
-            || first.eq_ignore_ascii_case("TransitionState")
-        {
-            depth += 1;
-        }
-    }
-    properties
-}
-
-fn insert_repeated_local(properties: &mut HashMap<String, String>, key: String, value: String) {
-    if !properties.contains_key(&key) {
-        properties.insert(key, value);
-        return;
-    }
-    for index in 1.. {
-        let repeated = format!("{}#{}", key, index);
-        if !properties.contains_key(&repeated) {
-            properties.insert(repeated, value);
-            return;
-        }
-    }
-}
-
-fn current_repeatable_local(properties: &HashMap<String, String>, field: &str) -> String {
-    let mut last = field.to_string();
-    for index in 1.. {
-        let repeated = format!("{}#{}", field, index);
-        if properties.contains_key(&repeated) {
-            last = repeated;
-        } else {
-            break;
-        }
-    }
-    last
 }
 
 fn module_data_from_body(
@@ -2467,6 +2372,7 @@ impl ThingTemplate {
         property_key: &str,
         value: &str,
         properties: &HashMap<String, String>,
+        load_type: crate::common::ini::INILoadType,
     ) -> Result<(), String> {
         let mut tokens = value.split_whitespace();
         let module_name = tokens
@@ -2486,7 +2392,7 @@ impl ThingTemplate {
 
         let interface_mask = lookup_module_interface_mask(module_name, module_type, fallback_mask);
 
-        if self.module_parsing_mode != ModuleParseMode::AddRemoveReplace {
+        if load_type != crate::common::ini::INILoadType::CreateOverrides {
             let new_name = AsciiString::from(module_name);
             let mask = interface_mask.0 as i32;
             let (is_trainable, disallowed, candidate) = self.gps_scrambler_inherit_flags();
@@ -2560,6 +2466,7 @@ impl ThingTemplate {
     fn load_modules_from_properties(
         &mut self,
         properties: &HashMap<String, String>,
+        load_type: crate::common::ini::INILoadType,
     ) -> Result<(), String> {
         let mut fields = properties
             .iter()
@@ -2567,50 +2474,55 @@ impl ThingTemplate {
                 if key.contains('.') {
                     return None;
                 }
-                let base_key = property_base_key(key);
-                is_module_object_field(base_key).then_some((
-                    module_field_order(base_key),
+                let field = property_base_key(key);
+                let fallback_order = match field {
+                    "Behavior" | "Body" | "Draw" | "ClientUpdate" => module_field_order(field),
+                    // Programmatic maps have no authored sequence. Retain their
+                    // previous deterministic ordering; real loaders record it.
+                    "RemoveModule" => 4,
+                    "ReplaceModule" => 5,
+                    "AddModule" => 6,
+                    "InheritableModule" => 7,
+                    "OverrideableByLikeKind" => 8,
+                    _ => return None,
+                };
+                Some((
+                    fallback_order,
                     property_repeat_index(key),
-                    base_key,
+                    field,
                     key.as_str(),
                     value.as_str(),
                 ))
             })
             .collect::<Vec<_>>();
-
-        fields.sort_by_key(|(field_order, repeat_index, field_name, property_key, _)| {
-            let source_order = properties
-                .get(&format!("{property_key}.__declaration_order"))
+        fields.sort_by_key(|(fallback_order, repeat, field, key, _)| {
+            let ordinal = properties
+                .get(&format!("{key}.__declaration_order"))
                 .and_then(|value| value.parse::<usize>().ok());
-            match source_order {
-                Some(order) => (0, order, 0, String::new()),
-                // Manually supplied property maps have no source sequence.
-                None => (1, *field_order, *repeat_index, (*field_name).to_string()),
+            match ordinal {
+                Some(order) => (0, order, 0, "", *key),
+                None => (1, *fallback_order, *repeat, *field, *key),
             }
         });
-
-        for (_, _, field_name, property_key, value) in fields {
-            self.add_module_from_property(field_name, property_key, value.trim(), properties)?;
-        }
-
-        self.load_module_overrides(properties)?;
-        Ok(())
-    }
-
-    fn collect_repeatable_keys(properties: &HashMap<String, String>, field: &str) -> Vec<String> {
-        let mut keys = Vec::new();
-        if properties.contains_key(field) {
-            keys.push(field.to_string());
-        }
-        for index in 1.. {
-            let repeated = format!("{}#{}", field, index);
-            if properties.contains_key(&repeated) {
-                keys.push(repeated);
+        // INI.cpp:1465-1505 dispatches immediately. An operation must see
+        // exactly the modules declared before it, including other wrappers.
+        for (_, _, field, key, value) in fields {
+            if is_module_object_field(field) {
+                if load_type == crate::common::ini::INILoadType::CreateOverrides
+                    && self.module_parsing_mode != ModuleParseMode::AddRemoveReplace
+                {
+                    // ThingTemplate.cpp:537-545: override files may only
+                    // introduce modules through AddModule or ReplaceModule.
+                    return Err(format!(
+                        "Use AddModule or ReplaceModule for '{field}' in override INI files"
+                    ));
+                }
+                self.add_module_from_property(field, key, value.trim(), properties, load_type)?;
             } else {
-                break;
+                self.load_module_operation(field, key, value.trim(), properties, load_type)?;
             }
         }
-        keys
+        Ok(())
     }
 
     fn remove_module_info(&mut self, tag: &AsciiString) -> Option<AsciiString> {
@@ -2627,111 +2539,68 @@ impl ThingTemplate {
     fn load_modules_from_override_prefix(
         &mut self,
         properties: &HashMap<String, String>,
+        load_type: crate::common::ini::INILoadType,
         prefix: &str,
     ) -> Result<(), String> {
-        let mut nested = HashMap::new();
-        let dotted = format!("{}.", prefix);
-        for (key, value) in properties {
-            if let Some(rest) = key.strip_prefix(&dotted) {
-                nested.insert(rest.to_string(), value.clone());
-            }
-        }
-        if let Some(body) = properties.get(&format!("{}.__body", prefix)) {
+        let nested = if let Some(body) = properties.get(&format!("{prefix}.__body")) {
             let lines: Vec<&str> = body.lines().collect();
-            let from_body = parse_override_module_body(&lines);
-            for (key, value) in from_body {
-                nested.entry(key).or_insert(value);
-            }
-        }
-        self.load_modules_from_properties_without_overrides(&nested)
+            // Use the real object grammar. Flattened fields captured by the
+            // outer reader are not module headers or fields at this depth.
+            super::thing_factory::parse_object_block_properties(&lines, 0).0
+        } else {
+            // Explicit programmatic maps can provide the nested fields directly.
+            let dotted = format!("{prefix}.");
+            properties
+                .iter()
+                .filter_map(|(key, value)| {
+                    let rest = key.strip_prefix(&dotted)?;
+                    (rest != "__declaration_order").then(|| (rest.to_owned(), value.clone()))
+                })
+                .collect()
+        };
+        // C++ wrappers recurse into the entire Object field table, not just
+        // module declarations. Unknown Object fields must remain errors.
+        self.parse_object_fields_for_load(&nested, load_type)
     }
 
-    fn load_modules_from_properties_without_overrides(
+    fn load_module_operation(
         &mut self,
+        field: &str,
+        key: &str,
+        value: &str,
         properties: &HashMap<String, String>,
+        load_type: crate::common::ini::INILoadType,
     ) -> Result<(), String> {
-        let mut fields = properties
-            .iter()
-            .filter_map(|(key, value)| {
-                if key.contains('.') {
-                    return None;
+        // ThingTemplate.cpp:715-816 permits wrappers only in NORMAL mode.
+        if self.module_parsing_mode != ModuleParseMode::Normal {
+            return Err(format!(
+                "{field} cannot be nested inside another module operation"
+            ));
+        }
+        let old_mode = self.module_parsing_mode;
+        self.module_parsing_mode = match field {
+            "InheritableModule" => ModuleParseMode::Inheritable,
+            "OverrideableByLikeKind" => ModuleParseMode::OverrideableByLikeKind,
+            _ => ModuleParseMode::AddRemoveReplace,
+        };
+        let result = (|| {
+            if matches!(field, "RemoveModule" | "ReplaceModule") {
+                let tag = AsciiString::from(value.split_whitespace().next().unwrap_or(""));
+                let name = self
+                    .remove_module_info(&tag)
+                    .ok_or_else(|| format!("{field} tag '{tag}' was not found"))?;
+                if field == "RemoveModule" {
+                    return Ok(());
                 }
-                let base_key = property_base_key(key);
-                is_module_object_field(base_key).then_some((
-                    module_field_order(base_key),
-                    property_repeat_index(key),
-                    base_key,
-                    key.as_str(),
-                    value.as_str(),
-                ))
-            })
-            .collect::<Vec<_>>();
-        fields.sort_by_key(|(field_order, repeat_index, field_name, property_key, _)| {
-            let source_order = properties
-                .get(&format!("{property_key}.__declaration_order"))
-                .and_then(|value| value.parse::<usize>().ok());
-            match source_order {
-                Some(order) => (0, order, 0, String::new()),
-                // Manually supplied property maps have no source sequence.
-                None => (1, *field_order, *repeat_index, (*field_name).to_string()),
+                self.module_being_replaced_name = name;
+                self.module_being_replaced_tag = tag;
             }
-        });
-        for (_, _, field_name, property_key, value) in fields {
-            self.add_module_from_property(field_name, property_key, value.trim(), properties)?;
-        }
-        Ok(())
-    }
-
-    fn load_module_overrides(
-        &mut self,
-        properties: &HashMap<String, String>,
-    ) -> Result<(), String> {
-        for key in Self::collect_repeatable_keys(properties, "RemoveModule") {
-            if let Some(tag) = properties.get(&key) {
-                let tag = AsciiString::from(tag.trim());
-                if !tag.is_empty() {
-                    let _ = self.remove_module_info(&tag);
-                }
-            }
-        }
-
-        for key in Self::collect_repeatable_keys(properties, "ReplaceModule") {
-            let tag = properties
-                .get(&key)
-                .map(|s| s.trim().to_string())
-                .unwrap_or_default();
-            if !tag.is_empty() {
-                let tag_ascii = AsciiString::from(tag.as_str());
-                let removed = self.remove_module_info(&tag_ascii);
-                self.module_being_replaced_name = removed.unwrap_or_default();
-                self.module_being_replaced_tag = tag_ascii;
-            }
-            self.module_parsing_mode = ModuleParseMode::AddRemoveReplace;
-            self.load_modules_from_override_prefix(properties, &key)?;
-            self.module_being_replaced_name.clear();
-            self.module_being_replaced_tag.clear();
-            self.module_parsing_mode = ModuleParseMode::Normal;
-        }
-
-        for key in Self::collect_repeatable_keys(properties, "AddModule") {
-            self.module_parsing_mode = ModuleParseMode::AddRemoveReplace;
-            self.load_modules_from_override_prefix(properties, &key)?;
-            self.module_parsing_mode = ModuleParseMode::Normal;
-        }
-
-        for key in Self::collect_repeatable_keys(properties, "InheritableModule") {
-            self.module_parsing_mode = ModuleParseMode::Inheritable;
-            self.load_modules_from_override_prefix(properties, &key)?;
-            self.module_parsing_mode = ModuleParseMode::Normal;
-        }
-
-        for key in Self::collect_repeatable_keys(properties, "OverrideableByLikeKind") {
-            self.module_parsing_mode = ModuleParseMode::OverrideableByLikeKind;
-            self.load_modules_from_override_prefix(properties, &key)?;
-            self.module_parsing_mode = ModuleParseMode::Normal;
-        }
-
-        Ok(())
+            self.load_modules_from_override_prefix(properties, load_type, key)
+        })();
+        self.module_being_replaced_name.clear();
+        self.module_being_replaced_tag.clear();
+        self.module_parsing_mode = old_mode;
+        result
     }
 
     /// C++ `AIUpdateModuleData::parseLocomotorSet` via ThingTemplate Locomotor field.
@@ -3306,12 +3175,20 @@ impl ThingTemplate {
         &mut self,
         properties: &std::collections::HashMap<String, String>,
     ) -> Result<(), String> {
+        self.parse_object_fields_for_load(properties, crate::common::ini::INILoadType::Overwrite)
+    }
+
+    pub(super) fn parse_object_fields_for_load(
+        &mut self,
+        properties: &HashMap<String, String>,
+        load_type: crate::common::ini::INILoadType,
+    ) -> Result<(), String> {
         self.load_weapon_sets_from_properties(properties)?;
         self.load_armor_sets_from_properties(properties)?;
         self.load_per_unit_sounds_from_properties(properties);
         self.load_per_unit_fx_from_properties(properties);
         self.load_prerequisites_from_properties(properties);
-        self.load_modules_from_properties(properties)?;
+        self.load_modules_from_properties(properties, load_type)?;
 
         for (key, value) in properties {
             let base_key = property_base_key(key);
@@ -3674,12 +3551,20 @@ impl ThingTemplate {
         &mut self,
         properties: &std::collections::HashMap<String, String>,
     ) -> Result<(), String> {
+        self.parse_reskin_fields_for_load(properties, crate::common::ini::INILoadType::Overwrite)
+    }
+
+    pub(super) fn parse_reskin_fields_for_load(
+        &mut self,
+        properties: &HashMap<String, String>,
+        load_type: crate::common::ini::INILoadType,
+    ) -> Result<(), String> {
         let filtered: HashMap<String, String> = properties
             .iter()
             .filter(|(key, _)| is_reskin_property(key))
             .map(|(key, value)| (key.clone(), value.clone()))
             .collect();
-        self.load_modules_from_properties_without_overrides(&filtered)?;
+        self.load_modules_from_properties(&filtered, load_type)?;
 
         for (key, value) in &filtered {
             let base_key = property_base_key(key);
@@ -3906,3 +3791,7 @@ impl Overridable for ThingTemplate {
 #[cfg(test)]
 #[path = "module_declaration_order_tests.rs"]
 mod module_declaration_order_tests;
+
+#[cfg(test)]
+#[path = "module_operation_order_tests.rs"]
+mod module_operation_order_tests;

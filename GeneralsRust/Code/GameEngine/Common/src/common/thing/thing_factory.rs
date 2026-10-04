@@ -413,7 +413,15 @@ fn insert_object_property(properties: &mut HashMap<String, String>, key: &str, v
         insert_repeated_property(properties, canonical.clone(), value.to_string());
         if matches!(
             canonical.as_str(),
-            "Behavior" | "Body" | "Draw" | "ClientUpdate"
+            "Behavior"
+                | "Body"
+                | "Draw"
+                | "ClientUpdate"
+                | "AddModule"
+                | "RemoveModule"
+                | "ReplaceModule"
+                | "InheritableModule"
+                | "OverrideableByLikeKind"
         ) {
             let header = current_repeatable_key(properties, &canonical);
             properties.insert(
@@ -780,7 +788,7 @@ impl ThingFactory {
                 tmpl.copy_from(&reskin_template);
                 tmpl.set_copied_from_default();
                 tmpl.set_reskinned_from(reskin_template);
-                tmpl.parse_reskin_fields_from_ini(&properties)?;
+                tmpl.parse_reskin_fields_for_load(&properties, ini.get_load_type())?;
 
                 self.template_hash_map
                     .insert(AsciiString::from(name), thing_template.clone());
@@ -803,7 +811,7 @@ impl ThingFactory {
             // Use Arc::make_mut to get mutable access for parsing
             let tmpl = Arc::make_mut(&mut thing_template);
             set_locomotor_overrides_allowed(ini.get_load_type() == IniLoadType::CreateOverrides);
-            let parse_result = tmpl.parse_object_fields_from_ini(&properties);
+            let parse_result = tmpl.parse_object_fields_for_load(&properties, ini.get_load_type());
             set_locomotor_overrides_allowed(false);
             parse_result?;
 
@@ -1288,7 +1296,10 @@ pub fn load_templates_from_ini_text(content: &str, _source_name: &str) -> usize 
 ///
 /// Returns `(properties, end_line_index)` where `end_line_index` is the line
 /// *after* the closing `End`.
-fn parse_object_block_properties(lines: &[&str], start: usize) -> (HashMap<String, String>, usize) {
+pub(super) fn parse_object_block_properties(
+    lines: &[&str],
+    start: usize,
+) -> (HashMap<String, String>, usize) {
     let mut properties = HashMap::new();
     let mut block_key_prefix: Option<String> = None;
     let mut depth: u32 = 0;
