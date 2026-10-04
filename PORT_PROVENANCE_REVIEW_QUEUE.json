@@ -18501,6 +18501,11 @@
           "candidate_destinations": [
             {
               "cargo_reachable": true,
+              "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/Common/src/common/thing/definition_snapshot_tests.rs"
+            },
+            {
+              "cargo_reachable": true,
               "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/Common/src/common/thing/module.rs"
             }
@@ -18708,6 +18713,11 @@
               "cargo_reachable": true,
               "classification": "test",
               "path": "GeneralsRust/Code/GameEngine/Common/src/common/thing/builtin_module_mask_query_tests.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/Common/src/common/thing/definition_snapshot_tests.rs"
             },
             {
               "cargo_reachable": true,
@@ -188864,7 +188874,7 @@
       ]
     }
   ],
-  "provenance_input_digest": "c12791ee20a21a77266004e3c7e083f17ed59eadd5f2880e6338d994cbdd5aaf",
+  "provenance_input_digest": "0b98868401462391b7b1ed8a8e15312643a47f8d77eb3128701c4925f1214783",
   "schema_version": 1,
   "summary": {
     "maximum_packet_size": 15,

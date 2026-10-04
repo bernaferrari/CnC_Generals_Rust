@@ -4,6 +4,34 @@
 
 Preserve C++ **behavior**. Do not preserve C++ **pointer ownership**.
 
+## Definition and runtime snapshot boundary (2026-10-04)
+
+`BaseModuleData` and `ActiveBodyModuleData` contain authored definitions. Their
+snapshot hooks are empty, following `Module.h:102-104` and the actual
+BehaviorModuleData → BodyModuleData → ActiveBodyModuleData inheritance chain.
+Runtime `Module` and `ActiveBody` keep their own version headers and health,
+subdual damage, armor flags and particle state. The removed definition payload
+was specific to earlier Rust implementations; those extra bytes are not an
+original C++ save contract. No factory chunk is added to ordinary saves.
+
+Empty definition snapshots are not a blanket rule for all module data.
+`W3DModelDrawModuleData` snapshots mutable validation and bone/weapon caches.
+Those caches require an explicit owner shared by their actual consumers. The
+current factory Xfer still creates an aliased mutable reference from a shared
+Arc; empty callees do not make that reference sound. Its ownership contract
+remains open under hq-x1j4u.1.47 and hq-ha04t. Tests of definitions use borrowed
+factory CRC and uniquely owned typed Save/Load, without invoking that unsafe
+factory boundary (hq-2p19x).
+
+Installed object modules still retain the proxy and interface handles required
+by their existing scheduler and callback lifetimes. Installation borrows the
+module list and authored update indices rather than constructing extra Arc
+snapshots; creation callbacks keep their separate snapshot after releasing the
+Object write guard. Cached armor reads borrow the actual owned Armor, while
+dirty resolution returns a temporary owned value. These changes remove
+temporary allocations and refcounts; they do not remove the outer Object/module
+locks or establish a frame-rate gain (hq-y3mna, hq-s2dbc).
+
 ## Ordinary owned-match AI execution (2026-10-03)
 
 The default Main driver now has one explicit `update_match_ai` phase. It drains
