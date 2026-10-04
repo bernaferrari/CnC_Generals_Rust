@@ -461,22 +461,168 @@ impl ObjectDefinition {
         bones
     }
 
-    /// Overlay leftover map.ini / solo.ini Object CREATE_OVERRIDES properties.
-    ///
-    /// Leftover `ThingFactory::parseObjectDefinition` already stacked these
-    /// keys. Apply only authored keys so unmentioned retail fields stay.
+    /// Apply the actual Common capture lane in C++ authored order.
     pub fn apply_create_override_properties(&mut self, properties: &HashMap<String, String>) {
-        let mut keys: Vec<&String> = properties.keys().collect();
-        keys.sort();
-        if keys.iter().any(|key| leftover_prereq_field(key).is_some()) {
-            // C++ CREATE_OVERRIDES clears m_prereqInfo before re-parse.
-            self.prerequisite_lines.clear();
+        let fields = game_engine::common::thing::thing_template::ObjectIniFields::new(properties);
+        if !fields.has_captured_declarations() {
+            // Preserve the public legacy flattened-map adapter. Actual Common
+            // loads have ordinals and never pass metadata to the value decoder.
+            let flat = fields.flattened_properties();
+            if flat
+                .iter()
+                .any(|(key, _)| leftover_prereq_field(key).is_some())
+            {
+                self.prerequisite_lines.clear();
+            }
+            for (key, value) in flat {
+                self.apply_one_create_override_property(key, value);
+            }
+            return;
         }
-        for key in keys {
-            let Some(value) = properties.get(key) else {
-                continue;
-            };
-            self.apply_one_create_override_property(key, value);
+        let mut replace_weapon_sets = true;
+        let mut replace_armor_sets = true;
+        self.apply_captured_create_override_fields(
+            properties,
+            &mut replace_weapon_sets,
+            &mut replace_armor_sets,
+        );
+    }
+
+    fn apply_captured_create_override_fields(
+        &mut self,
+        properties: &HashMap<String, String>,
+        replace_weapon_sets: &mut bool,
+        replace_armor_sets: &mut bool,
+    ) {
+        use game_engine::common::thing::thing_template::ObjectIniFields;
+        let fields = ObjectIniFields::new(properties);
+        for field in fields.declarations() {
+            let name = field.name();
+            let value = field.value();
+            match name {
+                "AddModule" | "InheritableModule" | "OverrideableByLikeKind" | "ReplaceModule" => {
+                    if name == "ReplaceModule" {
+                        self.apply_one_create_override_property("RemoveModule", value);
+                    }
+                    let nested = fields.nested_properties(field.key());
+                    self.apply_captured_create_override_fields(
+                        &nested,
+                        replace_weapon_sets,
+                        replace_armor_sets,
+                    );
+                }
+                "Prerequisites" => {
+                    // ThingTemplate.cpp:635-652 clears at each override header,
+                    // including an empty block, before parsing its actual rows.
+                    self.prerequisite_lines.clear();
+                    for (key, value) in field.subblock_fields() {
+                        if key.eq_ignore_ascii_case("Object") || key.eq_ignore_ascii_case("Science")
+                        {
+                            self.prerequisite_lines
+                                .push((key.to_owned(), value.trim().to_owned()));
+                        }
+                    }
+                }
+                "UnitSpecificSounds" | "UnitSpecificFX" => {
+                    // These arbitrary map names cannot become Object scalars.
+                    // Their qualified keys remain in the existing definition
+                    // attributes owner; no second mutable catalog is created.
+                    let prefix = format!("{name}.");
+                    self.attributes.retain(|key, _| !key.starts_with(&prefix));
+                    for (key, value) in field.subblock_fields() {
+                        self.attributes
+                            .entry(format!("{prefix}{key}"))
+                            .or_insert_with(|| value.trim().to_owned());
+                    }
+                }
+                "WeaponSet" => {
+                    if *replace_weapon_sets {
+                        self.weapon_sets.clear();
+                        *replace_weapon_sets = false;
+                    }
+                    let mut set = WeaponSetDefinition::default();
+                    for (key, value) in field.subblock_fields() {
+                        if key.eq_ignore_ascii_case("Conditions") {
+                            set.conditions = IniParser::condition_tokens(value);
+                        } else if key.eq_ignore_ascii_case("Weapon") {
+                            set.record_weapon(value);
+                        } else {
+                            set.attributes
+                                .insert(key.to_owned(), value.trim().to_owned());
+                            if key.eq_ignore_ascii_case("AutoChooseSources") {
+                                if let Some(slot) = value.split_whitespace().next() {
+                                    set.attributes.insert(
+                                        format!("AutoChooseSources {slot}"),
+                                        value.trim().to_owned(),
+                                    );
+                                }
+                            }
+                        }
+                    }
+                    self.weapon_sets.push(set);
+                }
+                "ArmorSet" => {
+                    if *replace_armor_sets {
+                        self.armor_sets.clear();
+                        *replace_armor_sets = false;
+                    }
+                    let mut set = ArmorSetDefinition::default();
+                    for (key, value) in field.subblock_fields() {
+                        if key.eq_ignore_ascii_case("Conditions") {
+                            set.record_conditions(value);
+                        } else if key.eq_ignore_ascii_case("Armor") {
+                            set.record_armor(value);
+                        } else if key.eq_ignore_ascii_case("DamageFX") {
+                            set.record_damage_fx(value);
+                        }
+                    }
+                    self.armor_sets.push(set);
+                }
+                "Locomotor" => {
+                    let row = LocomotorSetDefinition::from_leftover_row(value.trim());
+                    self.locomotor_sets
+                        .retain(|existing| !existing.set_name.eq_ignore_ascii_case(&row.set_name));
+                    self.locomotor_sets.push(row);
+                    self.attributes
+                        .insert("Locomotor".to_owned(), value.trim().to_owned());
+                }
+                "KindOf" => {
+                    use game_engine::common::system::kind_of::KindOfMask;
+                    let previous = self
+                        .attributes
+                        .iter()
+                        .find_map(|(key, value)| {
+                            key.eq_ignore_ascii_case("KindOf").then_some(value.as_str())
+                        })
+                        .unwrap_or("NONE");
+                    // Reuse the canonical bit-string decoder. The Common load
+                    // already validated each actual override declaration.
+                    if let Ok(mask) = KindOfMask::parse_ini(KindOfMask::empty(), previous)
+                        .and_then(|mask| KindOfMask::parse_ini(mask, value.trim()))
+                    {
+                        self.attributes
+                            .retain(|key, _| !key.eq_ignore_ascii_case("KindOf"));
+                        let names = mask.to_string_list();
+                        self.attributes.insert(
+                            "KindOf".to_owned(),
+                            if names.is_empty() {
+                                "NONE".to_owned()
+                            } else {
+                                names.join(" ")
+                            },
+                        );
+                    } else {
+                        self.apply_one_create_override_property(name, value);
+                    }
+                }
+                "Behavior" | "Body" | "Draw" | "ClientUpdate" => {
+                    self.apply_one_create_override_property(name, value);
+                    for (key, value) in field.subblock_fields() {
+                        self.apply_one_create_override_property(&format!("{name}.{key}"), value);
+                    }
+                }
+                _ => self.apply_one_create_override_property(name, value),
+            }
         }
     }
 

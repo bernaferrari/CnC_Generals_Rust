@@ -707,6 +707,24 @@ impl ModuleFactory {
             .ok()
     }
 
+    /// Query immutable builtin masks without constructing a module catalog.
+    /// Names and module types match an independent factory's builtin seed.
+    pub(crate) fn find_builtin_module_interface_mask(
+        name: &str,
+        module_type: ModuleType,
+    ) -> ModuleInterfaceType {
+        if name.is_empty() || module_type != ModuleType::Behavior {
+            return ModuleInterfaceType::NONE;
+        }
+
+        BUILTIN_BEHAVIOR_DESCRIPTORS
+            .iter()
+            .filter(|(builtin_name, _)| *builtin_name == name)
+            .fold(ModuleInterfaceType::NONE, |mask, (_, interfaces)| {
+                mask_or(mask, *interfaces)
+            })
+    }
+
     /// Find the interface mask for a module
     pub fn find_module_interface_mask(
         &self,
@@ -943,11 +961,7 @@ impl Snapshotable for ModuleFactory {
     }
 
     fn load_post_process(&mut self) -> Result<(), String> {
-        for module_data in &mut self.module_data_list {
-            if let Some(data) = Arc::get_mut(module_data) {
-                data.load_post_process()?;
-            }
-        }
+        // C++ ModuleFactory.cpp:705-707 is empty: no ModuleData callbacks.
         Ok(())
     }
 }
@@ -1021,8 +1035,16 @@ pub fn shutdown_module_factory() {
 }
 
 #[cfg(test)]
+#[path = "builtin_module_mask_query_tests.rs"]
+mod builtin_module_mask_query_tests;
+
+#[cfg(test)]
 #[path = "module_factory_ownership_tests.rs"]
 mod ownership_tests;
+
+#[cfg(test)]
+#[path = "module_mask_validation_tests.rs"]
+mod mask_validation_tests;
 
 #[cfg(test)]
 mod tests {

@@ -45,6 +45,14 @@ use std::{
 #[path = "thing_template_snapshot.rs"]
 mod thing_template_snapshot;
 
+#[path = "object_ini_fields.rs"]
+mod object_ini_fields;
+pub use object_ini_fields::{ObjectIniField, ObjectIniFields};
+
+#[cfg(test)]
+#[path = "builtin_module_mask_lookup_tests.rs"]
+mod builtin_module_mask_lookup_tests;
+
 #[cfg(test)]
 #[path = "tests.rs"]
 mod tests;
@@ -162,14 +170,15 @@ const CPP_OBJECT_FIELDS: &[&str] = &[
     "CrushableLevel",
 ];
 
-fn is_cpp_object_field(key: &str) -> bool {
+fn is_cpp_object_field(key: &str, captured: bool) -> bool {
     let key = property_base_key(key);
     CPP_OBJECT_FIELDS
         .iter()
         .any(|field| field.eq_ignore_ascii_case(key))
-        || key.starts_with("WeaponSet")
-        || key.starts_with("ArmorSet")
-        || is_module_body_property(key)
+        || (!captured
+            && (key.starts_with("WeaponSet")
+                || key.starts_with("ArmorSet")
+                || is_module_body_property(key)))
 }
 
 fn is_module_body_property(key: &str) -> bool {
@@ -210,12 +219,84 @@ fn module_field_order(field: &str) -> usize {
         "Body" => 1,
         "Draw" => 2,
         "ClientUpdate" => 3,
+        "RemoveModule" => 4,
+        "ReplaceModule" => 5,
+        "AddModule" => 6,
+        "InheritableModule" => 7,
+        "OverrideableByLikeKind" => 8,
         _ => usize::MAX,
     }
 }
 
 fn is_module_object_field(field: &str) -> bool {
     matches!(field, "Behavior" | "Body" | "Draw" | "ClientUpdate")
+}
+
+fn is_module_operation_field(field: &str) -> bool {
+    matches!(
+        field,
+        "RemoveModule"
+            | "ReplaceModule"
+            | "AddModule"
+            | "InheritableModule"
+            | "OverrideableByLikeKind"
+    )
+}
+
+fn object_properties_in_declaration_order(
+    properties: &HashMap<String, String>,
+) -> Vec<(&str, &str)> {
+    let mut fields = properties
+        .iter()
+        .filter(|(key, _)| {
+            // A captured top-level field has its own ordinal, even when its
+            // authored spelling resembles module data or internal metadata.
+            if properties.contains_key(&format!("{key}.__declaration_order")) {
+                return true;
+            }
+            if key.ends_with(".__declaration_order") || is_module_body_property(key) {
+                return false;
+            }
+            if let Some((header, _)) = key.split_once('.') {
+                let base = property_base_key(header);
+                if matches!(
+                    base,
+                    "UnitSpecificSounds" | "UnitSpecificFX" | "Prerequisites"
+                ) || base.strip_prefix("WeaponSet").is_some_and(|rest| {
+                    !rest.is_empty() && rest.bytes().all(|byte| byte.is_ascii_digit())
+                }) || base.strip_prefix("ArmorSet").is_some_and(|rest| {
+                    !rest.is_empty() && rest.bytes().all(|byte| byte.is_ascii_digit())
+                }) {
+                    return false;
+                }
+            }
+            true
+        })
+        .map(|(key, value)| (key.as_str(), value.as_str()))
+        .collect::<Vec<_>>();
+    fields.sort_by_key(|(key, _)| {
+        let field = property_base_key(key);
+        let ordinal = properties
+            .get(&format!("{key}.__declaration_order"))
+            .and_then(|value| value.parse::<usize>().ok());
+        match ordinal {
+            Some(order) => (0, order, 0, "", *key),
+            // Explicit HashMaps have no authored sequence. Preserve the old
+            // deterministic module order, then consistently order scalar keys.
+            None => (
+                1,
+                module_field_order(field),
+                property_repeat_index(key),
+                field,
+                *key,
+            ),
+        }
+    });
+    fields
+}
+
+fn has_object_field(properties: &HashMap<String, String>, field: &str) -> bool {
+    properties.keys().any(|key| property_base_key(key) == field)
 }
 
 const CPP_RESKIN_FIELDS: &[&str] = &[
@@ -232,6 +313,9 @@ const CPP_RESKIN_FIELDS: &[&str] = &[
 ];
 
 fn is_reskin_property(key: &str) -> bool {
+    if let Some(header) = key.strip_suffix(".__declaration_order") {
+        return is_reskin_property(header);
+    }
     let base = property_base_key(key);
     if CPP_RESKIN_FIELDS
         .iter()
@@ -252,6 +336,13 @@ fn collect_module_body(
     let mut fields = HashMap::new();
     let mut raw_body = String::new();
     for (key, value) in properties {
+        // Actual top-level declarations are dispatched by the Object parser.
+        // Explicit flattened module fields have no own ordinal and stay here.
+        if key.ends_with(".__declaration_order")
+            || properties.contains_key(&format!("{key}.__declaration_order"))
+        {
+            continue;
+        }
         let Some(rest) = key.strip_prefix(&prefix) else {
             continue;
         };
@@ -1169,6 +1260,11 @@ fn collect_indexed_subblocks(
     let mut blocks: BTreeMap<usize, Vec<IndexedSubblockField>> = BTreeMap::new();
 
     for (key, value) in properties {
+        if key.ends_with(".__declaration_order")
+            || properties.contains_key(&format!("{key}.__declaration_order"))
+        {
+            continue;
+        }
         let Some(rest) = key.strip_prefix(prefix) else {
             continue;
         };
@@ -1202,12 +1298,17 @@ fn collect_indexed_subblocks(
     }
 
     for fields in blocks.values_mut() {
-        fields.sort_by_key(|field| {
+        fields.sort_by(|left, right| {
             (
-                field.repeat_index,
-                indexed_subblock_field_order(&field.field),
-                field.field.clone(),
+                left.repeat_index,
+                indexed_subblock_field_order(&left.field),
+                left.field.as_str(),
             )
+                .cmp(&(
+                    right.repeat_index,
+                    indexed_subblock_field_order(&right.field),
+                    right.field.as_str(),
+                ))
         });
     }
 
@@ -1218,33 +1319,14 @@ fn collect_named_subblock_fields(
     properties: &HashMap<String, String>,
     prefix: &str,
 ) -> Vec<IndexedSubblockField> {
-    let dotted_prefix = format!("{}.", prefix);
-    let mut fields = Vec::new();
-
-    for (key, value) in properties {
-        let Some(field_text) = key.strip_prefix(&dotted_prefix) else {
-            continue;
-        };
-        let (field, repeat_index) = if let Some((field, repeat)) = field_text.rsplit_once('#') {
-            (field, repeat.parse::<usize>().unwrap_or(0))
-        } else {
-            (field_text, 0)
-        };
-        fields.push(IndexedSubblockField {
-            repeat_index,
-            field: field.to_string(),
-            value: value.clone(),
-        });
-    }
-
-    fields.sort_by_key(|field| {
-        (
-            field.repeat_index,
-            indexed_subblock_field_order(&field.field),
-            field.field.clone(),
-        )
-    });
-    fields
+    object_ini_fields::named_subblock_fields(properties, prefix)
+        .into_iter()
+        .map(|(field, value)| IndexedSubblockField {
+            repeat_index: property_repeat_index(field),
+            field: property_base_key(field).to_owned(),
+            value: value.to_owned(),
+        })
+        .collect()
 }
 
 fn parse_weapon_slot(token: &str) -> Result<usize, String> {
@@ -2195,13 +2277,23 @@ impl ThingTemplate {
     fn load_weapon_sets_from_properties(
         &mut self,
         properties: &HashMap<String, String>,
+        block_index: Option<usize>,
     ) -> Result<(), String> {
-        let blocks = collect_indexed_subblocks(properties, "WeaponSet");
+        let mut blocks = collect_indexed_subblocks(properties, "WeaponSet");
+        if let Some(index) = block_index {
+            blocks.retain(|block, _| *block == index);
+            // An authored empty header still clears copied defaults and adds
+            // one default set (ThingTemplate.cpp:876-927).
+            blocks.entry(index).or_default();
+        }
         if blocks.is_empty() {
             return Ok(());
         }
 
-        self.clear_weapon_template_sets();
+        if block_index.is_none() || self.weapons_copied_from_default {
+            self.clear_weapon_template_sets();
+            self.weapons_copied_from_default = false;
+        }
         for fields in blocks.values() {
             let mut set = WeaponTemplateSet::new();
             for field in fields {
@@ -2270,13 +2362,23 @@ impl ThingTemplate {
     fn load_armor_sets_from_properties(
         &mut self,
         properties: &HashMap<String, String>,
+        block_index: Option<usize>,
     ) -> Result<(), String> {
-        let blocks = collect_indexed_subblocks(properties, "ArmorSet");
+        let mut blocks = collect_indexed_subblocks(properties, "ArmorSet");
+        if let Some(index) = block_index {
+            blocks.retain(|block, _| *block == index);
+            // An authored empty header still clears copied defaults and adds
+            // one default set (ThingTemplate.cpp:876-927).
+            blocks.entry(index).or_default();
+        }
         if blocks.is_empty() {
             return Ok(());
         }
 
-        self.clear_armor_template_sets();
+        if block_index.is_none() || self.armor_copied_from_default {
+            self.clear_armor_template_sets();
+            self.armor_copied_from_default = false;
+        }
         for fields in blocks.values() {
             let mut set = ArmorTemplateSet::new();
             for field in fields {
@@ -2311,9 +2413,13 @@ impl ThingTemplate {
         Ok(())
     }
 
-    fn load_per_unit_sounds_from_properties(&mut self, properties: &HashMap<String, String>) {
-        let fields = collect_named_subblock_fields(properties, "UnitSpecificSounds");
-        if fields.is_empty() {
+    fn load_per_unit_sounds_from_properties(
+        &mut self,
+        properties: &HashMap<String, String>,
+        prefix: &str,
+    ) {
+        let fields = collect_named_subblock_fields(properties, prefix);
+        if fields.is_empty() && !properties.contains_key(prefix) {
             return;
         }
 
@@ -2328,9 +2434,13 @@ impl ThingTemplate {
         }
     }
 
-    fn load_per_unit_fx_from_properties(&mut self, properties: &HashMap<String, String>) {
-        let fields = collect_named_subblock_fields(properties, "UnitSpecificFX");
-        if fields.is_empty() {
+    fn load_per_unit_fx_from_properties(
+        &mut self,
+        properties: &HashMap<String, String>,
+        prefix: &str,
+    ) {
+        let fields = collect_named_subblock_fields(properties, prefix);
+        if fields.is_empty() && !properties.contains_key(prefix) {
             return;
         }
 
@@ -2353,9 +2463,14 @@ impl ThingTemplate {
         }
     }
 
-    fn load_prerequisites_from_properties(&mut self, properties: &HashMap<String, String>) {
-        let fields = collect_named_subblock_fields(properties, "Prerequisites");
-        if fields.is_empty() {
+    fn load_prerequisites_from_properties(
+        &mut self,
+        properties: &HashMap<String, String>,
+        prefix: &str,
+        load_type: crate::common::ini::INILoadType,
+    ) {
+        let fields = collect_named_subblock_fields(properties, prefix);
+        if fields.is_empty() && !properties.contains_key(prefix) {
             return;
         }
 
@@ -2363,7 +2478,13 @@ impl ThingTemplate {
             .into_iter()
             .map(|field| format!("{} = {}", field.field, field.value.trim()))
             .collect::<Vec<_>>();
-        self.parse_prerequisites_block(&lines);
+        if properties.contains_key(prefix)
+            && load_type != crate::common::ini::INILoadType::CreateOverrides
+        {
+            self.append_prerequisites_block(&lines);
+        } else {
+            self.parse_prerequisites_block(&lines);
+        }
     }
 
     fn add_module_from_property(
@@ -2391,6 +2512,15 @@ impl ThingTemplate {
         };
 
         let interface_mask = lookup_module_interface_mask(module_name, module_type, fallback_mask);
+        // ThingTemplate.cpp:512-533 validates the field before clearing
+        // inherited modules or invoking the registered data constructor.
+        let is_body = interface_mask.0 & ModuleInterfaceType::BODY.0 != 0;
+        if field_name == "Body" && !is_body {
+            return Err("Only Body allowed here".to_string());
+        }
+        if field_name != "Body" && is_body {
+            return Err("No Body allowed here".to_string());
+        }
 
         if load_type != crate::common::ini::INILoadType::CreateOverrides {
             let new_name = AsciiString::from(module_name);
@@ -2463,66 +2593,26 @@ impl ThingTemplate {
         Ok(())
     }
 
-    fn load_modules_from_properties(
+    fn load_module_field(
         &mut self,
+        field: &str,
+        key: &str,
+        value: &str,
         properties: &HashMap<String, String>,
         load_type: crate::common::ini::INILoadType,
     ) -> Result<(), String> {
-        let mut fields = properties
-            .iter()
-            .filter_map(|(key, value)| {
-                if key.contains('.') {
-                    return None;
-                }
-                let field = property_base_key(key);
-                let fallback_order = match field {
-                    "Behavior" | "Body" | "Draw" | "ClientUpdate" => module_field_order(field),
-                    // Programmatic maps have no authored sequence. Retain their
-                    // previous deterministic ordering; real loaders record it.
-                    "RemoveModule" => 4,
-                    "ReplaceModule" => 5,
-                    "AddModule" => 6,
-                    "InheritableModule" => 7,
-                    "OverrideableByLikeKind" => 8,
-                    _ => return None,
-                };
-                Some((
-                    fallback_order,
-                    property_repeat_index(key),
-                    field,
-                    key.as_str(),
-                    value.as_str(),
-                ))
-            })
-            .collect::<Vec<_>>();
-        fields.sort_by_key(|(fallback_order, repeat, field, key, _)| {
-            let ordinal = properties
-                .get(&format!("{key}.__declaration_order"))
-                .and_then(|value| value.parse::<usize>().ok());
-            match ordinal {
-                Some(order) => (0, order, 0, "", *key),
-                None => (1, *fallback_order, *repeat, *field, *key),
+        if is_module_object_field(field) {
+            if load_type == crate::common::ini::INILoadType::CreateOverrides
+                && self.module_parsing_mode != ModuleParseMode::AddRemoveReplace
+            {
+                return Err(format!(
+                    "Use AddModule or ReplaceModule for '{field}' in override INI files"
+                ));
             }
-        });
-        // INI.cpp:1465-1505 dispatches immediately. An operation must see
-        // exactly the modules declared before it, including other wrappers.
-        for (_, _, field, key, value) in fields {
-            if is_module_object_field(field) {
-                if load_type == crate::common::ini::INILoadType::CreateOverrides
-                    && self.module_parsing_mode != ModuleParseMode::AddRemoveReplace
-                {
-                    // ThingTemplate.cpp:537-545: override files may only
-                    // introduce modules through AddModule or ReplaceModule.
-                    return Err(format!(
-                        "Use AddModule or ReplaceModule for '{field}' in override INI files"
-                    ));
-                }
-                self.add_module_from_property(field, key, value.trim(), properties, load_type)?;
-            } else {
-                self.load_module_operation(field, key, value.trim(), properties, load_type)?;
-            }
+            self.add_module_from_property(field, key, value.trim(), properties, load_type)
+        } else {
+            self.load_module_operation(field, key, value.trim(), properties, load_type)
         }
-        Ok(())
     }
 
     fn remove_module_info(&mut self, tag: &AsciiString) -> Option<AsciiString> {
@@ -2542,22 +2632,7 @@ impl ThingTemplate {
         load_type: crate::common::ini::INILoadType,
         prefix: &str,
     ) -> Result<(), String> {
-        let nested = if let Some(body) = properties.get(&format!("{prefix}.__body")) {
-            let lines: Vec<&str> = body.lines().collect();
-            // Use the real object grammar. Flattened fields captured by the
-            // outer reader are not module headers or fields at this depth.
-            super::thing_factory::parse_object_block_properties(&lines, 0).0
-        } else {
-            // Explicit programmatic maps can provide the nested fields directly.
-            let dotted = format!("{prefix}.");
-            properties
-                .iter()
-                .filter_map(|(key, value)| {
-                    let rest = key.strip_prefix(&dotted)?;
-                    (rest != "__declaration_order").then(|| (rest.to_owned(), value.clone()))
-                })
-                .collect()
-        };
+        let nested = ObjectIniFields::new(properties).nested_properties(prefix);
         // C++ wrappers recurse into the entire Object field table, not just
         // module declarations. Unknown Object fields must remain errors.
         self.parse_object_fields_for_load(&nested, load_type)
@@ -2643,14 +2718,12 @@ impl ThingTemplate {
         names: &[AsciiString],
     ) -> Result<(), String> {
         let Some(data) = self.friend_get_ai_module_info().cloned() else {
-            // C++ AIUpdateModuleData::parseLocomotorSet (AIUpdate.cpp:141-149)
-            // resolves ThingTemplate::friend_getAIModuleInfo, which returns the
-            // EMBEDDED m_aiModuleInfo and is never null — the !self guard is
-            // dead code in retail. Objects authoring a top-level `Locomotor`
-            // without an AIUpdate block must keep parsing (CommandSet, KindOf,
-            // BuildCost, geometry all live in the same block); the set stored
-            // in self.locomotor_sets replays via
-            // apply_stored_locomotors_to_ai_module when a module installs.
+            // Transitional divergence tracked by hq-fgp6j: C++
+            // ThingTemplate.cpp:1029-1040 returns NULL without typed AI module
+            // data, and AIUpdate.cpp:145-149 then throws. Rust currently keeps
+            // captured names for apply_stored_locomotors_to_ai_module after
+            // registration; this fallback does not establish C++ admission
+            // parity for a missing or not-yet-typed AIUpdate block.
             return Ok(());
         };
         let updated =
@@ -2902,7 +2975,10 @@ impl ThingTemplate {
     /// Player::canBuild requires ALL entries to be satisfied (AND logic).
     pub fn parse_prerequisites_block(&mut self, lines: &[String]) {
         self.prereq_info.clear();
+        self.append_prerequisites_block(lines);
+    }
 
+    fn append_prerequisites_block(&mut self, lines: &[String]) {
         for line in lines {
             let trimmed = line.trim();
             if trimmed.is_empty() {
@@ -3168,9 +3244,8 @@ impl ThingTemplate {
     /// C++ `INI::initFromINI`, which throws `INI_UNKNOWN_TOKEN` for unmatched
     /// fields.
     ///
-    /// WeaponSet and ArmorSet sub-blocks are handled by their own dedicated
-    /// parsers (see `load_weapon_sets_from_definitions` and
-    /// `parse_armor_set_from_properties`) and are NOT processed here.
+    /// Captured block headers dispatch their dedicated parsers in the same
+    /// authored sequence as scalar fields and module operations.
     pub fn parse_object_fields_from_ini(
         &mut self,
         properties: &std::collections::HashMap<String, String>,
@@ -3183,32 +3258,67 @@ impl ThingTemplate {
         properties: &HashMap<String, String>,
         load_type: crate::common::ini::INILoadType,
     ) -> Result<(), String> {
-        self.load_weapon_sets_from_properties(properties)?;
-        self.load_armor_sets_from_properties(properties)?;
-        self.load_per_unit_sounds_from_properties(properties);
-        self.load_per_unit_fx_from_properties(properties);
-        self.load_prerequisites_from_properties(properties);
-        self.load_modules_from_properties(properties, load_type)?;
+        // Compatibility for explicit flattened HashMaps without captured
+        // block headers. Actual loaders always record the header and ordinal.
+        if !has_object_field(properties, "WeaponSet") {
+            self.load_weapon_sets_from_properties(properties, None)?;
+        }
+        if !has_object_field(properties, "ArmorSet") {
+            self.load_armor_sets_from_properties(properties, None)?;
+        }
+        if !has_object_field(properties, "UnitSpecificSounds") {
+            self.load_per_unit_sounds_from_properties(properties, "UnitSpecificSounds");
+        }
+        if !has_object_field(properties, "UnitSpecificFX") {
+            self.load_per_unit_fx_from_properties(properties, "UnitSpecificFX");
+        }
+        if !has_object_field(properties, "Prerequisites") {
+            self.load_prerequisites_from_properties(properties, "Prerequisites", load_type);
+        }
 
-        for (key, value) in properties {
-            let base_key = property_base_key(key);
+        for field in ObjectIniFields::new(properties).declarations() {
+            let key = field.key();
+            let value = field.value();
+            let base_key = field.name();
             let trimmed = value.trim();
+            if is_module_object_field(base_key) || is_module_operation_field(base_key) {
+                self.load_module_field(base_key, key, trimmed, properties, load_type)?;
+                continue;
+            }
+            match base_key {
+                "WeaponSet" => {
+                    self.load_weapon_sets_from_properties(
+                        properties,
+                        Some(property_repeat_index(key)),
+                    )?;
+                    continue;
+                }
+                "ArmorSet" => {
+                    self.load_armor_sets_from_properties(
+                        properties,
+                        Some(property_repeat_index(key)),
+                    )?;
+                    continue;
+                }
+                "UnitSpecificSounds" => {
+                    self.load_per_unit_sounds_from_properties(properties, key);
+                    continue;
+                }
+                "UnitSpecificFX" => {
+                    self.load_per_unit_fx_from_properties(properties, key);
+                    continue;
+                }
+                "Prerequisites" => {
+                    self.load_prerequisites_from_properties(properties, key, load_type);
+                    continue;
+                }
+                _ => {}
+            }
             if let Some(audio_type) = object_audio_field_type(base_key) {
                 self.audioarray
                     .set(audio_type, AudioEventRts::with_event_name(trimmed));
                 continue;
             }
-            if key.starts_with("UnitSpecificSounds.")
-                || key.starts_with("UnitSpecificFX.")
-                || key.starts_with("Prerequisites.")
-                || is_module_body_property(key)
-            {
-                continue;
-            }
-            if is_module_object_field(base_key) {
-                continue;
-            }
-
             match base_key {
                 // --- Display ---
                 "DisplayName" => {
@@ -3536,7 +3646,10 @@ impl ThingTemplate {
 
                 // Valid C++ fields not yet wired to Rust state are accepted
                 // here so they are not mistaken for unknown tokens.
-                _ if is_cpp_object_field(key) => {}
+                _ if is_cpp_object_field(
+                    key,
+                    properties.contains_key(&format!("{key}.__declaration_order")),
+                ) => {}
                 _ => {
                     return Err(format!("Unknown object field '{}'", key));
                 }
@@ -3564,70 +3677,7 @@ impl ThingTemplate {
             .filter(|(key, _)| is_reskin_property(key))
             .map(|(key, value)| (key.clone(), value.clone()))
             .collect();
-        self.load_modules_from_properties(&filtered, load_type)?;
-
-        for (key, value) in &filtered {
-            let base_key = property_base_key(key);
-            let trimmed = value.trim();
-            if is_module_object_field(base_key) || is_module_body_property(key) {
-                continue;
-            }
-            match base_key {
-                "Geometry" => {
-                    self.geometry_info.geometry_type = parse_geometry_type(trimmed)?;
-                    self.geometry_info.calc_bounding_stuff();
-                }
-                "GeometryMajorRadius" => {
-                    if let Ok(v) = trimmed.parse::<Real>() {
-                        self.geometry_info.set_major_radius(v);
-                    }
-                }
-                "GeometryMinorRadius" => {
-                    if let Ok(v) = trimmed.parse::<Real>() {
-                        self.geometry_info.set_minor_radius(v);
-                    }
-                }
-                "GeometryHeight" => {
-                    if let Ok(v) = trimmed.parse::<Real>() {
-                        self.geometry_info.height = v;
-                        self.geometry_info.calc_bounding_stuff();
-                    }
-                }
-                "GeometryIsSmall" => {
-                    if let Ok(v) = parse_bool_simple(trimmed) {
-                        self.geometry_info.is_small = v;
-                    }
-                }
-                "FenceWidth" => {
-                    if let Ok(v) = trimmed.parse::<Real>() {
-                        self.fence_width = v;
-                    }
-                }
-                "FenceXOffset" => {
-                    if let Ok(v) = trimmed.parse::<Real>() {
-                        self.fence_x_offset = v;
-                    }
-                }
-                "MaxSimultaneousOfType" => {
-                    if trimmed.eq_ignore_ascii_case("DeterminedBySuperweaponRestriction") {
-                        self.max_simultaneous_determined_by_superweapon_restriction = true;
-                        self.max_simultaneous_of_type = 0;
-                    } else if let Ok(v) = trimmed.parse::<UnsignedShort>() {
-                        self.max_simultaneous_of_type = v;
-                        self.max_simultaneous_determined_by_superweapon_restriction = false;
-                    }
-                }
-                "MaxSimultaneousLinkKey" => {
-                    self.max_simultaneous_link_key = if trimmed.is_empty() {
-                        0
-                    } else {
-                        NameKeyGenerator::name_to_key(trimmed)
-                    };
-                }
-                _ => {}
-            }
-        }
-        Ok(())
+        self.parse_object_fields_for_load(&filtered, load_type)
     }
 
     /// Set the KindOf mask from a resolved bitmask (`u64` or full `u128`).
@@ -3701,7 +3751,7 @@ fn lookup_module_interface_mask(
         }
     }
 
-    let mask = ModuleFactory::new().find_module_interface_mask(module_name, module_type);
+    let mask = ModuleFactory::find_builtin_module_interface_mask(module_name, module_type);
     if mask != ModuleInterfaceType::NONE {
         mask
     } else {

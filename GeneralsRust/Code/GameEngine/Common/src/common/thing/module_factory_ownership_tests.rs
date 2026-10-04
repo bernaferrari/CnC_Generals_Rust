@@ -298,3 +298,128 @@ fn construction_leaves_pending_startup_and_overrides_for_explicit_import() {
     .join()
     .unwrap();
 }
+
+// C++ ModuleFactory.cpp:705-707 leaves registered ModuleData untouched during
+// loadPostProcess, including when the factory is the data's only owner.
+#[derive(Debug)]
+struct PostLoadErrorData {
+    tag_key: NameKeyType,
+    payload: u32,
+}
+
+impl ModuleData for PostLoadErrorData {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn set_module_tag_name_key(&mut self, key: NameKeyType) {
+        self.tag_key = key;
+    }
+
+    fn get_module_tag_name_key(&self) -> NameKeyType {
+        self.tag_key
+    }
+}
+
+impl Snapshotable for PostLoadErrorData {
+    fn crc(&self, _: &mut dyn Xfer) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn xfer(&mut self, _: &mut dyn Xfer) -> Result<(), String> {
+        Ok(())
+    }
+
+    fn load_post_process(&mut self) -> Result<(), String> {
+        self.payload = 99;
+        Err("ModuleFactory must not visit this data hook".into())
+    }
+}
+
+fn create_post_load_error_data(_: Option<&mut INI>) -> Box<dyn ModuleData> {
+    Box::new(PostLoadErrorData {
+        tag_key: 0,
+        payload: 17,
+    })
+}
+
+fn post_load_error_factory() -> ModuleFactory {
+    let mut factory = ModuleFactory::new();
+    factory.add_module_internal(
+        Some(create_module),
+        Some(create_post_load_error_data),
+        ModuleType::Behavior,
+        "PostLoadErrorProbe",
+        ModuleInterfaceType::DAMAGE,
+    );
+    factory
+}
+
+fn new_post_load_error_data(factory: &mut ModuleFactory) -> Arc<dyn ModuleData> {
+    factory
+        .new_module_data_from_ini(
+            None,
+            "PostLoadErrorProbe",
+            ModuleType::Behavior,
+            "ModuleTag_PostLoadErrorProbe",
+        )
+        .expect("actual registered create_data_proc constructs the data")
+}
+
+#[test]
+fn factory_post_load_is_inert_when_registered_data_has_one_owner() {
+    let mut factory = post_load_error_factory();
+    let data = new_post_load_error_data(&mut factory);
+    let tag_key = data.get_module_tag_name_key();
+    assert_ne!(tag_key, 0);
+    assert_eq!(Arc::strong_count(&data), 2);
+    // Store identity only: a retained Weak would also prevent Arc::get_mut
+    // from entering the erroneous OLD unique-owner branch.
+    let identity = Arc::as_ptr(&data);
+    drop(data);
+    assert_eq!(Arc::strong_count(&factory.module_data_list[0]), 1);
+    assert_eq!(Arc::weak_count(&factory.module_data_list[0]), 0);
+
+    assert_eq!(factory.load_post_process(), Ok(()));
+
+    let data = &factory.module_data_list[0];
+    assert!(std::ptr::eq(identity, Arc::as_ptr(data)));
+    assert_eq!(data.get_module_tag_name_key(), tag_key);
+    assert_eq!(
+        data.as_ref()
+            .as_any()
+            .downcast_ref::<PostLoadErrorData>()
+            .unwrap()
+            .payload,
+        17,
+        "the registered data's error-producing hook must not run"
+    );
+}
+
+#[test]
+fn factory_post_load_preserves_aliased_registered_data_identity_and_payload() {
+    let mut factory = post_load_error_factory();
+    let data = new_post_load_error_data(&mut factory);
+    let alias = Arc::clone(&data);
+    let tag_key = data.get_module_tag_name_key();
+    assert_eq!(Arc::strong_count(&data), 3);
+
+    assert_eq!(factory.load_post_process(), Ok(()));
+
+    assert_eq!(Arc::strong_count(&data), 3);
+    assert!(Arc::ptr_eq(&data, &alias));
+    assert!(Arc::ptr_eq(&alias, &factory.module_data_list[0]));
+    assert_eq!(alias.get_module_tag_name_key(), tag_key);
+    assert_eq!(
+        alias
+            .as_ref()
+            .as_any()
+            .downcast_ref::<PostLoadErrorData>()
+            .unwrap()
+            .payload,
+        17
+    );
+    drop(alias);
+    drop(data);
+    assert_eq!(Arc::strong_count(&factory.module_data_list[0]), 1);
+}

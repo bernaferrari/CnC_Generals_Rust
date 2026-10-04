@@ -365,22 +365,6 @@ fn object_module_assignment_starts_subblock(field: &str) -> bool {
     )
 }
 
-fn object_field_is_repeatable_property(field: &str) -> bool {
-    matches!(
-        field.to_ascii_lowercase().as_str(),
-        "behavior"
-            | "body"
-            | "draw"
-            | "clientupdate"
-            | "addmodule"
-            | "replacemodule"
-            | "inheritablemodule"
-            | "overrideablebylikekind"
-            | "removemodule"
-            | "locomotor"
-    )
-}
-
 fn canonical_object_field(field: &str) -> String {
     match field.to_ascii_lowercase().as_str() {
         "behavior" => "Behavior".to_string(),
@@ -393,6 +377,11 @@ fn canonical_object_field(field: &str) -> String {
         "overrideablebylikekind" => "OverrideableByLikeKind".to_string(),
         "removemodule" => "RemoveModule".to_string(),
         "locomotor" => "Locomotor".to_string(),
+        "weaponset" => "WeaponSet".to_string(),
+        "armorset" => "ArmorSet".to_string(),
+        "unitspecificsounds" => "UnitSpecificSounds".to_string(),
+        "unitspecificfx" => "UnitSpecificFX".to_string(),
+        "prerequisites" => "Prerequisites".to_string(),
         _ => field.to_string(),
     }
 }
@@ -405,33 +394,16 @@ fn is_module_override_field(field: &str) -> bool {
 }
 
 fn insert_object_property(properties: &mut HashMap<String, String>, key: &str, value: &str) {
-    if object_field_is_repeatable_property(key) {
-        let canonical = canonical_object_field(key);
-        // INI.cpp:1465-1505 parses fields in source order; Body and Behavior
-        // append to the same ModuleInfo (ThingTemplate.cpp:486-594).
-        let declaration_order = properties.len();
-        insert_repeated_property(properties, canonical.clone(), value.to_string());
-        if matches!(
-            canonical.as_str(),
-            "Behavior"
-                | "Body"
-                | "Draw"
-                | "ClientUpdate"
-                | "AddModule"
-                | "RemoveModule"
-                | "ReplaceModule"
-                | "InheritableModule"
-                | "OverrideableByLikeKind"
-        ) {
-            let header = current_repeatable_key(properties, &canonical);
-            properties.insert(
-                format!("{header}.__declaration_order"),
-                declaration_order.to_string(),
-            );
-        }
-    } else {
-        properties.insert(key.to_string(), value.to_string());
-    }
+    let canonical = canonical_object_field(key);
+    // INI.cpp:1465-1505 dispatches every Object field immediately. Keep
+    // repeated scalars as well as module headers and record one authored lane.
+    let declaration_order = properties.len();
+    insert_repeated_property(properties, canonical.clone(), value.to_string());
+    let header = current_repeatable_key(properties, &canonical);
+    properties.insert(
+        format!("{header}.__declaration_order"),
+        declaration_order.to_string(),
+    );
 }
 
 fn object_prefixed_subblock_key(
@@ -448,19 +420,11 @@ fn object_prefixed_subblock_key(
         let key = format!("ArmorSet{}", *armor_set_counter);
         *armor_set_counter += 1;
         Some(key)
-    } else if block_name.eq_ignore_ascii_case("UnitSpecificSounds") {
-        Some("UnitSpecificSounds".to_string())
-    } else if block_name.eq_ignore_ascii_case("UnitSpecificFX") {
-        Some("UnitSpecificFX".to_string())
-    } else if block_name.eq_ignore_ascii_case("Prerequisites") {
-        Some("Prerequisites".to_string())
-    } else if object_field_is_repeatable_property(block_name) {
+    } else {
         Some(current_repeatable_key(
             properties,
             &canonical_object_field(block_name),
         ))
-    } else {
-        None
     }
 }
 

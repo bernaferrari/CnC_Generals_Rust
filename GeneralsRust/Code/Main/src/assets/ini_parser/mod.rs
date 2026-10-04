@@ -22,6 +22,9 @@ mod types;
 #[cfg(test)]
 mod tests;
 
+#[cfg(test)]
+mod override_field_order_tests;
+
 pub use objects::*;
 pub use parser::*;
 pub use types::*;
