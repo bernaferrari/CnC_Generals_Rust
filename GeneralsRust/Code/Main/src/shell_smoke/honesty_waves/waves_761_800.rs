@@ -29,12 +29,6 @@ pub(super) struct Waves761800 {
     pub host_fire_sound_loop_dual_peel_method_names_wave767_ok: bool,
     pub host_fire_sound_loop_dual_peel_nav_commands_wave767_ok: bool,
     pub host_fire_sound_loop_dual_peel_live_wave767_ok: bool,
-    pub host_lifetime_expire_dual_peel_method_names_wave768_ok: bool,
-    pub host_lifetime_expire_dual_peel_nav_commands_wave768_ok: bool,
-    pub host_lifetime_expire_dual_peel_live_wave768_ok: bool,
-    pub host_poison_dot_dual_peel_method_names_wave769_ok: bool,
-    pub host_poison_dot_dual_peel_nav_commands_wave769_ok: bool,
-    pub host_poison_dot_dual_peel_live_wave769_ok: bool,
     pub host_topple_fall_dual_peel_method_names_wave770_ok: bool,
     pub host_topple_fall_dual_peel_nav_commands_wave770_ok: bool,
     pub host_topple_fall_dual_peel_live_wave770_ok: bool,
@@ -174,18 +168,6 @@ pub(super) fn evaluate() -> Waves761800 {
             honesty_host_fire_sound_loop_dual_peel_nav_commands_residual_wave767(),
         host_fire_sound_loop_dual_peel_live_wave767_ok:
             simulate_live_host_fire_sound_loop_dual_peel_honesty(),
-        host_lifetime_expire_dual_peel_method_names_wave768_ok:
-            honesty_host_lifetime_expire_dual_peel_method_names_residual_wave768(),
-        host_lifetime_expire_dual_peel_nav_commands_wave768_ok:
-            honesty_host_lifetime_expire_dual_peel_nav_commands_residual_wave768(),
-        host_lifetime_expire_dual_peel_live_wave768_ok:
-            simulate_live_host_lifetime_expire_dual_peel_honesty(),
-        host_poison_dot_dual_peel_method_names_wave769_ok:
-            honesty_host_poison_dot_dual_peel_method_names_residual_wave769(),
-        host_poison_dot_dual_peel_nav_commands_wave769_ok:
-            honesty_host_poison_dot_dual_peel_nav_commands_residual_wave769(),
-        host_poison_dot_dual_peel_live_wave769_ok: simulate_live_host_poison_dot_dual_peel_honesty(
-        ),
         host_topple_fall_dual_peel_method_names_wave770_ok:
             honesty_host_topple_fall_dual_peel_method_names_residual_wave770(),
         host_topple_fall_dual_peel_nav_commands_wave770_ok:

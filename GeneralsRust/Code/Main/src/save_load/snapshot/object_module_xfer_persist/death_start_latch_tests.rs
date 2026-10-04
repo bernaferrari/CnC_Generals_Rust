@@ -102,7 +102,7 @@ fn oxfr_death_start_records_follow_existing_module_vectors_in_sorted_order_and_k
     let mut suffix = find_oxfr_suffix(&bytes).unwrap();
     let version = take_u32(&mut suffix).unwrap();
     assert_eq!(
-        version, 2,
+        version, OXFR_VERSION,
         "Rust lifecycle domain version must describe the appended record"
     );
     let payload_len = take_u32(&mut suffix).unwrap() as usize;
@@ -155,29 +155,44 @@ fn oxfr_death_start_records_follow_existing_module_vectors_in_sorted_order_and_k
 }
 
 #[test]
-fn oxfr_v1_rejection_precedes_domain_state_application() {
+fn oxfr_previous_versions_rejected_before_domain_state_application() {
     let (source, kept, _, _) = fixture();
     let payload = capture(&source);
-    let legacy = bincode_legacy::serialize(&(
-        &payload.stun,
-        &payload.battle_bus,
-        &payload.slow_death,
-        &payload.radar,
-    ))
-    .unwrap();
-    let mut bytes = OXFR_MAGIC.to_vec();
-    append_u32(&mut bytes, 1);
-    append_u32(&mut bytes, legacy.len() as u32);
-    bytes.extend_from_slice(&legacy);
-    let mut target = GameLogic::new();
-    target.templates = source.templates.clone();
-    let id = target
-        .create_object("TechOilDerrick", Team::Neutral, Vec3::ZERO)
+    for version in [1, 2] {
+        let legacy = if version == 1 {
+            bincode_legacy::serialize(&(
+                &payload.stun,
+                &payload.battle_bus,
+                &payload.slow_death,
+                &payload.radar,
+            ))
+        } else {
+            bincode_legacy::serialize(&(
+                &payload.stun,
+                &payload.battle_bus,
+                &payload.slow_death,
+                &payload.radar,
+                &payload.death_start,
+            ))
+        }
         .unwrap();
-    assert_eq!(id, kept);
-    let error = apply_from_lifecycle_tail(&bytes, &mut target).unwrap_err();
-    assert!(matches!(error, SaveLoadError::Corrupted(ref message)
-        if message == "unknown OXFR suffix version 1"));
-    assert!(!target.host_object(id).unwrap().status.on_die_started);
-    assert!(target.host_object(id).unwrap().slow_death.is_none());
+        let mut bytes = OXFR_MAGIC.to_vec();
+        append_u32(&mut bytes, version);
+        append_u32(&mut bytes, legacy.len() as u32);
+        bytes.extend_from_slice(&legacy);
+        let mut target = GameLogic::new();
+        target.templates = source.templates.clone();
+        let id = target
+            .create_object("TechOilDerrick", Team::Neutral, Vec3::ZERO)
+            .unwrap();
+        assert_eq!(id, kept);
+        let error = apply_from_lifecycle_tail(&bytes, &mut target).unwrap_err();
+        assert!(matches!(error, SaveLoadError::Corrupted(ref message)
+            if message == &format!("unknown OXFR suffix version {version}")));
+        assert!(!target.host_object(id).unwrap().status.on_die_started);
+        assert!(target.host_object(id).unwrap().slow_death.is_none());
+        assert!(!target.host_object(id).unwrap().status.keep_as_rubble);
+        assert!(!target.host_object(id).unwrap().status.effectively_dead);
+        assert!(target.host_object(id).unwrap().keep_object_die.is_none());
+    }
 }

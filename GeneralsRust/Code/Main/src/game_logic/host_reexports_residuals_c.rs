@@ -726,16 +726,6 @@ pub use super::host_live_host_lethal_finish_bulk_no_damage_auth_hp_stomp_residua
     simulate_live_host_lethal_finish_bulk_no_damage_auth_hp_stomp_honesty,
 };
 #[cfg(any(test, feature = "host-residuals"))]
-pub use super::host_live_host_lifetime_expire_dual_peel_residual_wave768::{
-    honesty_host_lifetime_expire_dual_peel_method_names_residual_wave768,
-    honesty_host_lifetime_expire_dual_peel_nav_commands_residual_wave768,
-    honesty_host_lifetime_expire_dual_peel_residual_pack_wave768,
-    honesty_host_lifetime_expire_dual_peel_source_markers_residual_wave768,
-    residual_host_lifetime_expire_dual_peel_last_action,
-    residual_host_lifetime_expire_dual_peel_ok,
-    simulate_live_host_lifetime_expire_dual_peel_honesty,
-};
-#[cfg(any(test, feature = "host-residuals"))]
 pub use super::host_live_host_lifetime_kill_no_damage_auth_hp_stomp_residual_wave745::{
     honesty_host_lifetime_kill_no_damage_auth_hp_stomp_method_names_residual_wave745,
     honesty_host_lifetime_kill_no_damage_auth_hp_stomp_nav_commands_residual_wave745,
@@ -1268,15 +1258,6 @@ pub use super::host_live_host_pob_failclosed_boot_residual_wave895::{
     honesty_host_pob_failclosed_boot_nav_commands_residual_wave895,
     honesty_host_pob_failclosed_boot_residual_pack_wave895,
     simulate_live_host_pob_failclosed_boot_honesty,
-};
-#[cfg(any(test, feature = "host-residuals"))]
-pub use super::host_live_host_poison_dot_dual_peel_residual_wave769::{
-    honesty_host_poison_dot_dual_peel_method_names_residual_wave769,
-    honesty_host_poison_dot_dual_peel_nav_commands_residual_wave769,
-    honesty_host_poison_dot_dual_peel_residual_pack_wave769,
-    honesty_host_poison_dot_dual_peel_source_markers_residual_wave769,
-    residual_host_poison_dot_dual_peel_last_action, residual_host_poison_dot_dual_peel_ok,
-    simulate_live_host_poison_dot_dual_peel_honesty,
 };
 #[cfg(any(test, feature = "host-residuals"))]
 pub use super::host_live_host_populate_build_queue_presentation_residual_wave1010::{

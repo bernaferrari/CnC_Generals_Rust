@@ -55,12 +55,6 @@ fn fill_waves_751_850(
     out.host_fire_sound_loop_dual_peel_method_names_wave767_ok = waves.host_fire_sound_loop_dual_peel_method_names_wave767_ok;
     out.host_fire_sound_loop_dual_peel_nav_commands_wave767_ok = waves.host_fire_sound_loop_dual_peel_nav_commands_wave767_ok;
     out.host_fire_sound_loop_dual_peel_live_wave767_ok = waves.host_fire_sound_loop_dual_peel_live_wave767_ok;
-    out.host_lifetime_expire_dual_peel_method_names_wave768_ok = waves.host_lifetime_expire_dual_peel_method_names_wave768_ok;
-    out.host_lifetime_expire_dual_peel_nav_commands_wave768_ok = waves.host_lifetime_expire_dual_peel_nav_commands_wave768_ok;
-    out.host_lifetime_expire_dual_peel_live_wave768_ok = waves.host_lifetime_expire_dual_peel_live_wave768_ok;
-    out.host_poison_dot_dual_peel_method_names_wave769_ok = waves.host_poison_dot_dual_peel_method_names_wave769_ok;
-    out.host_poison_dot_dual_peel_nav_commands_wave769_ok = waves.host_poison_dot_dual_peel_nav_commands_wave769_ok;
-    out.host_poison_dot_dual_peel_live_wave769_ok = waves.host_poison_dot_dual_peel_live_wave769_ok;
     out.host_topple_fall_dual_peel_method_names_wave770_ok = waves.host_topple_fall_dual_peel_method_names_wave770_ok;
     out.host_topple_fall_dual_peel_nav_commands_wave770_ok = waves.host_topple_fall_dual_peel_nav_commands_wave770_ok;
     out.host_topple_fall_dual_peel_live_wave770_ok = waves.host_topple_fall_dual_peel_live_wave770_ok;

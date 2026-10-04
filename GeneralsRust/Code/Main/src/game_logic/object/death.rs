@@ -536,10 +536,16 @@ impl Object {
     /// C++ LifetimeUpdate residual. True when object should die this frame.
     pub fn tick_lifetime_update(&mut self, current_frame: u32) -> bool {
         self.ensure_lifetime_update(current_frame);
-        self.lifetime_update
-            .as_ref()
-            .map(|l| l.tick(current_frame))
-            .unwrap_or(false)
+        let Some(lifetime) = self.lifetime_update.as_mut() else {
+            return false;
+        };
+        if !lifetime.tick(current_frame) {
+            return false;
+        }
+        // CPP LifetimeUpdate::update returns UPDATE_SLEEP_FOREVER after kill.
+        // Retain the original absolute deadline for persistence/diagnostics.
+        lifetime.active = false;
+        true
     }
 
     pub fn ensure_transition_damage_fx(&mut self) {

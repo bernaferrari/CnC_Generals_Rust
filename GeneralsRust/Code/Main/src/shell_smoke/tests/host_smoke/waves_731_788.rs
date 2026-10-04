@@ -559,36 +559,6 @@ pub(super) fn assert_waves_731_788(r: &ShellSmokeResult) {
         r.detail
     );
     assert!(
-        r.host_lifetime_expire_dual_peel_method_names_wave768_ok,
-        "host lifetime_expire_dual_peel method names residual pack wave768: {}",
-        r.detail
-    );
-    assert!(
-        r.host_lifetime_expire_dual_peel_nav_commands_wave768_ok,
-        "host lifetime_expire_dual_peel nav commands residual pack wave768: {}",
-        r.detail
-    );
-    assert!(
-        r.host_lifetime_expire_dual_peel_live_wave768_ok,
-        "host lifetime_expire_dual_peel live residual wave768: {}",
-        r.detail
-    );
-    assert!(
-        r.host_poison_dot_dual_peel_method_names_wave769_ok,
-        "host poison_dot_dual_peel method names residual pack wave769: {}",
-        r.detail
-    );
-    assert!(
-        r.host_poison_dot_dual_peel_nav_commands_wave769_ok,
-        "host poison_dot_dual_peel nav commands residual pack wave769: {}",
-        r.detail
-    );
-    assert!(
-        r.host_poison_dot_dual_peel_live_wave769_ok,
-        "host poison_dot_dual_peel live residual wave769: {}",
-        r.detail
-    );
-    assert!(
         r.host_topple_fall_dual_peel_method_names_wave770_ok,
         "host topple_fall_dual_peel method names residual pack wave770: {}",
         r.detail

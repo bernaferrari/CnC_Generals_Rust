@@ -11,10 +11,12 @@
 //! dish snapped back to idle on load.
 //!
 //! Append a Rust-only tagged suffix after the contain/producer payload.
-//! OXFR v2 also preserves the functional host death-start reentry latch for
-//! every admitted object. C++ Object::xfer deliberately omits its debug-only
-//! m_hasDiedAlready; this adds no original C++ wire field. OXFR v1 is rejected
-//! on restore. The current WorldSnapshot body/version remains unchanged.
+//! OXFR v3 preserves Object-owned retained death status and KeepObject runtime
+//! separately from the existing functional onDie latch. C++ Object::xfer
+//! persists object/private status and ActiveBody::xfer persists BODY_RUBBLE;
+//! KeepObjectDie::xfer adds no custom retained fields. These are Rust runtime
+//! records, not new C++ wire fields. Versions 1 and 2 are rejected on restore.
+//! The current WorldSnapshot body/version remains unchanged.
 
 use crate::game_logic::host_battle_bus::HostBattleBusBodyData;
 use crate::game_logic::host_helicopter_slow_death::HostHelicopterSlowDeathData;
@@ -25,7 +27,7 @@ use crate::save_load::{SaveLoadError, SaveLoadResult};
 use serde::{Deserialize, Serialize};
 
 const OXFR_MAGIC: &[u8; 4] = b"OXFR";
-const OXFR_VERSION: u32 = 2;
+const OXFR_VERSION: u32 = 3;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 struct ObjectModuleXferPersistPayload {
@@ -34,6 +36,7 @@ struct ObjectModuleXferPersistPayload {
     slow_death: Vec<SlowDeathPersist>,
     radar: Vec<RadarPersist>,
     death_start: Vec<DeathStartPersist>,
+    retained_death: Vec<RetainedDeathStatePersist>,
 }
 
 /// Rust's functional onDie reentry latch, independent of health/death modules.
@@ -41,6 +44,23 @@ struct ObjectModuleXferPersistPayload {
 struct DeathStartPersist {
     object_id: u32,
     on_die_started: bool,
+}
+
+/// Exact owned status/module state; zero HP or the onDie latch cannot infer it.
+/// KeepObjectDie itself has no corresponding custom C++ Xfer fields.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct RetainedDeathStatePersist {
+    object_id: u32,
+    effectively_dead: bool,
+    keep_as_rubble: bool,
+    keep_object_die: Option<KeepObjectDiePersist>,
+}
+
+/// Typed Rust persistence boundary for the existing private KeepObject runtime.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct KeepObjectDiePersist {
+    is_rubble: bool,
+    rubble_frame: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -86,6 +106,7 @@ impl ObjectModuleXferPersistPayload {
             && self.slow_death.is_empty()
             && self.radar.is_empty()
             && self.death_start.is_empty()
+            && self.retained_death.is_empty()
     }
 }
 
@@ -135,6 +156,7 @@ fn capture(game_logic: &GameLogic) -> ObjectModuleXferPersistPayload {
     let mut slow_death = Vec::new();
     let mut radar = Vec::new();
     let mut death_start = Vec::with_capacity(ids.len());
+    let mut retained_death = Vec::with_capacity(ids.len());
 
     for id in ids {
         let Some(object) = game_logic.host_object(id) else {
@@ -145,6 +167,19 @@ fn capture(game_logic: &GameLogic) -> ObjectModuleXferPersistPayload {
         death_start.push(DeathStartPersist {
             object_id: id.0,
             on_die_started: object.status.on_die_started,
+        });
+        // Preserve both true and false rows, independently from HP and callback state.
+        retained_death.push(RetainedDeathStatePersist {
+            object_id: id.0,
+            effectively_dead: object.status.effectively_dead,
+            keep_as_rubble: object.status.keep_as_rubble,
+            keep_object_die: object
+                .keep_object_die
+                .as_ref()
+                .map(|data| KeepObjectDiePersist {
+                    is_rubble: data.is_rubble,
+                    rubble_frame: data.rubble_frame,
+                }),
         });
 
         if object.shock_stun_frames > 0
@@ -207,6 +242,7 @@ fn capture(game_logic: &GameLogic) -> ObjectModuleXferPersistPayload {
         slow_death,
         radar,
         death_start,
+        retained_death,
     }
 }
 
@@ -249,6 +285,20 @@ fn apply_payload(game_logic: &mut GameLogic, payload: ObjectModuleXferPersistPay
     for entry in payload.death_start {
         if let Some(object) = game_logic.host_object_mut(ObjectId(entry.object_id)) {
             object.status.on_die_started = entry.on_die_started;
+        }
+    }
+    for entry in payload.retained_death {
+        if let Some(object) = game_logic.host_object_mut(ObjectId(entry.object_id)) {
+            object.status.effectively_dead = entry.effectively_dead;
+            object.status.keep_as_rubble = entry.keep_as_rubble;
+            match entry.keep_object_die {
+                Some(saved) => {
+                    let data = object.keep_object_die.get_or_insert_with(Default::default);
+                    data.is_rubble = saved.is_rubble;
+                    data.rubble_frame = saved.rubble_frame;
+                }
+                None => object.keep_object_die = None,
+            }
         }
     }
 }
@@ -471,3 +521,9 @@ mod tests {
 
 #[cfg(test)]
 mod death_start_latch_tests;
+
+#[cfg(test)]
+mod retained_keepobject_tests;
+
+#[cfg(test)]
+mod retained_schema_tests;

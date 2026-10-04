@@ -1176,24 +1176,6 @@ pub fn shadow_session_after_host_tick(
         let _mt_ready =
             logic.apply_ready_log_drain_op(crate::game_logic::ReadyLogDrainOp::MoveTarget);
         let _moving_st_wb = shadow.writeback_combat_status_to_host(logic);
-        // Wave 768: LifetimeUpdate expire → host mark-for-destruction (no dual timer).
-        for id in crate::game_logic::host_lifetime_expire_log::drain() {
-            logic.apply_host_object_id_op(crate::game_logic::HostObjectIdOp::MarkForDestruction {
-                id: id,
-                team: None,
-            });
-        }
-        // Wave 769: PoisonedBehavior DoT → host UNRESISTABLE apply (no dual timer).
-        for ev in crate::game_logic::host_poison_dot_log::drain() {
-            // Wave 941: poison DoT via host residual mutation authority.
-            logic.apply_host_residual_mutation_op(
-                crate::game_logic::HostResidualMutationOp::PoisonDot {
-                    object: ev.object,
-                    amount: ev.amount,
-                    death_type: ev.death_type,
-                },
-            );
-        }
         // Wave 770: ToppleUpdate kill-when-down → host destroy (no dual timer).
         for id in crate::game_logic::host_topple_kill_log::drain() {
             // Wave 941: force-kill residual via host residual mutation authority.
@@ -1219,7 +1201,10 @@ pub fn shadow_session_after_host_tick(
             );
         }
         // Wave 772: JetSlowDeathBehavior done → host destroy (no dual timer).
-        for id in crate::game_logic::host_jet_slow_death_kill_log::drain() {
+        for host_id in shadow.world.take_shadow_death_completions(
+            gamelogic::world::ShadowDeathCompletionKind::Jet,
+        ) {
+            let id = ObjectId(host_id);
             // Wave 941: force-kill residual via host residual mutation authority.
             logic.apply_host_residual_mutation_op(
                 crate::game_logic::HostResidualMutationOp::ForceKill {
@@ -1233,7 +1218,10 @@ pub fn shadow_session_after_host_tick(
             logic.destroy_object(id);
         }
         // Wave 773: HelicopterSlowDeathBehavior done → host destroy (no dual timer).
-        for id in crate::game_logic::host_heli_slow_death_kill_log::drain() {
+        for host_id in shadow.world.take_shadow_death_completions(
+            gamelogic::world::ShadowDeathCompletionKind::Helicopter,
+        ) {
+            let id = ObjectId(host_id);
             // C++ :457-472 FinalBlowUp FX/OCL + rubble before destroyObject.
             if let Some(obj) = logic.objects.get_mut(&id) {
                 if let Some(h) = obj.helicopter_slow_death.as_mut() {
@@ -1283,7 +1271,10 @@ pub fn shadow_session_after_host_tick(
             logic.destroy_object(id);
         }
         // Wave 774: SlowDeathBehavior done → host destroy (no dual timer).
-        for id in crate::game_logic::host_slow_death_kill_log::drain() {
+        for host_id in shadow.world.take_shadow_death_completions(
+            gamelogic::world::ShadowDeathCompletionKind::Slow,
+        ) {
+            let id = ObjectId(host_id);
             // Wave 941: force-kill residual via host residual mutation authority.
             logic.apply_host_residual_mutation_op(
                 crate::game_logic::HostResidualMutationOp::ForceKill {

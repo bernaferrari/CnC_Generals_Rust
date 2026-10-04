@@ -622,3 +622,10 @@ fn scud_storm_door_open_queues_idle_loop() {
 #[cfg(test)]
 #[path = "deferred_death_lifecycle_tests.rs"]
 mod deferred_death_lifecycle_tests;
+
+#[path = "death_completion_owner.rs"]
+mod death_completion_owner;
+
+#[cfg(test)]
+#[path = "timer_owner_tests.rs"]
+mod timer_owner_tests;

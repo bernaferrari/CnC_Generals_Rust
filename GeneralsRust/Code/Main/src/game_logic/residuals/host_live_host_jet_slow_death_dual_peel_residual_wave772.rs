@@ -1,6 +1,6 @@
 //! Wave 772: GW entity carries JetSlowDeathBehavior residual; under coupled
 //! dual-tick `tick_status_timer_expirations` sole-ticks crash fall into
-//! host_jet_slow_death_kill_log; host peels `tick_jet_slow_death` and drains
+//! the driving GameWorld Jet completion channel; host peels `tick_jet_slow_death` and drains
 //! kill after writeback. playable_claim stays false.
 
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
@@ -12,7 +12,7 @@ pub fn residual_name_index(table: &[&str], name: &str) -> Option<usize> {
 pub const LIVE_HOST_JET_SLOW_DEATH_DUAL_PEEL_METHOD_NAMES_WAVE772: &[&str] = &[
     "jet_slow_death_active",
     "jet_slow_death_vertical_velocity",
-    "host_jet_slow_death_kill_log",
+    "ShadowDeathCompletionKind::Jet",
     "tick_jet_slow_death",
     "Wave 772",
     "playable_claim = false",
@@ -28,7 +28,7 @@ pub const LIVE_HOST_JET_SLOW_DEATH_DUAL_PEEL_NAV_STEPS_WAVE772: &[&str] = &[
 pub const RUNTIME_HOST_LIVE_HOST_JET_SLOW_DEATH_DUAL_PEEL_CMD_NAMES_WAVE772: &[&str] = &[
     "host_jet_slow_death_dual_peel",
     "jet_slow_death_active",
-    "host_jet_slow_death_kill_log",
+    "ShadowDeathCompletionKind::Jet",
     "tick_jet_slow_death",
 ];
 #[repr(u8)]
@@ -75,7 +75,7 @@ pub fn honesty_host_jet_slow_death_dual_peel_method_names_residual_wave772() -> 
     let names = LIVE_HOST_JET_SLOW_DEATH_DUAL_PEEL_METHOD_NAMES_WAVE772;
     let ok = residual_name_index(names, "jet_slow_death_active").is_some()
         && residual_name_index(names, "jet_slow_death_vertical_velocity").is_some()
-        && residual_name_index(names, "host_jet_slow_death_kill_log").is_some()
+        && residual_name_index(names, "ShadowDeathCompletionKind::Jet").is_some()
         && residual_name_index(names, "tick_jet_slow_death").is_some()
         && residual_name_index(names, "Wave 772").is_some()
         && residual_name_index(names, "playable_claim = false").is_some();
@@ -86,11 +86,16 @@ pub fn honesty_host_jet_slow_death_dual_peel_source_markers_residual_wave772() -
     let sh = sh_source();
     let gl = gl_source();
     let ent = include_str!("../../../../GameEngine/GameLogic/src/world/entities/mod.rs");
+    let owner = include_str!("../../../../GameEngine/GameLogic/src/world/shadow_death_completions.rs");
+    let world = include_str!("../../../../GameEngine/GameLogic/src/world/mod.rs");
     let ok = ent.contains("jet_slow_death_active")
         && ent.contains("jet_slow_death_vertical_velocity")
         && sh.contains("Wave 772")
-        && sh.contains("host_jet_slow_death_kill_log::record")
-        && sh.contains("host_jet_slow_death_kill_log::drain")
+        && sh.contains("record_shadow_death_completion")
+        && sh.contains("ShadowDeathCompletionKind::Jet")
+        && owner.contains("jet: Vec<u32>")
+        && world.contains("shadow_death_completions: ShadowDeathCompletions")
+        && sh.contains("take_shadow_death_completions")
         && gl.contains("Wave 772")
         && gl.contains("tick_jet_slow_death");
     residual_action_store(ResidualHostJetSlowDeathDualPeelAction::SourceMarkers);
@@ -115,7 +120,8 @@ pub fn simulate_host_jet_slow_death_dual_peel_collect_source() -> bool {
     ok
 }
 pub fn simulate_host_jet_slow_death_dual_peel_dispatch_source() -> bool {
-    let ok = sh_source().contains("host_jet_slow_death_kill_log::record")
+    let ok = sh_source().contains("record_shadow_death_completion")
+        && sh_source().contains("ShadowDeathCompletionKind::Jet")
         && sh_source().contains("JET_FINAL_BLOWUP_DELAY_FRAMES")
         && gl_source().contains("tick_jet_slow_death")
         && gl_source().contains("shadow_coupled_tick_active()");

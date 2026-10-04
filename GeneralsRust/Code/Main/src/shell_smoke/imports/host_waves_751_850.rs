@@ -85,16 +85,6 @@ pub use crate::game_logic::host_live_host_fire_sound_loop_dual_peel_residual_wav
     honesty_host_fire_sound_loop_dual_peel_nav_commands_residual_wave767,
     simulate_live_host_fire_sound_loop_dual_peel_honesty,
 };
-pub use crate::game_logic::host_live_host_lifetime_expire_dual_peel_residual_wave768::{
-    honesty_host_lifetime_expire_dual_peel_method_names_residual_wave768,
-    honesty_host_lifetime_expire_dual_peel_nav_commands_residual_wave768,
-    simulate_live_host_lifetime_expire_dual_peel_honesty,
-};
-pub use crate::game_logic::host_live_host_poison_dot_dual_peel_residual_wave769::{
-    honesty_host_poison_dot_dual_peel_method_names_residual_wave769,
-    honesty_host_poison_dot_dual_peel_nav_commands_residual_wave769,
-    simulate_live_host_poison_dot_dual_peel_honesty,
-};
 pub use crate::game_logic::host_live_host_topple_fall_dual_peel_residual_wave770::{
     honesty_host_topple_fall_dual_peel_method_names_residual_wave770,
     honesty_host_topple_fall_dual_peel_nav_commands_residual_wave770,

@@ -1,6 +1,6 @@
-//! Wave 941: host residual mutation authority (poison/force-kill/pending fire).
+//! Wave 941: host residual mutation authority (force-kill/pending fire).
 //!
-//! Shadow session drains for PoisonedBehavior DoT, topple/height/slow-death kills,
+//! Shadow session drains for topple/height/slow-death kills,
 //! and FireWeaponWhenDamaged pending fire route through
 //! `apply_host_residual_mutation_op` instead of `get_objects_mut` dual-writes.
 //! playable_claim stays false.
@@ -17,7 +17,6 @@ pub fn residual_name_index(table: &[&str], name: &str) -> Option<usize> {
 pub const LIVE_HOST_RESIDUAL_MUTATION_BOUNDARY_METHOD_NAMES_WAVE941: &[&str] = &[
     "apply_host_residual_mutation_op",
     "HostResidualMutationOp",
-    "PoisonDot",
     "ForceKill",
     "SetPendingFireWhenDamaged",
     "Wave 941",
@@ -50,35 +49,12 @@ fn cnc_source() -> &'static str {
     crate::cnc_game_engine::ENGINE_SRC
 }
 
-fn gl_source() -> &'static str {
-    super::GAME_LOGIC_HOST_SRC
-}
-
-fn shadow_source() -> &'static str {
-    crate::gameworld_shadow::GAMEWORLD_SHADOW_SRC
-}
-
-fn code_window<'a>(src: &'a str, marker: &str, len: usize) -> &'a str {
-    match src.find(marker) {
-        Some(i) => &src[i..src.len().min(i + len)],
-        None => "",
-    }
-}
-
 fn non_comment_code(window: &str) -> String {
     window
         .lines()
         .filter(|l| !l.trim_start().starts_with("//"))
         .collect::<Vec<_>>()
         .join("\n")
-}
-
-fn session_fn_window(src: &str) -> &str {
-    let marker = "fn shadow_session_after_host_tick";
-    match src.find(marker) {
-        Some(i) => &src[i..src.len().min(i + 130_000)],
-        None => "",
-    }
 }
 
 pub fn honesty_host_residual_mutation_boundary_method_names_residual_wave941() -> bool {
@@ -100,29 +76,38 @@ pub fn honesty_host_residual_mutation_boundary_nav_commands_residual_wave941() -
 }
 
 pub fn honesty_host_residual_mutation_boundary_residual_pack_wave941() -> bool {
-    let gl = gl_source();
-    let sh = shadow_source();
+    let payload = include_str!("../game_logic/authority.rs");
+    let ops = include_str!("../world_objects/host_ops_writeback.rs");
+    let sh = include_str!("../../gameworld_shadow/session.rs");
     let cnc = cnc_source();
-    let api = non_comment_code(code_window(gl, "fn apply_host_residual_mutation_op", 2000));
-    let session = non_comment_code(session_fn_window(sh));
-    let ok = gl.contains("enum HostResidualMutationOp")
-        && api.contains("PoisonDot")
+    let api = ops
+        .split_once("pub fn apply_host_residual_mutation_op")
+        .map(|(_, body)| {
+            body.split_once("pub fn apply_host_unmapped_damage_fallback")
+                .map_or(body, |(body, _)| body)
+        })
+        .unwrap_or("");
+    let api = non_comment_code(api);
+    let session = sh
+        .split_once("pub fn shadow_session_after_host_tick")
+        .map(|(_, body)| body)
+        .unwrap_or("");
+    let session = non_comment_code(session);
+    let ok = payload.contains("enum HostResidualMutationOp")
         && api.contains("ForceKill")
         && api.contains("SetPendingFireWhenDamaged")
-        && api.contains("take_damage_from_typed_death")
+        && !api.contains("PoisonDot")
         && session.contains("apply_host_residual_mutation_op")
-        && session.contains("PoisonDot")
         && session.contains("ForceKill")
         && session.contains("SetPendingFireWhenDamaged")
-        && !session.contains("take_damage_from_typed_death")
-        && session.contains("host_poison_dot_log::drain")
+        && !session.contains("PoisonDot")
+        && !session.contains("host_poison_dot_log")
         && session.contains("host_topple_kill_log::drain")
         && session.contains("host_fwwd_continuous_log::drain")
         && session.contains("host_fwwd_reaction_log::drain")
-        && gl.contains("Wave 941")
+        && payload.contains("Wave 941")
         && sh.contains("941")
-        && !cnc.contains("playable_claim = true")
-        && !gl.contains("playable_claim = true");
+        && !cnc.contains("playable_claim = true");
     residual_action_store(ResidualHostResidualMutationBoundaryAction::SourceMarkers);
     RESIDUAL_OK.store(ok, Ordering::SeqCst);
     ok

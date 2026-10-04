@@ -12,6 +12,7 @@
 //! host-side observable still happens with all authorities off.
 
 use super::*;
+mod terrain_decal_cadence;
 use crate::gameworld_shadow::{
     GameWorldShadow, begin_shadow_coupled_tick, eager_apply_all_host_residuals_after_logic,
     end_shadow_coupled_tick, shadow_session_after_host_tick, with_coupled_shadow,

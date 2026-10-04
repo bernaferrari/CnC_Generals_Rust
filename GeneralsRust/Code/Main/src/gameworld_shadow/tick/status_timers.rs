@@ -273,6 +273,11 @@ impl GameWorldShadow {
         // Wave 761: under coupled dual-tick, GameWorld expires status timers
         // (faerie/repulsor/disable/frenzy/continuous-fire coast). Host peels the
         // matching mid-frame ticks so writeback is last-writer without dual expire.
+        // With movement authority off Main owns the three death timers.
+        // Discard queued deliveries before any later re-enable can consume them.
+        if !crate::gameworld_shadow::gameworld_movement_authority_enabled() {
+            self.world.clear_shadow_death_completions();
+        }
         let snaps = self.collect_status_timer_snapshots();
         let mut n = 0usize;
         for eid in snaps.eids.iter().copied() {

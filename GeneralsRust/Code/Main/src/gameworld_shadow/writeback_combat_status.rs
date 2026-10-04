@@ -94,65 +94,6 @@ impl GameWorldShadow {
                 obj.fire_sound_loop_name = ent.fire_sound_loop_name.clone();
             }
             {
-                let host_active = obj
-                    .lifetime_update
-                    .as_ref()
-                    .map(|l| l.active)
-                    .unwrap_or(false);
-                let host_exp = obj
-                    .lifetime_update
-                    .as_ref()
-                    .map(|l| l.expire_at_frame)
-                    .unwrap_or(0);
-                if host_active != ent.lifetime_active || host_exp != ent.lifetime_expire_at_frame {
-                    if ent.lifetime_active || ent.lifetime_expire_at_frame != 0 {
-                        let l = obj.lifetime_update.get_or_insert_with(Default::default);
-                        l.active = ent.lifetime_active;
-                        l.expire_at_frame = ent.lifetime_expire_at_frame;
-                    } else {
-                        obj.lifetime_update = None;
-                    }
-                }
-            }
-            {
-                let host_stop = obj
-                    .poisoned_behavior
-                    .as_ref()
-                    .map(|p| p.poison_overall_stop_frame)
-                    .unwrap_or(0);
-                let host_next = obj
-                    .poisoned_behavior
-                    .as_ref()
-                    .map(|p| p.poison_damage_frame)
-                    .unwrap_or(0);
-                if host_stop != ent.poison_overall_stop_frame
-                    || host_next != ent.poison_damage_frame
-                    || obj
-                        .poisoned_behavior
-                        .as_ref()
-                        .map(|p| {
-                            (p.poison_damage_amount - ent.poison_damage_amount).abs() > f32::EPSILON
-                        })
-                        .unwrap_or(ent.poison_damage_amount > 0.0)
-                    || obj
-                        .poisoned_behavior
-                        .as_ref()
-                        .map(|p| p.tint_poisoned != ent.poison_tint)
-                        .unwrap_or(ent.poison_tint)
-                {
-                    if ent.poison_overall_stop_frame != 0 || ent.poison_damage_frame != 0 {
-                        let p = obj.poisoned_behavior.get_or_insert_with(Default::default);
-                        p.poison_damage_frame = ent.poison_damage_frame;
-                        p.poison_overall_stop_frame = ent.poison_overall_stop_frame;
-                        p.poison_damage_amount = ent.poison_damage_amount;
-                        p.tint_poisoned = ent.poison_tint;
-                        p.death_type = crate::game_logic::host_usa_pilot::HostDeathType::Poisoned;
-                    } else {
-                        obj.poisoned_behavior = None;
-                    }
-                }
-            }
-            {
                 let host_active = obj.topple_data.is_some();
                 let changed = host_active != ent.topple_active
                     || obj

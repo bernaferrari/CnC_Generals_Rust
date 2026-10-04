@@ -170,8 +170,6 @@ pub mod host_power_plant_rods_log;
 #[path = "host_scorpion_missile_projectile_log.rs"]
 pub mod host_scorpion_missile_projectile_log;
 
-#[path = "host_slow_death_kill_log.rs"]
-pub mod host_slow_death_kill_log;
 
 #[path = "host_spy_satellite_ping_log.rs"]
 pub mod host_spy_satellite_ping_log;

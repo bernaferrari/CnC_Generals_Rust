@@ -112,27 +112,20 @@ impl GameLogic {
                     .as_mut()
                     .map(|d| d.drain_audio())
                     .unwrap_or_default();
-                // C++ PoisonedBehavior::update residual (DoT).
-                // Wave 769: under coupled shadow, PoisonedBehavior DoT is owned by
-                // GW tick_status_timer_expirations + host_poison_dot_log drain.
-                if !(crate::gameworld_shadow::gameworld_shadow_enabled()
-                    && crate::gameworld_shadow::shadow_coupled_tick_active())
-                {
-                    if let Some((dot, death_ty)) = obj.tick_poisoned_behavior(self.frame) {
-                        // Apply as UNRESISTABLE so it doesn't re-infect (C++).
-                        // m_damageFXOverride = DAMAGE_POISON (ActiveBody doDamageFX).
-                        let killed = obj.take_damage_from_typed_death_fx(
-                            dot,
-                            None,
-                            crate::game_logic::combat::DamageType::Unresistable,
-                            death_ty,
-                            Some(
-                                crate::game_logic::host_poisoned_behavior::poison_dot_fx_override(),
-                            ),
-                        );
-                        if killed {
-                            poison_kill = true;
-                        }
+                // CPP PoisonedBehavior owns its timer on this Object. Movement
+                // authority only changes pose ownership; its diagnostic shadow
+                // does not schedule or apply another poison pulse.
+                if let Some((dot, death_ty)) = obj.tick_poisoned_behavior(self.frame) {
+                    let killed = obj.take_damage_from_typed_death_fx_at_frame(
+                        dot,
+                        None,
+                        crate::game_logic::combat::DamageType::Unresistable,
+                        death_ty,
+                        Some(crate::game_logic::host_poisoned_behavior::poison_dot_fx_override()),
+                        self.frame,
+                    );
+                    if killed {
+                        poison_kill = true;
                     }
                 }
                 // Wave 778: under coupled shadow, FWWDB continuous is owned by
@@ -148,22 +141,17 @@ impl GameLogic {
                         }
                     }
                 }
-                // C++ LifetimeUpdate residual.
-                // Wave 745: under damage authority, do not zero host HP / stamp
-                // destroyed mid-frame (dual with GW HP writeback). Mark-for-destroy
-                // owns lethal residual; non-authority path keeps host HP clear.
-                // Wave 768: under coupled shadow, LifetimeUpdate expire is owned by
-                // GW tick_status_timer_expirations + host_lifetime_expire_log drain.
-                if !(crate::gameworld_shadow::gameworld_shadow_enabled()
-                    && crate::gameworld_shadow::shadow_coupled_tick_active())
-                {
-                    if obj.tick_lifetime_update(self.frame) {
-                        lifetime_kill = true;
-                        if !crate::gameworld_shadow::gameworld_damage_authority_live() {
-                            obj.health.current = 0.0;
-                            obj.status.destroyed = true;
-                            obj.refresh_model_condition_bits();
-                        }
+                // CPP LifetimeUpdate returns FOREVER after its initial kill.
+                // This Object owns the timer even when movement is mirrored.
+                // Keep the existing initial mark/onDie boundary below; it is
+                // distinct from explicit final destroy_object.
+                // Wave 745: retain the existing damage-authority HP channel.
+                if obj.tick_lifetime_update(self.frame) {
+                    lifetime_kill = true;
+                    if !crate::gameworld_shadow::gameworld_damage_authority_live() {
+                        obj.health.current = 0.0;
+                        obj.status.destroyed = true;
+                        obj.refresh_model_condition_bits();
                     }
                 }
                 // C++ MissileLauncherBuildingUpdate::update (ready-frame door SM).
@@ -238,7 +226,7 @@ impl GameLogic {
                     }
                 }
                 // Wave 772: under coupled shadow, JetSlowDeathBehavior is owned by
-                // GW tick_status_timer_expirations + host_jet_slow_death_kill_log drain.
+                // GW tick_status_timer_expirations + its owned Jet completion drain.
                 if !crate::gameworld_shadow::gameworld_movement_authority_live() {
                     // C++ JetSlowDeathBehavior residual.
                     if !topple_kill
@@ -253,7 +241,7 @@ impl GameLogic {
                     }
                 }
                 // Wave 773: under coupled shadow, HelicopterSlowDeathBehavior is owned by
-                // GW tick_status_timer_expirations + host_heli_slow_death_kill_log drain.
+                // GW tick_status_timer_expirations + its owned Helicopter completion drain.
                 if !crate::gameworld_shadow::gameworld_movement_authority_live() {
                     // C++ HelicopterSlowDeathBehavior residual.
                     if !topple_kill
@@ -268,7 +256,7 @@ impl GameLogic {
                     }
                 }
                 // Wave 774: under coupled shadow, SlowDeathBehavior is owned by
-                // GW tick_status_timer_expirations + host_slow_death_kill_log drain.
+                // GW tick_status_timer_expirations + its owned Slow completion drain.
                 if !crate::gameworld_shadow::gameworld_movement_authority_live() {
                     if !topple_kill
                         && obj

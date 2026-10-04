@@ -219,7 +219,7 @@ impl Object {
         )
     }
 
-    fn take_damage_from_typed_death_fx_at_frame(
+    pub(in crate::game_logic) fn take_damage_from_typed_death_fx_at_frame(
         &mut self,
         damage: f32,
         source: Option<ObjectId>,

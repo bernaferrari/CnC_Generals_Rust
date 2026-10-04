@@ -497,15 +497,9 @@ pub enum HostObjectIdResult {
     Created(Option<ObjectId>),
 }
 
-/// Wave 941/942: host residual mutation payload (poison/kill/pending fire/expire/field).
+/// Wave 941/942: host residual mutation payload (kill/pending fire/expire/field).
 #[derive(Debug, Clone)]
 pub enum HostResidualMutationOp {
-    /// PoisonedBehavior DoT — UNRESISTABLE typed death.
-    PoisonDot {
-        object: ObjectId,
-        amount: f32,
-        death_type: crate::game_logic::host_usa_pilot::HostDeathType,
-    },
     /// Force HP to 0 / destroyed (+ optional death_type / model refresh).
     ForceKill {
         id: ObjectId,

@@ -1,6 +1,6 @@
 //! Wave 773: GW entity carries HelicopterSlowDeathBehavior residual; under
 //! coupled dual-tick `tick_status_timer_expirations` sole-ticks spiral crash
-//! into host_heli_slow_death_kill_log; host peels `tick_helicopter_slow_death`
+//! into the driving GameWorld Helicopter completion channel; host peels `tick_helicopter_slow_death`
 //! and drains kill after writeback. playable_claim stays false.
 
 use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
@@ -12,7 +12,7 @@ pub fn residual_name_index(table: &[&str], name: &str) -> Option<usize> {
 pub const LIVE_HOST_HELI_SLOW_DEATH_DUAL_PEEL_METHOD_NAMES_WAVE773: &[&str] = &[
     "heli_slow_death_active",
     "heli_slow_death_orbit_angle",
-    "host_heli_slow_death_kill_log",
+    "ShadowDeathCompletionKind::Helicopter",
     "tick_helicopter_slow_death",
     "Wave 773",
     "playable_claim = false",
@@ -28,7 +28,7 @@ pub const LIVE_HOST_HELI_SLOW_DEATH_DUAL_PEEL_NAV_STEPS_WAVE773: &[&str] = &[
 pub const RUNTIME_HOST_LIVE_HOST_HELI_SLOW_DEATH_DUAL_PEEL_CMD_NAMES_WAVE773: &[&str] = &[
     "host_heli_slow_death_dual_peel",
     "heli_slow_death_active",
-    "host_heli_slow_death_kill_log",
+    "ShadowDeathCompletionKind::Helicopter",
     "tick_helicopter_slow_death",
 ];
 #[repr(u8)]
@@ -75,7 +75,7 @@ pub fn honesty_host_heli_slow_death_dual_peel_method_names_residual_wave773() ->
     let names = LIVE_HOST_HELI_SLOW_DEATH_DUAL_PEEL_METHOD_NAMES_WAVE773;
     let ok = residual_name_index(names, "heli_slow_death_active").is_some()
         && residual_name_index(names, "heli_slow_death_orbit_angle").is_some()
-        && residual_name_index(names, "host_heli_slow_death_kill_log").is_some()
+        && residual_name_index(names, "ShadowDeathCompletionKind::Helicopter").is_some()
         && residual_name_index(names, "tick_helicopter_slow_death").is_some()
         && residual_name_index(names, "Wave 773").is_some()
         && residual_name_index(names, "playable_claim = false").is_some();
@@ -86,11 +86,16 @@ pub fn honesty_host_heli_slow_death_dual_peel_source_markers_residual_wave773() 
     let sh = sh_source();
     let gl = gl_source();
     let ent = include_str!("../../../../GameEngine/GameLogic/src/world/entities/mod.rs");
+    let owner = include_str!("../../../../GameEngine/GameLogic/src/world/shadow_death_completions.rs");
+    let world = include_str!("../../../../GameEngine/GameLogic/src/world/mod.rs");
     let ok = ent.contains("heli_slow_death_active")
         && ent.contains("heli_slow_death_orbit_angle")
         && sh.contains("Wave 773")
-        && sh.contains("host_heli_slow_death_kill_log::record")
-        && sh.contains("host_heli_slow_death_kill_log::drain")
+        && sh.contains("record_shadow_death_completion")
+        && sh.contains("ShadowDeathCompletionKind::Helicopter")
+        && owner.contains("helicopter: Vec<u32>")
+        && world.contains("shadow_death_completions: ShadowDeathCompletions")
+        && sh.contains("take_shadow_death_completions")
         && gl.contains("Wave 773")
         && gl.contains("tick_helicopter_slow_death");
     residual_action_store(ResidualHostHeliSlowDeathDualPeelAction::SourceMarkers);
@@ -115,7 +120,8 @@ pub fn simulate_host_heli_slow_death_dual_peel_collect_source() -> bool {
     ok
 }
 pub fn simulate_host_heli_slow_death_dual_peel_dispatch_source() -> bool {
-    let ok = sh_source().contains("host_heli_slow_death_kill_log::record")
+    let ok = sh_source().contains("record_shadow_death_completion")
+        && sh_source().contains("ShadowDeathCompletionKind::Helicopter")
         && sh_source().contains("HELI_SPIRAL_TURN_RATE")
         && gl_source().contains("tick_helicopter_slow_death")
         && gl_source().contains("shadow_coupled_tick_active()");

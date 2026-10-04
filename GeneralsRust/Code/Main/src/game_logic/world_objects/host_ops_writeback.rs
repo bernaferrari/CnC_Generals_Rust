@@ -546,21 +546,6 @@ impl GameLogic {
     #[inline]
     pub fn apply_host_residual_mutation_op(&mut self, op: HostResidualMutationOp) {
         match op {
-            HostResidualMutationOp::PoisonDot {
-                object,
-                amount,
-                death_type,
-            } => {
-                if let Some(obj) = self.host_objects_mut().get_mut(&object) {
-                    let _ = obj.take_damage_from_typed_death_fx(
-                        amount,
-                        None,
-                        crate::game_logic::combat::DamageType::Unresistable,
-                        death_type,
-                        Some(crate::game_logic::host_poisoned_behavior::poison_dot_fx_override()),
-                    );
-                }
-            }
             HostResidualMutationOp::ForceKill {
                 id,
                 death_type,

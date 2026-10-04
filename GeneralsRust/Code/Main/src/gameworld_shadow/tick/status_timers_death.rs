@@ -10,6 +10,8 @@ impl GameWorldShadow {
             return false;
         };
         let mut changed = false;
+        let movement_authority = crate::gameworld_shadow::gameworld_movement_authority_enabled();
+        let mut completed = [None; 3];
         // Wave 766: ObjectDefectionHelper timer residual (flash/audio via writeback).
         e.defection_flash_this_frame = false;
         e.defection_final_white_flash = false;
@@ -57,44 +59,8 @@ impl GameWorldShadow {
             }
             changed = true;
         }
-        // Wave 768: LifetimeUpdate residual (auto-die after min/max frames).
-        if e.lifetime_active
-            && e.lifetime_expire_at_frame > 0
-            && frame >= e.lifetime_expire_at_frame
-        {
-            e.lifetime_active = false;
-            if let Some(&hid) = self.entity_to_host.get(&eid.get()) {
-                crate::game_logic::host_lifetime_expire_log::record(crate::game_logic::ObjectId(
-                    hid,
-                ));
-            }
-            changed = true;
-        }
-        // Wave 769: PoisonedBehavior DoT residual (UNRESISTABLE retake).
-        if e.poison_overall_stop_frame != 0 {
-            if e.poison_damage_frame != 0 && frame >= e.poison_damage_frame {
-                let amount = e.poison_damage_amount;
-                if amount > 0.0 {
-                    if let Some(&hid) = self.entity_to_host.get(&eid.get()) {
-                        crate::game_logic::host_poison_dot_log::record(
-                            crate::game_logic::ObjectId(hid),
-                            amount,
-                            crate::game_logic::host_usa_pilot::HostDeathType::Poisoned,
-                        );
-                    }
-                }
-                let interval = crate::game_logic::host_poisoned_behavior::poison_interval_frames();
-                e.poison_damage_frame = frame.saturating_add(interval);
-                changed = true;
-            }
-            if frame >= e.poison_overall_stop_frame {
-                e.poison_damage_frame = 0;
-                e.poison_overall_stop_frame = 0;
-                e.poison_damage_amount = 0.0;
-                e.poison_tint = false;
-                changed = true;
-            }
-        }
+        // Lifetime and PoisonedBehavior timers are driven by the host Object.
+        // Their entity fields are diagnostic inputs, not a second scheduler.
         // Wave 770: ToppleUpdate fall residual (trees / crushable props).
         if e.topple_active && e.topple_state == 1 {
             use crate::game_logic::host_topple::{
@@ -175,7 +141,7 @@ impl GameWorldShadow {
             }
         }
         // Wave 772: JetSlowDeathBehavior residual (fixed-wing crash death).
-        if e.jet_slow_death_active && !e.jet_slow_death_done {
+        if movement_authority && e.jet_slow_death_active && !e.jet_slow_death_done {
             use crate::game_logic::host_jet_slow_death::{
                 JET_FINAL_BLOWUP_DELAY_FRAMES, JET_GRAVITY,
             };
@@ -217,15 +183,13 @@ impl GameWorldShadow {
             }
             if done {
                 if let Some(&hid) = self.entity_to_host.get(&eid.get()) {
-                    crate::game_logic::host_jet_slow_death_kill_log::record(
-                        crate::game_logic::ObjectId(hid),
-                    );
+                    completed[0] = Some(hid);
                 }
             }
             changed = true;
         }
         // Wave 773: HelicopterSlowDeathBehavior residual (spiral crash death).
-        if e.heli_slow_death_active && !e.heli_slow_death_done {
+        if movement_authority && e.heli_slow_death_active && !e.heli_slow_death_done {
             use crate::game_logic::host_helicopter_slow_death::{
                 HELI_BLADE_FLY_OFF_FRAMES, HELI_CRASH_GRAVITY, HELI_GROUND_SETTLE_FRAMES,
                 HELI_MAX_SELF_SPIN, HELI_MIN_SELF_SPIN, HELI_SELF_SPIN_UPDATE_AMOUNT,
@@ -288,16 +252,14 @@ impl GameWorldShadow {
             }
             if done {
                 if let Some(&hid) = self.entity_to_host.get(&eid.get()) {
-                    crate::game_logic::host_heli_slow_death_kill_log::record(
-                        crate::game_logic::ObjectId(hid),
-                    );
+                    completed[1] = Some(hid);
                 }
             }
             changed = true;
         }
         // Wave 774: SlowDeathBehavior residual (sink delay + destroy).
         // phase: 0 Inactive, 1 WaitingToSink, 2 Sinking, 3 WaitingToDestroy, 4 Done
-        if e.slow_death_phase != 0 && e.slow_death_phase != 4 {
+        if movement_authority && e.slow_death_phase != 0 && e.slow_death_phase != 4 {
             let mut done = false;
             match e.slow_death_phase {
                 1 => {
@@ -334,12 +296,21 @@ impl GameWorldShadow {
             }
             if done {
                 if let Some(&hid) = self.entity_to_host.get(&eid.get()) {
-                    crate::game_logic::host_slow_death_kill_log::record(
-                        crate::game_logic::ObjectId(hid),
-                    );
+                    completed[2] = Some(hid);
                 }
             }
             changed = true;
+        }
+        // Release the entity borrow before routing ordinary timer results into
+        // this GameWorld's delivery owner; no TLS carrier or active-slot lookup.
+        for (kind, host_id) in [
+            gamelogic::world::ShadowDeathCompletionKind::Jet,
+            gamelogic::world::ShadowDeathCompletionKind::Helicopter,
+            gamelogic::world::ShadowDeathCompletionKind::Slow,
+        ].into_iter().zip(completed) {
+            if let Some(host_id) = host_id {
+                self.world.record_shadow_death_completion(kind, host_id);
+            }
         }
         changed
     }
