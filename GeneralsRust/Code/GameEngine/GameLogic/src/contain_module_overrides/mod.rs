@@ -414,6 +414,7 @@ mod update_modules;
 #[cfg(test)]
 mod registration_tests;
 
+pub(crate) use contain::contain_handle_for_module;
 pub use contain::{ContainModuleDataAdapter, ContainModuleDataKind};
 pub(crate) use helpers::ActiveBehaviorModule;
 pub use install::{ensure_module_overrides_installed, register_module_overrides};

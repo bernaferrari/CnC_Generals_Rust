@@ -7,6 +7,12 @@
 use super::object_impl_imports::*;
 use super::*;
 
+#[cfg(test)]
+mod contain_installation_tests;
+
+#[cfg(test)]
+mod physics_installation_tests;
+
 impl Object {
     // Module access
     pub fn get_body_module(&self) -> Option<Arc<Mutex<dyn BodyModuleInterface>>> {
@@ -934,6 +940,49 @@ impl Object {
                 }
                 if (mask.0 & ModuleInterfaceType::UPGRADE.0) != 0 {
                     guard.upgrade_module_handles.push(index);
+                }
+            }
+
+            // C++ Object.cpp:406–412 installs m_contain from the same authored
+            // module instance before ANY onObjectCreated callback (458–462).
+            // Preserve authored order even for malformed duplicate containers,
+            // whose release-build C++ behavior selects the last interface.
+            for index in guard.contain_module_handles.clone() {
+                let handle = guard.modules[index].with_module(|module| {
+                    crate::contain_module_overrides::contain_handle_for_module(module)
+                });
+                if let Some(handle) = handle {
+                    guard.set_contain(Some(handle));
+                }
+            }
+
+            // C++ Object.cpp:430–436 exposes the physics interface from the
+            // same authored module before onObjectCreated. Bind the exact
+            // construction owner while we already hold its Object borrow.
+            let physics_entries: Vec<_> = guard
+                .modules
+                .iter()
+                .filter(|entry| entry.name() == "PhysicsBehavior")
+                .cloned()
+                .collect();
+            for entry in physics_entries {
+                let installed = entry.with_module(|module| {
+                    let Some(module) = module
+                        .as_any_mut()
+                        .downcast_mut::<crate::contain_module_overrides::ActiveBehaviorModule<
+                        crate::object::behavior::physics_update::PhysicsBehaviorUpdate,
+                    >>() else {
+                        return false;
+                    };
+                    module
+                        .behavior_mut()
+                        .bind_construction_owner(object, guard.id);
+                    true
+                });
+                if installed {
+                    guard.set_physics(Some(PhysicsInterfaceHandle::from_module(
+                        BehaviorModuleHandle::new(entry),
+                    )));
                 }
             }
 

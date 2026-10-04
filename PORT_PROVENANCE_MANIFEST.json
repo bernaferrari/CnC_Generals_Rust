@@ -20901,13 +20901,27 @@
         "destinations": [
           {
             "cargo_reachable": true,
+            "classification": "test",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/contain/open_admission_tests.rs"
+          },
+          {
+            "cargo_reachable": true,
             "classification": "implementation",
             "owned_source_ranges": [],
             "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/contain/open_contain.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "test",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/contain/owner_exit_goal_tests.rs"
           }
         ],
-        "mode": "stem_inferred",
+        "mode": "split_inferred",
         "ownership_diagnostics": [],
         "range_validation": "not_required",
         "review_state": "unreviewed",
@@ -25072,13 +25086,27 @@
         "destinations": [
           {
             "cargo_reachable": true,
+            "classification": "test",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/contain/transport_admission_tests.rs"
+          },
+          {
+            "cargo_reachable": true,
             "classification": "implementation",
             "owned_source_ranges": [],
             "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/contain/transport_contain.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "test",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/contain/transport_door_exit_tests.rs"
           }
         ],
-        "mode": "stem_inferred",
+        "mode": "split_inferred",
         "ownership_diagnostics": [],
         "range_validation": "not_required",
         "review_state": "unreviewed",
@@ -26975,6 +27003,13 @@
           },
           {
             "cargo_reachable": true,
+            "classification": "test",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/contain/open_admission_tests.rs"
+          },
+          {
+            "cargo_reachable": true,
             "classification": "implementation",
             "owned_source_ranges": [],
             "owned_symbols": [],
@@ -26986,6 +27021,13 @@
             "owned_source_ranges": [],
             "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/contain/overlord_contain.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "test",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/contain/owner_exit_goal_tests.rs"
           },
           {
             "cargo_reachable": true,
@@ -27010,10 +27052,24 @@
           },
           {
             "cargo_reachable": true,
+            "classification": "test",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/contain/transport_admission_tests.rs"
+          },
+          {
+            "cargo_reachable": true,
             "classification": "implementation",
             "owned_source_ranges": [],
             "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/contain/transport_contain.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "test",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/contain/transport_door_exit_tests.rs"
           },
           {
             "cargo_reachable": true,
@@ -27787,6 +27843,20 @@
           },
           {
             "cargo_reachable": true,
+            "classification": "test",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/object_modules/contain_installation_tests.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "test",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/object_modules/physics_installation_tests.rs"
+          },
+          {
+            "cargo_reachable": true,
             "classification": "implementation",
             "owned_source_ranges": [],
             "owned_symbols": [],
@@ -28288,6 +28358,13 @@
             "owned_source_ranges": [],
             "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/unit/orders.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "test",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/unit/rappel_command_tests.rs"
           },
           {
             "cargo_reachable": true,
@@ -55562,13 +55639,27 @@
         "destinations": [
           {
             "cargo_reachable": true,
+            "classification": "test",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/contain/open_admission_tests.rs"
+          },
+          {
+            "cargo_reachable": true,
             "classification": "implementation",
             "owned_source_ranges": [],
             "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/contain/open_contain.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "test",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/contain/owner_exit_goal_tests.rs"
           }
         ],
-        "mode": "stem_inferred",
+        "mode": "split_inferred",
         "ownership_diagnostics": [],
         "range_validation": "not_required",
         "review_state": "unreviewed",
@@ -55807,13 +55898,27 @@
         "destinations": [
           {
             "cargo_reachable": true,
+            "classification": "test",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/contain/transport_admission_tests.rs"
+          },
+          {
+            "cargo_reachable": true,
             "classification": "implementation",
             "owned_source_ranges": [],
             "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/contain/transport_contain.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "test",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/contain/transport_door_exit_tests.rs"
           }
         ],
-        "mode": "stem_inferred",
+        "mode": "split_inferred",
         "ownership_diagnostics": [],
         "range_validation": "not_required",
         "review_state": "unreviewed",
@@ -59212,6 +59317,13 @@
           },
           {
             "cargo_reachable": true,
+            "classification": "test",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/contain/open_admission_tests.rs"
+          },
+          {
+            "cargo_reachable": true,
             "classification": "implementation",
             "owned_source_ranges": [],
             "owned_symbols": [],
@@ -59223,6 +59335,13 @@
             "owned_source_ranges": [],
             "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/contain/overlord_contain.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "test",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/contain/owner_exit_goal_tests.rs"
           },
           {
             "cargo_reachable": true,
@@ -59247,10 +59366,24 @@
           },
           {
             "cargo_reachable": true,
+            "classification": "test",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/contain/transport_admission_tests.rs"
+          },
+          {
+            "cargo_reachable": true,
             "classification": "implementation",
             "owned_source_ranges": [],
             "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/contain/transport_contain.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "test",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/contain/transport_door_exit_tests.rs"
           },
           {
             "cargo_reachable": true,
@@ -60024,6 +60157,20 @@
           },
           {
             "cargo_reachable": true,
+            "classification": "test",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/object_modules/contain_installation_tests.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "test",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/object_modules/physics_installation_tests.rs"
+          },
+          {
+            "cargo_reachable": true,
             "classification": "implementation",
             "owned_source_ranges": [],
             "owned_symbols": [],
@@ -60525,6 +60672,13 @@
             "owned_source_ranges": [],
             "owned_symbols": [],
             "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/unit/orders.rs"
+          },
+          {
+            "cargo_reachable": true,
+            "classification": "test",
+            "owned_source_ranges": [],
+            "owned_symbols": [],
+            "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/unit/rappel_command_tests.rs"
           },
           {
             "cargo_reachable": true,
@@ -156870,7 +157024,7 @@
     }
   ],
   "generator": "GeneralsRust/Code/Main/scripts/generate_port_provenance.py",
-  "input_digest": "b0039b36100f68cdd2ba689c2c6caeb0ae21f364fff408ccc1be2b1df223eb13",
+  "input_digest": "5229e9296a80d3ec3c607f1411deac7f5f61aa0e0d20d9d3331ebb906518d896",
   "metric_contract": {
     "behavior_requires_explicit_evidence": true,
     "candidate_mapping_is_reviewed": false,
@@ -160234,11 +160388,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 2607,
+        "end_line": 2634,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/Common/src/common/ini/ini.rs",
-      "sha256": "62f98b0de773c8928583f95f8b47f1f0c8e38459856d8550a28cd161d5276c9e",
+      "sha256": "3b48fe84857592ef0a39884e835b4052560d03536042d884da750d6b33375f9a",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -197579,11 +197733,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 1684,
+        "end_line": 1713,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/behavior/physics_update.rs",
-      "sha256": "d95feba5a1b3aafbffb1a813487ce8e390a83ec647f0781fdb788c99f292e80c",
+      "sha256": "79993164910d797c86c1a45f6d198e7df7b1aa8a53e6510203d6e9fe2c121305",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -198729,13 +198883,25 @@
     },
     {
       "cargo_reachable": true,
+      "classification": "test",
+      "file_range": {
+        "end_line": 165,
+        "start_line": 1
+      },
+      "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/contain/open_admission_tests.rs",
+      "sha256": "28ea41989f5dfa88eee61356b481dbb56bf5ad8fe1df9a8ddce39cf425ab3973",
+      "symbol_index_status": "awaiting_mapping_review",
+      "symbols": []
+    },
+    {
+      "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 3667,
+        "end_line": 3689,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/contain/open_contain.rs",
-      "sha256": "da3513013b456ae84d63feffc7644169737918cbc522b4cb100df25f564b0da2",
+      "sha256": "a1675ed14ad5b5408f52e3a91ae2ca8b87865ded8ddc72def83c13d4262fb181",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -198748,6 +198914,18 @@
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/contain/overlord_contain.rs",
       "sha256": "1b0517168203a959a97e06a98aa4043df044d0b06257b8cefd39ff0c698f904b",
+      "symbol_index_status": "awaiting_mapping_review",
+      "symbols": []
+    },
+    {
+      "cargo_reachable": true,
+      "classification": "test",
+      "file_range": {
+        "end_line": 167,
+        "start_line": 1
+      },
+      "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/contain/owner_exit_goal_tests.rs",
+      "sha256": "131afd61e8a58b3fc95b81c56582213bd46f0500b39f85d17c991056ff841233",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -198789,13 +198967,37 @@
     },
     {
       "cargo_reachable": true,
+      "classification": "test",
+      "file_range": {
+        "end_line": 204,
+        "start_line": 1
+      },
+      "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/contain/transport_admission_tests.rs",
+      "sha256": "ca2a38a16d9f7d7121e4bc7e15bbebe75dad70e813cf9226acb84f818313a4cf",
+      "symbol_index_status": "awaiting_mapping_review",
+      "symbols": []
+    },
+    {
+      "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 2426,
+        "end_line": 2422,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/contain/transport_contain.rs",
-      "sha256": "05827f2a5254d50d7830e627a9ed2d58b040432b8a7e93e467a381e7e73f7207",
+      "sha256": "9485dfa9e1ce89470d011be692c19be99e29ab22800df74efe5dbe05b77d683d",
+      "symbol_index_status": "awaiting_mapping_review",
+      "symbols": []
+    },
+    {
+      "cargo_reachable": true,
+      "classification": "test",
+      "file_range": {
+        "end_line": 212,
+        "start_line": 1
+      },
+      "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/contain/transport_door_exit_tests.rs",
+      "sha256": "742a9eeebc98d2eff59541add803aad9e9176691b15f82823cf20cd77ecb45c5",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -200121,13 +200323,37 @@
     },
     {
       "cargo_reachable": true,
+      "classification": "test",
+      "file_range": {
+        "end_line": 241,
+        "start_line": 1
+      },
+      "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/object_modules/contain_installation_tests.rs",
+      "sha256": "e063e1fd618f52dc8e26e833e9d042aefde7e0b551279ea5981a4b767b1f597e",
+      "symbol_index_status": "awaiting_mapping_review",
+      "symbols": []
+    },
+    {
+      "cargo_reachable": true,
+      "classification": "test",
+      "file_range": {
+        "end_line": 189,
+        "start_line": 1
+      },
+      "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/object_modules/physics_installation_tests.rs",
+      "sha256": "032ec825432927abd1c5f800a15beaac1fba8776d246acae314aa162684dd21d",
+      "symbol_index_status": "awaiting_mapping_review",
+      "symbols": []
+    },
+    {
+      "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 1264,
+        "end_line": 1313,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/object_modules.rs",
-      "sha256": "9e42874c66ccb7fbb972308ef54dde7f3129c964c8acff5dbbd48d9082747f11",
+      "sha256": "773e931cb2428c6e19faa6548e5c092d8d5fbace3142691bc110e9bb6c75b64e",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -200171,11 +200397,11 @@
       "cargo_reachable": true,
       "classification": "test",
       "file_range": {
-        "end_line": 2937,
+        "end_line": 2938,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/object_tests.rs",
-      "sha256": "148723876dd51bc7d6c678641197bf97093c10925f0543251ada85258fcad309",
+      "sha256": "3505beef42306beac64bbdd18fc1c5647e3f9bbc924c38ca770684b46bba6d07",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -200435,11 +200661,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 2282,
+        "end_line": 2237,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/production/production_update_complete.rs",
-      "sha256": "a6c3cfa6f53500aaf4ac4d9363e355c330e4e27a86aedee69c061592fca2d058",
+      "sha256": "9a6045724fcb88fdb30a6f27cad3f202a23795bbf04ddbfc308f77dce1c31fb1",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -200819,11 +201045,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 1460,
+        "end_line": 1476,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/unit/ai_commands.rs",
-      "sha256": "8fe9135fdf7562e8be0a5138f41fe5f74ea638b06d9a55bb4443404ad374af66",
+      "sha256": "3baade92896b3bd76663b63fa4b903609dd81921375551b45d33ac04cf21e090",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -200831,11 +201057,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 770,
+        "end_line": 718,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/unit/ai_core.rs",
-      "sha256": "f39525232ed4fce46bed36c5c72c73c391bacc4a2f838037ef20adf42f8bb557",
+      "sha256": "523f9a5c5ed7b7a53230d3734a0d54235db418ba93f56e2b3f36beaac47f0164",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -200963,11 +201189,11 @@
       "cargo_reachable": true,
       "classification": "implementation",
       "file_range": {
-        "end_line": 38,
+        "end_line": 41,
         "start_line": 1
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/unit/mod.rs",
-      "sha256": "e533140be3f9802fe94b1ec5a208d763363107ea8b6115c295a52b8c379e06df",
+      "sha256": "1cd831845f2666a1b730c88a96682779114898654386a4dee8db959b87a5a9e7",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },
@@ -200992,6 +201218,18 @@
       },
       "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/unit/orders.rs",
       "sha256": "816468a8695cd449b1d62170d78f78efe388f2a4320a1f6c3287414db2b718db",
+      "symbol_index_status": "awaiting_mapping_review",
+      "symbols": []
+    },
+    {
+      "cargo_reachable": true,
+      "classification": "test",
+      "file_range": {
+        "end_line": 241,
+        "start_line": 1
+      },
+      "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/unit/rappel_command_tests.rs",
+      "sha256": "7027645c28219a9ccf992d40f5e3df582b60cfe7a8ed64f130dbc31e6a4e3140",
       "symbol_index_status": "awaiting_mapping_review",
       "symbols": []
     },

@@ -704,22 +704,51 @@ impl PhysicsBehaviorUpdate {
         object: Arc<RwLock<GameObject>>,
         module_data: Arc<dyn ModuleData>,
     ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
-        let data = module_data
-            .as_ref()
-            .downcast_ref::<PhysicsBehaviorModuleData>()
-            .ok_or("Invalid module data for PhysicsBehavior")?;
-
-        let module_data = Arc::new(data.clone());
         let object_id = object
             .read()
             .ok()
             .map(|g| g.get_id())
             .unwrap_or(crate::common::INVALID_ID);
+        let mut behavior = Self::new_for_owner_id(object_id, module_data)?;
+        behavior.bind_construction_owner(&object, object_id);
+        Ok(behavior)
+    }
+
+    /// The factory knows the authored owner ID before the complete Object
+    /// module list is installed. Runtime is bound to that exact Object during
+    /// installation, before its interface is exposed or callbacks run.
+    pub(crate) fn new_for_owner_id(
+        object_id: ObjectID,
+        module_data: Arc<dyn ModuleData>,
+    ) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+        let data = module_data
+            .as_ref()
+            .downcast_ref::<PhysicsBehaviorModuleData>()
+            .ok_or("Invalid module data for PhysicsBehavior")?;
+        let module_data = Arc::new(data.clone());
         Ok(Self {
             object_id,
             module_data: module_data.clone(),
-            physics_handle: PhysicsBehaviorHandle::new(Arc::downgrade(&object), module_data),
+            physics_handle: PhysicsBehaviorHandle::new(Weak::new(), module_data),
         })
+    }
+
+    pub(in crate::object) fn bind_construction_owner(
+        &mut self,
+        object: &Arc<RwLock<GameObject>>,
+        object_id: ObjectID,
+    ) {
+        debug_assert_eq!(self.object_id, object_id);
+        debug_assert!(
+            self.physics_handle
+                .owner
+                .upgrade()
+                .is_none_or(|bound| Arc::ptr_eq(&bound, object)),
+            "installed physics must not rebind to a different same-ID Object"
+        );
+        // The installer already holds the exact Object's write borrow; do not
+        // reacquire it or rediscover an object by numeric identity here.
+        self.physics_handle.owner = Arc::downgrade(object);
     }
 
     fn apply_gravity(state: &mut PhysicsBehaviorState) {

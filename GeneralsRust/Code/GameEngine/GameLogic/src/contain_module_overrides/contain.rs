@@ -131,6 +131,18 @@ impl ContainBindingModule {
     }
 }
 
+/// The Object's containment interface and the authored behavior must refer to
+/// the same runtime. Installation borrows the actual module rather than
+/// rediscovering its owner through a process-wide ObjectId lookup.
+pub(crate) fn contain_handle_for_module(
+    module: &dyn Module,
+) -> Option<Arc<Mutex<dyn ContainModuleInterface>>> {
+    module
+        .as_any()
+        .downcast_ref::<ContainBindingModule>()
+        .map(|binding| Arc::clone(&binding.contain))
+}
+
 impl Module for ContainBindingModule {
     fn get_module_name_key(&self) -> NameKeyType {
         self.module_name_key
@@ -145,7 +157,6 @@ impl Module for ContainBindingModule {
     }
 
     fn on_object_created(&mut self) {
-        attach_contain_to_object(self.owner_id, Arc::clone(&self.contain));
         if let Ok(mut contain_guard) = self.contain.lock() {
             if let Err(err) = contain_guard.on_owner_created() {
                 warn!(
@@ -270,8 +281,8 @@ pub(super) fn open_contain_module_factory(
 ) -> Box<dyn Module> {
     let contain_data = contain_adapter_data::<OpenContainModuleData>("OpenContain", &module_data);
     let owner_id = resolve_owner_id(&thing);
-    let contain = OpenContain::new(owner_weak(owner_id), contain_data).unwrap_or_else(|_| {
-        OpenContain::new(Weak::new(), &OpenContainModuleData::default())
+    let contain = OpenContain::new_for_owner(owner_id, contain_data).unwrap_or_else(|_| {
+        OpenContain::new_for_owner(owner_id, &OpenContainModuleData::default())
             .expect("OpenContain default construction failed")
     });
     let contain: Arc<Mutex<dyn ContainModuleInterface>> = Arc::new(Mutex::new(contain));
@@ -299,8 +310,8 @@ pub(super) fn transport_contain_module_factory(
     let contain_data =
         contain_adapter_data::<TransportContainModuleData>("TransportContain", &module_data);
     let owner_id = resolve_owner_id(&thing);
-    let contain = TransportContain::new(owner_weak(owner_id), contain_data).unwrap_or_else(|_| {
-        TransportContain::new(Weak::new(), &TransportContainModuleData::default())
+    let contain = TransportContain::new_for_owner(owner_id, contain_data).unwrap_or_else(|_| {
+        TransportContain::new_for_owner(owner_id, &TransportContainModuleData::default())
             .expect("TransportContain default construction failed")
     });
     let contain: Arc<Mutex<dyn ContainModuleInterface>> = Arc::new(Mutex::new(contain));

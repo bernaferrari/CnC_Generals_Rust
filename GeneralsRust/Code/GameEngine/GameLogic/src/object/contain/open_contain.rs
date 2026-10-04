@@ -6,7 +6,6 @@
 
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap};
-use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex, RwLock, Weak};
 
 use super::{ContainerIniParse, ContainerInterface};
@@ -37,15 +36,6 @@ use game_engine::common::system::{Snapshotable, Xfer, XferMode, XferVersion};
 
 type ObjectId = ObjectID;
 type FirePointMatrix = [[f32; 4]; 3];
-
-/// Wave 261 residual scan still sees `OBJECT_REGISTRY.is_empty()`.
-/// Do not skip-close contain solely because the dual-world registry is empty —
-/// `TheGameLogic::find_object_by_id` already falls back to GameLogic.objects.
-#[inline]
-fn dual_world_registry_unavailable() -> bool {
-    let _host_empty = crate::object::registry::OBJECT_REGISTRY.is_empty();
-    false
-}
 
 struct ExitPrep {
     owner_id: ObjectID,
@@ -850,7 +840,7 @@ fn parse_required_status(
     Ok(())
 }
 
-const OPEN_CONTAIN_FIELDS: &[FieldParse<OpenContainModuleData>] = &[
+pub(super) const OPEN_CONTAIN_FIELDS: &[FieldParse<OpenContainModuleData>] = &[
     FieldParse {
         token: "ContainMax",
         parse: parse_contain_max,
@@ -952,7 +942,7 @@ pub struct OpenContain {
     /// Whether load sounds are enabled.
     load_sounds_enabled: bool,
     /// Frames remaining before door closes (0 when idle).
-    door_close_countdown: AtomicU32,
+    door_close_countdown: UnsignedInt,
     /// Number of stealth garrison units in this container.
     stealth_units_contained: UnsignedInt,
     /// Exit path suffix to use next when multiple paths are available.
@@ -981,6 +971,16 @@ impl OpenContain {
             .upgrade()
             .and_then(|arc| arc.read().ok().map(|g| g.get_id()))
             .unwrap_or(crate::common::INVALID_ID);
+        Self::new_for_owner(object_id, module_data)
+    }
+
+    /// Authored installation already knows the driving Object's identity.
+    /// Construction only initializes owned module state; it does not resolve
+    /// an active world or publish this container.
+    pub(crate) fn new_for_owner(
+        object_id: ObjectID,
+        module_data: &OpenContainModuleData,
+    ) -> GameResult<Self> {
         Ok(Self {
             object_id,
             next_call_frame_and_phase: 0,
@@ -991,7 +991,7 @@ impl OpenContain {
             last_load_sound_frame: 0,
             last_unload_sound_frame: 0,
             load_sounds_enabled: true,
-            door_close_countdown: AtomicU32::new(0),
+            door_close_countdown: 0,
             stealth_units_contained: 0,
             which_exit_path: 1,
             condition_state: ModelConditionFlags::empty(),
@@ -1097,11 +1097,6 @@ impl OpenContain {
 
     /// Get the object this module belongs to
     pub fn get_object(&self) -> Option<Arc<RwLock<Object>>> {
-        // Wave 261: empty dual-world → None.
-        if dual_world_registry_unavailable() {
-            return None;
-        }
-
         if self.object_id == crate::common::INVALID_ID {
             return None;
         }
@@ -1121,11 +1116,6 @@ impl OpenContain {
 
     /// Update method called once per frame
     pub fn update(&mut self) -> GameResult<UpdateSleepTime> {
-        // Wave 261: empty dual-world → sleep none.
-        if dual_world_registry_unavailable() {
-            return Ok(UpdateSleepTime::None);
-        }
-
         self.player_who_entered = PlayerMaskType::none();
         if let Err(err) = self.monitor_condition_changes() {
             log::warn!(
@@ -1133,11 +1123,10 @@ impl OpenContain {
                 err
             );
         }
-        let countdown = self.door_close_countdown.load(Ordering::Relaxed);
+        let countdown = self.door_close_countdown;
         if countdown > 0 {
             let pulse = leftover_open_contain_tick_exit_door(countdown);
-            self.door_close_countdown
-                .store(pulse.countdown, Ordering::Relaxed);
+            self.door_close_countdown = pulse.countdown;
             if pulse.set_closing {
                 let owner_id = self.get_object_id();
                 if owner_id != crate::common::INVALID_ID {
@@ -1161,11 +1150,6 @@ impl OpenContain {
 
     /// Check art condition changes and redeploy occupants when FIREPOINT bones may have changed.
     pub fn monitor_condition_changes(&mut self) -> GameResult<()> {
-        // Wave 261: empty dual-world → Ok(()).
-        if dual_world_registry_unavailable() {
-            return Ok(());
-        }
-
         let owner_id = self.get_object_id();
         if owner_id == crate::common::INVALID_ID {
             return Ok(());
@@ -1195,11 +1179,6 @@ impl OpenContain {
 
     /// Check if this container is valid for the given object
     pub fn is_valid_container_for(&self, obj: &Object, check_capacity: bool) -> bool {
-        // Wave 261: empty dual-world → fail-closed.
-        if dual_world_registry_unavailable() {
-            return false;
-        }
-
         // Check kind restrictions
         let obj_kind = obj.get_kind_of();
 
@@ -1236,11 +1215,6 @@ impl OpenContain {
 
     /// Add object to containment
     pub fn add_to_contain(&mut self, obj_id: ObjectID) -> GameResult<()> {
-        // Wave 261: empty dual-world → Ok(()).
-        if dual_world_registry_unavailable() {
-            return Ok(());
-        }
-
         let owner_id = if self.object_id == crate::common::INVALID_ID {
             None
         } else {
@@ -1395,11 +1369,6 @@ impl OpenContain {
     }
 
     pub fn add_to_contain_list(&mut self, obj_id: ObjectID) -> GameResult<()> {
-        // Wave 261: empty dual-world → Ok(()).
-        if dual_world_registry_unavailable() {
-            return Ok(());
-        }
-
         let is_stealth_garrison = crate::object::registry::OBJECT_REGISTRY
             .get_object(obj_id)
             .and_then(|obj| {
@@ -1460,11 +1429,6 @@ impl OpenContain {
         obj_id: ObjectID,
         expose_stealth_units: bool,
     ) -> GameResult<()> {
-        // Wave 261: empty dual-world → Ok(()).
-        if dual_world_registry_unavailable() {
-            return Ok(());
-        }
-
         let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id) else {
             return Ok(());
         };
@@ -1566,11 +1530,6 @@ impl OpenContain {
     /// Kill all contained objects.
     /// Matches C++ OpenContain::killAllContained.
     pub fn kill_all_contained(&mut self) -> GameResult<()> {
-        // Wave 261: empty dual-world → Ok(()).
-        if dual_world_registry_unavailable() {
-            return Ok(());
-        }
-
         while let Some(&obj_id) = self.contained_object_ids.first() {
             let obj = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id);
             if let Err(err) = self.remove_from_contain(obj_id, true) {
@@ -1600,11 +1559,6 @@ impl OpenContain {
         &mut self,
         damage_info: &mut DamageInfo,
     ) -> GameResult<()> {
-        // Wave 261: empty dual-world → Ok(()).
-        if dual_world_registry_unavailable() {
-            return Ok(());
-        }
-
         while let Some(&obj_id) = self.contained_object_ids.first() {
             let obj = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id);
             if let Err(err) = self.remove_from_contain(obj_id, true) {
@@ -1630,11 +1584,6 @@ impl OpenContain {
 
     /// Called when this object starts containing another object
     pub fn on_containing(&mut self, obj_id: ObjectID, was_selected: bool) -> GameResult<()> {
-        // Wave 261: empty dual-world → Ok(()).
-        if dual_world_registry_unavailable() {
-            return Ok(());
-        }
-
         let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id) else {
             return Ok(());
         };
@@ -1694,11 +1643,6 @@ impl OpenContain {
 
     /// Called when removing an object from containment
     pub fn on_removing(&mut self, obj_id: ObjectID) -> GameResult<()> {
-        // Wave 261: empty dual-world → Ok(()).
-        if dual_world_registry_unavailable() {
-            return Ok(());
-        }
-
         let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id) else {
             return Ok(());
         };
@@ -1773,10 +1717,6 @@ impl OpenContain {
     /// death from `isBurnedDeathToUnits`, source = this container, and a 1.0-percent
     /// flame-proof `kill()` follow-up.
     pub fn process_damage_to_contained(&mut self, percent_damage: f32) -> GameResult<()> {
-        if dual_world_registry_unavailable() {
-            return Ok(());
-        }
-
         let owner_id = self.get_object_id();
         let death_type = if self.module_data.is_burned_death_to_units {
             DeathType::Burned
@@ -2052,11 +1992,6 @@ impl OpenContain {
     }
 
     pub fn get_natural_rally_point(&self) -> Option<Coord3D> {
-        // Wave 261: empty dual-world → None.
-        if dual_world_registry_unavailable() {
-            return None;
-        }
-
         let owner_id = self.get_object_id();
         if owner_id == crate::common::INVALID_ID {
             return None;
@@ -2094,11 +2029,6 @@ impl OpenContain {
         obj_type: &ObjectTemplate,
         specific_object: &Object,
     ) -> GameResult<ExitDoorType> {
-        // Wave 261: empty dual-world → no door residual.
-        if dual_world_registry_unavailable() {
-            return Ok(ExitDoorType::NoneAvailable);
-        }
-
         let _ = (obj_type, specific_object);
         Ok(ExitDoorType::Primary)
     }
@@ -2167,19 +2097,28 @@ impl OpenContain {
         }
     }
 
-    fn refresh_owner_pathfind_goal(owner: &Object) {
-        let Some(owner_ai) = owner.get_ai_update_interface() else {
+    fn refresh_owner_pathfind_goal(&self) {
+        // The owner's AI updates its Object goal. End the Object borrow before
+        // calling it, rather than discovering the same owner inside that borrow.
+        let Some((owner_id, owner_pos, vehicle, owner_ai)) = self.with_object(|owner| {
+            (
+                owner.get_id(),
+                *owner.get_position(),
+                owner.is_kind_of(KindOf::Vehicle),
+                owner.get_ai_update_interface(),
+            )
+        }) else {
+            return;
+        };
+        let Some(owner_ai) = owner_ai else {
             return;
         };
         let Ok(mut owner_ai_guard) = owner_ai.try_lock() else {
             return;
         };
-        if !owner_ai_guard.is_idle() || !owner.is_kind_of(KindOf::Vehicle) {
+        if !owner_ai_guard.is_idle() || !vehicle {
             return;
         }
-
-        let owner_id = owner.get_id();
-        let owner_pos = *owner.get_position();
         let ai_store = the_ai();
         if let Ok(ai_guard) = ai_store.read() {
             if let Some(pathfinder) = ai_guard.pathfinder() {
@@ -2193,14 +2132,11 @@ impl OpenContain {
         let _ = owner_ai_guard.update_goal_position(&owner_pos, owner_layer);
     }
 
-    fn prepare_object(&mut self, obj_id: ObjectID, hurry: bool) -> GameResult<Option<ExitPrep>> {
-        // Wave 261: empty dual-world → Ok(None).
-        if dual_world_registry_unavailable() {
-            return Ok(None);
-        }
-
-        self.remove_from_contain(obj_id, false)?;
-
+    fn prepare_removed_object(
+        &mut self,
+        obj_id: ObjectID,
+        hurry: bool,
+    ) -> GameResult<Option<ExitPrep>> {
         let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id) else {
             return Ok(None);
         };
@@ -2211,8 +2147,7 @@ impl OpenContain {
         }
 
         let pulse = leftover_open_contain_start_exit_door(self.module_data.door_open_time);
-        self.door_close_countdown
-            .store(pulse.countdown, Ordering::Relaxed);
+        self.door_close_countdown = pulse.countdown;
         if pulse.set_opening {
             let _ =
                 crate::object::registry::OBJECT_REGISTRY.with_object_mut(owner_id, |owner_guard| {
@@ -2249,27 +2184,24 @@ impl OpenContain {
         };
 
         Self::add_to_pathfind_map(exit_id, start_pos);
-        let _ = self.with_object(|owner_guard| {
-            Self::refresh_owner_pathfind_goal(owner_guard);
-        });
-
-        if !hurry {
-            if let Some(ai) = ai.as_ref() {
-                if let Ok(mut ai_guard) = ai.try_lock() {
-                    ai_guard.set_ignore_collision_time(LOGICFRAMES_PER_SECOND as UnsignedInt);
-                    let _ = ai_guard.ignore_obstacle(None);
-                    let _ = ai_guard.adjust_destination(&mut end_pos);
-                    let _ =
-                        ai_guard.update_goal_position(&end_pos, Self::destination_layer(&end_pos));
-                }
+        // Hurry exits keep the original bone endpoint before adjustment;
+        // ordinary exits duplicate the adjusted endpoint (OpenContain.cpp).
+        let mut exit_path = Vec::with_capacity(3);
+        if hurry {
+            exit_path.push(end_pos);
+        }
+        if let Some(ai) = ai.as_ref() {
+            self.refresh_owner_pathfind_goal();
+            if let Ok(mut ai_guard) = ai.try_lock() {
+                let _ = ai_guard.ignore_obstacle(None);
+                ai_guard.set_ignore_collision_time(LOGICFRAMES_PER_SECOND as UnsignedInt);
+                let _ = ai_guard.adjust_destination(&mut end_pos);
             }
         }
-
-        let mut exit_path = if hurry {
-            vec![end_pos]
-        } else {
-            vec![end_pos, end_pos]
-        };
+        if !hurry {
+            exit_path.push(end_pos);
+        }
+        exit_path.push(end_pos);
         if self.rally_point_exists {
             exit_path.push(self.rally_point);
         }
@@ -2288,11 +2220,6 @@ impl OpenContain {
         obj_id: ObjectID,
         exit_door: ExitDoorType,
     ) -> GameResult<()> {
-        // Wave 261: empty dual-world → Ok(()).
-        if dual_world_registry_unavailable() {
-            return Ok(());
-        }
-
         let Some(_obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id) else {
             return Ok(());
         };
@@ -2301,12 +2228,19 @@ impl OpenContain {
             return Ok(());
         }
 
-        let Some(prep) = self.prepare_object(obj_id, false)? else {
+        self.remove_from_contain(obj_id, false)?;
+        self.exit_removed_object_via_door(obj_id)
+    }
+
+    /// Continue the inherited exit after the concrete container has run removal.
+    /// Transport removal must clear its own held/loaded and capacity state first.
+    pub(super) fn exit_removed_object_via_door(&mut self, obj_id: ObjectID) -> GameResult<()> {
+        let Some(prep) = self.prepare_removed_object(obj_id, false)? else {
             return Ok(());
         };
 
         // C++ clears allow-to-fall only around aiFollowPath + updateGoal, then restores
-        // the copied flag. The canonical descriptor was taken in prepare_object;
+        // the copied flag. The canonical descriptor was taken in prepare_removed_object;
         // release its state borrow before AI callbacks re-query that same module.
         // ignoreObstacle(NULL) already ran in prepare when this call owns the clear.
         let paused_allow_to_fall = if prep.ai.is_some() {
@@ -2357,29 +2291,22 @@ impl OpenContain {
     }
 
     pub fn exit_object_in_a_hurry(&mut self, obj_id: ObjectID) -> GameResult<()> {
-        // Wave 261: empty dual-world → Ok(()).
-        if dual_world_registry_unavailable() {
+        if crate::object::registry::OBJECT_REGISTRY
+            .get_object(obj_id)
+            .is_none()
+        {
             return Ok(());
         }
+        self.remove_from_contain(obj_id, false)?;
+        self.exit_removed_object_in_a_hurry(obj_id)
+    }
 
-        let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id) else {
+    pub(super) fn exit_removed_object_in_a_hurry(&mut self, obj_id: ObjectID) -> GameResult<()> {
+        let Some(prep) = self.prepare_removed_object(obj_id, true)? else {
             return Ok(());
         };
 
-        let Some(prep) = self.prepare_object(obj_id, true)? else {
-            return Ok(());
-        };
-
-        let ai = obj
-            .try_read()
-            .ok()
-            .and_then(|exit_guard| exit_guard.get_ai_update_interface())
-            .or_else(|| {
-                obj.try_read()
-                    .ok()
-                    .and_then(|exit_guard| exit_guard.get_ai_update_interface())
-            });
-        if let Some(ai) = ai {
+        if let Some(ai) = prep.ai.as_ref() {
             if let Ok(mut ai_guard) = ai.try_lock() {
                 ai_guard.do_quick_exit(&prep.exit_path);
                 let _ = ai_guard
@@ -2479,11 +2406,6 @@ impl OpenContain {
     }
 
     fn put_obj_at_next_fire_point(&mut self, obj_id: ObjectID) -> GameResult<()> {
-        // Wave 261: empty dual-world → Ok(()).
-        if dual_world_registry_unavailable() {
-            return Ok(());
-        }
-
         let owner_id = self.get_object_id();
         if owner_id == crate::common::INVALID_ID {
             return Ok(());
@@ -2766,11 +2688,24 @@ impl OpenContain {
 }
 
 impl ContainModuleInterface for OpenContain {
+    fn snapshot_crc(&self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        Snapshotable::crc(self, xfer)
+    }
+
+    fn snapshot_xfer(&mut self, xfer: &mut dyn Xfer) -> Result<(), String> {
+        Snapshotable::xfer(self, xfer)
+    }
+
+    fn snapshot_load_post_process(&mut self) -> Result<(), String> {
+        Snapshotable::load_post_process(self)
+    }
+
     fn can_contain(&self, object_id: ObjectID) -> bool {
-        let _ = crate::object::registry::OBJECT_REGISTRY.with_object(object_id, |obj_guard| {
-            return OpenContain::is_valid_container_for(self, &*obj_guard, true);
-        });
-        false
+        crate::object::registry::OBJECT_REGISTRY
+            .with_object(object_id, |obj_guard| {
+                OpenContain::is_valid_container_for(self, obj_guard, true)
+            })
+            .unwrap_or(false)
     }
 
     fn contain_object(&mut self, object_id: ObjectID) -> Result<(), String> {
@@ -2907,9 +2842,6 @@ impl ContainModuleInterface for OpenContain {
         _spawner: Option<&Object>,
         _spawn: Option<&Object>,
     ) -> ExitDoorType {
-        if dual_world_registry_unavailable() {
-            return ExitDoorType::NoneAvailable;
-        }
         let _ = (_spawner, _spawn);
         ExitDoorType::Primary
     }
@@ -2923,11 +2855,6 @@ impl ContainModuleInterface for OpenContain {
         obj_id: ObjectID,
         door: ExitDoorType,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        // Wave 261: empty dual-world → Ok(()).
-        if dual_world_registry_unavailable() {
-            return Ok(());
-        }
-
         let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id) else {
             return Ok(());
         };
@@ -2939,11 +2866,6 @@ impl ContainModuleInterface for OpenContain {
         &mut self,
         obj_id: ObjectID,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        // Wave 261: empty dual-world → Ok(()).
-        if dual_world_registry_unavailable() {
-            return Ok(());
-        }
-
         let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id) else {
             return Ok(());
         };
@@ -2964,11 +2886,6 @@ impl ContainModuleInterface for OpenContain {
         obj_id: ObjectID,
         was_selected: bool,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        // Wave 261: empty dual-world → Ok(()).
-        if dual_world_registry_unavailable() {
-            return Ok(());
-        }
-
         let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id) else {
             return Ok(());
         };
@@ -2984,11 +2901,6 @@ impl ContainModuleInterface for OpenContain {
         &mut self,
         obj_id: ObjectID,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        // Wave 261: empty dual-world → Ok(()).
-        if dual_world_registry_unavailable() {
-            return Ok(());
-        }
-
         let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id) else {
             return Ok(());
         };
@@ -3033,9 +2945,6 @@ impl ContainModuleInterface for OpenContain {
     fn mark_all_passengers_detected(&mut self) {
         // Use the trait default body via Super? Inherent delegates to trait.
         // Re-implement here so OpenContain callers hit the same path.
-        if dual_world_registry_unavailable() {
-            return;
-        }
         for object_id in self.contained_object_ids.clone() {
             let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(object_id) else {
                 continue;
@@ -3117,12 +3026,11 @@ impl Snapshotable for OpenContain {
         xfer.xfer_unsigned_int(&mut self.stealth_units_contained)
             .map_err(|e| e.to_string())?;
 
-        let mut door_close_countdown = self.door_close_countdown.load(Ordering::Relaxed);
+        let mut door_close_countdown = self.door_close_countdown;
         xfer.xfer_unsigned_int(&mut door_close_countdown)
             .map_err(|e| e.to_string())?;
         if xfer.get_xfer_mode() == XferMode::Load {
-            self.door_close_countdown
-                .store(door_close_countdown, Ordering::Relaxed);
+            self.door_close_countdown = door_close_countdown;
         }
 
         Self::xfer_model_condition_flags(xfer, &mut self.condition_state)?;
@@ -3232,6 +3140,14 @@ pub struct ObjectTemplate {
 }
 
 #[cfg(test)]
+#[path = "owner_exit_goal_tests.rs"]
+mod owner_exit_goal_tests;
+
+#[cfg(test)]
+#[path = "open_admission_tests.rs"]
+mod open_admission_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::common::DefaultThingTemplate;
@@ -3314,7 +3230,7 @@ mod tests {
         saved.player_who_entered = PlayerMaskType::PLAYER_1 | PlayerMaskType::PLAYER_3;
         saved.last_unload_sound_frame = 12;
         saved.last_load_sound_frame = 34;
-        saved.door_close_countdown.store(56, Ordering::Relaxed);
+        saved.door_close_countdown = 56;
         saved.stealth_units_contained = 2;
         saved.which_exit_path = 3;
         saved.condition_state = ModelConditionFlags::LOADED | ModelConditionFlags::DOOR_1_OPENING;
@@ -3358,7 +3274,7 @@ mod tests {
         );
         assert_eq!(loaded.last_unload_sound_frame, 12);
         assert_eq!(loaded.last_load_sound_frame, 34);
-        assert_eq!(loaded.door_close_countdown.load(Ordering::Relaxed), 56);
+        assert_eq!(loaded.door_close_countdown, 56);
         assert_eq!(loaded.stealth_units_contained, 2);
         assert_eq!(loaded.which_exit_path, 3);
         assert_eq!(
@@ -3520,11 +3436,44 @@ mod tests {
         OBJECT_REGISTRY.unregister_object(92006);
     }
 
+    // These callbacks witness the OpenContain.cpp:994-1020 / 1099-1114
+    // sequence. They do not stand in for a registered UnitAI runtime.
+    #[derive(Debug, PartialEq)]
+    enum DoorExitCall {
+        Ignore(Option<ObjectID>),
+        Collision(UnsignedInt),
+        Adjust(Coord3D, bool),
+        Follow(Vec<Coord3D>, Option<ObjectID>, bool),
+        Quick(Vec<Coord3D>, bool),
+        Goal(Coord3D, bool),
+    }
+
     #[derive(Debug)]
     struct DoorExitAi {
+        owner: Arc<RwLock<Object>>,
+        rider: Arc<RwLock<Object>>,
         physics: crate::object::PhysicsInterfaceHandle,
-        samples: Arc<Mutex<Vec<bool>>>,
-        ignores: Arc<Mutex<Vec<Option<ObjectID>>>>,
+        calls: Arc<Mutex<Vec<DoorExitCall>>>,
+        adjustment: Coord3D,
+    }
+
+    impl DoorExitAi {
+        fn allow_to_fall_at_callback(&self) -> bool {
+            drop(
+                self.owner
+                    .try_write()
+                    .expect("exit callback must release owner Object borrow"),
+            );
+            drop(
+                self.rider
+                    .try_write()
+                    .expect("exit callback must release rider Object borrow"),
+            );
+            self.physics
+                .try_access()
+                .expect("canonical physics borrow must end before the AI callback")
+                .get_allow_to_fall()
+        }
     }
 
     impl crate::modules::AIUpdateInterface for DoorExitAi {
@@ -3544,43 +3493,78 @@ mod tests {
             &mut self,
             obj_id: Option<ObjectID>,
         ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-            self.ignores.lock().expect("ignores").push(obj_id);
+            self.allow_to_fall_at_callback();
+            self.calls
+                .lock()
+                .expect("calls")
+                .push(DoorExitCall::Ignore(obj_id));
             Ok(())
+        }
+        fn set_ignore_collision_time(&mut self, duration_frames: UnsignedInt) {
+            self.allow_to_fall_at_callback();
+            self.calls
+                .lock()
+                .expect("calls")
+                .push(DoorExitCall::Collision(duration_frames));
+        }
+        fn adjust_destination(&mut self, goal: &mut Coord3D) -> bool {
+            let allow = self.allow_to_fall_at_callback();
+            self.calls
+                .lock()
+                .expect("calls")
+                .push(DoorExitCall::Adjust(*goal, allow));
+            *goal += self.adjustment;
+            true
         }
         fn execute_command(
             &mut self,
-            _command: &crate::ai::AiCommandParams,
+            command: &crate::ai::AiCommandParams,
         ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-            let allow = self
-                .physics
-                .try_access()
-                .expect("canonical physics borrow must end before the AI callback")
-                .get_allow_to_fall();
-            self.samples.lock().expect("samples").push(allow);
+            assert_eq!(command.cmd, crate::ai::AiCommandType::FollowPath);
+            assert_eq!(command.cmd_source, CommandSourceType::FromAi);
+            let allow = self.allow_to_fall_at_callback();
+            self.calls.lock().expect("calls").push(DoorExitCall::Follow(
+                command.coords.clone(),
+                command.obj,
+                allow,
+            ));
             Ok(())
+        }
+        fn do_quick_exit(&mut self, path: &[Coord3D]) {
+            let allow = self.allow_to_fall_at_callback();
+            self.calls
+                .lock()
+                .expect("calls")
+                .push(DoorExitCall::Quick(path.to_vec(), allow));
         }
         fn update_goal_position(
             &mut self,
-            _goal: &Coord3D,
+            goal: &Coord3D,
             _layer: crate::common::PathfindLayerEnum,
         ) -> Result<(), String> {
-            let allow = self
-                .physics
-                .try_access()
-                .expect("canonical physics borrow must end before the AI callback")
-                .get_allow_to_fall();
-            self.samples.lock().expect("samples").push(allow);
+            let allow = self.allow_to_fall_at_callback();
+            self.calls
+                .lock()
+                .expect("calls")
+                .push(DoorExitCall::Goal(*goal, allow));
             Ok(())
         }
     }
 
-    #[test]
-    fn exit_object_via_door_pauses_allow_to_fall_without_relock() {
-        let _lock = crate::test_sync::lock();
-        let owner = test_object("DoorExitTransport", 93011);
-        let rider = test_object("DoorExitRider", 93012);
-        // Install the same owned physics module used by production objects. A
-        // shared fixture would miss an accidentally retained ModuleEntry borrow.
+    fn witness_door_exit_callbacks(hurry: bool, owner_id: ObjectID, rider_id: ObjectID) {
+        let owner = test_object("DoorExitTransport", owner_id);
+        let rider = test_object("DoorExitRider", rider_id);
+        let original_end = Coord3D::new(10.0, 20.0, 100.0);
+        owner
+            .write()
+            .expect("owner write")
+            .set_position(&original_end)
+            .expect("owner position");
+        let adjustment = Coord3D::new(3.0, 4.0, 5.0);
+        let adjusted_end = original_end + adjustment;
+        let rally = Coord3D::new(80.0, 90.0, 140.0);
+        // Install the owned physics module to detect a retained ModuleEntry
+        // borrow. The AI is deliberately only a callback-order witness.
         let data =
             Arc::new(crate::object::behavior::physics_update::PhysicsBehaviorModuleData::default());
         let behavior_data: Arc<dyn crate::common::ModuleData> = data.clone();
@@ -3610,13 +3594,14 @@ mod tests {
             )
         };
         physics.access().expect("physics").set_allow_to_fall(true);
-        let samples = Arc::new(Mutex::new(Vec::new()));
-        let ignores = Arc::new(Mutex::new(Vec::new()));
+        let calls = Arc::new(Mutex::new(Vec::new()));
         let ai: Arc<Mutex<dyn crate::modules::AIUpdateInterface>> =
             Arc::new(Mutex::new(DoorExitAi {
+                owner: Arc::clone(&owner),
+                rider: Arc::clone(&rider),
                 physics: physics.clone(),
-                samples: Arc::clone(&samples),
-                ignores: Arc::clone(&ignores),
+                calls: Arc::clone(&calls),
+                adjustment,
             }));
         {
             let mut rider_guard = rider.write().expect("rider write");
@@ -3627,29 +3612,54 @@ mod tests {
         let mut contain =
             OpenContain::new(Arc::downgrade(&owner), &OpenContainModuleData::default())
                 .expect("door contain");
-        ContainModuleInterface::contain_object(&mut contain, 93012).expect("contain rider");
+        contain.set_rally_point(rally);
+        ContainModuleInterface::contain_object(&mut contain, rider_id).expect("contain rider");
+        if hurry {
+            contain
+                .exit_object_in_a_hurry(rider_id)
+                .expect("hurry exit");
+        } else {
+            contain
+                .exit_object_via_door(rider_id, ExitDoorType::Door1)
+                .expect("exit via door");
+        }
 
-        contain
-            .exit_object_via_door(93012, ExitDoorType::Door1)
-            .expect("exit via door");
-
-        let during = samples.lock().expect("samples").clone();
+        // C++ clears fall only around normal FollowPath + updateGoal. Hurry
+        // retains it and pushes the original endpoint before adjustment.
+        let expected = if hurry {
+            vec![
+                DoorExitCall::Ignore(None),
+                DoorExitCall::Collision(LOGICFRAMES_PER_SECOND as UnsignedInt),
+                DoorExitCall::Adjust(original_end, true),
+                DoorExitCall::Quick(vec![original_end, adjusted_end, rally], true),
+                DoorExitCall::Goal(adjusted_end, true),
+            ]
+        } else {
+            vec![
+                DoorExitCall::Ignore(None),
+                DoorExitCall::Collision(LOGICFRAMES_PER_SECOND as UnsignedInt),
+                DoorExitCall::Adjust(original_end, true),
+                DoorExitCall::Follow(
+                    vec![adjusted_end, adjusted_end, rally],
+                    Some(owner_id),
+                    false,
+                ),
+                DoorExitCall::Goal(adjusted_end, false),
+            ]
+        };
         assert_eq!(
-            during,
-            vec![true, false, false],
-            "allow-to-fall stays set through adjust, then false for follow-path and updateGoal"
+            *calls.lock().expect("calls"),
+            expected,
+            "C++ exit callback ordering"
         );
         assert!(
             physics.access().expect("physics").get_allow_to_fall(),
-            "C++ restores the copied allow-to-fall flag after aiFollowPath"
+            "C++ preserves the pre-exit fall flag"
         );
-        assert_eq!(
-            ignores.lock().expect("ignores").as_slice(),
-            &[None],
-            "exit_object_via_door must not add a second ignoreObstacle(NULL)"
-        );
+        assert_eq!(contain.get_contain_count(), 0);
+        assert_eq!(rider.read().expect("rider").get_contained_by(), None);
 
-        // Same-thread physics guard: pause must not lock again, and must not clobber the flag.
+        // Same-thread physics guard: pause must not lock again or clobber it.
         {
             let held = physics.access().expect("hold physics");
             assert!(super::pause_allow_to_fall(&physics).is_none());
@@ -3660,7 +3670,19 @@ mod tests {
         super::restore_allow_to_fall(&physics, true);
         assert!(physics.access().expect("physics").get_allow_to_fall());
 
-        OBJECT_REGISTRY.unregister_object(93011);
-        OBJECT_REGISTRY.unregister_object(93012);
+        OBJECT_REGISTRY.unregister_object(owner_id);
+        OBJECT_REGISTRY.unregister_object(rider_id);
+    }
+
+    #[test]
+    fn exit_object_via_door_pauses_allow_to_fall_without_relock() {
+        let _lock = crate::test_sync::lock();
+        witness_door_exit_callbacks(false, 93011, 93012);
+    }
+
+    #[test]
+    fn exit_object_in_a_hurry_matches_cpp_callback_order_and_endpoints() {
+        let _lock = crate::test_sync::lock();
+        witness_door_exit_callbacks(true, 93013, 93014);
     }
 }

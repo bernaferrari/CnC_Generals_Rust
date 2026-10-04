@@ -292,8 +292,7 @@ impl UnitAIUpdate {
             return;
         };
         let now = TheGameLogic::get_frame();
-        if let Some(object) = crate::object::registry::OBJECT_REGISTRY.get_object(owner_id)
-        {
+        if let Some(object) = crate::object::registry::OBJECT_REGISTRY.get_object(owner_id) {
             if let Ok(guard) = object.read() {
                 guard.reschedule_ai_update(now.saturating_add(1));
             }
@@ -442,91 +441,67 @@ impl UnitAIUpdate {
     ) -> Result<(), String> {
         machine.turret_mut().xfer(xfer)
     }
-    pub(super) fn start_rappel_state(&mut self, target_id: Option<ObjectID>) -> Result<(), String> {
-        // Wave 258: empty dual-world → Ok(()).
+    /// Resolve the existing admitted owner; legacy Unit test fixtures retain
+    /// their actual base Object, rather than constructing a second owner.
+    pub(super) fn rappel_owner(&self) -> Option<Arc<RwLock<Object>>> {
+        OBJECT_REGISTRY.get_object(self.unit_id).or_else(|| {
+            get_unit_arc(self.unit_id).and_then(|unit| unit.read().ok().map(|unit| unit.base_arc()))
+        })
+    }
 
-        if dual_world_registry_unavailable() {
-            return Ok(());
-        }
-
-        let unit = get_unit_arc(self.unit_id).ok_or("unit no longer available")?;
-        let base_object = unit.read().map_err(|_| "unit lock poisoned")?.base_arc();
-
-        let mut obj_guard = base_object
-            .write()
-            .map_err(|_| "base object lock poisoned")?;
-
-        if !obj_guard.is_kind_of(KindOf::CanRappel) {
-            return Err("unit cannot rappel".to_string());
-        }
-
-        obj_guard.set_model_condition_state(ModelConditionFlags::RAPPELLING);
-
-        if let Some(physics) = obj_guard.get_physics() {
+    pub(super) fn start_rappel_state(
+        &mut self,
+        owner: &Arc<RwLock<Object>>,
+        target_id: Option<ObjectID>,
+    ) -> Result<(), String> {
+        // C++ AIStates.cpp:481-514 — release the exact owner before callbacks
+        // that can synchronously inspect or reschedule that Object.
+        let physics = {
+            let mut obj = owner.write().map_err(|_| "base object lock poisoned")?;
+            if !obj.is_kind_of(KindOf::CanRappel) {
+                return Err("unit cannot rappel".to_string());
+            }
+            obj.set_model_condition_state(ModelConditionFlags::RAPPELLING);
+            obj.get_physics()
+        };
+        if let Some(physics) = physics {
             physics.reset_dynamic_physics();
         }
 
-        let mut target_is_bldg = false;
-        let mut target_valid = None;
-        if let Some(target_id) = target_id {
-            let is_bldg = crate::object::registry::OBJECT_REGISTRY
-                .with_object(target_id, |target_guard| {
-                    !target_guard.is_effectively_dead()
-                        && target_guard.is_kind_of(KindOf::Structure)
+        // No owner guard spans the target query, including target == owner.
+        let target = target_id.and_then(|id| {
+            OBJECT_REGISTRY
+                .with_object(id, |obj| {
+                    (!obj.is_effectively_dead() && obj.is_kind_of(KindOf::Structure))
+                        .then(|| (id, obj.get_geometry_info().get_max_height_above_position()))
                 })
-                .unwrap_or(false);
-            if is_bldg {
-                target_is_bldg = true;
-                target_valid = Some(target_id);
-            }
-        }
-
-        let Some(terrain) = TheTerrainLogic::get() else {
-            return Err("terrain logic unavailable".to_string());
-        };
-
-        let pos = *obj_guard.get_position();
+                .flatten()
+        });
+        let terrain = TheTerrainLogic::get().ok_or("terrain logic unavailable")?;
+        let mut obj = owner.write().map_err(|_| "base object lock poisoned")?;
+        let pos = *obj.get_position();
         let layer = terrain.get_highest_layer_for_destination(&pos);
         let mut dest_z = terrain.get_layer_height(pos.x, pos.y, layer);
-
-        if target_is_bldg {
-            if let Some(target_id) = target_valid {
-                if let Some(extra_z) = crate::object::registry::OBJECT_REGISTRY.with_object(
-                    target_id,
-                    |target_guard| {
-                        target_guard
-                            .get_geometry_info()
-                            .get_max_height_above_position()
-                    },
-                ) {
-                    dest_z += extra_z;
-                }
-            }
+        if let Some((_, height)) = target {
+            dest_z += height;
         } else {
-            obj_guard.set_layer(layer);
-            obj_guard.set_destination_layer(layer);
+            obj.set_layer(layer);
+            obj.set_destination_layer(layer);
         }
-
         let max_rappel_rate = GRAVITY.abs() * (LOGICFRAMES_PER_SECOND as Real) * 2.5;
-        let rappel_rate = -self.desired_speed.min(max_rappel_rate);
-
         self.rappel_state = Some(RappelState {
-            rappel_rate,
+            rappel_rate: -self.desired_speed.min(max_rappel_rate),
             dest_z,
-            target_is_bldg,
-            target_id: target_valid,
+            target_is_bldg: target.is_some(),
+            target_id: target.map(|(id, _)| id),
         });
-
         Ok(())
     }
+
     pub(super) fn finish_rappel_state(&mut self) {
-        let unit = get_unit_arc(self.unit_id);
-        if let Some(unit) = unit {
-            let base = unit.read().ok().map(|guard| guard.base_arc());
-            if let Some(base) = base {
-                if let Ok(mut obj_guard) = base.write() {
-                    obj_guard.clear_model_condition_state(ModelConditionFlags::RAPPELLING);
-                }
+        if let Some(owner) = self.rappel_owner() {
+            if let Ok(mut obj) = owner.write() {
+                obj.clear_model_condition_state(ModelConditionFlags::RAPPELLING);
             }
         }
         self.desired_speed = FAST_AS_POSSIBLE;
@@ -536,207 +511,180 @@ impl UnitAIUpdate {
         }
     }
     pub(super) fn update_rappel_state(&mut self) {
-        // Wave 258: empty dual-world → no factory object walks.
-
-        if dual_world_registry_unavailable() {
-            panic!("dual-world registry unavailable in test helper");
-        }
-
-        let Some(mut current_state) = self.rappel_state.take() else {
+        let Some(mut state) = self.rappel_state.take() else {
             return;
         };
-
-        let Some(unit) = get_unit_arc(self.unit_id) else {
+        let Some(owner) = self.rappel_owner() else {
             self.finish_rappel_state();
             return;
         };
-
-        let base_object = {
-            let unit_guard = unit.read().ok();
-            unit_guard.map(|guard| guard.base_arc())
-        };
-
-        let Some(base_object) = base_object else {
+        let facts = owner.read().ok().map(|obj| {
+            (
+                obj.is_effectively_dead(),
+                *obj.get_position(),
+                obj.get_layer(),
+                obj.get_physics(),
+            )
+        });
+        let Some((false, pos, layer, physics)) = facts else {
             self.finish_rappel_state();
             return;
         };
-
-        let mut obj_guard = match base_object.write() {
-            Ok(guard) => guard,
-            Err(_) => {
-                self.finish_rappel_state();
-                return;
-            }
-        };
-
-        if obj_guard.is_effectively_dead() {
-            drop(obj_guard);
-            self.finish_rappel_state();
-            return;
-        }
-
         let Some(terrain) = TheTerrainLogic::get() else {
-            drop(obj_guard);
             self.finish_rappel_state();
             return;
         };
 
-        if current_state.target_is_bldg {
-            let target_gone = current_state
+        // C++ AIStates.cpp:527-541: validate the target, then scrub velocities.
+        // Neither target lookup nor physics callback retains an owner guard.
+        if state.target_is_bldg {
+            let gone = state
                 .target_id
-                .map(|id| {
-                    crate::object::registry::OBJECT_REGISTRY
-                        .with_object(id, |target_guard| {
-                            target_guard.is_effectively_dead()
-                                || !target_guard.is_kind_of(KindOf::Structure)
-                        })
-                        .unwrap_or(true)
+                .and_then(|id| {
+                    OBJECT_REGISTRY.with_object(id, |target| target.is_effectively_dead())
                 })
                 .unwrap_or(true);
-            if target_gone {
-                current_state.target_is_bldg = false;
-                let pos = obj_guard.get_position();
-                current_state.dest_z = terrain.get_ground_height(pos.x, pos.y, None);
+            if gone {
+                state.target_is_bldg = false;
+                state.dest_z = terrain.get_ground_height(pos.x, pos.y, None);
             }
         }
-
-        if let Some(physics) = obj_guard.get_physics() {
+        if let Some(physics) = physics {
             physics.scrub_velocity_2d(0.0);
-            physics.scrub_velocity_z(current_state.rappel_rate);
+            physics.scrub_velocity_z(state.rappel_rate);
+        }
+        if !state.target_is_bldg {
+            state.dest_z = terrain.get_layer_height(pos.x, pos.y, layer);
+        }
+        if pos.z > state.dest_z {
+            self.rappel_state = Some(state);
+            return;
         }
 
-        if !current_state.target_is_bldg {
-            let pos = obj_guard.get_position();
-            current_state.dest_z = terrain.get_layer_height(pos.x, pos.y, obj_guard.get_layer());
-        }
-
-        let pos = *obj_guard.get_position();
-        if pos.z <= current_state.dest_z {
-            let mut landing = pos;
-            landing.z = current_state.dest_z;
-            if let Err(err) = obj_guard.set_position(&landing) {
+        let mut landing = pos;
+        landing.z = state.dest_z;
+        if let Ok(mut obj) = owner.write() {
+            if let Err(err) = obj.set_position(&landing) {
                 log::debug!(
-                    "Unit::update_rappel_state failed to set landing position for {}: {}",
-                    obj_guard.get_id(),
+                    "Unit::update_rappel_state landing failed for {}: {}",
+                    self.unit_id,
                     err
                 );
             }
-
-            if current_state.target_is_bldg {
-                let target_id = current_state.target_id;
-                if let Some(target_id) = target_id {
-                    let max_to_kill = 2;
-                    let num_killed =
-                        kill_enemies_in_container(obj_guard.get_id(), target_id, max_to_kill);
-                    if num_killed > 0 {
-                        play_combat_drop_kill_fx(obj_guard.get_template_name(), target_id);
+        }
+        if state.target_is_bldg {
+            if let Some(target_id) = state.target_id {
+                // C++ AIStates.cpp:562-584: score/kill callbacks can read and
+                // mutate the rappeller; no caller-held owner guard spans them.
+                let max_to_kill = 2;
+                let killed = kill_enemies_in_container(self.unit_id, target_id, max_to_kill);
+                if killed > 0 {
+                    let name = owner
+                        .read()
+                        .ok()
+                        .map(|obj| obj.get_template_name().to_string());
+                    if let Some(name) = name {
+                        play_combat_drop_kill_fx(&name, target_id);
                     }
-
-                    if num_killed == max_to_kill {
-                        obj_guard.kill(None, None);
-                    } else {
-                        let extracted = crate::object::registry::OBJECT_REGISTRY.with_object(
-                            target_id,
-                            |target_guard| {
-                                (
-                                    target_guard.get_contain(),
-                                    target_guard.get_orientation(),
-                                    target_guard
-                                        .get_geometry_info()
-                                        .get_bounding_circle_radius(),
-                                    *target_guard.get_position(),
-                                )
-                            },
-                        );
-                        if let Some((contain, exit_angle, target_radius, target_pos)) = extracted {
+                }
+                if killed == max_to_kill {
+                    if let Ok(mut obj) = owner.write() {
+                        obj.kill(None, None);
+                    }
+                } else {
+                    let target = OBJECT_REGISTRY.with_object(target_id, |target| {
+                        (
+                            target.get_contain(),
+                            target.get_orientation(),
+                            target.get_geometry_info().get_bounding_circle_radius(),
+                            *target.get_position(),
+                        )
+                    });
+                    if let Some((contain, exit_angle, target_radius, target_pos)) = target {
+                        let valid = contain.as_ref().is_some_and(|contain| {
+                            owner
+                                .read()
+                                .ok()
+                                .is_some_and(|obj| contain.is_valid_container_for(&obj, true))
+                        });
+                        if valid {
+                            // Installed Open/Transport/Garrison addToContain
+                            // delegates to this same ID operation. End the
+                            // validation borrow before immediate enter effects.
                             if let Some(contain) = contain {
-                                if contain.is_valid_container_for(&obj_guard, true) {
-                                    contain.add_to_contain(&obj_guard);
-                                } else {
-                                    let offset = obj_guard
-                                        .get_geometry_info()
-                                        .get_bounding_circle_radius()
-                                        .min(target_radius);
-                                    let angle = get_game_logic_random_value_real(PI, 2.0 * PI);
-                                    let mut start_position = target_pos;
-                                    start_position.x += offset * angle.cos();
-                                    start_position.y += offset * angle.sin();
-                                    start_position.z = terrain.get_ground_height(
-                                        start_position.x,
-                                        start_position.y,
-                                        None,
+                                if let Ok(mut contain) = contain.lock() {
+                                    if let Err(err) = contain.contain_object(self.unit_id) {
+                                        log::debug!(
+                                            "Rappel containment failed for {}: {}",
+                                            self.unit_id,
+                                            err
+                                        );
+                                    }
+                                }
+                            }
+                        } else {
+                            // C++ also scatters when the building has no contain.
+                            let radius = owner
+                                .read()
+                                .ok()
+                                .map(|obj| obj.get_geometry_info().get_bounding_circle_radius())
+                                .unwrap_or(0.0);
+                            let offset = radius.min(target_radius);
+                            let angle = get_game_logic_random_value_real(PI, 2.0 * PI);
+                            let mut start = target_pos;
+                            start.x += offset * angle.cos();
+                            start.y += offset * angle.sin();
+                            start.z = terrain.get_ground_height(start.x, start.y, None);
+                            if let Ok(mut obj) = owner.write() {
+                                if let Err(err) = obj.set_position(&start) {
+                                    log::debug!(
+                                        "Rappel scatter position failed for {}: {}",
+                                        self.unit_id,
+                                        err
                                     );
-
-                                    if let Err(err) = obj_guard.set_position(&start_position) {
-                                        log::debug!(
-                                            "Unit::update_rappel_state failed to set start position for {}: {}",
-                                            obj_guard.get_id(),
-                                            err
-                                        );
-                                    }
-                                    if let Err(err) = obj_guard.set_orientation(exit_angle) {
-                                        log::debug!(
-                                            "Unit::update_rappel_state failed to set exit orientation for {}: {}",
-                                            obj_guard.get_id(),
-                                            err
-                                        );
-                                    }
-
-                                    let mut options = FindPositionOptions::default();
-                                    options.start_angle = Some(1.5 * PI);
-                                    options.max_radius = 200.0;
-                                    let mut end_position = Coord3D::new(0.0, 0.0, 0.0);
-                                    let found_position = ThePartitionManager::get()
-                                        .map(|partition| {
-                                            partition.find_position_around_with_options(
-                                                &start_position,
-                                                &options,
-                                                &mut end_position,
-                                            )
-                                        })
-                                        .unwrap_or(false);
-
-                                    if found_position {
-                                        let mut used_ai_path = false;
-                                        if let Ok(unit_guard) = unit.read() {
-                                            if let Some(ai) = unit_guard.get_ai_update_interface() {
-                                                ai.ai_follow_path(
-                                                    &[end_position],
-                                                    current_state.target_id,
-                                                    CommandSourceType::FromAi,
-                                                );
-                                                used_ai_path = true;
-                                            }
-                                        }
-                                        if !used_ai_path {
-                                            if let Ok(mut unit_guard) = unit.write() {
-                                                if let Err(err) = unit_guard.give_move_order(
-                                                    end_position,
-                                                    Vec::new(),
-                                                    false,
-                                                    false,
-                                                ) {
-                                                    log::debug!(
-                                                        "Unit::update_rappel_state give_move_order failed: {}",
-                                                        err
-                                                    );
-                                                }
-                                            }
-                                        }
-                                    }
+                                }
+                                if let Err(err) = obj.set_orientation(exit_angle) {
+                                    log::debug!(
+                                        "Rappel scatter orientation failed for {}: {}",
+                                        self.unit_id,
+                                        err
+                                    );
+                                }
+                            }
+                            let mut options = FindPositionOptions::default();
+                            options.start_angle = Some(1.5 * PI);
+                            options.max_radius = 200.0;
+                            let mut end = Coord3D::ZERO;
+                            let found = ThePartitionManager::get()
+                                .map(|partition| {
+                                    partition.find_position_around_with_options(
+                                        &start, &options, &mut end,
+                                    )
+                                })
+                                .unwrap_or(false);
+                            if found {
+                                // Invoke this executing AI directly; cloning its
+                                // cached mutex would reenter/skip this command.
+                                let mut command = crate::ai::AiCommandParams::new(
+                                    crate::ai::AiCommandType::FollowPath,
+                                    CommandSourceType::FromAi,
+                                );
+                                command.coords.push(end);
+                                command.obj = state.target_id;
+                                if let Err(err) = self.execute_command(&command) {
+                                    log::warn!(
+                                        "Rappel exit path requires its driving Unit for {}: {}",
+                                        self.unit_id,
+                                        err
+                                    );
                                 }
                             }
                         }
                     }
                 }
             }
-
-            drop(obj_guard);
-            self.finish_rappel_state();
-            return;
         }
-
-        self.rappel_state = Some(current_state);
+        self.finish_rappel_state();
     }
 }
 

@@ -52,14 +52,6 @@ use game_engine::common::thing::module::{
 use std::any::Any;
 use std::sync::{Arc, Mutex};
 
-/// Wave 365 residual scan still sees `OBJECT_REGISTRY.is_empty()`.
-/// Do not skip-close production solely because the dual-world registry is empty.
-#[inline]
-fn dual_world_registry_unavailable() -> bool {
-    let _host_empty = crate::object::registry::OBJECT_REGISTRY.is_empty();
-    false
-}
-
 fn exit_door_to_i32(door: ExitDoorType) -> i32 {
     match door {
         ExitDoorType::None => -2, // C++ DOOR_NONE_NEEDED
@@ -468,11 +460,6 @@ impl ProductionUpdateComplete {
     }
 
     fn sync_actively_constructing_flag(&mut self) {
-        // Wave 365: empty dual-world → no-op.
-        if dual_world_registry_unavailable() {
-            return;
-        }
-
         let should_set = self.current_production.is_some() || !self.queue.is_empty();
         let _ = crate::object::registry::OBJECT_REGISTRY.with_object_mut(self.owner_id, |guard| {
             if should_set {
@@ -484,11 +471,6 @@ impl ProductionUpdateComplete {
     }
 
     fn set_hold_door_open(&mut self, exit_door: usize, hold_it: bool) {
-        // Wave 365: empty dual-world → no-op.
-        if dual_world_registry_unavailable() {
-            return;
-        }
-
         if exit_door >= DOOR_COUNT_MAX {
             return;
         }
@@ -889,11 +871,6 @@ impl ProductionUpdateComplete {
     /// Update door animations
     /// Matches C++ updateDoors lines 513-583
     fn update_doors(&mut self, current_frame: u32) {
-        // Wave 365: empty dual-world → no-op.
-        if dual_world_registry_unavailable() {
-            return;
-        }
-
         for door_idx in 0..self.data.num_door_animations.min(DOOR_COUNT_MAX as i32) as usize {
             let door = &mut self.doors[door_idx];
 
@@ -946,11 +923,6 @@ impl ProductionUpdateComplete {
     /// Update construction complete animation
     /// Matches C++ lines 600-619
     fn update_construction_complete(&mut self, current_frame: u32) {
-        // Wave 365: empty dual-world → no-op.
-        if dual_world_registry_unavailable() {
-            return;
-        }
-
         if self.construction_complete_frame > 0 {
             let elapsed = current_frame - self.construction_complete_frame;
             if elapsed > self.data.construction_complete_duration {
@@ -968,11 +940,6 @@ impl ProductionUpdateComplete {
     }
 
     fn build_player_modifiers(&self, template_name: Option<&str>) -> PlayerBuildModifiers {
-        // Wave 365: empty dual-world → default modifiers.
-        if dual_world_registry_unavailable() {
-            return PlayerBuildModifiers::default();
-        }
-
         let mut mods = PlayerBuildModifiers::default();
 
         let Some(player) = crate::object::registry::OBJECT_REGISTRY
@@ -1076,9 +1043,6 @@ impl ProductionUpdateComplete {
         object_sold
     }
     fn reserve_parking_door_when_queued(&self, template_name: &str) -> Result<i32, String> {
-        if dual_world_registry_unavailable() {
-            return Ok(-1);
-        }
         let Some(template) = TheThingFactory::find_template(template_name) else {
             return Ok(-1);
         };
@@ -1113,7 +1077,7 @@ impl ProductionUpdateComplete {
     /// C++ ProductionUpdate::removeFromProductionQueue unreserveDoorForExit
     /// (ProductionUpdate.cpp:1011-1021).
     fn unreserve_exit_door(&self, exit_door: i32) {
-        if exit_door < 0 || dual_world_registry_unavailable() {
+        if exit_door < 0 {
             return;
         }
         let Some(exit) = crate::object::registry::OBJECT_REGISTRY
@@ -1168,10 +1132,6 @@ impl ProductionUpdateComplete {
     /// Spawn a completed unit through the building ExitInterface.
     /// Matches C++ ProductionUpdate::update lines 706-856.
     fn spawn_unit(&mut self, current_frame: u32) -> Result<(), String> {
-        if dual_world_registry_unavailable() {
-            return Ok(());
-        }
-
         let Some(prod) = self.current_production.as_ref() else {
             return Err("No production to spawn".to_string());
         };
@@ -1656,11 +1616,6 @@ impl UpdateModuleInterface for ProductionUpdateComplete {
 
 impl ProductionUpdateInterface for ProductionUpdateComplete {
     fn can_produce(&self, _template_name: &str) -> bool {
-        // Wave 365: empty dual-world → false.
-        if dual_world_registry_unavailable() {
-            return false;
-        }
-
         if self.queue.is_full() {
             return false;
         }

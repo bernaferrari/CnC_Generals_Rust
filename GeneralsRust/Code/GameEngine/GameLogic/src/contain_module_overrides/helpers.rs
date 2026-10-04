@@ -89,17 +89,6 @@ pub(super) fn owner_weak(owner_id: ObjectID) -> Weak<RwLock<crate::object::Objec
         .unwrap_or_else(Weak::new)
 }
 
-pub(super) fn attach_contain_to_object(
-    object_id: ObjectID,
-    contain: Arc<Mutex<dyn ContainModuleInterface>>,
-) {
-    if let Some(object) = TheGameLogic::find_object_by_id(object_id) {
-        if let Ok(mut guard) = object.write() {
-            guard.set_contain(Some(contain));
-        }
-    }
-}
-
 pub(super) fn attach_body_to_object(
     object_id: ObjectID,
     body: Arc<Mutex<dyn BodyModuleInterface>>,

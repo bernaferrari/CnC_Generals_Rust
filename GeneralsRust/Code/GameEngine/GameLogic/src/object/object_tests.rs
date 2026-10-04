@@ -695,19 +695,20 @@ mod tests {
 
     #[test]
     fn contain_production_do_not_skip_close_on_empty_registry() {
-        let open = include_str!("contain/open_contain.rs");
-        assert!(open.contains("OBJECT_REGISTRY.is_empty()"));
-        assert!(
-            open.contains("let _host_empty") && open.contains("false"),
-            "open contain must not skip-close solely because registry is empty"
-        );
-
-        let prod = include_str!("production/production_update_complete.rs");
-        assert!(prod.contains("OBJECT_REGISTRY.is_empty()"));
-        assert!(
-            prod.contains("let _host_empty") && prod.contains("false"),
-            "production must not skip-close solely because registry is empty"
-        );
+        // C++ instance operations use their owning Object and queues, without
+        // querying unrelated registry size. The old predicate read global
+        // state and returned false regardless of the result.
+        for source in [
+            include_str!("contain/open_contain.rs"),
+            include_str!("contain/transport_contain.rs"),
+            include_str!("production/production_update_complete.rs"),
+        ] {
+            assert!(
+                !source.contains("OBJECT_REGISTRY.is_empty()")
+                    && !source.contains("dual_world_registry_unavailable"),
+                "instance operations must not probe ambient registry availability"
+            );
+        }
 
         let interfaces = include_str!("behavior_interfaces.rs");
         assert!(

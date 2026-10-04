@@ -47452,8 +47452,18 @@
           "candidate_destinations": [
             {
               "cargo_reachable": true,
+              "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/contain/open_admission_tests.rs"
+            },
+            {
+              "cargo_reachable": true,
               "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/contain/open_contain.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/contain/owner_exit_goal_tests.rs"
             }
           ],
           "entry_id": "game_engine:Source/GameLogic/Object/Contain/OpenContain.cpp",
@@ -48248,8 +48258,18 @@
           "candidate_destinations": [
             {
               "cargo_reachable": true,
+              "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/contain/transport_admission_tests.rs"
+            },
+            {
+              "cargo_reachable": true,
               "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/contain/transport_contain.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/contain/transport_door_exit_tests.rs"
             }
           ],
           "entry_id": "game_engine:Source/GameLogic/Object/Contain/TransportContain.cpp",
@@ -51952,6 +51972,11 @@
             },
             {
               "cargo_reachable": true,
+              "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/contain/open_admission_tests.rs"
+            },
+            {
+              "cargo_reachable": true,
               "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/contain/open_contain.rs"
             },
@@ -51959,6 +51984,11 @@
               "cargo_reachable": true,
               "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/contain/overlord_contain.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/contain/owner_exit_goal_tests.rs"
             },
             {
               "cargo_reachable": true,
@@ -51977,8 +52007,18 @@
             },
             {
               "cargo_reachable": true,
+              "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/contain/transport_admission_tests.rs"
+            },
+            {
+              "cargo_reachable": true,
               "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/contain/transport_contain.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/contain/transport_door_exit_tests.rs"
             },
             {
               "cargo_reachable": true,
@@ -52532,6 +52572,16 @@
             },
             {
               "cargo_reachable": true,
+              "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/object_modules/contain_installation_tests.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/object_modules/physics_installation_tests.rs"
+            },
+            {
+              "cargo_reachable": true,
               "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/object_queries.rs"
             },
@@ -52889,6 +52939,11 @@
               "cargo_reachable": true,
               "classification": "implementation",
               "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/unit/orders.rs"
+            },
+            {
+              "cargo_reachable": true,
+              "classification": "test",
+              "path": "GeneralsRust/Code/GameEngine/GameLogic/src/object/unit/rappel_command_tests.rs"
             },
             {
               "cargo_reachable": true,
@@ -188846,7 +188901,7 @@
       ]
     }
   ],
-  "provenance_input_digest": "b0039b36100f68cdd2ba689c2c6caeb0ae21f364fff408ccc1be2b1df223eb13",
+  "provenance_input_digest": "5229e9296a80d3ec3c607f1411deac7f5f61aa0e0d20d9d3331ebb906518d896",
   "schema_version": 1,
   "summary": {
     "maximum_packet_size": 15,

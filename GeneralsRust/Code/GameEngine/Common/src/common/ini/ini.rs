@@ -227,9 +227,7 @@ fn split_field_values(rest: &str) -> Vec<&str> {
     let mut values = Vec::new();
     let mut index = 0;
     while index < bytes.len() {
-        while index < bytes.len()
-            && (bytes[index].is_ascii_whitespace() || bytes[index] == b'=')
-        {
+        while index < bytes.len() && (bytes[index].is_ascii_whitespace() || bytes[index] == b'=') {
             index += 1;
         }
         if index >= bytes.len() {
@@ -247,9 +245,7 @@ fn split_field_values(rest: &str) -> Vec<&str> {
             }
         } else {
             let start = index;
-            while index < bytes.len()
-                && !bytes[index].is_ascii_whitespace()
-                && bytes[index] != b'='
+            while index < bytes.len() && !bytes[index].is_ascii_whitespace() && bytes[index] != b'='
             {
                 index += 1;
             }
@@ -362,7 +358,6 @@ fn read_block_line(ini: &mut INI) -> INIResult<bool> {
     }
     Ok(false)
 }
-
 
 fn parse_passthrough_block(ini: &mut INI) -> INIResult<()> {
     let _ = consume_block_with_nesting(ini)?;
@@ -619,12 +614,7 @@ fn parse_fx_list_block(ini: &mut INI) -> INIResult<()> {
 
         // Client parity: the nugget kind is the FIRST token of the line
         // (C++ `initFromINI` field lookup), not the whole trimmed line.
-        let nugget_kind = ini
-            .buffer
-            .trim()
-            .split_whitespace()
-            .next()
-            .unwrap_or("");
+        let nugget_kind = ini.buffer.trim().split_whitespace().next().unwrap_or("");
         if nugget_kind.is_empty() {
             continue;
         }
@@ -1273,10 +1263,7 @@ impl INI {
     /// losing every intact block that follows. This variant skips straight to
     /// the first line whose first token names a registered block parser and
     /// parses the intact remainder.
-    pub fn load_recovering_truncated_head<P: AsRef<Path>>(
-        &mut self,
-        filename: P,
-    ) -> INIResult<()> {
+    pub fn load_recovering_truncated_head<P: AsRef<Path>>(&mut self, filename: P) -> INIResult<()> {
         let path = filename.as_ref();
         let bytes = match fs::read(path) {
             Ok(bytes) => bytes,
@@ -1371,7 +1358,10 @@ impl INI {
 
         self.staged_temp_file = None;
         let filename_ref = filename.as_ref();
-        let loose_authoritative = crate::common::system::install_layout::ini_loose_override_is_authoritative(filename_ref);
+        let loose_authoritative =
+            crate::common::system::install_layout::ini_loose_override_is_authoritative(
+                filename_ref,
+            );
         let file = match File::open(filename_ref) {
             Ok(file) if loose_authoritative => file,
             _ => {
@@ -2217,6 +2207,43 @@ impl INI {
         }
 
         Ok(())
+    }
+
+    /// Read one block using the ordered base and derived field tables.
+    /// C++ MultiIniFieldParse visits the inherited table first, without
+    /// consuming a separate End token for either table.
+    pub fn init_from_ini_with_inherited_fields<T, B>(
+        &mut self,
+        target: &mut T,
+        base: fn(&mut T) -> &mut B,
+        base_fields: &[FieldParse<B>],
+        fields: &[FieldParse<T>],
+    ) -> INIResult<()> {
+        loop {
+            self.read_line()?;
+            let line = self.buffer.clone();
+            if let Some((key, tokens)) = parse_field_line(&line) {
+                if key.eq_ignore_ascii_case("End") {
+                    return Ok(());
+                }
+                if let Some(field) = base_fields
+                    .iter()
+                    .find(|f| f.token.eq_ignore_ascii_case(key))
+                {
+                    (field.parse)(self, base(target), &tokens)?;
+                } else if let Some(field) =
+                    fields.iter().find(|f| f.token.eq_ignore_ascii_case(key))
+                {
+                    (field.parse)(self, target, &tokens)?;
+                } else {
+                    return Err(INIError::UnknownToken);
+                }
+            }
+            // Process a final buffered End before checking EOF, as INI.cpp does.
+            if self.end_of_file {
+                return Err(INIError::EndOfFile);
+            }
+        }
     }
 
     /// Parse percent value to real number  

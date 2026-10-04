@@ -26,15 +26,6 @@ use crate::weapon::WeaponSetType;
 use game_engine::common::ini::{FieldParse, INI, INIError};
 use game_engine::common::system::{Snapshotable, Xfer, XferVersion};
 
-#[allow(dead_code)]
-/// Wave 272 residual scan still sees `OBJECT_REGISTRY.is_empty()`.
-/// Do not skip-close contain solely because the dual-world registry is empty.
-#[inline]
-fn dual_world_registry_unavailable() -> bool {
-    let _host_empty = crate::object::registry::OBJECT_REGISTRY.is_empty();
-    false
-}
-
 /// C++ `TransportContain::isPassengerAllowedToFire` (TransportContain.cpp:576-578):
 /// only infantry may fire out. Vehicles ride silent (Combat Chinook
 /// `AllowInsideKindOf = INFANTRY VEHICLE`).
@@ -123,8 +114,12 @@ impl Default for TransportContainModuleData {
 
 impl TransportContainModuleData {
     pub fn parse_from_ini(&mut self, ini: &mut INI) -> Result<(), INIError> {
-        self.base.parse_from_ini(ini)?;
-        ini.init_from_ini_with_fields_allow_unknown(self, TRANSPORT_CONTAIN_FIELDS)
+        ini.init_from_ini_with_inherited_fields(
+            self,
+            |data| &mut data.base,
+            super::open_contain::OPEN_CONTAIN_FIELDS,
+            TRANSPORT_CONTAIN_FIELDS,
+        )
     }
 
     pub fn parse_from_config(&mut self, config: &str) -> Result<(), INIError> {
@@ -370,15 +365,23 @@ impl TransportContain {
         object: Weak<RwLock<Object>>,
         module_data: &TransportContainModuleData,
     ) -> GameResult<Self> {
-        let base = OpenContain::new(object.clone(), &module_data.base)?;
+        let object_id = object
+            .upgrade()
+            .and_then(|arc| arc.read().ok().map(|g| g.get_id()))
+            .unwrap_or(crate::common::INVALID_ID);
+        Self::new_for_owner(object_id, module_data)
+    }
+
+    pub(crate) fn new_for_owner(
+        object_id: ObjectID,
+        module_data: &TransportContainModuleData,
+    ) -> GameResult<Self> {
+        let base = OpenContain::new_for_owner(object_id, &module_data.base)?;
 
         Ok(Self {
             base,
             module_data: module_data.clone(),
-            object_id: object
-                .upgrade()
-                .and_then(|arc| arc.read().ok().map(|g| g.get_id()))
-                .unwrap_or(crate::common::INVALID_ID),
+            object_id,
             payload_created: false,
             extra_slots_in_use: 0,
             last_extra_slots_delta: 0,
@@ -410,11 +413,6 @@ impl TransportContain {
 
     /// Short-lived Arc resolve; prefer `with_owner_object` / `get_object_id`.
     pub fn get_object(&self) -> Option<Arc<RwLock<Object>>> {
-        // Wave 272: empty dual-world → None.
-        if dual_world_registry_unavailable() {
-            return None;
-        }
-
         let id = self.get_object_id();
         if id == crate::common::INVALID_ID {
             return None;
@@ -424,11 +422,6 @@ impl TransportContain {
 
     /// Check if this container is valid for the given object
     pub fn is_valid_container_for(&self, obj: &Object, check_capacity: bool) -> bool {
-        // Wave 272: empty dual-world → fail-closed.
-        if dual_world_registry_unavailable() {
-            return false;
-        }
-
         // C++ TransportContain::isValidContainerFor: if the rider is a special
         // zero-slot container (parachute), replace the check target with the
         // first contained infantry so a plane can accept a paratrooper.
@@ -590,11 +583,6 @@ impl TransportContain {
 
     /// Called when this object starts containing another object
     pub fn on_containing(&mut self, obj_id: ObjectID, was_selected: bool) -> GameResult<()> {
-        // Wave 272: empty dual-world → Ok(()).
-        if dual_world_registry_unavailable() {
-            return Ok(());
-        }
-
         let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id) else {
             return Ok(());
         };
@@ -741,11 +729,6 @@ impl TransportContain {
 
     /// Called when removing an object from containment
     pub fn on_removing(&mut self, obj_id: ObjectID) -> GameResult<()> {
-        // Wave 272: empty dual-world → Ok(()).
-        if dual_world_registry_unavailable() {
-            return Ok(());
-        }
-
         let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id) else {
             return Ok(());
         };
@@ -911,11 +894,6 @@ impl TransportContain {
 
     /// Update method called once per frame
     pub fn update(&mut self) -> GameResult<UpdateSleepTime> {
-        // Wave 272: empty dual-world → sleep forever (no factory walks).
-        if dual_world_registry_unavailable() {
-            return Ok(UpdateSleepTime::Forever);
-        }
-
         // Create payload if not already created
         if !self.payload_created {
             if let Err(err) = self.create_payload() {
@@ -1357,11 +1335,6 @@ impl TransportContain {
 
     /// Let riders upgrade weapon set (matches C++ letRidersUpgradeWeaponSet)
     fn let_riders_upgrade_weapon_set(&mut self) -> GameResult<()> {
-        // Wave 272: empty dual-world → Ok(()).
-        if dual_world_registry_unavailable() {
-            return Ok(());
-        }
-
         // Check if this feature is enabled
         if !self.module_data.armed_riders_upgrade_weapon_set {
             return Ok(());
@@ -1497,11 +1470,6 @@ impl TransportContain {
 
     /// Add object to containment
     pub fn add_to_contain(&mut self, obj_id: ObjectID) -> GameResult<()> {
-        // Wave 272: empty dual-world → Ok(()).
-        if dual_world_registry_unavailable() {
-            return Ok(());
-        }
-
         if super::should_cancel_containment_after_booby_trap(
             {
                 let id = self.get_object_id();
@@ -1585,11 +1553,6 @@ impl TransportContain {
         expose_stealth_units: bool,
         run_exit_hook: bool,
     ) -> GameResult<(bool, bool)> {
-        // Wave 272: empty dual-world → Ok(()).
-        if dual_world_registry_unavailable() {
-            return Ok((false, false));
-        }
-
         let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id) else {
             return Ok((false, false));
         };
@@ -1702,11 +1665,56 @@ impl Snapshotable for TransportContain {
 }
 
 impl ContainModuleInterface for TransportContain {
+    fn set_rally_point(&mut self, pos: Coord3D) {
+        self.base.set_rally_point(pos);
+    }
+
+    fn get_rally_point(&self) -> Option<Coord3D> {
+        self.base.get_rally_point()
+    }
+
+    fn exit_object_via_door(
+        &mut self,
+        obj_id: ObjectID,
+        door: ExitDoorType,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        if matches!(door, ExitDoorType::None | ExitDoorType::NoneAvailable)
+            || crate::object::registry::OBJECT_REGISTRY
+                .get_object(obj_id)
+                .is_none()
+        {
+            return Ok(());
+        }
+        // C++ virtual removeFromContain runs TransportContain::onRemoving,
+        // before the inherited OpenContain exit placement and door animation.
+        self.remove_from_contain(obj_id, false)?;
+        self.base
+            .exit_removed_object_via_door(obj_id)
+            .map_err(|e| e.into())
+    }
+
+    fn exit_object_in_a_hurry(
+        &mut self,
+        obj_id: ObjectID,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        if crate::object::registry::OBJECT_REGISTRY
+            .get_object(obj_id)
+            .is_none()
+        {
+            return Ok(());
+        }
+        self.remove_from_contain(obj_id, false)?;
+        self.base
+            .exit_removed_object_in_a_hurry(obj_id)
+            .map_err(|e| e.into())
+    }
+
     fn can_contain(&self, object_id: ObjectID) -> bool {
-        let _ = crate::object::registry::OBJECT_REGISTRY.with_object(object_id, |obj_guard| {
-            return self.is_valid_container_for(&*obj_guard, true);
-        });
-        false
+        crate::object::registry::OBJECT_REGISTRY
+            .with_object(object_id, |obj_guard| {
+                self.is_valid_container_for(obj_guard, true)
+            })
+            .unwrap_or(false)
     }
 
     fn contain_object(&mut self, object_id: ObjectID) -> Result<(), String> {
@@ -1895,11 +1903,6 @@ impl ContainModuleInterface for TransportContain {
         obj_id: ObjectID,
         was_selected: bool,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        // Wave 272: empty dual-world → Ok(()).
-        if dual_world_registry_unavailable() {
-            return Ok(());
-        }
-
         let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id) else {
             return Ok(());
         };
@@ -1911,11 +1914,6 @@ impl ContainModuleInterface for TransportContain {
         &mut self,
         obj_id: ObjectID,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        // Wave 272: empty dual-world → Ok(()).
-        if dual_world_registry_unavailable() {
-            return Ok(());
-        }
-
         let Some(obj) = crate::object::registry::OBJECT_REGISTRY.get_object(obj_id) else {
             return Ok(());
         };
@@ -1944,11 +1942,6 @@ impl ContainModuleInterface for TransportContain {
         &mut self,
         damage_info: &mut DamageInfo,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        // Wave 272: empty dual-world → Ok(()).
-        if dual_world_registry_unavailable() {
-            return Ok(());
-        }
-
         let object_ids = self.base.get_contained_object_ids().to_vec();
         for obj_id in object_ids {
             if let Err(err) = self.remove_from_contain(obj_id, true) {
@@ -1969,11 +1962,6 @@ impl ContainModuleInterface for TransportContain {
     }
 
     fn kill_all_contained(&mut self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        // Wave 272: empty dual-world → Ok(()).
-        if dual_world_registry_unavailable() {
-            return Ok(());
-        }
-
         let object_ids = self.base.get_contained_object_ids().to_vec();
         for obj_id in object_ids {
             if let Err(err) = self.remove_from_contain(obj_id, true) {
@@ -2040,6 +2028,14 @@ impl ContainerInterface for TransportContain {
         (current, max)
     }
 }
+
+#[cfg(test)]
+#[path = "transport_admission_tests.rs"]
+mod transport_admission_tests;
+
+#[cfg(test)]
+#[path = "transport_door_exit_tests.rs"]
+mod door_exit_tests;
 
 #[cfg(test)]
 mod tests {

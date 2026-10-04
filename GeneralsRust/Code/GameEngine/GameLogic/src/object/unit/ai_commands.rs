@@ -110,6 +110,20 @@ impl UnitAIUpdate {
         if command.cmd != crate::ai::AiCommandType::Enter {
             self.enter_target = None;
         }
+        if command.cmd == crate::ai::AiCommandType::RappelInto {
+            // C++ AIUpdate.cpp:2981-2997 / AIStates.cpp:481-514: Rappel
+            // operates on the admitted Object, not a second Unit registration.
+            let owner = self
+                .rappel_owner()
+                .ok_or("rappel owner no longer available")?;
+            {
+                let owner = owner.read().map_err(|_| "rappel owner lock poisoned")?;
+                owner.forward_command_to_flight_deck(command);
+            }
+            let _ = self.start_rappel_state(&owner, command.obj);
+            self.finish_command_worker_side_effects();
+            return Ok(());
+        }
         let unit =
             get_unit_arc(self.unit_id).ok_or_else(|| "unit no longer available".to_string())?;
         let mut guard = unit.write().map_err(|_| "unit lock poisoned".to_string())?;
@@ -181,9 +195,6 @@ impl UnitAIUpdate {
                 }
 
                 guard.give_move_order(clipped, Vec::new(), false, false)?;
-            }
-            crate::ai::AiCommandType::RappelInto => {
-                let _ = self.start_rappel_state(command.obj);
             }
             crate::ai::AiCommandType::MoveToObject => {
                 if let Some(target_id) = command.obj {
@@ -477,41 +488,41 @@ impl UnitAIUpdate {
                         .get_active()
                         .map(|loco| loco.to_movement_capabilities())
                     {
-                            let ai_store = the_ai(); if let Ok(ai_guard) = ai_store.read() {
-                                if let Some(system) = ai_guard.pathfinding_system() {
-                                    if let Ok(mut system_guard) = system.write() {
-                                        let unit_radius = base_object
-                                            .read()
-                                            .ok()
-                                            .map(|obj_guard| {
-                                                obj_guard.get_geometry_info().get_major_radius()
-                                            })
-                                            .unwrap_or(0.0);
-                                        let request = crate::ai::pathfinding_system::PathRequest {
-                                            requester: guard.get_id(),
-                                            start: guard.get_position(),
-                                            goal: local_pos,
-                                            capabilities,
-                                            unit_size: unit_radius,
-                                            priority: 0,
-                                            allow_partial: false,
-                                            frame_requested: TheGameLogic::get_frame(),
-                                            move_allies: self.can_path_through_units,
-                                            ignore_obstacle_id: if self.ignore_obstacle_id
-                                                == INVALID_ID
-                                            {
-                                                None
-                                            } else {
-                                                Some(self.ignore_obstacle_id)
-                                            },
-                                        };
-                                        path_available = matches!(
-                                            system_guard.find_path_immediate(&request),
-                                            crate::ai::pathfinding_system::PathResult::Success(_)
-                                        );
-                                    }
+                        let ai_store = the_ai();
+                        if let Ok(ai_guard) = ai_store.read() {
+                            if let Some(system) = ai_guard.pathfinding_system() {
+                                if let Ok(mut system_guard) = system.write() {
+                                    let unit_radius = base_object
+                                        .read()
+                                        .ok()
+                                        .map(|obj_guard| {
+                                            obj_guard.get_geometry_info().get_major_radius()
+                                        })
+                                        .unwrap_or(0.0);
+                                    let request = crate::ai::pathfinding_system::PathRequest {
+                                        requester: guard.get_id(),
+                                        start: guard.get_position(),
+                                        goal: local_pos,
+                                        capabilities,
+                                        unit_size: unit_radius,
+                                        priority: 0,
+                                        allow_partial: false,
+                                        frame_requested: TheGameLogic::get_frame(),
+                                        move_allies: self.can_path_through_units,
+                                        ignore_obstacle_id: if self.ignore_obstacle_id == INVALID_ID
+                                        {
+                                            None
+                                        } else {
+                                            Some(self.ignore_obstacle_id)
+                                        },
+                                    };
+                                    path_available = matches!(
+                                        system_guard.find_path_immediate(&request),
+                                        crate::ai::pathfinding_system::PathResult::Success(_)
+                                    );
                                 }
                             }
+                        }
                     }
                     if !path_available {
                         if let Some(partition) = ThePartitionManager::get() {
@@ -574,9 +585,11 @@ impl UnitAIUpdate {
             | crate::ai::AiCommandType::ForceAttackObject => {
                 if let Some(target_id) = command.obj {
                     if self.chinook_ai.is_some() {
-                        let can_attack = guard.base_arc().read().ok().is_some_and(|obj| {
-                            obj.is_kind_of(KindOf::CanAttack)
-                        });
+                        let can_attack = guard
+                            .base_arc()
+                            .read()
+                            .ok()
+                            .is_some_and(|obj| obj.is_kind_of(KindOf::CanAttack));
                         if !can_attack {
                             return Ok(());
                         }
@@ -1446,6 +1459,11 @@ impl UnitAIUpdate {
         }
 
         drop(guard);
+        self.finish_command_worker_side_effects();
+        Ok(())
+    }
+
+    fn finish_command_worker_side_effects(&mut self) {
         // C++ WorkerAIUpdate::aiDoCommand (WorkerAIUpdate.cpp:1043-1050).
         let clearing_mines = self.is_clearing_mines();
         if let Some(worker_ai) = self.worker_ai.as_mut() {
@@ -1453,7 +1471,5 @@ impl UnitAIUpdate {
                 worker_ai.drop_all_boxes_if_carrying();
             }
         }
-
-        Ok(())
     }
 }

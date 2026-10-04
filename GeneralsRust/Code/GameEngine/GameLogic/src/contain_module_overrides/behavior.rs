@@ -319,13 +319,44 @@ active_behavior_factories!(
     WeaponBonusUpdate,
     "WeaponBonusUpdate"
 );
-active_behavior_factories!(
-    physics_behavior_data_factory,
-    physics_behavior_module_factory,
-    PhysicsBehaviorModuleData,
-    PhysicsBehaviorUpdate,
-    "PhysicsBehavior"
-);
+pub(super) fn physics_behavior_data_factory(ini: Option<&mut INI>) -> Box<dyn ModuleData> {
+    let mut data = PhysicsBehaviorModuleData::default();
+    if let Some(ini) = ini {
+        if let Err(err) = data.parse_from_ini(ini) {
+            warn!(
+                "Failed to parse PhysicsBehavior module data at line {}: {}",
+                ini.get_line_num(),
+                err
+            );
+        }
+    }
+    Box::new(data)
+}
+
+pub(super) fn physics_behavior_module_factory(
+    thing: Arc<dyn ModuleThing>,
+    module_data: Arc<dyn ModuleData>,
+) -> Box<dyn Module> {
+    let data = cloned_module_data::<PhysicsBehaviorModuleData>("PhysicsBehavior", &module_data);
+    let engine_data: Arc<dyn ModuleData> = data.clone();
+    let legacy_data: Arc<dyn LegacyModuleData> = data;
+    let owner_id = resolve_owner_id(&thing);
+    if owner_id == crate::common::INVALID_ID {
+        return missing_owner_module("PhysicsBehavior", engine_data);
+    }
+    let behavior = match PhysicsBehaviorUpdate::new_for_owner_id(owner_id, legacy_data) {
+        Ok(behavior) => behavior,
+        Err(err) => {
+            warn!("PhysicsBehavior init failed: {err}; installing no-op module");
+            return missing_owner_module("PhysicsBehavior", engine_data);
+        }
+    };
+    Box::new(ActiveBehaviorModule::new(
+        "PhysicsBehavior",
+        engine_data,
+        behavior,
+    ))
+}
 active_behavior_factories!(
     flammable_update_data_factory,
     flammable_update_module_factory,

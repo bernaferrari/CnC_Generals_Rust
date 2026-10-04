@@ -35,3 +35,6 @@ pub use types::{CombatMode, FormationType, MovementState, UnitOrder};
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod rappel_command_tests;
